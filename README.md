@@ -177,3 +177,9 @@ docker compose up --build
 - The app exposes port 4311 and has a healthcheck on GET /ready.
 - The tests service depends on app:healthy and runs `npm test` in the same image.
 - Rate limiting is disabled in tests by default (RATE_LIMIT_ENABLED=0).
+
+## CI
+This repository runs tests on Node 18 and 20. When a run completes, artefacts include:
+- `reports/tests.json` (Vitest JSON)
+- `docs/collections/plot-lite.postman.json`
+- `docs/contract-report.html`
