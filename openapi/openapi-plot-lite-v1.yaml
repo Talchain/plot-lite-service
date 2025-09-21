@@ -1,0 +1,357 @@
+openapi: 3.1.0
+info:
+  title: PLoT-lite API
+  version: "1.0.0"
+  description: >
+    Deterministic natural-language-to-causal-draft and critique service for the Scenario Sandbox PoC.
+    Same inputs + seed => byte-identical outputs. No logging of parse_text (caller-side redaction recommended).
+servers:
+  - url: https://api.warp.olumi/plot-lite
+paths:
+  /health:
+    get:
+      summary: Liveness and basic determinism metadata
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+  /version:
+    get:
+      summary: Returns API and model build versions
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Version'
+  /draft-flows:
+    post:
+      summary: Generate deterministic draft flows and critiques from natural-language description
+      operationId: draftFlows
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DraftFlowsRequest'
+      responses:
+        '200':
+          description: Deterministic draft flows
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DraftFlowsResponse'
+        '400':
+          $ref: '#/components/responses/BadInput'
+        '408':
+          $ref: '#/components/responses/Timeout'
+        '422':
+          $ref: '#/components/responses/Blocked'
+        '503':
+          $ref: '#/components/responses/Retryable'
+  /critique:
+    post:
+      summary: Critique an edited flow deterministically
+      operationId: critique
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CritiqueRequest'
+      responses:
+        '200':
+          description: Critique list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CritiqueResponse'
+        '400':
+          $ref: '#/components/responses/BadInput'
+        '408':
+          $ref: '#/components/responses/Timeout'
+        '503':
+          $ref: '#/components/responses/Retryable'
+  /improve:
+    post:
+      summary: Apply deterministic micro-fixes (optional endpoint; feature-flagged)
+      operationId: improve
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImproveRequest'
+      responses:
+        '200':
+          description: Patched flow and list of applied fixes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImproveResponse'
+        '400':
+          $ref: '#/components/responses/BadInput'
+        '408':
+          $ref: '#/components/responses/Timeout'
+        '503':
+          $ref: '#/components/responses/Retryable'
+components:
+  responses:
+    BadInput:
+      description: BAD_INPUT
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            missing_baseline:
+              value: { type: "BAD_INPUT", hint: "Missing baseline: revenue", details: { field: "context.baselines.revenue" } }
+    Timeout:
+      description: TIMEOUT
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            timeout:
+              value: { type: "TIMEOUT", hint: "Upstream model exceeded time budget", details: { p95_limit_ms: 600 } }
+    Blocked:
+      description: BLOCKED_CONTENT
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            blocked:
+              value: { type: "BLOCKED_CONTENT", hint: "Sensitive or disallowed content", details: { category: "pii" } }
+    Retryable:
+      description: RETRYABLE
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            overload:
+              value: { type: "RETRYABLE", hint: "Temporary overload. Retry with same seed.", details: { backoff_ms: 200 } }
+  schemas:
+    Error:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [BAD_INPUT, TIMEOUT, BLOCKED_CONTENT, RETRYABLE]
+        hint:
+          type: string
+        details:
+          type: object
+      required: [type, hint]
+    Health:
+      type: object
+      properties:
+        status: { type: string, enum: [ok] }
+        determinism_rate_last_24h: { type: number }
+        p95_ms: { type: integer }
+    Version:
+      type: object
+      properties:
+        api: { type: string }
+        build: { type: string }
+        model: { type: string }
+    DraftFlowsRequest:
+      type: object
+      properties:
+        seed: { type: integer, minimum: 0 }
+        parse_text: { type: string, description: "Redacted at caller; service must not log." }
+        context:
+          $ref: '#/components/schemas/Context'
+        board_feedback:
+          $ref: '#/components/schemas/BoardFeedback'
+      required: [seed, parse_text, context]
+    Context:
+      type: object
+      properties:
+        board_id: { type: string }
+        goal: { type: string }
+        safety_limits:
+          type: array
+          items: { type: string }
+        baselines:
+          type: object
+          additionalProperties: { type: number }
+        threshold_catalogue:
+          type: array
+          items: { type: string }
+        locale:
+          type: string
+          description: BCP 47 language tag (e.g., en-GB)
+      required: [board_id]
+    BoardFeedback:
+      type: object
+      properties:
+        rejected_edge_patterns:
+          type: array
+          items: { type: string }
+        accepted_critiques:
+          type: array
+          items: { type: string }
+    DraftFlowsResponse:
+      type: object
+      properties:
+        drafts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Draft'
+      required: [drafts]
+    Draft:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        why: { type: string }
+        suggestion_confidence: { type: number, minimum: 0, maximum: 1 }
+        parse_json:
+          $ref: '#/components/schemas/Flow'
+        parse_json_hash:
+          type: string
+          description: "sha256 over canonicalised parse_json"
+        critique:
+          type: array
+          items:
+            $ref: '#/components/schemas/CritiqueItem'
+        threshold_crossings:
+          type: array
+          items:
+            $ref: '#/components/schemas/ThresholdCrossing'
+        fork_suggested: { type: boolean }
+        fork_labels:
+          type: array
+          items: { type: string }
+      required: [id, title, parse_json, parse_json_hash]
+    Flow:
+      type: object
+      properties:
+        nodes:
+          type: array
+          items: { $ref: '#/components/schemas/Node' }
+        edges:
+          type: array
+          items: { $ref: '#/components/schemas/Edge' }
+        comments:
+          type: array
+          items: { $ref: '#/components/schemas/Comment' }
+        provenance:
+          $ref: '#/components/schemas/Provenance'
+        metadata:
+          type: object
+          properties:
+            segment: { type: string }
+            time_horizon: { type: string }
+            thresholds:
+              type: array
+              items: { type: number }
+      required: [nodes, edges]
+    Node:
+      type: object
+      properties:
+        id: { type: string }
+        type: { type: string, enum: [goal, objective, decision, option, problem, action, outcome, opportunity, safety_limit] }
+        label: { type: string }
+        baseline: { type: number }
+      required: [id, type, label]
+    Edge:
+      type: object
+      properties:
+        id: { type: string }
+        from: { type: string }
+        to: { type: string }
+        weight: { type: number }
+        belief: { type: number, minimum: 0, maximum: 1 }
+        rationale: { type: string }
+        evidence:
+          type: array
+          items: { type: string }
+      required: [id, from, to, weight, belief]
+    Comment:
+      type: object
+      properties:
+        id: { type: string }
+        node_or_edge_id: { type: string }
+        author: { type: string }
+        body: { type: string }
+        tags:
+          type: array
+          items: { type: string }
+    Provenance:
+      type: object
+      properties:
+        parse_text:
+          type: string
+          description: "Optional; stored per-org setting. Redacted in exports by default."
+        suggestion_confidence:
+          type: object
+          additionalProperties: { type: number }
+        accepted_edges:
+          type: array
+          items: { type: string }
+        rejected_edges:
+          type: array
+          items: { type: string }
+        critique:
+          type: array
+          items: { $ref: '#/components/schemas/CritiqueItem' }
+        mind_change_notes:
+          type: array
+          items: { type: string }
+      additionalProperties: false
+    CritiqueItem:
+      type: object
+      properties:
+        note: { type: string }
+        severity: { type: string, enum: [BLOCKER, IMPROVEMENT, OBSERVATION] }
+        fix_available: { type: boolean }
+      required: [note, severity]
+    ThresholdCrossing:
+      type: object
+      properties:
+        node_id: { type: string }
+        threshold: { type: number }
+        crossed_from: { type: number }
+        crossed_to: { type: number }
+      required: [node_id, threshold, crossed_from, crossed_to]
+    CritiqueRequest:
+      type: object
+      properties:
+        parse_json:
+          $ref: '#/components/schemas/Flow'
+      required: [parse_json]
+    CritiqueResponse:
+      type: object
+      properties:
+        critique:
+          type: array
+          items: { $ref: '#/components/schemas/CritiqueItem' }
+      required: [critique]
+    ImproveRequest:
+      type: object
+      properties:
+        parse_json:
+          $ref: '#/components/schemas/Flow'
+        fixes:
+          type: array
+          items:
+            type: string
+            description: "Fix identifiers"
+      required: [parse_json]
+    ImproveResponse:
+      type: object
+      properties:
+        parse_json:
+          $ref: '#/components/schemas/Flow'
+        fix_applied:
+          type: array
+          items: { type: string }
+      required: [parse_json]

@@ -56,6 +56,33 @@ curl -s -X POST http://localhost:4311/draft-flows \
 - JSON body limit: 128 KiB.
 - Request timeout: 5 seconds.
 
+## For Windsurf
+
+- Base URL: http://localhost:4311
+- Endpoints:
+  - GET /health → { status, p95_ms }
+  - GET /version → { api: "1.0.0", build, model: "fixtures" }
+  - POST /draft-flows → returns deterministic fixtures (cases[0].response)
+  - POST /critique → fixed, deterministic list (see above)
+  - POST /improve → echoes parse_json and returns { fix_applied: [] }
+- Example first call:
+
+```
+curl -s -X POST http://localhost:4311/draft-flows \
+  -H 'Content-Type: application/json' \
+  -d @fixtures/deterministic-fixtures.json | jq '.drafts[0].id'
+```
+
+- Edge proxy: proxy /plot-lite/* → http://localhost:4311/*
+
+## Overnight log
+
+- 2025-09-21 01:00 BST: Initial Slice A scaffold with Fastify + TS; endpoints implemented; determinism harness; threshold utility; tests green.
+- 2025-09-21 01:05 BST: Added p95 timers, strict structured logs, and optional per-IP rate limit (default on; disable with RATE_LIMIT_ENABLED=0). Tests green.
+- 2025-09-21 01:10 BST: Added typed error responses; BAD_INPUT for /improve when parse_json missing. Tests green.
+- 2025-09-21 01:12 BST: Added OpenAPI lightweight validator to test runner (skips if spec absent). Tests green.
+- 2025-09-21 01:14 BST: Discovered and copied contract files from DecisionGuideAI origin/feat/plot-lite-contract → openapi/docs/schemas. Tests green.
+
 ## Optional Docker
 Minimal Dockerfile included for Node 20:
 

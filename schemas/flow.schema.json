@@ -1,0 +1,208 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.olumi/plot-lite/v1/flow.schema.json",
+  "title": "PLoT-lite Flow",
+  "type": "object",
+  "properties": {
+    "nodes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Node"
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Edge"
+      }
+    },
+    "comments": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Comment"
+      }
+    },
+    "provenance": {
+      "$ref": "#/$defs/Provenance"
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "segment": {
+          "type": "string"
+        },
+        "time_horizon": {
+          "type": "string"
+        },
+        "thresholds": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        }
+      }
+    }
+  },
+  "required": [
+    "nodes",
+    "edges"
+  ],
+  "$defs": {
+    "Node": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "goal",
+            "objective",
+            "decision",
+            "option",
+            "problem",
+            "action",
+            "outcome",
+            "opportunity",
+            "safety_limit"
+          ]
+        },
+        "label": {
+          "type": "string"
+        },
+        "baseline": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "label"
+      ]
+    },
+    "Edge": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "weight": {
+          "type": "number"
+        },
+        "belief": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "rationale": {
+          "type": "string"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "from",
+        "to",
+        "weight",
+        "belief"
+      ]
+    },
+    "Comment": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "node_or_edge_id": {
+          "type": "string"
+        },
+        "author": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "Provenance": {
+      "type": "object",
+      "properties": {
+        "parse_text": {
+          "type": "string"
+        },
+        "suggestion_confidence": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "number"
+          }
+        },
+        "accepted_edges": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "rejected_edges": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "critique": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CritiqueItem"
+          }
+        },
+        "mind_change_notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "CritiqueItem": {
+      "type": "object",
+      "properties": {
+        "note": {
+          "type": "string"
+        },
+        "severity": {
+          "type": "string",
+          "enum": [
+            "BLOCKER",
+            "IMPROVEMENT",
+            "OBSERVATION"
+          ]
+        },
+        "fix_available": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "note",
+        "severity"
+      ]
+    }
+  }
+}
