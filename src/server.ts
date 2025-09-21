@@ -3,26 +3,16 @@ import { createServer } from './createServer.js';
 const PORT = Number(process.env.PORT || 4311);
 const HOST = '0.0.0.0';
 
-let ready = false;
-
 async function start() {
-  try {
-    const app = await createServer({ enableTestRoutes: process.env.TEST_ROUTES === '1' });
-    await app.listen({ port: PORT, host: HOST });
-    ready = true;
-    app.log.info({ port: PORT }, 'server started');
+  const app = await createServer({ enableTestRoutes: process.env.TEST_ROUTES === '1' });
+  await app.listen({ port: PORT, host: HOST });
+  app.log.info({ port: PORT }, 'server started');
 
-    // Graceful shutdown
-    for (const sig of ['SIGINT','SIGTERM'] as const) {
-      process.on(sig, async () => {
-        ready = false;
-        app.log.info({ sig }, 'shutting down');
-        try { await app.close(); process.exit(0); } catch { process.exit(1); }
-      });
-    }
-  } catch (err) {
-    console.error(err);
-    process.exit(1);
+  for (const sig of ['SIGINT','SIGTERM'] as const) {
+    process.on(sig, async () => {
+      app.log.info({ sig }, 'shutting down');
+      try { await app.close(); process.exit(0); } catch { process.exit(1); }
+    });
   }
 }
 
