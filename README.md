@@ -56,6 +56,15 @@ curl -s -X POST http://localhost:4311/draft-flows \
 - JSON body limit: 128 KiB.
 - Request timeout: 5 seconds.
 
+## Rate limiting
+
+When enabled (default), per-IP requests are limited per minute.
+- Headers on successful requests: X-RateLimit-Limit and X-RateLimit-Remaining
+- When limited (HTTP 429): Retry-After (seconds) is returned
+- /health includes rate_limit: { enabled, rpm, last5m_429 }
+
+Exemptions: GET /ready, GET /health, and GET /version are not rate-limited.
+
 ## Environment
 
 - PORT: service port (default 4311)
@@ -145,6 +154,7 @@ curl -s -X POST http://localhost:4311/draft-flows \
 - 2025-09-21 10:15 BST: Loadcheck run → p95_ms=0, max_ms=46, rps=27403.2. Tests green. TODO: verify stability under sustained runs; current numbers are well below the 600 ms target.
 - 2025-09-21 12:25 BST: Loadcheck run → p95_ms=0, max_ms=132, rps=17193.6. Ran with RATE_LIMIT_ENABLED=0 against /draft-flows; target p95 ≤ 600 ms.
 - 2025-09-21 12:44 BST: Phase 11 docs → Added Idempotency-Key usage section with curl examples; cache TTL 10 minutes; tests remain green.
+- 2025-09-21 12:49 BST: Phase 12 → Added X-RateLimit-* on 2xx and Retry-After on 429; /health now reports { enabled, rpm, last5m_429 }. Exempted GET /ready,/health,/version from limiting. Tests green.
 
 ## Optional Docker
 Minimal Dockerfile included for Node 20:
