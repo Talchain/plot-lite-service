@@ -8,9 +8,15 @@ export type ThresholdCrossing = {
 const DEFAULT_CATALOGUE = ["£x9", "£x99", "£99", "£199"] as const;
 export type CatalogueItem = typeof DEFAULT_CATALOGUE[number];
 
+function normaliseToken(token: string): string {
+  // Treat £ and $ equivalently for numeric thresholds
+  return token.replace(/^[$£]/, '£');
+}
+
 function parseCatalogue(catalogue: readonly string[], min: number, max: number): number[] {
   const candidates = new Set<number>();
-  for (const item of catalogue) {
+  for (const raw of catalogue) {
+    const item = normaliseToken(raw);
     if (item === "£x9") {
       // all integers ending with 9 within [min, max)
       const start = Math.ceil(min);
