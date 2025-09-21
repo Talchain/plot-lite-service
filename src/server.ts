@@ -131,10 +131,12 @@ app.post('/critique', async (req: any, reply) => {
   // Block obviously sensitive content (never echo raw)
   function hasSensitive(obj: any): boolean {
     if (!obj || typeof obj !== 'object') return false;
-    for (const v of Object.values(obj)) {
+    for (const [k, v] of Object.entries(obj)) {
+      const key = String(k).toLowerCase();
+      if (key.includes('password') || key.includes('api_key') || key.includes('apikey')) return true;
       if (typeof v === 'string') {
         const s = v.toLowerCase();
-        if (s.includes('password=') || s.includes('api_key=') || s.includes('apikey=')) return true;
+        if (s.includes('password') || s.includes('api_key') || s.includes('apikey')) return true;
       } else if (typeof v === 'object') {
         if (hasSensitive(v)) return true;
       }

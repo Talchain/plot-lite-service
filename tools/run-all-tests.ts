@@ -21,7 +21,7 @@ async function run(cmd: string, args: string[], opts: any = {}): Promise<number>
 
 async function main() {
   // Start server in background
-  const server = spawn('node', ['dist/server.js'], { stdio: 'inherit' });
+  const server = spawn('node', ['dist/server.js'], { stdio: 'inherit', env: { ...process.env, NODE_ENV: 'test' } });
 
   const healthy = await waitForHealth(5000);
   if (!healthy) {
