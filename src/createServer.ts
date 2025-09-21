@@ -9,6 +9,17 @@ import { rateLimit } from './rateLimit.js';
 export interface ServerOpts { enableTestRoutes?: boolean }
 
 export async function createServer(opts: ServerOpts = {}) {
+  function getForcedError(req: any): string | undefined {
+    const header = (req.headers['x-debug-force-error'] as string | undefined);
+    const q1 = (req.query as any)?.force_error as string | undefined;
+    let q2: string | undefined;
+    try {
+      const u = new URL(req.url, 'http://local');
+      q2 = u.searchParams.get('force_error') ?? undefined;
+    } catch {}
+    const val = (header || q1 || q2);
+    return val ? String(val).toUpperCase() : undefined;
+  }
   const app = Fastify({
     logger: {
       level: 'info',
@@ -84,14 +95,23 @@ export async function createServer(opts: ServerOpts = {}) {
     const body: any = (req as any).body || {};
     // Test error header
     {
-      const force = ((req.headers['x-debug-force-error'] as string | undefined) || (req.query as any)?.force_error)?.toString().toUpperCase();
+      const force = getForcedError(req as any);
       if (force === 'TIMEOUT') { const { errorResponse } = await import('./errors.js'); return reply.code(504).send(errorResponse('TIMEOUT', 'Simulated timeout', 'Reduce processing time')); }
       if (force === 'RETRYABLE') { const { errorResponse } = await import('./errors.js'); return reply.code(503).send(errorResponse('RETRYABLE', 'Temporary issue', 'Please retry')); }
       if (force === 'INTERNAL') { throw new Error('Forced internal'); }
     }
-    // Sensitive scan
+    // Sensitive scan (fast path then deep)
     {
       const { containsSensitive } = await import('./lib/sensitive.js');
+      try {
+        const raw = JSON.stringify(body).toLowerCase();
+        if (raw.includes('password') || raw.includes('passwd') || raw.includes('api_key') || raw.includes('apikey') || raw.includes('authorization') || raw.includes('bearer ') || raw.includes('secret') || raw.includes('private_key') || raw.includes('ssn')) {
+          const { errorResponse } = await import('./errors.js');
+          const resp = { ...errorResponse('BLOCKED_CONTENT', 'Sensitive token detected in request body; remove secrets and retry.', 'Remove secrets and retry.'), redacted: true };
+          app.log.info({ reqId: req.id, route: '/draft-flows', redacted: true }, 'blocked sensitive content');
+          return reply.code(400).send(resp);
+        }
+      } catch {}
       if (containsSensitive(body)) {
         const { errorResponse } = await import('./errors.js');
         const resp = { ...errorResponse('BLOCKED_CONTENT', 'Sensitive token detected in request body; remove secrets and retry.', 'Remove secrets and retry.'), redacted: true };
@@ -114,12 +134,19 @@ export async function createServer(opts: ServerOpts = {}) {
 
   app.post('/critique', async (req: any, reply) => {
     const body = req.body || {};
-    // Sensitive scan
+    // Sensitive scan (fast path then deep)
     {
       const { containsSensitive } = await import('./lib/sensitive.js');
-      // Fast path for obvious top-level keys
-      const raw = JSON.stringify(body).toLowerCase();
-      if (containsSensitive(body) || raw.includes('password') || raw.includes('api_key') || raw.includes('apikey') || raw.includes('authorization') || raw.includes('bearer ')) {
+      try {
+        const raw = JSON.stringify(body).toLowerCase();
+        if (raw.includes('password') || raw.includes('passwd') || raw.includes('api_key') || raw.includes('apikey') || raw.includes('authorization') || raw.includes('bearer ') || raw.includes('secret') || raw.includes('private_key') || raw.includes('ssn')) {
+          const { errorResponse } = await import('./errors.js');
+          const resp = { ...errorResponse('BLOCKED_CONTENT', 'Sensitive token detected in request body; remove secrets and retry.', 'Remove secrets and retry.'), redacted: true };
+          app.log.info({ reqId: req.id, route: '/critique', redacted: true }, 'blocked sensitive content');
+          return reply.code(400).send(resp);
+        }
+      } catch {}
+      if (containsSensitive(body)) {
         const { errorResponse } = await import('./errors.js');
         const resp = { ...errorResponse('BLOCKED_CONTENT', 'Sensitive token detected in request body; remove secrets and retry.', 'Remove secrets and retry.'), redacted: true };
         app.log.info({ reqId: req.id, route: '/critique', redacted: true }, 'blocked sensitive content');
@@ -128,7 +155,7 @@ export async function createServer(opts: ServerOpts = {}) {
     }
     // Header forced errors
     {
-      const force = ((req.headers['x-debug-force-error'] as string | undefined) || (req.query as any)?.force_error)?.toString().toUpperCase();
+      const force = getForcedError(req as any);
       if (force === 'TIMEOUT') { const { errorResponse } = await import('./errors.js'); return reply.code(504).send(errorResponse('TIMEOUT', 'Simulated timeout', 'Reduce processing time')); }
       if (force === 'RETRYABLE') { const { errorResponse } = await import('./errors.js'); return reply.code(503).send(errorResponse('RETRYABLE', 'Temporary issue', 'Please retry')); }
       if (force === 'INTERNAL') { throw new Error('Forced internal'); }
@@ -161,6 +188,13 @@ export async function createServer(opts: ServerOpts = {}) {
       return reply.code(400).send(errorResponse('BAD_INPUT', 'Unknown type', 'Use TIMEOUT, RETRYABLE, or INTERNAL'));
     });
   }
+
+  // Simple global error handler mapping to typed error
+  app.setErrorHandler(async (err, req, reply) => {
+    const { errorResponse } = await import('./errors.js');
+    const type = err?.message?.includes('body limit') ? 'BAD_INPUT' : 'INTERNAL';
+    reply.code(type === 'INTERNAL' ? 500 : 400).send(errorResponse(type as any, err?.message || 'Unhandled error'));
+  });
 
   await app.ready();
   return app;

@@ -38,8 +38,8 @@ async function main() {
     process.exit(1);
   }
 
-  // Run vitest
-  const vitestCode = await run('npx', ['vitest', 'run']);
+  // Run vitest with TEST_BASE_URL
+  const vitestCode = await run('npx', ['vitest', 'run'], { env: { ...process.env, TEST_BASE_URL: TEST_BASE, NODE_ENV: 'test' } });
   if (vitestCode !== 0) {
     server.kill('SIGINT');
     process.exit(vitestCode);
