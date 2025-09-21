@@ -125,6 +125,10 @@ node tools/loadcheck.js
 
 The output includes p95_ms, max_ms, and rps. Our target p95 is ≤ 600 ms.
 
+## Versioning
+
+See RELEASING.md for the release checklist and tagging guidance.
+
 ## For Windsurf
 
 - Base URL: http://localhost:4311
@@ -157,6 +161,8 @@ curl -s -X POST http://localhost:4311/draft-flows \
 - 2025-09-21 12:49 BST: Phase 12 → Added X-RateLimit-* on 2xx and Retry-After on 429; /health now reports { enabled, rpm, last5m_429 }. Exempted GET /ready,/health,/version from limiting. Tests green.
 - 2025-09-21 12:50 BST: Phase 13 → Added docker-compose with app healthcheck and tests service; `docker compose up --build` brings service healthy and runs tests.
 - 2025-09-21 12:52 BST: Phase 14 → Added GitHub Actions workflow with Node 18/20 matrix, npm cache, and artefact uploads (reports/tests.json, Postman collection, contract report). Tests green.
+- 2025-09-21 13:41 BST: Slice A → Added smoke script and npm aliases (replay/loadcheck); tests green.
+- 2025-09-21 13:43 BST: Slice B → Added offline OpenAPI schema validation for fixtures and critique samples (dev-time). Tests green.
 
 ## Optional Docker
 Minimal Dockerfile included for Node 20:
