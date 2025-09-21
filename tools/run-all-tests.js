@@ -27,7 +27,7 @@ async function main() {
     const TEST_PORT = process.env.TEST_PORT || '4313';
     const TEST_BASE = `http://127.0.0.1:${TEST_PORT}`;
     // Start test server in background (enables test routes)
-    const server = spawn('node', ['tools/test-server.js'], { stdio: 'inherit', env: { ...process.env, NODE_ENV: 'test', TEST_PORT: TEST_PORT, TEST_BASE_URL: TEST_BASE, TEST_ROUTES: '1' } });
+    const server = spawn('node', ['tools/test-server.js'], { stdio: 'inherit', env: { ...process.env, NODE_ENV: 'test', TEST_PORT: TEST_PORT, TEST_BASE_URL: TEST_BASE, TEST_ROUTES: '1', RATE_LIMIT_ENABLED: '0' } });
     const healthy = await waitForHealth(5000, TEST_BASE);
     if (!healthy) {
         console.error('Server did not become healthy in time');

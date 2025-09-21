@@ -3,9 +3,9 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 interface State { count: number; resetAt: number }
 const perIp: Map<string, State> = new Map();
 const LIMIT = Number(process.env.RATE_LIMIT_RPM || process.env.RATE_LIMIT_PER_MIN || 60);
-const ENABLED = process.env.RATE_LIMIT_ENABLED !== '0';
 
 export async function rateLimit(req: FastifyRequest, reply: FastifyReply) {
+  const ENABLED = process.env.RATE_LIMIT_ENABLED !== '0';
   if (!ENABLED) return; // disabled
   const ip = req.ip || 'unknown';
   const now = Date.now();
