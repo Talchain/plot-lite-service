@@ -17,6 +17,12 @@ const app = Fastify({
   disableRequestLogging: true,
 });
 
+// Optional rate limit (enabled by default, disable with RATE_LIMIT_ENABLED=0)
+import('fastify').then(async () => {
+  const { rateLimit } = await import('./rateLimit.js');
+  app.addHook('onRequest', rateLimit);
+});
+
 // Minimal structured access log without bodies
 app.addHook('onRequest', async (req) => {
   (req as any).startTime = process.hrtime.bigint();
@@ -27,6 +33,12 @@ app.addHook('onResponse', async (req, reply) => {
   const end = process.hrtime.bigint();
   const durationMs = start ? Number(end - start) / 1e6 : undefined;
   const route = (req as any)?.routeOptions?.url ?? req.url;
+  if (typeof durationMs === 'number') {
+    try {
+      const { recordDurationMs } = await import('./metrics.js');
+      recordDurationMs(durationMs);
+    } catch {}
+  }
   app.log.info({ reqId: req.id, route, statusCode: reply.statusCode, durationMs }, 'request completed');
 });
 
@@ -55,7 +67,8 @@ function getBuildId(): string {
 }
 
 app.get('/health', async () => {
-  return { status: 'ok', p95_ms: 0 };
+  const { p95Ms } = await import('./metrics.js');
+  return { status: 'ok', p95_ms: p95Ms() };
 });
 
 app.get('/version', async () => {
@@ -64,6 +77,11 @@ app.get('/version', async () => {
 
 app.post('/draft-flows', async (req, reply) => {
   // Never log request body; specifically do not log parse_text
+  const body: any = (req as any).body || {};
+  const seed = body?.seed;
+  if (typeof seed !== 'undefined') {
+    app.log.info({ reqId: req.id, seed }, 'seed received');
+  }
   reply.header('Content-Type', 'application/json');
   return reply.send(firstCaseResponseRaw);
 });
@@ -76,9 +94,20 @@ app.post('/critique', async () => {
   ];
 });
 
-app.post('/improve', async (req: any) => {
+app.post('/improve', async (req: any, reply) => {
   const { parse_json } = req.body || {};
+  if (typeof parse_json === 'undefined') {
+    const { errorResponse } = await import('./errors.js');
+    return reply.code(400).send(errorResponse('BAD_INPUT', 'Field parse_json is required', 'Provide a parse_json object to be echoed back'));
+  }
   return { parse_json, fix_applied: [] };
+});
+
+// Simple global error handler mapping to typed error
+app.setErrorHandler(async (err, req, reply) => {
+  const type = err.message?.includes('body limit') ? 'BAD_INPUT' : 'INTERNAL';
+  const { errorResponse } = await import('./errors.js');
+  reply.code(type === 'INTERNAL' ? 500 : 400).send(errorResponse(type as any, err.message || 'Unhandled error'));
 });
 
 async function start() {

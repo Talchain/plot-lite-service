@@ -13,6 +13,7 @@
   "include": [
     "tools/replay-fixtures.ts",
     "tools/run-all-tests.ts",
+    "tools/validate-openapi-response.ts",
     "lib/canonical-json.ts"
   ],
   "exclude": ["node_modules", "dist"]
