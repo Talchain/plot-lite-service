@@ -192,6 +192,16 @@ app.post('/improve', async (req: any, reply) => {
   return { parse_json, fix_applied: [] };
 });
 
+// Test-only error injection endpoint
+app.post('/__test/force-error', async (req: any, reply) => {
+  const t = (req.body?.type || req.query?.type || '').toString().toUpperCase();
+  const { errorResponse } = await import('./errors.js');
+  if (t === 'TIMEOUT') return reply.code(504).send(errorResponse('TIMEOUT', 'Simulated timeout', 'Reduce processing time'));
+  if (t === 'RETRYABLE') return reply.code(503).send(errorResponse('RETRYABLE', 'Temporary issue', 'Please retry'));
+  if (t === 'INTERNAL') return reply.code(500).send(errorResponse('INTERNAL', 'Forced internal', 'See server logs'));
+  return reply.code(400).send(errorResponse('BAD_INPUT', 'Unknown type', 'Use TIMEOUT, RETRYABLE, or INTERNAL'));
+});
+
 // Simple global error handler mapping to typed error
 app.setErrorHandler(async (err, req, reply) => {
   const type = err.message?.includes('body limit') ? 'BAD_INPUT' : 'INTERNAL';
