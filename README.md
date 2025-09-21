@@ -78,6 +78,31 @@ curl -s -X POST http://localhost:4311/draft-flows \
 - Responses from /draft-flows are pre-serialised from fixtures; byte-for-byte equality is enforced by tools/replay-fixtures.js across all cases.
 - Unit tests ensure ordering and deterministic critique rule outputs.
 
+## Idempotency-Key
+
+Optional header to safely replay identical POST responses for 10 minutes without recomputation.
+
+- Cache key = sha256(canonical(JSON body)) + the Idempotency-Key header value
+- Same body + same key → exact previous response bytes returned
+- Same key + different body → 400 BAD_INPUT with a hint to use a new key or the exact same body
+- No key → normal behaviour
+
+Examples:
+
+```
+# Replay identical /draft-flows response for 10 minutes
+curl -s -X POST http://localhost:4311/draft-flows \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: abc-123' \
+  -d '{"fixture_case":"price-rise-15pct-enGB","seed":42}'
+
+# Replay /critique response
+curl -s -X POST http://localhost:4311/critique \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: abc-123' \
+  -d @fixtures/deterministic-fixtures.json
+```
+
 ## Loadcheck
 
 Run a quick check locally:
@@ -119,6 +144,7 @@ curl -s -X POST http://localhost:4311/draft-flows \
 - 2025-09-21 01:14 BST: Discovered and copied contract files from DecisionGuideAI origin/feat/plot-lite-contract → openapi/docs/schemas. Tests green.
 - 2025-09-21 10:15 BST: Loadcheck run → p95_ms=0, max_ms=46, rps=27403.2. Tests green. TODO: verify stability under sustained runs; current numbers are well below the 600 ms target.
 - 2025-09-21 12:25 BST: Loadcheck run → p95_ms=0, max_ms=132, rps=17193.6. Ran with RATE_LIMIT_ENABLED=0 against /draft-flows; target p95 ≤ 600 ms.
+- 2025-09-21 12:44 BST: Phase 11 docs → Added Idempotency-Key usage section with curl examples; cache TTL 10 minutes; tests remain green.
 
 ## Optional Docker
 Minimal Dockerfile included for Node 20:
