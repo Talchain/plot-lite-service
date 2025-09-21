@@ -25,8 +25,9 @@ export async function rateLimit(req: FastifyRequest, reply: FastifyReply) {
 }
 
 export function rateLimitState() {
+  const enabled = process.env.RATE_LIMIT_ENABLED !== '0';
   return {
-    enabled: ENABLED,
+    enabled,
     limit_per_min: LIMIT,
     buckets: perIp.size,
   };

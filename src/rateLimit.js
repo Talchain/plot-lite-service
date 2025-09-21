@@ -1,7 +1,7 @@
 const perIp = new Map();
 const LIMIT = Number(process.env.RATE_LIMIT_RPM || process.env.RATE_LIMIT_PER_MIN || 60);
-const ENABLED = process.env.RATE_LIMIT_ENABLED !== '0';
 export async function rateLimit(req, reply) {
+    const ENABLED = process.env.RATE_LIMIT_ENABLED !== '0';
     if (!ENABLED)
         return; // disabled
     const ip = req.ip || 'unknown';
@@ -21,8 +21,9 @@ export async function rateLimit(req, reply) {
     }
 }
 export function rateLimitState() {
+    const enabled = process.env.RATE_LIMIT_ENABLED !== '0';
     return {
-        enabled: ENABLED,
+        enabled,
         limit_per_min: LIMIT,
         buckets: perIp.size,
     };
