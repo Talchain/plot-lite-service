@@ -20,6 +20,10 @@ async function run(cmd: string, args: string[], opts: any = {}): Promise<number>
 }
 
 async function main() {
+  // Ensure we are running the latest build
+  const buildCode = await run('npm', ['run', 'build']);
+  if (buildCode !== 0) process.exit(buildCode);
+
   // Pick a test port to avoid conflicts
   const TEST_PORT = process.env.TEST_PORT || '4313';
   const TEST_BASE = `http://127.0.0.1:${TEST_PORT}`;

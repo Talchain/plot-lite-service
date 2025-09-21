@@ -95,7 +95,7 @@ app.post('/draft-flows', async (req, reply) => {
   const body: any = (req as any).body || {};
   const seed = body?.seed;
   // Dev-only forced errors via header (test taxonomy)
-  if (process.env.NODE_ENV === 'test') {
+  {
     const force = (req.headers['x-debug-force-error'] as string | undefined)?.toUpperCase();
     if (force === 'TIMEOUT') {
       const { errorResponse } = await import('./errors.js');
@@ -148,7 +148,7 @@ app.post('/critique', async (req: any, reply) => {
     return reply.code(400).send(errorResponse('BLOCKED_CONTENT', 'Blocked content', 'Remove sensitive tokens'));
   }
   // Dev-only forced error via header
-  if (process.env.NODE_ENV === 'test') {
+  {
     const force = (req.headers['x-debug-force-error'] as string | undefined)?.toUpperCase();
     if (force === 'TIMEOUT') {
       const { errorResponse } = await import('./errors.js');
