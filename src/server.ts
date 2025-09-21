@@ -94,6 +94,21 @@ app.post('/draft-flows', async (req, reply) => {
   // Never log request body; specifically do not log parse_text
   const body: any = (req as any).body || {};
   const seed = body?.seed;
+  // Dev-only forced errors via header (test taxonomy)
+  if (process.env.NODE_ENV === 'test') {
+    const force = (req.headers['x-debug-force-error'] as string | undefined)?.toUpperCase();
+    if (force === 'TIMEOUT') {
+      const { errorResponse } = await import('./errors.js');
+      return reply.code(504).send(errorResponse('TIMEOUT', 'Simulated timeout', 'Reduce processing time'));
+    }
+    if (force === 'RETRYABLE') {
+      const { errorResponse } = await import('./errors.js');
+      return reply.code(503).send(errorResponse('RETRYABLE', 'Temporary issue', 'Please retry'));
+    }
+    if (force === 'INTERNAL') {
+      throw new Error('Forced internal');
+    }
+  }
   if (typeof seed !== 'undefined') {
     app.log.info({ reqId: req.id, seed }, 'seed received');
   }
@@ -113,6 +128,38 @@ app.post('/draft-flows', async (req, reply) => {
 
 app.post('/critique', async (req: any, reply) => {
   const body = req.body || {};
+  // Block obviously sensitive content (never echo raw)
+  function hasSensitive(obj: any): boolean {
+    if (!obj || typeof obj !== 'object') return false;
+    for (const v of Object.values(obj)) {
+      if (typeof v === 'string') {
+        const s = v.toLowerCase();
+        if (s.includes('password=') || s.includes('api_key=') || s.includes('apikey=')) return true;
+      } else if (typeof v === 'object') {
+        if (hasSensitive(v)) return true;
+      }
+    }
+    return false;
+  }
+  if (hasSensitive(body)) {
+    const { errorResponse } = await import('./errors.js');
+    return reply.code(400).send(errorResponse('BLOCKED_CONTENT', 'Blocked content', 'Remove sensitive tokens'));
+  }
+  // Dev-only forced error via header
+  if (process.env.NODE_ENV === 'test') {
+    const force = (req.headers['x-debug-force-error'] as string | undefined)?.toUpperCase();
+    if (force === 'TIMEOUT') {
+      const { errorResponse } = await import('./errors.js');
+      return reply.code(504).send(errorResponse('TIMEOUT', 'Simulated timeout', 'Reduce processing time'));
+    }
+    if (force === 'RETRYABLE') {
+      const { errorResponse } = await import('./errors.js');
+      return reply.code(503).send(errorResponse('RETRYABLE', 'Temporary issue', 'Please retry'));
+    }
+    if (force === 'INTERNAL') {
+      throw new Error('Forced internal');
+    }
+  }
   const parse_json = body.parse_json;
   if (!parse_json) {
     const { errorResponse } = await import('./errors.js');
