@@ -1,0 +1,60 @@
+{
+  "fixtures_version": "1.0.0",
+  "cases": [
+    {
+      "name": "price-rise-15pct-enGB",
+      "request": {
+        "seed": 12345,
+        "parse_text": "We’re considering a 15% Pro price rise next quarter; competitor at £109.",
+        "context": {
+          "board_id": "b_123",
+          "goal": "Increase revenue",
+          "safety_limits": ["Churn ≤ 6%"],
+          "baselines": {"price_pro": 99},
+          "threshold_catalogue": ["£x9", "£x99", "£99", "£199"],
+          "locale": "en-GB"
+        },
+        "board_feedback": {
+          "rejected_edge_patterns": ["price→brand_perception"],
+          "accepted_critiques": ["missing_baseline:revenue", "add_competitor_response"]
+        }
+      },
+      "response": {
+        "drafts": [
+          {
+            "id": "d_example",
+            "title": "Raise Pro above £100 (annual-first)",
+            "why": "Improves margin while mitigating churn via annual incentives",
+            "suggestion_confidence": 0.72,
+            "parse_json": {
+              "nodes": [
+                {"id": "n_goal", "type": "goal", "label": "Increase revenue", "baseline": null},
+                {"id": "n_dec", "type": "decision", "label": "Adjust Pro price", "baseline": 99},
+                {"id": "n_out", "type": "outcome", "label": "Revenue", "baseline": 1000000},
+                {"id": "n_prob", "type": "problem", "label": "Churn", "baseline": 0.05}
+              ],
+              "edges": [
+                {"id": "e1", "from": "n_dec", "to": "n_out", "weight": 0.4, "belief": 0.7, "rationale": "Elasticity prior", "evidence": []},
+                {"id": "e2", "from": "n_dec", "to": "n_prob", "weight": 0.2, "belief": 0.6, "rationale": "Price sensitivity", "evidence": []},
+                {"id": "e3", "from": "n_prob", "to": "n_out", "weight": -0.5, "belief": 0.8, "rationale": "Churn reduces revenue", "evidence": []}
+              ],
+              "comments": [],
+              "metadata": {"thresholds": [99, 199]}
+            },
+            "parse_json_hash": "sha256:1b0c8a6a0f8d3a8f4b5a4d86a7f9d4b2d7d6f1e2c3a4b5c6d7e8f9a0b1c2d3e4",
+            "critique": [
+              {"note": "Missing baseline: revenue", "severity": "BLOCKER", "fix_available": true},
+              {"note": "Consider competitor response", "severity": "IMPROVEMENT", "fix_available": true},
+              {"note": "£99 psychological threshold", "severity": "OBSERVATION", "fix_available": false}
+            ],
+            "threshold_crossings": [
+              {"node_id": "n_dec", "threshold": 99, "crossed_from": 99, "crossed_to": 114}
+            ],
+            "fork_suggested": true,
+            "fork_labels": ["Stay below £100", "Cross £100 (new messaging)"]
+          }
+        ]
+      }
+    }
+  ]
+}

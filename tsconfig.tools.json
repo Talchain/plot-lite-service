@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "outDir": ".",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "declaration": false,
+    "emitDeclarationOnly": false
+  },
+  "include": [
+    "tools/replay-fixtures.ts",
+    "tools/run-all-tests.ts",
+    "lib/canonical-json.ts"
+  ],
+  "exclude": ["node_modules", "dist"]
+}
