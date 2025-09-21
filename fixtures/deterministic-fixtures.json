@@ -55,6 +55,146 @@
           }
         ]
       }
+    },
+    {
+      "name": "stay-below-100-enGB",
+      "request": {
+        "seed": 222,
+        "parse_text": "We want to keep Pro below £100 for psychological pricing.",
+        "context": {
+          "board_id": "b_123",
+          "goal": "Maintain conversion",
+          "safety_limits": ["Churn ≤ 6%"],
+          "baselines": {"price_pro": 99},
+          "threshold_catalogue": ["£x9", "£x99", "£99", "£199"],
+          "locale": "en-GB"
+        }
+      },
+      "response": {
+        "drafts": [
+          {
+            "id": "d_stay99",
+            "title": "Keep Pro at £99 (anchor)",
+            "why": "Avoids crossing the £100 threshold while testing messaging",
+            "suggestion_confidence": 0.68,
+            "parse_json": {
+              "nodes": [
+                {"id": "n_goal", "type": "goal", "label": "Maintain conversion", "baseline": null},
+                {"id": "n_dec", "type": "decision", "label": "Hold Pro price", "baseline": 99},
+                {"id": "n_out", "type": "outcome", "label": "Conversion", "baseline": 0.12}
+              ],
+              "edges": [
+                {"id": "e1", "from": "n_dec", "to": "n_out", "weight": 0.1, "belief": 0.6, "rationale": "Price anchoring", "evidence": []}
+              ],
+              "comments": [],
+              "metadata": {"thresholds": [99]}
+            },
+            "parse_json_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "critique": [
+              {"note": "Missing baseline: revenue", "severity": "BLOCKER", "fix_available": true},
+              {"note": "Consider competitor response", "severity": "IMPROVEMENT", "fix_available": true},
+              {"note": "£99 psychological threshold", "severity": "OBSERVATION", "fix_available": false}
+            ],
+            "threshold_crossings": [],
+            "fork_suggested": false,
+            "fork_labels": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "reduce-price-5pct-enGB",
+      "request": {
+        "seed": 333,
+        "parse_text": "Trial a 5% reduction on Pro.",
+        "context": {
+          "board_id": "b_123",
+          "goal": "Increase conversion",
+          "safety_limits": ["Churn ≤ 6%"],
+          "baselines": {"price_pro": 104},
+          "threshold_catalogue": ["£x9", "£x99", "£99", "£199"],
+          "locale": "en-GB"
+        }
+      },
+      "response": {
+        "drafts": [
+          {
+            "id": "d_reduce5",
+            "title": "Reduce Pro to £99",
+            "why": "Cross back below £100 to capture price-sensitive demand",
+            "suggestion_confidence": 0.7,
+            "parse_json": {
+              "nodes": [
+                {"id": "n_goal", "type": "goal", "label": "Increase conversion", "baseline": null},
+                {"id": "n_dec", "type": "decision", "label": "Lower Pro price", "baseline": 104},
+                {"id": "n_out", "type": "outcome", "label": "Conversion", "baseline": 0.11}
+              ],
+              "edges": [
+                {"id": "e1", "from": "n_dec", "to": "n_out", "weight": 0.25, "belief": 0.65, "rationale": "Price elasticity", "evidence": []}
+              ],
+              "comments": [],
+              "metadata": {"thresholds": [99]}
+            },
+            "parse_json_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "critique": [
+              {"note": "Missing baseline: revenue", "severity": "BLOCKER", "fix_available": true},
+              {"note": "Consider competitor response", "severity": "IMPROVEMENT", "fix_available": true},
+              {"note": "£99 psychological threshold", "severity": "OBSERVATION", "fix_available": false}
+            ],
+            "threshold_crossings": [
+              {"node_id": "n_dec", "threshold": 99, "crossed_from": 104, "crossed_to": 99}
+            ],
+            "fork_suggested": false,
+            "fork_labels": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "annual-first-enGB",
+      "request": {
+        "seed": 444,
+        "parse_text": "Switch to annual-first to improve margin while holding monthly.",
+        "context": {
+          "board_id": "b_123",
+          "goal": "Improve margin",
+          "safety_limits": ["Churn ≤ 6%"],
+          "baselines": {"price_pro": 99},
+          "threshold_catalogue": ["£x9", "£x99", "£99", "£199"],
+          "locale": "en-GB"
+        }
+      },
+      "response": {
+        "drafts": [
+          {
+            "id": "d_annual_first",
+            "title": "Annual-first plan (keep monthly)",
+            "why": "Upsell to annual for margin without increasing churn risk",
+            "suggestion_confidence": 0.66,
+            "parse_json": {
+              "nodes": [
+                {"id": "n_goal", "type": "goal", "label": "Improve margin", "baseline": null},
+                {"id": "n_dec", "type": "decision", "label": "Annual-first", "baseline": 0},
+                {"id": "n_out", "type": "outcome", "label": "Margin", "baseline": 0.62}
+              ],
+              "edges": [
+                {"id": "e1", "from": "n_dec", "to": "n_out", "weight": 0.3, "belief": 0.6, "rationale": "Plan mix shift", "evidence": []}
+              ],
+              "comments": [],
+              "metadata": {"thresholds": [99, 199]}
+            },
+            "parse_json_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "critique": [
+              {"note": "Missing baseline: revenue", "severity": "BLOCKER", "fix_available": true},
+              {"note": "Consider competitor response", "severity": "IMPROVEMENT", "fix_available": true},
+              {"note": "£99 psychological threshold", "severity": "OBSERVATION", "fix_available": false}
+            ],
+            "threshold_crossings": [],
+            "fork_suggested": false,
+            "fork_labels": []
+          }
+        ]
+      }
     }
   ]
 }

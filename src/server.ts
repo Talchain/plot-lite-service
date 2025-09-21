@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { spawnSync } from 'child_process';
+import { rateLimit } from './rateLimit.js';
 
 const PORT = 4311;
 const HOST = '0.0.0.0';
@@ -18,10 +19,7 @@ const app = Fastify({
 });
 
 // Optional rate limit (enabled by default, disable with RATE_LIMIT_ENABLED=0)
-import('fastify').then(async () => {
-  const { rateLimit } = await import('./rateLimit.js');
-  app.addHook('onRequest', rateLimit);
-});
+app.addHook('onRequest', rateLimit);
 
 // Minimal structured access log without bodies
 app.addHook('onRequest', async (req) => {
@@ -42,14 +40,19 @@ app.addHook('onResponse', async (req, reply) => {
   app.log.info({ reqId: req.id, route, statusCode: reply.statusCode, durationMs }, 'request completed');
 });
 
-// Load fixtures at startup and pre-serialise the first case response exactly
+// Load fixtures at startup and pre-serialise responses for all cases
 const fixturesPath = resolve(process.cwd(), 'fixtures', 'deterministic-fixtures.json');
 let firstCaseResponseRaw = '';
+const caseMap = new Map<string, string>();
 try {
   const fixturesText = readFileSync(fixturesPath, 'utf8');
   const fixtures = JSON.parse(fixturesText);
   if (!fixtures || !Array.isArray(fixtures.cases) || fixtures.cases.length === 0) {
     throw new Error('No fixtures.cases found');
+  }
+  for (const c of fixtures.cases) {
+    if (!c.name) continue;
+    caseMap.set(c.name, JSON.stringify(c.response));
   }
   // Pre-serialise exactly
   firstCaseResponseRaw = JSON.stringify(fixtures.cases[0].response);
@@ -82,11 +85,39 @@ app.post('/draft-flows', async (req, reply) => {
   if (typeof seed !== 'undefined') {
     app.log.info({ reqId: req.id, seed }, 'seed received');
   }
+  const fixtureCase = body?.fixture_case as string | undefined;
+  if (fixtureCase) {
+    const hit = caseMap.get(fixtureCase);
+    if (!hit) {
+      const { errorResponse } = await import('./errors.js');
+      return reply.code(400).send(errorResponse('BAD_INPUT', `Unknown fixture_case: ${fixtureCase}`, 'Provide a valid case name from fixtures.cases[].name'));
+    }
+    reply.header('Content-Type', 'application/json');
+    return reply.send(hit);
+  }
   reply.header('Content-Type', 'application/json');
   return reply.send(firstCaseResponseRaw);
 });
 
-app.post('/critique', async () => {
+app.post('/critique', async (req: any, reply) => {
+  const body = req.body || {};
+  const parse_json = body.parse_json;
+  if (!parse_json) {
+    const { errorResponse } = await import('./errors.js');
+    return reply.code(400).send(errorResponse('BAD_INPUT', 'Field parse_json is required', 'Provide a parse_json object matching flow.schema.json'));
+  }
+  try {
+    const { validateFlow } = await import('./validation.js');
+    const res = validateFlow(parse_json);
+    if (!res.ok) {
+      const { errorResponse } = await import('./errors.js');
+      return reply.code(400).send(errorResponse('BAD_INPUT', 'Invalid parse_json', res.hint));
+    }
+  } catch (e: any) {
+    const { errorResponse } = await import('./errors.js');
+    return reply.code(500).send(errorResponse('INTERNAL', 'Validator error', e?.message));
+  }
+  // Deterministic fixed list (Phase 1)
   return [
     { note: 'Missing baseline: revenue', severity: 'BLOCKER', fix_available: true },
     { note: 'Consider competitor response', severity: 'IMPROVEMENT', fix_available: true },

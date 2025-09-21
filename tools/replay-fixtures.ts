@@ -10,7 +10,7 @@ async function main() {
   let mismatches = 0;
   for (let i = 0; i < cases.length; i++) {
     const c = cases[i];
-    const reqBody = c.request;
+    const reqBody = { ...(c.request || {}), fixture_case: c.name };
     // Expected is the exact JSON string our server should emit
     const expected = JSON.stringify(c.response);
 
