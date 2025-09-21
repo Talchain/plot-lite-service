@@ -1,3 +1,33 @@
+import { createServer } from './createServer.js';
+
+const PORT = Number(process.env.PORT || 4311);
+const HOST = '0.0.0.0';
+
+let ready = false;
+
+async function start() {
+  try {
+    const app = await createServer({ enableTestRoutes: process.env.TEST_ROUTES === '1' });
+    await app.listen({ port: PORT, host: HOST });
+    ready = true;
+    app.log.info({ port: PORT }, 'server started');
+
+    // Graceful shutdown
+    for (const sig of ['SIGINT','SIGTERM'] as const) {
+      process.on(sig, async () => {
+        ready = false;
+        app.log.info({ sig }, 'shutting down');
+        try { await app.close(); process.exit(0); } catch { process.exit(1); }
+      });
+    }
+  } catch (err) {
+    console.error(err);
+    process.exit(1);
+  }
+}
+
+start();
+
 import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
@@ -109,6 +139,16 @@ app.post('/draft-flows', async (req, reply) => {
       throw new Error('Forced internal');
     }
   }
+  // Sensitive content check for draft-flows too
+  {
+    const { containsSensitive } = await import('./lib/sensitive.js');
+    if (containsSensitive(body)) {
+      const { errorResponse } = await import('./errors.js');
+      const resp = { ...errorResponse('BLOCKED_CONTENT', 'Sensitive token detected in request body; remove secrets and retry.', 'Remove secrets and retry.'), redacted: true };
+      app.log.info({ reqId: req.id, route: '/draft-flows', redacted: true }, 'blocked sensitive content');
+      return reply.code(400).send(resp);
+    }
+  }
   if (typeof seed !== 'undefined') {
     app.log.info({ reqId: req.id, seed }, 'seed received');
   }
@@ -143,9 +183,14 @@ app.post('/critique', async (req: any, reply) => {
     }
     return false;
   }
-  if (hasSensitive(body)) {
-    const { errorResponse } = await import('./errors.js');
-    return reply.code(400).send(errorResponse('BLOCKED_CONTENT', 'Blocked content', 'Remove sensitive tokens'));
+  {
+    const { containsSensitive } = await import('./lib/sensitive.js');
+    if (containsSensitive(body)) {
+      const { errorResponse } = await import('./errors.js');
+      const resp = { ...errorResponse('BLOCKED_CONTENT', 'Sensitive token detected in request body; remove secrets and retry.', 'Remove secrets and retry.'), redacted: true };
+      app.log.info({ reqId: req.id, route: '/critique', redacted: true }, 'blocked sensitive content');
+      return reply.code(400).send(resp);
+    }
   }
   // Dev-only forced error via header
   {

@@ -1,0 +1,165 @@
+import Fastify from 'fastify';
+import helmet from '@fastify/helmet';
+import cors from '@fastify/cors';
+import { readFileSync } from 'fs';
+import { resolve } from 'path';
+import { spawnSync } from 'child_process';
+import { rateLimit } from './rateLimit.js';
+
+export interface ServerOpts { enableTestRoutes?: boolean }
+
+export async function createServer(opts: ServerOpts = {}) {
+  const app = Fastify({
+    logger: {
+      level: 'info',
+      redact: { paths: ['parse_text', 'body.parse_text', 'request.body.parse_text'], remove: true },
+    },
+    bodyLimit: 128 * 1024,
+    requestTimeout: Number(process.env.REQUEST_TIMEOUT_MS || 5000),
+    disableRequestLogging: true,
+  });
+
+  await app.register(helmet, { global: true });
+  if (process.env.CORS_DEV === '1') {
+    await app.register(cors, { origin: 'http://localhost:5173' });
+  }
+
+  // Optional rate limit
+  app.addHook('onRequest', rateLimit);
+
+  // Minimal structured access log without bodies
+  app.addHook('onRequest', async (req) => { (req as any).startTime = process.hrtime.bigint(); });
+  app.addHook('onResponse', async (req, reply) => {
+    const start = (req as any).startTime as bigint | undefined;
+    const end = process.hrtime.bigint();
+    const durationMs = start ? Number(end - start) / 1e6 : undefined;
+    const route = (req as any)?.routeOptions?.url ?? req.url;
+    if (typeof durationMs === 'number') {
+      try {
+        const { recordDurationMs, recordStatus } = await import('./metrics.js');
+        recordDurationMs(durationMs);
+        recordStatus(reply.statusCode);
+      } catch {}
+    }
+    app.log.info({ reqId: req.id, route, statusCode: reply.statusCode, durationMs }, 'request completed');
+  });
+
+  // Load fixtures and pre-serialise
+  const fixturesPath = resolve(process.cwd(), 'fixtures', 'deterministic-fixtures.json');
+  let firstCaseResponseRaw = '';
+  const caseMap = new Map<string, string>();
+  try {
+    const fixturesText = readFileSync(fixturesPath, 'utf8');
+    const fixtures = JSON.parse(fixturesText);
+    if (!fixtures || !Array.isArray(fixtures.cases) || fixtures.cases.length === 0) {
+      throw new Error('No fixtures.cases found');
+    }
+    for (const c of fixtures.cases) {
+      if (!c.name) continue;
+      caseMap.set(c.name, JSON.stringify(c.response));
+    }
+    firstCaseResponseRaw = JSON.stringify(fixtures.cases[0].response);
+  } catch (err) {
+    app.log.error({ err }, `Failed to load fixtures from ${fixturesPath}`);
+    process.exit(1);
+  }
+
+  function getBuildId(): string {
+    try {
+      const res = spawnSync('git', ['--no-pager', 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' });
+      if (res.status === 0) return res.stdout.trim() || new Date().toISOString();
+    } catch {}
+    return new Date().toISOString();
+  }
+
+  app.get('/health', async () => {
+    const { p95Ms, snapshot } = await import('./metrics.js');
+    const { rateLimitState } = await import('./rateLimit.js');
+    return { status: 'ok', p95_ms: p95Ms(), ...snapshot(), rate_limit: rateLimitState() };
+  });
+
+  app.get('/version', async () => ({ api: '1.0.0', build: getBuildId(), model: 'fixtures' }));
+
+  app.post('/draft-flows', async (req, reply) => {
+    const body: any = (req as any).body || {};
+    // Test error header
+    {
+      const force = (req.headers['x-debug-force-error'] as string | undefined)?.toUpperCase();
+      if (force === 'TIMEOUT') { const { errorResponse } = await import('./errors.js'); return reply.code(504).send(errorResponse('TIMEOUT', 'Simulated timeout', 'Reduce processing time')); }
+      if (force === 'RETRYABLE') { const { errorResponse } = await import('./errors.js'); return reply.code(503).send(errorResponse('RETRYABLE', 'Temporary issue', 'Please retry')); }
+      if (force === 'INTERNAL') { throw new Error('Forced internal'); }
+    }
+    // Sensitive scan
+    {
+      const { containsSensitive } = await import('./lib/sensitive.js');
+      if (containsSensitive(body)) {
+        const { errorResponse } = await import('./errors.js');
+        const resp = { ...errorResponse('BLOCKED_CONTENT', 'Sensitive token detected in request body; remove secrets and retry.', 'Remove secrets and retry.'), redacted: true };
+        app.log.info({ reqId: req.id, route: '/draft-flows', redacted: true }, 'blocked sensitive content');
+        return reply.code(400).send(resp);
+      }
+    }
+    const seed = body?.seed;
+    if (typeof seed !== 'undefined') app.log.info({ reqId: req.id, seed }, 'seed received');
+    const fixtureCase = body?.fixture_case as string | undefined;
+    if (fixtureCase) {
+      const hit = caseMap.get(fixtureCase);
+      if (!hit) { const { errorResponse } = await import('./errors.js'); return reply.code(400).send(errorResponse('BAD_INPUT', `Unknown fixture_case: ${fixtureCase}`, 'Provide a valid case name from fixtures.cases[].name')); }
+      reply.header('Content-Type', 'application/json');
+      return reply.send(hit);
+    }
+    reply.header('Content-Type', 'application/json');
+    return reply.send(firstCaseResponseRaw);
+  });
+
+  app.post('/critique', async (req: any, reply) => {
+    const body = req.body || {};
+    // Sensitive scan
+    {
+      const { containsSensitive } = await import('./lib/sensitive.js');
+      if (containsSensitive(body)) {
+        const { errorResponse } = await import('./errors.js');
+        const resp = { ...errorResponse('BLOCKED_CONTENT', 'Sensitive token detected in request body; remove secrets and retry.', 'Remove secrets and retry.'), redacted: true };
+        app.log.info({ reqId: req.id, route: '/critique', redacted: true }, 'blocked sensitive content');
+        return reply.code(400).send(resp);
+      }
+    }
+    // Header forced errors
+    {
+      const force = (req.headers['x-debug-force-error'] as string | undefined)?.toUpperCase();
+      if (force === 'TIMEOUT') { const { errorResponse } = await import('./errors.js'); return reply.code(504).send(errorResponse('TIMEOUT', 'Simulated timeout', 'Reduce processing time')); }
+      if (force === 'RETRYABLE') { const { errorResponse } = await import('./errors.js'); return reply.code(503).send(errorResponse('RETRYABLE', 'Temporary issue', 'Please retry')); }
+      if (force === 'INTERNAL') { throw new Error('Forced internal'); }
+    }
+    const parse_json = body.parse_json;
+    if (!parse_json) { const { errorResponse } = await import('./errors.js'); return reply.code(400).send(errorResponse('BAD_INPUT', 'Field parse_json is required', 'Provide a parse_json object matching flow.schema.json')); }
+    try {
+      const { validateFlowAsync } = await import('./validation.js');
+      const res = await validateFlowAsync(parse_json);
+      if (!res.ok) { const { errorResponse } = await import('./errors.js'); return reply.code(400).send(errorResponse('BAD_INPUT', 'Invalid parse_json', res.hint)); }
+    } catch (e: any) { const { errorResponse } = await import('./errors.js'); return reply.code(500).send(errorResponse('INTERNAL', 'Validator error', e?.message)); }
+    const { critiqueFlow } = await import('./critique.js');
+    return critiqueFlow(parse_json);
+  });
+
+  app.post('/improve', async (req: any, reply) => {
+    const { parse_json } = req.body || {};
+    if (typeof parse_json === 'undefined') { const { errorResponse } = await import('./errors.js'); return reply.code(400).send(errorResponse('BAD_INPUT', 'Field parse_json is required', 'Provide a parse_json object to be echoed back')); }
+    return { parse_json, fix_applied: [] };
+  });
+
+  // Test-only error injection
+  if (opts.enableTestRoutes || process.env.TEST_ROUTES === '1') {
+    app.post('/__test/force-error', async (req: any, reply) => {
+      const t = (req.body?.type || req.query?.type || '').toString().toUpperCase();
+      const { errorResponse } = await import('./errors.js');
+      if (t === 'TIMEOUT') return reply.code(504).send(errorResponse('TIMEOUT', 'Simulated timeout', 'Reduce processing time'));
+      if (t === 'RETRYABLE') return reply.code(503).send(errorResponse('RETRYABLE', 'Temporary issue', 'Please retry'));
+      if (t === 'INTERNAL') return reply.code(500).send(errorResponse('INTERNAL', 'Forced internal', 'See server logs'));
+      return reply.code(400).send(errorResponse('BAD_INPUT', 'Unknown type', 'Use TIMEOUT, RETRYABLE, or INTERNAL'));
+    });
+  }
+
+  await app.ready();
+  return app;
+}
