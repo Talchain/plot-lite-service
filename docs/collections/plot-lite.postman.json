@@ -1,0 +1,56 @@
+{
+  "info": {
+    "name": "PLoT-lite Service",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health",
+      "request": { "method": "GET", "url": "http://localhost:4311/health" }
+    },
+    {
+      "name": "Ready",
+      "request": { "method": "GET", "url": "http://localhost:4311/ready" }
+    },
+    {
+      "name": "Version",
+      "request": { "method": "GET", "url": "http://localhost:4311/version" }
+    },
+    {
+      "name": "Draft flows (default case)",
+      "request": {
+        "method": "POST",
+        "header": [{"key":"Content-Type","value":"application/json"}],
+        "body": { "mode": "raw", "raw": "{}" },
+        "url": "http://localhost:4311/draft-flows"
+      }
+    },
+    {
+      "name": "Draft flows (select fixture case)",
+      "request": {
+        "method": "POST",
+        "header": [{"key":"Content-Type","value":"application/json"}],
+        "body": { "mode": "raw", "raw": "{\n  \"fixture_case\": \"price-rise-15pct-enGB\",\n  \"seed\": 12345\n}" },
+        "url": "http://localhost:4311/draft-flows"
+      }
+    },
+    {
+      "name": "Critique",
+      "request": {
+        "method": "POST",
+        "header": [{"key":"Content-Type","value":"application/json"}],
+        "body": { "mode": "raw", "raw": "{\n  \"parse_json\": {\n    \"nodes\": [\n      { \"id\": \"d\", \"type\": \"decision\", \"label\": \"Adjust price\", \"baseline\": 99 },\n      { \"id\": \"o\", \"type\": \"outcome\", \"label\": \"Revenue\", \"baseline\": 100000 }\n    ],\n    \"edges\": [\n      { \"id\": \"e1\", \"from\": \"d\", \"to\": \"o\", \"weight\": 0.4, \"belief\": 0.7 }\n    ],\n    \"metadata\": { \"thresholds\": [99] }\n  }\n}" },
+        "url": "http://localhost:4311/critique"
+      }
+    },
+    {
+      "name": "Improve",
+      "request": {
+        "method": "POST",
+        "header": [{"key":"Content-Type","value":"application/json"}],
+        "body": { "mode": "raw", "raw": "{\n  \"parse_json\": {\n    \"nodes\": [],\n    \"edges\": []\n  }\n}" },
+        "url": "http://localhost:4311/improve"
+      }
+    }
+  ]
+}

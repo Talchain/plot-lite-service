@@ -56,6 +56,41 @@ curl -s -X POST http://localhost:4311/draft-flows \
 - JSON body limit: 128 KiB.
 - Request timeout: 5 seconds.
 
+## Environment
+
+- PORT: service port (default 4311)
+- RATE_LIMIT_ENABLED: enable per-IP rate limiting (default on; set 0 to disable)
+- RATE_LIMIT_RPM: requests per minute per IP (default 60)
+- REQUEST_TIMEOUT_MS: request timeout in milliseconds (default 5000)
+- CORS_DEV: if 1, enable CORS for http://localhost:5173 (dev only)
+
+## Endpoints
+
+- GET /ready → { ok } (200 when server is ready)
+- GET /health → { status, p95_ms, c2xx, c4xx, c5xx, lastReplayStatus, rate_limit }
+- GET /version → { api: "1.0.0", build, model: "fixtures" }
+- POST /draft-flows → deterministic fixtures (cases[0] by default; accepts fixture_case)
+- POST /critique → deterministic rules (no AI); Ajv-validated parse_json body
+- POST /improve → echoes parse_json and returns { fix_applied: [] }
+
+## Determinism
+
+- Responses from /draft-flows are pre-serialised from fixtures; byte-for-byte equality is enforced by tools/replay-fixtures.js across all cases.
+- Unit tests ensure ordering and deterministic critique rule outputs.
+
+## Loadcheck
+
+Run a quick check locally:
+
+```
+npm run build
+npm start &
+sleep 1
+node tools/loadcheck.js
+```
+
+The output includes p95_ms, max_ms, and rps. Our target p95 is ≤ 600 ms.
+
 ## For Windsurf
 
 - Base URL: http://localhost:4311
