@@ -12,6 +12,8 @@
     "start": "node dist/main.js",
     "test": "node tools/run-all-tests.js",
     "ci": "npm ci && npm run build && npm test",
+    "replay": "node tools/replay-fixtures.js",
+    "loadcheck": "node tools/loadcheck.js",
     "audit:prod": "npm audit --production"
   },
   "keywords": [],
