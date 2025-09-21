@@ -5,6 +5,13 @@ const HOST = '0.0.0.0';
 
 async function start() {
   const app = await createServer({ enableTestRoutes: process.env.TEST_ROUTES === '1' });
+
+  // Graceful shutdown with in-flight drain
+  let closing = false;
+  let inflight = 0;
+  app.addHook('onRequest', async () => { if (!closing) inflight++; });
+  app.addHook('onResponse', async () => { if (inflight > 0) inflight--; });
+
   await app.listen({ port: PORT, host: HOST });
   app.log.info({ port: PORT }, 'server started');
 
@@ -12,7 +19,7 @@ async function start() {
   process.on('SIGUSR2', async () => {
     try {
       const { p95Ms, p99Ms, eventLoopDelayMs, snapshot, getIdemCacheSize } = await import('./metrics.js');
-      const { rateLimitState } = await import('./rateLimit.js');
+      const { rateLimitState } = await import('./limit/plugin.js');
       const s = snapshot();
       const mem = process.memoryUsage();
       app.log.info({
@@ -33,12 +40,6 @@ async function start() {
       app.log.error({ err: (e as any)?.message }, 'failed to log health snapshot');
     }
   });
-
-  // Graceful shutdown with in-flight drain
-  let closing = false;
-  let inflight = 0;
-  app.addHook('onRequest', async () => { if (!closing) inflight++; });
-  app.addHook('onResponse', async () => { if (inflight > 0) inflight--; });
 
   for (const sig of ['SIGINT','SIGTERM'] as const) {
     process.on(sig, async () => {

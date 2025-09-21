@@ -58,20 +58,80 @@ curl -s -X POST http://localhost:4311/draft-flows \
 
 ## Rate limiting
 
-When enabled (default), per-IP requests are limited per minute.
-- Headers on successful requests: X-RateLimit-Limit and X-RateLimit-Remaining
-- When limited (HTTP 429): Retry-After (seconds) is returned
-- /health includes rate_limit: { enabled, rpm, last5m_429 }
+**Off by default** - enable with `RATE_LIMIT_ENABLED=1`. Uses token bucket algorithm with burst and sustained limits.
 
-Exemptions: GET /ready, GET /health, and GET /version are not rate-limited.
+### Limiting Strategy
+- **Organization-level**: When `x-org-id` header is present (highest priority)
+- **User-level**: When `x-user-id` header is present
+- **IP-level**: Fallback when no org/user headers (respects `TRUST_PROXY` for `X-Forwarded-For`)
+
+### Response Headers
+- `X-RateLimit-Limit`: Maximum requests allowed in burst
+- `X-RateLimit-Remaining`: Tokens remaining in bucket
+- `Retry-After`: Seconds to wait when rate limited (HTTP 429)
+
+**Note**: The temporary `X-RateLimit-Debug` header has been removed.
+
+### Protected Endpoints
+All POST endpoints are rate limited:
+- `POST /draft-flows`
+- `POST /critique`
+- `POST /improve`
+- `POST /__test/force-error` (when TEST_ROUTES=1)
+
+### Exemptions
+Health endpoints are never rate limited: `GET /health`, `GET /version`, `GET /live`, `GET /ops/snapshot`
+
+### Rate Limit Configuration
+```bash
+# Enable rate limiting (off by default)
+RATE_LIMIT_ENABLED=1
+
+# IP limits (fallback)
+RL_IP_BURST=120
+RL_IP_SUSTAINED_PER_MIN=600
+
+# User limits (x-user-id header)
+RL_USER_BURST=180
+RL_USER_SUSTAINED_PER_MIN=900
+
+# Org limits (x-org-id header, takes priority)
+RL_ORG_BURST=300
+RL_ORG_SUSTAINED_PER_MIN=1500
+
+# Trust X-Forwarded-For header
+TRUST_PROXY=0
+```
+
+### Example Usage
+```bash
+# Request with org context (gets org-level limits)
+curl -X POST http://localhost:4311/draft-flows \
+  -H 'x-org-id: acme-corp' \
+  -H 'Content-Type: application/json' \
+  -d '{"fixture_case":"default"}'
+
+# Request with user context (gets user-level limits)
+curl -X POST http://localhost:4311/critique \
+  -H 'x-user-id: user123' \
+  -H 'Content-Type: application/json' \
+  -d '{"parse_json":{"type":"flow","steps":[]}}'
+
+# Request without headers (gets IP-level limits)
+curl -X POST http://localhost:4311/improve \
+  -H 'Content-Type: application/json' \
+  -d '{"parse_json":{"test":"data"}}'
+```
 
 ## Environment
 
 - PORT: service port (default 4311)
-- RATE_LIMIT_ENABLED: enable per-IP rate limiting (default on; set 0 to disable)
-- RATE_LIMIT_RPM: requests per minute per IP (default 60)
+- RATE_LIMIT_ENABLED: enable rate limiting (default 0/off; set 1 to enable)
 - REQUEST_TIMEOUT_MS: request timeout in milliseconds (default 5000)
 - CORS_DEV: if 1, enable CORS for http://localhost:5173 (dev only)
+- TRUST_PROXY: if 1, honor X-Forwarded-For for client IP (default 0)
+
+See `.env.example` for all rate limiting configuration options.
 
 ## Endpoints
 
@@ -139,6 +199,15 @@ See RELEASING.md for the release checklist and tagging guidance.
 
 ## Releases
 
+## Releasing
+
+Run a patch release and tag, then push:
+
+```
+npm run release
+git push && git push --tags
+```
+
 - Conventional commits enforced via commitlint (local hooks via husky; optional in CI).
 - Generate CHANGELOG.md and tags with:
   - Patch: npm run release
@@ -183,6 +252,7 @@ curl -s -X POST http://localhost:4311/draft-flows \
 - 2025-09-21 13:43 BST: Slice B → Added offline OpenAPI schema validation for fixtures and critique samples (dev-time). Tests green.
 - 2025-09-21 16:20 BST: Slice C → Release hygiene: conventional commits (commitlint + husky), standard-version release scripts, Release Drafter, PR template, CODEOWNERS, release workflow with artefacts. Tests green.
 - 2025-09-21 16:35 BST: Slice D → Resilience niceties: enriched /health (runtime, p99, caches), X-Request-ID header, /live, optional /ops/snapshot, improved timeout mapping, graceful shutdown. Tests green.
+- 2025-09-21 17:56 BST: Main push verified; CI green.
 
 ## Optional Docker
 Minimal Dockerfile included for Node 20:

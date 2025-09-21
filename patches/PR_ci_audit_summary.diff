@@ -1,0 +1,159 @@
+diff --git a/package.json b/package.json
+--- a/package.json
++++ b/package.json
+@@
+   "scripts": {
+@@
+-    "audit:prod": "npm audit --production"
++    "audit:prod": "npm audit --production",
++    "audit:ci": "node tools/audit-summary.js"
+   },
+@@
+   "devDependencies": {
+@@
+   }
+diff --git a/tools/audit-summary.js b/tools/audit-summary.js
+new file mode 100644
+--- /dev/null
++++ b/tools/audit-summary.js
+@@
++import { spawn } from 'child_process';
++import { mkdirSync, writeFileSync } from 'fs';
++
++async function run(cmd, args, opts = {}) {
++  return new Promise((resolve) => {
++    const p = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], shell: true, ...opts });
++    let out = '';
++    let err = '';
++    p.stdout.on('data', (d) => { out += d.toString(); });
++    p.stderr.on('data', (d) => { err += d.toString(); });
++    p.on('close', (code) => resolve({ code: code ?? 1, stdout: out, stderr: err }));
++  });
++}
++
++async function main() {
++  try {
++    const { code, stdout } = await run('npm', ['audit', '--json']);
++    mkdirSync('reports', { recursive: true });
++    writeFileSync('reports/audit.json', stdout || '{}', 'utf8');
++    let data;
++    try { data = JSON.parse(stdout || '{}'); } catch { data = {}; }
++    const advisories = data?.advisories || data?.vulnerabilities || {};
++    let critical = 0, high = 0, moderate = 0, low = 0;
++    if (data?.metadata?.vulnerabilities) {
++      const v = data.metadata.vulnerabilities;
++      critical = v.critical || 0; high = v.high || 0; moderate = v.moderate || 0; low = v.low || 0;
++    } else if (advisories) {
++      // Fallback simple count
++      for (const a of Object.values(advisories)) {
++        const sev = (a.severity || '').toLowerCase();
++        if (sev === 'critical') critical++; else if (sev === 'high') high++; else if (sev === 'moderate') moderate++; else if (sev === 'low') low++;
++      }
++    }
++    console.log(`npm audit summary: critical=${critical} high=${high} moderate=${moderate} low=${low}`);
++    // non-blocking
++    process.exit(0);
++  } catch (e) {
++    console.log('npm audit failed to run; skipping');
++    process.exit(0);
++  }
++}
++
++main();
++
++diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
++--- a/.github/workflows/ci.yml
+++++ b/.github/workflows/ci.yml
++@@
++       - name: Smoke API (optional)
++         run: node tools/smoke-api.js
++
++      - name: Security audit (non-blocking)
++        run: npm run audit:ci
++        continue-on-error: true
++
++      - name: Upload audit report
++        if: always()
++        uses: actions/upload-artifact@v4
++        with:
++          name: audit-report
++          path: reports/audit.json
++          if-no-files-found: warn
++
++diff --git a/.github/release-drafter.yml b/.github/release-drafter.yml
++--- a/.github/release-drafter.yml
+++++ b/.github/release-drafter.yml
++@@
++ name-template: 'v$NEXT_PATCH_VERSION'
++ tag-template: 'v$NEXT_PATCH_VERSION'
++ change-template: '- $TITLE (#$NUMBER) @$AUTHOR'
++ categories:
++-  - title: 'Features'
++-    labels: ['feat', 'feature']
++-  - title: 'Fixes'
++-    labels: ['fix', 'bugfix', 'bug']
++-  - title: 'Chores'
++-    labels: ['chore', 'docs', 'ci', 'refactor', 'test']
++   template: |
++     ## Changes
++     $CHANGES
++@@
++ categories:
++   - title: 'Features'
++     labels: ['feat', 'feature']
++   - title: 'Fixes'
++     labels: ['fix', 'bugfix', 'bug']
++   - title: 'Docs'
++     labels: ['docs']
++   - title: 'Tests'
++     labels: ['test', 'tests']
++   - title: 'CI'
++     labels: ['ci']
++   - title: 'Chores'
++     labels: ['chore', 'refactor']
++
++diff --git a/.github/workflows/release.yml b/.github/workflows/release.yml
++--- a/.github/workflows/release.yml
+++++ b/.github/workflows/release.yml
++@@
++       - name: Test
++         run: npm test
++         env:
++           NODE_OPTIONS: --experimental-global-fetch
++
++       - name: Smoke on tag (optional)
++         run: node tools/smoke-api.js
++
++       - name: Create GitHub Release
++         uses: softprops/action-gh-release@v2
++         with:
++           generate_release_notes: true
++           files: |
++             reports/tests.json
++             docs/collections/plot-lite.postman.json
++             docs/contract-report.html
++         env:
++           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
++
++diff --git a/.github/PR_DRAFTS/release-checklist.md b/.github/PR_DRAFTS/release-checklist.md
++new file mode 100644
++--- /dev/null
+++++ b/.github/PR_DRAFTS/release-checklist.md
++@@
++## Release checklist
++
++1. Ensure main is green (CI passing on Node 18/20).
++2. Optional dry-run: trigger "Release dry-run" in Actions to verify artifacts.
++3. Prepare release notes in Release Drafter.
++4. Create a patch (or minor/major) release:
++
++```
++npm run release
++git push && git push --tags
++```
++
++5. Verify the tag workflow attaches artifacts:
++   - reports/tests.json
++   - docs/collections/plot-lite.postman.json
++   - docs/contract-report.html
++6. Announce release.

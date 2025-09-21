@@ -1,0 +1,27 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@
+-      - name: Install dependencies
+-        run: npm install --no-audit --no-fund
++      - name: Install dependencies (npm ci)
++        run: npm ci --no-audit --no-fund
+@@
+-      - name: Build
+-        run: npm run build
+-        env:
+-          NODE_OPTIONS: --experimental-global-fetch
+-
+-      - name: Test
+-        run: npm test
+-        env:
+-          NODE_OPTIONS: --experimental-global-fetch
++      - name: Build
++        run: npm run build
++        env:
++          NODE_OPTIONS: --experimental-global-fetch
++
++      - name: Test
++        run: npm test
++        env:
++          NODE_OPTIONS: --experimental-global-fetch

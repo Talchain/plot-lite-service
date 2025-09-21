@@ -4,7 +4,7 @@ import cors from '@fastify/cors';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { spawnSync } from 'child_process';
-import { rateLimit } from './rateLimit.js';
+import { rateLimitPlugin } from './limit/plugin.js';
 
 export interface ServerOpts { enableTestRoutes?: boolean }
 
@@ -53,13 +53,17 @@ export async function createServer(opts: ServerOpts = {}) {
     disableRequestLogging: true,
   });
 
+  // Register rate limiting FIRST, before any other plugins or routes
+  if (process.env.RATE_LIMIT_ENABLED === '1') {
+    await app.register(rateLimitPlugin);
+  } else {
+    app.log.info({ rate_limit_enabled: false }, 'Rate limiting disabled');
+  }
+
   await app.register(helmet, { global: true });
   if (process.env.CORS_DEV === '1') {
     await app.register(cors, { origin: 'http://localhost:5173' });
   }
-
-  // Optional rate limit
-  app.addHook('onRequest', rateLimit);
 
   // Minimal structured access log without bodies
   app.addHook('onRequest', async (req) => { (req as any).startTime = process.hrtime.bigint(); });
@@ -113,7 +117,7 @@ export async function createServer(opts: ServerOpts = {}) {
 
   app.get('/health', async () => {
     const { p95Ms, p99Ms, eventLoopDelayMs, snapshot } = await import('./metrics.js');
-    const { rateLimitState } = await import('./rateLimit.js');
+    const { rateLimitState } = await import('./limit/plugin.js');
     const mem = process.memoryUsage();
     const resp = {
       status: 'ok',

@@ -1,0 +1,94 @@
+diff --git a/tools/smoke-api.js b/tools/smoke-api.js
+new file mode 100644
+--- /dev/null
++++ b/tools/smoke-api.js
+@@
++import { spawn } from 'child_process';
++
++async function main() {
++  const base = process.env.TEST_BASE_URL;
++  if (!base) {
++    console.log('smoke:api skipped (TEST_BASE_URL not set)');
++    process.exit(0);
++  }
++  console.log('smoke:api hitting', base);
++  const code = await new Promise((resolve) => {
++    const p = spawn('node', ['tools/replay-fixtures.js'], { stdio: 'inherit', env: { ...process.env, TEST_BASE_URL: base } });
++    p.on('close', (c) => resolve(c ?? 1));
++  });
++  process.exit(code);
++}
++
++main().catch((e) => { console.error('smoke:api failed', e); process.exit(1); });
++
++// Note: replay-fixtures currently targets http://localhost:4311; set TEST_BASE_URL accordingly.
++
+
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@
+       - name: Test
+         run: npm test
+         env:
+           NODE_OPTIONS: --experimental-global-fetch
++
++      - name: Smoke API (optional)
++        run: node tools/smoke-api.js
++
+
+diff --git a/.github/workflows/release-dryrun.yml b/.github/workflows/release-dryrun.yml
+new file mode 100644
+--- /dev/null
++++ b/.github/workflows/release-dryrun.yml
+@@
++name: Release dry-run
++
++on:
++  workflow_dispatch:
++
++jobs:
++  dryrun:
++    runs-on: ubuntu-latest
++    steps:
++      - name: Checkout
++        uses: actions/checkout@v4
++
++      - name: Setup Node.js
++        uses: actions/setup-node@v4
++        with:
++          node-version: '20'
++          cache: 'npm'
++
++      - name: Install dependencies
++        run: npm install --no-audit --no-fund
++
++      - name: Build
++        run: npm run build
++        env:
++          NODE_OPTIONS: --experimental-global-fetch
++
++      - name: Test
++        run: npm test
++        env:
++          NODE_OPTIONS: --experimental-global-fetch
++
++      - name: Generate test JSON report
++        run: |
++          mkdir -p reports
++          npx vitest run --reporter=json > reports/tests.json || true
++
++      - name: Upload artifacts
++        if: always()
++        uses: actions/upload-artifact@v4
++        with:
++          name: dryrun-artifacts
++          path: |
++            reports/tests.json
++            docs/collections/plot-lite.postman.json
++            docs/contract-report.html
++          if-no-files-found: warn
++
++      - name: Summary
++        run: |
++          node -e "const fs=require('fs');let t={};try{t=JSON.parse(fs.readFileSync('reports/tests.json','utf8'))}catch{};const v=process.version;const passed=t?.numPassedTestSuites||0;const failed=t?.numFailedTestSuites||0;console.log(`Node ${v} - test suites passed:${passed} failed:${failed}`)"

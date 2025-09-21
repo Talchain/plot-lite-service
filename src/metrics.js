@@ -1,8 +1,16 @@
-// Rolling p95 of request durations
+// Rolling latency metrics and lightweight counters
+import { monitorEventLoopDelay } from 'node:perf_hooks';
 const MAX_SAMPLES = 500;
 const samples = [];
 let c2xx = 0, c4xx = 0, c5xx = 0;
 let lastReplayStatus = 'unknown';
+// Event loop delay histogram (Node >=12)
+const eld = monitorEventLoopDelay({ resolution: 10 });
+eld.enable();
+// Optional cache size snapshot for SIGUSR2 and /ops/snapshot
+let idemCacheSize = 0;
+export function setIdemCacheSize(n) { idemCacheSize = n; }
+export function getIdemCacheSize() { return idemCacheSize; }
 export function recordDurationMs(ms) {
     samples.push(ms);
     if (samples.length > MAX_SAMPLES)
@@ -28,4 +36,21 @@ export function p95Ms() {
     const sorted = [...samples].sort((a, b) => a - b);
     const idx = Math.min(sorted.length - 1, Math.floor(0.95 * (sorted.length - 1)));
     return Math.round(sorted[idx]);
+}
+export function p99Ms() {
+    if (samples.length === 0)
+        return 0;
+    const sorted = [...samples].sort((a, b) => a - b);
+    const idx = Math.min(sorted.length - 1, Math.floor(0.99 * (sorted.length - 1)));
+    return Math.round(sorted[idx]);
+}
+export function eventLoopDelayMs() {
+    // mean is in nanoseconds
+    // guard in case eld is not available
+    try {
+        return Math.round((eld.mean || 0) / 1e6);
+    }
+    catch {
+        return 0;
+    }
 }

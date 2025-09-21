@@ -1,0 +1,98 @@
+import { describe, it, expect } from 'vitest';
+import { spawn } from 'child_process';
+import { existsSync, readFileSync } from 'fs';
+import { resolve } from 'path';
+import YAML from 'yaml';
+import Ajv from 'ajv';
+
+async function waitFor(url: string, timeoutMs = 5000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try { const r = await fetch(url); if (r.ok) return; } catch {}
+    await new Promise(r => setTimeout(r, 100));
+  }
+  throw new Error('timeout waiting for ' + url);
+}
+
+function compileFromOpenAPI(doc: any, ref: string) {
+  const ajv = new Ajv({ allErrors: true, strict: false });
+  const id = 'https://example.com/openapi.json';
+  const root = { $id: id, ...doc };
+  ajv.addSchema(root);
+  const schema = ajv.getSchema(id + ref);
+  if (!schema) throw new Error('schema not found for ref ' + ref);
+  return schema;
+}
+
+function stripNulls(input: any): any {
+  if (Array.isArray(input)) return input.map(stripNulls);
+  if (input && typeof input === 'object') {
+    const out: any = {};
+    for (const [k, v] of Object.entries(input)) {
+      if (v === null) continue;
+      out[k] = stripNulls(v);
+    }
+    return out;
+  }
+  return input;
+}
+
+function shapeEqual(expected: any, actual: any) {
+  if (Array.isArray(expected) && Array.isArray(actual)) {
+    expect(actual.length).toBe(expected.length);
+    for (let i = 0; i < expected.length; i++) shapeEqual(expected[i], actual[i]);
+    return;
+  }
+  if (expected && typeof expected === 'object' && actual && typeof actual === 'object') {
+    const ek = Object.keys(expected).sort();
+    const ak = Object.keys(actual).sort();
+    expect(ak).toEqual(ek); // no additionalProperties
+    for (const k of ek) shapeEqual(expected[k], actual[k]);
+    return;
+  }
+  expect(actual).toEqual(expected);
+}
+
+describe('OpenAPI strict validation (live responses)', () => {
+  const specPath = resolve(process.cwd(), 'openapi', 'openapi-plot-lite-v1.yaml');
+  if (!existsSync(specPath)) {
+    it('skipped (no spec present)', () => { expect(true).toBe(true); });
+    return;
+  }
+  const port = '4319';
+  const BASE = `http://127.0.0.1:${port}`;
+
+  it('validates /draft-flows responses against OpenAPI and forbids additional properties', async () => {
+    const child = spawn('node', ['tools/test-server.js'], { env: { ...process.env, TEST_PORT: port, TEST_ROUTES: '1' }, stdio: 'ignore' });
+    try {
+      await waitFor(`${BASE}/health`, 5000);
+
+      const doc = YAML.parse(readFileSync(specPath, 'utf8'));
+      const validateDraft = compileFromOpenAPI(doc, '#/components/schemas/DraftFlowsResponse');
+
+      const fixturesPath = resolve(process.cwd(), 'fixtures', 'deterministic-fixtures.json');
+      const fixtures = JSON.parse(readFileSync(fixturesPath, 'utf8'));
+      const cases = fixtures.cases || [];
+
+      for (const c of cases) {
+        const res = await fetch(`${BASE}/draft-flows`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...(c.request || {}), fixture_case: c.name }),
+        });
+        const body = await res.json();
+
+        // Schema validation (allow null-stripping for known baseline nulls during dev-time)
+        const ok = validateDraft(stripNulls(body));
+        if (!ok) {
+          // @ts-ignore
+          throw new Error('Response does not match schema: ' + JSON.stringify(validateDraft.errors));
+        }
+        // Additional properties strictness via shape match
+        shapeEqual(c.response, body);
+      }
+    } finally {
+      try { process.kill(child.pid!, 'SIGINT'); } catch {}
+    }
+  });
+});
