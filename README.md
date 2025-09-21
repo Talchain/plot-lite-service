@@ -123,6 +123,93 @@ curl -X POST http://localhost:4311/improve \
   -d '{"parse_json":{"test":"data"}}'
 ```
 
+## Response Caching
+
+**Off by default** - enable with `CACHE_ENABLED=1`. Provides L1 memory cache with optional L2 Redis layer for improved performance.
+
+### Cache Strategy
+- **L1 (Memory)**: In-memory LRU cache with configurable max keys
+- **L2 (Redis)**: Optional remote cache via Upstash REST API for scalability
+- **Singleflight**: Prevents duplicate computations under concurrent load
+- **TTL**: Per-route configurable time-to-live
+- **Tags**: Route and organization-based invalidation
+
+### Cached Endpoints
+Only deterministic POST endpoints are cached:
+- `POST /draft-flows` (default TTL: 5 minutes)
+- `POST /critique` (default TTL: 10 minutes)
+
+### Cache Headers
+- `X-Cache: HIT` - Response served from cache
+- `X-Cache: MISS` - Response computed and cached
+- `X-Cache: BYPASS` - Caching disabled or skipped
+
+### Cache Control
+- **Disable per request**: Add header `x-cache-allow: 0`
+- **Body size limit**: Requests larger than `CACHE_MAX_BODY_BYTES` won't be cached
+- **Deterministic keys**: Based on route + org/user context + full request body
+
+### Cache Configuration
+```bash
+# Enable caching (off by default)
+CACHE_ENABLED=1
+
+# Per-route TTL (milliseconds)
+CACHE_DRAFT_FLOWS_TTL_MS=300000  # 5 minutes
+CACHE_CRITIQUE_TTL_MS=600000     # 10 minutes
+
+# L1 memory cache limits
+CACHE_L1_MAX_KEYS=1000          # Max entries in memory
+CACHE_MAX_BODY_BYTES=32768      # 32KB max body size
+
+# Optional L2 Redis cache
+UPSTASH_REDIS_REST_URL=https://your-redis.upstash.io
+UPSTASH_REDIS_REST_TOKEN=your-token
+```
+
+### Example Usage
+```bash
+# First request (cache miss)
+curl -X POST http://localhost:4311/draft-flows \
+  -H 'x-org-id: acme-corp' \
+  -H 'Content-Type: application/json' \
+  -d '{"fixture_case":"default"}' \
+  -v
+# Returns: X-Cache: MISS
+
+# Second identical request (cache hit)
+curl -X POST http://localhost:4311/draft-flows \
+  -H 'x-org-id: acme-corp' \
+  -H 'Content-Type: application/json' \
+  -d '{"fixture_case":"default"}' \
+  -v
+# Returns: X-Cache: HIT
+
+# Disable caching for specific request
+curl -X POST http://localhost:4311/critique \
+  -H 'x-cache-allow: 0' \
+  -H 'Content-Type: application/json' \
+  -d '{"parse_json":{"type":"flow","steps":[]}}' \
+  -v
+# Returns: X-Cache: BYPASS
+```
+
+### Cache Stats
+Monitor cache performance via the health endpoint:
+```bash
+curl http://localhost:4311/health | jq '.caches.response_cache'
+```
+
+Returns:
+```json
+{
+  "hits": 42,
+  "misses": 8,
+  "size": 15,
+  "l2Enabled": true
+}
+```
+
 ## Environment
 
 - PORT: service port (default 4311)
@@ -142,7 +229,7 @@ See `.env.example` for all rate limiting configuration options.
   p95_ms,
   c2xx, c4xx, c5xx, lastReplayStatus,
   runtime: { node, uptime_s, rss_mb, heap_used_mb, eventloop_delay_ms, p95_ms, p99_ms },
-  caches: { idempotency_current },
+  caches: { idempotency_current, response_cache: { hits, misses, size, l2Enabled } },
   rate_limit: { enabled, rpm, last5m_429 }
 }
 - GET /version → { api: "1.0.0", build, model: "fixtures", runtime: { node } }

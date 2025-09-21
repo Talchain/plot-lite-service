@@ -5,9 +5,45 @@ import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { spawnSync } from 'child_process';
 import { rateLimitPlugin } from './limit/plugin.js';
+import { createCacheManager } from './cache/index.js';
+import { makeCacheKey, makeCacheTags, extractKeyFields } from './cache/key.js';
 export async function createServer(opts = {}) {
     const idemCache = new Map();
     const IDEM_TTL_MS = 10 * 60 * 1000;
+    // Initialize cache manager
+    const cacheManager = createCacheManager();
+    // Cache configuration per route
+    const CACHE_CONFIG = {
+        '/draft-flows': {
+            ttlMs: Number(process.env.CACHE_DRAFT_FLOWS_TTL_MS || 300000), // 5 minutes
+            enabled: process.env.CACHE_ENABLED === '1'
+        },
+        '/critique': {
+            ttlMs: Number(process.env.CACHE_CRITIQUE_TTL_MS || 600000), // 10 minutes
+            enabled: process.env.CACHE_ENABLED === '1'
+        }
+    };
+    const MAX_BODY_BYTES = Number(process.env.CACHE_MAX_BODY_BYTES || 32768); // 32KB default
+    function isCacheAllowed(req, body) {
+        // Check x-cache-allow header
+        const cacheAllowHeader = req.headers['x-cache-allow'];
+        if (cacheAllowHeader === '0' || cacheAllowHeader === 'false') {
+            return false;
+        }
+        // Check body size
+        const bodySize = Buffer.byteLength(JSON.stringify(body), 'utf8');
+        if (bodySize > MAX_BODY_BYTES) {
+            return false;
+        }
+        return true;
+    }
+    function extractRequestContext(req) {
+        const headers = req.headers || {};
+        return {
+            orgId: headers['x-org-id'] ? String(headers['x-org-id']) : undefined,
+            userId: headers['x-user-id'] ? String(headers['x-user-id']) : undefined
+        };
+    }
     function getIdempotencyKey(req) {
         const h = req.headers || {};
         const k = (h['idempotency-key'] || h['Idempotency-Key']);
@@ -44,7 +80,22 @@ export async function createServer(opts = {}) {
     const app = Fastify({
         logger: {
             level: 'info',
-            redact: { paths: ['parse_text', 'body.parse_text', 'request.body.parse_text'], remove: true },
+            redact: {
+                paths: [
+                    // Redact all request body content
+                    'body',
+                    'req.body',
+                    'request.body',
+                    'parse_text',
+                    'body.parse_text',
+                    'request.body.parse_text',
+                    // Redact any body-related fields that might leak
+                    'body.*',
+                    'req.body.*',
+                    'request.body.*'
+                ],
+                remove: true
+            },
         },
         bodyLimit: 128 * 1024,
         requestTimeout: Number(process.env.REQUEST_TIMEOUT_MS || 5000),
@@ -136,6 +187,7 @@ export async function createServer(opts = {}) {
             },
             caches: {
                 idempotency_current: idemCache.size,
+                response_cache: cacheManager.stats(),
             },
             rate_limit: rateLimitState(),
         };
@@ -187,6 +239,48 @@ export async function createServer(opts = {}) {
                 req.__idem = { key, bodyHash };
             }
         }
+        // Check response cache AFTER security but BEFORE main processing
+        const cacheConfig = CACHE_CONFIG['/draft-flows'];
+        let cacheResult = null;
+        if (cacheConfig.enabled && isCacheAllowed(req, body)) {
+            const context = extractRequestContext(req);
+            const keyFields = extractKeyFields(body);
+            const cacheKey = makeCacheKey({
+                route: '/draft-flows',
+                orgId: context.orgId,
+                userId: context.userId,
+                body,
+                ...keyFields
+            });
+            const tags = makeCacheTags({ route: '/draft-flows', orgId: context.orgId, userId: context.userId, body });
+            try {
+                cacheResult = await cacheManager.getOrCompute(cacheKey, cacheConfig.ttlMs, tags, async () => {
+                    // This will be executed only on cache miss
+                    const fixtureCase = body?.fixture_case;
+                    if (fixtureCase) {
+                        const hit = caseMap.get(fixtureCase);
+                        if (!hit) {
+                            throw new Error(`Unknown fixture_case: ${fixtureCase}`);
+                        }
+                        return hit;
+                    }
+                    return firstCaseResponseRaw;
+                });
+                if (cacheResult.fromCache) {
+                    reply.header('Content-Type', 'application/json');
+                    reply.header('X-Cache', 'HIT');
+                    return reply.send(cacheResult.value);
+                }
+                else {
+                    reply.header('X-Cache', 'MISS');
+                }
+            }
+            catch (cacheError) {
+                // If cache fails, continue without it
+                app.log.warn({ reqId: req.id, cacheError }, 'Cache operation failed, continuing without cache');
+                reply.header('X-Cache', 'BYPASS');
+            }
+        }
         // Sensitive scan (fast path then deep)
         {
             const { containsSensitive } = await import('./lib/sensitive.js');
@@ -220,8 +314,11 @@ export async function createServer(opts = {}) {
             reply.header('Content-Type', 'application/json');
             return reply.send(hit);
         }
-        const respText = fixtureCase ? caseMap.get(fixtureCase) : firstCaseResponseRaw;
+        const respText = cacheResult?.value || (fixtureCase ? caseMap.get(fixtureCase) : firstCaseResponseRaw);
         reply.header('Content-Type', 'application/json');
+        if (!cacheResult) {
+            reply.header('X-Cache', 'BYPASS');
+        }
         // Idempotency store (post)
         {
             const idem = req.__idem;
@@ -285,6 +382,61 @@ export async function createServer(opts = {}) {
                 req.__idem = { key, bodyHash };
             }
         }
+        // Check response cache AFTER security but BEFORE main processing
+        const cacheConfig = CACHE_CONFIG['/critique'];
+        let cacheResult = null;
+        if (cacheConfig.enabled && isCacheAllowed(req, body)) {
+            const context = extractRequestContext(req);
+            const keyFields = extractKeyFields(body);
+            const cacheKey = makeCacheKey({
+                route: '/critique',
+                orgId: context.orgId,
+                userId: context.userId,
+                body,
+                ...keyFields
+            });
+            const tags = makeCacheTags({ route: '/critique', orgId: context.orgId, userId: context.userId, body });
+            try {
+                cacheResult = await cacheManager.getOrCompute(cacheKey, cacheConfig.ttlMs, tags, async () => {
+                    // This will be executed only on cache miss - do validation and critique
+                    const parse_json = body.parse_json;
+                    if (!parse_json) {
+                        throw new Error('Field parse_json is required');
+                    }
+                    const { validateFlowAsync } = await import('./validation.js');
+                    const res = await validateFlowAsync(parse_json);
+                    if (!res.ok) {
+                        throw new Error(`Invalid parse_json: ${res.hint}`);
+                    }
+                    const { critiqueFlow } = await import('./critique.js');
+                    const obj = critiqueFlow(parse_json);
+                    return JSON.stringify(obj);
+                });
+                if (cacheResult.fromCache) {
+                    reply.header('Content-Type', 'application/json');
+                    reply.header('X-Cache', 'HIT');
+                    return reply.send(cacheResult.value);
+                }
+                else {
+                    reply.header('X-Cache', 'MISS');
+                }
+            }
+            catch (cacheError) {
+                // If cache operation fails, fall back to normal processing
+                // But if it's a validation error, return it immediately
+                if (cacheError.message?.includes('parse_json') || cacheError.message?.includes('Invalid parse_json')) {
+                    const { errorResponse } = await import('./errors.js');
+                    if (cacheError.message.includes('required')) {
+                        return reply.code(400).send(errorResponse('BAD_INPUT', 'Field parse_json is required', 'Provide a parse_json object matching flow.schema.json'));
+                    }
+                    else {
+                        return reply.code(400).send(errorResponse('BAD_INPUT', 'Invalid parse_json', cacheError.message.replace('Invalid parse_json: ', '')));
+                    }
+                }
+                app.log.warn({ reqId: req.id, cacheError }, 'Cache operation failed, continuing without cache');
+                reply.header('X-Cache', 'BYPASS');
+            }
+        }
         // Header forced errors
         {
             const force = getForcedError(req);
@@ -319,14 +471,17 @@ export async function createServer(opts = {}) {
         }
         const { critiqueFlow } = await import('./critique.js');
         const obj = critiqueFlow(parse_json);
+        const respText = cacheResult?.value || JSON.stringify(obj);
         // Idempotency store (post)
         {
             const idem = req.__idem;
             if (idem) {
                 const now = Date.now();
                 purgeExpired(now);
-                const respText = JSON.stringify(obj);
                 reply.header('Content-Type', 'application/json');
+                if (!cacheResult) {
+                    reply.header('X-Cache', 'BYPASS');
+                }
                 idemCache.set(getCacheKey(idem.key, idem.bodyHash), { bodyHash: idem.bodyHash, responseText: respText, createdAt: now });
                 try {
                     const { setIdemCacheSize } = await import('./metrics.js');
@@ -336,7 +491,10 @@ export async function createServer(opts = {}) {
                 return reply.send(respText);
             }
         }
-        return obj;
+        if (!cacheResult) {
+            reply.header('X-Cache', 'BYPASS');
+        }
+        return JSON.parse(respText);
     });
     app.post('/improve', async (req, reply) => {
         const { parse_json } = req.body || {};

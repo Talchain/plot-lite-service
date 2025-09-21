@@ -1,0 +1,44 @@
+# Cloudflare Workers configuration example
+# Copy to wrangler.toml and customize for your environment
+
+name = "edge-gateway"
+main = "dist/index.js"
+compatibility_date = "2024-09-25"
+compatibility_flags = ["nodejs_compat"]
+
+# Environment variables
+[env.production.vars]
+NODE_ENV = "production"
+BUDGET_BURST = "200"
+BUDGET_SUSTAINED_PER_MIN = "5000"
+
+[env.staging.vars]
+NODE_ENV = "staging"
+BUDGET_BURST = "100"
+BUDGET_SUSTAINED_PER_MIN = "2000"
+
+# Build configuration
+[build]
+command = "npm run build"
+
+# KV namespaces for session storage (if needed)
+# [[kv_namespaces]]
+# binding = "SESSIONS"
+# id = "your-kv-namespace-id"
+# preview_id = "your-preview-kv-namespace-id"
+
+# D1 database for analytics (if needed)
+# [[d1_databases]]
+# binding = "ANALYTICS"
+# database_name = "edge-gateway-analytics"
+# database_id = "your-d1-database-id"
+
+# Custom domains
+# [env.production]
+# routes = [
+#   { pattern = "gateway.yourdomain.com/*", zone_name = "yourdomain.com" }
+# ]
+
+# Rate limiting (Workers built-in)
+# [limits]
+# cpu_ms = 50

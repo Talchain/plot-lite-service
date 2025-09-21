@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  jobs-service:
+    build: .
+    ports:
+      - "4500:4500"
+    environment:
+      - PORT=4500
+      - REPO_KIND=redis
+      - UPSTASH_REDIS_REST_URL=http://redis:6379
+      - GLOBAL_MAX_CONCURRENCY=10
+      - ORG_MAX_CONCURRENCY=2
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD", "node", "-e", "const http = require('http'); const req = http.request({hostname: 'localhost', port: 4500, path: '/health', timeout: 2000}, (res) => { process.exit(res.statusCode === 200 ? 0 : 1); }); req.on('error', () => process.exit(1)); req.end();"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+
+volumes:
+  redis_data:

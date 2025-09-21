@@ -27,15 +27,18 @@ This is a **deterministic Fastify + TypeScript service** for PLoT-lite that retu
 ### Core Design Principles
 - **Deterministic responses**: All POST endpoints return pre-serialized fixture data
 - **Privacy-first**: Never logs parse_text or request body contents - only structured logs (request ID, route, status, duration)
-- **Rate limiting**: Per-IP requests limited per minute (configurable, default 60 RPM)
+- **Multi-tier rate limiting**: Organization > User > IP level limits with configurable burst/sustained rates
+- **Response caching**: L1 (memory) + optional L2 (Redis) caching with singleflight and tag-based invalidation
 - **Idempotency**: Optional Idempotency-Key header support with 10-minute cache TTL
 
 ### Key Components
 
 #### Server Architecture
 - **src/main.ts**: Entry point with graceful shutdown, health snapshots (SIGUSR2), and process management
-- **src/createServer.ts**: Main Fastify server factory with middleware setup, route definitions, and idempotency cache
-- **src/rateLimit.ts**: Per-IP rate limiting with exemptions for health endpoints
+- **src/createServer.ts**: Main Fastify server factory with middleware setup, route definitions, idempotency cache, and response caching
+- **src/limit/plugin.ts**: Multi-tier rate limiting (org/user/IP) with token bucket algorithm
+- **src/cache/index.ts**: Response cache manager with L1/L2 support and singleflight
+- **src/cache/key.ts**: Cache key generation with org/user context and tag-based invalidation
 - **src/metrics.ts**: Performance monitoring (p95/p99 response times, event loop delay)
 
 #### Core Endpoints
@@ -56,11 +59,47 @@ This is a **deterministic Fastify + TypeScript service** for PLoT-lite that retu
 - Uses ES2022 target with NodeNext modules for Node 20 compatibility
 
 ### Environment Configuration
+
+#### Core Settings
 - **PORT**: Service port (default 4311)
-- **RATE_LIMIT_ENABLED**: Enable rate limiting (default 1, set 0 to disable)
-- **RATE_LIMIT_RPM**: Requests per minute per IP (default 60)
 - **REQUEST_TIMEOUT_MS**: Request timeout (default 5000ms)
 - **CORS_DEV**: Enable CORS for localhost:5173 in development
+- **TRUST_PROXY**: Honor X-Forwarded-For header (default 0)
+
+#### Rate Limiting (disabled by default)
+- **RATE_LIMIT_ENABLED**: Enable rate limiting (default 0, set 1 to enable)
+- **RL_IP_BURST**: IP-level burst limit (default 120)
+- **RL_IP_SUSTAINED_PER_MIN**: IP-level sustained rate (default 600)
+- **RL_USER_BURST**: User-level burst limit (default 180)
+- **RL_USER_SUSTAINED_PER_MIN**: User-level sustained rate (default 900)
+- **RL_ORG_BURST**: Organization-level burst limit (default 300)
+- **RL_ORG_SUSTAINED_PER_MIN**: Organization-level sustained rate (default 1500)
+
+#### Response Caching (disabled by default)
+- **CACHE_ENABLED**: Enable response caching (default 0, set 1 to enable)
+- **CACHE_DRAFT_FLOWS_TTL_MS**: /draft-flows cache TTL (default 300000 = 5 minutes)
+- **CACHE_CRITIQUE_TTL_MS**: /critique cache TTL (default 600000 = 10 minutes)
+- **CACHE_L1_MAX_KEYS**: L1 memory cache max entries (default 1000)
+- **CACHE_MAX_BODY_BYTES**: Max request body size to cache (default 32768 = 32KB)
+- **UPSTASH_REDIS_REST_URL**: Optional L2 Redis cache URL
+- **UPSTASH_REDIS_REST_TOKEN**: Optional L2 Redis cache token
+
+### Rate Limiting Strategy
+- **Organization-level**: Highest priority when `x-org-id` header present
+- **User-level**: When `x-user-id` header present (no org header)
+- **IP-level**: Fallback when no org/user headers
+- **Protected endpoints**: All POST routes (/draft-flows, /critique, /improve)
+- **Exempt endpoints**: GET /health, /version, /live, /ops/snapshot
+- **Headers**: X-RateLimit-Limit, X-RateLimit-Remaining, Retry-After (on 429)
+
+### Response Caching Strategy
+- **L1 (Memory)**: Fast in-memory LRU cache with configurable max keys
+- **L2 (Redis)**: Optional Upstash Redis REST API for scalability
+- **Singleflight**: Prevents duplicate work under concurrent load
+- **Cache keys**: Based on route + org/user context + request body hash
+- **Bypass**: Add `x-cache-allow: 0` header to skip caching
+- **Headers**: X-Cache: HIT/MISS/BYPASS
+- **TTL**: Per-route configurable time-to-live
 
 ### Development Notes
 - Service runs on http://localhost:4311
@@ -68,9 +107,11 @@ This is a **deterministic Fastify + TypeScript service** for PLoT-lite that retu
 - Conventional commits enforced via commitlint + husky
 - OpenAPI schema validation available in development
 - Docker support with healthcheck and multi-stage testing
+- Use `.env.example` as reference for environment variables
 
 ### Privacy & Security
 - Structured logging with parse_text redaction
 - No sensitive data logging
 - Request/response bodies never logged
-- Rate limiting with proper HTTP headers (X-RateLimit-*, Retry-After)
+- Multi-tier rate limiting with proper HTTP headers
+- Optional request context tracking (org/user IDs)
