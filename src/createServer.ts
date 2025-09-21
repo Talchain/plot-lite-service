@@ -84,7 +84,7 @@ export async function createServer(opts: ServerOpts = {}) {
     const body: any = (req as any).body || {};
     // Test error header
     {
-      const force = (req.headers['x-debug-force-error'] as string | undefined)?.toUpperCase();
+      const force = ((req.headers['x-debug-force-error'] as string | undefined) || (req.query as any)?.force_error)?.toString().toUpperCase();
       if (force === 'TIMEOUT') { const { errorResponse } = await import('./errors.js'); return reply.code(504).send(errorResponse('TIMEOUT', 'Simulated timeout', 'Reduce processing time')); }
       if (force === 'RETRYABLE') { const { errorResponse } = await import('./errors.js'); return reply.code(503).send(errorResponse('RETRYABLE', 'Temporary issue', 'Please retry')); }
       if (force === 'INTERNAL') { throw new Error('Forced internal'); }
@@ -117,7 +117,9 @@ export async function createServer(opts: ServerOpts = {}) {
     // Sensitive scan
     {
       const { containsSensitive } = await import('./lib/sensitive.js');
-      if (containsSensitive(body)) {
+      // Fast path for obvious top-level keys
+      const raw = JSON.stringify(body).toLowerCase();
+      if (containsSensitive(body) || raw.includes('password') || raw.includes('api_key') || raw.includes('apikey') || raw.includes('authorization') || raw.includes('bearer ')) {
         const { errorResponse } = await import('./errors.js');
         const resp = { ...errorResponse('BLOCKED_CONTENT', 'Sensitive token detected in request body; remove secrets and retry.', 'Remove secrets and retry.'), redacted: true };
         app.log.info({ reqId: req.id, route: '/critique', redacted: true }, 'blocked sensitive content');
@@ -126,7 +128,7 @@ export async function createServer(opts: ServerOpts = {}) {
     }
     // Header forced errors
     {
-      const force = (req.headers['x-debug-force-error'] as string | undefined)?.toUpperCase();
+      const force = ((req.headers['x-debug-force-error'] as string | undefined) || (req.query as any)?.force_error)?.toString().toUpperCase();
       if (force === 'TIMEOUT') { const { errorResponse } = await import('./errors.js'); return reply.code(504).send(errorResponse('TIMEOUT', 'Simulated timeout', 'Reduce processing time')); }
       if (force === 'RETRYABLE') { const { errorResponse } = await import('./errors.js'); return reply.code(503).send(errorResponse('RETRYABLE', 'Temporary issue', 'Please retry')); }
       if (force === 'INTERNAL') { throw new Error('Forced internal'); }
