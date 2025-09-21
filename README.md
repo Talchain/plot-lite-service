@@ -76,8 +76,16 @@ Exemptions: GET /ready, GET /health, and GET /version are not rate-limited.
 ## Endpoints
 
 - GET /ready → { ok } (200 when server is ready)
-- GET /health → { status, p95_ms, c2xx, c4xx, c5xx, lastReplayStatus, rate_limit }
-- GET /version → { api: "1.0.0", build, model: "fixtures" }
+- GET /live → { ok } (always 200 while process is up)
+- GET /health → {
+  status,
+  p95_ms,
+  c2xx, c4xx, c5xx, lastReplayStatus,
+  runtime: { node, uptime_s, rss_mb, heap_used_mb, eventloop_delay_ms, p95_ms, p99_ms },
+  caches: { idempotency_current },
+  rate_limit: { enabled, rpm, last5m_429 }
+}
+- GET /version → { api: "1.0.0", build, model: "fixtures", runtime: { node } }
 - POST /draft-flows → deterministic fixtures (cases[0] by default; accepts fixture_case)
 - POST /critique → deterministic rules (no AI); Ajv-validated parse_json body
 - POST /improve → echoes parse_json and returns { fix_applied: [] }
@@ -129,6 +137,16 @@ The output includes p95_ms, max_ms, and rps. Our target p95 is ≤ 600 ms.
 
 See RELEASING.md for the release checklist and tagging guidance.
 
+## Releases
+
+- Conventional commits enforced via commitlint (local hooks via husky; optional in CI).
+- Generate CHANGELOG.md and tags with:
+  - Patch: npm run release
+  - Minor: npm run release:minor
+  - Major: npm run release:major
+- A Release workflow runs on tags (vX.Y.Z), builds/tests, and attaches artefacts (tests.json, Postman collection, contract report) to the GitHub Release.
+- Release Drafter auto-drafts notes on PR merges.
+
 ## For Windsurf
 
 - Base URL: http://localhost:4311
@@ -163,6 +181,8 @@ curl -s -X POST http://localhost:4311/draft-flows \
 - 2025-09-21 12:52 BST: Phase 14 → Added GitHub Actions workflow with Node 18/20 matrix, npm cache, and artefact uploads (reports/tests.json, Postman collection, contract report). Tests green.
 - 2025-09-21 13:41 BST: Slice A → Added smoke script and npm aliases (replay/loadcheck); tests green.
 - 2025-09-21 13:43 BST: Slice B → Added offline OpenAPI schema validation for fixtures and critique samples (dev-time). Tests green.
+- 2025-09-21 16:20 BST: Slice C → Release hygiene: conventional commits (commitlint + husky), standard-version release scripts, Release Drafter, PR template, CODEOWNERS, release workflow with artefacts. Tests green.
+- 2025-09-21 16:35 BST: Slice D → Resilience niceties: enriched /health (runtime, p99, caches), X-Request-ID header, /live, optional /ops/snapshot, improved timeout mapping, graceful shutdown. Tests green.
 
 ## Optional Docker
 Minimal Dockerfile included for Node 20:

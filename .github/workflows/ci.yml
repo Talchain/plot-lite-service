@@ -23,12 +23,17 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci --no-audit --no-fund
+        run: npm install --no-audit --no-fund
         env:
           NODE_OPTIONS: --experimental-global-fetch
 
-      - name: Run CI
-        run: npm run ci
+      - name: Build
+        run: npm run build
+        env:
+          NODE_OPTIONS: --experimental-global-fetch
+
+      - name: Test
+        run: npm test
         env:
           NODE_OPTIONS: --experimental-global-fetch
 

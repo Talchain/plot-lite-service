@@ -6,6 +6,22 @@ import { resolve } from 'path';
 import { spawnSync } from 'child_process';
 import { rateLimit } from './rateLimit.js';
 export async function createServer(opts = {}) {
+    const idemCache = new Map();
+    const IDEM_TTL_MS = 10 * 60 * 1000;
+    function getIdempotencyKey(req) {
+        const h = req.headers || {};
+        const k = (h['idempotency-key'] || h['Idempotency-Key']);
+        return k ? String(k) : undefined;
+    }
+    function getCacheKey(key, bodyHash) {
+        return `${key}:${bodyHash}`;
+    }
+    function purgeExpired(now) {
+        for (const [k, v] of idemCache) {
+            if (now - v.createdAt > IDEM_TTL_MS)
+                idemCache.delete(k);
+        }
+    }
     function getForcedError(req) {
         const header = req.headers['x-debug-force-error'];
         const q1 = req.query?.force_error;
@@ -85,7 +101,7 @@ export async function createServer(opts = {}) {
         const { rateLimitState } = await import('./rateLimit.js');
         return { status: 'ok', p95_ms: p95Ms(), ...snapshot(), rate_limit: rateLimitState() };
     });
-    app.get('/version', async () => ({ api: '1.0.0', build: getBuildId(), model: 'fixtures' }));
+    app.get('/version', async () => ({ api: '1.0.0', build: getBuildId(), model: 'fixtures', runtime: { node: process.version } }));
     app.post('/draft-flows', async (req, reply) => {
         const body = req.body || {};
         // Test error header
@@ -101,6 +117,32 @@ export async function createServer(opts = {}) {
             }
             if (force === 'INTERNAL') {
                 throw new Error('Forced internal');
+            }
+        }
+        // Idempotency replay (pre-check)
+        {
+            const key = getIdempotencyKey(req);
+            if (key) {
+                const now = Date.now();
+                purgeExpired(now);
+                const { canonicalStringify, sha256Hex } = await import('./util/canonical.js');
+                const bodyHash = sha256Hex(canonicalStringify(body));
+                // Search any existing entry for same key regardless of body to detect mismatch
+                for (const [k, entry] of idemCache) {
+                    if (k.startsWith(`${key}:`)) {
+                        if (entry.bodyHash !== bodyHash && now - entry.createdAt <= IDEM_TTL_MS) {
+                            const { errorResponse } = await import('./errors.js');
+                            return reply.code(400).send(errorResponse('BAD_INPUT', 'Idempotency key already used with different body', 'Use a new Idempotency-Key or the same exact body'));
+                        }
+                    }
+                }
+                const cacheKey = getCacheKey(key, bodyHash);
+                const entry = idemCache.get(cacheKey);
+                if (entry && now - entry.createdAt <= IDEM_TTL_MS) {
+                    reply.header('Content-Type', 'application/json');
+                    return reply.send(entry.responseText);
+                }
+                req.__idem = { key, bodyHash };
             }
         }
         // Sensitive scan (fast path then deep)
@@ -136,8 +178,18 @@ export async function createServer(opts = {}) {
             reply.header('Content-Type', 'application/json');
             return reply.send(hit);
         }
+        const respText = fixtureCase ? caseMap.get(fixtureCase) : firstCaseResponseRaw;
         reply.header('Content-Type', 'application/json');
-        return reply.send(firstCaseResponseRaw);
+        // Idempotency store (post)
+        {
+            const idem = req.__idem;
+            if (idem) {
+                const now = Date.now();
+                purgeExpired(now);
+                idemCache.set(getCacheKey(idem.key, idem.bodyHash), { bodyHash: idem.bodyHash, responseText: respText, createdAt: now });
+            }
+        }
+        return reply.send(respText);
     });
     app.post('/critique', async (req, reply) => {
         const body = req.body || {};
@@ -159,6 +211,31 @@ export async function createServer(opts = {}) {
                 const resp = { ...errorResponse('BLOCKED_CONTENT', 'Sensitive token detected in request body; remove secrets and retry.', 'Remove secrets and retry.'), redacted: true };
                 app.log.info({ reqId: req.id, route: '/critique', redacted: true }, 'blocked sensitive content');
                 return reply.code(400).send(resp);
+            }
+        }
+        // Idempotency pre-check
+        {
+            const key = getIdempotencyKey(req);
+            if (key) {
+                const now = Date.now();
+                purgeExpired(now);
+                const { canonicalStringify, sha256Hex } = await import('./util/canonical.js');
+                const bodyHash = sha256Hex(canonicalStringify(body));
+                for (const [k, entry] of idemCache) {
+                    if (k.startsWith(`${key}:`)) {
+                        if (entry.bodyHash !== bodyHash && now - entry.createdAt <= IDEM_TTL_MS) {
+                            const { errorResponse } = await import('./errors.js');
+                            return reply.code(400).send(errorResponse('BAD_INPUT', 'Idempotency key already used with different body', 'Use a new Idempotency-Key or the same exact body'));
+                        }
+                    }
+                }
+                const cacheKey = getCacheKey(key, bodyHash);
+                const entry = idemCache.get(cacheKey);
+                if (entry && now - entry.createdAt <= IDEM_TTL_MS) {
+                    reply.header('Content-Type', 'application/json');
+                    return reply.send(entry.responseText);
+                }
+                req.__idem = { key, bodyHash };
             }
         }
         // Header forced errors
@@ -194,7 +271,20 @@ export async function createServer(opts = {}) {
             return reply.code(500).send(errorResponse('INTERNAL', 'Validator error', e?.message));
         }
         const { critiqueFlow } = await import('./critique.js');
-        return critiqueFlow(parse_json);
+        const obj = critiqueFlow(parse_json);
+        // Idempotency store (post)
+        {
+            const idem = req.__idem;
+            if (idem) {
+                const now = Date.now();
+                purgeExpired(now);
+                const respText = JSON.stringify(obj);
+                reply.header('Content-Type', 'application/json');
+                idemCache.set(getCacheKey(idem.key, idem.bodyHash), { bodyHash: idem.bodyHash, responseText: respText, createdAt: now });
+                return reply.send(respText);
+            }
+        }
+        return obj;
     });
     app.post('/improve', async (req, reply) => {
         const { parse_json } = req.body || {};

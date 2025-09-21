@@ -1,4 +1,6 @@
 import { spawn } from 'child_process';
+import { mkdirSync, writeFileSync } from 'fs';
+import { resolve as resolvePath } from 'path';
 async function waitForHealth(timeoutMs = 5000, base = 'http://localhost:4311') {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
@@ -16,6 +18,16 @@ async function run(cmd, args, opts = {}) {
     return new Promise((resolve) => {
         const p = spawn(cmd, args, { stdio: 'inherit', shell: true, ...opts });
         p.on('close', (code) => resolve(code ?? 1));
+    });
+}
+async function runCapture(cmd, args, opts = {}) {
+    return new Promise((resolve) => {
+        const p = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], shell: true, ...opts });
+        let out = '';
+        let err = '';
+        p.stdout.on('data', (d) => { out += d.toString(); });
+        p.stderr.on('data', (d) => { err += d.toString(); });
+        p.on('close', (code) => resolve({ code: code ?? 1, stdout: out, stderr: err }));
     });
 }
 async function main() {
@@ -39,6 +51,16 @@ async function main() {
     if (vitestCode !== 0) {
         server.kill('SIGINT');
         process.exit(vitestCode);
+    }
+    // Also generate a JSON report for CI artefacts
+    try {
+        mkdirSync('reports', { recursive: true });
+        const report = await runCapture('npx', ['vitest', 'run', '--reporter=json'], { env: { ...process.env, TEST_BASE_URL: TEST_BASE, NODE_ENV: 'test' } });
+        // Write regardless of exit code so we still capture failures
+        writeFileSync(resolvePath('reports', 'tests.json'), report.stdout || '{}', 'utf8');
+    }
+    catch (e) {
+        // ignore report errors
     }
     // Run fixtures replay
     const replayCode = await run('node', ['tools/replay-fixtures.js']);

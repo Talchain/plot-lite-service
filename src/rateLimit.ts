@@ -28,7 +28,7 @@ export async function rateLimit(req: FastifyRequest, reply: FastifyReply) {
 
   // Exempt basic health/readiness endpoints from rate limiting
   const url = (req as any).url || '';
-  if (req.method === 'GET' && (url.startsWith('/health') || url.startsWith('/ready') || url.startsWith('/version'))) {
+  if (req.method === 'GET' && (url.startsWith('/health') || url.startsWith('/ready') || url.startsWith('/live') || url.startsWith('/version') || url.startsWith('/ops/snapshot'))) {
     return;
   }
 

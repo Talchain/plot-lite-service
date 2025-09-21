@@ -25,8 +25,12 @@ export async function createServer(opts: ServerOpts = {}) {
 
   function purgeExpired(now: number) {
     for (const [k, v] of idemCache) {
-      if (now - v.createdAt > IDEM_TTL_MS) idemCache.delete(k);
+      if (now - v.createdAt > IDEM_TTL_MS) {
+        idemCache.delete(k);
+      }
     }
+    // update cache gauge
+    (async () => { try { const { setIdemCacheSize } = await import('./metrics.js'); setIdemCacheSize(idemCache.size); } catch {} })();
   }
   function getForcedError(req: any): string | undefined {
     const header = (req.headers['x-debug-force-error'] as string | undefined);
@@ -59,6 +63,11 @@ export async function createServer(opts: ServerOpts = {}) {
 
   // Minimal structured access log without bodies
   app.addHook('onRequest', async (req) => { (req as any).startTime = process.hrtime.bigint(); });
+  // Echo X-Request-ID on all responses
+  app.addHook('onSend', async (req, reply, payload) => {
+    try { reply.header('X-Request-ID', String(req.id)); } catch {}
+    return payload as any;
+  });
   app.addHook('onResponse', async (req, reply) => {
     const start = (req as any).startTime as bigint | undefined;
     const end = process.hrtime.bigint();
@@ -103,12 +112,35 @@ export async function createServer(opts: ServerOpts = {}) {
   }
 
   app.get('/health', async () => {
-    const { p95Ms, snapshot } = await import('./metrics.js');
+    const { p95Ms, p99Ms, eventLoopDelayMs, snapshot } = await import('./metrics.js');
     const { rateLimitState } = await import('./rateLimit.js');
-    return { status: 'ok', p95_ms: p95Ms(), ...snapshot(), rate_limit: rateLimitState() };
+    const mem = process.memoryUsage();
+    const resp = {
+      status: 'ok',
+      // Preserve legacy top-level p95 for compatibility
+      p95_ms: p95Ms(),
+      ...snapshot(),
+      runtime: {
+        node: process.version,
+        uptime_s: Math.round(process.uptime()),
+        rss_mb: Math.round(mem.rss / 1024 / 1024),
+        heap_used_mb: Math.round(mem.heapUsed / 1024 / 1024),
+        eventloop_delay_ms: eventLoopDelayMs(),
+        p95_ms: p95Ms(),
+        p99_ms: p99Ms(),
+      },
+      caches: {
+        idempotency_current: idemCache.size,
+      },
+      rate_limit: rateLimitState(),
+    };
+    return resp;
   });
 
   app.get('/version', async () => ({ api: '1.0.0', build: getBuildId(), model: 'fixtures', runtime: { node: process.version } }));
+
+  // Liveness probe — basic process up indicator
+  app.get('/live', async () => ({ ok: true }));
 
   app.post('/draft-flows', async (req, reply) => {
     const body: any = (req as any).body || {};
@@ -184,6 +216,7 @@ export async function createServer(opts: ServerOpts = {}) {
         const now = Date.now();
         purgeExpired(now);
         idemCache.set(getCacheKey(idem.key, idem.bodyHash), { bodyHash: idem.bodyHash, responseText: respText, createdAt: now });
+        try { const { setIdemCacheSize } = await import('./metrics.js'); setIdemCacheSize(idemCache.size); } catch {}
       }
     }
 
@@ -263,6 +296,7 @@ export async function createServer(opts: ServerOpts = {}) {
         const respText = JSON.stringify(obj);
         reply.header('Content-Type', 'application/json');
         idemCache.set(getCacheKey(idem.key, idem.bodyHash), { bodyHash: idem.bodyHash, responseText: respText, createdAt: now });
+        try { const { setIdemCacheSize } = await import('./metrics.js'); setIdemCacheSize(idemCache.size); } catch {}
         return reply.send(respText);
       }
     }
@@ -291,9 +325,40 @@ export async function createServer(opts: ServerOpts = {}) {
   // Simple global error handler mapping to typed error
   app.setErrorHandler(async (err, req, reply) => {
     const { errorResponse } = await import('./errors.js');
-    const type = err?.message?.includes('body limit') ? 'BAD_INPUT' : 'INTERNAL';
-    reply.code(type === 'INTERNAL' ? 500 : 400).send(errorResponse(type as any, err?.message || 'Unhandled error'));
+    // Map request timeouts to TIMEOUT type
+    const msg = (err as any)?.message || '';
+    const code = (err as any)?.code || '';
+    if (code === 'FST_ERR_REQUEST_TIMEOUT' || /timeout/i.test(msg)) {
+      return reply.code(504).send(errorResponse('TIMEOUT', msg || 'Request timed out', 'Reduce processing time'));
+    }
+    const type = msg.includes('body limit') ? 'BAD_INPUT' : 'INTERNAL';
+    reply.code(type === 'INTERNAL' ? 500 : 400).send(errorResponse(type as any, msg || 'Unhandled error'));
   });
+
+  // Optional ops snapshot endpoint
+  if (process.env.OPS_SNAPSHOT === '1') {
+    app.get('/ops/snapshot', async () => {
+      const { p95Ms, p99Ms, eventLoopDelayMs, snapshot } = await import('./metrics.js');
+      const { rateLimitState } = await import('./rateLimit.js');
+      const mem = process.memoryUsage();
+      return {
+        status: 'ok',
+        p95_ms: p95Ms(),
+        ...snapshot(),
+        runtime: {
+          node: process.version,
+          uptime_s: Math.round(process.uptime()),
+          rss_mb: Math.round(mem.rss / 1024 / 1024),
+          heap_used_mb: Math.round(mem.heapUsed / 1024 / 1024),
+          eventloop_delay_ms: eventLoopDelayMs(),
+          p95_ms: p95Ms(),
+          p99_ms: p99Ms(),
+        },
+        caches: { idempotency_current: idemCache.size },
+        rate_limit: rateLimitState(),
+      };
+    });
+  }
 
   await app.ready();
   return app;

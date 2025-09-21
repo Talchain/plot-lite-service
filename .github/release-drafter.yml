@@ -1,0 +1,13 @@
+name-template: 'v$NEXT_PATCH_VERSION'
+tag-template: 'v$NEXT_PATCH_VERSION'
+change-template: '- $TITLE (#$NUMBER) @$AUTHOR'
+categories:
+  - title: 'Features'
+    labels: ['feat', 'feature']
+  - title: 'Fixes'
+    labels: ['fix', 'bugfix', 'bug']
+  - title: 'Chores'
+    labels: ['chore', 'docs', 'ci', 'refactor', 'test']
+template: |
+  ## Changes
+  $CHANGES
