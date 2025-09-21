@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
 
-const BASE = 'http://localhost:4311';
+const BASE = process.env.TEST_BASE_URL || 'http://localhost:4311';
 
 function shapeEqual(expected: any, actual: any) {
   if (Array.isArray(expected) && Array.isArray(actual)) {

@@ -1,10 +1,10 @@
 import { spawn } from 'child_process';
 
-async function waitForHealth(timeoutMs = 5000) {
+async function waitForHealth(timeoutMs = 5000, base = 'http://localhost:4311') {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
-      const res = await fetch('http://localhost:4311/health');
+      const res = await fetch(`${base}/health`);
       if (res.ok) return true;
     } catch {}
     await new Promise((r) => setTimeout(r, 150));
@@ -20,10 +20,14 @@ async function run(cmd: string, args: string[], opts: any = {}): Promise<number>
 }
 
 async function main() {
-  // Start server in background
-  const server = spawn('node', ['dist/server.js'], { stdio: 'inherit', env: { ...process.env, NODE_ENV: 'test' } });
+  // Pick a test port to avoid conflicts
+  const TEST_PORT = process.env.TEST_PORT || '4313';
+  const TEST_BASE = `http://127.0.0.1:${TEST_PORT}`;
 
-  const healthy = await waitForHealth(5000);
+  // Start server in background
+  const server = spawn('node', ['dist/server.js'], { stdio: 'inherit', env: { ...process.env, NODE_ENV: 'test', PORT: TEST_PORT, TEST_BASE_URL: TEST_BASE } });
+
+  const healthy = await waitForHealth(5000, TEST_BASE);
   if (!healthy) {
     console.error('Server did not become healthy in time');
     server.kill('SIGINT');

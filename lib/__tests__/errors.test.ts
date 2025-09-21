@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-const BASE = 'http://localhost:4311';
+const BASE = process.env.TEST_BASE_URL || 'http://localhost:4311';
 
 describe('Error taxonomy proofs', () => {
   it('BAD_INPUT for malformed /critique body', async () => {
