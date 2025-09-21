@@ -1,9 +1,9 @@
 import { spawn } from 'child_process';
-async function waitForHealth(timeoutMs = 5000) {
+async function waitForHealth(timeoutMs = 5000, base = 'http://localhost:4311') {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
         try {
-            const res = await fetch('http://localhost:4311/health');
+            const res = await fetch(`${base}/health`);
             if (res.ok)
                 return true;
         }
@@ -19,9 +19,16 @@ async function run(cmd, args, opts = {}) {
     });
 }
 async function main() {
-    // Start server in background
-    const server = spawn('node', ['dist/server.js'], { stdio: 'inherit' });
-    const healthy = await waitForHealth(5000);
+    // Ensure we are running the latest build
+    const buildCode = await run('npm', ['run', 'build']);
+    if (buildCode !== 0)
+        process.exit(buildCode);
+    // Pick a test port to avoid conflicts
+    const TEST_PORT = process.env.TEST_PORT || '4313';
+    const TEST_BASE = `http://127.0.0.1:${TEST_PORT}`;
+    // Start test server in background (enables test routes)
+    const server = spawn('node', ['tools/test-server.js'], { stdio: 'inherit', env: { ...process.env, NODE_ENV: 'test', TEST_PORT: TEST_PORT, TEST_BASE_URL: TEST_BASE, TEST_ROUTES: '1' } });
+    const healthy = await waitForHealth(5000, TEST_BASE);
     if (!healthy) {
         console.error('Server did not become healthy in time');
         server.kill('SIGINT');

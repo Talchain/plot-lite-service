@@ -15,6 +15,7 @@
     "tools/run-all-tests.ts",
     "tools/validate-openapi-response.ts",
     "tools/loadcheck.ts",
+    "tools/test-server.ts",
     "lib/canonical-json.ts"
   ],
   "exclude": ["node_modules", "dist"]
