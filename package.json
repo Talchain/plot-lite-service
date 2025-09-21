@@ -31,6 +31,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.5.2",
+    "autocannon": "^8.0.0",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4",
