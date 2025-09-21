@@ -155,6 +155,7 @@ curl -s -X POST http://localhost:4311/draft-flows \
 - 2025-09-21 12:25 BST: Loadcheck run → p95_ms=0, max_ms=132, rps=17193.6. Ran with RATE_LIMIT_ENABLED=0 against /draft-flows; target p95 ≤ 600 ms.
 - 2025-09-21 12:44 BST: Phase 11 docs → Added Idempotency-Key usage section with curl examples; cache TTL 10 minutes; tests remain green.
 - 2025-09-21 12:49 BST: Phase 12 → Added X-RateLimit-* on 2xx and Retry-After on 429; /health now reports { enabled, rpm, last5m_429 }. Exempted GET /ready,/health,/version from limiting. Tests green.
+- 2025-09-21 12:50 BST: Phase 13 → Added docker-compose with app healthcheck and tests service; `docker compose up --build` brings service healthy and runs tests.
 
 ## Optional Docker
 Minimal Dockerfile included for Node 20:
@@ -163,3 +164,15 @@ Minimal Dockerfile included for Node 20:
 docker build -t plot-lite-service .
 docker run --rm -p 4311:4311 plot-lite-service
 ```
+
+## Docker Compose
+
+Bring up the app and run tests in a separate service:
+
+```
+docker compose up --build
+```
+
+- The app exposes port 4311 and has a healthcheck on GET /ready.
+- The tests service depends on app:healthy and runs `npm test` in the same image.
+- Rate limiting is disabled in tests by default (RATE_LIMIT_ENABLED=0).

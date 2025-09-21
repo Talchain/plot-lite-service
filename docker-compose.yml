@@ -1,0 +1,25 @@
+version: '3.9'
+services:
+  app:
+    build: .
+    ports:
+      - '4311:4311'
+    environment:
+      - NODE_ENV=production
+      - RATE_LIMIT_ENABLED=1
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:4311/ready || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  tests:
+    build: .
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      - NODE_ENV=test
+      - RATE_LIMIT_ENABLED=0
+    command: ["npm", "test"]
