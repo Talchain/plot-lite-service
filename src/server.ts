@@ -107,8 +107,8 @@ app.post('/critique', async (req: any, reply) => {
     return reply.code(400).send(errorResponse('BAD_INPUT', 'Field parse_json is required', 'Provide a parse_json object matching flow.schema.json'));
   }
   try {
-    const { validateFlow } = await import('./validation.js');
-    const res = validateFlow(parse_json);
+    const { validateFlowAsync } = await import('./validation.js');
+    const res = await validateFlowAsync(parse_json);
     if (!res.ok) {
       const { errorResponse } = await import('./errors.js');
       return reply.code(400).send(errorResponse('BAD_INPUT', 'Invalid parse_json', res.hint));
@@ -117,12 +117,9 @@ app.post('/critique', async (req: any, reply) => {
     const { errorResponse } = await import('./errors.js');
     return reply.code(500).send(errorResponse('INTERNAL', 'Validator error', e?.message));
   }
-  // Deterministic fixed list (Phase 1)
-  return [
-    { note: 'Missing baseline: revenue', severity: 'BLOCKER', fix_available: true },
-    { note: 'Consider competitor response', severity: 'IMPROVEMENT', fix_available: true },
-    { note: '£99 psychological threshold', severity: 'OBSERVATION', fix_available: false },
-  ];
+  // Phase 2 rules (deterministic, no AI)
+  const { critiqueFlow } = await import('./critique.js');
+  return critiqueFlow(parse_json);
 });
 
 app.post('/improve', async (req: any, reply) => {

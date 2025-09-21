@@ -26,7 +26,8 @@ describe('Ajv request validation', () => {
     expect(res.status).toBe(200);
     const arr = await res.json();
     expect(Array.isArray(arr)).toBe(true);
-    expect(arr.length).toBe(3);
-    expect(arr[0].severity).toBe('BLOCKER');
+    expect(arr.length).toBeGreaterThanOrEqual(2);
+    expect(arr.some((x:any) => x.severity === 'IMPROVEMENT' && x.note.includes('competitor'))).toBe(true);
+    expect(arr.some((x:any) => x.severity === 'OBSERVATION' && x.note.includes('£99'))).toBe(true);
   });
 });
