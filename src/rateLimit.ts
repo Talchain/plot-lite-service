@@ -2,7 +2,7 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 
 interface State { count: number; resetAt: number }
 const perIp: Map<string, State> = new Map();
-const LIMIT = Number(process.env.RATE_LIMIT_PER_MIN || 60);
+const LIMIT = Number(process.env.RATE_LIMIT_RPM || process.env.RATE_LIMIT_PER_MIN || 60);
 const ENABLED = process.env.RATE_LIMIT_ENABLED !== '0';
 
 export async function rateLimit(req: FastifyRequest, reply: FastifyReply) {
@@ -22,4 +22,12 @@ export async function rateLimit(req: FastifyRequest, reply: FastifyReply) {
     reply.header('Retry-After', Math.ceil(retryMs / 1000));
     return reply.code(429).send({ error: { type: 'RETRYABLE', message: 'Rate limit exceeded', hint: `Please retry after ${Math.ceil(retryMs / 1000)} seconds` } });
   }
+}
+
+export function rateLimitState() {
+  return {
+    enabled: ENABLED,
+    limit_per_min: LIMIT,
+    buckets: perIp.size,
+  };
 }

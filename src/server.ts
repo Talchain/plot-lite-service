@@ -4,7 +4,7 @@ import { resolve } from 'path';
 import { spawnSync } from 'child_process';
 import { rateLimit } from './rateLimit.js';
 
-const PORT = 4311;
+const PORT = Number(process.env.PORT || 4311);
 const HOST = '0.0.0.0';
 
 // Logger with strict redaction: never include parse_text or request bodies
@@ -14,7 +14,7 @@ const app = Fastify({
     redact: { paths: ['parse_text', 'body.parse_text', 'request.body.parse_text'], remove: true },
   },
   bodyLimit: 128 * 1024, // 128 KiB
-  requestTimeout: 5000,  // 5 seconds
+  requestTimeout: Number(process.env.REQUEST_TIMEOUT_MS || 5000),
   disableRequestLogging: true,
 });
 
@@ -33,8 +33,9 @@ app.addHook('onResponse', async (req, reply) => {
   const route = (req as any)?.routeOptions?.url ?? req.url;
   if (typeof durationMs === 'number') {
     try {
-      const { recordDurationMs } = await import('./metrics.js');
+      const { recordDurationMs, recordStatus } = await import('./metrics.js');
       recordDurationMs(durationMs);
+      recordStatus(reply.statusCode);
     } catch {}
   }
   app.log.info({ reqId: req.id, route, statusCode: reply.statusCode, durationMs }, 'request completed');
@@ -70,8 +71,9 @@ function getBuildId(): string {
 }
 
 app.get('/health', async () => {
-  const { p95Ms } = await import('./metrics.js');
-  return { status: 'ok', p95_ms: p95Ms() };
+  const { p95Ms, snapshot } = await import('./metrics.js');
+  const { rateLimitState } = await import('./rateLimit.js');
+  return { status: 'ok', p95_ms: p95Ms(), ...snapshot(), rate_limit: rateLimitState() };
 });
 
 app.get('/version', async () => {
@@ -138,14 +140,39 @@ app.setErrorHandler(async (err, req, reply) => {
   reply.code(type === 'INTERNAL' ? 500 : 400).send(errorResponse(type as any, err.message || 'Unhandled error'));
 });
 
+let ready = false;
+
+app.get('/ready', async (_req, reply) => {
+  return reply.code(ready ? 200 : 503).send({ ok: ready });
+});
+
+app.post('/internal/replay-status', async (req: any, reply) => {
+  const s = req.body?.status;
+  const { setLastReplay } = await import('./metrics.js');
+  if (s === 'ok' || s === 'drift') setLastReplay(s);
+  return { recorded: s };
+});
+
 async function start() {
   try {
+    // Warm validator for readiness
+    try { const { warmValidator } = await import('./validation.js'); await warmValidator(); } catch {}
     await app.listen({ port: PORT, host: HOST });
+    ready = true;
     app.log.info({ port: PORT }, 'server started');
   } catch (err) {
     app.log.error({ err }, 'failed to start server');
     process.exit(1);
   }
+}
+
+// Graceful shutdown
+for (const sig of ['SIGINT','SIGTERM'] as const) {
+  process.on(sig, async () => {
+    ready = false;
+    app.log.info({ sig }, 'shutting down');
+    try { await app.close(); process.exit(0); } catch { process.exit(1); }
+  });
 }
 
 start();

@@ -24,6 +24,10 @@ async function getValidator() {
 
 export type ValidationResult = { ok: true } | { ok: false; hint: string };
 
+export async function warmValidator(): Promise<void> {
+  await getValidator();
+}
+
 export async function validateFlowAsync(value: unknown): Promise<ValidationResult> {
   const validator = await getValidator();
   const ok = validator(value);
