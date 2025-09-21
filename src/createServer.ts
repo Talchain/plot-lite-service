@@ -108,7 +108,7 @@ export async function createServer(opts: ServerOpts = {}) {
     return { status: 'ok', p95_ms: p95Ms(), ...snapshot(), rate_limit: rateLimitState() };
   });
 
-  app.get('/version', async () => ({ api: '1.0.0', build: getBuildId(), model: 'fixtures' }));
+  app.get('/version', async () => ({ api: '1.0.0', build: getBuildId(), model: 'fixtures', runtime: { node: process.version } }));
 
   app.post('/draft-flows', async (req, reply) => {
     const body: any = (req as any).body || {};
@@ -125,7 +125,7 @@ export async function createServer(opts: ServerOpts = {}) {
       if (key) {
         const now = Date.now();
         purgeExpired(now);
-        const { canonicalStringify, sha256Hex } = await import('../lib/canonical-json.js');
+        const { canonicalStringify, sha256Hex } = await import('./util/canonical.js');
         const bodyHash = sha256Hex(canonicalStringify(body));
         // Search any existing entry for same key regardless of body to detect mismatch
         for (const [k, entry] of idemCache) {
@@ -217,7 +217,7 @@ export async function createServer(opts: ServerOpts = {}) {
       if (key) {
         const now = Date.now();
         purgeExpired(now);
-        const { canonicalStringify, sha256Hex } = await import('../lib/canonical-json.js');
+        const { canonicalStringify, sha256Hex } = await import('./util/canonical.js');
         const bodyHash = sha256Hex(canonicalStringify(body));
         for (const [k, entry] of idemCache) {
           if (k.startsWith(`${key}:`)) {
