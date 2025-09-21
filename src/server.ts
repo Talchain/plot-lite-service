@@ -1,4 +1,6 @@
 import Fastify from 'fastify';
+import helmet from '@fastify/helmet';
+import cors from '@fastify/cors';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { spawnSync } from 'child_process';
@@ -17,6 +19,14 @@ const app = Fastify({
   requestTimeout: Number(process.env.REQUEST_TIMEOUT_MS || 5000),
   disableRequestLogging: true,
 });
+
+// Security headers
+await app.register(helmet, { global: true });
+
+// Dev CORS (opt-in)
+if (process.env.CORS_DEV === '1') {
+  await app.register(cors, { origin: 'http://localhost:5173' });
+}
 
 // Optional rate limit (enabled by default, disable with RATE_LIMIT_ENABLED=0)
 app.addHook('onRequest', rateLimit);

@@ -34,10 +34,18 @@ async function main() {
         }
     }
     if (mismatches > 0) {
+        try {
+            await fetch('http://localhost:4311/internal/replay-status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'drift' }) });
+        }
+        catch { }
         process.exit(1);
     }
     else {
         console.log(`All fixtures match (${cases.length} case).`);
+        try {
+            await fetch('http://localhost:4311/internal/replay-status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'ok', cases: cases.length }) });
+        }
+        catch { }
     }
 }
 main().catch((err) => {
