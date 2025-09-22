@@ -1,0 +1,29 @@
+name: Runtime Change Guard
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  runtime-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Runtime change guard (non-blocking)
+        run: node tools/runtime-change-guard.js
+        continue-on-error: true
+        env:
+          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+
+      - name: Upload runtime guard report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-change-guard
+          path: reports/runtime-change-guard.json
+          if-no-files-found: warn
