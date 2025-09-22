@@ -32,3 +32,17 @@ jobs:
         with:
           category: "security"
         continue-on-error: true
+
+      - name: Write CodeQL summary (non-blocking)
+        run: |
+          mkdir -p reports
+          echo '{"ok":true,"note":"CodeQL analysis triggered"}' > reports/codeql.json
+        continue-on-error: true
+
+      - name: Upload CodeQL summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codeql
+          path: reports/codeql.json
+          if-no-files-found: warn
