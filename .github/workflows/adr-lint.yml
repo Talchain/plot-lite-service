@@ -1,0 +1,27 @@
+name: ADR Lint
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  adr-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: ADR lint
+        run: node tools/adr-lint.js
+        continue-on-error: true
+
+      - name: Upload ADR lint report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: adr-lint
+          path: reports/adr-lint.json
+          if-no-files-found: warn
