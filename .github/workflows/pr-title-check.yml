@@ -1,0 +1,32 @@
+name: PR Title Check
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+
+jobs:
+  pr-title:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check PR title (conventional, non-blocking)
+        run: |
+          TITLE="${{ github.event.pull_request.title }}"
+          if echo "$TITLE" | egrep -iq '^(feat|fix|docs|ci|test|chore|refactor|perf|revert|style)(\(|: )'; then
+            echo "ok: conventional"
+            echo '{"ok":true,"title":'"$(jq -Rn --arg t "$TITLE" '$t')"'}' > reports/pr-title.json
+          else
+            echo "warn: non conventional title"
+            mkdir -p reports
+            echo '{"ok":false,"title":'"$(jq -Rn --arg t "$TITLE" '$t')"',"note":"non conventional title"}' > reports/pr-title.json
+          fi
+        shell: bash
+        continue-on-error: true
+
+      - name: Upload PR title report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-title
+          path: reports/pr-title.json
+          if-no-files-found: warn
