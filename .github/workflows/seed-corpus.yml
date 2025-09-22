@@ -1,0 +1,27 @@
+name: Seed Corpus
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  seed-corpus:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate seed corpus
+        run: node tools/seed-corpus.js
+        continue-on-error: true
+
+      - name: Upload seed corpus
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: seed-corpus
+          path: reports/seed-corpus.json
+          if-no-files-found: warn
