@@ -1,0 +1,26 @@
+name: Nightly OpenAPI Validate
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  openapi-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate OpenAPI (swagger-parser)
+        run: node tools/openapi-validate.js
+        continue-on-error: true
+
+      - name: Upload OpenAPI validation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: openapi-validate
+          path: reports/openapi-validate.json
+          if-no-files-found: warn
