@@ -1,0 +1,5 @@
+# CODEOWNERS
+# Protect runtime code. Update the owners below to valid GitHub usernames or teams.
+# Unknown owners are ignored by GitHub without breaking CI.
+
+src/** @Talchain/maintainers @paulslee
