@@ -1,0 +1,44 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Plot",
+  "type": "object",
+  "required": ["id", "steps"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "version": { "type": "string" },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "type"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "type": { "type": "string", "enum": ["transform", "http", "llm", "gate"] },
+          "inputs": { "type": "object" },
+          "outputs": { "type": "object" },
+          "next": {
+            "oneOf": [
+              { "type": "string" },
+              { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+            ]
+          },
+          "fork": {
+            "type": "object",
+            "properties": {
+              "condition": { "type": "string" },
+              "onTrue": { "type": "string" },
+              "onFalse": { "type": "string" },
+              "suggestFork": { "type": "boolean" }
+            },
+            "required": ["condition"]
+          },
+          "timeoutMs": { "type": "integer", "minimum": 1 },
+          "retries": { "type": "integer", "minimum": 0 }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}
