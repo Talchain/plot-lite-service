@@ -1,0 +1,12 @@
+# Label PRs by changed paths
+ci:
+  - .github/**
+  - tools/**
+tests:
+  - test/**
+docs:
+  - docs/**
+openapi:
+  - openapi/**
+fixtures:
+  - fixtures/**
