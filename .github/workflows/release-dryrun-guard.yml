@@ -1,0 +1,28 @@
+name: Release Dry-Run Guard
+
+on:
+  push:
+    tags:
+      - '*'
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  dryrun:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Release dry-run guard
+        run: node tools/release-dryrun-guard.js
+        continue-on-error: true
+
+      - name: Upload release dry-run report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-dryrun
+          path: reports/release-dryrun.json
+          if-no-files-found: warn
