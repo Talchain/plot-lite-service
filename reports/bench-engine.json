@@ -2,7 +2,7 @@
   "runs": 3,
   "stepsPerRun": 1000,
   "perStepMs": {
-    "mean": 0.004,
+    "mean": 0.003,
     "median": 0,
     "p95": 0
   }

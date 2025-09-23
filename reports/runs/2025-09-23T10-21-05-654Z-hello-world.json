@@ -1,0 +1,60 @@
+{
+  "record": {
+    "plotId": "hello-world",
+    "traceId": "1758622865655-c56c32x01ig",
+    "startedAt": "2025-09-23T10:21:05.655Z",
+    "finishedAt": "2025-09-23T10:21:05.656Z",
+    "steps": [
+      {
+        "id": "s1",
+        "type": "transform",
+        "status": "ok",
+        "durationMs": 0,
+        "attempts": 1
+      },
+      {
+        "id": "s2",
+        "type": "gate",
+        "status": "ok",
+        "durationMs": 1,
+        "attempts": 1
+      }
+    ],
+    "final": {
+      "ctx": {}
+    }
+  },
+  "stats": {
+    "totalMs": 1,
+    "steps": 2,
+    "ok": 2,
+    "failed": 0,
+    "retries": 0,
+    "cost": 0
+  },
+  "ctx": {},
+  "events": [
+    {
+      "type": "transform",
+      "id": "s1"
+    },
+    {
+      "type": "transform",
+      "id": "s1",
+      "durationMs": 0
+    },
+    {
+      "type": "gate",
+      "id": "s2"
+    },
+    {
+      "type": "gate",
+      "id": "s2",
+      "durationMs": 1
+    },
+    {
+      "type": "done",
+      "totalMs": 1
+    }
+  ]
+}

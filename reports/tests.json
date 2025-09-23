@@ -1,20 +1,40 @@
 {
   "summary": {
-    "total": 2,
-    "ok": 2,
+    "total": 6,
+    "ok": 6,
     "failed": 0,
-    "timestamp": "2025-09-23T09:57:04.691Z"
+    "timestamp": "2025-09-23T11:47:10.610Z"
   },
   "cases": [
     {
+      "name": "budget.stop.cjs",
+      "ok": true,
+      "ms": 6
+    },
+    {
       "name": "fork.simple.cjs",
       "ok": true,
-      "ms": 5
+      "ms": 1
+    },
+    {
+      "name": "ratelimit.simple.cjs",
+      "ok": true,
+      "ms": 1
+    },
+    {
+      "name": "retry.basic.cjs",
+      "ok": true,
+      "ms": 1
+    },
+    {
+      "name": "timeout.cap.cjs",
+      "ok": true,
+      "ms": 6
     },
     {
       "name": "transform.basic.cjs",
       "ok": true,
-      "ms": 0
+      "ms": 1
     }
   ]
 }
