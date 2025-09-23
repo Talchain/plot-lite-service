@@ -1,0 +1,27 @@
+name: OpenAPI Examples Roundtrip
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  openapi-examples:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: OpenAPI examples roundtrip
+        run: node tools/openapi-examples.js
+        continue-on-error: true
+
+      - name: Upload OpenAPI examples report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: openapi-examples
+          path: reports/openapi-examples.json
+          if-no-files-found: warn
