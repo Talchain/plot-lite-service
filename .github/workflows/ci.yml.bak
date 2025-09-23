@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+        env:
+          NODE_OPTIONS: --experimental-global-fetch
+
+      - name: Build
+        run: npm run build
+        env:
+          NODE_OPTIONS: --experimental-global-fetch
+
+      - name: Test
+        run: npm test
+        env:
+          NODE_OPTIONS: --experimental-global-fetch
+
+      - name: Ensure tests.json (non-blocking)
+        run: node tools/ensure-tests-json.js
+        continue-on-error: true
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tests-${{ matrix.node-version }}
+          path: |
+            reports/tests.json
+            docs/collections/plot-lite.postman.json
+            docs/contract-report.html
+          if-no-files-found: warn
