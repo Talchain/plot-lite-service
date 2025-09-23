@@ -1,0 +1,15 @@
+{
+  "runs": 200,
+  "maxAttempts": 3,
+  "successRate": 0.82,
+  "attemptsPerRun": {
+    "mean": 1.855,
+    "median": 2,
+    "p95": 3
+  },
+  "perAttemptMs": {
+    "mean": 0.008,
+    "median": 0,
+    "p95": 0
+  }
+}

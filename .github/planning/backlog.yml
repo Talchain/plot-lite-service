@@ -1,0 +1,22 @@
+epics:
+  - key: E1
+    title: Engine Core
+    tasks:
+      - key: E1-1
+        title: Parse & validate plot schema
+        accept: schema + failing cases covered
+      - key: E1-2
+        title: Executor with timeout/retry
+        accept: per-step caps respected
+      - key: E1-3
+        title: Execution record JSON
+        accept: golden file present
+  - key: E2
+    title: Step Registry
+    tasks:
+      - key: E2-1
+        title: Transform step
+      - key: E2-2
+        title: HTTP step (mock)
+      - key: E2-3
+        title: LLM step (flagged)

@@ -1,0 +1,8 @@
+{
+  "id": "hello-world",
+  "version": "1",
+  "steps": [
+    { "id": "s1", "type": "transform", "inputs": { "expr": "return { greeting: 'Hello' }" }, "next": "s2" },
+    { "id": "s2", "type": "gate", "inputs": { "condition": "${greeting} === 'Hello'" } }
+  ]
+}
