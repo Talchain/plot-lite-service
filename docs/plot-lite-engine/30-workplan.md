@@ -16,7 +16,7 @@
 
 ## E4 Observability
 - Metrics (success, latency, cost)
-- Structured logs
+- Logs (structured)
 - Minimal trace correlation
 
 ## E5 Dev Experience

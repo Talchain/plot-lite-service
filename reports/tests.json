@@ -3,18 +3,18 @@
     "total": 2,
     "ok": 2,
     "failed": 0,
-    "timestamp": "2025-09-23T00:41:00.972Z"
+    "timestamp": "2025-09-23T09:03:20.893Z"
   },
   "cases": [
     {
       "name": "fork.simple.cjs",
       "ok": true,
-      "ms": 47
+      "ms": 3
     },
     {
       "name": "transform.basic.cjs",
       "ok": true,
-      "ms": 3
+      "ms": 1
     }
   ]
 }

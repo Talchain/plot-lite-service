@@ -7,9 +7,9 @@
 - Provide a tiny registry for step types (HTTP call, transform, LLM call, gate).
 
 ## Constraints & Non-goals
-- Keep minimal: no heavy orchestration at first; no external queue to start.
+- Keep minimal: no heavy orchestration, no external queue to start.
 - Non-goal: enterprise scheduler, multi-tenant auth (later).
-- First-class safety: feature flags, rate limits, timeouts, retries with caps.
+- First class safety: feature flags, rate limits, timeouts, retries with caps.
 
 ## Glossary
 - **Plot:** A DAG-like scenario.

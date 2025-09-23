@@ -1,7 +1,7 @@
 # Architecture (v1)
 ## Components
 - **Engine Core:** Loads plot JSON, validates, executes with timeouts/retries.
-- **Step Registry:** Built-ins (HTTP, transform, LLM), pluggable interface.
+- **Step Registry:** Built-ins (HTTP, transform, LLM), pluggable via interface.
 - **Observability:** Metrics (success, latency, cost), structured logs, trace-id.
 - **Config/Flags:** Env + localStorage gates for UX; kill switches.
 - **Storage (MVP):** In-memory + JSON files; add Redis/Postgres later.
@@ -16,4 +16,4 @@
 ## Safety
 - Per-step timeout + retry caps.
 - Rate limiting on external calls.
-- Input/output schema checks and guards.
+- Input/output schema checks.

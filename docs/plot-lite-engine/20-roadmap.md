@@ -7,13 +7,13 @@
 ## M1 — Built-ins & Guardrails (3–5 days)
 - Step types: HTTP, transform, LLM (flagged).
 - Timeouts, retries, rate limit; basic fork.
-- Acceptance: sample plots pass; guardrails observable.
+- Acceptance: sample plots for each step pass; guardrails observable.
 
 ## M2 — Observability & Dev UX (3–5 days)
-- Structured logs, counters/histograms; trace-id propagation.
+- Structured logs, counters/histograms; trace-id prop.
 - Developer docs; quickstart; plan index.
-- Acceptance: CLI or docs summary; artifacts present.
+- Acceptance: dashboards or CLI summary; docs complete.
 
 ## M3 — Jobs/Gateway (optional)
-- Background worker + tiny gateway.
+- Background job runner + small gateway.
 - Acceptance: sandbox can trigger jobs; resiliency smoke tests.
