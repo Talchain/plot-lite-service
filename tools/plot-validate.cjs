@@ -1,6 +1,5 @@
 const fs = require('fs');
 const path = require('path');
-
 const OUT_DIR = path.join(process.cwd(), 'reports');
 const OUT_FILE = path.join(OUT_DIR, 'plot-validate.json');
 
@@ -9,7 +8,6 @@ function readJSON(p) {
   catch (e) { return { __error__: `read/parse error: ${e.message}` }; }
 }
 
-// minimal, no-deps “shape” check to avoid adding packages
 function validatePlotShape(plot) {
   const errors = [];
   if (!plot || typeof plot !== 'object') { errors.push('plot must be an object'); return errors; }
@@ -58,5 +56,4 @@ function main() {
   fs.writeFileSync(OUT_FILE, JSON.stringify({ summary, results }, null, 2));
   console.log(`Wrote ${OUT_FILE}`);
 }
-
 main();
