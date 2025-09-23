@@ -1,6 +1,7 @@
 import { createMetrics } from './metrics.js';
 import { getStepHandler } from './registry.js';
 import { nowMs } from './util.js';
+import { getLimiter } from './ratelimit.js';
 // ensure built-in steps are registered
 import './steps/transform.js';
 import './steps/gate.js';
@@ -21,7 +22,25 @@ async function withTimeout(promise, ms) {
   }
 }
 
-export async function runPlot(plot, { input = {}, onEvent, maxDurationMs = 30000, traceId } = {}) {
+function hash32(s) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function jittered(ms, key, enable) {
+  const base = Math.max(0, ms | 0);
+  if (!enable || base === 0) return base;
+  const h = hash32(String(key));
+  const frac = (h % 1000) / 1000; // [0,1)
+  const factor = 0.9 + (0.2 * frac); // [0.9,1.1)
+  return Math.round(base * factor);
+}
+
+export async function runPlot(plot, { input = {}, onEvent, traceId, maxDurationMs = 30000, budget } = {}) {
   const start = nowMs();
   const ctx = { ...input };
   const stepMap = new Map();
@@ -37,7 +56,7 @@ export async function runPlot(plot, { input = {}, onEvent, maxDurationMs = 30000
     steps: [],
     final: { ctx: null },
   };
-  const stats = { totalMs: 0, steps: 0, ok: 0, failed: 0 };
+  const stats = { totalMs: 0, steps: 0, ok: 0, failed: 0, retries: 0, cost: 0 };
 
   const emit = (type, data = {}) => { if (typeof onEvent === 'function') try { onEvent({ type, ...data }); } catch {} };
 
@@ -48,28 +67,102 @@ export async function runPlot(plot, { input = {}, onEvent, maxDurationMs = 30000
     const stepStart = nowMs();
     emit('step-start', { id: step.id, type: step.type });
 
+    // Budget pre-check
+    const estimate = step && step.cost && typeof step.cost.estimate === 'number' ? step.cost.estimate : 0;
+    if (budget && typeof budget.maxCost === 'number' && (stats.cost + estimate) > budget.maxCost) {
+      const durationMs = 0;
+      metrics.steps++;
+      metrics.failed++;
+      stats.steps++;
+      stats.failed++;
+      record.steps.push({ id: step.id, type: step.type, status: 'fail', durationMs, attempts: 0, reason: 'budget-exceeded' });
+      emit('step-fail', { id: step.id, type: step.type, error: 'budget-exceeded' });
+      break;
+    }
+
     try {
       if (!handler) throw new Error(`no handler for step type: ${step.type}`);
-      const timeoutMs = Math.min(step.timeoutMs || maxDurationMs, maxDurationMs);
-      const result = await withTimeout(handler({ ctx, step }), timeoutMs);
+      const effectiveTimeoutMs = Math.min(step.timeoutMs || maxDurationMs, maxDurationMs);
+
+      const retry = step.retry || {};
+      const maxAttempts = Math.max(1, Number(retry.max) || 1);
+      const backoffs = Array.isArray(retry.backoffMs) ? retry.backoffMs.map(n => Math.max(0, Number(n) || 0)) : [];
+      const useJitter = !!retry.jitter;
+
+      let attempts = 0;
+      let lastFail = null; // 'timeout' | 'rate-limit' | 'error'
+      let result = null;
+      let ok = false;
+
+      while (attempts < maxAttempts) {
+        attempts++;
+        // Rate limit gate per attempt
+        if (step.rateLimit && step.rateLimit.key && typeof step.rateLimit.limit === 'number' && typeof step.rateLimit.intervalMs === 'number') {
+          const lim = getLimiter(step.rateLimit.key);
+          lim.configure({ limit: step.rateLimit.limit, intervalMs: step.rateLimit.intervalMs });
+          const allowed = lim.acquire(nowMs());
+          if (!allowed) {
+            lastFail = 'rate-limit';
+            if (attempts < maxAttempts) {
+              emit('retry', { id: step.id, attempt: attempts, error: 'rate-limit' });
+              stats.retries++;
+              const base = backoffs.length ? backoffs[Math.min(attempts - 1, backoffs.length - 1)] : 0;
+              const waitMs = jittered(base, `${record.traceId}|${step.id}|${attempts}`, useJitter);
+              if (waitMs > 0) await new Promise(r => setTimeout(r, waitMs));
+              continue;
+            } else {
+              break;
+            }
+          }
+        }
+
+        try {
+          result = await withTimeout(handler({ ctx, step }), effectiveTimeoutMs);
+          ok = true;
+          break;
+        } catch (err) {
+          const isTimeout = String(err && err.message || err) === 'timeout';
+          lastFail = isTimeout ? 'timeout' : 'error';
+          if (attempts < maxAttempts) {
+            emit('retry', { id: step.id, attempt: attempts, error: isTimeout ? 'timeout' : String(err && err.message || err) });
+            stats.retries++;
+            const base = backoffs.length ? backoffs[Math.min(attempts - 1, backoffs.length - 1)] : 0;
+            const waitMs = jittered(base, `${record.traceId}|${step.id}|${attempts}`, useJitter);
+            if (waitMs > 0) await new Promise(r => setTimeout(r, waitMs));
+          }
+        }
+      }
+
       const durationMs = metrics.endStep(token);
       metrics.steps++;
-      metrics.ok++;
-      stats.steps++;
-      stats.ok++;
 
-      let nextId;
-      if (result && result.nextId) nextId = result.nextId;
-      else if (step.next) nextId = asArray(step.next)[0];
+      if (ok) {
+        metrics.ok++;
+        stats.steps++;
+        stats.ok++;
+        if (estimate) stats.cost += estimate;
 
-      record.steps.push({ id: step.id, type: step.type, status: 'ok', durationMs });
-      if (result && result.forkUsed) emit('fork', { from: step.id, nextId });
-      emit('step-ok', { id: step.id, type: step.type, durationMs });
+        let nextId;
+        if (result && result.nextId) nextId = result.nextId;
+        else if (step.next) nextId = asArray(step.next)[0];
 
-      if (nextId) {
-        current = stepMap.get(nextId) || null;
+        record.steps.push({ id: step.id, type: step.type, status: 'ok', durationMs, attempts });
+        if (result && result.forkUsed) emit('fork', { from: step.id, nextId });
+        emit('step-ok', { id: step.id, type: step.type, durationMs });
+
+        if (nextId) {
+          current = stepMap.get(nextId) || null;
+        } else {
+          current = null; // done
+        }
       } else {
-        current = null; // done
+        metrics.failed++;
+        stats.steps++;
+        stats.failed++;
+        const reason = lastFail === 'timeout' ? 'timeout' : (lastFail === 'rate-limit' ? 'rate-limit' : 'retry-exhausted');
+        record.steps.push({ id: step.id, type: step.type, status: 'fail', durationMs, attempts, reason });
+        emit('step-fail', { id: step.id, type: step.type, error: reason });
+        break;
       }
     } catch (error) {
       const durationMs = nowMs() - stepStart;
@@ -77,7 +170,7 @@ export async function runPlot(plot, { input = {}, onEvent, maxDurationMs = 30000
       metrics.failed++;
       stats.steps++;
       stats.failed++;
-      record.steps.push({ id: step.id, type: step.type, status: 'fail', durationMs, error: String(error && error.message || error) });
+      record.steps.push({ id: step.id, type: step.type, status: 'fail', durationMs, attempts: 1, reason: String(error && error.message || error) });
       emit('step-fail', { id: step.id, type: step.type, error: String(error && error.message || error) });
       break;
     }
