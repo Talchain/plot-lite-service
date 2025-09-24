@@ -14,6 +14,18 @@ die(){ echo "ERR: $*" >&2; exit 1; }
 need(){ command -v "$1" >/dev/null 2>&1 || die "missing dependency: $1"; }
 need git; need jq; need gh; need node
 
+# Prefer a real jq binary (not the Node.js package named "jq").
+JQ="jq"
+if ! jq --version 2>/dev/null | grep -q '^jq-'; then
+  if /usr/bin/jq --version 2>/dev/null | grep -q '^jq-'; then
+    JQ="/usr/bin/jq"
+  elif /opt/homebrew/bin/jq --version 2>/dev/null | grep -q '^jq-'; then
+    JQ="/opt/homebrew/bin/jq"
+  else
+    die "jq installed is not the CLI (got a non-CLI jq). Please install the jq CLI."
+  fi
+fi
+
 : >"$PR1_LOG"
 log "$PR1_LOG" "== PR1: ensure on branch =="
 run "$PR1_LOG" git -C "$ROOT" checkout -B "$BR"
@@ -45,13 +57,15 @@ echo "OK: PR1 finalized – pushed and PR opened/verified (log: $PR1_LOG)"
 PRNUM="$(gh pr view --json number -q .number || true)"
 [ -n "$PRNUM" ] || PRNUM="$(gh pr list --head "$BR" --json number -q '.[0].number' || true)"
 [ -n "$PRNUM" ] || die "no PR found for $BR"
-SUMMARY_JSON="$(gh run list --branch "$BR" --limit 20 --json name,conclusion,status,headSha | jq -c '.')"
-FAIL_COUNT="$(echo "$SUMMARY_JSON" | jq '[ .[] | select(.status=="completed" and .conclusion!=null and .conclusion!="success") ] | length')"
+SUMMARY_JSON="$(gh run list --branch "$BR" --limit 20 --json name,conclusion,status,headSha | "$JQ" -c '.')"
+REQUIRED_NAMES=("OpenAPI Examples Roundtrip" "engine-safety" "tests-smoke")
+REQUIRED_FILTER="[ .[] | select(.name as $n | ["OpenAPI Examples Roundtrip","engine-safety","tests-smoke"] | index($n)) | select(.status==\"completed\" and .conclusion!=null and .conclusion!=\"success\") ] | length"
+FAIL_COUNT="$(echo "$SUMMARY_JSON" | "$JQ" '[ .[] | select(.status=="completed" and .conclusion!=null and .conclusion!="success") ] | length')"
 RUNS_URL="$(gh pr view "$PRNUM" --json url -q .url)/checks"
 node "$ROOT/tools/run-tests.cjs" >>"$PR2_LOG" 2>&1 || true
 LOCAL_SUMMARY="(no local report)"
 if [ -f "$ROOT/reports/tests.json" ]; then
-  LOCAL_SUMMARY="$(jq -r 'if .summary then "tests \(.summary.ok)/\(.summary.total) ok" else "tests summary missing" end' "$ROOT/reports/tests.json" 2>/dev/null || echo tests summary missing)"
+  LOCAL_SUMMARY="$("$JQ" -r 'if .summary then "tests \(.summary.ok)/\(.summary.total) ok" else "tests summary missing" end' "$ROOT/reports/tests.json" 2>/dev/null || echo tests summary missing)"
 fi
 TMP="$(mktemp)"
 {
@@ -60,7 +74,7 @@ TMP="$(mktemp)"
   echo "- Local smoke: $LOCAL_SUMMARY"; echo
   echo "<details><summary>Latest workflow runs</summary>"; echo
   echo "\`\`\`json"
-  echo "$SUMMARY_JSON" | jq 'map({name,status,conclusion,headSha:(.headSha[0:7])})'
+  echo "$SUMMARY_JSON" | "$JQ" 'map({name,status,conclusion,headSha:(.headSha[0:7])})'
   echo "\`\`\`"; echo "</details>"
 } >"$TMP"
 if gh pr comment "$PRNUM" --search "CI status for \`$BR\`" --json id -q '.[0].id' >/dev/null 2>&1; then
