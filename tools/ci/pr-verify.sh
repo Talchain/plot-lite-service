@@ -60,7 +60,7 @@ PRNUM="$(gh pr view --json number -q .number || true)"
 SUMMARY_JSON="$(gh run list --branch "$BR" --limit 20 --json name,conclusion,status,headSha | "$JQ" -c '.')"
 REQUIRED_NAMES=("OpenAPI Examples Roundtrip" "engine-safety" "tests-smoke")
 REQUIRED_FILTER='[ .[] | select(.name as $n | ["OpenAPI Examples Roundtrip","engine-safety","tests-smoke"] | index($n)) | select(.status=="completed" and .conclusion!=null and .conclusion!="success") ] | length'
-FAIL_COUNT="$(echo \"$SUMMARY_JSON\" | \"$JQ\" \"$REQUIRED_FILTER\")"
+FAIL_COUNT="$(echo "$SUMMARY_JSON" | "$JQ" "$REQUIRED_FILTER")"
 RUNS_URL="$(gh pr view "$PRNUM" --json url -q .url)/checks"
 node "$ROOT/tools/run-tests.cjs" >>"$PR2_LOG" 2>&1 || true
 LOCAL_SUMMARY="(no local report)"
