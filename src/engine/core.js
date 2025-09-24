@@ -2,6 +2,8 @@ import { createMetrics } from './metrics.js';
 import { getStepHandler } from './registry.js';
 import { nowMs } from './util.js';
 import { getLimiter } from './ratelimit.js';
+import { backoffNext } from './backoff.js';
+import { getBreaker } from './breaker.js';
 // ensure built-in steps are registered
 import './steps/transform.js';
 import './steps/gate.js';
@@ -89,14 +91,28 @@ export async function runPlot(plot, { input = {}, onEvent, traceId, maxDurationM
       const retry = step.retry || {};
       const maxAttempts = Math.max(1, Number(retry.max) || 1);
       const backoffs = Array.isArray(retry.backoffMs) ? retry.backoffMs.map(n => Math.max(0, Number(n) || 0)) : [];
-      const useJitter = !!retry.jitter;
+      const useJitter = retry.jitter ? 'full' : false;
+      const breakerCfg = step.breaker || {};
+      const breakerKey = breakerCfg && breakerCfg.key ? String(breakerCfg.key) : String(step.id || step.type || 'step');
+      const breaker = getBreaker(breakerKey, {
+        failThreshold: breakerCfg.failThreshold,
+        cooldownMs: breakerCfg.cooldownMs,
+        halfOpenMax: breakerCfg.halfOpenMax,
+      });
 
       let attempts = 0;
-      let lastFail = null; // 'timeout' | 'rate-limit' | 'error'
+      let lastFail = null; // 'timeout' | 'rate-limit' | 'error' | 'breaker-open'
       let result = null;
       let ok = false;
+      let shortCircuit = false;
 
       while (attempts < maxAttempts) {
+        // Breaker gate before incrementing attempts
+        if (!breaker.canPass(nowMs())) {
+          lastFail = 'breaker-open';
+          shortCircuit = true;
+          break;
+        }
         attempts++;
         // Rate limit gate per attempt
         if (step.rateLimit && step.rateLimit.key && typeof step.rateLimit.limit === 'number' && typeof step.rateLimit.intervalMs === 'number') {
@@ -129,7 +145,7 @@ export async function runPlot(plot, { input = {}, onEvent, traceId, maxDurationM
             emit('retry', { id: step.id, attempt: attempts, error: isTimeout ? 'timeout' : String(err && err.message || err) });
             stats.retries++;
             const base = backoffs.length ? backoffs[Math.min(attempts - 1, backoffs.length - 1)] : 0;
-            const waitMs = jittered(base, `${record.traceId}|${step.id}|${attempts}`, useJitter);
+            const waitMs = backoffNext({ strategy: 'fixed', baseMs: base, maxMs: base, jitter: useJitter, attempt: attempts, seedParts: [record.traceId, step.id, attempts] });
             if (waitMs > 0) await new Promise(r => setTimeout(r, waitMs));
           }
         }
@@ -139,6 +155,7 @@ export async function runPlot(plot, { input = {}, onEvent, traceId, maxDurationM
       metrics.steps++;
 
       if (ok) {
+        breaker.onSuccess();
         metrics.ok++;
         stats.steps++;
         stats.ok++;
@@ -161,7 +178,8 @@ export async function runPlot(plot, { input = {}, onEvent, traceId, maxDurationM
         metrics.failed++;
         stats.steps++;
         stats.failed++;
-        const reason = lastFail === 'timeout' ? 'timeout' : (lastFail === 'rate-limit' ? 'rate-limit' : 'retry-exhausted');
+        const reason = lastFail === 'timeout' ? 'timeout' : (lastFail === 'rate-limit' ? 'rate-limit' : (lastFail === 'breaker-open' ? 'breaker-open' : 'retry-exhausted'));
+        breaker.onFailure(reason);
         record.steps.push({ id: step.id, type: step.type, status: 'fail', durationMs, attempts, reason });
         emit('step-fail', { id: step.id, type: step.type, error: reason });
         break;
