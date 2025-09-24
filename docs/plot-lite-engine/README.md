@@ -8,3 +8,5 @@
 - [workplan](docs/plot-lite-engine/30-workplan.md)
 - [risks](docs/plot-lite-engine/40-risks.md)
 - [test plan](docs/plot-lite-engine/50-test-plan.md)
+- [budget and timeouts](docs/plot-lite-engine/budget-and-timeouts.md)
+- [safety nets v2 (breaker + backoff)](docs/plot-lite-engine/safety-nets-v2.md)
