@@ -1,0 +1,14 @@
+{
+  "id": "demo-fanout-concurrency",
+  "version": "1",
+  "steps": [
+    { "id": "init", "type": "transform", "inputs": { "assign": { "items": [1,2,3,4] } } },
+    { "id": "fo", "type": "fanout", "inputs": {
+      "fromPath": "items",
+      "itemPath": "item",
+      "concurrency": 2,
+      "stopOnFirstError": true,
+      "steps": [ { "type": "transform", "inputs": { "assign": { "seen": true } } } ]
+    } }
+  ]
+}
