@@ -1,0 +1,12 @@
+{
+  "id": "fork-suggest",
+  "version": "1",
+  "steps": [
+    { "id": "start", "type": "transform", "inputs": { "expr": "return { score: 0.62 }" }, "next": "decision" },
+    {
+      "id": "decision",
+      "type": "gate",
+      "fork": { "condition": "${score} >= 0.6", "onTrue": "split", "onFalse": "continue", "suggestFork": true }
+    }
+  ]
+}

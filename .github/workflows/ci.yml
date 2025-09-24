@@ -25,17 +25,14 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
         env:
-          NODE_OPTIONS: --experimental-global-fetch
 
       - name: Build
         run: npm run build
         env:
-          NODE_OPTIONS: --experimental-global-fetch
 
       - name: Test
         run: npm test
         env:
-          NODE_OPTIONS: --experimental-global-fetch
 
       - name: Ensure tests.json (non-blocking)
         run: node tools/ensure-tests-json.js

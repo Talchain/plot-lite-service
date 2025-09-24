@@ -1,0 +1,56 @@
+{
+  "record": {
+    "plotId": "hello-world",
+    "traceId": "1758588077488-kzaljoogi6",
+    "startedAt": "2025-09-23T00:41:17.488Z",
+    "finishedAt": "2025-09-23T00:41:17.488Z",
+    "steps": [
+      {
+        "id": "s1",
+        "type": "transform",
+        "status": "ok",
+        "durationMs": 0
+      },
+      {
+        "id": "s2",
+        "type": "gate",
+        "status": "ok",
+        "durationMs": 0
+      }
+    ],
+    "final": {
+      "ctx": {}
+    }
+  },
+  "stats": {
+    "totalMs": 0,
+    "steps": 2,
+    "ok": 2,
+    "failed": 0
+  },
+  "ctx": {},
+  "events": [
+    {
+      "type": "transform",
+      "id": "s1"
+    },
+    {
+      "type": "transform",
+      "id": "s1",
+      "durationMs": 0
+    },
+    {
+      "type": "gate",
+      "id": "s2"
+    },
+    {
+      "type": "gate",
+      "id": "s2",
+      "durationMs": 0
+    },
+    {
+      "type": "done",
+      "totalMs": 0
+    }
+  ]
+}
