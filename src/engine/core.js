@@ -5,6 +5,8 @@ import { getLimiter } from './ratelimit.js';
 // ensure built-in steps are registered
 import './steps/transform.js';
 import './steps/gate.js';
+import './steps/calc.js';
+import './steps/map.js';
 
 function asArray(v) { return Array.isArray(v) ? v : (v == null ? [] : [v]); }
 
