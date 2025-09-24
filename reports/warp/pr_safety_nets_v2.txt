@@ -1,0 +1,20 @@
+Title: docs(tests): Safety Nets v2 docs + fixture; caps.breaker/timeout tests
+
+Summary
+- Add Safety Nets v2 documentation and a demo fixture.
+- Add deterministic smoke tests that exercise the `--consecFailLimit` and `--maxRunMs` flags.
+- Keep stdout tiny; write logs to `reports/warp/*`.
+
+Details
+- Docs: `docs/plot-lite-engine/60-usage.md` (Safety Nets v2), example references in `60-examples.md`.
+- Fixture: `docs/plot-lite-engine/fixtures/safety-caps-demo.json`.
+- Tests: `test/engine/caps.breaker.v2.cjs`, `test/engine/caps.timeout.v2.cjs`.
+- Report v1.3 signals (for reviewers): `runTimeoutTriggered`, `circuitBreakerTriggered`, `summary.stepCountByType`.
+
+Verification
+- `node tools/run-tests.cjs` → green
+- `node tools/plot-validate.cjs` → OK
+
+Notes
+- Fully deterministic (seed=42).
+- Idempotent updates; CI smoke job included.
