@@ -19,3 +19,7 @@ A minimal plot showing the new steps together. See also docs/plot-lite-engine/fi
     { "id": "g1", "type": "gate", "inputs": { "path": "score.total", "op": ">=", "value": 10, "onTrue": "__end" } }
   ]
 }
+## Safety Nets demo
+Run with flags:
+node tools/plot-run.cjs docs/plot-lite-engine/fixtures/safety-nets-demo.json --seed=42 --maxRunMs=200 --consecFailLimit=2
+
