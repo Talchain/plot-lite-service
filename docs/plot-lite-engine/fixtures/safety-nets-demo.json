@@ -1,0 +1,47 @@
+{
+  "id": "safety-nets-demo",
+  "version": "1",
+  "steps": [
+    {
+      "id": "t",
+      "type": "transform",
+      "inputs": {
+        "assign": {
+          "a": 2,
+          "b": 3,
+          "tier": "gold"
+        }
+      }
+    },
+    {
+      "id": "c",
+      "type": "calc",
+      "inputs": {
+        "assignTo": "score.total",
+        "expr": "(a+b)*2"
+      }
+    },
+    {
+      "id": "m",
+      "type": "map",
+      "inputs": {
+        "fromPath": "tier",
+        "mapping": {
+          "gold": "GOLD",
+          "free": "FREE"
+        },
+        "default": "UNK",
+        "assignTo": "tierLabel"
+      }
+    },
+    {
+      "id": "g",
+      "type": "gate",
+      "inputs": {
+        "path": "score.total",
+        "op": ">=",
+        "value": 10
+      }
+    }
+  ]
+}

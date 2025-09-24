@@ -37,3 +37,16 @@ Example:
 node tools/bench-engine.cjs
 
 Writes reports/bench-engine.json containing mean/median/p95 per-step durations across 3x1000-step runs.
+## Safety Nets v2 (run cap + circuit breaker)
+
+The engine now has two built-in “brakes” to keep runs safe, fast, and predictable:
+
+- **Run cap**: a hard wall-clock limit for the entire run. If exceeded, the engine appends a system step `__run` with `errorCode: RUN_TIMEOUT` and sets the top-level flag `runTimeoutTriggered: true`.
+- **Consecutive-failure circuit breaker**: if a streak of step attempts fail with no success in between, the engine stops early, adds `__run` with `errorCode: CIRCUIT_BREAKER`, and sets `circuitBreakerTriggered: true`.
+
+### How to use
+
+**CLI flags (override everything):**
+```bash
+node tools/plot-run.cjs <plot.json> --seed=42 --maxRunMs=200 --consecFailLimit=2
+```
