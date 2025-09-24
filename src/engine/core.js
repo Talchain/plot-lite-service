@@ -7,6 +7,7 @@ import './steps/transform.js';
 import './steps/gate.js';
 import './steps/calc.js';
 import './steps/map.js';
+import './steps/fanout.js';
 
 function asArray(v) { return Array.isArray(v) ? v : (v == null ? [] : [v]); }
 
@@ -44,6 +45,7 @@ function jittered(ms, key, enable) {
 
 export async function runPlot(plot, { input = {}, onEvent, traceId, maxDurationMs = 30000, budget } = {}) {
   const start = nowMs();
+  const deadlineAt = typeof maxDurationMs === 'number' && maxDurationMs > 0 ? (start + maxDurationMs) : null;
   const ctx = { ...input };
   const stepMap = new Map();
   for (const s of (plot.steps || [])) stepMap.set(s.id, s);
@@ -69,6 +71,21 @@ export async function runPlot(plot, { input = {}, onEvent, traceId, maxDurationM
     const stepStart = nowMs();
     emit('step-start', { id: step.id, type: step.type });
 
+    // Run-level deadline pre-check
+    if (deadlineAt != null) {
+      const timeLeft0 = Math.max(0, deadlineAt - nowMs());
+      if (timeLeft0 <= 0) {
+        const durationMs = metrics.endStep(token);
+        metrics.steps++;
+        metrics.failed++;
+        stats.steps++;
+        stats.failed++;
+        record.steps.push({ id: step.id, type: step.type, status: 'fail', durationMs, attempts: 0, reason: 'timeout' });
+        emit('step-fail', { id: step.id, type: step.type, error: 'timeout' });
+        break;
+      }
+    }
+
     // Budget pre-check
     const estimate = step && step.cost && typeof step.cost.estimate === 'number' ? step.cost.estimate : 0;
     if (budget && typeof budget.maxCost === 'number' && (stats.cost + estimate) > budget.maxCost) {
@@ -84,7 +101,15 @@ export async function runPlot(plot, { input = {}, onEvent, traceId, maxDurationM
 
     try {
       if (!handler) throw new Error(`no handler for step type: ${step.type}`);
-      const effectiveTimeoutMs = Math.min(step.timeoutMs || maxDurationMs, maxDurationMs);
+      let effectiveTimeoutMs = maxDurationMs;
+      if (deadlineAt != null) {
+        const tl = Math.max(0, deadlineAt - nowMs());
+        if (typeof step.timeoutMs === 'number' && step.timeoutMs > 0) effectiveTimeoutMs = Math.min(step.timeoutMs, tl);
+        else effectiveTimeoutMs = tl;
+        if (effectiveTimeoutMs <= 0) throw new Error('timeout');
+      } else if (typeof step.timeoutMs === 'number' && step.timeoutMs > 0) {
+        effectiveTimeoutMs = step.timeoutMs;
+      }
 
       const retry = step.retry || {};
       const maxAttempts = Math.max(1, Number(retry.max) || 1);
