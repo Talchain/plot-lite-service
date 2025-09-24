@@ -19,7 +19,7 @@
     "release:major": "standard-version --release-as major",
     "prepare": "husky install",
     "audit:prod": "npm audit --production",
-    "pr:verify": "tools/ci/pr-verify.sh"
+    "pr:verify": "node tools/ci/pr-verify.cjs"
   },
   "keywords": [],
   "author": "",
