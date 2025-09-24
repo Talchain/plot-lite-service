@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // tools/ci/pr-verify.cjs
-// Node port of pr-verify: summarizes required workflows, runs local smoke,
-// posts/updates a PR comment, and exits nonzero iff required workflows failed.
+// Summarize required workflows, run local smoke (non-fatal),
+// upsert a PR comment via gh api, and exit nonzero iff required workflows failed.
 
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
@@ -27,17 +27,26 @@ function run(cmd, args, opts={}) {
   fs.appendFileSync(LOG, `\n$ ${cmd} ${args.join(' ')}\n${out}`);
   return res;
 }
-function ghJson(args) {
-  const r = run('gh', args);
+function ghOut(args, opts={}) {
+  const r = run('gh', args, opts);
   if (r.status !== 0) throw new Error(`gh ${args.join(' ')} failed`);
-  return JSON.parse(r.stdout.trim() || 'null');
+  return (r.stdout || '').trim();
+}
+function ghJson(args, opts={}) {
+  const out = ghOut(args, opts);
+  return JSON.parse(out || 'null');
 }
 function prNumberForBranch(branch) {
-  // Try current PR, then list by head
   let n = null;
-  try { n = ghJson(['pr','view','--json','number','-q','.number']).number; } catch {}
+  try {
+    const j = ghJson(['pr','view','--json','number']);
+    n = j && j.number || null;
+  } catch {}
   if (!n) {
-    try { n = ghJson(['pr','list','--head', branch, '--json','number','-q','.[0].number']); } catch {}
+    try {
+      const arr = ghJson(['pr','list','--head', branch, '--json','number']);
+      n = Array.isArray(arr) && arr[0] ? arr[0].number : null;
+    } catch {}
   }
   return n;
 }
@@ -83,9 +92,9 @@ function requireTools() {
       localSummary = j && j.summary ? `tests ${j.summary.ok}/${j.summary.total} ok` : 'tests summary missing';
     } catch {}
 
-    // Checks page URL
-    const prUrl = ghJson(['pr','view',String(prnum),'--json','url','-q','.url']);
-    const checksUrl = `${prUrl}/checks`;
+    // Checks page URL (JSON → .url)
+    const prView = ghJson(['pr','view', String(prnum), '--json', 'url']);
+    const checksUrl = `${prView.url}/checks`;
 
     // Build comment body
     const compact = runs.map(r => ({
@@ -107,15 +116,16 @@ ${JSON.stringify(compact, null, 2)}
 \`\`\`
 </details>`;
 
-    // Edit existing comment if found; else create
-    let cid = null;
-    try {
-      cid = ghJson(['pr','comment',String(prnum),'--search',`CI status for \`${BR}\``, '--json','id','-q','.[0].id']);
-    } catch {}
-    if (cid) {
-      run('gh',['pr','comment',String(prnum),'--edit',String(cid),'-F','-'], { input: body });
+    // Upsert PR comment via gh api (find by marker → PATCH by id; else POST)
+    const ownerRepo = ghJson(['repo','view','--json','nameWithOwner']).nameWithOwner;
+    const comments = ghJson(['api', `repos/${ownerRepo}/issues/${prnum}/comments`]);
+    const marker = `CI status for \`${BR}\`:`;
+    const existing = Array.isArray(comments) ? comments.find(c => (c.body || '').startsWith(marker)) : null;
+
+    if (existing && existing.id) {
+      run('gh', ['api', '--method', 'PATCH', `repos/${ownerRepo}/issues/comments/${existing.id}`, '-f', 'body=@-'], { input: body });
     } else {
-      run('gh',['pr','comment',String(prnum),'-F','-'], { input: body });
+      run('gh', ['api', '--method', 'POST', `repos/${ownerRepo}/issues/${prnum}/comments`, '-f', 'body=@-'], { input: body });
     }
 
     if (failCount > 0) {
