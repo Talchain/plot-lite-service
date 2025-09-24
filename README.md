@@ -221,3 +221,9 @@ BRANCH=chore/lockfile-sync-ci BASE_BRANCH=main npm run pr:verify
 
 - Only required workflows gate status: `OpenAPI Examples Roundtrip`, `engine-safety`, `tests-smoke`.
 - Uses safe jq quoting and avoids Node’s npm \"jq\" shim automatically.
+
+## CI status bot (pr-verify)
+
+- Runs on every PR update and comments a compact summary of required checks.
+- Local dev: `npm run pr:verify` uses the same Node script used in CI.
+- Required gates: OpenAPI Examples Roundtrip, engine-safety, tests-smoke.
