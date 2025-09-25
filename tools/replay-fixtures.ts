@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { canonicalStringify } from '../lib/canonical-json.js';
-import { fetchKA } from './http-keepalive.js';
+import { fetchKA, getKAStats } from './http-keepalive.js';
 
 function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
 function expBackoff(attempt: number, base = 60, cap = 800) {
@@ -43,6 +43,9 @@ async function main() {
 
   // Health-gate before replay start
   await healthGate(base, 3, 30, 100);
+  if (process.env.KA_DEBUG === '1') {
+    console.log('KA debug (pre-replay):', getKAStats());
+  }
 
   const fixturesPath = resolve(process.cwd(), 'fixtures', 'deterministic-fixtures.json');
   const text = readFileSync(fixturesPath, 'utf8');
@@ -88,6 +91,9 @@ async function main() {
 
   // Health-gate after replay finish to assert stability
   await healthGate(base, 3, 30, 100);
+  if (process.env.KA_DEBUG === '1') {
+    console.log('KA debug (post-replay):', getKAStats());
+  }
 }
 
 main().catch((err) => {

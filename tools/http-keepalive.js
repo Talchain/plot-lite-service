@@ -7,3 +7,18 @@ export function fetchKA(url, opts = {}) {
   const agent = u.protocol === "https:" ? httpsAgent : httpAgent;
   return fetch(url, { agent, ...opts });
 }
+export function getKAStats() {
+  const sumLens = (rec) => Object.values(rec || {}).reduce((acc, v) => acc + (Array.isArray(v) ? v.length : 0), 0);
+  return {
+    http: {
+      sockets: sumLens(httpAgent.sockets || {}),
+      free: sumLens(httpAgent.freeSockets || {}),
+      requests: sumLens(httpAgent.requests || {}),
+    },
+    https: {
+      sockets: sumLens(httpsAgent.sockets || {}),
+      free: sumLens(httpsAgent.freeSockets || {}),
+      requests: sumLens(httpsAgent.requests || {}),
+    },
+  };
+}

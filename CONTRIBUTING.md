@@ -20,3 +20,20 @@ Artifacts:
 
 ## Using the test server base URL
 - All tools respect `TEST_BASE_URL` (e.g., `http://127.0.0.1:4313`) so the runner and validators hit the same instance.
+
+## Replay artifact schema (reports/warp/replay-last.json)
+A minimal JSON payload saved when the replay step fails (always in CI; non-strict locally when using `npm run test:fast`).
+
+Schema (informal):
+- base: string
+  - The base URL used for HTTP calls during the test run (e.g., `http://127.0.0.1:4313`).
+- code: number
+  - The process exit code from the replay script.
+- stdout: string
+  - Tail (last ~2000 chars) of stdout from the replay step.
+- stderr: string
+  - Tail (last ~2000 chars) of stderr from the replay step.
+
+Notes:
+- These tails are intended for quick triage; the failing seed/case is typically visible in stdout.
+- CI uploads this file under the `warp-artifacts*` artifact. Locally, find it at `reports/warp/replay-last.json`.

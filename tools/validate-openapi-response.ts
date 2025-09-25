@@ -9,7 +9,7 @@ async function main() {
     process.exit(0);
   }
   const base = process.env.TEST_BASE_URL || 'http://localhost:4311';
-  const { fetchKA } = await import('./http-keepalive.js');
+  const { fetchKA, getKAStats } = await import('./http-keepalive.js');
   const yamlText = readFileSync(specPath, 'utf8');
   try {
     const doc = YAML.parse(yamlText);
@@ -25,6 +25,9 @@ async function main() {
       process.exit(1);
     }
     console.log('OpenAPI lightweight check passed.');
+    if (process.env.KA_DEBUG === '1') {
+      console.log('KA debug (validator):', getKAStats());
+    }
   } catch (e) {
     console.error('Failed to parse or validate OpenAPI spec:', e);
     process.exit(1);
