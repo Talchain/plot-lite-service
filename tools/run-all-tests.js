@@ -62,8 +62,8 @@ async function main() {
     catch (e) {
         // ignore report errors
     }
-    // Run fixtures replay
-    const replayCode = await run('node', ['tools/replay-fixtures.js']);
+    // Run fixtures replay (honor TEST_BASE_URL)
+    const replayCode = await run('node', ['tools/replay-fixtures.js'], { env: { ...process.env, TEST_BASE_URL: TEST_BASE, NODE_ENV: 'test' } });
     if (replayCode !== 0) {
         server.kill('SIGINT');
         process.exit(replayCode);
