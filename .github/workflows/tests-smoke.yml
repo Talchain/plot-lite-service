@@ -32,6 +32,13 @@ jobs:
           name: tests-report
           path: reports/tests.json
           if-no-files-found: warn
+      - name: Upload warp artifacts (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: warp-artifacts-smoke
+          path: reports/warp
+          if-no-files-found: ignore
       - name: Upload fuzz repro (if any)
         if: failure()
         uses: actions/upload-artifact@v4
