@@ -32,3 +32,10 @@ jobs:
           name: tests-report
           path: reports/tests.json
           if-no-files-found: warn
+      - name: Upload fuzz repro (if any)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-repro
+          path: reports/warp/fuzz-last.json
+          if-no-files-found: ignore
