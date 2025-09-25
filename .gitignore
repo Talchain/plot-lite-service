@@ -8,3 +8,4 @@ yarn-error.log
 # Reports and local artefacts (untracked)
 reports/*.json
 reports/warp/*
+reports/warp/traces/*

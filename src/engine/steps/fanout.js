@@ -17,6 +17,7 @@ export async function handleFanout({ ctx, step }) {
   const inputs = step.inputs || {};
   const caps = (ctx && ctx.__runCaps) ? ctx.__runCaps : {};
   const deadlineAt = caps && typeof caps.deadlineAt === 'number' ? caps.deadlineAt : null;
+  const traceId = caps && caps.traceId ? String(caps.traceId) : 'fanout';
 
   function timeLeft() {
     return deadlineAt == null ? Infinity : Math.max(0, deadlineAt - Date.now());
@@ -57,7 +58,7 @@ export async function handleFanout({ ctx, step }) {
     for (const s of steps) {
       const tl = timeLeft();
       if (tl <= 0) throw new Error('timeout');
-      const res = await runStepCore({ ctx: childCtx, step: s, caps, traceId: 'fanout' });
+      const res = await runStepCore({ ctx: childCtx, step: s, caps, traceId });
       if (!res.ok) throw new Error(res.reason || 'error');
     }
   }
