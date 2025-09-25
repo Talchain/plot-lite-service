@@ -1,5 +1,6 @@
-import { registerStep, getStepHandler } from '../registry.js';
+import { registerStep } from '../registry.js';
 import { get } from '../util.js';
+import { runStepCore } from '../stepRunner.js';
 
 function setPath(obj, path, value) {
   const parts = String(path).split('.');
@@ -54,12 +55,10 @@ export async function handleFanout({ ctx, step }) {
     try { if (caps) Object.defineProperty(childCtx, '__runCaps', { value: caps, enumerable: false, configurable: true }); } catch {}
     setPath(childCtx, itemPath, items[index]);
     for (const s of steps) {
-      const h = getStepHandler(s.type);
-      if (!h) throw new Error(`no handler for step type: ${s.type}`);
       const tl = timeLeft();
       if (tl <= 0) throw new Error('timeout');
-      const stepTimeout = (s && typeof s.timeoutMs === 'number' && s.timeoutMs > 0) ? Math.min(s.timeoutMs, tl) : tl;
-      await withTimeout(Promise.resolve().then(() => h({ ctx: childCtx, step: s })), stepTimeout);
+      const res = await runStepCore({ ctx: childCtx, step: s, caps, traceId: 'fanout' });
+      if (!res.ok) throw new Error(res.reason || 'error');
     }
   }
 
