@@ -1,0 +1,31 @@
+{
+  "timestamp": "2025-09-25T08:25:08.094Z",
+  "params": {
+    "items": 200,
+    "ms": 1,
+    "concurrencies": [
+      1,
+      2,
+      4,
+      8
+    ]
+  },
+  "results": [
+    {
+      "concurrency": 1,
+      "ms": 240
+    },
+    {
+      "concurrency": 2,
+      "ms": 118
+    },
+    {
+      "concurrency": 4,
+      "ms": 65
+    },
+    {
+      "concurrency": 8,
+      "ms": 35
+    }
+  ]
+}
