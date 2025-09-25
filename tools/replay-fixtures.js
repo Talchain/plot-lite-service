@@ -5,13 +5,14 @@ async function main() {
     const text = readFileSync(fixturesPath, 'utf8');
     const fixtures = JSON.parse(text);
     const cases = fixtures.cases || [];
+    const BASE = process.env.TEST_BASE_URL || 'http://localhost:4311';
     let mismatches = 0;
     for (let i = 0; i < cases.length; i++) {
         const c = cases[i];
         const reqBody = { ...(c.request || {}), fixture_case: c.name };
         // Expected is the exact JSON string our server should emit
         const expected = JSON.stringify(c.response);
-        const res = await fetch('http://localhost:4311/draft-flows', {
+        const res = await fetch(`${BASE}/draft-flows`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(reqBody),
@@ -35,7 +36,7 @@ async function main() {
     }
     if (mismatches > 0) {
         try {
-            await fetch('http://localhost:4311/internal/replay-status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'drift' }) });
+            await fetch(`${BASE}/internal/replay-status`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'drift' }) });
         }
         catch { }
         process.exit(1);
@@ -43,7 +44,7 @@ async function main() {
     else {
         console.log(`All fixtures match (${cases.length} case).`);
         try {
-            await fetch('http://localhost:4311/internal/replay-status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'ok', cases: cases.length }) });
+            await fetch(`${BASE}/internal/replay-status`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'ok', cases: cases.length }) });
         }
         catch { }
     }
