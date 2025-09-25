@@ -4,3 +4,7 @@ dist
 coverage
 npm-debug.log*
 yarn-error.log
+
+# Reports and local artefacts (untracked)
+reports/*.json
+reports/warp/*
