@@ -31,7 +31,7 @@ jobs:
         env:
 
       - name: Test
-        run: npm test
+        run: npm run test:ci
         env:
 
       - name: Ensure tests.json (non-blocking)
