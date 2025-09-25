@@ -54,6 +54,11 @@ async function main() {
     server.kill('SIGINT');
     process.exit(1);
   }
+  // settle window + triple health to avoid early accept backlog races
+  await new Promise(r => setTimeout(r, 300));
+  for (let i = 0; i < 3; i++) {
+    await waitForHealth(1000, TEST_BASE);
+  }
 
   // Run vitest with TEST_BASE_URL
   const vitestCode = await run('npx', ['vitest', 'run'], { env: { ...process.env, TEST_BASE_URL: TEST_BASE, NODE_ENV: 'test' } });
@@ -98,7 +103,8 @@ async function main() {
   await waitForHealth(2000, TEST_BASE);
   const openapiCode = await run('node', ['tools/validate-openapi-response.js'], { env: { ...process.env, TEST_BASE_URL: TEST_BASE } });
 
-  server.kill('SIGINT');
+  // graceful shutdown and await close
+  await new Promise<void>((resolve) => { server.on('close', () => resolve()); server.kill('SIGINT'); });
   process.exit(openapiCode);
 }
 

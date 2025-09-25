@@ -1,24 +1,49 @@
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { canonicalStringify } from '../lib/canonical-json.js';
+import { fetchKA } from './http-keepalive.js';
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-async function fetchWithRetry(url: string, opts: any = {}, retries = 8, delayMs = 100): Promise<Response> {
-  let lastErr: any;
-  for (let i = 0; i < retries; i++) {
+function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
+function expBackoff(attempt: number, base = 60, cap = 800) {
+  const raw = Math.min(cap, base * Math.pow(2, attempt));
+  return Math.floor(Math.random() * raw);
+}
+async function fetchWithRetry(url: string, init: RequestInit = {}, retries = 8): Promise<Response> {
+  let attempt = 0;
+  for (;;) {
     try {
-      const res = await fetch(url, opts);
+      const res = await fetchKA(url, init);
+      if (!res.ok && res.status >= 500) throw new Error('server error');
       return res;
     } catch (e) {
-      lastErr = e;
-      await sleep(delayMs);
+      attempt++;
+      if (attempt > retries) throw e;
+      await sleep(expBackoff(attempt));
     }
   }
-  throw lastErr;
+}
+
+async function healthGate(base: string, neededOk = 3, maxTries = 30, intervalMs = 100) {
+  let ok = 0, tries = 0;
+  while (ok < neededOk && tries < maxTries) {
+    tries++;
+    try {
+      const r = await fetchKA(`${base}/health`);
+      if (r.ok) ok++; else ok = 0;
+    } catch {
+      ok = 0;
+    }
+    await sleep(intervalMs);
+  }
+  return ok >= neededOk;
 }
 
 async function main() {
   const base = process.env.TEST_BASE_URL || 'http://localhost:4311';
+
+  // Health-gate before replay start
+  await healthGate(base, 3, 30, 100);
+
   const fixturesPath = resolve(process.cwd(), 'fixtures', 'deterministic-fixtures.json');
   const text = readFileSync(fixturesPath, 'utf8');
   const fixtures = JSON.parse(text);
@@ -60,6 +85,9 @@ async function main() {
     console.log(`All fixtures match (${cases.length} case).`);
     try { await fetchWithRetry(`${base}/internal/replay-status`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'ok', cases: cases.length }) }); } catch {}
   }
+
+  // Health-gate after replay finish to assert stability
+  await healthGate(base, 3, 30, 100);
 }
 
 main().catch((err) => {
