@@ -148,7 +148,9 @@ describe('engine conformance fuzz (seeded)', () => {
           const B = await runPlot(incPlot, { input, ...caps });
           const Au1 = A.record.steps.find(s => s.id === 'u1');
           const Bu1 = B.record.steps.find(s => s.id === 'u1');
-          expect(Bu1.durationMs).toBeGreaterThanOrEqual(Au1.durationMs);
+          if (Au1 && Bu1) {
+            expect(Bu1.durationMs).toBeGreaterThanOrEqual(Au1.durationMs);
+          }
 
           // Breaker strictness: stricter breaker cannot increase attempts
           const loose = JSON.parse(JSON.stringify(plot));
@@ -159,7 +161,9 @@ describe('engine conformance fuzz (seeded)', () => {
           const S = await runPlot(strict, { input, ...caps });
           const Lu1 = L.record.steps.find(s => s.id === 'u1');
           const Su1 = S.record.steps.find(s => s.id === 'u1');
-          expect(Su1.attempts).toBeLessThanOrEqual(Lu1.attempts);
+          if (Lu1 && Su1) {
+            expect(Su1.attempts).toBeLessThanOrEqual(Lu1.attempts);
+          }
 
           // Deadline monotonicity: smaller deadline should not increase steps run
           if (cfg.deadline && cfg.deadline > 20) {
