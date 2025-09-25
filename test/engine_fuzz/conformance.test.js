@@ -112,14 +112,16 @@ describe('engine conformance fuzz (seeded)', () => {
         expect(stats.ok + stats.failed).toBe(stats.steps);
         for (const s of record.steps) {
           expect(typeof s.durationMs).toBe('number');
-          expect(s.attempts).toBeGreaterThanOrEqual(1);
+          // attempts may be 0 if run-level deadline hit before first attempt
+          const minAttempts = s.status === 'ok' ? 1 : 0;
+          expect(s.attempts).toBeGreaterThanOrEqual(minAttempts);
         }
         const sumAttemptsMinus1 = record.steps.reduce((acc, s) => acc + Math.max(0, (s.attempts || 0) - 1), 0);
         expect(stats.retries).toBeGreaterThanOrEqual(sumAttemptsMinus1);
 
         const u1 = record.steps.find(s => s.id === 'u1');
         expect(!!u1).toBe(true);
-        if (cfg.retryMax === 0) {
+        if (cfg.retryMax === 0 && u1.status === 'ok') {
           expect(u1.attempts).toBe(1);
         }
         // Rate limit observation: if we pre-consumed a token and disallow retries, u1 may fail quickly
