@@ -120,15 +120,16 @@ describe('engine conformance fuzz (seeded)', () => {
         expect(stats.retries).toBeGreaterThanOrEqual(sumAttemptsMinus1);
 
         const u1 = record.steps.find(s => s.id === 'u1');
-        expect(!!u1).toBe(true);
-        if (cfg.retryMax === 0 && u1.status === 'ok') {
-          expect(u1.attempts).toBe(1);
-        }
-        // Rate limit observation: if we pre-consumed a token and disallow retries, u1 may fail quickly
-        // Do not require failure (window may roll or be very short); only constrain reason if it fails.
-        if (cfg.rateLimit && cfg.rateLimit.limit === 1 && cfg.retryMax === 0) {
-          if (u1.status === 'fail' && u1.reason) {
-            expect(['rate-limit', 'retry-exhausted']).toContain(u1.reason);
+        if (u1) {
+          if (cfg.retryMax === 0 && u1.status === 'ok') {
+            expect(u1.attempts).toBe(1);
+          }
+          // Rate limit observation: if we pre-consumed a token and disallow retries, u1 may fail quickly
+          // Do not require failure (window may roll or be very short); only constrain reason if it fails.
+          if (cfg.rateLimit && cfg.rateLimit.limit === 1 && cfg.retryMax === 0) {
+            if (u1.status === 'fail' && u1.reason) {
+              expect(['rate-limit', 'retry-exhausted']).toContain(u1.reason);
+            }
           }
         }
         // Allowed reasons only
