@@ -7,11 +7,12 @@ async function main() {
         console.log('OpenAPI spec not found; skipping validation.');
         process.exit(0);
     }
+    const base = process.env.TEST_BASE_URL || 'http://localhost:4311';
     const yamlText = readFileSync(specPath, 'utf8');
     try {
         const doc = YAML.parse(yamlText);
         // Best-effort: syntax parsed. Now validate one live response matches basic shape
-        const res = await fetch('http://localhost:4311/draft-flows', {
+        const res = await fetch(`${base}/draft-flows`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ seed: 1 }),

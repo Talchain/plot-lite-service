@@ -2,7 +2,23 @@ import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { canonicalStringify } from '../lib/canonical-json.js';
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+async function fetchWithRetry(url: string, opts: any = {}, retries = 8, delayMs = 100): Promise<Response> {
+  let lastErr: any;
+  for (let i = 0; i < retries; i++) {
+    try {
+      const res = await fetch(url, opts);
+      return res;
+    } catch (e) {
+      lastErr = e;
+      await sleep(delayMs);
+    }
+  }
+  throw lastErr;
+}
+
 async function main() {
+  const base = process.env.TEST_BASE_URL || 'http://localhost:4311';
   const fixturesPath = resolve(process.cwd(), 'fixtures', 'deterministic-fixtures.json');
   const text = readFileSync(fixturesPath, 'utf8');
   const fixtures = JSON.parse(text);
@@ -14,7 +30,7 @@ async function main() {
     // Expected is the exact JSON string our server should emit
     const expected = JSON.stringify(c.response);
 
-    const res = await fetch('http://localhost:4311/draft-flows', {
+    const res = await fetchWithRetry(`${base}/draft-flows`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(reqBody),
@@ -38,11 +54,11 @@ async function main() {
   }
 
   if (mismatches > 0) {
-    try { await fetch('http://localhost:4311/internal/replay-status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'drift' }) }); } catch {}
+    try { await fetchWithRetry(`${base}/internal/replay-status`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'drift' }) }); } catch {}
     process.exit(1);
   } else {
     console.log(`All fixtures match (${cases.length} case).`);
-    try { await fetch('http://localhost:4311/internal/replay-status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'ok', cases: cases.length }) }); } catch {}
+    try { await fetchWithRetry(`${base}/internal/replay-status`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'ok', cases: cases.length }) }); } catch {}
   }
 }
 

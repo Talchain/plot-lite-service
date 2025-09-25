@@ -40,9 +40,13 @@ async function main() {
   // Pick a test port to avoid conflicts
   const TEST_PORT = process.env.TEST_PORT || '4313';
   const TEST_BASE = `http://127.0.0.1:${TEST_PORT}`;
+  const RUN_REPLAY_STRICT = process.env.RUN_REPLAY_STRICT !== '0';
 
   // Start test server in background (enables test routes)
-  const server = spawn('node', ['tools/test-server.js'], { stdio: 'inherit', env: { ...process.env, NODE_ENV: 'test', TEST_PORT: TEST_PORT, TEST_BASE_URL: TEST_BASE, TEST_ROUTES: '1', RATE_LIMIT_ENABLED: '0' } });
+  const server = spawn('node', ['tools/test-server.js'], {
+    stdio: 'inherit',
+    env: { ...process.env, NODE_ENV: 'test', TEST_PORT: TEST_PORT, TEST_BASE_URL: TEST_BASE, TEST_ROUTES: '1', RATE_LIMIT_ENABLED: '0' }
+  });
 
   const healthy = await waitForHealth(5000, TEST_BASE);
   if (!healthy) {
@@ -60,7 +64,7 @@ async function main() {
 
   // Also generate a JSON report for CI artefacts
   try {
-    mkdirSync('reports', { recursive: true });
+    mkdirSync('reports/warp', { recursive: true });
     const report = await runCapture('npx', ['vitest', 'run', '--reporter=json'], { env: { ...process.env, TEST_BASE_URL: TEST_BASE, NODE_ENV: 'test' } });
     // Write regardless of exit code so we still capture failures
     writeFileSync(resolvePath('reports', 'tests.json'), report.stdout || '{}', 'utf8');
@@ -68,15 +72,31 @@ async function main() {
     // ignore report errors
   }
 
-  // Run fixtures replay
-  const replayCode = await run('node', ['tools/replay-fixtures.js']);
-  if (replayCode !== 0) {
-    server.kill('SIGINT');
-    process.exit(replayCode);
+  // Small settle delay before replay
+  await new Promise((r) => setTimeout(r, 150));
+
+  // Run fixtures replay (non-strict locally if RUN_REPLAY_STRICT=0)
+  const replay = await runCapture('node', ['tools/replay-fixtures.js'], { env: { ...process.env, TEST_BASE_URL: TEST_BASE } });
+  if (replay.code !== 0) {
+    if (RUN_REPLAY_STRICT) {
+      server.kill('SIGINT');
+      // Save artifact for CI
+      try {
+        writeFileSync(resolvePath('reports/warp', 'replay-last.json'), JSON.stringify({ base: TEST_BASE, code: replay.code, stderr: replay.stderr.slice(-2000), stdout: replay.stdout.slice(-2000) }, null, 2), 'utf8');
+      } catch {}
+      process.exit(replay.code);
+    } else {
+      console.warn('WARN: replay-fixtures failed (non-fatal in local dev).');
+      try {
+        writeFileSync(resolvePath('reports/warp', 'replay-last.json'), JSON.stringify({ base: TEST_BASE, code: replay.code, stderr: replay.stderr.slice(-2000), stdout: replay.stdout.slice(-2000) }, null, 2), 'utf8');
+      } catch {}
+    }
   }
 
   // OpenAPI lightweight validation (skips if spec missing)
-  const openapiCode = await run('node', ['tools/validate-openapi-response.js']);
+  // Re-poll health briefly in case replay step triggered transient load
+  await waitForHealth(2000, TEST_BASE);
+  const openapiCode = await run('node', ['tools/validate-openapi-response.js'], { env: { ...process.env, TEST_BASE_URL: TEST_BASE } });
 
   server.kill('SIGINT');
   process.exit(openapiCode);
