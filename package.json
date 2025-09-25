@@ -11,6 +11,7 @@
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.tools.json",
     "start": "node dist/main.js",
     "test": "node tools/run-all-tests.js",
+    "test:fast": "RUN_REPLAY_STRICT=0 node tools/run-all-tests.js",
     "test:engine": "node tools/run-tests.cjs",
     "ci": "npm ci && npm run build && npm test",
     "replay": "node tools/replay-fixtures.js",

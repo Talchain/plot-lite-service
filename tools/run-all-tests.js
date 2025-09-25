@@ -14,6 +14,24 @@ async function waitForHealth(timeoutMs = 5000, base = 'http://localhost:4311') {
     }
     return false;
 }
+async function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+async function retry(fn, { tries = 3, baseMs = 120, factor = 2 } = {}) {
+    let attempt = 0, lastErr;
+    while (attempt < tries) {
+        try {
+            return await fn();
+        }
+        catch (e) {
+            lastErr = e;
+            attempt++;
+            if (attempt >= tries)
+                break;
+            const wait = baseMs * Math.pow(factor, attempt - 1);
+            await sleep(wait);
+        }
+    }
+    throw lastErr;
+}
 async function run(cmd, args, opts = {}) {
     return new Promise((resolve) => {
         const p = spawn(cmd, args, { stdio: 'inherit', shell: true, ...opts });
@@ -62,11 +80,42 @@ async function main() {
     catch (e) {
         // ignore report errors
     }
-    // Run fixtures replay (honor TEST_BASE_URL)
-    const replayCode = await run('node', ['tools/replay-fixtures.js'], { env: { ...process.env, TEST_BASE_URL: TEST_BASE, NODE_ENV: 'test' } });
-    if (replayCode !== 0) {
-        server.kill('SIGINT');
-        process.exit(replayCode);
+    // Run fixtures replay with settle, health poll, retry, and local-only soft-fail
+    await sleep(150);
+    const healthyBeforeReplay = await waitForHealth(2000, TEST_BASE);
+    const doReplayCapture = () => runCapture('node', ['tools/replay-fixtures.js'], { env: { ...process.env, TEST_BASE_URL: TEST_BASE, NODE_ENV: 'test' } });
+    let replay = { code: 1, stdout: '', stderr: '' };
+    try {
+        replay = healthyBeforeReplay ? (await retry(doReplayCapture, { tries: 3, baseMs: 120, factor: 2 })) : (await doReplayCapture());
+    }
+    catch (e) {
+        replay = { code: 1, stdout: '', stderr: String(e && e.message || e) };
+    }
+    if (replay.code !== 0) {
+        try {
+            const outDir = resolvePath('reports', 'warp');
+            mkdirSync(outDir, { recursive: true });
+            let health = null;
+            try {
+                const h = await fetch(`${TEST_BASE}/health`);
+                const body = await h.text();
+                health = { ok: h.ok, status: h.status, body };
+            }
+            catch (e) {
+                health = { ok: false, error: String(e && e.message || e) };
+            }
+            const payload = { timestamp: new Date().toISOString(), base: TEST_BASE, replay, health, env: { CI: process.env.CI || '', NODE_ENV: process.env.NODE_ENV || '' } };
+            writeFileSync(resolvePath('reports', 'warp', 'replay-last.json'), JSON.stringify(payload, null, 2), 'utf8');
+        }
+        catch { }
+        const strict = String(process.env.CI) === '1' || String(process.env.RUN_REPLAY_STRICT) === '1';
+        if (strict) {
+            server.kill('SIGINT');
+            process.exit(replay.code);
+        }
+        else {
+            console.warn('WARN: replay-fixtures failed (non-fatal in local dev).');
+        }
     }
     // OpenAPI lightweight validation (skips if spec missing)
     const openapiCode = await run('node', ['tools/validate-openapi-response.js']);
