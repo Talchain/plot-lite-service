@@ -90,6 +90,33 @@ Exemptions: GET /ready, GET /health, and GET /version are not rate-limited.
 - POST /critique → deterministic rules (no AI); Ajv-validated parse_json body
 - POST /improve → echoes parse_json and returns { fix_applied: [] }
 
+### Replay telemetry (tests & local runs)
+
+GET /health includes a compact replay section that reflects the most recent replay activity:
+
+```
+{
+  "replay": {
+    "lastStatus": "ok",
+    "refusals": 0,
+    "retries": 3,
+    "lastTs": "2025-09-25T12:34:56.789Z"
+  }
+}
+```
+
+- Meaning
+  - lastStatus: outcome of the last replayed flow (ok or fail)
+  - refusals: count of connection refusals observed by the replay harness
+  - retries: retry attempts made by the replay harness
+  - lastTs: ISO timestamp of the last update
+
+- Test-only endpoints
+  - GET /internal/replay-status → same replay object (200 only in test mode)
+  - POST /internal/replay-report → increments counters (test mode only)
+
+Test mode is enabled when TEST_ROUTES=1 (set by the test server helper). In production these endpoints return 404.
+
 ## Determinism
 
 - Responses from /draft-flows are pre-serialised from fixtures; byte-for-byte equality is enforced by tools/replay-fixtures.js across all cases.
