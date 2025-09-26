@@ -80,6 +80,14 @@ export async function createServer(opts: ServerOpts = {}) {
         recordStatus(reply.statusCode);
       } catch {}
     }
+    // Update replay lastStatus/lastTs for /draft-flows responses
+    if (route?.startsWith('/draft-flows')) {
+      try {
+        const { recordReplayStatus } = await import('./metrics.js');
+        const status = reply.statusCode >= 200 && reply.statusCode < 300 ? 'ok' : 'fail';
+        recordReplayStatus(status as 'ok' | 'fail');
+      } catch {}
+    }
     app.log.info({ reqId: req.id, route, statusCode: reply.statusCode, durationMs }, 'request completed');
   });
 
@@ -112,7 +120,7 @@ export async function createServer(opts: ServerOpts = {}) {
   }
 
   app.get('/health', async () => {
-    const { p95Ms, p99Ms, eventLoopDelayMs, snapshot } = await import('./metrics.js');
+    const { p95Ms, p99Ms, eventLoopDelayMs, snapshot, replaySnapshot } = await import('./metrics.js');
     const { rateLimitState } = await import('./rateLimit.js');
     const mem = process.memoryUsage();
     const resp = {
@@ -133,7 +141,8 @@ export async function createServer(opts: ServerOpts = {}) {
         idempotency_current: idemCache.size,
       },
       rate_limit: rateLimitState(),
-    };
+      replay: replaySnapshot(),
+    } as const;
     return resp;
   });
 
@@ -310,7 +319,7 @@ export async function createServer(opts: ServerOpts = {}) {
     return { parse_json, fix_applied: [] };
   });
 
-  // Test-only error injection
+  // Test-only error injection and internal replay telemetry routes
   if (opts.enableTestRoutes || process.env.TEST_ROUTES === '1') {
     app.post('/__test/force-error', async (req: any, reply) => {
       const t = (req.body?.type || req.query?.type || '').toString().toUpperCase();
@@ -319,6 +328,24 @@ export async function createServer(opts: ServerOpts = {}) {
       if (t === 'RETRYABLE') return reply.code(503).send(errorResponse('RETRYABLE', 'Temporary issue', 'Please retry'));
       if (t === 'INTERNAL') return reply.code(500).send(errorResponse('INTERNAL', 'Forced internal', 'See server logs'));
       return reply.code(400).send(errorResponse('BAD_INPUT', 'Unknown type', 'Use TIMEOUT, RETRYABLE, or INTERNAL'));
+    });
+
+    // Internal replay telemetry — test mode only
+    app.get('/internal/replay-status', async (_req, reply) => {
+      const { replaySnapshot } = await import('./metrics.js');
+      return reply.code(200).send(replaySnapshot());
+    });
+    app.post('/internal/replay-report', async (req: any, reply) => {
+      try {
+        const b = req.body || {};
+        const { recordReplayRefusal, recordReplayRetry, recordReplayStatus } = await import('./metrics.js');
+        if (b.refusal) recordReplayRefusal();
+        if (b.retry) recordReplayRetry();
+        if (b.status === 'ok' || b.status === 'fail') recordReplayStatus(b.status);
+        return { ok: true };
+      } catch {
+        return { ok: false };
+      }
     });
   }
 
