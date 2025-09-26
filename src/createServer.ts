@@ -2,8 +2,10 @@ import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
 import { readFileSync } from 'fs';
-import { resolve } from 'path';
+import { resolve, join as joinPath } from 'path';
 import { spawnSync } from 'child_process';
+import { createHash } from 'node:crypto';
+import { promises as fsp } from 'node:fs';
 import { rateLimit } from './rateLimit.js';
 
 export interface ServerOpts { enableTestRoutes?: boolean }
@@ -91,7 +93,7 @@ export async function createServer(opts: ServerOpts = {}) {
     app.log.info({ reqId: req.id, route, statusCode: reply.statusCode, durationMs }, 'request completed');
   });
 
-  // Load fixtures and pre-serialise
+  // Load fixtures and pre-serialise for legacy POST /draft-flows
   const fixturesPath = resolve(process.cwd(), 'fixtures', 'deterministic-fixtures.json');
   let firstCaseResponseRaw = '';
   const caseMap = new Map<string, string>();
@@ -123,8 +125,8 @@ export async function createServer(opts: ServerOpts = {}) {
     const { p95Ms, p99Ms, eventLoopDelayMs, snapshot, replaySnapshot } = await import('./metrics.js');
     const { rateLimitState } = await import('./rateLimit.js');
     const mem = process.memoryUsage();
-    const resp = {
-      status: 'ok',
+    const base = {
+      status: 'ok' as const,
       // Preserve legacy top-level p95 for compatibility
       p95_ms: p95Ms(),
       ...snapshot(),
@@ -141,15 +143,104 @@ export async function createServer(opts: ServerOpts = {}) {
         idempotency_current: idemCache.size,
       },
       rate_limit: rateLimitState(),
+      test_routes_enabled: process.env.NODE_ENV === 'production' ? false : Boolean(opts.enableTestRoutes || process.env.TEST_ROUTES === '1'),
       replay: replaySnapshot(),
     } as const;
-    return resp;
+    // Enforce a small upper bound to prevent accidental drift; keep required keys
+    const MAX_BYTES = 4 * 1024;
+    const txt = JSON.stringify(base);
+    if (Buffer.byteLength(txt, 'utf8') <= MAX_BYTES) return base;
+    const minimal = {
+      status: 'ok' as const,
+      p95_ms: p95Ms(),
+      test_routes_enabled: process.env.NODE_ENV === 'production' ? false : Boolean(opts.enableTestRoutes || process.env.TEST_ROUTES === '1'),
+      replay: replaySnapshot(),
+    };
+    return minimal;
   });
 
-  app.get('/version', async () => ({ api: '1.0.0', build: getBuildId(), model: 'fixtures', runtime: { node: process.version } }));
+  app.get('/version', async () => {
+    const build = getBuildId();
+    return { api: 'warp/0.1.0', build, model: `plot-lite-${build}` };
+  });
 
   // Liveness probe — basic process up indicator
   app.get('/live', async () => ({ ok: true }));
+
+  // Deterministic GET /draft-flows — serve pre-serialized fixtures by template + seed with strong ETag
+  type AllowedTemplate = 'pricing_change' | 'feature_launch' | 'build_vs_buy';
+  type FixtureEntry = { buf: Buffer; etag: string; contentLength: number; metaSeed: number; template: AllowedTemplate };
+  const deterministicMap = new Map<string, FixtureEntry>();
+  const deterministicRoot = resolve(process.cwd(), 'fixtures');
+  async function preloadDeterministic() {
+    const templates: AllowedTemplate[] = ['pricing_change','feature_launch','build_vs_buy'];
+    for (const tmpl of templates) {
+      const dir = joinPath(deterministicRoot, tmpl);
+      let files: string[] = [];
+      try {
+        const ents = await fsp.readdir(dir, { withFileTypes: true });
+        files = ents.filter(e => e.isFile() && /^\d+\.json$/.test(e.name)).map(e => e.name);
+      } catch {
+        continue;
+      }
+      for (const f of files) {
+        const seed = Number(f.replace(/\.json$/, ''));
+        if (!Number.isInteger(seed)) continue;
+        const abs = joinPath(dir, f);
+        const raw = await fsp.readFile(abs);
+        let parsed: any;
+        try { parsed = JSON.parse(raw.toString('utf8')); } catch (e) { throw new Error(`Invalid JSON in ${abs}`); }
+        if (parsed?.schema !== 'report.v1') throw new Error(`Missing schema in ${abs}`);
+        if (parsed?.meta?.seed !== seed) throw new Error(`meta.seed mismatch in ${abs}`);
+        const h = createHash('sha256').update(raw).digest('hex');
+        const etag = '"' + h + '"';
+        deterministicMap.set(`${tmpl}|${seed}`, { buf: raw, etag, contentLength: raw.length, metaSeed: seed, template: tmpl });
+      }
+    }
+  }
+  await preloadDeterministic();
+
+  app.get('/draft-flows', async (req, reply) => {
+    const q = (req as any).query || {};
+    const fields: Record<string, any> = {};
+    const template = typeof q.template === 'string' ? q.template : '';
+    const seedNum = (typeof q.seed === 'string' || typeof q.seed === 'number') ? Number(q.seed) : NaN;
+    const budgetNum = q.budget == null ? null : Number(q.budget);
+    const allowed = new Set(['pricing_change','feature_launch','build_vs_buy']);
+
+    if (!allowed.has(template)) fields.template = 'must be one of pricing_change|feature_launch|build_vs_buy';
+    if (!Number.isInteger(seedNum)) fields.seed = 'must be an integer';
+    if (q.budget != null && (!Number.isInteger(budgetNum as number))) fields.budget = 'must be an integer if provided';
+
+    if (Object.keys(fields).length > 0) {
+      const { errorResponse } = await import('./errors.js');
+      return reply.code(400).send(errorResponse('BAD_INPUT', 'Invalid query', 'Fix invalid query parameters', fields));
+    }
+
+    // Forced error injection (dev/test) for taxonomy checks
+    {
+      const force = getForcedError(req as any);
+      if (force === 'TIMEOUT') { const { errorResponse } = await import('./errors.js'); return reply.code(504).send(errorResponse('TIMEOUT', 'Simulated timeout', 'Reduce processing time')); }
+      if (force === 'RETRYABLE') { const { errorResponse } = await import('./errors.js'); return reply.code(503).send(errorResponse('RETRYABLE', 'Temporary issue', 'Please retry')); }
+      if (force === 'INTERNAL') { throw new Error('Forced internal'); }
+    }
+
+    const key = `${template}|${seedNum}`;
+    const entry = deterministicMap.get(key);
+    if (!entry) {
+      const { errorResponse } = await import('./errors.js');
+      return reply.code(404).send(errorResponse('BAD_INPUT', 'Fixture not found', `No fixture for template=${template} seed=${seedNum}`));
+    }
+
+    const inm = (req.headers['if-none-match'] as string | undefined) || '';
+    reply.header('Content-Type', 'application/json');
+    reply.header('ETag', entry.etag);
+    reply.header('Content-Length', String(entry.contentLength));
+    if (inm && inm === entry.etag) {
+      return reply.code(304).send();
+    }
+    return reply.send(entry.buf);
+  });
 
   app.post('/draft-flows', async (req, reply) => {
     const body: any = (req as any).body || {};
