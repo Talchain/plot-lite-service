@@ -2,11 +2,15 @@ import { createMetrics } from './metrics.js';
 import { getStepHandler } from './registry.js';
 import { nowMs } from './util.js';
 import { getLimiter } from './ratelimit.js';
+import { backoffNext } from './backoff.js';
+import { getBreaker } from './breaker.js';
+import { getTracer } from './trace.js';
 // ensure built-in steps are registered
 import './steps/transform.js';
 import './steps/gate.js';
 import './steps/calc.js';
 import './steps/map.js';
+import './steps/fanout.js';
 
 function asArray(v) { return Array.isArray(v) ? v : (v == null ? [] : [v]); }
 
@@ -44,7 +48,10 @@ function jittered(ms, key, enable) {
 
 export async function runPlot(plot, { input = {}, onEvent, traceId, maxDurationMs = 30000, budget } = {}) {
   const start = nowMs();
+  const deadlineAt = typeof maxDurationMs === 'number' && maxDurationMs > 0 ? (start + maxDurationMs) : null;
   const ctx = { ...input };
+  // Expose run caps for sub-steps (non-enumerable)
+  try { Object.defineProperty(ctx, '__runCaps', { value: { deadlineAt, budget, traceId: (traceId || `${start}`) }, enumerable: false, configurable: true }); } catch {}
   const stepMap = new Map();
   for (const s of (plot.steps || [])) stepMap.set(s.id, s);
   let current = (plot.steps && plot.steps[0]) || null;
@@ -62,12 +69,30 @@ export async function runPlot(plot, { input = {}, onEvent, traceId, maxDurationM
 
   const emit = (type, data = {}) => { if (typeof onEvent === 'function') try { onEvent({ type, ...data }); } catch {} };
 
+  const tracer = getTracer();
+
   while (current) {
     const step = current;
     const handler = getStepHandler(step.type);
     const token = metrics.startStep(step.id);
     const stepStart = nowMs();
     emit('step-start', { id: step.id, type: step.type });
+    tracer.emit({ trace: record.traceId, plot: record.plotId, ev: 'step-start', id: step.id, stepType: step.type });
+
+    // Run-level deadline pre-check
+    if (deadlineAt != null) {
+      const timeLeft0 = Math.max(0, deadlineAt - nowMs());
+      if (timeLeft0 <= 0) {
+        const durationMs = metrics.endStep(token);
+        metrics.steps++;
+        metrics.failed++;
+        stats.steps++;
+        stats.failed++;
+        record.steps.push({ id: step.id, type: step.type, status: 'fail', durationMs, attempts: 0, reason: 'timeout' });
+        emit('step-fail', { id: step.id, type: step.type, error: 'timeout' });
+        break;
+      }
+    }
 
     // Budget pre-check
     const estimate = step && step.cost && typeof step.cost.estimate === 'number' ? step.cost.estimate : 0;
@@ -84,19 +109,41 @@ export async function runPlot(plot, { input = {}, onEvent, traceId, maxDurationM
 
     try {
       if (!handler) throw new Error(`no handler for step type: ${step.type}`);
-      const effectiveTimeoutMs = Math.min(step.timeoutMs || maxDurationMs, maxDurationMs);
+      let effectiveTimeoutMs = maxDurationMs;
+      if (deadlineAt != null) {
+        const tl = Math.max(0, deadlineAt - nowMs());
+        if (typeof step.timeoutMs === 'number' && step.timeoutMs > 0) effectiveTimeoutMs = Math.min(step.timeoutMs, tl);
+        else effectiveTimeoutMs = tl;
+        if (effectiveTimeoutMs <= 0) throw new Error('timeout');
+      } else if (typeof step.timeoutMs === 'number' && step.timeoutMs > 0) {
+        effectiveTimeoutMs = step.timeoutMs;
+      }
 
       const retry = step.retry || {};
       const maxAttempts = Math.max(1, Number(retry.max) || 1);
       const backoffs = Array.isArray(retry.backoffMs) ? retry.backoffMs.map(n => Math.max(0, Number(n) || 0)) : [];
-      const useJitter = !!retry.jitter;
+      const useJitter = retry.jitter ? 'full' : false;
+      const breakerCfg = step.breaker || {};
+      const breakerKey = breakerCfg && breakerCfg.key ? String(breakerCfg.key) : String(step.id || step.type || 'step');
+      const breaker = getBreaker(breakerKey, {
+        failThreshold: breakerCfg.failThreshold,
+        cooldownMs: breakerCfg.cooldownMs,
+        halfOpenMax: breakerCfg.halfOpenMax,
+      });
 
       let attempts = 0;
-      let lastFail = null; // 'timeout' | 'rate-limit' | 'error'
+      let lastFail = null; // 'timeout' | 'rate-limit' | 'error' | 'breaker-open'
       let result = null;
       let ok = false;
+      let shortCircuit = false;
 
       while (attempts < maxAttempts) {
+        // Breaker gate before incrementing attempts
+        if (!breaker.canPass(nowMs())) {
+          lastFail = 'breaker-open';
+          shortCircuit = true;
+          break;
+        }
         attempts++;
         // Rate limit gate per attempt
         if (step.rateLimit && step.rateLimit.key && typeof step.rateLimit.limit === 'number' && typeof step.rateLimit.intervalMs === 'number') {
@@ -107,6 +154,7 @@ export async function runPlot(plot, { input = {}, onEvent, traceId, maxDurationM
             lastFail = 'rate-limit';
             if (attempts < maxAttempts) {
               emit('retry', { id: step.id, attempt: attempts, error: 'rate-limit' });
+              tracer.emit({ trace: record.traceId, ev: 'retry', id: step.id, reason: 'rate-limit', attempt: attempts });
               stats.retries++;
               const base = backoffs.length ? backoffs[Math.min(attempts - 1, backoffs.length - 1)] : 0;
               const waitMs = jittered(base, `${record.traceId}|${step.id}|${attempts}`, useJitter);
@@ -126,10 +174,12 @@ export async function runPlot(plot, { input = {}, onEvent, traceId, maxDurationM
           const isTimeout = String(err && err.message || err) === 'timeout';
           lastFail = isTimeout ? 'timeout' : 'error';
           if (attempts < maxAttempts) {
-            emit('retry', { id: step.id, attempt: attempts, error: isTimeout ? 'timeout' : String(err && err.message || err) });
+            const errMsg = isTimeout ? 'timeout' : String(err && err.message || err);
+            emit('retry', { id: step.id, attempt: attempts, error: errMsg });
+            tracer.emit({ trace: record.traceId, ev: 'retry', id: step.id, reason: errMsg, attempt: attempts });
             stats.retries++;
             const base = backoffs.length ? backoffs[Math.min(attempts - 1, backoffs.length - 1)] : 0;
-            const waitMs = jittered(base, `${record.traceId}|${step.id}|${attempts}`, useJitter);
+            const waitMs = backoffNext({ strategy: 'fixed', baseMs: base, maxMs: base, jitter: useJitter, attempt: attempts, seedParts: [record.traceId, step.id, attempts] });
             if (waitMs > 0) await new Promise(r => setTimeout(r, waitMs));
           }
         }
@@ -139,6 +189,7 @@ export async function runPlot(plot, { input = {}, onEvent, traceId, maxDurationM
       metrics.steps++;
 
       if (ok) {
+        breaker.onSuccess();
         metrics.ok++;
         stats.steps++;
         stats.ok++;
@@ -151,6 +202,7 @@ export async function runPlot(plot, { input = {}, onEvent, traceId, maxDurationM
         record.steps.push({ id: step.id, type: step.type, status: 'ok', durationMs, attempts });
         if (result && result.forkUsed) emit('fork', { from: step.id, nextId });
         emit('step-ok', { id: step.id, type: step.type, durationMs });
+        tracer.emit({ trace: record.traceId, ev: 'step-ok', id: step.id, ms: durationMs, attempts });
 
         if (nextId) {
           current = stepMap.get(nextId) || null;
@@ -161,9 +213,11 @@ export async function runPlot(plot, { input = {}, onEvent, traceId, maxDurationM
         metrics.failed++;
         stats.steps++;
         stats.failed++;
-        const reason = lastFail === 'timeout' ? 'timeout' : (lastFail === 'rate-limit' ? 'rate-limit' : 'retry-exhausted');
+        const reason = lastFail === 'timeout' ? 'timeout' : (lastFail === 'rate-limit' ? 'rate-limit' : (lastFail === 'breaker-open' ? 'breaker-open' : 'retry-exhausted'));
+        breaker.onFailure(reason);
         record.steps.push({ id: step.id, type: step.type, status: 'fail', durationMs, attempts, reason });
         emit('step-fail', { id: step.id, type: step.type, error: reason });
+        tracer.emit({ trace: record.traceId, ev: 'step-fail', id: step.id, reason, ms: durationMs, attempts });
         break;
       }
     } catch (error) {
@@ -183,6 +237,7 @@ export async function runPlot(plot, { input = {}, onEvent, traceId, maxDurationM
   record.finishedAt = new Date(end).toISOString();
   record.final.ctx = ctx;
   emit('done', { totalMs: stats.totalMs });
+  tracer.emit({ trace: record.traceId, ev: 'done', totalMs: stats.totalMs });
 
   return { record, stats, ctx };
 }

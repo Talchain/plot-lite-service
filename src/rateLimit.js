@@ -25,7 +25,7 @@ export async function rateLimit(req, reply) {
         return; // disabled
     // Exempt basic health/readiness endpoints from rate limiting
     const url = req.url || '';
-    if (req.method === 'GET' && (url.startsWith('/health') || url.startsWith('/ready') || url.startsWith('/version'))) {
+    if (req.method === 'GET' && (url.startsWith('/health') || url.startsWith('/ready') || url.startsWith('/live') || url.startsWith('/version') || url.startsWith('/ops/snapshot'))) {
         return;
     }
     const ip = req.ip || 'unknown';
@@ -44,9 +44,13 @@ export async function rateLimit(req, reply) {
     s.count += 1;
     if (s.count > LIMIT) {
         const retryMs = Math.max(1, s.resetAt - now);
-        reply.header('Retry-After', Math.ceil(retryMs / 1000));
+        const retrySec = Math.ceil(retryMs / 1000);
+        const resetEpoch = Math.ceil(s.resetAt / 1000);
+        reply.header('Retry-After', retrySec);
+        reply.header('X-RateLimit-Reset', String(resetEpoch));
         record429(now);
-        return reply.code(429).send({ error: { type: 'RETRYABLE', message: 'Rate limit exceeded', hint: `Please retry after ${Math.ceil(retryMs / 1000)} seconds` } });
+        const { errorResponse } = await import('./errors.js');
+        return reply.code(429).send(errorResponse('RATE_LIMIT', 'Rate limit exceeded for this client.', `Please retry after ${retrySec} seconds`));
     }
     // set 2xx rate-limit headers for allowed request
     reply.header('X-RateLimit-Limit', String(LIMIT));

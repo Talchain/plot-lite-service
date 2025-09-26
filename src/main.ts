@@ -4,6 +4,11 @@ const PORT = Number(process.env.PORT || 4311);
 const HOST = '0.0.0.0';
 
 async function start() {
+  if (process.env.NODE_ENV === 'production' && process.env.TEST_ROUTES === '1') {
+    // Fail fast before binding any ports
+    console.error('TEST_ROUTES in production – aborting');
+    process.exit(1);
+  }
   const app = await createServer({ enableTestRoutes: process.env.TEST_ROUTES === '1' });
   await app.listen({ port: PORT, host: HOST });
   app.log.info({ port: PORT }, 'server started');

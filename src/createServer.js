@@ -2,8 +2,10 @@ import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
 import { readFileSync } from 'fs';
-import { resolve } from 'path';
+import { resolve, join as joinPath } from 'path';
 import { spawnSync } from 'child_process';
+import { createHash } from 'node:crypto';
+import { promises as fsp } from 'node:fs';
 import { rateLimit } from './rateLimit.js';
 export async function createServer(opts = {}) {
     const idemCache = new Map();
@@ -18,9 +20,16 @@ export async function createServer(opts = {}) {
     }
     function purgeExpired(now) {
         for (const [k, v] of idemCache) {
-            if (now - v.createdAt > IDEM_TTL_MS)
+            if (now - v.createdAt > IDEM_TTL_MS) {
                 idemCache.delete(k);
+            }
         }
+        // update cache gauge
+        (async () => { try {
+            const { setIdemCacheSize } = await import('./metrics.js');
+            setIdemCacheSize(idemCache.size);
+        }
+        catch { } })();
     }
     function getForcedError(req) {
         const header = req.headers['x-debug-force-error'];
@@ -51,6 +60,14 @@ export async function createServer(opts = {}) {
     app.addHook('onRequest', rateLimit);
     // Minimal structured access log without bodies
     app.addHook('onRequest', async (req) => { req.startTime = process.hrtime.bigint(); });
+    // Echo X-Request-ID on all responses
+    app.addHook('onSend', async (req, reply, payload) => {
+        try {
+            reply.header('X-Request-ID', String(req.id));
+        }
+        catch { }
+        return payload;
+    });
     app.addHook('onResponse', async (req, reply) => {
         const start = req.startTime;
         const end = process.hrtime.bigint();
@@ -64,9 +81,18 @@ export async function createServer(opts = {}) {
             }
             catch { }
         }
+        // Update replay lastStatus/lastTs for /draft-flows responses
+        if (route?.startsWith('/draft-flows')) {
+            try {
+                const { recordReplayStatus } = await import('./metrics.js');
+                const status = reply.statusCode >= 200 && reply.statusCode < 300 ? 'ok' : 'fail';
+                recordReplayStatus(status);
+            }
+            catch { }
+        }
         app.log.info({ reqId: req.id, route, statusCode: reply.statusCode, durationMs }, 'request completed');
     });
-    // Load fixtures and pre-serialise
+    // Load fixtures and pre-serialise for legacy POST /draft-flows
     const fixturesPath = resolve(process.cwd(), 'fixtures', 'deterministic-fixtures.json');
     let firstCaseResponseRaw = '';
     const caseMap = new Map();
@@ -97,11 +123,142 @@ export async function createServer(opts = {}) {
         return new Date().toISOString();
     }
     app.get('/health', async () => {
-        const { p95Ms, snapshot } = await import('./metrics.js');
+        const { p95Ms, p99Ms, eventLoopDelayMs, snapshot, replaySnapshot } = await import('./metrics.js');
         const { rateLimitState } = await import('./rateLimit.js');
-        return { status: 'ok', p95_ms: p95Ms(), ...snapshot(), rate_limit: rateLimitState() };
+        const mem = process.memoryUsage();
+        const base = {
+            status: 'ok',
+            // Preserve legacy top-level p95 for compatibility
+            p95_ms: p95Ms(),
+            ...snapshot(),
+            runtime: {
+                node: process.version,
+                uptime_s: Math.round(process.uptime()),
+                rss_mb: Math.round(mem.rss / 1024 / 1024),
+                heap_used_mb: Math.round(mem.heapUsed / 1024 / 1024),
+                eventloop_delay_ms: eventLoopDelayMs(),
+                p95_ms: p95Ms(),
+                p99_ms: p99Ms(),
+            },
+            caches: {
+                idempotency_current: idemCache.size,
+            },
+            rate_limit: rateLimitState(),
+            test_routes_enabled: process.env.NODE_ENV === 'production' ? false : Boolean(opts.enableTestRoutes || process.env.TEST_ROUTES === '1'),
+            replay: replaySnapshot(),
+        };
+        // Enforce a small upper bound to prevent accidental drift; keep required keys
+        const MAX_BYTES = 4 * 1024;
+        const txt = JSON.stringify(base);
+        if (Buffer.byteLength(txt, 'utf8') <= MAX_BYTES)
+            return base;
+        const minimal = {
+            status: 'ok',
+            p95_ms: p95Ms(),
+            test_routes_enabled: process.env.NODE_ENV === 'production' ? false : Boolean(opts.enableTestRoutes || process.env.TEST_ROUTES === '1'),
+            replay: replaySnapshot(),
+        };
+        return minimal;
     });
-    app.get('/version', async () => ({ api: '1.0.0', build: getBuildId(), model: 'fixtures', runtime: { node: process.version } }));
+    app.get('/version', async () => {
+        const build = getBuildId();
+        return { api: 'warp/0.1.0', build, model: `plot-lite-${build}` };
+    });
+    // Readiness: only 200 when fixtures are preloaded
+    app.get('/ready', async (_req, reply) => {
+        return reply.code(fixturesReady ? 200 : 503).send({ ok: fixturesReady });
+    });
+    // Liveness probe — basic process up indicator
+    app.get('/live', async () => ({ ok: true }));
+    const deterministicMap = new Map();
+    const deterministicRoot = resolve(process.cwd(), 'fixtures');
+    async function preloadDeterministic() {
+        const templates = ['pricing_change', 'feature_launch', 'build_vs_buy'];
+        for (const tmpl of templates) {
+            const dir = joinPath(deterministicRoot, tmpl);
+            let files = [];
+            try {
+                const ents = await fsp.readdir(dir, { withFileTypes: true });
+                files = ents.filter(e => e.isFile() && /^\d+\.json$/.test(e.name)).map(e => e.name);
+            }
+            catch {
+                continue;
+            }
+            for (const f of files) {
+                const seed = Number(f.replace(/\.json$/, ''));
+                if (!Number.isInteger(seed))
+                    continue;
+                const abs = joinPath(dir, f);
+                const raw = await fsp.readFile(abs);
+                let parsed;
+                try {
+                    parsed = JSON.parse(raw.toString('utf8'));
+                }
+                catch (e) {
+                    throw new Error(`Invalid JSON in ${abs}`);
+                }
+                if (parsed?.schema !== 'report.v1')
+                    throw new Error(`Missing schema in ${abs}`);
+                if (parsed?.meta?.seed !== seed)
+                    throw new Error(`meta.seed mismatch in ${abs}`);
+                const h = createHash('sha256').update(raw).digest('hex');
+                const etag = '"' + h + '"';
+                deterministicMap.set(`${tmpl}|${seed}`, { buf: raw, etag, contentLength: raw.length, metaSeed: seed, template: tmpl });
+            }
+        }
+    }
+    let fixturesReady = false;
+    await preloadDeterministic();
+    fixturesReady = true;
+    app.get('/draft-flows', async (req, reply) => {
+        const q = req.query || {};
+        const fields = {};
+        const template = typeof q.template === 'string' ? q.template : '';
+        const seedNum = (typeof q.seed === 'string' || typeof q.seed === 'number') ? Number(q.seed) : NaN;
+        const budgetNum = q.budget == null ? null : Number(q.budget);
+        const allowed = new Set(['pricing_change', 'feature_launch', 'build_vs_buy']);
+        if (!allowed.has(template))
+            fields.template = 'must be one of pricing_change|feature_launch|build_vs_buy';
+        if (!Number.isInteger(seedNum))
+            fields.seed = 'must be an integer';
+        if (q.budget != null && (!Number.isInteger(budgetNum)))
+            fields.budget = 'must be an integer if provided';
+        if (Object.keys(fields).length > 0) {
+            const { errorResponse } = await import('./errors.js');
+            return reply.code(400).send(errorResponse('BAD_INPUT', 'Invalid query', 'Fix invalid query parameters', fields));
+        }
+        // Forced error injection (dev/test) for taxonomy checks
+        {
+            const force = getForcedError(req);
+            if (force === 'TIMEOUT') {
+                const { errorResponse } = await import('./errors.js');
+                return reply.code(504).send(errorResponse('TIMEOUT', 'Simulated timeout', 'Reduce processing time'));
+            }
+            if (force === 'RETRYABLE') {
+                const { errorResponse } = await import('./errors.js');
+                return reply.code(503).send(errorResponse('RETRYABLE', 'Temporary issue', 'Please retry'));
+            }
+            if (force === 'INTERNAL') {
+                throw new Error('Forced internal');
+            }
+        }
+        const key = `${template}|${seedNum}`;
+        const entry = deterministicMap.get(key);
+        if (!entry) {
+            const { errorResponse } = await import('./errors.js');
+            return reply.code(404).send(errorResponse('BAD_INPUT', 'Fixture not found', `No fixture for template=${template} seed=${seedNum}`));
+        }
+        const inm = req.headers['if-none-match'] || '';
+        reply.header('Content-Type', 'application/json');
+        reply.header('Cache-Control', 'no-cache');
+        reply.header('Vary', 'If-None-Match');
+        reply.header('ETag', entry.etag);
+        reply.header('Content-Length', String(entry.contentLength));
+        if (inm && inm === entry.etag) {
+            return reply.code(304).send();
+        }
+        return reply.send(entry.buf);
+    });
     app.post('/draft-flows', async (req, reply) => {
         const body = req.body || {};
         // Test error header
@@ -187,6 +344,11 @@ export async function createServer(opts = {}) {
                 const now = Date.now();
                 purgeExpired(now);
                 idemCache.set(getCacheKey(idem.key, idem.bodyHash), { bodyHash: idem.bodyHash, responseText: respText, createdAt: now });
+                try {
+                    const { setIdemCacheSize } = await import('./metrics.js');
+                    setIdemCacheSize(idemCache.size);
+                }
+                catch { }
             }
         }
         return reply.send(respText);
@@ -281,6 +443,11 @@ export async function createServer(opts = {}) {
                 const respText = JSON.stringify(obj);
                 reply.header('Content-Type', 'application/json');
                 idemCache.set(getCacheKey(idem.key, idem.bodyHash), { bodyHash: idem.bodyHash, responseText: respText, createdAt: now });
+                try {
+                    const { setIdemCacheSize } = await import('./metrics.js');
+                    setIdemCacheSize(idemCache.size);
+                }
+                catch { }
                 return reply.send(respText);
             }
         }
@@ -294,7 +461,7 @@ export async function createServer(opts = {}) {
         }
         return { parse_json, fix_applied: [] };
     });
-    // Test-only error injection
+    // Test-only error injection and internal replay telemetry routes
     if (opts.enableTestRoutes || process.env.TEST_ROUTES === '1') {
         app.post('/__test/force-error', async (req, reply) => {
             const t = (req.body?.type || req.query?.type || '').toString().toUpperCase();
@@ -307,13 +474,64 @@ export async function createServer(opts = {}) {
                 return reply.code(500).send(errorResponse('INTERNAL', 'Forced internal', 'See server logs'));
             return reply.code(400).send(errorResponse('BAD_INPUT', 'Unknown type', 'Use TIMEOUT, RETRYABLE, or INTERNAL'));
         });
+        // Internal replay telemetry — test mode only
+        app.get('/internal/replay-status', async (_req, reply) => {
+            const { replaySnapshot } = await import('./metrics.js');
+            return reply.code(200).send(replaySnapshot());
+        });
+        app.post('/internal/replay-report', async (req, reply) => {
+            try {
+                const b = req.body || {};
+                const { recordReplayRefusal, recordReplayRetry, recordReplayStatus } = await import('./metrics.js');
+                if (b.refusal)
+                    recordReplayRefusal();
+                if (b.retry)
+                    recordReplayRetry();
+                if (b.status === 'ok' || b.status === 'fail')
+                    recordReplayStatus(b.status);
+                return { ok: true };
+            }
+            catch {
+                return { ok: false };
+            }
+        });
     }
     // Simple global error handler mapping to typed error
     app.setErrorHandler(async (err, req, reply) => {
         const { errorResponse } = await import('./errors.js');
-        const type = err?.message?.includes('body limit') ? 'BAD_INPUT' : 'INTERNAL';
-        reply.code(type === 'INTERNAL' ? 500 : 400).send(errorResponse(type, err?.message || 'Unhandled error'));
+        // Map request timeouts to TIMEOUT type
+        const msg = err?.message || '';
+        const code = err?.code || '';
+        if (code === 'FST_ERR_REQUEST_TIMEOUT' || /timeout/i.test(msg)) {
+            return reply.code(504).send(errorResponse('TIMEOUT', msg || 'Request timed out', 'Reduce processing time'));
+        }
+        const type = msg.includes('body limit') ? 'BAD_INPUT' : 'INTERNAL';
+        reply.code(type === 'INTERNAL' ? 500 : 400).send(errorResponse(type, msg || 'Unhandled error'));
     });
+    // Optional ops snapshot endpoint
+    if (process.env.OPS_SNAPSHOT === '1') {
+        app.get('/ops/snapshot', async () => {
+            const { p95Ms, p99Ms, eventLoopDelayMs, snapshot } = await import('./metrics.js');
+            const { rateLimitState } = await import('./rateLimit.js');
+            const mem = process.memoryUsage();
+            return {
+                status: 'ok',
+                p95_ms: p95Ms(),
+                ...snapshot(),
+                runtime: {
+                    node: process.version,
+                    uptime_s: Math.round(process.uptime()),
+                    rss_mb: Math.round(mem.rss / 1024 / 1024),
+                    heap_used_mb: Math.round(mem.heapUsed / 1024 / 1024),
+                    eventloop_delay_ms: eventLoopDelayMs(),
+                    p95_ms: p95Ms(),
+                    p99_ms: p99Ms(),
+                },
+                caches: { idempotency_current: idemCache.size },
+                rate_limit: rateLimitState(),
+            };
+        });
+    }
     await app.ready();
     return app;
 }

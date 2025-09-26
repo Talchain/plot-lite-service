@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://olumi.dev/plot-lite/report.v1.json",
+  "title": "PLoT-Lite Report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "type": "string", "const": "report.v1" },
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["seed", "fixtures_version", "template"],
+      "properties": {
+        "seed": { "type": "integer" },
+        "fixtures_version": { "type": "string" },
+        "template": { "type": "string", "enum": ["pricing_change", "feature_launch", "build_vs_buy"] }
+      }
+    },
+    "graph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodes", "edges"],
+      "properties": {
+        "nodes": { "type": "array", "items": { "type": "object" } },
+        "edges": { "type": "array", "items": { "type": "object" } }
+      }
+    },
+    "results": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["conservative", "most_likely", "optimistic"],
+      "properties": {
+        "conservative": { "type": "object" },
+        "most_likely": { "type": "object" },
+        "optimistic": { "type": "object" }
+      }
+    },
+    "thresholds": { "type": "array", "items": { "type": "object" } },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "critique": { "type": "array", "items": { "type": ["string", "object"] } },
+        "notes": { "type": "array", "items": { "type": ["string", "object"] } }
+      }
+    }
+  },
+  "required": ["schema", "meta", "graph", "results", "thresholds", "provenance"]
+}

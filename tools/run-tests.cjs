@@ -22,6 +22,7 @@ async function runCase(name, fn) {
 async function main() {
   const runPlot = await loadRunPlot();
   const cases = [];
+  const t0 = Date.now();
 
   const testsDir = path.resolve(process.cwd(), 'test', 'engine');
   const files = fs.existsSync(testsDir) ? fs.readdirSync(testsDir).filter(f => f.endsWith('.cjs')) : [];
@@ -37,7 +38,8 @@ async function main() {
     total: cases.length,
     ok: cases.filter(c => c.ok).length,
     failed: cases.filter(c => !c.ok).length,
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    durationMs: Date.now() - t0
   };
   const outDir = path.resolve(process.cwd(), 'reports');
   if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
