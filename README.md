@@ -19,6 +19,8 @@ npm run dev
 
 Server listens on http://localhost:4311
 
+- [STATUS.md](./docs/STATUS.md) — Replay telemetry quick reference
+
 ## Build and start (production)
 
 ```
@@ -104,6 +106,13 @@ GET /health includes a compact replay section that reflects the most recent repl
   }
 }
 ```
+
+| Field     | Type             | Example                       | Meaning                                  |
+| ---       | ---              | ---                           | ---                                      |
+| lastStatus| "ok"             | ok                            | Final outcome of last replay run         |
+| refusals  | number           | 0                             | Count of connection refusals encountered during replay |
+| retries   | number           | 3                             | Count of retry attempts made during replay |
+| lastTs    | ISO 8601 string  | 2025-09-25T10:15:42.123Z      | Timestamp when replay status last updated |
 
 - Meaning
   - lastStatus: outcome of the last replayed flow (ok or fail)

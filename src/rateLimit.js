@@ -25,7 +25,7 @@ export async function rateLimit(req, reply) {
         return; // disabled
     // Exempt basic health/readiness endpoints from rate limiting
     const url = req.url || '';
-    if (req.method === 'GET' && (url.startsWith('/health') || url.startsWith('/ready') || url.startsWith('/version'))) {
+    if (req.method === 'GET' && (url.startsWith('/health') || url.startsWith('/ready') || url.startsWith('/live') || url.startsWith('/version') || url.startsWith('/ops/snapshot'))) {
         return;
     }
     const ip = req.ip || 'unknown';

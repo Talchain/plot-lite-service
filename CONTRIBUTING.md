@@ -20,6 +20,8 @@ Notes
   - `reports/tests.json` (Vitest JSON)
   - `reports/warp/` (local PR verify logs and related artefacts)
 
+See also: [Replay telemetry quick reference](./docs/STATUS.md).
+
 ## Replay telemetry
 
 - GET `/health` includes `replay` with fields:
