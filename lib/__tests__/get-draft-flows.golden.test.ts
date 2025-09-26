@@ -43,6 +43,7 @@ describe('GET /draft-flows deterministic fixtures', () => {
       expect(res.headers['etag']).toBeTruthy();
       expect(res.headers['content-length']).toBeTruthy();
       expect(res.headers['content-type']).toContain('application/json');
+      expect(res.headers['vary']).toContain('If-None-Match');
       const body = res.body; // string
       const fileText = await fs.readFile(c.abs, 'utf8');
       expect(body).toBe(fileText);

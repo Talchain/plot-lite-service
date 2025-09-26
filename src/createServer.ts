@@ -242,6 +242,7 @@ export async function createServer(opts: ServerOpts = {}) {
     const inm = (req.headers['if-none-match'] as string | undefined) || '';
     reply.header('Content-Type', 'application/json');
     reply.header('Cache-Control', 'no-cache');
+    reply.header('Vary', 'If-None-Match');
     reply.header('ETag', entry.etag);
     reply.header('Content-Length', String(entry.contentLength));
     if (inm && inm === entry.etag) {
