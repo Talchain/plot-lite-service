@@ -6,7 +6,7 @@ import Ajv from 'ajv';
 
 const schemaPath = resolve(process.cwd(), 'docs', 'schema', 'report.v1.json');
 const schema = JSON.parse(readFileSync(schemaPath, 'utf8'));
-const ajv = new Ajv({ allErrors: true, strict: true });
+const ajv = new Ajv({ allErrors: true, strict: true, allowUnionTypes: true });
 const validate = ajv.compile(schema);
 
 function validateJson(obj: any): string[] {
