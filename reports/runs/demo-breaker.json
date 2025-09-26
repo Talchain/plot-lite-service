@@ -1,0 +1,52 @@
+{
+  "record": {
+    "plotId": "safety-nets-demo",
+    "traceId": "1758894584944-w9l31ap3xao",
+    "startedAt": "2025-09-26T13:49:44.944Z",
+    "finishedAt": "2025-09-26T13:49:44.945Z",
+    "steps": [
+      {
+        "id": "t",
+        "type": "transform",
+        "status": "ok",
+        "durationMs": 1,
+        "attempts": 1
+      }
+    ],
+    "final": {
+      "ctx": {
+        "a": 2,
+        "b": 3,
+        "tier": "gold"
+      }
+    }
+  },
+  "stats": {
+    "totalMs": 1,
+    "steps": 1,
+    "ok": 1,
+    "failed": 0,
+    "retries": 0,
+    "cost": 0
+  },
+  "ctx": {
+    "a": 2,
+    "b": 3,
+    "tier": "gold"
+  },
+  "events": [
+    {
+      "type": "transform",
+      "id": "t"
+    },
+    {
+      "type": "transform",
+      "id": "t",
+      "durationMs": 1
+    },
+    {
+      "type": "done",
+      "totalMs": 1
+    }
+  ]
+}

@@ -62,14 +62,14 @@ async function main() {
     catch (e) {
         // ignore report errors
     }
-    // Run fixtures replay
-    const replayCode = await run('node', ['tools/replay-fixtures.js']);
+    // Run fixtures replay (target the same base URL as the test server)
+    const replayCode = await run('node', ['tools/replay-fixtures.js'], { env: { ...process.env, TEST_BASE_URL: TEST_BASE, NODE_ENV: 'test' } });
     if (replayCode !== 0) {
         server.kill('SIGINT');
         process.exit(replayCode);
     }
     // OpenAPI lightweight validation (skips if spec missing)
-    const openapiCode = await run('node', ['tools/validate-openapi-response.js']);
+    const openapiCode = await run('node', ['tools/validate-openapi-response.js'], { env: { ...process.env, TEST_BASE_URL: TEST_BASE, NODE_ENV: 'test' } });
     server.kill('SIGINT');
     process.exit(openapiCode);
 }

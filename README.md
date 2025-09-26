@@ -19,6 +19,8 @@ npm run dev
 
 Server listens on http://localhost:4311
 
+- [STATUS.md](./docs/STATUS.md) — Replay telemetry quick reference
+
 ## Build and start (production)
 
 ```
@@ -89,6 +91,40 @@ Exemptions: GET /ready, GET /health, and GET /version are not rate-limited.
 - POST /draft-flows → deterministic fixtures (cases[0] by default; accepts fixture_case)
 - POST /critique → deterministic rules (no AI); Ajv-validated parse_json body
 - POST /improve → echoes parse_json and returns { fix_applied: [] }
+
+### Replay telemetry (tests & local runs)
+
+GET /health includes a compact replay section that reflects the most recent replay activity:
+
+```
+{
+  "replay": {
+    "lastStatus": "ok",
+    "refusals": 0,
+    "retries": 3,
+    "lastTs": "2025-09-25T12:34:56.789Z"
+  }
+}
+```
+
+| Field     | Type             | Example                       | Meaning                                  |
+| ---       | ---              | ---                           | ---                                      |
+| lastStatus| "ok"             | ok                            | Final outcome of last replay run         |
+| refusals  | number           | 0                             | Count of connection refusals encountered during replay |
+| retries   | number           | 3                             | Count of retry attempts made during replay |
+| lastTs    | ISO 8601 string  | 2025-09-25T10:15:42.123Z      | Timestamp when replay status last updated |
+
+- Meaning
+  - lastStatus: outcome of the last replayed flow (ok or fail)
+  - refusals: count of connection refusals observed by the replay harness
+  - retries: retry attempts made by the replay harness
+  - lastTs: ISO timestamp of the last update
+
+- Test-only endpoints
+  - GET /internal/replay-status → same replay object (200 only in test mode)
+  - POST /internal/replay-report → increments counters (test mode only)
+
+Test mode is enabled when TEST_ROUTES=1 (set by the test server helper). In production these endpoints return 404.
 
 ## Determinism
 
@@ -209,3 +245,21 @@ This repository runs tests on Node 18 and 20. When a run completes, artefacts in
 - `reports/tests.json` (Vitest JSON)
 - `docs/collections/plot-lite.postman.json`
 - `docs/contract-report.html`
+## CI PR Verify Helper
+
+Run CI sanity + PR status comment locally:
+
+```bash
+npm run pr:verify
+# or to target a branch explicitly
+BRANCH=chore/lockfile-sync-ci BASE_BRANCH=main npm run pr:verify
+```
+
+- Only required workflows gate status: `OpenAPI Examples Roundtrip`, `engine-safety`, `tests-smoke`.
+- Uses safe jq quoting and avoids Node’s npm \"jq\" shim automatically.
+
+## CI status bot (pr-verify)
+
+- Runs on every PR update and comments a compact summary of required checks.
+- Local dev: `npm run pr:verify` uses the same Node script used in CI.
+- Required gates: OpenAPI Examples Roundtrip, engine-safety, tests-smoke.

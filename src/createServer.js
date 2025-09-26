@@ -18,9 +18,16 @@ export async function createServer(opts = {}) {
     }
     function purgeExpired(now) {
         for (const [k, v] of idemCache) {
-            if (now - v.createdAt > IDEM_TTL_MS)
+            if (now - v.createdAt > IDEM_TTL_MS) {
                 idemCache.delete(k);
+            }
         }
+        // update cache gauge
+        (async () => { try {
+            const { setIdemCacheSize } = await import('./metrics.js');
+            setIdemCacheSize(idemCache.size);
+        }
+        catch { } })();
     }
     function getForcedError(req) {
         const header = req.headers['x-debug-force-error'];
@@ -51,6 +58,14 @@ export async function createServer(opts = {}) {
     app.addHook('onRequest', rateLimit);
     // Minimal structured access log without bodies
     app.addHook('onRequest', async (req) => { req.startTime = process.hrtime.bigint(); });
+    // Echo X-Request-ID on all responses
+    app.addHook('onSend', async (req, reply, payload) => {
+        try {
+            reply.header('X-Request-ID', String(req.id));
+        }
+        catch { }
+        return payload;
+    });
     app.addHook('onResponse', async (req, reply) => {
         const start = req.startTime;
         const end = process.hrtime.bigint();
@@ -61,6 +76,15 @@ export async function createServer(opts = {}) {
                 const { recordDurationMs, recordStatus } = await import('./metrics.js');
                 recordDurationMs(durationMs);
                 recordStatus(reply.statusCode);
+            }
+            catch { }
+        }
+        // Update replay lastStatus/lastTs for /draft-flows responses
+        if (route?.startsWith('/draft-flows')) {
+            try {
+                const { recordReplayStatus } = await import('./metrics.js');
+                const status = reply.statusCode >= 200 && reply.statusCode < 300 ? 'ok' : 'fail';
+                recordReplayStatus(status);
             }
             catch { }
         }
@@ -97,11 +121,34 @@ export async function createServer(opts = {}) {
         return new Date().toISOString();
     }
     app.get('/health', async () => {
-        const { p95Ms, snapshot } = await import('./metrics.js');
+        const { p95Ms, p99Ms, eventLoopDelayMs, snapshot, replaySnapshot } = await import('./metrics.js');
         const { rateLimitState } = await import('./rateLimit.js');
-        return { status: 'ok', p95_ms: p95Ms(), ...snapshot(), rate_limit: rateLimitState() };
+        const mem = process.memoryUsage();
+        const resp = {
+            status: 'ok',
+            // Preserve legacy top-level p95 for compatibility
+            p95_ms: p95Ms(),
+            ...snapshot(),
+            runtime: {
+                node: process.version,
+                uptime_s: Math.round(process.uptime()),
+                rss_mb: Math.round(mem.rss / 1024 / 1024),
+                heap_used_mb: Math.round(mem.heapUsed / 1024 / 1024),
+                eventloop_delay_ms: eventLoopDelayMs(),
+                p95_ms: p95Ms(),
+                p99_ms: p99Ms(),
+            },
+            caches: {
+                idempotency_current: idemCache.size,
+            },
+            rate_limit: rateLimitState(),
+            replay: replaySnapshot(),
+        };
+        return resp;
     });
     app.get('/version', async () => ({ api: '1.0.0', build: getBuildId(), model: 'fixtures', runtime: { node: process.version } }));
+    // Liveness probe — basic process up indicator
+    app.get('/live', async () => ({ ok: true }));
     app.post('/draft-flows', async (req, reply) => {
         const body = req.body || {};
         // Test error header
@@ -187,6 +234,11 @@ export async function createServer(opts = {}) {
                 const now = Date.now();
                 purgeExpired(now);
                 idemCache.set(getCacheKey(idem.key, idem.bodyHash), { bodyHash: idem.bodyHash, responseText: respText, createdAt: now });
+                try {
+                    const { setIdemCacheSize } = await import('./metrics.js');
+                    setIdemCacheSize(idemCache.size);
+                }
+                catch { }
             }
         }
         return reply.send(respText);
@@ -281,6 +333,11 @@ export async function createServer(opts = {}) {
                 const respText = JSON.stringify(obj);
                 reply.header('Content-Type', 'application/json');
                 idemCache.set(getCacheKey(idem.key, idem.bodyHash), { bodyHash: idem.bodyHash, responseText: respText, createdAt: now });
+                try {
+                    const { setIdemCacheSize } = await import('./metrics.js');
+                    setIdemCacheSize(idemCache.size);
+                }
+                catch { }
                 return reply.send(respText);
             }
         }
@@ -294,7 +351,7 @@ export async function createServer(opts = {}) {
         }
         return { parse_json, fix_applied: [] };
     });
-    // Test-only error injection
+    // Test-only error injection and internal replay telemetry routes
     if (opts.enableTestRoutes || process.env.TEST_ROUTES === '1') {
         app.post('/__test/force-error', async (req, reply) => {
             const t = (req.body?.type || req.query?.type || '').toString().toUpperCase();
@@ -307,13 +364,64 @@ export async function createServer(opts = {}) {
                 return reply.code(500).send(errorResponse('INTERNAL', 'Forced internal', 'See server logs'));
             return reply.code(400).send(errorResponse('BAD_INPUT', 'Unknown type', 'Use TIMEOUT, RETRYABLE, or INTERNAL'));
         });
+        // Internal replay telemetry — test mode only
+        app.get('/internal/replay-status', async (_req, reply) => {
+            const { replaySnapshot } = await import('./metrics.js');
+            return reply.code(200).send(replaySnapshot());
+        });
+        app.post('/internal/replay-report', async (req, reply) => {
+            try {
+                const b = req.body || {};
+                const { recordReplayRefusal, recordReplayRetry, recordReplayStatus } = await import('./metrics.js');
+                if (b.refusal)
+                    recordReplayRefusal();
+                if (b.retry)
+                    recordReplayRetry();
+                if (b.status === 'ok' || b.status === 'fail')
+                    recordReplayStatus(b.status);
+                return { ok: true };
+            }
+            catch {
+                return { ok: false };
+            }
+        });
     }
     // Simple global error handler mapping to typed error
     app.setErrorHandler(async (err, req, reply) => {
         const { errorResponse } = await import('./errors.js');
-        const type = err?.message?.includes('body limit') ? 'BAD_INPUT' : 'INTERNAL';
-        reply.code(type === 'INTERNAL' ? 500 : 400).send(errorResponse(type, err?.message || 'Unhandled error'));
+        // Map request timeouts to TIMEOUT type
+        const msg = err?.message || '';
+        const code = err?.code || '';
+        if (code === 'FST_ERR_REQUEST_TIMEOUT' || /timeout/i.test(msg)) {
+            return reply.code(504).send(errorResponse('TIMEOUT', msg || 'Request timed out', 'Reduce processing time'));
+        }
+        const type = msg.includes('body limit') ? 'BAD_INPUT' : 'INTERNAL';
+        reply.code(type === 'INTERNAL' ? 500 : 400).send(errorResponse(type, msg || 'Unhandled error'));
     });
+    // Optional ops snapshot endpoint
+    if (process.env.OPS_SNAPSHOT === '1') {
+        app.get('/ops/snapshot', async () => {
+            const { p95Ms, p99Ms, eventLoopDelayMs, snapshot } = await import('./metrics.js');
+            const { rateLimitState } = await import('./rateLimit.js');
+            const mem = process.memoryUsage();
+            return {
+                status: 'ok',
+                p95_ms: p95Ms(),
+                ...snapshot(),
+                runtime: {
+                    node: process.version,
+                    uptime_s: Math.round(process.uptime()),
+                    rss_mb: Math.round(mem.rss / 1024 / 1024),
+                    heap_used_mb: Math.round(mem.heapUsed / 1024 / 1024),
+                    eventloop_delay_ms: eventLoopDelayMs(),
+                    p95_ms: p95Ms(),
+                    p99_ms: p99Ms(),
+                },
+                caches: { idempotency_current: idemCache.size },
+                rate_limit: rateLimitState(),
+            };
+        });
+    }
     await app.ready();
     return app;
 }
