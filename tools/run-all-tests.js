@@ -70,6 +70,12 @@ async function main() {
     }
     // OpenAPI lightweight validation (skips if spec missing)
     const openapiCode = await run('node', ['tools/validate-openapi-response.js'], { env: { ...process.env, TEST_BASE_URL: TEST_BASE, NODE_ENV: 'test' } });
+    // Loadcheck gate (GET /draft-flows)
+    const lc = await run('node', ['tools/loadcheck-wrap.cjs'], { env: { ...process.env, TEST_BASE_URL: TEST_BASE }, });
+    if (lc !== 0) {
+        server.kill('SIGINT');
+        process.exit(lc);
+    }
     server.kill('SIGINT');
     process.exit(openapiCode);
 }
