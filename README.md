@@ -82,13 +82,17 @@ Exemptions: GET /ready, GET /health, and GET /version are not rate-limited.
 - GET /health → {
   status,
   p95_ms,
-  c2xx, c4xx, c5xx, lastReplayStatus,
-  runtime: { node, uptime_s, rss_mb, heap_used_mb, eventloop_delay_ms, p95_ms, p99_ms },
-  caches: { idempotency_current },
-  rate_limit: { enabled, rpm, last5m_429 }
+  replay: { lastStatus, refusals, retries, lastTs },
+  test_routes_enabled: boolean,
+  ...small runtime and cache fields (total payload ≤ 4 KB)
 }
-- GET /version → { api: "1.0.0", build, model: "fixtures", runtime: { node } }
-- POST /draft-flows → deterministic fixtures (cases[0] by default; accepts fixture_case)
+- GET /version → { api: "warp/0.1.0", model: "plot-lite-<hash>", build: "<git-sha-or-stamp>" }
+- GET /draft-flows?template=<pricing_change|feature_launch|build_vs_buy>&seed=<int>&budget=<int> → deterministic fixtures served verbatim from disk with headers:
+  - Content-Type: application/json
+  - Content-Length: <bytes>
+  - ETag: "<sha256-hex>"
+  - Returns 304 Not Modified when If-None-Match matches the strong ETag
+- POST /draft-flows → existing deterministic fixtures (legacy shape); accepts fixture_case; maintained for backwards compatibility
 - POST /critique → deterministic rules (no AI); Ajv-validated parse_json body
 - POST /improve → echoes parse_json and returns { fix_applied: [] }
 
@@ -158,18 +162,21 @@ curl -s -X POST http://localhost:4311/critique \
 
 ## Loadcheck
 
-Run a quick check locally:
+Run a quick check locally (targets GET /draft-flows):
 
 ```
 npm run build
 npm start &
 sleep 1
-node tools/loadcheck.js
+node tools/loadcheck-wrap.cjs
 ```
 
-The output includes p95_ms, max_ms, and rps. Our target p95 is ≤ 600 ms.
+- Writes reports/warp/loadcheck.json and appends to reports/warp/loadcheck.ndjson
+- Fails if p95_ms > ${P95_BUDGET_MS:-600}
 
 ## Versioning
+
+Fixtures versioning: Each deterministic GET fixture contains meta.fixtures_version and meta.template. Any schema/key change requires a fixtures_version minor bump (e.g., 1.0.0 → 1.1.0). Clients should treat fixtures_version as a golden contract version.
 
 See RELEASING.md for the release checklist and tagging guidance.
 
@@ -187,9 +194,10 @@ See RELEASING.md for the release checklist and tagging guidance.
 
 - Base URL: http://localhost:4311
 - Endpoints:
-  - GET /health → { status, p95_ms }
-  - GET /version → { api: "1.0.0", build, model: "fixtures" }
-  - POST /draft-flows → returns deterministic fixtures (cases[0].response)
+  - GET /health → { status, p95_ms, replay, test_routes_enabled } (≤ 4 KB)
+  - GET /version → { api: "warp/0.1.0", build, model: "plot-lite-<hash>" }
+  - GET /draft-flows → responses are byte-identical to files under fixtures/<template>/<seed>.json; headers include Content-Length and ETag; supports 304 via If-None-Match
+  - POST /draft-flows → legacy deterministic response (unchanged for compatibility)
   - POST /critique → fixed, deterministic list (see above)
   - POST /improve → echoes parse_json and returns { fix_applied: [] }
 - Example first call:
