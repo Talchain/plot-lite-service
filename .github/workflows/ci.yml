@@ -33,6 +33,8 @@ jobs:
       - name: Test
         run: npm test
         env:
+          P95_BUDGET_MS: '600'
+          STRICT_LOADCHECK: '1'
 
       - name: Ensure tests.json (non-blocking)
         run: node tools/ensure-tests-json.js

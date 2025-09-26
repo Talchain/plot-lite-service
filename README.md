@@ -90,6 +90,7 @@ Exemptions: GET /ready, GET /health, and GET /version are not rate-limited.
 - GET /draft-flows?template=<pricing_change|feature_launch|build_vs_buy>&seed=<int>&budget=<int> → deterministic fixtures served verbatim from disk with headers:
   - Content-Type: application/json
   - Content-Length: <bytes>
+  - Cache-Control: no-cache
   - ETag: "<sha256-hex>"
   - Returns 304 Not Modified when If-None-Match matches the strong ETag
 - POST /draft-flows → existing deterministic fixtures (legacy shape); accepts fixture_case; maintained for backwards compatibility
@@ -178,6 +179,9 @@ node tools/loadcheck-wrap.cjs
 
 Fixtures versioning: Each deterministic GET fixture contains meta.fixtures_version and meta.template. Any schema/key change requires a fixtures_version minor bump (e.g., 1.0.0 → 1.1.0). Clients should treat fixtures_version as a golden contract version.
 
+Schema: see docs/schema/report.v1.json for the minimal contract enforced in tests.
+Error types: see docs/engine/error-codes.md.
+
 See RELEASING.md for the release checklist and tagging guidance.
 
 ## Releases
@@ -196,7 +200,8 @@ See RELEASING.md for the release checklist and tagging guidance.
 - Endpoints:
   - GET /health → { status, p95_ms, replay, test_routes_enabled } (≤ 4 KB)
   - GET /version → { api: "warp/0.1.0", build, model: "plot-lite-<hash>" }
-  - GET /draft-flows → responses are byte-identical to files under fixtures/<template>/<seed>.json; headers include Content-Length and ETag; supports 304 via If-None-Match
+  - GET /ready → { ok } (200 once fixtures are preloaded)
+  - GET /draft-flows → responses are byte-identical to files under fixtures/<template>/<seed>.json; headers include Content-Length, Cache-Control: no-cache, and ETag; supports 304 via If-None-Match
   - POST /draft-flows → legacy deterministic response (unchanged for compatibility)
   - POST /critique → fixed, deterministic list (see above)
   - POST /improve → echoes parse_json and returns { fix_applied: [] }

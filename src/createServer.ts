@@ -164,6 +164,11 @@ export async function createServer(opts: ServerOpts = {}) {
     return { api: 'warp/0.1.0', build, model: `plot-lite-${build}` };
   });
 
+  // Readiness: only 200 when fixtures are preloaded
+  app.get('/ready', async (_req, reply) => {
+    return reply.code(fixturesReady ? 200 : 503).send({ ok: fixturesReady });
+  });
+
   // Liveness probe — basic process up indicator
   app.get('/live', async () => ({ ok: true }));
 
@@ -198,7 +203,9 @@ export async function createServer(opts: ServerOpts = {}) {
       }
     }
   }
+  let fixturesReady = false;
   await preloadDeterministic();
+  fixturesReady = true;
 
   app.get('/draft-flows', async (req, reply) => {
     const q = (req as any).query || {};
@@ -234,6 +241,7 @@ export async function createServer(opts: ServerOpts = {}) {
 
     const inm = (req.headers['if-none-match'] as string | undefined) || '';
     reply.header('Content-Type', 'application/json');
+    reply.header('Cache-Control', 'no-cache');
     reply.header('ETag', entry.etag);
     reply.header('Content-Length', String(entry.contentLength));
     if (inm && inm === entry.etag) {
