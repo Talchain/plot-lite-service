@@ -87,13 +87,15 @@ Exemptions: GET /ready, GET /health, and GET /version are not rate-limited.
   ...small runtime and cache fields (total payload ≤ 4 KB)
 }
 - GET /version → { api: "warp/0.1.0", model: "plot-lite-<hash>", build: "<git-sha-or-stamp>" }
-- GET /draft-flows?template=<pricing_change|feature_launch|build_vs_buy>&seed=<int>&budget=<int> → deterministic fixtures served verbatim from disk with headers:
-  - Content-Type: application/json
-  - Content-Length: <bytes>
-  - Cache-Control: no-cache
-  - ETag: "<sha256-hex>"
-  - Returns 304 Not Modified when If-None-Match matches the strong ETag
-- POST /draft-flows → existing deterministic fixtures (legacy shape); accepts fixture_case; maintained for backwards compatibility
+- GET /draft-flows?template=<pricing_change|feature_launch|build_vs_buy>&seed=<int>&budget=<int>
+  - PoC contract for deterministic UI integration; see docs/ui-integration.md
+  - Serves fixture bytes verbatim from disk with headers:
+    - Content-Type: application/json
+    - Content-Length: <bytes>
+    - Cache-Control: no-cache
+    - ETag: "<sha256-hex>"
+    - Returns 304 Not Modified when If-None-Match matches the strong ETag
+- POST /draft-flows → legacy route; unchanged for compatibility; supports Idempotency-Key
 - POST /critique → deterministic rules (no AI); Ajv-validated parse_json body
 - POST /improve → echoes parse_json and returns { fix_applied: [] }
 
@@ -169,6 +171,8 @@ The loadcheck uses a programmatic probe that waits for readiness and avoids exte
 - Artefacts: writes JSON and NDJSON to reports/warp/
 - Strict mode (CI): fails if the probe errors or p95_ms is missing or exceeds budget
 
+See docs/ui-integration.md for UI usage details.
+
 Run locally (targets GET /draft-flows):
 
 ```
@@ -187,6 +191,7 @@ Fixtures versioning: Each deterministic GET fixture contains meta.fixtures_versi
 
 Schema: see docs/schema/report.v1.json for the minimal contract enforced in tests.
 Error types: see docs/engine/error-codes.md.
+UI guide: see docs/ui-integration.md for deterministic usage and headers.
 
 See RELEASING.md for the release checklist and tagging guidance.
 
