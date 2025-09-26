@@ -163,7 +163,13 @@ curl -s -X POST http://localhost:4311/critique \
 
 ## Loadcheck
 
-Run a quick check locally (targets GET /draft-flows):
+The loadcheck uses a programmatic probe that waits for readiness and avoids external binaries:
+- Readiness: polls GET /ready (fallback /health) until 200 (15s timeout)
+- Probe: uses autocannon’s programmatic API when available; otherwise falls back to a pure undici loop
+- Artefacts: writes JSON and NDJSON to reports/warp/
+- Strict mode (CI): fails if the probe errors or p95_ms is missing or exceeds budget
+
+Run locally (targets GET /draft-flows):
 
 ```
 npm run build
@@ -173,7 +179,7 @@ node tools/loadcheck-wrap.cjs
 ```
 
 - Writes reports/warp/loadcheck.json and appends to reports/warp/loadcheck.ndjson
-- Fails if p95_ms > ${P95_BUDGET_MS:-600}
+- Default budget is ${P95_BUDGET_MS:-600}; STRICT_LOADCHECK=1 enforces non-zero exit on probe error or budget breach
 
 ## Versioning
 

@@ -36,6 +36,20 @@ jobs:
           P95_BUDGET_MS: '600'
           STRICT_LOADCHECK: '1'
 
+      - name: Enforce load budget (strict)
+        run: |
+          node dist/main.js & echo $! > server.pid
+          for i in {1..60}; do
+            if curl -sSf http://127.0.0.1:4311/ready >/dev/null; then break; fi
+            sleep 0.25
+          done
+          node tools/loadcheck-wrap.cjs
+          kill $(cat server.pid)
+        env:
+          TEST_BASE_URL: http://127.0.0.1:4311
+          P95_BUDGET_MS: '600'
+          STRICT_LOADCHECK: '1'
+
       - name: Ensure tests.json (non-blocking)
         run: node tools/ensure-tests-json.js
         continue-on-error: true

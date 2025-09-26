@@ -1,48 +1,60 @@
 #!/usr/bin/env node
-const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
-function run(cmd, args) {
-  const r = spawnSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-  const out = (r.stdout||'') + (r.stderr||'');
-  return { code: r.status ?? 1, out };
-}
-
-function parseLine(s) {
-  // Expect: Loadcheck p95_ms=123 max_ms=456 rps=789
-  const m = s.match(/p95_ms=(\d+(?:\.\d+)?)\s+max_ms=(\d+(?:\.\d+)?)\s+rps=(\d+(?:\.\d+)?)/);
-  if (!m) return null;
-  return { p95_ms: Number(m[1]), max_ms: Number(m[2]), rps: Number(m[3]) };
-}
-
-(function main(){
+(async function main(){
   const budget = Number(process.env.P95_BUDGET_MS || '600');
-  const res = run(process.execPath, ['tools/loadcheck.js']);
-  if (res.code !== 0) {
-    // Do not fail the entire suite if the probe fails to run; log and continue
-    console.error('loadcheck failed');
-  }
-  const line = res.out.split('\n').find(l => l.includes('Loadcheck p95_ms=')) || '';
-  const parsed = parseLine(line) || {};
+  const baseUrl = process.env.TEST_BASE_URL || process.env.BASE_URL || 'http://127.0.0.1:4311';
   const outDir = path.resolve(process.cwd(), 'reports', 'warp');
   fs.mkdirSync(outDir, { recursive: true });
   const outFile = path.join(outDir, 'loadcheck.json');
   const ndjsonFile = path.join(outDir, 'loadcheck.ndjson');
-  const record = { timestamp: new Date().toISOString(), ...parsed, budget, over_budget: Number.isFinite(parsed.p95_ms) && parsed.p95_ms > budget, probe_exit_code: res.code };
+
+  let record = {
+    timestamp: new Date().toISOString(),
+    budget_ms: budget,
+    p95_ms: null,
+    over_budget: null,
+    probe_exit_code: 0,
+    error_name: null,
+    error_message: null,
+  };
+
+  try {
+    const { runProbe } = require('./loadcheck-probe.cjs');
+    const res = await runProbe({ baseUrl, path: '/draft-flows?template=pricing_change&seed=101', connections: 10, durationSeconds: Number(process.env.LOADCHECK_DURATION_S || '10') });
+    record.p95_ms = (typeof res?.p95_ms === 'number') ? res.p95_ms : null;
+    record.over_budget = (typeof record.p95_ms === 'number') ? (record.p95_ms > budget) : null;
+  } catch (e) {
+    record.probe_exit_code = (e && (e.name === 'ReadinessTimeout' || e.message === 'readiness_timeout')) ? 2 : 1;
+    record.error_name = (e && e.name) || null;
+    record.error_message = (e && e.message) || String(e || 'probe_error');
+  }
+
   fs.writeFileSync(outFile, JSON.stringify(record, null, 2) + '\n');
   fs.appendFileSync(ndjsonFile, JSON.stringify(record) + '\n');
   console.log('Loadcheck JSON written:', outFile);
-  if (record.over_budget) {
+
+  const strict = process.env.STRICT_LOADCHECK === '1';
+  if (strict) {
+    if (record.probe_exit_code !== 0) {
+      console.error(`STRICT: probe failed (exit ${record.probe_exit_code}) ${record.error_name || ''} ${record.error_message || ''}`);
+      process.exit(1);
+    }
+    if (record.p95_ms == null) {
+      console.error('STRICT: missing p95_ms');
+      process.exit(1);
+    }
+    if (record.p95_ms > budget) {
+      console.error(`STRICT: p95_ms ${record.p95_ms} exceeded budget ${budget} ms`);
+      process.exit(1);
+    }
+  }
+
+  // Non-strict: succeed when not over budget and no fatal probe error
+  if (record.over_budget === true) {
     console.error(`p95_ms ${record.p95_ms} exceeded budget ${budget} ms`);
     process.exit(1);
   }
-  // If probe failed to run, optionally enforce strict failure in CI
-  if (res.code !== 0) {
-    if (process.env.STRICT_LOADCHECK === '1') {
-      console.error('STRICT_LOADCHECK=1 and loadcheck probe failed');
-      process.exit(res.code);
-    }
-    process.exit(0);
-  }
+  process.exit(0);
 })();
