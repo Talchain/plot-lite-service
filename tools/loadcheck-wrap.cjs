@@ -37,8 +37,12 @@ function parseLine(s) {
     console.error(`p95_ms ${record.p95_ms} exceeded budget ${budget} ms`);
     process.exit(1);
   }
-  // If probe failed to run, do not fail; CI gate is disabled for this run
+  // If probe failed to run, optionally enforce strict failure in CI
   if (res.code !== 0) {
+    if (process.env.STRICT_LOADCHECK === '1') {
+      console.error('STRICT_LOADCHECK=1 and loadcheck probe failed');
+      process.exit(res.code);
+    }
     process.exit(0);
   }
 })();
