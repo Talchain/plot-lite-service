@@ -1,0 +1,35 @@
+{
+  "schema": "report.v1",
+  "meta": {
+    "seed": 202,
+    "fixtures_version": "1.0.0",
+    "template": "feature_launch"
+  },
+  "graph": {
+    "nodes": [
+      { "id": "n1", "label": "Start" },
+      { "id": "n2", "label": "Feature Design" },
+      { "id": "n3", "label": "Feature Release" }
+    ],
+    "edges": [
+      { "from": "n1", "to": "n2", "label": "plan" },
+      { "from": "n2", "to": "n3", "label": "launch" }
+    ]
+  },
+  "results": {
+    "conservative": { "conversion_lift": 0.5, "cost": 2 },
+    "most_likely": { "conversion_lift": 1.2, "cost": 3 },
+    "optimistic": { "conversion_lift": 2.0, "cost": 4 }
+  },
+  "thresholds": [
+    { "metric": "conversion_lift", "from": 0.0, "to": 1.0, "crossed": true },
+    { "metric": "cost", "from": 3, "to": 4, "crossed": false }
+  ],
+  "provenance": {
+    "critique": [
+      "Assumes on-time delivery.",
+      "Ignores cannibalization."
+    ],
+    "notes": []
+  }
+}
