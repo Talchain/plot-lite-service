@@ -60,9 +60,9 @@ describe('Stream: cancel idempotency', () => {
 
   it('mid-stream cancel emits cancelled once', async () => {
     const id = 'job-c2';
-    const p = fetch(`${BASE}/stream?id=${id}&sleepMs=1`);
-    // Wait a moment to allow hello/token emission
-    await new Promise(r => setTimeout(r, 5));
+    const p = fetch(`${BASE}/stream?id=${id}&sleepMs=25`);
+    // Wait to allow hello/token emission but before cost/done
+    await new Promise(r => setTimeout(r, 12));
     await fetch(`${BASE}/stream/cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
     const res = await p;
     const txt = await res.text();

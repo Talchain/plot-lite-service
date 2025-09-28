@@ -3,6 +3,7 @@ set -euo pipefail
 ENGINE="http://127.0.0.1:4311"
 TEMPLATE="pricing_change"; SEED=101; FIXED_SEED=4242
 NOW=$(date +"%Y%m%d-%H%M"); OUT="artifact/Evidence-Pack-$NOW"
+COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 mkdir -p "$OUT/engine" "$OUT/ui" "$OUT/reports"
 
 echo "==> Optional self-start (PACK_SELF_START=1)"
@@ -17,12 +18,17 @@ if [ "${PACK_SELF_START:-0}" = "1" ]; then
   done
 fi
 
-echo "==> Setup (build + unit)"; npm ci; npm run build || true; npm test
+echo "==> Setup (build + unit)"; npm ci; npm run build || true
 
-echo "==> Contracts lane"; npm run test:contracts || true
-echo "==> Stream lane"; npm run test:stream || true
-echo "==> Security lane"; npm run test:security || true
-echo "==> Perf lane"; npm run test:perf || true
+echo "==> Lanes (capture status)"
+set +e
+npm run typecheck; S_TYPECHECK=$?
+npm run test:contracts; S_CONTRACTS=$?
+npm run test:stream; S_STREAM=$?
+npm run test:security; S_SECURITY=$?
+npm run test:perf; S_PERF=$?
+npm test; S_TEST=$?
+set -e
 
 echo "==> STRICT loadcheck"; STRICT_LOADCHECK=1 node tools/loadcheck-wrap.cjs || true
 [ -f reports/warp/loadcheck.json ] && cp reports/warp/loadcheck.json "$OUT/reports/loadcheck.json"
@@ -31,6 +37,9 @@ echo "==> Determinism + ETag/304"
 RATE_LIMIT_ENABLED=0 curl -i "$ENGINE/draft-flows?template=${TEMPLATE}&seed=${SEED}" -D "$OUT/engine/draft-flows-200.h" -o "$OUT/engine/draft-flows-200.json"
 ET=$(awk 'tolower($1)=="etag:"{print $2}' "$OUT/engine/draft-flows-200.h" | tr -d '\r')
 RATE_LIMIT_ENABLED=0 curl -i -H "If-None-Match: ${ET}" "$ENGINE/draft-flows?template=${TEMPLATE}&seed=${SEED}" -D "$OUT/engine/draft-flows-304.h" -o "$OUT/engine/draft-flows-304.txt"
+
+echo "==> Capture fixed-seed ${FIXED_SEED} body for checksum"
+RATE_LIMIT_ENABLED=0 curl -s "$ENGINE/draft-flows?template=${TEMPLATE}&seed=${FIXED_SEED}" -o "$OUT/engine/draft-flows-${FIXED_SEED}.json" || true
 
 echo "==> HEAD parity + 304"
 RATE_LIMIT_ENABLED=0 curl -I "$ENGINE/draft-flows?template=${TEMPLATE}&seed=${SEED}" -D "$OUT/engine/head-200.h" >/dev/null
@@ -54,8 +63,14 @@ echo "==> Report v1 stamp check"
 
 echo "==> Fixture checksums"
 if command -v shasum >/dev/null 2>&1; then
-  shasum -a 256 "fixtures/pricing_change/${FIXED_SEED}.json" > "$OUT/engine/fixture-seed-${FIXED_SEED}.sha256" || true
-  shasum -a 256 "fixtures/golden-seed-4242/stream.ndjson" > "$OUT/engine/stream-ndjson.sha256" || true
+  if [ -f "$OUT/engine/draft-flows-${FIXED_SEED}.json" ]; then
+    shasum -a 256 "$OUT/engine/draft-flows-${FIXED_SEED}.json" > "$OUT/engine/fixture-seed-${FIXED_SEED}.sha256" || true
+  elif [ -f "fixtures/pricing_change/${FIXED_SEED}.json" ]; then
+    shasum -a 256 "fixtures/pricing_change/${FIXED_SEED}.json" > "$OUT/engine/fixture-seed-${FIXED_SEED}.sha256" || true
+  fi
+  if [ -f "fixtures/golden-seed-4242/stream.ndjson" ]; then
+    shasum -a 256 "fixtures/golden-seed-4242/stream.ndjson" > "$OUT/engine/stream-ndjson.sha256" || true
+  fi
 fi
 
 echo "==> Access log snippet (if available)"
@@ -68,14 +83,27 @@ else
 fi
 
 echo "==> Summary README"
+OUT_ABS=$(cd "$OUT" && pwd)
 {
   echo "PLoT-lite Engine Evidence Pack";
   echo "time: $(date -u "+%Y-%m-%dT%H:%M:%SZ")";
+  echo "commit: ${COMMIT}";
   echo "engine: ${ENGINE}";
-  echo "lanes: contracts, stream, security, perf (see reports/loadcheck.json)";
   P95=$(jq -r '.p95_ms // empty' "$OUT/reports/loadcheck.json" 2>/dev/null || echo "");
   if [ -n "$P95" ] && [ "$P95" != "null" ]; then echo "p95_ms: $P95"; fi
+  # lane statuses
+  s() { test "$1" -eq 0 && echo PASS || echo FAIL; };
+  echo "lanes: typecheck=$(s ${S_TYPECHECK:-0}), contracts=$(s ${S_CONTRACTS:-0}), stream=$(s ${S_STREAM:-0}), security=$(s ${S_SECURITY:-0}), perf=$(s ${S_PERF:-0}), test=$(s ${S_TEST:-0})";
+  # acceptance checklist (coarse; relies on lanes + captures)
+  ck() { test "$1" -eq 0 && echo "✅" || echo "❌"; };
+  echo "checklist:";
+  echo "- $(ck ${S_CONTRACTS:-0}) Contracts (SSE events, report.v1 stamp, health shape)";
+  echo "- $(ck ${S_STREAM:-0}) Stream (resume via Last-Event-ID, idempotent cancel)";
+  echo "- $(ck ${S_SECURITY:-0}) Security (no payload/query logs; headers; prod guard)";
+  echo "- $(ck ${S_PERF:-0}) Performance (p95 ≤ 600 ms; 429 Retry-After; limited SSE)";
+  echo "- $(ck ${S_TEST:-0}) Caching & taxonomy (ETag/304; HEAD parity; samples)";
   echo "notes: UI not required; engine-only pack";
+  echo "out: ${OUT_ABS}";
 } > "$OUT/README.txt"
 
 if [ -n "$SVR_PID" ]; then
@@ -83,5 +111,5 @@ if [ -n "$SVR_PID" ]; then
   kill "$SVR_PID" >/dev/null 2>&1 || true
 fi
 
-echo "Evidence Pack ready: $OUT"
+echo "Evidence Pack ready: $OUT_ABS"
 echo "Place any UI artefacts under $OUT/ui and Playwright report under $OUT/reports if applicable"
