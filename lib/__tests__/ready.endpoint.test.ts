@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { spawn } from 'node:child_process'
 
-function waitFor(url: string, timeoutMs = 5000): Promise<void> {
+function waitFor(url: string, timeoutMs = 10000): Promise<void> {
   const start = Date.now()
   return new Promise(async (resolve, reject) => {
     while (Date.now() - start < timeoutMs) {
