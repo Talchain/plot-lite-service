@@ -6,6 +6,14 @@ const samples: number[] = [];
 let c2xx = 0, c4xx = 0, c5xx = 0;
 let lastReplayStatus: 'unknown' | 'ok' | 'drift' = 'unknown';
 
+// Replay telemetry snapshot (in-memory only)
+// Note: keep distinct from lastReplayStatus (legacy) to avoid breaking existing consumers.
+// Monotonic counters: refusals, retries. lastStatus is 'ok' | 'fail' | 'unknown'.
+let replayRefusals = 0;
+let replayRetries = 0;
+let replayLastStatus: 'ok' | 'fail' | 'unknown' = 'unknown';
+let replayLastTs: string | null = null;
+
 // Event loop delay histogram (Node >=12)
 const eld = monitorEventLoopDelay({ resolution: 10 });
 eld.enable();
@@ -24,8 +32,26 @@ export function recordStatus(code: number) {
   if (code >= 200 && code < 300) c2xx++; else if (code >= 400 && code < 500) c4xx++; else if (code >= 500) c5xx++;
 }
 
+// Legacy replay status (ok/drift) — keep for back-compat
 export function setLastReplay(status: 'ok' | 'drift') {
   lastReplayStatus = status;
+}
+
+// Replay telemetry API (test/ops)
+export function recordReplayRefusal(): void {
+  replayRefusals++;
+  replayLastTs = new Date().toISOString();
+}
+export function recordReplayRetry(): void {
+  replayRetries++;
+  replayLastTs = new Date().toISOString();
+}
+export function recordReplayStatus(status: 'ok' | 'fail'): void {
+  replayLastStatus = status;
+  replayLastTs = new Date().toISOString();
+}
+export function replaySnapshot(): { lastStatus: 'ok' | 'fail' | 'unknown'; refusals: number; retries: number; lastTs: string | null } {
+  return { lastStatus: replayLastStatus, refusals: replayRefusals, retries: replayRetries, lastTs: replayLastTs };
 }
 
 export function snapshot() {

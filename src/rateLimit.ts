@@ -1,4 +1,5 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
+import { replyWithAppError } from './errors.js';
 
 interface State { count: number; resetAt: number }
 const perIp: Map<string, State> = new Map();
@@ -48,9 +49,12 @@ export async function rateLimit(req: FastifyRequest, reply: FastifyReply) {
   s.count += 1;
   if (s.count > LIMIT) {
     const retryMs = Math.max(1, s.resetAt - now);
-    reply.header('Retry-After', Math.ceil(retryMs / 1000));
+    const retrySec = Math.ceil(retryMs / 1000);
+    const resetEpoch = Math.ceil(s.resetAt / 1000);
+    reply.header('Retry-After', retrySec);
+    reply.header('X-RateLimit-Reset', String(resetEpoch));
     record429(now);
-    return reply.code(429).send({ error: { type: 'RETRYABLE', message: 'Rate limit exceeded', hint: `Please retry after ${Math.ceil(retryMs / 1000)} seconds` } });
+    return replyWithAppError(reply, { type: 'RATE_LIMIT', statusCode: 429, hint: `Please retry after ${retrySec} seconds` });
   }
   // set 2xx rate-limit headers for allowed request
   reply.header('X-RateLimit-Limit', String(LIMIT));

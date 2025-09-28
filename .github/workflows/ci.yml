@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [18.x, 20.x]
+        node-version: [20.x]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -23,16 +23,33 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
-        env:
+        run: npm ci --no-audit --no-fund
+
+      - name: Trace viewer smoke (help)
+        run: node tools/trace-view.cjs --help
 
       - name: Build
         run: npm run build
-        env:
 
       - name: Test
         run: npm test
         env:
+          P95_BUDGET_MS: '600'
+          STRICT_LOADCHECK: '1'
+
+      - name: Enforce load budget (strict)
+        run: |
+          node dist/main.js & echo $! > server.pid
+          for i in {1..60}; do
+            if curl -sSf http://127.0.0.1:4311/ready >/dev/null; then break; fi
+            sleep 0.25
+          done
+          node tools/loadcheck-wrap.cjs
+          kill $(cat server.pid)
+        env:
+          TEST_BASE_URL: http://127.0.0.1:4311
+          P95_BUDGET_MS: '600'
+          STRICT_LOADCHECK: '1'
 
       - name: Ensure tests.json (non-blocking)
         run: node tools/ensure-tests-json.js

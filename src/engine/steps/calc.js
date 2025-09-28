@@ -128,8 +128,13 @@ export async function handleCalc({ ctx, step }) {
   const inputs = step.inputs || {};
   const assignTo = String(inputs.assignTo || '').trim();
   const expr = String(inputs.expr || '').trim();
-  if (!assignTo) throw new Error('assignTo required');
-  if (!expr) throw new Error('expr required');
+  const errs = {};
+  if (!assignTo) errs['assignTo'] = 'required';
+  if (!expr) errs['expr'] = 'required';
+  if (Object.prototype.hasOwnProperty.call(inputs, 'vars') && (inputs.vars == null || typeof inputs.vars !== 'object' || Array.isArray(inputs.vars))) {
+    errs['vars'] = 'must be an object';
+  }
+  if (Object.keys(errs).length) throw new Error(`BAD_INPUT:${JSON.stringify(errs)}`);
   const resolveVar = makeVarResolver(ctx, (inputs.vars && typeof inputs.vars === 'object') ? inputs.vars : null);
   const tokens = tokenize(expr);
   const { value, pos } = parseExpr(tokens, 0, resolveVar);

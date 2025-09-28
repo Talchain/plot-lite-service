@@ -19,6 +19,8 @@ npm run dev
 
 Server listens on http://localhost:4311
 
+- [STATUS.md](./docs/STATUS.md) — Replay telemetry quick reference
+
 ## Build and start (production)
 
 ```
@@ -80,15 +82,56 @@ Exemptions: GET /ready, GET /health, and GET /version are not rate-limited.
 - GET /health → {
   status,
   p95_ms,
-  c2xx, c4xx, c5xx, lastReplayStatus,
-  runtime: { node, uptime_s, rss_mb, heap_used_mb, eventloop_delay_ms, p95_ms, p99_ms },
-  caches: { idempotency_current },
-  rate_limit: { enabled, rpm, last5m_429 }
+  replay: { lastStatus, refusals, retries, lastTs },
+  test_routes_enabled: boolean,
+  ...small runtime and cache fields (total payload ≤ 4 KB)
 }
-- GET /version → { api: "1.0.0", build, model: "fixtures", runtime: { node } }
-- POST /draft-flows → deterministic fixtures (cases[0] by default; accepts fixture_case)
+- GET /version → { api: "warp/0.1.0", model: "plot-lite-<hash>", build: "<git-sha-or-stamp>" }
+- GET /draft-flows?template=<pricing_change|feature_launch|build_vs_buy>&seed=<int>&budget=<int>
+  - PoC contract for deterministic UI integration; see docs/ui-integration.md
+  - Serves fixture bytes verbatim from disk with headers:
+    - Content-Type: application/json
+    - Content-Length: <bytes>
+    - Cache-Control: no-cache
+    - ETag: "<sha256-hex>"
+    - Returns 304 Not Modified when If-None-Match matches the strong ETag
+- POST /draft-flows → legacy route; unchanged for compatibility; supports Idempotency-Key
 - POST /critique → deterministic rules (no AI); Ajv-validated parse_json body
 - POST /improve → echoes parse_json and returns { fix_applied: [] }
+
+### Replay telemetry (tests & local runs)
+
+GET /health includes a compact replay section that reflects the most recent replay activity:
+
+```
+{
+  "replay": {
+    "lastStatus": "ok",
+    "refusals": 0,
+    "retries": 3,
+    "lastTs": "2025-09-25T12:34:56.789Z"
+  }
+}
+```
+
+| Field     | Type             | Example                       | Meaning                                  |
+| ---       | ---              | ---                           | ---                                      |
+| lastStatus| "ok"             | ok                            | Final outcome of last replay run         |
+| refusals  | number           | 0                             | Count of connection refusals encountered during replay |
+| retries   | number           | 3                             | Count of retry attempts made during replay |
+| lastTs    | ISO 8601 string  | 2025-09-25T10:15:42.123Z      | Timestamp when replay status last updated |
+
+- Meaning
+  - lastStatus: outcome of the last replayed flow (ok or fail)
+  - refusals: count of connection refusals observed by the replay harness
+  - retries: retry attempts made by the replay harness
+  - lastTs: ISO timestamp of the last update
+
+- Test-only endpoints
+  - GET /internal/replay-status → same replay object (200 only in test mode)
+  - POST /internal/replay-report → increments counters (test mode only)
+
+Test mode is enabled when TEST_ROUTES=1 (set by the test server helper). In production these endpoints return 404.
 
 ## Determinism
 
@@ -122,18 +165,33 @@ curl -s -X POST http://localhost:4311/critique \
 
 ## Loadcheck
 
-Run a quick check locally:
+The loadcheck uses a programmatic probe that waits for readiness and avoids external binaries:
+- Readiness: polls GET /ready (fallback /health) until 200 (15s timeout)
+- Probe: uses autocannon’s programmatic API when available; otherwise falls back to a pure undici loop
+- Artefacts: writes JSON and NDJSON to reports/warp/
+- Strict mode (CI): fails if the probe errors or p95_ms is missing or exceeds budget
+
+See docs/ui-integration.md for UI usage details.
+
+Run locally (targets GET /draft-flows):
 
 ```
 npm run build
 npm start &
 sleep 1
-node tools/loadcheck.js
+node tools/loadcheck-wrap.cjs
 ```
 
-The output includes p95_ms, max_ms, and rps. Our target p95 is ≤ 600 ms.
+- Writes reports/warp/loadcheck.json and appends to reports/warp/loadcheck.ndjson
+- Default budget is ${P95_BUDGET_MS:-600}; STRICT_LOADCHECK=1 enforces non-zero exit on probe error or budget breach
 
 ## Versioning
+
+Fixtures versioning: Each deterministic GET fixture contains meta.fixtures_version and meta.template. Any schema/key change requires a fixtures_version minor bump (e.g., 1.0.0 → 1.1.0). Clients should treat fixtures_version as a golden contract version.
+
+Schema: see docs/schema/report.v1.json for the minimal contract enforced in tests.
+Error types: see docs/engine/error-codes.md.
+UI guide: see docs/ui-integration.md for deterministic usage and headers.
 
 See RELEASING.md for the release checklist and tagging guidance.
 
@@ -151,9 +209,11 @@ See RELEASING.md for the release checklist and tagging guidance.
 
 - Base URL: http://localhost:4311
 - Endpoints:
-  - GET /health → { status, p95_ms }
-  - GET /version → { api: "1.0.0", build, model: "fixtures" }
-  - POST /draft-flows → returns deterministic fixtures (cases[0].response)
+  - GET /health → { status, p95_ms, replay, test_routes_enabled } (≤ 4 KB)
+  - GET /version → { api: "warp/0.1.0", build, model: "plot-lite-<hash>" }
+  - GET /ready → { ok } (200 once fixtures are preloaded)
+  - GET /draft-flows → responses are byte-identical to files under fixtures/<template>/<seed>.json; headers include Content-Length, Cache-Control: no-cache, and ETag; supports 304 via If-None-Match
+  - POST /draft-flows → legacy deterministic response (unchanged for compatibility)
   - POST /critique → fixed, deterministic list (see above)
   - POST /improve → echoes parse_json and returns { fix_applied: [] }
 - Example first call:
@@ -209,3 +269,21 @@ This repository runs tests on Node 18 and 20. When a run completes, artefacts in
 - `reports/tests.json` (Vitest JSON)
 - `docs/collections/plot-lite.postman.json`
 - `docs/contract-report.html`
+## CI PR Verify Helper
+
+Run CI sanity + PR status comment locally:
+
+```bash
+npm run pr:verify
+# or to target a branch explicitly
+BRANCH=chore/lockfile-sync-ci BASE_BRANCH=main npm run pr:verify
+```
+
+- Only required workflows gate status: `OpenAPI Examples Roundtrip`, `engine-safety`, `tests-smoke`.
+- Uses safe jq quoting and avoids Node’s npm \"jq\" shim automatically.
+
+## CI status bot (pr-verify)
+
+- Runs on every PR update and comments a compact summary of required checks.
+- Local dev: `npm run pr:verify` uses the same Node script used in CI.
+- Required gates: OpenAPI Examples Roundtrip, engine-safety, tests-smoke.

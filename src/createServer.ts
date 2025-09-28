@@ -2,9 +2,12 @@ import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
 import { readFileSync } from 'fs';
-import { resolve } from 'path';
+import { resolve, join as joinPath } from 'path';
 import { spawnSync } from 'child_process';
+import { createHash } from 'node:crypto';
+import { promises as fsp } from 'node:fs';
 import { rateLimit } from './rateLimit.js';
+import { replyWithAppError } from './errors.js';
 
 export interface ServerOpts { enableTestRoutes?: boolean }
 
@@ -58,8 +61,10 @@ export async function createServer(opts: ServerOpts = {}) {
     await app.register(cors, { origin: 'http://localhost:5173' });
   }
 
-  // Optional rate limit
-  app.addHook('onRequest', rateLimit);
+  // Optional rate limit (enabled by env; disabled when RATE_LIMIT_ENABLED=0)
+  if (process.env.RATE_LIMIT_ENABLED !== '0') {
+    app.addHook('onRequest', rateLimit);
+  }
 
   // Minimal structured access log without bodies
   app.addHook('onRequest', async (req) => { (req as any).startTime = process.hrtime.bigint(); });
@@ -72,7 +77,10 @@ export async function createServer(opts: ServerOpts = {}) {
     const start = (req as any).startTime as bigint | undefined;
     const end = process.hrtime.bigint();
     const durationMs = start ? Number(end - start) / 1e6 : undefined;
-    const route = (req as any)?.routeOptions?.url ?? req.url;
+    const route = (req as any)?.routeOptions?.url ?? (() => {
+      try { return new URL((req as any).url, 'http://local').pathname; }
+      catch { return String((req as any).url || '').split('?')[0]; }
+    })();
     if (typeof durationMs === 'number') {
       try {
         const { recordDurationMs, recordStatus } = await import('./metrics.js');
@@ -80,10 +88,18 @@ export async function createServer(opts: ServerOpts = {}) {
         recordStatus(reply.statusCode);
       } catch {}
     }
+    // Update replay lastStatus/lastTs for /draft-flows responses
+    if (route?.startsWith('/draft-flows')) {
+      try {
+        const { recordReplayStatus } = await import('./metrics.js');
+        const status = reply.statusCode >= 200 && reply.statusCode < 300 ? 'ok' : 'fail';
+        recordReplayStatus(status as 'ok' | 'fail');
+      } catch {}
+    }
     app.log.info({ reqId: req.id, route, statusCode: reply.statusCode, durationMs }, 'request completed');
   });
 
-  // Load fixtures and pre-serialise
+  // Load fixtures and pre-serialise for legacy POST /draft-flows
   const fixturesPath = resolve(process.cwd(), 'fixtures', 'deterministic-fixtures.json');
   let firstCaseResponseRaw = '';
   const caseMap = new Map<string, string>();
@@ -112,11 +128,11 @@ export async function createServer(opts: ServerOpts = {}) {
   }
 
   app.get('/health', async () => {
-    const { p95Ms, p99Ms, eventLoopDelayMs, snapshot } = await import('./metrics.js');
+    const { p95Ms, p99Ms, eventLoopDelayMs, snapshot, replaySnapshot } = await import('./metrics.js');
     const { rateLimitState } = await import('./rateLimit.js');
     const mem = process.memoryUsage();
-    const resp = {
-      status: 'ok',
+    const base = {
+      status: 'ok' as const,
       // Preserve legacy top-level p95 for compatibility
       p95_ms: p95Ms(),
       ...snapshot(),
@@ -133,22 +149,133 @@ export async function createServer(opts: ServerOpts = {}) {
         idempotency_current: idemCache.size,
       },
       rate_limit: rateLimitState(),
+      test_routes_enabled: process.env.NODE_ENV === 'production' ? false : Boolean(opts.enableTestRoutes || process.env.TEST_ROUTES === '1'),
+      replay: replaySnapshot(),
+    } as const;
+    // Enforce a small upper bound to prevent accidental drift; keep required keys
+    const MAX_BYTES = 4 * 1024;
+    const txt = JSON.stringify(base);
+    if (Buffer.byteLength(txt, 'utf8') <= MAX_BYTES) return base;
+    const minimal = {
+      status: 'ok' as const,
+      p95_ms: p95Ms(),
+      test_routes_enabled: process.env.NODE_ENV === 'production' ? false : Boolean(opts.enableTestRoutes || process.env.TEST_ROUTES === '1'),
+      replay: replaySnapshot(),
     };
-    return resp;
+    return minimal;
   });
 
-  app.get('/version', async () => ({ api: '1.0.0', build: getBuildId(), model: 'fixtures', runtime: { node: process.version } }));
+  app.get('/version', async () => {
+    const build = getBuildId();
+    return { api: 'warp/0.1.0', build, model: `plot-lite-${build}` };
+  });
+
+  // Readiness: only 200 when fixtures are preloaded
+  app.get('/ready', async (_req, reply) => {
+    return reply.code(fixturesReady ? 200 : 503).send({ ok: fixturesReady });
+  });
 
   // Liveness probe — basic process up indicator
   app.get('/live', async () => ({ ok: true }));
+
+  // Deterministic GET /draft-flows — serve pre-serialized fixtures by template + seed with strong ETag
+  type AllowedTemplate = 'pricing_change' | 'feature_launch' | 'build_vs_buy';
+  type FixtureEntry = { buf: Buffer; etag: string; contentLength: number; metaSeed: number; template: AllowedTemplate };
+  const deterministicMap = new Map<string, FixtureEntry>();
+  const deterministicRoot = resolve(process.cwd(), 'fixtures');
+  async function preloadDeterministic() {
+    const templates: AllowedTemplate[] = ['pricing_change','feature_launch','build_vs_buy'];
+    for (const tmpl of templates) {
+      const dir = joinPath(deterministicRoot, tmpl);
+      let files: string[] = [];
+      try {
+        const ents = await fsp.readdir(dir, { withFileTypes: true });
+        files = ents.filter(e => e.isFile() && /^\d+\.json$/.test(e.name)).map(e => e.name);
+      } catch {
+        continue;
+      }
+      for (const f of files) {
+        const seed = Number(f.replace(/\.json$/, ''));
+        if (!Number.isInteger(seed)) continue;
+        const abs = joinPath(dir, f);
+        const raw = await fsp.readFile(abs);
+        let parsed: any;
+        try { parsed = JSON.parse(raw.toString('utf8')); } catch (e) { throw new Error(`Invalid JSON in ${abs}`); }
+        if (parsed?.schema !== 'report.v1') throw new Error(`Missing schema in ${abs}`);
+        if (parsed?.meta?.seed !== seed) throw new Error(`meta.seed mismatch in ${abs}`);
+        const h = createHash('sha256').update(raw).digest('hex');
+        const etag = '"' + h + '"';
+        deterministicMap.set(`${tmpl}|${seed}`, { buf: raw, etag, contentLength: raw.length, metaSeed: seed, template: tmpl });
+      }
+    }
+  }
+  let fixturesReady = false;
+  await preloadDeterministic();
+  fixturesReady = true;
+
+  app.get('/draft-flows', async (req, reply) => {
+    const q = (req as any).query || {};
+    const fields: Record<string, any> = {};
+    const template = typeof q.template === 'string' ? q.template : '';
+    const seedNum = (typeof q.seed === 'string' || typeof q.seed === 'number') ? Number(q.seed) : NaN;
+    const budgetNum = q.budget == null ? null : Number(q.budget);
+    const allowed = new Set(['pricing_change','feature_launch','build_vs_buy']);
+    if (!allowed.has(template)) {
+      return replyWithAppError(reply, {
+        type: 'BAD_INPUT',
+        statusCode: 404,
+        key: 'INVALID_TEMPLATE',
+        devDetail: { template },
+      });
+    }
+    if (!Number.isInteger(seedNum)) fields.seed = 'must be an integer';
+    if (q.budget != null && (!Number.isInteger(budgetNum as number))) fields.budget = 'must be an integer if provided';
+
+    if (Object.keys(fields).length > 0) {
+      return replyWithAppError(reply, {
+        type: 'BAD_INPUT',
+        statusCode: 400,
+        key: 'BAD_QUERY_PARAMS',
+        hint: 'Fix invalid query parameters',
+        fields,
+        devDetail: fields,
+      });
+    }
+
+    // Forced error injection (dev/test) for taxonomy checks
+    {
+      const force = getForcedError(req as any);
+      if (force === 'TIMEOUT') { return replyWithAppError(reply, { type: 'TIMEOUT', statusCode: 504, hint: 'Reduce processing time' }); }
+      if (force === 'RETRYABLE') { return replyWithAppError(reply, { type: 'RETRYABLE', statusCode: 503, hint: 'Please retry', retryable: true }); }
+      if (force === 'INTERNAL') { throw new Error('Forced internal'); }
+    }
+
+    const key = `${template}|${seedNum}`;
+    const entry = deterministicMap.get(key);
+    if (!entry) {
+      return replyWithAppError(reply, { type: 'BAD_INPUT', statusCode: 404, key: 'INVALID_SEED', devDetail: { template, seed: seedNum } });
+    }
+
+    const inm = (req.headers['if-none-match'] as string | undefined) || '';
+    reply.header('Content-Type', 'application/json');
+    reply.header('Cache-Control', 'no-cache');
+    reply.header('Vary', 'If-None-Match');
+    reply.header('ETag', entry.etag);
+    reply.header('Content-Length', String(entry.contentLength));
+    if (inm && inm === entry.etag) {
+      return reply.code(304).send();
+    }
+    return reply.send(entry.buf);
+  });
+
 
   app.post('/draft-flows', async (req, reply) => {
     const body: any = (req as any).body || {};
     // Test error header
     {
       const force = getForcedError(req as any);
-      if (force === 'TIMEOUT') { const { errorResponse } = await import('./errors.js'); return reply.code(504).send(errorResponse('TIMEOUT', 'Simulated timeout', 'Reduce processing time')); }
-      if (force === 'RETRYABLE') { const { errorResponse } = await import('./errors.js'); return reply.code(503).send(errorResponse('RETRYABLE', 'Temporary issue', 'Please retry')); }
+      if (force === 'TIMEOUT') { return replyWithAppError(reply, { type: 'TIMEOUT', statusCode: 504, hint: 'Reduce processing time' }); }
+      if (force === 'RETRYABLE') { return replyWithAppError(reply, { type: 'RETRYABLE', statusCode: 503, hint: 'Please retry', retryable: true }); }
       if (force === 'INTERNAL') { throw new Error('Forced internal'); }
     }
     // Idempotency replay (pre-check)
@@ -273,8 +400,8 @@ export async function createServer(opts: ServerOpts = {}) {
     // Header forced errors
     {
       const force = getForcedError(req as any);
-      if (force === 'TIMEOUT') { const { errorResponse } = await import('./errors.js'); return reply.code(504).send(errorResponse('TIMEOUT', 'Simulated timeout', 'Reduce processing time')); }
-      if (force === 'RETRYABLE') { const { errorResponse } = await import('./errors.js'); return reply.code(503).send(errorResponse('RETRYABLE', 'Temporary issue', 'Please retry')); }
+      if (force === 'TIMEOUT') { return replyWithAppError(reply, { type: 'TIMEOUT', statusCode: 504, hint: 'Reduce processing time' }); }
+      if (force === 'RETRYABLE') { return replyWithAppError(reply, { type: 'RETRYABLE', statusCode: 503, hint: 'Please retry', retryable: true }); }
       if (force === 'INTERNAL') { throw new Error('Forced internal'); }
     }
     const parse_json = body.parse_json;
@@ -310,29 +437,124 @@ export async function createServer(opts: ServerOpts = {}) {
     return { parse_json, fix_applied: [] };
   });
 
-  // Test-only error injection
+  // Test-only error injection and internal replay telemetry routes
   if (opts.enableTestRoutes || process.env.TEST_ROUTES === '1') {
     app.post('/__test/force-error', async (req: any, reply) => {
       const t = (req.body?.type || req.query?.type || '').toString().toUpperCase();
       const { errorResponse } = await import('./errors.js');
-      if (t === 'TIMEOUT') return reply.code(504).send(errorResponse('TIMEOUT', 'Simulated timeout', 'Reduce processing time'));
-      if (t === 'RETRYABLE') return reply.code(503).send(errorResponse('RETRYABLE', 'Temporary issue', 'Please retry'));
-      if (t === 'INTERNAL') return reply.code(500).send(errorResponse('INTERNAL', 'Forced internal', 'See server logs'));
-      return reply.code(400).send(errorResponse('BAD_INPUT', 'Unknown type', 'Use TIMEOUT, RETRYABLE, or INTERNAL'));
+      if (t === 'TIMEOUT') return replyWithAppError(reply, { type: 'TIMEOUT', statusCode: 504, hint: 'Reduce processing time' });
+      if (t === 'RETRYABLE') return replyWithAppError(reply, { type: 'RETRYABLE', statusCode: 503, hint: 'Please retry', retryable: true });
+      if (t === 'INTERNAL') return replyWithAppError(reply, { type: 'INTERNAL', statusCode: 500, hint: 'See server logs' });
+      return replyWithAppError(reply, { type: 'BAD_INPUT', statusCode: 400, message: 'Unknown type', hint: 'Use TIMEOUT, RETRYABLE, or INTERNAL' });
+    });
+
+    // Internal replay telemetry — test mode only
+    app.get('/internal/replay-status', async (_req, reply) => {
+      const { replaySnapshot } = await import('./metrics.js');
+      return reply.code(200).send(replaySnapshot());
+    });
+    app.post('/internal/replay-report', async (req: any, reply) => {
+      try {
+        const b = req.body || {};
+        const { recordReplayRefusal, recordReplayRetry, recordReplayStatus } = await import('./metrics.js');
+        if (b.refusal) recordReplayRefusal();
+        if (b.retry) recordReplayRetry();
+        if (b.status === 'ok' || b.status === 'fail') recordReplayStatus(b.status);
+        return { ok: true };
+      } catch {
+        return { ok: false };
+      }
+    });
+
+    // --- Test-only SSE streaming with resume/cancel semantics ---
+    type StreamState = { index: number; blipped?: boolean };
+    const sseState = new Map<string, StreamState>();
+    const sseCancelled = new Set<string>();
+
+    function sleep(ms: number) { return new Promise(r => setTimeout(r, Math.max(0, Number(ms)||0))); }
+    function writeSse(reply: any, id: string, event: string, data: any) {
+      reply.raw.write(`id: ${id}\n`);
+      reply.raw.write(`event: ${event}\n`);
+      reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
+    }
+
+    app.post('/stream/cancel', async (req: any, reply) => {
+      const id = String((req.body?.id || req.query?.id || '') || '');
+      if (!id) return reply.code(400).send({ ok: false, error: 'id required' });
+      sseCancelled.add(id);
+      return { ok: true };
+    });
+
+    app.get('/stream', async (req: any, reply) => {
+      // Hijack response for streaming
+      reply.header('Content-Type', 'text/event-stream');
+      reply.header('Cache-Control', 'no-cache');
+      reply.header('Connection', 'keep-alive');
+      reply.hijack();
+
+      const q = req.query || {};
+      const id: string = String(q.id || 'default');
+      const blip = String(q.blip || '').toLowerCase() === '1' || String(process.env.STREAM_BLIP || '') === '1';
+      const limitNow = String(q.limited || '').toLowerCase() === '1';
+      const sleepMs = Number(q.sleepMs || 0);
+
+      const seq: Array<{ ev: string; body: any }> = [
+        { ev: 'hello', body: { ts: new Date().toISOString() } },
+        { ev: 'token', body: { text: 'draft', index: 0 } },
+        { ev: 'cost', body: { tokens: 5, currency: 'USD', amount: 0.0 } },
+        { ev: 'done', body: { reason: 'complete' } },
+      ];
+
+      // Backpressure/limit signal
+      if (limitNow) {
+        writeSse(reply, '0', 'limited', { reason: 'backpressure' });
+        try { reply.raw.end(); } catch {}
+        return;
+      }
+
+      const lastIdRaw: string | undefined = (req.headers['last-event-id'] as string | undefined) || (q.lastEventId as string | undefined);
+      const lastId = lastIdRaw ? Number(lastIdRaw) : -1;
+      const st = sseState.get(id) || { index: 0 };
+      // Resume from next after last-id
+      if (lastId >= 0) st.index = Math.min(seq.length, lastId + 1);
+      sseState.set(id, st);
+
+      for (let i = st.index; i < seq.length; i++) {
+        // honour cancellation
+        if (sseCancelled.has(id)) {
+          writeSse(reply, String(i), 'cancelled', { reason: 'client' });
+          try { reply.raw.end(); } catch {}
+          sseCancelled.delete(id); // idempotent cancel: clear after signalling
+          sseState.set(id, { index: seq.length });
+          return;
+        }
+        const e = seq[i];
+        await sleep(sleepMs);
+        writeSse(reply, String(i), e.ev, e.body);
+        st.index = i + 1;
+        sseState.set(id, st);
+        // single forced blip after first token
+        if (blip && !st.blipped && e.ev === 'token') {
+          st.blipped = true;
+          sseState.set(id, st);
+          try { reply.raw.end(); } catch {}
+          return;
+        }
+      }
+      try { reply.raw.end(); } catch {}
     });
   }
 
   // Simple global error handler mapping to typed error
   app.setErrorHandler(async (err, req, reply) => {
-    const { errorResponse } = await import('./errors.js');
     // Map request timeouts to TIMEOUT type
-    const msg = (err as any)?.message || '';
-    const code = (err as any)?.code || '';
-    if (code === 'FST_ERR_REQUEST_TIMEOUT' || /timeout/i.test(msg)) {
-      return reply.code(504).send(errorResponse('TIMEOUT', msg || 'Request timed out', 'Reduce processing time'));
+    const emsg = (err as any)?.message || '';
+    const ecode = (err as any)?.code || '';
+    if (ecode === 'FST_ERR_REQUEST_TIMEOUT' || /timeout/i.test(emsg)) {
+      return replyWithAppError(reply, { type: 'TIMEOUT', statusCode: 504, hint: 'Reduce processing time', devDetail: emsg });
     }
-    const type = msg.includes('body limit') ? 'BAD_INPUT' : 'INTERNAL';
-    reply.code(type === 'INTERNAL' ? 500 : 400).send(errorResponse(type as any, msg || 'Unhandled error'));
+    const type = emsg.includes('body limit') ? 'BAD_INPUT' : 'INTERNAL';
+    return replyWithAppError(reply, { type: type as any, statusCode: type === 'INTERNAL' ? 500 : 400, devDetail: emsg });
   });
 
   // Optional ops snapshot endpoint

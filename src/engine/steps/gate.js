@@ -12,7 +12,14 @@ export async function handleGate({ ctx, step }) {
     const pred = predicate.compile(step.fork.condition);
     const ok = !!pred(ctx);
     nextId = ok ? step.fork.onTrue : step.fork.onFalse;
-  } else if (inputs && inputs.path && inputs.op) {
+  } else if (inputs && (Object.prototype.hasOwnProperty.call(inputs, 'path') || Object.prototype.hasOwnProperty.call(inputs, 'op'))) {
+    const errs = {};
+    if (typeof inputs.path !== 'string' || !inputs.path.trim()) errs['path'] = 'required string';
+    const allowed = new Set(['===','!==','>=','<=','>','<']);
+    if (typeof inputs.op !== 'string' || !allowed.has(inputs.op)) errs['op'] = 'must be one of === !== >= <= > <';
+    if (Object.prototype.hasOwnProperty.call(inputs, 'onTrue') && typeof inputs.onTrue !== 'string') errs['onTrue'] = 'must be a string';
+    if (Object.prototype.hasOwnProperty.call(inputs, 'onFalse') && typeof inputs.onFalse !== 'string') errs['onFalse'] = 'must be a string';
+    if (Object.keys(errs).length) throw new Error(`BAD_INPUT:${JSON.stringify(errs)}`);
     const left = get(ctx, inputs.path);
     const right = inputs.value;
     let ok = false;
