@@ -27,8 +27,8 @@ describe('HEAD /draft-flows headers and 304', () => {
     expect(res.body).toBe('');
   });
 
-  it('returns 400 for bad query params', async () => {
-    const res = await app.inject({ method: 'HEAD', url: '/draft-flows?template=unknown&seed=not-a-number' });
+  it('returns 400 for bad query params (invalid seed type)', async () => {
+    const res = await app.inject({ method: 'HEAD', url: '/draft-flows?template=pricing_change&seed=not-a-number' });
     expect(res.statusCode).toBe(400);
   });
 

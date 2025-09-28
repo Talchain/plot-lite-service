@@ -10,6 +10,8 @@ async function start() {
     process.exit(1);
   }
   const app = await createServer({ enableTestRoutes: process.env.TEST_ROUTES === '1' });
+  let closing = false;
+  let inflight = 0;
   await app.listen({ port: PORT, host: HOST });
   app.log.info({ port: PORT }, 'server started');
 
@@ -39,12 +41,6 @@ async function start() {
     }
   });
 
-  // Graceful shutdown with in-flight drain
-  let closing = false;
-  let inflight = 0;
-  app.addHook('onRequest', async () => { if (!closing) inflight++; });
-  app.addHook('onResponse', async () => { if (inflight > 0) inflight--; });
-
   for (const sig of ['SIGINT','SIGTERM'] as const) {
     process.on(sig, async () => {
       if (closing) return;
@@ -53,10 +49,6 @@ async function start() {
       try {
         // Stop accepting new connections
         await app.close();
-        const deadline = Date.now() + 5000;
-        while (inflight > 0 && Date.now() < deadline) {
-          await new Promise(r => setTimeout(r, 50));
-        }
         process.exit(0);
       } catch {
         process.exit(1);

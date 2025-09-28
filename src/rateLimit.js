@@ -1,3 +1,4 @@
+import { replyWithAppError } from './errors.js';
 const perIp = new Map();
 const LIMIT = Number(process.env.RATE_LIMIT_RPM || process.env.RATE_LIMIT_PER_MIN || 60);
 // Track 429s per-minute to expose last5m_429 in /health
@@ -49,8 +50,7 @@ export async function rateLimit(req, reply) {
         reply.header('Retry-After', retrySec);
         reply.header('X-RateLimit-Reset', String(resetEpoch));
         record429(now);
-        const { errorResponse } = await import('./errors.js');
-        return reply.code(429).send(errorResponse('RATE_LIMIT', 'Rate limit exceeded for this client.', `Please retry after ${retrySec} seconds`));
+        return replyWithAppError(reply, { type: 'RATE_LIMIT', statusCode: 429, hint: `Please retry after ${retrySec} seconds` });
     }
     // set 2xx rate-limit headers for allowed request
     reply.header('X-RateLimit-Limit', String(LIMIT));

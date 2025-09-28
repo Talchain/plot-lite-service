@@ -7,6 +7,7 @@ import { spawnSync } from 'child_process';
 import { createHash } from 'node:crypto';
 import { promises as fsp } from 'node:fs';
 import { rateLimit } from './rateLimit.js';
+import { replyWithAppError } from './errors.js';
 export async function createServer(opts = {}) {
     const idemCache = new Map();
     const IDEM_TTL_MS = 10 * 60 * 1000;
@@ -56,8 +57,10 @@ export async function createServer(opts = {}) {
     if (process.env.CORS_DEV === '1') {
         await app.register(cors, { origin: 'http://localhost:5173' });
     }
-    // Optional rate limit
-    app.addHook('onRequest', rateLimit);
+    // Optional rate limit (enabled by env; disabled when RATE_LIMIT_ENABLED=0)
+    if (process.env.RATE_LIMIT_ENABLED !== '0') {
+        app.addHook('onRequest', rateLimit);
+    }
     // Minimal structured access log without bodies
     app.addHook('onRequest', async (req) => { req.startTime = process.hrtime.bigint(); });
     // Echo X-Request-ID on all responses
@@ -72,7 +75,14 @@ export async function createServer(opts = {}) {
         const start = req.startTime;
         const end = process.hrtime.bigint();
         const durationMs = start ? Number(end - start) / 1e6 : undefined;
-        const route = req?.routeOptions?.url ?? req.url;
+        const route = req?.routeOptions?.url ?? (() => {
+            try {
+                return new URL(req.url, 'http://local').pathname;
+            }
+            catch {
+                return String(req.url || '').split('?')[0];
+            }
+        })();
         if (typeof durationMs === 'number') {
             try {
                 const { recordDurationMs, recordStatus } = await import('./metrics.js');
@@ -217,26 +227,36 @@ export async function createServer(opts = {}) {
         const seedNum = (typeof q.seed === 'string' || typeof q.seed === 'number') ? Number(q.seed) : NaN;
         const budgetNum = q.budget == null ? null : Number(q.budget);
         const allowed = new Set(['pricing_change', 'feature_launch', 'build_vs_buy']);
-        if (!allowed.has(template))
-            fields.template = 'must be one of pricing_change|feature_launch|build_vs_buy';
+        if (!allowed.has(template)) {
+            return replyWithAppError(reply, {
+                type: 'BAD_INPUT',
+                statusCode: 404,
+                key: 'INVALID_TEMPLATE',
+                devDetail: { template },
+            });
+        }
         if (!Number.isInteger(seedNum))
             fields.seed = 'must be an integer';
         if (q.budget != null && (!Number.isInteger(budgetNum)))
             fields.budget = 'must be an integer if provided';
         if (Object.keys(fields).length > 0) {
-            const { errorResponse } = await import('./errors.js');
-            return reply.code(400).send(errorResponse('BAD_INPUT', 'Invalid query', 'Fix invalid query parameters', fields));
+            return replyWithAppError(reply, {
+                type: 'BAD_INPUT',
+                statusCode: 400,
+                key: 'BAD_QUERY_PARAMS',
+                hint: 'Fix invalid query parameters',
+                fields,
+                devDetail: fields,
+            });
         }
         // Forced error injection (dev/test) for taxonomy checks
         {
             const force = getForcedError(req);
             if (force === 'TIMEOUT') {
-                const { errorResponse } = await import('./errors.js');
-                return reply.code(504).send(errorResponse('TIMEOUT', 'Simulated timeout', 'Reduce processing time'));
+                return replyWithAppError(reply, { type: 'TIMEOUT', statusCode: 504, hint: 'Reduce processing time' });
             }
             if (force === 'RETRYABLE') {
-                const { errorResponse } = await import('./errors.js');
-                return reply.code(503).send(errorResponse('RETRYABLE', 'Temporary issue', 'Please retry'));
+                return replyWithAppError(reply, { type: 'RETRYABLE', statusCode: 503, hint: 'Please retry', retryable: true });
             }
             if (force === 'INTERNAL') {
                 throw new Error('Forced internal');
@@ -245,8 +265,7 @@ export async function createServer(opts = {}) {
         const key = `${template}|${seedNum}`;
         const entry = deterministicMap.get(key);
         if (!entry) {
-            const { errorResponse } = await import('./errors.js');
-            return reply.code(404).send(errorResponse('BAD_INPUT', 'Fixture not found', `No fixture for template=${template} seed=${seedNum}`));
+            return replyWithAppError(reply, { type: 'BAD_INPUT', statusCode: 404, key: 'INVALID_SEED', devDetail: { template, seed: seedNum } });
         }
         const inm = req.headers['if-none-match'] || '';
         reply.header('Content-Type', 'application/json');
@@ -265,12 +284,10 @@ export async function createServer(opts = {}) {
         {
             const force = getForcedError(req);
             if (force === 'TIMEOUT') {
-                const { errorResponse } = await import('./errors.js');
-                return reply.code(504).send(errorResponse('TIMEOUT', 'Simulated timeout', 'Reduce processing time'));
+                return replyWithAppError(reply, { type: 'TIMEOUT', statusCode: 504, hint: 'Reduce processing time' });
             }
             if (force === 'RETRYABLE') {
-                const { errorResponse } = await import('./errors.js');
-                return reply.code(503).send(errorResponse('RETRYABLE', 'Temporary issue', 'Please retry'));
+                return replyWithAppError(reply, { type: 'RETRYABLE', statusCode: 503, hint: 'Please retry', retryable: true });
             }
             if (force === 'INTERNAL') {
                 throw new Error('Forced internal');
@@ -404,12 +421,10 @@ export async function createServer(opts = {}) {
         {
             const force = getForcedError(req);
             if (force === 'TIMEOUT') {
-                const { errorResponse } = await import('./errors.js');
-                return reply.code(504).send(errorResponse('TIMEOUT', 'Simulated timeout', 'Reduce processing time'));
+                return replyWithAppError(reply, { type: 'TIMEOUT', statusCode: 504, hint: 'Reduce processing time' });
             }
             if (force === 'RETRYABLE') {
-                const { errorResponse } = await import('./errors.js');
-                return reply.code(503).send(errorResponse('RETRYABLE', 'Temporary issue', 'Please retry'));
+                return replyWithAppError(reply, { type: 'RETRYABLE', statusCode: 503, hint: 'Please retry', retryable: true });
             }
             if (force === 'INTERNAL') {
                 throw new Error('Forced internal');
@@ -467,12 +482,12 @@ export async function createServer(opts = {}) {
             const t = (req.body?.type || req.query?.type || '').toString().toUpperCase();
             const { errorResponse } = await import('./errors.js');
             if (t === 'TIMEOUT')
-                return reply.code(504).send(errorResponse('TIMEOUT', 'Simulated timeout', 'Reduce processing time'));
+                return replyWithAppError(reply, { type: 'TIMEOUT', statusCode: 504, hint: 'Reduce processing time' });
             if (t === 'RETRYABLE')
-                return reply.code(503).send(errorResponse('RETRYABLE', 'Temporary issue', 'Please retry'));
+                return replyWithAppError(reply, { type: 'RETRYABLE', statusCode: 503, hint: 'Please retry', retryable: true });
             if (t === 'INTERNAL')
-                return reply.code(500).send(errorResponse('INTERNAL', 'Forced internal', 'See server logs'));
-            return reply.code(400).send(errorResponse('BAD_INPUT', 'Unknown type', 'Use TIMEOUT, RETRYABLE, or INTERNAL'));
+                return replyWithAppError(reply, { type: 'INTERNAL', statusCode: 500, hint: 'See server logs' });
+            return replyWithAppError(reply, { type: 'BAD_INPUT', statusCode: 400, message: 'Unknown type', hint: 'Use TIMEOUT, RETRYABLE, or INTERNAL' });
         });
         // Internal replay telemetry — test mode only
         app.get('/internal/replay-status', async (_req, reply) => {
@@ -495,18 +510,98 @@ export async function createServer(opts = {}) {
                 return { ok: false };
             }
         });
+        const sseState = new Map();
+        const sseCancelled = new Set();
+        function sleep(ms) { return new Promise(r => setTimeout(r, Math.max(0, Number(ms) || 0))); }
+        function writeSse(reply, id, event, data) {
+            reply.raw.write(`id: ${id}\n`);
+            reply.raw.write(`event: ${event}\n`);
+            reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
+        }
+        app.post('/stream/cancel', async (req, reply) => {
+            const id = String((req.body?.id || req.query?.id || '') || '');
+            if (!id)
+                return reply.code(400).send({ ok: false, error: 'id required' });
+            sseCancelled.add(id);
+            return { ok: true };
+        });
+        app.get('/stream', async (req, reply) => {
+            // Hijack response for streaming
+            reply.header('Content-Type', 'text/event-stream');
+            reply.header('Cache-Control', 'no-cache');
+            reply.header('Connection', 'keep-alive');
+            reply.hijack();
+            const q = req.query || {};
+            const id = String(q.id || 'default');
+            const blip = String(q.blip || '').toLowerCase() === '1' || String(process.env.STREAM_BLIP || '') === '1';
+            const limitNow = String(q.limited || '').toLowerCase() === '1';
+            const sleepMs = Number(q.sleepMs || 0);
+            const seq = [
+                { ev: 'hello', body: { ts: new Date().toISOString() } },
+                { ev: 'token', body: { text: 'draft', index: 0 } },
+                { ev: 'cost', body: { tokens: 5, currency: 'USD', amount: 0.0 } },
+                { ev: 'done', body: { reason: 'complete' } },
+            ];
+            // Backpressure/limit signal
+            if (limitNow) {
+                writeSse(reply, '0', 'limited', { reason: 'backpressure' });
+                try {
+                    reply.raw.end();
+                }
+                catch { }
+                return;
+            }
+            const lastIdRaw = req.headers['last-event-id'] || q.lastEventId;
+            const lastId = lastIdRaw ? Number(lastIdRaw) : -1;
+            const st = sseState.get(id) || { index: 0 };
+            // Resume from next after last-id
+            if (lastId >= 0)
+                st.index = Math.min(seq.length, lastId + 1);
+            sseState.set(id, st);
+            for (let i = st.index; i < seq.length; i++) {
+                // honour cancellation
+                if (sseCancelled.has(id)) {
+                    writeSse(reply, String(i), 'cancelled', { reason: 'client' });
+                    try {
+                        reply.raw.end();
+                    }
+                    catch { }
+                    sseCancelled.delete(id); // idempotent cancel: clear after signalling
+                    sseState.set(id, { index: seq.length });
+                    return;
+                }
+                const e = seq[i];
+                await sleep(sleepMs);
+                writeSse(reply, String(i), e.ev, e.body);
+                st.index = i + 1;
+                sseState.set(id, st);
+                // single forced blip after first token
+                if (blip && !st.blipped && e.ev === 'token') {
+                    st.blipped = true;
+                    sseState.set(id, st);
+                    try {
+                        reply.raw.end();
+                    }
+                    catch { }
+                    return;
+                }
+            }
+            try {
+                reply.raw.end();
+            }
+            catch { }
+        });
     }
     // Simple global error handler mapping to typed error
     app.setErrorHandler(async (err, req, reply) => {
-        const { errorResponse } = await import('./errors.js');
         // Map request timeouts to TIMEOUT type
-        const msg = err?.message || '';
-        const code = err?.code || '';
-        if (code === 'FST_ERR_REQUEST_TIMEOUT' || /timeout/i.test(msg)) {
-            return reply.code(504).send(errorResponse('TIMEOUT', msg || 'Request timed out', 'Reduce processing time'));
+        const emsg = err?.message || '';
+        const ecode = err?.code || '';
+        if (ecode === 'FST_ERR_REQUEST_TIMEOUT' || /timeout/i.test(emsg)) {
+            return replyWithAppError(reply, { type: 'TIMEOUT', statusCode: 504, hint: 'Reduce processing time', devDetail: emsg });
         }
-        const type = msg.includes('body limit') ? 'BAD_INPUT' : 'INTERNAL';
-        reply.code(type === 'INTERNAL' ? 500 : 400).send(errorResponse(type, msg || 'Unhandled error'));
+        const type = emsg.includes('body limit') ? 'BAD_INPUT' : 'INTERNAL';
+        return replyWithAppError(reply, { type: type, statusCode: type === 'INTERNAL' ? 500 : 400, devDetail: emsg });
     });
     // Optional ops snapshot endpoint
     if (process.env.OPS_SNAPSHOT === '1') {

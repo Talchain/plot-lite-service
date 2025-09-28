@@ -38,14 +38,14 @@ export async function handleFanout({ ctx, step }) {
   }
 
   const fromPath = String(inputs.fromPath || '').trim();
-  if (!fromPath) throw new Error('fromPath required');
+  if (!fromPath) throw new Error('BAD_INPUT:{"fromPath":"required"}');
   const itemPath = (typeof inputs.itemPath === 'string' && inputs.itemPath.trim()) ? inputs.itemPath.trim() : 'item';
   const steps = Array.isArray(inputs.steps) ? inputs.steps : [];
   const concurrency = Math.max(1, Number(inputs.concurrency) || 1);
   const stopOnFirstError = inputs.stopOnFirstError === undefined ? true : !!inputs.stopOnFirstError;
 
   const items = get(ctx, fromPath);
-  if (!Array.isArray(items)) throw new Error('fromPath must resolve to array');
+  if (!Array.isArray(items)) throw new Error('BAD_INPUT:{"fromPath":"must resolve to array"}');
 
   let nextIndex = 0;
   let cancelled = false;

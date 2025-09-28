@@ -2,6 +2,7 @@ import { beforeAll, afterAll, describe, it, expect } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { createServer } from '../../src/createServer.js';
+import { ERR_MSG } from '../../src/lib/error-messages.js';
 
 const FIXTURES_DIR = path.join(process.cwd(), 'fixtures');
 const templates = ['pricing_change', 'feature_launch', 'build_vs_buy'] as const;
@@ -28,6 +29,14 @@ describe('GET /draft-flows deterministic fixtures', () => {
   let app: Awaited<ReturnType<typeof createServer>>;
   beforeAll(async () => {
     app = await createServer({ enableTestRoutes: true });
+  });
+
+  it('invalid template returns 404 and catalogue phrase', async () => {
+    const res = await app.inject({ method: 'GET', url: '/draft-flows?template=__nope__&seed=101' });
+    expect(res.statusCode).toBe(404);
+    const j = res.json() as any;
+    expect(j?.error?.type).toBe('BAD_INPUT');
+    expect(j?.error?.message).toBe(ERR_MSG.INVALID_TEMPLATE);
   });
   afterAll(async () => {
     await app.close();
