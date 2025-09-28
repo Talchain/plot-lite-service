@@ -34,7 +34,7 @@ echo "==> STRICT loadcheck"; STRICT_LOADCHECK=1 node tools/loadcheck-wrap.cjs ||
 [ -f reports/warp/loadcheck.json ] && cp reports/warp/loadcheck.json "$OUT/reports/loadcheck.json"
 
 echo "==> Determinism + ETag/304"
-RATE_LIMIT_ENABLED=0 curl -i "$ENGINE/draft-flows?template=${TEMPLATE}&seed=${SEED}" -D "$OUT/engine/draft-flows-200.h" -o "$OUT/engine/draft-flows-200.json"
+RATE_LIMIT_ENABLED=0 curl "$ENGINE/draft-flows?template=${TEMPLATE}&seed=${SEED}" -D "$OUT/engine/draft-flows-200.h" -o "$OUT/engine/draft-flows-200.json"
 ET=$(awk 'tolower($1)=="etag:"{print $2}' "$OUT/engine/draft-flows-200.h" | tr -d '\r')
 RATE_LIMIT_ENABLED=0 curl -i -H "If-None-Match: ${ET}" "$ENGINE/draft-flows?template=${TEMPLATE}&seed=${SEED}" -D "$OUT/engine/draft-flows-304.h" -o "$OUT/engine/draft-flows-304.txt"
 

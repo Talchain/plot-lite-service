@@ -1,0 +1,32 @@
+{
+  "status": "ok",
+  "p95_ms": 0,
+  "c2xx": 217072,
+  "c4xx": 0,
+  "c5xx": 0,
+  "lastReplayStatus": "unknown",
+  "runtime": {
+    "node": "v22.15.0",
+    "uptime_s": 140,
+    "rss_mb": 87,
+    "heap_used_mb": 18,
+    "eventloop_delay_ms": 12,
+    "p95_ms": 0,
+    "p99_ms": 0
+  },
+  "caches": {
+    "idempotency_current": 0
+  },
+  "rate_limit": {
+    "enabled": false,
+    "rpm": 60,
+    "last5m_429": 0
+  },
+  "test_routes_enabled": true,
+  "replay": {
+    "lastStatus": "fail",
+    "refusals": 0,
+    "retries": 0,
+    "lastTs": "2025-09-28T11:38:06.987Z"
+  }
+}
