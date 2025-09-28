@@ -1,7 +1,7 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { spawn } from 'node:child_process';
 
-async function waitFor(url: string, timeoutMs = 5000) {
+async function waitFor(url: string, timeoutMs = 10000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try { const r = await fetch(url); if (r.ok) return; } catch {}

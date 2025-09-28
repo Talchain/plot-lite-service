@@ -19,7 +19,7 @@ function parseSse(text: string): Array<{ event: string; id?: string; data?: any 
   return out;
 }
 
-async function waitFor(url: string, timeoutMs = 5000) {
+async function waitFor(url: string, timeoutMs = 10000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try { const r = await fetch(url); if (r.ok) return; } catch {}

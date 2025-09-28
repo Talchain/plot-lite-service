@@ -1,5 +1,9 @@
 # PLoT-lite deterministic fixtures service
 
+[![Nightly Evidence Pack](https://github.com/Talchain/plot-lite-service/actions/workflows/nightly-evidence-pack.yml/badge.svg)](https://github.com/Talchain/plot-lite-service/actions/workflows/nightly-evidence-pack.yml)
+
+See engine contracts, gating, determinism & Evidence Pack in `docs/engine.md`.
+
 Small, deterministic Fastify + TypeScript service for PLoT-lite. No AI calls. Privacy: never log parse_text.
 
 ## Requirements
