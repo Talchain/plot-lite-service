@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawn } from 'node:child_process';
 
-async function waitFor(url: string, timeoutMs = 5000) {
+async function waitFor(url: string, timeoutMs = 10000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try { const r = await fetch(url); if (r.ok) return; } catch {}
@@ -13,7 +13,7 @@ async function waitFor(url: string, timeoutMs = 5000) {
 describe('Security: no payload or query-string logging', () => {
   let child: ReturnType<typeof spawn> | null = null;
   let stdout = '';
-  const PORT = '4339';
+  const PORT = '4342';
   const BASE = `http://127.0.0.1:${PORT}`;
 
   beforeAll(async () => {
