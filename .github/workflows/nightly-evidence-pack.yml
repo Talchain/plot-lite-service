@@ -22,20 +22,26 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node
+      - name: Setup Node from .nvmrc
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version-file: .nvmrc
+          check-latest: true
           cache: 'npm'
 
-      - name: Install deps
-        run: npm ci --prefer-offline
+      - name: Deps gate (npm ci + typecheck)
+        run: |
+          npm ci --no-audit --no-fund --prefer-offline
+          npm run typecheck
 
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
       - name: Typecheck
         run: npm run typecheck
+
+      - name: OpenAPI spec tests
+        run: npm ci && npm run test:spec
 
       - name: Contracts lane
         run: npm run test:contracts
@@ -59,6 +65,29 @@ jobs:
 
       - name: CI assertions (contracts/perf/health/head parity)
         run: node tools/ci-assert.mjs
+
+      - name: Copy latest pack-summary.json to workspace
+        id: pack
+        run: |
+          PACK=$(node tools/pack-locate.mjs)
+          echo "pack=$PACK" >> $GITHUB_OUTPUT
+          if [ -n "$PACK" ] && [ "$PACK" != "<none>" ] && [ -f "$PACK/pack-summary.json" ]; then
+            cp "$PACK/pack-summary.json" pack-summary.json
+          fi
+
+      - name: Upload pack-summary.json
+        if: ${{ hashFiles('pack-summary.json') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: pack-summary
+          path: pack-summary.json
+          if-no-files-found: warn
+
+      - name: Append pack summary hint to Step Summary
+        if: ${{ hashFiles('pack-summary.json') != '' }}
+        run: |
+          echo "Pack summary uploaded as artifact: pack-summary (file: pack-summary.json)" >> "$GITHUB_STEP_SUMMARY"
+          echo "Evidence Pack dir: ${{ steps.pack.outputs.pack }}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload artifact folder
         uses: actions/upload-artifact@v4

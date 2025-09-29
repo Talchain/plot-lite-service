@@ -21,16 +21,25 @@
     "sdk:node:example": "node sdk/node/example.js",
     "ci": "npm ci && npm run build && npm test",
     "replay": "node tools/replay-fixtures.js",
+    "stream:replay": "node tools/replay-stream.mjs",
     "loadcheck": "node tools/loadcheck.js",
     "report:compare": "node tools/report-compare.cjs",
     "bench:fanout": "node tools/bench-fanout.cjs",
     "report:lock": "bash tools/report-lock.sh",
+    "openapi:lint": "spectral lint contracts/openapi.yaml",
+    "spec:lint": "spectral lint contracts/openapi.yaml",
+    "test:openapi": "npm run openapi:lint",
+    "test:spec": "npm run spec:lint && npx vitest run tests/openapi.dev-route.test.ts",
+    "tools:soak": "node tools/soak.mjs",
+    "tools:replay": "node tools/replay.mjs --file fixtures/golden-seed-4242/stream.ndjson",
     "release": "standard-version",
     "release:minor": "standard-version --release-as minor",
     "release:major": "standard-version --release-as major",
     "prepare": "husky install",
     "audit:prod": "npm audit --production",
-    "pr:verify": "node tools/ci/pr-verify.cjs"
+    "pr:verify": "node tools/ci/pr-verify.cjs",
+    "pack:locate": "node tools/pack-locate.mjs",
+    "diag": "bash tools/diag.sh"
   },
   "keywords": [],
   "author": "",
@@ -38,7 +47,8 @@
   "description": "",
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": ">=20 <21",
+    "npm": ">=10 <11"
   },
   "dependencies": {
     "@fastify/cors": "^11.1.0",
@@ -55,6 +65,8 @@
     "husky": "^9.1.6",
     "standard-version": "^9.5.0",
     "tsx": "^4.20.5",
+    "@stoplight/spectral-cli": "^6.11.1",
+    "fast-check": "^3.18.0",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4",
     "yaml": "^2.8.1"

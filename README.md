@@ -9,6 +9,18 @@ Small, deterministic Fastify + TypeScript service for PLoT-lite. No AI calls. Pr
 ## Requirements
 - Node 20 LTS
 
+### Toolchain
+
+We pin to Node 20 LTS and npm 10 for deterministic installs and to avoid tooling incompatibilities on newer Node majors.
+
+Setup:
+
+```
+nvm use
+npm ci --no-fund --no-audit
+```
+
+
 ## Install
 
 ```
