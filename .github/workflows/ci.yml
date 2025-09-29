@@ -31,6 +31,12 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Tools harness (soak/replay)
+        run: npm run test:tools-harness
+        env:
+          FEATURE_STREAM: '1'
+          STREAM_HEARTBEAT_SEC: '1'
+
       - name: Test
         run: npm test
         env:
