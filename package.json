@@ -39,7 +39,8 @@
     "audit:prod": "npm audit --production",
     "pr:verify": "node tools/ci/pr-verify.cjs",
     "pack:locate": "node tools/pack-locate.mjs",
-    "diag": "bash tools/diag.sh"
+    "diag": "bash tools/diag.sh",
+    "test:tools-harness": "tsx tests_adapters/tools.replay.harness.ts && tsx tests_adapters/tools.soak.harness.ts"
   },
   "keywords": [],
   "author": "",
