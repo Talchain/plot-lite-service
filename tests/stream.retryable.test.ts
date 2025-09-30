@@ -46,10 +46,12 @@ describe('Stream: retryable error smoke', () => {
   it('emits error event with type=RETRYABLE and closes', async () => {
     const r = await fetch(`${BASE}/stream?fail=RETRYABLE`);
     const txt = await r.text();
-    const evs = parseSse(txt);
-    // Should include a single error event
-    const err = evs.find(e => e.event === 'error');
-    expect(err).toBeTruthy();
-    expect(err?.data?.type).toBe('RETRYABLE');
+    // Primary check: raw SSE contains an error event
+    expect(/\nevent:\s*error\s*\n/i.test(txt)).toBe(true);
+    // Extract the JSON payload next to the error event (single-line data)
+    const m = txt.match(/\nevent:\s*error[\s\S]*?\ndata:\s*(\{.*\})/i);
+    expect(m).toBeTruthy();
+    const data = JSON.parse(m![1]);
+    expect(data?.type).toBe('RETRYABLE');
   });
 });

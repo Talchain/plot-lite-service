@@ -30,10 +30,11 @@ async function waitForReadiness(baseUrl, timeoutMs = 15000) {
   throw err;
 }
 
-function p95(arr) {
+function quantile(arr, q) {
   if (!Array.isArray(arr) || arr.length === 0) return null;
   const a = [...arr].sort((x, y) => x - y);
-  const idx = Math.ceil(0.95 * a.length) - 1;
+  const pos = Math.min(1, Math.max(0, q));
+  const idx = Math.ceil(pos * a.length) - 1;
   return a[Math.max(0, Math.min(a.length - 1, idx))];
 }
 
@@ -53,7 +54,9 @@ async function runWithAutocannon(baseUrl, path, connections, durationSeconds) {
     duration: durationSeconds,
     headers: { 'accept': 'application/json' },
   });
+  const p50_ms = res?.latency?.p50 ?? null;
   const p95_ms = res?.latency?.p95 ?? null;
+  const p99_ms = res?.latency?.p99 ?? null;
   const requests = res?.requests?.total ?? res?.requests?.average ?? null;
   const statusStats = res?.statusCodeStats || {};
   let non2xx = 0;
@@ -62,7 +65,7 @@ async function runWithAutocannon(baseUrl, path, connections, durationSeconds) {
     if (!(c >= 200 && c < 300)) non2xx += Number(count || 0);
   }
   const errors = (res?.errors ?? 0) + (res?.timeouts ?? 0);
-  return { p95_ms, requests, non2xx, errors };
+  return { p50_ms, p95_ms, p99_ms, requests, non2xx, errors };
 }
 
 async function runWithUndici(baseUrl, path, connections, durationSeconds) {
@@ -88,7 +91,7 @@ async function runWithUndici(baseUrl, path, connections, durationSeconds) {
   };
   const workers = Array.from({ length: Math.max(1, Number(connections) || 1) }, () => worker());
   await Promise.all(workers);
-  return { p95_ms: p95(lats), requests: lats.length, non2xx, errors };
+  return { p50_ms: quantile(lats, 0.5), p95_ms: quantile(lats, 0.95), p99_ms: quantile(lats, 0.99), requests: lats.length, non2xx, errors };
 }
 
 async function runProbe(opts = {}) {

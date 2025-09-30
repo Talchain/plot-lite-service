@@ -35,10 +35,9 @@ export function createEngineAdapter(opts: AdapterOptions) {
   let sawFirstEvent = false;
 
   async function start(): Promise<void> {
-    if (process.env.UI_ADAPTER_SPIKE !== '1') {
-      // disabled by default
-      return;
-    }
+    // Strictly flag-gated: enable when either FEATURE_ENGINE_ADAPTER=1 or UI_ADAPTER_SPIKE=1
+    const enabled = process.env.FEATURE_ENGINE_ADAPTER === '1' || process.env.UI_ADAPTER_SPIKE === '1';
+    if (!enabled) { return; }
     startedAt = Date.now();
     sawFirstEvent = false;
     controller = await openStream({

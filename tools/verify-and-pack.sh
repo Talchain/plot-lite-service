@@ -87,6 +87,12 @@ RATE_LIMIT_ENABLED=0 cat "$OUT/engine/health.raw" | jq . > "$OUT/engine/health.j
 RATE_LIMIT_ENABLED=0 curl -s "$ENGINE/version" -D "$OUT/engine/version-200.h" -o "$OUT/engine/version.json" || true
 RATE_LIMIT_ENABLED=0 curl -s -I "$ENGINE/version" -D "$OUT/engine/version-head.h" >/dev/null || true
 
+# Metrics snapshot when gated (best-effort)
+if [ "${METRICS:-0}" = "1" ]; then
+  echo "==> Metrics snapshot (gated)"
+  RATE_LIMIT_ENABLED=0 curl -s "$ENGINE/metrics" -o "$OUT/engine/metrics.json" || true
+fi
+
 echo "==> Taxonomy spot-checks"
 RATE_LIMIT_ENABLED=0 curl -s -i "$ENGINE/draft-flows?template=__nope__&seed=${SEED}" > "$OUT/engine/invalid-template-404.txt" || true
 RATE_LIMIT_ENABLED=0 curl -s -i "$ENGINE/draft-flows?template=${TEMPLATE}&seed=nan" > "$OUT/engine/bad-query-400.txt" || true
@@ -144,6 +150,10 @@ OUT_ABS=$(cd "$OUT" && pwd)
   echo "out: ${OUT_ABS}";
 } > "$OUT/README.txt"
 
+# Repro commands for demos/debugging (best-effort)
+echo "==> Repro commands"
+node tools/repro.mjs "$ENGINE" > "$OUT/repro.txt" || true
+
 # Extended captures (optional)
 if [ "${PACK_EXTENDED:-0}" = "1" ]; then
   echo "==> Extended: soak/replay"
@@ -155,12 +165,17 @@ if [ "${PACK_EXTENDED:-0}" = "1" ]; then
   if [ -f "$REPLAY_SRC" ]; then
     (node tools/replay.mjs --file "$REPLAY_SRC") > "$REPLAY_JSON" 2>/dev/null || true
   fi
+  # Mini rate soak (best-effort)
+  RATE_SOAK_JSON="$OUT/reports/rate-soak.json"
+  (node tools/rate-soak.mjs "$ENGINE") > "$RATE_SOAK_JSON" 2>/dev/null || true
   # Merge into extended.json (best-effort)
   EXT_JSON="$OUT/extended.json"
   {
     echo '{'
     echo '  "soak":'; cat "$SOAK_JSON" 2>/dev/null || echo '{}'; echo ','
     echo '  "replay":'; cat "$REPLAY_JSON" 2>/dev/null || echo '{}'
+    echo ','
+    echo '  "rate_soak":'; cat "$RATE_SOAK_JSON" 2>/dev/null || echo '{}'
     echo '}'
   } > "$EXT_JSON" || true
 fi
@@ -183,6 +198,11 @@ echo "==> Pack manifest"
     echo "$rel,$sz,$sum";
   done < <(find "$OUT" -type f -print0)
 } > "$OUT/pack-manifest.txt" || true
+
+# JSON manifest + validation (add-only)
+echo "==> Pack manifest (JSON)"
+PACK_ENGINE_URL="$ENGINE" node tools/manifest-generate.mjs "$OUT" > "$OUT/manifest.json" || true
+node tools/manifest-validate.mjs "$OUT/manifest.json" || { echo "manifest validation failed"; exit 1; }
 
 if [ -n "$SVR_PID" ]; then
   echo "==> Stopping self-started server ($SVR_PID)";

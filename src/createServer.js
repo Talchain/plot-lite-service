@@ -44,6 +44,27 @@ export async function createServer(opts = {}) {
         const val = (header || q1 || q2);
         return val ? String(val).toUpperCase() : undefined;
     }
+    // Minimal auth helper (flag-gated)
+    async function checkAuth(req, reply) {
+        if (process.env.AUTH_ENABLED !== '1')
+            return true;
+        const hdr = String((req.headers?.authorization || req.headers?.Authorization || '') || '');
+        const expected = String(process.env.AUTH_TOKEN || '').trim();
+        if (!hdr.startsWith('Bearer ')) {
+            try {
+                reply.header('WWW-Authenticate', 'Bearer');
+            }
+            catch { }
+            await reply.code(401).send({ error: { type: 'UNAUTHORIZED', message: 'Missing bearer token' } });
+            return false;
+        }
+        const tok = hdr.slice('Bearer '.length).trim();
+        if (!expected || tok !== expected) {
+            await reply.code(403).send({ error: { type: 'FORBIDDEN', message: 'Invalid token' } });
+            return false;
+        }
+        return true;
+    }
     const app = Fastify({
         logger: {
             level: 'info',
@@ -54,8 +75,18 @@ export async function createServer(opts = {}) {
         disableRequestLogging: true,
     });
     await app.register(helmet, { global: true });
-    if (process.env.CORS_DEV === '1') {
-        await app.register(cors, { origin: 'http://localhost:5173' });
+    // CORS: closed by default; allow only when CSV envs provided. Dev override remains.
+    {
+        const originsCsv = (process.env.CORS_ORIGINS || '').trim();
+        if (originsCsv) {
+            const allow = originsCsv.split(',').map(s => s.trim()).filter(Boolean);
+            const hdrsCsv = (process.env.CORS_HEADERS || '').trim();
+            const allowedHeaders = hdrsCsv ? hdrsCsv.split(',').map(s => s.trim()).filter(Boolean) : undefined;
+            await app.register(cors, { origin: allow, allowedHeaders });
+        }
+        else if (process.env.CORS_DEV === '1') {
+            await app.register(cors, { origin: 'http://localhost:5173' });
+        }
     }
     // Optional rate limit (enabled by env; disabled when RATE_LIMIT_ENABLED=0)
     if (process.env.RATE_LIMIT_ENABLED !== '0') {
@@ -67,6 +98,16 @@ export async function createServer(opts = {}) {
     app.addHook('onSend', async (req, reply, payload) => {
         try {
             reply.header('X-Request-ID', String(req.id));
+        }
+        catch { }
+        // HSTS only in production over TLS (proxied ok via X-Forwarded-Proto)
+        try {
+            if (process.env.NODE_ENV === 'production') {
+                const xf = String(req.headers['x-forwarded-proto'] || '').toLowerCase();
+                const proto = xf || String(req.protocol || '').toLowerCase();
+                if (proto === 'https')
+                    reply.header('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
+            }
         }
         catch { }
         return payload;
@@ -85,9 +126,11 @@ export async function createServer(opts = {}) {
         })();
         if (typeof durationMs === 'number') {
             try {
-                const { recordDurationMs, recordStatus } = await import('./metrics.js');
+                const { recordDurationMs, recordStatus, recordDraftDurationMs } = await import('./metrics.js');
                 recordDurationMs(durationMs);
                 recordStatus(reply.statusCode);
+                if (route?.startsWith('/draft-flows'))
+                    recordDraftDurationMs(durationMs);
             }
             catch { }
         }
@@ -174,6 +217,7 @@ export async function createServer(opts = {}) {
         const build = getBuildId();
         return { api: 'warp/0.1.0', build, model: `plot-lite-${build}` };
     });
+    let fixturesReady = false;
     // Readiness: only 200 when fixtures are preloaded
     app.get('/ready', async (_req, reply) => {
         return reply.code(fixturesReady ? 200 : 503).send({ ok: fixturesReady });
@@ -217,10 +261,11 @@ export async function createServer(opts = {}) {
             }
         }
     }
-    let fixturesReady = false;
     await preloadDeterministic();
     fixturesReady = true;
     app.get('/draft-flows', async (req, reply) => {
+        if (!(await checkAuth(req, reply)))
+            return;
         const q = req.query || {};
         const fields = {};
         const template = typeof q.template === 'string' ? q.template : '';
@@ -279,6 +324,8 @@ export async function createServer(opts = {}) {
         return reply.send(entry.buf);
     });
     app.post('/draft-flows', async (req, reply) => {
+        if (!(await checkAuth(req, reply)))
+            return;
         const body = req.body || {};
         // Test error header
         {
@@ -510,86 +557,244 @@ export async function createServer(opts = {}) {
                 return { ok: false };
             }
         });
-        const sseState = new Map();
-        const sseCancelled = new Set();
-        function sleep(ms) { return new Promise(r => setTimeout(r, Math.max(0, Number(ms) || 0))); }
-        function writeSse(reply, id, event, data) {
-            reply.raw.write(`id: ${id}\n`);
-            reply.raw.write(`event: ${event}\n`);
-            reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
+        // --- Test-only SSE streaming with resume/cancel semantics ---
+        if (process.env.FEATURE_STREAM !== '1') {
+            const sseState = new Map();
+            const sseCancelled = new Set();
+            function sleep(ms) { return new Promise(r => setTimeout(r, Math.max(0, Number(ms) || 0))); }
+            function writeSse(reply, id, event, data) {
+                reply.raw.write(`id: ${id}\n`);
+                reply.raw.write(`event: ${event}\n`);
+                reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
+            }
+            app.post('/stream/cancel', async (req, reply) => {
+                const id = String((req.body?.id || req.query?.id || '') || '');
+                if (!id)
+                    return reply.code(400).send({ ok: false, error: 'id required' });
+                sseCancelled.add(id);
+                return { ok: true };
+            });
+            app.get('/stream', async (req, reply) => {
+                // Hijack response for streaming
+                reply.header('Content-Type', 'text/event-stream');
+                reply.header('Cache-Control', 'no-cache');
+                reply.header('Connection', 'keep-alive');
+                reply.hijack();
+                const q = req.query || {};
+                const id = String(q.id || 'default');
+                const blip = String(q.blip || '').toLowerCase() === '1' || String(process.env.STREAM_BLIP || '') === '1';
+                const limitNow = String(q.limited || '').toLowerCase() === '1';
+                const sleepMs = Number(q.sleepMs || q.latency_ms || 0);
+                const dropAt = (q.drop_at != null && String(q.drop_at).length > 0) ? Number(q.drop_at) : NaN;
+                const fail = String(q.fail || '').toUpperCase();
+                const seq = [
+                    { ev: 'hello', body: { ts: new Date().toISOString() } },
+                    { ev: 'token', body: { text: 'draft', index: 0 } },
+                    { ev: 'cost', body: { tokens: 5, currency: 'USD', amount: 0.0 } },
+                    { ev: 'done', body: { reason: 'complete' } },
+                ];
+                // Test-only retryable error smoke
+                if (fail === 'RETRYABLE') {
+                    writeSse(reply, '0', 'error', { type: 'RETRYABLE', message: 'Temporary issue', retryable: true });
+                    try {
+                        reply.raw.end();
+                    }
+                    catch { }
+                    return;
+                }
+                // Backpressure/limit signal
+                if (limitNow) {
+                    writeSse(reply, '0', 'limited', { reason: 'backpressure' });
+                    try {
+                        reply.raw.end();
+                    }
+                    catch { }
+                    return;
+                }
+                const lastIdRaw = req.headers['last-event-id'] || q.lastEventId;
+                const lastId = lastIdRaw ? Number(lastIdRaw) : -1;
+                const st = sseState.get(id) || { index: 0 };
+                // Resume from next after last-id
+                if (lastId >= 0)
+                    st.index = Math.min(seq.length, lastId + 1);
+                sseState.set(id, st);
+                for (let i = st.index; i < seq.length; i++) {
+                    // honour cancellation
+                    if (sseCancelled.has(id)) {
+                        writeSse(reply, String(i), 'cancelled', { reason: 'client' });
+                        try {
+                            reply.raw.end();
+                        }
+                        catch { }
+                        sseCancelled.delete(id); // idempotent cancel: clear after signalling
+                        sseState.set(id, { index: seq.length });
+                        return;
+                    }
+                    const e = seq[i];
+                    await sleep(sleepMs);
+                    writeSse(reply, String(i), e.ev, e.body);
+                    st.index = i + 1;
+                    sseState.set(id, st);
+                    // Controlled dropout once at i === dropAt (if provided)
+                    if (Number.isFinite(dropAt) && i === dropAt) {
+                        try {
+                            reply.raw.end();
+                        }
+                        catch { }
+                        return;
+                    }
+                    // single forced blip after first token
+                    if (blip && !st.blipped && e.ev === 'token') {
+                        st.blipped = true;
+                        sseState.set(id, st);
+                        try {
+                            reply.raw.end();
+                        }
+                        catch { }
+                        return;
+                    }
+                }
+                try {
+                    reply.raw.end();
+                }
+                catch { }
+            });
         }
-        app.post('/stream/cancel', async (req, reply) => {
-            const id = String((req.body?.id || req.query?.id || '') || '');
-            if (!id)
-                return reply.code(400).send({ ok: false, error: 'id required' });
-            sseCancelled.add(id);
-            return { ok: true };
-        });
+    }
+    // --- Real SSE route (FEATURE_STREAM=1) ---
+    if (process.env.FEATURE_STREAM === '1') {
         app.get('/stream', async (req, reply) => {
-            // Hijack response for streaming
+            // Auth gate (minimal)
+            if (!(await checkAuth(req, reply)))
+                return;
+            // SSE headers
             reply.header('Content-Type', 'text/event-stream');
             reply.header('Cache-Control', 'no-cache');
             reply.header('Connection', 'keep-alive');
             reply.hijack();
+            const { streamStarted, streamDone, streamLimited, incCurrentStreams, decCurrentStreams, noteHeartbeat } = await import('./metrics.js');
+            try {
+                streamStarted?.();
+            }
+            catch { }
+            try {
+                incCurrentStreams?.();
+            }
+            catch { }
             const q = req.query || {};
-            const id = String(q.id || 'default');
-            const blip = String(q.blip || '').toLowerCase() === '1' || String(process.env.STREAM_BLIP || '') === '1';
-            const limitNow = String(q.limited || '').toLowerCase() === '1';
-            const sleepMs = Number(q.sleepMs || 0);
+            const forceLimit = String(process.env.STREAM_FORCE_LIMIT || '').toLowerCase() === '1';
+            const sleepMs = Number(q.sleepMs || q.latency_ms || 0);
+            const hbSec = Number(process.env.STREAM_HEARTBEAT_SEC || 25);
+            const hbMs = Math.max(1, Math.floor(hbSec * 1000));
+            function writeLine(txt) { try {
+                return reply.raw.write(txt);
+            }
+            catch {
+                return false;
+            } }
+            function writeComment(txt) { return writeLine(`: ${txt}\n\n`); }
+            function writeSse(id, ev, data) {
+                writeLine(`id: ${id}\n`);
+                writeLine(`event: ${ev}\n`);
+                writeLine(`data: ${JSON.stringify(data)}\n\n`);
+            }
+            // Heartbeat timer
+            let closed = false;
+            const timer = setInterval(() => {
+                if (closed)
+                    return;
+                writeComment(`ping ts=${Date.now()}`);
+                try {
+                    noteHeartbeat?.();
+                }
+                catch { }
+            }, hbMs);
+            const endStream = (fn) => {
+                if (closed)
+                    return;
+                closed = true;
+                clearInterval(timer);
+                try {
+                    reply.raw.end();
+                }
+                catch { }
+                try {
+                    fn?.();
+                }
+                catch { }
+                try {
+                    decCurrentStreams?.();
+                }
+                catch { }
+            };
+            // Forced limited hook for deterministic testing of backpressure mapping
+            if (forceLimit) {
+                writeSse('0', 'limited', { reason: 'backpressure' });
+                try {
+                    streamLimited?.();
+                }
+                catch { }
+                return endStream();
+            }
+            // Minimal sequence (hello -> token -> cost -> done) with optional latency
             const seq = [
                 { ev: 'hello', body: { ts: new Date().toISOString() } },
                 { ev: 'token', body: { text: 'draft', index: 0 } },
                 { ev: 'cost', body: { tokens: 5, currency: 'USD', amount: 0.0 } },
                 { ev: 'done', body: { reason: 'complete' } },
             ];
-            // Backpressure/limit signal
-            if (limitNow) {
-                writeSse(reply, '0', 'limited', { reason: 'backpressure' });
-                try {
-                    reply.raw.end();
-                }
-                catch { }
-                return;
-            }
             const lastIdRaw = req.headers['last-event-id'] || q.lastEventId;
-            const lastId = lastIdRaw ? Number(lastIdRaw) : -1;
-            const st = sseState.get(id) || { index: 0 };
-            // Resume from next after last-id
-            if (lastId >= 0)
-                st.index = Math.min(seq.length, lastId + 1);
-            sseState.set(id, st);
-            for (let i = st.index; i < seq.length; i++) {
-                // honour cancellation
-                if (sseCancelled.has(id)) {
-                    writeSse(reply, String(i), 'cancelled', { reason: 'client' });
-                    try {
-                        reply.raw.end();
-                    }
-                    catch { }
-                    sseCancelled.delete(id); // idempotent cancel: clear after signalling
-                    sseState.set(id, { index: seq.length });
-                    return;
+            let idxStart = lastIdRaw ? Math.min(seq.length, Number(lastIdRaw) + 1) : 0;
+            for (let i = idxStart; i < seq.length; i++) {
+                if (sleepMs > 0) {
+                    await new Promise(r => setTimeout(r, sleepMs));
                 }
                 const e = seq[i];
-                await sleep(sleepMs);
-                writeSse(reply, String(i), e.ev, e.body);
-                st.index = i + 1;
-                sseState.set(id, st);
-                // single forced blip after first token
-                if (blip && !st.blipped && e.ev === 'token') {
-                    st.blipped = true;
-                    sseState.set(id, st);
+                // Detect backpressure on write
+                writeSse(String(i), e.ev, e.body);
+                // If the socket is congested (rare in tests), map to limited and close
+                const needDrain = reply.raw?.writableNeedDrain === true;
+                if (needDrain) {
+                    writeSse(String(i), 'limited', { reason: 'backpressure' });
                     try {
-                        reply.raw.end();
+                        streamLimited?.();
                     }
                     catch { }
-                    return;
+                    return endStream();
                 }
             }
             try {
-                reply.raw.end();
+                streamDone?.();
             }
             catch { }
+            return endStream();
+        });
+    }
+    // Dev-only: serve OpenAPI JSON when OPENAPI_DEV=1 (add-only; off by default)
+    if (process.env.OPENAPI_DEV === '1') {
+        app.get('/openapi.json', async (_req, reply) => {
+            try {
+                const { parse } = await import('yaml');
+                const specPath = process.env.OPENAPI_SPEC_PATH || resolve(process.cwd(), 'contracts', 'openapi.yaml');
+                const y = readFileSync(specPath, 'utf8');
+                const obj = parse(y);
+                reply.header('Content-Type', 'application/json');
+                return reply.send(obj);
+            }
+            catch (e) {
+                return reply.code(500).send({ error: { type: 'INTERNAL', message: e?.message || 'openapi_error' } });
+            }
+        });
+    }
+    // Metrics endpoint (flag-gated; OFF by default)
+    if (process.env.METRICS === '1') {
+        app.get('/metrics', async () => {
+            const { getStreamCounters, getDraftP95History, getCurrentStreams, getLastHeartbeatMs } = await import('./metrics.js');
+            const counters = getStreamCounters?.() || { stream_started: 0, stream_done: 0, stream_cancelled: 0, stream_limited: 0, stream_retryable: 0 };
+            const last5 = getDraftP95History?.() || [];
+            const current_streams = typeof getCurrentStreams === 'function' ? getCurrentStreams() : 0;
+            const last_heartbeat_ms = typeof getLastHeartbeatMs === 'function' ? getLastHeartbeatMs() : 0;
+            return { ...counters, current_streams, last_heartbeat_ms, draft_flows_p95_last5: last5 };
         });
     }
     // Simple global error handler mapping to typed error
