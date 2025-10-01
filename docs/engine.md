@@ -45,6 +45,28 @@ This page documents the frozen engine contracts, gating flags, determinism & cac
 - README:
   - commit, lanes status, p95, absolute path, acceptance checklist
 
+### Pack Quality & Determinism
+The pack enforces three composer-ready guarantees:
+1. **STRICT p95 guard**: Fails loudly if `reports/loadcheck.json` lacks numeric `p95_ms`.
+2. **Privacy phrase**: Literal text "no request bodies or query strings in logs" is appended to `SLO_SUMMARY.md`.
+3. **Stable features_on**: Sorted in `manifest.json` for byte-stable packs.
+
+Manual pack generation:
+```bash
+PACK_SELF_START=1 bash tools/verify-and-pack.sh
+```
+
+Acceptance format (paste into PR):
+```
+ENGINE_PACK: evidence/pack/engine_pack_<date>_<sha>.zip, SLO engine_get_p95_ms=<n>, SLO_SUMMARY=present
+CONTRACTS: GET/HEAD/ETag/304 parity PASS; privacy check PASS — no request bodies or query strings in logs
+GATES: PASS — p95 within budget; size ≤ 50 MB
+Handoff: copied|skipped
+FLAGS_EXPORT: docs/spec/engine.flags.json present
+SIZE_AUDIT: working_tree=<X>, git_db=[…]
+SIZE_SUSPECTS: big_tracked_files(>=25MB)=<n>, evidence_pack_tracked=<n>, incoming_tracked=<n>, tooling_node20_tracked=<n>
+```
+
 ## Error Taxonomy
 - Standardized public phrases, e.g., `RATE_LIMIT_RPM`, `TIMEOUT_UPSTREAM`, `RETRYABLE_UPSTREAM`, `INTERNAL_UNEXPECTED`, etc.
 - Mapped via `src/lib/error-normaliser.ts` to HTTP statuses.

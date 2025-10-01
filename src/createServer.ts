@@ -188,6 +188,13 @@ export async function createServer(opts: ServerOpts = {}) {
       rate_limit: rateLimitState(),
       test_routes_enabled: process.env.NODE_ENV === 'production' ? false : Boolean(opts.enableTestRoutes || process.env.TEST_ROUTES === '1'),
       replay: replaySnapshot(),
+      // Dev-only documentation of defaults for CI drift checks (add-only)
+      ...(process.env.NODE_ENV === 'production' ? {} : {
+        flags_doc: {
+          'test_routes_enabled': false,
+          'rate_limit.enabled': true,
+        }
+      }),
     } as const;
     // Enforce a small upper bound to prevent accidental drift; keep required keys
     const MAX_BYTES = 4 * 1024;
@@ -306,6 +313,31 @@ export async function createServer(opts: ServerOpts = {}) {
     }
     return reply.send(entry.buf);
   });
+
+  // Explicit HEAD route mirroring GET headers for parity (add-only)
+  try {
+    app.head('/draft-flows', async (req: any, reply) => {
+      const q = (req as any).query || {};
+      const template = typeof q.template === 'string' ? q.template : '';
+      const seedNum = (typeof q.seed === 'string' || typeof q.seed === 'number') ? Number(q.seed) : NaN;
+      const allowed = new Set(['pricing_change','feature_launch','build_vs_buy']);
+      if (!allowed.has(template) || !Number.isInteger(seedNum)) {
+        return reply.code(400).send();
+      }
+      const key = `${template}|${seedNum}`;
+      const entry = deterministicMap.get(key);
+      if (!entry) return reply.code(404).send();
+      reply.header('Content-Type', 'application/json');
+      reply.header('Cache-Control', 'no-cache');
+      reply.header('Vary', 'If-None-Match');
+      reply.header('ETag', entry.etag);
+      reply.header('Content-Length', String(entry.contentLength));
+      return reply.code(200).send();
+    });
+  } catch (err: any) {
+    // Swallow FST_ERR_DUPLICATED_ROUTE only; rethrow others
+    if (err?.code !== 'FST_ERR_DUPLICATED_ROUTE') throw err;
+  }
 
 
   app.post('/draft-flows', async (req, reply) => {

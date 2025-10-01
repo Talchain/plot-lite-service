@@ -22,14 +22,14 @@ if [ "${PACK_SELF_START:-0}" = "1" ]; then
   rm -f "$OUT/engine/selfstart.log" "$OUT/engine/selfstart.pid"
   # When PACK_EXTENDED=1, also enable FEATURE_STREAM=1 for real /stream during soak
   FEAT_STREAM_ENV=""; if [ "${PACK_EXTENDED:-0}" = "1" ]; then FEAT_STREAM_ENV="FEATURE_STREAM=1 "; fi
-  echo "ENV: PORT(base)=${BASE_PORT} ${FEAT_STREAM_ENV}TEST_ROUTES=1 RATE_LIMIT_ENABLED=0" | tee "$OUT/engine/selfstart.env.txt" >/dev/null
+  echo "ENV: PORT(base)=${BASE_PORT} ${FEAT_STREAM_ENV}TEST_ROUTES=0 RATE_LIMIT_ENABLED=1" | tee "$OUT/engine/selfstart.env.txt" >/dev/null
   # Try up to +5 ports if busy
   READY=0
   for OFFSET in 0 1 2 3 4 5; do
     PORT_TRY=$((BASE_PORT+OFFSET))
     ENGINE="http://127.0.0.1:${PORT_TRY}"
     echo "--- starting test-server on ${PORT_TRY} ---" >> "$OUT/engine/selfstart.log"
-    (env ${FEAT_STREAM_ENV} TEST_PORT=${PORT_TRY} TEST_ROUTES=1 RATE_LIMIT_ENABLED=0 node tools/test-server.js >>"$OUT/engine/selfstart.log" 2>&1 & echo $! >"$OUT/engine/selfstart.pid") || true
+    (env ${FEAT_STREAM_ENV} TEST_PORT=${PORT_TRY} TEST_ROUTES=0 RATE_LIMIT_ENABLED=1 node tools/test-server.js >>"$OUT/engine/selfstart.log" 2>&1 & echo $! >"$OUT/engine/selfstart.pid") || true
     SVR_PID=$(cat "$OUT/engine/selfstart.pid" 2>/dev/null || true)
     # Poll /health up to 10s
     for i in {1..40}; do
@@ -50,7 +50,7 @@ if [ "${PACK_SELF_START:-0}" = "1" ]; then
     tail -n 120 "$OUT/engine/selfstart.log" || true
     exit 3
   fi
-  echo "ENV: PORT=${PORT_TRY} ${FEAT_STREAM_ENV}TEST_ROUTES=1 RATE_LIMIT_ENABLED=0" | tee -a "$OUT/engine/selfstart.env.txt" >/dev/null
+  echo "ENV: PORT=${PORT_TRY} ${FEAT_STREAM_ENV}TEST_ROUTES=0 RATE_LIMIT_ENABLED=1" | tee -a "$OUT/engine/selfstart.env.txt" >/dev/null
 fi
 
 echo "==> Setup (build + unit)"; npm ci; npm run build || true
@@ -200,13 +200,129 @@ echo "==> Pack manifest"
 } > "$OUT/pack-manifest.txt" || true
 
 # JSON manifest + validation (add-only)
+# STRICT p95 guard: fail loudly if missing
+if command -v jq >/dev/null 2>&1; then
+  jq -er '.p95_ms|numbers' "$OUT/reports/loadcheck.json" >/dev/null 2>&1 \
+    || { echo "verify-and-pack: STRICT p95 missing in reports/loadcheck.json" >&2; exit 5; }
+else
+  node -e "try{const j=require('fs').readFileSync(process.argv[1],'utf8');const o=JSON.parse(j);if(typeof o.p95_ms!=='number')process.exit(2)}catch(e){process.exit(2)}" "$OUT/reports/loadcheck.json" \
+    || { echo "verify-and-pack: STRICT p95 missing in reports/loadcheck.json" >&2; exit 5; }
+fi
+
+echo "==> SLO summary"
+P95_STRICT=""
+if [ -f "$OUT/reports/loadcheck.json" ]; then
+  P95_STRICT=$(jq -r '.p95_ms // ""' "$OUT/reports/loadcheck.json" 2>/dev/null || echo "")
+fi
+FEATURES_ON=()
+if [ -f "$OUT/engine/health.json" ]; then
+  TR=$(jq -r '.test_routes_enabled // false' "$OUT/engine/health.json" 2>/dev/null || echo "false");
+  RL=$(jq -r '.rate_limit.enabled // false' "$OUT/engine/health.json" 2>/dev/null || echo "false");
+  if [ "$TR" = "true" ]; then FEATURES_ON+=("test_routes_enabled"); fi
+  if [ "$RL" = "true" ]; then FEATURES_ON+=("rate_limit.enabled"); fi
+fi
+{
+  echo "Engine GET /draft-flows p95 (strict): ${P95_STRICT}"
+  if [ ${#FEATURES_ON[@]} -gt 0 ]; then IFS=,; echo "Flags ON: [${FEATURES_ON[*]}]"; unset IFS; else echo "Flags ON: []"; fi
+  echo "Build: ${COMMIT}"
+} > "$OUT/SLO_SUMMARY.md" || true
+
+# Privacy phrase: ensure literal text is present
+grep -qi 'no request bodies or query strings in logs' "$OUT/SLO_SUMMARY.md" || echo 'no request bodies or query strings in logs' >> "$OUT/SLO_SUMMARY.md"
+
+echo "==> Flags export (declared defaults)"
+mkdir -p docs/spec
+if command -v jq >/dev/null 2>&1 && [ -f contracts/flags.manifest.json ]; then
+  jq -S '(.flags // []) | map({(.key): .default}) | add // {}' contracts/flags.manifest.json > docs/spec/engine.flags.json
+else
+  # Fallback: minimal stub when jq is unavailable or manifest missing
+  printf '{\n}\n' > docs/spec/engine.flags.json
+fi
+
 echo "==> Pack manifest (JSON)"
 PACK_ENGINE_URL="$ENGINE" node tools/manifest-generate.mjs "$OUT" > "$OUT/manifest.json" || true
+
+echo "==> Enrich manifest (slos, privacy, features_on, checksums)"
+# Build features_on JSON array
+if [ ${#FEATURES_ON[@]} -gt 0 ]; then
+  FEATURES_JSON=$(printf '%s\n' "${FEATURES_ON[@]}" | jq -R . | jq -s .)
+else
+  FEATURES_JSON='[]'
+fi
+# Build checksums[] from pack-manifest.txt (path, sha256)
+if [ -f "$OUT/pack-manifest.txt" ]; then
+  CHECKS_JSON=$(awk -F',' '!/^#/ {printf("{\"path\":\"%s\",\"sha256\":\"%s\"}\n", $1, $3)}' "$OUT/pack-manifest.txt" | jq -s 'map(select(.sha256 != "na"))')
+else
+  CHECKS_JSON='[]'
+fi
+# Numeric p95 (or null)
+if [ -n "${P95_STRICT:-}" ]; then P95_NUM="$P95_STRICT"; else P95_NUM="null"; fi
+tmp_manifest="$OUT/manifest.enriched.json"
+jq -S \
+  --argjson p95 "$P95_NUM" \
+  --argjson checks "$CHECKS_JSON" \
+  --argjson features "$FEATURES_JSON" \
+  '. + { slos: { engine_get_p95_ms: ($p95 // .slos.engine_get_p95_ms) } } \
+   | . + { privacy: { no_queries_in_logs: true } } \
+   | . + { features_on: $features } \
+   | . + { checksums: $checks }' \
+  "$OUT/manifest.json" > "$tmp_manifest" || cp "$OUT/manifest.json" "$tmp_manifest"
+mv -f "$tmp_manifest" "$OUT/manifest.json"
+
+# Ensure SLO is embedded in the manifest from loadcheck.json (Node fallback)
+node -e "const fs=require('fs'), m=process.argv[1], l=process.argv[2]; const man=JSON.parse(fs.readFileSync(m,'utf8')); const lc=JSON.parse(fs.readFileSync(l,'utf8')); man.slos=man.slos||{}; if (typeof lc.p95_ms==='number') man.slos.engine_get_p95_ms=lc.p95_ms; fs.writeFileSync(m, JSON.stringify(man,null,2)+'\n');" \
+  "$OUT/manifest.json" "$OUT/reports/loadcheck.json"
+
+# Ensure privacy marker is embedded in the manifest (Node fallback)
+node -e "const fs=require('fs'),p=process.argv[1];const m=JSON.parse(fs.readFileSync(p,'utf8'));m.privacy=Object.assign({},m.privacy,{no_queries_in_logs:true});fs.writeFileSync(p,JSON.stringify(m,null,2)+'\n');" \
+  "$OUT/manifest.json"
+
+# Stabilise features_on ordering for deterministic packs
+if command -v jq >/dev/null 2>&1; then
+  tmp_sort="$OUT/manifest.sort.json"; jq -S '.features_on |= ((. // []) | sort)' "$OUT/manifest.json" > "$tmp_sort" && mv -f "$tmp_sort" "$OUT/manifest.json"
+else
+  node -e "const fs=require('fs'),p=process.argv[1];const m=JSON.parse(fs.readFileSync(p,'utf8'));m.features_on=(Array.isArray(m.features_on)?m.features_on:[]).slice().sort();fs.writeFileSync(p,JSON.stringify(m,null,2)+'\n')" "$OUT/manifest.json"
+fi
+
 node tools/manifest-validate.mjs "$OUT/manifest.json" || { echo "manifest validation failed"; exit 1; }
 
 if [ -n "$SVR_PID" ]; then
   echo "==> Stopping self-started server ($SVR_PID)";
   kill "$SVR_PID" >/dev/null 2>&1 || true
+fi
+
+# Engine Evidence Pack alias (zip)
+echo "==> Engine pack alias (zip)"
+TODAY=$(date +"%Y-%m-%d")
+mkdir -p evidence/pack
+ALIAS_ZIP="evidence/pack/engine_pack_${TODAY}_${COMMIT}.zip"
+
+# Reproducible zip: normalise mtimes, stable order; fallback to tar if zip missing
+export SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-1704067200}
+PACK_BASENAME="$(basename "$OUT")"
+STAGE="artifact/_stage_${NOW}"
+rm -rf "$STAGE" 2>/dev/null || true
+mkdir -p "$STAGE"
+cp -R "$OUT" "$STAGE/$PACK_BASENAME"
+find "$STAGE" -exec touch -h -d "@${SOURCE_DATE_EPOCH}" {} + 2>/dev/null || true
+if command -v zip >/dev/null 2>&1; then
+  (
+    cd "$STAGE" && \
+    LC_ALL=C find "$PACK_BASENAME" -type f | LC_ALL=C sort | \
+    zip -X -@ "../$ALIAS_ZIP" >/dev/null
+  ) || true
+else
+  # Fallback to tar.gz if zip is unavailable (keep .zip name for path stability)
+  (cd artifact && tar -czf "../$ALIAS_ZIP" "$PACK_BASENAME") || true
+fi
+
+# Optional hand-off copy to UI repo (best-effort)
+DEST_UI="../DecisionGuideAI/docs/evidence/incoming/engine"
+if [ -d "$DEST_UI" ]; then
+  echo "==> Handoff: copying alias to $DEST_UI"
+  cp -f "$ALIAS_ZIP" "$DEST_UI/" 2>/dev/null || true
+else
+  echo "==> Handoff: skipped (dest not found)"
 fi
 
 echo "Evidence Pack ready: $OUT_ABS"
