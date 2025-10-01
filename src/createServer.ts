@@ -54,8 +54,14 @@ export async function createServer(opts: ServerOpts = {}) {
   });
 
   await app.register(helmet, { global: true });
-  if (process.env.CORS_DEV === '1') {
-    await app.register(cors, { origin: 'http://localhost:5173' });
+  // CORS: production allowlist or dev fallback
+  {
+    const corsOrigin = process.env.CORS_ORIGIN?.trim();
+    if (corsOrigin) {
+      await app.register(cors, { origin: corsOrigin });
+    } else if (process.env.CORS_DEV === '1') {
+      await app.register(cors, { origin: 'http://localhost:3000' });
+    }
   }
 
   // Optional rate limit
