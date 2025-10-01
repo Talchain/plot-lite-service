@@ -166,11 +166,3 @@ const incomingTracked = timeout('git ls-files docs/evidence/incoming/ 2>/dev/nul
 const toolingTracked = timeout('git ls-files .tooling/node20/ 2>/dev/null | wc -l') || '0';
 
 console.log(`SIZE_SUSPECTS: big_tracked_files(>=25MB)=${bigTracked.trim()}, evidence_pack_tracked=${evidenceTracked.trim()}, incoming_tracked=${incomingTracked.trim()}, tooling_node20_tracked=${toolingTracked.trim()}`);
-
-// Line 8: EXPORTED_TO_UI
-if (packZip && handoffStatus === 'copied' && existsSync(UI_INCOMING)) {
-  const packName = packZip.split('/').pop();
-  console.log(`EXPORTED_TO_UI: ${join(UI_INCOMING, packName)}`);
-} else {
-  console.log('EXPORTED_TO_UI: n/a');
-}

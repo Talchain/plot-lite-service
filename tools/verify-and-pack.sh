@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# Prepend Node 20 from .tooling if present
+if [ -d ".tooling/node20/node-v20.19.0-darwin-arm64/bin" ]; then
+  export PATH="$(pwd)/.tooling/node20/node-v20.19.0-darwin-arm64/bin:$PATH"
+fi
 # Ensure self-start is cleaned up on any exit
 SVR_PID=""
 cleanup() {
@@ -314,6 +318,13 @@ if command -v zip >/dev/null 2>&1; then
 else
   # Fallback to tar.gz if zip is unavailable (keep .zip name for path stability)
   (cd artifact && tar -czf "../$ALIAS_ZIP" "$PACK_BASENAME") || true
+fi
+
+# Enforce 50 MB cap
+PACK_SIZE=$(stat -f%z "../$ALIAS_ZIP" 2>/dev/null || stat -c%s "../$ALIAS_ZIP" 2>/dev/null || echo 0)
+if [ "$PACK_SIZE" -gt 52428800 ]; then
+  echo "verify-and-pack: FAIL — pack exceeds 50 MB ($((PACK_SIZE/1048576)) MB)" >&2
+  exit 6
 fi
 
 # Optional hand-off copy to UI repo (best-effort)
