@@ -1,0 +1,33 @@
+{
+  "schema": "report.v1",
+  "meta": {
+    "seed": 4242,
+    "fixtures_version": "1.0.0",
+    "template": "pricing_change"
+  },
+  "graph": {
+    "nodes": [
+      { "id": "n1", "label": "Start" },
+      { "id": "n2", "label": "Price Update" }
+    ],
+    "edges": [
+      { "from": "n1", "to": "n2", "label": "proceed" }
+    ]
+  },
+  "results": {
+    "conservative": { "cost_delta": -1, "risk": 0.08 },
+    "most_likely": { "cost_delta": 4, "risk": 0.05 },
+    "optimistic": { "cost_delta": 7, "risk": 0.02 }
+  },
+  "thresholds": [
+    { "metric": "cost_delta", "from": 0, "to": 5, "crossed": true },
+    { "metric": "risk", "from": 0.1, "to": 0.05, "crossed": true }
+  ],
+  "provenance": {
+    "critique": [
+      "Stable demand assumption.",
+      "No competitive response modeled."
+    ],
+    "notes": []
+  }
+}

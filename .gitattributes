@@ -1,0 +1,8 @@
+# Git export (git archive) exclusions for lean source distributions
+evidence/pack/        export-ignore
+docs/evidence/        export-ignore
+playwright-report/    export-ignore
+dist/                 export-ignore
+.tooling/             export-ignore
+*.zip                 export-ignore
+*.tar.gz              export-ignore

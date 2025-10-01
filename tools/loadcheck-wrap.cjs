@@ -13,7 +13,9 @@ const path = require('node:path');
   let record = {
     timestamp: new Date().toISOString(),
     budget_ms: budget,
+    p50_ms: null,
     p95_ms: null,
+    p99_ms: null,
     over_budget: null,
     probe_exit_code: 0,
     error_name: null,
@@ -23,7 +25,9 @@ const path = require('node:path');
   try {
     const { runProbe } = require('./loadcheck-probe.cjs');
     const res = await runProbe({ baseUrl, path: '/draft-flows?template=pricing_change&seed=101', connections: 10, durationSeconds: Number(process.env.LOADCHECK_DURATION_S || '10') });
+    record.p50_ms = (typeof res?.p50_ms === 'number') ? res.p50_ms : null;
     record.p95_ms = (typeof res?.p95_ms === 'number') ? res.p95_ms : null;
+    record.p99_ms = (typeof res?.p99_ms === 'number') ? res.p99_ms : null;
     record.over_budget = (typeof record.p95_ms === 'number') ? (record.p95_ms > budget) : null;
   } catch (e) {
     record.probe_exit_code = (e && (e.name === 'ReadinessTimeout' || e.message === 'readiness_timeout')) ? 2 : 1;

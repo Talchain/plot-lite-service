@@ -9,6 +9,44 @@ Small, deterministic Fastify + TypeScript service for PLoT-lite. No AI calls. Pr
 ## Requirements
 - Node 20 LTS
 
+### Toolchain
+
+We pin to Node 20 LTS and npm 10 for deterministic installs and to avoid tooling incompatibilities on newer Node majors.
+
+Setup:
+
+```
+nvm use
+npm ci --no-fund --no-audit
+```
+
+### 90-second quickstart
+
+```
+# Ensure Node 20 LTS
+nvm use
+npm ci --no-audit --no-fund
+
+# Quick sanity
+npm run diag
+
+# Start (new shell)
+npm run build && npm start &
+BASE=http://127.0.0.1:4311
+
+# 200 + ETag → 304 (determinism)
+curl -s "$BASE/draft-flows?template=pricing_change&seed=101" -D 200.h -o 200.json
+ET=$(awk 'tolower($1)=="etag:"{print $2}' 200.h | tr -d '\r')
+curl -s -i -H "If-None-Match: $ET" "$BASE/draft-flows?template=pricing_change&seed=101" -D 304.h -o /dev/null
+
+# HEAD parity
+curl -s -I "$BASE/draft-flows?template=pricing_change&seed=101" -D head-200.h >/dev/null
+
+# Stream canary (flag-gated)
+FEATURE_STREAM=1 STREAM_HEARTBEAT_SEC=2 curl -Ns --max-time 5 "$BASE/stream" | head -n 10
+```
+
+
 ## Install
 
 ```
@@ -77,6 +115,7 @@ Exemptions: GET /ready, GET /health, and GET /version are not rate-limited.
 - RATE_LIMIT_ENABLED: enable per-IP rate limiting (default on; set 0 to disable)
 - RATE_LIMIT_RPM: requests per minute per IP (default 60)
 - REQUEST_TIMEOUT_MS: request timeout in milliseconds (default 5000)
+- TRUST_PROXY: if 1, trust X-Forwarded-* headers from a front proxy (add-only; default off)
 - CORS_DEV: if 1, enable CORS for http://localhost:5173 (dev only)
 
 ## Endpoints

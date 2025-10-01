@@ -78,3 +78,40 @@ export function eventLoopDelayMs() {
         return 0;
     }
 }
+// --- Stream counters (for METRICS endpoint) ---
+let stream_started = 0, stream_done = 0, stream_cancelled = 0, stream_limited = 0, stream_retryable = 0;
+export function streamStarted() { stream_started++; }
+export function streamDone() { stream_done++; }
+export function streamCancelled() { stream_cancelled++; }
+export function streamLimited() { stream_limited++; }
+export function streamRetryable() { stream_retryable++; }
+export function getStreamCounters() {
+    return { stream_started, stream_done, stream_cancelled, stream_limited, stream_retryable };
+}
+// --- Live stream gauges ---
+let currentStreams = 0;
+let lastHeartbeatAt = null; // ms epoch
+export function incCurrentStreams() { currentStreams++; }
+export function decCurrentStreams() { currentStreams = Math.max(0, currentStreams - 1); }
+export function getCurrentStreams() { return currentStreams; }
+export function noteHeartbeat() { lastHeartbeatAt = Date.now(); }
+export function getLastHeartbeatMs() { return lastHeartbeatAt ? Math.max(0, Date.now() - lastHeartbeatAt) : 0; }
+// --- Draft-flows p95 history (last 5) ---
+const DRAFT_MAX_SAMPLES = 500;
+const draftSamples = [];
+const draftP95History = [];
+export function recordDraftDurationMs(ms) {
+    draftSamples.push(ms);
+    if (draftSamples.length > DRAFT_MAX_SAMPLES)
+        draftSamples.shift();
+    // compute p95 for draft samples
+    if (draftSamples.length > 0) {
+        const sorted = [...draftSamples].sort((a, b) => a - b);
+        const idx = Math.min(sorted.length - 1, Math.floor(0.95 * (sorted.length - 1)));
+        const p = Math.round(sorted[idx]);
+        draftP95History.push(p);
+        while (draftP95History.length > 5)
+            draftP95History.shift();
+    }
+}
+export function getDraftP95History() { return [...draftP95History]; }

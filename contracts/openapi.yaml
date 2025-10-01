@@ -1,0 +1,150 @@
+openapi: 3.0.3
+info:
+  title: PLoT-lite Engine API
+  version: 0.1.0
+  description: |
+    Engine-only API. Certain features are gated by environment flags in non-production contexts.
+    - FEATURE_STREAM=1 enables a real SSE /stream route (not documented here; dev-only stream remains test-only).
+    - AUTH_ENABLED=1 requires Authorization: Bearer <token> on certain routes.
+servers:
+  - url: http://127.0.0.1:4311
+paths:
+  /health:
+    get:
+      summary: Engine health
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, p95_ms, test_routes_enabled, replay]
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+                  p95_ms:
+                    type: number
+                  test_routes_enabled:
+                    type: boolean
+                  replay:
+                    type: object
+  /version:
+    get:
+      summary: Engine version
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [api, build, model]
+                properties:
+                  api:
+                    type: string
+                  build:
+                    type: string
+                  model:
+                    type: string
+  /draft-flows:
+    get:
+      summary: Deterministic report for a template+seed
+      description: |
+        Returns a deterministic report.v1 fixture by template and seed.
+        Authentication may be required when AUTH_ENABLED=1.
+      parameters:
+        - name: template
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [pricing_change, feature_launch, build_vs_buy]
+        - name: seed
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: budget
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: OK
+          headers:
+            Cache-Control: { schema: { type: string } }
+            ETag: { schema: { type: string } }
+            Vary: { schema: { type: string } }
+            Content-Length: { schema: { type: string } }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/reportV1'
+        '304':
+          description: Not Modified
+        '400':
+          description: Bad input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorResponse'
+        '404':
+          description: Unknown template or seed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorResponse'
+        '502':
+          description: Retryable upstream error (RETRYABLE)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorResponse'
+        '503':
+          description: Retryable upstream error (RETRYABLE)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorResponse'
+components:
+  schemas:
+    errorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [type, message]
+          properties:
+            type: { type: string }
+            message: { type: string }
+            hint: { type: string }
+            fields: { type: object }
+            retryable: { type: boolean }
+            code: { type: string }
+    sseEvent:
+      type: object
+      required: [event]
+      properties:
+        event:
+          type: string
+          enum: [hello, token, cost, done, cancelled, limited, error]
+        id:
+          type: string
+        data:
+          type: object
+    reportV1:
+      type: object
+      required: [schema, meta]
+      properties:
+        schema:
+          type: string
+          enum: [report.v1]
+        meta:
+          type: object
+          required: [seed]
+          properties:
+            seed: { type: integer }
