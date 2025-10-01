@@ -54,11 +54,17 @@ export async function createServer(opts: ServerOpts = {}) {
   });
 
   await app.register(helmet, { global: true });
-  // CORS: production allowlist or dev fallback
+  // CORS: production allowlist (CSV or single) or dev fallback
   {
-    const corsOrigin = process.env.CORS_ORIGIN?.trim();
-    if (corsOrigin) {
-      await app.register(cors, { origin: corsOrigin });
+    const originsCsv = process.env.CORS_ORIGINS?.trim();
+    const singleOrigin = process.env.CORS_ORIGIN?.trim();
+    
+    if (originsCsv) {
+      // Parse comma-separated list
+      const allowedOrigins = originsCsv.split(',').map(s => s.trim()).filter(Boolean);
+      await app.register(cors, { origin: allowedOrigins });
+    } else if (singleOrigin) {
+      await app.register(cors, { origin: singleOrigin });
     } else if (process.env.CORS_DEV === '1') {
       await app.register(cors, { origin: 'http://localhost:3000' });
     }

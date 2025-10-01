@@ -16,6 +16,13 @@
    PORT=10000
    CORS_ORIGIN=https://your-ui-domain.netlify.app
    ```
+   
+   **CORS Options**:
+   - `CORS_ORIGINS`: Comma-separated list for multiple origins  
+     Example: `CORS_ORIGINS=https://app.example.com,https://staging.example.com`
+   - `CORS_ORIGIN`: Single origin (used if `CORS_ORIGINS` not set)  
+     Example: `CORS_ORIGIN=https://app.example.com`
+   - If neither set, CORS is disabled (secure default)
 
 3. **Optional: CI Deploy Hook**
    - In Render: Settings → Deploy Hook → Copy URL
