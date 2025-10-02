@@ -89,6 +89,27 @@ export async function createServer(opts: ServerOpts = {}) {
     }
   }
 
+  // Demo SSE endpoint (TEST_ROUTES only)
+  if (process.env.TEST_ROUTES === '1') {
+    app.get('/demo/stream', async (req, reply) => {
+      reply.raw.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      });
+      const q = (req.query ?? {}) as any;
+      const scenario = String(q.scenario ?? 'sch1');
+      reply.raw.write(`event: hello\ndata: ${JSON.stringify({ scenario, seed: 1 })}\n\n`);
+      for (const t of ['This', ' is', ' a', ' demo', ' stream.']) {
+        await new Promise(r => setTimeout(r, 120));
+        reply.raw.write(`event: token\ndata: ${JSON.stringify({ text: t })}\n\n`);
+      }
+      reply.raw.write(`event: done\ndata: {}\n\n`);
+      reply.raw.end();
+      return reply;
+    });
+  }
+
   // Optional rate limit (enabled by env; disabled when RATE_LIMIT_ENABLED=0)
   if (process.env.RATE_LIMIT_ENABLED !== '0') {
     app.addHook('onRequest', rateLimit);
