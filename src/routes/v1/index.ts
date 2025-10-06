@@ -1,0 +1,89 @@
+/**
+ * /v1 Routes Registration
+ * All PLoT Engine v1 endpoints with trust signals
+ */
+
+import type { FastifyInstance } from 'fastify';
+import { registerRunRoute } from './run.js';
+import { registerCounterfactualRoute } from './counterfactual.js';
+import { registerCritiqueRoute } from './critique.js';
+import { registerDraftRoute } from './draft.js';
+import { registerSelfCheckRoute } from './self-check.js';
+
+/**
+ * Auth preHandler for /v1/* routes
+ * Guards all v1 endpoints when AUTH_ENABLED=1
+ */
+async function v1AuthGuard(req: any, reply: any) {
+  if (process.env.AUTH_ENABLED !== '1') return;
+  
+  const hdr = String((req.headers?.authorization || req.headers?.Authorization || '') || '');
+  const expected = String(process.env.AUTH_TOKEN || '').trim();
+  
+  if (!hdr.startsWith('Bearer ')) {
+    reply.header('WWW-Authenticate', 'Bearer');
+    return reply.code(401).send({ 
+      schema: 'error.v1',
+      code: 'UNAUTHORIZED', 
+      message: 'Missing bearer token' 
+    });
+  }
+  
+  const tok = hdr.slice('Bearer '.length).trim();
+  if (!expected || tok !== expected) {
+    return reply.code(403).send({ 
+      schema: 'error.v1',
+      code: 'FORBIDDEN', 
+      message: 'Invalid token' 
+    });
+  }
+}
+
+/**
+ * Register all /v1 routes
+ */
+export async function registerV1Routes(app: FastifyInstance) {
+  // Add auth guard hook for all /v1/* routes
+  app.addHook('preHandler', async (req, reply) => {
+    // Only apply to /v1/* routes
+    if (req.url?.startsWith('/v1/')) {
+      await v1AuthGuard(req, reply);
+    }
+  });
+
+  // Register v1 endpoints (all protected by auth guard)
+  await registerRunRoute(app);
+  await registerCounterfactualRoute(app);
+  await registerCritiqueRoute(app);
+  await registerDraftRoute(app);
+  await registerSelfCheckRoute(app);
+
+  // Health and version at /v1 as well (for consistency)
+  app.get('/v1/health', async () => {
+    const { p95Ms, snapshot } = await import('../../metrics.js');
+    return {
+      status: 'ok',
+      api_version: 'v1',
+      p95_ms: p95Ms?.() || 0,
+      ...snapshot?.(),
+    };
+  });
+
+  app.get('/v1/version', async () => {
+    // Read BUILD_ID or git sha
+    const build = process.env.BUILD_ID || 'dev';
+    return {
+      api: 'plot-engine/v1',
+      version: '1.0.0',
+      build,
+      model: `plot-lite-${build}`,
+      features: {
+        trust_signals: true,
+        model_card: '1.1',
+        confidence_badge: true,
+        explain_delta: true,
+        cost_governance: true,
+      },
+    };
+  });
+}

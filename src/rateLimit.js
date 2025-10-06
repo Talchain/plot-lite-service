@@ -1,6 +1,7 @@
 import { replyWithAppError } from './errors.js';
 const perIp = new Map();
 const LIMIT = Number(process.env.RATE_LIMIT_RPM || process.env.RATE_LIMIT_PER_MIN || 60);
+const MAX_ENTRIES = 10000; // Cap to prevent unbounded growth
 // Track 429s per-minute to expose last5m_429 in /health
 const perMinute429 = new Map();
 function record429(now) {
@@ -20,7 +21,39 @@ function last5m429(now) {
         sum += perMinute429.get(m) || 0;
     return sum;
 }
+// Prune old entries to prevent memory leak
+function pruneOldEntries() {
+    const now = Date.now();
+    const currentMinute = Math.floor(now / 60000);
+    const cutoff = currentMinute - 2; // Keep current + 1 previous minute
+    let pruned = 0;
+    for (const [key, state] of perIp) {
+        // Split from right to handle IPv6 addresses (which contain multiple colons)
+        const lastColonIndex = key.lastIndexOf(':');
+        const keyMinute = parseInt(key.substring(lastColonIndex + 1));
+        if (keyMinute < cutoff) {
+            perIp.delete(key);
+            pruned++;
+        }
+    }
+    // Cap enforcement: drop oldest entries if over limit
+    if (perIp.size > MAX_ENTRIES) {
+        const sorted = Array.from(perIp.entries())
+            .sort((a, b) => a[1].resetAt - b[1].resetAt);
+        const toDrop = sorted.slice(0, perIp.size - MAX_ENTRIES);
+        toDrop.forEach(([key]) => perIp.delete(key));
+        pruned += toDrop.length;
+    }
+    return pruned;
+}
+// Periodic cleanup to prevent memory leak (runs every minute)
+// Use .unref() to allow process to exit when only this timer is active
+setInterval(pruneOldEntries, 60000).unref();
 export async function rateLimit(req, reply) {
+    // Opportunistic pruning (1% of requests to avoid overhead)
+    if (Math.random() < 0.01) {
+        pruneOldEntries();
+    }
     const ENABLED = process.env.RATE_LIMIT_ENABLED !== '0';
     if (!ENABLED)
         return; // disabled

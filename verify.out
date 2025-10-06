@@ -1,0 +1,8 @@
+ENGINE_PACK: /Users/paulslee/Documents/GitHub/plot-lite-service/evidence/pack/engine_pack_2025-09-30_4814df3.zip, SLO engine_get_p95_ms=missing, SLO_SUMMARY=present
+CONTRACTS: GET/HEAD/ETag/304 parity PASS; privacy check PASS — no request bodies or query strings in logs
+GATES: FAIL — p95 missing; size ≤ 50 MB
+Handoff: skipped
+FLAGS_EXPORT: docs/spec/engine.flags.json present
+SIZE_AUDIT: working_tree=1355MB, git_db=172MB
+SIZE_SUSPECTS: big_tracked_files(>=25MB)=0, evidence_pack_tracked=0, incoming_tracked=0, tooling_node20_tracked=4754
+EXPORTED_TO_UI: n/a

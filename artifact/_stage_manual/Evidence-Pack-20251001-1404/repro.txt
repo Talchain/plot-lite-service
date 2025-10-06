@@ -1,0 +1,12 @@
+# draft-flows 200 + ETag -> 304
+curl -s "http://127.0.0.1:4311/draft-flows?template=pricing_change&seed=101" -D 200.h -o 200.json
+ET=$(awk 'tolower($1)=="etag:"{print $2}' 200.h | tr -d '')
+curl -s -i -H "If-None-Match: $ET" "http://127.0.0.1:4311/draft-flows?template=pricing_change&seed=101" -D 304.h -o /dev/null
+
+# health and version
+curl -s -D health.h "http://127.0.0.1:4311/health" -o health.json
+curl -s -D version.h "http://127.0.0.1:4311/version" -o version.json
+
+# stream canary (requires FEATURE_STREAM=1)
+export FEATURE_STREAM=1
+curl -Ns --max-time 5 "http://127.0.0.1:4311/stream" | head -n 10

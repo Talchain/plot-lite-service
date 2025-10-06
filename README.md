@@ -330,3 +330,53 @@ BRANCH=chore/lockfile-sync-ci BASE_BRANCH=main npm run pr:verify
 - Runs on every PR update and comments a compact summary of required checks.
 - Local dev: `npm run pr:verify` uses the same Node script used in CI.
 - Required gates: OpenAPI Examples Roundtrip, engine-safety, tests-smoke.
+
+## Deployment Verification
+
+Verify which commit is deployed and that routes are bundled:
+
+### 1. Check Version Fingerprint
+```bash
+curl https://olumi.netlify.app/version.json
+```
+Returns:
+```json
+{
+  "commit": "full-sha",
+  "short": "short-sha",
+  "branch": "main",
+  "timestamp": "2025-01-05T10:30:00Z"
+}
+```
+
+### 2. Check Route Guard
+```bash
+curl https://olumi.netlify.app/sandbox-v1-ok.txt
+```
+Returns: `OK`
+
+### 3. Verify Rich UI Route
+Open: https://olumi.netlify.app/#/sandbox-v1
+
+**Expected:**
+- Header shows commit hash (e.g., `@cc6e4bd`)
+- Diagnostics bar shows: `edge: /engine  template: pricing_change  seed: 101`
+- Request line shows: `Request: /engine/draft-flows?... • status 200`
+- Results cards populate automatically (Conservative, Most Likely, Optimistic)
+- Graph renders with nodes/edges
+- Debug panel appears if fetch fails (shows raw JSON)
+
+**Console Beacon:**
+```javascript
+UI_POC_SANDBOX_V1_ENHANCED {
+  edge: "/engine",
+  template: "pricing_change",
+  seed: 101,
+  hardcoded: { sandbox: true, sse: true },
+  sections: "all"
+}
+```
+
+### 4. Compare with GitHub
+The `short` commit in `/version.json` should match the "Latest commit" shown on:
+https://github.com/Talchain/DecisionGuideAI

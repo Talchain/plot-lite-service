@@ -1,0 +1,11 @@
+
+> plot-lite-service@1.0.0 start
+> node dist/main.js
+
+{"level":30,"time":1759509936908,"pid":55033,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:4311"}
+{"level":30,"time":1759509936908,"pid":55033,"hostname":"MacBookAir.net","msg":"Server listening at http://192.168.1.40:4311"}
+{"level":30,"time":1759509936908,"pid":55033,"hostname":"MacBookAir.net","port":4311,"msg":"server started"}
+{"level":30,"time":1759509937150,"pid":55033,"hostname":"MacBookAir.net","reqId":"req-1","route":"/health","statusCode":200,"durationMs":5.185167,"msg":"request completed"}
+{"level":30,"time":1759509937164,"pid":55033,"hostname":"MacBookAir.net","reqId":"req-2","route":"/health","statusCode":200,"durationMs":0.261708,"msg":"request completed"}
+{"level":30,"time":1759509937182,"pid":55033,"hostname":"MacBookAir.net","reqId":"req-3","route":"/health","statusCode":200,"durationMs":0.433583,"msg":"request completed"}
+{"level":30,"time":1759509948078,"pid":55033,"hostname":"MacBookAir.net","reqId":"req-4","route":"/health","statusCode":200,"durationMs":3.143792,"msg":"request completed"}

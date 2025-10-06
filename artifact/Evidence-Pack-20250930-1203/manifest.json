@@ -1,0 +1,149 @@
+{
+  "schema": "pack.manifest.v1",
+  "created_utc": "2025-09-30T11:05:12.694Z",
+  "path": "/Users/paulslee/Documents/GitHub/plot-lite-service/artifact/Evidence-Pack-20250930-1203",
+  "commit": "",
+  "engine": "http://127.0.0.1:4311",
+  "files": [
+    {
+      "path": "README.txt",
+      "size_bytes": 665,
+      "sha256": "97135425acb8515879714ea66a458e11137824e42abe358910cc77575110249e"
+    },
+    {
+      "path": "engine/access-log-snippet.txt",
+      "size_bytes": 3602,
+      "sha256": "53fcd227fa9266379bc82e044dbc3d4694142cf1bb0a294293ca11ce481f4174"
+    },
+    {
+      "path": "engine/bad-query-400.txt",
+      "size_bytes": 1012,
+      "sha256": "29297aac10d96a10fa86d57d7972d80795197a5aa4c592d741a8888b0603c45d"
+    },
+    {
+      "path": "engine/draft-flows-200.h",
+      "size_bytes": 964,
+      "sha256": "a2d3315bf7a570d7c0d0dd8a6c279481810f31b9c1556085ccd687426ccf9d25"
+    },
+    {
+      "path": "engine/draft-flows-200.json",
+      "size_bytes": 808,
+      "sha256": "ffa962ca91a3383ec5d4bec8c484674b93b8f8c36be8911a394805bc46b2d1b4"
+    },
+    {
+      "path": "engine/draft-flows-304.h",
+      "size_bytes": 974,
+      "sha256": "fda7cafafacc160611b7dd0e0e4a5075821e8facd23cd3ce8a4ff3df9c3c2f43"
+    },
+    {
+      "path": "engine/draft-flows-304.txt",
+      "size_bytes": 974,
+      "sha256": "fda7cafafacc160611b7dd0e0e4a5075821e8facd23cd3ce8a4ff3df9c3c2f43"
+    },
+    {
+      "path": "engine/draft-flows-4242.json",
+      "size_bytes": 812,
+      "sha256": "61f9355be1fb87651cb128ee3c391966503a91c39f9cd0e619c1b12c59dfd80e"
+    },
+    {
+      "path": "engine/fixture-seed-4242.sha256",
+      "size_bytes": 132,
+      "sha256": "2033cb7405e37b66d543568663d1a683b1eaa64d43fe9e34bb96ced2aa68c91d"
+    },
+    {
+      "path": "engine/head-200.h",
+      "size_bytes": 964,
+      "sha256": "6fadd6b408e53f2ae35552b45595a38ca22759fc76f491b2688149c474680f99"
+    },
+    {
+      "path": "engine/head-304.h",
+      "size_bytes": 972,
+      "sha256": "650e812066542d4cd7c63ef89fa420c412a14a2aec17703fa43f57e58e03df2c"
+    },
+    {
+      "path": "engine/health.h",
+      "size_bytes": 859,
+      "sha256": "c73b649951d559cf417f7f733122e8970b41d275ceb5abc1adc1cb28fe23654a"
+    },
+    {
+      "path": "engine/health.json",
+      "size_bytes": 564,
+      "sha256": "4cc5a6958d3217391ffe704908082242c9bced4e9fd5bddb787706993e8eeaa7"
+    },
+    {
+      "path": "engine/health.raw",
+      "size_bytes": 416,
+      "sha256": "d2686da724db9dbb8d279233d660f7ba99f762a88ae892cdab0593f398674bd9"
+    },
+    {
+      "path": "engine/invalid-seed-404.txt",
+      "size_bytes": 933,
+      "sha256": "c64f6f55c52063b23ecdd7c442af897ef26872089985ebce1ae8cb7dedc2d05f"
+    },
+    {
+      "path": "engine/invalid-template-404.txt",
+      "size_bytes": 929,
+      "sha256": "eca09ae501901af28266124667cc20e0ea0223843ae23ba1335468a6e56aa603"
+    },
+    {
+      "path": "engine/report-v1-stamp.txt",
+      "size_bytes": 33,
+      "sha256": "2667c61b5e8a7ab0eb40f2ddf1182e8a466221642cf9e81a06f0a50ec57757d0"
+    },
+    {
+      "path": "engine/selfstart.env.txt",
+      "size_bytes": 106,
+      "sha256": "ce1bd9abaf6a192ea29620c8232730b951ef764db78c64aba48cfe0bd621a1b0"
+    },
+    {
+      "path": "engine/selfstart.log",
+      "size_bytes": 18011776,
+      "sha256": "fd259a0c023866657228323184585c029db8e1bfded634c1c716e232f7251141"
+    },
+    {
+      "path": "engine/selfstart.pid",
+      "size_bytes": 6,
+      "sha256": "1e56bcc14ed680337c0817c3414bc90f28bbfb6103bd807494def0e5e05b4c91"
+    },
+    {
+      "path": "engine/stream-ndjson.sha256",
+      "size_bytes": 106,
+      "sha256": "e99f59a5986fbf15cb6ba61dd0690c5f52fa3d8909d35428d7ad6cd4486f8fb1"
+    },
+    {
+      "path": "engine/version-200.h",
+      "size_bytes": 858,
+      "sha256": "d1640fef105bd09d5b830b2611a92831ccf38ba74ce8a2d0fb55e277d726eaab"
+    },
+    {
+      "path": "engine/version-head.h",
+      "size_bytes": 858,
+      "sha256": "ab284ed38d1f7f96ebbc680dab51b3fcf6cc1e17afb61f99ba8228ffba86cf67"
+    },
+    {
+      "path": "engine/version.json",
+      "size_bytes": 66,
+      "sha256": "e2bb17c9a2469f9fa60ceaf19a4ae5d51f2dcfba21d633f5bee34d2b4cb0489e"
+    },
+    {
+      "path": "manifest.json",
+      "size_bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "pack-manifest.txt",
+      "size_bytes": 2528,
+      "sha256": "70b4acb32a36159ed14598558b326b01b50a6a14d482cd05c621c2d024581832"
+    },
+    {
+      "path": "reports/loadcheck.json",
+      "size_bytes": 255,
+      "sha256": "baec6a2edd7feda631ed0cbf1b93e1cdf4888a0748538d1ad9f1dd4c00c328b6"
+    },
+    {
+      "path": "repro.txt",
+      "size_bytes": 609,
+      "sha256": "2ba8f3194779fcf6506ef03fa292cf161b3ad2538f44293e76a8f7a7dbaf7db3"
+    }
+  ]
+}

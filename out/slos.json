@@ -1,0 +1,7 @@
+{
+  "schema": "slos.v1",
+  "engine_get_p95_ms": 3,
+  "K_per_sec": 833333,
+  "samples": 50,
+  "timestamp": "2025-10-06T13:35:35.049Z"
+}

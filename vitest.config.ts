@@ -13,6 +13,16 @@ export default defineConfig({
     exclude: ['e2e/**', 'dist/**', 'node_modules/**', 'tests/tools.*.test.ts'],
     reporters: 'basic',
     allowOnly: false,
+    
+    // In-process env guard to detect leaks immediately
+    setupFiles: ['tests/setup/env-guard.ts'],
+    
+    // Test isolation settings to prevent cross-suite bleed
+    restoreMocks: true,
+    clearMocks: true,
+    mockReset: true,
+    isolate: true,  // Fresh module state between tests
+    
     poolOptions: {
       threads: { singleThread: true }
     }

@@ -1,0 +1,23 @@
+{
+  "schema": "trust-bundle.v1",
+  "status": "GREEN",
+  "checks": {
+    "pack_lint": "PASS",
+    "evidence_merge": "PASS",
+    "ownership": "ENFORCED",
+    "provenance": "VERIFIED",
+    "sbom": "GENERATED",
+    "signatures": "VERIFIED",
+    "licences": "OK",
+    "allowed_licences": [
+      "MIT",
+      "Apache-2.0",
+      "BSD-2-Clause",
+      "BSD-3-Clause",
+      "ISC",
+      "CC0-1.0"
+    ],
+    "violations": []
+  },
+  "timestamp": "2025-10-06T13:35:35.303Z"
+}

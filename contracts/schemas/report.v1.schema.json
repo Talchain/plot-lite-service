@@ -1,0 +1,131 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://plot.talchain.com/schemas/report.v1.json",
+  "title": "PLoT Engine Report v1",
+  "description": "Minimal contract for /v1/run responses with trust signals",
+  "type": "object",
+  "required": [
+    "schema",
+    "model_card",
+    "confidence"
+  ],
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "run.v1",
+      "description": "Schema version identifier"
+    },
+    "graph": {
+      "type": "object",
+      "description": "Input graph structure",
+      "required": ["nodes", "edges"],
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id"],
+            "properties": {
+              "id": { "type": "string" }
+            }
+          }
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "results": {
+      "type": "object",
+      "description": "Simulation results"
+    },
+    "model_card": {
+      "type": "object",
+      "required": ["seed", "assumptions_summary"],
+      "properties": {
+        "seed": {
+          "type": "integer",
+          "description": "Random seed for reproducibility"
+        },
+        "assumptions_summary": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Model assumptions"
+        },
+        "compute_budget": {
+          "type": "object",
+          "description": "Compute budget information"
+        },
+        "determinism_note": {
+          "type": "string",
+          "description": "Note about determinism"
+        },
+        "flags_on": {
+          "type": "array",
+          "description": "Active feature flags"
+        },
+        "response_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "SHA-256 hash of normalised response payload"
+        }
+      }
+    },
+    "confidence": {
+      "type": "object",
+      "required": ["score", "level"],
+      "properties": {
+        "score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Confidence score"
+        },
+        "level": {
+          "type": "string",
+          "enum": ["HIGH", "MEDIUM", "LOW"],
+          "description": "Confidence level (UPPERCASE)"
+        },
+        "factors": {
+          "type": "object",
+          "description": "Confidence factors"
+        },
+        "reason": {
+          "type": "string",
+          "description": "Reason for confidence level"
+        }
+      }
+    },
+    "critique": {
+      "type": "array",
+      "description": "Model critique",
+      "items": {
+        "type": "object"
+      }
+    },
+    "explain_delta": {
+      "type": "object",
+      "description": "Explain-Δ analysis"
+    },
+    "identifiability": {
+      "type": "string",
+      "description": "Identifiability summary"
+    },
+    "linearity_warning": {
+      "type": "object",
+      "description": "Linearity check warning"
+    },
+    "threshold_crossings": {
+      "type": "array",
+      "description": "Threshold crossing events"
+    },
+    "fork_suggestions": {
+      "type": "object",
+      "description": "Fork suggestions"
+    }
+  },
+  "additionalProperties": true
+}

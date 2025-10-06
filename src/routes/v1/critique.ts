@@ -1,0 +1,86 @@
+/**
+ * POST /v1/critique - Model critique with fix suggestions
+ */
+
+import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { isDemoMode, getDemoSeed } from '../../middleware/demo-mode.js';
+import { getDemoCritiqueResponse } from '../../fixtures/demo-payloads.js';
+import { buildModelCard, getActiveFeatureFlags } from '../../trust/model-card.js';
+import { buildCritique } from '../../trust/critique-builder.js';
+import { checkIdentifiability } from '../../trust/identifiability.js';
+import type { Graph } from '../../trust/types.js';
+
+export interface CritiqueRequest {
+  graph: Graph;
+  assumptions?: string[];
+  treatment_node?: string;
+  outcome_node?: string;
+  seed?: number;
+}
+
+export async function registerCritiqueRoute(app: FastifyInstance) {
+  app.post('/v1/critique', async (req: FastifyRequest, reply: FastifyReply) => {
+    // Demo mode check
+    if (isDemoMode(req)) {
+      const demo_seed = getDemoSeed(req);
+      return getDemoCritiqueResponse(demo_seed);
+    }
+
+    const body = (req as any).body as CritiqueRequest;
+
+    if (!body.graph) {
+      return reply.code(400).send({
+        error: 'BAD_INPUT',
+        message: 'Field "graph" is required',
+      });
+    }
+
+    const {
+      graph,
+      assumptions = [],
+      treatment_node = graph.nodes[0]?.id,
+      outcome_node = graph.nodes[graph.nodes.length - 1]?.id,
+      seed = 0,
+    } = body;
+
+    // Identifiability check
+    const identifiability = checkIdentifiability({
+      graph,
+      treatment_node,
+      outcome_node,
+    });
+
+    // Model card
+    const model_card = buildModelCard({
+      seed,
+      assumptions: assumptions.length > 0 ? assumptions : undefined,
+      feature_flags: getActiveFeatureFlags(),
+    });
+
+    // Build critique
+    const critique = buildCritique({
+      graph,
+      assumptions,
+      identifiable: identifiability.identifiable,
+      node_limit: 12,
+    });
+
+    // Count auto-fixable issues
+    const auto_fixable_count = critique.filter(c => c.auto_fixable).length;
+
+    return {
+      schema: 'critique.v1',
+      graph,
+      critique,
+      model_card,
+      identifiability: identifiability.summary,
+      summary: {
+        total_issues: critique.length,
+        blockers: critique.filter(c => c.severity === 'BLOCKER').length,
+        improvements: critique.filter(c => c.severity === 'IMPROVEMENT').length,
+        observations: critique.filter(c => c.severity === 'OBSERVATION').length,
+        auto_fixable: auto_fixable_count,
+      },
+    };
+  });
+}

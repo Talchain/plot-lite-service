@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto';
 import { promises as fsp } from 'node:fs';
 import { rateLimit } from './rateLimit.js';
 import { replyWithAppError } from './errors.js';
+import inflightPlugin from './plugins/inflight.js';
 export async function createServer(opts = {}) {
     const idemCache = new Map();
     const IDEM_TTL_MS = 10 * 60 * 1000;
@@ -74,6 +75,26 @@ export async function createServer(opts = {}) {
         requestTimeout: Number(process.env.REQUEST_TIMEOUT_MS || 5000),
         disableRequestLogging: true,
     });
+    // Register inflight plugin (self-contained: decoration + hooks)
+    // Works in all entry points: main.ts, tests, tools
+    await app.register(inflightPlugin);
+    // Probe endpoints to read inflight counter and stats (TEST_ROUTES only, requires header)
+    if (process.env.TEST_ROUTES === '1') {
+        app.get('/test/inflight', async (req, reply) => {
+            if (req.headers['x-test-auth'] !== '1') {
+                return reply.code(403).send({ error: 'forbidden' });
+            }
+            reply.header('Content-Type', 'application/json; charset=utf-8');
+            return { inflight: app.inflight.count() };
+        });
+        app.get('/test/inflight_stats', async (req, reply) => {
+            if (req.headers['x-test-auth'] !== '1') {
+                return reply.code(403).send({ error: 'forbidden' });
+            }
+            reply.header('Content-Type', 'application/json; charset=utf-8');
+            return app.inflight.stats();
+        });
+    }
     await app.register(helmet, { global: true });
     // CORS: closed by default; allow only when CSV envs provided. Dev override remains.
     {
@@ -87,6 +108,26 @@ export async function createServer(opts = {}) {
         else if (process.env.CORS_DEV === '1') {
             await app.register(cors, { origin: 'http://localhost:5173' });
         }
+    }
+    // Demo SSE endpoint (TEST_ROUTES only)
+    if (process.env.TEST_ROUTES === '1') {
+        app.get('/demo/stream', async (req, reply) => {
+            reply.raw.writeHead(200, {
+                'Content-Type': 'text/event-stream',
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive',
+            });
+            const q = (req.query ?? {});
+            const scenario = String(q.scenario ?? 'sch1');
+            reply.raw.write(`event: hello\ndata: ${JSON.stringify({ scenario, seed: 1 })}\n\n`);
+            for (const t of ['This', ' is', ' a', ' demo', ' stream.']) {
+                await new Promise(r => setTimeout(r, 120));
+                reply.raw.write(`event: token\ndata: ${JSON.stringify({ text: t })}\n\n`);
+            }
+            reply.raw.write(`event: done\ndata: {}\n\n`);
+            reply.raw.end();
+            return reply;
+        });
     }
     // Optional rate limit (enabled by env; disabled when RATE_LIMIT_ENABLED=0)
     if (process.env.RATE_LIMIT_ENABLED !== '0') {
@@ -199,6 +240,13 @@ export async function createServer(opts = {}) {
             rate_limit: rateLimitState(),
             test_routes_enabled: process.env.NODE_ENV === 'production' ? false : Boolean(opts.enableTestRoutes || process.env.TEST_ROUTES === '1'),
             replay: replaySnapshot(),
+            // Dev-only documentation of defaults for CI drift checks (add-only)
+            ...(process.env.NODE_ENV === 'production' ? {} : {
+                flags_doc: {
+                    'test_routes_enabled': false,
+                    'rate_limit.enabled': true,
+                }
+            }),
         };
         // Enforce a small upper bound to prevent accidental drift; keep required keys
         const MAX_BYTES = 4 * 1024;
@@ -323,6 +371,33 @@ export async function createServer(opts = {}) {
         }
         return reply.send(entry.buf);
     });
+    // Explicit HEAD route mirroring GET headers for parity (add-only)
+    try {
+        app.head('/draft-flows', async (req, reply) => {
+            const q = req.query || {};
+            const template = typeof q.template === 'string' ? q.template : '';
+            const seedNum = (typeof q.seed === 'string' || typeof q.seed === 'number') ? Number(q.seed) : NaN;
+            const allowed = new Set(['pricing_change', 'feature_launch', 'build_vs_buy']);
+            if (!allowed.has(template) || !Number.isInteger(seedNum)) {
+                return reply.code(400).send();
+            }
+            const key = `${template}|${seedNum}`;
+            const entry = deterministicMap.get(key);
+            if (!entry)
+                return reply.code(404).send();
+            reply.header('Content-Type', 'application/json');
+            reply.header('Cache-Control', 'no-cache');
+            reply.header('Vary', 'If-None-Match');
+            reply.header('ETag', entry.etag);
+            reply.header('Content-Length', String(entry.contentLength));
+            return reply.code(200).send();
+        });
+    }
+    catch (err) {
+        // Swallow FST_ERR_DUPLICATED_ROUTE only; rethrow others
+        if (err?.code !== 'FST_ERR_DUPLICATED_ROUTE')
+            throw err;
+    }
     app.post('/draft-flows', async (req, reply) => {
         if (!(await checkAuth(req, reply)))
             return;
@@ -580,6 +655,24 @@ export async function createServer(opts = {}) {
                 reply.header('Cache-Control', 'no-cache');
                 reply.header('Connection', 'keep-alive');
                 reply.hijack();
+                // Note: onRequest already incremented inflight
+                // endStream must decrement since onResponse won't fire after hijack
+                let closed = false;
+                const endStream = () => {
+                    if (closed)
+                        return; // Idempotent: prevent double-decrement
+                    closed = true;
+                    // Mark as decremented to prevent onResponse from also decrementing
+                    reply.raw.__inflightDecDone = true;
+                    app.inflight.dec('endStream');
+                    try {
+                        reply.raw.end();
+                    }
+                    catch { }
+                };
+                // Handle disconnect
+                reply.raw.on('close', endStream);
+                reply.raw.on('error', endStream);
                 const q = req.query || {};
                 const id = String(q.id || 'default');
                 const blip = String(q.blip || '').toLowerCase() === '1' || String(process.env.STREAM_BLIP || '') === '1';
@@ -596,19 +689,13 @@ export async function createServer(opts = {}) {
                 // Test-only retryable error smoke
                 if (fail === 'RETRYABLE') {
                     writeSse(reply, '0', 'error', { type: 'RETRYABLE', message: 'Temporary issue', retryable: true });
-                    try {
-                        reply.raw.end();
-                    }
-                    catch { }
+                    endStream();
                     return;
                 }
                 // Backpressure/limit signal
                 if (limitNow) {
                     writeSse(reply, '0', 'limited', { reason: 'backpressure' });
-                    try {
-                        reply.raw.end();
-                    }
-                    catch { }
+                    endStream();
                     return;
                 }
                 const lastIdRaw = req.headers['last-event-id'] || q.lastEventId;
@@ -622,12 +709,9 @@ export async function createServer(opts = {}) {
                     // honour cancellation
                     if (sseCancelled.has(id)) {
                         writeSse(reply, String(i), 'cancelled', { reason: 'client' });
-                        try {
-                            reply.raw.end();
-                        }
-                        catch { }
                         sseCancelled.delete(id); // idempotent cancel: clear after signalling
                         sseState.set(id, { index: seq.length });
+                        endStream();
                         return;
                     }
                     const e = seq[i];
@@ -637,27 +721,18 @@ export async function createServer(opts = {}) {
                     sseState.set(id, st);
                     // Controlled dropout once at i === dropAt (if provided)
                     if (Number.isFinite(dropAt) && i === dropAt) {
-                        try {
-                            reply.raw.end();
-                        }
-                        catch { }
+                        endStream();
                         return;
                     }
                     // single forced blip after first token
                     if (blip && !st.blipped && e.ev === 'token') {
                         st.blipped = true;
                         sseState.set(id, st);
-                        try {
-                            reply.raw.end();
-                        }
-                        catch { }
+                        endStream();
                         return;
                     }
                 }
-                try {
-                    reply.raw.end();
-                }
-                catch { }
+                endStream();
             });
         }
     }
@@ -672,6 +747,8 @@ export async function createServer(opts = {}) {
             reply.header('Cache-Control', 'no-cache');
             reply.header('Connection', 'keep-alive');
             reply.hijack();
+            // Note: onRequest already incremented inflight
+            // endStream must decrement since onResponse won't fire after hijack
             const { streamStarted, streamDone, streamLimited, incCurrentStreams, decCurrentStreams, noteHeartbeat } = await import('./metrics.js');
             try {
                 streamStarted?.();
@@ -700,20 +777,13 @@ export async function createServer(opts = {}) {
             }
             // Heartbeat timer
             let closed = false;
-            const timer = setInterval(() => {
-                if (closed)
-                    return;
-                writeComment(`ping ts=${Date.now()}`);
-                try {
-                    noteHeartbeat?.();
-                }
-                catch { }
-            }, hbMs);
+            let timer;
             const endStream = (fn) => {
                 if (closed)
-                    return;
+                    return; // Idempotent: prevent double-decrement
                 closed = true;
-                clearInterval(timer);
+                if (timer)
+                    clearInterval(timer);
                 try {
                     reply.raw.end();
                 }
@@ -726,7 +796,29 @@ export async function createServer(opts = {}) {
                     decCurrentStreams?.();
                 }
                 catch { }
+                // Mark as decremented to prevent onResponse from also decrementing
+                reply.raw.__inflightDecDone = true;
+                // Decrement inflight (matches global onRequest increment)
+                app.inflight.dec('endStream');
             };
+            // Critical: Handle client disconnect to prevent timer leak and inflight counter leak
+            reply.raw.on('close', () => {
+                app.log.info({ reqId: req.id }, 'SSE client disconnected');
+                endStream();
+            });
+            reply.raw.on('error', (err) => {
+                app.log.error({ reqId: req.id, err }, 'SSE stream error');
+                endStream();
+            });
+            timer = setInterval(() => {
+                if (closed)
+                    return;
+                writeComment(`ping ts=${Date.now()}`);
+                try {
+                    noteHeartbeat?.();
+                }
+                catch { }
+            }, hbMs);
             // Forced limited hook for deterministic testing of backpressure mapping
             if (forceLimit) {
                 writeSse('0', 'limited', { reason: 'backpressure' });
@@ -832,6 +924,10 @@ export async function createServer(opts = {}) {
             };
         });
     }
-    await app.ready();
+    // Register /v1 routes (PLoT Engine v1 with trust signals)
+    const { registerV1Routes } = await import('./routes/v1/index.js');
+    await registerV1Routes(app);
+    // Note: app.ready() is called by main.ts after adding inflight hooks
+    // Do NOT call app.ready() here - it prevents adding hooks later
     return app;
 }

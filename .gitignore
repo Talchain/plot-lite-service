@@ -5,6 +5,23 @@ coverage
 npm-debug.log*
 yarn-error.log
 
+# Environment files and secrets
+.env
+.env.*
+.env.local
+.env.*.local
+*.pem
+*.key
+*.crt
+*.cert
+*.p12
+*.pfx
+
+# Prevent stale JS files alongside TS source
+src/**/*.js
+src/**/*.js.map
+!src/scripts/**/*.js
+
 # Reports and local artefacts (untracked)
 reports/*.json
 reports/warp/*

@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://talchain.dev/schemas/unified-manifest.schema.json",
+  "title": "Unified Evidence Pack Manifest",
+  "type": "object",
+  "required": ["contracts", "slos", "checksums"],
+  "properties": {
+    "ui": { "type": ["object", "null"] },
+    "engine": { "type": ["object", "null"] },
+    "claude": { "type": ["object", "null"] },
+    "contracts": {
+      "type": "object",
+      "required": ["sse_events", "report_schema", "health_keys"],
+      "properties": {
+        "sse_events": { "type": "integer", "minimum": 0 },
+        "report_schema": { "type": "string" },
+        "health_keys": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        }
+      },
+      "additionalProperties": true
+    },
+    "slos": {
+      "type": "object",
+      "required": [
+        "ui_layout_p95_ms",
+        "engine_get_p95_ms",
+        "claude_ttff_ms",
+        "claude_cancel_ms"
+      ],
+      "properties": {
+        "ui_layout_p95_ms": { "type": ["number", "null"] },
+        "engine_get_p95_ms": { "type": ["number", "null"] },
+        "claude_ttff_ms": { "type": ["number", "null"] },
+        "claude_cancel_ms": { "type": ["number", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "checksums": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "additionalProperties": true
+}

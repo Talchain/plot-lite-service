@@ -1,0 +1,41 @@
+{
+  "sha": "4814df3",
+  "ref": "chore/toolchain-pin-node20",
+  "node": "v20.19.0",
+  "p50_ms": 5.496917000000394,
+  "p95_ms": 28.68633299999965,
+  "p99_ms": 66.99295900000106,
+  "health_bytes": 416,
+  "gates": {
+    "p50": {
+      "ok": true,
+      "value": 5.496917000000394
+    },
+    "p95": {
+      "ok": true,
+      "value": 28.68633299999965,
+      "budget": 600
+    },
+    "p99": {
+      "ok": false,
+      "value": 66.99295900000106,
+      "budget": 900
+    },
+    "sse_enum": {
+      "ok": true
+    },
+    "health_keys": {
+      "ok": true,
+      "missing": []
+    },
+    "head_parity": {
+      "ok": true,
+      "diffs": []
+    },
+    "health_size": {
+      "ok": true,
+      "bytes": 416,
+      "limit": 4096
+    }
+  }
+}

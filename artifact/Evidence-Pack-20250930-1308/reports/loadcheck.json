@@ -1,0 +1,11 @@
+{
+  "timestamp": "2025-09-30T12:12:23.726Z",
+  "budget_ms": 600,
+  "p50_ms": 1.6628340000006574,
+  "p95_ms": 6.452374999997119,
+  "p99_ms": 19.024208000000726,
+  "over_budget": false,
+  "probe_exit_code": 0,
+  "error_name": null,
+  "error_message": null
+}

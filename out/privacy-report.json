@@ -1,0 +1,13 @@
+{
+  "schema": "privacy.v1",
+  "violations": 0,
+  "provenance": {
+    "nodes_source": "human",
+    "edges_source": "auto",
+    "human_count": 3,
+    "llm_count": 0,
+    "auto_count": 2
+  },
+  "checked_files": 5,
+  "timestamp": "2025-10-06T13:35:35.172Z"
+}

@@ -1,17 +1,25 @@
 import { createServer } from './createServer.js';
+import { validateEnv } from './config-validator.js';
 
 const PORT = Number(process.env.PORT || 4311);
 const HOST = '0.0.0.0';
 
+// Graceful shutdown state
+let closing = false;
+
 async function start() {
+  // Validate environment variables first (fail-fast)
+  validateEnv();
+
   if (process.env.NODE_ENV === 'production' && process.env.TEST_ROUTES === '1') {
     // Fail fast before binding any ports
     console.error('TEST_ROUTES in production – aborting');
     process.exit(1);
   }
+  // Inflight tracking is now handled by the inflight plugin (registered in createServer)
+  // Plugin provides: decoration, onRequest/onResponse hooks, probe exclusion, double-dec guard
   const app = await createServer({ enableTestRoutes: process.env.TEST_ROUTES === '1' });
-  let closing = false;
-  let inflight = 0;
+
   await app.listen({ port: PORT, host: HOST });
   app.log.info({ port: PORT }, 'server started');
 
@@ -45,12 +53,33 @@ async function start() {
     process.on(sig, async () => {
       if (closing) return;
       closing = true;
-      app.log.info({ sig }, 'shutting down');
+      const inflightCount = app.inflight.count();
+      app.log.info({ sig, inflight: inflightCount }, 'graceful shutdown initiated');
+      
       try {
         // Stop accepting new connections
         await app.close();
+        
+        // Wait for in-flight requests to complete (max 5 seconds)
+        const deadline = Date.now() + 5000;
+        let current = app.inflight.count();
+        while (current > 0 && Date.now() < deadline) {
+          const remaining = deadline - Date.now();
+          app.log.info({ inflight: current, remaining }, 'draining in-flight requests');
+          await new Promise(r => setTimeout(r, 100));
+          current = app.inflight.count();
+        }
+        
+        const final = app.inflight.count();
+        if (final > 0) {
+          app.log.warn({ inflight: final }, 'shutdown deadline reached with in-flight requests');
+        } else {
+          app.log.info('all in-flight requests completed');
+        }
+        
         process.exit(0);
-      } catch {
+      } catch (err) {
+        app.log.error({ err }, 'shutdown error');
         process.exit(1);
       }
     });

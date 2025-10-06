@@ -1,14 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 // Import directly from source; Vitest will transpile TS
 import { parseCorsCsv } from '../src/lib/corsParser.ts';
-
-const ENV = process.env;
+import { withEnvSync } from './utils/withEnv.js';
 
 describe('CORS CSV parser', () => {
-  beforeEach(() => { process.env = { ...ENV }; });
-  afterEach(() => { process.env = ENV; });
-
   it('parses and normalises a single origin', () => {
     const out = parseCorsCsv('https://EXAMPLE.com');
     expect(out).toEqual(['https://example.com']);
@@ -24,8 +20,9 @@ describe('CORS CSV parser', () => {
   });
 
   it('allows wildcard when CORS_DEV=1', () => {
-    process.env.CORS_DEV = '1';
-    const out = parseCorsCsv('*');
-    expect(out).toEqual(['*']);
+    withEnvSync({ CORS_DEV: '1' }, () => {
+      const out = parseCorsCsv('*');
+      expect(out).toEqual(['*']);
+    });
   });
 });

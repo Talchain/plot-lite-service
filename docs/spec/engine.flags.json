@@ -1,0 +1,10 @@
+{
+  "auth_enabled": false,
+  "feature_stream": false,
+  "metrics": false,
+  "openapi_dev": false,
+  "ops_snapshot": false,
+  "rate_limit.enabled": true,
+  "test_routes_enabled": false,
+  "trust_proxy": false
+}

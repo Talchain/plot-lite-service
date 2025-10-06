@@ -1,0 +1,36 @@
+{
+  "status": "ok",
+  "p95_ms": 2,
+  "c2xx": 62,
+  "c4xx": 0,
+  "c5xx": 0,
+  "lastReplayStatus": "unknown",
+  "runtime": {
+    "node": "v20.19.0",
+    "uptime_s": 383,
+    "rss_mb": 32,
+    "heap_used_mb": 15,
+    "eventloop_delay_ms": 16,
+    "p95_ms": 2,
+    "p99_ms": 4
+  },
+  "caches": {
+    "idempotency_current": 0
+  },
+  "rate_limit": {
+    "enabled": true,
+    "rpm": 60,
+    "last5m_429": 138986
+  },
+  "test_routes_enabled": true,
+  "replay": {
+    "lastStatus": "fail",
+    "refusals": 0,
+    "retries": 0,
+    "lastTs": "2025-10-01T11:14:30.740Z"
+  },
+  "flags_doc": {
+    "test_routes_enabled": false,
+    "rate_limit.enabled": true
+  }
+}

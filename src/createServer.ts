@@ -8,6 +8,8 @@ import { createHash } from 'node:crypto';
 import { promises as fsp } from 'node:fs';
 import { rateLimit } from './rateLimit.js';
 import { replyWithAppError } from './errors.js';
+import inflightPlugin from './plugins/inflight.js';
+import type {} from './types/fastify.js';
 
 export interface ServerOpts { enableTestRoutes?: boolean }
 
@@ -74,6 +76,29 @@ export async function createServer(opts: ServerOpts = {}) {
     requestTimeout: Number(process.env.REQUEST_TIMEOUT_MS || 5000),
     disableRequestLogging: true,
   });
+
+  // Register inflight plugin (self-contained: decoration + hooks)
+  // Works in all entry points: main.ts, tests, tools
+  await app.register(inflightPlugin);
+
+  // Probe endpoints to read inflight counter and stats (TEST_ROUTES only, requires header)
+  if (process.env.TEST_ROUTES === '1') {
+    app.get('/test/inflight', async (req, reply) => {
+      if (req.headers['x-test-auth'] !== '1') {
+        return reply.code(403).send({ error: 'forbidden' });
+      }
+      reply.header('Content-Type', 'application/json; charset=utf-8');
+      return { inflight: app.inflight.count() };
+    });
+
+    app.get('/test/inflight_stats', async (req, reply) => {
+      if (req.headers['x-test-auth'] !== '1') {
+        return reply.code(403).send({ error: 'forbidden' });
+      }
+      reply.header('Content-Type', 'application/json; charset=utf-8');
+      return app.inflight.stats();
+    });
+  }
 
   await app.register(helmet, { global: true });
   // CORS: closed by default; allow only when CSV envs provided. Dev override remains.
@@ -586,6 +611,24 @@ export async function createServer(opts: ServerOpts = {}) {
         reply.header('Connection', 'keep-alive');
         reply.hijack();
 
+        // Note: onRequest already incremented inflight
+        // endStream must decrement since onResponse won't fire after hijack
+        let closed = false;
+        const endStream = () => {
+          if (closed) return; // Idempotent: prevent double-decrement
+          closed = true;
+          
+          // Mark as decremented to prevent onResponse from also decrementing
+          (reply.raw as any).__inflightDecDone = true;
+          
+          app.inflight.dec('endStream');
+          try { reply.raw.end(); } catch {}
+        };
+
+        // Handle disconnect
+        reply.raw.on('close', endStream);
+        reply.raw.on('error', endStream);
+
         const q = req.query || {};
         const id: string = String(q.id || 'default');
         const blip = String(q.blip || '').toLowerCase() === '1' || String(process.env.STREAM_BLIP || '') === '1';
@@ -604,14 +647,14 @@ export async function createServer(opts: ServerOpts = {}) {
         // Test-only retryable error smoke
         if (fail === 'RETRYABLE') {
           writeSse(reply, '0', 'error', { type: 'RETRYABLE', message: 'Temporary issue', retryable: true });
-          try { reply.raw.end(); } catch {}
+          endStream();
           return;
         }
 
         // Backpressure/limit signal
         if (limitNow) {
           writeSse(reply, '0', 'limited', { reason: 'backpressure' });
-          try { reply.raw.end(); } catch {}
+          endStream();
           return;
         }
 
@@ -626,9 +669,9 @@ export async function createServer(opts: ServerOpts = {}) {
           // honour cancellation
           if (sseCancelled.has(id)) {
             writeSse(reply, String(i), 'cancelled', { reason: 'client' });
-            try { reply.raw.end(); } catch {}
             sseCancelled.delete(id); // idempotent cancel: clear after signalling
             sseState.set(id, { index: seq.length });
+            endStream();
             return;
           }
           const e = seq[i];
@@ -638,18 +681,18 @@ export async function createServer(opts: ServerOpts = {}) {
           sseState.set(id, st);
           // Controlled dropout once at i === dropAt (if provided)
           if (Number.isFinite(dropAt) && i === dropAt) {
-            try { reply.raw.end(); } catch {}
+            endStream();
             return;
           }
           // single forced blip after first token
           if (blip && !st.blipped && e.ev === 'token') {
             st.blipped = true;
             sseState.set(id, st);
-            try { reply.raw.end(); } catch {}
+            endStream();
             return;
           }
         }
-        try { reply.raw.end(); } catch {}
+        endStream();
       });
     }
   }
@@ -665,6 +708,9 @@ export async function createServer(opts: ServerOpts = {}) {
       reply.header('Cache-Control', 'no-cache');
       reply.header('Connection', 'keep-alive');
       reply.hijack();
+
+      // Note: onRequest already incremented inflight
+      // endStream must decrement since onResponse won't fire after hijack
 
       const { streamStarted, streamDone, streamLimited, incCurrentStreams, decCurrentStreams, noteHeartbeat } = await import('./metrics.js');
       try { streamStarted?.(); } catch {}
@@ -686,20 +732,39 @@ export async function createServer(opts: ServerOpts = {}) {
 
       // Heartbeat timer
       let closed = false;
-      const timer = setInterval(() => {
+      let timer: NodeJS.Timeout;
+
+      const endStream = (fn?: () => void) => {
+        if (closed) return; // Idempotent: prevent double-decrement
+        closed = true;
+        if (timer) clearInterval(timer);
+        try { reply.raw.end(); } catch {}
+        try { fn?.(); } catch {}
+        try { decCurrentStreams?.(); } catch {}
+        
+        // Mark as decremented to prevent onResponse from also decrementing
+        (reply.raw as any).__inflightDecDone = true;
+        
+        // Decrement inflight (matches global onRequest increment)
+        app.inflight.dec('endStream');
+      };
+
+      // Critical: Handle client disconnect to prevent timer leak and inflight counter leak
+      reply.raw.on('close', () => {
+        app.log.info({ reqId: req.id }, 'SSE client disconnected');
+        endStream();
+      });
+
+      reply.raw.on('error', (err) => {
+        app.log.error({ reqId: req.id, err }, 'SSE stream error');
+        endStream();
+      });
+
+      timer = setInterval(() => {
         if (closed) return;
         writeComment(`ping ts=${Date.now()}`);
         try { noteHeartbeat?.(); } catch {}
       }, hbMs);
-
-      const endStream = (fn?: () => void) => {
-        if (closed) return;
-        closed = true;
-        clearInterval(timer);
-        try { reply.raw.end(); } catch {}
-        try { fn?.(); } catch {}
-        try { decCurrentStreams?.(); } catch {}
-      };
 
       // Forced limited hook for deterministic testing of backpressure mapping
       if (forceLimit) {
@@ -804,6 +869,11 @@ export async function createServer(opts: ServerOpts = {}) {
     });
   }
 
-  await app.ready();
+  // Register /v1 routes (PLoT Engine v1 with trust signals)
+  const { registerV1Routes } = await import('./routes/v1/index.js');
+  await registerV1Routes(app);
+
+  // Note: app.ready() is called by main.ts after adding inflight hooks
+  // Do NOT call app.ready() here - it prevents adding hooks later
   return app;
 }
