@@ -8,7 +8,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { createHash } from 'node:crypto';
 import { GOLDEN_SCENARIO, GOLDEN_SEED } from '../../fixtures/self-check.js';
-import { stableStringify, normaliseReport } from '../../util/canonical-json.js';
+import { stableStringify, normaliseReport, stampResponseHash, sha256Stable } from '../../util/canonical-json.js';
 import { buildModelCard, getActiveFeatureFlags } from '../../trust/model-card.js';
 import { calculateConfidence } from '../../trust/confidence.js';
 import { buildCritique } from '../../trust/critique-builder.js';
@@ -113,9 +113,14 @@ export async function registerSelfCheckRoute(app: FastifyInstance) {
       top_n: 3,
     });
 
-    // Build full report (matching /v1/run structure)
-    const report = {
+    // Build full report (matching /v1/run structure) and stamp response hash
+    const report = stampResponseHash({
       schema: 'run.v1',
+      meta: {
+        seed,
+        commit: process.env.BUILD_ID || process.env.GITHUB_SHA || 'dev',
+        version: '1.0.0',
+      },
       graph,
       results: {
         conservative: { outcome: baseline_value * 1.05 },
@@ -130,20 +135,11 @@ export async function registerSelfCheckRoute(app: FastifyInstance) {
       critique,
       explain_delta,
       identifiability: identifiability.summary,
-    };
+    } as any);
 
-    // Compute response hash (same as /v1/run)
-    const normalised_for_hash = normaliseReport(report);
-    const canonical_for_hash = stableStringify(normalised_for_hash);
-    const response_hash = createHash('sha256').update(canonical_for_hash, 'utf8').digest('hex');
-    
-    // Add hash to model_card
-    report.model_card.response_hash = response_hash;
-
-    // Normalise and hash again (with response_hash included)
-    const normalised = normaliseReport(report);
-    const canonical = stableStringify(normalised);
-    const hash = createHash('sha256').update(canonical, 'utf8').digest('hex');
+    // Compute outer hash identical to sha256Stable(report)
+    const canonical = stableStringify(normaliseReport(report));
+    const hash = sha256Stable(report);
     const bytes = Buffer.byteLength(canonical, 'utf8');
 
     return {

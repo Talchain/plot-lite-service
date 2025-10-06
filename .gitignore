@@ -31,6 +31,7 @@ reports/warp/traces/*
 artifact/**/*.log
 artifact/**/*
 out/**/*
+out/keys/**
 handoff/**/*
 reports/**/*
 !reports/*.md

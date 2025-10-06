@@ -1217,3 +1217,49 @@ Completed: 2025-10-06T14:35:35+01:00
 - `artifact/privacy/report.json`
 
 ---
+
+## Nightly Run — 2025-10-06T20:36:54.246Z
+
+### GATES Results
+
+- ✅ **Schema Risk**: LOW (181 additive fields)
+- ✅ **Determinism**: resp_hash=`a0264f9c`, bma_hash=`23134876`
+- ✅ **SLOs**: p95=34ms, K/sec=1250
+- ✅ **Privacy**: 0 violations (stub)
+- ✅ **Trust**: GREEN (stubs)
+
+### Plausibility
+
+⚠️ Sentinels: `p95_lt_floor` — Suspiciously fast metrics - verify not using mocked data
+
+### Artifacts
+
+- `reports/schema-compat/{risk.json,schema-diff-b.md}`
+- `out/diff.json`, `reports/bma/bma_runs.jsonl`
+- `out/{slos.json,slos_samples.jsonl}`, `reports/diag/plausibility.json`
+- `artifact/privacy/report.json`
+
+---
+
+## Nightly Run — 2025-10-06T20:48:16.801Z
+
+### GATES Results
+
+- ✅ **Schema Risk**: LOW (181 additive fields)
+- ✅ **Determinism**: resp_hash=`a0264f9c`, bma_hash=`23134876`
+- ✅ **SLOs**: p95=50ms, K/sec=1250
+- ✅ **Privacy**: 0 violations (stub)
+- ✅ **Trust**: GREEN (stubs)
+
+### Plausibility
+
+⚠️ Sentinels: `p95_lt_floor` — Suspiciously fast metrics - verify not using mocked data
+
+### Artifacts
+
+- `reports/schema-compat/{risk.json,schema-diff-b.md}`
+- `out/diff.json`, `reports/bma/bma_runs.jsonl`
+- `out/{slos.json,slos_samples.jsonl}`, `reports/diag/plausibility.json`
+- `artifact/privacy/report.json`
+
+---
