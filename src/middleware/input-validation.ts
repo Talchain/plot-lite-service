@@ -9,10 +9,13 @@
  * Returns BAD_INPUT error on violations
  */
 
-import Ajv from 'ajv';
 import type { FastifyRequest, FastifyReply } from 'fastify';
 
-const ajv = new Ajv.default({ allErrors: true, strict: false });
+// Lazy-initialized Ajv validators
+let validateRun: any;
+let validateCounterfactual: any;
+let validateCritique: any;
+let validateDraft: any;
 
 // Graph schema with OpenAPI bounds
 const graphSchema = {
@@ -112,11 +115,20 @@ const draftRequestSchema = {
   },
 };
 
-// Compile validators
-const validateRun = ajv.compile(runRequestSchema);
-const validateCounterfactual = ajv.compile(counterfactualRequestSchema);
-const validateCritique = ajv.compile(critiqueRequestSchema);
-const validateDraft = ajv.compile(draftRequestSchema);
+/**
+ * Initialize validators (lazy loading)
+ */
+async function initValidators() {
+  if (validateRun) return; // Already initialized
+
+  const AjvCtor = (await import('ajv')).default as any;
+  const ajv = new AjvCtor({ allErrors: true, strict: false });
+
+  validateRun = ajv.compile(runRequestSchema);
+  validateCounterfactual = ajv.compile(counterfactualRequestSchema);
+  validateCritique = ajv.compile(critiqueRequestSchema);
+  validateDraft = ajv.compile(draftRequestSchema);
+}
 
 /**
  * Format Ajv errors into BAD_INPUT response
@@ -161,24 +173,27 @@ function formatValidationErrors(errors: any[]): any {
  * Validation middleware factory
  */
 export function createValidator(route: 'run' | 'counterfactual' | 'critique' | 'draft') {
-  let validator: any;
-  
-  switch (route) {
-    case 'run':
-      validator = validateRun;
-      break;
-    case 'counterfactual':
-      validator = validateCounterfactual;
-      break;
-    case 'critique':
-      validator = validateCritique;
-      break;
-    case 'draft':
-      validator = validateDraft;
-      break;
-  }
-
   return async function validationHandler(req: FastifyRequest, reply: FastifyReply) {
+    // Initialize validators on first use
+    await initValidators();
+
+    // Select appropriate validator
+    let validator: any;
+    switch (route) {
+      case 'run':
+        validator = validateRun;
+        break;
+      case 'counterfactual':
+        validator = validateCounterfactual;
+        break;
+      case 'critique':
+        validator = validateCritique;
+        break;
+      case 'draft':
+        validator = validateDraft;
+        break;
+    }
+
     const body = (req as any).body;
 
     if (!validator(body)) {

@@ -19,7 +19,11 @@ export interface CritiqueRequest {
 }
 
 export async function registerCritiqueRoute(app: FastifyInstance) {
-  app.post('/v1/critique', async (req: FastifyRequest, reply: FastifyReply) => {
+  const { createValidator } = await import('../../middleware/input-validation.js');
+  
+  app.post('/v1/critique', {
+    preHandler: createValidator('critique'),
+  }, async (req: FastifyRequest, reply: FastifyReply) => {
     // Demo mode check
     if (isDemoMode(req)) {
       const demo_seed = getDemoSeed(req);
@@ -27,13 +31,6 @@ export async function registerCritiqueRoute(app: FastifyInstance) {
     }
 
     const body = (req as any).body as CritiqueRequest;
-
-    if (!body.graph) {
-      return reply.code(400).send({
-        error: 'BAD_INPUT',
-        message: 'Field "graph" is required',
-      });
-    }
 
     const {
       graph,

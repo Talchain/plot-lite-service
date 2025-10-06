@@ -25,7 +25,11 @@ export interface CounterfactualRequest {
 }
 
 export async function registerCounterfactualRoute(app: FastifyInstance) {
-  app.post('/v1/counterfactual', async (req: FastifyRequest, reply: FastifyReply) => {
+  const { createValidator } = await import('../../middleware/input-validation.js');
+  
+  app.post('/v1/counterfactual', {
+    preHandler: createValidator('counterfactual'),
+  }, async (req: FastifyRequest, reply: FastifyReply) => {
     // Demo mode check
     if (isDemoMode(req)) {
       const demo_seed = getDemoSeed(req);
@@ -33,13 +37,6 @@ export async function registerCounterfactualRoute(app: FastifyInstance) {
     }
 
     const body = (req as any).body as CounterfactualRequest;
-
-    if (!body.graph || !body.intervention || !body.outcome_node) {
-      return reply.code(400).send({
-        error: 'BAD_INPUT',
-        message: 'Fields "graph", "intervention", and "outcome_node" are required',
-      });
-    }
 
     const {
       graph,

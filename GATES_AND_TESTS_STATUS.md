@@ -1,6 +1,6 @@
 # Gates & Tests Status
 
-**Last Updated**: 2025-10-06T13:35:35.450Z
+**Last Updated: 2025-10-06T14:00:58.112Z (v0.2.1 with plausibility sentinels)
 
 ## Determinism
 
