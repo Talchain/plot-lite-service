@@ -1,21 +1,24 @@
 {
   "schema": "plausibility.v1",
   "source": "mock",
-  "timestamp": "2025-10-06T17:55:50.641Z",
+  "timestamp": "2025-10-06T19:01:55.737Z",
   "slos": {
     "schema": "slos.v1",
     "source": "mock",
-    "engine_get_p95_ms": 43,
+    "engine_get_p95_ms": 1,
     "k_per_sec": 1250,
-    "samples": 10,
+    "samples": 500,
     "parity": {
       "etag_strong": true,
       "head_match": true,
       "if_none_match_304": true
     },
-    "timestamp": "2025-10-06T17:55:50.639Z"
+    "timestamp": "2025-10-06T19:01:55.735Z",
+    "content_hash": "c827525a6485814452592f02e80912d884f4f37e9a8720d51ad9773f8e6d4bd1"
   },
-  "flags": [],
-  "sentinel": "none",
-  "notes": "Metrics within plausible range"
+  "flags": [
+    "p95_lt_floor"
+  ],
+  "sentinel": "p95_lt_floor",
+  "notes": "Suspiciously fast metrics - verify not using mocked data"
 }

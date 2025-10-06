@@ -1,10 +1,14 @@
 {
-  "schema": "provenance.v1",
-  "timestamp": "2025-10-06T17:55:48.116Z",
-  "component": "plot-lite-service",
+  "schema": "pack-manifest.v1",
+  "component": "engine",
+  "version": "0.3.1",
+  "commit": "fbacf27e00d8e87897b5c4bcbc10f326fb6fbe6f",
+  "build_timestamp": "2025-10-06T19:02:29.492Z",
   "meta": {
-    "commit": "97aaede",
     "seed": 42,
-    "node_version": "v20.19.5"
+    "source": "mock"
+  },
+  "slos": {
+    "engine_get_p95_ms": 1
   }
 }

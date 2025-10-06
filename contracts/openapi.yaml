@@ -429,7 +429,10 @@ components:
         id:
           type: string
         data:
-          type: object
+          oneOf:
+            - type: string
+            - type: object
+              additionalProperties: true
     reportV1:
       type: object
       required: [schema, meta]

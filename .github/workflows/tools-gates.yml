@@ -10,11 +10,15 @@ on:
 
 jobs:
   gates:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
     env:
-      TOOLS_DIR: /home/runner/work/olumi-tools
-      CONTRACTS_DIR: /home/runner/work/olumi-contracts
+      TOOLS_DIR: ${{ github.workspace }}/../olumi-tools
+      CONTRACTS_DIR: ${{ github.workspace }}/../olumi-contracts
       ENGINE_DIR: ${{ github.workspace }}
+      ENGINE_URL: ${{ secrets.ENGINE_URL || '' }}
     
     steps:
       - name: Checkout plot-lite-service
@@ -94,18 +98,35 @@ jobs:
         run: |
           node ../olumi-tools/packages/repro-verify/bin/verify.mjs
 
+      - name: Gate P - Pack Build
+        run: |
+          node tools/pack-build.mjs
+
+      - name: Gate L - Coverage & Fuzz
+        run: |
+          cd ../olumi-tools && pnpm run coverage && pnpm --filter @olumi/fuzzers run test
+
       - name: Generate Status Reports
         run: |
           node scripts/gates-status.mjs > GATES_STATUS.md
           node scripts/nightly.mjs
-      
+
+      - name: Create Handoff Bundle
+        run: |
+          mkdir -p handoff
+          DATE=$(date +%Y%m%d)
+          zip -q -r handoff/handoff_${DATE}_v023.zip \
+            reports/ out/ artifact/ GATES_STATUS.md \
+            || true
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: gates-artifacts
+          name: gates-artifacts-${{ matrix.os }}
           path: |
             reports/
             out/
             artifact/
+            handoff/
             GATES_STATUS.md

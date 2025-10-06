@@ -246,7 +246,7 @@ async function runContractDriftGate() {
     console.log('GATES: FAIL — contract breaking changes detected');
     process.exit(1);
   } else {
-    console.log('GATES: PASS — contracts unchanged vs snapshots');
+    console.log('GATES: PASS — contracts unchanged vs snapshots (deep)');
     process.exit(0);
   }
 }

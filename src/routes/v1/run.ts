@@ -139,6 +139,11 @@ export async function registerRunRoute(app: FastifyInstance) {
     // Build initial response (without hash)
     const response = {
       schema: 'run.v1',
+      meta: {
+        seed,
+        commit: process.env.BUILD_ID || process.env.GITHUB_SHA || 'dev',
+        version: '1.0.0',
+      },
       graph,
       results,
       model_card,

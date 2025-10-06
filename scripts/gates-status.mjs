@@ -17,8 +17,8 @@ function loadJson(path) {
 
 const risk = loadJson('reports/schema-compat/risk.json');
 const diff = loadJson('out/diff.json');
-const slos = loadJson('out/slos.json');
-const plausibility = loadJson('reports/diag/plausibility.json');
+const slos = loadJson('out/slos.json') || loadJson('out/slos.mock.json') || loadJson('out/slos.live.json');
+const plausibility = loadJson('reports/diag/plausibility.json') || loadJson('reports/diag/plausibility.mock.json') || loadJson('reports/diag/plausibility.live.json');
 const privacy = loadJson('artifact/privacy/report.json');
 
 let md = `# GATES Status\n\n`;

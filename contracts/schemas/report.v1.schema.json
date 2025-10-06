@@ -7,7 +7,8 @@
   "required": [
     "schema",
     "model_card",
-    "confidence"
+    "confidence",
+    "meta"
   ],
   "properties": {
     "schema": {
@@ -125,6 +126,17 @@
     "fork_suggestions": {
       "type": "object",
       "description": "Fork suggestions"
+    },
+    "meta": {
+      "type": "object",
+      "description": "Deprecated in v2; retained in v1 for backward-compat.",
+      "required": ["seed"],
+      "properties": {
+        "seed": { "type": "integer" },
+        "commit": { "type": "string" },
+        "version": { "type": "string" }
+      },
+      "additionalProperties": true
     }
   },
   "additionalProperties": true
