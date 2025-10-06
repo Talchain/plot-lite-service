@@ -19,6 +19,7 @@ jobs:
       CONTRACTS_DIR: ${{ github.workspace }}/../olumi-contracts
       ENGINE_DIR: ${{ github.workspace }}
       ENGINE_URL: ${{ secrets.ENGINE_URL || '' }}
+      MOCK_SEED: 42
     
     steps:
       - name: Checkout plot-lite-service

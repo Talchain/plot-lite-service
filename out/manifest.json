@@ -2,13 +2,13 @@
   "schema": "pack-manifest.v1",
   "component": "engine",
   "version": "0.3.1",
-  "commit": "fbacf27e00d8e87897b5c4bcbc10f326fb6fbe6f",
-  "build_timestamp": "2025-10-06T19:02:29.492Z",
+  "commit": "e99a95be252620f449f5700b008cb6db046483c9",
+  "build_timestamp": "2025-10-06T19:21:26.127Z",
   "meta": {
     "seed": 42,
     "source": "mock"
   },
   "slos": {
-    "engine_get_p95_ms": 1
+    "engine_get_p95_ms": 56
   }
 }

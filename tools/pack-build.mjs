@@ -98,16 +98,32 @@ async function main() {
   const packTmpDir = `${ENGINE_DIR}/out/pack_tmp`;
   mkdirSync(packTmpDir, { recursive: true });
 
-  writeFileSync(`${packTmpDir}/checksums.json`, checksumsJson, 'utf8');
-  writeFileSync(`${packTmpDir}/manifest.json`, manifestJson, 'utf8');
-  writeFileSync(`${packTmpDir}/slos.json`, slosJson, 'utf8');
+  // Write files in sorted order
+  const files = [
+    { name: 'checksums.json', content: checksumsJson },
+    { name: 'manifest.json', content: manifestJson },
+    { name: 'slos.json', content: slosJson }
+  ].sort((a, b) => a.name.localeCompare(b.name));
+
+  for (const file of files) {
+    writeFileSync(`${packTmpDir}/${file.name}`, file.content, 'utf8');
+  }
+
+  // Set canonical permissions and timestamps (DOS epoch: 1980-01-01 00:00:00)
+  try {
+    execSync(`chmod 0644 "${packTmpDir}"/*`, { encoding: 'utf8' });
+    execSync(`TZ=UTC touch -t 198001010000 "${packTmpDir}"/*`, { encoding: 'utf8' });
+  } catch (err) {
+    // touch -t might not work on all systems, continue anyway
+  }
 
   // Build ZIP using system zip command with canonical settings
   // -X: no extra attributes, -q: quiet, -r: recursive, -9: max compression
   const zipPath = `${ENGINE_DIR}/out/${packName}`;
   try {
-    execSync(`cd "${packTmpDir}" && zip -X -q -r -9 "${zipPath}" checksums.json manifest.json slos.json`, {
-      encoding: 'utf8'
+    execSync(`cd "${packTmpDir}" && TZ=UTC zip -X -q -r -9 "${zipPath}" ${files.map(f => f.name).join(' ')}`, {
+      encoding: 'utf8',
+      env: { ...process.env, TZ: 'UTC' }
     });
   } catch (err) {
     throw new Error(`ZIP creation failed: ${err.message}`);
@@ -123,12 +139,13 @@ async function main() {
   console.log(`GATES: PASS — pack canonical (sha256=${packSha256.slice(0, 16)}...)`);
   console.log(`GATES: PASS — reproducible bundle (byte-stable)`);
 
-  // Write pack metadata
+  // Write pack metadata with entry list
   const packMeta = {
     schema: 'pack-meta.v1',
     filename: packName,
     sha256: packSha256,
     size_bytes: packBuffer.length,
+    entries: files.map(f => f.name).sort(),
     created: new Date().toISOString()
   };
   writeFileSync(`${ENGINE_DIR}/out/pack-meta.json`, JSON.stringify(packMeta, null, 2), 'utf8');

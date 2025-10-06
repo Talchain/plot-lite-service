@@ -1,6 +1,6 @@
 # GATES Status
 
-**Generated**: 2025-10-06T19:05:02.304Z
+**Generated**: 2025-10-06T19:21:32.156Z
 **Engine**: plot-lite-service
 
 ## Gate Results
@@ -9,7 +9,7 @@
 |------|--------|--------|
 | Schema Risk | ✅ PASS | Risk: LOW, Additive: 181 |
 | Determinism | ✅ PASS | resp_hash=a0264f9c, bma_hash=23134876 |
-| SLOs | ✅ PASS | p95=1ms, K/sec=1250, parity=OK |
+| SLOs | ✅ PASS | p95=56ms, K/sec=1250, parity=OK |
 | Privacy | ✅ PASS | Violations:  (PASS) |
 | Trust Chain | ✅ PASS | (stubs) |
 
