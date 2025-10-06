@@ -1,20 +1,20 @@
 {
   "schema": "plausibility.v1",
   "source": "mock",
-  "timestamp": "2025-10-06T19:21:08.869Z",
+  "timestamp": "2025-10-06T19:38:30.831Z",
   "slos": {
     "schema": "slos.v1",
     "source": "mock",
-    "engine_get_p95_ms": 56,
+    "engine_get_p95_ms": 9,
     "k_per_sec": 1250,
-    "samples": 10,
+    "samples": 500,
     "parity": {
       "etag_strong": true,
       "head_match": true,
       "if_none_match_304": true
     },
-    "timestamp": "2025-10-06T19:21:08.868Z",
-    "content_hash": "11fd90e659fd400bc83179361886da02ef66c1797439b0e259fd15a588d3c2bb"
+    "timestamp": "2025-10-06T19:38:30.827Z",
+    "content_hash": "c827525a6485814452592f02e80912d884f4f37e9a8720d51ad9773f8e6d4bd1"
   },
   "flags": [],
   "sentinel": "none",

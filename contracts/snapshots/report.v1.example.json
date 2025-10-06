@@ -143,5 +143,10 @@
       "outcome": 125
     }
   },
+  "meta": {
+    "seed": 42,
+    "commit": "dev",
+    "version": "1.0.0"
+  },
   "schema": "run.v1"
 }

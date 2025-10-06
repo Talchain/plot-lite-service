@@ -1,12 +1,12 @@
 {
   "schema": "pack-meta.v1",
-  "filename": "engine_pack_2025-10-06_e99a95b.zip",
-  "sha256": "785c5d4c43b44b6332226943e2d0bafbfd3fa2fd1226c38b3b777c62be70d38f",
-  "size_bytes": 814,
+  "filename": "engine_pack_2025-10-06_8a28586.zip",
+  "sha256": "5e38a38f6eefa1642dce567009ffeaefd1a8512962b2193182a646b2893e99ae",
+  "size_bytes": 816,
   "entries": [
     "checksums.json",
     "manifest.json",
     "slos.json"
   ],
-  "created": "2025-10-06T19:21:26.171Z"
+  "created": "2025-10-06T19:38:54.396Z"
 }
