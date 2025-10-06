@@ -29,13 +29,19 @@ export async function registerRunRoute(app: FastifyInstance) {
   const { createValidator } = await import('../../middleware/input-validation.js');
   
   app.post('/v1/run', {
-    preHandler: createValidator('run'),
+    preHandler: [
+      async (req: FastifyRequest, reply: FastifyReply) => {
+        // Demo mode short-circuit (before Ajv)
+        if (isDemoMode(req)) {
+          const demo_seed = getDemoSeed(req);
+          const payload = getDemoRunResponse(demo_seed);
+          return reply.code(200).type('application/json').send(payload);
+        }
+      },
+      createValidator('run'),
+    ],
   }, async (req: FastifyRequest, reply: FastifyReply) => {
-    // Demo mode check
-    if (isDemoMode(req)) {
-      const demo_seed = getDemoSeed(req);
-      return getDemoRunResponse(demo_seed);
-    }
+    // (demo handled in preHandler)
 
     const body = (req as any).body as RunRequest;
 

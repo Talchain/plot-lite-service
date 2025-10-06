@@ -5,6 +5,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { isDemoMode, getDemoSeed } from '../../middleware/demo-mode.js';
 import { getDemoCritiqueResponse } from '../../fixtures/demo-payloads.js';
+import { stampResponseHash } from '../../util/canonical-json.js';
 import { buildModelCard, getActiveFeatureFlags } from '../../trust/model-card.js';
 import { buildCritique } from '../../trust/critique-builder.js';
 import { checkIdentifiability } from '../../trust/identifiability.js';
@@ -22,13 +23,19 @@ export async function registerCritiqueRoute(app: FastifyInstance) {
   const { createValidator } = await import('../../middleware/input-validation.js');
   
   app.post('/v1/critique', {
-    preHandler: createValidator('critique'),
+    preHandler: [
+      async (req: FastifyRequest, reply: FastifyReply) => {
+        // Demo mode short-circuit (before Ajv)
+        if (isDemoMode(req)) {
+          const demo_seed = getDemoSeed(req);
+          const payload = getDemoCritiqueResponse(demo_seed);
+          return reply.code(200).type('application/json').send(payload);
+        }
+      },
+      createValidator('critique'),
+    ],
   }, async (req: FastifyRequest, reply: FastifyReply) => {
-    // Demo mode check
-    if (isDemoMode(req)) {
-      const demo_seed = getDemoSeed(req);
-      return getDemoCritiqueResponse(demo_seed);
-    }
+    // (demo handled in preHandler)
 
     const body = (req as any).body as CritiqueRequest;
 
@@ -65,7 +72,7 @@ export async function registerCritiqueRoute(app: FastifyInstance) {
     // Count auto-fixable issues
     const auto_fixable_count = critique.filter(c => c.auto_fixable).length;
 
-    return {
+    const response = {
       schema: 'critique.v1',
       graph,
       critique,
@@ -79,5 +86,6 @@ export async function registerCritiqueRoute(app: FastifyInstance) {
         auto_fixable: auto_fixable_count,
       },
     };
+    return stampResponseHash(response);
   });
 }

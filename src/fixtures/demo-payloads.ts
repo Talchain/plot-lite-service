@@ -5,6 +5,7 @@
 
 import type { TrustedResponse, Graph } from '../trust/types.js';
 import { buildModelCard } from '../trust/model-card.js';
+import { stampResponseHash } from '../util/canonical-json.js';
 import { calculateConfidence } from '../trust/confidence.js';
 import { buildCritique } from '../trust/critique-builder.js';
 import { buildExplainDelta } from '../trust/explain-delta.js';
@@ -104,13 +105,18 @@ export function getDemoRunResponse(seed: number = 42): any {
     top_n: 3,
   });
 
-  return {
-    schema: 'report.v1',
+  const report = {
+    schema: 'run.v1',
+    meta: {
+      seed,
+      commit: process.env.BUILD_ID || process.env.GITHUB_SHA || 'dev',
+      version: '1.0.0',
+    },
     graph,
     results: {
-      conservative: { revenue: 10500, ltv: 450 },
-      most_likely: { revenue: 11500, ltv: 480 },
-      optimistic: { revenue: 12800, ltv: 520 },
+      conservative: { outcome: 10500 },
+      most_likely: { outcome: 11500 },
+      optimistic: { outcome: 12800 },
     },
     model_card,
     confidence,
@@ -119,7 +125,8 @@ export function getDemoRunResponse(seed: number = 42): any {
     fork_suggestions,
     critique,
     explain_delta,
-  };
+  } as any;
+  return stampResponseHash(report);
 }
 
 /**
@@ -159,7 +166,7 @@ export function getDemoCounterfactualResponse(seed: number = 42): any {
     top_n: 3,
   });
 
-  return {
+  const doc = {
     schema: 'counterfactual.v1',
     intervention: {
       node: 'price',
@@ -175,7 +182,8 @@ export function getDemoCounterfactualResponse(seed: number = 42): any {
     model_card,
     confidence,
     explain_delta,
-  };
+  } as any;
+  return stampResponseHash(doc);
 }
 
 /**
@@ -197,11 +205,12 @@ export function getDemoCritiqueResponse(seed: number = 42): any {
     node_limit: 12,
   });
 
-  return {
+  const doc = {
     schema: 'critique.v1',
     graph,
     critique,
     model_card,
     fix_applied: [],
-  };
+  } as any;
+  return stampResponseHash(doc);
 }

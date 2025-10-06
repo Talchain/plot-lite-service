@@ -26,3 +26,12 @@ src/**/*.js.map
 reports/*.json
 reports/warp/*
 reports/warp/traces/*
+
+# Olumi gates artifacts
+artifact/**/*.log
+artifact/**/*
+out/**/*
+handoff/**/*
+reports/**/*
+!reports/*.md
+!out/*.zip

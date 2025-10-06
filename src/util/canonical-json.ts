@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 /**
  * Canonical JSON Utilities
  * 
@@ -75,4 +77,28 @@ export function normaliseReport(report: unknown): unknown {
   delete normalised.duration_ms;
   
   return normalised;
+}
+
+// --- Hashing helpers ---
+
+/**
+ * Compute a SHA-256 hex string of the normalised, canonical JSON payload.
+ */
+export function sha256Stable(obj: unknown): string {
+  const normalised = normaliseReport(obj);
+  const canonical = stableStringify(normalised);
+  return createHash('sha256').update(canonical, 'utf8').digest('hex');
+}
+
+/**
+ * Stamp model_card.response_hash on a response document deterministically.
+ * Does not mutate the original object; returns a shallow-cloned copy.
+ */
+export function stampResponseHash<T extends { model_card: object }>(doc: T): T {
+  const copy: any = { ...doc, model_card: { ...doc.model_card } };
+  // Ensure we hash the payload without the response_hash to avoid circularity
+  delete copy.model_card.response_hash;
+  const hash = sha256Stable(copy);
+  copy.model_card.response_hash = hash;
+  return copy as T;
 }

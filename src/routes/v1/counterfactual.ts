@@ -5,6 +5,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { isDemoMode, getDemoSeed } from '../../middleware/demo-mode.js';
 import { getDemoCounterfactualResponse } from '../../fixtures/demo-payloads.js';
+import { stampResponseHash } from '../../util/canonical-json.js';
 import { buildModelCard, getActiveFeatureFlags } from '../../trust/model-card.js';
 import { calculateConfidence } from '../../trust/confidence.js';
 import { buildExplainDelta } from '../../trust/explain-delta.js';
@@ -28,13 +29,19 @@ export async function registerCounterfactualRoute(app: FastifyInstance) {
   const { createValidator } = await import('../../middleware/input-validation.js');
   
   app.post('/v1/counterfactual', {
-    preHandler: createValidator('counterfactual'),
+    preHandler: [
+      async (req: FastifyRequest, reply: FastifyReply) => {
+        // Demo mode short-circuit (before Ajv)
+        if (isDemoMode(req)) {
+          const demo_seed = getDemoSeed(req);
+          const payload = getDemoCounterfactualResponse(demo_seed);
+          return reply.code(200).type('application/json').send(payload);
+        }
+      },
+      createValidator('counterfactual'),
+    ],
   }, async (req: FastifyRequest, reply: FastifyReply) => {
-    // Demo mode check
-    if (isDemoMode(req)) {
-      const demo_seed = getDemoSeed(req);
-      return getDemoCounterfactualResponse(demo_seed);
-    }
+    // (demo handled in preHandler)
 
     const body = (req as any).body as CounterfactualRequest;
 
@@ -132,7 +139,7 @@ export async function registerCounterfactualRoute(app: FastifyInstance) {
       percentage_change,
     };
 
-    return {
+    const response = {
       schema: 'counterfactual.v1',
       intervention,
       graph,
@@ -142,6 +149,7 @@ export async function registerCounterfactualRoute(app: FastifyInstance) {
       explain_delta,
       identifiability: identifiability.summary,
       adjustment_set: identifiability.adjustment_set,
-    };
+    } as any;
+    return stampResponseHash(response);
   });
 }
