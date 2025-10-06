@@ -1,0 +1,10 @@
+{
+  "spdxVersion": "SPDX-2.3",
+  "packages": [
+    {
+      "name": "plot-engine",
+      "version": "1.0.0",
+      "licenseConcluded": "MIT"
+    }
+  ]
+}

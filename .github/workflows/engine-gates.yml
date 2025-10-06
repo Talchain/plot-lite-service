@@ -1,0 +1,28 @@
+name: Engine Gates
+on: [push, pull_request]
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.19.5'
+      - run: pnpm install --frozen-lockfile
+      - name: Run gates (pinned)
+        env:
+          CONTRACTS_DIR: ${{ github.workspace }}/olumi-contracts
+          TOOLS_DIR: ${{ github.workspace }}/olumi-tools
+        run: |
+          bash RUN_NIGHTLY_GATES.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gates-artifacts
+          path: |
+            out/slos.json
+            out/engine_pack_*.zip
+            out/trust-bundle.json
+            reports/schema-compat/schema-diff.md
+            out/privacy/report.json
+            GATES_AND_TESTS_STATUS.md

@@ -1,0 +1,14 @@
+{
+  "phase": "repro",
+  "pack_hash": "ae924f86286653bb",
+  "pack_stable": true,
+  "slos": {
+    "schema": "slos.v1",
+    "engine_get_p95_ms": 3,
+    "K_per_sec": 833333,
+    "samples": 50,
+    "timestamp": "2025-10-06T13:35:35.049Z"
+  },
+  "warnings": [],
+  "timestamp": "2025-10-06T13:49:10.967Z"
+}

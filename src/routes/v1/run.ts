@@ -26,7 +26,11 @@ export interface RunRequest {
 }
 
 export async function registerRunRoute(app: FastifyInstance) {
-  app.post('/v1/run', async (req: FastifyRequest, reply: FastifyReply) => {
+  const { createValidator } = await import('../../middleware/input-validation.js');
+  
+  app.post('/v1/run', {
+    preHandler: createValidator('run'),
+  }, async (req: FastifyRequest, reply: FastifyReply) => {
     // Demo mode check
     if (isDemoMode(req)) {
       const demo_seed = getDemoSeed(req);
@@ -34,13 +38,6 @@ export async function registerRunRoute(app: FastifyInstance) {
     }
 
     const body = (req as any).body as RunRequest;
-
-    if (!body.graph || !body.graph.nodes || !body.graph.edges) {
-      return reply.code(400).send({
-        error: 'BAD_INPUT',
-        message: 'Field "graph" with nodes and edges is required',
-      });
-    }
 
     const {
       graph,

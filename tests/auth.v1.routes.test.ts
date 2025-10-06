@@ -17,6 +17,7 @@ describe('Auth Guard on /v1/* Routes', () => {
     // Enable auth for these tests
     process.env.AUTH_ENABLED = '1';
     process.env.AUTH_TOKEN = validToken;
+    process.env.TEST_ROUTES = '1'; // Enable self-check route
 
     app = await createServer({ enableTestRoutes: false });
     await app.listen({ port: 0, host: '127.0.0.1' });
@@ -28,6 +29,7 @@ describe('Auth Guard on /v1/* Routes', () => {
     await app.close();
     delete process.env.AUTH_ENABLED;
     delete process.env.AUTH_TOKEN;
+    delete process.env.TEST_ROUTES;
   });
 
   const v1Endpoints = [
@@ -125,7 +127,7 @@ describe('Auth Guard on /v1/* Routes', () => {
 
       expect(res.status).toBe(200);
       const data = await res.json();
-      expect(data.schema).toBe('self-check.v1');
+      expect(data.schema).toBe('self_check.v1');
     });
   });
 
