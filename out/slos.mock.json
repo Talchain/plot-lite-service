@@ -1,0 +1,13 @@
+{
+  "schema": "slos.v1",
+  "source": "mock",
+  "engine_get_p95_ms": 43,
+  "k_per_sec": 1250,
+  "samples": 10,
+  "parity": {
+    "etag_strong": true,
+    "head_match": true,
+    "if_none_match_304": true
+  },
+  "timestamp": "2025-10-06T17:55:50.639Z"
+}

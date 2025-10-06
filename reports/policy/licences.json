@@ -1,0 +1,14 @@
+{
+  "schema": "licence-audit.v1",
+  "timestamp": "2025-10-06T17:48:20.314Z",
+  "allowed": [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "CC0-1.0"
+  ],
+  "packages_checked": 0,
+  "violations": []
+}

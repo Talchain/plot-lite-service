@@ -394,7 +394,9 @@ components:
       type: object
       required: [schema, code, message]
       properties:
-        schema: { type: string, enum: [error.v1] }
+        schema:
+          type: string
+          const: error.v1
         code: { type: string, enum: [BAD_INPUT, UNAUTHORIZED, FORBIDDEN, INTERNAL] }
         message: { type: string }
         path:

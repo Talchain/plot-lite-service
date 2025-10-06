@@ -1,5 +1,13 @@
 {
-  "engine": "verified",
-  "ui": "verified",
-  "claude": "verified"
+  "schema": "signatures.v1",
+  "timestamp": "2025-10-06T17:55:48.148Z",
+  "algorithm": "ed25519",
+  "public_key": "ed25519:AAAA1111BBBB2222CCCC3333DDDD4444",
+  "signatures": [
+    {
+      "file": "engine_pack_20251006_97aaede.zip",
+      "sha256": "293c9c681923bad490d93c4e5e3c7fb7901a16d6dcb2309ef40696204c648e76",
+      "signature": "76f0ca860b45dfdf697c4c70e882659ecdf2a1d6435395d2d6dab265abd28c21"
+    }
+  ]
 }

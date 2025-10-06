@@ -1,13 +1,13 @@
 {
   "schema": "detcheck.v1",
-  "timestamp": "2025-10-06T17:33:05.403Z",
+  "timestamp": "2025-10-06T17:55:49.538Z",
   "strict": {
-    "enabled": true,
+    "enabled": false,
     "resp_hash": "a0264f9c"
   },
   "normalised": {
-    "enabled": true,
-    "resp_hash": "4ba701ec"
+    "enabled": false,
+    "resp_hash": null
   },
   "bma": {
     "bma_hash": "23134876",

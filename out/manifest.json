@@ -1,6 +1,10 @@
 {
-  "build_date": "2025-10-06",
-  "component": "engine",
-  "schema": "pack-manifest.v1",
-  "version": "1.0.0"
+  "schema": "provenance.v1",
+  "timestamp": "2025-10-06T17:55:48.116Z",
+  "component": "plot-lite-service",
+  "meta": {
+    "commit": "97aaede",
+    "seed": 42,
+    "node_version": "v20.19.5"
+  }
 }

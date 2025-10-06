@@ -1,9 +1,20 @@
 {
+  "schema": "reproducibility.v1",
+  "timestamp": "2025-10-06T17:55:50.688Z",
   "os": "darwin",
-  "arch": "arm64",
-  "node": "v20.19.5",
-  "status": "PASS",
-  "duration_s": 0,
-  "pack_hash": "ae924f86",
-  "timestamp": "2025-10-06T13:59:51.685Z"
+  "node_version": "v20.19.5",
+  "run1": {
+    "diff_sha256": "8c284d8e",
+    "slos_sha256": "66252c56"
+  },
+  "run2": {
+    "diff_sha256": "8c284d8e",
+    "slos_sha256": "66252c56"
+  },
+  "match": {
+    "diff": true,
+    "slos": true
+  },
+  "reproducible": true,
+  "notes": "Gate artifacts are byte-stable (deterministic)"
 }

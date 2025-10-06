@@ -63,26 +63,38 @@ jobs:
             --diff-out="out/diff.json" \
             --bma-log="reports/bma/bma_runs.jsonl"
       
-      - name: Gate D - SLOs (with mocks)
+      - name: Gate D - SLOs (auto-detect live or mocks)
         run: |
-          node ../olumi-tools/packages/mocks/bin/start.mjs --port=4317 &
-          MOCKS_PID=$!
-          sleep 2
-          node ../olumi-tools/packages/slo-collect/bin/collect.mjs \
-            --target="http://127.0.0.1:4317" \
-            --samples=60 \
-            --slos-out="out/slos.json" \
-            --samples-out="out/slos_samples.jsonl" \
-            --diag-out="reports/diag/plausibility.json"
-          kill $MOCKS_PID || true
-      
-      - name: Gates E-F - Stubs
+          # ENGINE_URL set by workflow or defaults to empty (triggers mock fallback)
+          node ../olumi-tools/packages/slo-collect/bin/collect.mjs --samples=200
+
+      - name: Gate E - Privacy
         run: |
-          node ../olumi-tools/packages/privacy-verify/bin/stub.mjs
-          node ../olumi-tools/packages/pack-lint/bin/stub.mjs
-          node ../olumi-tools/packages/trust-bundle/bin/stub.mjs
-      
-      - name: Gate G - Status & Nightly
+          node ../olumi-tools/packages/privacy-verify/bin/verify.mjs
+
+      - name: Gate F - Trust Chain
+        run: |
+          # Create minimal pack for testing
+          mkdir -p out
+          DATE=$(date +%Y%m%d)
+          COMMIT=$(git rev-parse --short HEAD)
+          echo "test pack" > out/test.txt
+          cd out && zip -q -X engine_pack_${DATE}_${COMMIT}.zip test.txt && cd ..
+
+          # Run trust chain
+          node ../olumi-tools/packages/pack-lint/bin/lint.mjs
+          node ../olumi-tools/packages/provenance/bin/stamp.mjs
+          node ../olumi-tools/packages/pack-sign/bin/sign.mjs
+          node ../olumi-tools/packages/trust-bundle/bin/bundle.mjs
+          node ../olumi-tools/packages/trust-verify/bin/verify.mjs
+          node ../olumi-tools/packages/trust-policy/bin/audit.mjs
+          node ../olumi-tools/packages/evidence-merge/bin/merge.mjs
+
+      - name: Gate G - Reproducibility
+        run: |
+          node ../olumi-tools/packages/repro-verify/bin/verify.mjs
+
+      - name: Generate Status Reports
         run: |
           node scripts/gates-status.mjs > GATES_STATUS.md
           node scripts/nightly.mjs

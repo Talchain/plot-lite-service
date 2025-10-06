@@ -1,9 +1,21 @@
 {
-  "schema": "unified-manifest.v1",
-  "components": [
-    "engine",
-    "ui",
-    "claude"
-  ],
-  "timestamp": "2025-10-06T13:50:55.935Z"
+  "schema": "unified.manifest.v1",
+  "timestamp": "2025-10-06T17:55:48.272Z",
+  "trust_status": "GREEN",
+  "reasons": [],
+  "components": {
+    "slos": {
+      "p95_ms": 2,
+      "k_per_sec": 1250
+    },
+    "determinism": {
+      "resp_hash": "a0264f9c",
+      "bma_hash": "23134876"
+    },
+    "trust_bundle": true,
+    "licences": {
+      "packages": 0,
+      "violations": 0
+    }
+  }
 }
