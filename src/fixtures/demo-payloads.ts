@@ -3,7 +3,7 @@
  * For UI development and showcasing rich panels
  */
 
-import type { TrustedResponse, Graph } from '../trust/types.js';
+import type { Graph } from '../trust/types.js';
 import { buildModelCard } from '../trust/model-card.js';
 import { stampResponseHash } from '../util/canonical-json.js';
 import { calculateConfidence } from '../trust/confidence.js';

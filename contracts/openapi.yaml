@@ -8,6 +8,7 @@ info:
     **Trust Signals**: All /v1 responses include Model Card, Confidence badge, and Explain-Δ.
     
     **Demo Mode**: Add `?demo=1` or header `X-Demo: 1` for deterministic sample payloads.
+    When present, demo mode short-circuits request validation and returns a canonical demo payload.
     
     **Feature Flags**:
     - FEATURE_STREAM=1 enables real SSE /stream route (test-only otherwise)
@@ -209,7 +210,7 @@ paths:
       tags: [v1, inference]
       description: |
         Run inference on a causal graph with full trust signals.
-        Demo mode: `?demo=1` returns deterministic sample.
+        Demo mode: `?demo=1` short-circuits validation and returns a canonical deterministic sample.
       parameters:
         - name: demo
           in: query
@@ -257,7 +258,7 @@ paths:
       tags: [v1, inference]
       description: |
         Perform counterfactual intervention with trust signals.
-        Demo mode: `?demo=1` returns deterministic sample.
+        Demo mode: `?demo=1` short-circuits validation and returns a canonical deterministic sample.
       parameters:
         - name: demo
           in: query
@@ -301,7 +302,7 @@ paths:
       tags: [v1, validation]
       description: |
         Analyse graph structure and return actionable issues.
-        Demo mode: `?demo=1` returns deterministic sample.
+        Demo mode: `?demo=1` short-circuits validation and returns a canonical deterministic sample.
       parameters:
         - name: demo
           in: query

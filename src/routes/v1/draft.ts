@@ -4,7 +4,6 @@
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { isDemoMode, getDemoSeed } from '../../middleware/demo-mode.js';
-import { getDemoRunResponse } from '../../fixtures/demo-payloads.js';
 import { stampResponseHash } from '../../util/canonical-json.js';
 import { generateStarterBoards } from '../../drafting/text-to-model.js';
 import { buildModelCard, getActiveFeatureFlags } from '../../trust/model-card.js';

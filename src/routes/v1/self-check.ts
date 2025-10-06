@@ -6,7 +6,6 @@
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { createHash } from 'node:crypto';
 import { GOLDEN_SCENARIO, GOLDEN_SEED } from '../../fixtures/self-check.js';
 import { stableStringify, normaliseReport, stampResponseHash, sha256Stable } from '../../util/canonical-json.js';
 import { buildModelCard, getActiveFeatureFlags } from '../../trust/model-card.js';
