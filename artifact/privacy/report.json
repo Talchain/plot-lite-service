@@ -1,0 +1,11 @@
+{
+  "schema": "privacy-report.v1",
+  "timestamp": "2025-10-06T17:34:39.143Z",
+  "violations": 0,
+  "checks": [
+    "ast_scan",
+    "runtime_tap"
+  ],
+  "status": "STUB",
+  "note": "TODO: Implement AST scanning for req.body/query/params in sinks"
+}

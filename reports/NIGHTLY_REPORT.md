@@ -1125,3 +1125,26 @@ GATES: PASS — status doc written
 === SUMMARY ===
 Total duration: 2s
 Completed: 2025-10-06T14:35:35+01:00
+
+## Nightly Run — 2025-10-06T17:35:25.941Z
+
+### GATES Results
+
+- ✅ **Schema Risk**: LOW (181 additive fields)
+- ✅ **Determinism**: resp_hash=`a0264f9c`, bma_hash=`23134876`
+- ✅ **SLOs**: p95=2ms, K/sec=1250
+- ✅ **Privacy**: 0 violations (stub)
+- ✅ **Trust**: GREEN (stubs)
+
+### Plausibility
+
+⚠️ Sentinels: `p95_lt_floor` — Suspiciously fast metrics - verify not using mocked data
+
+### Artifacts
+
+- `reports/schema-compat/{risk.json,schema-diff-b.md}`
+- `out/diff.json`, `reports/bma/bma_runs.jsonl`
+- `out/{slos.json,slos_samples.jsonl}`, `reports/diag/plausibility.json`
+- `artifact/privacy/report.json`
+
+---

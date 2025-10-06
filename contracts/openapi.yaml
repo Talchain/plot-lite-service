@@ -102,6 +102,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/errorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
         '404':
           description: Unknown template or seed
           content:
@@ -140,6 +152,18 @@ paths:
                   status: { type: string, enum: [ok] }
                   api_version: { type: string }
                   p95_ms: { type: number }
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
   
   /v1/version:
     get:
@@ -166,6 +190,18 @@ paths:
                       confidence_badge: { type: boolean }
                       explain_delta: { type: boolean }
                       cost_governance: { type: boolean }
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
   
   /v1/run:
     post:
@@ -201,7 +237,19 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/errorResponse'
+                $ref: '#/components/schemas/errorV1'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
   
   /v1/counterfactual:
     post:
@@ -233,7 +281,19 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/errorResponse'
+                $ref: '#/components/schemas/errorV1'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
   
   /v1/critique:
     post:
@@ -265,7 +325,19 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/errorResponse'
+                $ref: '#/components/schemas/errorV1'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
   
   /v1/draft:
     post:
@@ -301,10 +373,36 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/errorResponse'
+                $ref: '#/components/schemas/errorV1'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
 
 components:
   schemas:
+    # v1 error envelope (runtime validation and BAD_INPUT taxonomy)
+    errorV1:
+      type: object
+      required: [schema, code, message]
+      properties:
+        schema: { type: string, enum: [error.v1] }
+        code: { type: string, enum: [BAD_INPUT, UNAUTHORIZED, FORBIDDEN, INTERNAL] }
+        message: { type: string }
+        path:
+          type: array
+          items: { type: string }
+        details:
+          type: object
+          additionalProperties: true
     errorResponse:
       type: object
       required: [error]
@@ -376,7 +474,7 @@ components:
     
     modelCard:
       type: object
-      required: [seed, assumptions_summary, compute_budget, flags_on, determinism_note]
+      required: [seed, assumptions_summary, compute_budget, flags_on, determinism_note, response_hash]
       properties:
         seed: { type: integer }
         assumptions_summary:
@@ -396,6 +494,10 @@ components:
           type: array
           items: { type: string }
           description: 'Optional warnings (e.g., zero baseline in counterfactual)'
+        response_hash:
+          type: string
+          description: 'Canonical SHA-256 of the normalised response'
+          pattern: '^[0-9a-f]{64}$'
     
     confidenceBadge:
       type: object

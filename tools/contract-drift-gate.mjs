@@ -150,53 +150,77 @@ async function runContractDriftGate() {
       const currentPath = resolve(projectRoot, contract.current);
       const currentSchema = JSON.parse(readFileSync(currentPath, 'utf8'));
 
-      if (!contract.snapshot) {
-        results.push({
-          name: contract.name,
-          status: 'SKIP',
-          reason: 'No blessed snapshot',
-        });
-        continue;
-      }
-
-      // Load blessed snapshot (if exists)
-      const snapshotPath = resolve(projectRoot, contract.snapshot);
-      let snapshotData;
+      // Attempt deep shape comparison against a baseline schema if available
+      // Baseline convention: contracts/<name>.schema.json (e.g., report.v1.schema.json)
+      let deepCompared = false;
       try {
-        snapshotData = JSON.parse(readFileSync(snapshotPath, 'utf8'));
-      } catch (err) {
-        results.push({
-          name: contract.name,
-          status: 'SKIP',
-          reason: 'Snapshot not found',
-        });
-        continue;
+        const baselineGuess = resolve(projectRoot, 'contracts', `${contract.name}.schema.json`);
+        const baselineSchema = JSON.parse(readFileSync(baselineGuess, 'utf8'));
+
+        const oldShape = extractShape(baselineSchema);
+        const newShape = extractShape(currentSchema);
+        const breaking = detectBreakingChanges(oldShape, newShape, contract.name);
+
+        if (breaking.length > 0) {
+          hasBreaking = true;
+          results.push({
+            name: contract.name,
+            status: 'FAIL',
+            reason: `Breaking changes: ${breaking.join(' | ')}`,
+          });
+        } else {
+          results.push({
+            name: contract.name,
+            status: 'PASS',
+            reason: 'Deep shape match',
+          });
+        }
+        deepCompared = true;
+      } catch {
+        // No baseline schema found; fall back to snapshot check if defined
       }
 
-      // For report.v1, we compare the example against the schema shape
-      // The snapshot is a valid instance, not the schema itself
-      // So we just verify the snapshot validates against current schema
-      // For true drift detection, we'd need previous schema versions stored
+      if (!deepCompared) {
+        if (!contract.snapshot) {
+          results.push({
+            name: contract.name,
+            status: 'SKIP',
+            reason: 'No baseline or snapshot for drift check',
+          });
+          continue;
+        }
 
-      // Simple check: ensure snapshot has expected top-level fields
-      const schemaRequired = currentSchema.required || [];
-      const snapshotKeys = Object.keys(snapshotData);
-      
-      const missing = schemaRequired.filter(field => !snapshotKeys.includes(field));
-      
-      if (missing.length > 0) {
-        hasBreaking = true;
-        results.push({
-          name: contract.name,
-          status: 'FAIL',
-          reason: `Snapshot missing required fields: ${missing.join(', ')}`,
-        });
-      } else {
-        results.push({
-          name: contract.name,
-          status: 'PASS',
-          reason: 'Snapshot validates',
-        });
+        const snapshotPath = resolve(projectRoot, contract.snapshot);
+        let snapshotData;
+        try {
+          snapshotData = JSON.parse(readFileSync(snapshotPath, 'utf8'));
+        } catch (err) {
+          results.push({
+            name: contract.name,
+            status: 'SKIP',
+            reason: 'Snapshot not found',
+          });
+          continue;
+        }
+
+        // Simple check: ensure snapshot has expected top-level fields
+        const schemaRequired = currentSchema.required || [];
+        const snapshotKeys = Object.keys(snapshotData);
+        const missing = schemaRequired.filter(field => !snapshotKeys.includes(field));
+        if (missing.length > 0) {
+          hasBreaking = true;
+          results.push({
+            name: contract.name,
+            status: 'FAIL',
+            reason: `Snapshot missing required fields: ${missing.join(', ')}`,
+          });
+        } else {
+          results.push({
+            name: contract.name,
+            status: 'PASS',
+            reason: 'Snapshot validates',
+          });
+        }
       }
 
     } catch (err) {

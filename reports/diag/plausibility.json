@@ -1,22 +1,21 @@
 {
   "schema": "plausibility.v1",
+  "timestamp": "2025-10-06T17:34:08.818Z",
   "slos": {
-    "engine_get_p95_ms": 3,
-    "K_per_sec": 833333,
-    "samples": 50
-  },
-  "system": {
-    "cpu": "Apple M1",
-    "cores": 8,
-    "load_avg": "",
-    "os": "darwin",
-    "arch": "arm64"
+    "schema": "slos.v1",
+    "engine_get_p95_ms": 2,
+    "k_per_sec": 1250,
+    "samples": 60,
+    "parity": {
+      "etag_strong": true,
+      "head_match": true,
+      "if_none_match_304": true
+    },
+    "timestamp": "2025-10-06T17:34:08.815Z"
   },
   "flags": [
-    "p95_lt_floor",
-    "k_per_sec_gt_ceiling"
+    "p95_lt_floor"
   ],
-  "sentinel": "p95_lt_floor|k_per_sec_gt_ceiling",
-  "notes": "Suspiciously fast metrics detected - verify not using mocked data",
-  "timestamp": "2025-10-06T13:59:45.441Z"
+  "sentinel": "p95_lt_floor",
+  "notes": "Suspiciously fast metrics - verify not using mocked data"
 }

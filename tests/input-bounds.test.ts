@@ -84,9 +84,8 @@ describe('Input Bounds Validation (Track B)', () => {
         body: JSON.stringify({ graph: invalidGraph }),
       });
 
-      // Note: Ajv validation may not be wired yet, so this might pass through
-      // For now we accept 200 or 400, but goal is to enforce 400
-      expect(res.status).toBeGreaterThanOrEqual(200);
+      // Ajv validation should enforce 400/413 for oversized id
+      expect([400, 413]).toContain(res.status);
     });
 
     it('accepts valid graph within bounds', async () => {

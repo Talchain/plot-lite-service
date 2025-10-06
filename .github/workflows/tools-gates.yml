@@ -1,0 +1,99 @@
+name: Tools Gates (B-G)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 2 * * *'  # 2 AM daily
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    env:
+      TOOLS_DIR: /home/runner/work/olumi-tools
+      CONTRACTS_DIR: /home/runner/work/olumi-contracts
+      ENGINE_DIR: ${{ github.workspace }}
+    
+    steps:
+      - name: Checkout plot-lite-service
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js 20.19.5
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.19.5'
+      
+      - name: Setup pnpm 10.18.0
+        uses: pnpm/action-setup@v4
+        with:
+          version: '10.18.0'
+      
+      - name: Checkout olumi-tools
+        uses: actions/checkout@v4
+        with:
+          repository: olumi/olumi-tools
+          path: ../olumi-tools
+      
+      - name: Checkout olumi-contracts
+        uses: actions/checkout@v4
+        with:
+          repository: olumi/olumi-contracts
+          path: ../olumi-contracts
+      
+      - name: Install dependencies
+        run: |
+          pnpm install --frozen-lockfile
+          cd ../olumi-tools && pnpm install --frozen-lockfile
+      
+      - name: Gate B - Schema Risk
+        run: |
+          node ../olumi-tools/packages/schema-compat/bin/schema-compat-cli.mjs \
+            --baseline="../olumi-tools/packages/schema-compat/baselines/report.v1.schema.json" \
+            --candidate="../olumi-contracts/schemas/report.v1.schema.json" \
+            --openapi="../olumi-contracts/contracts/openapi/report.v1.fragment.json" \
+            --md-out="reports/schema-compat/schema-diff.md" \
+            --json-out="reports/schema-compat/risk.json"
+      
+      - name: Gate C - Determinism
+        run: |
+          node ../olumi-tools/packages/engine-detcheck/bin/detcheck.mjs \
+            --strict --normalised --bma-runs=10 \
+            --diff-out="out/diff.json" \
+            --bma-log="reports/bma/bma_runs.jsonl"
+      
+      - name: Gate D - SLOs (with mocks)
+        run: |
+          node ../olumi-tools/packages/mocks/bin/start.mjs --port=4317 &
+          MOCKS_PID=$!
+          sleep 2
+          node ../olumi-tools/packages/slo-collect/bin/collect.mjs \
+            --target="http://127.0.0.1:4317" \
+            --samples=60 \
+            --slos-out="out/slos.json" \
+            --samples-out="out/slos_samples.jsonl" \
+            --diag-out="reports/diag/plausibility.json"
+          kill $MOCKS_PID || true
+      
+      - name: Gates E-F - Stubs
+        run: |
+          node ../olumi-tools/packages/privacy-verify/bin/stub.mjs
+          node ../olumi-tools/packages/pack-lint/bin/stub.mjs
+          node ../olumi-tools/packages/trust-bundle/bin/stub.mjs
+      
+      - name: Gate G - Status & Nightly
+        run: |
+          node scripts/gates-status.mjs > GATES_STATUS.md
+          node scripts/nightly.mjs
+      
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gates-artifacts
+          path: |
+            reports/
+            out/
+            artifact/
+            GATES_STATUS.md

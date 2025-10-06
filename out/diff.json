@@ -1,0 +1,17 @@
+{
+  "schema": "detcheck.v1",
+  "timestamp": "2025-10-06T17:33:05.403Z",
+  "strict": {
+    "enabled": true,
+    "resp_hash": "a0264f9c"
+  },
+  "normalised": {
+    "enabled": true,
+    "resp_hash": "4ba701ec"
+  },
+  "bma": {
+    "bma_hash": "23134876",
+    "runs": 10,
+    "stable": true
+  }
+}

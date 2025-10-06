@@ -1,0 +1,10 @@
+{
+  "schema": "schema-risk.v1",
+  "timestamp": "2025-10-06T17:32:05.595Z",
+  "risk_level": "LOW",
+  "breaking_changes": 0,
+  "type_changes": 0,
+  "additive_fields": 181,
+  "openapi_parity": true,
+  "first_breaking": null
+}

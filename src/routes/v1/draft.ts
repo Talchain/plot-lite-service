@@ -12,26 +12,14 @@ export interface DraftRequest {
 }
 
 export async function registerDraftRoute(app: FastifyInstance) {
-  app.post('/v1/draft', async (req: FastifyRequest, reply: FastifyReply) => {
+  const { createValidator } = await import('../../middleware/input-validation.js');
+
+  app.post('/v1/draft', {
+    preHandler: createValidator('draft'),
+  }, async (req: FastifyRequest, reply: FastifyReply) => {
     const body = (req as any).body as DraftRequest;
 
-    if (!body.description) {
-      return reply.code(400).send({
-        error: 'BAD_INPUT',
-        message: 'Field "description" is required',
-        hint: 'Provide a short text description of your model',
-      });
-    }
-
     const { description, domain } = body;
-
-    // Validate description length
-    if (description.length > 500) {
-      return reply.code(400).send({
-        error: 'BAD_INPUT',
-        message: 'Description too long (max 500 characters)',
-      });
-    }
 
     // Generate starter boards
     const boards = generateStarterBoards({

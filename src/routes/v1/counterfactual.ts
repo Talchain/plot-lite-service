@@ -63,9 +63,11 @@ export async function registerCounterfactualRoute(app: FastifyInstance) {
 
     if (!identifiability.identifiable) {
       return reply.code(400).send({
-        error: 'NOT_IDENTIFIABLE',
-        message: identifiability.notes[0] || 'Counterfactual not identifiable',
-        summary: identifiability.summary,
+        schema: 'error.v1',
+        code: 'BAD_INPUT',
+        message: identifiability.summary,
+        path: ['/graph'],
+        details: { reason: 'IDENTIFIABILITY' },
       });
     }
 
