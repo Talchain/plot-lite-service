@@ -5,7 +5,7 @@
   "name": "plot-lite-service-sbom",
   "documentNamespace": "https://github.com/Talchain/plot-lite-service/sbom",
   "creationInfo": {
-    "created": "2025-10-07T09:11:30.775Z",
+    "created": "2025-10-07T09:22:08.043Z",
     "creators": [
       "Tool: trust-sbom"
     ]

@@ -1,10 +1,10 @@
 {
   "schema": "slos.v1",
   "source": "mock",
-  "engine_get_p95_ms": 9,
-  "ttff_p95": 9,
+  "engine_get_p95_ms": 2,
+  "ttff_p95": 2,
   "cancel_p95": 0,
-  "K_per_sec": 135135,
+  "K_per_sec": 333333,
   "samples": 50,
-  "timestamp": "2025-10-07T09:11:27.548Z"
+  "timestamp": "2025-10-07T09:22:06.188Z"
 }
