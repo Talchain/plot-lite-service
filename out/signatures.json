@@ -1,11 +1,11 @@
 {
   "schema": "signatures.v1",
-  "timestamp": "2025-10-06T23:45:25.429Z",
+  "algorithm": "Ed25519",
+  "timestamp": "2025-10-07T08:23:17.244Z",
   "pack": {
     "filename": "engine_pack_2025-10-06_775f790.zip",
     "sha256": "1b0cb55236dc184e4557c4ab04b85ac7b758c532af7ae8eb4efde6cfa73e6973",
-    "signature": "ed25519:04592aedfad6a67525327a48631ba7d08ed8d923c7f950d447c735fbce8ea85c"
+    "signature_b64": "Cr78k1oTEcmU0BcF6YsqsKSiULr8dyB0lXnu7PEsH89VQdM5VQCFJIN17foSMjk96lqhWfsWe2mB1m+d1mSwAw=="
   },
-  "public_key": "ed25519:d29a43b43a3006450915e5537cefeaef0dd2dcfab0ec84e3a853da7ae478f3b4",
-  "algorithm": "Ed25519"
+  "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAqagjK/VDfysYp/HXDQonaLDtE2gD/iuPLfz//4ETxMk=\n-----END PUBLIC KEY-----\n"
 }

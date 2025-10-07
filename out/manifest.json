@@ -2,8 +2,8 @@
   "schema": "pack-manifest.v1",
   "component": "engine",
   "version": "0.3.1",
-  "commit": "7e649f2c6385a42ead4e9025607a39abf2d78447",
-  "build_timestamp": "2025-10-06T23:46:36.008Z",
+  "commit": "1112fa5d537e766e3df143fcd66544066439f40e",
+  "build_timestamp": "2025-10-07T08:23:39.549Z",
   "meta": {
     "seed": 42,
     "source": "mock"
