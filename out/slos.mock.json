@@ -1,14 +1,10 @@
 {
   "schema": "slos.v1",
   "source": "mock",
-  "engine_get_p95_ms": 50,
-  "k_per_sec": 1250,
-  "samples": 10,
-  "parity": {
-    "etag_strong": true,
-    "head_match": true,
-    "if_none_match_304": true
-  },
-  "timestamp": "2025-10-06T20:46:27.741Z",
-  "content_hash": "11fd90e659fd400bc83179361886da02ef66c1797439b0e259fd15a588d3c2bb"
+  "engine_get_p95_ms": 9,
+  "ttff_p95": 9,
+  "cancel_p95": 0,
+  "K_per_sec": 135135,
+  "samples": 50,
+  "timestamp": "2025-10-07T09:11:27.548Z"
 }

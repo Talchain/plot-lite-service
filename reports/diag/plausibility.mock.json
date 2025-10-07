@@ -1,22 +1,24 @@
 {
   "schema": "plausibility.v1",
   "source": "mock",
-  "timestamp": "2025-10-06T20:46:27.743Z",
-  "slos": {
-    "schema": "slos.v1",
-    "source": "mock",
-    "engine_get_p95_ms": 50,
-    "k_per_sec": 1250,
-    "samples": 10,
-    "parity": {
-      "etag_strong": true,
-      "head_match": true,
-      "if_none_match_304": true
+  "samples": 50,
+  "violations": 0,
+  "checks": {
+    "engine_get_p95_ms": {
+      "value": 9,
+      "budget": 600,
+      "pass": true
     },
-    "timestamp": "2025-10-06T20:46:27.741Z",
-    "content_hash": "11fd90e659fd400bc83179361886da02ef66c1797439b0e259fd15a588d3c2bb"
+    "ttff_p95": {
+      "value": 9,
+      "budget": 450,
+      "pass": true
+    },
+    "cancel_p95": {
+      "value": 0,
+      "budget": 200,
+      "pass": true
+    }
   },
-  "flags": [],
-  "sentinel": "none",
-  "notes": "Metrics within plausible range"
+  "timestamp": "2025-10-07T09:11:27.555Z"
 }

@@ -1,23 +1,17 @@
-# Gates Status
+# Gates Status (v0.3.6)
 
-**Generated:** 2025-10-07T08:23:40.307Z
+- **Tests**: total=unknown, passed=unknown, failed=unknown
+- **Self-check hash**: 3ce6e102c2350a01e05946398149176a540e726b85490dd67cf78c909b4724b6
 
-## Summary
+## Gate Results
+- GATES: FAIL — contract breaking changes detected
+- GATES: Phase 6 — SLOs & performance (source=mock, min_samples=50)
+- GATES: Phase 7 — Determinism gates (v0.3.6, 10 runs)
+- GATES: PASS — privacy OK (events=14, violations=0)
+- GATES: Phase 9 — Canonical engine pack (v0.3.6)
+- GATES: Phase 10 — Trust chain & policy (v0.3.6)
+- GATES: Phase 11 — Schema/OpenAPI parity (v0.3.6)
+- GATES: Task B — Reproducibility matrix (v0.3.6, 2 runs)
 
-| Gate | Status | Details |
-|------|--------|----------|
-| Privacy | ✅ PASS | 0 violations |
-| SLOs | ✅ PASS | p95=50ms, k/s=1250, source=mock |
-| Determinism | ✅ PASS | resp_hash=a0264f9c |
-| Pack | ✅ PASS | sha256=7a14f2930a46c78a, size=0.00MB |
-| Trust | ✅ GREEN | bundle complete |
-| Licences | ✅ PASS | 0 violations |
-
-## Hashes
-
-- **SLOs:** 11fd90e659fd400b
-- **Response (strict):** a0264f9c
-- **BMA:** 23134876
-- **Pack:** 7a14f2930a46c78a
-
-GATES: PASS — status aggregated (GATES_STATUS.md)
+- **Passes**: 1
+- **Fails**: 1

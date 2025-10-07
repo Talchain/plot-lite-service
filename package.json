@@ -48,6 +48,7 @@
     "gate:contract": "node tools/contract-drift-gate.mjs",
     "gate:slo": "node tools/slo-budget-gate.mjs",
     "gate:privacy": "node tools/privacy-gate.mjs",
+    "perf:collect": "node tools/perf-collect.mjs",
     "dev:engine": "node tools/dev-shell.mjs"
   },
   "keywords": [],

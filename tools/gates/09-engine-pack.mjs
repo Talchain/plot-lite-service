@@ -22,11 +22,22 @@ function buildPack(packName) {
 
   writeFileSync('out/manifest.json', JSON.stringify(manifest, Object.keys(manifest).sort(), 2), 'utf8');
 
-  // Load slos.json (created by phase 6)
-  let slos = { schema: 'slos.v1', engine_get_p95_ms: 0 };
+  // Load slos.json (created by phase 6) - try both .mock and .live variants
+  let slos = { schema: 'slos.v1', engine_get_p95_ms: 0, source: 'unknown' };
   try {
-    slos = JSON.parse(readFileSync('out/slos.json', 'utf8'));
-  } catch {}
+    slos = JSON.parse(readFileSync('out/slos.mock.json', 'utf8'));
+  } catch {
+    try {
+      slos = JSON.parse(readFileSync('out/slos.live.json', 'utf8'));
+    } catch {
+      try {
+        slos = JSON.parse(readFileSync('out/slos.json', 'utf8'));
+      } catch {}
+    }
+  }
+
+  // Write canonical slos.json (for pack)
+  writeFileSync('out/slos.json', JSON.stringify(slos, Object.keys(slos).sort(), 2), 'utf8');
 
   // Compute checksums
   const checksums = {
@@ -56,7 +67,7 @@ function hashFile(path) {
 }
 
 async function main() {
-  console.log('GATES: Phase 9 — Canonical engine pack');
+  console.log('GATES: Phase 9 — Canonical engine pack (v0.3.6)');
 
   const gitSha = execSync('git rev-parse --short HEAD 2>/dev/null || echo "local"', { encoding: 'utf8' }).trim();
   const date = new Date().toISOString().split('T')[0];
@@ -71,7 +82,28 @@ async function main() {
     throw new Error(`Pack not deterministic: ${hash1} !== ${hash2}`);
   }
 
-  console.log(`GATES: PASS — engine pack canonical (sha256=${hash1.slice(0, 8)} identical)`);
+  // Check pack size (≤10MB budget)
+  const { statSync } = await import('node:fs');
+  const packSize = statSync(`out/${packName}`).size;
+  const sizeMB = (packSize / 1048576).toFixed(2);
+  const SIZE_BUDGET_MB = 10;
+
+  if (packSize > SIZE_BUDGET_MB * 1048576) {
+    throw new Error(`Pack size ${sizeMB}MB exceeds ${SIZE_BUDGET_MB}MB budget`);
+  }
+
+  // Write pack-meta.json with size info
+  const packMeta = {
+    schema: 'pack-meta.v1',
+    filename: packName,
+    sha256: hash1,
+    size_bytes: packSize,
+    entries: ['checksums.json', 'manifest.json', 'slos.json'],
+    created: new Date().toISOString()
+  };
+  writeFileSync('out/pack-meta.json', JSON.stringify(packMeta, null, 2), 'utf8');
+
+  console.log(`GATES: PASS — pack canonical (sha256=${hash1.slice(0, 16)}, size=${sizeMB}MB)`);
   process.exit(0);
 }
 

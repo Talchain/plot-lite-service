@@ -20,7 +20,7 @@ const projectRoot = resolve(__dirname, '..');
 // Schemas to check (contract files that must not break)
 const CONTRACTS = [
   {
-    name: 'report.v1',
+    name: 'run.v1',
     current: 'contracts/schemas/report.v1.schema.json',
     snapshot: 'contracts/snapshots/report.v1.example.json',
   },
