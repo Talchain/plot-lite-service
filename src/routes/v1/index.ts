@@ -4,6 +4,7 @@
  */
 
 import type { FastifyInstance } from 'fastify';
+import { timingSafeEqual } from 'crypto';
 import { registerRunRoute } from './run.js';
 import { registerCounterfactualRoute } from './counterfactual.js';
 import { registerCritiqueRoute } from './critique.js';
@@ -40,7 +41,14 @@ async function v1AuthGuard(req: any, reply: any) {
   }
   
   const tok = hdr.slice('Bearer '.length).trim();
-  if (!expected || tok !== expected) {
+  if (!expected || tok.length !== expected.length) {
+    return reply.code(403).send({ 
+      schema: 'error.v1',
+      code: 'FORBIDDEN', 
+      message: 'Invalid token' 
+    });
+  }
+  if (!timingSafeEqual(Buffer.from(tok), Buffer.from(expected))) {
     return reply.code(403).send({ 
       schema: 'error.v1',
       code: 'FORBIDDEN', 

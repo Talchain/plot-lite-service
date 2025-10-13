@@ -4,7 +4,7 @@ import cors from '@fastify/cors';
 import { readFileSync, existsSync } from 'fs';
 import { resolve, join as joinPath } from 'path';
 import { spawnSync } from 'child_process';
-import { createHash } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'crypto';
 import { promises as fsp } from 'node:fs';
 import { rateLimit } from './rateLimit.js';
 import { refreshFromEnv } from './config/runtimeConfig.js';
@@ -71,7 +71,11 @@ export async function createServer(opts = {}) {
             return false;
         }
         const tok = hdr.slice('Bearer '.length).trim();
-        if (!expected || tok !== expected) {
+        if (!expected || tok.length !== expected.length) {
+            await reply.code(403).send({ error: { type: 'FORBIDDEN', message: 'Invalid token' } });
+            return false;
+        }
+        if (!timingSafeEqual(Buffer.from(tok), Buffer.from(expected))) {
             await reply.code(403).send({ error: { type: 'FORBIDDEN', message: 'Invalid token' } });
             return false;
         }
