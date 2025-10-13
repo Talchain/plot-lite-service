@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
 import { createServer } from '../src/createServer.js';
 
 describe('production guard for test routes', () => {
