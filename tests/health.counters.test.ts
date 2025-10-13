@@ -35,18 +35,28 @@ describe('health counters and last reload timestamp', () => {
       expect(r2.status).toBe(429);
 
       // Trigger SSE 429 (per_ip/global caps = 1)
+      // Start first stream with a long-running query
       const ac = new AbortController();
-      const p1 = fetch(`${BASE}/v1/stream?latency_ms=1000`, { signal: ac.signal }).catch(() => null);
-      await sleep(100);
+      const p1 = fetch(`${BASE}/v1/stream?latency_ms=5000`, { signal: ac.signal }).catch(() => null);
+      
+      // Wait longer to ensure first stream is fully established and holding a slot
+      await sleep(500);
+      
+      // Second stream should hit 429 immediately (slot already taken)
       const r429sse = await fetch(`${BASE}/v1/stream?latency_ms=10`);
       expect(r429sse.status).toBe(429);
+      
+      // Abort first stream and wait for cleanup
       try { ac.abort(); } catch {}
+      await p1;
 
-      // Check health counters
+      // Check health counters (both should be ≥1 after 429 responses)
       const health1 = await fetch(`${BASE}/v1/health`).then(r => r.json());
       expect(typeof health1).toBe('object');
-      expect(health1.json_429_count >= 1).toBe(true);
-      expect(health1.sse_429_count >= 1).toBe(true);
+      expect(typeof health1.json_429_count).toBe('number');
+      expect(typeof health1.sse_429_count).toBe('number');
+      expect(health1.json_429_count).toBeGreaterThanOrEqual(1);
+      expect(health1.sse_429_count).toBeGreaterThanOrEqual(1);
 
       // SIGHUP to set last_config_reload_iso
       try { ps.kill('SIGHUP'); } catch {}

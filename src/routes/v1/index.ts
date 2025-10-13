@@ -9,7 +9,7 @@ import { registerCounterfactualRoute } from './counterfactual.js';
 import { registerCritiqueRoute } from './critique.js';
 import { registerDraftRoute } from './draft.js';
 import { registerSelfCheckRoute } from './self-check.js';
-import { getStreamHealthExtras } from '../../metrics.js';
+import { getStreamHealthExtras, p95Ms, snapshot, getLastRequestAt, getJson429Count, getSse429Count, getLastConfigReloadISO } from '../../metrics.js';
 import { registerStreamRoute } from './stream.js';
 import { isDemoMode } from '../../middleware/demo-mode.js';
 
@@ -100,15 +100,17 @@ export async function registerV1Routes(app: FastifyInstance) {
 
   // Health and version at /v1 as well (for consistency)
   app.get('/v1/health', async () => {
-    const { p95Ms, snapshot, getLastRequestAt, getJson429Count, getSse429Count, getLastConfigReloadISO } = await import('../../metrics.js');
     const base = {
       status: 'ok',
       api_version: 'v1',
-      p95_ms: p95Ms?.() || 0,
+      p95_ms: p95Ms() || 0,
       version: '1.0.0',
       uptime_s: Math.round(process.uptime()),
-      last_request_at: getLastRequestAt?.() || undefined,
-      ...snapshot?.(),
+      last_request_at: getLastRequestAt() || undefined,
+      ...snapshot(),
+      // Always expose 429 counters as integers
+      json_429_count: getJson429Count(),
+      sse_429_count: getSse429Count(),
     } as any;
     // Optional environment/build hints for ops triage
     try {
@@ -120,25 +122,17 @@ export async function registerV1Routes(app: FastifyInstance) {
       if (b) base.build = b;
     } catch {}
     try {
-      const extras = getStreamHealthExtras?.();
+      const extras = getStreamHealthExtras();
       if (extras && typeof extras === 'object') {
         for (const [k, v] of Object.entries(extras)) {
           if (typeof v === 'number') base[k] = v;
         }
       }
     } catch {}
-    // Optional counters and last reload timestamp
+    // Optional last reload timestamp
     try {
-      const j = typeof getJson429Count === 'function' ? getJson429Count() : 0;
-      (base as any).json_429_count = j;
-    } catch {}
-    try {
-      const s = typeof getSse429Count === 'function' ? getSse429Count() : 0;
-      (base as any).sse_429_count = s;
-    } catch {}
-    try {
-      const iso = typeof getLastConfigReloadISO === 'function' ? getLastConfigReloadISO() : null;
-      if (iso) (base as any).last_config_reload_iso = iso;
+      const iso = getLastConfigReloadISO();
+      if (iso) base.last_config_reload_iso = iso;
     } catch {}
     return base;
   });

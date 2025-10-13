@@ -64,7 +64,11 @@ export async function rateLimit(req, reply) {
         return; // disabled
     // Exempt basic health/readiness endpoints from rate limiting
     const url = req.url || '';
-    if (req.method === 'GET' && (url.startsWith('/health') || url.startsWith('/ready') || url.startsWith('/live') || url.startsWith('/version') || url.startsWith('/ops/snapshot'))) {
+    if (req.method === 'GET' && (url.startsWith('/health') || url.startsWith('/v1/health') || url.startsWith('/ready') || url.startsWith('/live') || url.startsWith('/version') || url.startsWith('/v1/version') || url.startsWith('/ops/snapshot'))) {
+        return;
+    }
+    // Exempt /v1/stream - it has its own slot-based rate limiting
+    if (req.method === 'GET' && url.startsWith('/v1/stream')) {
         return;
     }
     // Normalize IPv6/loopback variants for stable bucketing
