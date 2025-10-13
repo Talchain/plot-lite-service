@@ -53,8 +53,8 @@ function pruneAndEnforceCapacity(now: number) {
   }
 }
 
-// Periodic cleanup to prevent memory leak (runs every minute); unref'd
-setInterval(() => { try { pruneAndEnforceCapacity(Date.now()); } catch {} }, 60000).unref();
+// Periodic cleanup to prevent memory leak (runs every 10s for faster response); unref'd
+setInterval(() => { try { pruneAndEnforceCapacity(Date.now()); } catch {} }, 10000).unref();
 
 export async function rateLimit(req: FastifyRequest, reply: FastifyReply) {
   // Opportunistic pruning (1% of requests to avoid overhead)
@@ -63,6 +63,17 @@ export async function rateLimit(req: FastifyRequest, reply: FastifyReply) {
   }
   const ENABLED = process.env.RATE_LIMIT_ENABLED !== '0';
   if (!ENABLED) return; // disabled
+
+  // Emergency brake: if key map exceeds 2× capacity, reject immediately
+  const cap = bound();
+  if (perKey.size > 2 * cap) {
+    try { incJson429Count(); } catch {}
+    reply.header('X-RateLimit-Reason', 'global');
+    reply.header('Retry-After', '10');
+    return reply.code(429).send({
+      error: { type: 'RATE_LIMITED', message: 'System under heavy load', hint: 'Please retry after 10 seconds' }
+    });
+  }
 
   // Exempt basic health/readiness endpoints from rate limiting
   const url = (req as any).url || '';

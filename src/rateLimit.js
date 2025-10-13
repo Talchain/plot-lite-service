@@ -49,11 +49,11 @@ function pruneAndEnforceCapacity(now) {
         }
     }
 }
-// Periodic cleanup to prevent memory leak (runs every minute); unref'd
+// Periodic cleanup to prevent memory leak (runs every 10s for faster response); unref'd
 setInterval(() => { try {
     pruneAndEnforceCapacity(Date.now());
 }
-catch { } }, 60000).unref();
+catch { } }, 10000).unref();
 export async function rateLimit(req, reply) {
     // Opportunistic pruning (1% of requests to avoid overhead)
     if (Math.random() < 0.01) {
@@ -62,6 +62,19 @@ export async function rateLimit(req, reply) {
     const ENABLED = process.env.RATE_LIMIT_ENABLED !== '0';
     if (!ENABLED)
         return; // disabled
+    // Emergency brake: if key map exceeds 2× capacity, reject immediately
+    const cap = bound();
+    if (perKey.size > 2 * cap) {
+        try {
+            incJson429Count();
+        }
+        catch { }
+        reply.header('X-RateLimit-Reason', 'global');
+        reply.header('Retry-After', '10');
+        return reply.code(429).send({
+            error: { type: 'RATE_LIMITED', message: 'System under heavy load', hint: 'Please retry after 10 seconds' }
+        });
+    }
     // Exempt basic health/readiness endpoints from rate limiting
     const url = req.url || '';
     if (req.method === 'GET' && (url.startsWith('/health') || url.startsWith('/v1/health') || url.startsWith('/ready') || url.startsWith('/live') || url.startsWith('/version') || url.startsWith('/v1/version') || url.startsWith('/ops/snapshot'))) {
