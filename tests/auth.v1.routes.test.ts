@@ -55,6 +55,7 @@ describe('Auth Guard on /v1/* Routes', () => {
         expect(res.headers.get('www-authenticate')).toBe('Bearer');
         
         const data = await res.json();
+        expect(data.schema).toBe('error.v1');
         expect(data.code).toBe('UNAUTHORIZED');
         expect(data.message).toContain('Missing bearer token');
       });
@@ -76,6 +77,7 @@ describe('Auth Guard on /v1/* Routes', () => {
         expect(res.status).toBe(403);
         
         const data = await res.json();
+        expect(data.schema).toBe('error.v1');
         expect(data.code).toBe('FORBIDDEN');
         expect(data.message).toContain('Invalid token');
       });

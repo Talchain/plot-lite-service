@@ -3,12 +3,139 @@
   "dataLicense": "CC0-1.0",
   "SPDXID": "SPDXRef-DOCUMENT",
   "name": "plot-lite-service-sbom",
-  "documentNamespace": "https://olumi.io/spdx/plot-lite-service",
+  "documentNamespace": "https://github.com/Talchain/plot-lite-service/sbom",
   "creationInfo": {
-    "created": "2025-10-06T17:55:48.180Z",
+    "created": "2025-10-13T13:27:58.683Z",
     "creators": [
-      "Tool: olumi-trust-bundle"
+      "Tool: trust-sbom"
     ]
   },
-  "packages": []
+  "packages": [
+    {
+      "SPDXID": "SPDXRef--fastify-cors",
+      "name": "@fastify/cors",
+      "versionInfo": "^11.1.0",
+      "licenseConcluded": "MIT",
+      "supplier": "Organization: npm"
+    },
+    {
+      "SPDXID": "SPDXRef--fastify-helmet",
+      "name": "@fastify/helmet",
+      "versionInfo": "^13.0.1",
+      "licenseConcluded": "MIT",
+      "supplier": "Organization: npm"
+    },
+    {
+      "SPDXID": "SPDXRef-ajv",
+      "name": "ajv",
+      "versionInfo": "^8.17.1",
+      "licenseConcluded": "MIT",
+      "supplier": "Organization: npm"
+    },
+    {
+      "SPDXID": "SPDXRef-fastify",
+      "name": "fastify",
+      "versionInfo": "^5.6.0",
+      "licenseConcluded": "MIT",
+      "supplier": "Organization: npm"
+    },
+    {
+      "SPDXID": "SPDXRef-fastify-plugin",
+      "name": "fastify-plugin",
+      "versionInfo": "^5.1.0",
+      "licenseConcluded": "MIT",
+      "supplier": "Organization: npm"
+    },
+    {
+      "SPDXID": "SPDXRef-pino",
+      "name": "pino",
+      "versionInfo": "^9.11.0",
+      "licenseConcluded": "MIT",
+      "supplier": "Organization: npm"
+    },
+    {
+      "SPDXID": "SPDXRef--commitlint-cli",
+      "name": "@commitlint/cli",
+      "versionInfo": "^19.3.0",
+      "licenseConcluded": "MIT",
+      "supplier": "Organization: npm"
+    },
+    {
+      "SPDXID": "SPDXRef--commitlint-config-conventional",
+      "name": "@commitlint/config-conventional",
+      "versionInfo": "^19.2.2",
+      "licenseConcluded": "MIT",
+      "supplier": "Organization: npm"
+    },
+    {
+      "SPDXID": "SPDXRef--stoplight-spectral-cli",
+      "name": "@stoplight/spectral-cli",
+      "versionInfo": "^6.11.1",
+      "licenseConcluded": "Apache-2.0",
+      "supplier": "Organization: npm"
+    },
+    {
+      "SPDXID": "SPDXRef--types-node",
+      "name": "@types/node",
+      "versionInfo": "^24.5.2",
+      "licenseConcluded": "MIT",
+      "supplier": "Organization: npm"
+    },
+    {
+      "SPDXID": "SPDXRef-autocannon",
+      "name": "autocannon",
+      "versionInfo": "^8.0.0",
+      "licenseConcluded": "MIT",
+      "supplier": "Organization: npm"
+    },
+    {
+      "SPDXID": "SPDXRef-fast-check",
+      "name": "fast-check",
+      "versionInfo": "^3.18.0",
+      "licenseConcluded": "MIT",
+      "supplier": "Organization: npm"
+    },
+    {
+      "SPDXID": "SPDXRef-husky",
+      "name": "husky",
+      "versionInfo": "^9.1.6",
+      "licenseConcluded": "MIT",
+      "supplier": "Organization: npm"
+    },
+    {
+      "SPDXID": "SPDXRef-standard-version",
+      "name": "standard-version",
+      "versionInfo": "^9.5.0",
+      "licenseConcluded": "ISC",
+      "supplier": "Organization: npm"
+    },
+    {
+      "SPDXID": "SPDXRef-tsx",
+      "name": "tsx",
+      "versionInfo": "^4.20.5",
+      "licenseConcluded": "MIT",
+      "supplier": "Organization: npm"
+    },
+    {
+      "SPDXID": "SPDXRef-typescript",
+      "name": "typescript",
+      "versionInfo": "^5.9.2",
+      "licenseConcluded": "Apache-2.0",
+      "supplier": "Organization: npm"
+    },
+    {
+      "SPDXID": "SPDXRef-vitest",
+      "name": "vitest",
+      "versionInfo": "^3.2.4",
+      "licenseConcluded": "MIT",
+      "supplier": "Organization: npm"
+    },
+    {
+      "SPDXID": "SPDXRef-yaml",
+      "name": "yaml",
+      "versionInfo": "^2.8.1",
+      "licenseConcluded": "ISC",
+      "supplier": "Organization: npm"
+    }
+  ]
 }

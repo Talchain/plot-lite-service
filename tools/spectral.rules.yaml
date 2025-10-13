@@ -1,0 +1,37 @@
+extends:
+  - "spectral:oas"
+
+rules:
+
+  v1-stream-has-429:
+    description: /v1/stream must document 429 rate limit response
+    message: "/v1/stream missing 429 response"
+    given: "$.paths['/v1/stream'].get.responses"
+    then:
+      field: "429"
+      function: truthy
+
+  health-optional-fields-documented:
+    description: /v1/health should document optional version, uptime_s, last_request_at
+    given: "$.paths['/v1/health'].get.responses['200'].content.application/json.schema.properties"
+    then:
+      - field: version
+        function: truthy
+      - field: uptime_s
+        function: truthy
+      - field: last_request_at
+        function: truthy
+
+  responses-200-has-content:
+    description: Ensure 200 responses define some content
+    given: "$.paths[*][*].responses['200']"
+    then:
+      field: content
+      function: truthy
+
+  responses-200-json-has-schema:
+    description: If 200 responses include application/json, it must have a schema
+    given: "$.paths[*][*].responses['200'].content.application/json"
+    then:
+      field: schema
+      function: truthy

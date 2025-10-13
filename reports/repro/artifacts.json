@@ -1,14 +1,18 @@
 {
-  "schema": "artifacts.v1",
-  "timestamp": "2025-10-06T19:21:08.892Z",
-  "compared": [
+  "schema": "repro-artifacts.v1",
+  "runs": [
     {
-      "path": "out/diff.json",
-      "hash": "9c455294b5a90cd3621618f9e92e7a2d7c352c9c01f2df17de3927ca8465abad"
+      "run": 1,
+      "os": "darwin",
+      "pack_hash": "685cca6dfc7cee2c",
+      "duration_s": 0
     },
     {
-      "path": "out/slos.json",
-      "hash": "11fd90e659fd400bc83179361886da02ef66c1797439b0e259fd15a588d3c2bb"
+      "run": 2,
+      "os": "darwin",
+      "pack_hash": "685cca6dfc7cee2c",
+      "duration_s": 0
     }
-  ]
+  ],
+  "timestamp": "2025-10-07T10:07:15.624Z"
 }

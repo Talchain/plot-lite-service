@@ -11,9 +11,10 @@ on:
 jobs:
   gates:
     runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     env:
       TOOLS_DIR: ${{ github.workspace }}/../olumi-tools
       CONTRACTS_DIR: ${{ github.workspace }}/../olumi-contracts
@@ -101,7 +102,29 @@ jobs:
 
       - name: Gate P - Pack Build
         run: |
-          node tools/pack-build.mjs
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            # Windows: use PowerShell Compress-Archive
+            node tools/pack-build-win.mjs
+          else
+            node tools/pack-build.mjs
+          fi
+        shell: bash
+
+      - name: Check Pack Size Budget
+        run: |
+          PACK_FILE=$(ls -1 out/engine_pack_*.zip 2>/dev/null | head -1)
+          if [ -n "$PACK_FILE" ]; then
+            SIZE_BYTES=$(stat -c%s "$PACK_FILE" 2>/dev/null || stat -f%z "$PACK_FILE")
+            SIZE_MB=$((SIZE_BYTES / 1048576))
+            echo "Pack size: ${SIZE_MB}MB"
+            if [ $SIZE_BYTES -gt 10485760 ]; then
+              echo "GATES: FAIL — pack size ${SIZE_MB}MB exceeds 10MB budget"
+              exit 1
+            else
+              echo "GATES: PASS — pack size ${SIZE_MB}MB within 10MB budget"
+            fi
+          fi
+        shell: bash
 
       - name: Gate L - Coverage & Fuzz
         run: |

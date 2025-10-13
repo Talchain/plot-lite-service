@@ -33,8 +33,6 @@ function loadSLOs() {
   const sloPath = resolve(projectRoot, 'artifact', 'slos.json');
   
   if (!existsSync(sloPath)) {
-    console.log('⏭️  No slos.json found - skipping budget check');
-    console.log('   (Run performance harness first: npm run perf:slos)');
     return null;
   }
 
@@ -53,21 +51,21 @@ function checkBudgets(slos) {
   const violations = [];
   const checks = [];
 
-  // Check /v1/run p95
-  if (slos.endpoints?.run?.p95_ms !== undefined) {
-    const actual = slos.endpoints.run.p95_ms;
+  // Check engine_get_p95_ms
+  if (typeof slos.engine_get_p95_ms === 'number') {
+    const actual = slos.engine_get_p95_ms;
     const budget = BUDGETS.run_p95;
     const pass = actual <= budget;
     
     checks.push({
-      name: '/v1/run p95',
+      name: 'engine_get_p95_ms',
       actual,
       budget,
       pass,
     });
 
     if (!pass) {
-      violations.push(`/v1/run p95: ${actual}ms > ${budget}ms budget`);
+      violations.push(`engine_get_p95_ms: ${actual}ms > ${budget}ms budget`);
     }
   }
 
@@ -114,43 +112,31 @@ function checkBudgets(slos) {
  * Main gate logic
  */
 async function runSLOBudgetGate() {
-  console.log('🔍 Checking SLO budgets...\n');
-
   const slos = loadSLOs();
   
   if (!slos) {
-    console.log('GATES: PASS — SLO budgets within limits (no measurements)');
-    process.exit(0);
+    console.log('GATES: FAIL — SLO data missing or insufficient (N=0)');
+    process.exit(1);
+  }
+
+  const n = slos?.meta?.n ?? 0;
+  if (typeof n !== 'number' || n < 50) {
+    console.log(`GATES: FAIL — SLO data missing or insufficient (N=${n})`);
+    process.exit(1);
   }
 
   const { checks, violations } = checkBudgets(slos);
 
-  // Print results
-  if (checks.length === 0) {
-    console.log('⏭️  No SLO metrics found in slos.json');
-    console.log('GATES: PASS — SLO budgets within limits (no metrics)');
-    process.exit(0);
-  }
-
-  for (const check of checks) {
-    const icon = check.pass ? '✅' : '❌';
-    const status = check.pass ? 'PASS' : 'FAIL';
-    console.log(`${icon} ${check.name}: ${check.actual.toFixed(2)}ms / ${check.budget}ms — ${status}`);
-  }
-
-  console.log('');
+  // Single-line GATES output only
 
   if (violations.length > 0) {
-    console.log('❌ Budget violations:');
-    for (const violation of violations) {
-      console.log(`   - ${violation}`);
-    }
-    console.log('');
-    console.log('GATES: FAIL — SLO budget breached');
+    const p95 = slos.engine_get_p95_ms;
+    console.log(`GATES: FAIL — SLO breach (engine_get_p95_ms=${p95} > 600, N=${n})`);
     process.exit(1);
   }
 
-  console.log('GATES: PASS — SLO budgets within limits');
+  const p95 = slos.engine_get_p95_ms;
+  console.log(`GATES: PASS — SLO budgets within limits (engine_get_p95_ms=${p95}, N=${n})`);
   process.exit(0);
 }
 

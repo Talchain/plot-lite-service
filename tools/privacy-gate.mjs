@@ -13,10 +13,10 @@
  * Exit 1 = FAIL (sensitive data logged)
  */
 
-import { readFileSync, readdirSync, statSync } from 'fs';
+import { readFileSync, readdirSync, statSync, createWriteStream, existsSync } from 'fs';
 import { resolve, dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { execSync } from 'child_process';
+import { spawn } from 'child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -97,20 +97,82 @@ function scanSourceFiles() {
  * Runtime check: Start server and send test requests
  * Capture logs and check for sensitive data
  */
-function runtimeCheck() {
-  console.log('🔍 Runtime privacy check (simulated)...');
-  
-  // For now, this is a placeholder
-  // Full implementation would:
-  // 1. Start server with log capture
-  // 2. Send /v1/run with known graph payload
-  // 3. Parse logs for graph structure or node IDs
-  // 4. Fail if any sensitive fields detected
-  
-  // TODO: Implement when we have log capture infrastructure
-  console.log('   ⏭️  Runtime check not yet implemented (requires log capture)');
-  
-  return { violations: [], skipped: true };
+async function runtimeCheck() {
+  const PORT = 4331;
+  const HOST = '127.0.0.1';
+  const BASE = `http://${HOST}:${PORT}`;
+
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+  async function waitForHealth(timeoutMs = 5000) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      try {
+        const res = await fetch(`${BASE}/v1/health`);
+        if (res.ok) return true;
+      } catch {}
+      await sleep(100);
+    }
+    return false;
+  }
+
+  // Start server with stdout/stderr piped to a log file
+  const logPath = `/tmp/engine-privacy-${PORT}.log`;
+  const child = spawn('node', ['dist/main.js'], {
+    env: {
+      ...process.env,
+      TEST_ROUTES: '1',
+      AUTH_ENABLED: '0',
+      PORT: String(PORT),
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const stream = createWriteStream(logPath);
+  child.stdout.pipe(stream);
+  child.stderr.pipe(stream);
+
+  const healthy = await waitForHealth(8000);
+  if (!healthy) {
+    try { child.kill(); } catch {}
+    return { violations: ['engine failed to start'], events: 0, skipped: false };
+  }
+
+  // Exercise one happy path per route (demo allowed)
+  const requests = [
+    fetch(`${BASE}/v1/health`),
+    fetch(`${BASE}/v1/version`),
+    fetch(`${BASE}/v1/run?demo=1`, { method: 'POST' }),
+    fetch(`${BASE}/v1/counterfactual?demo=1`, { method: 'POST' }),
+    fetch(`${BASE}/v1/critique?demo=1`, { method: 'POST' }),
+    fetch(`${BASE}/v1/draft?demo=1`, { method: 'POST' }),
+    fetch(`${BASE}/v1/self-check`),
+  ];
+  await Promise.allSettled(requests);
+
+  // Give logger a moment to flush
+  await sleep(200);
+  try { child.kill(); } catch {}
+  await sleep(200);
+
+  if (!existsSync(logPath)) {
+    return { violations: [], events: 0, skipped: false };
+  }
+  const text = readFileSync(logPath, 'utf8');
+  const lines = text.split('\n').filter(Boolean);
+  const events = lines.length;
+
+  // Very light runtime checks: ensure no obvious graph dumps
+  const runtimeViolations = [];
+  const disallowed = [/\"nodes\":\s*\[/i, /\"edges\":\s*\[/i, /\"graph\"\s*:\s*\{/i];
+  for (const ln of lines) {
+    for (const pat of disallowed) {
+      if (pat.test(ln)) {
+        runtimeViolations.push('graph-like structure logged');
+        break;
+      }
+    }
+  }
+
+  return { violations: runtimeViolations, events, skipped: false };
 }
 
 /**
@@ -136,18 +198,22 @@ async function runPrivacyGate() {
   console.log('✅ No suspicious log statements found\n');
 
   // Phase 2: Runtime check
-  const runtime = runtimeCheck();
+  const runtime = await runtimeCheck();
   
-  if (!runtime.skipped && runtime.violations.length > 0) {
-    console.log(`\n❌ Runtime privacy violations detected:\n`);
-    for (const violation of runtime.violations) {
-      console.log(`   - ${violation}`);
-    }
-    console.log('GATES: FAIL — sensitive payloads in logs');
+  // Single-line GATES output
+  if (runtime.skipped) {
+    console.log('GATES: FAIL — privacy tap missing or 0 events');
     process.exit(1);
   }
-
-  console.log('GATES: PASS — no sensitive payloads in logs');
+  if (!runtime || runtime.events === 0) {
+    console.log('GATES: FAIL — privacy tap missing or 0 events');
+    process.exit(1);
+  }
+  if (runtime.violations.length > 0) {
+    console.log('GATES: FAIL — privacy violations');
+    process.exit(1);
+  }
+  console.log(`GATES: PASS — privacy OK (events=${runtime.events}, violations=0)`);
   process.exit(0);
 }
 

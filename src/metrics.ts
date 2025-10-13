@@ -23,6 +23,11 @@ let idemCacheSize = 0;
 export function setIdemCacheSize(n: number) { idemCacheSize = n; }
 export function getIdemCacheSize(): number { return idemCacheSize; }
 
+// --- Last request timestamp (for health enrichment) ---
+let lastRequestAtISO: string | null = null;
+export function noteLastRequestAt(): void { try { lastRequestAtISO = new Date().toISOString(); } catch { lastRequestAtISO = null; } }
+export function getLastRequestAt(): string | null { return lastRequestAtISO; }
+
 export function recordDurationMs(ms: number) {
   samples.push(ms);
   if (samples.length > MAX_SAMPLES) samples.shift();
@@ -115,3 +120,40 @@ export function recordDraftDurationMs(ms: number) {
   }
 }
 export function getDraftP95History(): number[] { return [...draftP95History]; }
+
+// --- Optional health counters for /v1/health ---
+let stream_rate_limited = 0;           // number of limiter rejections
+let stream_disconnects = 0;            // number of client disconnect events
+let stream_write_backpressure = 0;     // number of write() false occurrences
+
+export function incStreamRateLimited(): void { stream_rate_limited++; }
+export function incStreamDisconnect(): void { stream_disconnects++; }
+export function incStreamWriteBackpressure(): void { stream_write_backpressure++; }
+
+// Only include keys when any metric has been observed to preserve optionality
+export function getStreamHealthExtras(): Partial<Record<'stream_rate_limited' | 'stream_disconnects' | 'stream_write_backpressure', number>> {
+  const out: any = {};
+  if (stream_rate_limited > 0) out.stream_rate_limited = stream_rate_limited;
+  if (stream_disconnects > 0) out.stream_disconnects = stream_disconnects;
+  if (stream_write_backpressure > 0) out.stream_write_backpressure = stream_write_backpressure;
+  return out;
+}
+
+// Test-only reset to keep suites isolated
+export function resetStreamMetrics(): void {
+  if (process.env.NODE_ENV !== 'test') return;
+  stream_rate_limited = 0;
+  stream_disconnects = 0;
+  stream_write_backpressure = 0;
+}
+
+// --- Observability polish: counters and last reload ---
+let json429Count = 0;
+let sse429Count = 0;
+let lastConfigReloadISO: string | null = null;
+export function incJson429Count(): void { json429Count++; }
+export function incSse429Count(): void { sse429Count++; }
+export function getJson429Count(): number { return json429Count; }
+export function getSse429Count(): number { return sse429Count; }
+export function setLastConfigReloadISO(iso: string): void { lastConfigReloadISO = iso; }
+export function getLastConfigReloadISO(): string | null { return lastConfigReloadISO; }

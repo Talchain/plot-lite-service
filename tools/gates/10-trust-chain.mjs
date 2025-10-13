@@ -1,51 +1,54 @@
 #!/usr/bin/env node
 /**
- * Phase 10: Trust chain & policy (pinned versions)
- * - Run: pack-lint → evidence-merge → provenance+SBOM → pack-sign → trust-bundle → trust-verify → trust-policy
- * - Ownership enforced
- * - Licence allow-list: MIT, Apache-2.0, BSD-2/3, ISC, CC0
+ * Phase 10: Trust chain & policy (v0.3.6 hardened)
+ * - Real Ed25519 signatures
+ * - NOASSERTION blocked by default (only with ALLOW_NOASSERTION=1)
+ * - Private key leak detection
+ * - Key fingerprint surfaced
+ * - Bundle completeness check
  */
 
-import { writeFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
+import { writeFileSync, mkdirSync } from 'node:fs';
 
 async function main() {
-  console.log('GATES: Phase 10 — Trust chain & policy');
+  console.log('GATES: Phase 10 — Trust chain & policy (v0.3.6)');
 
-  // Simulated trust chain (would use @olumi tools in production)
-  const trust_result = {
-    pack_lint: 'PASS',
-    evidence_merge: 'PASS',
-    ownership: 'ENFORCED',
-    provenance: 'VERIFIED',
-    sbom: 'GENERATED',
-    signatures: 'VERIFIED',
-    licences: 'OK',
-    allowed_licences: ['MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'ISC', 'CC0-1.0'],
-    violations: [],
-  };
+  mkdirSync('reports/policy', { recursive: true });
 
-  // Write trust bundle
-  const bundle = {
-    schema: 'trust-bundle.v1',
-    status: 'GREEN',
-    checks: trust_result,
-    timestamp: new Date().toISOString(),
-  };
+  try {
+    // 1. Generate keys if needed
+    execSync('node tools/trust-keygen.mjs --out out/keys', { stdio: 'inherit' });
 
-  writeFileSync('out/trust-bundle.json', JSON.stringify(bundle, null, 2), 'utf8');
+    // 2. Sign pack
+    execSync('node tools/trust-sign.mjs --out out/signatures.json', { stdio: 'inherit' });
 
-  console.log(`GATES: PASS — trust GREEN (merge OK, signatures verified, licences OK)`);
-  process.exit(0);
-}
+    // 3. Generate SBOM
+    execSync('node tools/trust-sbom.mjs --out out/sbom.spdx.json', { stdio: 'inherit' });
 
-main().catch(err => {
-  console.error('GATES: FAIL — trust-chain:', err.message);
-  import('node:fs').then(({ writeFileSync }) => {
+    // 4. Audit licences (NOASSERTION blocked unless ALLOW_NOASSERTION=1)
+    execSync('node tools/trust-audit.mjs --out reports/policy/licences.json', { stdio: 'inherit' });
+
+    // 5. Check for key leakage
+    execSync('node tools/trust-key-leak-check.mjs', { stdio: 'inherit' });
+
+    // 6. Create bundle with completeness check
+    execSync('node tools/trust-bundle.mjs --out out/trust.bundle.json', { stdio: 'inherit' });
+
+    // 7. Verify signatures and licences
+    execSync('node tools/trust-verify.mjs out', { stdio: 'inherit' });
+
+    console.log('GATES: PASS — trust chain complete (Ed25519, no leaks, complete bundle)');
+    process.exit(0);
+  } catch (err) {
+    console.error(`GATES: FAIL — trust-chain: ${err.message}`);
     writeFileSync('reports/diag/10-trust-chain.json', JSON.stringify({
       phase: '10-trust-chain',
       error: err.message,
       timestamp: new Date().toISOString(),
     }, null, 2));
-  });
-  process.exit(1);
-});
+    process.exit(1);
+  }
+}
+
+main();

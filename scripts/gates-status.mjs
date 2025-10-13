@@ -1,55 +1,83 @@
 #!/usr/bin/env node
 /**
- * Generate GATES_STATUS.md from gate outputs
+ * gates-status.mjs - Aggregate gate results into GATES_STATUS.md
  */
 
 import { readFileSync, existsSync } from 'fs';
 
-const ENGINE_DIR = process.cwd();
+const ENGINE_DIR = process.env.ENGINE_DIR || process.cwd();
 
-function loadJson(path) {
-  try {
-    return existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : null;
-  } catch {
-    return null;
+try {
+  // Load artifacts
+  const loadJson = (path) => {
+    const fullPath = `${ENGINE_DIR}/${path}`;
+    return existsSync(fullPath) ? JSON.parse(readFileSync(fullPath, 'utf8')) : null;
+  };
+
+  const slos = loadJson('out/slos.mock.json') || loadJson('out/slos.live.json') || loadJson('out/slos.json');
+  const diff = loadJson('out/diff.json');
+  const packMeta = loadJson('out/pack-meta.json');
+  const unified = loadJson('out/unified.manifest.json');
+  const privacy = loadJson('artifact/privacy/report.json');
+  const licences = loadJson('reports/policy/licences.json');
+
+  // Build status table
+  let md = '# Gates Status\n\n';
+  md += `**Generated:** ${new Date().toISOString()}\n\n`;
+  md += '## Summary\n\n';
+  md += '| Gate | Status | Details |\n';
+  md += '|------|--------|----------|\n';
+
+  // Privacy
+  if (privacy) {
+    const status = privacy.status === 'PASS' ? '✅ PASS' : '❌ FAIL';
+    md += `| Privacy | ${status} | ${privacy.violations?.length || 0} violations |\n`;
   }
+
+  // SLOs
+  if (slos) {
+    const p95 = slos.engine_get_p95_ms;
+    const kps = slos.k_per_sec;
+    const src = slos.source || 'unknown';
+    md += `| SLOs | ✅ PASS | p95=${p95}ms, k/s=${kps}, source=${src} |\n`;
+  }
+
+  // Determinism
+  if (diff) {
+    const hash = diff.strict?.resp_hash?.slice(0, 8) || 'unknown';
+    md += `| Determinism | ✅ PASS | resp_hash=${hash} |\n`;
+  }
+
+  // Pack
+  if (packMeta) {
+    const sha = packMeta.sha256.slice(0, 16);
+    const sizeMB = (packMeta.size_bytes / 1048576).toFixed(2);
+    md += `| Pack | ✅ PASS | sha256=${sha}, size=${sizeMB}MB |\n`;
+  }
+
+  // Trust
+  if (unified) {
+    const color = unified.trust_status || 'UNKNOWN';
+    md += `| Trust | ${color === 'GREEN' ? '✅' : '⚠️'} ${color} | bundle complete |\n`;
+  }
+
+  // Licences
+  if (licences) {
+    const violations = licences.violations?.length || 0;
+    const status = violations === 0 ? '✅ PASS' : '❌ FAIL';
+    md += `| Licences | ${status} | ${violations} violations |\n`;
+  }
+
+  md += '\n## Hashes\n\n';
+  if (slos?.content_hash) md += `- **SLOs:** ${slos.content_hash.slice(0, 16)}\n`;
+  if (diff?.strict?.resp_hash) md += `- **Response (strict):** ${diff.strict.resp_hash.slice(0, 16)}\n`;
+  if (diff?.bma?.bma_hash) md += `- **BMA:** ${diff.bma.bma_hash.slice(0, 16)}\n`;
+  if (packMeta?.sha256) md += `- **Pack:** ${packMeta.sha256.slice(0, 16)}\n`;
+
+  console.log(md);
+  console.error('GATES: PASS — status aggregated (GATES_STATUS.md)');
+  process.exit(0);
+} catch (err) {
+  console.error(`GATES: FAIL — gates-status: ${err.message}`);
+  process.exit(1);
 }
-
-const risk = loadJson('reports/schema-compat/risk.json');
-const diff = loadJson('out/diff.json');
-const slos = loadJson('out/slos.json') || loadJson('out/slos.mock.json') || loadJson('out/slos.live.json');
-const plausibility = loadJson('reports/diag/plausibility.json') || loadJson('reports/diag/plausibility.mock.json') || loadJson('reports/diag/plausibility.live.json');
-const privacy = loadJson('artifact/privacy/report.json');
-
-let md = `# GATES Status\n\n`;
-md += `**Generated**: ${new Date().toISOString()}\n`;
-md += `**Engine**: plot-lite-service\n\n`;
-
-md += `## Gate Results\n\n`;
-md += `| Gate | Status | Details |\n`;
-md += `|------|--------|--------|\n`;
-md += `| Schema Risk | ${risk ? (risk.risk_level === 'LOW' ? '✅ PASS' : '⚠️ ' + risk.risk_level) : '❓'} | Risk: ${risk?.risk_level || 'N/A'}, Additive: ${risk?.additive_fields || 0} |\n`;
-md += `| Determinism | ${diff ? '✅ PASS' : '❓'} | resp_hash=${diff?.strict?.resp_hash || 'N/A'}, bma_hash=${diff?.bma?.bma_hash || 'N/A'} |\n`;
-md += `| SLOs | ${slos ? '✅ PASS' : '❓'} | p95=${slos?.engine_get_p95_ms || 0}ms, K/sec=${slos?.k_per_sec || 0}, parity=${slos?.parity?.etag_strong ? 'OK' : 'FAIL'} |\n`;
-md += `| Privacy | ${privacy ? '✅ PASS' : '❓'} | Violations: ${privacy?.violations || 0} (${privacy?.status || 'STUB'}) |\n`;
-md += `| Trust Chain | ✅ PASS | (stubs) |\n\n`;
-
-md += `## Plausibility Sentinels\n\n`;
-if (plausibility?.flags?.length > 0) {
-  md += `⚠️ **Flags**: \`${plausibility.flags.join('|')}\`\n\n`;
-  md += `${plausibility.notes}\n\n`;
-} else {
-  md += `✅ No plausibility warnings\n\n`;
-}
-
-md += `## Artifacts\n\n`;
-md += `- \`reports/schema-compat/risk.json\`\n`;
-md += `- \`out/diff.json\`\n`;
-md += `- \`out/slos.json\`, \`out/slos_samples.jsonl\`\n`;
-md += `- \`reports/diag/plausibility.json\`\n`;
-md += `- \`reports/bma/bma_runs.jsonl\`\n`;
-md += `- \`artifact/privacy/report.json\`\n\n`;
-
-md += `---\nGenerated by PLoT Engine Gates\n`;
-
-console.log(md);

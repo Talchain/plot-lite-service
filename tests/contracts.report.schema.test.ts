@@ -32,10 +32,11 @@ describe('Contracts: Report v1 schema', () => {
   it('GET /draft-flows returns schema:"report.v1" and meta.seed', async () => {
     const res = await fetch(`${BASE}/draft-flows?template=pricing_change&seed=101`);
     expect(res.status).toBe(200);
-    const json: any = await res.json();
+    const json: unknown = await res.json();
     const ok = validate(json);
     if (!ok) throw new Error('schema violation: ' + JSON.stringify(validate.errors));
-    expect(json.schema).toBe('report.v1');
-    expect(typeof json.meta?.seed).toBe('number');
+    const obj = json as any;
+    expect(obj.schema).toBe('report.v1');
+    expect(typeof obj.meta?.seed).toBe('number');
   });
 });

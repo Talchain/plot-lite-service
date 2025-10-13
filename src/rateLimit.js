@@ -1,7 +1,10 @@
+import { createHash } from 'node:crypto';
 import { replyWithAppError } from './errors.js';
-const perIp = new Map();
-const LIMIT = Number(process.env.RATE_LIMIT_RPM || process.env.RATE_LIMIT_PER_MIN || 60);
-const MAX_ENTRIES = 10000; // Cap to prevent unbounded growth
+import { incJson429Count } from './metrics.js';
+import { getRateLimitRpm } from './config/runtimeConfig.js';
+import { MAX_RATE_KEYS } from './config/constants.js';
+const perKey = new Map();
+function LIMIT() { return Number(getRateLimitRpm()); }
 // Track 429s per-minute to expose last5m_429 in /health
 const perMinute429 = new Map();
 function record429(now) {
@@ -21,38 +24,40 @@ function last5m429(now) {
         sum += perMinute429.get(m) || 0;
     return sum;
 }
-// Prune old entries to prevent memory leak
-function pruneOldEntries() {
-    const now = Date.now();
+// Prune entries outside the current window and enforce capacity
+function bound() {
+    const env = Number(process.env.MAX_RATE_KEYS || '');
+    return Number.isFinite(env) && env > 0 ? env : MAX_RATE_KEYS;
+}
+function pruneAndEnforceCapacity(now) {
     const currentMinute = Math.floor(now / 60000);
-    const cutoff = currentMinute - 2; // Keep current + 1 previous minute
-    let pruned = 0;
-    for (const [key, state] of perIp) {
-        // Split from right to handle IPv6 addresses (which contain multiple colons)
-        const lastColonIndex = key.lastIndexOf(':');
-        const keyMinute = parseInt(key.substring(lastColonIndex + 1));
-        if (keyMinute < cutoff) {
-            perIp.delete(key);
-            pruned++;
+    // Remove windows older than previous minute
+    for (const [k, s] of perKey) {
+        if (s.windowMinute < currentMinute - 1)
+            perKey.delete(k);
+    }
+    // Enforce capacity only if over bound
+    const cap = bound();
+    if (perKey.size > cap) {
+        const excess = perKey.size - cap;
+        // Evict by oldest resetAt (oldest windows first)
+        const arr = Array.from(perKey.entries());
+        arr.sort((a, b) => a[1].resetAt - b[1].resetAt);
+        for (let i = 0; i < excess; i++) {
+            const [k] = arr[i];
+            perKey.delete(k);
         }
     }
-    // Cap enforcement: drop oldest entries if over limit
-    if (perIp.size > MAX_ENTRIES) {
-        const sorted = Array.from(perIp.entries())
-            .sort((a, b) => a[1].resetAt - b[1].resetAt);
-        const toDrop = sorted.slice(0, perIp.size - MAX_ENTRIES);
-        toDrop.forEach(([key]) => perIp.delete(key));
-        pruned += toDrop.length;
-    }
-    return pruned;
 }
-// Periodic cleanup to prevent memory leak (runs every minute)
-// Use .unref() to allow process to exit when only this timer is active
-setInterval(pruneOldEntries, 60000).unref();
+// Periodic cleanup to prevent memory leak (runs every minute); unref'd
+setInterval(() => { try {
+    pruneAndEnforceCapacity(Date.now());
+}
+catch { } }, 60000).unref();
 export async function rateLimit(req, reply) {
     // Opportunistic pruning (1% of requests to avoid overhead)
     if (Math.random() < 0.01) {
-        pruneOldEntries();
+        pruneAndEnforceCapacity(Date.now());
     }
     const ENABLED = process.env.RATE_LIMIT_ENABLED !== '0';
     if (!ENABLED)
@@ -62,39 +67,109 @@ export async function rateLimit(req, reply) {
     if (req.method === 'GET' && (url.startsWith('/health') || url.startsWith('/ready') || url.startsWith('/live') || url.startsWith('/version') || url.startsWith('/ops/snapshot'))) {
         return;
     }
-    const ip = req.ip || 'unknown';
+    // Normalize IPv6/loopback variants for stable bucketing
+    const normalizeIp = (ip) => {
+        const s = String(ip || 'unknown');
+        if (s === '::1')
+            return '127.0.0.1';
+        if (s.startsWith('::ffff:'))
+            return s.slice(7);
+        return s;
+    };
+    const ip = normalizeIp(req.ip);
     const now = Date.now();
     const minute = Math.floor(now / 60000);
-    const key = `${ip}:${minute}`;
-    let s = perIp.get(key);
-    if (!s) {
-        s = { count: 1, resetAt: (minute + 1) * 60000 };
-        perIp.set(key, s);
-        // set 2xx rate-limit headers for allowed request
-        reply.header('X-RateLimit-Limit', String(LIMIT));
-        reply.header('X-RateLimit-Remaining', String(Math.max(0, LIMIT - s.count)));
-        return;
+    const methodRaw = String(req.method || 'GET').toUpperCase();
+    // Treat HEAD like GET for bucketization to avoid behavior drift
+    const method = methodRaw === 'HEAD' ? 'GET' : methodRaw;
+    // Bucketize by method + top-level route (e.g., POST:/v1/run)
+    const pathOnly = String(url || '').split('?')[0];
+    const segs = pathOnly.split('/').filter(Boolean);
+    const bucketPath = (segs.length >= 2 && segs[0] === 'v1') ? `/v1/${segs[1]}` : (pathOnly || '/');
+    // IPv6-safe: hash the IP to a fixed short token
+    const ipHash = createHash('sha1').update(String(ip)).digest('hex').slice(0, 12);
+    const key = `${ipHash}:${method}:${bucketPath}`;
+    const lim = LIMIT();
+    // Idempotency replay: do not count RPM for POST /v1/run replays
+    try {
+        const path = String(url || '').split('?')[0];
+        if (method === 'POST' && path.startsWith('/v1/run')) {
+            const idk = String((req.headers['idempotency-key'] || req.headers['Idempotency-Key']) || '').trim();
+            if (idk) {
+                const { principalFor, getCached } = await import('./middleware/idempotency.js');
+                const principal = principalFor(req);
+                const hit = getCached(principal, idk);
+                if (hit) {
+                    const curr = perKey.get(key);
+                    reply.header('X-RateLimit-Limit', String(lim));
+                    reply.header('X-RateLimit-Remaining', String(Math.max(0, lim - (curr?.count || 0))));
+                    return; // allow without incrementing count
+                }
+            }
+        }
+    }
+    catch { }
+    let s = perKey.get(key);
+    if (!s || s.windowMinute !== minute) {
+        s = { count: 0, windowMinute: minute, resetAt: (minute + 1) * 60000 };
+        perKey.set(key, s);
+        pruneAndEnforceCapacity(now);
     }
     s.count += 1;
-    if (s.count > LIMIT) {
+    if (s.count > lim) {
         const retryMs = Math.max(1, s.resetAt - now);
         const retrySec = Math.ceil(retryMs / 1000);
         const resetEpoch = Math.ceil(s.resetAt / 1000);
         reply.header('Retry-After', retrySec);
         reply.header('X-RateLimit-Reset', String(resetEpoch));
+        reply.header('X-RateLimit-Reason', 'per_ip');
         record429(now);
+        try {
+            incJson429Count();
+        }
+        catch { }
         return replyWithAppError(reply, { type: 'RATE_LIMIT', statusCode: 429, hint: `Please retry after ${retrySec} seconds` });
     }
     // set 2xx rate-limit headers for allowed request
-    reply.header('X-RateLimit-Limit', String(LIMIT));
-    reply.header('X-RateLimit-Remaining', String(Math.max(0, LIMIT - s.count)));
+    reply.header('X-RateLimit-Limit', String(lim));
+    reply.header('X-RateLimit-Remaining', String(Math.max(0, lim - s.count)));
 }
 export function rateLimitState() {
     const enabled = process.env.RATE_LIMIT_ENABLED !== '0';
     const now = Date.now();
     return {
         enabled,
-        rpm: LIMIT,
+        rpm: LIMIT(),
         last5m_429: last5m429(now),
     };
+}
+// Test-only helper
+export function __rateLimitKeyCount() {
+    return perKey.size;
+}
+// Test-only reset for isolation
+export function __rateLimitReset() {
+    if (process.env.NODE_ENV !== 'test')
+        return;
+    perKey.clear();
+    perMinute429.clear();
+}
+// Test-only: compute bucket key and return current count for a given ip/method/url
+export function __rateLimitBucketCount(ip, method, url) {
+    try {
+        const methodRaw = String(method || 'GET').toUpperCase();
+        const m = methodRaw === 'HEAD' ? 'GET' : methodRaw;
+        const pathOnly = String(url || '').split('?')[0];
+        const segs = pathOnly.split('/').filter(Boolean);
+        const bucketPath = (segs.length >= 2 && segs[0] === 'v1') ? `/v1/${segs[1]}` : (pathOnly || '/');
+        const ipStr = String(ip || 'unknown');
+        const norm = ipStr === '::1' ? '127.0.0.1' : (ipStr.startsWith('::ffff:') ? ipStr.slice(7) : ipStr);
+        const ipHash = createHash('sha1').update(norm).digest('hex').slice(0, 12);
+        const key = `${ipHash}:${m}:${bucketPath}`;
+        const state = perKey.get(key);
+        return state ? state.count : 0;
+    }
+    catch {
+        return -1;
+    }
 }

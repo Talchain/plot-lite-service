@@ -8,21 +8,46 @@ info:
     **Trust Signals**: All /v1 responses include Model Card, Confidence badge, and Explain-Δ.
     
     **Demo Mode**: Add `?demo=1` or header `X-Demo: 1` for deterministic sample payloads.
+    When present, demo mode short-circuits request validation and returns a canonical demo payload.
     
     **Feature Flags**:
     - FEATURE_STREAM=1 enables real SSE /stream route (test-only otherwise)
     - AUTH_ENABLED=1 requires Authorization: Bearer <token> on certain routes
     
     **Legacy Routes**: /draft-flows, /critique, /improve (v0) remain for backwards compatibility.
+  contact:
+    name: PLoT Engine
+    url: https://github.com/Talchain/plot-lite-service
+    email: devnull@talchain.ai
 servers:
   - url: http://127.0.0.1:4311
     description: Local development
   - url: https://api.olumi.ai
     description: Production (future)
+tags:
+  - name: v1
+    description: v1 API group
+  - name: stream
+    description: Streaming endpoints
+  - name: health
+    description: Health and status endpoints
+  - name: meta
+    description: Version and metadata endpoints
+  - name: inference
+    description: Inference endpoints
+  - name: validation
+    description: Validation and critique endpoints
+  - name: ergonomics
+    description: Drafting and UX endpoints
+  - name: legacy
+    description: Legacy endpoints for backwards compatibility
 paths:
   /health:
     get:
       summary: Engine health
+      description: Returns engine health and minimal status for legacy clients.
+      operationId: healthLegacy
+      tags: [health]
       responses:
         '200':
           description: OK
@@ -44,6 +69,9 @@ paths:
   /version:
     get:
       summary: Engine version
+      description: Returns engine version and build metadata for legacy clients.
+      operationId: versionLegacy
+      tags: [meta]
       responses:
         '200':
           description: OK
@@ -62,6 +90,8 @@ paths:
   /draft-flows:
     get:
       summary: Deterministic report for a template+seed
+      operationId: draftFlowsGet
+      tags: [legacy]
       description: |
         Returns a deterministic report.v1 fixture by template and seed.
         Authentication may be required when AUTH_ENABLED=1.
@@ -108,38 +138,107 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/errorV1'
+              examples:
+                unauthorized:
+                  value:
+                    schema: error.v1
+                    code: UNAUTHORIZED
+                    message: Missing bearer token
         '403':
           description: Forbidden
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/errorV1'
-        '404':
-          description: Unknown template or seed
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/errorResponse'
-        '502':
-          description: Retryable upstream error (RETRYABLE)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/errorResponse'
-        '503':
-          description: Retryable upstream error (RETRYABLE)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/errorResponse'
+              examples:
+                forbidden:
+                  value:
+                    schema: error.v1
+                    code: FORBIDDEN
+                    message: Invalid token
   
-  # ========================================
-  # /v1 ENDPOINTS - PLoT Engine v1
-  # ========================================
-  
+  /v1/stream:
+    get:
+      summary: Stream first tokens
+      operationId: streamV1
+      tags: [v1, stream]
+      description: |
+        Streams the first tokens for a run. `?demo=1`  short-circuits validation and returns a canonical deterministic sample.
+      parameters:
+        - in: query
+          name: demo
+          schema: { type: integer, enum: [0,1], default: 0 }
+          description: Enable deterministic demo stream (short-circuit before validation).
+        - in: query
+          name: latency_ms
+          schema: { type: integer, minimum: 0, maximum: 10000, default: 0 }
+          description: Optional sleep to simulate latency (ms).
+      responses:
+        "200":
+          description: Server-Sent Events stream
+          headers:
+            Content-Type:
+              description: SSE content type with charset
+              schema: { type: string, example: 'text/event-stream; charset=utf-8' }
+          content:
+            text/event-stream:
+              schema:
+                $ref: "#/components/schemas/sseEvent"
+          x-examples:
+            sse:
+              description: Example first frames
+              value: |
+                event: hello
+                data: {"schema":"hello.v1","trace_id":"11111111-2222-4333-8444-555555555555"}
+
+                event: token
+                data: {"t":"hello"}
+        "400":
+          description: Bad input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/errorV1"
+        "401":
+          description: Unauthorized (missing/expired token)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/errorV1"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/errorV1"
+        "429":
+          description: Too many concurrent streams
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying
+              schema:
+                oneOf:
+                  - { type: integer, minimum: 0 }
+                  - { type: string }
+            X-RateLimit-Reason:
+              description: Reason for rate limit decision
+              schema: { type: string, enum: [per_ip, global] }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/errorV1"
+              examples:
+                rate_limited:
+                  value:
+                    schema: error.v1
+                    code: RATE_LIMITED
+                    message: Too many streams
   /v1/health:
     get:
       summary: v1 Health endpoint
+      operationId: healthV1
+      description: |
+        Returns engine health and minimal status for v1 clients.
       tags: [v1, health]
       responses:
         '200':
@@ -152,22 +251,42 @@ paths:
                   status: { type: string, enum: [ok] }
                   api_version: { type: string }
                   p95_ms: { type: number }
+                  version: { type: string, description: 'API version string (optional)' }
+                  uptime_s: { type: number, description: 'Process uptime in seconds (optional)' }
+                  last_request_at: { type: string, description: 'ISO timestamp of last observed request (optional)' }
+                  environment: { type: string, description: 'Optional environment name (e.g., staging, prod)' }
+                  build: { type: string, description: 'Optional short build identifier' }
         '401':
           description: Unauthorized
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/errorV1'
+              examples:
+                unauthorized:
+                  value:
+                    schema: error.v1
+                    code: UNAUTHORIZED
+                    message: Missing bearer token
         '403':
           description: Forbidden
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/errorV1'
+              examples:
+                forbidden:
+                  value:
+                    schema: error.v1
+                    code: FORBIDDEN
+                    message: Invalid token
   
   /v1/version:
     get:
       summary: v1 Version and features
+      operationId: versionV1
+      description: |
+        Returns engine version, build metadata, and feature flags for v1 clients.
       tags: [v1, meta]
       responses:
         '200':
@@ -196,20 +315,33 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/errorV1'
+              examples:
+                unauthorized:
+                  value:
+                    schema: error.v1
+                    code: UNAUTHORIZED
+                    message: Missing bearer token
         '403':
           description: Forbidden
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/errorV1'
+              examples:
+                forbidden:
+                  value:
+                    schema: error.v1
+                    code: FORBIDDEN
+                    message: Invalid token
   
   /v1/run:
     post:
       summary: Execute probabilistic model
+      operationId: runV1
       tags: [v1, inference]
       description: |
         Run inference on a causal graph with full trust signals.
-        Demo mode: `?demo=1` returns deterministic sample.
+        Demo mode: `?demo=1` short-circuits validation and returns a canonical deterministic sample.
       parameters:
         - name: demo
           in: query
@@ -219,6 +351,13 @@ paths:
           in: header
           required: false
           schema: { type: string, enum: ['0', '1'] }
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: Optional key to replay the exact prior response within a TTL (scoped per principal)
+          schema:
+            type: string
+            maxLength: 200
       requestBody:
         required: true
         content:
@@ -228,28 +367,84 @@ paths:
       responses:
         '200':
           description: OK
+          headers:
+            Idempotent-Replayed:
+              description: '1 if response is a replay from cache; 0 if computed fresh (when Idempotency-Key provided)'
+              schema: { type: string, enum: ['0','1'] }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/runResponse'
+        '413':
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                too_large:
+                  value:
+                    schema: error.v1
+                    code: BAD_INPUT
+                    message: Request entity too large
+        '429':
+          description: Too many requests (per-minute limit)
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying
+              schema: { type: integer, minimum: 0 }
+            X-RateLimit-Reset:
+              description: Unix epoch seconds when the window resets
+              schema: { type: string }
+            X-RateLimit-Reason:
+              description: Reason for rate limit decision
+              schema: { type: string, enum: [per_ip] }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                rate_limited:
+                  value:
+                    schema: error.v1
+                    code: RATE_LIMITED
+                    message: Too many requests
         '400':
           description: Bad input
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/errorV1'
+              examples:
+                bad_input:
+                  value:
+                    schema: error.v1
+                    code: BAD_INPUT
+                    message: 'Missing required field: graph'
         '401':
           description: Unauthorized
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/errorV1'
+              examples:
+                unauthorized:
+                  value:
+                    schema: error.v1
+                    code: UNAUTHORIZED
+                    message: Missing bearer token
         '403':
           description: Forbidden
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/errorV1'
+              examples:
+                forbidden:
+                  value:
+                    schema: error.v1
+                    code: FORBIDDEN
+                    message: Invalid token
   
   /v1/counterfactual:
     post:
@@ -257,7 +452,7 @@ paths:
       tags: [v1, inference]
       description: |
         Perform counterfactual intervention with trust signals.
-        Demo mode: `?demo=1` returns deterministic sample.
+        Demo mode: `?demo=1` short-circuits validation and returns a canonical deterministic sample.
       parameters:
         - name: demo
           in: query
@@ -282,6 +477,34 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/errorV1'
+              examples:
+                bad_input:
+                  value:
+                    schema: error.v1
+                    code: BAD_INPUT
+                    message: 'Missing required field: graph'
+        '429':
+          description: Too many requests (per-minute limit)
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying
+              schema: { type: integer, minimum: 0 }
+            X-RateLimit-Reset:
+              description: Unix epoch seconds when the window resets
+              schema: { type: string }
+            X-RateLimit-Reason:
+              description: Reason for rate limit decision
+              schema: { type: string, enum: [per_ip] }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                rate_limited:
+                  value:
+                    schema: error.v1
+                    code: RATE_LIMITED
+                    message: Too many requests
         '401':
           description: Unauthorized
           content:
@@ -299,9 +522,10 @@ paths:
     post:
       summary: Model critique with fix suggestions
       tags: [v1, validation]
+      operationId: critiqueV1
       description: |
         Analyse graph structure and return actionable issues.
-        Demo mode: `?demo=1` returns deterministic sample.
+        Demo mode: `?demo=1` short-circuits validation and returns a canonical deterministic sample.
       parameters:
         - name: demo
           in: query
@@ -320,12 +544,52 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/critiqueResponse'
+        '413':
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                too_large:
+                  value:
+                    schema: error.v1
+                    code: BAD_INPUT
+                    message: Request entity too large
+        '429':
+          description: Too many requests (per-minute limit)
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying
+              schema: { type: integer, minimum: 0 }
+            X-RateLimit-Reset:
+              description: Unix epoch seconds when the window resets
+              schema: { type: string }
+            X-RateLimit-Reason:
+              description: Reason for rate limit decision
+              schema: { type: string, enum: [per_ip] }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                rate_limited:
+                  value:
+                    schema: error.v1
+                    code: RATE_LIMITED
+                    message: Too many requests
         '400':
           description: Bad input
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/errorV1'
+              examples:
+                bad_input:
+                  value:
+                    schema: error.v1
+                    code: BAD_INPUT
+                    message: Field parse_json is required
         '401':
           description: Unauthorized
           content:
@@ -343,6 +607,7 @@ paths:
     post:
       summary: Text to model drafting
       tags: [v1, ergonomics]
+      operationId: draftV1
       description: |
         Generate 2-3 starter boards from text description.
         Returns ≤12 node graphs with immediate critique.
@@ -368,36 +633,91 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/draftResponse'
+        '413':
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                too_large:
+                  value:
+                    schema: error.v1
+                    code: BAD_INPUT
+                    message: Request entity too large
+        '429':
+          description: Too many requests (per-minute limit)
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying
+              schema: { type: integer, minimum: 0 }
+            X-RateLimit-Reset:
+              description: Unix epoch seconds when the window resets
+              schema: { type: string }
+            X-RateLimit-Reason:
+              description: Reason for rate limit decision
+              schema: { type: string, enum: [per_ip] }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                rate_limited:
+                  value:
+                    schema: error.v1
+                    code: RATE_LIMITED
+                    message: Too many requests
         '400':
           description: Bad input
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/errorV1'
+              examples:
+                bad_input:
+                  value:
+                    schema: error.v1
+                    code: BAD_INPUT
+                    message: Field description is required
         '401':
           description: Unauthorized
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/errorV1'
+              examples:
+                unauthorized:
+                  value:
+                    schema: error.v1
+                    code: UNAUTHORIZED
+                    message: Missing bearer token
         '403':
           description: Forbidden
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/errorV1'
+              examples:
+                forbidden:
+                  value:
+                    schema: error.v1
+                    code: FORBIDDEN
+                    message: Invalid token
 
 components:
   schemas:
     # v1 error envelope (runtime validation and BAD_INPUT taxonomy)
+    # Note: errorV1 is the shared error envelope across v1 routes
+    # (run/counterfactual/critique/draft/stream/health/version) for
+    # 400/401/403/429 where applicable.
     errorV1:
       type: object
       required: [schema, code, message]
       properties:
         schema:
           type: string
-          const: error.v1
-        code: { type: string, enum: [BAD_INPUT, UNAUTHORIZED, FORBIDDEN, INTERNAL] }
+          enum: [error.v1]
+        code: { type: string, enum: [BAD_INPUT, UNAUTHORIZED, FORBIDDEN, RATE_LIMITED, INTERNAL] }
         message: { type: string }
         path:
           type: array
@@ -566,13 +886,18 @@ components:
         model_card: { $ref: '#/components/schemas/modelCard' }
         confidence: { $ref: '#/components/schemas/confidenceBadge' }
         linearity_warning: { type: object }
-        threshold_crossings: { type: array }
+        threshold_crossings:
+          type: array
+          items: { type: object }
         fork_suggestions: { type: object }
         critique:
           type: array
           items: { $ref: '#/components/schemas/critiqueItem' }
         explain_delta: { $ref: '#/components/schemas/explainDelta' }
         identifiability: { type: string }
+        trace_id:
+          type: string
+          description: 'Optional client-provided trace identifier echoed from X-Trace-Id when TRACE_ID_PASSTHROUGH=1; may also be present when TRACE_MIN=1'
     
     counterfactualRequest:
       type: object
@@ -605,10 +930,9 @@ components:
             counterfactual: { type: object }
             delta: { type: object }
             percentage_change:
-              oneOf:
-                - type: string
-                - type: 'null'
-              description: 'Percentage change string or null if baseline is zero'
+              type: string
+              nullable: true
+              description: 'Percentage change string (nullable when baseline is zero)'
         model_card: { $ref: '#/components/schemas/modelCard' }
         confidence: { $ref: '#/components/schemas/confidenceBadge' }
         explain_delta: { $ref: '#/components/schemas/explainDelta' }
@@ -616,6 +940,9 @@ components:
         adjustment_set: 
           type: array
           items: { type: string }
+        trace_id:
+          type: string
+          description: 'Optional client-provided trace identifier echoed from X-Trace-Id when TRACE_ID_PASSTHROUGH=1'
     
     critiqueRequest:
       type: object
@@ -649,6 +976,9 @@ components:
             improvements: { type: integer }
             observations: { type: integer }
             auto_fixable: { type: integer }
+        trace_id:
+          type: string
+          description: 'Optional client-provided trace identifier echoed from X-Trace-Id when TRACE_ID_PASSTHROUGH=1'
     
     draftResponse:
       type: object
@@ -672,3 +1002,6 @@ components:
               simplified: { type: boolean }
         model_card: { $ref: '#/components/schemas/modelCard' }
         usage_hint: { type: string }
+        trace_id:
+          type: string
+          description: 'Optional client-provided trace identifier echoed from X-Trace-Id when TRACE_ID_PASSTHROUGH=1'

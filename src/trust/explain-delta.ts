@@ -13,6 +13,7 @@ export interface ExplainDeltaInputs {
   node_sensitivities?: Map<string, number>; // node_id -> sensitivity (-1 to 1)
   top_n?: number;
   seed?: number; // For deterministic fallback
+  identifiability_method?: 'backdoor' | 'frontdoor' | 'g-formula' | 'unidentifiable';
 }
 
 /**
@@ -129,7 +130,10 @@ export function buildExplainDelta(inputs: ExplainDeltaInputs): ExplainDelta {
 
   // Build summary
   const top_driver_names = top_drivers.map(d => d.node_label).join(', ');
-  const summary = `${magnitude.toFixed(2)} ${direction} driven primarily by: ${top_driver_names}`;
+  let summary = `${magnitude.toFixed(2)} ${direction} driven primarily by: ${top_driver_names}`;
+  if (inputs.identifiability_method) {
+    summary += ` [identifiability: ${inputs.identifiability_method}]`;
+  }
 
   return {
     top_drivers,

@@ -20,7 +20,7 @@ describe('Rate-limit conformance', () => {
 
   beforeAll(async () => {
     child = spawn(process.execPath, ['tools/test-server.js'], {
-      env: { ...process.env, TEST_PORT: PORT, TEST_ROUTES: '1', RATE_LIMIT_ENABLED: '1', RATE_LIMIT_RPM: '3' },
+      env: { ...process.env, TEST_PORT: PORT, TEST_ROUTES: '1', RATE_LIMIT_ENABLED: '1', RATE_LIMIT_RPM: '3', TRUST_PROXY: '1' },
       stdio: ['ignore','pipe','pipe']
     });
     child.stdout?.on('data', d => { logs += d.toString(); });
@@ -31,20 +31,20 @@ describe('Rate-limit conformance', () => {
 
   it('GET/HEAD persist headers; 429 has numeric Retry-After and sane X-RateLimit-Reset', async () => {
     // Allowed GET
-    let r = await fetch(`${BASE}/draft-flows?template=pricing_change&seed=101`);
+    let r = await fetch(`${BASE}/draft-flows?template=pricing_change&seed=101`, { headers: { 'X-Forwarded-For': '1.2.3.4' } });
     expect(r.status).toBe(200);
     expect(r.headers.get('x-ratelimit-limit')).toBeTruthy();
     expect(r.headers.get('x-ratelimit-remaining')).toBeTruthy();
 
     // Allowed HEAD should also get headers
-    r = await fetch(`${BASE}/draft-flows?template=pricing_change&seed=101`, { method: 'HEAD' });
+    r = await fetch(`${BASE}/draft-flows?template=pricing_change&seed=101`, { method: 'HEAD', headers: { 'X-Forwarded-For': '1.2.3.4' } });
     expect(r.status).toBe(200);
     expect(r.headers.get('x-ratelimit-limit')).toBeTruthy();
     expect(r.headers.get('x-ratelimit-remaining')).toBeTruthy();
 
     // Exhaust quickly to induce 429
-    await fetch(`${BASE}/draft-flows?template=pricing_change&seed=101`);
-    const limited = await fetch(`${BASE}/draft-flows?template=pricing_change&seed=101`);
+    await fetch(`${BASE}/draft-flows?template=pricing_change&seed=101`, { headers: { 'X-Forwarded-For': '1.2.3.4' } });
+    const limited = await fetch(`${BASE}/draft-flows?template=pricing_change&seed=101`, { headers: { 'X-Forwarded-For': '1.2.3.4' } });
     expect(limited.status).toBe(429);
     const ra = Number(limited.headers.get('retry-after') || '0');
     expect(Number.isFinite(ra) && ra > 0).toBe(true);

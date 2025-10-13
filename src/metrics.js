@@ -18,6 +18,15 @@ eld.enable();
 let idemCacheSize = 0;
 export function setIdemCacheSize(n) { idemCacheSize = n; }
 export function getIdemCacheSize() { return idemCacheSize; }
+// --- Last request timestamp (for health enrichment) ---
+let lastRequestAtISO = null;
+export function noteLastRequestAt() { try {
+    lastRequestAtISO = new Date().toISOString();
+}
+catch {
+    lastRequestAtISO = null;
+} }
+export function getLastRequestAt() { return lastRequestAtISO; }
 export function recordDurationMs(ms) {
     samples.push(ms);
     if (samples.length > MAX_SAMPLES)
@@ -115,3 +124,39 @@ export function recordDraftDurationMs(ms) {
     }
 }
 export function getDraftP95History() { return [...draftP95History]; }
+// --- Optional health counters for /v1/health ---
+let stream_rate_limited = 0; // number of limiter rejections
+let stream_disconnects = 0; // number of client disconnect events
+let stream_write_backpressure = 0; // number of write() false occurrences
+export function incStreamRateLimited() { stream_rate_limited++; }
+export function incStreamDisconnect() { stream_disconnects++; }
+export function incStreamWriteBackpressure() { stream_write_backpressure++; }
+// Only include keys when any metric has been observed to preserve optionality
+export function getStreamHealthExtras() {
+    const out = {};
+    if (stream_rate_limited > 0)
+        out.stream_rate_limited = stream_rate_limited;
+    if (stream_disconnects > 0)
+        out.stream_disconnects = stream_disconnects;
+    if (stream_write_backpressure > 0)
+        out.stream_write_backpressure = stream_write_backpressure;
+    return out;
+}
+// Test-only reset to keep suites isolated
+export function resetStreamMetrics() {
+    if (process.env.NODE_ENV !== 'test')
+        return;
+    stream_rate_limited = 0;
+    stream_disconnects = 0;
+    stream_write_backpressure = 0;
+}
+// --- Observability polish: counters and last reload ---
+let json429Count = 0;
+let sse429Count = 0;
+let lastConfigReloadISO = null;
+export function incJson429Count() { json429Count++; }
+export function incSse429Count() { sse429Count++; }
+export function getJson429Count() { return json429Count; }
+export function getSse429Count() { return sse429Count; }
+export function setLastConfigReloadISO(iso) { lastConfigReloadISO = iso; }
+export function getLastConfigReloadISO() { return lastConfigReloadISO; }
