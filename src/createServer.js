@@ -11,6 +11,7 @@ import { refreshFromEnv } from './config/runtimeConfig.js';
 import { securityHeadersOnSend } from './middleware/security-headers.js';
 import { replyWithAppError } from './errors.js';
 import inflightPlugin from './plugins/inflight.js';
+import { noteLastRequestAt, recordDurationMs, recordStatus, recordDraftDurationMs, recordReplayStatus, recordReplayRefusal, recordReplayRetry, p95Ms, p99Ms, eventLoopDelayMs, snapshot, replaySnapshot, streamStarted, streamDone, streamLimited, incCurrentStreams, decCurrentStreams, noteHeartbeat, getStreamCounters, getDraftP95History, getCurrentStreams, getLastHeartbeatMs, setIdemCacheSize, } from './metrics.js';
 export async function createServer(opts = {}) {
     const idemCache = new Map();
     const IDEM_TTL_MS = 10 * 60 * 1000;
@@ -38,11 +39,10 @@ export async function createServer(opts = {}) {
             }
         }
         // update cache gauge
-        (async () => { try {
-            const { setIdemCacheSize } = await import('./metrics.js');
+        try {
             setIdemCacheSize(idemCache.size);
         }
-        catch { } })();
+        catch { }
     }
     function getForcedError(req) {
         const header = req.headers['x-debug-force-error'];
@@ -190,7 +190,6 @@ export async function createServer(opts = {}) {
     app.addHook('onRequest', async (req) => {
         req.startTime = process.hrtime.bigint();
         try {
-            const { noteLastRequestAt } = await import('./metrics.js');
             noteLastRequestAt();
         }
         catch { }
@@ -229,7 +228,6 @@ export async function createServer(opts = {}) {
         })();
         if (typeof durationMs === 'number') {
             try {
-                const { recordDurationMs, recordStatus, recordDraftDurationMs } = await import('./metrics.js');
                 recordDurationMs(durationMs);
                 recordStatus(reply.statusCode);
                 if (route?.startsWith('/draft-flows'))
@@ -240,7 +238,6 @@ export async function createServer(opts = {}) {
         // Update replay lastStatus/lastTs for /draft-flows responses
         if (route?.startsWith('/draft-flows')) {
             try {
-                const { recordReplayStatus } = await import('./metrics.js');
                 const status = reply.statusCode >= 200 && reply.statusCode < 300 ? 'ok' : 'fail';
                 recordReplayStatus(status);
             }
@@ -279,7 +276,7 @@ export async function createServer(opts = {}) {
         return new Date().toISOString();
     }
     app.get('/health', async () => {
-        const { p95Ms, p99Ms, eventLoopDelayMs, snapshot, replaySnapshot } = await import('./metrics.js');
+        // Metrics already imported statically
         const { rateLimitState } = await import('./rateLimit.js');
         const mem = process.memoryUsage();
         const base = {
@@ -641,7 +638,6 @@ export async function createServer(opts = {}) {
                 idemCache.set(getCacheKey(idem.key, idem.bodyHash), { bodyHash: idem.bodyHash, responseText: respText, createdAt: now });
                 purgeExpired(now); // Purge expired and enforce LRU cap
                 try {
-                    const { setIdemCacheSize } = await import('./metrics.js');
                     setIdemCacheSize(idemCache.size);
                 }
                 catch { }
@@ -738,7 +734,6 @@ export async function createServer(opts = {}) {
                 idemCache.set(getCacheKey(idem.key, idem.bodyHash), { bodyHash: idem.bodyHash, responseText: respText, createdAt: now });
                 purgeExpired(now); // Purge expired and enforce LRU cap
                 try {
-                    const { setIdemCacheSize } = await import('./metrics.js');
                     setIdemCacheSize(idemCache.size);
                 }
                 catch { }
@@ -770,13 +765,11 @@ export async function createServer(opts = {}) {
         });
         // Internal replay telemetry — test mode only
         app.get('/internal/replay-status', async (_req, reply) => {
-            const { replaySnapshot } = await import('./metrics.js');
             return reply.code(200).send(replaySnapshot());
         });
         app.post('/internal/replay-report', async (req, reply) => {
             try {
                 const b = req.body || {};
-                const { recordReplayRefusal, recordReplayRetry, recordReplayStatus } = await import('./metrics.js');
                 if (b.refusal)
                     recordReplayRefusal();
                 if (b.retry)
@@ -906,7 +899,6 @@ export async function createServer(opts = {}) {
             reply.hijack();
             // Note: onRequest already incremented inflight
             // endStream must decrement since onResponse won't fire after hijack
-            const { streamStarted, streamDone, streamLimited, incCurrentStreams, decCurrentStreams, noteHeartbeat } = await import('./metrics.js');
             try {
                 streamStarted?.();
             }
@@ -1030,7 +1022,7 @@ export async function createServer(opts = {}) {
     // Metrics endpoint (flag-gated; OFF by default)
     if (process.env.METRICS === '1') {
         app.get('/metrics', async () => {
-            const { getStreamCounters, getDraftP95History, getCurrentStreams, getLastHeartbeatMs } = await import('./metrics.js');
+            // Metrics already imported statically
             const counters = getStreamCounters?.() || { stream_started: 0, stream_done: 0, stream_cancelled: 0, stream_limited: 0, stream_retryable: 0 };
             const last5 = getDraftP95History?.() || [];
             const current_streams = typeof getCurrentStreams === 'function' ? getCurrentStreams() : 0;
