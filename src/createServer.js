@@ -930,13 +930,13 @@ export async function createServer(opts = {}) {
             }
             // Heartbeat timer
             let closed = false;
-            let timer;
+            let hb;
             const endStream = (fn) => {
                 if (closed)
                     return; // Idempotent: prevent double-decrement
                 closed = true;
-                if (timer)
-                    clearInterval(timer);
+                if (hb)
+                    clearInterval(hb);
                 try {
                     reply.raw.end();
                 }
@@ -963,15 +963,22 @@ export async function createServer(opts = {}) {
                 app.log.error({ reqId: req.id, err }, 'SSE stream error');
                 endStream();
             });
-            timer = setInterval(() => {
+            // Leak-safe heartbeat: check socket state before writing
+            hb = setInterval(() => {
                 if (closed)
                     return;
+                // Prevent leak: if socket destroyed or not writable, cleanup and exit
+                if (reply.raw.destroyed || !reply.raw.writable) {
+                    endStream();
+                    return;
+                }
                 writeComment(`ping ts=${Date.now()}`);
                 try {
                     noteHeartbeat?.();
                 }
                 catch { }
             }, hbMs);
+            hb.unref(); // Don't keep process alive
             // Forced limited hook for deterministic testing of backpressure mapping
             if (forceLimit) {
                 writeSse('0', 'limited', { reason: 'backpressure' });

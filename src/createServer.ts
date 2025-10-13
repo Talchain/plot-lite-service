@@ -873,12 +873,12 @@ export async function createServer(opts: ServerOpts = {}) {
 
       // Heartbeat timer
       let closed = false;
-      let timer: NodeJS.Timeout;
+      let hb: NodeJS.Timeout;
 
       const endStream = (fn?: () => void) => {
         if (closed) return; // Idempotent: prevent double-decrement
         closed = true;
-        if (timer) clearInterval(timer);
+        if (hb) clearInterval(hb);
         try { reply.raw.end(); } catch {}
         try { fn?.(); } catch {}
         try { decCurrentStreams?.(); } catch {}
@@ -901,11 +901,18 @@ export async function createServer(opts: ServerOpts = {}) {
         endStream();
       });
 
-      timer = setInterval(() => {
+      // Leak-safe heartbeat: check socket state before writing
+      hb = setInterval(() => {
         if (closed) return;
+        // Prevent leak: if socket destroyed or not writable, cleanup and exit
+        if (reply.raw.destroyed || !reply.raw.writable) {
+          endStream();
+          return;
+        }
         writeComment(`ping ts=${Date.now()}`);
         try { noteHeartbeat?.(); } catch {}
       }, hbMs);
+      hb.unref(); // Don't keep process alive
 
       // Forced limited hook for deterministic testing of backpressure mapping
       if (forceLimit) {
