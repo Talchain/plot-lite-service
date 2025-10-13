@@ -49,14 +49,10 @@ describe('normaliser fuzz (100 trials)', () => {
 
     fc.assert(
       fc.property(
-        // Generate permutations of some arrays and key orders
+        // Generate permutations of key orders only (array permutations are semantic)
         fc.array(fc.constantFrom('schema','meta','graph','results','model_card','confidence','explain_delta'), { minLength: 3, maxLength: 7 }),
-        fc.array(fc.nat(2), { minLength: 0, maxLength: 0 }), // placeholder to force multiple runs
-        fc.shuffle(doc.graph.nodes),
-        fc.shuffle(doc.graph.edges),
-        (topOrder, _noop, nodesPerm, edgesPerm) => {
+        (topOrder) => {
           const mutated: any = { ...doc };
-          mutated.graph = { nodes: nodesPerm, edges: edgesPerm };
           mutated.model_card = reorderKeys(mutated.model_card, ['determinism_note','flags_on','compute_budget','assumptions_summary','seed']);
           const reordered = reorderKeys(mutated, topOrder as string[]);
           const h = sha256Stable(reordered);

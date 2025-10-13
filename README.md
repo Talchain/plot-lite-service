@@ -70,6 +70,15 @@ npm run build
 npm start
 ```
 
+### Deploying
+
+- **Auth in prod**: set `AUTH_ENABLED=1` and configure `AUTH_TOKEN`. Demo bypass is disabled by policy in production environments.
+- **Demo mode (test only)**: `?demo=1` or `X-Demo: 1` is intended for tests and local smoke only. In prod, disable at ingress by stripping `?demo=1` and `X-Demo` headers.
+- **SSE proxies**: ensure no buffering at proxies/CDN:
+  - Forward headers: `Content-Type: text/event-stream; charset=utf-8`, `Cache-Control: no-cache, no-transform`, `X-Accel-Buffering: no`, `Connection: keep-alive`.
+  - Avoid response buffering/compression for SSE paths.
+- **TTFF/flush**: the stream route flushes a first frame immediately to optimise TTFF. Gate tooling measures TTFF in SLOs and GitHub Step Summary.
+
 ## Replay fixtures (determinism harness)
 
 Ensure the server is running, then:
@@ -312,6 +321,57 @@ This repository runs tests on Node 18 and 20. When a run completes, artefacts in
 - `reports/tests.json` (Vitest JSON)
 - `docs/collections/plot-lite.postman.json`
 - `docs/contract-report.html`
+
+## Verification & Gates
+
+- **Local prerequisites**:
+  - Node 20 LTS, npm 10
+  - `zip` (used by `tools/pack-engine.mjs`)
+  - Python 3.x (for the optional Python SDK smoke; the gate auto-detects `python3`→`python`)
+
+- **Refresh provenance**: `npm run pack:engine` creates `artifact/engine_pack_*.zip`, updates `artifact/pack/manifest.json:path` to the current zip (relative path), and writes `artifact/pack/checksums.json` with `{ sha256, size }` entries for `manifest.json` and the zip.
+- **Run verification block locally**:
+
+  ```bash
+  bash -lc 'set -euo pipefail
+  npm run -s build || true
+  vitout=$(npx vitest run \
+    tests/*openapi*test.ts \
+    tests/*stream*test.ts \
+    tests/*health*test.ts \
+    tests/*sdk*test.ts \
+    tests/*trace*test.ts \
+    --reporter=dot || true)
+  printf "%s\n" "$vitout" | grep -E "^[.]+$|FAIL|✖" || true
+  npm run -s pack:engine || true
+  node tools/openapi-lint-gate.mjs           | sed -n "s/^GATES:.*/&/p"
+  node tools/stream-chaos-halfclose-gate.mjs | sed -n "s/^GATES:.*/&/p"
+  node tools/ttff-sample-gate.mjs            | sed -n "s/^GATES:.*/&/p"
+  node tools/sdk-js-smoke.mjs                | sed -n "s/^GATES:.*/&/p" || true
+  node tools/sdk-smoke:python.mjs            | sed -n "s/^GATES:.*/&/p" || true
+  node tools/runtime-consistency-gate.mjs    | sed -n "s/^GATES:.*/&/p"
+  node tools/health-enrich-gate.mjs          | sed -n "s/^GATES:.*/&/p" || true
+  node tools/provenance-gate.mjs             | sed -n "s/^GATES:.*/&/p"
+  out=$(node tools/gates-status.mjs); code=$?; printf "%s\n" "$out" | sed -n "s/^GATES:.*/&/p"; echo "aggregator_exit:$code"'
+  ```
+
+- **Interpreting `GATES:` lines**:
+  - `GATES: PASS — …` indicates the gate passed.
+  - `GATES: FAIL — …` includes a short reason; non-zero exit.
+  - `GATES: SKIP — …` means the gate is not applicable (e.g., missing optional tool). CI required gates must not SKIP.
+
+- **SDK test quickstart**:
+  - JS SDK smoke is covered by `tests/sdk.js.test.ts` and `tools/sdk-js-smoke.mjs`.
+  - Python parity smoke can be added similarly (not required for local quickstart).
+
+## Provenance
+
+- The Evidence Pack contains `artifact/pack/manifest.json`, `artifact/pack/checksums.json`, and the built zip `artifact/engine_pack_*.zip` referenced by `manifest.path` (relative to `artifact/pack/`).
+- `npm run pack:engine` will:
+  - Zip current `artifact/pack/` contents into `artifact/engine_pack_*.zip`.
+  - Update `artifact/pack/manifest.json:path` to the current zip.
+  - Write `artifact/pack/checksums.json` entries with `{ sha256, size }` for `manifest.json` and the current zip, pruning stale zips.
+- The provenance gate validates sha256 and size equality for both files and fails with a precise one-liner.
 ## CI PR Verify Helper
 
 Run CI sanity + PR status comment locally:

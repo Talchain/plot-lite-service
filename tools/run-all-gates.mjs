@@ -1,10 +1,15 @@
 #!/usr/bin/env node
 /**
  * Unified Gate Runner (Track G)
- * 
+ *
+ * Full CI gate set — intentionally heavier and more exhaustive than the
+ * dev-fast rollup in tools/gates-status.mjs. The two lists differ by design:
+ * - gates-status.mjs: quick local signal, single-line GATES per tool, fast
+ * - run-all-gates.mjs: full CI coverage, may include heavier checks
+ *
  * Runs all CI gates in sequence and reports aggregate status.
  * Designed for CI/CD pipelines with clear pass/fail outcomes.
- * 
+ *
  * Exit 0 = ALL PASS
  * Exit 1 = ANY FAIL
  */

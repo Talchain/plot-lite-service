@@ -1,5 +1,6 @@
 import { createServer } from './createServer.js';
 import { validateEnv } from './config-validator.js';
+import { loadFromFile } from './config/runtimeConfig.js';
 
 const PORT = Number(process.env.PORT || 4311);
 const HOST = '0.0.0.0';
@@ -22,6 +23,18 @@ async function start() {
 
   await app.listen({ port: PORT, host: HOST });
   app.log.info({ port: PORT }, 'server started');
+
+  // Hot-reload knobs on SIGHUP (safe subset)
+  process.on('SIGHUP', () => {
+    try {
+      const cfg = loadFromFile('artifact/runtime-config.json');
+      app.log.info({ cfg }, 'runtime-config reloaded');
+      // Record last successful reload timestamp
+      (async () => { try { const { setLastConfigReloadISO } = await import('./metrics.js'); setLastConfigReloadISO(new Date().toISOString()); } catch {} })();
+    } catch (e: any) {
+      app.log.warn({ err: e?.message || String(e) }, 'runtime-config reload failed');
+    }
+  });
 
   // Health snapshot on SIGUSR2 (ops nicety)
   process.on('SIGUSR2', async () => {

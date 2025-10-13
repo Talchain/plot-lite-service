@@ -9,8 +9,9 @@
  */
 
 import { spawn } from 'node:child_process';
-import { createWriteStream, mkdirSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { createWriteStream, mkdirSync, writeFileSync, readFileSync, copyFileSync, statSync } from 'node:fs';
+import { resolve, join as joinPath } from 'node:path';
+import { createHash } from 'node:crypto';
 
 const PORT = 4321;
 const HOST = '127.0.0.1';
@@ -43,6 +44,7 @@ async function collect() {
       ...process.env,
       TEST_ROUTES: '1',
       AUTH_ENABLED: '0',
+      RATE_LIMIT_ENABLED: '0',
       PORT: String(PORT),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -61,14 +63,15 @@ async function collect() {
     process.exit(1);
   }
 
-  const TARGET = 60;
+  const MIN_OK = 60;
+  const TARGET_OK = 65;
   const WARMUP_DROP = 5;
   const durations = [];
   let successes = 0;
   let attempts = 0;
-  const MAX_ATTEMPTS = 200; // safety cap
+  const MAX_ATTEMPTS = 500; // safety cap
 
-  while (successes < TARGET && attempts < MAX_ATTEMPTS) {
+  while (successes < TARGET_OK && attempts < MAX_ATTEMPTS) {
     attempts++;
     try {
       const t0 = performance.now();
@@ -83,7 +86,7 @@ async function collect() {
     }
   }
 
-  if (successes < 50) {
+  if (successes < MIN_OK) {
     try { child.kill(); } catch {}
     console.error(`perf:collect gathered insufficient samples (N=${successes})`);
     process.exit(1);
@@ -105,6 +108,69 @@ async function collect() {
     },
   };
   writeFileSync(outPath, JSON.stringify(payload, null, 2) + '\n', 'utf8');
+
+  // Write pack artifacts
+  const packDir = resolve(artifactDir, 'pack');
+  mkdirSync(packDir, { recursive: true });
+  const packSlosPath = resolve(packDir, 'slos.json');
+  copyFileSync(outPath, packSlosPath);
+  // checksums.json (for now, include slos only; manifest hash can be added by other tooling)
+  function sha256File(p) {
+    const h = createHash('sha256');
+    h.update(readFileSync(p));
+    return h.digest('hex');
+  }
+  const checksumsPath = resolve(packDir, 'checksums.json');
+  const checksums = { slos_json_sha256: sha256File(packSlosPath) };
+  writeFileSync(checksumsPath, JSON.stringify(checksums, null, 2) + '\n', 'utf8');
+
+  // Now build manifest with exact sizes (including self size via small fixpoint loop)
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const gitSha = String(process.env.GITHUB_SHA || process.env.BUILD_ID || 'dev');
+  const sha7 = gitSha.slice(0, 7);
+  const zipName = `engine_pack_${dateStr}_${sha7}.zip`;
+  const zipPathRel = `artifact/${zipName}`; // relative path as contract allows
+
+  const fileEntriesBase = [
+    { path: 'checksums.json', size_bytes: statSync(joinPath(packDir, 'checksums.json')).size },
+    { path: 'slos.json',      size_bytes: statSync(joinPath(packDir, 'slos.json')).size },
+    // manifest size_bytes to be computed via fixpoint
+  ].sort((a, b) => a.path.localeCompare(b.path));
+
+  const manifestPath = resolve(packDir, 'manifest.json');
+  function clampIsoSeconds(iso) { return iso.replace(/\.\d{3}Z$/, 'Z'); }
+  const createdUtc = clampIsoSeconds(new Date().toISOString());
+  const createdBy = String(process.env.GITHUB_ACTOR || process.env.USER || 'local');
+  const buildEnv = {
+    node: process.version,
+    platform: process.platform,
+  };
+
+  let manifestSize = 0;
+  for (let i = 0; i < 5; i++) {
+    const files = [...fileEntriesBase, { path: 'manifest.json', size_bytes: manifestSize }]
+      .sort((a, b) => a.path.localeCompare(b.path));
+    const manifestObj = {
+      schema: 'pack.manifest.v1',
+      component: 'engine',
+      created_utc: createdUtc,
+      path: zipPathRel,
+      files,
+      meta: {
+        seed: 0,
+        commit: sha7,
+        version: '1.0.0',
+        created_by: createdBy,
+        version_git_sha: gitSha,
+        build_env: buildEnv,
+      },
+    };
+    const txt = JSON.stringify(manifestObj, null, 2) + '\n';
+    const computed = Buffer.byteLength(txt, 'utf8');
+    if (computed === manifestSize) { writeFileSync(manifestPath, txt, 'utf8'); break; }
+    manifestSize = computed;
+    if (i === 4) writeFileSync(manifestPath, txt, 'utf8');
+  }
 
   try { child.kill(); } catch {}
   console.log(`Wrote ${outPath} (engine_get_p95_ms=${Math.round(p95)}, N=${successes})`);

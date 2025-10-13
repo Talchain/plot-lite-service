@@ -114,6 +114,11 @@
     ]
   },
   "identifiability": "Identifiable: Yes. No confounders detected - direct causal effect estimable.",
+  "meta": {
+    "commit": "dev",
+    "seed": 42,
+    "version": "1.0.0"
+  },
   "model_card": {
     "assumptions_summary": [
       "Linear response within ±20% of baseline",
@@ -129,7 +134,7 @@
       "RATE_LIMIT_ENABLED",
       "TEST_ROUTES"
     ],
-    "response_hash": "070d8a02799fd8f6422dc9888ba3c9777b1825b4f9ca0e4f5e50a9875162576b",
+    "response_hash": "dd71e34122fc15e8685168a944ef973661ba8b97403f118fc23462ec7dba236e",
     "seed": 42
   },
   "results": {
@@ -142,11 +147,6 @@
     "optimistic": {
       "outcome": 125
     }
-  },
-  "meta": {
-    "seed": 42,
-    "commit": "dev",
-    "version": "1.0.0"
   },
   "schema": "run.v1"
 }

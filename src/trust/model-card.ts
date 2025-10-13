@@ -33,6 +33,8 @@ export function buildModelCard(options: ModelCardOptions): ModelCard {
       flags_on.push(key);
     }
   }
+  // Stable order for snapshot/hash parity
+  try { flags_on.sort(); } catch {}
 
   // Determinism note
   const determinism_note = seed > 0

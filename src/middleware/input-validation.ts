@@ -10,12 +10,14 @@
  */
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
+import { isDemoMode } from './demo-mode.js';
 
 // Lazy-initialized Ajv validators
 let validateRun: any;
 let validateCounterfactual: any;
 let validateCritique: any;
 let validateDraft: any;
+let validateStreamQuery: any;
 
 // Graph schema with OpenAPI bounds
 const graphSchema = {
@@ -56,6 +58,7 @@ const graphSchema = {
 // /v1/run request schema
 const runRequestSchema = {
   type: 'object',
+  additionalProperties: false,
   required: ['graph'],
   properties: {
     graph: graphSchema,
@@ -64,17 +67,21 @@ const runRequestSchema = {
     treatment_node: { type: 'string', maxLength: 100 },
     outcome_node: { type: 'string', maxLength: 100 },
     baseline_value: { type: 'number', minimum: -1000000, maximum: 1000000 },
+    // Optional inputs object (free-form for PoC)
+    inputs: { type: 'object', additionalProperties: true },
   },
 };
 
 // /v1/counterfactual request schema
 const counterfactualRequestSchema = {
   type: 'object',
+  additionalProperties: false,
   required: ['graph', 'intervention', 'outcome_node'],
   properties: {
     graph: graphSchema,
     intervention: {
       type: 'object',
+      additionalProperties: false,
       required: ['node_id', 'from_value', 'to_value'],
       properties: {
         node_id: { type: 'string', maxLength: 100 },
@@ -91,6 +98,7 @@ const counterfactualRequestSchema = {
 // /v1/critique request schema
 const critiqueRequestSchema = {
   type: 'object',
+  additionalProperties: false,
   required: ['graph'],
   properties: {
     graph: graphSchema,
@@ -108,6 +116,7 @@ const critiqueRequestSchema = {
 // /v1/draft request schema
 const draftRequestSchema = {
   type: 'object',
+  additionalProperties: false,
   required: ['description'],
   properties: {
     description: { type: 'string', minLength: 1, maxLength: 500 },
@@ -122,12 +131,35 @@ async function initValidators() {
   if (validateRun) return; // Already initialized
 
   const AjvCtor = (await import('ajv')).default as any;
-  const ajv = new AjvCtor({ allErrors: true, strict: false });
+  const ajv = new AjvCtor({ allErrors: true, strict: false, useDefaults: true, coerceTypes: true });
 
   validateRun = ajv.compile(runRequestSchema);
   validateCounterfactual = ajv.compile(counterfactualRequestSchema);
   validateCritique = ajv.compile(critiqueRequestSchema);
   validateDraft = ajv.compile(draftRequestSchema);
+  // Stream query schema (strict keys, tolerant types): demo and latency_ms only
+  const streamQuerySchema = {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      demo: {
+        anyOf: [
+          { type: 'integer', enum: [0, 1] },
+          { type: 'boolean' },
+          { type: 'string', enum: ['0', '1', 'true', 'false'] },
+        ],
+        default: 0,
+      },
+      latency_ms: {
+        anyOf: [
+          { type: 'integer', minimum: 0, maximum: 10000 },
+          { type: 'string', pattern: '^(?:[0-9]{1,4}|10000)$' },
+        ],
+        default: 0,
+      },
+    },
+  } as const;
+  validateStreamQuery = ajv.compile(streamQuerySchema);
 }
 
 /**
@@ -161,11 +193,49 @@ function formatValidationErrors(errors: any[]): any {
     paths.push(path);
   }
 
-  return {
+  const out: any = {
     schema: 'error.v1',
     code: 'BAD_INPUT',
     message: messages.join('; '),
     path: paths,
+  };
+  // Additive concise error string for assertions and DX (present in all envs)
+  try { out.error = messages[0] || 'BAD_INPUT'; } catch {}
+  return out;
+}
+
+/**
+ * Query validation middleware factory (for GET routes)
+ */
+export function createQueryValidator(route: 'stream') {
+  return async function validationHandler(req: FastifyRequest, reply: FastifyReply) {
+    await initValidators();
+    const q = (req as any).query || {};
+    switch (route) {
+      case 'stream': {
+        // Demo short-circuit: bypass validation completely
+        try { if (isDemoMode(req)) return; } catch {}
+        // Fast path upper bound: latency_ms ≤ 10000
+        try {
+          const rawUrl = (req.raw?.url ?? (req as any).url ?? '').toString();
+          const i = rawUrl.indexOf('?');
+          if (i !== -1) {
+            const qs = new URLSearchParams(rawUrl.slice(i + 1));
+            const s = qs.get('latency_ms');
+            const v = s == null ? NaN : Number(s);
+            if (Number.isFinite(v) && v > 10000) {
+              return reply.code(400).send({ schema: 'error.v1', code: 'BAD_INPUT', message: 'latency_ms must be ≤ 10000' });
+            }
+          }
+        } catch {}
+        if (!validateStreamQuery(q)) {
+          try { reply.log.warn({ q, errors: validateStreamQuery.errors }, 'stream query validation failed'); } catch {}
+          const errorResponse = formatValidationErrors(validateStreamQuery.errors || []);
+          return reply.code(400).send(errorResponse);
+        }
+        break;
+      }
+    }
   };
 }
 
@@ -179,22 +249,40 @@ export function createValidator(route: 'run' | 'counterfactual' | 'critique' | '
 
     // Select appropriate validator
     let validator: any;
+    // Allowed top-level keys per route for explicit guardrail
+    let allowedKeys: Set<string> = new Set();
     switch (route) {
       case 'run':
         validator = validateRun;
+        allowedKeys = new Set(['graph','seed','k_samples','treatment_node','outcome_node','baseline_value','inputs']);
         break;
       case 'counterfactual':
         validator = validateCounterfactual;
+        allowedKeys = new Set(['graph','intervention','outcome_node','seed','k_samples']);
         break;
       case 'critique':
         validator = validateCritique;
+        allowedKeys = new Set(['graph','assumptions','treatment_node','outcome_node','seed']);
         break;
       case 'draft':
         validator = validateDraft;
+        allowedKeys = new Set(['description','domain']);
         break;
     }
 
     const body = (req as any).body;
+
+    // Explicit top-level additionalProperties guard (defensive, mirrors Ajv schema intent)
+    if (body && typeof body === 'object' && !Array.isArray(body)) {
+      const keys = Object.keys(body);
+      const unknown = keys.filter(k => !allowedKeys.has(k));
+      if (unknown.length > 0) {
+        const errorResponse = formatValidationErrors([
+          { instancePath: '/', keyword: 'additionalProperties', params: { additionalProperty: unknown[0] }, message: `must NOT have additional property '${unknown[0]}'` },
+        ] as any);
+        return reply.code(400).send(errorResponse);
+      }
+    }
 
     if (!validator(body)) {
       const errorResponse = formatValidationErrors(validator.errors || []);

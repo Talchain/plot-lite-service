@@ -1,12 +1,14 @@
 import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import { resolve, join as joinPath } from 'path';
 import { spawnSync } from 'child_process';
 import { createHash } from 'node:crypto';
 import { promises as fsp } from 'node:fs';
 import { rateLimit } from './rateLimit.js';
+import { refreshFromEnv } from './config/runtimeConfig.js';
+import { securityHeadersOnSend } from './middleware/security-headers.js';
 import { replyWithAppError } from './errors.js';
 import inflightPlugin from './plugins/inflight.js';
 import type {} from './types/fastify.js';
@@ -17,6 +19,7 @@ export async function createServer(opts: ServerOpts = {}) {
   type CacheEntry = { bodyHash: string; responseText: string; createdAt: number };
   const idemCache = new Map<string, CacheEntry>();
   const IDEM_TTL_MS = 10 * 60 * 1000;
+  const IDEM_MAX_SIZE = 10;
 
   function getIdempotencyKey(req: any): string | undefined {
     const h = req.headers || {};
@@ -34,6 +37,14 @@ export async function createServer(opts: ServerOpts = {}) {
     for (const [k, v] of idemCache) {
       if (now - v.createdAt > IDEM_TTL_MS) {
         idemCache.delete(k);
+      }
+    }
+    // Enforce LRU cap: remove oldest entries if size exceeds limit
+    if (idemCache.size > IDEM_MAX_SIZE) {
+      const entries = Array.from(idemCache.entries()).sort((a, b) => a[1].createdAt - b[1].createdAt);
+      const toRemove = idemCache.size - IDEM_MAX_SIZE;
+      for (let i = 0; i < toRemove; i++) {
+        idemCache.delete(entries[i][0]);
       }
     }
     // update cache gauge
@@ -67,6 +78,9 @@ export async function createServer(opts: ServerOpts = {}) {
     }
     return true;
   }
+  // Refresh runtime tunables from current env at server creation
+  try { refreshFromEnv(); } catch {}
+
   const app = Fastify({
     logger: {
       level: 'info',
@@ -75,7 +89,18 @@ export async function createServer(opts: ServerOpts = {}) {
     bodyLimit: 128 * 1024,
     requestTimeout: Number(process.env.REQUEST_TIMEOUT_MS || 5000),
     disableRequestLogging: true,
+    trustProxy: process.env.TRUST_PROXY === '1',
   });
+
+  // Guard: prevent test routes in production
+  {
+    const prod = process.env.NODE_ENV === 'production';
+    const testRoutes = process.env.TEST_ROUTES === '1';
+    if (prod && testRoutes) {
+      app.log.error('TEST_ROUTES cannot be enabled in production');
+      throw new Error('TEST_ROUTES cannot be enabled in production');
+    }
+  }
 
   // Register inflight plugin (self-contained: decoration + hooks)
   // Works in all entry points: main.ts, tests, tools
@@ -91,6 +116,18 @@ export async function createServer(opts: ServerOpts = {}) {
       return { inflight: app.inflight.count() };
     });
 
+    // Test-only: rate-limit bucket inspector
+    try {
+      const { __rateLimitBucketCount } = await import('./rateLimit.js');
+      app.get('/__test/rl-bucket', async (req: any, reply) => {
+        const ip = String((req.query?.ip || req.headers['x-forwarded-for'] || req.ip || '') || '');
+        const method = String(req.query?.method || 'GET');
+        const path = String(req.query?.path || '/draft-flows');
+        const n = __rateLimitBucketCount(ip, method, path);
+        return reply.code(200).send({ ip, method, path, count: n });
+      });
+    } catch {}
+
     app.get('/test/inflight_stats', async (req, reply) => {
       if (req.headers['x-test-auth'] !== '1') {
         return reply.code(403).send({ error: 'forbidden' });
@@ -100,7 +137,13 @@ export async function createServer(opts: ServerOpts = {}) {
     });
   }
 
-  await app.register(helmet, { global: true });
+  await app.register(helmet, {
+    global: true,
+    // Do not set JSON-only headers globally; our securityHeadersOnSend handles JSON paths.
+    // This keeps SSE responses free from X-Content-Type-Options and Referrer-Policy etc.
+    contentTypeOptions: false as any,
+    referrerPolicy: false as any,
+  } as any);
   // CORS: closed by default; allow only when CSV envs provided. Dev override remains.
   {
     const originsCsv = (process.env.CORS_ORIGINS || '').trim();
@@ -108,9 +151,12 @@ export async function createServer(opts: ServerOpts = {}) {
       const allow = originsCsv.split(',').map(s => s.trim()).filter(Boolean);
       const hdrsCsv = (process.env.CORS_HEADERS || '').trim();
       const allowedHeaders = hdrsCsv ? hdrsCsv.split(',').map(s => s.trim()).filter(Boolean) : undefined;
-      await app.register(cors, { origin: allow, allowedHeaders });
+      // Expose rate-limit headers for browser access
+      const exposedHeaders = ['Retry-After', 'X-RateLimit-Reset', 'X-RateLimit-Reason'];
+      await app.register(cors, { origin: allow, allowedHeaders, exposedHeaders });
     } else if (process.env.CORS_DEV === '1') {
-      await app.register(cors, { origin: 'http://localhost:5173' });
+      const exposedHeaders = ['Retry-After', 'X-RateLimit-Reset', 'X-RateLimit-Reason'];
+      await app.register(cors, { origin: 'http://localhost:5173', exposedHeaders });
     }
   }
 
@@ -141,7 +187,10 @@ export async function createServer(opts: ServerOpts = {}) {
   }
 
   // Minimal structured access log without bodies
-  app.addHook('onRequest', async (req) => { (req as any).startTime = process.hrtime.bigint(); });
+  app.addHook('onRequest', async (req) => {
+    (req as any).startTime = process.hrtime.bigint();
+    try { const { noteLastRequestAt } = await import('./metrics.js'); noteLastRequestAt(); } catch {}
+  });
   // Echo X-Request-ID on all responses
   app.addHook('onSend', async (req, reply, payload) => {
     try { reply.header('X-Request-ID', String(req.id)); } catch {}
@@ -155,6 +204,8 @@ export async function createServer(opts: ServerOpts = {}) {
     } catch {}
     return payload as any;
   });
+  // JSON-only security headers (SSE exempt via content-type)
+  app.addHook('onSend', securityHeadersOnSend);
   app.addHook('onResponse', async (req, reply) => {
     const start = (req as any).startTime as bigint | undefined;
     const end = process.hrtime.bigint();
@@ -232,7 +283,7 @@ export async function createServer(opts: ServerOpts = {}) {
         idempotency_current: idemCache.size,
       },
       rate_limit: rateLimitState(),
-      test_routes_enabled: process.env.NODE_ENV === 'production' ? false : Boolean(opts.enableTestRoutes || process.env.TEST_ROUTES === '1'),
+      test_routes_enabled: process.env.NODE_ENV === 'production' ? false : (process.env.TEST_ROUTES === '1'),
       replay: replaySnapshot(),
       // Dev-only documentation of defaults for CI drift checks (add-only)
       ...(process.env.NODE_ENV === 'production' ? {} : {
@@ -259,6 +310,83 @@ export async function createServer(opts: ServerOpts = {}) {
     const build = getBuildId();
     return { api: 'warp/0.1.0', build, model: `plot-lite-${build}` };
   });
+
+  // Dev OpenAPI route with strong ETag when OPENAPI_DEV=1 and file exists
+  try {
+    if (process.env.OPENAPI_DEV === '1') {
+      app.get('/openapi.json', async (req: any, reply) => {
+        const override = String(process.env.OPENAPI_SPEC_PATH || '').trim();
+        if (override) {
+          // When override provided, return 500 if missing
+          try {
+            const abs = resolve(process.cwd(), override);
+            if (!existsSync(abs)) {
+              return reply.code(500).send({ error: { type: 'INTERNAL', message: 'OpenAPI spec override not found' } });
+            }
+            // Attempt to read and render; support .json as-is or .yaml/.yml via yaml
+            let buf: Buffer;
+            if (abs.endsWith('.json')) {
+              buf = await fsp.readFile(abs);
+            } else {
+              try {
+                const yaml = await import('yaml');
+                const ytxt = await fsp.readFile(abs, 'utf8');
+                const obj = yaml.parse(ytxt);
+                buf = Buffer.from(JSON.stringify(obj, null, 2) + '\n', 'utf8');
+              } catch (e: any) {
+                return reply.code(500).send({ error: { type: 'INTERNAL', message: 'OpenAPI override parse error' } });
+              }
+            }
+            const etag = '"' + createHash('sha256').update(buf).digest('hex') + '"';
+            const inm = String(req.headers['if-none-match'] || '');
+            reply.header('Content-Type', 'application/json; charset=utf-8');
+            reply.header('Cache-Control', 'no-cache');
+            reply.header('Vary', 'If-None-Match');
+            reply.header('ETag', etag);
+            if (inm && inm === etag) return reply.code(304).send();
+            return reply.code(200).send(buf);
+          } catch {
+            return reply.code(500).send({ error: { type: 'INTERNAL', message: 'OpenAPI override error' } });
+          }
+        }
+        // Fallback: prefer artifact/openapi.json; otherwise render contracts/openapi.yaml in-process
+        try {
+          const openapiJsonPath = resolve(process.cwd(), 'artifact', 'openapi.json');
+          if (existsSync(openapiJsonPath)) {
+            const buf = await fsp.readFile(openapiJsonPath);
+            const etag = '"' + createHash('sha256').update(buf).digest('hex') + '"';
+            const inm = String(req.headers['if-none-match'] || '');
+            reply.header('Content-Type', 'application/json; charset=utf-8');
+            reply.header('Cache-Control', 'no-cache');
+            reply.header('Vary', 'If-None-Match');
+            reply.header('ETag', etag);
+            if (inm && inm === etag) return reply.code(304).send();
+            return reply.code(200).send(buf);
+          }
+          // Render YAML spec to JSON
+          try {
+            const yaml = await import('yaml');
+            const specPath = resolve(process.cwd(), 'contracts', 'openapi.yaml');
+            const ytxt = await fsp.readFile(specPath, 'utf8');
+            const obj = yaml.parse(ytxt);
+            const json = Buffer.from(JSON.stringify(obj, null, 2) + '\n', 'utf8');
+            const etag = '"' + createHash('sha256').update(json).digest('hex') + '"';
+            const inm = String(req.headers['if-none-match'] || '');
+            reply.header('Content-Type', 'application/json; charset=utf-8');
+            reply.header('Cache-Control', 'no-cache');
+            reply.header('Vary', 'If-None-Match');
+            reply.header('ETag', etag);
+            if (inm && inm === etag) return reply.code(304).send();
+            return reply.code(200).send(json);
+          } catch (e) {
+            return reply.code(404).send();
+          }
+        } catch {
+          return reply.code(500).send({ error: { type: 'INTERNAL', message: 'openapi.json read error' } });
+        }
+      });
+    }
+  } catch {}
 
   let fixturesReady = false;
 
@@ -459,8 +587,8 @@ export async function createServer(opts: ServerOpts = {}) {
       const idem = (req as any).__idem as { key: string; bodyHash: string } | undefined;
       if (idem) {
         const now = Date.now();
-        purgeExpired(now);
         idemCache.set(getCacheKey(idem.key, idem.bodyHash), { bodyHash: idem.bodyHash, responseText: respText, createdAt: now });
+        purgeExpired(now); // Purge expired and enforce LRU cap
         try { const { setIdemCacheSize } = await import('./metrics.js'); setIdemCacheSize(idemCache.size); } catch {}
       }
     }
@@ -537,10 +665,10 @@ export async function createServer(opts: ServerOpts = {}) {
       const idem = (req as any).__idem as { key: string; bodyHash: string } | undefined;
       if (idem) {
         const now = Date.now();
-        purgeExpired(now);
         const respText = JSON.stringify(obj);
         reply.header('Content-Type', 'application/json');
         idemCache.set(getCacheKey(idem.key, idem.bodyHash), { bodyHash: idem.bodyHash, responseText: respText, createdAt: now });
+        purgeExpired(now); // Purge expired and enforce LRU cap
         try { const { setIdemCacheSize } = await import('./metrics.js'); setIdemCacheSize(idemCache.size); } catch {}
         return reply.send(respText);
       }
@@ -556,7 +684,7 @@ export async function createServer(opts: ServerOpts = {}) {
   });
 
   // Test-only error injection and internal replay telemetry routes
-  if (opts.enableTestRoutes || process.env.TEST_ROUTES === '1') {
+  if (process.env.TEST_ROUTES === '1') {
     app.post('/__test/force-error', async (req: any, reply) => {
       const t = (req.body?.type || req.query?.type || '').toString().toUpperCase();
       const { errorResponse } = await import('./errors.js');
@@ -802,21 +930,7 @@ export async function createServer(opts: ServerOpts = {}) {
     });
   }
 
-  // Dev-only: serve OpenAPI JSON when OPENAPI_DEV=1 (add-only; off by default)
-  if (process.env.OPENAPI_DEV === '1') {
-    app.get('/openapi.json', async (_req: any, reply) => {
-      try {
-        const { parse } = await import('yaml');
-        const specPath = process.env.OPENAPI_SPEC_PATH || resolve(process.cwd(), 'contracts', 'openapi.yaml');
-        const y = readFileSync(specPath, 'utf8');
-        const obj = parse(y);
-        reply.header('Content-Type', 'application/json');
-        return reply.send(obj);
-      } catch (e: any) {
-        return reply.code(500).send({ error: { type: 'INTERNAL', message: e?.message || 'openapi_error' } });
-      }
-    });
-  }
+  // OpenAPI dev route already registered above with ETag support
 
   // Metrics endpoint (flag-gated; OFF by default)
   if (process.env.METRICS === '1') {
@@ -830,44 +944,28 @@ export async function createServer(opts: ServerOpts = {}) {
     });
   }
 
-  
-
   // Simple global error handler mapping to typed error
   app.setErrorHandler(async (err, req, reply) => {
-    // Map request timeouts to TIMEOUT type
-    const emsg = (err as any)?.message || '';
-    const ecode = (err as any)?.code || '';
-    if (ecode === 'FST_ERR_REQUEST_TIMEOUT' || /timeout/i.test(emsg)) {
-      return replyWithAppError(reply, { type: 'TIMEOUT', statusCode: 504, hint: 'Reduce processing time', devDetail: emsg });
+    const code = (err as any)?.code || '';
+    const emsgRaw = (err as any)?.message || '';
+    const emsg = String(emsgRaw).toLowerCase();
+    // Timeouts
+    if (code === 'FST_ERR_REQUEST_TIMEOUT' || /timeout/i.test(emsgRaw)) {
+      return replyWithAppError(reply, { type: 'TIMEOUT', statusCode: 504, hint: 'Reduce processing time', devDetail: emsgRaw });
     }
-    const type = emsg.includes('body limit') ? 'BAD_INPUT' : 'INTERNAL';
-    return replyWithAppError(reply, { type: type as any, statusCode: type === 'INTERNAL' ? 500 : 400, devDetail: emsg });
+    // Body too large → 413
+    const isBodyTooLarge = (err as any)?.statusCode === 413
+      || code.includes('BODY_TOO_LARGE')
+      || emsg.includes('body limit')
+      || emsg.includes('payload too large')
+      || emsg.includes('too large');
+    if (isBodyTooLarge) {
+      return replyWithAppError(reply, { type: 'BAD_INPUT', statusCode: 413, message: 'Request entity too large' });
+    }
+    // Fallback INTERNAL
+    const { msg } = await import('./lib/error-messages.js');
+    return replyWithAppError(reply, { type: 'INTERNAL', statusCode: 500, message: msg('INTERNAL_UNEXPECTED') });
   });
-
-  // Optional ops snapshot endpoint
-  if (process.env.OPS_SNAPSHOT === '1') {
-    app.get('/ops/snapshot', async () => {
-      const { p95Ms, p99Ms, eventLoopDelayMs, snapshot } = await import('./metrics.js');
-      const { rateLimitState } = await import('./rateLimit.js');
-      const mem = process.memoryUsage();
-      return {
-        status: 'ok',
-        p95_ms: p95Ms(),
-        ...snapshot(),
-        runtime: {
-          node: process.version,
-          uptime_s: Math.round(process.uptime()),
-          rss_mb: Math.round(mem.rss / 1024 / 1024),
-          heap_used_mb: Math.round(mem.heapUsed / 1024 / 1024),
-          eventloop_delay_ms: eventLoopDelayMs(),
-          p95_ms: p95Ms(),
-          p99_ms: p99Ms(),
-        },
-        caches: { idempotency_current: idemCache.size },
-        rate_limit: rateLimitState(),
-      };
-    });
-  }
 
   // Register /v1 routes (PLoT Engine v1 with trust signals)
   const { registerV1Routes } = await import('./routes/v1/index.js');

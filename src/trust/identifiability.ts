@@ -10,6 +10,7 @@ export interface IdentifiabilityResult {
   summary: string;
   adjustment_set: string[];
   notes: string[];
+  reason?: string;
 }
 
 export interface IdentifiabilityInputs {
@@ -49,6 +50,7 @@ export function checkIdentifiability(inputs: IdentifiabilityInputs): Identifiabi
       summary: 'Identifiable: No',
       adjustment_set: [],
       notes: ['Treatment or outcome node not found in graph'],
+      reason: 'node not found',
     };
   }
 
@@ -77,6 +79,7 @@ export function checkIdentifiability(inputs: IdentifiabilityInputs): Identifiabi
       summary: 'Identifiable: No',
       adjustment_set: [],
       notes: ['No causal path from treatment to outcome'],
+      reason: 'no causal path',
     };
   }
 

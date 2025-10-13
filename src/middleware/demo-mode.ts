@@ -9,18 +9,10 @@ import type { FastifyRequest } from 'fastify';
  * Check if request is in demo mode
  */
 export function isDemoMode(req: FastifyRequest): boolean {
-  // Check query parameter
   const query = (req as any).query || {};
-  if (query.demo === '1' || query.demo === 'true') {
-    return true;
-  }
-
-  // Check header
-  const demo_header = req.headers['x-demo'];
-  if (demo_header === '1' || demo_header === 'true') {
-    return true;
-  }
-
+  const raw = query.demo ?? (req.headers['x-demo'] as any) ?? (req.headers['x-demo-mode'] as any);
+  if (raw === 1 || raw === '1') return true;
+  if (raw === true || raw === 'true') return true;
   return false;
 }
 

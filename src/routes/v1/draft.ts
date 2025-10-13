@@ -17,6 +17,7 @@ export async function registerDraftRoute(app: FastifyInstance) {
   const { createValidator } = await import('../../middleware/input-validation.js');
 
   app.post('/v1/draft', {
+    bodyLimit: 64 * 1024,
     preHandler: [
       async (req: FastifyRequest, reply: FastifyReply) => {
         // Demo mode short-circuit (before Ajv)

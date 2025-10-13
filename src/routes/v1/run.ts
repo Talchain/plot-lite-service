@@ -2,7 +2,7 @@
  * POST /v1/run - Execute probabilistic model with trust signals
  */
 
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { isDemoMode, getDemoSeed } from '../../middleware/demo-mode.js';
 import { getDemoRunResponse } from '../../fixtures/demo-payloads.js';
@@ -27,18 +27,58 @@ export interface RunRequest {
 
 export async function registerRunRoute(app: FastifyInstance) {
   const { createValidator } = await import('../../middleware/input-validation.js');
+  const { principalFor, getCached, setCached, pruneExpired } = await import('../../middleware/idempotency.js');
   
   app.post('/v1/run', {
+    bodyLimit: 96 * 1024,
     preHandler: [
       async (req: FastifyRequest, reply: FastifyReply) => {
         // Demo mode short-circuit (before Ajv)
         if (isDemoMode(req)) {
           const demo_seed = getDemoSeed(req);
-          const payload = getDemoRunResponse(demo_seed);
+          const payload = getDemoRunResponse(demo_seed) as any;
+          if (process.env.TRACE_MIN === '1') {
+            try { payload.trace_id = randomUUID(); } catch {}
+          }
           return reply.code(200).type('application/json').send(payload);
         }
       },
+      // Idempotency replay (before validation)
+      async (req: FastifyRequest, reply: FastifyReply) => {
+        try { if (Math.random() < 0.01) pruneExpired(); } catch {}
+        const idk = String((req.headers as any)['idempotency-key'] || (req.headers as any)['Idempotency-Key'] || '').trim();
+        if (!idk) return;
+        const principal = principalFor(req);
+        const hit = getCached(principal, idk);
+        if (hit) {
+          try { reply.header('Idempotent-Replayed', '1'); } catch {}
+          return reply.code(hit.status).type('application/json').send(hit.body);
+        }
+        // Mark for onSend storage
+        (req as any).__idemp = { principal, idk };
+      },
       createValidator('run'),
+    ],
+    onSend: [
+      async (req: FastifyRequest, reply: FastifyReply, payload: any) => {
+        try {
+          const marker = (req as any).__idemp;
+          if (!marker) return payload;
+          // Only store JSON bodies
+          let body: any = payload;
+          if (typeof payload === 'string') {
+            try { body = JSON.parse(payload); } catch { body = null; }
+          }
+          if (body && typeof body === 'object') {
+            const status = reply.statusCode || 200;
+            setCached(marker.principal, marker.idk, status, body);
+            try { reply.header('Idempotent-Replayed', '0'); } catch {}
+          }
+          return payload;
+        } catch {
+          return payload;
+        }
+      },
     ],
   }, async (req: FastifyRequest, reply: FastifyReply) => {
     // (demo handled in preHandler)
@@ -142,34 +182,31 @@ export async function registerRunRoute(app: FastifyInstance) {
       optimistic: { outcome: baseline_value * 1.25 },
     };
 
-    // Build initial response (without hash)
-    const response = {
-      schema: 'run.v1',
+    // Build response with meta in alphabetical position
+    const base: any = {
+      confidence,
+      critique,
+      explain_delta,
+      graph,
+      identifiability: identifiability.summary,
       meta: {
         seed,
         commit: process.env.BUILD_ID || process.env.GITHUB_SHA || 'dev',
         version: '1.0.0',
       },
-      graph,
-      results,
       model_card,
-      confidence,
-      linearity_warning: linearity_warning.outside_range ? linearity_warning : undefined,
-      threshold_crossings: threshold_crossings.length > 0 ? threshold_crossings : undefined,
-      fork_suggestions,
-      critique,
-      explain_delta,
-      identifiability: identifiability.summary,
+      results,
+      schema: 'run.v1',
     };
-
     // Compute response hash (SHA-256 of normalised payload)
-    const normalised = normaliseReport(response);
+    const normalised = normaliseReport(base);
     const canonical = stableStringify(normalised);
     const response_hash = createHash('sha256').update(canonical, 'utf8').digest('hex');
-
-    // Add hash to model_card for auditability
-    response.model_card.response_hash = response_hash;
-
-    return response;
+    base.model_card.response_hash = response_hash;
+    // Optional trace_id (not included in response_hash)
+    if (process.env.TRACE_MIN === '1') {
+      base.trace_id = randomUUID();
+    }
+    return base;
   });
 }

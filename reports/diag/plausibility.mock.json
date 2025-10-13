@@ -5,12 +5,12 @@
   "violations": 0,
   "checks": {
     "engine_get_p95_ms": {
-      "value": 2,
+      "value": 5,
       "budget": 600,
       "pass": true
     },
     "ttff_p95": {
-      "value": 2,
+      "value": 5,
       "budget": 450,
       "pass": true
     },
@@ -20,5 +20,5 @@
       "pass": true
     }
   },
-  "timestamp": "2025-10-07T09:22:06.188Z"
+  "timestamp": "2025-10-13T12:56:46.009Z"
 }

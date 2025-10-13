@@ -87,6 +87,18 @@ function extractShape(schema) {
 function detectBreakingChanges(oldShape, newShape, path = '') {
   const breaking = [];
 
+  // Helper: JSON Schema 'type' may be string or array of strings; compare as order-insensitive sets
+  function typesEqual(a, b) {
+    const toArr = (x) => Array.isArray(x) ? x.slice().sort() : [x];
+    const aa = toArr(a);
+    const bb = toArr(b);
+    if (aa.length !== bb.length) return false;
+    for (let i = 0; i < aa.length; i++) {
+      if (aa[i] !== bb[i]) return false;
+    }
+    return true;
+  }
+
   // Check removed required fields
   for (const field of oldShape.required || []) {
     if (!newShape.required?.includes(field)) {
@@ -105,8 +117,10 @@ function detectBreakingChanges(oldShape, newShape, path = '') {
       continue;
     }
 
-    if (oldProp.type !== newProp.type) {
-      breaking.push(`${path}.${key}: Type changed from ${oldProp.type} to ${newProp.type}`);
+    if (!typesEqual(oldProp.type, newProp.type)) {
+      const oldT = Array.isArray(oldProp.type) ? oldProp.type.join(',') : String(oldProp.type);
+      const newT = Array.isArray(newProp.type) ? newProp.type.join(',') : String(newProp.type);
+      breaking.push(`${path}.${key}: Type changed from ${oldT} to ${newT}`);
     }
 
     // Check nested objects
