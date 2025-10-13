@@ -143,6 +143,8 @@ export async function createServer(opts: ServerOpts = {}) {
     // This keeps SSE responses free from X-Content-Type-Options and Referrer-Policy etc.
     contentTypeOptions: false as any,
     referrerPolicy: false as any,
+    // Disable Helmet's Cache-Control so we can set it per-route
+    hsts: { maxAge: 63072000, includeSubDomains: true, preload: true },
   } as any);
   // CORS: closed by default; allow only when CSV envs provided. Dev override remains.
   {

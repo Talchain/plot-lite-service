@@ -17,7 +17,7 @@ async function startServer(env: Record<string, string>) {
   const child = spawn(process.execPath, ['tools/test-server.js'], {
     env: { ...process.env, TEST_PORT: port, ...env }, stdio: 'ignore'
   });
-  await waitFor(`http://127.0.0.1:${port}/health`, 5000);
+  await waitFor(`http://127.0.0.1:${port}/v1/health`, 5000);
   return { port, child };
 }
 
