@@ -37,10 +37,8 @@ export function createInflight(): InflightCounter {
       if (process.env.TEST_ROUTES === '1' || process.env.NODE_ENV === 'test') {
         throw new Error(msg);
       } else {
-        // Use console.error here; avoid coupling a logger in this pure util
-        // (server should surface this in Evidence Pack)
-        // eslint-disable-next-line no-console
-        console.error(msg);
+        // Use stderr for visibility; avoid coupling a logger in this pure util
+        process.stderr.write(`${msg}\n`);
       }
       return count;
     }

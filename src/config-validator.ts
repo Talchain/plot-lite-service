@@ -65,9 +65,10 @@ export function validateEnv(): void {
 
   if (errors.length > 0) {
     logger.fatal({ errors, env: process.env.NODE_ENV }, 'Environment validation failed');
-    console.error('\n❌ ENVIRONMENT VALIDATION FAILED:\n');
-    errors.forEach(err => console.error(`  - ${err}`));
-    console.error('\nPlease fix the above errors and restart the server.\n');
+    // Also log to stderr for visibility during startup
+    process.stderr.write('\n❌ ENVIRONMENT VALIDATION FAILED:\n');
+    errors.forEach(err => process.stderr.write(`  - ${err}\n`));
+    process.stderr.write('\nPlease fix the above errors and restart the server.\n');
     process.exit(1);
   }
 

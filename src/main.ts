@@ -14,7 +14,7 @@ async function start() {
 
   if (process.env.NODE_ENV === 'production' && process.env.TEST_ROUTES === '1') {
     // Fail fast before binding any ports
-    console.error('TEST_ROUTES in production – aborting');
+    process.stderr.write('TEST_ROUTES in production – aborting\n');
     process.exit(1);
   }
   // Inflight tracking is now handled by the inflight plugin (registered in createServer)
