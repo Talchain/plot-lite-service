@@ -317,6 +317,16 @@ export async function createServer(opts = {}) {
         };
         return minimal;
     });
+    // Root route for Render health check (returns 200 OK)
+    app.get('/', async () => {
+        const build = getBuildId();
+        return {
+            status: 'ok',
+            service: 'plot-lite-engine',
+            version: build,
+            api: 'warp/0.1.0'
+        };
+    });
     app.get('/version', async () => {
         const build = getBuildId();
         return { api: 'warp/0.1.0', build, model: `plot-lite-${build}` };
