@@ -13,6 +13,7 @@ import { registerSelfCheckRoute } from './self-check.js';
 import { getStreamHealthExtras, p95Ms, snapshot, getLastRequestAt, getJson429Count, getSse429Count, getLastConfigReloadISO } from '../../metrics.js';
 import { registerStreamRoute } from './stream.js';
 import { isDemoMode } from '../../middleware/demo-mode.js';
+import { getIdemStoreSize } from '../../middleware/idempotency.js';
 
 /**
  * Auth preHandler for /v1/* routes
@@ -119,6 +120,8 @@ export async function registerV1Routes(app: FastifyInstance) {
       // Always expose 429 counters as integers
       json_429_count: getJson429Count(),
       sse_429_count: getSse429Count(),
+      // Idempotency cache size for observability
+      idem_cache_size: getIdemStoreSize(),
     } as any;
     // Optional environment/build hints for ops triage
     try {

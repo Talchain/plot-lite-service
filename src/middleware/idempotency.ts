@@ -62,6 +62,18 @@ export function pruneExpired(max = 1000) {
   }
 }
 
+// Background cleanup: prune expired entries every 60s
+setInterval(() => {
+  try {
+    pruneExpired(500);
+  } catch {}
+}, 60000).unref();
+
+// Public size accessor for health endpoint
+export function getIdemStoreSize(): number {
+  return store.size;
+}
+
 // Test-only helper
 export function __idemSize(): number {
   return store.size;
