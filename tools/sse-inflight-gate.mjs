@@ -3,6 +3,7 @@
  * SSE Inflight Balance Gate
  * Opens/closes 100 SSE connections and verifies inflight returns to 0
  */
+import { spawn } from 'node:child_process';
 
 const PORT = process.env.PORT || 4311;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -12,7 +13,7 @@ async function waitForServer(maxMs = 10000) {
   const start = Date.now();
   while (Date.now() - start < maxMs) {
     try {
-      const res = await fetch(`${BASE}/health`);
+      const res = await fetch(`${BASE}/v1/health`);
       if (res.ok) return true;
     } catch {}
     await new Promise(r => setTimeout(r, 100));
@@ -66,10 +67,17 @@ async function getInflightStats() {
 async function runGate() {
   console.log(`🔍 SSE Inflight Balance Gate (${CYCLES} cycles)\n`);
 
-  // Wait for server
+  // Start server
+  const server = spawn(process.execPath, ['dist/main.js'], {
+    env: { ...process.env, PORT: String(PORT), TEST_ROUTES: '1', RATE_LIMIT_ENABLED: '0' },
+    stdio: 'ignore'
+  });
+
+  // Wait for server to be ready
   const ready = await waitForServer();
   if (!ready) {
     console.error('❌ Server not ready\n');
+    try { server.kill('SIGTERM'); } catch {}
     process.exit(1);
   }
 
@@ -139,6 +147,9 @@ async function runGate() {
   console.log(`\n✅ All SSE connections balanced`);
   console.log(`✅ No underflows (strict accounting)`);
   console.log(`\nGATES: PASS — inflight balanced after ${CYCLES} SSE cycles (underflows=0)\n`);
+  
+  // Cleanup server
+  try { server.kill('SIGTERM'); } catch {}
   process.exit(0);
 }
 
