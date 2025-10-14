@@ -97,7 +97,8 @@ async function main() {
     process.exit(1);
   }
 
-  console.log('✅ PASS: No Math.random() or Date.now() found in src/trust/** or src/util/**\n');
+  console.log('✅ PASS: No Math.random() or Date.now() found in src/trust/** or src/util/**');
+  console.log('GATES: PASS — determinism (no Math.random/Date.now in trust/util)\n');
   process.exit(0);
 }
 
