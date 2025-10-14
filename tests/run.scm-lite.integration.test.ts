@@ -172,27 +172,43 @@ describe('POST /v1/run rate-limit parity with SCM-Lite', () => {
   it('returns 429 with proper headers after exceeding rate limit', async () => {
     const { baseUrl } = server;
     
-    const payload = {
+    // Use different seeds to avoid idempotency replay exemption
+    const payload1 = {
       graph: {
         nodes: [{ id: 'A', label: 'A' }, { id: 'B', label: 'B' }],
         edges: [{ from: 'A', to: 'B' }],
       },
-      seed: 42,
+      seed: 1001,
+      outcome_node: 'B',
+    };
+    const payload2 = {
+      graph: {
+        nodes: [{ id: 'A', label: 'A' }, { id: 'B', label: 'B' }],
+        edges: [{ from: 'A', to: 'B' }],
+      },
+      seed: 1002,
+      outcome_node: 'B',
+    };
+    const payload3 = {
+      graph: {
+        nodes: [{ id: 'A', label: 'A' }, { id: 'B', label: 'B' }],
+        edges: [{ from: 'A', to: 'B' }],
+      },
+      seed: 1003,
       outcome_node: 'B',
     };
 
     const headers = { 'Content-Type': 'application/json' };
-    const body = JSON.stringify(payload);
 
-    // First two requests should succeed
-    const r1 = await requestJSON(`${baseUrl}/v1/run`, { method: 'POST', headers, body });
+    // First two requests should succeed (RPM=2)
+    const r1 = await requestJSON(`${baseUrl}/v1/run`, { method: 'POST', headers, body: JSON.stringify(payload1) });
     expect([200, 201]).toContain(r1.status);
 
-    const r2 = await requestJSON(`${baseUrl}/v1/run`, { method: 'POST', headers, body });
+    const r2 = await requestJSON(`${baseUrl}/v1/run`, { method: 'POST', headers, body: JSON.stringify(payload2) });
     expect([200, 201]).toContain(r2.status);
 
     // Third request should hit rate limit
-    const r3 = await requestJSON(`${baseUrl}/v1/run`, { method: 'POST', headers, body });
+    const r3 = await requestJSON(`${baseUrl}/v1/run`, { method: 'POST', headers, body: JSON.stringify(payload3) });
     expect(r3.status).toBe(429);
     
     // Verify 429 headers

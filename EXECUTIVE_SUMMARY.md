@@ -36,7 +36,7 @@ Edge masking with belief probabilities allows practitioners to express uncertain
 | Metric | Target | Actual | Status |
 |--------|--------|--------|--------|
 | Gates | 7/7 | 7/7 | ✅ |
-| Tests | >95% | 98.2% | ✅ |
+| Tests | >95% | 98.2% (280/285) | ✅ |
 | Vulnerabilities | 0 | 0 | ✅ |
 | Performance (12-node) | ≤600ms | 3.25ms | ✅ |
 | Determinism | 10/10 | 10/10 | ✅ |
@@ -147,7 +147,8 @@ SCM_LITE_ENABLE=0  # Immediate rollback
 1. Enable SCM_LITE_ENABLE=1
 2. Monitor engine_p95_ms < 10ms
 3. Verify response_hash stability
-4. Collect user feedback
+4. Validate rate-limiting with different payloads
+5. Collect user feedback
 
 ### Future Enhancements
 - Adaptive K based on graph complexity
