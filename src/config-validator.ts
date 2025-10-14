@@ -63,6 +63,26 @@ export function validateEnv(): void {
     }
   }
 
+  // SCM_LITE validation
+  if (process.env.SCM_LITE_K) {
+    const k = Number(process.env.SCM_LITE_K);
+    if (isNaN(k) || k < 10 || k > 10000) {
+      errors.push(`Invalid SCM_LITE_K: ${process.env.SCM_LITE_K} (must be 10-10000)`);
+    }
+  }
+  if (process.env.SCM_LITE_MAX_NODES) {
+    const max = Number(process.env.SCM_LITE_MAX_NODES);
+    if (isNaN(max) || max < 2 || max > 50) {
+      errors.push(`Invalid SCM_LITE_MAX_NODES: ${process.env.SCM_LITE_MAX_NODES} (must be 2-50)`);
+    }
+  }
+  if (process.env.SCM_LITE_BELIEF_DEFAULT) {
+    const belief = Number(process.env.SCM_LITE_BELIEF_DEFAULT);
+    if (isNaN(belief) || belief < 0 || belief > 1) {
+      errors.push(`Invalid SCM_LITE_BELIEF_DEFAULT: ${process.env.SCM_LITE_BELIEF_DEFAULT} (must be 0-1)`);
+    }
+  }
+
   if (errors.length > 0) {
     logger.fatal({ errors, env: process.env.NODE_ENV }, 'Environment validation failed');
     // Also log to stderr for visibility during startup
