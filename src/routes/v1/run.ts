@@ -15,6 +15,7 @@ import { checkIdentifiability } from '../../trust/identifiability.js';
 import { enforceComputeBudget } from '../../governance/cost-estimator.js';
 import { stableStringify, normaliseReport } from '../../util/canonical-json.js';
 import type { Graph } from '../../trust/types.js';
+import { runSCMLite } from '../../scm-lite/adapter.js';
 
 export interface RunRequest {
   graph: Graph;
@@ -131,8 +132,8 @@ export async function registerRunRoute(app: FastifyInstance) {
       linear_range_percent: 20,
     });
 
-    // Confidence badge
-    const confidence = calculateConfidence({
+    // Confidence badge (may be overridden by SCM-Lite)
+    let confidence = calculateConfidence({
       graph,
       identifiable: identifiability.identifiable,
       in_linear_range: !linearity_warning.outside_range,
@@ -175,12 +176,50 @@ export async function registerRunRoute(app: FastifyInstance) {
       top_n: 3,
     });
 
-    // Simulate results (placeholder - real implementation would run inference)
-    const results = {
-      conservative: { outcome: baseline_value * 1.05 },
-      most_likely: { outcome: current_value },
-      optimistic: { outcome: baseline_value * 1.25 },
-    };
+    // Execute SCM-Lite kernel if enabled, otherwise simulate
+    let results: any;
+    let scm_bma_hash: string | undefined;
+    
+    if (process.env.SCM_LITE_ENABLE === '1') {
+      const scmConfig = {
+        seed,
+        K: Number(process.env.SCM_LITE_K || 256),
+        maxNodes: Number(process.env.SCM_LITE_MAX_NODES || 12),
+        beliefDefault: Number(process.env.SCM_LITE_BELIEF_DEFAULT || 0.7),
+      };
+      
+      const scmResult = runSCMLite(graph, outcome_node, scmConfig);
+      
+      // Map SCM quantiles to results format
+      results = {
+        conservative: { outcome: scmResult.summary.bands.p10 },
+        most_likely: { outcome: scmResult.summary.bands.p50 },
+        optimistic: { outcome: scmResult.summary.bands.p90 },
+      };
+      
+      scm_bma_hash = scmResult.bma_hash;
+      
+      // Override confidence with SCM result
+      const scmLevelMap: Record<string, number> = { low: 0.3, medium: 0.6, high: 0.9 };
+      confidence = {
+        level: scmResult.confidence.toUpperCase() as any,
+        reason: `SCM-Lite kernel (K=${scmConfig.K}, unique_graphs=${scmResult.meta.unique_graphs})`,
+        score: scmLevelMap[scmResult.confidence] || 0.5,
+        factors: {
+          identifiability: identifiability.identifiable ? 1.0 : 0.3,
+          linearity_distance: 1.0,
+          k_coverage: Math.min(scmConfig.K / 1000, 1.0),
+          calibration: scmResult.meta.sign_stability,
+        },
+      };
+    } else {
+      // Simulate results (placeholder - real implementation would run inference)
+      results = {
+        conservative: { outcome: baseline_value * 1.05 },
+        most_likely: { outcome: current_value },
+        optimistic: { outcome: baseline_value * 1.25 },
+      };
+    }
 
     // Build response with meta in alphabetical position
     const base: any = {
@@ -203,6 +242,11 @@ export async function registerRunRoute(app: FastifyInstance) {
     const canonical = stableStringify(normalised);
     const response_hash = createHash('sha256').update(canonical, 'utf8').digest('hex');
     base.model_card.response_hash = response_hash;
+    
+    // Add BMA hash if SCM-Lite was used
+    if (scm_bma_hash) {
+      base.model_card.bma_hash = scm_bma_hash;
+    }
     // Optional trace_id (not included in response_hash)
     if (process.env.TRACE_MIN === '1') {
       base.trace_id = randomUUID();
