@@ -10,7 +10,7 @@ import { registerCounterfactualRoute } from './counterfactual.js';
 import { registerCritiqueRoute } from './critique.js';
 import { registerDraftRoute } from './draft.js';
 import { registerSelfCheckRoute } from './self-check.js';
-import { getStreamHealthExtras, p95Ms, snapshot, getLastRequestAt, getJson429Count, getSse429Count, getLastConfigReloadISO, getLastComputeMs, getEngineP95Ms } from '../../metrics.js';
+import { getStreamHealthExtras, p95Ms, snapshot, getLastRequestAt, getJson429Count, getSse429Count, getLastConfigReloadISO, getLastComputeMs, getEngineP95Ms, getEngineP95MsRolling } from '../../metrics.js';
 import { registerStreamRoute } from './stream.js';
 import { isDemoMode } from '../../middleware/demo-mode.js';
 import { getIdemStoreSize } from '../../middleware/idempotency.js';
@@ -125,6 +125,7 @@ export async function registerV1Routes(app: FastifyInstance) {
       // Engine compute metrics
       last_compute_ms: getLastComputeMs(),
       engine_p95_ms: getEngineP95Ms(),
+      engine_p95_ms_rolling: getEngineP95MsRolling(),
     } as any;
     // Optional environment/build hints for ops triage
     try {

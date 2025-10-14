@@ -83,14 +83,36 @@ async function main() {
   };
   const slosJson = JSON.stringify(slosCanonical, null, 2);
 
+  // Canonical pack-meta.json (commit, build time, flags)
+  const packMeta = {
+    schema: 'pack-meta.v1',
+    commit: git.commit,
+    build_timestamp: new Date().toISOString(),
+    flags: {
+      SCM_LITE_ENABLE: process.env.SCM_LITE_ENABLE || '0',
+      SCM_LITE_K: process.env.SCM_LITE_K || '256',
+      SCM_LITE_MAX_NODES: process.env.SCM_LITE_MAX_NODES || '12',
+      SCM_LITE_BELIEF_DEFAULT: process.env.SCM_LITE_BELIEF_DEFAULT || '0.7',
+    }
+  };
+  const packMetaJson = JSON.stringify(packMeta, null, 2);
+
+  // Load sample report if available (for canonical API response)
+  const reportSample = readJsonIfExists(`${ENGINE_DIR}/out/report_v1.seed42.json`);
+  const reportSampleJson = reportSample ? JSON.stringify(reportSample, null, 2) : null;
+
   // Compute checksums
   const checksums = {
     schema: 'checksums.v1',
     files: {
+      'pack-meta.json': sha256(packMetaJson),
       'manifest.json': sha256(manifestJson),
-      'slos.json': sha256(slosJson)
+      'slos.live.json': sha256(slosJson)
     }
   };
+  if (reportSampleJson) {
+    checksums.files['report_v1.seed42.json'] = sha256(reportSampleJson);
+  }
   const checksumsJson = JSON.stringify(checksums, null, 2);
   checksums.files['checksums.json'] = sha256(checksumsJson);
 
@@ -98,12 +120,21 @@ async function main() {
   const packTmpDir = `${ENGINE_DIR}/out/pack_tmp`;
   mkdirSync(packTmpDir, { recursive: true });
 
-  // Write files in sorted order
+  // Canonical evidence directory
+  const evidenceDir = `${packTmpDir}/evidence`;
+  mkdirSync(evidenceDir, { recursive: true });
+
+  // Write files in sorted order with canonical names
   const files = [
-    { name: 'checksums.json', content: checksumsJson },
+    { name: 'evidence/pack-meta.json', content: packMetaJson },
+    { name: 'evidence/slos.live.json', content: slosJson },
     { name: 'manifest.json', content: manifestJson },
-    { name: 'slos.json', content: slosJson }
-  ].sort((a, b) => a.name.localeCompare(b.name));
+    { name: 'checksums.json', content: checksumsJson }
+  ];
+  if (reportSampleJson) {
+    files.push({ name: 'evidence/report_v1.seed42.json', content: reportSampleJson });
+  }
+  files.sort((a, b) => a.name.localeCompare(b.name));
 
   for (const file of files) {
     writeFileSync(`${packTmpDir}/${file.name}`, file.content, 'utf8');
@@ -139,16 +170,16 @@ async function main() {
   console.log(`GATES: PASS — pack canonical (sha256=${packSha256.slice(0, 16)}...)`);
   console.log(`GATES: PASS — reproducible bundle (byte-stable)`);
 
-  // Write pack metadata with entry list
-  const packMeta = {
-    schema: 'pack-meta.v1',
+  // Write pack pointer with entry list
+  const packPointer = {
+    schema: 'pack-pointer.v1',
     filename: packName,
     sha256: packSha256,
     size_bytes: packBuffer.length,
     entries: files.map(f => f.name).sort(),
     created: new Date().toISOString()
   };
-  writeFileSync(`${ENGINE_DIR}/out/pack-meta.json`, JSON.stringify(packMeta, null, 2), 'utf8');
+  writeFileSync(`${ENGINE_DIR}/out/pack-pointer.json`, JSON.stringify(packPointer, null, 2), 'utf8');
 
   process.exit(0);
 }

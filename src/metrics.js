@@ -164,11 +164,20 @@ export function getLastConfigReloadISO() { return lastConfigReloadISO; }
 const engineSamples = [];
 const ENGINE_MAX_SAMPLES = 100;
 let lastComputeMs = 0;
+let rollingP95Ms = 0; // EWMA-based rolling p95
 export function recordEngineComputeMs(ms) {
     lastComputeMs = ms;
     engineSamples.push(ms);
     if (engineSamples.length > ENGINE_MAX_SAMPLES)
         engineSamples.shift();
+    // Update rolling p95 with EWMA (alpha=0.1 for smooth tracking)
+    const currentP95 = getEngineP95Ms();
+    if (rollingP95Ms === 0) {
+        rollingP95Ms = currentP95; // Initialize
+    }
+    else {
+        rollingP95Ms = 0.1 * currentP95 + 0.9 * rollingP95Ms;
+    }
 }
 export function getLastComputeMs() {
     return lastComputeMs;
@@ -179,4 +188,7 @@ export function getEngineP95Ms() {
     const sorted = [...engineSamples].sort((a, b) => a - b);
     const idx = Math.min(sorted.length - 1, Math.floor(0.95 * (sorted.length - 1)));
     return Math.round(sorted[idx]);
+}
+export function getEngineP95MsRolling() {
+    return Math.round(rollingP95Ms);
 }

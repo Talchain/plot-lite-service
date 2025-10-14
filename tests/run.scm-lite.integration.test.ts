@@ -172,7 +172,8 @@ describe('POST /v1/run rate-limit parity with SCM-Lite', () => {
   it('returns 429 with proper headers after exceeding rate limit', async () => {
     const { baseUrl } = server;
     
-    // Use different seeds to avoid idempotency replay exemption
+    // Different seeds → different idempotency keys.
+    // Replays are exempt from rate limiting by design; identical payloads would bypass 429.
     const payload1 = {
       graph: {
         nodes: [{ id: 'A', label: 'A' }, { id: 'B', label: 'B' }],

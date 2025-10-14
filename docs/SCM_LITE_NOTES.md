@@ -88,7 +88,7 @@ Quantiles computed over all 100 outcomes.
 - **Quality**: Passes BigCrush statistical tests
 - **Portable**: Pure JavaScript, no platform dependencies
 
-### Seed Handling
+### Deterministic RNG
 ```typescript
 const rng = new XorShift128Plus(seed);
 for (let k = 0; k < K; k++) {
@@ -101,6 +101,8 @@ All randomness flows through the seeded RNG, ensuring:
 - **10/10 identical hashes** with same seed (verified in tests)
 - **Reproducible debugging** (replay with same seed)
 - **Audit trails** (seed logged in model_card)
+
+**Rate-limit tests must vary payload (e.g., seed) to avoid idempotency replay exemption.**
 
 ---
 
@@ -279,7 +281,7 @@ if (process.env.SCM_LITE_ENABLE === '1') {
 
 ## Changelog
 
-### v1.0 (2025-01-14)
+### v1.0 (2025-10-14)
 - Initial production release
 - XorShift128+ deterministic RNG
 - Edge masking with Bernoulli sampling

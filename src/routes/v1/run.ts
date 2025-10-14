@@ -215,6 +215,11 @@ export async function registerRunRoute(app: FastifyInstance) {
         },
       };
     } else {
+      // Warn in production when SCM-Lite is disabled
+      if (process.env.NODE_ENV === 'production') {
+        app.log.warn({ feature: 'scm_lite', enabled: false }, 'SCM_LITE disabled — using placeholder results');
+      }
+      
       // Simulate results (placeholder - real implementation would run inference)
       results = {
         conservative: { outcome: baseline_value * 1.05 },
