@@ -79,6 +79,33 @@ npm start
   - Avoid response buffering/compression for SSE paths.
 - **TTFF/flush**: the stream route flushes a first frame immediately to optimise TTFF. Gate tooling measures TTFF in SLOs and GitHub Step Summary.
 
+## Deployments via Render
+
+**Auto-deploy from GitHub** using Render Blueprint (`render.yaml`):
+
+- **Staging** (`plot-lite-service-staging`): Auto-deploys on every merge to `main`
+- **Production** (`plot-lite-service`): Manual deploy only (safer)
+
+### Quick Start
+
+1. **One-time setup**: Connect repo in [Render Dashboard](https://dashboard.render.com/) → New → Blueprint
+2. **Every deploy**: Merge to `main` → Staging auto-deploys in ~2-3 minutes
+3. **Health check**: `https://plot-lite-service-staging.onrender.com/v1/health`
+4. **Feature flag**: `SCM_LITE_ENABLE` (default `0`; enable after validation)
+
+### Validation
+
+```bash
+# Set staging URL and auth token
+export PLOT_STAGING_URL=https://plot-lite-service-staging.onrender.com
+export AUTH_TOKEN=<your-token>
+
+# Run smoke test (health + determinism)
+npm run smoke:staging
+```
+
+**See [docs/RENDER_SETUP.md](./docs/RENDER_SETUP.md) for complete setup guide.**
+
 ## Replay fixtures (determinism harness)
 
 Ensure the server is running, then:

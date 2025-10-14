@@ -52,7 +52,8 @@
     "perf:collect": "node tools/perf-collect.mjs",
     "pack:engine": "node tools/pack-engine.mjs",
     "bench:rollout": "node tools/rollout-bench.mjs",
-    "dev:engine": "node tools/dev-shell.mjs"
+    "dev:engine": "node tools/dev-shell.mjs",
+    "smoke:staging": "node tools/smoke.mjs"
   },
   "keywords": [],
   "author": "",

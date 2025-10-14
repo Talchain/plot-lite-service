@@ -1,0 +1,23 @@
+name: Staging Smoke Test
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    env:
+      PLOT_STAGING_URL: ${{ secrets.PLOT_STAGING_URL }}
+      AUTH_TOKEN: ${{ secrets.PLOT_AUTH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Run staging smoke test
+        run: npm run smoke:staging
