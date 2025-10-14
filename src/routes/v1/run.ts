@@ -16,6 +16,7 @@ import { enforceComputeBudget } from '../../governance/cost-estimator.js';
 import { stableStringify, normaliseReport } from '../../util/canonical-json.js';
 import type { Graph } from '../../trust/types.js';
 import { runSCMLite } from '../../scm-lite/adapter.js';
+import { recordEngineComputeMs } from '../../metrics.js';
 
 export interface RunRequest {
   graph: Graph;
@@ -83,6 +84,7 @@ export async function registerRunRoute(app: FastifyInstance) {
     ],
   }, async (req: FastifyRequest, reply: FastifyReply) => {
     // (demo handled in preHandler)
+    const computeStart = performance.now();
 
     const body = (req as any).body as RunRequest;
 
@@ -251,6 +253,11 @@ export async function registerRunRoute(app: FastifyInstance) {
     if (process.env.TRACE_MIN === '1') {
       base.trace_id = randomUUID();
     }
+    
+    // Record compute time for observability
+    const computeMs = performance.now() - computeStart;
+    recordEngineComputeMs(computeMs);
+    
     return base;
   });
 }

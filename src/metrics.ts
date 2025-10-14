@@ -157,3 +157,25 @@ export function getJson429Count(): number { return json429Count; }
 export function getSse429Count(): number { return sse429Count; }
 export function setLastConfigReloadISO(iso: string): void { lastConfigReloadISO = iso; }
 export function getLastConfigReloadISO(): string | null { return lastConfigReloadISO; }
+
+// --- Engine compute metrics (for /v1/run observability) ---
+const engineSamples: number[] = [];
+const ENGINE_MAX_SAMPLES = 100;
+let lastComputeMs = 0;
+
+export function recordEngineComputeMs(ms: number): void {
+  lastComputeMs = ms;
+  engineSamples.push(ms);
+  if (engineSamples.length > ENGINE_MAX_SAMPLES) engineSamples.shift();
+}
+
+export function getLastComputeMs(): number {
+  return lastComputeMs;
+}
+
+export function getEngineP95Ms(): number {
+  if (engineSamples.length === 0) return 0;
+  const sorted = [...engineSamples].sort((a, b) => a - b);
+  const idx = Math.min(sorted.length - 1, Math.floor(0.95 * (sorted.length - 1)));
+  return Math.round(sorted[idx]);
+}
