@@ -6,6 +6,7 @@ import path from 'node:path';
 
 const host = process.env.PLOT_STAGING_URL || 'https://plot-lite-service-staging.onrender.com';
 const healthUrl = `${host}/v1/health`;
+const versionUrl = `${host}/version`;
 const runUrl = `${host}/v1/run`;
 const fixture = path.join(process.cwd(), 'fixtures', 'golden_seed42_chain3.json');
 
@@ -13,8 +14,23 @@ async function main() {
   console.log(`🔍 Smoke test against: ${host}`);
   console.log('');
 
-  // 1) Health check
-  console.log('1️⃣  Health check...');
+  // 1) Version check
+  console.log('1️⃣  Version check...');
+  const v = await fetch(versionUrl);
+  if (!v.ok) {
+    throw new Error(`Version check failed: ${v.status} ${v.statusText}`);
+  }
+  const vj = await v.json();
+  console.log('   ✅ Version:', {
+    version: vj.version,
+    commit: vj.commit?.substring(0, 8) || 'dev',
+    scm_lite: vj.flags?.scm_lite_enable ? 'ON' : 'OFF',
+    auth: vj.flags?.auth_enabled ? 'ON' : 'OFF',
+  });
+  console.log('');
+
+  // 2) Health check
+  console.log('2️⃣  Health check...');
   const h = await fetch(healthUrl);
   if (!h.ok) {
     throw new Error(`Health check failed: ${h.status} ${h.statusText}`);
@@ -29,8 +45,8 @@ async function main() {
   });
   console.log('');
 
-  // 2) Determinism check (2 quick runs with same seed)
-  console.log('2️⃣  Determinism check (2 runs with same seed)...');
+  // 3) Determinism check (2 quick runs with same seed)
+  console.log('3️⃣  Determinism check (2 runs with same seed)...');
   
   if (!fs.existsSync(fixture)) {
     throw new Error(`Fixture not found: ${fixture}`);

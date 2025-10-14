@@ -332,7 +332,38 @@ export async function createServer(opts = {}) {
     });
     app.get('/version', async () => {
         const build = getBuildId();
-        return { api: 'warp/0.1.0', build, model: `plot-lite-${build}` };
+        // Read version from package.json
+        let version = '1.0.0';
+        try {
+            const pkgPath = resolve(process.cwd(), 'package.json');
+            const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+            version = pkg.version || '1.0.0';
+        }
+        catch { }
+        // Commit hash from environment (Render sets RENDER_GIT_COMMIT)
+        const commit = process.env.RENDER_GIT_COMMIT
+            || process.env.BUILD_GIT_SHA
+            || process.env.GIT_COMMIT
+            || build
+            || 'dev';
+        // Build time from environment (set during build)
+        const build_time_iso = process.env.BUILD_TIME_ISO || new Date().toISOString();
+        // Feature flags
+        const flags = {
+            scm_lite_enable: process.env.SCM_LITE_ENABLE === '1',
+            auth_enabled: process.env.AUTH_ENABLED === '1',
+            rate_limit_enabled: process.env.RATE_LIMIT_ENABLED !== '0',
+        };
+        return {
+            version,
+            commit,
+            build_time_iso,
+            flags,
+            // Legacy fields for backward compatibility
+            api: 'warp/0.1.0',
+            build,
+            model: `plot-lite-${build}`,
+        };
     });
     // Dev OpenAPI route with strong ETag when OPENAPI_DEV=1 and file exists
     try {

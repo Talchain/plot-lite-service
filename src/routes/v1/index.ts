@@ -18,12 +18,22 @@ import { getIdemStoreSize } from '../../middleware/idempotency.js';
 /**
  * Auth preHandler for /v1/* routes
  * Guards all v1 endpoints when AUTH_ENABLED=1
+ * Exempts: /v1/health, /v1/version (observability endpoints)
  */
 async function v1AuthGuard(req: any, reply: any) {
   if (process.env.AUTH_ENABLED !== '1') return;
+  
+  // Exempt health and version endpoints (always accessible for monitoring)
+  const urlStr = String(req.url || '/');
+  try {
+    const u = new URL(urlStr, 'http://local');
+    if (u.pathname === '/v1/health' || u.pathname === '/v1/version') {
+      return; // no auth required
+    }
+  } catch {}
+  
   // Demo bypass ONLY for GET /v1/stream when isDemoMode(req) is true
   try {
-    const urlStr = String(req.url || '/');
     const u = new URL(urlStr, 'http://local');
     const isStream = String(req.method || 'GET').toUpperCase() === 'GET' && u.pathname === '/v1/stream';
     if (isStream && isDemoMode(req)) return; // auth bypass only

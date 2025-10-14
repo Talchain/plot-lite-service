@@ -1,0 +1,15 @@
+{
+  "seed": 4242,
+  "graph": {
+    "nodes": [
+      { "id": "Price", "label": "Price" },
+      { "id": "Demand", "label": "Demand" },
+      { "id": "Revenue", "label": "Revenue" }
+    ],
+    "edges": [
+      { "from": "Price", "to": "Demand", "weight": -0.5, "belief": 0.8 },
+      { "from": "Demand", "to": "Revenue", "weight": 0.8, "belief": 0.9 }
+    ]
+  },
+  "outcome_node": "Revenue"
+}
