@@ -89,8 +89,11 @@ describe('SSE heartbeat ping smoke test', () => {
       }
     } finally {
       try {
+        // Cancel reader first to avoid abort race
+        await reader?.cancel();
+      } catch {}
+      try {
         ac.abort();
-        reader?.cancel();
       } catch {}
     }
     
