@@ -74,7 +74,6 @@ export function getActiveFeatureFlags(): Record<string, string | boolean> {
     TEST_ROUTES: process.env.TEST_ROUTES || '0',
     METRICS: process.env.METRICS || '0',
     IDENT_TAG_ENABLE: process.env.IDENT_TAG_ENABLE || '0',
+    PROVENANCE_ENABLE: process.env.PROVENANCE_ENABLE || '0',
   };
 }
-
-// Add IDENT_TAG_ENABLE to flags (append to existing function)
