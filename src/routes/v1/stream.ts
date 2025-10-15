@@ -5,7 +5,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import { isDemoMode } from '../../middleware/demo-mode.js';
 import { createQueryValidator } from '../../middleware/input-validation.js';
-import { incStreamRateLimited, incStreamDisconnect, incStreamWriteBackpressure } from '../../metrics.js';
+import { incStreamRateLimited, incStreamDisconnect, incStreamWriteBackpressure, incSseOpen, incSseClosed, incSseTimeout } from '../../metrics.js';
 import { incSse429Count } from '../../metrics.js';
 import { getSsePerIpMax, getSseGlobalMax } from '../../config/runtimeConfig.js';
 import { SSE_SLOT_MAX_MS } from '../../config/constants.js';
@@ -86,8 +86,10 @@ export async function registerStreamRoute(app: FastifyInstance) {
     preHandler: [
       // Enforce limiter first (applies to demo and non-demo)
       async (req: FastifyRequest, reply: FastifyReply) => {
+        const reqId = (req as any).id || 'unknown';
         // Rate limit check (applies to demo short-circuit path too)
         const ip = getIp(req);
+        try { incSseOpen(); } catch {}
         const acq = tryAcquire(ip);
         if (!('ok' in acq) || acq.ok === false) {
           try { incStreamRateLimited(); } catch {}
@@ -102,19 +104,22 @@ export async function registerStreamRoute(app: FastifyInstance) {
         let fallbackTimer: NodeJS.Timeout | null = null;
         const releaseOnce = (() => {
           let done = false;
-          return () => {
+          let timedOut = false;
+          return (fromTimeout = false) => {
             if (done) return;
             done = true;
+            if (fromTimeout) { timedOut = true; try { incSseTimeout(); } catch {} }
+            else { try { incSseClosed(); } catch {} }
             try { if (fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null; } } catch {}
             try { release(ip); }
-            catch (err) { try { reply.log?.warn({ err }, 'sse limiter release failed'); } catch {} }
+            catch (err) { try { reply.log?.warn({ err, reqId }, 'sse limiter release failed'); } catch {} }
           };
         })();
         (req.raw as any).on('close', () => { try { incStreamDisconnect(); } catch {} releaseOnce(); });
         (req.raw as any).on('error', () => { try { incStreamDisconnect(); } catch {} releaseOnce(); });
         // Fallback: force release after SSE_SLOT_MAX_MS if not already released
         try {
-          fallbackTimer = setTimeout(releaseOnce, SSE_SLOT_MAX_MS);
+          fallbackTimer = setTimeout(() => { reply.log?.info({ reqId }, 'sse timeout'); releaseOnce(true); }, SSE_SLOT_MAX_MS);
           fallbackTimer.unref?.();
         } catch {}
 
