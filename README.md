@@ -467,3 +467,10 @@ UI_POC_SANDBOX_V1_ENHANCED {
 ### 4. Compare with GitHub
 The `short` commit in `/version.json` should match the "Latest commit" shown on:
 https://github.com/Talchain/DecisionGuideAI
+
+### Feature Flags
+
+- `CONFIDENCE_CALIBRATED=1`: Use deterministic threshold-based confidence badges
+- `IDENT_TAG_ENABLE=1`: Add plain-English identifiability tag to model_card
+
+See docs/SCM_LITE_NOTES.md for details.
