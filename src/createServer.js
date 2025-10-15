@@ -335,9 +335,33 @@ export async function createServer(opts = {}) {
         return { api: 'warp/0.1.0', build, model: `plot-lite-${build}` };
     });
     // Dev OpenAPI route with strong ETag when OPENAPI_DEV=1 and file exists
+    // C4: Rate limit map (10 req/min per IP)
+    const openapiRateLimit = new Map();
     try {
         if (process.env.OPENAPI_DEV === '1') {
             app.get('/openapi.json', async (req, reply) => {
+                // Rate limit: 10 req/min per IP
+                const ip = String(req.ip || 'unknown');
+                const now = Date.now();
+                const minute = Math.floor(now / 60000);
+                const entry = openapiRateLimit.get(ip);
+                if (entry && entry.minute === minute && entry.count >= 10) {
+                    reply.header('Retry-After', '60');
+                    return reply.code(429).send({ error: { type: 'RATE_LIMITED', message: 'Too many requests to /openapi.json' } });
+                }
+                if (entry && entry.minute === minute) {
+                    entry.count++;
+                }
+                else {
+                    openapiRateLimit.set(ip, { minute, count: 1 });
+                }
+                // Cleanup old entries periodically
+                if (openapiRateLimit.size > 1000) {
+                    for (const [k, v] of openapiRateLimit.entries()) {
+                        if (v.minute < minute - 5)
+                            openapiRateLimit.delete(k);
+                    }
+                }
                 const override = String(process.env.OPENAPI_SPEC_PATH || '').trim();
                 if (override) {
                     // When override provided, return 500 if missing
@@ -1055,6 +1079,9 @@ export async function createServer(opts = {}) {
     // Register /v1 routes (PLoT Engine v1 with trust signals)
     const { registerV1Routes } = await import('./routes/v1/index.js');
     await registerV1Routes(app);
+    // Prometheus /metrics (C4, flag-gated)
+    const { registerPrometheusMetrics } = await import('./plugins/metrics.js');
+    await registerPrometheusMetrics(app);
     // Note: app.ready() is called by main.ts after adding inflight hooks
     // Do NOT call app.ready() here - it prevents adding hooks later
     return app;
