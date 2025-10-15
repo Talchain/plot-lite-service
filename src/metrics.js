@@ -18,6 +18,13 @@ eld.enable();
 let idemCacheSize = 0;
 export function setIdemCacheSize(n) { idemCacheSize = n; }
 export function getIdemCacheSize() { return idemCacheSize; }
+// Idempotency principal tracking (C1)
+let idemPrincipals = 0;
+let idemEvictions = 0;
+export function setIdemPrincipals(n) { idemPrincipals = n; }
+export function setIdemEvictions(n) { idemEvictions = n; }
+export function getIdemPrincipals() { return idemPrincipals; }
+export function getIdemEvictions() { return idemEvictions; }
 // --- Last request timestamp (for health enrichment) ---
 let lastRequestAtISO = null;
 export function noteLastRequestAt() { try {

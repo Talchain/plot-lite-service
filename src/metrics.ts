@@ -23,6 +23,14 @@ let idemCacheSize = 0;
 export function setIdemCacheSize(n: number) { idemCacheSize = n; }
 export function getIdemCacheSize(): number { return idemCacheSize; }
 
+// Idempotency principal tracking (C1)
+let idemPrincipals = 0;
+let idemEvictions = 0;
+export function setIdemPrincipals(n: number) { idemPrincipals = n; }
+export function setIdemEvictions(n: number) { idemEvictions = n; }
+export function getIdemPrincipals(): number { return idemPrincipals; }
+export function getIdemEvictions(): number { return idemEvictions; }
+
 // --- Last request timestamp (for health enrichment) ---
 let lastRequestAtISO: string | null = null;
 export function noteLastRequestAt(): void { try { lastRequestAtISO = new Date().toISOString(); } catch { lastRequestAtISO = null; } }
