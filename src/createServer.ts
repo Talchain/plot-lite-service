@@ -350,6 +350,7 @@ export async function createServer(opts: ServerOpts = {}) {
     // C7: Expose feature flags for ops visibility
     const flags = {
       SCM_LITE_ENABLE: process.env.SCM_LITE_ENABLE === '1' ? 'ON' : 'OFF',
+      IDENT_DSEP_ENABLE: process.env.IDENT_DSEP_ENABLE === '1' ? 'ON' : 'OFF',
       IDENT_TAG_ENABLE: process.env.IDENT_TAG_ENABLE === '1' ? 'ON' : 'OFF',
       PROVENANCE_ENABLE: process.env.PROVENANCE_ENABLE === '1' ? 'ON' : 'OFF',
       ADAPTIVE_K_ENABLE: process.env.ADAPTIVE_K_ENABLE === '1' ? 'ON' : 'OFF',
