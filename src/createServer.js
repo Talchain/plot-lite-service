@@ -139,14 +139,12 @@ export async function createServer(opts = {}) {
     }
     await app.register(helmet, {
         global: true,
-        // Do not set JSON-only headers globally; our securityHeadersOnSend handles JSON paths.
-        // This keeps SSE responses free from X-Content-Type-Options and Referrer-Policy etc.
-        contentTypeOptions: false,
-        referrerPolicy: false,
-        // Disable Helmet's Cache-Control so we can set it per-route
-        hsts: { maxAge: 63072000, includeSubDomains: true, preload: true },
+        contentSecurityPolicy: false,
     });
-    // CORS: closed by default; allow only when CSV envs provided. Dev override remains.
+    // Swagger/OpenAPI documentation (always enabled for /openapi.json and /docs)
+    const { registerSwagger } = await import('./plugins/swagger.js');
+    await registerSwagger(app);
+    // CORS (opt-in via env)
     {
         const originsCsv = (process.env.CORS_ORIGINS || '').trim();
         if (originsCsv) {
@@ -330,7 +328,22 @@ export async function createServer(opts = {}) {
             api: 'warp/0.1.0'
         };
     });
-    app.get('/version', async () => {
+    app.get('/version', {
+        schema: {
+            description: 'Get service version and build metadata',
+            tags: ['System'],
+            response: {
+                200: {
+                    type: 'object',
+                    properties: {
+                        api: { type: 'string' },
+                        build: { type: 'string' },
+                        model: { type: 'string' },
+                    },
+                },
+            },
+        },
+    }, async () => {
         const build = getBuildId();
         return { api: 'warp/0.1.0', build, model: `plot-lite-${build}` };
     });

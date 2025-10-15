@@ -108,7 +108,30 @@ export async function registerV1Routes(app: FastifyInstance) {
   await registerStreamRoute(app);
 
   // Health and version at /v1 as well (for consistency)
-  app.get('/v1/health', async () => {
+  app.get('/v1/health', {
+    schema: {
+      description: 'Health check with performance metrics',
+      tags: ['System'],
+      response: {
+        200: {
+          type: 'object',
+          required: ['status', 'api_version'],
+          properties: {
+            status: { type: 'string' },
+            api_version: { type: 'string' },
+            p95_ms: { type: 'number' },
+            version: { type: 'string' },
+            uptime_s: { type: 'number' },
+            engine_p95_ms: { type: 'number' },
+            engine_p95_ms_rolling: { type: 'number' },
+            json_429_count: { type: 'number' },
+            sse_429_count: { type: 'number' },
+            idem_cache_size: { type: 'number' },
+          },
+        },
+      },
+    },
+  }, async () => {
     const base = {
       status: 'ok',
       api_version: 'v1',

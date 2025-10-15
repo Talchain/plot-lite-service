@@ -33,6 +33,64 @@ export async function registerRunRoute(app: FastifyInstance) {
   
   app.post('/v1/run', {
     bodyLimit: 96 * 1024,
+    schema: {
+      description: 'Execute probabilistic model with trust signals',
+      tags: ['Engine'],
+      security: [{ bearerAuth: [] }],
+      body: {
+        type: 'object',
+        required: ['graph', 'outcome_node'],
+        properties: {
+          graph: {
+            type: 'object',
+            required: ['nodes', 'edges'],
+            properties: {
+              nodes: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  required: ['id', 'label'],
+                  properties: {
+                    id: { type: 'string' },
+                    label: { type: 'string' },
+                  },
+                },
+              },
+              edges: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  required: ['from', 'to'],
+                  properties: {
+                    from: { type: 'string' },
+                    to: { type: 'string' },
+                    weight: { type: 'number' },
+                    belief: { type: 'number' },
+                  },
+                },
+              },
+            },
+          },
+          outcome_node: { type: 'string' },
+          seed: { type: 'number' },
+          k_samples: { type: 'number' },
+          treatment_node: { type: 'string' },
+          baseline_value: { type: 'number' },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          required: ['schema', 'results', 'confidence', 'model_card'],
+          properties: {
+            schema: { type: 'string' },
+            results: { type: 'object' },
+            confidence: { type: 'object' },
+            model_card: { type: 'object' },
+          },
+        },
+      },
+    },
     preHandler: [
       async (req: FastifyRequest, reply: FastifyReply) => {
         // Demo mode short-circuit (before Ajv)
