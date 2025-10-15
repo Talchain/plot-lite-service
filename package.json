@@ -53,7 +53,8 @@
     "pack:engine": "node tools/pack-engine.mjs",
     "bench:rollout": "node tools/rollout-bench.mjs",
     "dev:engine": "node tools/dev-shell.mjs",
-    "smoke:staging": "node tools/smoke.mjs"
+    "smoke:staging": "node tools/smoke.mjs",
+    "evidence:generate": "node tools/evidence-pack-generate.mjs"
   },
   "keywords": [],
   "author": "",

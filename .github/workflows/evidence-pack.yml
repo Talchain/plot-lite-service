@@ -1,0 +1,47 @@
+name: Evidence Pack
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Build
+        run: npm run build
+      
+      - name: Generate Evidence Pack
+        run: npm run evidence:generate
+        env:
+          SCM_LITE_ENABLE: '0'
+          AUTH_ENABLED: '1'
+          RATE_LIMIT_ENABLED: '1'
+      
+      - name: Upload Evidence Pack
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidence-pack-${{ github.sha }}
+          path: artifact/pack/evidence/
+          retention-days: 30
+      
+      - name: Summary
+        run: |
+          echo "## 📦 Evidence Pack Generated" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch**: \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Files" >> $GITHUB_STEP_SUMMARY
+          ls -lh artifact/pack/evidence/ >> $GITHUB_STEP_SUMMARY || echo "No files found"
