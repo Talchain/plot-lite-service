@@ -73,5 +73,6 @@ export function getActiveFeatureFlags(): Record<string, string | boolean> {
     RATE_LIMIT_ENABLED: process.env.RATE_LIMIT_ENABLED !== '0',
     TEST_ROUTES: process.env.TEST_ROUTES || '0',
     METRICS: process.env.METRICS || '0',
+    CONFIDENCE_CALIBRATED: process.env.CONFIDENCE_CALIBRATED || '0',
   };
 }

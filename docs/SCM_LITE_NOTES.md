@@ -289,3 +289,18 @@ if (process.env.SCM_LITE_ENABLE === '1') {
 - Confidence heuristic (diversity + stability + paths)
 - Performance: p95=3.25ms for 12-node graphs
 - Integration with /v1/run (flagged OFF)
+
+## Confidence Calibration (CONFIDENCE_CALIBRATED=1)
+
+When enabled, confidence badges use deterministic thresholds:
+
+**HIGH**: calibration ≥ 0.6 AND identifiability ≥ 0.8 AND linearity_distance ≤ 0.2
+**MEDIUM**: calibration ≥ 0.3 AND identifiability ≥ 0.5  
+**LOW**: Below MEDIUM thresholds
+
+Factors:
+- `calibration`: 0-1 score (model fit quality)
+- `identifiability`: 0-1 score (causal structure strength)
+- `linearity_distance`: 0-1 metric (deviation from linear assumptions)
+
+Default (flag OFF): Uses heuristic-based scoring.

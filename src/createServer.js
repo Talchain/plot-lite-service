@@ -332,7 +332,13 @@ export async function createServer(opts = {}) {
     });
     app.get('/version', async () => {
         const build = getBuildId();
-        return { api: 'warp/0.1.0', build, model: `plot-lite-${build}` };
+        const { getActiveFeatureFlags } = await import('./trust/model-card.js');
+        return {
+            api: 'warp/0.1.0',
+            build,
+            model: `plot-lite-${build}`,
+            feature_flags: getActiveFeatureFlags(),
+        };
     });
     // Dev OpenAPI route with strong ETag when OPENAPI_DEV=1 and file exists
     try {
