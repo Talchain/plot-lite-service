@@ -467,3 +467,16 @@ UI_POC_SANDBOX_V1_ENHANCED {
 ### 4. Compare with GitHub
 The `short` commit in `/version.json` should match the "Latest commit" shown on:
 https://github.com/Talchain/DecisionGuideAI
+
+## Provenance Tracking
+
+When `PROVENANCE_ENABLE=1`, edges can include optional `provenance_note` field (max 200 chars, alphanumeric + common punctuation). Unique notes are aggregated into `model_card.sources[]` for traceability.
+
+Example:
+```json
+{
+  "edges": [
+    { "from": "A", "to": "B", "weight": 0.5, "provenance_note": "Study XYZ 2023" }
+  ]
+}
+```
