@@ -85,15 +85,8 @@ export async function rateLimit(req, reply) {
         return;
     }
     // Normalize IPv6/loopback variants for stable bucketing
-    const normalizeIp = (ip) => {
-        const s = String(ip || 'unknown');
-        if (s === '::1')
-            return '127.0.0.1';
-        if (s.startsWith('::ffff:'))
-            return s.slice(7);
-        return s;
-    };
-    const ip = normalizeIp(req.ip);
+    const { canonicalizeRemote } = await import('./lib/net.js');
+    const ip = canonicalizeRemote(req.ip);
     const now = Date.now();
     const minute = Math.floor(now / 60000);
     const methodRaw = String(req.method || 'GET').toUpperCase();
