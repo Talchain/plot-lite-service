@@ -16,12 +16,9 @@ let globalCount = 0;
 function PER_IP_MAX() { return Number(getSsePerIpMax()); }
 function GLOBAL_MAX() { return Number(getSseGlobalMax()); }
 
-function getIp(req: FastifyRequest): string {
-  // Fastify populates req.ip respecting trustProxy when enabled
-  const raw = String((req as any).ip || 'unknown');
-  if (raw === '::1') return '127.0.0.1';
-  if (raw.startsWith('::ffff:')) return raw.slice(7);
-  return raw;
+async function getIp(req: FastifyRequest): Promise<string> {
+  const { canonicalizeRemote } = await import('../../lib/net.js');
+  return canonicalizeRemote((req as any).ip);
 }
 
 function tryAcquire(ip: string): { ok: true } | { ok: false; reason: 'global' | 'per_ip' } {
@@ -87,7 +84,7 @@ export async function registerStreamRoute(app: FastifyInstance) {
       // Enforce limiter first (applies to demo and non-demo)
       async (req: FastifyRequest, reply: FastifyReply) => {
         // Rate limit check (applies to demo short-circuit path too)
-        const ip = getIp(req);
+        const ip = await getIp(req);
         const acq = tryAcquire(ip);
         if (!('ok' in acq) || acq.ok === false) {
           try { incStreamRateLimited(); } catch {}
