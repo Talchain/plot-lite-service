@@ -347,7 +347,17 @@ export async function createServer(opts: ServerOpts = {}) {
 
   app.get('/version', async () => {
     const build = getBuildId();
-    return { api: 'warp/0.1.0', build, model: `plot-lite-${build}` };
+    // C7: Expose feature flags for ops visibility
+    const flags = {
+      IDENT_TAG_ENABLE: process.env.IDENT_TAG_ENABLE === '1' ? 'ON' : 'OFF',
+      PROVENANCE_ENABLE: process.env.PROVENANCE_ENABLE === '1' ? 'ON' : 'OFF',
+      ADAPTIVE_K_ENABLE: process.env.ADAPTIVE_K_ENABLE === '1' ? 'ON' : 'OFF',
+      CONFIDENCE_CALIBRATED: process.env.CONFIDENCE_CALIBRATED === '1' ? 'ON' : 'OFF',
+      PROMETHEUS_ENABLE: process.env.PROMETHEUS_ENABLE === '1' ? 'ON' : 'OFF',
+      SSE_MAX_MS: process.env.SSE_MAX_MS || '120000',
+      AUTH_ENABLED: process.env.AUTH_ENABLED === '1' ? 'ON' : 'OFF',
+    };
+    return { api: 'warp/0.1.0', build, model: `plot-lite-${build}`, flags };
   });
 
   // Dev OpenAPI route with strong ETag when OPENAPI_DEV=1 and file exists
