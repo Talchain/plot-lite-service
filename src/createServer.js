@@ -13,9 +13,17 @@ import { replyWithAppError } from './errors.js';
 import inflightPlugin from './plugins/inflight.js';
 import { noteLastRequestAt, recordDurationMs, recordStatus, recordDraftDurationMs, recordReplayStatus, recordReplayRefusal, recordReplayRetry, p95Ms, p99Ms, eventLoopDelayMs, snapshot, replaySnapshot, streamStarted, streamDone, streamLimited, incCurrentStreams, decCurrentStreams, noteHeartbeat, getStreamCounters, getDraftP95History, getCurrentStreams, getLastHeartbeatMs, setIdemCacheSize, } from './metrics.js';
 export async function createServer(opts = {}) {
-    const idemCache = new Map();
-    const IDEM_TTL_MS = 10 * 60 * 1000;
-    const IDEM_MAX_SIZE = 10;
+    // Validate feature flags on boot
+    const { validateFeatureFlags } = await import('./config/feature-flags.js');
+    validateFeatureFlags();
+    // Bounded idempotency cache (C1)
+    const { BoundedLRU } = await import('./lib/BoundedLRU.js');
+    const { PrincipalQuotas } = await import('./lib/PrincipalQuotas.js');
+    const idemCache = new BoundedLRU({
+        maxSize: 5000,
+        ttlMs: 10 * 60 * 1000,
+    });
+    const principalQuotas = new PrincipalQuotas({ maxKeysPerPrincipal: 100 });
     function getIdempotencyKey(req) {
         const h = req.headers || {};
         const k = (h['idempotency-key'] || h['Idempotency-Key']);
@@ -24,25 +32,11 @@ export async function createServer(opts = {}) {
     function getCacheKey(key, bodyHash) {
         return `${key}:${bodyHash}`;
     }
-    function purgeExpired(now) {
-        for (const [k, v] of idemCache) {
-            if (now - v.createdAt > IDEM_TTL_MS) {
-                idemCache.delete(k);
-            }
-        }
-        // Enforce LRU cap: remove oldest entries if size exceeds limit
-        if (idemCache.size > IDEM_MAX_SIZE) {
-            const entries = Array.from(idemCache.entries()).sort((a, b) => a[1].createdAt - b[1].createdAt);
-            const toRemove = idemCache.size - IDEM_MAX_SIZE;
-            for (let i = 0; i < toRemove; i++) {
-                idemCache.delete(entries[i][0]);
-            }
-        }
-        // update cache gauge
-        try {
-            setIdemCacheSize(idemCache.size);
-        }
-        catch { }
+    function getPrincipal(req) {
+        const token = req.headers?.authorization;
+        if (token)
+            return `token:${token.slice(0, 20)}`;
+        return `ip:${req.ip || 'unknown'}`;
     }
     function getForcedError(req) {
         const header = req.headers['x-debug-force-error'];
@@ -294,7 +288,7 @@ export async function createServer(opts = {}) {
                 p99_ms: p99Ms(),
             },
             caches: {
-                idempotency_current: idemCache.size,
+                idempotency_current: idemCache.getSize(),
             },
             rate_limit: rateLimitState(),
             test_routes_enabled: process.env.NODE_ENV === 'production' ? false : (process.env.TEST_ROUTES === '1'),
@@ -573,25 +567,17 @@ export async function createServer(opts = {}) {
         {
             const key = getIdempotencyKey(req);
             if (key) {
-                const now = Date.now();
-                purgeExpired(now);
                 const { canonicalStringify, sha256Hex } = await import('./util/canonical.js');
                 const bodyHash = sha256Hex(canonicalStringify(body));
                 // Search any existing entry for same key regardless of body to detect mismatch
-                for (const [k, entry] of idemCache) {
-                    if (k.startsWith(`${key}:`)) {
-                        if (entry.bodyHash !== bodyHash && now - entry.createdAt <= IDEM_TTL_MS) {
-                            const { errorResponse } = await import('./errors.js');
-                            return reply.code(400).send(errorResponse('BAD_INPUT', 'Idempotency key already used with different body', 'Use a new Idempotency-Key or the same exact body'));
-                        }
-                    }
-                }
                 const cacheKey = getCacheKey(key, bodyHash);
                 const entry = idemCache.get(cacheKey);
-                if (entry && now - entry.createdAt <= IDEM_TTL_MS) {
+                if (entry) {
                     reply.header('Content-Type', 'application/json');
                     return reply.send(entry.responseText);
                 }
+                const principal = getPrincipal(req);
+                principalQuotas.track(principal, getCacheKey(key, bodyHash));
                 req.__idem = { key, bodyHash };
             }
         }
@@ -634,11 +620,9 @@ export async function createServer(opts = {}) {
         {
             const idem = req.__idem;
             if (idem) {
-                const now = Date.now();
-                idemCache.set(getCacheKey(idem.key, idem.bodyHash), { bodyHash: idem.bodyHash, responseText: respText, createdAt: now });
-                purgeExpired(now); // Purge expired and enforce LRU cap
+                idemCache.set(getCacheKey(idem.key, idem.bodyHash), { bodyHash: idem.bodyHash, responseText: respText });
                 try {
-                    setIdemCacheSize(idemCache.size);
+                    setIdemCacheSize(idemCache.getSize());
                 }
                 catch { }
             }
@@ -671,24 +655,16 @@ export async function createServer(opts = {}) {
         {
             const key = getIdempotencyKey(req);
             if (key) {
-                const now = Date.now();
-                purgeExpired(now);
                 const { canonicalStringify, sha256Hex } = await import('./util/canonical.js');
                 const bodyHash = sha256Hex(canonicalStringify(body));
-                for (const [k, entry] of idemCache) {
-                    if (k.startsWith(`${key}:`)) {
-                        if (entry.bodyHash !== bodyHash && now - entry.createdAt <= IDEM_TTL_MS) {
-                            const { errorResponse } = await import('./errors.js');
-                            return reply.code(400).send(errorResponse('BAD_INPUT', 'Idempotency key already used with different body', 'Use a new Idempotency-Key or the same exact body'));
-                        }
-                    }
-                }
                 const cacheKey = getCacheKey(key, bodyHash);
                 const entry = idemCache.get(cacheKey);
-                if (entry && now - entry.createdAt <= IDEM_TTL_MS) {
+                if (entry) {
                     reply.header('Content-Type', 'application/json');
                     return reply.send(entry.responseText);
                 }
+                const principal = getPrincipal(req);
+                principalQuotas.track(principal, getCacheKey(key, bodyHash));
                 req.__idem = { key, bodyHash };
             }
         }
@@ -728,13 +704,11 @@ export async function createServer(opts = {}) {
         {
             const idem = req.__idem;
             if (idem) {
-                const now = Date.now();
                 const respText = JSON.stringify(obj);
                 reply.header('Content-Type', 'application/json');
-                idemCache.set(getCacheKey(idem.key, idem.bodyHash), { bodyHash: idem.bodyHash, responseText: respText, createdAt: now });
-                purgeExpired(now); // Purge expired and enforce LRU cap
+                idemCache.set(getCacheKey(idem.key, idem.bodyHash), { bodyHash: idem.bodyHash, responseText: respText });
                 try {
-                    setIdemCacheSize(idemCache.size);
+                    setIdemCacheSize(idemCache.getSize());
                 }
                 catch { }
                 return reply.send(respText);
