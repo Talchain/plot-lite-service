@@ -84,9 +84,10 @@ export async function rateLimit(req, reply) {
     if (req.method === 'GET' && url.startsWith('/v1/stream')) {
         return;
     }
-    // Normalize IPv6/loopback variants for stable bucketing
-    const { canonicalizeRemote } = await import('./lib/net.js');
-    const ip = canonicalizeRemote(req.ip);
+    // E1: Extract principal (token or IP)
+    const { extractPrincipal } = await import('./lib/token-principal.js');
+    const principal = extractPrincipal(req);
+    const ip = principal.startsWith('ip:') ? principal.slice(3) : principal;
     const now = Date.now();
     const minute = Math.floor(now / 60000);
     const methodRaw = String(req.method || 'GET').toUpperCase();
