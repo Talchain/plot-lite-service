@@ -467,3 +467,15 @@ UI_POC_SANDBOX_V1_ENHANCED {
 ### 4. Compare with GitHub
 The `short` commit in `/version.json` should match the "Latest commit" shown on:
 https://github.com/Talchain/DecisionGuideAI
+
+## Budgets & Adaptive K (flagged)
+
+When `ADAPTIVE_K_ENABLE=1` and the request omits `k_samples`, the service uses a deterministic formula to compute sampling budget:
+
+```
+K = clamp(250 + 25×edges + 10×nodes, 250, 1000)
+```
+
+**Rationale**: Conservative guardrail that scales with graph complexity while maintaining determinism (same graph structure → same K → same hashes).
+
+The computed K and reason are recorded in `model_card.compute_budget`.
