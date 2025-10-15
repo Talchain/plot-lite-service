@@ -126,6 +126,16 @@ export async function registerRunRoute(app: FastifyInstance) {
       feature_flags: getActiveFeatureFlags(),
     });
 
+    // Identifiability tag (flag-gated)
+    if (process.env.IDENT_TAG_ENABLE === '1') {
+      const { generateIdentifiabilityTag } = await import('../../trust/identifiability-tag.js');
+      (model_card as any).identifiability_tag = generateIdentifiabilityTag({
+        identifiable: identifiability.identifiable,
+        has_backdoor_paths: identifiability.adjustment_set.length > 0,
+        adjustment_set_size: identifiability.adjustment_set.length,
+      });
+    }
+
     // Linearity check (placeholder - would use actual run results)
     const current_value = baseline_value * 1.15; // Simulated
     const linearity_warning = checkLinearity({

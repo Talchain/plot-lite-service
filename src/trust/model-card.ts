@@ -73,5 +73,8 @@ export function getActiveFeatureFlags(): Record<string, string | boolean> {
     RATE_LIMIT_ENABLED: process.env.RATE_LIMIT_ENABLED !== '0',
     TEST_ROUTES: process.env.TEST_ROUTES || '0',
     METRICS: process.env.METRICS || '0',
+    IDENT_TAG_ENABLE: process.env.IDENT_TAG_ENABLE || '0',
   };
 }
+
+// Add IDENT_TAG_ENABLE to flags (append to existing function)
