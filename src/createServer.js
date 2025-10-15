@@ -13,6 +13,9 @@ import { replyWithAppError } from './errors.js';
 import inflightPlugin from './plugins/inflight.js';
 import { noteLastRequestAt, recordDurationMs, recordStatus, recordDraftDurationMs, recordReplayStatus, recordReplayRefusal, recordReplayRetry, p95Ms, p99Ms, eventLoopDelayMs, snapshot, replaySnapshot, streamStarted, streamDone, streamLimited, incCurrentStreams, decCurrentStreams, noteHeartbeat, getStreamCounters, getDraftP95History, getCurrentStreams, getLastHeartbeatMs, setIdemCacheSize, } from './metrics.js';
 export async function createServer(opts = {}) {
+    // Validate feature flags on boot
+    const { validateFeatureFlags } = await import('./config/feature-flags.js');
+    validateFeatureFlags();
     const idemCache = new Map();
     const IDEM_TTL_MS = 10 * 60 * 1000;
     const IDEM_MAX_SIZE = 10;
@@ -332,7 +335,13 @@ export async function createServer(opts = {}) {
     });
     app.get('/version', async () => {
         const build = getBuildId();
-        return { api: 'warp/0.1.0', build, model: `plot-lite-${build}` };
+        const { getAllFeatureFlags } = await import('./config/feature-flags.js');
+        return {
+            api: 'warp/0.1.0',
+            build,
+            model: `plot-lite-${build}`,
+            flags: getAllFeatureFlags(),
+        };
     });
     // Dev OpenAPI route with strong ETag when OPENAPI_DEV=1 and file exists
     try {

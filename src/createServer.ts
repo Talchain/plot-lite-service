@@ -41,6 +41,10 @@ import {
 export interface ServerOpts { enableTestRoutes?: boolean }
 
 export async function createServer(opts: ServerOpts = {}) {
+  // Validate feature flags on boot
+  const { validateFeatureFlags } = await import('./config/feature-flags.js');
+  validateFeatureFlags();
+
   type CacheEntry = { bodyHash: string; responseText: string; createdAt: number };
   const idemCache = new Map<string, CacheEntry>();
   const IDEM_TTL_MS = 10 * 60 * 1000;
@@ -348,7 +352,13 @@ export async function createServer(opts: ServerOpts = {}) {
 
   app.get('/version', async () => {
     const build = getBuildId();
-    return { api: 'warp/0.1.0', build, model: `plot-lite-${build}` };
+    const { getAllFeatureFlags } = await import('./config/feature-flags.js');
+    return { 
+      api: 'warp/0.1.0', 
+      build, 
+      model: `plot-lite-${build}`,
+      flags: getAllFeatureFlags(),
+    };
   });
 
   // Dev OpenAPI route with strong ETag when OPENAPI_DEV=1 and file exists
