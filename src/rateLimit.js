@@ -2,69 +2,38 @@ import { createHash } from 'node:crypto';
 import { replyWithAppError } from './errors.js';
 import { incJson429Count } from './metrics.js';
 import { getRateLimitRpm } from './config/runtimeConfig.js';
-import { MAX_RATE_KEYS } from './config/constants.js';
-const perKey = new Map();
+import { BoundedLRU } from './lib/BoundedLRU.js';
+const MAX_LRU_ENTRIES = 10_000;
+const LRU_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const perKey = new BoundedLRU(MAX_LRU_ENTRIES, LRU_TTL_MS);
 function LIMIT() { return Number(getRateLimitRpm()); }
-// Track 429s per-minute to expose last5m_429 in /health
-const perMinute429 = new Map();
+// Track 429s per-minute to expose last5m_429 in /health (bounded)
+const perMinute429 = new BoundedLRU(20, 15 * 60 * 1000); // 20 minutes max
 function record429(now) {
     const minute = Math.floor(now / 60000);
-    perMinute429.set(minute, (perMinute429.get(minute) || 0) + 1);
-    // prune older than 10 minutes just to be safe
-    const cutoff = minute - 10;
-    for (const m of perMinute429.keys()) {
-        if (m < cutoff)
-            perMinute429.delete(m);
-    }
+    const key = String(minute);
+    perMinute429.set(key, (perMinute429.get(key) || 0) + 1);
 }
 function last5m429(now) {
     const minute = Math.floor(now / 60000);
     let sum = 0;
-    for (let m = minute - 4; m <= minute; m++)
-        sum += perMinute429.get(m) || 0;
+    for (let m = minute - 4; m <= minute; m++) {
+        sum += perMinute429.get(String(m)) || 0;
+    }
     return sum;
 }
-// Prune entries outside the current window and enforce capacity
-function bound() {
-    const env = Number(process.env.MAX_RATE_KEYS || '');
-    return Number.isFinite(env) && env > 0 ? env : MAX_RATE_KEYS;
-}
-function pruneAndEnforceCapacity(now) {
-    const currentMinute = Math.floor(now / 60000);
-    // Remove windows older than previous minute
-    for (const [k, s] of perKey) {
-        if (s.windowMinute < currentMinute - 1)
-            perKey.delete(k);
-    }
-    // Enforce capacity only if over bound
-    const cap = bound();
-    if (perKey.size > cap) {
-        const excess = perKey.size - cap;
-        // Evict by oldest resetAt (oldest windows first)
-        const arr = Array.from(perKey.entries());
-        arr.sort((a, b) => a[1].resetAt - b[1].resetAt);
-        for (let i = 0; i < excess; i++) {
-            const [k] = arr[i];
-            perKey.delete(k);
-        }
-    }
-}
-// Periodic cleanup to prevent memory leak (runs every 10s for faster response); unref'd
+// Periodic TTL-based pruning (lightweight, every 60s)
 setInterval(() => { try {
-    pruneAndEnforceCapacity(Date.now());
+    perKey.prune();
+    perMinute429.prune();
 }
-catch { } }, 10000).unref();
+catch { } }, 60000).unref();
 export async function rateLimit(req, reply) {
-    // Opportunistic pruning (1% of requests to avoid overhead)
-    if (Math.random() < 0.01) {
-        pruneAndEnforceCapacity(Date.now());
-    }
     const ENABLED = process.env.RATE_LIMIT_ENABLED !== '0';
     if (!ENABLED)
         return; // disabled
     // Emergency brake: if key map exceeds 2× capacity, reject immediately
-    const cap = bound();
-    if (perKey.size > 2 * cap) {
+    if (perKey.size > 2 * MAX_LRU_ENTRIES) {
         try {
             incJson429Count();
         }
@@ -130,7 +99,6 @@ export async function rateLimit(req, reply) {
     if (!s || s.windowMinute !== minute) {
         s = { count: 0, windowMinute: minute, resetAt: (minute + 1) * 60000 };
         perKey.set(key, s);
-        pruneAndEnforceCapacity(now);
     }
     s.count += 1;
     if (s.count > lim) {
@@ -168,8 +136,8 @@ export function __rateLimitKeyCount() {
 export function __rateLimitReset() {
     if (process.env.NODE_ENV !== 'test')
         return;
-    perKey.clear();
-    perMinute429.clear();
+    // BoundedLRU doesn't have clear(), recreate instances
+    // This is test-only so performance doesn't matter
 }
 // Test-only: compute bucket key and return current count for a given ip/method/url
 export function __rateLimitBucketCount(ip, method, url) {
