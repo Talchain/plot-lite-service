@@ -129,7 +129,7 @@ export async function registerRunRoute(app: FastifyInstance) {
     // Identifiability tag (flag-gated)
     if (process.env.IDENT_TAG_ENABLE === '1') {
       const { generateIdentifiabilityTag } = await import('../../trust/identifiability-tag.js');
-      (model_card as any).identifiability_tag = generateIdentifiabilityTag({
+      model_card.identifiability_tag = generateIdentifiabilityTag({
         identifiable: identifiability.identifiable,
         has_backdoor_paths: identifiability.adjustment_set.length > 0,
         adjustment_set_size: identifiability.adjustment_set.length,

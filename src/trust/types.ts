@@ -17,6 +17,7 @@ export interface ModelCard {
   determinism_note: string;
   response_hash?: string; // SHA-256 of normalised payload (added for auditability)
   warnings?: string[]; // Optional warnings (e.g., zero baseline)
+  identifiability_tag?: string; // Plain-English identifiability summary (IDENT_TAG_ENABLE=1)
 }
 
 export interface ConfidenceBadge {
