@@ -199,3 +199,13 @@ export function getEngineP95Ms() {
 export function getEngineP95MsRolling() {
     return Math.round(rollingP95Ms);
 }
+// SSE guardrails counters (C3)
+let sseOpen = 0;
+let sseClosed = 0;
+let sseTimeout = 0;
+export function incSseOpen() { sseOpen++; }
+export function incSseClosed() { sseClosed++; }
+export function incSseTimeout() { sseTimeout++; }
+export function getSseOpen() { return sseOpen; }
+export function getSseClosed() { return sseClosed; }
+export function getSseTimeout() { return sseTimeout; }

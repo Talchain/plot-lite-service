@@ -10,7 +10,7 @@ import { registerCounterfactualRoute } from './counterfactual.js';
 import { registerCritiqueRoute } from './critique.js';
 import { registerDraftRoute } from './draft.js';
 import { registerSelfCheckRoute } from './self-check.js';
-import { getStreamHealthExtras, p95Ms, snapshot, getLastRequestAt, getJson429Count, getSse429Count, getLastConfigReloadISO, getLastComputeMs, getEngineP95Ms, getEngineP95MsRolling, getIdemPrincipals, getIdemEvictions } from '../../metrics.js';
+import { getStreamHealthExtras, p95Ms, snapshot, getLastRequestAt, getJson429Count, getSse429Count, getLastConfigReloadISO, getLastComputeMs, getEngineP95Ms, getEngineP95MsRolling, getSseOpen, getSseClosed, getSseTimeout } from '../../metrics.js';
 import { registerStreamRoute } from './stream.js';
 import { isDemoMode } from '../../middleware/demo-mode.js';
 import { getIdemStoreSize } from '../../middleware/idempotency.js';
@@ -120,10 +120,12 @@ export async function registerV1Routes(app: FastifyInstance) {
       // Always expose 429 counters as integers
       json_429_count: getJson429Count(),
       sse_429_count: getSse429Count(),
+      // SSE guardrails (C3)
+      sse_open: getSseOpen(),
+      sse_closed: getSseClosed(),
+      sse_timeout: getSseTimeout(),
       // Idempotency cache size for observability
       idem_cache_size: getIdemStoreSize(),
-      idem_principals: getIdemPrincipals(),
-      idem_evictions_total: getIdemEvictions(),
       // Engine compute metrics
       last_compute_ms: getLastComputeMs(),
       engine_p95_ms: getEngineP95Ms(),
