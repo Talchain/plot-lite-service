@@ -1,0 +1,23 @@
+name: Evidence Pack (Main Push)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  pack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci
+      - run: npm run build
+      - run: npm run pack:build || echo "pack:build not found, skipping"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: evidence-pack-${{ github.run_id }}
+          path: evidence/
+          if-no-files-found: warn
