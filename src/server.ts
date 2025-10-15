@@ -129,13 +129,14 @@ app.post('/draft-flows', async (req, reply) => {
       throw new Error('Forced internal');
     }
   }
-  // Sensitive content check for draft-flows too
+  // Sensitive content check (fail closed on scanner error)
   {
-    const { containsSensitive } = await import('./lib/sensitive.js');
-    if (containsSensitive(body)) {
+    const { containsSensitiveSafe } = await import('./lib/sensitive-safe.js');
+    const scanResult = containsSensitiveSafe(body);
+    if (scanResult.blocked) {
       const { errorResponse } = await import('./errors.js');
-      const resp = { ...errorResponse('BLOCKED_CONTENT', 'Sensitive token detected in request body; remove secrets and retry.', 'Remove secrets and retry.'), redacted: true };
-      app.log.info({ reqId: req.id, route: '/draft-flows', redacted: true }, 'blocked sensitive content');
+      const resp = { ...errorResponse('BLOCKED_CONTENT', 'Request blocked by content filter', 'Remove sensitive data and retry'), redacted: true };
+      app.log.info({ reqId: req.id, route: '/draft-flows', redacted: true, scannerError: scanResult.scannerError }, scanResult.scannerError ? 'sensitive scan failed - blocked' : 'blocked sensitive content');
       return reply.code(400).send(resp);
     }
   }
@@ -174,11 +175,12 @@ app.post('/critique', async (req: any, reply) => {
     return false;
   }
   {
-    const { containsSensitive } = await import('./lib/sensitive.js');
-    if (containsSensitive(body)) {
+    const { containsSensitiveSafe } = await import('./lib/sensitive-safe.js');
+    const scanResult = containsSensitiveSafe(body);
+    if (scanResult.blocked) {
       const { errorResponse } = await import('./errors.js');
-      const resp = { ...errorResponse('BLOCKED_CONTENT', 'Sensitive token detected in request body; remove secrets and retry.', 'Remove secrets and retry.'), redacted: true };
-      app.log.info({ reqId: req.id, route: '/critique', redacted: true }, 'blocked sensitive content');
+      const resp = { ...errorResponse('BLOCKED_CONTENT', 'Request blocked by content filter', 'Remove sensitive data and retry'), redacted: true };
+      app.log.info({ reqId: req.id, route: '/critique', redacted: true, scannerError: scanResult.scannerError }, scanResult.scannerError ? 'sensitive scan failed - blocked' : 'blocked sensitive content');
       return reply.code(400).send(resp);
     }
   }
