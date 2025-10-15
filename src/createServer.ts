@@ -779,21 +779,15 @@ export async function createServer(opts: ServerOpts = {}) {
 
         // Note: onRequest already incremented inflight
         // endStream must decrement since onResponse won't fire after hijack
-        let closed = false;
         const endStream = () => {
-          if (closed) return; // Idempotent: prevent double-decrement
-          closed = true;
-          
-          // Mark as decremented to prevent onResponse from also decrementing
-          (reply.raw as any).__inflightDecDone = true;
-          
-          app.inflight.dec('endStream');
+          // Use WeakSet-based idempotent decrement (no manual flag needed)
+          app.decrementInflightOnce(reply, 'endStream');
           try { reply.raw.end(); } catch {}
         };
 
-        // Handle disconnect
-        reply.raw.on('close', endStream);
-        reply.raw.on('error', endStream);
+        // Handle disconnect (once-guarded via WeakSet)
+        reply.raw.once('close', endStream);
+        reply.raw.once('error', endStream);
 
         const q = req.query || {};
         const id: string = String(q.id || 'default');
@@ -907,20 +901,17 @@ export async function createServer(opts: ServerOpts = {}) {
         try { fn?.(); } catch {}
         try { decCurrentStreams?.(); } catch {}
         
-        // Mark as decremented to prevent onResponse from also decrementing
-        (reply.raw as any).__inflightDecDone = true;
-        
-        // Decrement inflight (matches global onRequest increment)
-        app.inflight.dec('endStream');
+        // Use WeakSet-based idempotent decrement
+        app.decrementInflightOnce(reply, 'endStream');
       };
 
-      // Critical: Handle client disconnect to prevent timer leak and inflight counter leak
-      reply.raw.on('close', () => {
+      // Critical: Handle client disconnect (once-guarded via WeakSet)
+      reply.raw.once('close', () => {
         app.log.info({ reqId: req.id }, 'SSE client disconnected');
         endStream();
       });
 
-      reply.raw.on('error', (err) => {
+      reply.raw.once('error', (err) => {
         app.log.error({ reqId: req.id, err }, 'SSE stream error');
         endStream();
       });
