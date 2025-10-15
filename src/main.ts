@@ -24,15 +24,35 @@ async function start() {
   await app.listen({ port: PORT, host: HOST });
   app.log.info({ port: PORT }, 'server started');
 
-  // Hot-reload knobs on SIGHUP (safe subset)
+  // Hot-reload knobs on SIGHUP (safe subset with validation + rollback)
   process.on('SIGHUP', () => {
+    const configPath = process.env.RUNTIME_CONFIG_PATH || 'artifact/runtime-config.json';
     try {
-      const cfg = loadFromFile('artifact/runtime-config.json');
-      app.log.info({ cfg }, 'runtime-config reloaded');
+      // Try to load and validate new config
+      const cfg = loadFromFile(configPath);
+      
+      // Success: log structured reload_ok and update timestamp
+      app.log.info({ 
+        event: 'reload_ok', 
+        config: cfg, 
+        path: configPath 
+      }, 'runtime-config reloaded successfully');
+      
       // Record last successful reload timestamp
-      (async () => { try { const { setLastConfigReloadISO } = await import('./metrics.js'); setLastConfigReloadISO(new Date().toISOString()); } catch {} })();
+      (async () => { 
+        try { 
+          const { setLastConfigReloadISO } = await import('./metrics.js'); 
+          setLastConfigReloadISO(new Date().toISOString()); 
+        } catch {} 
+      })();
     } catch (e: any) {
-      app.log.warn({ err: e?.message || String(e) }, 'runtime-config reload failed');
+      // Failure: log structured reload_rejected, keep last good config
+      app.log.warn({ 
+        event: 'reload_rejected', 
+        error: e?.message || String(e),
+        path: configPath
+      }, 'runtime-config reload failed - keeping last good config');
+      // Note: timestamp NOT updated on failure
     }
   });
 
