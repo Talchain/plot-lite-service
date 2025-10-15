@@ -260,12 +260,13 @@ export async function createServer(opts: ServerOpts = {}) {
     app.log.info({ reqId: req.id, route, statusCode: reply.statusCode, durationMs }, 'request completed');
   });
 
-  // Load fixtures and pre-serialise for legacy POST /draft-flows
+  // Load fixtures and pre-serialise for legacy POST /draft-flows (C5: cached)
+  const { loadFixture } = await import('./lib/fixtures-cache.js');
   const fixturesPath = resolve(process.cwd(), 'fixtures', 'deterministic-fixtures.json');
   let firstCaseResponseRaw = '';
   const caseMap = new Map<string, string>();
   try {
-    const fixturesText = readFileSync(fixturesPath, 'utf8');
+    const fixturesText = loadFixture(fixturesPath);
     const fixtures = JSON.parse(fixturesText);
     if (!fixtures || !Array.isArray(fixtures.cases) || fixtures.cases.length === 0) {
       throw new Error('No fixtures.cases found');
