@@ -1,0 +1,37 @@
+name: Nightly Load Probe
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # 02:00 UTC daily
+  workflow_dispatch:
+
+jobs:
+  load-probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Run load probe
+        env:
+          PLOT_STAGING_URL: ${{ secrets.PLOT_STAGING_URL }}
+          PLOT_AUTH_TOKEN: ${{ secrets.PLOT_AUTH_TOKEN }}
+          SLO_CLIENT_P95_MS: 600
+          SLO_SERVER_P95_MS: 100
+        run: node tools/load-probe.mjs
+      
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: slos-live-${{ github.run_id }}
+          path: evidence/slos.live.json
+          retention-days: 90

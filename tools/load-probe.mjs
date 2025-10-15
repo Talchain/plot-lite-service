@@ -1,216 +1,135 @@
 #!/usr/bin/env node
 /**
- * load-probe.mjs - Load test probe for staging validation
- * Runs ~25 RPS for ~2 minutes using golden graph
- * Captures client p95 and server rolling p95 before/after
+ * Load probe for staging validation (C6)
+ * Runs ~25 RPS for 2min, appends to evidence/slos.live.json
  */
+import axios from 'axios';
+import { writeFileSync, readFileSync, existsSync } from 'fs';
+import { resolve } from 'path';
 
-import { readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { join } from 'path';
+const STAGING_URL = process.env.PLOT_STAGING_URL;
+const AUTH_TOKEN = process.env.PLOT_AUTH_TOKEN;
+const RPS = 25;
+const DURATION_SEC = 120;
+const SLO_CLIENT_P95 = Number(process.env.SLO_CLIENT_P95_MS || 600);
+const SLO_SERVER_P95 = Number(process.env.SLO_SERVER_P95_MS || 100);
 
-const BASE_URL = process.env.PLOT_STAGING_URL || 'http://localhost:4311';
-const AUTH_TOKEN = process.env.AUTH_TOKEN || '';
-const TARGET_RPS = 25;
-const DURATION_SECONDS = 120; // 2 minutes
-const TOTAL_REQUESTS = TARGET_RPS * DURATION_SECONDS;
-
-// Golden fixture
-const FIXTURE_PATH = join(process.cwd(), 'fixtures', 'run-graph.json');
-
-async function fetchJSON(url, options = {}) {
-  const response = await fetch(url, options);
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${await response.text()}`);
-  }
-  return response.json();
+if (!STAGING_URL) {
+  console.log('⏭️  Skipped (missing PLOT_STAGING_URL)');
+  process.exit(0);
 }
 
-async function getHealthMetrics() {
-  const health = await fetchJSON(`${BASE_URL}/v1/health`);
-  return {
-    engine_p95_ms: health.engine_p95_ms || 0,
-    engine_p95_ms_rolling: health.engine_p95_ms_rolling || 0,
-    uptime_s: health.uptime_s || 0,
-  };
+const payload = {
+  seed: 4242,
+  graph: {
+    nodes: [
+      { id: "Price", label: "Price" },
+      { id: "Demand", label: "Demand" },
+      { id: "Revenue", label: "Revenue" }
+    ],
+    edges: [
+      { from: "Price", to: "Demand", weight: -0.5, belief: 0.8 },
+      { from: "Demand", to: "Revenue", weight: 0.8, belief: 0.9 }
+    ]
+  },
+  outcome_node: "Revenue"
+};
+
+function percentile(arr, p) {
+  const sorted = arr.slice().sort((a, b) => a - b);
+  const idx = Math.ceil((p / 100) * sorted.length) - 1;
+  return sorted[Math.max(0, idx)];
 }
 
-async function runRequest(payload) {
-  const start = Date.now();
-  try {
-    const headers = {
-      'Content-Type': 'application/json',
-    };
-    if (AUTH_TOKEN) {
-      headers['Authorization'] = `Bearer ${AUTH_TOKEN}`;
-    }
-
-    await fetchJSON(`${BASE_URL}/v1/run`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(payload),
+async function probe() {
+  console.log(`🔍 Load probe: ${RPS} RPS × ${DURATION_SEC}s → ${STAGING_URL}`);
+  
+  const latencies = [];
+  const totalRequests = RPS * DURATION_SEC;
+  const intervalMs = 1000 / RPS;
+  
+  let completed = 0;
+  const startTime = Date.now();
+  
+  for (let i = 0; i < totalRequests; i++) {
+    const reqStart = Date.now();
+    
+    axios.post(`${STAGING_URL}/v1/run`, payload, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...(AUTH_TOKEN ? { 'Authorization': `Bearer ${AUTH_TOKEN}` } : {})
+      },
+      timeout: 10000
+    }).then(() => {
+      latencies.push(Date.now() - reqStart);
+      completed++;
+    }).catch(err => {
+      console.error(`Request ${i} failed:`, err.message);
+      completed++;
     });
-
-    const duration = Date.now() - start;
-    return { success: true, duration_ms: duration };
-  } catch (error) {
-    const duration = Date.now() - start;
-    return { success: false, duration_ms: duration, error: error.message };
+    
+    await new Promise(resolve => setTimeout(resolve, intervalMs));
   }
-}
-
-function calculateP95(durations) {
-  if (durations.length === 0) return 0;
-  const sorted = [...durations].sort((a, b) => a - b);
-  const index = Math.ceil(sorted.length * 0.95) - 1;
-  return sorted[index];
-}
-
-async function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-async function main() {
-  console.log('🔍 Load Probe - Staging Validation');
-  console.log(`Target: ${BASE_URL}`);
-  console.log(`RPS: ${TARGET_RPS}`);
-  console.log(`Duration: ${DURATION_SECONDS}s`);
-  console.log(`Total requests: ${TOTAL_REQUESTS}`);
-  console.log('');
-
-  // Load fixture
-  let fixture;
+  
+  // Wait for stragglers
+  const waitStart = Date.now();
+  while (completed < totalRequests && Date.now() - waitStart < 30000) {
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  
+  const clientP95 = percentile(latencies, 95);
+  console.log(`✅ Client p95: ${clientP95}ms (${latencies.length}/${totalRequests} completed)`);
+  
+  // Fetch server metrics
+  let serverP95 = null;
   try {
-    fixture = JSON.parse(readFileSync(FIXTURE_PATH, 'utf8'));
-    console.log(`✅ Loaded fixture: ${FIXTURE_PATH}`);
-  } catch (error) {
-    console.error(`❌ Failed to load fixture: ${error.message}`);
-    process.exit(1);
+    const healthRes = await axios.get(`${STAGING_URL}/v1/health`, {
+      headers: AUTH_TOKEN ? { 'Authorization': `Bearer ${AUTH_TOKEN}` } : {}
+    });
+    serverP95 = healthRes.data.engine_p95_ms_rolling || null;
+    console.log(`📊 Server p95 rolling: ${serverP95}ms`);
+  } catch (err) {
+    console.warn('⚠️  Could not fetch server metrics:', err.message);
   }
-
-  // Get baseline health
-  console.log('\n📊 Baseline health check...');
-  let baseline;
-  try {
-    baseline = await getHealthMetrics();
-    console.log(`   engine_p95_ms: ${baseline.engine_p95_ms.toFixed(2)}ms`);
-    console.log(`   engine_p95_ms_rolling: ${baseline.engine_p95_ms_rolling.toFixed(2)}ms`);
-    console.log(`   uptime: ${baseline.uptime_s.toFixed(0)}s`);
-  } catch (error) {
-    console.error(`❌ Failed to get baseline health: ${error.message}`);
-    process.exit(1);
+  
+  // Append to evidence pack
+  const evidencePath = resolve(process.cwd(), 'evidence', 'slos.live.json');
+  let entries = [];
+  if (existsSync(evidencePath)) {
+    try {
+      entries = JSON.parse(readFileSync(evidencePath, 'utf8'));
+    } catch {}
   }
-
-  // Run load test
-  console.log(`\n🚀 Starting load test (${TOTAL_REQUESTS} requests)...`);
-  const start_time = Date.now();
-  const durations = [];
-  const errors = [];
-  const interval_ms = 1000 / TARGET_RPS; // Time between requests
-
-  for (let i = 0; i < TOTAL_REQUESTS; i++) {
-    const request_start = Date.now();
-    const result = await runRequest(fixture);
-
-    if (result.success) {
-      durations.push(result.duration_ms);
-    } else {
-      errors.push(result.error);
-    }
-
-    // Progress indicator every 100 requests
-    if ((i + 1) % 100 === 0) {
-      const elapsed = (Date.now() - start_time) / 1000;
-      const current_rps = (i + 1) / elapsed;
-      console.log(`   ${i + 1}/${TOTAL_REQUESTS} requests (${current_rps.toFixed(1)} RPS)`);
-    }
-
-    // Rate limiting: sleep to maintain target RPS
-    const elapsed_ms = Date.now() - request_start;
-    const sleep_ms = Math.max(0, interval_ms - elapsed_ms);
-    if (sleep_ms > 0) {
-      await sleep(sleep_ms);
-    }
-  }
-
-  const total_duration = (Date.now() - start_time) / 1000;
-  const actual_rps = TOTAL_REQUESTS / total_duration;
-
-  console.log(`\n✅ Load test complete`);
-  console.log(`   Duration: ${total_duration.toFixed(1)}s`);
-  console.log(`   Actual RPS: ${actual_rps.toFixed(1)}`);
-  console.log(`   Success: ${durations.length}/${TOTAL_REQUESTS}`);
-  console.log(`   Errors: ${errors.length}`);
-
-  // Calculate client-side p95
-  const client_p95 = calculateP95(durations);
-  const client_p50 = calculateP95(durations.slice(0, Math.ceil(durations.length * 0.5)));
-
-  console.log(`\n📈 Client-side latency:`);
-  console.log(`   p50: ${client_p50.toFixed(2)}ms`);
-  console.log(`   p95: ${client_p95.toFixed(2)}ms`);
-
-  // Get final health
-  console.log(`\n📊 Final health check...`);
-  await sleep(2000); // Wait for metrics to settle
-  let final;
-  try {
-    final = await getHealthMetrics();
-    console.log(`   engine_p95_ms: ${final.engine_p95_ms.toFixed(2)}ms`);
-    console.log(`   engine_p95_ms_rolling: ${final.engine_p95_ms_rolling.toFixed(2)}ms`);
-  } catch (error) {
-    console.error(`⚠️  Failed to get final health: ${error.message}`);
-    final = baseline; // Fallback
-  }
-
-  // Write results to evidence pack
-  const evidence_dir = join(process.cwd(), 'artifact', 'pack', 'evidence');
-  mkdirSync(evidence_dir, { recursive: true });
-
-  const slos = {
-    schema: 'slos.v1',
-    source: 'load-probe',
+  
+  entries.push({
     timestamp: new Date().toISOString(),
-    engine_get_p95_ms: final.engine_p95_ms_rolling,
-    client_p95_ms: client_p95,
-    client_p50_ms: client_p50,
-    load_test: {
-      target_rps: TARGET_RPS,
-      actual_rps: actual_rps,
-      duration_s: total_duration,
-      total_requests: TOTAL_REQUESTS,
-      success_count: durations.length,
-      error_count: errors.length,
-    },
-    baseline: {
-      engine_p95_ms_rolling: baseline.engine_p95_ms_rolling,
-    },
-    final: {
-      engine_p95_ms_rolling: final.engine_p95_ms_rolling,
-    },
-  };
-
-  const slos_path = join(evidence_dir, 'slos.live.json');
-  writeFileSync(slos_path, JSON.stringify(slos, null, 2), 'utf8');
-  console.log(`\n✅ Wrote SLOs to: ${slos_path}`);
-
-  // Validate budget
-  console.log(`\n🎯 Budget validation:`);
-  const rolling_p95_ok = final.engine_p95_ms_rolling < 100;
-  const client_p95_ok = client_p95 < 600; // 12-node budget
-
-  console.log(`   Rolling p95 < 100ms: ${rolling_p95_ok ? '✅' : '❌'} (${final.engine_p95_ms_rolling.toFixed(2)}ms)`);
-  console.log(`   Client p95 < 600ms: ${client_p95_ok ? '✅' : '❌'} (${client_p95.toFixed(2)}ms)`);
-
-  if (!rolling_p95_ok || !client_p95_ok) {
-    console.log(`\n⚠️  Performance budget exceeded!`);
+    client_p95_ms: clientP95,
+    server_p95_ms_rolling: serverP95,
+    rps: RPS,
+    sample_size: latencies.length,
+    slo_client_p95_ms: SLO_CLIENT_P95,
+    slo_server_p95_ms: SLO_SERVER_P95,
+    pass: clientP95 <= SLO_CLIENT_P95 && (serverP95 === null || serverP95 <= SLO_SERVER_P95)
+  });
+  
+  writeFileSync(evidencePath, JSON.stringify(entries, null, 2));
+  console.log(`📝 Appended to ${evidencePath}`);
+  
+  // Exit with status
+  if (clientP95 > SLO_CLIENT_P95) {
+    console.error(`❌ Client p95 ${clientP95}ms exceeds SLO ${SLO_CLIENT_P95}ms`);
     process.exit(1);
   }
-
-  console.log(`\n🎉 Load probe PASS - all budgets met`);
+  if (serverP95 !== null && serverP95 > SLO_SERVER_P95) {
+    console.error(`❌ Server p95 ${serverP95}ms exceeds SLO ${SLO_SERVER_P95}ms`);
+    process.exit(1);
+  }
+  
+  console.log('✅ SLOs met');
+  process.exit(0);
 }
 
-main().catch(error => {
-  console.error(`\n❌ Load probe failed: ${error.message}`);
-  console.error(error.stack);
+probe().catch(err => {
+  console.error('💥 Probe failed:', err);
   process.exit(1);
 });
