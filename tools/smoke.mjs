@@ -4,10 +4,17 @@ import process from 'node:process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const host = process.env.PLOT_STAGING_URL || 'https://plot-lite-service-staging.onrender.com';
+const host = process.env.PLOT_STAGING_URL;
+
+if (!host) {
+  console.log('⏭️  PLOT_STAGING_URL not set - skipping staging smoke test');
+  console.log('   (This is expected in local dev or when staging is unavailable)');
+  process.exit(0);
+}
+
 const healthUrl = `${host}/v1/health`;
 const runUrl = `${host}/v1/run`;
-const fixture = path.join(process.cwd(), 'fixtures', 'golden_seed42_chain3.json');
+const fixture = path.join(process.cwd(), 'fixtures', 'golden-3node-revenue.json');
 
 async function main() {
   console.log(`🔍 Smoke test against: ${host}`);
