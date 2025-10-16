@@ -79,7 +79,7 @@
     "@stoplight/spectral-cli": "^6.11.1",
     "@types/node": "^24.5.2",
     "autocannon": "^8.0.0",
-    "fast-check": "^3.18.0",
+    "fast-check": "^3.23.2",
     "husky": "^9.1.6",
     "standard-version": "^9.5.0",
     "tsx": "^4.20.5",
