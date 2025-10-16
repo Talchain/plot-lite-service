@@ -1,7 +1,24 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { principalFor, setCached, getCached } from '../src/middleware/idempotency.js';
 
 describe('Idem Cache Principal Key (F4)', () => {
+  let origTokenRL: string | undefined;
+  let origSecret: string | undefined;
+
+  beforeAll(() => {
+    origTokenRL = process.env.TOKEN_RL_ENABLE;
+    origSecret = process.env.TOKEN_HMAC_SECRET;
+    process.env.TOKEN_RL_ENABLE = '1';
+    process.env.TOKEN_HMAC_SECRET = 'test-secret-not-for-prod';
+  });
+
+  afterAll(() => {
+    if (origTokenRL) process.env.TOKEN_RL_ENABLE = origTokenRL;
+    else delete process.env.TOKEN_RL_ENABLE;
+    if (origSecret) process.env.TOKEN_HMAC_SECRET = origSecret;
+    else delete process.env.TOKEN_HMAC_SECRET;
+  });
+
   it('different tokens isolated', () => {
     const req1 = { headers: { authorization: 'Bearer token-a' }, ip: '127.0.0.1' } as any;
     const req2 = { headers: { authorization: 'Bearer token-b' }, ip: '127.0.0.1' } as any;
