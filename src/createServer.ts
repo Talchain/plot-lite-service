@@ -48,6 +48,7 @@ export async function createServer(opts: ServerOpts = {}) {
   // Bounded idempotency cache (C1)
   const { BoundedLRU } = await import('./lib/BoundedLRU.js');
   const { PrincipalQuotas } = await import('./lib/PrincipalQuotas.js');
+  const { extractPrincipal } = await import('./lib/token-principal.js');
   type CacheEntry = { bodyHash: string; responseText: string };
   const idemCache = new BoundedLRU<CacheEntry>({
     maxSize: 5000,
@@ -65,12 +66,6 @@ export async function createServer(opts: ServerOpts = {}) {
 
   function getCacheKey(key: string, bodyHash: string): string {
     return `${key}:${bodyHash}`;
-  }
-
-  function getPrincipal(req: any): string {
-    const token = req.headers?.authorization;
-    if (token) return `token:${token.slice(0, 20)}`;
-    return `ip:${req.ip || 'unknown'}`;
   }
 
   function getForcedError(req: any): string | undefined {
@@ -610,7 +605,7 @@ export async function createServer(opts: ServerOpts = {}) {
           reply.header('Content-Type', 'application/json');
           return reply.send(entry.responseText);
         }
-        const principal = getPrincipal(req);
+        const principal = extractPrincipal(req);
         principalQuotas.track(principal, getCacheKey(key, bodyHash));
         (req as any).__idem = { key, bodyHash };
       }
@@ -692,7 +687,7 @@ export async function createServer(opts: ServerOpts = {}) {
           reply.header('Content-Type', 'application/json');
           return reply.send(entry.responseText);
         }
-        const principal = getPrincipal(req);
+        const principal = extractPrincipal(req);
         principalQuotas.track(principal, getCacheKey(key, bodyHash));
         (req as any).__idem = { key, bodyHash };
       }
