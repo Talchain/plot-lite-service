@@ -23,9 +23,11 @@ export function makeKey(principal: string, idempKey: string): string {
 }
 
 export function principalFor(req: FastifyRequest): string {
+  // F4: Include IP in principal for isolation
   const hdr = String((req.headers?.authorization || req.headers?.Authorization || '') || '');
-  if (hdr.startsWith('Bearer ')) return hdr.slice('Bearer '.length).trim();
-  return 'anon';
+  const token = hdr.startsWith('Bearer ') ? hdr.slice('Bearer '.length).trim() : '';
+  const ip = String((req as any).ip || 'unknown');
+  return token ? `token:${token}` : `ip:${ip}`;
 }
 
 export function getCached(principal: string, idempKey: string): Entry | null {
