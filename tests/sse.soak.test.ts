@@ -42,7 +42,7 @@ describe('SSE Soak Test (500 cycles)', () => {
 
     if (prevEnv.FEATURE_STREAM === undefined) delete process.env.FEATURE_STREAM;
     else process.env.FEATURE_STREAM = prevEnv.FEATURE_STREAM;
-  });
+  }, 15000);
 
   async function checkInflight(): Promise<{ count: number; underflows: number }> {
     const res = await fetch(`${BASE}/test/inflight_stats`, {

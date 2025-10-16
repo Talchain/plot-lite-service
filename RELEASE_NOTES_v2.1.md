@@ -41,6 +41,8 @@ The PLoT Engine v2.1 delivers a **fast, deterministic, secure, and modular** cau
 - **H2:** /ops/snapshot test framework
 - **H3:** Circuit breaker test framework
 
+**Note:** G1–G3 / H1–H3 ship as gated branches and are not merged into v2.1; they can be enabled in a follow-on release.
+
 ### Scope Guardrails
 - **Nodes:** ≤12 (configurable via `SCM_LITE_MAX_NODES`)
 - **Edges:** ≤20 (new `maxEdges` in KernelConfig)

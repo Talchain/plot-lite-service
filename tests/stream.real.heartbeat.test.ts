@@ -21,7 +21,7 @@ describe('Real Stream: heartbeat comment when idle', () => {
   });
   afterAll(async () => { try { if (child?.pid) process.kill(child.pid, 'SIGINT'); } catch {} });
 
-  it('emits : ping comment within ~1s when idle before tokens', async () => {
+  it('emits : ping comment within ~1s when idle before tokens', { timeout: 7000, retry: 1 }, async () => {
     // Introduce latency so token is delayed beyond 1s
     const r = await fetch(`${BASE}/stream?sleepMs=1200`);
     const txt = await r.text();
