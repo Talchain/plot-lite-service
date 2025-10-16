@@ -23,6 +23,14 @@ let idemCacheSize = 0;
 export function setIdemCacheSize(n: number) { idemCacheSize = n; }
 export function getIdemCacheSize(): number { return idemCacheSize; }
 
+// Idempotency principal tracking (C1)
+let idemPrincipals = 0;
+let idemEvictions = 0;
+export function setIdemPrincipals(n: number) { idemPrincipals = n; }
+export function setIdemEvictions(n: number) { idemEvictions = n; }
+export function getIdemPrincipals(): number { return idemPrincipals; }
+export function getIdemEvictions(): number { return idemEvictions; }
+
 // --- Last request timestamp (for health enrichment) ---
 let lastRequestAtISO: string | null = null;
 export function noteLastRequestAt(): void { try { lastRequestAtISO = new Date().toISOString(); } catch { lastRequestAtISO = null; } }
@@ -192,3 +200,14 @@ export function getEngineP95Ms(): number {
 export function getEngineP95MsRolling(): number {
   return Math.round(rollingP95Ms);
 }
+
+// SSE guardrails counters (C3)
+let sseOpen = 0;
+let sseClosed = 0;
+let sseTimeout = 0;
+export function incSseOpen() { sseOpen++; }
+export function incSseClosed() { sseClosed++; }
+export function incSseTimeout() { sseTimeout++; }
+export function getSseOpen() { return sseOpen; }
+export function getSseClosed() { return sseClosed; }
+export function getSseTimeout() { return sseTimeout; }

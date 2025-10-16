@@ -126,6 +126,16 @@ export async function registerRunRoute(app: FastifyInstance) {
       feature_flags: getActiveFeatureFlags(),
     });
 
+    // Identifiability tag (flag-gated)
+    if (process.env.IDENT_TAG_ENABLE === '1') {
+      const { generateIdentifiabilityTag } = await import('../../trust/identifiability-tag.js');
+      model_card.identifiability_tag = generateIdentifiabilityTag({
+        identifiable: identifiability.identifiable,
+        has_backdoor_paths: identifiability.adjustment_set.length > 0,
+        adjustment_set_size: identifiability.adjustment_set.length,
+      });
+    }
+
     // Linearity check (placeholder - would use actual run results)
     const current_value = baseline_value * 1.15; // Simulated
     const linearity_warning = checkLinearity({
@@ -187,10 +197,24 @@ export async function registerRunRoute(app: FastifyInstance) {
         seed,
         K: Number(process.env.SCM_LITE_K || 256),
         maxNodes: Number(process.env.SCM_LITE_MAX_NODES || 12),
+        maxEdges: Number(process.env.SCM_LITE_MAX_EDGES || 20),
         beliefDefault: Number(process.env.SCM_LITE_BELIEF_DEFAULT || 0.7),
       };
       
-      const scmResult = runSCMLite(graph, outcome_node, scmConfig);
+      let scmResult: any;
+      try {
+        scmResult = runSCMLite(graph, outcome_node, scmConfig);
+      } catch (err: any) {
+        const msg = String(err?.message || '');
+        if (msg.includes('exceeds max nodes') || msg.includes('exceeds max edges')) {
+          return reply.code(400).send({
+            schema: 'error.v1',
+            code: 'SCOPE_LIMIT',
+            message: msg,
+          });
+        }
+        throw err;
+      }
       
       // Map SCM quantiles to results format
       results = {

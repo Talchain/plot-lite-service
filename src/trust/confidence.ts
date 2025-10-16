@@ -40,21 +40,28 @@ export function calculateConfidence(inputs: ConfidenceInputs): ConfidenceBadge {
   else if (k_samples >= 500) k_coverage_score = 0.7;
   else k_coverage_score = 0.3;
 
-  // Factor 4: Calibration (stub - always 0.5 for now)
+  // Factor 4: Calibration (placeholder - no behavior change when false)
+  // When true, would use actual calibration metrics; for now, neutral value
   const calibration_score = calibrated ? 1.0 : 0.5;
 
-  // Overall score (weighted average)
-  const overall_score =
-    identifiability_score * 0.35 +
-    linearity_score * 0.25 +
-    k_coverage_score * 0.25 +
-    calibration_score * 0.15;
+  // Integer math for determinism (weights sum to 1000)
+  // Weights: 350 (identifiability) + 250 (linearity) + 250 (k_coverage) + 150 (calibration)
+  const ident_raw = Math.round(identifiability_score * 1000);
+  const linear_raw = Math.round(linearity_score * 1000);
+  const kcov_raw = Math.round(k_coverage_score * 1000);
+  const calib_raw = Math.round(calibration_score * 1000);
 
-  // Determine level
+  const overall_raw = 
+    Math.round(ident_raw * 350 / 1000) +
+    Math.round(linear_raw * 250 / 1000) +
+    Math.round(kcov_raw * 250 / 1000) +
+    Math.round(calib_raw * 150 / 1000);
+
+  // Thresholds: HIGH >= 750, MEDIUM >= 500 (out of 1000)
   let level: ConfidenceLevel;
   let reason: string;
 
-  if (overall_score >= 0.75) {
+  if (overall_raw >= 750) {
     level = 'HIGH';
     reason = buildReason({
       identifiable,
@@ -64,7 +71,7 @@ export function calculateConfidence(inputs: ConfidenceInputs): ConfidenceBadge {
       k_samples,
       positive: true,
     });
-  } else if (overall_score >= 0.5) {
+  } else if (overall_raw >= 500) {
     level = 'MEDIUM';
     reason = buildReason({
       identifiable,
@@ -94,7 +101,7 @@ export function calculateConfidence(inputs: ConfidenceInputs): ConfidenceBadge {
   return {
     level,
     reason,
-    score: Math.round(overall_score * 100) / 100,
+    score: Math.round(overall_raw / 10) / 100, // Convert 0-1000 to 0.00-1.00
     factors: {
       identifiability: identifiability_score,
       linearity_distance: linearity_score,

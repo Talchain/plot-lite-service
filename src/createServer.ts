@@ -35,16 +35,26 @@ import {
   getDraftP95History,
   getCurrentStreams,
   getLastHeartbeatMs,
-  setIdemCacheSize,
+  setIdemCacheSize, setIdemPrincipals, setIdemEvictions,
 } from './metrics.js';
 
 export interface ServerOpts { enableTestRoutes?: boolean }
 
 export async function createServer(opts: ServerOpts = {}) {
-  type CacheEntry = { bodyHash: string; responseText: string; createdAt: number };
-  const idemCache = new Map<string, CacheEntry>();
-  const IDEM_TTL_MS = 10 * 60 * 1000;
-  const IDEM_MAX_SIZE = 10;
+  // Validate feature flags on boot
+  const { validateFeatureFlags } = await import('./config/feature-flags.js');
+  validateFeatureFlags();
+
+  // Bounded idempotency cache (C1)
+  const { BoundedLRU } = await import('./lib/BoundedLRU.js');
+  const { PrincipalQuotas } = await import('./lib/PrincipalQuotas.js');
+  const { extractPrincipal } = await import('./lib/token-principal.js');
+  type CacheEntry = { bodyHash: string; responseText: string };
+  const idemCache = new BoundedLRU<CacheEntry>({
+    maxSize: 5000,
+    ttlMs: 10 * 60 * 1000,
+  });
+  const principalQuotas = new PrincipalQuotas({ maxKeysPerPrincipal: 100 });
 
   function getIdempotencyKey(req: any): string | undefined {
     const h = req.headers || {};
@@ -58,23 +68,6 @@ export async function createServer(opts: ServerOpts = {}) {
     return `${key}:${bodyHash}`;
   }
 
-  function purgeExpired(now: number) {
-    for (const [k, v] of idemCache) {
-      if (now - v.createdAt > IDEM_TTL_MS) {
-        idemCache.delete(k);
-      }
-    }
-    // Enforce LRU cap: remove oldest entries if size exceeds limit
-    if (idemCache.size > IDEM_MAX_SIZE) {
-      const entries = Array.from(idemCache.entries()).sort((a, b) => a[1].createdAt - b[1].createdAt);
-      const toRemove = idemCache.size - IDEM_MAX_SIZE;
-      for (let i = 0; i < toRemove; i++) {
-        idemCache.delete(entries[i][0]);
-      }
-    }
-    // update cache gauge
-    try { setIdemCacheSize(idemCache.size); } catch {}
-  }
   function getForcedError(req: any): string | undefined {
     const header = (req.headers['x-debug-force-error'] as string | undefined);
     const q1 = (req.query as any)?.force_error as string | undefined;
@@ -262,12 +255,13 @@ export async function createServer(opts: ServerOpts = {}) {
     app.log.info({ reqId: req.id, route, statusCode: reply.statusCode, durationMs }, 'request completed');
   });
 
-  // Load fixtures and pre-serialise for legacy POST /draft-flows
+  // Load fixtures and pre-serialise for legacy POST /draft-flows (C5: cached)
+  const { loadFixture } = await import('./lib/fixtures-cache.js');
   const fixturesPath = resolve(process.cwd(), 'fixtures', 'deterministic-fixtures.json');
   let firstCaseResponseRaw = '';
   const caseMap = new Map<string, string>();
   try {
-    const fixturesText = readFileSync(fixturesPath, 'utf8');
+    const fixturesText = loadFixture(fixturesPath);
     const fixtures = JSON.parse(fixturesText);
     if (!fixtures || !Array.isArray(fixtures.cases) || fixtures.cases.length === 0) {
       throw new Error('No fixtures.cases found');
@@ -309,7 +303,7 @@ export async function createServer(opts: ServerOpts = {}) {
         p99_ms: p99Ms(),
       },
       caches: {
-        idempotency_current: idemCache.size,
+        idempotency_current: idemCache.getSize(),
       },
       rate_limit: rateLimitState(),
       test_routes_enabled: process.env.NODE_ENV === 'production' ? false : (process.env.TEST_ROUTES === '1'),
@@ -348,13 +342,47 @@ export async function createServer(opts: ServerOpts = {}) {
 
   app.get('/version', async () => {
     const build = getBuildId();
-    return { api: 'warp/0.1.0', build, model: `plot-lite-${build}` };
+    // C7: Expose feature flags for ops visibility
+    const flags = {
+      SCM_LITE_ENABLE: process.env.SCM_LITE_ENABLE === '1' ? 'ON' : 'OFF',
+      IDENT_TAG_ENABLE: process.env.IDENT_TAG_ENABLE === '1' ? 'ON' : 'OFF',
+      PROVENANCE_ENABLE: process.env.PROVENANCE_ENABLE === '1' ? 'ON' : 'OFF',
+      ADAPTIVE_K_ENABLE: process.env.ADAPTIVE_K_ENABLE === '1' ? 'ON' : 'OFF',
+      CONFIDENCE_CALIBRATED: process.env.CONFIDENCE_CALIBRATED === '1' ? 'ON' : 'OFF',
+      PROMETHEUS_ENABLE: process.env.PROMETHEUS_ENABLE === '1' ? 'ON' : 'OFF',
+      SSE_MAX_MS: process.env.SSE_MAX_MS || '120000',
+      AUTH_ENABLED: process.env.AUTH_ENABLED === '1' ? 'ON' : 'OFF',
+    };
+    return { api: 'warp/0.1.0', build, model: `plot-lite-${build}`, flags };
   });
 
   // Dev OpenAPI route with strong ETag when OPENAPI_DEV=1 and file exists
+  // C4: Rate limit map (10 req/min per IP)
+  const openapiRateLimit = new Map<string, { minute: number; count: number }>();
   try {
     if (process.env.OPENAPI_DEV === '1') {
       app.get('/openapi.json', async (req: any, reply) => {
+        // Rate limit: 10 req/min per IP
+        const ip = String(req.ip || 'unknown');
+        const now = Date.now();
+        const minute = Math.floor(now / 60000);
+        const entry = openapiRateLimit.get(ip);
+        if (entry && entry.minute === minute && entry.count >= 10) {
+          reply.header('Retry-After', '60');
+          return reply.code(429).send({ error: { type: 'RATE_LIMITED', message: 'Too many requests to /openapi.json' } });
+        }
+        if (entry && entry.minute === minute) {
+          entry.count++;
+        } else {
+          openapiRateLimit.set(ip, { minute, count: 1 });
+        }
+        // Cleanup old entries periodically
+        if (openapiRateLimit.size > 1000) {
+          for (const [k, v] of openapiRateLimit.entries()) {
+            if (v.minute < minute - 5) openapiRateLimit.delete(k);
+          }
+        }
+        
         const override = String(process.env.OPENAPI_SPEC_PATH || '').trim();
         if (override) {
           // When override provided, return 500 if missing
@@ -568,25 +596,17 @@ export async function createServer(opts: ServerOpts = {}) {
     {
       const key = getIdempotencyKey(req as any);
       if (key) {
-        const now = Date.now();
-        purgeExpired(now);
         const { canonicalStringify, sha256Hex } = await import('./util/canonical.js');
         const bodyHash = sha256Hex(canonicalStringify(body));
         // Search any existing entry for same key regardless of body to detect mismatch
-        for (const [k, entry] of idemCache) {
-          if (k.startsWith(`${key}:`)) {
-            if (entry.bodyHash !== bodyHash && now - entry.createdAt <= IDEM_TTL_MS) {
-              const { errorResponse } = await import('./errors.js');
-              return reply.code(400).send(errorResponse('BAD_INPUT', 'Idempotency key already used with different body', 'Use a new Idempotency-Key or the same exact body'));
-            }
-          }
-        }
         const cacheKey = getCacheKey(key, bodyHash);
         const entry = idemCache.get(cacheKey);
-        if (entry && now - entry.createdAt <= IDEM_TTL_MS) {
+        if (entry) {
           reply.header('Content-Type', 'application/json');
           return reply.send(entry.responseText);
         }
+        const principal = extractPrincipal(req);
+        principalQuotas.track(principal, getCacheKey(key, bodyHash));
         (req as any).__idem = { key, bodyHash };
       }
     }
@@ -626,10 +646,8 @@ export async function createServer(opts: ServerOpts = {}) {
     {
       const idem = (req as any).__idem as { key: string; bodyHash: string } | undefined;
       if (idem) {
-        const now = Date.now();
-        idemCache.set(getCacheKey(idem.key, idem.bodyHash), { bodyHash: idem.bodyHash, responseText: respText, createdAt: now });
-        purgeExpired(now); // Purge expired and enforce LRU cap
-        try { setIdemCacheSize(idemCache.size); } catch {}
+        idemCache.set(getCacheKey(idem.key, idem.bodyHash), { bodyHash: idem.bodyHash, responseText: respText });
+        try { setIdemCacheSize(idemCache.getSize()); } catch {}
       }
     }
 
@@ -661,24 +679,16 @@ export async function createServer(opts: ServerOpts = {}) {
     {
       const key = getIdempotencyKey(req as any);
       if (key) {
-        const now = Date.now();
-        purgeExpired(now);
         const { canonicalStringify, sha256Hex } = await import('./util/canonical.js');
         const bodyHash = sha256Hex(canonicalStringify(body));
-        for (const [k, entry] of idemCache) {
-          if (k.startsWith(`${key}:`)) {
-            if (entry.bodyHash !== bodyHash && now - entry.createdAt <= IDEM_TTL_MS) {
-              const { errorResponse } = await import('./errors.js');
-              return reply.code(400).send(errorResponse('BAD_INPUT', 'Idempotency key already used with different body', 'Use a new Idempotency-Key or the same exact body'));
-            }
-          }
-        }
         const cacheKey = getCacheKey(key, bodyHash);
         const entry = idemCache.get(cacheKey);
-        if (entry && now - entry.createdAt <= IDEM_TTL_MS) {
+        if (entry) {
           reply.header('Content-Type', 'application/json');
           return reply.send(entry.responseText);
         }
+        const principal = extractPrincipal(req);
+        principalQuotas.track(principal, getCacheKey(key, bodyHash));
         (req as any).__idem = { key, bodyHash };
       }
     }
@@ -704,12 +714,10 @@ export async function createServer(opts: ServerOpts = {}) {
     {
       const idem = (req as any).__idem as { key: string; bodyHash: string } | undefined;
       if (idem) {
-        const now = Date.now();
         const respText = JSON.stringify(obj);
         reply.header('Content-Type', 'application/json');
-        idemCache.set(getCacheKey(idem.key, idem.bodyHash), { bodyHash: idem.bodyHash, responseText: respText, createdAt: now });
-        purgeExpired(now); // Purge expired and enforce LRU cap
-        try { setIdemCacheSize(idemCache.size); } catch {}
+        idemCache.set(getCacheKey(idem.key, idem.bodyHash), { bodyHash: idem.bodyHash, responseText: respText });
+        try { setIdemCacheSize(idemCache.getSize()); } catch {}
         return reply.send(respText);
       }
     }
@@ -1014,6 +1022,10 @@ export async function createServer(opts: ServerOpts = {}) {
   // Register /v1 routes (PLoT Engine v1 with trust signals)
   const { registerV1Routes } = await import('./routes/v1/index.js');
   await registerV1Routes(app);
+
+  // Prometheus /metrics (C4, flag-gated)
+  const { registerPrometheusMetrics } = await import('./plugins/metrics.js');
+  await registerPrometheusMetrics(app);
 
   // Note: app.ready() is called by main.ts after adding inflight hooks
   // Do NOT call app.ready() here - it prevents adding hooks later

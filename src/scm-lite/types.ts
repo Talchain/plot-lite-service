@@ -29,6 +29,7 @@ export interface KernelConfig {
   seed: number;
   K: number; // number of edge masks to sample
   maxNodes: number; // hard cap (default 12)
+  maxEdges: number; // hard cap (default 20)
   beliefDefault: number; // default edge belief (default 0.7)
 }
 
