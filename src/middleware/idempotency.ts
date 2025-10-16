@@ -1,10 +1,12 @@
 /**
  * Idempotency middleware (in-memory TTL cache)
- * - Scope: per principal (Authorization token string or 'anon')
+ * - Scope: per principal (HMAC'd token or canonicalized IP)
  * - TTL: default 15 minutes
  * - Stores exact status and JSON body for replay
  */
 import type { FastifyRequest } from 'fastify';
+import { createHmac } from 'crypto';
+import { canonicalizeRemote } from '../lib/net.js';
 import { MAX_IDEM_ENTRIES } from '../config/constants.js';
 
 interface Entry {
@@ -23,11 +25,19 @@ export function makeKey(principal: string, idempKey: string): string {
 }
 
 export function principalFor(req: FastifyRequest): string {
-  // F4: Include IP in principal for isolation
-  const hdr = String((req.headers?.authorization || req.headers?.Authorization || '') || '');
-  const token = hdr.startsWith('Bearer ') ? hdr.slice('Bearer '.length).trim() : '';
+  // F5: HMAC'd principal (never raw tokens)
+  if (process.env.TOKEN_RL_ENABLE === '1') {
+    const auth = String(req.headers?.authorization || '');
+    if (auth.startsWith('Bearer ')) {
+      const token = auth.slice(7);
+      const secret = process.env.TOKEN_HMAC_SECRET || 'default-insecure-secret';
+      const h = createHmac('sha256', secret).update(token).digest('hex');
+      return 'token:' + h;
+    }
+  }
+  
   const ip = String((req as any).ip || 'unknown');
-  return token ? `token:${token}` : `ip:${ip}`;
+  return 'ip:' + canonicalizeRemote(ip);
 }
 
 export function getCached(principal: string, idempKey: string): Entry | null {
