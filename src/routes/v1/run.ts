@@ -197,10 +197,24 @@ export async function registerRunRoute(app: FastifyInstance) {
         seed,
         K: Number(process.env.SCM_LITE_K || 256),
         maxNodes: Number(process.env.SCM_LITE_MAX_NODES || 12),
+        maxEdges: Number(process.env.SCM_LITE_MAX_EDGES || 20),
         beliefDefault: Number(process.env.SCM_LITE_BELIEF_DEFAULT || 0.7),
       };
       
-      const scmResult = runSCMLite(graph, outcome_node, scmConfig);
+      let scmResult: any;
+      try {
+        scmResult = runSCMLite(graph, outcome_node, scmConfig);
+      } catch (err: any) {
+        const msg = String(err?.message || '');
+        if (msg.includes('exceeds max nodes') || msg.includes('exceeds max edges')) {
+          return reply.code(400).send({
+            schema: 'error.v1',
+            code: 'SCOPE_LIMIT',
+            message: msg,
+          });
+        }
+        throw err;
+      }
       
       // Map SCM quantiles to results format
       results = {
