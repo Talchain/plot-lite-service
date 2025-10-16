@@ -17,6 +17,9 @@ export class BoundedLRU<T> {
   private cache = new Map<string, CacheEntry<T>>();
   private readonly maxSize: number;
   private readonly ttlMs: number;
+  private hits = 0;
+  private misses = 0;
+  private evictions = 0;
 
   constructor(options: BoundedLRUOptions) {
     this.maxSize = options.maxSize;
@@ -39,14 +42,19 @@ export class BoundedLRU<T> {
 
   get(key: string): T | undefined {
     const entry = this.cache.get(key);
-    if (!entry) return undefined;
-    
-    const now = Date.now();
-    if (now - entry.createdAt > this.ttlMs) {
-      this.cache.delete(key);
+    if (!entry) {
+      this.misses++;
       return undefined;
     }
     
+    const now = Date.now();
+    if (now - entry.createdAt > this.ttlMs) {
+      // Expired: return undefined without mutating (defer to purge)
+      this.misses++;
+      return undefined;
+    }
+    
+    this.hits++;
     return entry.value;
   }
 
@@ -64,6 +72,20 @@ export class BoundedLRU<T> {
 
   clear(): void {
     this.cache.clear();
+    this.hits = 0;
+    this.misses = 0;
+    this.evictions = 0;
+  }
+
+  getStats() {
+    const total = this.hits + this.misses;
+    return {
+      hits: this.hits,
+      misses: this.misses,
+      evictions: this.evictions,
+      size: this.cache.size,
+      hitRate: total > 0 ? this.hits / total : 0
+    };
   }
 
   private purgeExpired(now: number): void {
@@ -75,19 +97,11 @@ export class BoundedLRU<T> {
   }
 
   private evictLRU(): void {
-    // Find oldest entry
-    let oldestKey: string | null = null;
-    let oldestTime = Infinity;
-    
-    for (const [key, entry] of this.cache.entries()) {
-      if (entry.createdAt < oldestTime) {
-        oldestTime = entry.createdAt;
-        oldestKey = key;
-      }
-    }
-    
+    // O(1): Map maintains insertion order, first key is oldest
+    const oldestKey = this.cache.keys().next().value;
     if (oldestKey) {
       this.cache.delete(oldestKey);
+      this.evictions++;
     }
   }
 }

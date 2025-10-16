@@ -1,0 +1,15 @@
+# Feature Flags (default: OFF)
+SCM_LITE_ENABLE=0          # Enable SCM-Lite causal engine
+IDENT_TAG_ENABLE=0         # Add plain-English identifiability tag to model_card
+PROVENANCE_ENABLE=0        # Validate and aggregate edge provenance notes
+ADAPTIVE_K_ENABLE=0        # Use adaptive K sampling based on graph size
+CONFIDENCE_CALIBRATED=0    # Use deterministic threshold-based confidence
+PROMETHEUS_METRICS=0       # Expose /metrics endpoint
+
+# Other Settings
+AUTH_ENABLED=0
+RATE_LIMIT_ENABLED=1
+TEST_ROUTES=0
+METRICS=0
+CORS_DEV=0
+OPENAPI_DEV=0
