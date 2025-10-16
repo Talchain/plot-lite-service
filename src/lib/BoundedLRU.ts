@@ -20,6 +20,7 @@ export class BoundedLRU<T> {
   private hits = 0;
   private misses = 0;
   private evictions = 0;
+  private sets = 0;
 
   constructor(options: BoundedLRUOptions) {
     this.maxSize = options.maxSize;
@@ -29,8 +30,10 @@ export class BoundedLRU<T> {
   set(key: string, value: T): void {
     const now = Date.now();
     
-    // Purge expired entries first
-    this.purgeExpired(now);
+    // Throttled purge: only every 64 sets, and sample at most 128 entries
+    if ((++this.sets & 63) === 0) {
+      this.purgeExpiredSampled(now);
+    }
     
     // If at capacity, evict LRU
     if (this.cache.size >= this.maxSize && !this.cache.has(key)) {
@@ -90,6 +93,17 @@ export class BoundedLRU<T> {
 
   private purgeExpired(now: number): void {
     for (const [key, entry] of this.cache.entries()) {
+      if (now - entry.createdAt > this.ttlMs) {
+        this.cache.delete(key);
+      }
+    }
+  }
+
+  private purgeExpiredSampled(now: number): void {
+    // Bounded purge: check at most 128 oldest entries
+    let checked = 0;
+    for (const [key, entry] of this.cache.entries()) {
+      if (++checked > 128) break;
       if (now - entry.createdAt > this.ttlMs) {
         this.cache.delete(key);
       }
