@@ -9,15 +9,20 @@ import { XorShift128Plus } from './rng.js';
 const DEFAULT_CONFIG: Partial<KernelConfig> = {
   K: 256,
   maxNodes: 12,
+  maxEdges: 20,
   beliefDefault: 0.7,
 };
 
 export function runKernel(dag: DAG, target: string, config: Partial<KernelConfig>): KernelResult {
   const cfg = { ...DEFAULT_CONFIG, ...config } as KernelConfig;
   
-  // Validate
+  // Validate scope guardrails
   if (dag.nodes.length > cfg.maxNodes) {
-    throw new Error(`Graph exceeds max nodes: ${dag.nodes.length} > ${cfg.maxNodes}`);
+    throw new Error(`Graph exceeds max nodes: ${dag.nodes.length} > ${cfg.maxNodes}. Simplify by removing weak edges or grouping nodes.`);
+  }
+  
+  if (dag.edges.length > cfg.maxEdges) {
+    throw new Error(`Graph exceeds max edges: ${dag.edges.length} > ${cfg.maxEdges}. Remove edges with low belief or weight.`);
   }
   
   // Check acyclic (simple DFS)
