@@ -5,8 +5,7 @@
  * - Stores exact status and JSON body for replay
  */
 import type { FastifyRequest } from 'fastify';
-import { createHmac } from 'crypto';
-import { canonicalizeRemote } from '../lib/net.js';
+import { extractPrincipal } from '../lib/token-principal.js';
 import { MAX_IDEM_ENTRIES } from '../config/constants.js';
 
 interface Entry {
@@ -25,19 +24,8 @@ export function makeKey(principal: string, idempKey: string): string {
 }
 
 export function principalFor(req: FastifyRequest): string {
-  // F5: HMAC'd principal (never raw tokens)
-  if (process.env.TOKEN_RL_ENABLE === '1') {
-    const auth = String(req.headers?.authorization || '');
-    if (auth.startsWith('Bearer ')) {
-      const token = auth.slice(7);
-      const secret = process.env.TOKEN_HMAC_SECRET || 'default-insecure-secret';
-      const h = createHmac('sha256', secret).update(token).digest('hex');
-      return 'token:' + h;
-    }
-  }
-  
-  const ip = String((req as any).ip || 'unknown');
-  return 'ip:' + canonicalizeRemote(ip);
+  // P0.1: Delegate to single source of truth (extractPrincipal)
+  return extractPrincipal(req);
 }
 
 export function getCached(principal: string, idempKey: string): Entry | null {
