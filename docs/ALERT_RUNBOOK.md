@@ -130,10 +130,73 @@ done
 
 ---
 
+## Cache Performance Monitoring (P0.2)
+
+**Available in**: `/v1/health` (always exposed)
+
+**Fields**:
+- `idem_cache_stats`: Idempotency cache performance
+  - `hits`: Number of cache hits
+  - `misses`: Number of cache misses
+  - `evictions`: Number of entries evicted (LRU)
+  - `size`: Current cache size
+  - `hitRate`: Hit rate (0-1, higher is better)
+- `fixtures_cache_stats`: Fixture cache performance (same structure)
+
+**Healthy Baseline**:
+- `idem_cache_stats.hitRate` ≥ 0.85 (85% hit rate)
+- `fixtures_cache_stats.hitRate` ≥ 0.90 (90% hit rate)
+
+**Triage Low Hit Rate**:
+1. Check if `misses` are increasing rapidly (key churn)
+2. Review `evictions` count (cache too small?)
+3. Look for principal fragmentation (many unique tokens/IPs)
+4. Consider increasing cache size in `createServer.ts` (idemCache maxSize)
+
+**Example**:
+```bash
+curl -s http://localhost:3000/v1/health | jq '{idem_cache_stats, fixtures_cache_stats}'
+```
+
+---
+
+## What-If Delta (Optional Feature)
+
+**Flag**: `WHATIF_DELTA_ENABLE=1` (default: OFF)
+
+**Purpose**: Experimental sensitivity analysis showing how perturbing the first edge affects outcomes.
+
+**Behavior**:
+- **OFF (default)**: No `whatif_delta` field in responses
+- **ON**: Adds `whatif_delta` to response with:
+  - `perturbation`: String describing edge perturbation (e.g., "A→B weight +0.1")
+  - `outcome_delta`: Numeric delta in outcome value
+
+**Operator Notes**:
+- Feature is deterministic (same graph → same delta)
+- Uses first edge only (simplified analysis)
+- No schema drift when OFF
+- Safe to enable for testing/demos
+- Not recommended for production without UI coordination
+
+**Example**:
+```bash
+# With flag ON
+WHATIF_DELTA_ENABLE=1 npm start
+
+# Response includes:
+# "whatif_delta": {
+#   "perturbation": "A→B weight +0.1",
+#   "outcome_delta": 0.04
+# }
+```
+
+---
+
 ## Escalation
 
 If triage steps don't resolve:
 1. Collect evidence pack: `npm run pack:build`
 2. Attach logs with `reqId` correlation
-3. Include `/v1/health` snapshot
+3. Include `/v1/health` snapshot (including cache stats)
 4. Tag @eng-platform in incident channel
