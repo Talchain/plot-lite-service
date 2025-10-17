@@ -103,6 +103,10 @@ export async function createServer(opts: ServerOpts = {}) {
   // Refresh runtime tunables from current env at server creation
   try { refreshFromEnv(); } catch {}
 
+  // P1: Initialize Prometheus histograms (flag-gated)
+  const { initializeHistograms } = await import('./metrics/registry.js');
+  initializeHistograms();
+
   const app = Fastify({
     logger: {
       level: 'info',
@@ -243,6 +247,11 @@ export async function createServer(opts: ServerOpts = {}) {
         recordDurationMs(durationMs);
         recordStatus(reply.statusCode);
         if (route?.startsWith('/draft-flows')) recordDraftDurationMs(durationMs);
+        
+        // P1: Observe request duration histogram (flag-gated, no-op when OFF)
+        const { observeRequestDuration } = await import('./metrics/registry.js');
+        const normalizedRoute = route || 'unknown';
+        observeRequestDuration(normalizedRoute, req.method, reply.statusCode, durationMs);
       } catch {}
     }
     // Update replay lastStatus/lastTs for /draft-flows responses
