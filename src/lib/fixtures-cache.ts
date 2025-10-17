@@ -30,6 +30,13 @@ export function getFixtureCacheSize(): number {
 }
 
 /**
+ * P0.2: Get cache stats for health monitoring
+ */
+export function getFixtureCacheStats() {
+  return fixtureCache.getStats();
+}
+
+/**
  * Clear cache (test only)
  */
 export function clearFixtureCache(): void {

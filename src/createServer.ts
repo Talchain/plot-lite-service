@@ -1027,6 +1027,9 @@ export async function createServer(opts: ServerOpts = {}) {
   const { registerPrometheusMetrics } = await import('./plugins/metrics.js');
   await registerPrometheusMetrics(app);
 
+  // P0.2: Expose cache stats for /v1/health observability
+  (app as any).getIdemCacheStats = () => idemCache.getStats();
+
   // Note: app.ready() is called by main.ts after adding inflight hooks
   // Do NOT call app.ready() here - it prevents adding hooks later
   return app;
