@@ -51,9 +51,17 @@ Operations guide for triaging PLoT Engine alerts and anomalies.
 
 ---
 
-## Prometheus /metrics Usage (C4)
+## Prometheus /metrics Usage (C4 + P1)
 
 **When**: `PROMETHEUS_ENABLE=1` exposes `/metrics` endpoint.
+
+**Histograms (P1)**:
+- `plot_engine_request_duration_seconds`: HTTP request duration
+  - Labels: `route`, `method`, `status_class`
+  - Buckets: 0.005, 0.01, 0.02, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, +Inf (seconds)
+- `plot_engine_engine_latency_seconds`: Core engine compute latency
+  - Labels: `phase`, `status_class`
+  - Same buckets
 
 **Key Gauges**:
 - `engine_p95_ms`: Current engine P95 latency
@@ -64,15 +72,25 @@ Operations guide for triaging PLoT Engine alerts and anomalies.
 
 **Quick Check**:
 ```bash
-curl http://localhost:3000/metrics | grep engine_p95
+curl http://localhost:3000/metrics | grep plot_engine_request_duration
 ```
 
-**Grafana Query** (PromQL):
-```
-rate(json_429_total[5m])  # 429 rate per second
+**Grafana Queries** (PromQL):
+```promql
+# Request latency P95
+histogram_quantile(0.95, rate(plot_engine_request_duration_seconds_bucket[5m]))
+
+# Request rate by route
+sum(rate(plot_engine_request_duration_seconds_count[5m])) by (route)
+
+# Error rate (4xx + 5xx)
+sum(rate(plot_engine_request_duration_seconds_count{status_class=~"4xx|5xx"}[5m]))
 ```
 
-**Security**: Keep `PROMETHEUS_ENABLE=0` in production unless scraping via internal network.
+**Security**: 
+- Keep `PROMETHEUS_ENABLE=0` in production unless scraping via internal network
+- No PII in metrics (no IPs, tokens, or user IDs)
+- Bounded label cardinality (only static route/method/status labels)
 
 ---
 

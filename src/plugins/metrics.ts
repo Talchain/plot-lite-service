@@ -10,6 +10,7 @@ import {
   getJson429Count,
   getSse429Count
 } from '../metrics.js';
+import { renderHistograms } from '../metrics/registry.js';
 
 export async function registerPrometheusMetrics(app: FastifyInstance) {
   if (process.env.PROMETHEUS_ENABLE !== '1') {
@@ -18,6 +19,12 @@ export async function registerPrometheusMetrics(app: FastifyInstance) {
 
   app.get('/metrics', async (_req, reply) => {
     const metrics = [];
+    
+    // P1: Histograms (request duration, engine latency)
+    const histograms = renderHistograms();
+    if (histograms) {
+      metrics.push(histograms);
+    }
     
     // Engine performance
     metrics.push(`# HELP engine_p95_ms Engine P95 latency in milliseconds`);
