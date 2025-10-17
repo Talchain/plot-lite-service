@@ -359,6 +359,7 @@ export async function createServer(opts: ServerOpts = {}) {
       ADAPTIVE_K_ENABLE: process.env.ADAPTIVE_K_ENABLE === '1' ? 'ON' : 'OFF',
       CONFIDENCE_CALIBRATED: process.env.CONFIDENCE_CALIBRATED === '1' ? 'ON' : 'OFF',
       PROMETHEUS_ENABLE: process.env.PROMETHEUS_ENABLE === '1' ? 'ON' : 'OFF',
+      OPS_SNAPSHOT_ENABLE: process.env.OPS_SNAPSHOT_ENABLE === '1' ? 'ON' : 'OFF',
       SSE_MAX_MS: process.env.SSE_MAX_MS || '120000',
       AUTH_ENABLED: process.env.AUTH_ENABLED === '1' ? 'ON' : 'OFF',
     };
@@ -1035,6 +1036,10 @@ export async function createServer(opts: ServerOpts = {}) {
   // Prometheus /metrics (C4, flag-gated)
   const { registerPrometheusMetrics } = await import('./plugins/metrics.js');
   await registerPrometheusMetrics(app);
+
+  // P2: /ops/snapshot (flag-gated, redacted)
+  const { registerOpsSnapshot } = await import('./routes/ops/snapshot.js');
+  await registerOpsSnapshot(app);
 
   // P0.2: Expose cache stats for /v1/health observability
   (app as any).getIdemCacheStats = () => idemCache.getStats();

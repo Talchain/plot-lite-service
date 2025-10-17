@@ -187,9 +187,122 @@ Restart the service. `/metrics` will return 404.
 
 ---
 
+---
+
+## P2: /ops/snapshot Endpoint (Flag-Gated, Redacted)
+
+**Flag:** `OPS_SNAPSHOT_ENABLE='1'` (default: OFF)
+
+**Endpoint:** `GET /ops/snapshot`
+
+**Purpose:** Read-only operational snapshot for SREs to quickly inspect engine health/state without parsing logs.
+
+### Authentication
+
+**When `AUTH_ENABLED='1'`:**
+- Requires standard `Authorization: Bearer <token>` header
+- Uses existing auth validation
+
+**When `AUTH_ENABLED!='1'`:**
+- Requires `X-OPS-KEY` header matching `process.env.OPS_KEY`
+- Fails closed if `OPS_KEY` not configured (401)
+- Returns `WWW-Authenticate: ops-key` on missing/invalid key
+
+### Response Schema
+
+**Schema:** `ops.snapshot.v1` (validated with AJV)
+
+```json
+{
+  "schema": "ops.snapshot.v1",
+  "version": "<build-id>",
+  "timestamp": "<ISO8601>",
+  "prom_enabled": true,
+  "runtime": {
+    "node": "v20.x",
+    "uptime_s": 123,
+    "rss_mb": 256,
+    "heap_used_mb": 128,
+    "eventloop_delay_ms": 0
+  },
+  "engine": {
+    "p95_ms": 12.5,
+    "p99_ms": 18.3,
+    "last_compute_ms": 8.2
+  },
+  "caches": {
+    "idempotency": {
+      "size": 42,
+      "hits": 1000,
+      "misses": 50,
+      "evictions": 5,
+      "hitRate": 0.95
+    },
+    "fixtures": { /* same structure */ }
+  },
+  "sse": {
+    "open": 3,
+    "closed": 97,
+    "timeout": 0
+  },
+  "rate_limit": {
+    "enabled": true,
+    "rpm": 60,
+    "last5m_429": 2
+  },
+  "flags": {
+    "PROMETHEUS_ENABLE": "ON",
+    "SCM_LITE_ENABLE": "OFF",
+    "AUTH_ENABLED": "ON",
+    "OPS_SNAPSHOT_ENABLE": "ON",
+    "TOKEN_RL_ENABLE": "OFF",
+    "WHATIF_DELTA_ENABLE": "OFF"
+  },
+  "redactions": [
+    "request.headers.Authorization",
+    "env.TOKEN_HMAC_SECRET",
+    "env.OPS_KEY",
+    "env.AUTH_TOKEN"
+  ]
+}
+```
+
+### Security Guarantees
+
+- ✅ **No PII:** No IPs, raw tokens, or authorization headers
+- ✅ **Redaction list:** Explicitly documents what was removed
+- ✅ **Fail-closed auth:** No default `OPS_KEY`; must be configured
+- ✅ **Flag-gated:** Returns 404 when OFF
+
+### Performance
+
+- **Latency budget:** < 25ms (reuses existing accessors)
+- **No compute impact:** Read-only, no side effects
+- **Determinism preserved:** No changes to `/v1/run` outputs
+
+### Example Usage
+
+```bash
+# With X-OPS-KEY (AUTH_ENABLED='0')
+export OPS_KEY="secure-ops-key-here"
+export OPS_SNAPSHOT_ENABLE=1
+
+curl -H "X-OPS-KEY: secure-ops-key-here" \
+  http://localhost:3000/ops/snapshot | jq
+
+# With Bearer token (AUTH_ENABLED='1')
+export AUTH_ENABLED=1
+export AUTH_TOKEN="your-token"
+export OPS_SNAPSHOT_ENABLE=1
+
+curl -H "Authorization: Bearer your-token" \
+  http://localhost:3000/ops/snapshot | jq
+```
+
+---
+
 ## Next Steps
 
-- **P2:** `/ops/snapshot` endpoint (flag-gated ops visibility)
 - **P3:** Rate-limit circuit breaker (burst protection)
 - **P4:** Full Bayes-ball d-separation (identifiability)
 

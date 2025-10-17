@@ -1,0 +1,199 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": [
+    "schema",
+    "version",
+    "timestamp",
+    "prom_enabled",
+    "runtime",
+    "engine",
+    "caches",
+    "sse",
+    "rate_limit",
+    "flags",
+    "redactions"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "ops.snapshot.v1"
+    },
+    "version": {
+      "type": "string"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "prom_enabled": {
+      "type": "boolean"
+    },
+    "runtime": {
+      "type": "object",
+      "required": ["node", "uptime_s", "rss_mb", "heap_used_mb", "eventloop_delay_ms"],
+      "additionalProperties": false,
+      "properties": {
+        "node": {
+          "type": "string"
+        },
+        "uptime_s": {
+          "type": "number"
+        },
+        "rss_mb": {
+          "type": "number"
+        },
+        "heap_used_mb": {
+          "type": "number"
+        },
+        "eventloop_delay_ms": {
+          "type": "number"
+        }
+      }
+    },
+    "engine": {
+      "type": "object",
+      "required": ["p95_ms", "p99_ms", "last_compute_ms"],
+      "additionalProperties": false,
+      "properties": {
+        "p95_ms": {
+          "type": "number"
+        },
+        "p99_ms": {
+          "type": "number"
+        },
+        "last_compute_ms": {
+          "type": "number"
+        }
+      }
+    },
+    "caches": {
+      "type": "object",
+      "required": ["idempotency", "fixtures"],
+      "additionalProperties": false,
+      "properties": {
+        "idempotency": {
+          "type": "object",
+          "required": ["size", "hits", "misses", "evictions", "hitRate"],
+          "additionalProperties": false,
+          "properties": {
+            "size": {
+              "type": "number"
+            },
+            "hits": {
+              "type": "number"
+            },
+            "misses": {
+              "type": "number"
+            },
+            "evictions": {
+              "type": "number"
+            },
+            "hitRate": {
+              "type": "number"
+            }
+          }
+        },
+        "fixtures": {
+          "type": "object",
+          "required": ["size", "hits", "misses", "evictions", "hitRate"],
+          "additionalProperties": false,
+          "properties": {
+            "size": {
+              "type": "number"
+            },
+            "hits": {
+              "type": "number"
+            },
+            "misses": {
+              "type": "number"
+            },
+            "evictions": {
+              "type": "number"
+            },
+            "hitRate": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    "sse": {
+      "type": "object",
+      "required": ["open", "closed", "timeout"],
+      "additionalProperties": false,
+      "properties": {
+        "open": {
+          "type": "number"
+        },
+        "closed": {
+          "type": "number"
+        },
+        "timeout": {
+          "type": "number"
+        }
+      }
+    },
+    "rate_limit": {
+      "type": "object",
+      "required": ["enabled", "rpm", "last5m_429"],
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "rpm": {
+          "type": "number"
+        },
+        "last5m_429": {
+          "type": "number"
+        }
+      }
+    },
+    "flags": {
+      "type": "object",
+      "required": [
+        "PROMETHEUS_ENABLE",
+        "SCM_LITE_ENABLE",
+        "AUTH_ENABLED",
+        "OPS_SNAPSHOT_ENABLE",
+        "TOKEN_RL_ENABLE",
+        "WHATIF_DELTA_ENABLE"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "PROMETHEUS_ENABLE": {
+          "type": "string",
+          "enum": ["ON", "OFF"]
+        },
+        "SCM_LITE_ENABLE": {
+          "type": "string",
+          "enum": ["ON", "OFF"]
+        },
+        "AUTH_ENABLED": {
+          "type": "string",
+          "enum": ["ON", "OFF"]
+        },
+        "OPS_SNAPSHOT_ENABLE": {
+          "type": "string",
+          "enum": ["ON", "OFF"]
+        },
+        "TOKEN_RL_ENABLE": {
+          "type": "string",
+          "enum": ["ON", "OFF"]
+        },
+        "WHATIF_DELTA_ENABLE": {
+          "type": "string",
+          "enum": ["ON", "OFF"]
+        }
+      }
+    },
+    "redactions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}
