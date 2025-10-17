@@ -211,10 +211,46 @@ WHATIF_DELTA_ENABLE=1 npm start
 
 ---
 
+## /ops/snapshot vs /v1/health (P2)
+
+**When to use `/ops/snapshot`:**
+- Need comprehensive ops visibility (runtime, caches, SSE, flags)
+- Investigating multi-component issues (cache + rate-limit + SSE)
+- Requires auth (X-OPS-KEY or Bearer token)
+- Flag-gated: `OPS_SNAPSHOT_ENABLE='1'`
+
+**When to use `/v1/health`:**
+- Quick liveness/readiness check
+- Public endpoint (no auth required)
+- Lighter payload (no redaction overhead)
+- Always available (no flag)
+
+**Example `/ops/snapshot` usage:**
+```bash
+# With X-OPS-KEY
+curl -H "X-OPS-KEY: $OPS_KEY" http://localhost:3000/ops/snapshot | jq
+
+# Check cache hit rates
+curl -H "X-OPS-KEY: $OPS_KEY" http://localhost:3000/ops/snapshot \
+  | jq '.caches.idempotency.hitRate'
+
+# Check all feature flags
+curl -H "X-OPS-KEY: $OPS_KEY" http://localhost:3000/ops/snapshot \
+  | jq '.flags'
+```
+
+**Redaction expectations:**
+- Response includes `"redactions"` array listing removed fields
+- Never contains: Authorization headers, raw tokens, OPS_KEY, TOKEN_HMAC_SECRET
+- Safe to share in incident channels (PII-free)
+
+---
+
 ## Escalation
 
 If triage steps don't resolve:
 1. Collect evidence pack: `npm run pack:build`
 2. Attach logs with `reqId` correlation
 3. Include `/v1/health` snapshot (including cache stats)
-4. Tag @eng-platform in incident channel
+4. Include `/ops/snapshot` if available (redacted, safe to share)
+5. Tag @eng-platform in incident channel
