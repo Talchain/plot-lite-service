@@ -34,6 +34,55 @@ v2.3 adds production-safe circuit breaker protection to prevent burst cascades a
 
 **LOC:** 151 lines
 
+---
+
+### PR-2A: True Sliding Window (Ring Buffer)
+
+**Changes:**
+- Replace simple counter with **ring buffer** for accurate burst detection
+- New `SlidingWindow` class with fixed-size buffer (capacity = threshold)
+- Count events strictly within `[now - windowMs, now]`
+- O(threshold) scan on each check (~50 iterations, negligible)
+
+**Why Ring Buffer:**
+- **Bursts trip correctly:** 50 failures in 10s → circuit opens
+- **Drips don't trip:** 50 failures spread over 30s → circuit stays closed
+- **Bounded memory:** Fixed capacity (typically 50), no unbounded growth
+- **No manual purging:** Old events naturally overwritten by ring rotation
+
+**Example:**
+```typescript
+// Burst: 5 failures in 1s → trips
+for (let i = 0; i < 5; i++) {
+  window.add(Date.now() - i * 100);
+}
+window.countSince(Date.now(), 1000); // → 5 (≥ threshold)
+
+// Drip: 5 failures over 3s → doesn't trip
+window.add(now - 3000);
+window.add(now - 2500);
+window.add(now - 2000);
+window.add(now - 1500);
+window.add(now - 500);
+window.countSince(now, 1000); // → 1 (< threshold)
+```
+
+**Observability:**
+- `/v1/health.circuit_breaker.window` exposes `windowMs` and `failureThreshold`
+- Failure count is real-time (not cumulative)
+
+**Tests:** 6/6 passing
+- ✅ Counts events within window
+- ✅ Excludes events outside window
+- ✅ Handles ring buffer wraparound
+- ✅ Burst detection (5 in 1s → trips)
+- ✅ Drip detection (5 over 3s → doesn't trip)
+- ✅ Exposes window config in `/v1/health`
+
+**LOC:** 71 lines
+
+---
+
 ### Circuit States
 
 ```
