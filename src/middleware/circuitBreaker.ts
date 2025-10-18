@@ -4,16 +4,18 @@
  * 
  * Prevents burst cascades by opening circuit on sustained overload.
  * States: closed → open → half_open → closed
+ * 
+ * PR-2A: Added sliding window with ring buffer for accurate burst detection
  */
 import type { FastifyRequest, FastifyReply } from 'fastify';
+import { SlidingWindow } from './cb/window.js';
 
 type CircuitState = 'closed' | 'open' | 'half_open';
 
 interface CircuitStats {
   state: CircuitState;
-  failures: number;
+  failureWindow: SlidingWindow; // PR-2A: Ring buffer for sliding window
   successes: number;
-  lastFailureAt: number;
   openedAt: number;
   halfOpenProbes: number;
 }
@@ -31,9 +33,8 @@ const CONFIG = {
 // Global circuit state
 const globalCircuit: CircuitStats = {
   state: 'closed',
-  failures: 0,
+  failureWindow: new SlidingWindow(CONFIG.failureThreshold),
   successes: 0,
-  lastFailureAt: 0,
   openedAt: 0,
   halfOpenProbes: 0,
 };
@@ -63,9 +64,8 @@ function getCircuit(principal: string | undefined): CircuitStats {
     }
     circuit = {
       state: 'closed',
-      failures: 0,
+      failureWindow: new SlidingWindow(CONFIG.failureThreshold),
       successes: 0,
-      lastFailureAt: 0,
       openedAt: 0,
       halfOpenProbes: 0,
     };
@@ -76,17 +76,12 @@ function getCircuit(principal: string | undefined): CircuitStats {
 
 /**
  * Check if circuit should trip to open
+ * PR-2A: Use sliding window for accurate burst detection
  */
 function shouldTrip(circuit: CircuitStats): boolean {
   const now = Date.now();
-  const windowStart = now - CONFIG.windowMs;
-  
-  // Reset old failures outside window
-  if (circuit.lastFailureAt < windowStart) {
-    circuit.failures = 0;
-  }
-  
-  return circuit.failures >= CONFIG.failureThreshold;
+  const failures = circuit.failureWindow.countSince(now, CONFIG.windowMs);
+  return failures >= CONFIG.failureThreshold;
 }
 
 /**
@@ -122,7 +117,8 @@ function transitionTo(circuit: CircuitStats, newState: CircuitState, scope?: 'gl
     circuit.halfOpenProbes = 0;
     circuitHalfOpenTotal++;
   } else if (newState === 'closed') {
-    circuit.failures = 0;
+    // PR-2A: Reset window by creating new instance
+    circuit.failureWindow = new SlidingWindow(CONFIG.failureThreshold);
     circuit.successes = 0;
     circuitClosedTotal++;
   }
@@ -136,8 +132,8 @@ function recordOutcome(circuit: CircuitStats, is429: boolean, scope?: 'global' |
   const now = Date.now();
   
   if (is429) {
-    circuit.failures++;
-    circuit.lastFailureAt = now;
+    // PR-2A: Add timestamp to sliding window
+    circuit.failureWindow.add(now);
     
     // Check if should trip
     if (circuit.state === 'closed' && shouldTrip(circuit)) {
@@ -262,16 +258,24 @@ export function getCircuitBreakerStats() {
     return null;
   }
   
+  // PR-2A: Count failures in current window
+  const now = Date.now();
+  const globalFailures = globalCircuit.failureWindow.countSince(now, CONFIG.windowMs);
+  
   return {
     global: {
       state: globalCircuit.state,
-      failures: globalCircuit.failures,
+      failures: globalFailures,
       successes: globalCircuit.successes,
     },
     principals: {
       tracked: principalCircuits.size,
       open: Array.from(principalCircuits.values()).filter(c => c.state === 'open').length,
       half_open: Array.from(principalCircuits.values()).filter(c => c.state === 'half_open').length,
+    },
+    window: {
+      windowMs: CONFIG.windowMs,
+      failureThreshold: CONFIG.failureThreshold,
     },
     metrics: {
       circuit_open_total: circuitOpenTotal,
@@ -286,9 +290,8 @@ export function getCircuitBreakerStats() {
  */
 export function resetCircuitBreaker(): void {
   globalCircuit.state = 'closed';
-  globalCircuit.failures = 0;
+  globalCircuit.failureWindow = new SlidingWindow(CONFIG.failureThreshold);
   globalCircuit.successes = 0;
-  globalCircuit.lastFailureAt = 0;
   globalCircuit.openedAt = 0;
   globalCircuit.halfOpenProbes = 0;
   
