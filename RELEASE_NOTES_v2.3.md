@@ -248,11 +248,111 @@ Restart the service. Circuit breaker will not be active.
 
 ---
 
+---
+
+## WP-P4: Contract Hardening for /v1/run
+
+**Always-On Validation** (no flag required)
+
+**Purpose:** Bulletproof inputs with strict AJV validation, friendly 400 errors, zero schema drift.
+
+### Schemas
+
+**Request:** `contracts/plot.run.request.v1.json`
+- `additionalProperties: false` - Rejects unknown fields
+- Required: `graph`, `outcome_node`
+- Optional: `seed`, `k_samples`, `treatment_node`, `baseline_value`
+- Bounds: ≤12 nodes, ≤20 edges (scope guardrails)
+
+**Response:** `contracts/plot.run.response.v1.json`
+- Required: `model_card`, `confidence`, `meta`
+- Validates `response_hash` pattern (64-hex SHA-256)
+- Ensures contract stability
+
+### Error Format
+
+**Before (WP-P4):**
+```json
+{
+  "code": "BAD_INPUT",
+  "message": "Missing required field: graph"
+}
+```
+
+**After (WP-P4):**
+```json
+{
+  "code": "BAD_INPUT",
+  "message": "Missing required field: graph",
+  "field": "graph",
+  "hint": "Include 'graph' in your request"
+}
+```
+
+### Error Types
+
+| Scenario | Field | Hint |
+|----------|-------|------|
+| Missing required | `graph` | Include 'graph' in your request |
+| Unknown field | `graphX` | Remove 'graphX' or check spelling |
+| Wrong type | `/seed` | Provide a integer value |
+| Too many items | `/graph/nodes` | Reduce array size to 12 or fewer items |
+| Value too large | `/seed` | Use a value ≤ 2147483647 |
+
+### Example Usage
+
+```bash
+# Missing required field
+curl -s http://localhost:3000/v1/run \
+  -H 'Content-Type: application/json' \
+  -d '{"outcome_node":"A"}' | jq
+
+# Response:
+# {
+#   "code": "BAD_INPUT",
+#   "message": "Missing required field: graph",
+#   "field": "graph",
+#   "hint": "Include 'graph' in your request"
+# }
+
+# Unknown field
+curl -s http://localhost:3000/v1/run \
+  -H 'Content-Type: application/json' \
+  -d '{"graphX":{},"outcome_node":"A"}' | jq
+
+# Response:
+# {
+#   "code": "BAD_INPUT",
+#   "message": "Unknown field: graphX",
+#   "field": "graphX",
+#   "hint": "Remove 'graphX' or check spelling"
+# }
+
+# Valid request
+curl -s http://localhost:3000/v1/run \
+  -H 'Content-Type: application/json' \
+  -d '{"graph":{"nodes":[{"id":"A","label":"A"}],"edges":[]},"outcome_node":"A"}' | jq
+```
+
+### Security Guarantees
+
+- ✅ **No unknown fields:** `additionalProperties: false` prevents injection
+- ✅ **Type safety:** Strict type checking (integer, string, number, object)
+- ✅ **Bounds enforcement:** Graph size limits (≤12 nodes, ≤20 edges)
+- ✅ **Friendly errors:** Clear `field` + `hint` for debugging
+
+### Performance
+
+- **Overhead:** ~100-200μs per request (AJV validation)
+- **Always-on:** No flag required (production-safe)
+
+---
+
 ## Next Steps
 
-- **WP-P4:** Contract Hardening for `/v1/run` (AJV validation)
-- **WP-P5:** Bayes-Ball D-Separation & Pruning
-- **WP-P6:** Deterministic Replay & Provenance
+- **WP-P5:** Bayes-Ball D-Separation & Pruning (flag: `IDENT_DSEP_ENABLE`)
+- **WP-P6:** Deterministic Replay & Provenance (flag: `REPLAY_ENABLE`)
+- **WP-SSE:** SSE Robustness Pass (flag: `SSE_HARDEN_ENABLE`)
 
 ---
 
