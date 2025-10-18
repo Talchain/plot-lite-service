@@ -357,3 +357,525 @@ If triage steps don't resolve:
 3. Include `/v1/health` snapshot (including cache stats + circuit_breaker)
 4. Include `/ops/snapshot` if available (redacted, safe to share)
 5. Tag @eng-platform in incident channel
+
+---
+
+## Circuit Breaker & Principal Extraction (PR-1/2A/2B/2C/2C.1/3)
+
+**Overview**: Rate-limit circuit breaker prevents cascade failures by opening circuits on sustained 429 overload. Principal extraction provides secure, HMAC-based identity for per-principal isolation.
+
+### Symptoms & Alerts
+
+**Common Alerts:**
+- `plot_engine_circuit_open_total` spike (global or principal scope)
+- `plot_engine_rate_limit_429_total` surge
+- `/v1/health.circuit_breaker.principals.open > 0` trending up
+- `/v1/health.principal_extraction.mode != "fallback"` (degraded mode)
+
+**Dashboard Queries (PromQL):**
+
+```promql
+# Circuit opens by reason (5m window)
+sum by (scope, reason) (increase(plot_engine_circuit_open_total[5m]))
+
+# 429 rate per route (5m window)
+sum by (route) (increase(plot_engine_rate_limit_429_total[5m]))
+
+# Half-open timeout events (15m window)
+sum(increase(plot_engine_circuit_open_total{reason="half_open_timeout"}[15m]))
+
+# Probe success rate (5m window)
+sum(increase(plot_engine_circuit_probes_total{result="success"}[5m])) 
+/ 
+sum(increase(plot_engine_circuit_probes_total[5m]))
+```
+
+**Health Endpoint Checks:**
+
+```bash
+# Quick status
+curl -s http://localhost:3000/v1/health | jq '{
+  principal_extraction,
+  circuit_breaker: {
+    global: .circuit_breaker.global,
+    principals: .circuit_breaker.principals
+  }
+}'
+
+# Check for degraded mode
+curl -s http://localhost:3000/v1/health | jq '.principal_extraction.mode'
+# Expected: "fallback" (NOT "degraded")
+
+# Check global circuit state
+curl -s http://localhost:3000/v1/health | jq '.circuit_breaker.global.state'
+# Expected: "closed" (NOT "open" or "half_open")
+
+# Check principal circuit distribution
+curl -s http://localhost:3000/v1/health | jq '.circuit_breaker.principals | {tracked, open, half_open}'
+```
+
+---
+
+### Triage Checklist (Fast Path)
+
+**Step 1: Verify Configuration**
+```bash
+# Check if breaker is enabled
+curl -s http://localhost:3000/v1/health | jq '.version.flags.RL_CB_ENABLE'
+
+# Check principal extraction status
+curl -s http://localhost:3000/v1/health | jq '.principal_extraction'
+```
+
+**Step 2: Identify Mode**
+- **mode="degraded"**: Missing `PRINCIPAL_HMAC_SECRET` → per-principal CB disabled (global only)
+- **mode="fallback"**: Normal operation (HMAC-based principals)
+
+**Step 3: Check Circuit States**
+```bash
+# Global circuit
+curl -s http://localhost:3000/v1/health | jq '.circuit_breaker.global | {
+  state,
+  failures,
+  state_duration_ms,
+  last_transition_at
+}'
+
+# Principal circuits
+curl -s http://localhost:3000/v1/health | jq '.circuit_breaker.principals | {
+  tracked,
+  open,
+  half_open,
+  capacity
+}'
+```
+
+**Step 4: Review Metrics**
+```bash
+# Check metrics for reason labels
+curl -s http://localhost:3000/metrics | grep circuit_open_total
+
+# Expected patterns:
+# plot_engine_circuit_open_total{scope="global",reason="threshold"} N
+# plot_engine_circuit_open_total{scope="principal",reason="half_open_timeout"} M
+```
+
+---
+
+### Remediation Playbooks
+
+#### 1. Degraded Mode (Missing Secret)
+
+**Symptom**: `principal_extraction.mode="degraded"`, per-principal CB disabled
+
+**Root Cause**: `RL_CB_ENABLE=1` but `PRINCIPAL_HMAC_SECRET` not set
+
+**Fix:**
+```bash
+# Generate secret (64-hex recommended)
+export PRINCIPAL_HMAC_SECRET=$(openssl rand -hex 32)
+
+# Store in vault (production)
+vault kv put secret/plot-engine PRINCIPAL_HMAC_SECRET="$PRINCIPAL_HMAC_SECRET"
+
+# Redeploy with secret
+# Verify health after deploy
+curl -s http://localhost:3000/v1/health | jq '.principal_extraction.mode'
+# Should return: "fallback"
+```
+
+**Validation:**
+- Health shows `enabled: true`, `mode: "fallback"`
+- Logs show no "[circuit-breaker] RL_CB_ENABLE=1 but PRINCIPAL_HMAC_SECRET missing" error
+- Per-principal circuits start tracking (check `principals.tracked`)
+
+---
+
+#### 2. Global Circuit Open (Legitimate Load Spike)
+
+**Symptom**: `circuit_breaker.global.state="open"`, 503 responses with `X-RateLimit-Reason: circuit_open_global`
+
+**Root Cause**: Sustained 429s exceeding `RL_CB_FAILURE_THRESHOLD` (default: 50) in `RL_CB_WINDOW_MS` (default: 10s)
+
+**Triage:**
+```bash
+# Check failure count and threshold
+curl -s http://localhost:3000/v1/health | jq '.circuit_breaker | {
+  global_failures: .global.failures,
+  threshold: .window.failureThreshold,
+  window_ms: .window.windowMs
+}'
+
+# Check 429 rate
+curl -s http://localhost:3000/metrics | grep rate_limit_429_total
+```
+
+**Temporary Mitigation (Increase Threshold):**
+```bash
+# Raise threshold by 20-30% temporarily
+export RL_CB_FAILURE_THRESHOLD=65  # was 50
+export RL_CB_WINDOW_MS=12000       # was 10000
+
+# Restart service
+# Document rollback plan
+```
+
+**Permanent Fix:**
+- Investigate upstream 429 sources (rate limiter, quota exhaustion)
+- Consider scaling capacity or adding perimeter throttling
+- Review baseline 429 p95 and adjust thresholds accordingly
+
+**Rollback:**
+```bash
+# Restore defaults
+unset RL_CB_FAILURE_THRESHOLD
+unset RL_CB_WINDOW_MS
+# Restart service
+```
+
+---
+
+#### 3. Principal Circuits Open (Bot/Flood Attack)
+
+**Symptom**: `principals.open > 0`, specific principals tripping circuits
+
+**Root Cause**: Individual principals (IPs, auth users) generating sustained 429s
+
+**Triage:**
+```bash
+# Check principal circuit distribution
+curl -s http://localhost:3000/v1/health | jq '.circuit_breaker.principals'
+
+# Review perimeter logs for offending sources
+# (principals are opaque HMACs, correlate via request logs)
+```
+
+**Mitigation:**
+1. **Perimeter block**: Add IP/CIDR blocks at WAF/LB
+2. **Auth rate limits**: Tighten per-user quotas if authenticated
+3. **Route-level limits**: Lower rate limits on affected routes
+
+**Breaker Tuning (if legitimate):**
+```bash
+# Increase per-principal threshold
+export RL_CB_FAILURE_THRESHOLD=75  # was 50
+
+# Or increase cooldown to reduce oscillation
+export RL_CB_COOLDOWN_MS=45000     # was 30000
+```
+
+---
+
+#### 4. Half-Open Timeout Spikes
+
+**Symptom**: `circuit_open_total{reason="half_open_timeout"}` increasing
+
+**Root Cause**: Circuits entering half-open but no probe requests arriving within timeout (default: 60s)
+
+**Triage:**
+```bash
+# Check timeout events
+curl -s http://localhost:3000/metrics | grep 'half_open_timeout'
+
+# Check half-open timeout config
+curl -s http://localhost:3000/v1/health | jq '.circuit_breaker.config.half_open_timeout_ms'
+```
+
+**Analysis:**
+- **Low traffic**: Circuit opened during off-peak, no requests to probe recovery
+- **Persistent overload**: System still unhealthy, probes fail or don't arrive
+
+**Fix (Increase Timeout):**
+```bash
+# Extend timeout modestly (60s → 90s)
+export RL_CB_HALF_OPEN_TIMEOUT_MS=90000
+
+# Restart and monitor probe success rate
+curl -s http://localhost:3000/metrics | grep circuit_probes_total
+```
+
+**Validation:**
+- Timeout events decrease
+- Probe success rate improves
+- Circuits close after successful probes
+
+---
+
+### Trusted Proxy Configuration
+
+**When to Enable:**
+- Service behind reverse proxy/load balancer
+- Need to trust `X-Forwarded-For` for canonical remote address
+
+**Configuration:**
+```bash
+# Enable trusted proxy mode
+export TRUST_PROXY=1
+export TRUST_PROXY_HOPS=1  # Number of trusted proxy hops
+
+# Example: ALB → Service (1 hop)
+# X-Forwarded-For: client_ip, alb_ip
+# Canonical remote = client_ip (rightmost - 1 hop)
+```
+
+**Security Warning:**
+- `TRUST_PROXY=0` (default): Ignores `X-Forwarded-For` completely (anti-spoofing)
+- `TRUST_PROXY=1`: Honors rightmost N hops (ensure proxy chain is trusted)
+- **Never enable without verifying proxy configuration**
+
+**Validation:**
+```bash
+# Check config
+curl -s http://localhost:3000/v1/health | jq '.principal_extraction | {trust_proxy, hops}'
+
+# Test with forged XFF (should be ignored when TRUST_PROXY=0)
+curl -H "X-Forwarded-For: 1.2.3.4" http://localhost:3000/v1/run
+```
+
+---
+
+### Rollout & Rollback
+
+#### Enable Sequence (Canary → Production)
+
+**Stage 1: Metrics Only (Safe)**
+```bash
+# Deploy with breaker OFF (metrics collection only)
+export RL_CB_ENABLE=0
+export PRINCIPAL_HMAC_SECRET=$(openssl rand -hex 32)
+
+# Validate metrics appear
+curl -s http://localhost:3000/metrics | grep circuit_open_total
+```
+
+**Stage 2: Canary Enable**
+```bash
+# Enable on canary instances
+export RL_CB_ENABLE=1
+
+# Monitor for 1 hour:
+# - circuit_open_total (should be 0 or low)
+# - rate_limit_429_total baseline
+# - principal_extraction.mode="fallback"
+```
+
+**Stage 3: Progressive Rollout**
+- 25% → wait 24h
+- 50% → wait 24h
+- 100% → monitor for 48h
+
+**Rollback (Instant, No Restart):**
+```bash
+# Disable enforcement immediately
+export RL_CB_ENABLE=0
+
+# Metrics continue collecting
+# No service restart required
+# Validate via health
+curl -s http://localhost:3000/v1/health | jq '.version.flags.RL_CB_ENABLE'
+```
+
+---
+
+### Tuning Guide
+
+#### Choosing Thresholds
+
+**Baseline Analysis:**
+```bash
+# Measure baseline 429 rate (1 week)
+# p50, p95, p99 of 429s per 10s window
+
+# Example baseline:
+# p50: 5 failures/10s
+# p95: 20 failures/10s
+# p99: 45 failures/10s
+
+# Set threshold at p99 + 10% headroom
+export RL_CB_FAILURE_THRESHOLD=50  # 45 * 1.1
+```
+
+**Burstiness Considerations:**
+- **Bursty traffic**: Increase `RL_CB_WINDOW_MS` (10s → 15s) to smooth spikes
+- **Steady load**: Keep default 10s window
+- **Drip attacks**: Lower threshold (50 → 30) for faster detection
+
+**SLO Alignment:**
+- **Availability SLO**: Set threshold to trip before cascading failures
+- **Latency SLO**: Ensure circuit opens before p95 latency degrades
+- **Error budget**: Trip circuit when error rate exceeds budget
+
+#### Rate Limiter vs Circuit Breaker
+
+**Interaction:**
+1. **Rate limiter** (first line): Per-principal/route quotas, returns 429
+2. **Circuit breaker** (last resort): Trips on sustained 429s, returns 503
+
+**Which Trips First?**
+- Normal: Rate limiter (429) → client backs off
+- Overload: Rate limiter saturated → breaker trips (503) → protect service
+
+**Tuning:**
+- Rate limiter: Tight quotas (per-user, per-route)
+- Circuit breaker: Loose thresholds (system-wide protection)
+
+---
+
+### SLOs & Alert Rules
+
+#### Recommended Alerts
+
+**Critical: Global Circuit Open**
+```promql
+# Alert if global circuit opens
+increase(plot_engine_circuit_open_total{scope="global"}[5m]) > 0
+```
+**Severity**: P1 (page immediately)  
+**Action**: Follow "Global Circuit Open" playbook
+
+---
+
+**Warning: Half-Open Timeout Spike**
+```promql
+# Alert if >5 timeout events in 15m
+sum(increase(plot_engine_circuit_open_total{reason="half_open_timeout"}[15m])) > 5
+```
+**Severity**: P2 (investigate within 1h)  
+**Action**: Check probe success rate, consider timeout increase
+
+---
+
+**Warning: Degraded Mode**
+```promql
+# Alert if principal extraction degraded
+max_over_time(health.principal_extraction.mode[1m]) == "degraded"
+```
+**Severity**: P2 (fix within 4h)  
+**Action**: Set `PRINCIPAL_HMAC_SECRET` and redeploy
+
+---
+
+**Info: Principal Circuit Opens**
+```promql
+# Alert if >10 principal circuits open
+max_over_time(health.circuit_breaker.principals.open[5m]) > 10
+```
+**Severity**: P3 (review daily)  
+**Action**: Investigate offending principals, consider perimeter blocks
+
+---
+
+### Runbook Drills (Quarterly)
+
+**Drill 1: Canary Enable**
+- Deploy with `RL_CB_ENABLE=0`
+- Enable on canary
+- Verify metrics and health
+- Rollback to OFF
+- **Target**: <5 min end-to-end
+
+**Drill 2: Degraded Mode Recovery**
+- Deploy without `PRINCIPAL_HMAC_SECRET`
+- Verify degraded mode in health
+- Generate and set secret
+- Redeploy
+- Verify fallback mode
+- **Target**: <15 min end-to-end
+
+**Drill 3: Load Spike Response**
+- Simulate 429 surge (load test)
+- Observe circuit open
+- Increase threshold temporarily
+- Verify circuit closes
+- Rollback threshold
+- **Target**: <10 min detection to mitigation
+
+---
+
+### FAQ & Gotchas
+
+**Q: What does `principals.ttl_ms: null` mean in health?**  
+A: `null` = `Infinity` (default). Principals never expire by TTL, only evicted by LRU when capacity reached. This prevents spaced-burst bypass.
+
+**Q: Why is `principal_extraction.mode="degraded"`?**  
+A: `RL_CB_ENABLE=1` but `PRINCIPAL_HMAC_SECRET` not set. Per-principal CB disabled, global CB still active. Set secret to enable full functionality.
+
+**Q: Are principals PII?**  
+A: No. Principals are opaque HMAC-SHA256 hashes (base64url-encoded). No raw IPs, tokens, or user-agents are stored or exposed.
+
+**Q: What's the difference between `open` and `half_open`?**  
+A:
+- **open**: Circuit tripped, all requests rejected (503)
+- **half_open**: Cooldown elapsed, allowing probe requests to test recovery
+- **closed**: Normal operation
+
+**Q: How do I rotate `PRINCIPAL_HMAC_SECRET`?**  
+A:
+1. Generate new secret
+2. Deploy with new secret
+3. Principals will be re-keyed on next request
+4. Old principals age out via LRU (no disruption)
+
+**Q: Can I disable per-principal CB but keep global?**  
+A: Yes. Don't set `PRINCIPAL_HMAC_SECRET` (degraded mode). Global CB remains active.
+
+**Q: What's the expected principal churn rate?**  
+A: Depends on traffic diversity. Typical: 100-500 unique principals/hour. Monitor `principals.tracked` in health.
+
+**Q: Why did `TRUST_PROXY=1` change principal keys?**  
+A: Canonical remote address changed (now using `X-Forwarded-For`). Principals are derived from remote address, so keys differ. This is expected.
+
+**Q: How do I identify which principal is tripping circuits?**  
+A: Principals are opaque HMACs. Correlate via request logs (timestamp, route, status) to identify patterns. Use perimeter logs for source IPs.
+
+---
+
+### Zero-PII Guarantees
+
+**What's Protected:**
+- ✅ No raw IP addresses in health/metrics
+- ✅ No raw user-agents in health/metrics
+- ✅ No raw auth tokens/user IDs in health/metrics
+- ✅ Principals are opaque HMAC-SHA256 hashes
+
+**What's Logged (Safe):**
+- Circuit state transitions (timestamps, states, reasons)
+- Aggregate counts (failures, successes, probes)
+- Opaque principal identifiers (HMAC hashes)
+
+**Verification:**
+```bash
+# Spot-check health for PII
+curl -s http://localhost:3000/v1/health | grep -E '([0-9]{1,3}\.){3}[0-9]{1,3}|Mozilla|Chrome|user-'
+# Should return: no matches
+
+# Spot-check metrics for PII
+curl -s http://localhost:3000/metrics | grep -E '([0-9]{1,3}\.){3}[0-9]{1,3}|Mozilla|Chrome|user-'
+# Should return: no matches
+```
+
+---
+
+### Performance Impact
+
+**Expected Overhead:**
+- Principal extraction: <0.5ms p95
+- Circuit checks: <0.1ms p95 (in-memory)
+- Total: <1ms p95 added latency
+
+**Monitoring:**
+```bash
+# Check engine latency (should be unchanged)
+curl -s http://localhost:3000/v1/health | jq '.engine_p95_ms'
+
+# Check request duration histogram
+curl -s http://localhost:3000/metrics | grep request_duration_seconds
+```
+
+**If Degraded Performance:**
+- Check `principals.tracked` vs `capacity` (LRU eviction churn)
+- Consider increasing `RL_CB_MAX_PRINCIPALS` (default: 1000)
+- Verify no memory leaks (RSS should be stable)
+
+---
+
