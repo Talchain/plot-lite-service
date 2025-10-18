@@ -246,11 +246,64 @@ curl -H "X-OPS-KEY: $OPS_KEY" http://localhost:3000/ops/snapshot \
 
 ---
 
+## Circuit Breaker (WP-P3)
+
+**Flag:** `RL_CB_ENABLE='1'` (default: OFF)
+
+**Purpose:** Prevents burst cascades by opening circuit on sustained overload.
+
+**States:**
+- `closed` - Normal operation
+- `open` - Circuit tripped, rejecting requests with 503
+- `half_open` - Recovery mode, probing with limited requests
+
+**Symptom:** 503 responses with `X-RateLimit-Reason: circuit_open_*`
+
+**Triage:**
+```bash
+# Check circuit state
+curl -s http://localhost:3000/v1/health | jq '.circuit_breaker'
+
+# Expected output:
+# {
+#   "global": { "state": "open", "failures": 52, "successes": 0 },
+#   "principals": { "tracked": 15, "open": 2, "half_open": 0 }
+# }
+```
+
+**Causes:**
+1. **Sustained 429s:** ≥50 rate-limit rejections in 10s window
+2. **Burst traffic:** QPS exceeds threshold
+3. **Noisy neighbor:** Single principal causing cascades
+
+**Resolution:**
+1. **Wait for cooldown:** Circuit auto-recovers after 30s (default)
+2. **Check logs:** Look for spike in 429s or high QPS
+3. **Identify principal:** Check `principals.open` count
+4. **Temporary disable:** `RL_CB_ENABLE=0` + restart (if false positive)
+
+**Monitoring:**
+```promql
+# Circuit open events
+increase(plot_engine_circuit_open_total[5m])
+
+# 503 rate
+rate(plot_engine_request_duration_seconds_count{status_class="5xx"}[5m])
+```
+
+**Rollback:**
+```bash
+export RL_CB_ENABLE=0
+# Restart service
+```
+
+---
+
 ## Escalation
 
 If triage steps don't resolve:
 1. Collect evidence pack: `npm run pack:build`
 2. Attach logs with `reqId` correlation
-3. Include `/v1/health` snapshot (including cache stats)
+3. Include `/v1/health` snapshot (including cache stats + circuit_breaker)
 4. Include `/ops/snapshot` if available (redacted, safe to share)
 5. Tag @eng-platform in incident channel

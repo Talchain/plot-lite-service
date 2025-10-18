@@ -1,0 +1,75 @@
+import { beforeAll, afterAll, describe, it, expect } from 'vitest';
+import type { FastifyInstance } from 'fastify';
+import { createServer } from '../src/createServer.js';
+import { __idemSize } from '../src/middleware/idempotency.js';
+import { GOLDEN_SCENARIO } from '../src/fixtures/self-check.js';
+
+let app: FastifyInstance;
+let port = 0;
+const prevs: Record<string, string | undefined> = {
+  TEST_ROUTES: process.env.TEST_ROUTES,
+  AUTH_ENABLED: process.env.AUTH_ENABLED,
+  MAX_IDEM_ENTRIES: process.env.MAX_IDEM_ENTRIES,
+  RATE_LIMIT_ENABLED: process.env.RATE_LIMIT_ENABLED,
+};
+
+beforeAll(async () => {
+  process.env.TEST_ROUTES = '1';
+  process.env.AUTH_ENABLED = '0';
+  process.env.MAX_IDEM_ENTRIES = '10';
+  process.env.RATE_LIMIT_ENABLED = '1';
+  app = await createServer({ enableTestRoutes: true });
+  await app.listen({ port: 0, host: '127.0.0.1' });
+  const addr = app.server.address();
+  port = typeof addr === 'object' && addr ? (addr.port as number) : 0;
+});
+
+afterAll(async () => {
+  await app.close();
+  for (const k of Object.keys(prevs)) {
+    const v = (prevs as any)[k];
+    if (v === undefined) delete (process.env as any)[k]; else (process.env as any)[k] = v;
+  }
+});
+
+describe('idempotency cache bounds + replay semantics', () => {
+  it('bounds LRU size and replays without consuming RPM', async () => {
+    const baseBody = {
+      ...GOLDEN_SCENARIO,
+      treatment_node: GOLDEN_SCENARIO.graph.nodes[0]?.id,
+      outcome_node: GOLDEN_SCENARIO.graph.nodes[GOLDEN_SCENARIO.graph.nodes.length - 1]?.id,
+      baseline_value: 100,
+    };
+
+    // Fill > MAX_IDEM_ENTRIES
+    for (let i = 0; i < 12; i++) {
+      const res = await fetch(`http://127.0.0.1:${port}/v1/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `k${i}` },
+        body: JSON.stringify(baseBody),
+      });
+      expect(res.status).toBe(200);
+      await res.text();
+    }
+    expect(__idemSize()).toBeLessThanOrEqual(10);
+
+    // Replay an existing key returns cached result and sets header
+    const r1 = await fetch(`http://127.0.0.1:${port}/v1/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': 'k5' },
+      body: JSON.stringify(baseBody),
+    });
+    expect(r1.status).toBe(200);
+    expect(String(r1.headers.get('Idempotent-Replayed'))).toBe('1');
+
+    // New key should still work and cache respects bound
+    const r2 = await fetch(`http://127.0.0.1:${port}/v1/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': 'k_new' },
+      body: JSON.stringify(baseBody),
+    });
+    expect(r2.status).toBe(200);
+    await r2.text();
+    expect(__idemSize()).toBeLessThanOrEqual(10);
+  });
+});

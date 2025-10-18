@@ -214,6 +214,12 @@ export async function createServer(opts: ServerOpts = {}) {
     app.addHook('onRequest', rateLimit);
   }
 
+  // WP-P3: Circuit breaker (flag-gated)
+  const { circuitBreakerMiddleware, trackCircuitBreakerResponse } = await import('./middleware/circuitBreaker.js');
+  if (process.env.RL_CB_ENABLE === '1') {
+    app.addHook('onRequest', circuitBreakerMiddleware);
+  }
+
   // Minimal structured access log without bodies
   app.addHook('onRequest', async (req) => {
     (req as any).startTime = process.hrtime.bigint();
@@ -252,6 +258,9 @@ export async function createServer(opts: ServerOpts = {}) {
         const { observeRequestDuration } = await import('./metrics/registry.js');
         const normalizedRoute = route || 'unknown';
         observeRequestDuration(normalizedRoute, req.method, reply.statusCode, durationMs);
+        
+        // WP-P3: Track circuit breaker response (flag-gated)
+        trackCircuitBreakerResponse(req, reply);
       } catch {}
     }
     // Update replay lastStatus/lastTs for /draft-flows responses
@@ -360,6 +369,7 @@ export async function createServer(opts: ServerOpts = {}) {
       CONFIDENCE_CALIBRATED: process.env.CONFIDENCE_CALIBRATED === '1' ? 'ON' : 'OFF',
       PROMETHEUS_ENABLE: process.env.PROMETHEUS_ENABLE === '1' ? 'ON' : 'OFF',
       OPS_SNAPSHOT_ENABLE: process.env.OPS_SNAPSHOT_ENABLE === '1' ? 'ON' : 'OFF',
+      RL_CB_ENABLE: process.env.RL_CB_ENABLE === '1' ? 'ON' : 'OFF',
       SSE_MAX_MS: process.env.SSE_MAX_MS || '120000',
       AUTH_ENABLED: process.env.AUTH_ENABLED === '1' ? 'ON' : 'OFF',
     };

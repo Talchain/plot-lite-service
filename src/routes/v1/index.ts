@@ -138,6 +138,12 @@ export async function registerV1Routes(app: FastifyInstance) {
       engine_p95_ms: getEngineP95Ms(),
       engine_p95_ms_rolling: getEngineP95MsRolling(),
     } as any;
+    // WP-P3: Circuit breaker stats (flag-gated)
+    try {
+      const { getCircuitBreakerStats } = await import('../../middleware/circuitBreaker.js');
+      const cbStats = getCircuitBreakerStats();
+      if (cbStats) base.circuit_breaker = cbStats;
+    } catch {}
     // Optional environment/build hints for ops triage
     try {
       const env = process.env.ENVIRONMENT;
