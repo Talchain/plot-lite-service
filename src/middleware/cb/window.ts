@@ -25,16 +25,18 @@ export class SlidingWindow {
   }
 
   /**
-   * Count events strictly within [now - windowMs, now]
+   * Count events strictly within (now - windowMs, now]
    * O(capacity) scan, but capacity is small (typically 50)
+   * 
+   * Note: Uses strict > for floor to exclude boundary (events exactly at now - windowMs don't count)
    */
   countSince(now: number, windowMs: number): number {
     if (this.size === 0) return 0;
     const floor = now - windowMs;
     let n = 0;
+    // Scan only filled slots (size <= capacity)
     for (let k = 0; k < this.size; k++) {
-      const v = this.buf[k];
-      if (v !== undefined && v >= floor) n++;
+      if (this.buf[k] > floor) n++;
     }
     return n;
   }

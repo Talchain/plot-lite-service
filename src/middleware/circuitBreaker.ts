@@ -118,6 +118,9 @@ function transitionTo(circuit: CircuitStats, newState: CircuitState, scope?: 'gl
     circuitHalfOpenTotal++;
   } else if (newState === 'closed') {
     // PR-2A: Reset window by creating new instance
+    // Policy: Clear history on close to give clean slate after recovery.
+    // Trade-off: Could preserve history to detect rapid re-trips, but we prefer
+    // optimistic recovery (assume system is healthy after successful probes).
     circuit.failureWindow = new SlidingWindow(CONFIG.failureThreshold);
     circuit.successes = 0;
     circuitClosedTotal++;
