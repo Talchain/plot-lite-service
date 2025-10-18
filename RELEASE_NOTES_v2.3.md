@@ -12,6 +12,28 @@ v2.3 adds production-safe circuit breaker protection to prevent burst cascades a
 
 **Purpose:** Prevent burst cascades by opening circuit on sustained overload, returning 503 with exponential backoff.
 
+### PR-1: Circuit Event Collection (Always-On)
+
+**Changes:**
+- Record 429 events **always** (regardless of `RL_CB_ENABLE`)
+- Do not enforce 503s unless `RL_CB_ENABLE='1'`
+- Export Prometheus counters (when `PROMETHEUS_ENABLE='1'`):
+  - `plot_engine_rate_limit_429_total{route}` - Total 429 responses
+  - `plot_engine_circuit_open_total{scope}` - Circuit opens (global/principal)
+  - `plot_engine_circuit_probes_total{scope,result}` - Half-open probes
+
+**Why Always-On:**
+- Operators need visibility into rate-limit pressure even when breaker is OFF
+- Enables gradual rollout: collect data first, enforce later
+- Zero performance impact when `PROMETHEUS_ENABLE='0'`
+
+**Tests:** 3/3 passing
+- ✅ Records 429 events when `RL_CB_ENABLE=0`
+- ✅ Does not enforce 503s when `RL_CB_ENABLE=0`
+- ✅ Exposes counters in `/metrics`
+
+**LOC:** 151 lines
+
 ### Circuit States
 
 ```

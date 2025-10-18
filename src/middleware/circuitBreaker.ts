@@ -100,8 +100,9 @@ function canAttemptRecovery(circuit: CircuitStats): boolean {
 
 /**
  * Transition circuit state
+ * PR-1: Record circuit open events in metrics
  */
-function transitionTo(circuit: CircuitStats, newState: CircuitState): void {
+function transitionTo(circuit: CircuitStats, newState: CircuitState, scope?: 'global' | 'principal'): void {
   const now = Date.now();
   circuit.state = newState;
   
@@ -109,6 +110,14 @@ function transitionTo(circuit: CircuitStats, newState: CircuitState): void {
     circuit.openedAt = now;
     circuit.halfOpenProbes = 0;
     circuitOpenTotal++;
+    
+    // PR-1: Record circuit open event
+    if (scope) {
+      try {
+        const { recordCircuitOpen } = require('../metrics/registry.js');
+        recordCircuitOpen(scope);
+      } catch {}
+    }
   } else if (newState === 'half_open') {
     circuit.halfOpenProbes = 0;
     circuitHalfOpenTotal++;
@@ -121,8 +130,9 @@ function transitionTo(circuit: CircuitStats, newState: CircuitState): void {
 
 /**
  * Record request outcome
+ * PR-1: Pass scope to transitionTo for metrics
  */
-function recordOutcome(circuit: CircuitStats, is429: boolean): void {
+function recordOutcome(circuit: CircuitStats, is429: boolean, scope?: 'global' | 'principal'): void {
   const now = Date.now();
   
   if (is429) {
@@ -131,7 +141,7 @@ function recordOutcome(circuit: CircuitStats, is429: boolean): void {
     
     // Check if should trip
     if (circuit.state === 'closed' && shouldTrip(circuit)) {
-      transitionTo(circuit, 'open');
+      transitionTo(circuit, 'open', scope);
     }
   } else {
     circuit.successes++;
@@ -139,8 +149,17 @@ function recordOutcome(circuit: CircuitStats, is429: boolean): void {
     // In half-open, successful probes can close circuit
     if (circuit.state === 'half_open') {
       circuit.halfOpenProbes++;
+      
+      // PR-1: Record probe result
+      if (scope) {
+        try {
+          const { recordCircuitProbe } = require('../metrics/registry.js');
+          recordCircuitProbe(scope, 'success');
+        } catch {}
+      }
+      
       if (circuit.halfOpenProbes >= CONFIG.halfOpenProbes) {
-        transitionTo(circuit, 'closed');
+        transitionTo(circuit, 'closed', scope);
       }
     }
   }
@@ -205,22 +224,34 @@ export async function circuitBreakerMiddleware(
 
 /**
  * Track response for circuit breaker
+ * PR-1: Always record 429 events (even when RL_CB_ENABLE=0)
  */
 export function trackCircuitBreakerResponse(
   req: FastifyRequest,
   reply: FastifyReply
 ): void {
+  const is429 = reply.statusCode === 429;
+  
+  // PR-1: Always record 429 events for metrics (even when breaker is OFF)
+  if (is429) {
+    try {
+      const { recordRateLimit429 } = require('../metrics/registry.js');
+      const route = (req as any)?.routeOptions?.url || 'unknown';
+      recordRateLimit429(route);
+    } catch {}
+  }
+  
+  // Only update circuit state if breaker is enabled
   if (!CONFIG.enabled) return;
   
   const principal = (req as any).principal || req.ip || 'unknown';
-  const is429 = reply.statusCode === 429;
   
   // Update global circuit
-  recordOutcome(globalCircuit, is429);
+  recordOutcome(globalCircuit, is429, 'global');
   
   // Update per-principal circuit
   const circuit = getCircuit(principal);
-  recordOutcome(circuit, is429);
+  recordOutcome(circuit, is429, 'principal');
 }
 
 /**
