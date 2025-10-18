@@ -12,6 +12,7 @@ import { SlidingWindow } from './cb/window.js';
 import { BoundedLRU } from '../lib/BoundedLRU.js';
 
 type CircuitState = 'closed' | 'open' | 'half_open';
+type TransitionReason = 'threshold' | 'half_open_timeout' | 'probes_success'; // PR-2C.1
 
 interface CircuitStats {
   state: CircuitState;
@@ -108,8 +109,12 @@ function canAttemptRecovery(circuit: CircuitStats): boolean {
  * Transition circuit state
  * PR-1: Record circuit open events in metrics
  * PR-2C: Track timestamps and handle half-open timeout
+ * PR-2C.1: Type-safe reasons and idempotent transitions
  */
-function transitionTo(circuit: CircuitStats, newState: CircuitState, scope?: 'global' | 'principal', reason?: string): void {
+function transitionTo(circuit: CircuitStats, newState: CircuitState, scope?: 'global' | 'principal', reason?: TransitionReason): void {
+  // PR-2C.1: Idempotent - skip if already in target state
+  if (circuit.state === newState) return;
+  
   const now = Date.now();
   circuit.state = newState;
   circuit.lastTransitionAt = now; // PR-2C: Always track transition time
@@ -155,7 +160,7 @@ function recordOutcome(circuit: CircuitStats, is429: boolean, scope?: 'global' |
     
     // Check if should trip
     if (circuit.state === 'closed' && shouldTrip(circuit)) {
-      transitionTo(circuit, 'open', scope);
+      transitionTo(circuit, 'open', scope, 'threshold');
     }
   } else {
     circuit.successes++;
@@ -173,7 +178,7 @@ function recordOutcome(circuit: CircuitStats, is429: boolean, scope?: 'global' |
       }
       
       if (circuit.halfOpenProbes >= CONFIG.halfOpenProbes) {
-        transitionTo(circuit, 'closed', scope);
+        transitionTo(circuit, 'closed', scope, 'probes_success');
       }
     }
   }
@@ -298,6 +303,18 @@ export function getCircuitBreakerStats() {
   const now = Date.now();
   const globalFailures = globalCircuit.failureWindow.countSince(now, CONFIG.windowMs);
   
+  // PR-2C.1: Count principal states (single loop, no Array.from)
+  let principalOpen = 0;
+  let principalHalfOpen = 0;
+  const lruCache = (principalCircuits as any).cache; // Access internal Map
+  if (lruCache) {
+    for (const [, entry] of lruCache.entries()) {
+      const circuit = entry.value;
+      if (circuit.state === 'open') principalOpen++;
+      else if (circuit.state === 'half_open') principalHalfOpen++;
+    }
+  }
+  
   return {
     config: {
       half_open_timeout_ms: CONFIG.halfOpenTimeoutMs, // PR-2C
@@ -313,6 +330,8 @@ export function getCircuitBreakerStats() {
       tracked: principalCircuits.getSize(),
       capacity: PRINCIPAL_MAX,
       ttl_ms: PRINCIPAL_TTL,
+      open: principalOpen, // PR-2C.1
+      half_open: principalHalfOpen, // PR-2C.1
     },
     window: {
       windowMs: CONFIG.windowMs,
