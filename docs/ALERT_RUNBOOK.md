@@ -246,6 +246,56 @@ curl -H "X-OPS-KEY: $OPS_KEY" http://localhost:3000/ops/snapshot \
 
 ---
 
+## Contract Validation Errors (WP-P4)
+
+**Always-On:** No flag required
+
+**Symptom:** 400 responses with `code: "BAD_INPUT"`
+
+**Error Format:**
+```json
+{
+  "code": "BAD_INPUT",
+  "message": "Missing required field: graph",
+  "field": "graph",
+  "hint": "Include 'graph' in your request"
+}
+```
+
+**Common Causes:**
+1. **Missing required field:** Client forgot `graph` or `outcome_node`
+2. **Unknown field:** Typo in field name (e.g., `graphX` instead of `graph`)
+3. **Wrong type:** Sent string instead of integer for `seed`
+4. **Bounds exceeded:** Too many nodes (>12) or edges (>20)
+
+**Triage:**
+```bash
+# Check error details
+curl -s http://localhost:3000/v1/run \
+  -H 'Content-Type: application/json' \
+  -d '{"graphX":{}}' | jq
+
+# Expected:
+# {
+#   "code": "BAD_INPUT",
+#   "field": "graphX",
+#   "hint": "Remove 'graphX' or check spelling"
+# }
+```
+
+**Resolution:**
+1. **Check `field`:** Identifies the problematic field
+2. **Read `hint`:** Provides actionable guidance
+3. **Validate against schema:** `contracts/plot.run.request.v1.json`
+4. **Test with minimal payload:** `{"graph":{"nodes":[{"id":"A","label":"A"}],"edges":[]},"outcome_node":"A"}`
+
+**Prevention:**
+- Use TypeScript SDK (auto-validates)
+- Validate against JSON schema before sending
+- Check API docs for required fields
+
+---
+
 ## Circuit Breaker (WP-P3)
 
 **Flag:** `RL_CB_ENABLE='1'` (default: OFF)

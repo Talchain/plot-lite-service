@@ -163,11 +163,13 @@ async function initValidators() {
 }
 
 /**
- * Format Ajv errors into BAD_INPUT response
+ * Format Ajv errors into BAD_INPUT response with field and hint (WP-P4)
  */
 function formatValidationErrors(errors: any[]): any {
   const messages: string[] = [];
   const paths: string[] = [];
+  let field = '';
+  let hint = '';
 
   for (const err of errors) {
     const path = err.instancePath || '/';
@@ -176,17 +178,36 @@ function formatValidationErrors(errors: any[]): any {
 
     let msg = '';
     if (keyword === 'required') {
+      field = params.missingProperty;
       msg = `Missing required field: ${params.missingProperty}`;
+      hint = `Include '${params.missingProperty}' in your request`;
+    } else if (keyword === 'additionalProperties') {
+      field = params.additionalProperty;
+      msg = `Unknown field: ${params.additionalProperty}`;
+      hint = `Remove '${params.additionalProperty}' or check spelling`;
     } else if (keyword === 'maxItems') {
+      field = path;
       msg = `${path}: too many items (max ${params.limit})`;
+      hint = `Reduce array size to ${params.limit} or fewer items`;
     } else if (keyword === 'maxLength') {
+      field = path;
       msg = `${path}: string too long (max ${params.limit})`;
+      hint = `Shorten to ${params.limit} characters or fewer`;
     } else if (keyword === 'maximum') {
+      field = path;
       msg = `${path}: value exceeds maximum (${params.limit})`;
+      hint = `Use a value ≤ ${params.limit}`;
     } else if (keyword === 'minimum') {
+      field = path;
       msg = `${path}: value below minimum (${params.limit})`;
+      hint = `Use a value ≥ ${params.limit}`;
+    } else if (keyword === 'type') {
+      field = path;
+      msg = `${path}: wrong type (expected ${params.type})`;
+      hint = `Provide a ${params.type} value`;
     } else {
       msg = `${path}: ${err.message}`;
+      hint = 'Check the API documentation';
     }
 
     messages.push(msg);
@@ -197,6 +218,8 @@ function formatValidationErrors(errors: any[]): any {
     schema: 'error.v1',
     code: 'BAD_INPUT',
     message: messages.join('; '),
+    field: field || paths[0] || 'unknown',
+    hint: hint || 'Check request format',
     path: paths,
   };
   // Additive concise error string for assertions and DX (present in all envs)
