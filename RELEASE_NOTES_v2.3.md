@@ -502,9 +502,71 @@ curl -s http://localhost:3000/v1/run \
 
 ---
 
+## Production Enablement (PR-A through PR-F)
+
+**Artifacts for staged rollout and operations:**
+
+### PR-A: Load Test Script & Makefile Targets
+- **File:** `scripts/loadtest_breaker.sh` (295 LOC)
+- **Implements:** 6 scenarios from `docs/LOADTEST_BREAKER.md`
+  1. Burst load (trip global circuit)
+  2. Recovery cycle (half-open → closed)
+  3. Half-open timeout (no probes)
+  4. Drip load (should NOT trip)
+  5. Per-principal isolation
+  6. Performance impact (p95 gate)
+- **Makefile targets:** (35 LOC)
+  - `make cb:loadtest` - Run all 6 tests
+  - `make cb:enable` - Set RL_CB_ENABLE=1
+  - `make cb:disable` - Set RL_CB_ENABLE=0
+  - `make cb:health` - Fetch CB health
+  - `make cb:version` - Fetch version flags
+- **Usage:** `make cb:loadtest BASE_URL=https://staging.example.com P95=150`
+
+### PR-B: Prometheus Alert Rules
+- **File:** `monitoring/alerts/circuit-breaker.yaml` (145 LOC)
+- **Alerts:** Tiered P1/P2/P3
+  - P1: CircuitBreakerStuckOpen (>5m open)
+  - P1: CircuitBreakerGlobalOpen (any global opens)
+  - P2: CircuitBreakerHighTrips (rate > 0.1/sec)
+  - P2: CircuitBreakerHalfOpenTimeouts (>5 in 15m)
+  - P2: CircuitBreakerDegradedMode (missing secret)
+  - P3: CircuitBreakerPrincipalCapacityHigh (>80%)
+  - P3: CircuitBreakerManyPrincipalsOpen (>10)
+  - P3: RateLimitSurge (3x baseline)
+- **Validation:** `tests/alert-rules.test.ts` (106 LOC)
+  - Validates YAML parsing, metric names, runbook URLs
+
+### PR-C/E: Grafana Dashboard & Rollout Checklist
+- **Dashboard:** `monitoring/dashboards/circuit_breaker.json` (235 LOC)
+  - 9 panels: circuit opens, 429 rate, state, capacity, latency
+  - Annotations: circuit open events
+  - 1-click importable JSON
+- **Checklist:** `docs/CB_ROLLOUT_CHECKLIST.md` (410 LOC)
+  - Preflight (secrets, alerts, dashboard, dry-run)
+  - Stage 1: Staging validation (load tests, gates)
+  - Stage 2: Canary 25% (24h soak, monitoring queries)
+  - Stage 3: Progressive rollout (50% → 100%)
+  - Instant rollback (<1 min)
+  - Post-deployment tasks (Day 0, Week 1, Month 1)
+
+### PR-F: Secret Strength Guard
+- **File:** `src/middleware/circuitBreaker.ts` (9 LOC)
+- **Behavior:** Fail-fast at boot if `PRINCIPAL_HMAC_SECRET` < 64 chars
+- **Error:** Clear message with `openssl rand -hex 32` suggestion
+- **Tests:** `tests/secret-strength-guard.test.ts` (107 LOC)
+  - Weak secret → process exits
+  - Strong secret → process succeeds
+  - Weak secret allowed when breaker disabled
+
+**Total Production Enablement LOC:** 1,342 lines (scripts + alerts + dashboard + checklist + guard + tests)
+
+---
+
 ## Credits
 
-**Implemented:** WP-P3 Rate-Limit Circuit Breaker  
-**LOC:** 285 lines (code), 78 lines (tests)  
-**Security:** No PII, bounded memory, fail-safe  
-**Performance:** ~2-5μs overhead when ON, 0 when OFF
+**Implemented:** WP-P3 Rate-Limit Circuit Breaker + Production Enablement  
+**LOC:** 488 lines (core code), 37 tests (100% pass), 1,342 lines (ops artifacts)  
+**Security:** No PII, bounded memory, fail-safe, strong secret enforcement  
+**Performance:** ~2-5μs overhead when ON, 0 when OFF  
+**Docs:** 1,732 lines (ALERT_RUNBOOK, LOADTEST_BREAKER, CB_PRODUCTION_ENABLEMENT, CB_GO_NOGO, CB_ROLLOUT_CHECKLIST)
