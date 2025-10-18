@@ -10,6 +10,7 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { SlidingWindow } from './cb/window.js';
 import { BoundedLRU } from '../lib/BoundedLRU.js';
+import { extractPrincipal, isPrincipalExtractionEnabled } from '../lib/extractPrincipal.js'; // PR-3
 
 type CircuitState = 'closed' | 'open' | 'half_open';
 type TransitionReason = 'threshold' | 'half_open_timeout' | 'probes_success'; // PR-2C.1
@@ -59,6 +60,13 @@ const principalCircuits = new BoundedLRU<CircuitStats>({
   maxSize: PRINCIPAL_MAX,
   ttlMs: PRINCIPAL_TTL,
 });
+
+// PR-3: Check if principal extraction is enabled
+const principalExtractionEnabled = isPrincipalExtractionEnabled();
+if (CONFIG.enabled && !principalExtractionEnabled) {
+  console.error('[circuit-breaker] RL_CB_ENABLE=1 but PRINCIPAL_HMAC_SECRET missing — per-principal breaker disabled; global breaker only.');
+}
+
 // Metrics
 let circuitOpenTotal = 0;
 let circuitHalfOpenTotal = 0;
@@ -208,8 +216,8 @@ export async function circuitBreakerMiddleware(
     return; // Pass through
   }
   
-  // Extract principal (reuse existing logic)
-  const principal = (req as any).principal || req.ip || 'unknown';
+  // PR-3: Extract principal using secure extractor
+  const principal = extractPrincipal(req);
   
   // PR-2C: Check for half-open timeout (global)
   checkHalfOpenTimeout(globalCircuit, 'global');
@@ -231,6 +239,12 @@ export async function circuitBreakerMiddleware(
       });
       return;
     }
+  }
+  
+  // PR-3: Per-principal circuit (only if extraction enabled)
+  if (!principalExtractionEnabled) {
+    // Degraded mode: skip per-principal checks
+    return;
   }
   
   // PR-2C: Check for half-open timeout (principal)
@@ -281,14 +295,17 @@ export function trackCircuitBreakerResponse(
   // Only update circuit state if breaker is enabled
   if (!CONFIG.enabled) return;
   
-  const principal = (req as any).principal || req.ip || 'unknown';
+  // PR-3: Extract principal using secure extractor
+  const principal = extractPrincipal(req);
   
   // Update global circuit
   recordOutcome(globalCircuit, is429, 'global');
   
-  // Update per-principal circuit
-  const circuit = getCircuit(principal);
-  recordOutcome(circuit, is429, 'principal');
+  // PR-3: Update per-principal circuit (only if extraction enabled)
+  if (principalExtractionEnabled) {
+    const circuit = getCircuit(principal);
+    recordOutcome(circuit, is429, 'principal');
+  }
 }
 
 /**

@@ -144,6 +144,11 @@ export async function registerV1Routes(app: FastifyInstance) {
       const cbStats = getCircuitBreakerStats();
       if (cbStats) base.circuit_breaker = cbStats;
     } catch {}
+    // PR-3: Principal extraction stats
+    try {
+      const { getPrincipalExtractionStats } = await import('../../lib/extractPrincipal.js');
+      base.principal_extraction = getPrincipalExtractionStats();
+    } catch {}
     // Optional environment/build hints for ops triage
     try {
       const env = process.env.ENVIRONMENT;
