@@ -81,6 +81,39 @@ window.countSince(now, 1000); // → 1 (< threshold)
 
 **LOC:** 71 lines
 
+
+---
+
+### PR-2B: BoundedLRU for Principals (Memory-Bounded Storage)
+
+**Changes:**
+- Replace `Map<string, CircuitStats>` with `BoundedLRU<CircuitStats>`
+- True LRU eviction (oldest accessed, not oldest created)
+- Configurable capacity and TTL
+
+**Configuration:**
+- `RL_CB_MAX_PRINCIPALS` (default: 1000) - Maximum principals to track
+- `RL_CB_PRINCIPAL_TTL_MS` (default: 2× cooldown) - TTL before eviction
+
+**Why BoundedLRU:**
+- **Memory bounded:** Hard cap at 1000 principals (configurable)
+- **True LRU:** Evicts least-recently-used, keeps hot principals
+- **TTL safety:** Auto-expires stale entries (2× cooldown by default)
+- **O(1) operations:** get/set/evict are constant time
+
+**Observability:**
+- `/v1/health.circuit_breaker.principals` exposes:
+  - `tracked`: Current number of principals
+  - `capacity`: Maximum capacity (RL_CB_MAX_PRINCIPALS)
+  - `ttl_ms`: TTL in milliseconds
+
+**Tests:** 3/3 passing
+- ✅ Exposes LRU config in `/v1/health`
+- ✅ Tracks principals independently
+- ✅ Isolation (principal A ≠ principal B)
+
+**LOC:** 26 lines
+
 ---
 
 ### Circuit States
