@@ -15,11 +15,13 @@ describe('PR-2B: BoundedLRU for Principals', () => {
       RL_CB_ENABLE: process.env.RL_CB_ENABLE,
       RL_CB_MAX_PRINCIPALS: process.env.RL_CB_MAX_PRINCIPALS,
       RL_CB_PRINCIPAL_TTL_MS: process.env.RL_CB_PRINCIPAL_TTL_MS,
+      PRINCIPAL_HMAC_SECRET: process.env.PRINCIPAL_HMAC_SECRET,
     };
     
     process.env.RL_CB_ENABLE = '1';
     process.env.RL_CB_MAX_PRINCIPALS = '3'; // Small for testing
     process.env.RL_CB_PRINCIPAL_TTL_MS = '5000'; // 5s TTL
+    process.env.PRINCIPAL_HMAC_SECRET = 'test-secret-for-lru-tests'; // PR-3: Required for per-principal tracking
     
     // Dynamic import to pick up env
     const { createServer: createServerFresh } = await import('../src/createServer.js?t=' + Date.now());
