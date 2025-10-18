@@ -16,16 +16,30 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Configuration
-GRAFANA_API="${GRAFANA_API:-http://grafana:3000}"
+GRAFANA_API="${GRAFANA_API:-}"
 GRAFANA_TOKEN="${GRAFANA_TOKEN:-}"
-PROM_APPLY_CMD="${PROM_APPLY_CMD:-kubectl apply -f}"
+PROM_APPLY_CMD="${PROM_APPLY_CMD:-}"
 
-# Step 1: Generate Strong Secret
-echo "Step 1: Generate Strong Secret"
+# --- Secret existence & safety checks ---------------------------------------
+echo "Step 0: Secret Safety Checks"
 echo "----------------------------------------"
-if [ -z "${PRINCIPAL_HMAC_SECRET:-}" ]; then
-  export PRINCIPAL_HMAC_SECRET=$(openssl rand -hex 32)
-  echo -e "${GREEN}✓${NC} Generated secret: $PRINCIPAL_HMAC_SECRET"
+
+# Ensure .env won't be committed accidentally
+if ! grep -qE '(^|/)\.env$' .gitignore 2>/dev/null; then
+  echo -e "${RED}✗${NC} .env is not in .gitignore; add it before proceeding to avoid leaking secrets."
+  exit 1
+fi
+echo -e "${GREEN}✓${NC} .env is gitignored"
+
+# Reuse existing secret if present; only generate once
+if grep -q '^PRINCIPAL_HMAC_SECRET=' .env 2>/dev/null; then
+  echo -e "${GREEN}✓${NC} PRINCIPAL_HMAC_SECRET already configured (reusing existing value)"
+  export PRINCIPAL_HMAC_SECRET=$(grep '^PRINCIPAL_HMAC_SECRET=' .env | cut -d= -f2)
+else
+  SECRET="$(openssl rand -hex 32)" # 64 hex chars
+  echo "PRINCIPAL_HMAC_SECRET=${SECRET}" >> .env
+  export PRINCIPAL_HMAC_SECRET="$SECRET"
+  echo -e "${GREEN}✓${NC} Generated new PRINCIPAL_HMAC_SECRET"
   echo -e "${YELLOW}⚠${NC}  Store this in your secret manager!"
   echo ""
   echo "Example for Vault:"
@@ -35,9 +49,21 @@ if [ -z "${PRINCIPAL_HMAC_SECRET:-}" ]; then
   echo "  kubectl create secret generic plot-engine-secrets \\"
   echo "    --from-literal=PRINCIPAL_HMAC_SECRET=\"$PRINCIPAL_HMAC_SECRET\""
   echo ""
-else
-  echo -e "${GREEN}✓${NC} Using existing PRINCIPAL_HMAC_SECRET"
 fi
+
+# Validate secret length (64 hex chars = 64 chars + newline)
+LEN="$(echo -n "$PRINCIPAL_HMAC_SECRET" | wc -c | tr -d ' ')"
+if [ "$LEN" -lt 64 ]; then
+  echo -e "${RED}✗${NC} PRINCIPAL_HMAC_SECRET too short ($LEN chars); expected ≥64 hex chars."
+  exit 1
+fi
+echo -e "${GREEN}✓${NC} Secret length OK ($LEN chars)"
+echo ""
+
+# Step 1: Generate Strong Secret (now handled above)
+echo "Step 1: Secret Configuration"
+echo "----------------------------------------"
+echo -e "${GREEN}✓${NC} Using PRINCIPAL_HMAC_SECRET from .env"
 
 # Step 2: Configure Trust Proxy
 echo "Step 2: Configure Trust Proxy"
@@ -86,39 +112,43 @@ else
 fi
 echo ""
 
-# Step 6: Import Dashboard (if Grafana API provided)
+# Step 6: Import Dashboard (non-fatal)
 echo "Step 6: Import Dashboard"
 echo "----------------------------------------"
-if [ -n "$GRAFANA_TOKEN" ]; then
+if [ -n "$GRAFANA_API" ] && [ -n "$GRAFANA_TOKEN" ] && [ -f monitoring/dashboards/circuit_breaker.json ]; then
   echo "Importing dashboard to $GRAFANA_API..."
-  RESPONSE=$(curl -s -X POST "$GRAFANA_API/api/dashboards/import" \
+  if curl -fsS -H "Content-Type: application/json" \
     -H "Authorization: Bearer $GRAFANA_TOKEN" \
-    -H "Content-Type: application/json" \
-    --data-binary @monitoring/dashboards/circuit_breaker.json)
-  
-  if echo "$RESPONSE" | grep -q '"status":"success"'; then
-    echo -e "${GREEN}✓${NC} Dashboard imported successfully"
-    echo "$RESPONSE" | jq '.'
+    -X POST "$GRAFANA_API/api/dashboards/import" \
+    --data-binary @monitoring/dashboards/circuit_breaker.json > /tmp/cb_preflight_grafana.log 2>&1; then
+    echo -e "${GREEN}✓${NC} Grafana dashboard imported"
+    cat /tmp/cb_preflight_grafana.log | jq -r '.message // .status // .'
   else
-    echo -e "${YELLOW}⚠${NC}  Dashboard import may have failed. Response:"
-    echo "$RESPONSE" | jq '.'
+    echo -e "${YELLOW}⚠${NC}  Could not import Grafana dashboard automatically (continue; import via UI)"
+    echo "   Manual import: POST $GRAFANA_API/api/dashboards/import"
   fi
 else
-  echo -e "${YELLOW}⚠${NC}  GRAFANA_TOKEN not set. Skipping dashboard import."
-  echo "   Import manually: POST $GRAFANA_API/api/dashboards/import"
+  echo -e "${YELLOW}⚠${NC}  GRAFANA_API or GRAFANA_TOKEN not set. Skipping dashboard import."
+  echo "   Import manually: POST \$GRAFANA_API/api/dashboards/import"
 fi
 echo ""
 
-# Step 7: Apply Prometheus Alerts
+# Step 7: Apply Prometheus Alerts (non-fatal)
 echo "Step 7: Apply Prometheus Alerts"
 echo "----------------------------------------"
-echo "Applying alerts with: $PROM_APPLY_CMD"
-if $PROM_APPLY_CMD monitoring/alerts/circuit-breaker.yaml > /tmp/cb_preflight_prom.log 2>&1; then
-  echo -e "${GREEN}✓${NC} Prometheus alerts applied"
-  cat /tmp/cb_preflight_prom.log
+if [ -n "$PROM_APPLY_CMD" ] && [ -f monitoring/alerts/circuit-breaker.yaml ]; then
+  echo "Applying alerts with: $PROM_APPLY_CMD"
+  if $PROM_APPLY_CMD monitoring/alerts/circuit-breaker.yaml > /tmp/cb_preflight_prom.log 2>&1; then
+    echo -e "${GREEN}✓${NC} Prometheus alerts applied"
+    cat /tmp/cb_preflight_prom.log
+  else
+    echo -e "${YELLOW}⚠${NC}  Could not apply Prometheus alerts automatically (continue; apply manually)"
+    echo "   Manual apply: \$PROM_APPLY_CMD monitoring/alerts/circuit-breaker.yaml"
+    cat /tmp/cb_preflight_prom.log
+  fi
 else
-  echo -e "${YELLOW}⚠${NC}  Alert apply may have failed. See /tmp/cb_preflight_prom.log"
-  cat /tmp/cb_preflight_prom.log
+  echo -e "${YELLOW}⚠${NC}  PROM_APPLY_CMD not set. Skipping alert apply."
+  echo "   Apply manually: kubectl apply -f monitoring/alerts/circuit-breaker.yaml"
 fi
 echo ""
 

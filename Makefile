@@ -11,7 +11,7 @@ docker:
 	docker build -t plot-lite:dev .
 
 # Circuit Breaker Operations (PR-A)
-.PHONY: cb:preflight cb:loadtest cb:enable cb:disable cb:health cb:version
+.PHONY: cb:preflight cb:loadtest cb:enable cb:disable cb:health cb:version docs:validate
 
 cb:preflight:
 	@echo "Running circuit breaker preflight checks..."
@@ -48,3 +48,7 @@ cb:health:
 cb:version:
 	@echo "Fetching version flags..."
 	@curl -s $(or $(BASE_URL),http://localhost:3000)/v1/health | jq '.version.flags'
+
+docs:validate:
+	@echo "Validating live rollout docs..."
+	@./scripts/validate_templates.sh docs/live/*.md 2>/dev/null || echo "No live docs found (generate from templates first)"

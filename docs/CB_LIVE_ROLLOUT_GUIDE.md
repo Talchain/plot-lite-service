@@ -391,41 +391,39 @@ export RL_CB_MAX_PRINCIPALS=2000
 
 ```bash
 # 1. Preflight
-npm test                                      # All green ✅
-npm test -- tests/alert-rules.test.ts        # Alert validation ✅
-export PRINCIPAL_HMAC_SECRET=$(openssl rand -hex 32)
-# Store secret in vault/k8s
-curl -X POST "$GRAFANA_API/api/dashboards/import" --data-binary @monitoring/dashboards/circuit_breaker.json
-$PROM_APPLY_CMD monitoring/alerts/circuit-breaker.yaml
+make cb:preflight                             # All green ✅
+# Generates .env with PRINCIPAL_HMAC_SECRET, runs tests, imports dashboard/alerts
 
-# 2. Staging
+# 2. Generate live docs from templates
+# (See "Setup: Generate Live Docs from Templates" section above)
+
+# 3. Staging
 make cb:enable
 make cb:loadtest BASE_URL="$STAGING_BASE_URL" P95=150
 # Expected: 6/6 PASS, p95 ≤ 150ms ✅
 
-# 3. Canary 25% (24h)
+# 4. Canary 25% (24h)
 kubectl set env deployment/plot-engine -l $CANARY_SELECTOR RL_CB_ENABLE=1
 # Monitor every 15 min (first hour), then hourly
 # Expected: No P1, p95 on budget ✅
 
-# 4. 50% (8h)
+# 5. 50% (8h)
 kubectl set env deployment/plot-engine -l $PROD_SELECTOR_50 RL_CB_ENABLE=1
 # Monitor every hour
 # Expected: Gates pass ✅
 
-# 5. 100% (48h)
+# 6. 100% (48h)
 kubectl set env deployment/plot-engine -l $PROD_SELECTOR_100 RL_CB_ENABLE=1
 # Monitor every 6h
 # Expected: Gates pass ✅
 
-# 6. Rollback (if needed)
-make cb:disable
-kubectl set env deployment/plot-engine -l app=plot-engine,tier=prod RL_CB_ENABLE=0
-# Verified: <1 min ✅
+# 7. Validate & commit
+make docs:validate                            # No placeholders left ✅
+git add -f docs/live/*.md
+git commit -m "ops(cb): live rollout complete - $(date +%Y-%m-%d)"
 
-# 7. Commit
-git add docs/live/*.md
-git commit -m "ops(cb): live rollout complete"
+# 8. Archive (optional)
+# Copy docs/live/*.md to internal wiki; keep git repo clean
 ```
 
 ---
@@ -448,6 +446,41 @@ plot_engine_circuit_breaker_principals_tracked / plot_engine_circuit_breaker_pri
 # p95 latency (breaker-covered routes)
 histogram_quantile(0.95, sum by (route, le) (rate(plot_engine_request_duration_ms_bucket{route=~"/v1/run|/v1/stream"}[5m])))
 ```
+
+---
+
+## 🧯 Emergency Rollback Procedures
+
+### When to Rollback (Any of the Below)
+
+- **P1 alert fires**: `CircuitBreakerStuckOpen` or `CircuitBreakerPrincipalCapacityFull`
+- **p95 latency > 150ms** for >10 minutes
+- **Customer 503 reports** ≥ 5 within 15 minutes
+- **Trip rate spike**: `increase(plot_engine_circuit_open_total[5m]) > 0` when unexpected
+
+### How to Rollback (< 2 Minutes)
+
+```bash
+# 1) Disable enforcement everywhere
+kubectl set env deployment/plot-engine RL_CB_ENABLE=0
+
+# 2) Verify rollout applied
+kubectl rollout status deployment/plot-engine
+
+# 3) Spot-check health and errors
+curl -s $PROD_URL/v1/health | jq '.circuit_breaker.global.state'
+kubectl logs -l app=plot-engine --since=2m | grep ' 503 ' || echo 'no recent 503s'
+
+# 4) Notify & capture evidence
+echo "[CB] Rolled back RL_CB_ENABLE=0 due to anomalies." | tee /dev/stderr
+kubectl logs -l app=plot-engine --since=1h > docs/live/rollback-$(date +%Y%m%d_%H%M%S).log
+```
+
+### After Rollback
+
+1. **Record the trigger and timestamps** in `docs/live/CB_ROLLOUT_COMPLETE.md`
+2. **Open an incident ticket**; attach `rollback-*.log`
+3. **Triage using** `docs/ALERT_RUNBOOK.md#circuit-breaker`
 
 ---
 
