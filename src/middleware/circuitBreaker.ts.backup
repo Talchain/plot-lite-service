@@ -40,13 +40,10 @@ const globalCircuit: CircuitStats = {
   halfOpenProbes: 0,
 };
 
-// PR-2B: Per-principal circuits with BoundedLRU (memory-bounded, true LRU)
-const PRINCIPAL_MAX = parseInt(process.env.RL_CB_MAX_PRINCIPALS || '1000', 10);
-const PRINCIPAL_TTL = parseInt(process.env.RL_CB_PRINCIPAL_TTL_MS || String(CONFIG.cooldownMs * 2), 10);
-const principalCircuits = new BoundedLRU<CircuitStats>({
-  maxSize: PRINCIPAL_MAX,
-  ttlMs: PRINCIPAL_TTL,
-});
+// Per-principal circuits (bounded map)
+const principalCircuits = new Map<string, CircuitStats>();
+const MAX_PRINCIPAL_CIRCUITS = 1000;
+
 // Metrics
 let circuitOpenTotal = 0;
 let circuitHalfOpenTotal = 0;
@@ -54,13 +51,18 @@ let circuitClosedTotal = 0;
 
 /**
  * Get or create circuit for principal
- * PR-2B: BoundedLRU handles eviction automatically
  */
 function getCircuit(principal: string | undefined): CircuitStats {
   const key = principal || 'unknown';
   let circuit = principalCircuits.get(key);
   if (!circuit) {
-    // BoundedLRU handles capacity and eviction automatically
+    // Evict oldest if at capacity
+    if (principalCircuits.size >= MAX_PRINCIPAL_CIRCUITS) {
+      const firstKey = principalCircuits.keys().next().value;
+      if (firstKey !== undefined) {
+        principalCircuits.delete(firstKey);
+      }
+    }
     circuit = {
       state: 'closed',
       failureWindow: new SlidingWindow(CONFIG.failureThreshold),
@@ -72,7 +74,6 @@ function getCircuit(principal: string | undefined): CircuitStats {
   }
   return circuit;
 }
-
 
 /**
  * Check if circuit should trip to open
@@ -272,9 +273,9 @@ export function getCircuitBreakerStats() {
       successes: globalCircuit.successes,
     },
     principals: {
-      tracked: principalCircuits.getSize(),
-      capacity: PRINCIPAL_MAX,
-      ttl_ms: PRINCIPAL_TTL,
+      tracked: principalCircuits.size,
+      open: Array.from(principalCircuits.values()).filter(c => c.state === 'open').length,
+      half_open: Array.from(principalCircuits.values()).filter(c => c.state === 'half_open').length,
     },
     window: {
       windowMs: CONFIG.windowMs,
