@@ -1,0 +1,11 @@
+# Ignore all live rollout docs by default
+*.md
+
+# Allow README
+!README.md
+
+# Explicitly commit real deployment logs with:
+# git add -f docs/live/STAGING_LOADTEST_TRANSCRIPT.md
+# git add -f docs/live/CANARY_25_MONITORING.md
+# git add -f docs/live/PROGRESSIVE_ROLLOUT.md
+# git add -f docs/live/CB_ROLLOUT_COMPLETE.md

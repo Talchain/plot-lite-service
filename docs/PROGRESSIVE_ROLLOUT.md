@@ -1,3 +1,6 @@
+> ⚠️ This document is a **SIMULATION** used for training/process validation.  
+> For a real rollout, use the templates in `templates/rollout/` and fill with live data.
+
 # Progressive Rollout: 50% → 100%
 
 **Date**: 2025-10-19 - 2025-10-21  

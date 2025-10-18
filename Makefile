@@ -11,7 +11,11 @@ docker:
 	docker build -t plot-lite:dev .
 
 # Circuit Breaker Operations (PR-A)
-.PHONY: cb:loadtest cb:enable cb:disable cb:health cb:version
+.PHONY: cb:preflight cb:loadtest cb:enable cb:disable cb:health cb:version
+
+cb:preflight:
+	@echo "Running circuit breaker preflight checks..."
+	@./scripts/cb_preflight.sh
 
 cb:loadtest:
 	@echo "Running circuit breaker load tests..."

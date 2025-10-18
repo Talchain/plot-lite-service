@@ -1,3 +1,6 @@
+> ⚠️ This document is a **SIMULATION** used for training/process validation.  
+> For a real rollout, use the templates in `templates/rollout/` and fill with live data.
+
 # Staging Load Test Transcript
 
 **Date**: 2025-10-18  
