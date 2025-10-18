@@ -19,6 +19,8 @@ interface CircuitStats {
   successes: number;
   openedAt: number;
   halfOpenProbes: number;
+  halfOpenAt?: number; // PR-2C: Timestamp when entered half-open
+  lastTransitionAt?: number; // PR-2C: Last state transition timestamp
 }
 
 // Config from env with safe defaults
@@ -29,6 +31,7 @@ const CONFIG = {
   cooldownMs: parseInt(process.env.RL_CB_COOLDOWN_MS || '30000', 10), // 30s
   failureThreshold: parseInt(process.env.RL_CB_FAILURE_THRESHOLD || '50', 10),
   halfOpenProbes: parseInt(process.env.RL_CB_HALF_OPEN_PROBES || '3', 10),
+  halfOpenTimeoutMs: parseInt(process.env.RL_CB_HALF_OPEN_TIMEOUT_MS || '60000', 10), // PR-2C: 60s
 };
 
 // Global circuit state
@@ -42,7 +45,15 @@ const globalCircuit: CircuitStats = {
 
 // PR-2B: Per-principal circuits with BoundedLRU (memory-bounded, true LRU)
 const PRINCIPAL_MAX = parseInt(process.env.RL_CB_MAX_PRINCIPALS || '1000', 10);
-const PRINCIPAL_TTL = parseInt(process.env.RL_CB_PRINCIPAL_TTL_MS || String(CONFIG.cooldownMs * 2), 10);
+// PR-2C: Default TTL = Infinity to prevent spaced-burst bypass
+const PRINCIPAL_TTL = process.env.RL_CB_PRINCIPAL_TTL_MS 
+  ? parseInt(process.env.RL_CB_PRINCIPAL_TTL_MS, 10)
+  : Infinity;
+
+if (PRINCIPAL_TTL !== Infinity) {
+  console.warn('[CB] RL_CB_PRINCIPAL_TTL_MS set to finite value. Time-spaced bursts may bypass circuit.');
+}
+
 const principalCircuits = new BoundedLRU<CircuitStats>({
   maxSize: PRINCIPAL_MAX,
   ttlMs: PRINCIPAL_TTL,
@@ -96,33 +107,37 @@ function canAttemptRecovery(circuit: CircuitStats): boolean {
 /**
  * Transition circuit state
  * PR-1: Record circuit open events in metrics
+ * PR-2C: Track timestamps and handle half-open timeout
  */
-function transitionTo(circuit: CircuitStats, newState: CircuitState, scope?: 'global' | 'principal'): void {
+function transitionTo(circuit: CircuitStats, newState: CircuitState, scope?: 'global' | 'principal', reason?: string): void {
   const now = Date.now();
   circuit.state = newState;
+  circuit.lastTransitionAt = now; // PR-2C: Always track transition time
   
   if (newState === 'open') {
     circuit.openedAt = now;
     circuit.halfOpenProbes = 0;
+    circuit.successes = 0;
+    delete circuit.halfOpenAt; // PR-2C: Clear half-open timestamp
     circuitOpenTotal++;
     
-    // PR-1: Record circuit open event
+    // PR-1/PR-2C: Record circuit open event with reason
     if (scope) {
       try {
         const { recordCircuitOpen } = require('../metrics/registry.js');
-        recordCircuitOpen(scope);
+        recordCircuitOpen(scope, reason);
       } catch {}
     }
   } else if (newState === 'half_open') {
     circuit.halfOpenProbes = 0;
+    circuit.halfOpenAt = now; // PR-2C: Track when we entered half-open
     circuitHalfOpenTotal++;
   } else if (newState === 'closed') {
-    // PR-2A: Reset window by creating new instance
-    // Policy: Clear history on close to give clean slate after recovery.
-    // Trade-off: Could preserve history to detect rapid re-trips, but we prefer
-    // optimistic recovery (assume system is healthy after successful probes).
-    circuit.failureWindow = new SlidingWindow(CONFIG.failureThreshold);
+    // PR-2C: Preserve failure window on close (let events age out naturally)
+    // This reduces oscillation - don't hard-reset, just clear counters
     circuit.successes = 0;
+    circuit.halfOpenProbes = 0;
+    delete circuit.halfOpenAt; // PR-2C: Clear half-open timestamp
     circuitClosedTotal++;
   }
 }
@@ -165,6 +180,19 @@ function recordOutcome(circuit: CircuitStats, is429: boolean, scope?: 'global' |
 }
 
 /**
+ * PR-2C: Check if half-open state has timed out
+ */
+function checkHalfOpenTimeout(circuit: CircuitStats, scope?: 'global' | 'principal'): void {
+  if (circuit.state === 'half_open' && circuit.halfOpenAt) {
+    const now = Date.now();
+    if (now - circuit.halfOpenAt > CONFIG.halfOpenTimeoutMs) {
+      // Conservative: reopen on timeout (assume still unhealthy)
+      transitionTo(circuit, 'open', scope, 'half_open_timeout');
+    }
+  }
+}
+
+/**
  * Circuit breaker middleware
  */
 export async function circuitBreakerMiddleware(
@@ -178,10 +206,13 @@ export async function circuitBreakerMiddleware(
   // Extract principal (reuse existing logic)
   const principal = (req as any).principal || req.ip || 'unknown';
   
+  // PR-2C: Check for half-open timeout (global)
+  checkHalfOpenTimeout(globalCircuit, 'global');
+  
   // Check global circuit
   if (globalCircuit.state === 'open') {
     if (canAttemptRecovery(globalCircuit)) {
-      transitionTo(globalCircuit, 'half_open');
+      transitionTo(globalCircuit, 'half_open', 'global');
     } else {
       const retryAfter = Math.ceil((globalCircuit.openedAt + CONFIG.cooldownMs - Date.now()) / 1000);
       reply.header('Retry-After', String(retryAfter));
@@ -197,11 +228,13 @@ export async function circuitBreakerMiddleware(
     }
   }
   
-  // Check per-principal circuit
+  // PR-2C: Check for half-open timeout (principal)
   const circuit = getCircuit(principal);
+  checkHalfOpenTimeout(circuit, 'principal');
+  
   if (circuit.state === 'open') {
     if (canAttemptRecovery(circuit)) {
-      transitionTo(circuit, 'half_open');
+      transitionTo(circuit, 'half_open', 'principal');
     } else {
       const retryAfter = Math.ceil((circuit.openedAt + CONFIG.cooldownMs - Date.now()) / 1000);
       reply.header('Retry-After', String(retryAfter));
@@ -266,10 +299,15 @@ export function getCircuitBreakerStats() {
   const globalFailures = globalCircuit.failureWindow.countSince(now, CONFIG.windowMs);
   
   return {
+    config: {
+      half_open_timeout_ms: CONFIG.halfOpenTimeoutMs, // PR-2C
+    },
     global: {
       state: globalCircuit.state,
       failures: globalFailures,
       successes: globalCircuit.successes,
+      last_transition_at: globalCircuit.lastTransitionAt, // PR-2C
+      state_duration_ms: globalCircuit.lastTransitionAt ? now - globalCircuit.lastTransitionAt : 0, // PR-2C
     },
     principals: {
       tracked: principalCircuits.getSize(),

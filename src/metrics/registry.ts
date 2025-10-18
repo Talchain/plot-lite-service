@@ -229,7 +229,7 @@ export function initializeHistograms(): void {
   circuitOpenCounter = new CounterMetric(
     'plot_engine_circuit_open_total',
     'Total number of circuit breaker opens',
-    ['scope']
+    ['scope', 'reason'] // PR-2C: Add reason label (e.g., half_open_timeout)
   );
 
   circuitProbesCounter = new CounterMetric(
@@ -273,8 +273,8 @@ export function recordRateLimit429(route: string): void {
   rateLimitCounter?.inc({ route });
 }
 
-export function recordCircuitOpen(scope: 'global' | 'principal'): void {
-  circuitOpenCounter?.inc({ scope });
+export function recordCircuitOpen(scope: 'global' | 'principal', reason?: string): void {
+  circuitOpenCounter?.inc({ scope, reason: reason || 'threshold' });
 }
 
 export function recordCircuitProbe(scope: 'global' | 'principal', result: 'success' | 'failure'): void {
