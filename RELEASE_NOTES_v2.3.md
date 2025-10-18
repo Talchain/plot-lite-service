@@ -114,6 +114,48 @@ window.countSince(now, 1000); // → 1 (< threshold)
 
 **LOC:** 26 lines
 
+
+---
+
+### PR-2C: Half-Open Timeout (Conservative Reopen)
+
+**Changes:**
+- Add `RL_CB_HALF_OPEN_TIMEOUT_MS` (default: 60s)
+- Reopen half-open circuits on timeout (conservative, assume still unhealthy)
+- Preserve failure window on close (reduce oscillation)
+- Principal LRU TTL defaults to `Infinity` (prevent spaced-burst bypass)
+
+**Why Half-Open Timeout:**
+- **Prevents stuck state:** If no probes arrive, circuit reopens after timeout
+- **Conservative:** Assumes unhealthy until proven healthy (safer for service)
+- **Observable:** Metrics include `reason="half_open_timeout"` label
+
+**Configuration:**
+- `RL_CB_HALF_OPEN_TIMEOUT_MS` (default: 60000) - Max time in half-open before reopen
+- `RL_CB_PRINCIPAL_TTL_MS` (optional) - Override default Infinity TTL
+  - ⚠️ **Warning:** Setting finite TTL allows spaced-burst bypass
+
+**Behavior:**
+```
+closed → (50 failures in 10s) → open
+open → (30s cooldown) → half_open
+half_open → (60s timeout, no probes) → open (reason=half_open_timeout)
+half_open → (3 successful probes) → closed
+```
+
+**Observability:**
+- `/v1/health.circuit_breaker.config.half_open_timeout_ms`
+- `/v1/health.circuit_breaker.global.last_transition_at`
+- `/v1/health.circuit_breaker.global.state_duration_ms`
+- `/metrics`: `plot_engine_circuit_open_total{scope="global",reason="half_open_timeout"}`
+
+**Tests:** 3/3 passing
+- ✅ Exposes `half_open_timeout_ms` in health config
+- ✅ Exposes `last_transition_at` and `state_duration_ms`
+- ✅ Principal TTL defaults to Infinity (JSON serializes as null)
+
+**LOC:** 58 lines
+
 ---
 
 ### Circuit States
