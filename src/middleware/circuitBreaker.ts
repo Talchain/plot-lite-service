@@ -67,6 +67,16 @@ if (CONFIG.enabled && !principalExtractionEnabled) {
   console.error('[circuit-breaker] RL_CB_ENABLE=1 but PRINCIPAL_HMAC_SECRET missing — per-principal breaker disabled; global breaker only.');
 }
 
+// PR-F: Secret strength guard (fail-fast on weak secrets)
+if (CONFIG.enabled && principalExtractionEnabled) {
+  const secret = process.env.PRINCIPAL_HMAC_SECRET || '';
+  if (secret.length < 64) {
+    console.error(`[circuit-breaker] PRINCIPAL_HMAC_SECRET must be ≥64 hex chars (32 bytes). Current: ${secret.length} chars.`);
+    console.error('[circuit-breaker] Generate a strong secret: openssl rand -hex 32');
+    process.exit(1);
+  }
+}
+
 // Metrics
 let circuitOpenTotal = 0;
 let circuitHalfOpenTotal = 0;
