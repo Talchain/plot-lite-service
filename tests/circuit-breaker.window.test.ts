@@ -85,6 +85,56 @@ describe('PR-2A: Sliding Window (Ring Buffer)', () => {
       const count = window.countSince(now, windowMs);
       expect(count).toBeLessThan(threshold); // Only 1 in window
     });
+
+    it('edge case: fills exactly to capacity (== threshold)', () => {
+      const capacity = 5;
+      const window = new SlidingWindow(capacity);
+      const now = Date.now();
+      
+      // Add exactly capacity events
+      for (let i = 0; i < capacity; i++) {
+        window.add(now - i * 100);
+      }
+      
+      expect(window.getSize()).toBe(capacity);
+      const count = window.countSince(now, 1000);
+      expect(count).toBe(capacity);
+    });
+
+    it('edge case: wraparound after >capacity adds', () => {
+      const capacity = 3;
+      const window = new SlidingWindow(capacity);
+      const now = Date.now();
+      
+      // Add more than capacity (oldest get overwritten)
+      window.add(now - 5000); // Will be overwritten
+      window.add(now - 4000); // Will be overwritten
+      window.add(now - 3000); // Will be overwritten
+      window.add(now - 500);  // Kept
+      window.add(now - 400);  // Kept
+      window.add(now - 300);  // Kept
+      
+      expect(window.getSize()).toBe(capacity);
+      const count = window.countSince(now, 1000);
+      expect(count).toBe(3); // Only recent 3
+    });
+
+    it('edge case: boundary exclusion (timestamp exactly at now - windowMs)', () => {
+      const window = new SlidingWindow(5);
+      const now = Date.now();
+      const windowMs = 1000;
+      
+      // Add event exactly at boundary
+      window.add(now - windowMs);
+      
+      // Add events inside window
+      window.add(now - 500);
+      window.add(now - 100);
+      
+      // Boundary event should NOT count (strict > comparison)
+      const count = window.countSince(now, windowMs);
+      expect(count).toBe(2); // Only events strictly within window
+    });
   });
 
   describe('Integration with circuit breaker', () => {
