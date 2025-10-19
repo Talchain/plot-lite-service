@@ -17,6 +17,7 @@ import { stableStringify, normaliseReport } from '../../util/canonical-json.js';
 import type { Graph } from '../../trust/types.js';
 import { runSCMLite } from '../../scm-lite/adapter.js';
 import { recordEngineComputeMs } from '../../metrics.js';
+import { runResponseSchema } from '../../schemas/response.js';
 
 export interface RunRequest {
   graph: Graph;
@@ -32,6 +33,7 @@ export async function registerRunRoute(app: FastifyInstance) {
   const { principalFor, getCached, setCached, pruneExpired } = await import('../../middleware/idempotency.js');
   
   app.post('/v1/run', {
+    schema: { response: { 200: runResponseSchema } },
     bodyLimit: 96 * 1024,
     preHandler: [
       async (req: FastifyRequest, reply: FastifyReply) => {

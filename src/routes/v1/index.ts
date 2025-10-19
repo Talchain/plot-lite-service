@@ -15,6 +15,7 @@ import { getFixtureCacheSize, getFixtureCacheStats } from '../../lib/fixtures-ca
 import { registerStreamRoute } from './stream.js';
 import { isDemoMode } from '../../middleware/demo-mode.js';
 import { getIdemStoreSize } from '../../middleware/idempotency.js';
+import { healthResponseSchema } from '../../schemas/response.js';
 
 /**
  * Auth preHandler for /v1/* routes
@@ -109,6 +110,7 @@ export async function registerV1Routes(app: FastifyInstance) {
   await registerStreamRoute(app);
 
   // Health and version at /v1 as well (for consistency)
+  // Note: No response validation - health returns dynamic fields based on runtime state
   app.get('/v1/health', async () => {
     const base = {
       status: 'ok',
