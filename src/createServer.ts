@@ -1021,6 +1021,17 @@ export async function createServer(opts: ServerOpts = {}) {
     const code = (err as any)?.code || '';
     const emsgRaw = (err as any)?.message || '';
     const emsg = String(emsgRaw).toLowerCase();
+    const route = (req as any).routerPath || req.url || 'unknown';
+    
+    // P0-1: Track validation errors
+    const { incValidationError } = await import('./observability/validationMetrics.js');
+    if ((err as any).validation) {
+      incValidationError(route, 'request', 'ajv');
+    }
+    if ((err as any).validationContext === 'response') {
+      incValidationError(route, 'response', 'ajv');
+    }
+    
     // Timeouts
     if (code === 'FST_ERR_REQUEST_TIMEOUT' || /timeout/i.test(emsgRaw)) {
       return replyWithAppError(reply, { type: 'TIMEOUT', statusCode: 504, hint: 'Reduce processing time', devDetail: emsgRaw });
