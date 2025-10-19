@@ -1,0 +1,28 @@
+version: '3.9'
+services:
+  plot-engine:
+    build: {context: ., dockerfile: Dockerfile}
+    environment:
+      - PROMETHEUS_ENABLE=1
+      - NODE_ENV=production
+      - PORT=3000
+      - RL_CB_ENABLE=1
+      - PRINCIPAL_HMAC_SECRET=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      - RL_CB_FAILURE_THRESHOLD=10
+      - RL_CB_WINDOW_MS=5000
+      - RL_CB_COOLDOWN_MS=10000
+      - RL_CB_HALF_OPEN_TIMEOUT_MS=15000
+    ports: ['3000:3000']
+    healthcheck:
+      test: ['CMD', 'curl', '-fsS', 'http://localhost:3000/v1/health']
+      interval: 2s
+      retries: 20
+    networks: [e2e]
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    ports: ['9090:9090']
+    volumes: ['./e2e/prometheus.yml:/etc/prometheus/prometheus.yml:ro']
+    command: ['--config.file=/etc/prometheus/prometheus.yml']
+    networks: [e2e]
+networks:
+  e2e: {}
