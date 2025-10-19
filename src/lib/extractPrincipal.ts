@@ -6,6 +6,7 @@
  */
 import crypto from 'node:crypto';
 import type { FastifyRequest } from 'fastify';
+import { incPrincipalSecretFallback } from '../observability/principalSecretMetrics.js';
 
 // Crypto helpers
 function hmacHex(secret: string, data: string): string {
@@ -62,7 +63,8 @@ function getCanonicalRemoteAddr(
  * Returns opaque string with no PII.
  */
 export function extractPrincipal(req: FastifyRequest): string {
-  const secret = process.env.PRINCIPAL_HMAC_SECRET;
+  // P0-2: Dual-secret rotation support (backward-compatible)
+  const secret = process.env.PRINCIPAL_HMAC_SECRET_ACTIVE || process.env.PRINCIPAL_HMAC_SECRET;
   const trustProxy = process.env.TRUST_PROXY === '1';
   const hops = Number(process.env.TRUST_PROXY_HOPS ?? '1');
   
@@ -87,7 +89,7 @@ export function extractPrincipal(req: FastifyRequest): string {
  * Check if principal extraction is properly configured
  */
 export function isPrincipalExtractionEnabled(): boolean {
-  return Boolean(process.env.PRINCIPAL_HMAC_SECRET);
+  return Boolean(process.env.PRINCIPAL_HMAC_SECRET_ACTIVE || process.env.PRINCIPAL_HMAC_SECRET);
 }
 
 /**
@@ -95,7 +97,7 @@ export function isPrincipalExtractionEnabled(): boolean {
  */
 export function getPrincipalExtractionMode(): 'auth' | 'fallback' | 'degraded' {
   const cbEnabled = process.env.RL_CB_ENABLE === '1';
-  const hasSecret = Boolean(process.env.PRINCIPAL_HMAC_SECRET);
+  const hasSecret = Boolean(process.env.PRINCIPAL_HMAC_SECRET_ACTIVE || process.env.PRINCIPAL_HMAC_SECRET);
   
   if (cbEnabled && !hasSecret) {
     return 'degraded';
@@ -116,5 +118,55 @@ export function getPrincipalExtractionStats() {
     trust_proxy: trustProxy,
     hops: hops,
     mode: getPrincipalExtractionMode(),
+    // P0-2: Expose rotation state
+    secrets: {
+      active: Boolean(process.env.PRINCIPAL_HMAC_SECRET_ACTIVE || process.env.PRINCIPAL_HMAC_SECRET),
+      staged: Boolean(process.env.PRINCIPAL_HMAC_SECRET_STAGED),
+    },
   };
+}
+
+/**
+ * P0-2: Sign principal fingerprint (generation - uses ACTIVE only)
+ */
+export function signPrincipalFingerprint(fingerprint: string): string {
+  const secret = process.env.PRINCIPAL_HMAC_SECRET_ACTIVE || process.env.PRINCIPAL_HMAC_SECRET;
+  if (!secret) throw new Error('No PRINCIPAL_HMAC_SECRET configured');
+  return hmacHex(secret, fingerprint);
+}
+
+/**
+ * P0-2: Verify principal signature (verification - tries ACTIVE then STAGED)
+ */
+export function verifyPrincipalSignature(fingerprint: string, signature: string): boolean {
+  const active = process.env.PRINCIPAL_HMAC_SECRET_ACTIVE || process.env.PRINCIPAL_HMAC_SECRET;
+  const staged = process.env.PRINCIPAL_HMAC_SECRET_STAGED;
+  
+  if (!active) return false;
+  
+  // Try ACTIVE first
+  const expActive = hmacHex(active, fingerprint);
+  if (safeEq(signature, expActive)) {
+    incPrincipalSecretFallback('active');
+    return true;
+  }
+  
+  // Then STAGED (if present)
+  if (staged) {
+    const expStaged = hmacHex(staged, fingerprint);
+    if (safeEq(signature, expStaged)) {
+      incPrincipalSecretFallback('staged');
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+function safeEq(aHex: string, bHex: string): boolean {
+  try {
+    return crypto.timingSafeEqual(Buffer.from(aHex, 'hex'), Buffer.from(bHex, 'hex'));
+  } catch {
+    return false;
+  }
 }

@@ -11,6 +11,8 @@ import {
   getSse429Count
 } from '../metrics.js';
 import { renderHistograms } from '../metrics/registry.js';
+import { renderValidationMetrics } from '../observability/validationMetrics.js';
+import { renderPrincipalSecretFallback } from '../observability/principalSecretMetrics.js';
 
 export async function registerPrometheusMetrics(app: FastifyInstance) {
   if (process.env.PROMETHEUS_ENABLE !== '1') {
@@ -48,6 +50,18 @@ export async function registerPrometheusMetrics(app: FastifyInstance) {
     metrics.push(`# HELP idem_cache_size Current idempotency cache size`);
     metrics.push(`# TYPE idem_cache_size gauge`);
     metrics.push(`idem_cache_size ${getIdemCacheSize()}`);
+    
+    // P0-1: Validation errors
+    const validationMetrics = renderValidationMetrics();
+    if (validationMetrics) {
+      metrics.push(validationMetrics);
+    }
+    
+    // P0-2: Principal secret fallback
+    const secretFallback = renderPrincipalSecretFallback();
+    if (secretFallback) {
+      metrics.push(secretFallback);
+    }
     
     reply.type('text/plain; version=0.0.4; charset=utf-8');
     return metrics.join('\n') + '\n';
