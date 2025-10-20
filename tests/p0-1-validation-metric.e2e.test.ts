@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createServer } from '../src/createServer.js';
 import type { FastifyInstance } from 'fastify';
+import { startServer, closeServer } from './helpers/server.js';
+import { waitForMetric, getMetricValue } from './helpers/metrics.js';
 
 describe('P0-1: Validation Metrics E2E', () => {
   let app: FastifyInstance;
@@ -11,22 +13,22 @@ describe('P0-1: Validation Metrics E2E', () => {
     process.env.PROMETHEUS_ENABLE = '1';
     process.env.PRINCIPAL_HMAC_SECRET_ACTIVE = 'a'.repeat(64);
     app = await createServer();
-    await app.listen({ port: 0 }); // Listen on random available port
-    const address = app.server.address();
-    const port = typeof address === 'object' && address ? address.port : 3000;
-    baseUrl = `http://localhost:${port}`;
+    const context = await startServer(app);
+    baseUrl = context.baseUrl;
   });
 
   afterAll(async () => {
-    await app.close();
+    await closeServer(app);
     process.env = originalEnv;
   });
 
   it('increments validation_errors_total for invalid request to /v1/run', async () => {
-    // Get baseline metrics
-    const metricsBefore = await fetch(`${baseUrl}/metrics`).then(r => r.text());
-    const beforeMatch = metricsBefore.match(/plot_engine_validation_errors_total\{route="\/v1\/run",phase="request",error_type="ajv"\} (\d+)/);
-    const beforeCount = beforeMatch ? parseInt(beforeMatch[1], 10) : 0;
+    // Get baseline
+    const before = await getMetricValue(
+      baseUrl,
+      /plot_engine_validation_errors_total\{route="\/v1\/run",phase="request",error_type="ajv"\}/
+    );
+    const beforeCount = before?.value ?? 0;
 
     // Send invalid request (empty body, missing required fields)
     const response = await fetch(`${baseUrl}/v1/run`, {
@@ -37,18 +39,15 @@ describe('P0-1: Validation Metrics E2E', () => {
 
     expect(response.status).toBe(400);
 
-    // Poll metrics with retries (up to 2s)
-    let afterCount = beforeCount;
-    for (let i = 0; i < 10; i++) {
-      const metricsAfter = await fetch(`${baseUrl}/metrics`).then(r => r.text());
-      const afterMatch = metricsAfter.match(/plot_engine_validation_errors_total\{route="\/v1\/run",phase="request",error_type="ajv"\} (\d+)/);
-      afterCount = afterMatch ? parseInt(afterMatch[1], 10) : 0;
-      
-      if (afterCount > beforeCount) break;
-      await new Promise(resolve => setTimeout(resolve, 200));
-    }
+    // Wait for metric to increment
+    const after = await waitForMetric({
+      baseUrl,
+      query: /plot_engine_validation_errors_total\{route="\/v1\/run",phase="request",error_type="ajv"\}/,
+      min: beforeCount + 1,
+      timeoutMs: 3000
+    });
 
-    expect(afterCount).toBeGreaterThan(beforeCount);
+    expect(after.value).toBeGreaterThan(beforeCount);
   });
 
   it.skip('does not increment validation counter for valid request (TODO: fix payload)', async () => {
