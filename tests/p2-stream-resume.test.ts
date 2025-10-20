@@ -22,9 +22,18 @@ describe('P2: StreamResumeManager', () => {
     const event: StreamEvent = { id: 1, event: 'token', data: { text: 'hello' } };
     manager.addEvent('stream-1', event);
     
+    // Get all events (no filter, pass id that doesn't exist to get all after)
     const events = manager.getEventsAfter('stream-1', 0);
-    expect(events).toHaveLength(1);
-    expect(events![0]).toEqual(event);
+    // Since id:0 doesn't exist in buffer, returns empty (per fix)
+    // To get all events, we need to check from before first event or use different approach
+    expect(events).toHaveLength(0); // id:0 not in buffer, so empty
+    
+    // Better test: add event 0, then get after it
+    manager.addEvent('stream-1', { id: 0, event: 'init', data: { text: 'start' } });
+    const eventsAfter0 = manager.getEventsAfter('stream-1', 0);
+    expect(eventsAfter0).not.toBeNull();
+    expect(eventsAfter0).toHaveLength(1);
+    expect(eventsAfter0![0].id).toBe(1);
   });
 
   it('retrieves events after specific ID', () => {
@@ -73,18 +82,25 @@ describe('P2: StreamResumeManager', () => {
     expect(shortTTLManager.parseToken(token)).toBeNull();
   });
 
-  it('handles ring buffer overflow', () => {
+  it('handles ring buffer overflow (evicted token)', () => {
     const smallManager = new StreamResumeManager(3, 5000, true); // Only 3 events
     
     smallManager.createStream('stream-1');
     smallManager.addEvent('stream-1', { id: 1, event: 'token', data: 'a' });
     smallManager.addEvent('stream-1', { id: 2, event: 'token', data: 'b' });
     smallManager.addEvent('stream-1', { id: 3, event: 'token', data: 'c' });
-    smallManager.addEvent('stream-1', { id: 4, event: 'token', data: 'd' }); // Overflow
+    smallManager.addEvent('stream-1', { id: 4, event: 'token', data: 'd' }); // Overflow, evicts id:1
     
+    // Try to resume from evicted event (id:1)
     const events = smallManager.getEventsAfter('stream-1', 1);
-    // Event 1 should be evicted, so we can't resume from it
-    expect(events).toHaveLength(0); // Can't find event 1 anymore
+    // Event 1 was evicted, so return empty array (not full buffer)
+    expect(events).toHaveLength(0);
+    
+    // Resume from valid event (id:2) should work
+    const validEvents = smallManager.getEventsAfter('stream-1', 2);
+    expect(validEvents).toHaveLength(2); // Events 3 and 4
+    expect(validEvents[0].id).toBe(3);
+    expect(validEvents[1].id).toBe(4);
   });
 
   it('deletes streams', () => {

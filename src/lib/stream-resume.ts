@@ -51,8 +51,8 @@ class RingBuffer<T> {
   getAfter(predicate: (item: T) => boolean): T[] {
     const all = this.getAll();
     const idx = all.findIndex(predicate);
-    // If predicate not found, return all events (resume from beginning)
-    return idx >= 0 ? all.slice(idx + 1) : all;
+    // If predicate not found (evicted), return empty array
+    return idx >= 0 ? all.slice(idx + 1) : [];
   }
 
   size(): number {
