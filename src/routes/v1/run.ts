@@ -33,7 +33,23 @@ export async function registerRunRoute(app: FastifyInstance) {
   const { principalFor, getCached, setCached, pruneExpired } = await import('../../middleware/idempotency.js');
   
   app.post('/v1/run', {
-    schema: { response: { 200: runResponseSchema } },
+    schema: {
+      body: {
+        type: 'object',
+        required: ['graph'],
+        properties: {
+          graph: { type: 'object' },
+          seed: { type: 'number' },
+          k_samples: { type: 'number' },
+          treatment_node: { type: 'string' },
+          outcome_node: { type: 'string' },
+          baseline_value: { type: 'number' },
+          query: { type: 'object' }
+        },
+        additionalProperties: true
+      },
+      response: { 200: runResponseSchema }
+    },
     bodyLimit: 96 * 1024,
     preHandler: [
       async (req: FastifyRequest, reply: FastifyReply) => {

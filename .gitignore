@@ -36,3 +36,4 @@ handoff/**/*
 reports/**/*
 !reports/*.md
 !out/*.zip
+*.bak

@@ -1021,15 +1021,22 @@ export async function createServer(opts: ServerOpts = {}) {
     const code = (err as any)?.code || '';
     const emsgRaw = (err as any)?.message || '';
     const emsg = String(emsgRaw).toLowerCase();
-    const route = (req as any).routerPath || req.url || 'unknown';
+    // Normalize route: prefer routerPath (e.g. "/v1/run"), fallback to URL path
+    const route = (req as any).routerPath || (req as any).routeOptions?.url || req.url?.split('?')[0] || 'unknown';
     
     // P0-1: Track validation errors
     const { incValidationError } = await import('./observability/validationMetrics.js');
     if ((err as any).validation) {
-      incValidationError(route, 'request', 'ajv');
-    }
-    if ((err as any).validationContext === 'response') {
-      incValidationError(route, 'response', 'ajv');
+      const validationContext = (err as any).validationContext;
+      const phase = validationContext === 'response' ? 'response' : 'request';
+      incValidationError(route, phase, 'ajv');
+      // Return 400 for validation errors
+      return replyWithAppError(reply, { 
+        type: 'BAD_INPUT', 
+        statusCode: 400, 
+        message: 'Validation failed', 
+        devDetail: JSON.stringify((err as any).validation)
+      });
     }
     
     // Timeouts
