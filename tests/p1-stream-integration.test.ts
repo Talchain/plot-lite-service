@@ -12,7 +12,7 @@ describe('P1: Stream Integration Tests', () => {
     process.env.PROMETHEUS_ENABLE = '1';
     process.env.PRINCIPAL_HMAC_SECRET_ACTIVE = 'a'.repeat(64);
     app = await createServer();
-    await app.ready();
+    await app.listen({ port: 0 }); // Listen on random available port
   });
 
   afterAll(async () => {

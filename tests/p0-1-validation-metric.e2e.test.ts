@@ -11,7 +11,7 @@ describe('P0-1: Validation Metrics E2E', () => {
     process.env.PROMETHEUS_ENABLE = '1';
     process.env.PRINCIPAL_HMAC_SECRET_ACTIVE = 'a'.repeat(64);
     app = await createServer();
-    await app.ready();
+    await app.listen({ port: 0 }); // Listen on random available port
     const address = app.server.address();
     const port = typeof address === 'object' && address ? address.port : 3000;
     baseUrl = `http://localhost:${port}`;
