@@ -1030,6 +1030,13 @@ export async function createServer(opts: ServerOpts = {}) {
       const validationContext = (err as any).validationContext;
       const phase = validationContext === 'response' ? 'response' : 'request';
       incValidationError(route, phase, 'ajv');
+      // Return 400 for validation errors
+      return replyWithAppError(reply, { 
+        type: 'BAD_INPUT', 
+        statusCode: 400, 
+        message: 'Validation failed', 
+        devDetail: JSON.stringify((err as any).validation)
+      });
     }
     
     // Timeouts
