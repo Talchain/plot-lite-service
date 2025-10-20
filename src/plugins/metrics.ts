@@ -13,6 +13,8 @@ import {
 import { renderHistograms } from '../metrics/registry.js';
 import { renderValidationMetrics } from '../observability/validationMetrics.js';
 import { renderPrincipalSecretFallback } from '../observability/principalSecretMetrics.js';
+import { renderStreamMetrics } from '../observability/streamMetrics.js';
+import { renderIdempotencyMetrics } from '../observability/idempotencyMetrics.js';
 
 export async function registerPrometheusMetrics(app: FastifyInstance) {
   if (process.env.PROMETHEUS_ENABLE !== '1') {
@@ -61,6 +63,22 @@ export async function registerPrometheusMetrics(app: FastifyInstance) {
     const secretFallback = renderPrincipalSecretFallback();
     if (secretFallback) {
       metrics.push(secretFallback);
+    }
+    
+    // P1: Stream metrics (if STREAM_PARITY_ENABLE=1)
+    if (process.env.STREAM_PARITY_ENABLE === '1') {
+      const streamMetrics = renderStreamMetrics();
+      if (streamMetrics) {
+        metrics.push(streamMetrics);
+      }
+    }
+    
+    // P2: Idempotency metrics (if IDEMPOTENCY_ENABLE=1 or STREAM_RESUME_ENABLE=1)
+    if (process.env.IDEMPOTENCY_ENABLE === '1' || process.env.STREAM_RESUME_ENABLE === '1') {
+      const idempotencyMetrics = renderIdempotencyMetrics();
+      if (idempotencyMetrics) {
+        metrics.push(idempotencyMetrics);
+      }
     }
     
     reply.type('text/plain; version=0.0.4; charset=utf-8');

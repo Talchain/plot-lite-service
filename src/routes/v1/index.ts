@@ -13,6 +13,7 @@ import { registerSelfCheckRoute } from './self-check.js';
 import { getStreamHealthExtras, p95Ms, snapshot, getLastRequestAt, getJson429Count, getSse429Count, getLastConfigReloadISO, getLastComputeMs, getEngineP95Ms, getEngineP95MsRolling, getSseOpen, getSseClosed, getSseTimeout } from '../../metrics.js';
 import { getFixtureCacheSize, getFixtureCacheStats } from '../../lib/fixtures-cache.js';
 import { registerStreamRoute } from './stream.js';
+import { registerStreamRouteEnhanced } from './stream-enhanced.js';
 import { isDemoMode } from '../../middleware/demo-mode.js';
 import { getIdemStoreSize } from '../../middleware/idempotency.js';
 import { healthResponseSchema } from '../../schemas/response.js';
@@ -107,7 +108,13 @@ export async function registerV1Routes(app: FastifyInstance) {
   await registerCritiqueRoute(app);
   await registerDraftRoute(app);
   await registerSelfCheckRoute(app);
-  await registerStreamRoute(app);
+  
+  // P1: Register enhanced stream route if enabled, otherwise use legacy
+  if (process.env.STREAM_PARITY_ENABLE === '1') {
+    await registerStreamRouteEnhanced(app);
+  } else {
+    await registerStreamRoute(app);
+  }
 
   // Health and version at /v1 as well (for consistency)
   // Note: No response validation - health returns dynamic fields based on runtime state
