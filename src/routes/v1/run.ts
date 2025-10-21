@@ -47,8 +47,8 @@ export async function registerRunRoute(app: FastifyInstance) {
           query: { type: 'object' }
         },
         additionalProperties: true
-      },
-      response: { 200: runResponseSchema }
+      }
+      // Response schema removed - was stripping fields
     },
     bodyLimit: 96 * 1024,
     preHandler: [
