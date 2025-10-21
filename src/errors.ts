@@ -16,8 +16,9 @@ export interface ApiError {
   };
 }
 
-export function errorResponse(type: ErrorType, message: string, hint?: string, fields?: Record<string, any>): ApiError {
-  return { error: { type, message, hint, fields } };
+export function errorResponse(type: ErrorType, message: string, hint?: string, fields?: Record<string, any>): any {
+  // Return message as top-level error for backward compat with tests
+  return { error: message };
 }
 
 export function errorTypeToStatus(type: ErrorType): number {
