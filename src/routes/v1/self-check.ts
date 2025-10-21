@@ -136,9 +136,9 @@ export async function registerSelfCheckRoute(app: FastifyInstance) {
       identifiability: identifiability.summary,
     } as any);
 
-    // Compute outer hash identical to sha256Stable(report)
+    // Use the response_hash that was already computed by stampResponseHash
+    const hash = (report as any).model_card.response_hash;
     const canonical = stableStringify(normaliseReport(report));
-    const hash = sha256Stable(report);
     const bytes = Buffer.byteLength(canonical, 'utf8');
 
     return {
