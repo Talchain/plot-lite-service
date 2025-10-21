@@ -31,29 +31,24 @@ describe('P1: Stream Integration Tests', () => {
     expect(response.headers.get('content-type')).toContain('text/event-stream');
 
     const reader = response.body!.getReader();
-    const decoder = new TextDecoder();
-    let heartbeatSeen = false;
-    let initSeen = false;
-    const timeout = setTimeout(() => controller.abort(), 2500);
+    
+    // Use SSE helper to collect events until heartbeat
+    const events = await collectEventsUntil(
+      reader,
+      (evts) => evts.some(e => e.event === 'heartbeat'),
+      2500
+    );
 
+    // Cleanup
     try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        
-        const chunk = decoder.decode(value);
-        if (chunk.includes('event: init')) initSeen = true;
-        if (chunk.includes('event: heartbeat')) {
-          heartbeatSeen = true;
-          break;
-        }
-      }
-    } catch (err: any) {
-      if (err.name !== 'AbortError') throw err;
-    } finally {
-      clearTimeout(timeout);
-      controller.abort();
+      await reader.cancel();
+    } catch (err) {
+      if ((err as Error).name !== 'AbortError') throw err;
     }
+    controller.abort();
+
+    const initSeen = events.some(e => e.event === 'init');
+    const heartbeatSeen = events.some(e => e.event === 'heartbeat');
 
     expect(initSeen).toBe(true);
     expect(heartbeatSeen).toBe(true);
