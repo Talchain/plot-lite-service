@@ -25,6 +25,24 @@ export default defineConfig({
     
     poolOptions: {
       threads: { singleThread: true }
+    },
+    
+    // P1D-1: Coverage thresholds for core paths
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json-summary', 'html'],
+      include: [
+        'src/trust/**',
+        'src/scm-lite/**',
+        'src/middleware/input-validation.ts',
+        'src/util/canonical-json.ts'
+      ],
+      thresholds: {
+        functions: 90,
+        lines: 85,
+        branches: 80,
+        statements: 85
+      }
     }
   }
 })
