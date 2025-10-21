@@ -147,6 +147,10 @@ export async function registerStreamRoute(app: FastifyInstance) {
           fallbackTimer.unref?.();
         } catch {}
 
+        // P2-1: Parse canary header and emit metric
+        const enhancedEnabled = parseEnhancedStreamHeader(req);
+        try { incStreamCanary(enhancedEnabled); } catch {}
+
         // Demo short-circuit: send a tiny deterministic stream quickly
         if (isDemoMode(req)) {
           const traceId = process.env.TRACE_MIN === '1' ? randomUUID() : undefined;
@@ -233,7 +237,3 @@ export async function registerStreamRoute(app: FastifyInstance) {
     return reply;
   });
 }
-
-// Add canary metric emission after line 150
-        const enhancedEnabled = parseEnhancedStreamHeader(req);
-        try { incStreamCanary(enhancedEnabled); } catch {}

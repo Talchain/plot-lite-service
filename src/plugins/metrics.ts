@@ -82,6 +82,17 @@ export async function registerPrometheusMetrics(app: FastifyInstance) {
       }
     }
     
+    // P2-1: Stream canary metrics
+    const canary = getStreamCanaryMetrics();
+    metrics.push(`# HELP plot_engine_stream_canary_total Streams by enhanced mode status`);
+    metrics.push(`# TYPE plot_engine_stream_canary_total counter`);
+    metrics.push(`plot_engine_stream_canary_total{enabled="true",route="/v1/stream"} ${canary.stream_canary_enabled}`);
+    metrics.push(`plot_engine_stream_canary_total{enabled="false",route="/v1/stream"} ${canary.stream_canary_disabled}`);
+    
+    metrics.push(`# HELP plot_engine_stream_deprecated_header_total Deprecated X-Stream-Enhanced header usage`);
+    metrics.push(`# TYPE plot_engine_stream_deprecated_header_total counter`);
+    metrics.push(`plot_engine_stream_deprecated_header_total{route="/v1/stream"} ${canary.stream_deprecated_header}`);
+    
     reply.type('text/plain; version=0.0.4; charset=utf-8');
     return metrics.join('\n') + '\n';
   });
