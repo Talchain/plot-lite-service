@@ -1,7 +1,8 @@
 # P1 Failing Tests Inventory
 
-**Generated**: 2025-10-21 01:00 UTC+01:00
+**Generated**: 2025-10-21 14:20 UTC+01:00
 **Status**: 42 failing, 474 passing, 13 skipped
+**Last Updated**: After PR-0 (metrics consolidation)
 
 ## Categories
 
