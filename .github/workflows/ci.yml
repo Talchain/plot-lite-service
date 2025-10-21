@@ -8,7 +8,11 @@ on:
 
 jobs:
   build-test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+      fail-fast: false
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -55,6 +59,12 @@ jobs:
           
           echo "✅ No stale JS files found alongside TS sources"
 
+      - name: P1D-1 Gate - No .only in tests
+        run: node tools/test-only-guard.mjs
+
+      - name: P1D-1 Gate - Skip expiry check
+        run: node tools/test-skip-expiry.mjs
+
       - name: Tools harness (soak/replay)
         run: npm run test:tools-harness
         env:
@@ -69,6 +79,11 @@ jobs:
         env:
           P95_BUDGET_MS: '600'
           STRICT_LOADCHECK: '1'
+
+      - name: P1D-1 Gate - Coverage floors (core paths)
+        run: npm test -- --coverage --run
+        env:
+          P95_BUDGET_MS: '600'
 
       - name: P0 Gate - Determinism (strict mode)
         run: |
