@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createServer } from '../src/createServer.js';
 import type { FastifyInstance } from 'fastify';
+import { collectEventsUntil } from './helpers/sse.js';
 
 describe('P1: Stream Integration Tests', () => {
   let app: FastifyInstance;

@@ -189,9 +189,14 @@ describe('Stream: disconnect behavior', () => {
       }
     }
 
-    // Disconnect
+    // Disconnect (cancel reader first to avoid unhandled AbortError)
+    try {
+      await reader1?.cancel();
+    } catch (err) {
+      // Ignore AbortError during cleanup
+      if ((err as Error).name !== 'AbortError') throw err;
+    }
     controller1.abort();
-    try { reader1?.cancel(); } catch {}
 
     const events1 = parseSse(text1);
     const lastId = events1.filter(e => e.id).slice(-1)[0]?.id;

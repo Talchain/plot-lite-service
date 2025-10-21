@@ -1,0 +1,31 @@
+{
+  "graph": {
+    "nodes": [
+      {"id": "price", "label": "Price"},
+      {"id": "demand", "label": "Demand"},
+      {"id": "revenue", "label": "Revenue"},
+      {"id": "cost", "label": "Cost"},
+      {"id": "profit", "label": "Profit"},
+      {"id": "market_share", "label": "Market Share"},
+      {"id": "competitor", "label": "Competitor Response"},
+      {"id": "churn", "label": "Churn Rate"},
+      {"id": "ltv", "label": "Customer LTV"},
+      {"id": "roi", "label": "ROI"}
+    ],
+    "edges": [
+      {"from": "price", "to": "demand", "weight": 0.8},
+      {"from": "demand", "to": "revenue", "weight": 0.9},
+      {"from": "price", "to": "cost", "weight": 0.3},
+      {"from": "revenue", "to": "profit", "weight": 0.7},
+      {"from": "cost", "to": "profit", "weight": -0.6},
+      {"from": "demand", "to": "market_share", "weight": 0.75},
+      {"from": "competitor", "to": "demand", "weight": -0.5},
+      {"from": "price", "to": "churn", "weight": 0.4},
+      {"from": "churn", "to": "ltv", "weight": -0.8},
+      {"from": "profit", "to": "roi", "weight": 0.85}
+    ]
+  },
+  "seed": 4242,
+  "treatment_node": "price",
+  "outcome_node": "roi"
+}
