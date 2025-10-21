@@ -153,6 +153,31 @@ export function resetStreamMetrics(): void {
   stream_rate_limited = 0;
   stream_disconnects = 0;
   stream_write_backpressure = 0;
+  stream_canary_enabled = 0;
+  stream_canary_disabled = 0;
+  stream_deprecated_header = 0;
+}
+
+// --- P2: Stream canary metrics ---
+let stream_canary_enabled = 0;
+let stream_canary_disabled = 0;
+let stream_deprecated_header = 0;
+
+export function incStreamCanary(enabled: boolean): void {
+  if (enabled) stream_canary_enabled++;
+  else stream_canary_disabled++;
+}
+
+export function incStreamDeprecatedHeader(): void {
+  stream_deprecated_header++;
+}
+
+export function getStreamCanaryMetrics() {
+  return {
+    stream_canary_enabled,
+    stream_canary_disabled,
+    stream_deprecated_header,
+  };
 }
 
 // --- Observability polish: counters and last reload ---

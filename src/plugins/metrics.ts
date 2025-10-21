@@ -8,7 +8,8 @@ import {
   getEngineP95MsRolling,
   getIdemCacheSize,
   getJson429Count,
-  getSse429Count
+  getSse429Count,
+  getStreamCanaryMetrics
 } from '../metrics.js';
 import { renderHistograms } from '../metrics/registry.js';
 import { renderValidationMetrics } from '../observability/validationMetrics.js';

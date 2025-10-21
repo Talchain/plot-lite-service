@@ -6,9 +6,33 @@ import { randomUUID } from 'node:crypto';
 import { isDemoMode } from '../../middleware/demo-mode.js';
 import { createQueryValidator } from '../../middleware/input-validation.js';
 import { incStreamRateLimited, incStreamDisconnect, incStreamWriteBackpressure, incSseOpen, incSseClosed, incSseTimeout } from '../../metrics.js';
-import { incSse429Count } from '../../metrics.js';
+import { incSse429Count, incStreamCanary, incStreamDeprecatedHeader } from '../../metrics.js';
 import { getSsePerIpMax, getSseGlobalMax } from '../../config/runtimeConfig.js';
 import { SSE_SLOT_MAX_MS } from '../../config/constants.js';
+
+/**
+ * Parse X-Enable-Enhanced-Stream header (P2 canary)
+ * Accepts: 1, true, yes (case-insensitive)
+ * Legacy headers trigger deprecation metric
+ */
+function parseEnhancedStreamHeader(req: FastifyRequest): boolean {
+  const headers = req.headers as Record<string, string | string[] | undefined>;
+  
+  // Canonical header
+  const canonical = String(headers['x-enable-enhanced-stream'] || '').toLowerCase().trim();
+  if (canonical === '1' || canonical === 'true' || canonical === 'yes') {
+    return true;
+  }
+  
+  // Legacy headers (deprecated, will be removed in future release)
+  const legacy = String(headers['x-stream-enhanced'] || '').toLowerCase().trim();
+  if (legacy === '1' || legacy === 'true' || legacy === 'yes') {
+    try { incStreamDeprecatedHeader(); } catch {}
+    return true;
+  }
+  
+  return false;
+}
 
 // In-memory limiter (runtime-config tunable)
 const ipCount = new Map<string, number>();
@@ -209,3 +233,7 @@ export async function registerStreamRoute(app: FastifyInstance) {
     return reply;
   });
 }
+
+// Add canary metric emission after line 150
+        const enhancedEnabled = parseEnhancedStreamHeader(req);
+        try { incStreamCanary(enhancedEnabled); } catch {}
