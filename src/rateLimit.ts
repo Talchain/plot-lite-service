@@ -138,7 +138,7 @@ export async function rateLimit(req: FastifyRequest, reply: FastifyReply) {
     reply.header('X-RateLimit-Reason', 'per_ip');
     record429(now);
     try { incJson429Count(); } catch {}
-    return replyWithAppError(reply, { type: 'RATE_LIMIT', statusCode: 429, hint: `Please retry after ${retrySec} seconds` });
+    return replyWithAppError(reply, { type: 'RATE_LIMITED', statusCode: 429, hint: `Please retry after ${retrySec} seconds` });
   }
   // set 2xx rate-limit headers for allowed request
   reply.header('X-RateLimit-Limit', String(lim));

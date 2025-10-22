@@ -409,7 +409,7 @@ export async function createServer(opts: ServerOpts = {}) {
           try {
             const abs = resolve(process.cwd(), override);
             if (!existsSync(abs)) {
-              return reply.code(500).send({ error: { type: 'INTERNAL', message: 'OpenAPI spec override not found' } });
+              return reply.code(500).send({ error: { type: 'SERVER_ERROR', message: 'OpenAPI spec override not found' } });
             }
             // Attempt to read and render; support .json as-is or .yaml/.yml via yaml
             let buf: Buffer;
@@ -422,7 +422,7 @@ export async function createServer(opts: ServerOpts = {}) {
                 const obj = yaml.parse(ytxt);
                 buf = Buffer.from(JSON.stringify(obj, null, 2) + '\n', 'utf8');
               } catch (e: any) {
-                return reply.code(500).send({ error: { type: 'INTERNAL', message: 'OpenAPI override parse error' } });
+                return reply.code(500).send({ error: { type: 'SERVER_ERROR', message: 'OpenAPI override parse error' } });
               }
             }
             const etag = '"' + createHash('sha256').update(buf).digest('hex') + '"';
@@ -434,7 +434,7 @@ export async function createServer(opts: ServerOpts = {}) {
             if (inm && inm === etag) return reply.code(304).send();
             return reply.code(200).send(buf);
           } catch {
-            return reply.code(500).send({ error: { type: 'INTERNAL', message: 'OpenAPI override error' } });
+            return reply.code(500).send({ error: { type: 'SERVER_ERROR', message: 'OpenAPI override error' } });
           }
         }
         // Fallback: prefer artifact/openapi.json; otherwise render contracts/openapi.yaml in-process
@@ -470,7 +470,7 @@ export async function createServer(opts: ServerOpts = {}) {
             return reply.code(404).send();
           }
         } catch {
-          return reply.code(500).send({ error: { type: 'INTERNAL', message: 'openapi.json read error' } });
+          return reply.code(500).send({ error: { type: 'SERVER_ERROR', message: 'openapi.json read error' } });
         }
       });
     }
@@ -553,8 +553,8 @@ export async function createServer(opts: ServerOpts = {}) {
     // Forced error injection (dev/test) for taxonomy checks
     {
       const force = getForcedError(req as any);
-      if (force === 'TIMEOUT') { return replyWithAppError(reply, { type: 'TIMEOUT', statusCode: 504, hint: 'Reduce processing time' }); }
-      if (force === 'RETRYABLE') { return replyWithAppError(reply, { type: 'RETRYABLE', statusCode: 503, hint: 'Please retry', retryable: true }); }
+      if (force === 'TIMEOUT') { return replyWithAppError(reply, { type: 'SERVER_ERROR', statusCode: 504, hint: 'Reduce processing time' }); }
+      if (force === 'RETRYABLE') { return replyWithAppError(reply, { type: 'SERVER_ERROR', statusCode: 503, hint: 'Please retry', retryable: true }); }
       if (force === 'INTERNAL') { throw new Error('Forced internal'); }
     }
 
@@ -608,8 +608,8 @@ export async function createServer(opts: ServerOpts = {}) {
     // Test error header
     {
       const force = getForcedError(req as any);
-      if (force === 'TIMEOUT') { return replyWithAppError(reply, { type: 'TIMEOUT', statusCode: 504, hint: 'Reduce processing time' }); }
-      if (force === 'RETRYABLE') { return replyWithAppError(reply, { type: 'RETRYABLE', statusCode: 503, hint: 'Please retry', retryable: true }); }
+      if (force === 'TIMEOUT') { return replyWithAppError(reply, { type: 'SERVER_ERROR', statusCode: 504, hint: 'Reduce processing time' }); }
+      if (force === 'RETRYABLE') { return replyWithAppError(reply, { type: 'SERVER_ERROR', statusCode: 503, hint: 'Please retry', retryable: true }); }
       if (force === 'INTERNAL') { throw new Error('Forced internal'); }
     }
     // Idempotency replay (pre-check)
@@ -638,14 +638,14 @@ export async function createServer(opts: ServerOpts = {}) {
         const raw = JSON.stringify(body).toLowerCase();
         if (raw.includes('password') || raw.includes('passwd') || raw.includes('api_key') || raw.includes('apikey') || raw.includes('authorization') || raw.includes('bearer ') || raw.includes('secret') || raw.includes('private_key') || raw.includes('ssn')) {
           const { errorResponse } = await import('./errors.js');
-          const resp = { ...errorResponse('BLOCKED_CONTENT', 'Sensitive token detected in request body; remove secrets and retry.', 'Remove secrets and retry.'), redacted: true };
+          const resp = { ...errorResponse('BAD_INPUT', 'Sensitive token detected in request body; remove secrets and retry.', 'Remove secrets and retry.'), redacted: true };
           app.log.info({ reqId: req.id, route: '/draft-flows', redacted: true }, 'blocked sensitive content');
           return reply.code(400).send(resp);
         }
       } catch {}
       if (containsSensitive(body)) {
         const { errorResponse } = await import('./errors.js');
-        const resp = { ...errorResponse('BLOCKED_CONTENT', 'Sensitive token detected in request body; remove secrets and retry.', 'Remove secrets and retry.'), redacted: true };
+        const resp = { ...errorResponse('BAD_INPUT', 'Sensitive token detected in request body; remove secrets and retry.', 'Remove secrets and retry.'), redacted: true };
         app.log.info({ reqId: req.id, route: '/draft-flows', redacted: true }, 'blocked sensitive content');
         return reply.code(400).send(resp);
       }
@@ -683,14 +683,14 @@ export async function createServer(opts: ServerOpts = {}) {
         const raw = JSON.stringify(body).toLowerCase();
         if (raw.includes('password') || raw.includes('passwd') || raw.includes('api_key') || raw.includes('apikey') || raw.includes('authorization') || raw.includes('bearer ') || raw.includes('secret') || raw.includes('private_key') || raw.includes('ssn')) {
           const { errorResponse } = await import('./errors.js');
-          const resp = { ...errorResponse('BLOCKED_CONTENT', 'Sensitive token detected in request body; remove secrets and retry.', 'Remove secrets and retry.'), redacted: true };
+          const resp = { ...errorResponse('BAD_INPUT', 'Sensitive token detected in request body; remove secrets and retry.', 'Remove secrets and retry.'), redacted: true };
           app.log.info({ reqId: req.id, route: '/critique', redacted: true }, 'blocked sensitive content');
           return reply.code(400).send(resp);
         }
       } catch {}
       if (containsSensitive(body)) {
         const { errorResponse } = await import('./errors.js');
-        const resp = { ...errorResponse('BLOCKED_CONTENT', 'Sensitive token detected in request body; remove secrets and retry.', 'Remove secrets and retry.'), redacted: true };
+        const resp = { ...errorResponse('BAD_INPUT', 'Sensitive token detected in request body; remove secrets and retry.', 'Remove secrets and retry.'), redacted: true };
         app.log.info({ reqId: req.id, route: '/critique', redacted: true }, 'blocked sensitive content');
         return reply.code(400).send(resp);
       }
@@ -716,8 +716,8 @@ export async function createServer(opts: ServerOpts = {}) {
     // Header forced errors
     {
       const force = getForcedError(req as any);
-      if (force === 'TIMEOUT') { return replyWithAppError(reply, { type: 'TIMEOUT', statusCode: 504, hint: 'Reduce processing time' }); }
-      if (force === 'RETRYABLE') { return replyWithAppError(reply, { type: 'RETRYABLE', statusCode: 503, hint: 'Please retry', retryable: true }); }
+      if (force === 'TIMEOUT') { return replyWithAppError(reply, { type: 'SERVER_ERROR', statusCode: 504, hint: 'Reduce processing time' }); }
+      if (force === 'RETRYABLE') { return replyWithAppError(reply, { type: 'SERVER_ERROR', statusCode: 503, hint: 'Please retry', retryable: true }); }
       if (force === 'INTERNAL') { throw new Error('Forced internal'); }
     }
     const parse_json = body.parse_json;
@@ -726,7 +726,7 @@ export async function createServer(opts: ServerOpts = {}) {
       const { validateFlowAsync } = await import('./validation.js');
       const res = await validateFlowAsync(parse_json);
       if (!res.ok) { const { errorResponse } = await import('./errors.js'); return reply.code(400).send(errorResponse('BAD_INPUT', 'Invalid parse_json', res.hint)); }
-    } catch (e: any) { const { errorResponse } = await import('./errors.js'); return reply.code(500).send(errorResponse('INTERNAL', 'Validator error', e?.message)); }
+    } catch (e: any) { const { errorResponse } = await import('./errors.js'); return reply.code(500).send(errorResponse('SERVER_ERROR', 'Validator error', e?.message)); }
     const { critiqueFlow } = await import('./critique.js');
     const obj = critiqueFlow(parse_json);
 
@@ -756,9 +756,9 @@ export async function createServer(opts: ServerOpts = {}) {
     app.post('/__test/force-error', async (req: any, reply) => {
       const t = (req.body?.type || req.query?.type || '').toString().toUpperCase();
       const { errorResponse } = await import('./errors.js');
-      if (t === 'TIMEOUT') return replyWithAppError(reply, { type: 'TIMEOUT', statusCode: 504, hint: 'Reduce processing time' });
-      if (t === 'RETRYABLE') return replyWithAppError(reply, { type: 'RETRYABLE', statusCode: 503, hint: 'Please retry', retryable: true });
-      if (t === 'INTERNAL') return replyWithAppError(reply, { type: 'INTERNAL', statusCode: 500, hint: 'See server logs' });
+      if (t === 'TIMEOUT') return replyWithAppError(reply, { type: 'SERVER_ERROR', statusCode: 504, hint: 'Reduce processing time' });
+      if (t === 'RETRYABLE') return replyWithAppError(reply, { type: 'SERVER_ERROR', statusCode: 503, hint: 'Please retry', retryable: true });
+      if (t === 'INTERNAL') return replyWithAppError(reply, { type: 'SERVER_ERROR', statusCode: 500, hint: 'See server logs' });
       return replyWithAppError(reply, { type: 'BAD_INPUT', statusCode: 400, message: 'Unknown type', hint: 'Use TIMEOUT, RETRYABLE, or INTERNAL' });
     });
 
@@ -840,7 +840,7 @@ export async function createServer(opts: ServerOpts = {}) {
 
         // Test-only retryable error smoke
         if (fail === 'RETRYABLE') {
-          writeSse(reply, '0', 'error', { type: 'RETRYABLE', message: 'Temporary issue', retryable: true });
+          writeSse(reply, '0', 'error', { type: 'SERVER_ERROR', message: 'Temporary issue', retryable: true });
           endStream();
           return;
         }
@@ -1060,7 +1060,7 @@ export async function createServer(opts: ServerOpts = {}) {
     
     // Timeouts
     if (code === 'FST_ERR_REQUEST_TIMEOUT' || /timeout/i.test(emsgRaw)) {
-      return replyWithAppError(reply, { type: 'TIMEOUT', statusCode: 504, hint: 'Reduce processing time', devDetail: emsgRaw });
+      return replyWithAppError(reply, { type: 'SERVER_ERROR', statusCode: 504, hint: 'Reduce processing time', devDetail: emsgRaw });
     }
     // Body too large → 413
     const isBodyTooLarge = (err as any)?.statusCode === 413
@@ -1073,7 +1073,7 @@ export async function createServer(opts: ServerOpts = {}) {
     }
     // Fallback INTERNAL
     const { msg } = await import('./lib/error-messages.js');
-    return replyWithAppError(reply, { type: 'INTERNAL', statusCode: 500, message: msg('INTERNAL_UNEXPECTED') });
+    return replyWithAppError(reply, { type: 'SERVER_ERROR', statusCode: 500, message: msg('INTERNAL_UNEXPECTED') });
   });
 
   // Register /v1 routes (PLoT Engine v1 with trust signals)

@@ -19,7 +19,6 @@ export interface ApiError {
 }
 
 export function errorResponse(type: ErrorType, message: string, hint?: string, fields?: Record<string, any>): any {
-  // Return message as top-level error for backward compat with tests
   return { error: message };
 }
 
@@ -34,12 +33,10 @@ export function errorTypeToStatus(type: ErrorType): number {
   }
 }
 
-// A2: Clamp retry_after to 1-60 seconds
 export function clampRetryAfter(seconds: number): number {
   return Math.max(1, Math.min(60, Math.floor(seconds)));
 }
 
-// Helper for RATE_LIMITED errors with retry_after
 export function rateLimitedError(message: string, retryAfterSeconds: number = 10): ApiError {
   const clamped = clampRetryAfter(retryAfterSeconds);
   return {
@@ -52,7 +49,6 @@ export function rateLimitedError(message: string, retryAfterSeconds: number = 10
   };
 }
 
-// Helper for LIMIT_EXCEEDED errors with field and max
 export function limitExceededError(field: string, max: number, message?: string): ApiError {
   return {
     error: {
@@ -68,11 +64,11 @@ type ReplyLike = { code: (n: number) => any; request?: any; send: (payload: any)
 export interface ReplyAppErrorArgs {
   type: ErrorType;
   statusCode: number;
-  key?: string;            // optional catalogue key for specific phrases
-  message?: string;        // optional explicit message to preserve legacy wording for non-catalogue cases
-  hint?: string;           // existing optional hint (unchanged)
-  fields?: Record<string, any>; // existing optional fields (unchanged)
-  devDetail?: unknown;     // internal-only detail for logs in non-prod
+  key?: string;
+  message?: string;
+  hint?: string;
+  fields?: Record<string, any>;
+  devDetail?: unknown;
   retryable?: boolean;
   code?: string | number;
 }

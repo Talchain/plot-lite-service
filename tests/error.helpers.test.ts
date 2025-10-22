@@ -1,9 +1,9 @@
 /**
- * Error Helper Tests - Phase 3
+ * Error Helper Tests - Phase A-2
  * Verifies rateLimitedError and limitExceededError helpers
  */
 import { describe, it, expect } from 'vitest';
-import { clampRetryAfter, rateLimitedError, limitExceededError } from '../dist/errors.js';
+import { clampRetryAfter, rateLimitedError, limitExceededError } from '../src/errors.js';
 
 describe('Error Helpers', () => {
   describe('clampRetryAfter', () => {
