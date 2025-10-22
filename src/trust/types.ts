@@ -16,6 +16,8 @@ export interface ModelCard {
   flags_on: string[];
   determinism_note: string;
   response_hash?: string; // SHA-256 of normalised payload (added for auditability)
+  response_hash_algo?: string; // Hash algorithm used (e.g., 'sha256')
+  normalized?: boolean; // Whether JCS normalization was applied
   warnings?: string[]; // Optional warnings (e.g., zero baseline)
   identifiability_tag?: string; // Plain-English identifiability summary (IDENT_TAG_ENABLE=1)
 }

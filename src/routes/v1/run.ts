@@ -279,6 +279,8 @@ export async function registerRunRoute(app: FastifyInstance) {
       identifiability: identifiability.summary,
       meta: {
         seed,
+        response_id: randomUUID(),
+        elapsed_ms: Math.round(performance.now() - computeStart),
         commit: process.env.BUILD_ID || process.env.GITHUB_SHA || 'dev',
         version: '1.0.0',
       },
@@ -286,11 +288,13 @@ export async function registerRunRoute(app: FastifyInstance) {
       results,
       schema: 'run.v1',
     };
-    // Compute response hash (SHA-256 of normalised payload)
+    // Compute response hash (SHA-256 of normalised payload with JCS)
     const normalised = normaliseReport(base);
     const canonical = stableStringify(normalised);
     const response_hash = createHash('sha256').update(canonical, 'utf8').digest('hex');
     base.model_card.response_hash = response_hash;
+    base.model_card.response_hash_algo = 'sha256';
+    base.model_card.normalized = true;
     
     // Add BMA hash if SCM-Lite was used
     if (scm_bma_hash) {
@@ -302,7 +306,7 @@ export async function registerRunRoute(app: FastifyInstance) {
     }
     
     // Record compute time for observability
-    const computeMs = performance.now() - computeStart;
+    const computeMs = base.meta.elapsed_ms;
     recordEngineComputeMs(computeMs);
     
     return base;
