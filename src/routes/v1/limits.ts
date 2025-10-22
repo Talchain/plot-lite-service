@@ -28,18 +28,23 @@ export default async function limitsRoute(fastify: FastifyInstance) {
           required: ['max_nodes', 'max_edges']
         }
       }
+    },
+    onSend: async (request, reply, payload) => {
+      // Override security middleware's Cache-Control for this endpoint
+      reply.header('Cache-Control', 'max-age=60, must-revalidate');
+      return payload;
     }
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     // Check If-None-Match
     const clientETag = request.headers['if-none-match'];
     
     if (clientETag === LIMITS_ETAG) {
+      reply.header('ETag', LIMITS_ETAG);
       return reply.code(304).send();
     }
     
     // Send with caching headers
     reply.header('ETag', LIMITS_ETAG);
-    reply.header('Cache-Control', 'max-age=60, must-revalidate');
     
     return reply.send(LIMITS);
   });
