@@ -8,15 +8,14 @@ import { createHash } from 'node:crypto';
  */
 
 /**
- * Deterministic JSON stringification with sorted keys.
- * - 2-space indentation
- * - Sorted object keys (recursive)
- * - No trailing whitespace
+ * Deterministic JSON stringification with sorted keys (JCS - RFC 8785).
+ * - No whitespace (compact)
+ * - Sorted object keys (recursive, lexicographic)
+ * - Canonical number formatting
  * - No BOM
- * - Trailing newline
  */
 export function stableStringify(obj: unknown): string {
-  return JSON.stringify(obj, sortedReplacer, 2) + '\n';
+  return JSON.stringify(obj, sortedReplacer);
 }
 
 /**
@@ -42,14 +41,19 @@ function sortedReplacer(_key: string, value: unknown): unknown {
  * Keeps only stable, deterministic fields for hashing and comparison.
  * 
  * Removed fields (if present):
+ * - trace_id (optional debug trace)
+ * - meta.response_id (unique per response)
+ * - meta.elapsed_ms (system load dependent)
  * - meta.generated_at (timestamp)
  * - meta.duration_ms (execution timing)
+ * - meta.request_id (legacy)
  * - Any debug/timing fields
  * 
  * Preserved fields:
  * - schema version
  * - meta.seed (deterministic input)
- * - model_card
+ * - meta.commit, meta.version
+ * - model_card (including response_hash, response_hash_algo, normalized)
  * - confidence
  * - All decision outputs
  * - warnings
@@ -59,24 +63,28 @@ export function normaliseReport(report: unknown): unknown {
     return report;
   }
   
-  const obj = report as Record<string, unknown>;
-  const normalised = { ...obj };
+  // Deep clone to avoid mutation
+  const obj = JSON.parse(JSON.stringify(report)) as Record<string, unknown>;
+  
+  // Remove trace_id (optional debug field)
+  delete obj.trace_id;
   
   // Remove volatile meta fields
-  if (normalised.meta && typeof normalised.meta === 'object') {
-    const meta = { ...(normalised.meta as Record<string, unknown>) };
-    delete meta.generated_at;
-    delete meta.duration_ms;
-    delete meta.request_id;
-    normalised.meta = meta;
+  if (obj.meta && typeof obj.meta === 'object') {
+    const meta = obj.meta as Record<string, unknown>;
+    delete meta.response_id;      // Unique per response
+    delete meta.elapsed_ms;       // System load dependent
+    delete meta.generated_at;     // Timestamp
+    delete meta.duration_ms;      // Execution timing
+    delete meta.request_id;       // Legacy
   }
   
   // Remove any debug/timing fields at root
-  delete normalised.debug;
-  delete normalised.timing;
-  delete normalised.duration_ms;
+  delete obj.debug;
+  delete obj.timing;
+  delete obj.duration_ms;
   
-  return normalised;
+  return obj;
 }
 
 // --- Hashing helpers ---

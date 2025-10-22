@@ -2,7 +2,8 @@
  * P2-1: Stream Canary Header Tests
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { createTestServer } from './helpers/server.js';
+import { createServer } from '../src/createServer.js';
+import { startServer } from './helpers/server.js';
 import type { FastifyInstance } from 'fastify';
 
 describe('P2-1: Stream Canary Header', () => {
@@ -10,9 +11,10 @@ describe('P2-1: Stream Canary Header', () => {
   let baseUrl: string;
 
   beforeAll(async () => {
-    const { server, url } = await createTestServer();
-    app = server;
-    baseUrl = url;
+    process.env.AUTH_ENABLED = '0';
+    app = await createServer();
+    const ctx = await startServer(app);
+    baseUrl = ctx.baseUrl;
   });
 
   afterAll(async () => {
