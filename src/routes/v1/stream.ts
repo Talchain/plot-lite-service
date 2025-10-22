@@ -5,7 +5,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import { isDemoMode } from '../../middleware/demo-mode.js';
 import { createQueryValidator } from '../../middleware/input-validation.js';
-import { incStreamRateLimited, incStreamDisconnect, incStreamWriteBackpressure, incSseOpen, incSseClosed, incSseTimeout } from '../../metrics.js';
+import { incStreamRateLimited, incStreamDisconnect, incStreamWriteBackpressure, incSseOpen, incSseClosed, incSseTimeout, incStreamCanary, incStreamDeprecatedHeader } from '../../metrics.js';
 import { incSse429Count } from '../../metrics.js';
 import { getSsePerIpMax, getSseGlobalMax } from '../../config/runtimeConfig.js';
 import { SSE_SLOT_MAX_MS } from '../../config/constants.js';
@@ -15,6 +15,37 @@ const ipCount = new Map<string, number>();
 let globalCount = 0;
 function PER_IP_MAX() { return Number(getSsePerIpMax()); }
 function GLOBAL_MAX() { return Number(getSseGlobalMax()); }
+
+// P2-1: Parse enhanced stream header (canonical + legacy)
+function parseEnhancedStreamHeader(req: FastifyRequest): boolean {
+  const canonical = req.headers['x-enable-enhanced-stream'];
+  const legacy = req.headers['x-stream-enhanced'];
+  
+  const isTruthy = (val: string | string[] | undefined): boolean => {
+    const s = String(val || '').toLowerCase();
+    return s === '1' || s === 'true' || s === 'yes' || s === 'on';
+  };
+  
+  // Prefer canonical header
+  if (canonical !== undefined) {
+    if (isTruthy(canonical)) {
+      try { incStreamCanary(); } catch {}
+      return true;
+    }
+    return false;
+  }
+  
+  // Fall back to legacy (deprecated)
+  if (legacy !== undefined) {
+    if (isTruthy(legacy)) {
+      try { incStreamDeprecatedHeader(); } catch {}
+      return true;
+    }
+    return false;
+  }
+  
+  return false;
+}
 
 function getIp(req: FastifyRequest): string {
   // Fastify populates req.ip respecting trustProxy when enabled
@@ -135,6 +166,10 @@ export async function registerStreamRoute(app: FastifyInstance) {
           fallbackTimer = setTimeout(() => { reply.log?.info({ reqId }, 'sse timeout'); releaseOnce(true); }, SSE_SLOT_MAX_MS);
           fallbackTimer.unref?.();
         } catch {}
+
+        // P2-1: Check for enhanced stream header (tracks metrics)
+        const enhancedMode = parseEnhancedStreamHeader(req);
+        // Note: enhancedMode can be used for future enhanced features
 
         // Demo short-circuit: send a tiny deterministic stream quickly
         if (isDemoMode(req)) {

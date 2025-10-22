@@ -18,8 +18,11 @@ import {
   incStreamBackpressureDrop,
   incStreamHeartbeat,
   incStreamCircuitRejected,
-  recordStreamDuration
+  recordStreamDuration,
+  incStreamTokenRedeemed,
+  incStreamTokenReject
 } from '../../observability/streamMetrics.js';
+import { redeemStreamToken, redactToken } from '../../lib/stream-token.js';
 import {
   incStreamRateLimited,
   incStreamDisconnect,
@@ -121,6 +124,8 @@ type StreamQuery = {
   latency_ms?: number;
   heartbeat_ms?: number;
   max_events?: number;
+  enhanced?: number;
+  token?: string;
 };
 
 // P1: Feature flag for enhanced streaming
@@ -156,6 +161,27 @@ export async function registerStreamRouteEnhanced(app: FastifyInstance) {
           reply.raw.write(`event: done\ndata: ${JSON.stringify(doneEvent)}\n\n`);
           reply.raw.end();
           return reply;
+        }
+
+        // Token validation (if enhanced=1 and token provided)
+        const q = (req.query ?? {}) as StreamQuery;
+        if (q.enhanced === 1 && q.token) {
+          const tokenResult = redeemStreamToken(q.token);
+          if (!tokenResult.valid) {
+            incStreamTokenReject(tokenResult.reason);
+            req.log.warn({ reason: tokenResult.reason, token: redactToken(q.token) }, 'stream token rejected');
+            return reply
+              .code(401)
+              .header('Cache-Control', 'no-store')
+              .header('Referrer-Policy', 'no-referrer')
+              .send({ 
+                schema: 'error.v1', 
+                code: 'UNAUTHORIZED', 
+                message: 'Invalid or expired token' 
+              });
+          }
+          incStreamTokenRedeemed(tokenResult.payload.aud);
+          req.log.info({ token: redactToken(q.token), aud: tokenResult.payload.aud }, 'stream token redeemed');
         }
 
         // Rate limit check
@@ -255,20 +281,25 @@ export async function registerStreamRouteEnhanced(app: FastifyInstance) {
     const heartbeat = new HeartbeatManager();
 
     reply.header('Content-Type', 'text/event-stream; charset=utf-8');
-    reply.header('Cache-Control', 'no-cache, no-transform');
+    reply.header('Cache-Control', 'no-store');
+    reply.header('Referrer-Policy', 'no-referrer');
     reply.header('X-Accel-Buffering', 'no');
     reply.header('Access-Control-Allow-Origin', '*');
     reply.header('Connection', 'keep-alive');
     reply.hijack();
     reply.raw.writeHead(200, {
       'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache, no-transform',
+      'Cache-Control': 'no-store',
+      'Referrer-Policy': 'no-referrer',
       'X-Accel-Buffering': 'no',
       'Access-Control-Allow-Origin': '*',
       'Connection': 'keep-alive',
     });
 
     reply.log.info({ latencyMs, heartbeatMs }, 'sse start');
+
+    // Send retry directive first (1500ms)
+    reply.raw.write('retry: 1500\n\n');
 
     let closed = false;
     let eventId = 0;

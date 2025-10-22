@@ -8,7 +8,9 @@ import {
   getEngineP95MsRolling,
   getIdemCacheSize,
   getJson429Count,
-  getSse429Count
+  getSse429Count,
+  getStreamCanaryTotal,
+  getStreamDeprecatedHeaderTotal
 } from '../metrics.js';
 import { renderHistograms } from '../metrics/registry.js';
 import { renderValidationMetrics } from '../observability/validationMetrics.js';
@@ -80,6 +82,15 @@ export async function registerPrometheusMetrics(app: FastifyInstance) {
         metrics.push(idempotencyMetrics);
       }
     }
+    
+    // P2-1: Stream canary header metrics
+    metrics.push(`# HELP plot_engine_stream_canary_total Requests with canonical enhanced stream header`);
+    metrics.push(`# TYPE plot_engine_stream_canary_total counter`);
+    metrics.push(`plot_engine_stream_canary_total{route="/v1/stream"} ${getStreamCanaryTotal()}`);
+    
+    metrics.push(`# HELP plot_engine_stream_deprecated_header_total Requests with legacy stream header`);
+    metrics.push(`# TYPE plot_engine_stream_deprecated_header_total counter`);
+    metrics.push(`plot_engine_stream_deprecated_header_total{route="/v1/stream"} ${getStreamDeprecatedHeaderTotal()}`);
     
     reply.type('text/plain; version=0.0.4; charset=utf-8');
     return metrics.join('\n') + '\n';

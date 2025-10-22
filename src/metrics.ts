@@ -211,3 +211,11 @@ export function incSseTimeout() { sseTimeout++; }
 export function getSseOpen() { return sseOpen; }
 export function getSseClosed() { return sseClosed; }
 export function getSseTimeout() { return sseTimeout; }
+
+// P2-1: Stream canary header counters
+let streamCanaryTotal = 0;
+let streamDeprecatedHeaderTotal = 0;
+export function incStreamCanary() { streamCanaryTotal++; }
+export function incStreamDeprecatedHeader() { streamDeprecatedHeaderTotal++; }
+export function getStreamCanaryTotal() { return streamCanaryTotal; }
+export function getStreamDeprecatedHeaderTotal() { return streamDeprecatedHeaderTotal; }

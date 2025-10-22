@@ -1,11 +1,10 @@
+// A2: Closed error taxonomy (machine-checkable)
 export type ErrorType =
   | 'BAD_INPUT'
-  | 'TIMEOUT'
-  | 'BLOCKED_CONTENT'
-  | 'RETRYABLE'
-  | 'INTERNAL'
-  | 'RATE_LIMIT'
-  | 'BREAKER_OPEN';
+  | 'LIMIT_EXCEEDED'
+  | 'RATE_LIMITED'
+  | 'UNAUTHORIZED'
+  | 'SERVER_ERROR';
 
 export interface ApiError {
   error: {
@@ -24,13 +23,17 @@ export function errorResponse(type: ErrorType, message: string, hint?: string, f
 export function errorTypeToStatus(type: ErrorType): number {
   switch (type) {
     case 'BAD_INPUT': return 400;
-    case 'TIMEOUT': return 504;
-    case 'RETRYABLE': return 503;
-    case 'RATE_LIMIT': return 429;
-    case 'BREAKER_OPEN': return 503;
-    case 'INTERNAL':
+    case 'LIMIT_EXCEEDED': return 400;
+    case 'RATE_LIMITED': return 429;
+    case 'UNAUTHORIZED': return 401;
+    case 'SERVER_ERROR':
     default: return 500;
   }
+}
+
+// A2: Clamp retry_after to 1-60 seconds
+export function clampRetryAfter(seconds: number): number {
+  return Math.max(1, Math.min(60, Math.floor(seconds)));
 }
 
 // Normalised public error helper — preserves existing { error: {...} } shape
