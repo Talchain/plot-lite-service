@@ -1030,12 +1030,31 @@ export async function createServer(opts: ServerOpts = {}) {
       const validationContext = (err as any).validationContext;
       const phase = validationContext === 'response' ? 'response' : 'request';
       incValidationError(route, phase, 'ajv');
-      // Return 400 for validation errors
+      
+      // Extract field name from validation errors for better DX
+      const validation = (err as any).validation || [];
+      let errorMsg = 'Validation failed';
+      let field = '';
+      
+      if (Array.isArray(validation) && validation.length > 0) {
+        const firstErr = validation[0];
+        if (firstErr.params?.missingProperty) {
+          field = firstErr.params.missingProperty;
+          errorMsg = `Missing required field: ${field}`;
+        } else if (firstErr.params?.additionalProperty) {
+          field = firstErr.params.additionalProperty;
+          errorMsg = `Unknown field: ${field}`;
+        } else if (firstErr.message) {
+          errorMsg = firstErr.message;
+        }
+      }
+      
+      // Return 400 with field-specific error
       return replyWithAppError(reply, { 
         type: 'BAD_INPUT', 
         statusCode: 400, 
-        message: 'Validation failed', 
-        devDetail: JSON.stringify((err as any).validation)
+        message: errorMsg,
+        devDetail: field || JSON.stringify(validation)
       });
     }
     

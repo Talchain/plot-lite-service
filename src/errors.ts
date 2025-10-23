@@ -16,8 +16,22 @@ export interface ApiError {
   };
 }
 
-export function errorResponse(type: ErrorType, message: string, hint?: string, fields?: Record<string, any>): ApiError {
-  return { error: { type, message, hint, fields } };
+export function errorResponse(type: ErrorType, message: string, hint?: string, fields?: Record<string, any>): any {
+  // P1C-3C: Return error.v1 envelope with legacy back-compat shim
+  const envelope: any = {
+    schema: 'error.v1',
+    code: type,
+    message,
+  };
+  if (hint) envelope.hint = hint;
+  if (fields) envelope.fields = fields;
+  
+  // Legacy back-compat: also include top-level { error: { type, message } } for old tests
+  envelope.error = { type, message };
+  if (hint) envelope.error.hint = hint;
+  if (fields) envelope.error.fields = fields;
+  
+  return envelope;
 }
 
 export function errorTypeToStatus(type: ErrorType): number {

@@ -1,5 +1,6 @@
 export function errorResponse(type, message, hint, fields) {
-    return { error: { type, message, hint, fields } };
+    // Return message as top-level error for backward compat with tests
+    return { error: message };
 }
 export function errorTypeToStatus(type) {
     switch (type) {
