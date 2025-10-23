@@ -1,6 +1,6 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { createHash } from 'node:crypto';
-import { replyWithAppError } from './errors.js';
+import { rateLimitedError, replyWithError } from './errors.js';
 import { incJson429Count } from './metrics.js';
 import { getRateLimitRpm } from './config/runtimeConfig.js';
 import { MAX_RATE_KEYS } from './config/constants.js';
@@ -69,10 +69,8 @@ export async function rateLimit(req: FastifyRequest, reply: FastifyReply) {
   if (perKey.size > 2 * cap) {
     try { incJson429Count(); } catch {}
     reply.header('X-RateLimit-Reason', 'global');
-    reply.header('Retry-After', '10');
-    return reply.code(429).send({
-      error: { type: 'RATE_LIMITED', message: 'System under heavy load', hint: 'Please retry after 10 seconds' }
-    });
+    const err = rateLimitedError('System under heavy load', 10);
+    return replyWithError(reply, err);
   }
 
   // Exempt basic health/readiness endpoints from rate limiting
@@ -138,7 +136,8 @@ export async function rateLimit(req: FastifyRequest, reply: FastifyReply) {
     reply.header('X-RateLimit-Reason', 'per_ip');
     record429(now);
     try { incJson429Count(); } catch {}
-    return replyWithAppError(reply, { type: 'RATE_LIMITED', statusCode: 429, hint: `Please retry after ${retrySec} seconds` });
+    const err = rateLimitedError('Rate limit exceeded', retrySec, `Please retry after ${retrySec} seconds.`);
+    return replyWithError(reply, err);
   }
   // set 2xx rate-limit headers for allowed request
   reply.header('X-RateLimit-Limit', String(lim));
