@@ -1,12 +1,17 @@
-// A2: Closed error taxonomy
-import { toPublicError } from './lib/error-normaliser.js';
-
 export type ErrorType =
+  // NEW (A2)
   | 'BAD_INPUT'
   | 'LIMIT_EXCEEDED'
   | 'RATE_LIMITED'
   | 'UNAUTHORIZED'
-  | 'SERVER_ERROR';
+  | 'SERVER_ERROR'
+  // OLD (temporary, deprecated)
+  | 'TIMEOUT'
+  | 'BLOCKED_CONTENT'
+  | 'RETRYABLE'
+  | 'INTERNAL'
+  | 'RATE_LIMIT'
+  | 'BREAKER_OPEN';
 
 export interface ApiError {
   error: {
@@ -14,7 +19,7 @@ export interface ApiError {
     message: string;
     hint?: string;
     fields?: Record<string, any>;
-    retry_after?: number;  // For RATE_LIMITED (seconds, clamped 1-60)
+    retry_after?: number;
   };
 }
 
@@ -24,11 +29,19 @@ export function errorResponse(type: ErrorType, message: string, hint?: string, f
 
 export function errorTypeToStatus(type: ErrorType): number {
   switch (type) {
+    // New
     case 'BAD_INPUT': return 400;
     case 'LIMIT_EXCEEDED': return 400;
     case 'RATE_LIMITED': return 429;
     case 'UNAUTHORIZED': return 401;
-    case 'SERVER_ERROR':
+    case 'SERVER_ERROR': return 500;
+    // Legacy
+    case 'TIMEOUT': return 504;
+    case 'RETRYABLE': return 503;
+    case 'RATE_LIMIT': return 429;
+    case 'BREAKER_OPEN': return 503;
+    case 'BLOCKED_CONTENT': return 401;
+    case 'INTERNAL': return 500;
     default: return 500;
   }
 }
@@ -81,11 +94,7 @@ export function replyWithAppError(reply: ReplyLike, args: ReplyAppErrorArgs) {
     }
   } catch {}
 
-  const publicMessage = ((): string => {
-    if (args.message) return args.message;
-    const pub = toPublicError({ type: args.type, http: args.statusCode, key: args.key, retryable: args.retryable, code: args.code });
-    return pub.message;
-  })();
+  const publicMessage = args.message || 'Something went wrong';
 
   return reply.code(args.statusCode).send(
     errorResponse(args.type, publicMessage, args.hint, args.fields)
