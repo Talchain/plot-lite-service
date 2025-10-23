@@ -98,7 +98,14 @@ describe('Stream: disconnect behavior', () => {
     const during = await getMetrics(BASE);
     expect(during.current_streams).toBeGreaterThan(baselineStreams);
 
-    // Abruptly disconnect
+    // Abruptly disconnect (cancel reader first to avoid unhandled AbortError)
+    try {
+      const resp = await streamPromise;
+      const reader = resp.body?.getReader();
+      await reader?.cancel();
+    } catch (err) {
+      if ((err as Error).name !== 'AbortError') throw err;
+    }
     controller.abort();
 
     // Wait for cleanup
@@ -127,7 +134,7 @@ describe('Stream: disconnect behavior', () => {
     // Wait for streams to start
     await new Promise(r => setTimeout(r, 150));
 
-    // Disconnect all
+    // Disconnect all (abort controllers - streams already closed)
     controllers.forEach(c => c.abort());
 
     // Wait for cleanup
@@ -189,9 +196,13 @@ describe('Stream: disconnect behavior', () => {
       }
     }
 
-    // Disconnect
+    // Disconnect (cancel reader first to avoid unhandled AbortError)
+    try {
+      await reader1?.cancel();
+    } catch (err) {
+      if ((err as Error).name !== 'AbortError') throw err;
+    }
     controller1.abort();
-    try { reader1?.cancel(); } catch {}
 
     const events1 = parseSse(text1);
     const lastId = events1.filter(e => e.id).slice(-1)[0]?.id;

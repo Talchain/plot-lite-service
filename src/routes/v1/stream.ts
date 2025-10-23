@@ -43,7 +43,20 @@ export async function writeSse(reply: FastifyReply, id: number | string, ev: str
   const payload = `id: ${id}\n` +
                   `event: ${ev}\n` +
                   `data: ${JSON.stringify(data)}\n\n`;
-  const ok = reply.raw.write(payload);
+  
+  // Catch EPIPE/ERR_STREAM_DESTROYED when client disconnects
+  let ok: boolean;
+  try {
+    ok = reply.raw.write(payload);
+  } catch (err: any) {
+    const code = err?.code;
+    if (code === 'EPIPE' || code === 'ERR_STREAM_DESTROYED') {
+      // Client disconnected, ignore
+      return;
+    }
+    throw err;
+  }
+  
   if (!ok) {
     try { incStreamWriteBackpressure(); } catch {}
     await new Promise<void>((resolve, reject) => {
