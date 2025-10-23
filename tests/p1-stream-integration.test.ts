@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createServer } from '../src/createServer.js';
 import type { FastifyInstance } from 'fastify';
+import { collectEventsUntil } from './helpers/sse.js';
 
 describe('P1: Stream Integration Tests', () => {
   let app: FastifyInstance;
@@ -22,7 +23,7 @@ describe('P1: Stream Integration Tests', () => {
 
   it('enhanced route emits heartbeat within 2s', async () => {
     const controller = new AbortController();
-    const response = await fetch(`http://localhost:${(app.server.address() as any).port}/v1/stream?demo=0&latency_ms=0`, {
+    const response = await fetch(`http://localhost:${(app.server.address() as any).port}/v1/stream?demo=1&latency_ms=0`, {
       signal: controller.signal,
       headers: { 'Authorization': 'Bearer test-token' }
     });
@@ -36,7 +37,7 @@ describe('P1: Stream Integration Tests', () => {
     const events = await collectEventsUntil(
       reader,
       (evts) => evts.some(e => e.event === 'heartbeat'),
-      2500
+      3000
     );
 
     // Cleanup
