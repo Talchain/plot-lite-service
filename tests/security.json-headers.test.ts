@@ -26,11 +26,26 @@ describe('JSON-only security headers', () => {
     const port = String(nextPort());
     BASE = `http://127.0.0.1:${port}`;
     child = spawn(process.execPath, ['tools/test-server.js'], {
-      env: { ...process.env, TEST_PORT: port, TEST_ROUTES: '1', AUTH_ENABLED: '0', RATE_LIMIT_ENABLED: '0' }, stdio: 'ignore'
+      env: { 
+        ...process.env, 
+        TEST_PORT: port, 
+        TEST_ROUTES: '1', 
+        AUTH_ENABLED: '0', 
+        RATE_LIMIT_ENABLED: '0',
+        NODE_ENV: 'test'
+      }, 
+      stdio: 'ignore'
     });
     await waitFor(`${BASE}/health`, 5000);
   });
-  afterAll(async () => { try { if (child?.pid) process.kill(child.pid, 'SIGINT'); } catch {} });
+  afterAll(async () => { 
+    try { 
+      if (child?.pid) {
+        process.kill(child.pid, 'SIGTERM');
+        await sleep(100);
+      }
+    } catch {} 
+  });
 
   it('GET /health has JSON security headers', async () => {
     const r = await fetch(`${BASE}/health`);

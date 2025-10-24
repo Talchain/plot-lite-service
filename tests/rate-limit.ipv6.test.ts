@@ -12,7 +12,8 @@ async function waitFor(url: string, timeoutMs = 10000) {
 
 describe('Rate Limit: IPv6 support', () => {
   let child: ReturnType<typeof spawn> | null = null;
-  const PORT = '4339';
+  // Use ephemeral port to avoid conflicts
+  const PORT = String(4339 + Math.floor(Math.random() * 1000));
   const BASE = `http://127.0.0.1:${PORT}`;
 
   beforeAll(async () => {
@@ -23,6 +24,7 @@ describe('Rate Limit: IPv6 support', () => {
         TEST_ROUTES: '1',
         RATE_LIMIT_ENABLED: '1',
         RATE_LIMIT_RPM: '5', // Low limit for testing
+        NODE_ENV: 'test',
       },
       stdio: 'ignore'
     });
@@ -30,7 +32,13 @@ describe('Rate Limit: IPv6 support', () => {
   });
 
   afterAll(async () => {
-    try { if (child?.pid) process.kill(child.pid, 'SIGINT'); } catch {}
+    try { 
+      if (child?.pid) {
+        process.kill(child.pid, 'SIGTERM');
+        // Wait for graceful shutdown
+        await new Promise(r => setTimeout(r, 100));
+      }
+    } catch {}
   });
 
   it('handles IPv6 loopback address (::1) correctly', async () => {
