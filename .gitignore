@@ -37,3 +37,7 @@ reports/**/*
 !reports/*.md
 !out/*.zip
 *.bak
+
+# Baseline measurement artifacts
+.ci-run*.txt
+.baseline-summary*.json
