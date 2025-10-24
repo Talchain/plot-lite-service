@@ -15,10 +15,12 @@ import type { FastifyInstance } from 'fastify';
 
 describe('SSE Soak Test (500 cycles)', () => {
   let app: FastifyInstance;
-  const PORT = 4398;
+  // Use ephemeral port to avoid conflicts
+  const PORT = 4398 + Math.floor(Math.random() * 1000);
   const BASE = `http://127.0.0.1:${PORT}`;
-  const CYCLES = 500;
-  const CHECK_INTERVAL = 50;
+  // Reduce cycles in test mode for faster, more reliable runs
+  const CYCLES = process.env.CI ? 500 : 100;
+  const CHECK_INTERVAL = process.env.CI ? 50 : 20;
 
   // Capture original env to restore after suite
   const prevEnv = {

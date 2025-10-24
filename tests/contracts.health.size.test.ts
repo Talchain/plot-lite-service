@@ -12,14 +12,31 @@ async function waitFor(url: string, timeoutMs = 5000) {
 
 describe('Contracts: /health payload size < 4 KiB', () => {
   let child: ReturnType<typeof spawn> | null = null;
-  const PORT = '4344';
+  // Use ephemeral port to avoid conflicts
+  const PORT = String(4344 + Math.floor(Math.random() * 1000));
   const BASE = `http://127.0.0.1:${PORT}`;
 
   beforeAll(async () => {
-    child = spawn(process.execPath, ['tools/test-server.js'], { env: { ...process.env, TEST_PORT: PORT, RATE_LIMIT_ENABLED: '0' }, stdio: 'ignore' });
+    child = spawn(process.execPath, ['tools/test-server.js'], { 
+      env: { 
+        ...process.env, 
+        TEST_PORT: PORT, 
+        RATE_LIMIT_ENABLED: '0',
+        NODE_ENV: 'test'  // Freeze env for determinism
+      }, 
+      stdio: 'ignore' 
+    });
     await waitFor(`${BASE}/health`, 5000);
   });
-  afterAll(async () => { try { if (child?.pid) process.kill(child.pid, 'SIGINT'); } catch {} });
+  afterAll(async () => { 
+    try { 
+      if (child?.pid) {
+        process.kill(child.pid, 'SIGTERM');
+        // Wait briefly for graceful shutdown
+        await new Promise(r => setTimeout(r, 100));
+      }
+    } catch {} 
+  });
 
   it('stays small to avoid drift', async () => {
     const r = await fetch(`${BASE}/health`);

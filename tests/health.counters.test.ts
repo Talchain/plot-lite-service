@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { spawnServer, waitFor, sleep, createTestArtifactDir, writeTestConfig, requestJSON, type ServerHandle } from './utils.js';
 
 describe('Health counters and last reload timestamp', () => {
@@ -6,8 +6,8 @@ describe('Health counters and last reload timestamp', () => {
   let artifactDir: ReturnType<typeof createTestArtifactDir>;
 
   beforeAll(async () => {
-    // Create isolated artifact directory
-    artifactDir = createTestArtifactDir('health-counters');
+    // Create isolated artifact directory with unique name to avoid conflicts
+    artifactDir = createTestArtifactDir(`health-counters-${Date.now()}`);
     
     // Write runtime config for SIGHUP reload
     writeTestConfig(artifactDir.path, {
@@ -16,7 +16,7 @@ describe('Health counters and last reload timestamp', () => {
       rate_limit_rpm: 1,
     });
     
-    // Spawn server with test config
+    // Spawn server with test config and deterministic env
     server = await spawnServer({
       env: {
         TEST_ROUTES: '1',
@@ -25,8 +25,12 @@ describe('Health counters and last reload timestamp', () => {
         SSE_GLOBAL_MAX: '1',
         RATE_LIMIT_RPM: '1',
         RUNTIME_CONFIG_PATH: `${artifactDir.path}/runtime-config.json`,
+        NODE_ENV: 'test',
       },
     });
+    
+    // Wait for server to be fully ready
+    await sleep(200);
   });
 
   afterAll(async () => {

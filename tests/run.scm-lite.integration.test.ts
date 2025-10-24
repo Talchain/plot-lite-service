@@ -18,6 +18,7 @@ describe('POST /v1/run with SCM-Lite enabled', () => {
         SCM_LITE_BELIEF_DEFAULT: '0.7',
         AUTH_ENABLED: '0',
         RATE_LIMIT_ENABLED: '0',
+        NODE_ENV: 'test',
       },
     });
   });
