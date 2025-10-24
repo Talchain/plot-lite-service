@@ -76,7 +76,40 @@ export function normaliseReport(report: unknown): unknown {
   delete normalised.timing;
   delete normalised.duration_ms;
   
+  // Normalize critique to array
+  if ('critique' in normalised) {
+    normalised.critique = normaliseCritique(normalised.critique);
+  }
+  
   return normalised;
+}
+
+/**
+ * Coerce critique to array format
+ * - null/undefined → []
+ * - already array → passthrough
+ * - object with numeric keys (e.g., {"0": {...}, "1": {...}}) → Object.values()
+ * - single critique object → [obj]
+ */
+function normaliseCritique(critique: unknown): unknown[] {
+  if (critique == null) return [];
+  if (Array.isArray(critique)) return critique;
+  if (typeof critique === 'object') {
+    const obj = critique as Record<string, unknown>;
+    const keys = Object.keys(obj);
+    
+    // Check if all keys are numeric (array-like object)
+    const allNumeric = keys.length > 0 && keys.every(k => /^\d+$/.test(k));
+    
+    if (allNumeric) {
+      // Object with numeric keys → Object.values()
+      return Object.values(obj);
+    } else {
+      // Single critique object → wrap in array
+      return [obj];
+    }
+  }
+  return [];
 }
 
 // --- Hashing helpers ---
