@@ -13,7 +13,7 @@ import { buildExplainDelta } from '../../trust/explain-delta.js';
 import { checkLinearity, detectThresholdCrossings, generateForkSuggestions } from '../../trust/linearity.js';
 import { checkIdentifiability } from '../../trust/identifiability.js';
 import { enforceComputeBudget } from '../../governance/cost-estimator.js';
-import { stableStringify, normaliseReport } from '../../util/canonical-json.js';
+import { stampResponseHash } from '../../util/canonical-json.js';
 import type { Graph } from '../../trust/types.js';
 import { runSCMLite } from '../../scm-lite/adapter.js';
 import { recordEngineComputeMs } from '../../metrics.js';
@@ -278,7 +278,7 @@ export async function registerRunRoute(app: FastifyInstance) {
     }
 
     // Build response with meta in alphabetical position
-    const base: any = {
+    let base: any = {
       confidence,
       critique,
       explain_delta,
@@ -293,11 +293,8 @@ export async function registerRunRoute(app: FastifyInstance) {
       results,
       schema: 'run.v1',
     };
-    // Compute response hash (SHA-256 of normalised payload)
-    const normalised = normaliseReport(base);
-    const canonical = stableStringify(normalised);
-    const response_hash = createHash('sha256').update(canonical, 'utf8').digest('hex');
-    base.model_card.response_hash = response_hash;
+    // Stamp response hash using canonical normalization
+    base = stampResponseHash(base);
     
     // Add BMA hash if SCM-Lite was used
     if (scm_bma_hash) {
