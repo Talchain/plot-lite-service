@@ -50,10 +50,11 @@ export async function registerRunRoute(app: FastifyInstance) {
       },
       response: { 200: runResponseSchema }
     },
+    attachValidation: true,  // Attach validation errors to request instead of auto-failing
     bodyLimit: 96 * 1024,
     preHandler: [
       async (req: FastifyRequest, reply: FastifyReply) => {
-        // Demo mode short-circuit (before Ajv)
+        // Demo mode short-circuit (before validation check)
         if (isDemoMode(req)) {
           const demo_seed = getDemoSeed(req);
           const payload = getDemoRunResponse(demo_seed) as any;
@@ -61,6 +62,12 @@ export async function registerRunRoute(app: FastifyInstance) {
             try { payload.trace_id = randomUUID(); } catch {}
           }
           return reply.code(200).type('application/json').send(payload);
+        }
+        
+        // Check validation errors (only for non-demo requests)
+        if ((req as any).validationError) {
+          const err = (req as any).validationError;
+          throw err;  // Let global error handler format it
         }
       },
       // Idempotency replay (before validation)

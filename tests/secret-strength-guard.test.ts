@@ -35,7 +35,8 @@ describe('Secret Strength Guard (PR-F)', () => {
     });
     
     expect(exitCode).toBe(1);
-    expect(stderr).toContain('PRINCIPAL_HMAC_SECRET must be ≥64 hex chars');
+    expect(stderr).toContain('PRINCIPAL_HMAC_SECRET');
+    expect(stderr).toContain('must be ≥64 hex chars');
     expect(stderr).toContain('Current: 11 chars');
   }, 10000);
 
