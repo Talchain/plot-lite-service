@@ -293,7 +293,8 @@ export async function registerRunRoute(app: FastifyInstance) {
       results,
       schema: 'run.v1',
     };
-    // Stamp response hash using canonical normalization
+    // Always compute response hash via stampResponseHash() so it matches sha256Stable(normaliseReport()).
+    // Avoid ad-hoc hashing to prevent divergence when normalization evolves.
     base = stampResponseHash(base);
     
     // Add BMA hash if SCM-Lite was used

@@ -9,6 +9,7 @@ export const runResponseSchema = {
     model_card: { type: 'object', additionalProperties: true, required: ['seed', 'determinism_note', 'response_hash'] },
     meta: { type: 'object', additionalProperties: true, required: ['seed', 'version'] },
     graph: { type: 'object', additionalProperties: true, nullable: true },
+    // Correct types prevent Fastify from coercing arrays/strings into objects, preserving round-trip hashing.
     critique: { type: 'array', items: { type: 'object', additionalProperties: true }, nullable: true },
     explain_delta: { type: 'object', additionalProperties: true, nullable: true },
     identifiability: { type: 'string', nullable: true },
