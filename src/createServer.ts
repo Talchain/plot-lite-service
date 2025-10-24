@@ -1035,15 +1035,18 @@ export async function createServer(opts: ServerOpts = {}) {
       const validation = (err as any).validation || [];
       let errorMsg = 'Validation failed';
       let field = '';
+      let hint = '';
       
       if (Array.isArray(validation) && validation.length > 0) {
         const firstErr = validation[0];
         if (firstErr.params?.missingProperty) {
           field = firstErr.params.missingProperty;
           errorMsg = `Missing required field: ${field}`;
+          hint = `Include '${field}' in your request`;
         } else if (firstErr.params?.additionalProperty) {
           field = firstErr.params.additionalProperty;
           errorMsg = `Unknown field: ${field}`;
+          hint = `Remove '${field}' or check spelling`;
         } else if (firstErr.message) {
           errorMsg = firstErr.message;
         }
@@ -1054,6 +1057,8 @@ export async function createServer(opts: ServerOpts = {}) {
         type: 'BAD_INPUT', 
         statusCode: 400, 
         message: errorMsg,
+        hint: hint || 'Check request format',
+        fields: field ? { field } : undefined,
         devDetail: field || JSON.stringify(validation)
       });
     }

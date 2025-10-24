@@ -24,7 +24,11 @@ export function errorResponse(type: ErrorType, message: string, hint?: string, f
     message,
   };
   if (hint) envelope.hint = hint;
-  if (fields) envelope.fields = fields;
+  
+  // Spread additional fields at top level (e.g., field, path from validation)
+  if (fields) {
+    Object.assign(envelope, fields);
+  }
   
   // Legacy back-compat: also include top-level { error: { type, message } } for old tests
   envelope.error = { type, message };

@@ -39,6 +39,7 @@ describe('Contract Hardening (WP-P4)', () => {
         url: '/v1/run',
         headers: { 'Content-Type': 'application/json' },
         payload: {
+          graph: { nodes: [], edges: [] },
           graphX: { nodes: [], edges: [] },
           outcome_node: 'A',
         },

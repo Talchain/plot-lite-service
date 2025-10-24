@@ -1,0 +1,2 @@
+tests/error.taxonomy.test.ts
+tests/security/rate-limit.headers.test.ts

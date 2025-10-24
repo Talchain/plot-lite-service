@@ -1,6 +1,23 @@
 export function errorResponse(type, message, hint, fields) {
-    // Return message as top-level error for backward compat with tests
-    return { error: message };
+    // P1C-3C: Return error.v1 envelope with legacy back-compat shim
+    const envelope = {
+        schema: 'error.v1',
+        code: type,
+        message,
+    };
+    if (hint)
+        envelope.hint = hint;
+    // Spread additional fields at top level (e.g., field, path from validation)
+    if (fields) {
+        Object.assign(envelope, fields);
+    }
+    // Legacy back-compat: also include top-level { error: { type, message } } for old tests
+    envelope.error = { type, message };
+    if (hint)
+        envelope.error.hint = hint;
+    if (fields)
+        envelope.error.fields = fields;
+    return envelope;
 }
 export function errorTypeToStatus(type) {
     switch (type) {
