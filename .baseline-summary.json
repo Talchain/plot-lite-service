@@ -1,0 +1,21 @@
+{
+  "runs": 10,
+  "failures": [
+    5,
+    5,
+    5,
+    5,
+    7,
+    8,
+    8,
+    7,
+    6,
+    5
+  ],
+  "best": 5,
+  "worst": 8,
+  "mean": 6.1,
+  "std": 1.22,
+  "baseline": 9,
+  "variance": 3
+}
