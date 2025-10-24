@@ -1,0 +1,228 @@
+{
+  "confidence": {
+    "factors": {
+      "calibration": 0.5,
+      "identifiability": 1,
+      "k_coverage": 1,
+      "linearity_distance": 1
+    },
+    "level": "HIGH",
+    "reason": "Strong identifiability, 5 nodes well-connected, within linear range, k=1000",
+    "score": 0.93
+  },
+  "critique": [
+    {
+      "auto_fixable": false,
+      "message": "Model structure appears sound. No issues detected.",
+      "severity": "OBSERVATION"
+    }
+  ],
+  "explain_delta": {
+    "summary": "15.00 increase driven primarily by: Processing Step, Rejected, Initial Assessment",
+    "top_drivers": [
+      {
+        "contribution": 100,
+        "explanation": "Processing Step dampens the change and worked against the increase",
+        "node_id": "process",
+        "node_label": "Processing Step",
+        "sign": "-"
+      },
+      {
+        "contribution": 55,
+        "explanation": "Rejected amplifies the change and contributed positively to the increase",
+        "node_id": "rejected",
+        "node_label": "Rejected",
+        "sign": "+"
+      },
+      {
+        "contribution": 55,
+        "explanation": "Initial Assessment amplifies the change and contributed positively to the increase",
+        "node_id": "start",
+        "node_label": "Initial Assessment",
+        "sign": "+"
+      }
+    ]
+  },
+  "graph": {
+    "edges": [
+      {
+        "condition": "yes",
+        "from": "start",
+        "to": "process"
+      },
+      {
+        "condition": "no",
+        "from": "start",
+        "to": "rejected"
+      },
+      {
+        "condition": "approved",
+        "from": "process",
+        "to": "approved"
+      },
+      {
+        "condition": "rejected",
+        "from": "process",
+        "to": "rejected"
+      },
+      {
+        "condition": "review",
+        "from": "process",
+        "to": "review"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "start",
+        "label": "Initial Assessment",
+        "options": [
+          "yes",
+          "no"
+        ],
+        "question": "Is the request valid?",
+        "type": "decision"
+      },
+      {
+        "id": "process",
+        "label": "Processing Step",
+        "options": [
+          "approved",
+          "rejected",
+          "review"
+        ],
+        "question": "Can we process this?",
+        "type": "decision"
+      },
+      {
+        "id": "approved",
+        "label": "Approved",
+        "result": "success",
+        "type": "outcome"
+      },
+      {
+        "id": "rejected",
+        "label": "Rejected",
+        "result": "failure",
+        "type": "outcome"
+      },
+      {
+        "id": "review",
+        "label": "Needs Review",
+        "result": "pending",
+        "type": "outcome"
+      }
+    ]
+  },
+  "identifiability": {
+    "0": "I",
+    "1": "d",
+    "2": "e",
+    "3": "n",
+    "4": "t",
+    "5": "i",
+    "6": "f",
+    "7": "i",
+    "8": "a",
+    "9": "b",
+    "10": "l",
+    "11": "e",
+    "12": ":",
+    "13": " ",
+    "14": "Y",
+    "15": "e",
+    "16": "s",
+    "17": ".",
+    "18": " ",
+    "19": "N",
+    "20": "o",
+    "21": " ",
+    "22": "c",
+    "23": "o",
+    "24": "n",
+    "25": "f",
+    "26": "o",
+    "27": "u",
+    "28": "n",
+    "29": "d",
+    "30": "e",
+    "31": "r",
+    "32": "s",
+    "33": " ",
+    "34": "d",
+    "35": "e",
+    "36": "t",
+    "37": "e",
+    "38": "c",
+    "39": "t",
+    "40": "e",
+    "41": "d",
+    "42": " ",
+    "43": "-",
+    "44": " ",
+    "45": "d",
+    "46": "i",
+    "47": "r",
+    "48": "e",
+    "49": "c",
+    "50": "t",
+    "51": " ",
+    "52": "c",
+    "53": "a",
+    "54": "u",
+    "55": "s",
+    "56": "a",
+    "57": "l",
+    "58": " ",
+    "59": "e",
+    "60": "f",
+    "61": "f",
+    "62": "e",
+    "63": "c",
+    "64": "t",
+    "65": " ",
+    "66": "e",
+    "67": "s",
+    "68": "t",
+    "69": "i",
+    "70": "m",
+    "71": "a",
+    "72": "b",
+    "73": "l",
+    "74": "e",
+    "75": "."
+  },
+  "meta": {
+    "commit": "dev",
+    "seed": 42,
+    "version": "1.0.0"
+  },
+  "model_card": {
+    "assumptions_summary": [
+      "Linear response within ±20% of baseline",
+      "Independent observations",
+      "Identifiable: Yes. No confounders detected - direct causal effect estimable."
+    ],
+    "compute_budget": {
+      "downgraded": false,
+      "k_samples": 1000
+    },
+    "determinism_note": "Deterministic: Same seed (42) guarantees identical output",
+    "flags_on": [
+      "RATE_LIMIT_ENABLED",
+      "TEST_ROUTES"
+    ],
+    "seed": 42
+  },
+  "results": {
+    "conservative": {
+      "outcome": 105
+    },
+    "most_likely": {
+      "outcome": 114.99999999999999
+    },
+    "optimistic": {
+      "outcome": 125
+    }
+  },
+  "schema": "run.v1"
+}

@@ -1,6 +1,6 @@
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
-import { canonicalStringify } from '../lib/canonical-json.js';
+import { stableStringify } from '../lib/util/canonical-json.js';
 
 async function main() {
   const fixturesPath = resolve(process.cwd(), 'fixtures', 'deterministic-fixtures.json');

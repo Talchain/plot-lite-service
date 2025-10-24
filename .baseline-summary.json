@@ -1,7 +1,7 @@
 {
   "runs": 10,
   "failures": [
-    5,
+    7,
     5,
     5,
     5,
@@ -14,8 +14,8 @@
   ],
   "best": 5,
   "worst": 8,
-  "mean": 6.1,
-  "std": 1.22,
+  "mean": 6.3,
+  "std": 1.19,
   "baseline": 9,
   "variance": 3
 }

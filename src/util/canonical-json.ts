@@ -71,6 +71,14 @@ export function normaliseReport(report: unknown): unknown {
     normalised.meta = meta;
   }
   
+  // Remove volatile model_card fields (response_hash, bma_hash)
+  if (normalised.model_card && typeof normalised.model_card === 'object') {
+    const mc = { ...(normalised.model_card as Record<string, unknown>) };
+    delete mc.response_hash;
+    delete mc.bma_hash;
+    normalised.model_card = mc;
+  }
+  
   // Remove any debug/timing fields at root
   delete normalised.debug;
   delete normalised.timing;
