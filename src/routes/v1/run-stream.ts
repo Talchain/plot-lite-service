@@ -63,7 +63,6 @@ export async function registerRunStreamRoutes(app: FastifyInstance) {
   try { refreshFromEnv(); } catch {}
   const HEARTBEAT_MS = getSseHeartbeatMs();
   const FINALIZE_DELAY_MS = Number(process.env.SSE_FINALIZE_DELAY_MS || 0);
-  const SLOT_MAX_MS = Number(process.env.SSE_MAX_MS || SSE_SLOT_MAX_MS);
   // POST /v1/run/stream — SSE run progress
   app.post('/v1/run/stream', async (req: FastifyRequest, reply: FastifyReply) => {
     const ip = getIp(req);
@@ -127,7 +126,6 @@ export async function registerRunStreamRoutes(app: FastifyInstance) {
       await writeSse(reply, 1, 'HEARTBEAT', { run_id, ts: new Date().toISOString() });
     }, hbMs);
     try { (state.hb as any).unref?.(); } catch {}
-    try { setTimeout(async () => { if (!closed && !state.cancelled) { await writeSse(reply, 1, 'HEARTBEAT', { run_id, ts: new Date().toISOString() }); } }, hbMs); } catch {}
     try { setTimeout(async () => { if (!closed && !state.cancelled) { await writeSse(reply, 1, 'HEARTBEAT', { run_id, ts: new Date().toISOString() }); } }, Math.max(200, Math.floor(hbMs*2))); } catch {}
 
     const body = (req as any).body || {};
@@ -135,6 +133,7 @@ export async function registerRunStreamRoutes(app: FastifyInstance) {
     // Setup controller and slot timeout (TIMEOUT error on expiry)
     const controller = new AbortController();
     state.controller = controller;
+    const slotMaxMs = Number(process.env.SSE_MAX_MS || 120000);
     const timeout = setTimeout(async () => {
       if (closed) return;
       try { controller.abort(new Error('timeout')); } catch {}
@@ -145,7 +144,7 @@ export async function registerRunStreamRoutes(app: FastifyInstance) {
       try { endSse(reply); } catch {}
       clearTimers(state); runs.delete(run_id); release(ip);
       try { incSseClosed(); } catch {}
-    }, SLOT_MAX_MS);
+    }, slotMaxMs);
     try { (timeout as any).unref?.(); } catch {}
 
     // Emit progress from executeRun onProgress (throttle ~5Hz, cap at 90)
