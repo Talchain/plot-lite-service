@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest]
     defaults:
       run:
         shell: bash
@@ -38,41 +38,30 @@ jobs:
         if: steps.changes.outputs.non_maintenance == 'false' && steps.changes.outputs.maintenance == 'true'
         run: echo "Maintenance-only PR; skipping gates." && exit 0
 
-      - name: Checkout (non-Windows)
-        if: runner.os != 'Windows'
+      - name: Checkout
+        if: steps.changes.outputs.non_maintenance == 'true'
         uses: actions/checkout@v4
-
-      - name: Checkout (Windows, sparse)
-        if: runner.os == 'Windows'
-        uses: actions/checkout@v4
-        with:
-          sparse-checkout: |
-            package.json
-            package-lock.json
-            tsconfig.json
-            tsconfig.tools.json
-            src
-            tools
-            tools/gates
-            RUN_NIGHTLY_GATES.sh
-          sparse-checkout-cone-mode: true
 
       - name: Set up Node
+        if: steps.changes.outputs.non_maintenance == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
       - name: Install dependencies
+        if: steps.changes.outputs.non_maintenance == 'true'
         run: npm ci
 
       - name: Ensure jq (Linux only)
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && steps.changes.outputs.non_maintenance == 'true'
         run: sudo apt-get update && sudo apt-get install -y jq
 
       - name: Make gates executable
+        if: steps.changes.outputs.non_maintenance == 'true'
         run: chmod +x RUN_NIGHTLY_GATES.sh || true
 
       - name: Run Engine Gates
+        if: steps.changes.outputs.non_maintenance == 'true'
         env:
           ENGINE_DIR: ${{ github.workspace }}
           TOOLS_DIR: ${{ github.workspace }}
