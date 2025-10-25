@@ -1,28 +1,67 @@
 name: Engine Gates
-on: [push, pull_request]
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
 
 jobs:
   gates:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+
+      # Consistent runtime for scripts
+      - name: Set up Node
+        uses: actions/setup-node@v4
         with:
-          node-version: '20.19.5'
-      - run: pnpm install --frozen-lockfile
-      - name: Run gates (pinned)
-        env:
-          CONTRACTS_DIR: ${{ github.workspace }}/olumi-contracts
-          TOOLS_DIR: ${{ github.workspace }}/olumi-tools
-        run: |
-          bash RUN_NIGHTLY_GATES.sh
-      - uses: actions/upload-artifact@v4
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v2
         with:
-          name: gates-artifacts
-          path: |
-            out/slos.json
-            out/engine_pack_*.zip
-            out/trust-bundle.json
-            reports/schema-compat/schema-diff.md
-            out/privacy/report.json
-            GATES_AND_TESTS_STATUS.md
+          version: 8
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # jq used only on Linux; skip elsewhere
+      - name: Ensure jq (Linux only)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      # Detect if PR is maintenance-only (ignore heavy gates for these)
+      - uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            non_maintenance:
+              - 'src/**'
+              - 'tests/**'
+              - 'tools/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - '.github/workflows/**'
+            maintenance:
+              - '.gitignore'
+              - '.ci-run*.txt'
+              - '.baseline-summary*.json'
+
+      - name: Short-circuit for maintenance-only PRs
+        if: steps.changes.outputs.non_maintenance == 'false' && steps.changes.outputs.maintenance == 'true'
+        run: echo "Maintenance-only PR; skipping gates." && exit 0
+
+      - name: Make gates executable
+        run: chmod +x RUN_NIGHTLY_GATES.sh || true
+
+      - name: Run Engine Gates
+        run: bash -eo pipefail RUN_NIGHTLY_GATES.sh
