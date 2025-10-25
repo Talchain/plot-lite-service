@@ -19,6 +19,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Install pnpm first so setup-node cache=pnpm can detect it
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
       # Consistent runtime for scripts
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -26,13 +32,13 @@ jobs:
           node-version: '20'
           cache: 'pnpm'
 
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 8
-
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: |
+          if [ -f pnpm-lock.yaml ]; then
+            pnpm install --frozen-lockfile
+          else
+            npm ci
+          fi
 
       # jq used only on Linux; skip elsewhere
       - name: Ensure jq (Linux only)
@@ -64,4 +70,8 @@ jobs:
         run: chmod +x RUN_NIGHTLY_GATES.sh || true
 
       - name: Run Engine Gates
+        env:
+          ENGINE_DIR: ${{ github.workspace }}
+          TOOLS_DIR: ${{ github.workspace }}
+          CONTRACTS_DIR: ${{ github.workspace }}
         run: bash -eo pipefail RUN_NIGHTLY_GATES.sh
