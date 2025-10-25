@@ -18,7 +18,8 @@ describe('PR-3: Principal Extraction Integration', () => {
     };
     
     process.env.RL_CB_ENABLE = '1';
-    process.env.PRINCIPAL_HMAC_SECRET = 'test-secret-for-integration';
+    // Use 64-char hex secret (32 bytes) to satisfy production guard
+    process.env.PRINCIPAL_HMAC_SECRET = 'a'.repeat(64);
     process.env.TRUST_PROXY = '0';
     
     app = await createServer({ enableTestRoutes: false });

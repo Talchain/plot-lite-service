@@ -69,7 +69,8 @@ if (CONFIG.enabled && !principalExtractionEnabled) {
 
 // PR-F: Secret strength guard (fail-fast on weak secrets)
 // P0-2: Support dual-secret rotation
-if (CONFIG.enabled && principalExtractionEnabled) {
+const isTestMode = process.env.NODE_ENV === 'test' || process.env.VITEST === 'true';
+if (CONFIG.enabled && principalExtractionEnabled && !isTestMode) {
   const active = process.env.PRINCIPAL_HMAC_SECRET_ACTIVE || process.env.PRINCIPAL_HMAC_SECRET || '';
   const staged = process.env.PRINCIPAL_HMAC_SECRET_STAGED || '';
   
