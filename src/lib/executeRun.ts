@@ -24,7 +24,11 @@ export interface ExecuteRunOptions {
   onInterim?: (partial: any) => void;
 }
 
-async function yieldTick(){ await Promise.resolve(); }
+async function yieldTick(){
+  await new Promise<void>((resolve) => {
+    try { setTimeout(resolve, 0); } catch { resolve(); }
+  });
+}
 
 export async function executeRun(input: ExecuteRunInput, opts: ExecuteRunOptions = {}) {
   const start = performance.now();

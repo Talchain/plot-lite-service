@@ -19,6 +19,7 @@ interface RunState {
   reply?: FastifyReply | null;
   ip?: string;
   cancelNotified?: boolean;
+  timedOut?: boolean;
 }
 
 const runs = new Map<string, RunState>();
@@ -61,11 +62,17 @@ function release(ip: string) {
 
 export async function registerRunStreamRoutes(app: FastifyInstance) {
   try { refreshFromEnv(); } catch {}
-  const HEARTBEAT_MS = getSseHeartbeatMs();
-  const FINALIZE_DELAY_MS = Number(process.env.SSE_FINALIZE_DELAY_MS || 0);
+
+  // Capture config at route registration time (per-server-instance isolation)
+  const slotMaxMs = Number(process.env.SSE_MAX_MS || SSE_SLOT_MAX_MS);
+  const hbMs = Math.max(100, getSseHeartbeatMs() || 8000);
+  const finalizeMs = Number(process.env.SSE_FINALIZE_DELAY_MS || 0);
+
   // POST /v1/run/stream — SSE run progress
   app.post('/v1/run/stream', async (req: FastifyRequest, reply: FastifyReply) => {
     const ip = getIp(req);
+
+
     // sse_opened: increment when a new run stream is accepted
     try { incSseOpen(); } catch {}
     const acq = tryAcquire(ip);
@@ -86,7 +93,7 @@ export async function registerRunStreamRoutes(app: FastifyInstance) {
     }
 
     const run_id = 'run_' + randomUUID().replace(/-/g, '').slice(0, 16);
-    const state: RunState = { id: run_id, startedAt: Date.now(), lastEmit: 0, pct: 0, controller: null, reply, ip, cancelNotified: false };
+    const state: RunState = { id: run_id, startedAt: Date.now(), lastEmit: 0, pct: 0, controller: null, reply, ip, cancelNotified: false, timedOut: false };
     runs.set(run_id, state);
 
     // SSE headers
@@ -110,7 +117,11 @@ export async function registerRunStreamRoutes(app: FastifyInstance) {
     } catch {}
 
     // Emit RUN_STARTED immediately
-    await writeSse(reply, 0, 'RUN_STARTED', { run_id, queued_at: new Date(state.startedAt).toISOString(), started_at: new Date().toISOString() });
+    await writeSse(reply, 0, 'RUN_STARTED', {
+      run_id,
+      queued_at: new Date(state.startedAt).toISOString(),
+      started_at: new Date().toISOString()
+    });
     // Emit immediate heartbeat
     try { await writeSse(reply, 1, 'HEARTBEAT', { run_id, ts: new Date().toISOString() }); } catch {}
 
@@ -120,12 +131,10 @@ export async function registerRunStreamRoutes(app: FastifyInstance) {
     (req.raw as any).on('error', () => { try { incStreamDisconnect(); } catch {} onClose(); });
 
     // Heartbeat with configurable interval
-    const hbMs = Math.max(100, HEARTBEAT_MS || 8000);
     state.hb = setInterval(async () => {
       if (closed || state.cancelled) return;
       await writeSse(reply, 1, 'HEARTBEAT', { run_id, ts: new Date().toISOString() });
     }, hbMs);
-    try { (state.hb as any).unref?.(); } catch {}
     try { setTimeout(async () => { if (!closed && !state.cancelled) { await writeSse(reply, 1, 'HEARTBEAT', { run_id, ts: new Date().toISOString() }); } }, Math.max(200, Math.floor(hbMs*2))); } catch {}
 
     const body = (req as any).body || {};
@@ -133,19 +142,17 @@ export async function registerRunStreamRoutes(app: FastifyInstance) {
     // Setup controller and slot timeout (TIMEOUT error on expiry)
     const controller = new AbortController();
     state.controller = controller;
-    const slotMaxMs = Number(process.env.SSE_MAX_MS || 120000);
     const timeout = setTimeout(async () => {
       if (closed) return;
+      state.timedOut = true;
       try { controller.abort(new Error('timeout')); } catch {}
       try { await writeSse(reply, 7, 'ERROR', { run_id, code: 'TIMEOUT', message: 'Run timed out' }); } catch {}
       try { incSseTimeout(); } catch {}
       closed = true;
-      try { await smallDelay(150); } catch {}
       try { endSse(reply); } catch {}
       clearTimers(state); runs.delete(run_id); release(ip);
       try { incSseClosed(); } catch {}
     }, slotMaxMs);
-    try { (timeout as any).unref?.(); } catch {}
 
     // Emit progress from executeRun onProgress (throttle ~5Hz, cap at 90)
     let lastProgAt = 0;
@@ -180,21 +187,23 @@ export async function registerRunStreamRoutes(app: FastifyInstance) {
         },
       });
 
+      if (closed || state.cancelled || state.timedOut) { return reply; }
+
       // Finalize
-      const finalizeDelayMs = Math.max(0, Number(FINALIZE_DELAY_MS || 0));
-      if (finalizeDelayMs > 0) {
+      const finalizeDelayMs_ = Math.max(0, Number(finalizeMs || 0))
+      if (finalizeDelayMs_ > 0) {
         const t0 = Date.now();
         let lastHb = Date.now();
-        while (Date.now() - t0 < finalizeDelayMs) {
-          if ((controller as any).signal?.aborted) {
+        while (Date.now() - t0 < finalizeDelayMs_) {
+          if ((controller as any).signal?.aborted || state.timedOut) {
             const r: any = (controller as any).signal?.reason;
-            if (r && ((typeof r === 'string' && r === 'timeout') || (typeof r === 'object' && (r as any)?.message === 'timeout'))) {
-              throw (r instanceof Error ? r : new Error('timeout'));
+            if (state.timedOut || (r && ((typeof r === 'string' && r === 'timeout') || (typeof r === 'object' && (r as any)?.message === 'timeout')))) {
+              throw new Error('timeout');
             }
             const e: any = new Error('cancelled'); e.code = 'CANCELLED'; throw e;
           }
           const now = Date.now();
-          if (now - lastHb >= Math.max(100, HEARTBEAT_MS || 8000)) {
+          if (now - lastHb >= hbMs) {
             try { await writeSse(reply, 1, 'HEARTBEAT', { run_id, ts: new Date().toISOString() }); } catch {}
             lastHb = now;
           }
@@ -223,7 +232,7 @@ export async function registerRunStreamRoutes(app: FastifyInstance) {
       release(ip);
       return reply;
     } catch (err: any) {
-      const code = err?.code === 'CANCELLED' || state.cancelled ? 'CANCELLED' : (err?.message === 'timeout' ? 'TIMEOUT' : 'INTERNAL');
+      const code = err?.code === 'CANCELLED' || state.cancelled ? 'CANCELLED' : ((err?.message === 'timeout' || state.timedOut) ? 'TIMEOUT' : 'INTERNAL');
       if (!state.cancelNotified) { await writeSse(reply, 7, 'ERROR', { run_id, code, message: code === 'CANCELLED' ? 'Run cancelled' : (code === 'TIMEOUT' ? 'Run timed out' : String(err?.message || 'internal error')) }); }
       try { incSseClosed(); } catch {}
       // sse_closed: increment on normal completion || error close
