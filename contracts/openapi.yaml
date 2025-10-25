@@ -704,6 +704,95 @@ paths:
                     code: FORBIDDEN
                     message: Invalid token
 
+  /v1/run/stream:
+    post:
+      summary: Stream run progress (SSE)
+      operationId: runStreamV1
+      tags: [v1, stream, inference]
+      description: |
+        Streams live run progress and interim findings as Server-Sent Events.
+        Events: RUN_STARTED, PROGRESS, INTERIM_FINDINGS, HEARTBEAT, COMPLETE, ERROR.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/runRequest'
+      responses:
+        "200":
+          description: Server-Sent Events stream
+          headers:
+            Content-Type:
+              description: SSE content type with charset
+              schema: { type: string, example: 'text/event-stream; charset=utf-8' }
+          content:
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/sseRunEvent'
+          x-examples:
+            sse:
+              description: Example frames
+              value: |-
+                event: RUN_STARTED
+                data: {"run_id":"run_123","started_at":"2025-01-01T00:00:00.000Z"}
+
+                event: PROGRESS
+                data: {"run_id":"run_123","pct":10,"stage":"initializing"}
+
+                event: HEARTBEAT
+                data: {"run_id":"run_123","ts":"2025-01-01T00:00:01.000Z"}
+
+                event: INTERIM_FINDINGS
+                data: {"run_id":"run_123","top_signals":[],"partial_confidence":0.6}
+
+                event: COMPLETE
+                data: {"run_id":"run_123","report":{"schema":"run.v1"}}
+        "429":
+          description: Too many concurrent streams
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying
+              schema:
+                oneOf:
+                  - { type: integer, minimum: 0 }
+                  - { type: string }
+            X-RateLimit-Reason:
+              description: Reason for rate limit decision
+              schema: { type: string, enum: [per_ip, global] }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/errorV1"
+              examples:
+                rate_limited:
+                  value:
+                    schema: error.v1
+                    code: RATE_LIMITED
+                    message: Too many streams
+
+  /v1/run/{run_id}/cancel:
+    post:
+      summary: Cancel in-flight run
+      operationId: runCancelV1
+      tags: [v1, stream, inference]
+      parameters:
+        - in: path
+          name: run_id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK (idempotent)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/runCancelResponse'
+              examples:
+                cancelled:
+                  value: { ok: true, run_id: 'run_123', state: 'cancelled' }
+                done:
+                  value: { ok: true, run_id: 'run_123', state: 'done' }
+
 components:
   schemas:
     # v1 error envelope (runtime validation and BAD_INPUT taxonomy)
@@ -753,6 +842,29 @@ components:
             - type: string
             - type: object
               additionalProperties: true
+    sseRunEvent:
+      type: object
+      required: [event]
+      properties:
+        event:
+          type: string
+          enum: [RUN_STARTED, PROGRESS, INTERIM_FINDINGS, HEARTBEAT, COMPLETE, ERROR]
+        id:
+          type: string
+        data:
+          oneOf:
+            - type: string
+            - type: object
+              additionalProperties: true
+
+    runCancelResponse:
+      type: object
+      required: [ok, run_id, state]
+      properties:
+        ok: { type: boolean }
+        run_id: { type: string }
+        state: { type: string, enum: [cancelled, done] }
+
     reportV1:
       type: object
       required: [schema, meta]

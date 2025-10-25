@@ -211,3 +211,11 @@ export function incSseTimeout() { sseTimeout++; }
 export function getSseOpen() { return sseOpen; }
 export function getSseClosed() { return sseClosed; }
 export function getSseTimeout() { return sseTimeout; }
+
+// --- SSE cancel/progress counters (P1) ---
+let sseCancelled = 0;
+let sseProgressEvents = 0;
+export function incSseCancelled() { sseCancelled++; }
+export function incSseProgress() { sseProgressEvents++; }
+export function getSseCancelled() { return sseCancelled; }
+export function getSseProgressEvents() { return sseProgressEvents; }
