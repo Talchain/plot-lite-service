@@ -17,6 +17,27 @@ jobs:
       run:
         shell: bash
     steps:
+      # Detect if PR is maintenance-only (skip heavy gates on these)
+      - uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            non_maintenance:
+              - 'src/**'
+              - 'tests/**'
+              - 'tools/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+            maintenance:
+              - '.gitignore'
+              - '.github/workflows/**'
+              - '.ci-run*.txt'
+              - '.baseline-summary*.json'
+
+      - name: Short-circuit for maintenance-only PRs
+        if: steps.changes.outputs.non_maintenance == 'false' && steps.changes.outputs.maintenance == 'true'
+        run: echo "Maintenance-only PR; skipping gates." && exit 0
+
       - name: Checkout (non-Windows)
         if: runner.os != 'Windows'
         uses: actions/checkout@v4
@@ -47,26 +68,6 @@ jobs:
       - name: Ensure jq (Linux only)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y jq
-
-      - uses: dorny/paths-filter@v3
-        id: changes
-        with:
-          filters: |
-            non_maintenance:
-              - 'src/**'
-              - 'tests/**'
-              - 'tools/**'
-              - 'package.json'
-              - 'pnpm-lock.yaml'
-              - '.github/workflows/**'
-            maintenance:
-              - '.gitignore'
-              - '.ci-run*.txt'
-              - '.baseline-summary*.json'
-
-      - name: Short-circuit for maintenance-only PRs
-        if: steps.changes.outputs.non_maintenance == 'false' && steps.changes.outputs.maintenance == 'true'
-        run: echo "Maintenance-only PR; skipping gates." && exit 0
 
       - name: Make gates executable
         run: chmod +x RUN_NIGHTLY_GATES.sh || true
