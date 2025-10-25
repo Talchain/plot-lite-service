@@ -17,7 +17,25 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout (non-Windows)
+        if: runner.os != 'Windows'
+        uses: actions/checkout@v4
+
+      - name: Checkout (Windows, sparse)
+        if: runner.os == 'Windows'
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            package.json
+            package-lock.json
+            tsconfig.json
+            tsconfig.tools.json
+            src
+            src/**
+            tools/gates
+            tools/gates/**
+            RUN_NIGHTLY_GATES.sh
+          sparse-checkout-cone: true
 
       - name: Set up Node
         uses: actions/setup-node@v4
