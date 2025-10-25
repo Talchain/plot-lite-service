@@ -31,11 +31,10 @@ jobs:
             tsconfig.json
             tsconfig.tools.json
             src
-            src/**
+            tools
             tools/gates
-            tools/gates/**
             RUN_NIGHTLY_GATES.sh
-          sparse-checkout-cone: true
+          sparse-checkout-cone-mode: true
 
       - name: Set up Node
         uses: actions/setup-node@v4
