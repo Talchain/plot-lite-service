@@ -1,0 +1,36 @@
+{
+  "schema": "run.v1",
+  "meta": { "seed": 9999 },
+  "graph": {
+    "nodes": [
+      { "id": "X", "label": "Baseline Near Zero" },
+      { "id": "Y", "label": "Output" }
+    ],
+    "edges": [
+      { "from": "X", "to": "Y" }
+    ]
+  },
+  "results": {
+    "conservative": { "outcome": 0.0 },
+    "most_likely": { "outcome": 0.01 },
+    "optimistic":  { "outcome": 0.02 }
+  },
+  "confidence": {
+    "level": "LOW",
+    "reason": "Edge case near zero baseline",
+    "score": 0.35,
+    "factors": { "identifiability": 0.5, "linearity_distance": 0.4, "k_coverage": 0.3, "calibration": 0.2 }
+  },
+  "explain_delta": {
+    "top_drivers": [
+      { "node_id": "X", "node_label": "Baseline Near Zero", "contribution": 0.05, "sign": "+", "explanation": "Small positive effect near zero baseline." },
+      { "node_id": "Y", "node_label": "Output",              "contribution": 0.01, "sign": "+", "explanation": "Minor propagated impact." }
+    ],
+    "summary": "Near-zero baseline produces small positive contributions."
+  },
+  "model_card": {
+    "seed": 9999,
+    "assumptions_summary": ["Linear approximation holds near zero", "No hidden confounders"],
+    "response_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  }
+}

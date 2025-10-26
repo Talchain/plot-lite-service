@@ -84,10 +84,10 @@ export async function rateLimit(req: FastifyRequest, reply: FastifyReply) {
   // Exempt /v1/stream - it has its own slot-based rate limiting
   if (req.method === 'GET' && url.startsWith('/v1/stream')) {
     return;
+  }
   // Exempt /v1/run/stream - SSE has slot-based limiter
   if (req.method === 'POST' && url.startsWith('/v1/run/stream')) {
     return;
-  }
   }
 
   // Normalize IPv6/loopback variants for stable bucketing

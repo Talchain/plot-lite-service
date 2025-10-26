@@ -64,7 +64,7 @@ export async function registerRunStreamRoutes(app: FastifyInstance) {
   try { refreshFromEnv(); } catch {}
 
   // Capture config at route registration time (per-server-instance isolation)
-  const slotMaxMs = Number(process.env.SSE_MAX_MS || SSE_SLOT_MAX_MS);
+  const slotMaxMs = Number(process.env.SSE_SLOT_MAX_MS || process.env.SSE_MAX_MS || SSE_SLOT_MAX_MS);
   const hbMs = Math.max(100, getSseHeartbeatMs() || 8000);
   const finalizeMs = Number(process.env.SSE_FINALIZE_DELAY_MS || 0);
 

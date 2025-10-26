@@ -1,0 +1,38 @@
+{
+  "schema": "run.v1",
+  "meta": { "seed": 4242 },
+  "graph": {
+    "nodes": [
+      { "id": "A", "label": "Price" },
+      { "id": "B", "label": "Demand" },
+      { "id": "C", "label": "Revenue" }
+    ],
+    "edges": [
+      { "from": "A", "to": "B" },
+      { "from": "B", "to": "C" }
+    ]
+  },
+  "results": {
+    "conservative": { "outcome": 100.0 },
+    "most_likely": { "outcome": 115.0 },
+    "optimistic":  { "outcome": 125.0 }
+  },
+  "confidence": {
+    "level": "MEDIUM",
+    "reason": "Deterministic sample",
+    "score": 0.62,
+    "factors": { "identifiability": 1.0, "linearity_distance": 1.0, "k_coverage": 0.5, "calibration": 0.7 }
+  },
+  "explain_delta": {
+    "top_drivers": [
+      { "node_id": "B", "node_label": "Demand", "contribution": 0.42, "sign": "+", "explanation": "Demand increases drive revenue." },
+      { "node_id": "A", "node_label": "Price",  "contribution": -0.18, "sign": "-", "explanation": "Higher price reduces demand." }
+    ],
+    "summary": "Revenue is primarily driven by Demand; Price negatively affects Demand."
+  },
+  "model_card": {
+    "seed": 4242,
+    "assumptions_summary": ["Linear relationships assumed", "No unobserved confounders"],
+    "response_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  }
+}

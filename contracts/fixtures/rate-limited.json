@@ -1,0 +1,6 @@
+{
+  "schema": "error.v1",
+  "code": "RATE_LIMITED",
+  "message": "Too many streams",
+  "details": { "reason": "per_ip" }
+}

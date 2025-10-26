@@ -712,6 +712,11 @@ paths:
       description: |
         Streams live run progress and interim findings as Server-Sent Events.
         Events: RUN_STARTED, PROGRESS, INTERIM_FINDINGS, HEARTBEAT, COMPLETE, ERROR.
+
+        Client Tips:
+        - Heartbeat cadence is controlled by SSE_HEARTBEAT_MS (server-side). Expect periodic HEARTBEAT events until close.
+        - Progress stays ≤90% until COMPLETE is emitted; final PROGRESS (100%) precedes COMPLETE.
+        - Cancel with POST /v1/run/{run_id}/cancel; the stream will emit ERROR{CANCELLED} and close.
       requestBody:
         required: true
         content:
@@ -747,6 +752,9 @@ paths:
 
                 event: COMPLETE
                 data: {"run_id":"run_123","report":{"schema":"run.v1"}}
+
+                event: ERROR
+                data: {"run_id":"run_123","code":"CANCELLED","message":"Run cancelled"}
         "429":
           description: Too many concurrent streams
           headers:
@@ -911,7 +919,7 @@ components:
     
     modelCard:
       type: object
-      required: [seed, assumptions_summary, compute_budget, flags_on, determinism_note, response_hash]
+      required: [seed, assumptions_summary, response_hash]
       properties:
         seed: { type: integer }
         assumptions_summary:

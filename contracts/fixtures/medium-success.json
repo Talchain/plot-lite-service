@@ -1,0 +1,40 @@
+{
+  "schema": "run.v1",
+  "meta": { "seed": 7777 },
+  "graph": {
+    "nodes": [
+      { "id": "Price", "label": "Price" },
+      { "id": "Demand", "label": "Demand" },
+      { "id": "Revenue", "label": "Revenue" },
+      { "id": "Marketing", "label": "Marketing" }
+    ],
+    "edges": [
+      { "from": "Price", "to": "Demand" },
+      { "from": "Demand", "to": "Revenue" },
+      { "from": "Marketing", "to": "Demand" }
+    ]
+  },
+  "results": {
+    "conservative": { "outcome": 98.0 },
+    "most_likely": { "outcome": 116.5 },
+    "optimistic":  { "outcome": 132.0 }
+  },
+  "confidence": {
+    "level": "HIGH",
+    "reason": "Stable structure with strong signals",
+    "score": 0.85,
+    "factors": { "identifiability": 1.0, "linearity_distance": 1.0, "k_coverage": 0.8, "calibration": 0.9 }
+  },
+  "explain_delta": {
+    "top_drivers": [
+      { "node_id": "Marketing", "node_label": "Marketing", "contribution": 0.30, "sign": "+", "explanation": "Marketing boosts demand leading to revenue growth." },
+      { "node_id": "Demand", "node_label": "Demand",     "contribution": 0.25, "sign": "+", "explanation": "Demand is a key driver for revenue." }
+    ],
+    "summary": "Demand and Marketing are the primary positive drivers of Revenue."
+  },
+  "model_card": {
+    "seed": 7777,
+    "assumptions_summary": ["Stable linear relations", "No hidden confounders"],
+    "response_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  }
+}

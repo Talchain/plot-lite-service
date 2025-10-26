@@ -1,0 +1,6 @@
+{
+  "schema": "error.v1",
+  "code": "BAD_INPUT",
+  "message": "Missing required field: graph",
+  "details": { "hint": "Provide a graph with nodes and edges" }
+}
