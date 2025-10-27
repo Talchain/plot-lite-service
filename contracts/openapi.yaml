@@ -156,6 +156,55 @@ paths:
                     schema: error.v1
                     code: FORBIDDEN
                     message: Invalid token
+
+  /v1/templates:
+    get:
+      summary: List available templates
+      operationId: templatesList
+      tags: [v1, ergonomics]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/templateList'
+              examples:
+                example:
+                  value:
+                    - { id: small, label: Small Demo, summary: Minimal A→B graph, updated_at: '2025-01-01T00:00:00.000Z' }
+                    - { id: medium, label: Medium Demo, summary: Price→Demand→Revenue (+Marketing), updated_at: '2025-01-01T00:00:00.000Z' }
+                    - { id: edge, label: Edge Case, summary: Near-zero baseline, updated_at: '2025-01-01T00:00:00.000Z' }
+
+  /v1/templates/{id}/graph:
+    get:
+      summary: Get canonical graph for a template
+      operationId: templateGraph
+      tags: [v1, ergonomics]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, enum: [small, medium, edge] }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/graph'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                not_found:
+                  value:
+                    schema: error.v1
+                    code: NOT_FOUND
+                    message: Template 'unknown' not found
   
   /v1/stream:
     get:
@@ -704,6 +753,8 @@ paths:
                     code: FORBIDDEN
                     message: Invalid token
 
+  
+
 components:
   schemas:
     # v1 error envelope (runtime validation and BAD_INPUT taxonomy)
@@ -770,6 +821,20 @@ components:
     # /v1 SCHEMAS
     # ========================================
     
+    templateItem:
+      type: object
+      required: [id, label, summary, updated_at]
+      properties:
+        id: { type: string }
+        label: { type: string }
+        summary: { type: string }
+        updated_at: { type: string, format: date-time }
+
+    templateList:
+      type: array
+      items:
+        $ref: '#/components/schemas/templateItem'
+
     graph:
       type: object
       required: [nodes, edges]
