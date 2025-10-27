@@ -314,4 +314,14 @@ export async function registerRunRoute(app: FastifyInstance) {
     
     return base;
   });
+
+  // Capability probe: HEAD /v1/run returns 405 with Allow header
+  try {
+    app.head('/v1/run', async (_req: FastifyRequest, reply: FastifyReply) => {
+      try { reply.header('Allow', 'POST, OPTIONS, HEAD'); } catch {}
+      return reply.code(405).send();
+    });
+  } catch (err: any) {
+    if (err?.code !== 'FST_ERR_DUPLICATED_ROUTE') throw err;
+  }
 }
