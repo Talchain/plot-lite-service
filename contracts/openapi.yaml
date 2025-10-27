@@ -156,7 +156,17 @@ paths:
                     schema: error.v1
                     code: FORBIDDEN
                     message: Invalid token
-  
+    head:
+      summary: Capability probe (method not allowed)
+      operationId: runHeadV1
+      tags: [v1, inference]
+      responses:
+        '405':
+          description: Method Not Allowed
+          headers:
+            Allow:
+              schema: { type: string, example: 'POST, OPTIONS, HEAD' }
+
   /v1/stream:
     get:
       summary: Stream first tokens
@@ -233,6 +243,7 @@ paths:
                     schema: error.v1
                     code: RATE_LIMITED
                     message: Too many streams
+                    retry_after_s: 120
   /v1/health:
     get:
       summary: v1 Health endpoint
@@ -309,6 +320,28 @@ paths:
                       confidence_badge: { type: boolean }
                       explain_delta: { type: boolean }
                       cost_governance: { type: boolean }
+  
+  /v1/openapi.json:
+    get:
+      summary: OpenAPI specification (read-only)
+      operationId: openapiServeV1
+      tags: [v1, meta]
+      responses:
+        '200':
+          description: OK
+          headers:
+            Cache-Control: { schema: { type: string, example: 'public, max-age=300' } }
+            ETag: { schema: { type: string } }
+            Vary: { schema: { type: string, example: 'If-None-Match' } }
+          content:
+            application/json:
+              schema:
+                type: object
+              example:
+                openapi: '3.0.3'
+                info: { title: 'PLoT Engine API', version: '1.0.0' }
+        '304':
+          description: Not Modified
         '401':
           description: Unauthorized
           content:
@@ -704,6 +737,8 @@ paths:
                     code: FORBIDDEN
                     message: Invalid token
 
+  
+
 components:
   schemas:
     # v1 error envelope (runtime validation and BAD_INPUT taxonomy)
@@ -769,7 +804,7 @@ components:
     # ========================================
     # /v1 SCHEMAS
     # ========================================
-    
+
     graph:
       type: object
       required: [nodes, edges]
