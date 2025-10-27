@@ -163,62 +163,6 @@ export async function createServer(opts: ServerOpts = {}) {
     });
   }
 
-  // Always-on OpenAPI route for v1 (prod-safe, read-only)
-  try {
-    app.get('/v1/openapi.json', async (req: any, reply) => {
-      try {
-        const override = String(process.env.OPENAPI_SPEC_PATH || '').trim();
-        if (override) {
-          const abs = resolve(process.cwd(), override);
-          let buf: Buffer;
-          if (abs.endsWith('.json')) {
-            buf = await fsp.readFile(abs);
-          } else {
-            const yaml = await import('yaml');
-            const ytxt = await fsp.readFile(abs, 'utf8');
-            const obj = yaml.parse(ytxt);
-            buf = Buffer.from(JSON.stringify(obj, null, 2) + '\n', 'utf8');
-          }
-          const etag = '"' + createHash('sha256').update(buf).digest('hex') + '"';
-          const inm = String(req.headers['if-none-match'] || '');
-          reply.header('Content-Type', 'application/json; charset=utf-8');
-          reply.header('Cache-Control', 'public, max-age=300');
-          reply.header('Vary', 'If-None-Match');
-          reply.header('ETag', etag);
-          if (inm && inm === etag) return reply.code(304).send();
-          return reply.code(200).send(buf);
-        }
-        const openapiJsonPath = resolve(process.cwd(), 'artifact', 'openapi.json');
-        if (existsSync(openapiJsonPath)) {
-          const buf = await fsp.readFile(openapiJsonPath);
-          const etag = '"' + createHash('sha256').update(buf).digest('hex') + '"';
-          const inm = String(req.headers['if-none-match'] || '');
-          reply.header('Content-Type', 'application/json; charset=utf-8');
-          reply.header('Cache-Control', 'public, max-age=300');
-          reply.header('Vary', 'If-None-Match');
-          reply.header('ETag', etag);
-          if (inm && inm === etag) return reply.code(304).send();
-          return reply.code(200).send(buf);
-        }
-        const yaml = await import('yaml');
-        const specPath = resolve(process.cwd(), 'contracts', 'openapi.yaml');
-        const ytxt = await fsp.readFile(specPath, 'utf8');
-        const obj = yaml.parse(ytxt);
-        const json = Buffer.from(JSON.stringify(obj, null, 2) + '\n', 'utf8');
-        const etag = '"' + createHash('sha256').update(json).digest('hex') + '"';
-        const inm = String(req.headers['if-none-match'] || '');
-        reply.header('Content-Type', 'application/json; charset=utf-8');
-        reply.header('Cache-Control', 'public, max-age=300');
-        reply.header('Vary', 'If-None-Match');
-        reply.header('ETag', etag);
-        if (inm && inm === etag) return reply.code(304).send();
-        return reply.code(200).send(json);
-      } catch (e) {
-        return reply.code(500).send({ schema: 'error.v1', code: 'INTERNAL', message: 'OpenAPI serving error' });
-      }
-    });
-  } catch {}
-
   await app.register(helmet, {
     global: true,
     // Do not set JSON-only headers globally; our securityHeadersOnSend handles JSON paths.

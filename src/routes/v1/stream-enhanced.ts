@@ -164,14 +164,12 @@ export async function registerStreamRouteEnhanced(app: FastifyInstance) {
         const acq = tryAcquire(ip);
         if (!('ok' in acq) || acq.ok === false) {
           try { incStreamRateLimited(); } catch {}
-          const retryAfterS = Math.max(1, Math.ceil(Number(SSE_SLOT_MAX_MS) / 1000));
-          // Back-compat: header remains '1' to keep existing tests green
           try { reply.header('Retry-After', '1'); } catch {}
           try { reply.header('X-RateLimit-Reason', acq.ok === false ? acq.reason : 'per_ip'); } catch {}
           try { incSse429Count(); } catch {}
           return reply
             .code(429)
-            .send({ schema: 'error.v1', code: 'RATE_LIMITED', message: 'Too many streams', retry_after_s: retryAfterS });
+            .send({ schema: 'error.v1', code: 'RATE_LIMITED', message: 'Too many streams' });
         }
 
         // Ensure release on socket lifecycle
