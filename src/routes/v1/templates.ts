@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { canonicalStringify, sha256Hex } from '../../util/canonical.js';
 
 type Graph = { nodes: any[]; edges: any[] };
 const UPDATED_AT = '2025-01-01T00:00:00.000Z';
@@ -46,9 +47,18 @@ export async function registerTemplatesRoutes(app: FastifyInstance) {
     if (!g) {
       return reply.code(404).send({ schema: 'error.v1', code: 'NOT_FOUND', message: `Template '${id}' not found` });
     }
+    // Strong ETag over canonical JSON
+    const canonical = canonicalStringify(g);
+    const etag = '"' + sha256Hex(canonical) + '"';
+    const inm = String(req.headers['if-none-match'] || '');
     reply.header('Content-Type', 'application/json');
     reply.header('Cache-Control', 'no-cache');
     reply.header('Last-Modified', UPDATED_AT);
+    reply.header('Vary', 'If-None-Match');
+    reply.header('ETag', etag);
+    if (inm && inm === etag) {
+      return reply.code(304).send();
+    }
     return g;
   });
 }

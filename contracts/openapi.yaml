@@ -156,6 +156,16 @@ paths:
                     schema: error.v1
                     code: FORBIDDEN
                     message: Invalid token
+    head:
+      summary: Capability probe (method not allowed)
+      operationId: runHeadV1
+      tags: [v1, inference]
+      responses:
+        '405':
+          description: Method Not Allowed
+          headers:
+            Allow:
+              schema: { type: string, example: 'POST, OPTIONS, HEAD' }
 
   /v1/templates:
     get:
@@ -282,6 +292,7 @@ paths:
                     schema: error.v1
                     code: RATE_LIMITED
                     message: Too many streams
+                    retry_after_s: 120
   /v1/health:
     get:
       summary: v1 Health endpoint
