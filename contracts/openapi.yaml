@@ -156,55 +156,6 @@ paths:
                     schema: error.v1
                     code: FORBIDDEN
                     message: Invalid token
-    
-  /v1/templates:
-    get:
-      summary: List available templates
-      operationId: templatesList
-      tags: [v1, ergonomics]
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/templateList'
-              examples:
-                example:
-                  value:
-                    - { id: small, label: Small Demo, summary: Minimal A→B graph, updated_at: '2025-01-01T00:00:00.000Z' }
-                    - { id: medium, label: Medium Demo, summary: Price→Demand→Revenue (+Marketing), updated_at: '2025-01-01T00:00:00.000Z' }
-                    - { id: edge, label: Edge Case, summary: Near-zero baseline, updated_at: '2025-01-01T00:00:00.000Z' }
-
-  /v1/templates/{id}/graph:
-    get:
-      summary: Get canonical graph for a template
-      operationId: templateGraph
-      tags: [v1, ergonomics]
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string, enum: [small, medium, edge] }
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/graph'
-        '404':
-          description: Not Found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/errorV1'
-              examples:
-                not_found:
-                  value:
-                    schema: error.v1
-                    code: NOT_FOUND
-                    message: Template 'unknown' not found
   
   /v1/stream:
     get:
@@ -265,10 +216,7 @@ paths:
           headers:
             Retry-After:
               description: Seconds to wait before retrying
-              schema:
-                oneOf:
-                  - { type: integer, minimum: 0 }
-                  - { type: string }
+              schema: { type: integer, minimum: 0 }
             X-RateLimit-Reason:
               description: Reason for rate limit decision
               schema: { type: string, enum: [per_ip, global] }
@@ -282,7 +230,6 @@ paths:
                     schema: error.v1
                     code: RATE_LIMITED
                     message: Too many streams
-                    
   /v1/health:
     get:
       summary: v1 Health endpoint
@@ -359,6 +306,28 @@ paths:
                       confidence_badge: { type: boolean }
                       explain_delta: { type: boolean }
                       cost_governance: { type: boolean }
+  
+  /v1/openapi.json:
+    get:
+      summary: OpenAPI specification (read-only)
+      operationId: openapiServeV1
+      tags: [v1, meta]
+      responses:
+        '200':
+          description: OK
+          headers:
+            Cache-Control: { schema: { type: string, example: 'public, max-age=300' } }
+            ETag: { schema: { type: string } }
+            Vary: { schema: { type: string, example: 'If-None-Match' } }
+          content:
+            application/json:
+              schema:
+                type: object
+              example:
+                openapi: '3.0.3'
+                info: { title: 'PLoT Engine API', version: '1.0.0' }
+        '304':
+          description: Not Modified
         '401':
           description: Unauthorized
           content:
@@ -753,8 +722,55 @@ paths:
                     schema: error.v1
                     code: FORBIDDEN
                     message: Invalid token
-
   
+  /v1/templates:
+    get:
+      summary: List available templates
+      operationId: templatesList
+      tags: [v1, ergonomics]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/templateList'
+              examples:
+                example:
+                  value:
+                    - { id: small, label: Small Demo, summary: Minimal A→B graph, updated_at: '2025-01-01T00:00:00.000Z' }
+                    - { id: medium, label: Medium Demo, summary: Price→Demand→Revenue (+Marketing), updated_at: '2025-01-01T00:00:00.000Z' }
+                    - { id: edge, label: Edge Case, summary: Near-zero baseline, updated_at: '2025-01-01T00:00:00.000Z' }
+
+  /v1/templates/{id}/graph:
+    get:
+      summary: Get canonical graph for a template
+      operationId: templateGraph
+      tags: [v1, ergonomics]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, enum: [small, medium, edge] }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/graph'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                not_found:
+                  value:
+                    schema: error.v1
+                    code: NOT_FOUND
+                    message: Template 'unknown' not found
 
 components:
   schemas:
@@ -822,20 +838,6 @@ components:
     # /v1 SCHEMAS
     # ========================================
     
-    templateItem:
-      type: object
-      required: [id, label, summary, updated_at]
-      properties:
-        id: { type: string }
-        label: { type: string }
-        summary: { type: string }
-        updated_at: { type: string, format: date-time }
-
-    templateList:
-      type: array
-      items:
-        $ref: '#/components/schemas/templateItem'
-
     graph:
       type: object
       required: [nodes, edges]
