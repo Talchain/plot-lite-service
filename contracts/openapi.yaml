@@ -174,6 +174,11 @@ paths:
       tags: [v1, stream]
       description: |
         Streams the first tokens for a run. `?demo=1`  short-circuits validation and returns a canonical deterministic sample.
+        
+        Client Tips:
+        - Progress events should cap at ≤90% until a final COMPLETE/done event is emitted.
+        - A heartbeat event is emitted on a regular cadence (see heartbeat_ms) to keep connections healthy.
+        - Clients MAY cancel by closing the connection; server will cleanup deterministically.
       parameters:
         - in: query
           name: demo
@@ -225,7 +230,7 @@ paths:
           description: Too many concurrent streams
           headers:
             Retry-After:
-              description: Seconds to wait before retrying
+              description: Seconds to wait before retrying (integer seconds)
               schema: { type: integer, minimum: 0 }
             X-RateLimit-Reason:
               description: Reason for rate limit decision
