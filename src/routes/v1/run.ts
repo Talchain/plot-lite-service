@@ -300,13 +300,13 @@ export async function registerRunRoute(app: FastifyInstance) {
       schema: 'run.v1',
     };
     
+    // Add BMA hash BEFORE stamping (must be included in response_hash)
+    if (scm_bma_hash) {
+      base.model_card.bma_hash = scm_bma_hash;
+    }
+    
     // Stamp response hash (handles circularity correctly)
     const stamped = stampResponseHash(base);
-    
-    // Add BMA hash if SCM-Lite was used
-    if (scm_bma_hash) {
-      stamped.model_card.bma_hash = scm_bma_hash;
-    }
     // Optional trace_id (not included in response_hash)
     if (process.env.TRACE_MIN === '1') {
       stamped.trace_id = randomUUID();
