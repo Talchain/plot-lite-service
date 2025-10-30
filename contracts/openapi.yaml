@@ -317,6 +317,18 @@ paths:
                       confidence_badge: { type: boolean }
                       explain_delta: { type: boolean }
                       cost_governance: { type: boolean }
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                internal_error:
+                  value:
+                    schema: error.v1
+                    code: INTERNAL_ERROR
+                    message: Failed to retrieve version information
   
   /v1/openapi.json:
     get:
@@ -752,6 +764,18 @@ paths:
                     - { id: small, label: Small Demo, summary: Minimal A→B graph, updated_at: '2025-01-01T00:00:00.000Z' }
                     - { id: medium, label: Medium Demo, summary: Price→Demand→Revenue (+Marketing), updated_at: '2025-01-01T00:00:00.000Z' }
                     - { id: edge, label: Edge Case, summary: Near-zero baseline, updated_at: '2025-01-01T00:00:00.000Z' }
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                internal_error:
+                  value:
+                    schema: error.v1
+                    code: INTERNAL_ERROR
+                    message: Failed to load templates
 
   /v1/templates/{id}/graph:
     get:
