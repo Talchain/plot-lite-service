@@ -19,6 +19,8 @@ import { runSCMLite } from '../../scm-lite/adapter.js';
 import { recordEngineComputeMs } from '../../metrics.js';
 import { runResponseSchema } from '../../schemas/response.js';
 
+export type InferenceMode = 'model_based' | 'model_of_inference';
+
 export interface RunRequest {
   graph: Graph;
   seed?: number;
@@ -26,6 +28,7 @@ export interface RunRequest {
   treatment_node?: string;
   outcome_node?: string;
   baseline_value?: number;
+  inference_mode?: InferenceMode;
 }
 
 export async function registerRunRoute(app: FastifyInstance) {
@@ -44,7 +47,8 @@ export async function registerRunRoute(app: FastifyInstance) {
           treatment_node: { type: 'string' },
           outcome_node: { type: 'string' },
           baseline_value: { type: 'number' },
-          query: { type: 'object' }
+          query: { type: 'object' },
+          inference_mode: { type: 'string', enum: ['model_based', 'model_of_inference'] }
         },
         additionalProperties: true
       },
@@ -120,6 +124,7 @@ export async function registerRunRoute(app: FastifyInstance) {
       treatment_node = graph.nodes[0]?.id,
       outcome_node = graph.nodes[graph.nodes.length - 1]?.id,
       baseline_value = 100,
+      inference_mode = 'model_based',
     } = body;
 
     // Cost governance
@@ -288,6 +293,7 @@ export async function registerRunRoute(app: FastifyInstance) {
         seed,
         commit: process.env.BUILD_ID || process.env.GITHUB_SHA || 'dev',
         version: '1.0.0',
+        inference_mode,
       },
       model_card,
       results,

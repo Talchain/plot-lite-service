@@ -69,6 +69,7 @@ const runRequestSchema = {
     baseline_value: { type: 'number', minimum: -1000000, maximum: 1000000 },
     // Optional inputs object (free-form for PoC)
     inputs: { type: 'object', additionalProperties: true },
+    inference_mode: { type: 'string', enum: ['model_based', 'model_of_inference'] },
   },
 };
 
@@ -277,7 +278,7 @@ export function createValidator(route: 'run' | 'counterfactual' | 'critique' | '
     switch (route) {
       case 'run':
         validator = validateRun;
-        allowedKeys = new Set(['graph','seed','k_samples','treatment_node','outcome_node','baseline_value','inputs']);
+        allowedKeys = new Set(['graph','seed','k_samples','treatment_node','outcome_node','baseline_value','inputs','inference_mode']);
         break;
       case 'counterfactual':
         validator = validateCounterfactual;
