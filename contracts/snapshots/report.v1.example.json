@@ -116,6 +116,7 @@
   "identifiability": "Identifiable: Yes. No confounders detected - direct causal effect estimable.",
   "meta": {
     "commit": "dev",
+    "inference_mode": "model_based",
     "seed": 42,
     "version": "1.0.0"
   },
@@ -131,10 +132,8 @@
     },
     "determinism_note": "Deterministic: Same seed (42) guarantees identical output",
     "flags_on": [
-      "RATE_LIMIT_ENABLED",
       "TEST_ROUTES"
     ],
-    "response_hash": "dd71e34122fc15e8685168a944ef973661ba8b97403f118fc23462ec7dba236e",
     "seed": 42
   },
   "results": {
