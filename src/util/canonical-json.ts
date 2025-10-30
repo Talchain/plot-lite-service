@@ -71,6 +71,13 @@ export function normaliseReport(report: unknown): unknown {
     normalised.meta = meta;
   }
   
+  // Remove response_hash from model_card to avoid circularity
+  if (normalised.model_card && typeof normalised.model_card === 'object') {
+    const model_card = { ...(normalised.model_card as Record<string, unknown>) };
+    delete model_card.response_hash;
+    normalised.model_card = model_card;
+  }
+  
   // Remove any debug/timing fields at root
   delete normalised.debug;
   delete normalised.timing;

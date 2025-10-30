@@ -2,7 +2,7 @@
  * POST /v1/run - Execute probabilistic model with trust signals
  */
 
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { isDemoMode, getDemoSeed } from '../../middleware/demo-mode.js';
 import { getDemoRunResponse } from '../../fixtures/demo-payloads.js';
@@ -13,7 +13,7 @@ import { buildExplainDelta } from '../../trust/explain-delta.js';
 import { checkLinearity, detectThresholdCrossings, generateForkSuggestions } from '../../trust/linearity.js';
 import { checkIdentifiability } from '../../trust/identifiability.js';
 import { enforceComputeBudget } from '../../governance/cost-estimator.js';
-import { stableStringify, normaliseReport } from '../../util/canonical-json.js';
+import { stampResponseHash } from '../../util/canonical-json.js';
 import type { Graph } from '../../trust/types.js';
 import { runSCMLite } from '../../scm-lite/adapter.js';
 import { recordEngineComputeMs } from '../../metrics.js';
@@ -299,26 +299,24 @@ export async function registerRunRoute(app: FastifyInstance) {
       results,
       schema: 'run.v1',
     };
-    // Compute response hash (SHA-256 of normalised payload)
-    const normalised = normaliseReport(base);
-    const canonical = stableStringify(normalised);
-    const response_hash = createHash('sha256').update(canonical, 'utf8').digest('hex');
-    base.model_card.response_hash = response_hash;
+    
+    // Stamp response hash (handles circularity correctly)
+    const stamped = stampResponseHash(base);
     
     // Add BMA hash if SCM-Lite was used
     if (scm_bma_hash) {
-      base.model_card.bma_hash = scm_bma_hash;
+      stamped.model_card.bma_hash = scm_bma_hash;
     }
     // Optional trace_id (not included in response_hash)
     if (process.env.TRACE_MIN === '1') {
-      base.trace_id = randomUUID();
+      stamped.trace_id = randomUUID();
     }
     
     // Record compute time for observability
     const computeMs = performance.now() - computeStart;
     recordEngineComputeMs(computeMs);
     
-    return base;
+    return stamped;
   });
 
   // Capability probe: HEAD /v1/run returns 405 with Allow header
