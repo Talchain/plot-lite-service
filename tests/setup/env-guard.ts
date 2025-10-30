@@ -17,6 +17,11 @@ if (!process.env.PRINCIPAL_HMAC_SECRET) {
   process.env.PRINCIPAL_HMAC_SECRET = 'test-only-not-for-prod'.repeat(3).substring(0, 64);
 }
 
+// Disable rate limiting by default in tests (specific tests can enable it)
+if (!process.env.RATE_LIMIT_ENABLED) {
+  process.env.RATE_LIMIT_ENABLED = '0';
+}
+
 const KEYS = ['TEST_ROUTES', 'FEATURE_STREAM'] as const;
 type K = typeof KEYS[number];
 
