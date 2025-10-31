@@ -23,6 +23,8 @@ export const KNOWN_FEATURE_FLAGS = [
   'METRICS',
   'CORS_DEV',
   'OPENAPI_DEV',
+  'COMPARE_VIEW_ENABLE',
+  'INSPECTOR_DEBUG_ENABLE',
 ] as const;
 
 export function validateFeatureFlags(logger?: any): void {
