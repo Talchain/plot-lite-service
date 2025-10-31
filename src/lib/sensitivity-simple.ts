@@ -18,8 +18,8 @@ export function computeSensitivitySimple(
 ): SensitivityEdge[] {
   const scored = edges.map((edge, idx) => {
     const weight = edge.weight ?? 0;
-    const belief = (edge as any).belief ?? 1.0;
-    const provenance = (edge as any).provenance ?? 'template';
+    const belief = edge.belief ?? 1.0;
+    const provenance = edge.provenance ?? 'template';
     const score = Math.abs(weight) * belief;
     
     return {

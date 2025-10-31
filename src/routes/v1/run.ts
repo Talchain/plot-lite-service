@@ -290,9 +290,6 @@ export async function registerRunRoute(app: FastifyInstance) {
     let debug: any = undefined;
     
     // Add debug.compare if requested and flag enabled
-    if (process.env.TRACE_MIN === '1') {
-      app.log.info({ include_debug, flag: process.env.COMPARE_VIEW_ENABLE }, 'debug.compare check');
-    }
     if (include_debug && process.env.COMPARE_VIEW_ENABLE === '1') {
       debug = {
         compare: {
@@ -316,8 +313,8 @@ export async function registerRunRoute(app: FastifyInstance) {
           to: edge.to,
           label: edge.label ?? '',
           weight: edge.weight ?? 0,
-          belief: (edge as any).belief ?? 1.0,
-          provenance: (edge as any).provenance ?? 'template',
+          belief: edge.belief ?? 1.0,
+          provenance: edge.provenance ?? 'template',
         })),
       };
     }

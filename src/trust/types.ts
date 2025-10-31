@@ -97,6 +97,8 @@ export interface GraphEdge {
   to: string;
   label?: string;
   weight?: number;
+  belief?: number;      // 0-1, probability edge exists
+  provenance?: string;  // Source attribution, max 100 chars
 }
 
 export interface Graph {
