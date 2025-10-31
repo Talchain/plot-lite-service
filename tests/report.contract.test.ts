@@ -28,9 +28,11 @@ describe('Report Contract (report.v1)', () => {
 
   // Capture original env to restore after suite
   const prevTestRoutes = process.env.TEST_ROUTES;
+  const prevRateLimitEnabled = process.env.RATE_LIMIT_ENABLED;
 
   beforeAll(async () => {
     process.env.TEST_ROUTES = '1';
+    process.env.RATE_LIMIT_ENABLED = '0';
     
     // Load schema and snapshot
     schema = JSON.parse(await readFile(SCHEMA_PATH, 'utf-8'));
@@ -45,6 +47,12 @@ describe('Report Contract (report.v1)', () => {
 
   afterAll(async () => {
     await app.close();
+    
+    if (prevRateLimitEnabled === undefined) {
+      delete process.env.RATE_LIMIT_ENABLED;
+    } else {
+      process.env.RATE_LIMIT_ENABLED = prevRateLimitEnabled;
+    }
     
     // Restore env to original state
     if (prevTestRoutes === undefined) {
