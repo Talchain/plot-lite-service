@@ -16,7 +16,6 @@ import { enforceComputeBudget } from '../../governance/cost-estimator.js';
 import { stampResponseHash } from '../../util/canonical-json.js';
 import type { Graph } from '../../trust/types.js';
 import { runSCMLite } from '../../scm-lite/adapter.js';
-import { computeSensitivity } from '../../lib/sensitivity.js';
 import { recordEngineComputeMs } from '../../metrics.js';
 import { runResponseSchema } from '../../schemas/response.js';
 
@@ -30,7 +29,6 @@ export interface RunRequest {
   outcome_node?: string;
   baseline_value?: number;
   inference_mode?: InferenceMode;
-  include_debug?: boolean;
 }
 
 export async function registerRunRoute(app: FastifyInstance) {
@@ -50,8 +48,7 @@ export async function registerRunRoute(app: FastifyInstance) {
           outcome_node: { type: 'string' },
           baseline_value: { type: 'number' },
           query: { type: 'object' },
-          inference_mode: { type: 'string', enum: ['model_based', 'model_of_inference'] },
-          include_debug: { type: 'boolean' }
+          inference_mode: { type: 'string', enum: ['model_based', 'model_of_inference'] }
         },
         additionalProperties: true
       },
@@ -286,28 +283,9 @@ export async function registerRunRoute(app: FastifyInstance) {
     }
 
     // Build response with meta in alphabetical position
-    let debug: any = undefined;
-    
-    // Add debug.compare if requested and flag enabled
-    if (body.include_debug && process.env.COMPARE_VIEW_ENABLE === '1') {
-      try {
-        debug = {
-          compare: {
-            [outcome_node]: {
-              p10: results.conservative.outcome,
-              p50: results.most_likely.outcome,
-              p90: results.optimistic.outcome,
-              top3_edges: [],
-            },
-          },
-        };
-      } catch {}
-    }
-    
     const base: any = {
       confidence,
       critique,
-      ...(debug && { debug }),
       explain_delta,
       graph,
       identifiability: identifiability.summary,

@@ -307,7 +307,6 @@ export async function registerRunRoute(app: FastifyInstance) {
     const base: any = {
       confidence,
       critique,
-      ...(debug && { debug }),
       explain_delta,
       graph,
       identifiability: identifiability.summary,

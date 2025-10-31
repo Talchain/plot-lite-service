@@ -286,28 +286,9 @@ export async function registerRunRoute(app: FastifyInstance) {
     }
 
     // Build response with meta in alphabetical position
-    let debug: any = undefined;
-    
-    // Add debug.compare if requested and flag enabled
-    if (body.include_debug && process.env.COMPARE_VIEW_ENABLE === '1') {
-      try {
-        debug = {
-          compare: {
-            [outcome_node]: {
-              p10: results.conservative.outcome,
-              p50: results.most_likely.outcome,
-              p90: results.optimistic.outcome,
-              top3_edges: [],
-            },
-          },
-        };
-      } catch {}
-    }
-    
     const base: any = {
       confidence,
       critique,
-      ...(debug && { debug }),
       explain_delta,
       graph,
       identifiability: identifiability.summary,

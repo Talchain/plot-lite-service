@@ -70,7 +70,6 @@ const runRequestSchema = {
     // Optional inputs object (free-form for PoC)
     inputs: { type: 'object', additionalProperties: true },
     inference_mode: { type: 'string', enum: ['model_based', 'model_of_inference'] },
-    include_debug: { type: 'boolean' },
   },
 };
 

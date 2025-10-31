@@ -135,7 +135,8 @@ export function sha256Stable(obj: unknown): string {
  * Does not mutate the original object; returns a shallow-cloned copy.
  */
 export function stampResponseHash<T extends { model_card: object }>(doc: T): T {
-  const copy: any = { ...doc, model_card: { ...doc.model_card } };
+  const { debug, ...rest } = doc as any;
+  const copy: any = { ...rest, model_card: { ...(doc as any).model_card } };
   // Ensure we hash the payload without the response_hash to avoid circularity
   delete copy.model_card.response_hash;
   const hash = sha256Stable(copy);
