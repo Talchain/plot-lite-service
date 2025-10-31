@@ -9,6 +9,7 @@ describe('Inspector (P1B)', () => {
       env: {
         TEST_ROUTES: '1',
         AUTH_ENABLED: '0',
+        RATE_LIMIT_ENABLED: '0',
         INSPECTOR_DEBUG_ENABLE: '1',
         SCM_LITE_ENABLE: '0',
       },

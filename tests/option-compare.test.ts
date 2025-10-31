@@ -9,6 +9,7 @@ describe('Option Compare (P1A)', () => {
       env: {
         TEST_ROUTES: '1',
         AUTH_ENABLED: '0',
+        RATE_LIMIT_ENABLED: '0',
         COMPARE_VIEW_ENABLE: '1',
         SCM_LITE_ENABLE: '0',
       },
