@@ -44,7 +44,7 @@ const graphSchema = {
       items: {
         type: 'object',
         required: ['from', 'to'],
-        additionalProperties: false,
+        additionalProperties: true,
         properties: {
           from: { type: 'string', maxLength: 100 },
           to: { type: 'string', maxLength: 100 },
