@@ -16,7 +16,7 @@ import { enforceComputeBudget } from '../../governance/cost-estimator.js';
 import { stampResponseHash } from '../../util/canonical-json.js';
 import type { Graph } from '../../trust/types.js';
 import { runSCMLite } from '../../scm-lite/adapter.js';
-import { computeSensitivity } from '../../lib/sensitivity.js';
+import { computeSensitivitySimple } from '../../lib/sensitivity-simple.js';
 import { recordEngineComputeMs } from '../../metrics.js';
 import { runResponseSchema } from '../../schemas/response.js';
 
@@ -300,7 +300,7 @@ export async function registerRunRoute(app: FastifyInstance) {
             p10: results.conservative.outcome,
             p50: results.most_likely.outcome,
             p90: results.optimistic.outcome,
-            top3_edges: [],
+            top3_edges: computeSensitivitySimple(graph.edges, outcome_node),
           },
         },
       };
