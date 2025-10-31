@@ -12,7 +12,8 @@ export const runResponseSchema = {
     critique: { type: 'array', items: { type: 'object', additionalProperties: true }, nullable: true },
     explain_delta: { type: 'object', additionalProperties: true, nullable: true },
     identifiability: { type: 'string', nullable: true },
-    trace_id: { type: 'string', nullable: true }
+    trace_id: { type: 'string', nullable: true },
+    debug: { type: 'object', additionalProperties: true, nullable: true }
   }
 } as const;
 

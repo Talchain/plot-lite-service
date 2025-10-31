@@ -141,5 +141,9 @@ export function stampResponseHash<T extends { model_card: object }>(doc: T): T {
   delete copy.model_card.response_hash;
   const hash = sha256Stable(copy);
   copy.model_card.response_hash = hash;
+  // Add debug back (excluded from hash but included in response)
+  if (debug !== undefined) {
+    copy.debug = debug;
+  }
   return copy as T;
 }

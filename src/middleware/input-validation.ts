@@ -279,7 +279,7 @@ export function createValidator(route: 'run' | 'counterfactual' | 'critique' | '
     switch (route) {
       case 'run':
         validator = validateRun;
-        allowedKeys = new Set(['graph','seed','k_samples','treatment_node','outcome_node','baseline_value','inputs','inference_mode']);
+        allowedKeys = new Set(['graph','seed','k_samples','treatment_node','outcome_node','baseline_value','inputs','inference_mode','include_debug']);
         break;
       case 'counterfactual':
         validator = validateCounterfactual;

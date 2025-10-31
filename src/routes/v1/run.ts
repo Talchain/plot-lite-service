@@ -128,6 +128,7 @@ export async function registerRunRoute(app: FastifyInstance) {
       outcome_node = graph.nodes[graph.nodes.length - 1]?.id,
       baseline_value = 100,
       inference_mode = 'model_based',
+      include_debug = false,
     } = body;
 
     // Cost governance
@@ -289,19 +290,20 @@ export async function registerRunRoute(app: FastifyInstance) {
     let debug: any = undefined;
     
     // Add debug.compare if requested and flag enabled
-    if (body.include_debug && process.env.COMPARE_VIEW_ENABLE === '1') {
-      try {
-        debug = {
-          compare: {
-            [outcome_node]: {
-              p10: results.conservative.outcome,
-              p50: results.most_likely.outcome,
-              p90: results.optimistic.outcome,
-              top3_edges: [],
-            },
+    if (process.env.TRACE_MIN === '1') {
+      app.log.info({ include_debug, flag: process.env.COMPARE_VIEW_ENABLE }, 'debug.compare check');
+    }
+    if (include_debug && process.env.COMPARE_VIEW_ENABLE === '1') {
+      debug = {
+        compare: {
+          [outcome_node]: {
+            p10: results.conservative.outcome,
+            p50: results.most_likely.outcome,
+            p90: results.optimistic.outcome,
+            top3_edges: [],
           },
-        };
-      } catch {}
+        },
+      };
     }
     
     const base: any = {
