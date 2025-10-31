@@ -306,22 +306,6 @@ export async function registerRunRoute(app: FastifyInstance) {
       };
     }
     
-    // Add debug.inspector if requested and flag enabled
-    if (include_debug && process.env.INSPECTOR_DEBUG_ENABLE === '1') {
-      if (!debug) debug = {};
-      debug.inspector = {
-        edges: graph.edges.map((edge, idx) => ({
-          edge_id: `${edge.from}::${edge.to}::${idx}`,
-          from: edge.from,
-          to: edge.to,
-          label: edge.label ?? '',
-          weight: edge.weight ?? 0,
-          belief: (edge as any).belief ?? 1.0,
-          provenance: (edge as any).provenance ?? 'template',
-        })),
-      };
-    }
-    
     const base: any = {
       confidence,
       critique,

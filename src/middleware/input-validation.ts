@@ -49,6 +49,8 @@ const graphSchema = {
           to: { type: 'string', maxLength: 100 },
           label: { type: 'string', maxLength: 200 },
           weight: { type: 'number', minimum: -1000000, maximum: 1000000 },
+          belief: { type: 'number', minimum: 0, maximum: 1 },
+          provenance: { type: 'string', maxLength: 100 },
         },
       },
     },
