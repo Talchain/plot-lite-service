@@ -21,6 +21,7 @@ describe('Health counters and last reload timestamp', () => {
       env: {
         TEST_ROUTES: '1',
         AUTH_ENABLED: '0',
+        RATE_LIMIT_ENABLED: '1',
         SSE_PER_IP_MAX: '1',
         SSE_GLOBAL_MAX: '1',
         RATE_LIMIT_RPM: '1',

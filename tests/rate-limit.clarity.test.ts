@@ -24,7 +24,7 @@ describe('429 clarity headers', () => {
     const BASE = `http://127.0.0.1:${PORT}`;
     try { mkdirSync('artifact', { recursive: true }); } catch {}
     writeFileSync('artifact/runtime-config.json', JSON.stringify({ sse_per_ip_max: 2, sse_global_max: 100, rate_limit_rpm: 1 }, null, 2));
-    const env = { ...process.env, PORT: String(PORT), TEST_ROUTES: '1', AUTH_ENABLED: '0' } as any;
+    const env = { ...process.env, PORT: String(PORT), TEST_ROUTES: '1', AUTH_ENABLED: '0', RATE_LIMIT_ENABLED: '1' } as any;
     const ps = spawn(process.execPath, ['dist/main.js'], { env, stdio: 'ignore' });
     try {
       const up = await waitHealth(BASE);
@@ -51,7 +51,7 @@ describe('429 clarity headers', () => {
     const BASE = `http://127.0.0.1:${PORT}`;
     try { mkdirSync('artifact', { recursive: true }); } catch {}
     writeFileSync('artifact/runtime-config.json', JSON.stringify({ sse_per_ip_max: 1, sse_global_max: 100, rate_limit_rpm: 60 }, null, 2));
-    const env = { ...process.env, PORT: String(PORT), TEST_ROUTES: '1', AUTH_ENABLED: '0' } as any;
+    const env = { ...process.env, PORT: String(PORT), TEST_ROUTES: '1', AUTH_ENABLED: '0', RATE_LIMIT_ENABLED: '1' } as any;
     const ps = spawn(process.execPath, ['dist/main.js'], { env, stdio: 'ignore' });
     try {
       const up = await waitHealth(BASE);
