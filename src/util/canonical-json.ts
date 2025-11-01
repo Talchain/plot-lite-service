@@ -147,3 +147,31 @@ export function stampResponseHash<T extends { model_card: object }>(doc: T): T {
   }
   return copy as T;
 }
+
+/**
+ * Build canonical input object for result.response_hash
+ * Picks only the 7 input keys, excludes debug, sorted keys
+ */
+export function buildCanonicalInput(body: any): object {
+  const canonical: any = {};
+  
+  // Pick only the 7 input keys in sorted order
+  if (body.baseline_value !== undefined) canonical.baseline_value = body.baseline_value;
+  if (body.graph !== undefined) canonical.graph = body.graph;
+  if (body.inference_mode !== undefined) canonical.inference_mode = body.inference_mode;
+  if (body.k_samples !== undefined) canonical.k_samples = body.k_samples;
+  if (body.outcome_node !== undefined) canonical.outcome_node = body.outcome_node;
+  if (body.seed !== undefined) canonical.seed = body.seed;
+  if (body.treatment_node !== undefined) canonical.treatment_node = body.treatment_node;
+  
+  return canonical;
+}
+
+/**
+ * Compute SHA-256 hash of canonical input (for result.response_hash)
+ */
+export function hashCanonicalInput(body: any): string {
+  const canonical = buildCanonicalInput(body);
+  const json = stableStringify(canonical);
+  return createHash('sha256').update(json, 'utf8').digest('hex');
+}

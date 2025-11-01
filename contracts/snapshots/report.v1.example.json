@@ -41,6 +41,41 @@
         "node_label": "Initial Assessment",
         "sign": "+"
       }
+    ],
+    "top_edge_drivers": [
+      {
+        "belief": 1,
+        "edge_id": "process::approved::2",
+        "from": "process",
+        "label": "",
+        "provenance": "template",
+        "rank": 1,
+        "score": 0,
+        "to": "approved",
+        "weight": 0
+      },
+      {
+        "belief": 1,
+        "edge_id": "process::rejected::3",
+        "from": "process",
+        "label": "",
+        "provenance": "template",
+        "rank": 2,
+        "score": 0,
+        "to": "rejected",
+        "weight": 0
+      },
+      {
+        "belief": 1,
+        "edge_id": "process::review::4",
+        "from": "process",
+        "label": "",
+        "provenance": "template",
+        "rank": 3,
+        "score": 0,
+        "to": "review",
+        "weight": 0
+      }
     ]
   },
   "graph": {
@@ -135,6 +170,14 @@
       "TEST_ROUTES"
     ],
     "seed": 42
+  },
+  "result": {
+    "response_hash": "de96956c7db88a130173bed6c9b72f8bf680b91df451c80087f588b3961bf7ba",
+    "summary": {
+      "p10": 105,
+      "p50": 114.99999999999999,
+      "p90": 125
+    }
   },
   "results": {
     "conservative": {

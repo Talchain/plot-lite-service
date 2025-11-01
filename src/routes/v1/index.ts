@@ -11,6 +11,8 @@ import { registerCritiqueRoute } from './critique.js';
 import { registerDraftRoute } from './draft.js';
 import { registerSelfCheckRoute } from './self-check.js';
 import { registerTemplatesRoutes } from './templates.js';
+import { registerLimitsRoute } from './limits.js';
+import { registerValidateRoute } from './validate.js';
 import { getStreamHealthExtras, p95Ms, snapshot, getLastRequestAt, getJson429Count, getSse429Count, getLastConfigReloadISO, getLastComputeMs, getEngineP95Ms, getEngineP95MsRolling, getSseOpen, getSseClosed, getSseTimeout } from '../../metrics.js';
 import { getFixtureCacheSize, getFixtureCacheStats } from '../../lib/fixtures-cache.js';
 import { registerStreamRoute } from './stream.js';
@@ -110,7 +112,8 @@ export async function registerV1Routes(app: FastifyInstance) {
   await registerDraftRoute(app);
   await registerSelfCheckRoute(app);
   await registerTemplatesRoutes(app);
-  
+  await registerLimitsRoute(app);
+  await registerValidateRoute(app);  
   // P1: Register enhanced stream route if enabled, otherwise use legacy
   if (process.env.STREAM_PARITY_ENABLE === '1') {
     await registerStreamRouteEnhanced(app);

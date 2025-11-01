@@ -13,7 +13,7 @@ import { buildExplainDelta } from '../../trust/explain-delta.js';
 import { checkLinearity, detectThresholdCrossings, generateForkSuggestions } from '../../trust/linearity.js';
 import { checkIdentifiability } from '../../trust/identifiability.js';
 import { enforceComputeBudget } from '../../governance/cost-estimator.js';
-import { stampResponseHash } from '../../util/canonical-json.js';
+import { stampResponseHash, hashCanonicalInput } from '../../util/canonical-json.js';
 import type { Graph } from '../../trust/types.js';
 import { runSCMLite } from '../../scm-lite/adapter.js';
 import { computeSensitivitySimple } from '../../lib/sensitivity-simple.js';
@@ -319,11 +319,17 @@ export async function registerRunRoute(app: FastifyInstance) {
       };
     }
     
+    // P0: Compute top edge drivers (always included, not gated by include_debug)
+    const top_edge_drivers = computeSensitivitySimple(graph.edges, outcome_node).slice(0, 3);
+    
     const base: any = {
       confidence,
       critique,
       ...(debug && { debug }),
-      explain_delta,
+      explain_delta: {
+        ...explain_delta,
+        top_edge_drivers, // P0: top-3 edge drivers (separate from node-based top_drivers)
+      },
       graph,
       identifiability: identifiability.summary,
       meta: {
@@ -333,6 +339,14 @@ export async function registerRunRoute(app: FastifyInstance) {
         inference_mode,
       },
       model_card,
+      result: {
+        response_hash: hashCanonicalInput(body), // P0: hash of canonical inputs only
+        summary: {
+          p10: results.conservative.outcome,
+          p50: results.most_likely.outcome,
+          p90: results.optimistic.outcome,
+        },
+      },
       results,
       schema: 'run.v1',
     };
