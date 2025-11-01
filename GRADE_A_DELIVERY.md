@@ -59,10 +59,6 @@ p95: 11.28 ms << 600 ms budget (98.1% under)
 - Enforces p95 ≤ 600ms budget
 - Fails CI if exceeded
 
-### 2. `.github/workflows/automerge.yml`
-- Triggers on `automerge` label
-- Squash merges when all checks pass
-- Requires branch protection setup
 
 ### 3. `.github/workflows/post-deploy-smoke.yml`
 - Manual trigger post-deploy

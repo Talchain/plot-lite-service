@@ -21,12 +21,18 @@ describe('Option Compare (P1A)', () => {
   });
 
   it('includes debug.compare when include_debug=true and flag enabled', async () => {
-    await withEnv({ COMPARE_VIEW_ENABLE: '1', RATE_LIMIT_ENABLED: '0', SCM_LITE_ENABLE: '0' }, async () => {
-      vi.resetModules();
-      server = await spawnServer({
-        env: { TEST_ROUTES: '1', AUTH_ENABLED: '0', COMPARE_VIEW_ENABLE: '1', RATE_LIMIT_ENABLED: '0', SCM_LITE_ENABLE: '0' },
-      });
+    vi.resetModules();
+    server = await spawnServer({
+      env: { 
+        TEST_ROUTES: '1', 
+        AUTH_ENABLED: '0', 
+        COMPARE_VIEW_ENABLE: '1', 
+        INSPECTOR_DEBUG_ENABLE: '0',
+        RATE_LIMIT_ENABLED: '0', 
+        SCM_LITE_ENABLE: '0' 
+      },
     });
+    
     const res = await requestJSON(`${server.baseUrl}/v1/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
