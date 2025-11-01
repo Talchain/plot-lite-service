@@ -1,43 +1,60 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { spawn } from 'node:child_process';
-
-async function waitFor(url: string, timeoutMs = 6000) {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    try { const r = await fetch(url); if (r.ok) return; } catch {}
-    await new Promise(r => setTimeout(r, 80));
-  }
-  throw new Error('timeout');
-}
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { spawnServer, type ServerHandle } from './utils.js';
 
 describe('Metrics endpoint (gated)', () => {
-  const PORT = '4355';
-  const BASE = `http://127.0.0.1:${PORT}`;
+  let server: ServerHandle | null = null;
+
+  afterEach(async () => {
+    await server?.kill();
+    server = null;
+  });
 
   it('absent when METRICS unset', async () => {
-    let child: ReturnType<typeof spawn> | null = spawn(process.execPath, ['tools/test-server.js'], { env: { ...process.env, TEST_PORT: PORT, TEST_ROUTES: '1', RATE_LIMIT_ENABLED: '0' }, stdio: 'ignore' });
-    await waitFor(`${BASE}/health`, 5000);
-    const r = await fetch(`${BASE}/metrics`);
-    expect(r.status).toBe(404);
-    try { if (child?.pid) process.kill(child.pid, 'SIGINT'); } catch {}
+    vi.resetModules();
+    server = await spawnServer({
+      env: {
+        TEST_ROUTES: '1',
+        AUTH_ENABLED: '0',
+        RATE_LIMIT_ENABLED: '0',
+        METRICS: undefined as any, // Explicitly unset
+        COMPARE_VIEW_ENABLE: '0',
+        INSPECTOR_DEBUG_ENABLE: '0',
+        SCM_LITE_ENABLE: '0',
+      },
+    });
+
+    const res = await fetch(`${server.baseUrl}/metrics`);
+    expect(res.status).toBe(404);
   });
 
   it('exposes counters and draft p95s when METRICS=1', async () => {
-    let child: ReturnType<typeof spawn> | null = spawn(process.execPath, ['tools/test-server.js'], { env: { ...process.env, TEST_PORT: PORT, TEST_ROUTES: '1', METRICS: '1', RATE_LIMIT_ENABLED: '0' }, stdio: 'ignore' });
-    await waitFor(`${BASE}/health`, 5000);
-    // trigger a few draft-flows to populate history
-    await fetch(`${BASE}/draft-flows?template=pricing_change&seed=101`);
-    await fetch(`${BASE}/draft-flows?template=pricing_change&seed=101`);
-    const r = await fetch(`${BASE}/metrics`);
-    expect(r.status).toBe(200);
-    const j: any = await r.json();
-    expect(typeof j.stream_started).toBe('number');
-    expect(typeof j.stream_done).toBe('number');
-    expect(typeof j.stream_cancelled).toBe('number');
-    expect(typeof j.stream_limited).toBe('number');
-    expect(typeof j.stream_retryable).toBe('number');
-    expect(Array.isArray(j.draft_flows_p95_last5)).toBe(true);
-    expect(j.draft_flows_p95_last5.length).toBeLessThanOrEqual(5);
-    try { if (child?.pid) process.kill(child.pid, 'SIGINT'); } catch {}
+    vi.resetModules();
+    server = await spawnServer({
+      env: {
+        TEST_ROUTES: '1',
+        AUTH_ENABLED: '0',
+        RATE_LIMIT_ENABLED: '0',
+        METRICS: '1',
+        COMPARE_VIEW_ENABLE: '0',
+        INSPECTOR_DEBUG_ENABLE: '0',
+        SCM_LITE_ENABLE: '0',
+      },
+    });
+
+    // Trigger a few draft-flows to populate history
+    await fetch(`${server.baseUrl}/draft-flows?template=pricing_change&seed=101`);
+    await fetch(`${server.baseUrl}/draft-flows?template=pricing_change&seed=101`);
+
+    const res = await fetch(`${server.baseUrl}/metrics`);
+    expect(res.status).toBe(200);
+    
+    const data: any = await res.json();
+    expect(typeof data.stream_started).toBe('number');
+    expect(typeof data.stream_done).toBe('number');
+    expect(typeof data.stream_cancelled).toBe('number');
+    expect(typeof data.stream_limited).toBe('number');
+    expect(typeof data.stream_retryable).toBe('number');
+    expect(Array.isArray(data.draft_flows_p95_last5)).toBe(true);
+    expect(data.draft_flows_p95_last5.length).toBeLessThanOrEqual(5);
   });
 });
