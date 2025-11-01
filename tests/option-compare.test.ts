@@ -1,6 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { spawnServer, requestJSON, type ServerHandle } from './utils.js';
-import { withEnv } from './utils/withEnv.js';
 
 describe('Option Compare (P1A)', () => {
   let server: ServerHandle | null = null;
@@ -15,6 +14,15 @@ describe('Option Compare (P1A)', () => {
     ],
   };
 
+  const ENV = {
+    TEST_ROUTES: '1',
+    AUTH_ENABLED: '0',
+    COMPARE_VIEW_ENABLE: '1',
+    INSPECTOR_DEBUG_ENABLE: '0',
+    RATE_LIMIT_ENABLED: '0',
+    SCM_LITE_ENABLE: '0',
+  };
+
   afterEach(async () => {
     await server?.kill();
     server = null;
@@ -22,16 +30,7 @@ describe('Option Compare (P1A)', () => {
 
   it('includes debug.compare when include_debug=true and flag enabled', async () => {
     vi.resetModules();
-    server = await spawnServer({
-      env: { 
-        TEST_ROUTES: '1', 
-        AUTH_ENABLED: '0', 
-        COMPARE_VIEW_ENABLE: '1', 
-        INSPECTOR_DEBUG_ENABLE: '0',
-        RATE_LIMIT_ENABLED: '0', 
-        SCM_LITE_ENABLE: '0' 
-      },
-    });
+    server = await spawnServer({ env: ENV });
     
     const res = await requestJSON(`${server.baseUrl}/v1/run`, {
       method: 'POST',
@@ -54,12 +53,8 @@ describe('Option Compare (P1A)', () => {
   });
 
   it('omits debug.compare when include_debug=false', async () => {
-    await withEnv({ COMPARE_VIEW_ENABLE: '1', RATE_LIMIT_ENABLED: '0', SCM_LITE_ENABLE: '0' }, async () => {
-      vi.resetModules();
-      server = await spawnServer({
-        env: { TEST_ROUTES: '1', AUTH_ENABLED: '0', COMPARE_VIEW_ENABLE: '1', RATE_LIMIT_ENABLED: '0', SCM_LITE_ENABLE: '0' },
-      });
-    });
+    vi.resetModules();
+    server = await spawnServer({ env: ENV });
 
     const res = await requestJSON(`${server.baseUrl}/v1/run`, {
       method: 'POST',
@@ -76,12 +71,8 @@ describe('Option Compare (P1A)', () => {
   });
 
   it('omits debug.compare when include_debug not specified', async () => {
-    await withEnv({ COMPARE_VIEW_ENABLE: '1', RATE_LIMIT_ENABLED: '0', SCM_LITE_ENABLE: '0' }, async () => {
-      vi.resetModules();
-      server = await spawnServer({
-        env: { TEST_ROUTES: '1', AUTH_ENABLED: '0', COMPARE_VIEW_ENABLE: '1', RATE_LIMIT_ENABLED: '0', SCM_LITE_ENABLE: '0' },
-      });
-    });
+    vi.resetModules();
+    server = await spawnServer({ env: ENV });
 
     const res = await requestJSON(`${server.baseUrl}/v1/run`, {
       method: 'POST',
@@ -97,12 +88,8 @@ describe('Option Compare (P1A)', () => {
   });
 
   it('response_hash unchanged with/without include_debug', async () => {
-    await withEnv({ COMPARE_VIEW_ENABLE: '1', RATE_LIMIT_ENABLED: '0', SCM_LITE_ENABLE: '0' }, async () => {
-      vi.resetModules();
-      server = await spawnServer({
-        env: { TEST_ROUTES: '1', AUTH_ENABLED: '0', COMPARE_VIEW_ENABLE: '1', RATE_LIMIT_ENABLED: '0', SCM_LITE_ENABLE: '0' },
-      });
-    });
+    vi.resetModules();
+    server = await spawnServer({ env: ENV });
 
     const r1 = await requestJSON(`${server.baseUrl}/v1/run`, {
       method: 'POST',
@@ -130,12 +117,8 @@ describe('Option Compare (P1A)', () => {
   });
 
   it('deterministic: same seed produces same top3_edges order', async () => {
-    await withEnv({ COMPARE_VIEW_ENABLE: '1', RATE_LIMIT_ENABLED: '0', SCM_LITE_ENABLE: '0' }, async () => {
-      vi.resetModules();
-      server = await spawnServer({
-        env: { TEST_ROUTES: '1', AUTH_ENABLED: '0', COMPARE_VIEW_ENABLE: '1', RATE_LIMIT_ENABLED: '0', SCM_LITE_ENABLE: '0' },
-      });
-    });
+    vi.resetModules();
+    server = await spawnServer({ env: ENV });
 
     const runs = [];
     for (let i = 0; i < 3; i++) {
@@ -151,7 +134,6 @@ describe('Option Compare (P1A)', () => {
       runs.push(res.data.debug?.compare?.end?.top3_edges || []);
     }
 
-    // All runs should have identical top3_edges
     expect(runs[0]).toEqual(runs[1]);
     expect(runs[1]).toEqual(runs[2]);
   });

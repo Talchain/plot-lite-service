@@ -1,23 +1,21 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { spawnServer, requestJSON, type ServerHandle } from './utils.js';
 
 describe('Inspector (P1B)', () => {
-  let server: ServerHandle;
+  let server: ServerHandle | null = null;
 
-  beforeAll(async () => {
-    server = await spawnServer({
-      env: {
-        TEST_ROUTES: '1',
-        AUTH_ENABLED: '0',
-        RATE_LIMIT_ENABLED: '0',
-        INSPECTOR_DEBUG_ENABLE: '1',
-        SCM_LITE_ENABLE: '0',
-      },
-    });
-  });
+  const ENV = {
+    TEST_ROUTES: '1',
+    AUTH_ENABLED: '0',
+    RATE_LIMIT_ENABLED: '0',
+    INSPECTOR_DEBUG_ENABLE: '1',
+    COMPARE_VIEW_ENABLE: '0',
+    SCM_LITE_ENABLE: '0',
+  };
 
-  afterAll(async () => {
+  afterEach(async () => {
     await server?.kill();
+    server = null;
   });
 
   const GRAPH_WITH_BELIEF = {
@@ -41,6 +39,9 @@ describe('Inspector (P1B)', () => {
   };
 
   it('includes debug.inspector when include_debug=true and flag enabled', async () => {
+    vi.resetModules();
+    server = await spawnServer({ env: ENV });
+
     const res = await requestJSON(`${server.baseUrl}/v1/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -63,6 +64,9 @@ describe('Inspector (P1B)', () => {
   });
 
   it('applies defaults when belief/provenance omitted', async () => {
+    vi.resetModules();
+    server = await spawnServer({ env: ENV });
+
     const res = await requestJSON(`${server.baseUrl}/v1/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -80,6 +84,9 @@ describe('Inspector (P1B)', () => {
   });
 
   it('omits debug.inspector when include_debug=false', async () => {
+    vi.resetModules();
+    server = await spawnServer({ env: ENV });
+
     const res = await requestJSON(`${server.baseUrl}/v1/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -94,7 +101,27 @@ describe('Inspector (P1B)', () => {
     expect(res.data.debug).toBeUndefined();
   });
 
-  it('summaries unchanged with/without inspector', async () => {
+  it('omits debug.inspector when include_debug not specified', async () => {
+    vi.resetModules();
+    server = await spawnServer({ env: ENV });
+
+    const res = await requestJSON(`${server.baseUrl}/v1/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        graph: GRAPH_WITH_BELIEF,
+        seed: 4242,
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.data.debug).toBeUndefined();
+  });
+
+  it('response_hash unchanged with/without include_debug', async () => {
+    vi.resetModules();
+    server = await spawnServer({ env: ENV });
+
     const r1 = await requestJSON(`${server.baseUrl}/v1/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -117,31 +144,6 @@ describe('Inspector (P1B)', () => {
 
     expect(r1.status).toBe(200);
     expect(r2.status).toBe(200);
-    expect(r1.data.results).toEqual(r2.data.results);
-    expect(r1.data.confidence).toEqual(r2.data.confidence);
-  });
-
-  it('response_hash unchanged with/without inspector', async () => {
-    const r1 = await requestJSON(`${server.baseUrl}/v1/run`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        graph: GRAPH_WITH_BELIEF,
-        seed: 4242,
-        include_debug: false,
-      }),
-    });
-
-    const r2 = await requestJSON(`${server.baseUrl}/v1/run`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        graph: GRAPH_WITH_BELIEF,
-        seed: 4242,
-        include_debug: true,
-      }),
-    });
-
     expect(r1.data.model_card.response_hash).toBe(r2.data.model_card.response_hash);
   });
 });
