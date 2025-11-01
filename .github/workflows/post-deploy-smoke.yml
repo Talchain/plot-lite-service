@@ -1,0 +1,42 @@
+name: Post-Deploy Smoke Tests
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Wait for deploy
+        run: sleep 90
+      
+      - name: Health check
+        run: |
+          BASE="${{ secrets.PROD_BASE_URL || 'https://plot-lite-service.onrender.com' }}"
+          echo "Testing $BASE"
+          curl -fsSL "$BASE/v1/health" | jq .
+      
+      - name: Limits check
+        run: |
+          BASE="${{ secrets.PROD_BASE_URL || 'https://plot-lite-service.onrender.com' }}"
+          curl -fsSL "$BASE/v1/limits" | jq .
+      
+      - name: Sync run test
+        run: |
+          BASE="${{ secrets.PROD_BASE_URL || 'https://plot-lite-service.onrender.com' }}"
+          PAYLOAD='{"graph":{"nodes":[{"id":"A","label":"A"},{"id":"B","label":"B"}],"edges":[{"from":"A","to":"B","weight":1.2}]},"seed":42,"k_samples":400}'
+          curl -fsSL -X POST "$BASE/v1/run" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" | jq '.model_card.response_hash'
+      
+      - name: Stream test
+        run: |
+          BASE="${{ secrets.PROD_BASE_URL || 'https://plot-lite-service.onrender.com' }}"
+          PAYLOAD='{"graph":{"nodes":[{"id":"A","label":"A"},{"id":"B","label":"B"}],"edges":[{"from":"A","to":"B","weight":1.2}]},"seed":42,"k_samples":400}'
+          timeout 30 curl -N -s -X POST "$BASE/v1/run/stream" \
+            -H "Accept: text/event-stream" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" | head -20 || true
