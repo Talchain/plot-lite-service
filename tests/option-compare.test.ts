@@ -1,24 +1,9 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { spawnServer, requestJSON, type ServerHandle } from './utils.js';
+import { withEnv } from './utils/withEnv.js';
 
 describe('Option Compare (P1A)', () => {
-  let server: ServerHandle;
-
-  beforeAll(async () => {
-    server = await spawnServer({
-      env: {
-        TEST_ROUTES: '1',
-        AUTH_ENABLED: '0',
-        RATE_LIMIT_ENABLED: '0',
-        COMPARE_VIEW_ENABLE: '1',
-        SCM_LITE_ENABLE: '0',
-      },
-    });
-  });
-
-  afterAll(async () => {
-    await server?.kill();
-  });
+  let server: ServerHandle | null = null;
 
   const SIMPLE_GRAPH = {
     nodes: [
@@ -30,7 +15,18 @@ describe('Option Compare (P1A)', () => {
     ],
   };
 
+  afterEach(async () => {
+    await server?.kill();
+    server = null;
+  });
+
   it('includes debug.compare when include_debug=true and flag enabled', async () => {
+    await withEnv({ COMPARE_VIEW_ENABLE: '1', RATE_LIMIT_ENABLED: '0', SCM_LITE_ENABLE: '0' }, async () => {
+      vi.resetModules();
+      server = await spawnServer({
+        env: { TEST_ROUTES: '1', AUTH_ENABLED: '0', COMPARE_VIEW_ENABLE: '1', RATE_LIMIT_ENABLED: '0', SCM_LITE_ENABLE: '0' },
+      });
+    });
     const res = await requestJSON(`${server.baseUrl}/v1/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -52,6 +48,13 @@ describe('Option Compare (P1A)', () => {
   });
 
   it('omits debug.compare when include_debug=false', async () => {
+    await withEnv({ COMPARE_VIEW_ENABLE: '1', RATE_LIMIT_ENABLED: '0', SCM_LITE_ENABLE: '0' }, async () => {
+      vi.resetModules();
+      server = await spawnServer({
+        env: { TEST_ROUTES: '1', AUTH_ENABLED: '0', COMPARE_VIEW_ENABLE: '1', RATE_LIMIT_ENABLED: '0', SCM_LITE_ENABLE: '0' },
+      });
+    });
+
     const res = await requestJSON(`${server.baseUrl}/v1/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -67,6 +70,13 @@ describe('Option Compare (P1A)', () => {
   });
 
   it('omits debug.compare when include_debug not specified', async () => {
+    await withEnv({ COMPARE_VIEW_ENABLE: '1', RATE_LIMIT_ENABLED: '0', SCM_LITE_ENABLE: '0' }, async () => {
+      vi.resetModules();
+      server = await spawnServer({
+        env: { TEST_ROUTES: '1', AUTH_ENABLED: '0', COMPARE_VIEW_ENABLE: '1', RATE_LIMIT_ENABLED: '0', SCM_LITE_ENABLE: '0' },
+      });
+    });
+
     const res = await requestJSON(`${server.baseUrl}/v1/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -81,6 +91,13 @@ describe('Option Compare (P1A)', () => {
   });
 
   it('response_hash unchanged with/without include_debug', async () => {
+    await withEnv({ COMPARE_VIEW_ENABLE: '1', RATE_LIMIT_ENABLED: '0', SCM_LITE_ENABLE: '0' }, async () => {
+      vi.resetModules();
+      server = await spawnServer({
+        env: { TEST_ROUTES: '1', AUTH_ENABLED: '0', COMPARE_VIEW_ENABLE: '1', RATE_LIMIT_ENABLED: '0', SCM_LITE_ENABLE: '0' },
+      });
+    });
+
     const r1 = await requestJSON(`${server.baseUrl}/v1/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -107,6 +124,13 @@ describe('Option Compare (P1A)', () => {
   });
 
   it('deterministic: same seed produces same top3_edges order', async () => {
+    await withEnv({ COMPARE_VIEW_ENABLE: '1', RATE_LIMIT_ENABLED: '0', SCM_LITE_ENABLE: '0' }, async () => {
+      vi.resetModules();
+      server = await spawnServer({
+        env: { TEST_ROUTES: '1', AUTH_ENABLED: '0', COMPARE_VIEW_ENABLE: '1', RATE_LIMIT_ENABLED: '0', SCM_LITE_ENABLE: '0' },
+      });
+    });
+
     const runs = [];
     for (let i = 0; i < 3; i++) {
       const res = await requestJSON(`${server.baseUrl}/v1/run`, {
