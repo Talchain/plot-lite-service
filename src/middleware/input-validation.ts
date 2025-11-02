@@ -268,6 +268,36 @@ export function createQueryValidator(route: 'stream') {
 }
 
 /**
+ * P0: Check for UI-editor-only fields that should be rejected
+ * Rejects: source, target, data, position, type (in nodes/edges)
+ */
+function checkUIFields(body: any): string | null {
+  if (!body?.graph) return null;
+  
+  const { nodes = [], edges = [] } = body.graph;
+  
+  // Check nodes for UI-only fields
+  for (let i = 0; i < nodes.length; i++) {
+    const node = nodes[i];
+    if (node.source !== undefined) return `graph.nodes[${i}].source`;
+    if (node.target !== undefined) return `graph.nodes[${i}].target`;
+    if (node.data !== undefined) return `graph.nodes[${i}].data`;
+    if (node.position !== undefined) return `graph.nodes[${i}].position`;
+  }
+  
+  // Check edges for UI-only fields
+  for (let i = 0; i < edges.length; i++) {
+    const edge = edges[i];
+    if (edge.source !== undefined) return `graph.edges[${i}].source`;
+    if (edge.target !== undefined) return `graph.edges[${i}].target`;
+    if (edge.data !== undefined) return `graph.edges[${i}].data`;
+    if (edge.position !== undefined) return `graph.edges[${i}].position`;
+  }
+  
+  return null;
+}
+
+/**
  * Validation middleware factory
  */
 export function createValidator(route: 'run' | 'counterfactual' | 'critique' | 'draft') {
@@ -299,6 +329,18 @@ export function createValidator(route: 'run' | 'counterfactual' | 'critique' | '
     }
 
     const body = (req as any).body;
+
+    // P0: Check for UI-editor-only fields (before schema validation)
+    const uiField = checkUIFields(body);
+    if (uiField) {
+      return reply.code(400).send({
+        schema: 'error.v1',
+        code: 'BAD_INPUT',
+        message: `UI-editor field not allowed: ${uiField}`,
+        field: uiField,
+        hint: 'Remove UI-editor fields (source, target, data, position) from graph nodes/edges',
+      });
+    }
 
     // Explicit top-level additionalProperties guard (defensive, mirrors Ajv schema intent)
     if (body && typeof body === 'object' && !Array.isArray(body)) {
