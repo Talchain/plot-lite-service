@@ -488,6 +488,77 @@ paths:
                     code: FORBIDDEN
                     message: Invalid token
   
+  /v1/limits:
+    get:
+      summary: Get graph size limits
+      operationId: limitsV1
+      tags: [v1, meta]
+      description: |
+        Returns the configured maximum graph size limits.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [nodes, edges]
+                properties:
+                  nodes:
+                    type: object
+                    required: [max]
+                    properties:
+                      max:
+                        type: integer
+                        example: 200
+                  edges:
+                    type: object
+                    required: [max]
+                    properties:
+                      max:
+                        type: integer
+                        example: 500
+  
+  /v1/validate:
+    post:
+      summary: Validate /v1/run payload
+      operationId: validateV1
+      tags: [v1, validation]
+      description: |
+        Validates a /v1/run request payload without execution.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/runRequest'
+      responses:
+        '200':
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [valid, violations]
+                properties:
+                  valid:
+                    type: boolean
+                  violations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        path:
+                          type: string
+                        reason:
+                          type: string
+        '400':
+          description: Bad input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+  
   /v1/counterfactual:
     post:
       summary: Counterfactual analysis
@@ -967,6 +1038,17 @@ components:
               sign: { type: string, enum: ['+', '-'] }
               explanation: { type: string }
         summary: { type: string }
+        top_edge_drivers:
+          type: array
+          description: 'P0: Top-3 edges by sensitivity'
+          items:
+            type: object
+            properties:
+              edge_id: { type: string }
+              from: { type: string }
+              to: { type: string }
+              sensitivity: { type: number }
+              rank: { type: integer }
     
     runRequest:
       type: object
@@ -1001,6 +1083,20 @@ components:
         trace_id:
           type: string
           description: 'Optional client-provided trace identifier echoed from X-Trace-Id when TRACE_ID_PASSTHROUGH=1; may also be present when TRACE_MIN=1'
+        result:
+          type: object
+          description: 'P0: Convenience fields for UI integration'
+          properties:
+            response_hash:
+              type: string
+              description: 'SHA-256 hash of canonical inputs for caching'
+            summary:
+              type: object
+              description: 'Direct percentile access'
+              properties:
+                p10: { type: number }
+                p50: { type: number }
+                p90: { type: number }
     
     counterfactualRequest:
       type: object
