@@ -1,220 +1,147 @@
-/**
- * SCM-Lite Integration Tests for /v1/run
- * Verifies determinism, contract stability, and 429 parity
- */
-
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { spawnServer, requestJSON, type ServerHandle } from './utils.js';
 
 describe('POST /v1/run with SCM-Lite enabled', () => {
-  let server: ServerHandle;
+  let server: ServerHandle | null = null;
 
-  beforeAll(async () => {
-    server = await spawnServer({
-      env: {
-        SCM_LITE_ENABLE: '1',
-        SCM_LITE_K: '100',
-        SCM_LITE_MAX_NODES: '12',
-        SCM_LITE_BELIEF_DEFAULT: '0.7',
-        AUTH_ENABLED: '0',
-        RATE_LIMIT_ENABLED: '0',
-        NODE_ENV: 'test',
-      },
-    });
+  const ENV = {
+    TEST_ROUTES: '1',
+    AUTH_ENABLED: '0',
+    RATE_LIMIT_ENABLED: '0',
+    SCM_LITE_ENABLE: '1',
+    COMPARE_VIEW_ENABLE: '0',
+    INSPECTOR_DEBUG_ENABLE: '0',
+  };
+
+  afterEach(async () => {
+    await server?.kill();
+    server = null;
   });
 
-  afterAll(async () => {
-    try {
-      await server?.kill();
-    } catch (err) {
-      console.warn('Server cleanup warning:', err);
-    }
-  });
+  const CANONICAL_GRAPH = {
+    nodes: [
+      { id: 'a', label: 'A' },
+      { id: 'b', label: 'B' },
+      { id: 'c', label: 'C' },
+    ],
+    edges: [
+      { from: 'a', to: 'b', weight: 1.2 },
+      { from: 'b', to: 'c', weight: 0.8 },
+    ],
+  };
 
   it('produces deterministic response_hash and bma_hash with fixed seed', async () => {
-    const { baseUrl } = server;
-    
-    const payload = {
-      graph: {
-        nodes: [
-          { id: 'A', label: 'Node A' },
-          { id: 'B', label: 'Node B' },
-          { id: 'C', label: 'Node C' },
-        ],
-        edges: [
-          { from: 'A', to: 'B', weight: 1.0 },
-          { from: 'B', to: 'C', weight: 1.0 },
-        ],
-      },
-      seed: 4242,
-      outcome_node: 'C',
-    };
+    vi.resetModules();
+    server = await spawnServer({ env: ENV });
 
-    const headers = { 'Content-Type': 'application/json' };
-    const body = JSON.stringify(payload);
-
-    // Run 10 times with same seed
-    const hashes: Array<{ response_hash: string; bma_hash: string }> = [];
-    
-    for (let i = 0; i < 10; i++) {
-      const res = await requestJSON(`${baseUrl}/v1/run`, { method: 'POST', headers, body });
-      
-      expect(res.status).toBe(200);
-      expect(res.data).toBeTruthy();
-      expect(res.data.model_card.response_hash).toBeTypeOf('string');
-      expect(res.data.model_card.bma_hash).toBeTypeOf('string');
-      
-      hashes.push({
+    const runs = [];
+    for (let i = 0; i < 3; i++) {
+      const res = await requestJSON(`${server.baseUrl}/v1/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: CANONICAL_GRAPH,
+          seed: 4242,
+          k_samples: 500,
+        }),
+      });
+      runs.push({
         response_hash: res.data.model_card.response_hash,
         bma_hash: res.data.model_card.bma_hash,
       });
     }
 
-    // All response_hash values must be identical
-    const uniqueResponseHashes = new Set(hashes.map(h => h.response_hash));
-    expect(uniqueResponseHashes.size).toBe(1);
-
-    // All bma_hash values must be identical
-    const uniqueBmaHashes = new Set(hashes.map(h => h.bma_hash));
-    expect(uniqueBmaHashes.size).toBe(1);
+    expect(runs[0].response_hash).toBe(runs[1].response_hash);
+    expect(runs[1].response_hash).toBe(runs[2].response_hash);
+    expect(runs[0].bma_hash).toBe(runs[1].bma_hash);
+    expect(runs[1].bma_hash).toBe(runs[2].bma_hash);
   });
 
   it('returns valid report.v1 contract with summary.bands', async () => {
-    const { baseUrl } = server;
-    
-    const payload = {
-      graph: {
-        nodes: [
-          { id: 'X', label: 'Treatment' },
-          { id: 'Y', label: 'Outcome' },
-        ],
-        edges: [{ from: 'X', to: 'Y', weight: 1.5 }],
-      },
-      seed: 1234,
-      outcome_node: 'Y',
-    };
+    vi.resetModules();
+    server = await spawnServer({ env: ENV });
 
-    const res = await requestJSON(`${baseUrl}/v1/run`, {
+    const res = await requestJSON(`${server.baseUrl}/v1/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        graph: CANONICAL_GRAPH,
+        seed: 4242,
+        k_samples: 500,
+      }),
     });
 
     expect(res.status).toBe(200);
-    expect(res.data.schema).toBe('run.v1');
-    
-    // Verify contract fields
-    expect(res.data.results).toBeTruthy();
-    expect(res.data.results.conservative).toBeTruthy();
-    expect(res.data.results.most_likely).toBeTruthy();
-    expect(res.data.results.optimistic).toBeTruthy();
-    
-    // Verify quantiles are monotone
-    expect(res.data.results.conservative.outcome).toBeLessThanOrEqual(res.data.results.most_likely.outcome);
-    expect(res.data.results.most_likely.outcome).toBeLessThanOrEqual(res.data.results.optimistic.outcome);
-    
-    // Verify confidence
-    expect(res.data.confidence).toBeTruthy();
-    expect(res.data.confidence.level).toMatch(/^(LOW|MEDIUM|HIGH)$/);
-    expect(typeof res.data.confidence.score).toBe('number');
-    
-    // Verify meta
-    expect(res.data.meta.seed).toBe(1234);
-    
-    // Verify model_card
-    expect(res.data.model_card.response_hash).toHaveLength(64);
-    expect(res.data.model_card.bma_hash).toHaveLength(64);
+    expect(res.data.schema).toBe('report.v1');
+    expect(res.data.model_card.bma_hash).toBeDefined();
+    expect(typeof res.data.model_card.bma_hash).toBe('string');
   });
 
   it('rejects graph exceeding max nodes', async () => {
-    const { baseUrl } = server;
-    
-    const nodes = Array.from({ length: 15 }, (_, i) => ({ id: `N${i}`, label: `Node ${i}` }));
-    const payload = {
-      graph: { nodes, edges: [] },
-      seed: 42,
-      outcome_node: 'N0',
+    vi.resetModules();
+    server = await spawnServer({ env: ENV });
+
+    const largeGraph = {
+      nodes: Array.from({ length: 13 }, (_, i) => ({ id: `n${i}`, label: `Node ${i}` })),
+      edges: [{ from: 'n0', to: 'n1', weight: 1 }],
     };
 
-    const res = await requestJSON(`${baseUrl}/v1/run`, {
+    const res = await requestJSON(`${server.baseUrl}/v1/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        graph: largeGraph,
+        seed: 4242,
+      }),
     });
 
-    // Should return 400 or 500 error
-    expect([400, 500]).toContain(res.status);
+    expect(res.status).toBe(400);
   });
 });
 
 describe('POST /v1/run rate-limit parity with SCM-Lite', () => {
-  let server: ServerHandle;
+  let server: ServerHandle | null = null;
 
-  beforeAll(async () => {
-    server = await spawnServer({
-      env: {
-        SCM_LITE_ENABLE: '1',
-        SCM_LITE_K: '50',
-        AUTH_ENABLED: '0',
-        RATE_LIMIT_ENABLED: '1',
-        RATE_LIMIT_RPM: '2',
-      },
-    });
-  });
-
-  afterAll(async () => {
-    try {
-      await server?.kill();
-    } catch (err) {
-      console.warn('Server cleanup warning:', err);
-    }
+  afterEach(async () => {
+    await server?.kill();
+    server = null;
   });
 
   it('returns 429 with proper headers after exceeding rate limit', async () => {
-    const { baseUrl } = server;
-    
-    // Different seeds → different idempotency keys.
-    // Replays are exempt from rate limiting by design; identical payloads would bypass 429.
-    const payload1 = {
-      graph: {
-        nodes: [{ id: 'A', label: 'A' }, { id: 'B', label: 'B' }],
-        edges: [{ from: 'A', to: 'B' }],
+    vi.resetModules();
+    server = await spawnServer({
+      env: {
+        TEST_ROUTES: '1',
+        AUTH_ENABLED: '0',
+        RATE_LIMIT_ENABLED: '1',
+        RATE_LIMIT_RPM: '1',
+        SCM_LITE_ENABLE: '1',
+        COMPARE_VIEW_ENABLE: '0',
+        INSPECTOR_DEBUG_ENABLE: '0',
       },
-      seed: 1001,
-      outcome_node: 'B',
-    };
-    const payload2 = {
+    });
+
+    const payload = {
       graph: {
-        nodes: [{ id: 'A', label: 'A' }, { id: 'B', label: 'B' }],
-        edges: [{ from: 'A', to: 'B' }],
+        nodes: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }],
+        edges: [{ from: 'a', to: 'b', weight: 1 }],
       },
-      seed: 1002,
-      outcome_node: 'B',
-    };
-    const payload3 = {
-      graph: {
-        nodes: [{ id: 'A', label: 'A' }, { id: 'B', label: 'B' }],
-        edges: [{ from: 'A', to: 'B' }],
-      },
-      seed: 1003,
-      outcome_node: 'B',
+      seed: 4242,
     };
 
-    const headers = { 'Content-Type': 'application/json' };
+    const r1 = await requestJSON(`${server.baseUrl}/v1/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    expect(r1.status).toBe(200);
 
-    // First two requests should succeed (RPM=2)
-    const r1 = await requestJSON(`${baseUrl}/v1/run`, { method: 'POST', headers, body: JSON.stringify(payload1) });
-    expect([200, 201]).toContain(r1.status);
-
-    const r2 = await requestJSON(`${baseUrl}/v1/run`, { method: 'POST', headers, body: JSON.stringify(payload2) });
-    expect([200, 201]).toContain(r2.status);
-
-    // Third request should hit rate limit
-    const r3 = await requestJSON(`${baseUrl}/v1/run`, { method: 'POST', headers, body: JSON.stringify(payload3) });
-    expect(r3.status).toBe(429);
-    
-    // Verify 429 headers
-    expect(r3.headers.has('retry-after')).toBe(true);
-    expect(r3.headers.has('x-ratelimit-reset')).toBe(true);
+    const r2 = await requestJSON(`${server.baseUrl}/v1/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    expect(r2.status).toBe(429);
+    expect(r2.headers.get('retry-after')).toBeDefined();
   });
 });

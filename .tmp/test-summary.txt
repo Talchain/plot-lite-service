@@ -1,0 +1,4 @@
+.tmp/run1.txt: Test Files  2 failed | 173 passed | 8 skipped (183)
+.tmp/run1.txt:      Tests  1 failed | 573 passed | 14 skipped (588)
+.tmp/run2.txt: Test Files  3 failed | 172 passed | 8 skipped (183)
+.tmp/run2.txt:      Tests  7 failed | 567 passed | 14 skipped (588)

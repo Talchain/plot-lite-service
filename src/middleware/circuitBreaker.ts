@@ -70,20 +70,28 @@ if (CONFIG.enabled && !principalExtractionEnabled) {
 // PR-F: Secret strength guard (fail-fast on weak secrets)
 // P0-2: Support dual-secret rotation
 const isTestMode = process.env.NODE_ENV === 'test' || process.env.VITEST === 'true';
-if (CONFIG.enabled && principalExtractionEnabled && !isTestMode) {
+if (CONFIG.enabled && principalExtractionEnabled) {
   const active = process.env.PRINCIPAL_HMAC_SECRET_ACTIVE || process.env.PRINCIPAL_HMAC_SECRET || '';
   const staged = process.env.PRINCIPAL_HMAC_SECRET_STAGED || '';
   
   if (active.length < 64) {
     console.error(`[circuit-breaker] PRINCIPAL_HMAC_SECRET_ACTIVE (or legacy PRINCIPAL_HMAC_SECRET) must be ≥64 hex chars (32 bytes). Current: ${active.length} chars.`);
     console.error('[circuit-breaker] Generate a strong secret: openssl rand -hex 32');
-    process.exit(1);
+    if (isTestMode) {
+      process.exitCode = 1;
+    } else {
+      process.exit(1);
+    }
   }
   
   if (staged && staged.length < 64) {
     console.error(`[circuit-breaker] PRINCIPAL_HMAC_SECRET_STAGED must be ≥64 hex chars when set. Current: ${staged.length} chars.`);
     console.error('[circuit-breaker] Generate a strong secret: openssl rand -hex 32');
-    process.exit(1);
+    if (isTestMode) {
+      process.exitCode = 1;
+    } else {
+      process.exit(1);
+    }
   }
 }
 

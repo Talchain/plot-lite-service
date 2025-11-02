@@ -9,10 +9,11 @@ export const runResponseSchema = {
     model_card: { type: 'object', additionalProperties: true, required: ['seed', 'determinism_note', 'response_hash'] },
     meta: { type: 'object', additionalProperties: true, required: ['seed', 'version'] },
     graph: { type: 'object', additionalProperties: true, nullable: true },
-    critique: { type: 'object', additionalProperties: true, nullable: true },
+    critique: { type: 'array', items: { type: 'object', additionalProperties: true }, nullable: true },
     explain_delta: { type: 'object', additionalProperties: true, nullable: true },
-    identifiability: { type: 'object', additionalProperties: true, nullable: true },
-    trace_id: { type: 'string', nullable: true }
+    identifiability: { type: 'string', nullable: true },
+    trace_id: { type: 'string', nullable: true },
+    debug: { type: 'object', additionalProperties: true, nullable: true }
   }
 } as const;
 

@@ -71,6 +71,13 @@ export function normaliseReport(report: unknown): unknown {
     normalised.meta = meta;
   }
   
+  // Remove response_hash from model_card to avoid circularity
+  if (normalised.model_card && typeof normalised.model_card === 'object') {
+    const model_card = { ...(normalised.model_card as Record<string, unknown>) };
+    delete model_card.response_hash;
+    normalised.model_card = model_card;
+  }
+  
   // Remove any debug/timing fields at root
   delete normalised.debug;
   delete normalised.timing;
@@ -128,10 +135,43 @@ export function sha256Stable(obj: unknown): string {
  * Does not mutate the original object; returns a shallow-cloned copy.
  */
 export function stampResponseHash<T extends { model_card: object }>(doc: T): T {
-  const copy: any = { ...doc, model_card: { ...doc.model_card } };
+  const { debug, ...rest } = doc as any;
+  const copy: any = { ...rest, model_card: { ...(doc as any).model_card } };
   // Ensure we hash the payload without the response_hash to avoid circularity
   delete copy.model_card.response_hash;
   const hash = sha256Stable(copy);
   copy.model_card.response_hash = hash;
+  // Add debug back (excluded from hash but included in response)
+  if (debug !== undefined) {
+    copy.debug = debug;
+  }
   return copy as T;
+}
+
+/**
+ * Build canonical input object for result.response_hash
+ * Picks only the 7 input keys, excludes debug, sorted keys
+ */
+export function buildCanonicalInput(body: any): object {
+  const canonical: any = {};
+  
+  // Pick only the 7 input keys in sorted order
+  if (body.baseline_value !== undefined) canonical.baseline_value = body.baseline_value;
+  if (body.graph !== undefined) canonical.graph = body.graph;
+  if (body.inference_mode !== undefined) canonical.inference_mode = body.inference_mode;
+  if (body.k_samples !== undefined) canonical.k_samples = body.k_samples;
+  if (body.outcome_node !== undefined) canonical.outcome_node = body.outcome_node;
+  if (body.seed !== undefined) canonical.seed = body.seed;
+  if (body.treatment_node !== undefined) canonical.treatment_node = body.treatment_node;
+  
+  return canonical;
+}
+
+/**
+ * Compute SHA-256 hash of canonical input (for result.response_hash)
+ */
+export function hashCanonicalInput(body: any): string {
+  const canonical = buildCanonicalInput(body);
+  const json = stableStringify(canonical);
+  return createHash('sha256').update(json, 'utf8').digest('hex');
 }

@@ -2,7 +2,7 @@
  * POST /v1/run - Execute probabilistic model with trust signals
  */
 
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { isDemoMode, getDemoSeed } from '../../middleware/demo-mode.js';
 import { getDemoRunResponse } from '../../fixtures/demo-payloads.js';
@@ -13,11 +13,14 @@ import { buildExplainDelta } from '../../trust/explain-delta.js';
 import { checkLinearity, detectThresholdCrossings, generateForkSuggestions } from '../../trust/linearity.js';
 import { checkIdentifiability } from '../../trust/identifiability.js';
 import { enforceComputeBudget } from '../../governance/cost-estimator.js';
-import { stableStringify, normaliseReport } from '../../util/canonical-json.js';
+import { stampResponseHash, hashCanonicalInput } from '../../util/canonical-json.js';
 import type { Graph } from '../../trust/types.js';
 import { runSCMLite } from '../../scm-lite/adapter.js';
+import { computeSensitivitySimple } from '../../lib/sensitivity-simple.js';
 import { recordEngineComputeMs } from '../../metrics.js';
 import { runResponseSchema } from '../../schemas/response.js';
+
+export type InferenceMode = 'model_based' | 'model_of_inference';
 
 export interface RunRequest {
   graph: Graph;
@@ -26,6 +29,8 @@ export interface RunRequest {
   treatment_node?: string;
   outcome_node?: string;
   baseline_value?: number;
+  inference_mode?: InferenceMode;
+  include_debug?: boolean;
 }
 
 export async function registerRunRoute(app: FastifyInstance) {
@@ -44,7 +49,9 @@ export async function registerRunRoute(app: FastifyInstance) {
           treatment_node: { type: 'string' },
           outcome_node: { type: 'string' },
           baseline_value: { type: 'number' },
-          query: { type: 'object' }
+          query: { type: 'object' },
+          inference_mode: { type: 'string', enum: ['model_based', 'model_of_inference'] },
+          include_debug: { type: 'boolean' }
         },
         additionalProperties: true
       },
@@ -120,6 +127,8 @@ export async function registerRunRoute(app: FastifyInstance) {
       treatment_node = graph.nodes[0]?.id,
       outcome_node = graph.nodes[graph.nodes.length - 1]?.id,
       baseline_value = 100,
+      inference_mode = 'model_based',
+      include_debug = false,
     } = body;
 
     // Cost governance
@@ -278,41 +287,87 @@ export async function registerRunRoute(app: FastifyInstance) {
     }
 
     // Build response with meta in alphabetical position
+    let debug: any = undefined;
+    
+    // Add debug.compare if requested and flag enabled
+    if (include_debug && process.env.COMPARE_VIEW_ENABLE === '1') {
+      debug = {
+        compare: {
+          [outcome_node]: {
+            p10: results.conservative.outcome,
+            p50: results.most_likely.outcome,
+            p90: results.optimistic.outcome,
+            top3_edges: computeSensitivitySimple(graph.edges, outcome_node),
+          },
+        },
+      };
+    }
+    
+    // Add debug.inspector if requested and flag enabled
+    if (include_debug && process.env.INSPECTOR_DEBUG_ENABLE === '1') {
+      if (!debug) debug = {};
+      debug.inspector = {
+        edges: graph.edges.map((edge, idx) => ({
+          edge_id: `${edge.from}::${edge.to}::${idx}`,
+          from: edge.from,
+          to: edge.to,
+          label: edge.label ?? '',
+          weight: edge.weight ?? 0,
+          belief: edge.belief ?? 1.0,
+          provenance: edge.provenance ?? 'template',
+        })),
+      };
+    }
+    
+    // P0: Compute top edge drivers (always included, not gated by include_debug)
+    const top_edge_drivers = computeSensitivitySimple(graph.edges, outcome_node).slice(0, 3);
+    
     const base: any = {
       confidence,
       critique,
-      explain_delta,
+      ...(debug && { debug }),
+      explain_delta: {
+        ...explain_delta,
+        top_edge_drivers, // P0: top-3 edge drivers (separate from node-based top_drivers)
+      },
       graph,
       identifiability: identifiability.summary,
       meta: {
         seed,
         commit: process.env.BUILD_ID || process.env.GITHUB_SHA || 'dev',
         version: '1.0.0',
+        inference_mode,
       },
       model_card,
+      result: {
+        response_hash: hashCanonicalInput(body), // P0: hash of canonical inputs only
+        summary: {
+          p10: results.conservative.outcome,
+          p50: results.most_likely.outcome,
+          p90: results.optimistic.outcome,
+        },
+      },
       results,
       schema: 'run.v1',
     };
-    // Compute response hash (SHA-256 of normalised payload)
-    const normalised = normaliseReport(base);
-    const canonical = stableStringify(normalised);
-    const response_hash = createHash('sha256').update(canonical, 'utf8').digest('hex');
-    base.model_card.response_hash = response_hash;
     
-    // Add BMA hash if SCM-Lite was used
+    // Add BMA hash BEFORE stamping (must be included in response_hash)
     if (scm_bma_hash) {
       base.model_card.bma_hash = scm_bma_hash;
     }
+    
+    // Stamp response hash (handles circularity correctly)
+    const stamped = stampResponseHash(base);
     // Optional trace_id (not included in response_hash)
     if (process.env.TRACE_MIN === '1') {
-      base.trace_id = randomUUID();
+      stamped.trace_id = randomUUID();
     }
     
     // Record compute time for observability
     const computeMs = performance.now() - computeStart;
     recordEngineComputeMs(computeMs);
     
-    return base;
+    return stamped;
   });
 
   // Capability probe: HEAD /v1/run returns 405 with Allow header

@@ -18,10 +18,13 @@ export const KNOWN_FEATURE_FLAGS = [
   'STREAM_PARITY_ENABLE',
   'FEATURE_STREAM',
   'AUTH_ENABLED',
+  'RATE_LIMIT_ENABLED',
   'TEST_ROUTES',
   'METRICS',
   'CORS_DEV',
   'OPENAPI_DEV',
+  'COMPARE_VIEW_ENABLE',
+  'INSPECTOR_DEBUG_ENABLE',
 ] as const;
 
 export function validateFeatureFlags(logger?: any): void {

@@ -15,7 +15,7 @@ describe('request guards', () => {
   it('413 oversized body; 400 unknown field; JSON 429 headers; 400 out-of-range stream param', async () => {
     const PORT = nextPort();
     const BASE = `http://127.0.0.1:${PORT}`;
-    const env = { ...process.env, TEST_ROUTES: '1', AUTH_ENABLED: '0', PORT: String(PORT), RATE_LIMIT_RPM: '3' } as any;
+    const env = { ...process.env, TEST_ROUTES: '1', AUTH_ENABLED: '0', PORT: String(PORT), RATE_LIMIT_ENABLED: '1', RATE_LIMIT_RPM: '3' } as any;
     const ps = spawn(process.execPath, ['dist/main.js'], { env, stdio: 'ignore' });
     try {
       const up = await waitHealth(BASE);
