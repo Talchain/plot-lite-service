@@ -1,0 +1,63 @@
+# P0 UI Integration - OpenAPI Additions
+# Merge these into contracts/openapi.yaml
+
+/v1/limits:
+  get:
+    summary: Get graph size limits
+    operationId: limitsV1
+    tags: [v1, meta]
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                nodes: { type: object, properties: { max: { type: integer } } }
+                edges: { type: object, properties: { max: { type: integer } } }
+
+/v1/validate:
+  post:
+    summary: Validate /v1/run payload
+    operationId: validateV1
+    tags: [v1, validation]
+    requestBody:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/runRequest'
+    responses:
+      '200':
+        description: Validation result
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                valid: { type: boolean }
+                violations: { type: array }
+
+# Add to runResponse schema:
+response_hash:
+  type: string
+  description: SHA-256 hash of canonical inputs
+  example: "2e96249a0d89d0e6..."
+
+summary:
+  type: object
+  properties:
+    p10: { type: number }
+    p50: { type: number }
+    p90: { type: number }
+
+top_edge_drivers:
+  type: array
+  items:
+    type: object
+    properties:
+      edge_id: { type: string }
+      from: { type: string }
+      to: { type: string }
+      sensitivity: { type: number }
+      rank: { type: integer }
