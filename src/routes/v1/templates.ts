@@ -1,30 +1,55 @@
 import type { FastifyInstance } from 'fastify';
 import { canonicalStringify, sha256Hex } from '../../util/canonical.js';
 
-type Graph = { nodes: any[]; edges: any[] };
+type Graph = { 
+  version?: string;
+  default_seed?: number;
+  nodes: any[]; 
+  edges: any[];
+  meta?: { roots?: string[]; leaves?: string[]; suggested_positions?: Record<string, {x: number; y: number}> };
+};
 const UPDATED_AT = '2025-01-01T00:00:00.000Z';
 
 const graphs: Record<string, Graph> = {
   small: {
-    nodes: [ { id: 'A', label: 'A' }, { id: 'B', label: 'B' } ],
-    edges: [ { from: 'A', to: 'B', label: 'A->B' } ]
+    version: '1.2',
+    default_seed: 4242,
+    nodes: [ 
+      { id: 'A', label: 'A', kind: 'option' }, 
+      { id: 'B', label: 'B', kind: 'outcome', utility: 0.5 } 
+    ],
+    edges: [ 
+      { from: 'A', to: 'B', label: 'A->B', weight: 0.7, belief: 0.85, provenance: 'template' } 
+    ],
+    meta: { roots: ['A'], leaves: ['B'] }
   },
   medium: {
+    version: '1.2',
+    default_seed: 4242,
     nodes: [
-      { id: 'Price', label: 'Price' },
-      { id: 'Demand', label: 'Demand' },
-      { id: 'Revenue', label: 'Revenue' },
-      { id: 'Marketing', label: 'Marketing' }
+      { id: 'Price', label: 'Price', kind: 'decision', body: 'Set product price' },
+      { id: 'Demand', label: 'Demand', kind: 'option', prior: 0.5 },
+      { id: 'Revenue', label: 'Revenue', kind: 'outcome', utility: 0.7 },
+      { id: 'Marketing', label: 'Marketing', kind: 'option', prior: 0.3 }
     ],
     edges: [
-      { from: 'Price', to: 'Demand' },
-      { from: 'Demand', to: 'Revenue' },
-      { from: 'Marketing', to: 'Demand' }
-    ]
+      { from: 'Price', to: 'Demand', weight: 0.6, belief: 0.8, provenance: 'template' },
+      { from: 'Demand', to: 'Revenue', weight: 0.8, belief: 0.9, provenance: 'template' },
+      { from: 'Marketing', to: 'Demand', weight: 0.4, belief: 0.7, provenance: 'assumption' }
+    ],
+    meta: { roots: ['Price', 'Marketing'], leaves: ['Revenue'] }
   },
   edge: {
-    nodes: [ { id: 'X', label: 'Baseline Near Zero' }, { id: 'Y', label: 'Output' } ],
-    edges: [ { from: 'X', to: 'Y' } ]
+    version: '1.2',
+    default_seed: 4242,
+    nodes: [ 
+      { id: 'X', label: 'Baseline Near Zero', kind: 'option' }, 
+      { id: 'Y', label: 'Output', kind: 'outcome', utility: 0.0 } 
+    ],
+    edges: [ 
+      { from: 'X', to: 'Y', weight: 0.01, belief: 1.0, provenance: 'template' } 
+    ],
+    meta: { roots: ['X'], leaves: ['Y'] }
   }
 };
 
