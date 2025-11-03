@@ -14,6 +14,9 @@ describe('SCM-Lite disabled in production mode', () => {
     server = await spawnServer({
       env: {
         SCM_LITE_ENABLE: '0',
+      PRINCIPAL_HMAC_SECRET: '',
+      PRINCIPAL_HMAC_SECRET_ACTIVE: '',
+      PRINCIPAL_HMAC_SECRET_STAGED: '',
         NODE_ENV: 'production',
         AUTH_ENABLED: '0',
         RATE_LIMIT_ENABLED: '0',
@@ -50,6 +53,9 @@ describe('SCM-Lite disabled in production mode', () => {
     server = await spawnServer({
       env: {
         SCM_LITE_ENABLE: '0',
+      PRINCIPAL_HMAC_SECRET: '',
+      PRINCIPAL_HMAC_SECRET_ACTIVE: '',
+      PRINCIPAL_HMAC_SECRET_STAGED: '',
         NODE_ENV: 'development',
         AUTH_ENABLED: '0',
         RATE_LIMIT_ENABLED: '0',

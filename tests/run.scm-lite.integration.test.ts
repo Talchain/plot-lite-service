@@ -9,6 +9,9 @@ describe('POST /v1/run with SCM-Lite enabled', () => {
     AUTH_ENABLED: '0',
     RATE_LIMIT_ENABLED: '0',
     SCM_LITE_ENABLE: '1',
+    PRINCIPAL_HMAC_SECRET: '',
+    PRINCIPAL_HMAC_SECRET_ACTIVE: '',
+    PRINCIPAL_HMAC_SECRET_STAGED: '',
     COMPARE_VIEW_ENABLE: '0',
     INSPECTOR_DEBUG_ENABLE: '0',
   };
@@ -46,7 +49,7 @@ describe('POST /v1/run with SCM-Lite enabled', () => {
         }),
       });
       runs.push({
-        response_hash: res.data.model_card.response_hash,
+        response_hash: res.data.result.response_hash,
         bma_hash: res.data.model_card.bma_hash,
       });
     }
@@ -72,7 +75,7 @@ describe('POST /v1/run with SCM-Lite enabled', () => {
     });
 
     expect(res.status).toBe(200);
-    expect(res.data.schema).toBe('report.v1');
+    expect(res.data.schema).toBe('run.v1');
     expect(res.data.model_card.bma_hash).toBeDefined();
     expect(typeof res.data.model_card.bma_hash).toBe('string');
   });
@@ -116,6 +119,9 @@ describe('POST /v1/run rate-limit parity with SCM-Lite', () => {
         RATE_LIMIT_ENABLED: '1',
         RATE_LIMIT_RPM: '1',
         SCM_LITE_ENABLE: '1',
+    PRINCIPAL_HMAC_SECRET: '',
+    PRINCIPAL_HMAC_SECRET_ACTIVE: '',
+    PRINCIPAL_HMAC_SECRET_STAGED: '',
         COMPARE_VIEW_ENABLE: '0',
         INSPECTOR_DEBUG_ENABLE: '0',
       },

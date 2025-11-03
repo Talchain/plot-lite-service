@@ -21,6 +21,9 @@ describe('Option Compare (P1A)', () => {
     INSPECTOR_DEBUG_ENABLE: '0',
     RATE_LIMIT_ENABLED: '0',
     SCM_LITE_ENABLE: '0',
+    PRINCIPAL_HMAC_SECRET: '',
+    PRINCIPAL_HMAC_SECRET_ACTIVE: '',
+    PRINCIPAL_HMAC_SECRET_STAGED: '',
   };
 
   afterEach(async () => {

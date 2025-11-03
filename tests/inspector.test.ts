@@ -11,6 +11,9 @@ describe('Inspector (P1B)', () => {
     INSPECTOR_DEBUG_ENABLE: '1',
     COMPARE_VIEW_ENABLE: '0',
     SCM_LITE_ENABLE: '0',
+    PRINCIPAL_HMAC_SECRET: '',
+    PRINCIPAL_HMAC_SECRET_ACTIVE: '',
+    PRINCIPAL_HMAC_SECRET_STAGED: '',
   };
 
   afterEach(async () => {

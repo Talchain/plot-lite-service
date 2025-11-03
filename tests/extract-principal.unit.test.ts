@@ -22,6 +22,8 @@ describe('PR-3: Principal Extraction', () => {
   beforeEach(() => {
     origEnv = {
       PRINCIPAL_HMAC_SECRET: process.env.PRINCIPAL_HMAC_SECRET,
+      PRINCIPAL_HMAC_SECRET_ACTIVE: process.env.PRINCIPAL_HMAC_SECRET_ACTIVE,
+      PRINCIPAL_HMAC_SECRET_STAGED: process.env.PRINCIPAL_HMAC_SECRET_STAGED,
       TRUST_PROXY: process.env.TRUST_PROXY,
       TRUST_PROXY_HOPS: process.env.TRUST_PROXY_HOPS,
       RL_CB_ENABLE: process.env.RL_CB_ENABLE,
@@ -183,13 +185,17 @@ describe('PR-3: Principal Extraction', () => {
 
     it('isPrincipalExtractionEnabled returns false when no secret', () => {
       delete process.env.PRINCIPAL_HMAC_SECRET;
+      delete process.env.PRINCIPAL_HMAC_SECRET_ACTIVE;
+      delete process.env.PRINCIPAL_HMAC_SECRET_STAGED;
       expect(isPrincipalExtractionEnabled()).toBe(false);
     });
 
     it('getPrincipalExtractionMode returns degraded when CB enabled but no secret', () => {
       process.env.RL_CB_ENABLE = '1';
       delete process.env.PRINCIPAL_HMAC_SECRET;
-      
+      delete process.env.PRINCIPAL_HMAC_SECRET_ACTIVE;
+      delete process.env.PRINCIPAL_HMAC_SECRET_STAGED;
+
       expect(getPrincipalExtractionMode()).toBe('degraded');
     });
 

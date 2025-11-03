@@ -327,7 +327,7 @@ paths:
                 internal_error:
                   value:
                     schema: error.v1
-                    code: INTERNAL_ERROR
+                    code: INTERNAL
                     message: Failed to retrieve version information
   
   /v1/openapi.json:
@@ -518,6 +518,18 @@ paths:
                       max:
                         type: integer
                         example: 500
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                server_error:
+                  value:
+                    schema: error.v1
+                    code: INTERNAL
+                    message: Server error
   
   /v1/validate:
     post:
@@ -558,7 +570,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/errorV1'
-  
+              examples:
+                bad_input:
+                  value:
+                    schema: error.v1
+                    code: BAD_INPUT
+                    message: Invalid payload
   /v1/counterfactual:
     post:
       summary: Counterfactual analysis
@@ -845,7 +862,7 @@ paths:
                 internal_error:
                   value:
                     schema: error.v1
-                    code: INTERNAL_ERROR
+                    code: INTERNAL
                     message: Failed to load templates
 
   /v1/templates/{id}/graph:
@@ -875,7 +892,7 @@ paths:
                 not_found:
                   value:
                     schema: error.v1
-                    code: NOT_FOUND
+                    code: INTERNAL
                     message: Template 'unknown' not found
 
 components:
