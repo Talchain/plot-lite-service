@@ -299,7 +299,7 @@ export async function registerRunRoute(app: FastifyInstance) {
     if (include_debug && process.env.INSPECTOR_DEBUG_ENABLE === '1') {
       if (!debug) debug = {};
       debug.inspector = {
-        edges: graph.edges.map((edge, idx) => ({
+        edges: graph.edges.map((edge: any, idx: number) => ({
           edge_id: `${edge.from}::${edge.to}::${idx}`,
           from: edge.from,
           to: edge.to,
