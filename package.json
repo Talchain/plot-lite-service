@@ -87,7 +87,7 @@
     "@commitlint/cli": "^19.3.0",
     "@commitlint/config-conventional": "^19.2.2",
     "@stoplight/spectral-cli": "^6.11.1",
-    "@types/node": "^24.5.2",
+    "@types/node": "^24.9.2",
     "adm-zip": "^0.5.16",
     "autocannon": "^8.0.0",
     "fast-check": "^3.18.0",

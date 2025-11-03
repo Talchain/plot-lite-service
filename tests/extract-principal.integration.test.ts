@@ -14,6 +14,8 @@ describe('PR-3: Principal Extraction Integration', () => {
     origEnv = {
       RL_CB_ENABLE: process.env.RL_CB_ENABLE,
       PRINCIPAL_HMAC_SECRET: process.env.PRINCIPAL_HMAC_SECRET,
+      PRINCIPAL_HMAC_SECRET_ACTIVE: process.env.PRINCIPAL_HMAC_SECRET_ACTIVE,
+      PRINCIPAL_HMAC_SECRET_STAGED: process.env.PRINCIPAL_HMAC_SECRET_STAGED,
       TRUST_PROXY: process.env.TRUST_PROXY,
     };
     
@@ -68,9 +70,11 @@ describe('PR-3: Principal Extraction Integration', () => {
 
   it('degraded mode: RL_CB_ENABLE=1 & no secret → health shows degraded', async () => {
     await app.close();
-    
+
     // Restart without secret
     delete process.env.PRINCIPAL_HMAC_SECRET;
+    delete process.env.PRINCIPAL_HMAC_SECRET_ACTIVE;
+    delete process.env.PRINCIPAL_HMAC_SECRET_STAGED;
     process.env.RL_CB_ENABLE = '1';
     
     app = await createServer({ enableTestRoutes: false });
@@ -85,9 +89,11 @@ describe('PR-3: Principal Extraction Integration', () => {
 
   it('circuit breaker still works in degraded mode (global only)', async () => {
     await app.close();
-    
+
     // Restart without secret
     delete process.env.PRINCIPAL_HMAC_SECRET;
+    delete process.env.PRINCIPAL_HMAC_SECRET_ACTIVE;
+    delete process.env.PRINCIPAL_HMAC_SECRET_STAGED;
     process.env.RL_CB_ENABLE = '1';
     
     app = await createServer({ enableTestRoutes: false });
