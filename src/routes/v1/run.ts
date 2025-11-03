@@ -16,11 +16,11 @@ import { enforceComputeBudget } from '../../governance/cost-estimator.js';
 import { stampResponseHash, hashCanonicalInput } from '../../util/canonical-json.js';
 import type { Graph } from '../../trust/types.js';
 import { runSCMLite } from '../../scm-lite/adapter.js';
+import { getInferenceEngine, type InferenceMode } from '../../inference/index.js';
 import { computeSensitivitySimple } from '../../lib/sensitivity-simple.js';
 import { recordEngineComputeMs } from '../../metrics.js';
 import { runResponseSchema } from '../../schemas/response.js';
 
-export type InferenceMode = 'model_based' | 'model_of_inference';
 
 export interface RunRequest {
   graph: Graph;
@@ -222,68 +222,57 @@ export async function registerRunRoute(app: FastifyInstance) {
       top_n: 3,
     });
 
-    // Execute SCM-Lite kernel if enabled, otherwise simulate
+    // Execute inference using selected mode
+    const inferenceEngine = getInferenceEngine(inference_mode);
     let results: any;
     let scm_bma_hash: string | undefined;
     
-    if (process.env.SCM_LITE_ENABLE === '1') {
-      const scmConfig = {
+    try {
+      const inferenceResult = await inferenceEngine.run(graph, {
         seed,
-        K: Number(process.env.SCM_LITE_K || 256),
-        maxNodes: Number(process.env.SCM_LITE_MAX_NODES || 12),
-        maxEdges: Number(process.env.SCM_LITE_MAX_EDGES || 20),
-        beliefDefault: Number(process.env.SCM_LITE_BELIEF_DEFAULT || 0.7),
-      };
+        k_samples,
+        outcome_node,
+        baseline_value,
+      });
       
-      let scmResult: any;
-      try {
-        scmResult = runSCMLite(graph, outcome_node, scmConfig);
-      } catch (err: any) {
-        const msg = String(err?.message || '');
-        if (msg.includes('exceeds max nodes') || msg.includes('exceeds max edges')) {
-          return reply.code(400).send({
-            schema: 'error.v1',
-            code: 'SCOPE_LIMIT',
-            message: msg,
-          });
-        }
-        throw err;
-      }
-      
-      // Map SCM quantiles to results format
       results = {
-        conservative: { outcome: scmResult.summary.bands.p10 },
-        most_likely: { outcome: scmResult.summary.bands.p50 },
-        optimistic: { outcome: scmResult.summary.bands.p90 },
+        conservative: inferenceResult.conservative,
+        most_likely: inferenceResult.most_likely,
+        optimistic: inferenceResult.optimistic,
       };
       
-      scm_bma_hash = scmResult.bma_hash;
+      scm_bma_hash = inferenceResult.meta?.bma_hash;
       
-      // Override confidence with SCM result
-      const scmLevelMap: Record<string, number> = { low: 0.3, medium: 0.6, high: 0.9 };
-      confidence = {
-        level: scmResult.confidence.toUpperCase() as any,
-        reason: `SCM-Lite kernel (K=${scmConfig.K}, unique_graphs=${scmResult.meta.unique_graphs})`,
-        score: scmLevelMap[scmResult.confidence] || 0.5,
-        factors: {
-          identifiability: identifiability.identifiable ? 1.0 : 0.3,
-          linearity_distance: 1.0,
-          k_coverage: Math.min(scmConfig.K / 1000, 1.0),
-          calibration: scmResult.meta.sign_stability,
-        },
-      };
-    } else {
-      // Warn in production when SCM-Lite is disabled
-      if (process.env.NODE_ENV === 'production') {
-        app.log.warn({ feature: 'scm_lite', enabled: false }, 'SCM_LITE disabled — using placeholder results');
+      // Update confidence if SCM meta available
+      if (inferenceResult.meta?.unique_graphs) {
+        const scmLevelMap: Record<string, number> = { low: 0.3, medium: 0.6, high: 0.9 };
+        confidence = {
+          level: 'MEDIUM' as any,
+          reason: `${inferenceEngine.name} (K=${k_samples}, unique_graphs=${inferenceResult.meta.unique_graphs})`,
+          score: 0.6,
+          factors: {
+            identifiability: identifiability.identifiable ? 1.0 : 0.3,
+            linearity_distance: 1.0,
+            k_coverage: Math.min(k_samples / 1000, 1.0),
+            calibration: inferenceResult.meta.sign_stability || 0.5,
+          },
+        };
       }
-      
-      // Simulate results (placeholder - real implementation would run inference)
-      results = {
-        conservative: { outcome: baseline_value * 1.05 },
-        most_likely: { outcome: current_value },
-        optimistic: { outcome: baseline_value * 1.25 },
-      };
+    } catch (err: any) {
+      const msg = String(err?.message || '');
+      if (msg.includes('exceeds max nodes') || msg.includes('exceeds max edges')) {
+        return reply.code(400).send({
+          schema: 'error.v1',
+          code: 'SCOPE_LIMIT',
+          message: msg,
+        });
+      }
+      throw err;
+    }
+    
+    // Warn in production when SCM-Lite is disabled
+    if (process.env.NODE_ENV === 'production' && process.env.SCM_LITE_ENABLE !== '1') {
+      app.log.warn({ feature: 'scm_lite', enabled: false, inference_mode }, 'SCM_LITE disabled — using placeholder results');
     }
 
     // Build response with meta in alphabetical position
