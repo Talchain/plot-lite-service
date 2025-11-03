@@ -58,13 +58,17 @@ export interface ServerHandle {
 
 export async function spawnServer(opts: SpawnServerOptions = {}): Promise<ServerHandle> {
   const port = opts.port || nextPort();
-  const env = {
-    ...process.env,
-    PORT: String(port),
+  // Build minimal env to prevent test pollution from process.env
+  const baseEnv = {
+    PATH: process.env.PATH || '',
+    HOME: process.env.HOME || '',
+    USER: process.env.USER || '',
+    TMPDIR: process.env.TMPDIR || '/tmp',
     NODE_ENV: 'test',
+    PORT: String(port),
     LOG_LEVEL: 'silent',
-    ...opts.env,
   };
+  const env = { ...baseEnv, ...(opts?.env ?? {}) };
   
   const child = spawn('node', ['dist/main.js'], {
     env,
