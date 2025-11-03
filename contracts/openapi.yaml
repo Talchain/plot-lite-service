@@ -518,6 +518,18 @@ paths:
                       max:
                         type: integer
                         example: 500
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                internal_error:
+                  value:
+                    schema: error.v1
+                    code: INTERNAL
+                    message: Failed to retrieve limits
   
   /v1/validate:
     post:
@@ -558,6 +570,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/errorV1'
+              examples:
+                bad_input:
+                  value:
+                    schema: error.v1
+                    code: BAD_INPUT
+                    message: Graph validation failed
   
   /v1/counterfactual:
     post:
