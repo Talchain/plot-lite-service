@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { canonicalStringify, sha256Hex } from '../../util/canonical.js';
+import { normalizeGraph } from '../../util/normalize.js';
 
 type Graph = { 
   version?: string;
@@ -84,6 +85,6 @@ export async function registerTemplatesRoutes(app: FastifyInstance) {
     if (inm && inm === etag) {
       return reply.code(304).send();
     }
-    return g;
+    return normalizeGraph(g);
   });
 }

@@ -20,6 +20,7 @@ import { getInferenceEngine, type InferenceMode } from '../../inference/index.js
 import { computeSensitivitySimple } from '../../lib/sensitivity-simple.js';
 import { recordEngineComputeMs } from '../../metrics.js';
 import { runResponseSchema } from '../../schemas/response.js';
+import { normalizeGraph } from '../../util/normalize.js';
 
 
 export interface RunRequest {
@@ -119,9 +120,11 @@ export async function registerRunRoute(app: FastifyInstance) {
     const computeStart = performance.now();
 
     const body = (req as any).body as RunRequest;
+    
+    // Normalize graph (map confidence|probability→belief, default belief=1.0)
+    const graph = normalizeGraph(body.graph);
 
     const {
-      graph,
       seed = 42,
       k_samples = 1000,
       treatment_node = graph.nodes[0]?.id,
