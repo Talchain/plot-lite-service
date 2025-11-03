@@ -1,0 +1,12 @@
+{"level":30,"time":1762106508328,"pid":43572,"hostname":"MacBookAir.net","port":4311,"nodeEnv":"development","authEnabled":false,"rateLimitEnabled":false,"testRoutes":false,"msg":"Environment validation passed"}
+{"level":30,"time":1762106508927,"pid":43572,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:4311"}
+{"level":30,"time":1762106508927,"pid":43572,"hostname":"MacBookAir.net","msg":"Server listening at http://192.168.1.42:4311"}
+{"level":30,"time":1762106508927,"pid":43572,"hostname":"MacBookAir.net","port":4311,"msg":"server started"}
+{"level":30,"time":1762106544016,"pid":43572,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/health","statusCode":200,"durationMs":51.858,"msg":"request completed"}
+{"level":30,"time":1762106544050,"pid":43572,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/limits","statusCode":200,"durationMs":0.821917,"msg":"request completed"}
+{"level":30,"time":1762106605966,"pid":43572,"hostname":"MacBookAir.net","reqId":"req-3","route":"/v1/validate","statusCode":200,"durationMs":277.510042,"msg":"request completed"}
+{"level":30,"time":1762106646581,"pid":43572,"hostname":"MacBookAir.net","reqId":"req-4","route":"/v1/run","statusCode":200,"durationMs":66.683542,"msg":"request completed"}
+{"level":30,"time":1762106646633,"pid":43572,"hostname":"MacBookAir.net","reqId":"req-5","route":"/v1/run","statusCode":200,"durationMs":5.892583,"msg":"request completed"}
+{"level":30,"time":1762106701089,"pid":43572,"hostname":"MacBookAir.net","reqId":"req-6","route":"/v1/run","statusCode":200,"durationMs":27.275917,"msg":"request completed"}
+{"level":30,"time":1762106759155,"pid":43572,"hostname":"MacBookAir.net","sig":"SIGTERM","inflight":0,"msg":"graceful shutdown initiated"}
+{"level":30,"time":1762106759268,"pid":43572,"hostname":"MacBookAir.net","msg":"all in-flight requests completed"}

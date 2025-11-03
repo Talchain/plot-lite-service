@@ -18,6 +18,7 @@ import type { Graph } from '../../trust/types.js';
 import { runSCMLite } from '../../scm-lite/adapter.js';
 import { getInferenceEngine, type InferenceMode } from '../../inference/index.js';
 import { computeSensitivitySimple } from '../../lib/sensitivity-simple.js';
+import { isDebugSliceEnabled } from '../../lib/debug-gate.js';
 import { recordEngineComputeMs } from '../../metrics.js';
 import { runResponseSchema } from '../../schemas/response.js';
 
@@ -279,7 +280,7 @@ export async function registerRunRoute(app: FastifyInstance) {
     let debug: any = undefined;
     
     // Add debug.compare if requested and flag enabled
-    if (include_debug && process.env.COMPARE_VIEW_ENABLE === '1') {
+    if (isDebugSliceEnabled('compare', include_debug)) {
       debug = {
         compare: {
           [outcome_node]: {
@@ -293,7 +294,7 @@ export async function registerRunRoute(app: FastifyInstance) {
     }
     
     // Add debug.inspector if requested and flag enabled
-    if (include_debug && process.env.INSPECTOR_DEBUG_ENABLE === '1') {
+    if (isDebugSliceEnabled('inspector', include_debug)) {
       if (!debug) debug = {};
       debug.inspector = {
         edges: graph.edges.map((edge, idx) => ({
