@@ -1,0 +1,1434 @@
+
+> plot-lite-service@1.0.0 test
+> node tools/run-all-tests.js
+
+
+> plot-lite-service@1.0.0 build
+> tsc -p tsconfig.json && tsc -p tsconfig.tools.json
+
+{"level":30,"time":1762229393757,"pid":78463,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:4313"}
+{"level":30,"time":1762229393938,"pid":78463,"hostname":"MacBookAir.net","reqId":"req-1","route":"/health","statusCode":200,"durationMs":12.974125,"msg":"request completed"}
+
+ RUN  v3.2.4 /Users/paulslee/Documents/GitHub/plot-lite-service
+
+ DEPRECATED  'basic' reporter is deprecated and will be removed in Vitest v3.
+Remove 'basic' from 'reporters' option. To match 'basic' reporter 100%, use configuration:
+{
+  "test": {
+    "reporters": [
+      [
+        "default",
+        {
+          "summary": false
+        }
+      ]
+    ]
+  }
+}
+{"level":30,"time":1762229397681,"pid":78499,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:62106"}
+{"level":30,"time":1762229397867,"pid":78499,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/validate","statusCode":400,"durationMs":131.901917,"msg":"request completed"}
+ ❯ tests/validate.belief.warnings.test.ts (1 test | 1 failed) 576ms
+   × Validation warnings > warns on missing belief for outcome edge 252ms
+     → expected 400 to be 200 // Object.is equality
+ ❯ tests/health.counters.test.ts (1 test | 1 failed) 978ms
+   × Health counters and last reload timestamp > exposes json_429_count, sse_429_count and last_config_reload_iso 5ms
+     → requestJSON failed: fetch failed
+{"level":30,"time":1762229398677,"pid":78695,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:5106"}
+ ❯ tests/scm-lite.disabled-warning.test.ts (2 tests | 1 failed) 1721ms
+   × SCM-Lite disabled in production mode > returns placeholder results when SCM-Lite is disabled 792ms
+     → expected '72b9f78f64c262edd3561b361af252671727f…' to be undefined
+   ✓ SCM-Lite disabled in production mode > runs correctly in development mode with SCM-Lite disabled  913ms
+{"level":30,"time":1762229398740,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1","route":"/test/inflight_stats","statusCode":200,"durationMs":4.710708,"msg":"request completed"}
+stdout | tests/sse.soak.test.ts > SSE Soak Test (500 cycles) > 500 mixed cycles end with inflight=0, underflows=0
+
+🔍 SSE Soak Test (100 cycles)
+
+
+{"level":30,"time":1762229398764,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2","msg":"SSE client disconnected"}
+{"level":30,"time":1762229398764,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2","route":"/stream","statusCode":200,"durationMs":1.525458,"msg":"request completed"}
+ ✓ tests/metrics.shape.test.ts (2 tests) 1797ms
+   ✓ Metrics endpoint (gated) > absent when METRICS unset  750ms
+   ✓ Metrics endpoint (gated) > exposes counters and draft p95s when METRICS=1  1039ms
+{"level":30,"time":1762229398782,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-3","msg":"SSE client disconnected"}
+{"level":30,"time":1762229398812,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-5","route":"/stream/cancel","statusCode":404,"durationMs":4.07025,"msg":"request completed"}
+{"level":30,"time":1762229398837,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-6","msg":"SSE client disconnected"}
+{"level":30,"time":1762229398837,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-6","route":"/stream","statusCode":200,"durationMs":0.826541,"msg":"request completed"}
+{"level":30,"time":1762229398850,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-7","msg":"SSE client disconnected"}
+{"level":30,"time":1762229398875,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-9","route":"/stream/cancel","statusCode":404,"durationMs":2.874791,"msg":"request completed"}
+{"level":30,"time":1762229398878,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-4","msg":"SSE client disconnected"}
+{"level":30,"time":1762229398879,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-4","route":"/stream","statusCode":200,"durationMs":82.221292,"msg":"request completed"}
+{"level":30,"time":1762229398899,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-a","msg":"SSE client disconnected"}
+{"level":30,"time":1762229398900,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-a","route":"/stream","statusCode":200,"durationMs":1.044084,"msg":"request completed"}
+{"level":30,"time":1762229398908,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-b","msg":"SSE client disconnected"}
+{"level":30,"time":1762229398926,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-d","route":"/stream/cancel","statusCode":404,"durationMs":0.395375,"msg":"request completed"}
+{"level":30,"time":1762229398948,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-e","msg":"SSE client disconnected"}
+{"level":30,"time":1762229398948,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-e","route":"/stream","statusCode":200,"durationMs":0.617333,"msg":"request completed"}
+{"level":30,"time":1762229398949,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-8","msg":"SSE client disconnected"}
+{"level":30,"time":1762229398949,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-8","route":"/stream","statusCode":200,"durationMs":82.307125,"msg":"request completed"}
+{"level":30,"time":1762229398956,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-f","msg":"SSE client disconnected"}
+{"level":30,"time":1762229398974,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-h","route":"/stream/cancel","statusCode":404,"durationMs":0.58975,"msg":"request completed"}
+{"level":30,"time":1762229398997,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-i","msg":"SSE client disconnected"}
+{"level":30,"time":1762229398997,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-i","route":"/stream","statusCode":200,"durationMs":0.243417,"msg":"request completed"}
+{"level":30,"time":1762229399003,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-c","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399003,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-c","route":"/stream","statusCode":200,"durationMs":83.807042,"msg":"request completed"}
+{"level":30,"time":1762229399004,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-j","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399021,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-l","route":"/stream/cancel","statusCode":404,"durationMs":0.232042,"msg":"request completed"}
+{"level":30,"time":1762229399043,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-m","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399043,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-m","route":"/stream","statusCode":200,"durationMs":0.241583,"msg":"request completed"}
+{"level":30,"time":1762229399051,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-n","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399053,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-g","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399053,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-g","route":"/stream","statusCode":200,"durationMs":85.523042,"msg":"request completed"}
+{"level":30,"time":1762229399068,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-p","route":"/stream/cancel","statusCode":404,"durationMs":0.304875,"msg":"request completed"}
+{"level":30,"time":1762229399089,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-q","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399089,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-q","route":"/stream","statusCode":200,"durationMs":0.322625,"msg":"request completed"}
+{"level":30,"time":1762229399095,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-k","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399096,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-k","route":"/stream","statusCode":200,"durationMs":81.137875,"msg":"request completed"}
+{"level":30,"time":1762229399096,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-r","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399143,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-o","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399143,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-o","route":"/stream","statusCode":200,"durationMs":81.505541,"msg":"request completed"}
+{"level":30,"time":1762229399210,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-s","route":"/test/inflight_stats","statusCode":200,"durationMs":0.783166,"msg":"request completed"}
+stdout | tests/sse.soak.test.ts > SSE Soak Test (500 cycles) > 500 mixed cycles end with inflight=0, underflows=0
+  20/100 cycles complete, inflight: 0, underflows: 0
+
+{"level":30,"time":1762229399222,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-u","route":"/stream/cancel","statusCode":404,"durationMs":0.597166,"msg":"request completed"}
+{"level":30,"time":1762229399245,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-v","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399246,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-v","route":"/stream","statusCode":200,"durationMs":0.439625,"msg":"request completed"}
+{"level":30,"time":1762229399254,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-w","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399272,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-y","route":"/stream/cancel","statusCode":404,"durationMs":0.627208,"msg":"request completed"}
+{"level":30,"time":1762229399297,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-t","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399297,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-t","route":"/stream","statusCode":200,"durationMs":84.794625,"msg":"request completed"}
+{"level":30,"time":1762229399298,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-z","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399298,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-z","route":"/stream","statusCode":200,"durationMs":0.4655,"msg":"request completed"}
+{"level":30,"time":1762229399309,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-10","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399326,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-12","route":"/stream/cancel","statusCode":404,"durationMs":0.218208,"msg":"request completed"}
+{"level":30,"time":1762229399350,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-13","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399350,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-13","route":"/stream","statusCode":200,"durationMs":0.268291,"msg":"request completed"}
+{"level":30,"time":1762229399351,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-x","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399351,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-x","route":"/stream","statusCode":200,"durationMs":85.983458,"msg":"request completed"}
+{"level":30,"time":1762229399358,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-14","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399374,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-16","route":"/stream/cancel","statusCode":404,"durationMs":0.302792,"msg":"request completed"}
+{"level":30,"time":1762229399395,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-17","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399395,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-17","route":"/stream","statusCode":200,"durationMs":0.233875,"msg":"request completed"}
+{"level":30,"time":1762229399405,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-18","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399405,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-11","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399405,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-11","route":"/stream","statusCode":200,"durationMs":84.864833,"msg":"request completed"}
+{"level":30,"time":1762229399423,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1a","route":"/stream/cancel","statusCode":404,"durationMs":0.544375,"msg":"request completed"}
+{"level":30,"time":1762229399445,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1b","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399446,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1b","route":"/stream","statusCode":200,"durationMs":0.5225,"msg":"request completed"}
+{"level":30,"time":1762229399451,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-15","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399451,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-15","route":"/stream","statusCode":200,"durationMs":82.686209,"msg":"request completed"}
+{"level":30,"time":1762229399453,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1c","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399470,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1e","route":"/stream/cancel","statusCode":404,"durationMs":0.254375,"msg":"request completed"}
+{"level":30,"time":1762229399492,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1f","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399492,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1f","route":"/stream","statusCode":200,"durationMs":0.211458,"msg":"request completed"}
+{"level":30,"time":1762229399499,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-19","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399499,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-19","route":"/stream","statusCode":200,"durationMs":83.549917,"msg":"request completed"}
+{"level":30,"time":1762229399501,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1g","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399520,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1i","route":"/stream/cancel","statusCode":404,"durationMs":0.251333,"msg":"request completed"}
+{"level":30,"time":1762229399543,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1j","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399543,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1j","route":"/stream","statusCode":200,"durationMs":0.6215,"msg":"request completed"}
+{"level":30,"time":1762229399544,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1d","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399544,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1d","route":"/stream","statusCode":200,"durationMs":81.210375,"msg":"request completed"}
+{"level":30,"time":1762229399600,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1h","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399601,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1h","route":"/stream","statusCode":200,"durationMs":87.907,"msg":"request completed"}
+{"level":30,"time":1762229399646,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1k","route":"/test/inflight_stats","statusCode":200,"durationMs":0.401084,"msg":"request completed"}
+stdout | tests/sse.soak.test.ts > SSE Soak Test (500 cycles) > 500 mixed cycles end with inflight=0, underflows=0
+  40/100 cycles complete, inflight: 0, underflows: 0
+
+{"level":30,"time":1762229399655,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1l","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399671,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1n","route":"/stream/cancel","statusCode":404,"durationMs":0.216458,"msg":"request completed"}
+{"level":30,"time":1762229399692,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1o","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399692,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1o","route":"/stream","statusCode":200,"durationMs":0.18725,"msg":"request completed"}
+{"level":30,"time":1762229399699,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1p","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399716,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1r","route":"/stream/cancel","statusCode":404,"durationMs":0.269667,"msg":"request completed"}
+{"level":30,"time":1762229399737,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1s","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399737,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1s","route":"/stream","statusCode":200,"durationMs":0.192333,"msg":"request completed"}
+{"level":30,"time":1762229399743,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1t","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399749,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1m","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399749,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1m","route":"/stream","statusCode":200,"durationMs":83.483834,"msg":"request completed"}
+{"level":30,"time":1762229399763,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1v","route":"/stream/cancel","statusCode":404,"durationMs":0.30075,"msg":"request completed"}
+{"level":30,"time":1762229399784,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1w","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399784,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1w","route":"/stream","statusCode":200,"durationMs":0.205833,"msg":"request completed"}
+{"level":30,"time":1762229399790,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1x","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399795,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1q","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399796,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1q","route":"/stream","statusCode":200,"durationMs":84.450666,"msg":"request completed"}
+{"level":30,"time":1762229399809,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1z","route":"/stream/cancel","statusCode":404,"durationMs":0.378625,"msg":"request completed"}
+{"level":30,"time":1762229399833,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-20","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399833,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-20","route":"/stream","statusCode":200,"durationMs":0.817958,"msg":"request completed"}
+{"level":30,"time":1762229399838,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1u","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399839,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1u","route":"/stream","statusCode":200,"durationMs":84.396,"msg":"request completed"}
+{"level":30,"time":1762229399841,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-21","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399857,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-23","route":"/stream/cancel","statusCode":404,"durationMs":0.342292,"msg":"request completed"}
+{"level":30,"time":1762229399879,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-24","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399880,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-24","route":"/stream","statusCode":200,"durationMs":0.288375,"msg":"request completed"}
+{"level":30,"time":1762229399886,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1y","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399886,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-1y","route":"/stream","statusCode":200,"durationMs":84.285333,"msg":"request completed"}
+{"level":30,"time":1762229399887,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-25","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399904,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-27","route":"/stream/cancel","statusCode":404,"durationMs":0.291334,"msg":"request completed"}
+{"level":30,"time":1762229399926,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-28","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399926,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-28","route":"/stream","statusCode":200,"durationMs":0.18075,"msg":"request completed"}
+{"level":30,"time":1762229399933,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-29","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399933,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-22","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399933,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-22","route":"/stream","statusCode":200,"durationMs":81.721875,"msg":"request completed"}
+{"level":30,"time":1762229399968,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2b","route":"/stream/cancel","statusCode":404,"durationMs":0.149167,"msg":"request completed"}
+{"level":30,"time":1762229399988,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-26","msg":"SSE client disconnected"}
+{"level":30,"time":1762229399988,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-26","route":"/stream","statusCode":200,"durationMs":88.834709,"msg":"request completed"}
+{"level":30,"time":1762229400030,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2a","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400030,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2a","route":"/stream","statusCode":200,"durationMs":86.679125,"msg":"request completed"}
+{"level":30,"time":1762229400090,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2c","route":"/test/inflight_stats","statusCode":200,"durationMs":0.150875,"msg":"request completed"}
+stdout | tests/sse.soak.test.ts > SSE Soak Test (500 cycles) > 500 mixed cycles end with inflight=0, underflows=0
+  60/100 cycles complete, inflight: 0, underflows: 0
+
+{"level":30,"time":1762229400093,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2d","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400093,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2d","route":"/stream","statusCode":200,"durationMs":0.190625,"msg":"request completed"}
+{"level":30,"time":1762229400098,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2e","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400116,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2g","route":"/stream/cancel","statusCode":404,"durationMs":0.158833,"msg":"request completed"}
+{"level":30,"time":1762229400137,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2h","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400137,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2h","route":"/stream","statusCode":200,"durationMs":0.164292,"msg":"request completed"}
+{"level":30,"time":1762229400143,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2i","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400160,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2k","route":"/stream/cancel","statusCode":404,"durationMs":0.423583,"msg":"request completed"}
+{"level":30,"time":1762229400182,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2l","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400182,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2l","route":"/stream","statusCode":200,"durationMs":0.149584,"msg":"request completed"}
+{"level":30,"time":1762229400189,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2m","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400189,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2f","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400189,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2f","route":"/stream","statusCode":200,"durationMs":79.832417,"msg":"request completed"}
+{"level":30,"time":1762229400204,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2o","route":"/stream/cancel","statusCode":404,"durationMs":0.166458,"msg":"request completed"}
+{"level":30,"time":1762229400230,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2p","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400230,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2p","route":"/stream","statusCode":200,"durationMs":0.171,"msg":"request completed"}
+{"level":30,"time":1762229400237,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2j","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400238,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2j","route":"/stream","statusCode":200,"durationMs":82.734292,"msg":"request completed"}
+{"level":30,"time":1762229400238,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2q","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400255,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2s","route":"/stream/cancel","statusCode":404,"durationMs":0.189333,"msg":"request completed"}
+{"level":30,"time":1762229400276,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2t","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400277,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2t","route":"/stream","statusCode":200,"durationMs":0.263667,"msg":"request completed"}
+{"level":30,"time":1762229400282,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2n","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400282,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2n","route":"/stream","statusCode":200,"durationMs":83.08425,"msg":"request completed"}
+{"level":30,"time":1762229400286,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2u","msg":"SSE client disconnected"}
+ ❯ tests/inspector.test.ts (5 tests | 2 failed) 3310ms
+   × Inspector (P1B) > includes debug.inspector when include_debug=true and flag enabled 759ms
+     → expected undefined to be defined
+   × Inspector (P1B) > applies defaults when belief/provenance omitted 897ms
+     → Cannot read properties of undefined (reading 'inspector')
+   ✓ Inspector (P1B) > omits debug.inspector when include_debug=false  490ms
+   ✓ Inspector (P1B) > omits debug.inspector when include_debug not specified  598ms
+   ✓ Inspector (P1B) > response_hash unchanged with/without include_debug  563ms
+{"level":30,"time":1762229400299,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2w","route":"/stream/cancel","statusCode":404,"durationMs":0.155458,"msg":"request completed"}
+{"level":30,"time":1762229400323,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2x","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400323,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2x","route":"/stream","statusCode":200,"durationMs":0.171042,"msg":"request completed"}
+{"level":30,"time":1762229400330,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2r","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400330,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2r","route":"/stream","statusCode":200,"durationMs":81.504916,"msg":"request completed"}
+{"level":30,"time":1762229400335,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2y","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400355,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-30","route":"/stream/cancel","statusCode":404,"durationMs":0.159709,"msg":"request completed"}
+{"level":30,"time":1762229400375,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2v","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400375,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2v","route":"/stream","statusCode":200,"durationMs":81.824625,"msg":"request completed"}
+{"level":30,"time":1762229400376,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-31","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400376,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-31","route":"/stream","statusCode":200,"durationMs":0.121542,"msg":"request completed"}
+{"level":30,"time":1762229400382,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-32","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400431,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2z","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400431,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-2z","route":"/stream","statusCode":200,"durationMs":83.417667,"msg":"request completed"}
+{"level":30,"time":1762229400494,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-33","route":"/test/inflight_stats","statusCode":200,"durationMs":0.17325,"msg":"request completed"}
+stdout | tests/sse.soak.test.ts > SSE Soak Test (500 cycles) > 500 mixed cycles end with inflight=0, underflows=0
+  80/100 cycles complete, inflight: 0, underflows: 0
+
+{"level":30,"time":1762229400502,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-35","route":"/stream/cancel","statusCode":404,"durationMs":0.195917,"msg":"request completed"}
+{"level":30,"time":1762229400523,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-36","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400523,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-36","route":"/stream","statusCode":200,"durationMs":0.157875,"msg":"request completed"}
+{"level":30,"time":1762229400531,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-37","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400548,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-39","route":"/stream/cancel","statusCode":404,"durationMs":0.156833,"msg":"request completed"}
+{"level":30,"time":1762229400570,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-3a","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400570,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-3a","route":"/stream","statusCode":200,"durationMs":0.205125,"msg":"request completed"}
+{"level":30,"time":1762229400576,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-3b","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400580,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-34","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400580,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-34","route":"/stream","statusCode":200,"durationMs":84.921667,"msg":"request completed"}
+{"level":30,"time":1762229400592,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-3d","route":"/stream/cancel","statusCode":404,"durationMs":0.275042,"msg":"request completed"}
+{"level":30,"time":1762229400614,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-3e","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400615,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-3e","route":"/stream","statusCode":200,"durationMs":0.172875,"msg":"request completed"}
+{"level":30,"time":1762229400622,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-3f","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400623,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-38","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400623,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-38","route":"/stream","statusCode":200,"durationMs":80.482041,"msg":"request completed"}
+{"level":30,"time":1762229400638,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-3h","route":"/stream/cancel","statusCode":404,"durationMs":0.192667,"msg":"request completed"}
+{"level":30,"time":1762229400660,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-3i","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400660,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-3i","route":"/stream","statusCode":200,"durationMs":0.155917,"msg":"request completed"}
+{"level":30,"time":1762229400667,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-3c","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400667,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-3c","route":"/stream","statusCode":200,"durationMs":80.521083,"msg":"request completed"}
+{"level":30,"time":1762229400667,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-3j","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400684,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-3l","route":"/stream/cancel","statusCode":404,"durationMs":0.156875,"msg":"request completed"}
+{"level":30,"time":1762229400705,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-3m","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400708,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-3m","route":"/stream","statusCode":200,"durationMs":3.596875,"msg":"request completed"}
+{"level":30,"time":1762229400714,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-3g","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400714,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-3g","route":"/stream","statusCode":200,"durationMs":81.438167,"msg":"request completed"}
+{"level":30,"time":1762229400714,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-3n","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400732,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-3p","route":"/stream/cancel","statusCode":404,"durationMs":0.275417,"msg":"request completed"}
+{"level":30,"time":1762229400753,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-3q","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400753,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-3q","route":"/stream","statusCode":200,"durationMs":0.164417,"msg":"request completed"}
+{"level":30,"time":1762229400760,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-3k","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400760,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-3k","route":"/stream","statusCode":200,"durationMs":81.466292,"msg":"request completed"}
+{"level":30,"time":1762229400762,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-3r","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400778,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-3t","route":"/stream/cancel","statusCode":404,"durationMs":0.175208,"msg":"request completed"}
+{"level":30,"time":1762229400800,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-3u","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400800,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-3u","route":"/stream","statusCode":200,"durationMs":0.264041,"msg":"request completed"}
+{"level":30,"time":1762229400814,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-3o","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400814,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-3o","route":"/stream","statusCode":200,"durationMs":88.362459,"msg":"request completed"}
+{"level":30,"time":1762229400858,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-3s","msg":"SSE client disconnected"}
+{"level":30,"time":1762229400858,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-3s","route":"/stream","statusCode":200,"durationMs":85.676458,"msg":"request completed"}
+{"level":30,"time":1762229400904,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-3v","route":"/test/inflight_stats","statusCode":200,"durationMs":0.190291,"msg":"request completed"}
+stdout | tests/sse.soak.test.ts > SSE Soak Test (500 cycles) > 500 mixed cycles end with inflight=0, underflows=0
+  100/100 cycles complete, inflight: 0, underflows: 0
+
+{"level":30,"time":1762229401411,"pid":78695,"hostname":"MacBookAir.net","reqId":"req-3w","route":"/test/inflight_stats","statusCode":200,"durationMs":0.1515,"msg":"request completed"}
+stdout | tests/sse.soak.test.ts > SSE Soak Test (500 cycles) > 500 mixed cycles end with inflight=0, underflows=0
+
+📋 Final Stats:
+  - Cycles: 100
+  - Final inflight: 0
+  - Underflows: 0
+
+✅ All 100 SSE cycles balanced
+
+
+ ❯ tests/run.scm-lite.integration.test.ts (4 tests | 2 failed) 7274ms
+   ✓ POST /v1/run with SCM-Lite enabled > produces deterministic response_hash and bma_hash with fixed seed  910ms
+   × POST /v1/run with SCM-Lite enabled > returns valid report.v1 contract with summary.bands 762ms
+     → expected 'run.v1' to be 'report.v1' // Object.is equality
+   ✓ POST /v1/run with SCM-Lite enabled > rejects graph exceeding max nodes  571ms
+   × POST /v1/run rate-limit parity with SCM-Lite > returns 429 with proper headers after exceeding rate limit 5031ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ✓ tests/stream.real.heartbeat.test.ts (1 test) 5379ms
+   ✓ Real Stream: heartbeat comment when idle > emits : ping comment within ~1s when idle before tokens  4978ms
+ ✓ tests/stream.disconnect.test.ts (9 tests) 5560ms
+   ✓ Stream: disconnect behavior > abrupt disconnect clears timer and decrements current_streams  439ms
+   ✓ Stream: disconnect behavior > multiple disconnects do not leak timers or metrics  567ms
+   ✓ Stream: disconnect behavior > disconnect during event emission completes gracefully  365ms
+   ✓ Stream: disconnect behavior > P0: 200 cycles mix (close/abort/cancel) end at inflight=0 with no underflows  3118ms
+ ❯ tests/option-compare.test.ts (5 tests | 3 failed) 7964ms
+   × Option Compare (P1A) > includes debug.compare when include_debug=true and flag enabled 798ms
+     → expected undefined to be defined
+   × Option Compare (P1A) > omits debug.compare when include_debug=false 963ms
+     → requestJSON failed: fetch failed
+   × Option Compare (P1A) > omits debug.compare when include_debug not specified 5025ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   ✓ Option Compare (P1A) > response_hash unchanged with/without include_debug  560ms
+   ✓ Option Compare (P1A) > deterministic: same seed produces same top3_edges order  615ms
+ ✓ tests/sse.soak.test.ts (1 test) 6659ms
+   ✓ SSE Soak Test (500 cycles) > 500 mixed cycles end with inflight=0, underflows=0  2749ms
+ ✓ tests/stream.heartbeat.cleanup.test.ts (2 tests) 4276ms
+   ✓ SSE heartbeat cleanup (no timer leak) > opens and closes stream N times without timer leak  743ms
+   ✓ SSE heartbeat cleanup (no timer leak) > handles abrupt socket close and clears heartbeat timer  3250ms
+ ✓ tests/stream.ping.smoke.test.ts (1 test) 7276ms
+   ✓ SSE heartbeat ping smoke test > receives comment pings periodically without altering event schema  6935ms
+{"level":30,"time":1762229405776,"pid":78873,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:62508"}
+stderr | tests/circuit-breaker.lru.test.ts > PR-2B: BoundedLRU for Principals > exposes LRU config in /v1/health
+[CB] RL_CB_PRINCIPAL_TTL_MS set to finite value. Time-spaced bursts may bypass circuit.
+
+{"level":30,"time":1762229406407,"pid":78873,"hostname":"MacBookAir.net","reqId":"req-1","route":"/demo/stream","statusCode":200,"durationMs":614.435334,"msg":"request completed"}
+ ✓ tests/demo.sse.test.ts (1 test) 1012ms
+   ✓ demo SSE emits hello/token/done when TEST_ROUTES=1  633ms
+{"level":30,"time":1762229406533,"pid":78902,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/health","statusCode":200,"durationMs":8.931875,"msg":"request completed"}
+{"level":30,"time":1762229406664,"pid":78902,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/run","statusCode":200,"durationMs":95.083583,"msg":"request completed"}
+{"level":30,"time":1762229406668,"pid":78902,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/run","statusCode":200,"durationMs":1.308667,"msg":"request completed"}
+{"level":30,"time":1762229406670,"pid":78902,"hostname":"MacBookAir.net","reqId":"req-3","route":"/v1/health","statusCode":200,"durationMs":0.93275,"msg":"request completed"}
+{"level":30,"time":1762229406710,"pid":78902,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/run","statusCode":200,"durationMs":0.885709,"msg":"request completed"}
+{"level":30,"time":1762229406715,"pid":78902,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/run","statusCode":200,"durationMs":3.032458,"msg":"request completed"}
+ ✓ tests/circuit-breaker.lru.test.ts (3 tests) 776ms
+   ✓ PR-2B: BoundedLRU for Principals > exposes LRU config in /v1/health  599ms
+ ✓ tests/openapi.dev-route.test.ts (3 tests) 1742ms
+   ✓ OpenAPI dev route (gated) > serves /openapi.json when OPENAPI_DEV=1  520ms
+   ✓ OpenAPI dev route (gated) > is absent (404) without OPENAPI_DEV  611ms
+   ✓ OpenAPI dev route (gated) > returns 500 when spec is missing via OPENAPI_SPEC_PATH override  607ms
+ ✓ tests/shape-rejection.ui-extras.test.ts (3 tests) 2181ms
+   ✓ P0: UI field rejection > rejects node with UI-editor field (data)  605ms
+   ✓ P0: UI field rejection > rejects edge with UI-editor field (source)  784ms
+   ✓ P0: UI field rejection > accepts valid graph without UI fields  790ms
+{"level":30,"time":1762229407116,"pid":78927,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:62563"}
+{"level":30,"time":1762229407191,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/draft","statusCode":200,"durationMs":44.028625,"msg":"request completed"}
+{"level":30,"time":1762229407194,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-3","route":"/v1/draft","statusCode":200,"durationMs":1.477875,"msg":"request completed"}
+{"level":30,"time":1762229407236,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/draft","statusCode":200,"durationMs":84.301,"msg":"request completed"}
+{"level":30,"time":1762229407239,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-4","route":"/v1/draft","statusCode":200,"durationMs":0.588333,"msg":"request completed"}
+{"level":30,"time":1762229407241,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-5","route":"/v1/draft","statusCode":200,"durationMs":0.9075,"msg":"request completed"}
+{"level":30,"time":1762229407242,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-6","route":"/v1/draft","statusCode":200,"durationMs":0.755084,"msg":"request completed"}
+{"level":30,"time":1762229407244,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-7","route":"/v1/draft","statusCode":200,"durationMs":0.458041,"msg":"request completed"}
+{"level":30,"time":1762229407245,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-8","route":"/v1/draft","statusCode":200,"durationMs":0.694417,"msg":"request completed"}
+{"level":30,"time":1762229407246,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-9","route":"/v1/draft","statusCode":200,"durationMs":0.469125,"msg":"request completed"}
+{"level":30,"time":1762229407248,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-a","route":"/v1/draft","statusCode":200,"durationMs":0.555291,"msg":"request completed"}
+{"level":30,"time":1762229407249,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-b","route":"/v1/draft","statusCode":200,"durationMs":0.282125,"msg":"request completed"}
+{"level":30,"time":1762229407250,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-c","route":"/v1/draft","statusCode":200,"durationMs":0.383083,"msg":"request completed"}
+{"level":30,"time":1762229407256,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-d","route":"/v1/draft","statusCode":200,"durationMs":2.621667,"msg":"request completed"}
+{"level":30,"time":1762229407257,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-e","route":"/v1/draft","statusCode":200,"durationMs":0.387458,"msg":"request completed"}
+{"level":30,"time":1762229407258,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-f","route":"/v1/draft","statusCode":200,"durationMs":0.302167,"msg":"request completed"}
+{"level":30,"time":1762229407259,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-g","route":"/v1/draft","statusCode":200,"durationMs":0.225416,"msg":"request completed"}
+{"level":30,"time":1762229407260,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-h","route":"/v1/draft","statusCode":200,"durationMs":0.270125,"msg":"request completed"}
+{"level":30,"time":1762229407261,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-i","route":"/v1/draft","statusCode":200,"durationMs":0.383375,"msg":"request completed"}
+{"level":30,"time":1762229407262,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-j","route":"/v1/draft","statusCode":200,"durationMs":0.290583,"msg":"request completed"}
+{"level":30,"time":1762229407262,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-k","route":"/v1/draft","statusCode":200,"durationMs":0.182542,"msg":"request completed"}
+{"level":30,"time":1762229407263,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-l","route":"/v1/draft","statusCode":200,"durationMs":0.292083,"msg":"request completed"}
+{"level":30,"time":1762229407264,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-m","route":"/v1/draft","statusCode":200,"durationMs":0.269875,"msg":"request completed"}
+{"level":30,"time":1762229407265,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-n","route":"/v1/draft","statusCode":200,"durationMs":0.229042,"msg":"request completed"}
+{"level":30,"time":1762229407266,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-o","route":"/v1/draft","statusCode":200,"durationMs":0.284542,"msg":"request completed"}
+{"level":30,"time":1762229407267,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-p","route":"/v1/draft","statusCode":200,"durationMs":0.315458,"msg":"request completed"}
+ ✓ tests/rate-limit.clarity.test.ts (2 tests) 1801ms
+   ✓ 429 clarity headers > JSON route 429 includes Retry-After and X-RateLimit-Reason; 2xx has no X-RateLimit-Reason  910ms
+   ✓ 429 clarity headers > SSE 429 includes Retry-After and X-RateLimit-Reason  890ms
+{"level":30,"time":1762229407269,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-q","route":"/v1/draft","statusCode":200,"durationMs":1.363833,"msg":"request completed"}
+{"level":30,"time":1762229407271,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-r","route":"/v1/draft","statusCode":200,"durationMs":0.355,"msg":"request completed"}
+{"level":30,"time":1762229407271,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-s","route":"/v1/draft","statusCode":200,"durationMs":0.20825,"msg":"request completed"}
+{"level":30,"time":1762229407272,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-t","route":"/v1/draft","statusCode":200,"durationMs":0.532209,"msg":"request completed"}
+{"level":30,"time":1762229407273,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-u","route":"/v1/draft","statusCode":200,"durationMs":0.242625,"msg":"request completed"}
+{"level":30,"time":1762229407275,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-v","route":"/v1/draft","statusCode":200,"durationMs":0.794167,"msg":"request completed"}
+{"level":30,"time":1762229407276,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-w","route":"/v1/draft","statusCode":200,"durationMs":0.244292,"msg":"request completed"}
+{"level":30,"time":1762229407277,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-x","route":"/v1/draft","statusCode":200,"durationMs":0.656917,"msg":"request completed"}
+{"level":30,"time":1762229407280,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-y","route":"/v1/draft","statusCode":200,"durationMs":1.293583,"msg":"request completed"}
+{"level":30,"time":1762229407281,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-z","route":"/v1/draft","statusCode":200,"durationMs":0.298417,"msg":"request completed"}
+{"level":30,"time":1762229407282,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-10","route":"/v1/draft","statusCode":200,"durationMs":0.640166,"msg":"request completed"}
+{"level":30,"time":1762229407282,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-11","route":"/v1/draft","statusCode":200,"durationMs":0.354,"msg":"request completed"}
+{"level":30,"time":1762229407283,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-12","route":"/v1/draft","statusCode":200,"durationMs":0.207625,"msg":"request completed"}
+{"level":30,"time":1762229407284,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-13","route":"/v1/draft","statusCode":200,"durationMs":0.57375,"msg":"request completed"}
+{"level":30,"time":1762229407290,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-14","route":"/v1/draft","statusCode":200,"durationMs":1.11975,"msg":"request completed"}
+{"level":30,"time":1762229407296,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-15","route":"/v1/draft","statusCode":200,"durationMs":2.441083,"msg":"request completed"}
+{"level":30,"time":1762229407298,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-16","route":"/v1/draft","statusCode":200,"durationMs":0.658666,"msg":"request completed"}
+{"level":30,"time":1762229407301,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-17","route":"/v1/draft","statusCode":200,"durationMs":1.265459,"msg":"request completed"}
+{"level":30,"time":1762229407303,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-18","route":"/v1/draft","statusCode":200,"durationMs":1.458958,"msg":"request completed"}
+{"level":30,"time":1762229407307,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-19","route":"/v1/draft","statusCode":200,"durationMs":1.003,"msg":"request completed"}
+{"level":30,"time":1762229407309,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-1a","route":"/v1/draft","statusCode":200,"durationMs":1.013125,"msg":"request completed"}
+ ✓ tests/sdk.helpers.js.test.ts (3 tests) 1428ms
+   ✓ sdk-js helpers > run() supports demo and returns run.v1 with response_hash  587ms
+   ✓ sdk-js helpers > stream() emits hello→token→done and supports abort  839ms
+{"level":30,"time":1762229407314,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-1b","route":"/v1/draft","statusCode":200,"durationMs":2.019083,"msg":"request completed"}
+{"level":30,"time":1762229407324,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-1c","route":"/v1/draft","statusCode":200,"durationMs":4.291167,"msg":"request completed"}
+{"level":30,"time":1762229407325,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-1d","route":"/v1/draft","statusCode":200,"durationMs":0.536917,"msg":"request completed"}
+{"level":30,"time":1762229407328,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-1e","route":"/v1/draft","statusCode":200,"durationMs":1.614542,"msg":"request completed"}
+{"level":30,"time":1762229407331,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-1f","route":"/v1/draft","statusCode":200,"durationMs":0.813333,"msg":"request completed"}
+{"level":30,"time":1762229407333,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-1g","route":"/v1/draft","statusCode":200,"durationMs":0.737792,"msg":"request completed"}
+{"level":30,"time":1762229407335,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-1h","route":"/v1/draft","statusCode":200,"durationMs":1.132041,"msg":"request completed"}
+{"level":30,"time":1762229407339,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-1i","route":"/v1/draft","statusCode":200,"durationMs":1.535,"msg":"request completed"}
+{"level":30,"time":1762229407342,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-1j","route":"/v1/draft","statusCode":200,"durationMs":0.902416,"msg":"request completed"}
+{"level":30,"time":1762229407345,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-1k","route":"/v1/draft","statusCode":200,"durationMs":0.515917,"msg":"request completed"}
+{"level":30,"time":1762229407347,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-1l","route":"/v1/draft","statusCode":200,"durationMs":0.776917,"msg":"request completed"}
+{"level":30,"time":1762229407350,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-1m","route":"/v1/draft","statusCode":200,"durationMs":0.658667,"msg":"request completed"}
+{"level":30,"time":1762229407353,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-1n","route":"/v1/draft","statusCode":200,"durationMs":2.030167,"msg":"request completed"}
+{"level":30,"time":1762229407356,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-1o","route":"/v1/draft","statusCode":200,"durationMs":0.516208,"msg":"request completed"}
+{"level":30,"time":1762229407357,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-1p","route":"/v1/draft","statusCode":200,"durationMs":0.281791,"msg":"request completed"}
+{"level":30,"time":1762229407358,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-1q","route":"/v1/draft","statusCode":200,"durationMs":0.190334,"msg":"request completed"}
+{"level":30,"time":1762229407360,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-1r","route":"/v1/draft","statusCode":200,"durationMs":0.720792,"msg":"request completed"}
+{"level":30,"time":1762229407361,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-1s","route":"/v1/draft","statusCode":200,"durationMs":0.244584,"msg":"request completed"}
+{"level":30,"time":1762229407363,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-1t","route":"/v1/draft","statusCode":200,"durationMs":0.729375,"msg":"request completed"}
+{"level":30,"time":1762229407365,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-1u","route":"/v1/draft","statusCode":200,"durationMs":0.543417,"msg":"request completed"}
+{"level":30,"time":1762229407367,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-1v","route":"/v1/draft","statusCode":200,"durationMs":0.844333,"msg":"request completed"}
+{"level":30,"time":1762229407369,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-1w","route":"/v1/draft","statusCode":200,"durationMs":0.796208,"msg":"request completed"}
+{"level":30,"time":1762229407370,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-1x","route":"/v1/draft","statusCode":200,"durationMs":0.310166,"msg":"request completed"}
+{"level":30,"time":1762229407371,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-1y","route":"/v1/draft","statusCode":200,"durationMs":0.601084,"msg":"request completed"}
+{"level":30,"time":1762229407372,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-1z","route":"/v1/draft","statusCode":200,"durationMs":0.416,"msg":"request completed"}
+{"level":30,"time":1762229407373,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-20","route":"/v1/draft","statusCode":200,"durationMs":0.193417,"msg":"request completed"}
+{"level":30,"time":1762229407373,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-21","route":"/v1/draft","statusCode":200,"durationMs":0.156292,"msg":"request completed"}
+{"level":30,"time":1762229407375,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-22","route":"/v1/draft","statusCode":200,"durationMs":0.300084,"msg":"request completed"}
+{"level":30,"time":1762229407376,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-23","route":"/v1/draft","statusCode":200,"durationMs":0.175084,"msg":"request completed"}
+{"level":30,"time":1762229407377,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-24","route":"/v1/draft","statusCode":200,"durationMs":0.472917,"msg":"request completed"}
+{"level":30,"time":1762229407378,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-25","route":"/v1/draft","statusCode":200,"durationMs":0.227666,"msg":"request completed"}
+{"level":30,"time":1762229407378,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-26","route":"/v1/draft","statusCode":200,"durationMs":0.236708,"msg":"request completed"}
+{"level":30,"time":1762229407379,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-27","route":"/v1/draft","statusCode":200,"durationMs":0.180667,"msg":"request completed"}
+{"level":30,"time":1762229407379,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-28","route":"/v1/draft","statusCode":200,"durationMs":0.147083,"msg":"request completed"}
+{"level":30,"time":1762229407381,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-29","route":"/v1/draft","statusCode":200,"durationMs":0.524666,"msg":"request completed"}
+{"level":30,"time":1762229407382,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-2a","route":"/v1/draft","statusCode":200,"durationMs":0.821833,"msg":"request completed"}
+{"level":30,"time":1762229407383,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-2b","route":"/v1/draft","statusCode":200,"durationMs":0.280583,"msg":"request completed"}
+{"level":30,"time":1762229407384,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-2c","route":"/v1/draft","statusCode":200,"durationMs":0.16775,"msg":"request completed"}
+{"level":30,"time":1762229407385,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-2d","route":"/v1/draft","statusCode":200,"durationMs":0.217,"msg":"request completed"}
+{"level":30,"time":1762229407385,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-2e","route":"/v1/draft","statusCode":200,"durationMs":0.157375,"msg":"request completed"}
+{"level":30,"time":1762229407386,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-2f","route":"/v1/draft","statusCode":200,"durationMs":0.146,"msg":"request completed"}
+{"level":30,"time":1762229407386,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-2g","route":"/v1/draft","statusCode":200,"durationMs":0.141333,"msg":"request completed"}
+{"level":30,"time":1762229407386,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-2h","route":"/v1/draft","statusCode":200,"durationMs":0.139917,"msg":"request completed"}
+{"level":30,"time":1762229407387,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-2i","route":"/v1/draft","statusCode":200,"durationMs":0.197625,"msg":"request completed"}
+{"level":30,"time":1762229407387,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-2j","route":"/v1/draft","statusCode":200,"durationMs":0.151334,"msg":"request completed"}
+{"level":30,"time":1762229407388,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-2k","route":"/v1/draft","statusCode":200,"durationMs":0.140291,"msg":"request completed"}
+{"level":30,"time":1762229407388,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-2l","route":"/v1/draft","statusCode":200,"durationMs":0.201916,"msg":"request completed"}
+{"level":30,"time":1762229407389,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-2m","route":"/v1/draft","statusCode":200,"durationMs":0.151042,"msg":"request completed"}
+{"level":30,"time":1762229407390,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-2n","route":"/v1/draft","statusCode":200,"durationMs":0.228667,"msg":"request completed"}
+{"level":30,"time":1762229407390,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-2o","route":"/v1/draft","statusCode":200,"durationMs":0.154625,"msg":"request completed"}
+{"level":30,"time":1762229407391,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-2p","route":"/v1/draft","statusCode":200,"durationMs":0.140167,"msg":"request completed"}
+{"level":30,"time":1762229407392,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-2q","route":"/v1/draft","statusCode":200,"durationMs":0.230583,"msg":"request completed"}
+{"level":30,"time":1762229407392,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-2r","route":"/v1/draft","statusCode":200,"durationMs":0.213542,"msg":"request completed"}
+{"level":30,"time":1762229407393,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-2s","route":"/v1/draft","statusCode":200,"durationMs":0.149375,"msg":"request completed"}
+{"level":30,"time":1762229407393,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-2t","route":"/v1/draft","statusCode":200,"durationMs":0.13925,"msg":"request completed"}
+{"level":30,"time":1762229407393,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-2u","route":"/v1/draft","statusCode":200,"durationMs":0.135584,"msg":"request completed"}
+{"level":30,"time":1762229407395,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-2v","route":"/v1/draft","statusCode":200,"durationMs":0.793209,"msg":"request completed"}
+{"level":30,"time":1762229407397,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-2w","route":"/v1/draft","statusCode":200,"durationMs":0.398542,"msg":"request completed"}
+{"level":30,"time":1762229407398,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-2x","route":"/v1/draft","statusCode":200,"durationMs":0.281875,"msg":"request completed"}
+{"level":30,"time":1762229407399,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-2y","route":"/v1/draft","statusCode":200,"durationMs":0.422625,"msg":"request completed"}
+{"level":30,"time":1762229407400,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-2z","route":"/v1/draft","statusCode":200,"durationMs":0.1965,"msg":"request completed"}
+{"level":30,"time":1762229407400,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-30","route":"/v1/draft","statusCode":200,"durationMs":0.15325,"msg":"request completed"}
+{"level":30,"time":1762229407401,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-31","route":"/v1/draft","statusCode":200,"durationMs":0.367042,"msg":"request completed"}
+{"level":30,"time":1762229407401,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-32","route":"/v1/draft","statusCode":200,"durationMs":0.181625,"msg":"request completed"}
+{"level":30,"time":1762229407401,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-33","route":"/v1/draft","statusCode":200,"durationMs":0.136792,"msg":"request completed"}
+{"level":30,"time":1762229407402,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-34","route":"/v1/draft","statusCode":200,"durationMs":0.124792,"msg":"request completed"}
+{"level":30,"time":1762229407402,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-35","route":"/v1/draft","statusCode":200,"durationMs":0.128125,"msg":"request completed"}
+{"level":30,"time":1762229407402,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-36","route":"/v1/draft","statusCode":200,"durationMs":0.124875,"msg":"request completed"}
+{"level":30,"time":1762229407403,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-37","route":"/v1/draft","statusCode":200,"durationMs":0.376875,"msg":"request completed"}
+{"level":30,"time":1762229407403,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-38","route":"/v1/draft","statusCode":200,"durationMs":0.140167,"msg":"request completed"}
+{"level":30,"time":1762229407403,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-39","route":"/v1/draft","statusCode":200,"durationMs":0.120708,"msg":"request completed"}
+{"level":30,"time":1762229407404,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-3a","route":"/v1/draft","statusCode":200,"durationMs":0.1175,"msg":"request completed"}
+{"level":30,"time":1762229407404,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-3b","route":"/v1/draft","statusCode":200,"durationMs":0.121333,"msg":"request completed"}
+{"level":30,"time":1762229407404,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-3c","route":"/v1/draft","statusCode":200,"durationMs":0.129084,"msg":"request completed"}
+{"level":30,"time":1762229407405,"pid":78927,"hostname":"MacBookAir.net","reqId":"req-3d","route":"/v1/draft","statusCode":200,"durationMs":0.128166,"msg":"request completed"}
+ ✓ tests/rate-limit.prune.test.ts (1 test) 620ms
+ ✓ tests/error.taxonomy.test.ts (7 tests) 1025ms
+   ✓ Error taxonomy: stable types and catalogue phrases > RATE_LIMIT → 429 with Retry-After and catalogue phrase  443ms
+ ✓ tests/p1-b-sse-helper-demo.test.ts (4 tests) 1053ms
+{"level":30,"time":1762229408206,"pid":78939,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:62724"}
+{"level":30,"time":1762229408290,"pid":78942,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:4399"}
+{"level":30,"time":1762229408311,"pid":78939,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/run","statusCode":200,"durationMs":63.645166,"msg":"request completed"}
+{"level":30,"time":1762229408328,"pid":78939,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/run","statusCode":200,"durationMs":1.895459,"msg":"request completed"}
+ ✓ tests/report.contract.test.ts (2 tests) 308ms
+{"level":30,"time":1762229408341,"pid":78942,"hostname":"MacBookAir.net","reqId":"req-1","route":"/test/inflight","statusCode":200,"durationMs":7.00625,"msg":"request completed"}
+{"level":30,"time":1762229408355,"pid":78942,"hostname":"MacBookAir.net","reqId":"req-2","route":"/test/inflight","statusCode":403,"durationMs":0.572875,"msg":"request completed"}
+{"level":30,"time":1762229408358,"pid":78942,"hostname":"MacBookAir.net","reqId":"req-3","route":"/test/inflight_stats","statusCode":200,"durationMs":0.261958,"msg":"request completed"}
+{"level":30,"time":1762229408360,"pid":78942,"hostname":"MacBookAir.net","reqId":"req-4","route":"/test/inflight","statusCode":200,"durationMs":0.167959,"msg":"request completed"}
+{"level":30,"time":1762229408364,"pid":78942,"hostname":"MacBookAir.net","reqId":"req-5","msg":"SSE client disconnected"}
+{"level":30,"time":1762229408364,"pid":78942,"hostname":"MacBookAir.net","reqId":"req-5","route":"/stream","statusCode":200,"durationMs":2.419375,"msg":"request completed"}
+ ✓ tests/env-validation.test.ts (7 tests) 3641ms
+   ✓ Environment Validation > fails with invalid REQUEST_TIMEOUT_MS  363ms
+   ✓ Environment Validation > succeeds with valid environment  2140ms
+{"level":30,"time":1762229408469,"pid":78942,"hostname":"MacBookAir.net","reqId":"req-6","route":"/test/inflight","statusCode":200,"durationMs":0.392708,"msg":"request completed"}
+{"level":30,"time":1762229408471,"pid":78942,"hostname":"MacBookAir.net","reqId":"req-7","route":"/test/inflight_stats","statusCode":200,"durationMs":0.3935,"msg":"request completed"}
+{"level":30,"time":1762229408472,"pid":78942,"hostname":"MacBookAir.net","reqId":"req-8","route":"/test/inflight_stats","statusCode":200,"durationMs":0.184208,"msg":"request completed"}
+ ✓ tests/config.hotreload.test.ts (1 test) 1023ms
+   ✓ runtime config hot-reload > SIGHUP reload increases sse_per_ip_max from 1 to 2  1022ms
+{"level":30,"time":1762229408514,"pid":78942,"hostname":"MacBookAir.net","reqId":"req-9","msg":"SSE client disconnected"}
+ ✓ tests/rate-limit.ipv6.test.ts (2 tests) 996ms
+   ✓ Rate Limit: IPv6 support > handles IPv6 loopback address (::1) correctly  397ms
+{"level":30,"time":1762229408713,"pid":78942,"hostname":"MacBookAir.net","reqId":"req-a","route":"/test/inflight_stats","statusCode":200,"durationMs":0.289375,"msg":"request completed"}
+{"level":30,"time":1762229408725,"pid":78942,"hostname":"MacBookAir.net","reqId":"req-b","route":"/test/inflight","statusCode":200,"durationMs":2.938041,"msg":"request completed"}
+{"level":30,"time":1762229408730,"pid":78942,"hostname":"MacBookAir.net","reqId":"req-c","route":"/test/inflight","statusCode":200,"durationMs":0.341,"msg":"request completed"}
+{"level":30,"time":1762229408732,"pid":78942,"hostname":"MacBookAir.net","reqId":"req-d","route":"/test/inflight_stats","statusCode":200,"durationMs":0.164792,"msg":"request completed"}
+{"level":30,"time":1762229408741,"pid":78942,"hostname":"MacBookAir.net","reqId":"req-e","route":"/test/inflight_stats","statusCode":200,"durationMs":3.975833,"msg":"request completed"}
+{"level":30,"time":1762229408749,"pid":78942,"hostname":"MacBookAir.net","reqId":"req-f","route":"/test/inflight_stats","statusCode":200,"durationMs":0.244,"msg":"request completed"}
+{"level":30,"time":1762229408756,"pid":78942,"hostname":"MacBookAir.net","reqId":"req-g","msg":"SSE client disconnected"}
+{"level":30,"time":1762229408756,"pid":78942,"hostname":"MacBookAir.net","reqId":"req-g","route":"/stream","statusCode":200,"durationMs":0.417166,"msg":"request completed"}
+{"level":30,"time":1762229408775,"pid":78942,"hostname":"MacBookAir.net","reqId":"req-h","msg":"SSE client disconnected"}
+{"level":30,"time":1762229408798,"pid":78942,"hostname":"MacBookAir.net","reqId":"req-j","route":"/stream/cancel","statusCode":404,"durationMs":3.835166,"msg":"request completed"}
+{"level":30,"time":1762229408829,"pid":78942,"hostname":"MacBookAir.net","reqId":"req-k","msg":"SSE client disconnected"}
+{"level":30,"time":1762229408829,"pid":78942,"hostname":"MacBookAir.net","reqId":"req-k","route":"/stream","statusCode":200,"durationMs":3.033916,"msg":"request completed"}
+{"level":30,"time":1762229408846,"pid":78942,"hostname":"MacBookAir.net","reqId":"req-l","msg":"SSE client disconnected"}
+{"level":30,"time":1762229408854,"pid":78942,"hostname":"MacBookAir.net","reqId":"req-n","route":"/stream/cancel","statusCode":404,"durationMs":2.159542,"msg":"request completed"}
+{"level":30,"time":1762229408861,"pid":78942,"hostname":"MacBookAir.net","reqId":"req-i","msg":"SSE client disconnected"}
+{"level":30,"time":1762229408861,"pid":78942,"hostname":"MacBookAir.net","reqId":"req-i","route":"/stream","statusCode":200,"durationMs":86.548667,"msg":"request completed"}
+{"level":30,"time":1762229408882,"pid":78942,"hostname":"MacBookAir.net","reqId":"req-o","msg":"SSE client disconnected"}
+{"level":30,"time":1762229408882,"pid":78942,"hostname":"MacBookAir.net","reqId":"req-o","route":"/stream","statusCode":200,"durationMs":4.199958,"msg":"request completed"}
+{"level":30,"time":1762229408892,"pid":78942,"hostname":"MacBookAir.net","reqId":"req-p","msg":"SSE client disconnected"}
+{"level":30,"time":1762229408902,"pid":78942,"hostname":"MacBookAir.net","reqId":"req-r","route":"/stream/cancel","statusCode":404,"durationMs":0.860125,"msg":"request completed"}
+{"level":30,"time":1762229408931,"pid":78942,"hostname":"MacBookAir.net","reqId":"req-s","msg":"SSE client disconnected"}
+{"level":30,"time":1762229408931,"pid":78942,"hostname":"MacBookAir.net","reqId":"req-s","route":"/stream","statusCode":200,"durationMs":0.308916,"msg":"request completed"}
+{"level":30,"time":1762229408933,"pid":78942,"hostname":"MacBookAir.net","reqId":"req-m","msg":"SSE client disconnected"}
+{"level":30,"time":1762229408933,"pid":78942,"hostname":"MacBookAir.net","reqId":"req-m","route":"/stream","statusCode":200,"durationMs":87.681292,"msg":"request completed"}
+{"level":30,"time":1762229408976,"pid":78942,"hostname":"MacBookAir.net","reqId":"req-q","msg":"SSE client disconnected"}
+{"level":30,"time":1762229408976,"pid":78942,"hostname":"MacBookAir.net","reqId":"req-q","route":"/stream","statusCode":200,"durationMs":84.916583,"msg":"request completed"}
+{"level":30,"time":1762229409237,"pid":78942,"hostname":"MacBookAir.net","reqId":"req-t","route":"/test/inflight_stats","statusCode":200,"durationMs":0.221667,"msg":"request completed"}
+ ✓ tests/inflight.plugin.test.ts (7 tests) 1100ms
+   ✓ Inflight Plugin: standalone createServer() > P0: 10 mixed SSE cycles end with no underflows  503ms
+ ✓ tests/stream.rate-limit.test.ts (1 test) 783ms
+ ✓ tests/determinism.test.ts (8 tests) 920ms
+ ✓ tests/run.contract.result-hash.test.ts (1 test) 1150ms
+   ✓ P0: result fields > returns result.response_hash, summary, top_drivers  1148ms
+ ✓ tests/privacy.logs.test.ts (1 test) 843ms
+{"level":30,"time":1762229409861,"pid":78974,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:62794"}
+ ✓ tests/idempotency.run.test.ts (2 tests) 1451ms
+   ✓ Idempotency-Key for POST /v1/run > replays identical response for same key within TTL  710ms
+   ✓ Idempotency-Key for POST /v1/run > does not reuse across principals (different Authorization)  735ms
+{"level":30,"time":1762229410083,"pid":78974,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/run","statusCode":400,"durationMs":159.156833,"msg":"request completed"}
+{"level":30,"time":1762229410103,"pid":78974,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/run","statusCode":400,"durationMs":0.600625,"msg":"request completed"}
+{"level":30,"time":1762229410106,"pid":78974,"hostname":"MacBookAir.net","reqId":"req-3","route":"/v1/run","statusCode":400,"durationMs":0.554333,"msg":"request completed"}
+{"level":30,"time":1762229410166,"pid":78974,"hostname":"MacBookAir.net","reqId":"req-4","route":"/v1/run","statusCode":200,"durationMs":56.035083,"msg":"request completed"}
+{"level":30,"time":1762229410271,"pid":78974,"hostname":"MacBookAir.net","reqId":"req-5","route":"/v1/counterfactual","statusCode":400,"durationMs":2.581167,"msg":"request completed"}
+{"level":30,"time":1762229410280,"pid":78974,"hostname":"MacBookAir.net","reqId":"req-6","route":"/v1/counterfactual","statusCode":200,"durationMs":3.40325,"msg":"request completed"}
+{"level":30,"time":1762229410298,"pid":78974,"hostname":"MacBookAir.net","reqId":"req-7","route":"/v1/critique","statusCode":400,"durationMs":13.752875,"msg":"request completed"}
+{"level":30,"time":1762229410309,"pid":78974,"hostname":"MacBookAir.net","reqId":"req-8","route":"/v1/critique","statusCode":200,"durationMs":1.55725,"msg":"request completed"}
+{"level":30,"time":1762229410321,"pid":78974,"hostname":"MacBookAir.net","reqId":"req-9","route":"/v1/draft","statusCode":400,"durationMs":2.623417,"msg":"request completed"}
+{"level":30,"time":1762229410352,"pid":78974,"hostname":"MacBookAir.net","reqId":"req-a","route":"/v1/draft","statusCode":200,"durationMs":9.696125,"msg":"request completed"}
+{"level":30,"time":1762229410361,"pid":78974,"hostname":"MacBookAir.net","reqId":"req-b","route":"/v1/run","statusCode":200,"durationMs":3.574917,"msg":"request completed"}
+{"level":30,"time":1762229410370,"pid":78974,"hostname":"MacBookAir.net","reqId":"req-c","route":"/v1/run","statusCode":200,"durationMs":3.201583,"msg":"request completed"}
+ ✓ tests/input-bounds.test.ts (12 tests) 1139ms
+{"level":30,"time":1704067200000,"pid":78988,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:62824"}
+ ✓ tests/validate.endpoint.test.ts (1 test) 969ms
+   ✓ /v1/validate > valid payload returns valid:true  965ms
+ ✓ tests/v1-routes.test.ts (10 tests) 968ms
+ ✓ tests/contracts.health.size.test.ts (1 test) 1017ms
+{"level":30,"time":1762229411239,"pid":78998,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:62832"}
+{"level":30,"time":1762229411285,"pid":78998,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/health","statusCode":401,"durationMs":4.631708,"msg":"request completed"}
+{"level":30,"time":1762229411301,"pid":78998,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/version","statusCode":401,"durationMs":0.731667,"msg":"request completed"}
+{"level":30,"time":1762229411315,"pid":78998,"hostname":"MacBookAir.net","reqId":"req-3","route":"/v1/run","statusCode":401,"durationMs":1.668917,"msg":"request completed"}
+{"level":30,"time":1704067200000,"pid":78988,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/run","statusCode":200,"msg":"request completed"}
+{"level":30,"time":1762229411319,"pid":78998,"hostname":"MacBookAir.net","reqId":"req-4","route":"/v1/counterfactual","statusCode":401,"durationMs":0.820042,"msg":"request completed"}
+{"level":30,"time":1762229411324,"pid":78998,"hostname":"MacBookAir.net","reqId":"req-5","route":"/v1/critique","statusCode":401,"durationMs":1.284667,"msg":"request completed"}
+{"level":30,"time":1762229411326,"pid":78998,"hostname":"MacBookAir.net","reqId":"req-6","route":"/v1/draft","statusCode":401,"durationMs":0.418375,"msg":"request completed"}
+{"level":30,"time":1762229411331,"pid":78998,"hostname":"MacBookAir.net","reqId":"req-7","route":"/v1/self-check","statusCode":401,"durationMs":0.462584,"msg":"request completed"}
+{"level":30,"time":1762229411338,"pid":78998,"hostname":"MacBookAir.net","reqId":"req-8","route":"/v1/health","statusCode":403,"durationMs":0.960583,"msg":"request completed"}
+{"level":30,"time":1762229411343,"pid":78998,"hostname":"MacBookAir.net","reqId":"req-9","route":"/v1/version","statusCode":403,"durationMs":0.956375,"msg":"request completed"}
+{"level":30,"time":1704067200000,"pid":78988,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/run","statusCode":200,"msg":"request completed"}
+{"level":30,"time":1762229411348,"pid":78998,"hostname":"MacBookAir.net","reqId":"req-a","route":"/v1/run","statusCode":403,"durationMs":1.393208,"msg":"request completed"}
+{"level":30,"time":1762229411351,"pid":78998,"hostname":"MacBookAir.net","reqId":"req-b","route":"/v1/counterfactual","statusCode":403,"durationMs":0.777958,"msg":"request completed"}
+{"level":30,"time":1704067200000,"pid":78988,"hostname":"MacBookAir.net","reqId":"req-3","route":"/v1/run","statusCode":200,"msg":"request completed"}
+{"level":30,"time":1762229411358,"pid":78998,"hostname":"MacBookAir.net","reqId":"req-c","route":"/v1/critique","statusCode":403,"durationMs":0.292334,"msg":"request completed"}
+{"level":30,"time":1762229411362,"pid":78998,"hostname":"MacBookAir.net","reqId":"req-d","route":"/v1/draft","statusCode":403,"durationMs":1.639083,"msg":"request completed"}
+{"level":30,"time":1762229411366,"pid":78998,"hostname":"MacBookAir.net","reqId":"req-e","route":"/v1/self-check","statusCode":403,"durationMs":0.664917,"msg":"request completed"}
+{"level":30,"time":1704067200000,"pid":78988,"hostname":"MacBookAir.net","reqId":"req-4","route":"/v1/run","statusCode":200,"msg":"request completed"}
+{"level":30,"time":1704067200000,"pid":78988,"hostname":"MacBookAir.net","reqId":"req-5","route":"/v1/run","statusCode":200,"msg":"request completed"}
+{"level":30,"time":1704067200000,"pid":78988,"hostname":"MacBookAir.net","reqId":"req-6","route":"/v1/run","statusCode":200,"msg":"request completed"}
+{"level":30,"time":1704067200000,"pid":78988,"hostname":"MacBookAir.net","reqId":"req-7","route":"/v1/run","statusCode":200,"msg":"request completed"}
+{"level":30,"time":1704067200000,"pid":78988,"hostname":"MacBookAir.net","reqId":"req-8","route":"/v1/run","statusCode":200,"msg":"request completed"}
+{"level":30,"time":1704067200000,"pid":78988,"hostname":"MacBookAir.net","reqId":"req-9","route":"/v1/run","statusCode":200,"msg":"request completed"}
+{"level":30,"time":1704067200000,"pid":78988,"hostname":"MacBookAir.net","reqId":"req-a","route":"/v1/run","statusCode":200,"msg":"request completed"}
+{"level":30,"time":1704067200000,"pid":78988,"hostname":"MacBookAir.net","reqId":"req-b","route":"/v1/run","statusCode":200,"msg":"request completed"}
+{"level":30,"time":1704067200000,"pid":78988,"hostname":"MacBookAir.net","reqId":"req-c","route":"/v1/run","statusCode":200,"msg":"request completed"}
+{"level":30,"time":1704067200000,"pid":78988,"hostname":"MacBookAir.net","reqId":"req-d","route":"/v1/run","statusCode":200,"msg":"request completed"}
+{"level":30,"time":1704067200000,"pid":78988,"hostname":"MacBookAir.net","reqId":"req-e","route":"/v1/run","statusCode":200,"msg":"request completed"}
+{"level":30,"time":1704067200000,"pid":78988,"hostname":"MacBookAir.net","reqId":"req-f","route":"/v1/run","statusCode":200,"msg":"request completed"}
+{"level":30,"time":1704067200000,"pid":78988,"hostname":"MacBookAir.net","reqId":"req-g","route":"/v1/run","statusCode":200,"msg":"request completed"}
+{"level":30,"time":1704067200000,"pid":78988,"hostname":"MacBookAir.net","reqId":"req-h","route":"/v1/run","statusCode":200,"msg":"request completed"}
+{"level":30,"time":1704067200000,"pid":78988,"hostname":"MacBookAir.net","reqId":"req-i","route":"/v1/run","statusCode":200,"msg":"request completed"}
+{"level":30,"time":1704067200000,"pid":78988,"hostname":"MacBookAir.net","reqId":"req-j","route":"/v1/run","statusCode":200,"msg":"request completed"}
+{"level":30,"time":1704067200000,"pid":78988,"hostname":"MacBookAir.net","reqId":"req-k","route":"/v1/run","statusCode":200,"msg":"request completed"}
+{"level":30,"time":1704067200000,"pid":78988,"hostname":"MacBookAir.net","reqId":"req-l","route":"/v1/run","statusCode":200,"msg":"request completed"}
+{"level":30,"time":1704067200000,"pid":78988,"hostname":"MacBookAir.net","reqId":"req-m","route":"/v1/run","statusCode":200,"msg":"request completed"}
+{"level":30,"time":1704067200000,"pid":78988,"hostname":"MacBookAir.net","reqId":"req-n","route":"/v1/run","statusCode":200,"msg":"request completed"}
+{"level":30,"time":1704067200000,"pid":78988,"hostname":"MacBookAir.net","reqId":"req-o","route":"/v1/run","statusCode":200,"msg":"request completed"}
+{"level":30,"time":1704067200000,"pid":78988,"hostname":"MacBookAir.net","reqId":"req-p","route":"/v1/run","statusCode":200,"msg":"request completed"}
+{"level":30,"time":1704067200000,"pid":78988,"hostname":"MacBookAir.net","reqId":"req-q","route":"/v1/run","statusCode":200,"msg":"request completed"}
+{"level":30,"time":1704067200000,"pid":78988,"hostname":"MacBookAir.net","reqId":"req-r","route":"/v1/run","statusCode":200,"msg":"request completed"}
+{"level":30,"time":1704067200000,"pid":78988,"hostname":"MacBookAir.net","reqId":"req-s","route":"/v1/run","statusCode":200,"msg":"request completed"}
+{"level":30,"time":1704067200000,"pid":78988,"hostname":"MacBookAir.net","reqId":"req-t","route":"/v1/run","statusCode":400,"msg":"request completed"}
+{"level":30,"time":1704067200000,"pid":78988,"hostname":"MacBookAir.net","reqId":"req-u","route":"/v1/run","statusCode":500,"msg":"request completed"}
+{"level":30,"time":1704067200000,"pid":78988,"hostname":"MacBookAir.net","reqId":"req-v","route":"/v1/run","statusCode":200,"msg":"request completed"}
+ ✓ tests/e2e/run.e2e.test.ts (6 tests) 974ms
+   ✓ E2E: /v1/run > Happy Paths > minimal payload returns valid schema and stable hash  383ms
+{"level":30,"time":1762229411550,"pid":78998,"hostname":"MacBookAir.net","reqId":"req-f","route":"/v1/run","statusCode":200,"durationMs":180.552,"msg":"request completed"}
+{"level":30,"time":1762229411559,"pid":78998,"hostname":"MacBookAir.net","reqId":"req-g","route":"/v1/health","statusCode":200,"durationMs":6.7175,"msg":"request completed"}
+{"level":30,"time":1762229411567,"pid":78998,"hostname":"MacBookAir.net","reqId":"req-h","route":"/v1/self-check","statusCode":200,"durationMs":5.593958,"msg":"request completed"}
+{"level":30,"time":1762229411569,"pid":78998,"hostname":"MacBookAir.net","reqId":"req-i","route":"/v1/health","statusCode":200,"durationMs":1.12575,"msg":"request completed"}
+{"level":30,"time":1762229411571,"pid":78998,"hostname":"MacBookAir.net","reqId":"req-j","route":"/v1/health","statusCode":200,"durationMs":0.888417,"msg":"request completed"}
+{"level":30,"time":1762229411612,"pid":78998,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:62872"}
+{"level":30,"time":1762229411617,"pid":78998,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/run","statusCode":200,"durationMs":1.814042,"msg":"request completed"}
+{"level":30,"time":1762229411620,"pid":78998,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/health","statusCode":200,"durationMs":0.394667,"msg":"request completed"}
+ ✓ tests/auth.v1.routes.test.ts (21 tests) 935ms
+ ✓ tests/rate-limit.conformance.test.ts (2 tests) 857ms
+{"level":30,"time":1762229412114,"pid":79039,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:62882"}
+{"level":30,"time":1762229412191,"pid":79039,"hostname":"MacBookAir.net","reqId":"req-1","latencyMs":500,"msg":"sse start"}
+{"level":30,"time":1762229412200,"pid":79039,"hostname":"MacBookAir.net","reqId":"req-2","latencyMs":500,"msg":"sse start"}
+{"level":30,"time":1762229412202,"pid":79042,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:62885"}
+{"level":30,"time":1762229412230,"pid":79039,"hostname":"MacBookAir.net","reqId":"req-3","route":"/v1/stream","statusCode":429,"durationMs":4.646333,"msg":"request completed"}
+{"level":40,"time":1762229412239,"pid":79039,"hostname":"MacBookAir.net","reqId":"req-2","err":{"type":"Error","message":"aborted","stack":"Error: aborted\n    at abortIncoming (node:_http_server:796:17)\n    at socketOnClose (node:_http_server:790:3)\n    at Socket.emit (node:events:536:35)\n    at TCP.<anonymous> (node:net:343:12)","code":"ECONNRESET"},"msg":"sse client error/close"}
+{"level":30,"time":1762229412240,"pid":79039,"hostname":"MacBookAir.net","reqId":"req-2","msg":"sse end"}
+{"level":40,"time":1762229412240,"pid":79039,"hostname":"MacBookAir.net","reqId":"req-1","err":{"type":"Error","message":"aborted","stack":"Error: aborted\n    at abortIncoming (node:_http_server:796:17)\n    at socketOnClose (node:_http_server:790:3)\n    at Socket.emit (node:events:536:35)\n    at TCP.<anonymous> (node:net:343:12)","code":"ECONNRESET"},"msg":"sse client error/close"}
+{"level":30,"time":1762229412240,"pid":79039,"hostname":"MacBookAir.net","reqId":"req-1","msg":"sse end"}
+{"level":30,"time":1762229412250,"pid":79042,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/run","statusCode":200,"durationMs":7.90125,"msg":"request completed"}
+{"level":30,"time":1762229412257,"pid":79046,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/health","statusCode":200,"durationMs":4.37325,"msg":"request completed"}
+{"level":30,"time":1762229412262,"pid":79040,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/run","statusCode":200,"durationMs":103.003125,"msg":"request completed"}
+{"level":30,"time":1762229412267,"pid":79042,"hostname":"MacBookAir.net","reqId":"req-2","demo":true,"msg":"sse start"}
+{"level":30,"time":1762229412270,"pid":79040,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/run","statusCode":200,"durationMs":2.129083,"msg":"request completed"}
+{"level":30,"time":1762229412268,"pid":79042,"hostname":"MacBookAir.net","reqId":"req-2","msg":"sse end"}
+{"level":30,"time":1762229412268,"pid":79042,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/stream","statusCode":200,"durationMs":2.392333,"msg":"request completed"}
+{"level":30,"time":1762229412272,"pid":79040,"hostname":"MacBookAir.net","reqId":"req-3","route":"/v1/run","statusCode":200,"durationMs":1.227833,"msg":"request completed"}
+ ✓ tests/sdk.js.test.ts (2 tests) 382ms
+{"level":30,"time":1762229412274,"pid":79040,"hostname":"MacBookAir.net","reqId":"req-4","route":"/v1/run","statusCode":200,"durationMs":1.927583,"msg":"request completed"}
+{"level":30,"time":1762229412277,"pid":79040,"hostname":"MacBookAir.net","reqId":"req-5","route":"/v1/run","statusCode":200,"durationMs":2.237667,"msg":"request completed"}
+{"level":30,"time":1762229412281,"pid":79040,"hostname":"MacBookAir.net","reqId":"req-6","route":"/v1/run","statusCode":200,"durationMs":3.038959,"msg":"request completed"}
+{"level":30,"time":1762229412284,"pid":79040,"hostname":"MacBookAir.net","reqId":"req-7","route":"/v1/run","statusCode":200,"durationMs":1.627,"msg":"request completed"}
+{"level":30,"time":1762229412288,"pid":79039,"hostname":"MacBookAir.net","reqId":"req-4","latencyMs":50,"msg":"sse start"}
+{"level":30,"time":1762229412288,"pid":79040,"hostname":"MacBookAir.net","reqId":"req-8","route":"/v1/run","statusCode":200,"durationMs":2.122958,"msg":"request completed"}
+{"level":40,"time":1762229412291,"pid":79039,"hostname":"MacBookAir.net","reqId":"req-4","err":{"type":"Error","message":"aborted","stack":"Error: aborted\n    at abortIncoming (node:_http_server:796:17)\n    at socketOnClose (node:_http_server:790:3)\n    at Socket.emit (node:events:536:35)\n    at TCP.<anonymous> (node:net:343:12)","code":"ECONNRESET"},"msg":"sse client error/close"}
+{"level":30,"time":1762229412292,"pid":79039,"hostname":"MacBookAir.net","reqId":"req-4","msg":"sse end"}
+{"level":30,"time":1762229412291,"pid":79040,"hostname":"MacBookAir.net","reqId":"req-9","route":"/v1/run","statusCode":200,"durationMs":2.09375,"msg":"request completed"}
+{"level":30,"time":1762229412293,"pid":79040,"hostname":"MacBookAir.net","reqId":"req-a","route":"/v1/run","statusCode":200,"durationMs":1.186792,"msg":"request completed"}
+ ✓ tests/trust-proxy.ip.test.ts (1 test) 488ms
+ ✓ tests/ident-tag-determinism.test.ts (1 test) 420ms
+   ✓ Identifiability Tag Determinism > golden payload produces stable hashes  418ms
+{"level":30,"time":1762229412336,"pid":79048,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:62892"}
+{"level":30,"time":1762229412362,"pid":79046,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/run","statusCode":200,"durationMs":70.991084,"msg":"request completed"}
+{"level":30,"time":1762229412367,"pid":79046,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/health","statusCode":200,"durationMs":1.797541,"msg":"request completed"}
+{"level":30,"time":1762229412405,"pid":79046,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/health","statusCode":200,"durationMs":0.97025,"msg":"request completed"}
+{"level":40,"time":1762229412463,"pid":79048,"hostname":"MacBookAir.net","reqId":"req-1","q":{"foo":"1","demo":0,"latency_ms":0},"errors":[{"instancePath":"","schemaPath":"#/additionalProperties","keyword":"additionalProperties","params":{"additionalProperty":"foo"},"message":"must NOT have additional properties"}],"msg":"stream query validation failed"}
+{"level":30,"time":1762229412468,"pid":79048,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/stream","statusCode":400,"durationMs":118.11075,"msg":"request completed"}
+{"level":30,"time":1762229412474,"pid":79048,"hostname":"MacBookAir.net","reqId":"req-2","demo":true,"msg":"sse start"}
+{"level":30,"time":1762229412474,"pid":79048,"hostname":"MacBookAir.net","reqId":"req-2","msg":"sse end"}
+{"level":30,"time":1762229412474,"pid":79048,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/stream","statusCode":200,"durationMs":0.96175,"msg":"request completed"}
+ ✓ tests/stream.query.validation.test.ts (2 tests) 357ms
+{"level":30,"time":1762229412556,"pid":79046,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/run","statusCode":200,"durationMs":1.273708,"msg":"request completed"}
+{"level":30,"time":1762229412562,"pid":79046,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/run","statusCode":200,"durationMs":4.272917,"msg":"request completed"}
+{"level":30,"time":1762229412568,"pid":79046,"hostname":"MacBookAir.net","reqId":"req-3","route":"/v1/run","statusCode":200,"durationMs":4.051916,"msg":"request completed"}
+{"level":30,"time":1762229412570,"pid":79046,"hostname":"MacBookAir.net","reqId":"req-4","route":"/v1/health","statusCode":200,"durationMs":0.424375,"msg":"request completed"}
+ ✓ tests/extract-principal.integration.test.ts (4 tests) 529ms
+{"level":30,"time":1762229413327,"pid":79051,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:62908"}
+{"level":30,"time":1762229413383,"pid":79051,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:62910"}
+{"level":30,"time":1762229413419,"pid":79056,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:62913"}
+{"level":30,"time":1762229413428,"pid":79051,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/self-check","statusCode":404,"durationMs":5.456917,"msg":"request completed"}
+{"level":30,"time":1762229413474,"pid":79056,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/health","statusCode":200,"durationMs":7.575625,"msg":"request completed"}
+{"level":30,"time":1762229413494,"pid":79051,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/self-check","statusCode":200,"durationMs":22.273333,"msg":"request completed"}
+{"level":30,"time":1762229413507,"pid":79051,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/self-check","statusCode":200,"durationMs":2.331625,"msg":"request completed"}
+{"level":30,"time":1762229413515,"pid":79051,"hostname":"MacBookAir.net","reqId":"req-3","route":"/v1/self-check","statusCode":200,"durationMs":3.863459,"msg":"request completed"}
+{"level":30,"time":1762229413522,"pid":79051,"hostname":"MacBookAir.net","reqId":"req-4","route":"/v1/self-check","statusCode":200,"durationMs":2.702416,"msg":"request completed"}
+{"level":30,"time":1762229413529,"pid":79051,"hostname":"MacBookAir.net","reqId":"req-5","route":"/v1/self-check","statusCode":200,"durationMs":2.916208,"msg":"request completed"}
+{"level":30,"time":1762229413536,"pid":79051,"hostname":"MacBookAir.net","reqId":"req-6","route":"/v1/self-check","statusCode":200,"durationMs":2.140584,"msg":"request completed"}
+{"level":30,"time":1762229413542,"pid":79051,"hostname":"MacBookAir.net","reqId":"req-7","route":"/v1/self-check","statusCode":200,"durationMs":2.235042,"msg":"request completed"}
+{"level":30,"time":1762229413551,"pid":79051,"hostname":"MacBookAir.net","reqId":"req-8","route":"/v1/self-check","statusCode":200,"durationMs":1.171166,"msg":"request completed"}
+{"level":30,"time":1762229413556,"pid":79051,"hostname":"MacBookAir.net","reqId":"req-9","route":"/v1/self-check","statusCode":200,"durationMs":2.022208,"msg":"request completed"}
+{"level":30,"time":1762229413568,"pid":79051,"hostname":"MacBookAir.net","reqId":"req-a","route":"/v1/self-check","statusCode":200,"durationMs":2.470875,"msg":"request completed"}
+{"level":30,"time":1762229413571,"pid":79051,"hostname":"MacBookAir.net","reqId":"req-b","route":"/v1/self-check","statusCode":200,"durationMs":0.648417,"msg":"request completed"}
+{"level":30,"time":1762229413572,"pid":79056,"hostname":"MacBookAir.net","reqId":"req-2","latencyMs":2000,"msg":"sse start"}
+ ✓ tests/self-check.route.test.ts (3 tests) 1026ms
+{"level":30,"time":1762229413592,"pid":79056,"hostname":"MacBookAir.net","reqId":"req-3","route":"/v1/stream","statusCode":429,"durationMs":2.55225,"msg":"request completed"}
+{"level":30,"time":1762229413600,"pid":79056,"hostname":"MacBookAir.net","reqId":"req-4","route":"/v1/health","statusCode":200,"durationMs":0.599334,"msg":"request completed"}
+{"level":40,"time":1762229413601,"pid":79056,"hostname":"MacBookAir.net","reqId":"req-2","err":{"type":"Error","message":"aborted","stack":"Error: aborted\n    at abortIncoming (node:_http_server:796:17)\n    at socketOnClose (node:_http_server:790:3)\n    at Socket.emit (node:events:536:35)\n    at TCP.<anonymous> (node:net:343:12)","code":"ECONNRESET"},"msg":"sse client error/close"}
+{"level":30,"time":1762229413602,"pid":79056,"hostname":"MacBookAir.net","reqId":"req-2","msg":"sse end"}
+{"level":30,"time":1762229413652,"pid":79054,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/run","statusCode":200,"durationMs":114.214417,"msg":"request completed"}
+ ✓ tests/limited-event.test.ts (1 test) 667ms
+{"level":30,"time":1762229413707,"pid":79054,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/run","statusCode":200,"durationMs":2.772708,"msg":"request completed"}
+{"level":30,"time":1762229413708,"pid":79054,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/run","statusCode":200,"durationMs":0.749625,"msg":"request completed"}
+{"level":30,"time":1762229413712,"pid":79056,"hostname":"MacBookAir.net","reqId":"req-5","route":"/v1/health","statusCode":200,"durationMs":1.574875,"msg":"request completed"}
+{"level":30,"time":1762229413715,"pid":79054,"hostname":"MacBookAir.net","reqId":"req-3","route":"/v1/run","statusCode":200,"durationMs":6.510166,"msg":"request completed"}
+{"level":30,"time":1762229413720,"pid":79054,"hostname":"MacBookAir.net","reqId":"req-4","route":"/v1/run","statusCode":200,"durationMs":4.349333,"msg":"request completed"}
+{"level":30,"time":1762229413722,"pid":79054,"hostname":"MacBookAir.net","reqId":"req-5","route":"/v1/run","statusCode":200,"durationMs":1.814916,"msg":"request completed"}
+{"level":30,"time":1762229413724,"pid":79054,"hostname":"MacBookAir.net","reqId":"req-6","route":"/v1/run","statusCode":200,"durationMs":1.804208,"msg":"request completed"}
+{"level":30,"time":1762229413727,"pid":79054,"hostname":"MacBookAir.net","reqId":"req-7","route":"/v1/run","statusCode":200,"durationMs":1.839167,"msg":"request completed"}
+ ✓ tests/health.stream.metrics.test.ts (1 test) 552ms
+{"level":30,"time":1762229413731,"pid":79054,"hostname":"MacBookAir.net","reqId":"req-8","route":"/v1/run","statusCode":200,"durationMs":2.165541,"msg":"request completed"}
+{"level":30,"time":1762229413736,"pid":79054,"hostname":"MacBookAir.net","reqId":"req-9","route":"/v1/run","statusCode":200,"durationMs":2.893417,"msg":"request completed"}
+{"level":30,"time":1762229413739,"pid":79054,"hostname":"MacBookAir.net","reqId":"req-a","route":"/v1/run","statusCode":200,"durationMs":1.97725,"msg":"request completed"}
+{"level":30,"time":1762229413743,"pid":79062,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:62930"}
+ ✓ tests/whiteboard-features.integration.test.ts (2 tests) 501ms
+   ✓ Phase-B Integration (all flags ON) > features compose without errors  428ms
+ ✓ tests/request.guards.test.ts (1 test) 721ms
+   ✓ request guards > 413 oversized body; 400 unknown field; JSON 429 headers; 400 out-of-range stream param  719ms
+{"level":30,"time":1762229413779,"pid":79062,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/templates/:id/graph","statusCode":200,"durationMs":4.8525,"msg":"request completed"}
+ ✓ tests/templates.belief.present.test.ts (1 test) 445ms
+ ✓ tests/metrics.enriched.test.ts (1 test) 430ms
+ ✓ tests/contracts.health.shape.test.ts (1 test) 627ms
+ ✓ tests/idempotency.rpm-skip.test.ts (1 test) 658ms
+   ✓ Idempotent replays do not consume RPM for POST /v1/run > same Idempotency-Key does not decrement remaining; new key 429s under tiny RPM  655ms
+ ❯ tests/limits.endpoint.test.ts (1 test | 1 failed) 4657ms
+   × /v1/limits > returns configured limits 4656ms
+     → requestJSON failed: fetch failed
+{"level":30,"time":1762229414919,"pid":79068,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:62969"}
+{"level":30,"time":1762229414948,"pid":79068,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/health","statusCode":200,"durationMs":4.836541,"msg":"request completed"}
+{"level":30,"time":1762229414952,"pid":79071,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:62971"}
+ ✓ tests/inference-modes.test.ts (3 tests) 794ms
+ ✓ tests/health.exposes.idem.size.test.ts (1 test) 458ms
+{"level":30,"time":1762229415040,"pid":79071,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/draft","statusCode":200,"durationMs":42.96275,"msg":"request completed"}
+{"level":30,"time":1762229415120,"pid":79071,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:62971"}
+{"level":30,"time":1762229415160,"pid":79071,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/draft","statusCode":200,"durationMs":5.50425,"msg":"request completed"}
+{"level":30,"time":1762229415172,"pid":79071,"hostname":"MacBookAir.net","reqId":"req-2","latencyMs":0,"msg":"sse start"}
+{"level":30,"time":1762229415174,"pid":79071,"hostname":"MacBookAir.net","reqId":"req-2","msg":"sse end"}
+{"level":30,"time":1762229415174,"pid":79071,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/stream","statusCode":200,"durationMs":3.137958,"msg":"request completed"}
+ ✓ tests/trace.passthrough.test.ts (2 tests) 630ms
+ ✓ tests/stream.resume.test.ts (1 test) 554ms
+ ✓ tests/rate-limit.rollover.test.ts (1 test) 605ms
+ ✓ tests/security.no-logging.test.ts (1 test) 761ms
+{"level":30,"time":1762229416336,"pid":79101,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/run","statusCode":400,"durationMs":4.339417,"msg":"request completed"}
+{"level":30,"time":1762229416433,"pid":79101,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/run","statusCode":400,"durationMs":90.733125,"msg":"request completed"}
+{"level":30,"time":1762229416435,"pid":79101,"hostname":"MacBookAir.net","reqId":"req-3","route":"/v1/run","statusCode":400,"durationMs":0.471,"msg":"request completed"}
+{"level":30,"time":1762229416456,"pid":79101,"hostname":"MacBookAir.net","reqId":"req-4","route":"/v1/run","statusCode":200,"durationMs":16.181792,"msg":"request completed"}
+{"level":30,"time":1762229416482,"pid":79105,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/health","statusCode":200,"durationMs":4.745625,"msg":"request completed"}
+{"level":30,"time":1762229416485,"pid":79101,"hostname":"MacBookAir.net","reqId":"req-5","route":"/v1/run","statusCode":200,"durationMs":27.886375,"msg":"request completed"}
+{"level":30,"time":1762229416488,"pid":79101,"hostname":"MacBookAir.net","reqId":"req-6","route":"/v1/run","statusCode":400,"durationMs":0.952208,"msg":"request completed"}
+ ✓ tests/contract-hardening.test.ts (6 tests) 999ms
+{"level":30,"time":1762229416538,"pid":79105,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/health","statusCode":200,"durationMs":0.537625,"msg":"request completed"}
+{"level":30,"time":1762229416563,"pid":79105,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/health","statusCode":200,"durationMs":0.927125,"msg":"request completed"}
+ ✓ tests/circuit-breaker.timeout.test.ts (3 tests) 932ms
+   ✓ PR-2C: Half-Open Timeout > exposes half_open_timeout_ms in health config  851ms
+{"level":30,"time":1762229416595,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/health","statusCode":200,"durationMs":8.315542,"msg":"request completed"}
+{"level":30,"time":1762229416606,"pid":79106,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/run","statusCode":200,"durationMs":158.035792,"msg":"request completed"}
+{"level":30,"time":1762229416623,"pid":79106,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/run","statusCode":200,"durationMs":2.632583,"msg":"request completed"}
+{"level":30,"time":1762229416630,"pid":79106,"hostname":"MacBookAir.net","reqId":"req-3","route":"/v1/run","statusCode":200,"durationMs":2.43325,"msg":"request completed"}
+{"level":30,"time":1762229416631,"pid":79106,"hostname":"MacBookAir.net","reqId":"req-4","route":"/v1/run","statusCode":200,"durationMs":0.751667,"msg":"request completed"}
+ ✓ tests/principal-unification.integration.test.ts (2 tests) 1017ms
+{"level":30,"time":1762229416600,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/health","statusCode":200,"durationMs":2.291542,"msg":"request completed"}
+{"level":30,"time":1762229416601,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-3","route":"/v1/health","statusCode":200,"durationMs":0.370959,"msg":"request completed"}
+{"level":30,"time":1762229416602,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-4","route":"/v1/health","statusCode":200,"durationMs":0.180125,"msg":"request completed"}
+{"level":30,"time":1762229416605,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-5","route":"/v1/health","statusCode":200,"durationMs":2.567875,"msg":"request completed"}
+{"level":30,"time":1762229416606,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-6","route":"/v1/health","statusCode":200,"durationMs":0.355417,"msg":"request completed"}
+{"level":30,"time":1762229416608,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-7","route":"/v1/health","statusCode":200,"durationMs":1.14075,"msg":"request completed"}
+{"level":30,"time":1762229416609,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-8","route":"/v1/health","statusCode":200,"durationMs":0.389417,"msg":"request completed"}
+{"level":30,"time":1762229416610,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-9","route":"/v1/health","statusCode":200,"durationMs":0.343458,"msg":"request completed"}
+{"level":30,"time":1762229416611,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-a","route":"/v1/health","statusCode":200,"durationMs":0.504833,"msg":"request completed"}
+{"level":30,"time":1762229416612,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-b","route":"/v1/health","statusCode":200,"durationMs":0.309458,"msg":"request completed"}
+{"level":30,"time":1762229416613,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-c","route":"/v1/health","statusCode":200,"durationMs":0.271042,"msg":"request completed"}
+{"level":30,"time":1762229416613,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-d","route":"/v1/health","statusCode":200,"durationMs":0.276,"msg":"request completed"}
+{"level":30,"time":1762229416614,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-e","route":"/v1/health","statusCode":200,"durationMs":0.249958,"msg":"request completed"}
+{"level":30,"time":1762229416615,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-f","route":"/v1/health","statusCode":200,"durationMs":0.208042,"msg":"request completed"}
+{"level":30,"time":1762229416616,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-g","route":"/v1/health","statusCode":200,"durationMs":0.158041,"msg":"request completed"}
+{"level":30,"time":1762229416617,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-h","route":"/v1/health","statusCode":200,"durationMs":0.614583,"msg":"request completed"}
+{"level":30,"time":1762229416617,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-i","route":"/v1/health","statusCode":200,"durationMs":0.311417,"msg":"request completed"}
+{"level":30,"time":1762229416618,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-j","route":"/v1/health","statusCode":200,"durationMs":0.198917,"msg":"request completed"}
+{"level":30,"time":1762229416618,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-k","route":"/v1/health","statusCode":200,"durationMs":0.110458,"msg":"request completed"}
+{"level":30,"time":1762229416618,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-l","route":"/v1/health","statusCode":200,"durationMs":0.09825,"msg":"request completed"}
+{"level":30,"time":1762229416618,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-m","route":"/v1/health","statusCode":200,"durationMs":0.090708,"msg":"request completed"}
+{"level":30,"time":1762229416620,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-n","route":"/v1/health","statusCode":200,"durationMs":0.449958,"msg":"request completed"}
+{"level":30,"time":1762229416622,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-o","route":"/v1/health","statusCode":200,"durationMs":0.390458,"msg":"request completed"}
+{"level":30,"time":1762229416623,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-p","route":"/v1/health","statusCode":200,"durationMs":1.021417,"msg":"request completed"}
+{"level":30,"time":1762229416624,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-q","route":"/v1/health","statusCode":200,"durationMs":1.035584,"msg":"request completed"}
+{"level":30,"time":1762229416625,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-r","route":"/v1/health","statusCode":200,"durationMs":0.4585,"msg":"request completed"}
+{"level":30,"time":1762229416630,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-s","route":"/v1/health","statusCode":200,"durationMs":3.892,"msg":"request completed"}
+{"level":30,"time":1762229416630,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-t","route":"/v1/health","statusCode":200,"durationMs":0.168833,"msg":"request completed"}
+{"level":30,"time":1762229416630,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-u","route":"/v1/health","statusCode":200,"durationMs":0.114375,"msg":"request completed"}
+{"level":30,"time":1762229416631,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-v","route":"/v1/health","statusCode":200,"durationMs":0.103208,"msg":"request completed"}
+{"level":30,"time":1762229416631,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-w","route":"/v1/health","statusCode":200,"durationMs":0.199458,"msg":"request completed"}
+{"level":30,"time":1762229416631,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-x","route":"/v1/health","statusCode":200,"durationMs":0.098084,"msg":"request completed"}
+{"level":30,"time":1762229416631,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-y","route":"/v1/health","statusCode":200,"durationMs":0.086916,"msg":"request completed"}
+{"level":30,"time":1762229416632,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-z","route":"/v1/health","statusCode":200,"durationMs":0.466,"msg":"request completed"}
+{"level":30,"time":1762229416633,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-10","route":"/v1/health","statusCode":200,"durationMs":0.57425,"msg":"request completed"}
+{"level":30,"time":1762229416634,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-11","route":"/v1/health","statusCode":200,"durationMs":0.197167,"msg":"request completed"}
+{"level":30,"time":1762229416634,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-12","route":"/v1/health","statusCode":200,"durationMs":0.613208,"msg":"request completed"}
+{"level":30,"time":1762229416636,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-13","route":"/v1/health","statusCode":200,"durationMs":1.0345,"msg":"request completed"}
+{"level":30,"time":1762229416636,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-14","route":"/v1/health","statusCode":200,"durationMs":0.156792,"msg":"request completed"}
+{"level":30,"time":1762229416636,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-15","route":"/v1/health","statusCode":200,"durationMs":0.233459,"msg":"request completed"}
+{"level":30,"time":1762229416637,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-16","route":"/v1/health","statusCode":200,"durationMs":0.43475,"msg":"request completed"}
+{"level":30,"time":1762229416638,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-17","route":"/v1/health","statusCode":200,"durationMs":0.281958,"msg":"request completed"}
+{"level":30,"time":1762229416639,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-18","route":"/v1/health","statusCode":200,"durationMs":0.129625,"msg":"request completed"}
+{"level":30,"time":1762229416639,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-19","route":"/v1/health","statusCode":200,"durationMs":0.155875,"msg":"request completed"}
+{"level":30,"time":1762229416641,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-1a","route":"/v1/health","statusCode":200,"durationMs":0.276708,"msg":"request completed"}
+{"level":30,"time":1762229416641,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-1b","route":"/v1/health","statusCode":200,"durationMs":0.18475,"msg":"request completed"}
+{"level":30,"time":1762229416641,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-1c","route":"/v1/health","statusCode":200,"durationMs":0.107916,"msg":"request completed"}
+{"level":30,"time":1762229416641,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-1d","route":"/v1/health","statusCode":200,"durationMs":0.098833,"msg":"request completed"}
+{"level":30,"time":1762229416642,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-1e","route":"/v1/health","statusCode":200,"durationMs":0.110333,"msg":"request completed"}
+{"level":30,"time":1762229416644,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-1f","route":"/v1/health","statusCode":200,"durationMs":2.131542,"msg":"request completed"}
+{"level":30,"time":1762229416646,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-1g","route":"/v1/health","statusCode":200,"durationMs":0.260334,"msg":"request completed"}
+{"level":30,"time":1762229416646,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-1h","route":"/v1/health","statusCode":200,"durationMs":0.434125,"msg":"request completed"}
+{"level":30,"time":1762229416648,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-1i","route":"/v1/health","statusCode":200,"durationMs":0.354833,"msg":"request completed"}
+{"level":30,"time":1762229416648,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-1j","route":"/v1/health","statusCode":200,"durationMs":0.220833,"msg":"request completed"}
+{"level":30,"time":1762229416648,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-1k","route":"/v1/health","statusCode":200,"durationMs":0.1095,"msg":"request completed"}
+{"level":30,"time":1762229416650,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-1l","route":"/v1/health","statusCode":200,"durationMs":1.4505,"msg":"request completed"}
+{"level":30,"time":1762229416650,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-1m","route":"/v1/health","statusCode":200,"durationMs":0.184209,"msg":"request completed"}
+{"level":30,"time":1762229416651,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-1n","route":"/v1/health","statusCode":200,"durationMs":0.113167,"msg":"request completed"}
+{"level":30,"time":1762229416651,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-1o","route":"/v1/health","statusCode":200,"durationMs":0.109333,"msg":"request completed"}
+{"level":30,"time":1762229416651,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-1p","route":"/v1/health","statusCode":200,"durationMs":0.287667,"msg":"request completed"}
+{"level":30,"time":1762229416652,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-1q","route":"/v1/health","statusCode":200,"durationMs":0.928333,"msg":"request completed"}
+{"level":30,"time":1762229416653,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-1r","route":"/v1/health","statusCode":200,"durationMs":0.337917,"msg":"request completed"}
+{"level":30,"time":1762229416653,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-1s","route":"/v1/health","statusCode":200,"durationMs":0.121167,"msg":"request completed"}
+{"level":30,"time":1762229416653,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-1t","route":"/v1/health","statusCode":200,"durationMs":0.102292,"msg":"request completed"}
+{"level":30,"time":1762229416654,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-1u","route":"/v1/health","statusCode":200,"durationMs":0.101792,"msg":"request completed"}
+{"level":30,"time":1762229416654,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-1v","route":"/v1/health","statusCode":200,"durationMs":0.590792,"msg":"request completed"}
+{"level":30,"time":1762229416655,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-1w","route":"/v1/health","statusCode":200,"durationMs":0.110584,"msg":"request completed"}
+{"level":30,"time":1762229416655,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-1x","route":"/v1/health","statusCode":200,"durationMs":0.109416,"msg":"request completed"}
+{"level":30,"time":1762229416656,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-1y","route":"/v1/health","statusCode":200,"durationMs":0.441167,"msg":"request completed"}
+{"level":30,"time":1762229416658,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-1z","route":"/v1/health","statusCode":200,"durationMs":0.2835,"msg":"request completed"}
+{"level":30,"time":1762229416658,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-20","route":"/v1/health","statusCode":200,"durationMs":0.140417,"msg":"request completed"}
+{"level":30,"time":1762229416660,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-21","route":"/v1/health","statusCode":200,"durationMs":0.942833,"msg":"request completed"}
+{"level":30,"time":1762229416660,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-22","route":"/v1/health","statusCode":200,"durationMs":0.139875,"msg":"request completed"}
+{"level":30,"time":1762229416661,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-23","route":"/v1/health","statusCode":200,"durationMs":0.184708,"msg":"request completed"}
+{"level":30,"time":1762229416661,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-24","route":"/v1/health","statusCode":200,"durationMs":0.125792,"msg":"request completed"}
+{"level":30,"time":1762229416662,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-25","route":"/v1/health","statusCode":200,"durationMs":0.5025,"msg":"request completed"}
+{"level":30,"time":1762229416666,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-26","route":"/v1/health","statusCode":200,"durationMs":3.81475,"msg":"request completed"}
+{"level":30,"time":1762229416667,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-27","route":"/v1/health","statusCode":200,"durationMs":0.2575,"msg":"request completed"}
+{"level":30,"time":1762229416667,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-28","route":"/v1/health","statusCode":200,"durationMs":0.182917,"msg":"request completed"}
+{"level":30,"time":1762229416668,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-29","route":"/v1/health","statusCode":200,"durationMs":0.538,"msg":"request completed"}
+{"level":30,"time":1762229416669,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-2a","route":"/v1/health","statusCode":200,"durationMs":0.18275,"msg":"request completed"}
+{"level":30,"time":1762229416669,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-2b","route":"/v1/health","statusCode":200,"durationMs":0.12475,"msg":"request completed"}
+{"level":30,"time":1762229416669,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-2c","route":"/v1/health","statusCode":200,"durationMs":0.103083,"msg":"request completed"}
+{"level":30,"time":1762229416669,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-2d","route":"/v1/health","statusCode":200,"durationMs":0.099875,"msg":"request completed"}
+{"level":30,"time":1762229416670,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-2e","route":"/v1/health","statusCode":200,"durationMs":0.094791,"msg":"request completed"}
+{"level":30,"time":1762229416670,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-2f","route":"/v1/health","statusCode":200,"durationMs":0.092792,"msg":"request completed"}
+{"level":30,"time":1762229416670,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-2g","route":"/v1/health","statusCode":200,"durationMs":0.090916,"msg":"request completed"}
+{"level":30,"time":1762229416670,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-2h","route":"/v1/health","statusCode":200,"durationMs":0.095958,"msg":"request completed"}
+{"level":30,"time":1762229416670,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-2i","route":"/v1/health","statusCode":200,"durationMs":0.08875,"msg":"request completed"}
+{"level":30,"time":1762229416672,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-2j","route":"/v1/health","statusCode":200,"durationMs":0.186,"msg":"request completed"}
+{"level":30,"time":1762229416672,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-2k","route":"/v1/health","statusCode":200,"durationMs":0.103041,"msg":"request completed"}
+{"level":30,"time":1762229416673,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-2l","route":"/v1/health","statusCode":200,"durationMs":0.228834,"msg":"request completed"}
+{"level":30,"time":1762229416674,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-2m","route":"/v1/health","statusCode":200,"durationMs":1.448375,"msg":"request completed"}
+{"level":30,"time":1762229416675,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-2n","route":"/v1/health","statusCode":200,"durationMs":0.323334,"msg":"request completed"}
+{"level":30,"time":1762229416677,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-2o","route":"/v1/health","statusCode":200,"durationMs":0.619708,"msg":"request completed"}
+{"level":30,"time":1762229416678,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-2p","route":"/v1/health","statusCode":200,"durationMs":0.497084,"msg":"request completed"}
+{"level":30,"time":1762229416679,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-2q","route":"/v1/health","statusCode":200,"durationMs":0.123875,"msg":"request completed"}
+{"level":30,"time":1762229416679,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-2r","route":"/v1/health","statusCode":200,"durationMs":0.112125,"msg":"request completed"}
+{"level":30,"time":1762229416679,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-2s","route":"/v1/health","statusCode":200,"durationMs":0.09925,"msg":"request completed"}
+{"level":30,"time":1762229416682,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-2t","route":"/v1/health","statusCode":200,"durationMs":2.568667,"msg":"request completed"}
+{"level":30,"time":1762229417010,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-1","route":"/version","statusCode":200,"durationMs":181.232709,"msg":"request completed"}
+{"level":30,"time":1762229417041,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/health","statusCode":200,"durationMs":0.314041,"msg":"request completed"}
+{"level":30,"time":1762229417104,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/health","statusCode":200,"durationMs":0.856666,"msg":"request completed"}
+{"level":30,"time":1762229417106,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/health","statusCode":200,"durationMs":0.752,"msg":"request completed"}
+{"level":30,"time":1762229417111,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-3","route":"/v1/health","statusCode":200,"durationMs":3.514709,"msg":"request completed"}
+{"level":30,"time":1762229417111,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-4","route":"/v1/health","statusCode":200,"durationMs":0.260917,"msg":"request completed"}
+{"level":30,"time":1762229417112,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-5","route":"/v1/health","statusCode":200,"durationMs":0.138583,"msg":"request completed"}
+{"level":30,"time":1762229417112,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-6","route":"/v1/health","statusCode":200,"durationMs":0.52825,"msg":"request completed"}
+{"level":30,"time":1762229417113,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-7","route":"/v1/health","statusCode":200,"durationMs":0.437792,"msg":"request completed"}
+{"level":30,"time":1762229417116,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-8","route":"/v1/health","statusCode":200,"durationMs":1.25375,"msg":"request completed"}
+{"level":30,"time":1762229417116,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-9","route":"/v1/health","statusCode":200,"durationMs":0.22775,"msg":"request completed"}
+{"level":30,"time":1762229417117,"pid":79113,"hostname":"MacBookAir.net","reqId":"req-a","route":"/v1/health","statusCode":200,"durationMs":0.172625,"msg":"request completed"}
+ ✓ tests/circuit-breaker.test.ts (4 tests) 860ms
+   ✓ Circuit Breaker (WP-P3) > Flag OFF > does not trip on sustained 429s when OFF  433ms
+   ✓ Circuit Breaker (WP-P3) > Flag ON > exposes RL_CB_ENABLE in /version flags  318ms
+ ✓ tests/security.headers.test.ts (1 test) 812ms
+ ✓ tests/demo-mode.test.ts (6 tests) 803ms
+ ✓ tests/contracts.events.schema.test.ts (1 test) 744ms
+{"level":30,"time":1762229417760,"pid":79126,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:63038"}
+{"level":30,"time":1762229417841,"pid":79126,"hostname":"MacBookAir.net","reqId":"req-1","latencyMs":50,"msg":"sse start"}
+{"level":40,"time":1762229417852,"pid":79126,"hostname":"MacBookAir.net","reqId":"req-1","err":{"type":"Error","message":"aborted","stack":"Error: aborted\n    at abortIncoming (node:_http_server:796:17)\n    at socketOnClose (node:_http_server:790:3)\n    at Socket.emit (node:events:536:35)\n    at TCP.<anonymous> (node:net:343:12)","code":"ECONNRESET"},"msg":"sse client error/close"}
+{"level":30,"time":1762229417853,"pid":79126,"hostname":"MacBookAir.net","reqId":"req-1","msg":"sse end"}
+ ✓ tests/stream.retryable.isolation.test.ts (1 test) 859ms
+{"level":30,"time":1762229417931,"pid":79126,"hostname":"MacBookAir.net","reqId":"req-2","latencyMs":0,"msg":"sse start"}
+{"level":30,"time":1762229417934,"pid":79126,"hostname":"MacBookAir.net","reqId":"req-2","msg":"sse end"}
+{"level":30,"time":1762229417935,"pid":79126,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/stream","statusCode":200,"durationMs":4.096292,"msg":"request completed"}
+ ✓ tests/stream.release.test.ts (1 test) 577ms
+ ✓ tests/health.size.test.ts (1 test) 556ms
+{"level":30,"time":1762229418194,"pid":79130,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/run","statusCode":200,"durationMs":235.73,"msg":"request completed"}
+{"level":30,"time":1762229418209,"pid":79130,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/run","statusCode":200,"durationMs":2.840917,"msg":"request completed"}
+{"level":30,"time":1762229418210,"pid":79130,"hostname":"MacBookAir.net","reqId":"req-3","route":"/metrics","statusCode":200,"durationMs":0.504084,"msg":"request completed"}
+{"level":30,"time":1762229418217,"pid":79130,"hostname":"MacBookAir.net","reqId":"req-4","route":"/v1/health","statusCode":200,"durationMs":2.06025,"msg":"request completed"}
+{"level":30,"time":1762229418255,"pid":79130,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/health","statusCode":200,"durationMs":1.504708,"msg":"request completed"}
+ ✓ tests/auth.minimal.test.ts (2 tests) 367ms
+ ✓ tests/secret-rotation.test.ts (3 tests) 884ms
+   ✓ P0-2: Principal secret rotation (dual-secret grace) > accepts signatures from ACTIVE and STAGED during grace  320ms
+ ✓ tests/openapi.render.test.ts (1 test) 556ms
+   ✓ openapi render > renders artifact/openapi.json with matching top-level paths  552ms
+{"level":30,"time":1762229418761,"pid":79162,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/health","statusCode":200,"durationMs":5.389625,"msg":"request completed"}
+{"level":30,"time":1704067200000,"pid":79167,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:63062"}
+{"level":30,"time":1762229418919,"pid":79162,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/run","statusCode":200,"durationMs":109.69025,"msg":"request completed"}
+{"level":30,"time":1762229418924,"pid":79162,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/run","statusCode":200,"durationMs":3.133709,"msg":"request completed"}
+{"level":30,"time":1762229418927,"pid":79162,"hostname":"MacBookAir.net","reqId":"req-3","route":"/v1/run","statusCode":200,"durationMs":1.140042,"msg":"request completed"}
+{"level":30,"time":1762229418929,"pid":79162,"hostname":"MacBookAir.net","reqId":"req-4","route":"/v1/health","statusCode":200,"durationMs":0.770875,"msg":"request completed"}
+{"level":30,"time":1762229418959,"pid":79162,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/health","statusCode":200,"durationMs":0.981,"msg":"request completed"}
+ ✓ tests/circuit-breaker.polish.test.ts (3 tests) 642ms
+   ✓ PR-2C.1: Circuit Breaker Polish > health shows principal open/half_open counts  453ms
+{"level":30,"time":1762229419020,"pid":79191,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:63068"}
+{"level":30,"time":1704067200000,"pid":79167,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/run","statusCode":200,"msg":"request completed"}
+{"level":30,"time":1762229419046,"pid":79171,"hostname":"MacBookAir.net","reqId":"req-1","route":"/metrics","statusCode":200,"durationMs":8.645208,"msg":"request completed"}
+{"level":30,"time":1704067200000,"pid":79167,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/run","statusCode":200,"msg":"request completed"}
+{"level":30,"time":1704067200000,"pid":79167,"hostname":"MacBookAir.net","reqId":"req-3","route":"/v1/health","statusCode":200,"msg":"request completed"}
+{"level":30,"time":1762229419069,"pid":79191,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/templates/:id/graph","statusCode":200,"durationMs":9.471333,"msg":"request completed"}
+ ✓ tests/e2e/security.e2e.test.ts (3 tests) 601ms
+ ✓ tests/contracts.rate-limit.headers.test.ts (1 test) 635ms
+{"level":30,"time":1762229419148,"pid":79171,"hostname":"MacBookAir.net","reqId":"req-1","route":"/metrics","statusCode":404,"durationMs":1.372208,"msg":"request completed"}
+{"level":30,"time":1762229419208,"pid":79171,"hostname":"MacBookAir.net","reqId":"req-1","route":"/metrics","statusCode":200,"durationMs":0.2895,"msg":"request completed"}
+{"level":30,"time":1762229419331,"pid":79191,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/run","statusCode":200,"durationMs":216.846875,"msg":"request completed"}
+{"level":30,"time":1762229419347,"pid":79171,"hostname":"MacBookAir.net","reqId":"req-1","route":"/openapi.json","statusCode":200,"durationMs":1.130542,"msg":"request completed"}
+{"level":30,"time":1762229419347,"pid":79191,"hostname":"MacBookAir.net","reqId":"req-3","route":"/v1/run","statusCode":200,"durationMs":2.005167,"msg":"request completed"}
+{"level":30,"time":1762229419351,"pid":79171,"hostname":"MacBookAir.net","reqId":"req-2","route":"/openapi.json","statusCode":200,"durationMs":3.42225,"msg":"request completed"}
+{"level":30,"time":1762229419354,"pid":79171,"hostname":"MacBookAir.net","reqId":"req-3","route":"/openapi.json","statusCode":200,"durationMs":1.317083,"msg":"request completed"}
+{"level":30,"time":1762229419356,"pid":79171,"hostname":"MacBookAir.net","reqId":"req-4","route":"/openapi.json","statusCode":200,"durationMs":0.92825,"msg":"request completed"}
+{"level":30,"time":1762229419357,"pid":79171,"hostname":"MacBookAir.net","reqId":"req-5","route":"/openapi.json","statusCode":200,"durationMs":0.531333,"msg":"request completed"}
+ ✓ tests/run.determinism.enriched.test.ts (1 test) 634ms
+   ✓ Determinism: enriched templates > small template: same seed → identical response_hash  327ms
+{"level":30,"time":1762229419361,"pid":79171,"hostname":"MacBookAir.net","reqId":"req-6","route":"/openapi.json","statusCode":200,"durationMs":3.034959,"msg":"request completed"}
+{"level":30,"time":1762229419363,"pid":79171,"hostname":"MacBookAir.net","reqId":"req-7","route":"/openapi.json","statusCode":200,"durationMs":1.304125,"msg":"request completed"}
+{"level":30,"time":1762229419365,"pid":79171,"hostname":"MacBookAir.net","reqId":"req-8","route":"/openapi.json","statusCode":200,"durationMs":1.7235,"msg":"request completed"}
+{"level":30,"time":1762229419367,"pid":79171,"hostname":"MacBookAir.net","reqId":"req-9","route":"/openapi.json","statusCode":200,"durationMs":1.152291,"msg":"request completed"}
+{"level":30,"time":1762229419369,"pid":79171,"hostname":"MacBookAir.net","reqId":"req-a","route":"/openapi.json","statusCode":200,"durationMs":0.807459,"msg":"request completed"}
+ ✓ tests/counterfactual.zero-baseline.test.ts (4 tests | 1 skipped) 793ms
+{"level":30,"time":1762229419421,"pid":79171,"hostname":"MacBookAir.net","reqId":"req-1","route":"/openapi.json","statusCode":200,"durationMs":1.320041,"msg":"request completed"}
+{"level":30,"time":1762229419424,"pid":79171,"hostname":"MacBookAir.net","reqId":"req-2","route":"/openapi.json","statusCode":200,"durationMs":1.647083,"msg":"request completed"}
+{"level":30,"time":1762229419428,"pid":79171,"hostname":"MacBookAir.net","reqId":"req-3","route":"/openapi.json","statusCode":200,"durationMs":1.483875,"msg":"request completed"}
+{"level":30,"time":1762229419431,"pid":79171,"hostname":"MacBookAir.net","reqId":"req-4","route":"/openapi.json","statusCode":200,"durationMs":1.108125,"msg":"request completed"}
+{"level":30,"time":1762229419433,"pid":79171,"hostname":"MacBookAir.net","reqId":"req-5","route":"/openapi.json","statusCode":200,"durationMs":1.168917,"msg":"request completed"}
+{"level":30,"time":1762229419442,"pid":79171,"hostname":"MacBookAir.net","reqId":"req-6","route":"/openapi.json","statusCode":200,"durationMs":6.275792,"msg":"request completed"}
+{"level":30,"time":1762229419452,"pid":79171,"hostname":"MacBookAir.net","reqId":"req-7","route":"/openapi.json","statusCode":200,"durationMs":9.251416,"msg":"request completed"}
+{"level":30,"time":1762229419487,"pid":79171,"hostname":"MacBookAir.net","reqId":"req-8","route":"/openapi.json","statusCode":200,"durationMs":31.549791,"msg":"request completed"}
+{"level":30,"time":1762229419491,"pid":79171,"hostname":"MacBookAir.net","reqId":"req-9","route":"/openapi.json","statusCode":200,"durationMs":1.30425,"msg":"request completed"}
+{"level":30,"time":1762229419500,"pid":79171,"hostname":"MacBookAir.net","reqId":"req-a","route":"/openapi.json","statusCode":200,"durationMs":6.997791,"msg":"request completed"}
+{"level":30,"time":1762229419503,"pid":79171,"hostname":"MacBookAir.net","reqId":"req-b","route":"/openapi.json","statusCode":429,"durationMs":0.360625,"msg":"request completed"}
+ ✓ tests/prometheus-metrics.test.ts (5 tests) 862ms
+   ✓ Prometheus /metrics (C4) > /metrics exists only with PROMETHEUS_ENABLE=1  406ms
+{"level":30,"time":1762229419991,"pid":79198,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:63093"}
+{"level":30,"time":1762229420063,"pid":79201,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:63096"}
+{"level":30,"time":1762229420122,"pid":79200,"hostname":"MacBookAir.net","msg":"Server listening at http://[::1]:63099"}
+{"level":30,"time":1762229420126,"pid":79200,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:63099"}
+{"level":30,"time":1762229420148,"pid":79198,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/run","statusCode":200,"durationMs":76.453,"msg":"request completed"}
+{"level":30,"time":1762229420162,"pid":79200,"hostname":"MacBookAir.net","reqId":"req-1","route":"/metrics","statusCode":200,"durationMs":4.0835,"msg":"request completed"}
+{"level":30,"time":1762229420175,"pid":79198,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/run","statusCode":200,"durationMs":3.030042,"msg":"request completed"}
+{"level":30,"time":1762229420182,"pid":79198,"hostname":"MacBookAir.net","reqId":"req-3","route":"/v1/run","statusCode":200,"durationMs":0.950709,"msg":"request completed"}
+{"level":30,"time":1762229420187,"pid":79201,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/run","statusCode":200,"durationMs":73.128959,"msg":"request completed"}
+{"level":30,"time":1762229420188,"pid":79198,"hostname":"MacBookAir.net","reqId":"req-4","route":"/v1/run","statusCode":200,"durationMs":2.399292,"msg":"request completed"}
+{"level":30,"time":1762229420196,"pid":79198,"hostname":"MacBookAir.net","reqId":"req-5","route":"/v1/run","statusCode":200,"durationMs":4.815333,"msg":"request completed"}
+{"level":30,"time":1762229420197,"pid":79200,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/run","statusCode":400,"durationMs":6.07025,"msg":"request completed"}
+{"level":30,"time":1762229420202,"pid":79200,"hostname":"MacBookAir.net","reqId":"req-3","route":"/metrics","statusCode":200,"durationMs":0.436292,"msg":"request completed"}
+{"level":30,"time":1762229420203,"pid":79198,"hostname":"MacBookAir.net","reqId":"req-6","route":"/v1/run","statusCode":200,"durationMs":2.107375,"msg":"request completed"}
+{"level":30,"time":1762229420210,"pid":79201,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/run","statusCode":200,"durationMs":2.657083,"msg":"request completed"}
+{"level":30,"time":1762229420219,"pid":79201,"hostname":"MacBookAir.net","reqId":"req-3","route":"/v1/run","statusCode":200,"durationMs":2.822417,"msg":"request completed"}
+ ✓ tests/security.json-headers.test.ts (2 tests) 768ms
+{"level":30,"time":1762229420223,"pid":79198,"hostname":"MacBookAir.net","reqId":"req-7","route":"/v1/run","statusCode":200,"durationMs":1.38375,"msg":"request completed"}
+{"level":30,"time":1762229420230,"pid":79198,"hostname":"MacBookAir.net","reqId":"req-8","route":"/v1/run","statusCode":200,"durationMs":1.607584,"msg":"request completed"}
+{"level":30,"time":1762229420234,"pid":79198,"hostname":"MacBookAir.net","reqId":"req-9","route":"/v1/run","statusCode":200,"durationMs":1.850458,"msg":"request completed"}
+{"level":30,"time":1762229420235,"pid":79201,"hostname":"MacBookAir.net","reqId":"req-4","route":"/v1/run","statusCode":200,"durationMs":2.059667,"msg":"request completed"}
+{"level":30,"time":1762229420239,"pid":79201,"hostname":"MacBookAir.net","reqId":"req-5","route":"/v1/run","statusCode":200,"durationMs":1.518209,"msg":"request completed"}
+{"level":30,"time":1762229420242,"pid":79201,"hostname":"MacBookAir.net","reqId":"req-6","route":"/v1/run","statusCode":200,"durationMs":1.4785,"msg":"request completed"}
+ ✓ tests/p0-1-validation-metric.e2e.test.ts (2 tests | 1 skipped) 536ms
+{"level":30,"time":1762229420253,"pid":79198,"hostname":"MacBookAir.net","reqId":"req-a","route":"/v1/run","statusCode":200,"durationMs":5.331,"msg":"request completed"}
+{"level":30,"time":1762229420267,"pid":79198,"hostname":"MacBookAir.net","reqId":"req-b","route":"/v1/run","statusCode":200,"durationMs":3.434792,"msg":"request completed"}
+{"level":30,"time":1762229420273,"pid":79201,"hostname":"MacBookAir.net","reqId":"req-7","route":"/v1/run","statusCode":200,"durationMs":15.479209,"msg":"request completed"}
+{"level":30,"time":1762229420274,"pid":79198,"hostname":"MacBookAir.net","reqId":"req-c","route":"/v1/run","statusCode":200,"durationMs":0.718583,"msg":"request completed"}
+{"level":30,"time":1762229420295,"pid":79201,"hostname":"MacBookAir.net","reqId":"req-8","route":"/v1/run","statusCode":200,"durationMs":3.638583,"msg":"request completed"}
+{"level":30,"time":1762229420300,"pid":79198,"hostname":"MacBookAir.net","reqId":"req-d","route":"/v1/run","statusCode":200,"durationMs":9.982667,"msg":"request completed"}
+{"level":30,"time":1762229420305,"pid":79201,"hostname":"MacBookAir.net","reqId":"req-9","route":"/v1/run","statusCode":200,"durationMs":2.244375,"msg":"request completed"}
+{"level":30,"time":1762229420308,"pid":79198,"hostname":"MacBookAir.net","reqId":"req-e","route":"/v1/self-check","statusCode":200,"durationMs":2.116583,"msg":"request completed"}
+{"level":30,"time":1762229420310,"pid":79198,"hostname":"MacBookAir.net","reqId":"req-f","route":"/v1/self-check","statusCode":200,"durationMs":0.692583,"msg":"request completed"}
+{"level":30,"time":1762229420313,"pid":79201,"hostname":"MacBookAir.net","reqId":"req-a","route":"/v1/run","statusCode":200,"durationMs":2.475375,"msg":"request completed"}
+ ✓ tests/response-hash.test.ts (4 tests) 887ms
+{"level":30,"time":1762229420329,"pid":79201,"hostname":"MacBookAir.net","reqId":"req-b","route":"/v1/run","statusCode":200,"durationMs":1.322625,"msg":"request completed"}
+{"level":30,"time":1762229420334,"pid":79201,"hostname":"MacBookAir.net","reqId":"req-c","route":"/v1/run","statusCode":200,"durationMs":0.780042,"msg":"request completed"}
+{"level":30,"time":1762229420337,"pid":79201,"hostname":"MacBookAir.net","reqId":"req-d","route":"/v1/run","statusCode":200,"durationMs":0.755458,"msg":"request completed"}
+{"level":30,"time":1762229420341,"pid":79201,"hostname":"MacBookAir.net","reqId":"req-e","route":"/v1/run","statusCode":200,"durationMs":1.35525,"msg":"request completed"}
+ ✓ tests/idempotency.bounds.test.ts (1 test) 689ms
+{"level":30,"time":1762229420357,"pid":79208,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:63109"}
+ ✓ tests/openapi.dev-etag.test.ts (1 test) 630ms
+{"level":30,"time":1762229420421,"pid":79211,"hostname":"MacBookAir.net","reqId":"req-1","route":"/metrics","statusCode":200,"durationMs":6.060375,"msg":"request completed"}
+{"level":30,"time":1762229420475,"pid":79208,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/health","statusCode":401,"durationMs":3.66975,"msg":"request completed"}
+{"level":30,"time":1762229420482,"pid":79208,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/health","statusCode":403,"durationMs":0.396708,"msg":"request completed"}
+{"level":30,"time":1762229420484,"pid":79208,"hostname":"MacBookAir.net","reqId":"req-3","route":"/v1/health","statusCode":403,"durationMs":0.28675,"msg":"request completed"}
+{"level":30,"time":1762229420486,"pid":79208,"hostname":"MacBookAir.net","reqId":"req-4","route":"/v1/health","statusCode":200,"durationMs":0.85525,"msg":"request completed"}
+ ✓ tests/auth.timing-safe.test.ts (4 tests) 482ms
+{"level":30,"time":1762229420578,"pid":79211,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/run","statusCode":200,"durationMs":152.750792,"msg":"request completed"}
+ ✓ tests/cb-pr1-event-collection.test.ts (3 tests) 567ms
+   ✓ CB PR-1: Event Collection (Always-On) > Flag OFF > records 429 events even when RL_CB_ENABLE=0  482ms
+{"level":30,"time":1762229420582,"pid":79211,"hostname":"MacBookAir.net","reqId":"req-3","route":"/metrics","statusCode":200,"durationMs":1.014041,"msg":"request completed"}
+{"level":30,"time":1762229420619,"pid":79211,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/run","statusCode":200,"durationMs":4.231833,"msg":"request completed"}
+{"level":30,"time":1762229420622,"pid":79211,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/run","statusCode":200,"durationMs":0.741125,"msg":"request completed"}
+{"level":30,"time":1762229420624,"pid":79211,"hostname":"MacBookAir.net","reqId":"req-3","route":"/v1/run","statusCode":200,"durationMs":1.976,"msg":"request completed"}
+{"level":30,"time":1762229420628,"pid":79211,"hostname":"MacBookAir.net","reqId":"req-4","route":"/v1/run","statusCode":200,"durationMs":2.574792,"msg":"request completed"}
+{"level":30,"time":1762229420630,"pid":79211,"hostname":"MacBookAir.net","reqId":"req-5","route":"/v1/run","statusCode":200,"durationMs":1.095667,"msg":"request completed"}
+{"level":30,"time":1762229420631,"pid":79211,"hostname":"MacBookAir.net","reqId":"req-6","route":"/v1/run","statusCode":200,"durationMs":0.662625,"msg":"request completed"}
+{"level":30,"time":1762229420633,"pid":79211,"hostname":"MacBookAir.net","reqId":"req-7","route":"/v1/run","statusCode":200,"durationMs":0.814708,"msg":"request completed"}
+{"level":30,"time":1762229420634,"pid":79211,"hostname":"MacBookAir.net","reqId":"req-8","route":"/v1/run","statusCode":200,"durationMs":1.136875,"msg":"request completed"}
+{"level":30,"time":1762229420636,"pid":79211,"hostname":"MacBookAir.net","reqId":"req-9","route":"/v1/run","statusCode":200,"durationMs":0.589417,"msg":"request completed"}
+{"level":30,"time":1762229420637,"pid":79211,"hostname":"MacBookAir.net","reqId":"req-a","route":"/v1/run","statusCode":200,"durationMs":1.090917,"msg":"request completed"}
+{"level":30,"time":1762229420638,"pid":79211,"hostname":"MacBookAir.net","reqId":"req-b","route":"/v1/run","statusCode":200,"durationMs":0.574334,"msg":"request completed"}
+{"level":30,"time":1762229420640,"pid":79211,"hostname":"MacBookAir.net","reqId":"req-c","route":"/v1/run","statusCode":200,"durationMs":1.613333,"msg":"request completed"}
+{"level":30,"time":1762229420642,"pid":79211,"hostname":"MacBookAir.net","reqId":"req-d","route":"/v1/run","statusCode":200,"durationMs":0.807042,"msg":"request completed"}
+{"level":30,"time":1762229420643,"pid":79211,"hostname":"MacBookAir.net","reqId":"req-e","route":"/v1/run","statusCode":200,"durationMs":0.8935,"msg":"request completed"}
+{"level":30,"time":1762229420644,"pid":79211,"hostname":"MacBookAir.net","reqId":"req-f","route":"/v1/run","statusCode":200,"durationMs":0.557375,"msg":"request completed"}
+{"level":30,"time":1762229420645,"pid":79211,"hostname":"MacBookAir.net","reqId":"req-g","route":"/v1/run","statusCode":200,"durationMs":0.609917,"msg":"request completed"}
+{"level":30,"time":1762229420647,"pid":79211,"hostname":"MacBookAir.net","reqId":"req-h","route":"/v1/run","statusCode":200,"durationMs":0.553,"msg":"request completed"}
+{"level":30,"time":1762229420647,"pid":79211,"hostname":"MacBookAir.net","reqId":"req-i","route":"/v1/run","statusCode":200,"durationMs":0.347417,"msg":"request completed"}
+{"level":30,"time":1762229420648,"pid":79211,"hostname":"MacBookAir.net","reqId":"req-j","route":"/v1/run","statusCode":200,"durationMs":0.418667,"msg":"request completed"}
+{"level":30,"time":1762229420649,"pid":79211,"hostname":"MacBookAir.net","reqId":"req-k","route":"/v1/run","statusCode":200,"durationMs":0.502709,"msg":"request completed"}
+{"level":30,"time":1762229420667,"pid":79211,"hostname":"MacBookAir.net","reqId":"req-1","route":"/metrics","statusCode":200,"durationMs":0.345292,"msg":"request completed"}
+{"level":30,"time":1762229421411,"pid":79216,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:63141"}
+{"level":30,"time":1762229421514,"pid":79216,"hostname":"MacBookAir.net","reqId":"req-1","latencyMs":300,"msg":"sse start"}
+{"level":30,"time":1762229421526,"pid":79215,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/health","statusCode":200,"durationMs":7.679542,"msg":"request completed"}
+{"level":30,"time":1762229421561,"pid":79216,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/stream","statusCode":429,"durationMs":3.717917,"msg":"request completed"}
+ ✓ tests/contracts.head.strict-parity.test.ts (1 test) 794ms
+{"level":30,"time":1762229421575,"pid":79215,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/health","statusCode":200,"durationMs":2.062583,"msg":"request completed"}
+{"level":40,"time":1762229421583,"pid":79216,"hostname":"MacBookAir.net","reqId":"req-1","err":{"type":"Error","message":"aborted","stack":"Error: aborted\n    at abortIncoming (node:_http_server:796:17)\n    at socketOnClose (node:_http_server:790:3)\n    at Socket.emit (node:events:536:35)\n    at TCP.<anonymous> (node:net:343:12)","code":"ECONNRESET"},"msg":"sse client error/close"}
+{"level":30,"time":1762229421584,"pid":79216,"hostname":"MacBookAir.net","reqId":"req-1","msg":"sse end"}
+ ✓ tests/security.sse-429-json-headers.test.ts (1 test) 773ms
+{"level":30,"time":1762229421579,"pid":79215,"hostname":"MacBookAir.net","reqId":"req-2","demo":true,"msg":"sse start"}
+{"level":30,"time":1762229421580,"pid":79215,"hostname":"MacBookAir.net","reqId":"req-2","msg":"sse end"}
+{"level":30,"time":1762229421581,"pid":79215,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/stream","statusCode":200,"durationMs":3.963958,"msg":"request completed"}
+{"level":30,"time":1762229421587,"pid":79215,"hostname":"MacBookAir.net","reqId":"req-3","route":"/v1/health","statusCode":200,"durationMs":0.837041,"msg":"request completed"}
+ ✓ tests/stream.real.limited.test.ts (1 test) 821ms
+ ✓ tests/contracts/head-parity.test.ts (1 test) 726ms
+{"level":30,"time":1762229421725,"pid":79215,"hostname":"MacBookAir.net","reqId":"req-1","latencyMs":0,"msg":"sse start"}
+{"level":30,"time":1762229421727,"pid":79215,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/health","statusCode":200,"durationMs":0.363834,"msg":"request completed"}
+ ✓ tests/sse-guardrails.test.ts (4 tests) 605ms
+   ✓ SSE Guardrails (C3) > health exposes sse counters  407ms
+{"level":30,"time":1762229421728,"pid":79215,"hostname":"MacBookAir.net","reqId":"req-1","msg":"sse end"}
+{"level":30,"time":1762229421728,"pid":79215,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/stream","statusCode":200,"durationMs":107.740833,"msg":"request completed"}
+ ✓ tests/perf.rate-limit.test.ts (1 test) 856ms
+ ✓ tests/stream.retryable.test.ts (1 test) 608ms
+ ✓ tests/contracts.report.schema.test.ts (1 test) 558ms
+ ✓ tests/security/rate-limit.headers.test.ts (1 test) 603ms
+{"level":30,"time":1762229423157,"pid":79240,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:63182"}
+{"level":30,"time":1762229423246,"pid":79240,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/templates","statusCode":200,"durationMs":6.234291,"msg":"request completed"}
+{"level":30,"time":1762229423269,"pid":79240,"hostname":"MacBookAir.net","reqId":"req-2","demo":true,"msg":"sse start"}
+{"level":30,"time":1762229423270,"pid":79240,"hostname":"MacBookAir.net","reqId":"req-2","msg":"sse end"}
+{"level":30,"time":1762229423271,"pid":79240,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/stream","statusCode":200,"durationMs":1.665,"msg":"request completed"}
+ ✓ tests/routes.coexist.test.ts (2 tests) 749ms
+{"level":30,"time":1762229423295,"pid":79238,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:63185"}
+{"level":30,"time":1762229423304,"pid":79236,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/run","statusCode":200,"durationMs":139.020708,"msg":"request completed"}
+{"level":30,"time":1762229423307,"pid":79236,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/run","statusCode":200,"durationMs":1.872958,"msg":"request completed"}
+{"level":30,"time":1762229423309,"pid":79236,"hostname":"MacBookAir.net","reqId":"req-3","route":"/v1/run","statusCode":200,"durationMs":1.204167,"msg":"request completed"}
+{"level":30,"time":1762229423311,"pid":79236,"hostname":"MacBookAir.net","reqId":"req-4","route":"/v1/run","statusCode":200,"durationMs":1.386875,"msg":"request completed"}
+{"level":30,"time":1762229423314,"pid":79236,"hostname":"MacBookAir.net","reqId":"req-5","route":"/v1/run","statusCode":200,"durationMs":2.409917,"msg":"request completed"}
+{"level":30,"time":1762229423316,"pid":79236,"hostname":"MacBookAir.net","reqId":"req-6","route":"/v1/run","statusCode":200,"durationMs":1.547833,"msg":"request completed"}
+{"level":30,"time":1762229423319,"pid":79236,"hostname":"MacBookAir.net","reqId":"req-7","route":"/v1/run","statusCode":200,"durationMs":1.708208,"msg":"request completed"}
+{"level":30,"time":1762229423321,"pid":79236,"hostname":"MacBookAir.net","reqId":"req-8","route":"/v1/run","statusCode":200,"durationMs":0.939958,"msg":"request completed"}
+{"level":30,"time":1762229423325,"pid":79236,"hostname":"MacBookAir.net","reqId":"req-9","route":"/v1/run","statusCode":200,"durationMs":2.81025,"msg":"request completed"}
+{"level":30,"time":1762229423327,"pid":79236,"hostname":"MacBookAir.net","reqId":"req-a","route":"/v1/run","statusCode":200,"durationMs":1.6815,"msg":"request completed"}
+ ✓ tests/confidence-determinism.test.ts (1 test) 851ms
+   ✓ Confidence Determinism (golden payload) > 10 runs produce stable hashes  850ms
+{"level":30,"time":1762229423342,"pid":79243,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:63187"}
+{"level":30,"time":1762229423350,"pid":79238,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/critique","statusCode":400,"durationMs":38.702583,"msg":"request completed"}
+ ✓ tests/body.critique.additional-props.test.ts (1 test) 788ms
+{"level":30,"time":1762229423384,"pid":79243,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/templates/:id/graph","statusCode":200,"durationMs":5.100958,"msg":"request completed"}
+{"level":30,"time":1762229423406,"pid":79243,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/templates/:id/graph","statusCode":304,"durationMs":0.483666,"msg":"request completed"}
+ ✓ tests/templates.etag.test.ts (1 test) 389ms
+{"level":30,"time":1762229423452,"pid":79246,"hostname":"MacBookAir.net","reqId":"req-1","route":"/version","statusCode":200,"durationMs":169.074625,"msg":"request completed"}
+{"level":30,"time":1762229423567,"pid":79246,"hostname":"MacBookAir.net","reqId":"req-1","route":"/version","statusCode":200,"durationMs":38.248875,"msg":"request completed"}
+{"level":30,"time":1762229423649,"pid":79246,"hostname":"MacBookAir.net","reqId":"req-1","route":"/version","statusCode":200,"durationMs":34.43075,"msg":"request completed"}
+ ✓ tests/version-flags.test.ts (3 tests) 1075ms
+   ✓ Version Flags Visibility (C7) > /version includes flags map  881ms
+ ✓ tests/sdk.checksum.guard.test.ts (1 test) 725ms
+{"level":30,"time":1762229424204,"pid":79252,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/run","statusCode":200,"durationMs":150.68575,"msg":"request completed"}
+{"level":30,"time":1762229424207,"pid":79252,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/run","statusCode":200,"durationMs":1.451667,"msg":"request completed"}
+{"level":30,"time":1762229424208,"pid":79252,"hostname":"MacBookAir.net","reqId":"req-3","route":"/v1/run","statusCode":200,"durationMs":0.956584,"msg":"request completed"}
+{"level":30,"time":1762229424210,"pid":79252,"hostname":"MacBookAir.net","reqId":"req-4","route":"/v1/run","statusCode":200,"durationMs":1.002541,"msg":"request completed"}
+{"level":30,"time":1762229424211,"pid":79252,"hostname":"MacBookAir.net","reqId":"req-5","route":"/v1/run","statusCode":200,"durationMs":1.400584,"msg":"request completed"}
+{"level":30,"time":1762229424213,"pid":79252,"hostname":"MacBookAir.net","reqId":"req-6","route":"/v1/run","statusCode":200,"durationMs":0.833083,"msg":"request completed"}
+{"level":30,"time":1762229424214,"pid":79252,"hostname":"MacBookAir.net","reqId":"req-7","route":"/v1/run","statusCode":200,"durationMs":1.027458,"msg":"request completed"}
+{"level":30,"time":1762229424216,"pid":79252,"hostname":"MacBookAir.net","reqId":"req-8","route":"/v1/run","statusCode":200,"durationMs":0.869792,"msg":"request completed"}
+{"level":30,"time":1762229424218,"pid":79252,"hostname":"MacBookAir.net","reqId":"req-9","route":"/v1/run","statusCode":200,"durationMs":1.247334,"msg":"request completed"}
+{"level":30,"time":1762229424222,"pid":79252,"hostname":"MacBookAir.net","reqId":"req-a","route":"/v1/run","statusCode":200,"durationMs":2.762125,"msg":"request completed"}
+ ✓ tests/adaptive-k-sanity.test.ts (5 tests) 513ms
+   ✓ Adaptive K: docs + tests sanity (ADAPTIVE_K_ENABLE=1) > determinism: 10 runs with same input produce same hash  502ms
+{"level":30,"time":1762229424261,"pid":79268,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:63202"}
+{"level":30,"time":1762229424289,"pid":79277,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:63204"}
+{"level":30,"time":1762229424325,"pid":79268,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/counterfactual","statusCode":400,"durationMs":49.553625,"msg":"request completed"}
+ ✓ tests/body.counterfactual.nested-additional-props.test.ts (1 test) 384ms
+{"level":30,"time":1762229424341,"pid":79277,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/run","statusCode":405,"durationMs":3.75025,"msg":"request completed"}
+{"level":30,"time":1762229424373,"pid":79279,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:63208"}
+ ✓ tests/run.head.probe.test.ts (1 test) 411ms
+{"level":30,"time":1762229424440,"pid":79275,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/run","statusCode":200,"durationMs":147.883542,"msg":"request completed"}
+{"level":30,"time":1762229424476,"pid":79279,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/health","statusCode":200,"durationMs":6.267833,"msg":"request completed"}
+{"level":30,"time":1762229424479,"pid":79275,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/run","statusCode":200,"durationMs":5.861875,"msg":"request completed"}
+ ✓ tests/ident-tag-integration.test.ts (2 tests) 520ms
+   ✓ Identifiability Tag Integration > tag present when flag ON  484ms
+ ✓ tests/health.env.test.ts (1 test) 490ms
+{"level":30,"time":1762229424640,"pid":79319,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/health","statusCode":200,"durationMs":7.141833,"msg":"request completed"}
+ ✓ tests/health.payload.test.ts (1 test) 438ms
+{"level":30,"time":1762229425236,"pid":79321,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:63216"}
+{"level":30,"time":1762229425268,"pid":79322,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/self-check","statusCode":200,"durationMs":24.30975,"msg":"request completed"}
+{"level":30,"time":1762229425273,"pid":79322,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/self-check","statusCode":200,"durationMs":0.613042,"msg":"request completed"}
+ ✓ tests/selfcheck.parity.test.ts (1 test) 364ms
+{"level":30,"time":1762229425283,"pid":79321,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/run","statusCode":200,"durationMs":8.873667,"msg":"request completed"}
+{"level":30,"time":1762229425307,"pid":79321,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/run","statusCode":200,"durationMs":1.198291,"msg":"request completed"}
+{"level":30,"time":1762229425312,"pid":79321,"hostname":"MacBookAir.net","reqId":"req-3","demo":true,"msg":"sse start"}
+{"level":30,"time":1762229425312,"pid":79321,"hostname":"MacBookAir.net","reqId":"req-3","msg":"sse end"}
+{"level":30,"time":1762229425313,"pid":79321,"hostname":"MacBookAir.net","reqId":"req-3","route":"/v1/stream","statusCode":200,"durationMs":1.299417,"msg":"request completed"}
+ ✓ tests/trace.id.test.ts (2 tests) 565ms
+{"level":30,"time":1762229425344,"pid":79326,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:63222"}
+{"level":30,"time":1762229425368,"pid":79329,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:63225"}
+{"level":30,"time":1762229425378,"pid":79326,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/health","statusCode":200,"durationMs":4.850959,"msg":"request completed"}
+ ✓ tests/health.enrich.test.ts (1 test) 311ms
+ ✓ tests/stream.cancel.test.ts (2 tests | 1 skipped) 566ms
+{"level":30,"time":1762229425582,"pid":79329,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/counterfactual","statusCode":400,"durationMs":136.20425,"msg":"request completed"}
+ ✓ tests/body.counterfactual.additional-props.test.ts (1 test) 482ms
+{"level":30,"time":1762229425688,"pid":79332,"hostname":"MacBookAir.net","msg":"Server listening at http://[::1]:63228"}
+{"level":30,"time":1762229425697,"pid":79332,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:63228"}
+{"level":30,"time":1762229425769,"pid":79332,"hostname":"MacBookAir.net","reqId":"req-1","demo":true,"msg":"sse start"}
+{"level":30,"time":1762229425772,"pid":79332,"hostname":"MacBookAir.net","reqId":"req-1","msg":"sse end"}
+{"level":30,"time":1762229425777,"pid":79332,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/stream","statusCode":200,"durationMs":8.620459,"msg":"request completed"}
+ ✓ tests/p1-stream-integration.test.ts (2 tests | 1 skipped) 546ms
+{"level":30,"time":1762229425855,"pid":79330,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/health","statusCode":200,"durationMs":20.337416,"msg":"request completed"}
+ ✓ tests/circuit-breaker.window.test.ts (9 tests) 786ms
+   ✓ PR-2A: Sliding Window (Ring Buffer) > Integration with circuit breaker > exposes window config in /v1/health when enabled  777ms
+ ✓ tests/etag.head.parity.test.ts (1 test) 517ms
+stdout | tests/openapi.examples.test.ts > openapi error examples for v1 > every /v1/* route has at least one non-200 example using error.v1
+checked v1 routes for examples: /v1/stream,/v1/health,/v1/version,/v1/openapi.json,/v1/run,/v1/limits,/v1/validate,/v1/counterfactual,/v1/critique,/v1/draft,/v1/templates,/v1/templates/{id}/graph
+
+ ✓ tests/openapi.examples.test.ts (1 test) 343ms
+   ✓ openapi error examples for v1 > every /v1/* route has at least one non-200 example using error.v1  341ms
+{"level":30,"time":1762229427023,"pid":79341,"hostname":"MacBookAir.net","reqId":"req-1","route":"/ops/snapshot","statusCode":404,"durationMs":4.979875,"msg":"request completed"}
+{"level":30,"time":1762229427024,"pid":79345,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:63242"}
+{"level":30,"time":1762229427029,"pid":79347,"hostname":"MacBookAir.net","reqId":"req-1","route":"/metrics","statusCode":404,"durationMs":3.948,"msg":"request completed"}
+{"level":30,"time":1762229427064,"pid":79341,"hostname":"MacBookAir.net","reqId":"req-1","route":"/ops/snapshot","statusCode":401,"durationMs":3.102875,"msg":"request completed"}
+{"level":30,"time":1762229427065,"pid":79347,"hostname":"MacBookAir.net","reqId":"req-1","route":"/metrics","statusCode":200,"durationMs":0.668,"msg":"request completed"}
+{"level":30,"time":1762229427066,"pid":79341,"hostname":"MacBookAir.net","reqId":"req-2","route":"/ops/snapshot","statusCode":200,"durationMs":0.685875,"msg":"request completed"}
+{"level":30,"time":1762229427070,"pid":79341,"hostname":"MacBookAir.net","reqId":"req-3","route":"/ops/snapshot","statusCode":200,"durationMs":0.873625,"msg":"request completed"}
+ ✓ tests/ops-snapshot.test.ts (4 tests) 650ms
+{"level":30,"time":1762229427076,"pid":79338,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/run","statusCode":200,"durationMs":53.246459,"msg":"request completed"}
+{"level":30,"time":1762229427076,"pid":79345,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/templates","statusCode":200,"durationMs":3.66825,"msg":"request completed"}
+{"level":30,"time":1762229427084,"pid":79338,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/health","statusCode":200,"durationMs":1.51425,"msg":"request completed"}
+ ✓ tests/p0-1-response-validation.test.ts (3 tests) 662ms
+{"level":30,"time":1762229427072,"pid":79347,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/health","statusCode":200,"durationMs":5.325667,"msg":"request completed"}
+{"level":30,"time":1762229427074,"pid":79347,"hostname":"MacBookAir.net","reqId":"req-3","route":"/metrics","statusCode":200,"durationMs":0.625584,"msg":"request completed"}
+{"level":30,"time":1762229427075,"pid":79347,"hostname":"MacBookAir.net","reqId":"req-4","route":"/v1/health","statusCode":200,"durationMs":0.240125,"msg":"request completed"}
+{"level":30,"time":1762229427076,"pid":79347,"hostname":"MacBookAir.net","reqId":"req-5","route":"/metrics","statusCode":200,"durationMs":0.268959,"msg":"request completed"}
+{"level":30,"time":1762229427078,"pid":79347,"hostname":"MacBookAir.net","reqId":"req-6","route":"/v1/health","statusCode":200,"durationMs":0.68875,"msg":"request completed"}
+{"level":30,"time":1762229427081,"pid":79347,"hostname":"MacBookAir.net","reqId":"req-7","route":"/metrics","statusCode":200,"durationMs":0.597833,"msg":"request completed"}
+{"level":30,"time":1762229427083,"pid":79347,"hostname":"MacBookAir.net","reqId":"req-8","route":"/v1/health","statusCode":200,"durationMs":0.342959,"msg":"request completed"}
+{"level":30,"time":1762229427084,"pid":79347,"hostname":"MacBookAir.net","reqId":"req-9","route":"/metrics","statusCode":200,"durationMs":0.526292,"msg":"request completed"}
+{"level":30,"time":1762229427097,"pid":79345,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/templates/:id/graph","statusCode":200,"durationMs":0.51225,"msg":"request completed"}
+{"level":30,"time":1762229427100,"pid":79345,"hostname":"MacBookAir.net","reqId":"req-3","route":"/v1/templates/:id/graph","statusCode":404,"durationMs":0.333291,"msg":"request completed"}
+ ✓ tests/templates.routes.test.ts (3 tests) 677ms
+{"level":30,"time":1762229427134,"pid":79347,"hostname":"MacBookAir.net","reqId":"req-a","route":"/v1/run","statusCode":200,"durationMs":46.008584,"msg":"request completed"}
+{"level":30,"time":1762229427139,"pid":79337,"hostname":"MacBookAir.net","reqId":"req-1","route":"/version","statusCode":200,"durationMs":130.067083,"msg":"request completed"}
+{"level":30,"time":1762229427135,"pid":79347,"hostname":"MacBookAir.net","reqId":"req-b","route":"/metrics","statusCode":200,"durationMs":0.647875,"msg":"request completed"}
+{"level":30,"time":1762229427138,"pid":79347,"hostname":"MacBookAir.net","reqId":"req-c","route":"/v1/run","statusCode":200,"durationMs":1.127542,"msg":"request completed"}
+{"level":30,"time":1762229427141,"pid":79347,"hostname":"MacBookAir.net","reqId":"req-d","route":"/v1/run","statusCode":200,"durationMs":1.463209,"msg":"request completed"}
+{"level":30,"time":1762229427145,"pid":79347,"hostname":"MacBookAir.net","reqId":"req-e","route":"/v1/run","statusCode":200,"durationMs":1.47325,"msg":"request completed"}
+ ✓ tests/feature-flag-validation.test.ts (3 tests) 1143ms
+   ✓ Feature Flag Validation > /version shows all flags  1136ms
+{"level":30,"time":1762229427151,"pid":79347,"hostname":"MacBookAir.net","reqId":"req-f","route":"/v1/run","statusCode":200,"durationMs":5.140791,"msg":"request completed"}
+{"level":30,"time":1762229427155,"pid":79347,"hostname":"MacBookAir.net","reqId":"req-g","route":"/v1/health","statusCode":200,"durationMs":1.306041,"msg":"request completed"}
+{"level":30,"time":1762229427157,"pid":79347,"hostname":"MacBookAir.net","reqId":"req-h","route":"/metrics","statusCode":200,"durationMs":1.21325,"msg":"request completed"}
+{"level":30,"time":1762229427159,"pid":79347,"hostname":"MacBookAir.net","reqId":"req-i","route":"/v1/health","statusCode":200,"durationMs":0.671,"msg":"request completed"}
+{"level":30,"time":1762229427161,"pid":79347,"hostname":"MacBookAir.net","reqId":"req-j","route":"/metrics","statusCode":200,"durationMs":0.597,"msg":"request completed"}
+{"level":30,"time":1762229427162,"pid":79347,"hostname":"MacBookAir.net","reqId":"req-k","route":"/v1/health","statusCode":200,"durationMs":0.261625,"msg":"request completed"}
+{"level":30,"time":1762229427163,"pid":79347,"hostname":"MacBookAir.net","reqId":"req-l","route":"/metrics","statusCode":200,"durationMs":0.236167,"msg":"request completed"}
+{"level":30,"time":1762229427164,"pid":79347,"hostname":"MacBookAir.net","reqId":"req-m","route":"/v1/health","statusCode":200,"durationMs":0.270791,"msg":"request completed"}
+{"level":30,"time":1762229427164,"pid":79347,"hostname":"MacBookAir.net","reqId":"req-n","route":"/nonexistent","statusCode":404,"durationMs":0.206292,"msg":"request completed"}
+{"level":30,"time":1762229427165,"pid":79347,"hostname":"MacBookAir.net","reqId":"req-o","route":"/metrics","statusCode":200,"durationMs":0.233667,"msg":"request completed"}
+ ✓ tests/metrics-prometheus.test.ts (12 tests) 401ms
+{"level":30,"time":1704067200000,"pid":79372,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:63249"}
+{"level":30,"time":1762229428859,"pid":79373,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/run","statusCode":200,"durationMs":20.188333,"msg":"request completed"}
+{"level":30,"time":1762229428921,"pid":79373,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/critique","statusCode":200,"durationMs":1.412667,"msg":"request completed"}
+{"level":30,"time":1762229428925,"pid":79373,"hostname":"MacBookAir.net","reqId":"req-3","route":"/v1/draft","statusCode":200,"durationMs":0.714667,"msg":"request completed"}
+{"level":30,"time":1762229428926,"pid":79373,"hostname":"MacBookAir.net","reqId":"req-4","route":"/v1/counterfactual","statusCode":200,"durationMs":0.614666,"msg":"request completed"}
+ ✓ tests/demo.shortcircuit.test.ts (4 tests) 1129ms
+{"level":30,"time":1704067200000,"pid":79372,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/self-check","statusCode":200,"msg":"request completed"}
+{"level":30,"time":1762229429008,"pid":79395,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:63253"}
+{"level":30,"time":1762229429067,"pid":79395,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/openapi.json","statusCode":200,"durationMs":8.23975,"msg":"request completed"}
+{"level":30,"time":1704067200000,"pid":79372,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/run","statusCode":200,"msg":"request completed"}
+ ✓ tests/openapi.serve.test.ts (1 test) 1158ms
+ ✓ tests/e2e/selfcheck.e2e.test.ts (2 tests) 1189ms
+{"level":30,"time":1762229429134,"pid":79396,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/health","statusCode":200,"durationMs":5.912792,"msg":"request completed"}
+{"level":30,"time":1762229429141,"pid":79399,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:63255"}
+ ✓ tests/health-cache-stats.test.ts (4 tests) 1201ms
+{"level":30,"time":1762229429144,"pid":79396,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/health","statusCode":200,"durationMs":1.168125,"msg":"request completed"}
+{"level":30,"time":1762229429147,"pid":79396,"hostname":"MacBookAir.net","reqId":"req-3","route":"/v1/health","statusCode":200,"durationMs":1.167334,"msg":"request completed"}
+{"level":30,"time":1762229429157,"pid":79396,"hostname":"MacBookAir.net","reqId":"req-4","route":"/v1/health","statusCode":200,"durationMs":4.901417,"msg":"request completed"}
+{"level":30,"time":1762229429173,"pid":79398,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:63257"}
+{"level":30,"time":1762229429199,"pid":79399,"hostname":"MacBookAir.net","reqId":"req-1","latencyMs":30,"msg":"sse start"}
+{"level":30,"time":1762229429232,"pid":79399,"hostname":"MacBookAir.net","reqId":"req-1","msg":"sse end"}
+{"level":30,"time":1762229429236,"pid":79399,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/stream","statusCode":200,"durationMs":79.797834,"msg":"request completed"}
+ ✓ tests/stream.latency.test.ts (1 test) 688ms
+{"level":30,"time":1762229429353,"pid":79397,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/run","statusCode":200,"durationMs":188.635833,"msg":"request completed"}
+ ✓ tests/idem-hmac-principal.test.ts (4 tests) 871ms
+   ✓ Idempotency HMAC Principal (F5) > no raw tokens in logs  824ms
+{"level":30,"time":1762229429383,"pid":79398,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/draft","statusCode":400,"durationMs":156.753541,"msg":"request completed"}
+ ✓ tests/body.draft.additional-props.test.ts (1 test) 998ms
+ ✓ tests/secret-strength-guard.test.ts (3 tests) 441ms
+ ✓ tests/security.prod-guard.test.ts (1 test) 243ms
+ ✓ tests/p2-idempotency-cache.test.ts (4 tests) 156ms
+ ✓ tests/pack.manifest.schema.test.ts (2 tests) 492ms
+   ✓ Pack manifest schema validator > accepts a minimal valid manifest  374ms
+ ✓ tests/openapi.stream.429.test.ts (1 test) 116ms
+{"level":30,"time":1762229430497,"pid":79411,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:63262"}
+{"level":30,"time":1762229430502,"pid":79409,"hostname":"MacBookAir.net","msg":"Server listening at http://127.0.0.1:63263"}
+{"level":30,"time":1762229430516,"pid":79411,"hostname":"MacBookAir.net","reqId":"req-1","demo":true,"msg":"sse start"}
+{"level":30,"time":1762229430517,"pid":79411,"hostname":"MacBookAir.net","reqId":"req-1","msg":"sse end"}
+{"level":30,"time":1762229430518,"pid":79411,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/stream","statusCode":200,"durationMs":3.137542,"msg":"request completed"}
+{"level":30,"time":1762229430521,"pid":79411,"hostname":"MacBookAir.net","reqId":"req-2","demo":true,"msg":"sse start"}
+{"level":30,"time":1762229430522,"pid":79411,"hostname":"MacBookAir.net","reqId":"req-2","msg":"sse end"}
+{"level":30,"time":1762229430522,"pid":79411,"hostname":"MacBookAir.net","reqId":"req-2","route":"/v1/stream","statusCode":200,"durationMs":0.815458,"msg":"request completed"}
+{"level":30,"time":1762229430528,"pid":79411,"hostname":"MacBookAir.net","reqId":"req-3","route":"/v1/run","statusCode":401,"durationMs":4.179875,"msg":"request completed"}
+ ✓ tests/boundedlru-correctness.test.ts (3 tests) 128ms
+{"level":30,"time":1762229430534,"pid":79411,"hostname":"MacBookAir.net","reqId":"req-4","route":"/v1/run","statusCode":401,"durationMs":1.309292,"msg":"request completed"}
+ ✓ tests/auth.demo.scope.test.ts (4 tests) 487ms
+ ✓ tests/alert-rules.test.ts (7 tests) 107ms
+ ✓ tests/explain-delta.zero-magnitude.test.ts (8 tests) 45ms
+{"level":30,"time":1762229430600,"pid":79409,"hostname":"MacBookAir.net","reqId":"req-1","route":"/v1/run","statusCode":400,"durationMs":58.025708,"msg":"request completed"}
+ ✓ tests/body.run.additional-props.test.ts (1 test) 559ms
+stdout | tests/scm-lite/kernel.perf.test.ts > SCM-Lite Performance Budget > 12-node reference graph completes with p95 ≤ 600ms
+12-node graph performance: p50=8.46ms, p95=27.29ms
+
+ ✓ tests/fixture-cache.test.ts (4 tests) 137ms
+ ✓ tests/pack.locate.json.test.ts (1 test) 96ms
+stdout | tests/scm-lite/kernel.perf.test.ts > SCM-Lite Performance Budget > 4-node graph completes in <50ms p95
+4-node graph performance: p95=1.14ms
+
+ ✓ tests/scm-lite/kernel.perf.test.ts (2 tests) 369ms
+   ✓ SCM-Lite Performance Budget > 12-node reference graph completes with p95 ≤ 600ms  354ms
+ ✓ tests/bounded-lru.test.ts (4 tests) 91ms
+ ✓ tests/load-probe.test.ts (3 tests) 12ms
+ ✓ tests/normaliser.fuzz.test.ts (1 test) 32ms
+ ✓ tests/evidence-pack.test.ts (2 tests) 25ms
+ ✓ tests/scope-guardrails.test.ts (3 tests) 31ms
+ ✓ tests/trust-signals.test.ts (17 tests) 32ms
+ ✓ tests/contracts/error-messages.catalogue.test.ts (5 tests) 45ms
+ ✓ tests/scm-lite/kernel.golden.test.ts (5 tests) 48ms
+{"level":50,"time":1762229432184,"pid":79493,"hostname":"MacBookAir.net","msg":"TEST_ROUTES cannot be enabled in production"}
+ ✓ tests/test-routes.guard.test.ts (1 test) 56ms
+ ✓ tests/principal-unification.test.ts (5 tests) 7ms
+ ✓ tests/p1-stream-queue.test.ts (5 tests) 19ms
+ ✓ tests/dscm.rollout.test.ts (3 tests) 26ms
+ ✓ tests/extract-principal.unit.test.ts (12 tests) 37ms
+ ✓ tests/explain-delta.determinism.test.ts (7 tests) 67ms
+ ✓ tests/explain-delta.identifiability-summary.test.ts (1 test) 42ms
+ ✓ tests/p1-stream-schema.test.ts (11 tests) 23ms
+ ✓ tests/identifiability.test.ts (8 tests) 9ms
+ ✓ tests/p1-stream-heartbeat.test.ts (6 tests) 18ms
+ ✓ tests/secret-rotation-verify-unit.test.ts (2 tests) 6ms
+ ✓ tests/identifiability.rules.test.ts (6 tests) 6ms
+ ✓ tests/provenance-validation.test.ts (5 tests) 11ms
+ ✓ tests/identifiability.multi-set.test.ts (2 tests | 1 skipped) 7ms
+ ✓ tests/cors.parser.test.ts (4 tests) 43ms
+ ✓ tests/trust.confidence.casing.test.ts (2 tests) 4ms
+ ✓ tests/critique-normalization.test.ts (7 tests) 5ms
+ ✓ tests/confidence-integer-math.test.ts (4 tests) 8ms
+ ✓ tests/inference.parity.test.ts (2 tests) 3ms
+ ✓ tests/p2-stream-resume.test.ts (6 tests) 6ms
+ ✓ tests/confidence.calibration.test.ts (16 tests) 9ms
+ ✓ tests/whatif-delta.test.ts (18 tests) 14ms
+ ✓ tests/token-principal-hmac.test.ts (4 tests) 8ms
+ ✓ tests/ipv6-canonicalization.test.ts (5 tests) 3ms
+ ✓ tests/openapi.unique-keys.test.ts (1 test) 16ms
+ ✓ tests/adaptive-k.test.ts (5 tests) 3ms
+ ✓ tests/d-separation-correctness.test.ts (7 tests) 4ms
+ ✓ tests/stream.sse.backpressure.test.ts (1 test) 2ms
+ ✓ tests/hash.invariants.test.ts (2 tests) 24ms
+ ✓ tests/sdk.envelope.smoke.test.ts (3 tests) 2ms
+ ✓ tests/contract.normalize.belief.test.ts (4 tests) 4ms
+ ✓ tests/idem-principal-key.test.ts (2 tests) 3ms
+ ✓ tests/log-redaction.test.ts (2 tests) 3ms
+ ✓ tests/idempotency.prune.test.ts (2 tests) 3ms
+ ✓ tests/provenance.test.ts (3 tests) 3ms
+ ↓ tests/rate-limit.429-headers.test.ts (1 test | 1 skipped)
+ ↓ tests/gates.singleline.quarantined.test.ts (1 test | 1 skipped)
+ ↓ tests/counterfactual.zero-baseline.quarantined.test.ts (1 test | 1 skipped)
+ ↓ tests/identifiability.multi-set.quarantined.test.ts (1 test | 1 skipped)
+ ↓ tests/identifiability.dsep.props.quarantined.test.ts (1 test | 1 skipped)
+ ↓ tests/gates.singleline.test.ts (1 test | 1 skipped)
+ ✓ tests/identifiability.dsep.props.test.ts (2 tests | 1 skipped) 36ms
+ ↓ tests/stream.cancel.quarantined.test.ts (1 test | 1 skipped)
+ ↓ tests/unified.merge.test.ts (1 test | 1 skipped)
+ ↓ tests/unified.schema.slos.test.ts (1 test | 1 skipped)
+
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 11 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/health.counters.test.ts > Health counters and last reload timestamp > exposes json_429_count, sse_429_count and last_config_reload_iso
+Error: requestJSON failed: fetch failed
+ ❯ requestJSON tests/utils.ts:138:11
+    136|     return { status: res.status, data, headers };
+    137|   } catch (err) {
+    138|     throw new Error(`requestJSON failed: ${err instanceof Error ? err.…
+       |           ^
+    139|   }
+    140| }
+ ❯ tests/health.counters.test.ts:54:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/11]⎯
+
+ FAIL  tests/inspector.test.ts > Inspector (P1B) > includes debug.inspector when include_debug=true and flag enabled
+AssertionError: expected undefined to be defined
+ ❯ tests/inspector.test.ts:56:28
+     54| 
+     55|     expect(res.status).toBe(200);
+     56|     expect(res.data.debug).toBeDefined();
+       |                            ^
+     57|     expect(res.data.debug.inspector).toBeDefined();
+     58|     expect(res.data.debug.inspector.edges).toHaveLength(1);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/11]⎯
+
+ FAIL  tests/inspector.test.ts > Inspector (P1B) > applies defaults when belief/provenance omitted
+TypeError: Cannot read properties of undefined (reading 'inspector')
+ ❯ tests/inspector.test.ts:81:33
+     79| 
+     80|     expect(res.status).toBe(200);
+     81|     const edge = res.data.debug.inspector.edges[0];
+       |                                 ^
+     82|     expect(edge.belief).toBe(1.0);
+     83|     expect(edge.provenance).toBe('template');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/11]⎯
+
+ FAIL  tests/limits.endpoint.test.ts > /v1/limits > returns configured limits
+Error: requestJSON failed: fetch failed
+ ❯ requestJSON tests/utils.ts:138:11
+    136|     return { status: res.status, data, headers };
+    137|   } catch (err) {
+    138|     throw new Error(`requestJSON failed: ${err instanceof Error ? err.…
+       |           ^
+    139|   }
+    140| }
+ ❯ tests/limits.endpoint.test.ts:10:15
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/11]⎯
+
+ FAIL  tests/option-compare.test.ts > Option Compare (P1A) > includes debug.compare when include_debug=true and flag enabled
+AssertionError: expected undefined to be defined
+ ❯ tests/option-compare.test.ts:46:28
+     44| 
+     45|     expect(res.status).toBe(200);
+     46|     expect(res.data.debug).toBeDefined();
+       |                            ^
+     47|     expect(res.data.debug.compare).toBeDefined();
+     48|     expect(res.data.debug.compare.end).toBeDefined();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/11]⎯
+
+ FAIL  tests/option-compare.test.ts > Option Compare (P1A) > omits debug.compare when include_debug=false
+Error: requestJSON failed: fetch failed
+ ❯ requestJSON tests/utils.ts:138:11
+    136|     return { status: res.status, data, headers };
+    137|   } catch (err) {
+    138|     throw new Error(`requestJSON failed: ${err instanceof Error ? err.…
+       |           ^
+    139|   }
+    140| }
+ ❯ tests/option-compare.test.ts:59:17
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/11]⎯
+
+ FAIL  tests/option-compare.test.ts > Option Compare (P1A) > omits debug.compare when include_debug not specified
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ tests/option-compare.test.ts:73:3
+     71|   });
+     72| 
+     73|   it('omits debug.compare when include_debug not specified', async () …
+       |   ^
+     74|     vi.resetModules();
+     75|     server = await spawnServer({ env: ENV });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/11]⎯
+
+ FAIL  tests/run.scm-lite.integration.test.ts > POST /v1/run with SCM-Lite enabled > returns valid report.v1 contract with summary.bands
+AssertionError: expected 'run.v1' to be 'report.v1' // Object.is equality
+
+Expected: [32m"r[7meport[27m.v1"[39m
+Received: [31m"r[7mun[27m.v1"[39m
+
+ ❯ tests/run.scm-lite.integration.test.ts:75:29
+     73| 
+     74|     expect(res.status).toBe(200);
+     75|     expect(res.data.schema).toBe('report.v1');
+       |                             ^
+     76|     expect(res.data.model_card.bma_hash).toBeDefined();
+     77|     expect(typeof res.data.model_card.bma_hash).toBe('string');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/11]⎯
+
+ FAIL  tests/run.scm-lite.integration.test.ts > POST /v1/run rate-limit parity with SCM-Lite > returns 429 with proper headers after exceeding rate limit
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ tests/run.scm-lite.integration.test.ts:110:3
+    108|   });
+    109| 
+    110|   it('returns 429 with proper headers after exceeding rate limit', asy…
+       |   ^
+    111|     vi.resetModules();
+    112|     server = await spawnServer({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/11]⎯
+
+ FAIL  tests/scm-lite.disabled-warning.test.ts > SCM-Lite disabled in production mode > returns placeholder results when SCM-Lite is disabled
+AssertionError: expected '72b9f78f64c262edd3561b361af252671727f…' to be undefined
+
+[32m- Expected:[39m 
+undefined
+
+[31m+ Received:[39m 
+"72b9f78f64c262edd3561b361af252671727ffa9d144e022fa9f096c819612a6"
+
+ ❯ tests/scm-lite.disabled-warning.test.ts:45:42
+     43|     expect(res.data).toHaveProperty('confidence');
+     44|     expect(res.data).toHaveProperty('model_card');
+     45|     expect(res.data.model_card.bma_hash).toBeUndefined();
+       |                                          ^
+     46|   });
+     47| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/11]⎯
+
+ FAIL  tests/validate.belief.warnings.test.ts > Validation warnings > warns on missing belief for outcome edge
+AssertionError: expected 400 to be 200 // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 200[39m
+[31m+ 400[39m
+
+ ❯ tests/validate.belief.warnings.test.ts:30:24
+     28|     });
+     29|     const data = await res.json();
+     30|     expect(res.status).toBe(200);
+       |                        ^
+     31|     expect(data.violations.some((v: any) => v.code === 'MISSING_BELIEF…
+     32|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/11]⎯
+
+
+ Test Files  7 failed | 177 passed | 9 skipped (193)
+      Tests  11 failed | 578 passed | 15 skipped (604)
+   Start at  04:09:56
+   Duration  42.05s (transform 16.71s, setup 7.01s, collect 51.55s, tests 151.60s, environment 45ms, prepare 22.54s)
+

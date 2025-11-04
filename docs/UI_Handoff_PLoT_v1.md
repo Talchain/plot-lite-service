@@ -242,3 +242,66 @@ if (data.debug?.inspector) {
 **Version:** v1.0  
 **Last Updated:** 2025-11-01  
 **Contact:** PLoT Engine Team
+
+---
+
+## Template v1.2: Probabilities & Explainability
+
+### Overview
+Templates v1.2 include enriched metadata for better UI rendering and explainability.
+
+### Node Fields (Optional)
+```typescript
+{
+  id: string;
+  label?: string;
+  body?: string;                    // ≤200 chars, decision context
+  kind?: 'goal'|'decision'|'option'|'outcome';
+  prior?: number;                   // [0..1], option: default choice likelihood
+  utility?: number;                 // [-1..+1], outcome: qualitative payoff cue
+}
+```
+
+### Edge Fields (Optional)
+```typescript
+{
+  from: string;
+  to: string;
+  weight?: number;                  // Signed effect size
+  belief?: number;                  // [0..1], inclusion confidence
+  provenance?: string;              // ≤100 chars: "template"|"assumption"|note
+}
+```
+
+### Rendering Guidance
+
+**Belief (Edge):**
+- Represents inclusion confidence (0=uncertain, 1=certain)
+- Render as badge/opacity on edge
+- Missing belief = "unknown" (not false)
+
+**Weight (Edge):**
+- Signed effect size (existing behavior)
+- Render as arrow thickness/color
+
+**Provenance (Edge):**
+- Source attribution
+- Show in tooltip on hover
+
+**Prior (Node, kind=option):**
+- Default choice likelihood
+- Render as badge or node decoration
+
+**Utility (Node, kind=outcome):**
+- Qualitative payoff cue (-1=bad, 0=neutral, +1=good)
+- Render as color/icon
+
+### Defaulting Rules
+
+**Templates emit:** Edges without explicit belief get `belief=1.0` for UI clarity.  
+**User graphs (run/validate):** No default belief added (backward compatible).
+
+### Legacy Fields
+
+**Ingress:** API accepts `confidence` or `probability` (mapped to `belief`).  
+**Emit:** Never returns `confidence` or `probability` in responses.
