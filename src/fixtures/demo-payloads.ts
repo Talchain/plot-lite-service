@@ -110,7 +110,7 @@ export function getDemoRunResponse(seed: number = 42): any {
     meta: {
       seed,
       commit: process.env.BUILD_ID || process.env.GITHUB_SHA || 'dev',
-      version: '1.0.0',
+      version: '1.0.1',
     },
     graph,
     results: {

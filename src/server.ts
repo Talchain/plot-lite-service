@@ -107,7 +107,7 @@ app.get('/health', async () => {
 });
 
 app.get('/version', async () => {
-  return { api: '1.0.0', build: getBuildId(), model: 'fixtures' };
+  return { api: '1.0.1', build: getBuildId(), model: 'fixtures' };
 });
 
 app.post('/draft-flows', async (req, reply) => {
