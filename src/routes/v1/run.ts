@@ -121,8 +121,8 @@ export async function registerRunRoute(app: FastifyInstance) {
 
     const body = (req as any).body as RunRequest;
     
-    // Normalize graph (map confidence|probability→belief, default belief=1.0)
-    const graph = normalizeGraph(body.graph);
+    // Normalize graph (map confidence|probability→belief, no default on ingress)
+    const graph = normalizeGraph(body.graph, false);
 
     const {
       seed = 42,
