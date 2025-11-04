@@ -21,7 +21,10 @@ describe('Validation warnings', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         graph: {
-          nodes: [{ id: 'A', kind: 'option' }, { id: 'B', kind: 'outcome' }],
+          nodes: [
+            { id: 'A', label: 'A', kind: 'option' },
+            { id: 'B', label: 'B', kind: 'outcome' }
+          ],
           edges: [{ from: 'A', to: 'B', weight: 0.5 }]
         }
       })
