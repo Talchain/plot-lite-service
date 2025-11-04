@@ -564,6 +564,26 @@ paths:
                           type: string
                         reason:
                           type: string
+                        code:
+                          type: string
+                          description: 'Violation code (e.g., MISSING_BELIEF_ON_OUTCOME_EDGE)'
+                        severity:
+                          type: string
+                          enum: [warning, error]
+                          description: 'Severity level (warning = non-fatal)'
+                        at:
+                          type: object
+                          description: 'Location of violation (e.g., edge from/to)'
+              examples:
+                valid_with_warnings:
+                  value:
+                    valid: true
+                    violations:
+                      - code: MISSING_BELIEF_ON_OUTCOME_EDGE
+                        severity: warning
+                        at:
+                          from: Price
+                          to: Revenue
         '400':
           description: Bad input
           content:
@@ -966,6 +986,13 @@ components:
       type: object
       required: [nodes, edges]
       properties:
+        version:
+          type: string
+          description: 'Template version (e.g., "1.2")'
+        default_seed:
+          type: integer
+          minimum: 1
+          description: 'Default seed for reproducibility'
         nodes:
           type: array
           maxItems: 50
@@ -976,7 +1003,22 @@ components:
             properties:
               id: { type: string, maxLength: 100 }
               label: { type: string, maxLength: 200 }
-              type: { type: string, maxLength: 50 }
+              body: { type: string, maxLength: 200, description: 'Decision context or description' }
+              type: { type: string, maxLength: 50, deprecated: true }
+              kind:
+                type: string
+                enum: [goal, decision, option, outcome]
+                description: 'Node type in decision graph'
+              prior:
+                type: number
+                minimum: 0
+                maximum: 1
+                description: 'Prior probability for option nodes [0..1]'
+              utility:
+                type: number
+                minimum: -1
+                maximum: 1
+                description: 'Utility/payoff for outcome nodes [-1..+1]'
         edges:
           type: array
           maxItems: 200
@@ -988,6 +1030,47 @@ components:
               to: { type: string, maxLength: 100 }
               label: { type: string, maxLength: 200 }
               weight: { type: number, minimum: -1000000, maximum: 1000000 }
+              belief:
+                type: number
+                minimum: 0
+                maximum: 1
+                description: 'Inclusion confidence [0..1]. Ingress accepts legacy confidence/probability (mapped to belief). Templates emit default belief=1.0.'
+              provenance:
+                type: string
+                maxLength: 100
+                description: 'Source attribution (e.g., "template", "assumption", "user")'
+              confidence:
+                type: number
+                minimum: 0
+                maximum: 1
+                deprecated: true
+                description: 'DEPRECATED: Use belief instead. Accepted on ingress, never emitted.'
+              probability:
+                type: number
+                minimum: 0
+                maximum: 1
+                deprecated: true
+                description: 'DEPRECATED: Use belief instead. Accepted on ingress, never emitted.'
+        meta:
+          type: object
+          description: 'Template metadata'
+          properties:
+            roots:
+              type: array
+              items: { type: string }
+              description: 'Root node IDs'
+            leaves:
+              type: array
+              items: { type: string }
+              description: 'Leaf node IDs'
+            suggested_positions:
+              type: object
+              additionalProperties:
+                type: object
+                required: [x, y]
+                properties:
+                  x: { type: number }
+                  y: { type: number }
     
     modelCard:
       type: object
