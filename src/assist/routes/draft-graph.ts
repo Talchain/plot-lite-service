@@ -219,6 +219,9 @@ export async function registerAssistRoutes(app: FastifyInstance) {
         }
 
         const decoder = new TextDecoder();
+        let buffer = ''; // Accumulate partial lines
+        let currentEventType = ''; // Track event type (stage, complete, error)
+        let currentEventDataLines: string[] = []; // Accumulate data lines for current event (RFC 8895)
 
         while (true) {
           // Check guards before reading next chunk
@@ -252,19 +255,102 @@ export async function registerAssistRoutes(app: FastifyInstance) {
             break;
           }
 
-          // Track chunk and write to client
+          // Decode chunk and add to buffer
           const chunk = decoder.decode(value, { stream: true });
           streamGuard.trackChunk(chunk);
-          reply.raw.write(chunk);
+          buffer += chunk;
+
+          // Process complete lines
+          while (buffer.includes('\n')) {
+            const newlineIndex = buffer.indexOf('\n');
+            const line = buffer.substring(0, newlineIndex);
+            buffer = buffer.substring(newlineIndex + 1);
+
+            // Parse SSE line
+            if (line.startsWith('event:')) {
+              currentEventType = line.substring(6).trim();
+            } else if (line.startsWith('data:')) {
+              // RFC 8895: Preserve data as-is (don't trim), accumulate multiple data lines
+              currentEventDataLines.push(line.substring(5));
+            } else if (line === '' || line === '\r') {
+              // Event boundary - process complete event
+              if (currentEventType === 'complete' && currentEventDataLines.length > 0) {
+                // Validate complete event before forwarding
+                try {
+                  // Join multiple data lines with newline (RFC 8895), trim trailing whitespace only
+                  const eventData = currentEventDataLines.join('\n').trimEnd();
+                  const parsed = JSON.parse(eventData);
+
+                  // Apply post-response guard (same as JSON route)
+                  guardDraftGraphResponse(parsed);
+
+                  // Run non-blocking engine validation
+                  if (parsed.graph) {
+                    const validationResult = await runEngineValidation(parsed.graph);
+                    if (!validationResult.valid) {
+                      const issues = formatValidationIssues(validationResult);
+                      parsed.validation_issues = issues;
+
+                      app.log.warn({
+                        event: 'assist.proxy.validation',
+                        issues: issues.length,
+                      }, 'SSE: Engine validation found issues in draft graph');
+                    }
+                  }
+
+                  // Extract telemetry metadata (with fallbacks)
+                  const provider = parsed.provider || 'unknown';
+                  const costUsd = typeof parsed.cost_usd === 'number' ? parsed.cost_usd : 0;
+                  streamGuard.setCompleteMetadata({ provider, cost_usd: costUsd });
+
+                  // Forward validated complete event
+                  reply.raw.write(`event: complete\ndata: ${JSON.stringify(parsed)}\n\n`);
+                } catch (error: any) {
+                  // Guard or validation failed - emit error and close stream
+                  clearTimeout(timeoutHandle);
+                  reader.cancel();
+
+                  const errorData = {
+                    error: {
+                      type: error.type || 'VALIDATION_FAILED',
+                      message: error.message || 'Validation failed',
+                    },
+                  };
+                  reply.raw.write(`event: error\ndata: ${JSON.stringify(errorData)}\n\n`);
+                  reply.raw.end();
+
+                  app.log.warn({
+                    event: 'assist.proxy.sse_abort',
+                    reason: 'validation_failed',
+                    error: error.message,
+                    error_type: error.type,
+                  }, 'SSE aborted due to validation failure');
+                  return;
+                }
+              } else if (currentEventType && currentEventDataLines.length > 0) {
+                // Forward other events (stage, error) immediately
+                // Join multiple data lines with newline (RFC 8895)
+                const eventData = currentEventDataLines.join('\n');
+                reply.raw.write(`event: ${currentEventType}\ndata: ${eventData}\n\n`);
+              }
+
+              // Reset for next event
+              currentEventType = '';
+              currentEventDataLines = [];
+            }
+          }
         }
 
         clearTimeout(timeoutHandle);
         reply.raw.end();
 
         const metrics = streamGuard.getMetrics();
+        const completeMetadata = streamGuard.getCompleteMetadata();
         app.log.info({
           event: 'assist.proxy.sse_complete',
           ...metrics,
+          provider: completeMetadata.provider,
+          cost_usd: completeMetadata.cost_usd,
         }, 'SSE proxy stream completed');
 
       } catch (streamError: any) {

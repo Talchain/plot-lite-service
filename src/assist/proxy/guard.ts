@@ -178,6 +178,7 @@ export class SSEStreamGuard {
   private startMs: number;
   private lastChunkMs: number;
   private aborted = false;
+  private completeMetadata: { provider?: string; cost_usd?: number } = {};
 
   constructor() {
     this.startMs = Date.now();
@@ -245,6 +246,23 @@ export class SSEStreamGuard {
     return {
       bytesWritten: this.bytesWritten,
       durationMs: Date.now() - this.startMs,
+    };
+  }
+
+  /**
+   * Store telemetry metadata from complete event
+   */
+  setCompleteMetadata(metadata: { provider: string; cost_usd: number }): void {
+    this.completeMetadata = metadata;
+  }
+
+  /**
+   * Get complete event metadata for telemetry
+   */
+  getCompleteMetadata(): { provider: string; cost_usd: number } {
+    return {
+      provider: this.completeMetadata.provider || 'unknown',
+      cost_usd: this.completeMetadata.cost_usd || 0,
     };
   }
 }
