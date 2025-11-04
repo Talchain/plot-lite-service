@@ -18,11 +18,21 @@ describe('Assistants proxy - JSON/SSE parity', () => {
   let mockUpstream: FastifyInstance;
   const mockUpstreamPort = 33107;
 
+  // Shared state for dynamic route handling
+  let mockHandler: ((req: any, reply: any) => Promise<any>) | null = null;
+
   beforeAll(async () => {
     // Create mock upstream service
     mockUpstream = Fastify({ logger: false });
 
-    // Mock endpoints will be registered in beforeEach
+    // Register dynamic route handlers that delegate to mockHandler
+    mockUpstream.post('/assist/draft-graph', async (req, reply) => {
+      if (mockHandler) {
+        return await mockHandler(req, reply);
+      }
+      return reply.code(404).send({ error: 'No mock handler registered' });
+    });
+
     await mockUpstream.listen({ port: mockUpstreamPort, host: '127.0.0.1' });
 
     // Configure engine to proxy to mock upstream
@@ -40,20 +50,15 @@ describe('Assistants proxy - JSON/SSE parity', () => {
     await mockUpstream?.close();
   });
 
-  beforeEach(() => {
-    // Clear all routes before each test
-    mockUpstream.get('/health', async () => ({ ok: true }));
-  });
-
   afterEach(() => {
-    // Clean up mock routes after each test
-    mockUpstream.server.removeAllListeners('request');
+    // Clear mock handler after each test
+    mockHandler = null;
   });
 
   describe('Caps parity - node/edge limits', () => {
     it('JSON: rejects graph exceeding 12 nodes', async () => {
-      // Register mock that returns too many nodes
-      mockUpstream.post('/assist/draft-graph', async () => {
+      // Set mock handler to return too many nodes
+      mockHandler = async () => {
         return {
           graph: {
             version: '1',
@@ -65,7 +70,7 @@ describe('Assistants proxy - JSON/SSE parity', () => {
           cost_usd: 0.001,
           provider: 'test',
         };
-      });
+      };
 
       const response = await app.inject({
         method: 'POST',
@@ -81,8 +86,8 @@ describe('Assistants proxy - JSON/SSE parity', () => {
     });
 
     it('JSON: rejects graph exceeding 24 edges', async () => {
-      // Register mock that returns too many edges
-      mockUpstream.post('/assist/draft-graph', async () => {
+      // Set mock handler to return too many edges
+      mockHandler = async () => {
         const nodes = Array.from({ length: 10 }, (_, i) => ({ id: `n${i}`, kind: 'goal', label: `Node ${i}` }));
         const edges = Array.from({ length: 25 }, (_, i) => ({ from: 'n0', to: `n${(i % 9) + 1}` }));
 
@@ -97,7 +102,7 @@ describe('Assistants proxy - JSON/SSE parity', () => {
           cost_usd: 0.001,
           provider: 'test',
         };
-      });
+      };
 
       const response = await app.inject({
         method: 'POST',
@@ -113,7 +118,7 @@ describe('Assistants proxy - JSON/SSE parity', () => {
     });
 
     it('JSON: accepts graph at exact limits (12 nodes, 24 edges)', async () => {
-      mockUpstream.post('/assist/draft-graph', async () => {
+      mockHandler = async () => {
         const nodes = Array.from({ length: 12 }, (_, i) => ({ id: `n${i}`, kind: 'goal', label: `Node ${i}` }));
         const edges = Array.from({ length: 24 }, (_, i) => ({ from: 'n0', to: `n${(i % 11) + 1}` }));
 
@@ -128,7 +133,7 @@ describe('Assistants proxy - JSON/SSE parity', () => {
           cost_usd: 0.001,
           provider: 'test',
         };
-      });
+      };
 
       const response = await app.inject({
         method: 'POST',
@@ -146,7 +151,7 @@ describe('Assistants proxy - JSON/SSE parity', () => {
 
   describe('Cost presence enforcement', () => {
     it('JSON: rejects response missing cost_usd', async () => {
-      mockUpstream.post('/assist/draft-graph', async () => {
+      mockHandler = async () => {
         return {
           graph: {
             version: '1',
@@ -158,7 +163,7 @@ describe('Assistants proxy - JSON/SSE parity', () => {
           provider: 'test',
           // cost_usd missing
         };
-      });
+      };
 
       const response = await app.inject({
         method: 'POST',
@@ -173,7 +178,7 @@ describe('Assistants proxy - JSON/SSE parity', () => {
     });
 
     it('JSON: rejects response with non-numeric cost_usd', async () => {
-      mockUpstream.post('/assist/draft-graph', async () => {
+      mockHandler = async () => {
         return {
           graph: {
             version: '1',
@@ -185,7 +190,7 @@ describe('Assistants proxy - JSON/SSE parity', () => {
           cost_usd: 'invalid',
           provider: 'test',
         };
-      });
+      };
 
       const response = await app.inject({
         method: 'POST',
@@ -210,7 +215,7 @@ describe('Assistants proxy - JSON/SSE parity', () => {
         return originalLog(...args);
       });
 
-      mockUpstream.post('/assist/draft-graph', async () => {
+      mockHandler = async () => {
         return {
           graph: {
             version: '1',
@@ -222,7 +227,7 @@ describe('Assistants proxy - JSON/SSE parity', () => {
           cost_usd: 0,  // Present but zero
           // provider omitted
         };
-      });
+      };
 
       const response = await app.inject({
         method: 'POST',
@@ -250,7 +255,7 @@ describe('Assistants proxy - JSON/SSE parity', () => {
         return originalLog(...args);
       });
 
-      mockUpstream.post('/assist/draft-graph', async () => {
+      mockHandler = async () => {
         return {
           graph: {
             version: '1',
@@ -263,7 +268,7 @@ describe('Assistants proxy - JSON/SSE parity', () => {
           provider: 'openai',
           model: 'gpt-4o-mini',
         };
-      });
+      };
 
       const response = await app.inject({
         method: 'POST',
@@ -286,7 +291,7 @@ describe('Assistants proxy - JSON/SSE parity', () => {
 
   describe('Engine validation surfacing', () => {
     it('JSON: includes validation_issues when engine validator finds problems', async () => {
-      mockUpstream.post('/assist/draft-graph', async () => {
+      mockHandler = async () => {
         return {
           graph: {
             version: '1',
@@ -304,7 +309,7 @@ describe('Assistants proxy - JSON/SSE parity', () => {
           cost_usd: 0.001,
           provider: 'test',
         };
-      });
+      };
 
       const response = await app.inject({
         method: 'POST',
