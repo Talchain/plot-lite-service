@@ -3,7 +3,15 @@
  * Provider-specific pricing per v04 spec.
  */
 
-import type { UsageMetrics } from '../adapters/llm/types.js';
+/**
+ * Usage metrics for cost calculation
+ */
+export interface UsageMetrics {
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
+}
 
 /**
  * Pricing tables (USD per 1K tokens)

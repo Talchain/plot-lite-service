@@ -45,6 +45,20 @@ export async function createServer(opts: ServerOpts = {}) {
   const { validateFeatureFlags } = await import('./config/feature-flags.js');
   validateFeatureFlags();
 
+  // Validate assistants proxy configuration
+  const { validateProxyConfig, updateUpstreamHealth } = await import('./assist/proxy/config.js');
+  const { checkUpstreamHealth } = await import('./assist/proxy/client.js');
+  validateProxyConfig();
+
+  // Background health check for upstream assistants service (non-blocking)
+  if (process.env.ASSISTANTS_ENABLED === '1') {
+    checkUpstreamHealth().then((status: 'ok' | 'degraded' | 'down') => {
+      updateUpstreamHealth(status);
+    }).catch(() => {
+      updateUpstreamHealth('down');
+    });
+  }
+
   // Bounded idempotency cache (C1)
   const { BoundedLRU } = await import('./lib/BoundedLRU.js');
   const { PrincipalQuotas } = await import('./lib/PrincipalQuotas.js');
@@ -361,7 +375,11 @@ export async function createServer(opts: ServerOpts = {}) {
   app.get('/health', async () => {
     // Metrics already imported statically
     const { rateLimitState } = await import('./rateLimit.js');
+    const { getProxyConfig, getCachedUpstreamHealth } = await import('./assist/proxy/config.js');
     const mem = process.memoryUsage();
+    const proxyConfig = getProxyConfig();
+    const upstreamHealth = getCachedUpstreamHealth();
+
     const base = {
       status: 'ok' as const,
       // Preserve legacy top-level p95 for compatibility
@@ -382,6 +400,13 @@ export async function createServer(opts: ServerOpts = {}) {
       rate_limit: rateLimitState(),
       test_routes_enabled: process.env.NODE_ENV === 'production' ? false : (process.env.TEST_ROUTES === '1'),
       replay: replaySnapshot(),
+      // Assistants proxy status
+      assistants_enabled: proxyConfig.enabled,
+      ...(proxyConfig.enabled && {
+        assistants_base_url: proxyConfig.baseUrl,
+        assistants_upstream_status: upstreamHealth.status,
+        assistants_last_checked_ms: upstreamHealth.lastCheckedMs,
+      }),
       // Dev-only documentation of defaults for CI drift checks (add-only)
       ...(process.env.NODE_ENV === 'production' ? {} : {
         flags_doc: {
@@ -541,6 +566,20 @@ export async function createServer(opts: ServerOpts = {}) {
 
   // Liveness probe — basic process up indicator
   app.get('/live', async () => ({ ok: true }));
+
+  // Assistants proxy routes (conditional registration)
+  if (process.env.ASSISTANTS_ENABLED === '1') {
+    const { registerAssistRoutes } = await import('./assist/routes/draft-graph.js');
+    await registerAssistRoutes(app);
+
+    const { registerSuggestOptionsRoute } = await import('./assist/routes/suggest-options.js');
+    await registerSuggestOptionsRoute(app);
+
+    const { registerExplainDiffRoute } = await import('./assist/routes/explain-diff.js');
+    await registerExplainDiffRoute(app);
+
+    app.log.info({ assistants_enabled: true }, 'Assistants proxy routes enabled');
+  }
 
   // Deterministic GET /draft-flows — serve pre-serialized fixtures by template + seed with strong ETag
   type AllowedTemplate = 'pricing_change' | 'feature_launch' | 'build_vs_buy';

@@ -135,16 +135,37 @@ export function sha256Stable(obj: unknown): string {
  * Does not mutate the original object; returns a shallow-cloned copy.
  */
 export function stampResponseHash<T extends { model_card: object }>(doc: T): T {
-  const { debug, ...rest } = doc as any;
+  // Exclude additive v1.3 fields from hash (debug, bands, compare, explainability)
+  const { debug, bands, compare, explainability, ...rest } = doc as any;
   const copy: any = { ...rest, model_card: { ...(doc as any).model_card } };
+  
+  // Exclude bands/compare/explainability from results if present
+  if (copy.results) {
+    const { bands: resultBands, compare: resultCompare, ...restResults } = copy.results;
+    copy.results = restResults;
+  }
+  
   // Ensure we hash the payload without the response_hash to avoid circularity
   delete copy.model_card.response_hash;
   const hash = sha256Stable(copy);
   copy.model_card.response_hash = hash;
-  // Add debug back (excluded from hash but included in response)
-  if (debug !== undefined) {
-    copy.debug = debug;
+  
+  // Add excluded fields back (not included in hash but included in response)
+  if (debug !== undefined) copy.debug = debug;
+  if (bands !== undefined) copy.bands = bands;
+  if (compare !== undefined) copy.compare = compare;
+  if (explainability !== undefined) copy.explainability = explainability;
+  
+  // Add bands/compare back to results if they were present
+  if ((doc as any).results?.bands !== undefined) {
+    copy.results = copy.results || {};
+    copy.results.bands = (doc as any).results.bands;
   }
+  if ((doc as any).results?.compare !== undefined) {
+    copy.results = copy.results || {};
+    copy.results.compare = (doc as any).results.compare;
+  }
+  
   return copy as T;
 }
 
