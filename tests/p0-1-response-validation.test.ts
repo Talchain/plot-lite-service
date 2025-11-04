@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { SERVICE_VERSION } from './helpers/version.js';
 import { createServer } from '../src/createServer.js';
 import { __resetValidationMetricsForTest } from '../src/observability/validationMetrics.js';
 
@@ -30,7 +31,7 @@ describe('P0-1: Response Validation', () => {
 
   it('validation overhead minimal (isolated)', async () => {
     const times: number[] = [];
-    const sample = { schema: 'run.v1', confidence: {level:'HIGH',reason:'test',score:0.9}, results: {conservative:{outcome:1},most_likely:{outcome:1},optimistic:{outcome:1}}, model_card: {response_hash:'a'.repeat(64)}, meta: {seed:42,version:'1.0.0'} };
+    const sample = { schema: 'run.v1', confidence: {level:'HIGH',reason:'test',score:0.9}, results: {conservative:{outcome:1},most_likely:{outcome:1},optimistic:{outcome:1}}, model_card: {response_hash:'a'.repeat(64)}, meta: {seed:42,version:SERVICE_VERSION} };
     for (let i = 0; i < 1000; i++) {
       const start = performance.now();
       JSON.stringify(sample);

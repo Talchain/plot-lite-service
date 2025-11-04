@@ -6,6 +6,7 @@
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { SERVICE_VERSION } from '../../version.js';
 import { GOLDEN_SCENARIO, GOLDEN_SEED } from '../../fixtures/self-check.js';
 import { stableStringify, normaliseReport, stampResponseHash, sha256Stable } from '../../util/canonical-json.js';
 import { buildModelCard, getActiveFeatureFlags } from '../../trust/model-card.js';
@@ -118,7 +119,7 @@ export async function registerSelfCheckRoute(app: FastifyInstance) {
       meta: {
         seed,
         commit: process.env.BUILD_ID || process.env.GITHUB_SHA || 'dev',
-        version: '1.0.0',
+        version: SERVICE_VERSION,
       },
       graph,
       results: {

@@ -5,6 +5,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { timingSafeEqual } from 'crypto';
+import { SERVICE_VERSION } from '../../version.js';
 import { registerRunRoute } from './run.js';
 import { registerCounterfactualRoute } from './counterfactual.js';
 import { registerCritiqueRoute } from './critique.js';
@@ -128,7 +129,7 @@ export async function registerV1Routes(app: FastifyInstance) {
       status: 'ok',
       api_version: 'v1',
       p95_ms: p95Ms() || 0,
-      version: '1.0.0',
+      version: SERVICE_VERSION,
       uptime_s: Math.round(process.uptime()),
       last_request_at: getLastRequestAt() || undefined,
       ...snapshot(),
@@ -193,7 +194,7 @@ export async function registerV1Routes(app: FastifyInstance) {
     const build = process.env.BUILD_ID || 'dev';
     return {
       api: 'plot-engine/v1',
-      version: '1.0.0',
+      version: SERVICE_VERSION,
       build,
       model: `plot-lite-${build}`,
       features: {

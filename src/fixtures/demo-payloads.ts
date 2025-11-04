@@ -4,6 +4,7 @@
  */
 
 import type { Graph } from '../trust/types.js';
+import { SERVICE_VERSION } from '../version.js';
 import { buildModelCard } from '../trust/model-card.js';
 import { stampResponseHash } from '../util/canonical-json.js';
 import { calculateConfidence } from '../trust/confidence.js';
@@ -110,7 +111,7 @@ export function getDemoRunResponse(seed: number = 42): any {
     meta: {
       seed,
       commit: process.env.BUILD_ID || process.env.GITHUB_SHA || 'dev',
-      version: '1.0.0',
+      version: SERVICE_VERSION,
     },
     graph,
     results: {

@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest';
+import { SERVICE_VERSION } from './helpers/version.js';
 import { sha256Stable, stampResponseHash } from '../src/util/canonical-json.js';
 
 function baseDoc() {
   return {
     schema: 'run.v1',
-    meta: { seed: 42, commit: 'dev', version: '1.0.0' },
+    meta: { seed: 42, commit: 'dev', version: SERVICE_VERSION },
     graph: {
       nodes: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }],
       edges: [{ from: 'a', to: 'b' }]

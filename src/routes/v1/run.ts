@@ -4,6 +4,7 @@
 
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { SERVICE_VERSION } from '../../version.js';
 import { isDemoMode, getDemoSeed } from '../../middleware/demo-mode.js';
 import { getDemoRunResponse } from '../../fixtures/demo-payloads.js';
 import { buildModelCard, getActiveFeatureFlags } from '../../trust/model-card.js';
@@ -324,7 +325,7 @@ export async function registerRunRoute(app: FastifyInstance) {
       meta: {
         seed,
         commit: process.env.BUILD_ID || process.env.GITHUB_SHA || 'dev',
-        version: '1.0.0',
+        version: SERVICE_VERSION,
         inference_mode,
       },
       model_card,

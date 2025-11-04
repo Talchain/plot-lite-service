@@ -12,6 +12,7 @@ import { securityHeadersOnSend } from './middleware/security-headers.js';
 import { replyWithAppError } from './errors.js';
 import inflightPlugin from './plugins/inflight.js';
 import type {} from './types/fastify.js';
+import { SERVICE_VERSION } from './version.js';
 import {
   noteLastRequestAt,
   recordDurationMs,
@@ -406,10 +407,11 @@ export async function createServer(opts: ServerOpts = {}) {
   // Root route for Render health check (returns 200 OK)
   app.get('/', async () => {
     const build = getBuildId();
-    return { 
-      status: 'ok', 
+    return {
+      status: 'ok',
       service: 'plot-lite-engine',
-      version: build,
+      version: SERVICE_VERSION,
+      build,
       api: 'warp/0.1.0'
     };
   });
@@ -429,7 +431,7 @@ export async function createServer(opts: ServerOpts = {}) {
       SSE_MAX_MS: process.env.SSE_MAX_MS || '120000',
       AUTH_ENABLED: process.env.AUTH_ENABLED === '1' ? 'ON' : 'OFF',
     };
-    return { api: 'warp/0.1.0', build, model: `plot-lite-${build}`, flags };
+    return { version: SERVICE_VERSION, api: 'warp/0.1.0', build, model: `plot-lite-${build}`, flags };
   });
 
   // Dev OpenAPI route with strong ETag when OPENAPI_DEV=1 and file exists

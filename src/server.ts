@@ -25,6 +25,7 @@ import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { spawnSync } from 'child_process';
 import { rateLimit } from './rateLimit.js';
+import { SERVICE_VERSION } from './version.js';
 
 const PORT = Number(process.env.PORT || 4311);
 const HOST = '0.0.0.0';
@@ -107,7 +108,7 @@ app.get('/health', async () => {
 });
 
 app.get('/version', async () => {
-  return { api: '1.0.0', build: getBuildId(), model: 'fixtures' };
+  return { version: SERVICE_VERSION, build: getBuildId(), model: 'fixtures' };
 });
 
 app.post('/draft-flows', async (req, reply) => {
