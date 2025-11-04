@@ -1,6 +1,20 @@
 # Assistants Proxy
 
+## Overview
+
 The PLoT engine includes a thin proxy layer for the standalone **olumi-assistants-service**. All LLM-based decision graph drafting, option suggestion, and diff explanation logic lives in the standalone service. The engine simply forwards requests and enforces consistent safety rails.
+
+**What the proxy guarantees:**
+- **Identical JSON↔SSE guards**: Both JSON and SSE routes enforce the same post-response validation (≤12 nodes, ≤24 edges, cost_usd presence/type, cost cap). No drift between paths.
+- **RFC 8895 compliance**: SSE multi-line `data:` payloads are joined with newlines before parsing, preserving upstream content semantics.
+- **Fail-safe validation**: If upstream returns invalid data (exceeds caps, missing cost), the proxy rejects it before forwarding to clients.
+- **Telemetry parity**: All routes emit structured logs with `provider` and `cost_usd` fields (with fallbacks `"unknown"` and `0` when upstream omits them).
+- **Non-blocking engine validation**: After proxy validation passes, the engine runs additional DAG validation and surfaces issues as `validation_issues` without failing requests.
+
+**Where telemetry lands:**
+- Logs are emitted via Pino to stdout/stderr
+- Events: `assist.proxy.request`, `assist.proxy.response`, `assist.proxy.sse_start`, `assist.proxy.sse_complete`, `assist.proxy.sse_abort`
+- All events include `provider` and `cost_usd` for cost tracking and provider distribution analysis
 
 ## Quick Start
 
@@ -165,6 +179,22 @@ The proxy enforces consistent guardrails for both JSON and SSE routes:
 
 **Both JSON and SSE routes enforce identical guards** - no drift between paths.
 
+#### SSE Guard Sequence
+For SSE `/assist/draft-graph/stream`, the proxy:
+1. **Streams** upstream events (`stage`) immediately to client
+2. **Buffers** `event: complete` payload (may arrive in multiple chunks)
+   - **RFC 8895 newline semantics**: If an event spans multiple `data:` lines, the proxy joins them with a single newline (`\n`) before parsing
+   - Internal whitespace is preserved; only trailing whitespace is trimmed
+3. **Validates** complete event with same guard as JSON:
+   - Parses JSON payload
+   - Calls `guardDraftGraphResponse()` (node/edge caps, cost presence/type, cost cap)
+   - If guard fails → emits `event: error` with `VALIDATION_FAILED` and closes stream
+4. **Engine validation** (non-blocking):
+   - Runs engine validator on draft graph
+   - Attaches `validation_issues` to payload if found (doesn't fail request)
+5. **Forwards** validated `event: complete` with any `validation_issues` attached
+6. **Telemetry**: Extracts `provider` and `cost_usd` (with fallbacks) for `sse_complete` log
+
 ### SSE-Specific Guards
 - **Duration cap**: ≤`ASSISTANTS_SSE_TIMEOUT_MS` (default 20s)
 - **Idle timeout**: Aborts if no chunks for 10s
@@ -190,7 +220,7 @@ assist.proxy.response - Request complete (includes status, latency, retried, byt
 ### SSE Stream Events
 ```
 assist.proxy.sse_start    - Stream started
-assist.proxy.sse_complete - Stream finished (includes bytes, durationMs)
+assist.proxy.sse_complete - Stream finished (includes bytes, durationMs, provider, cost_usd)
 assist.proxy.sse_abort    - Stream aborted (includes reason)
 ```
 
@@ -250,10 +280,34 @@ curl -I $ASSISTANTS_BASE_URL/health
 **Cause**: No data from upstream for >10s
 **Check**: Upstream service logs for stalls
 
+### SSE stream emits "error" event with VALIDATION_FAILED
+
+**Cause**: SSE `event: complete` payload failed post-response guard (node/edge caps, cost_usd missing/invalid)
+**Behavior**: Proxy buffers complete event, validates it, and if validation fails, emits `event: error` instead of complete
+**Example error event**:
+```
+event: error
+data: {"error":{"type":"VALIDATION_FAILED","message":"Graph has 13 nodes, max is 12"}}
+```
+**Fix**: This indicates upstream service returned invalid data; check upstream implementation
+
 ### "validation_issues" in response
 
 **Info**: Engine validator found issues but didn't block the request
 **Action**: Review `validation_issues` array; upstream graph may violate engine constraints (e.g., cycles, missing nodes)
+
+### SSE multi-line data parsing issues
+
+**Context**: Per RFC 8895, if upstream splits JSON across multiple `data:` lines, the proxy joins them with newlines (`\n`)
+**Requirement**: Ensure the combined payload remains valid JSON
+**Example**: If upstream emits:
+```
+data: {"graph":{"nodes":[
+data: {"id":"n1"}]}}
+```
+The proxy joins as: `{"graph":{"nodes":[\n{"id":"n1"}]}}`
+
+**Note**: Newlines are preserved between fragments; this is correct per spec but the JSON must remain valid after joining
 
 ### Graph exceeds 12 nodes or 24 edges
 
