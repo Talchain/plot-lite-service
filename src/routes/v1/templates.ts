@@ -85,6 +85,6 @@ export async function registerTemplatesRoutes(app: FastifyInstance) {
     if (inm && inm === etag) {
       return reply.code(304).send();
     }
-    return normalizeGraph(g);
+    return normalizeGraph(g, true); // Add default belief=1.0 for UI clarity
   });
 }

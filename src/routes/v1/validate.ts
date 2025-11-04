@@ -10,9 +10,9 @@ export async function registerValidateRoute(app: FastifyInstance) {
     preHandler: [createValidator('run')],
   }, async (req: FastifyRequest, reply: FastifyReply) => {
     const body = (req as any).body || {};
-    // Normalize graph at ingress
+    // Normalize graph at ingress (no default belief on ingress)
     if (body.graph) {
-      body.graph = normalizeGraph(body.graph);
+      body.graph = normalizeGraph(body.graph, false);
     }
     
     const violations: any[] = [];
