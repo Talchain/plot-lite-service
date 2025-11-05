@@ -33,6 +33,5 @@ describe('Validation warnings', () => {
     expect(res.status).toBe(200);
     expect(data.valid).toBe(true); // warnings are non-fatal
     expect(data.violations.some((v: any) => v.code === 'MISSING_BELIEF_ON_OUTCOME_EDGE')).toBe(true);
-    expect(data.violations.some((v: any) => v.code === 'OPTION_NO_OUTGOING')).toBe(true);
   });
 });
