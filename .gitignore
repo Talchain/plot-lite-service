@@ -47,3 +47,21 @@ reports/**/*
 phase*.txt
 final.txt
 test-baseline.txt
+
+# Temp and analysis directories
+.tmp/
+.test-analysis/
+*.log
+POST_MERGE_CHECKLIST.md
+DEPLOYMENT_SUCCESS.md
+PHASE_A_*.md
+OVERNIGHT_*.md
+V1.3_STATUS.md
+FINAL_STATUS.md
+PR_*.md
+EVIDENCE_*.md
+PR-ENGINE-*.md
+/src/assist
+/src/routes/v1/assist-proxy.ts
+/tests/assist-proxy.test.ts
+/tests/version.ssvc.test.ts
