@@ -17,11 +17,17 @@ export function makeRateLimiter() {
     rec.count++;
     store.set(key, rec);
 
+    const remaining = Math.max(0, max - rec.count);
+    const resetUnix = Math.ceil(rec.resetAt / 1000);
+
     reply.header('X-RateLimit-Limit', String(max));
-    reply.header('X-RateLimit-Remaining', String(Math.max(0, max - rec.count)));
-    reply.header('X-RateLimit-Reset', String(Math.ceil(rec.resetAt / 1000)));
+    reply.header('X-RateLimit-Remaining', String(remaining));
+    reply.header('X-RateLimit-Reset', String(resetUnix));
 
     if (rec.count > max) {
+      const retryAfter = Math.max(1, Math.ceil((rec.resetAt - now) / 1000));
+      reply.header('Retry-After', String(retryAfter));
+      reply.header('X-RateLimit-Reason', 'exceeded');
       reply.code(429).send({ error: 'rate_limited' });
       return;
     }
