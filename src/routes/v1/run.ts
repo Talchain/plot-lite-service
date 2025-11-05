@@ -123,10 +123,12 @@ export async function registerRunRoute(app: FastifyInstance) {
     const body = (req as any).body as RunRequest;
     
     // Normalize graph (map confidence|probability→belief, no default on ingress)
+    const graph = normalizeGraph(body.graph, false);
+    
     // Prod short-circuit when SCM-Lite disabled
     if (process.env.NODE_ENV === 'production' && !FLAGS.SCM_LITE_ENABLE) {
       return reply.send({
-        schema,
+        schema: 'run.v1',
         result: { summary: { bands: [] }, notice: 'scm-lite-disabled' },
       });
     }
@@ -146,7 +148,6 @@ export async function registerRunRoute(app: FastifyInstance) {
       });
     }
 
-    const graph = normalizeGraph(body.graph, false);
 
     const {
       seed = 42,

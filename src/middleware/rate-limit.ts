@@ -1,9 +1,10 @@
+import type { FastifyRequest, FastifyReply, HookHandlerDoneFunction } from 'fastify';
 import { FLAGS } from '../config/flags.js';
 
 export function makeRateLimiter() {
   const store = new Map<string, { count: number; resetAt: number }>();
   
-  return function rateLimiter(req: any, reply: any, next: any) {
+  return function rateLimiter(req: FastifyRequest, reply: FastifyReply, done: HookHandlerDoneFunction) {
     const now = Date.now();
     const windowMs = FLAGS.RATE_LIMIT_WINDOW_MS;
     const max = FLAGS.RATE_LIMIT_MAX;
@@ -21,8 +22,9 @@ export function makeRateLimiter() {
     reply.header('X-RateLimit-Reset', String(Math.ceil(rec.resetAt / 1000)));
 
     if (rec.count > max) {
-      return reply.code(429).send({ error: 'rate_limited' });
+      reply.code(429).send({ error: 'rate_limited' });
+      return;
     }
-    next();
+    done();
   };
 }
