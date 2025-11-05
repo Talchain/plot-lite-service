@@ -574,6 +574,9 @@ paths:
                         at:
                           type: object
                           description: 'Location of violation (e.g., edge from/to)'
+                        suggestion:
+                          type: string
+                          description: 'Coaching text for UI display'
               examples:
                 valid_with_warnings:
                   value:
@@ -584,6 +587,7 @@ paths:
                         at:
                           from: Price
                           to: Revenue
+                        suggestion: Add belief 0..1 to edges into outcomes to calibrate uncertainty.
         '400':
           description: Bad input
           content:
