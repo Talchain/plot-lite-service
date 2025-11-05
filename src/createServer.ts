@@ -6,7 +6,7 @@ import { resolve, join as joinPath } from 'path';
 import { spawnSync } from 'child_process';
 import { createHash, timingSafeEqual } from 'crypto';
 import { promises as fsp } from 'node:fs';
-import { makeRateLimiter } from './middleware/rate-limit.js';
+import { rateLimit } from './rateLimit.js';
 import { refreshFromEnv } from './config/runtimeConfig.js';
 import { securityHeadersOnSend } from './middleware/security-headers.js';
 import { replyWithAppError } from './errors.js';
@@ -267,7 +267,7 @@ export async function createServer(opts: ServerOpts = {}) {
 
   // Optional rate limit (enabled by env; disabled when RATE_LIMIT_ENABLED=0)
   if (process.env.RATE_LIMIT_ENABLED !== '0') {
-    app.addHook('onRequest', makeRateLimiter());
+    app.addHook('onRequest', rateLimit);
   }
 
   // WP-P3: Circuit breaker (flag-gated)

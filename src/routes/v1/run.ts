@@ -21,7 +21,6 @@ import { computeSensitivitySimple } from '../../lib/sensitivity-simple.js';
 import { recordEngineComputeMs } from '../../metrics.js';
 import { runResponseSchema } from '../../schemas/response.js';
 import { normalizeGraph } from '../../util/normalize.js';
-import { FLAGS } from '../../config/flags.js';
 
 
 export interface RunRequest {
@@ -124,30 +123,6 @@ export async function registerRunRoute(app: FastifyInstance) {
     
     // Normalize graph (map confidence|probability→belief, no default on ingress)
     const graph = normalizeGraph(body.graph, false);
-    
-    // Prod short-circuit when SCM-Lite disabled
-    if (process.env.NODE_ENV === 'production' && !FLAGS.SCM_LITE_ENABLE) {
-      return reply.send({
-        schema: 'run.v1',
-        result: { summary: { bands: [] }, notice: 'scm-lite-disabled' },
-      });
-    }
-
-    // SCM-Lite schema and caps
-    const schema = FLAGS.SCM_LITE_ENABLE ? 'report.v1' : 'run.v1';
-    const maxNodes = FLAGS.SCM_LITE_ENABLE ? 12 : 200;
-    const maxEdges = FLAGS.SCM_LITE_ENABLE ? 24 : 500;
-
-    const nodeCount = graph.nodes?.length ?? 0;
-    const edgeCount = graph.edges?.length ?? 0;
-    if (nodeCount > maxNodes || edgeCount > maxEdges) {
-      return reply.code(400).send({
-        error: 'bad_request',
-        reason: 'graph_too_large',
-        limits: { nodes: maxNodes, edges: maxEdges },
-      });
-    }
-
 
     const {
       seed = 42,
@@ -307,7 +282,7 @@ export async function registerRunRoute(app: FastifyInstance) {
     let debug: any = undefined;
     
     // Add debug.compare if requested and flag enabled
-    if (include_debug && FLAGS.COMPARE_VIEW_ENABLE) {
+    if (include_debug && process.env.COMPARE_VIEW_ENABLE === '1') {
       debug = {
         compare: {
           [outcome_node]: {
@@ -321,7 +296,7 @@ export async function registerRunRoute(app: FastifyInstance) {
     }
     
     // Add debug.inspector if requested and flag enabled
-    if (include_debug && FLAGS.INSPECTOR_DEBUG_ENABLE) {
+    if (include_debug && process.env.INSPECTOR_DEBUG_ENABLE === '1') {
       if (!debug) debug = {};
       debug.inspector = {
         edges: graph.edges.map((edge: any, idx: number) => ({
@@ -365,7 +340,7 @@ export async function registerRunRoute(app: FastifyInstance) {
         },
       },
       results,
-      schema,
+      schema: 'run.v1',
     };
     
     // Add BMA hash BEFORE stamping (must be included in response_hash)
