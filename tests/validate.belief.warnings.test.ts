@@ -15,7 +15,7 @@ describe('Validation warnings', () => {
 
   afterAll(async () => { await app.close(); });
 
-  it('warns on missing belief for outcome edge', async () => {
+  it('warns on missing belief for outcome edge (non-fatal)', async () => {
     const res = await fetch(`http://127.0.0.1:${port}/v1/validate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -31,6 +31,8 @@ describe('Validation warnings', () => {
     });
     const data = await res.json();
     expect(res.status).toBe(200);
+    expect(data.valid).toBe(true); // warnings are non-fatal
     expect(data.violations.some((v: any) => v.code === 'MISSING_BELIEF_ON_OUTCOME_EDGE')).toBe(true);
+    expect(data.violations.some((v: any) => v.code === 'OPTION_NO_OUTGOING')).toBe(true);
   });
 });

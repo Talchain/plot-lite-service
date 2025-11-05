@@ -1,6 +1,15 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { normalizeGraph } from '../../util/normalize.js';
 
+type Violation = {
+  code?: string;
+  severity?: 'error' | 'warning';
+  path?: string;
+  reason?: string;
+  at?: any;
+  suggestion?: string;
+};
+
 export async function registerValidateRoute(app: FastifyInstance) {
   const { createValidator } = await import('../../middleware/input-validation.js');
   
@@ -14,10 +23,15 @@ export async function registerValidateRoute(app: FastifyInstance) {
       body.graph = normalizeGraph(body.graph, false);
     }
     
-    const violations: any[] = [];
+    const violations: Violation[] = [];
     if ((req as any).validationError) {
       const err = (req as any).validationError;
-      violations.push({ path: 'body', reason: err.message || 'validation_failed' });
+      violations.push({
+        code: 'SCHEMA_VALIDATION_FAILED',
+        severity: 'error',
+        path: 'body',
+        reason: err.message || 'validation_failed'
+      });
     }
     
     // Teaching validator: 4 non-fatal warnings with suggestions
@@ -77,6 +91,8 @@ export async function registerValidateRoute(app: FastifyInstance) {
       }
     }
     
-    return reply.send({ valid: violations.length === 0, violations });
+    // valid is false only if at least one violation has severity: 'error' (or missing severity)
+    const hasError = violations.some(v => (v.severity ?? 'error') !== 'warning');
+    return reply.send({ valid: !hasError, violations });
   });
 }
