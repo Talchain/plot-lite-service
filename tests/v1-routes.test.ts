@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawn } from 'node:child_process';
+import { SERVICE_VERSION } from './helpers/version.js';
 
 async function waitFor(url: string, timeoutMs = 10000) {
   const start = Date.now();
@@ -51,7 +52,7 @@ describe('v1 Routes - PLoT Engine v1', () => {
       
       const data = await res.json();
       expect(data.api).toBe('plot-engine/v1');
-      expect(data.version).toBe('1.0.0');
+      expect(data.version).toBe(SERVICE_VERSION);
       expect(data.features).toBeDefined();
       expect(data.features.trust_signals).toBe(true);
       expect(data.features.model_card).toBe('1.1');
