@@ -87,3 +87,25 @@ supplier_selection_resilience: {
   ]
 }
 ```
+
+## Runtime Behavior Notes
+
+### SCM-Lite Mode
+
+The PLoT engine supports two response modes:
+
+- **SCM-Lite ON** (`SCM_LITE_ENABLE='1'` or test env default) → Returns `report.v1` schema with confidence bands
+- **SCM-Lite OFF** (`SCM_LITE_ENABLE='0'`) → Returns `run.v1` schema (legacy full shape, no bands)
+
+Tests can hard-disable SCM-Lite via `SCM_LITE_ENABLE='0'` environment variable to test larger templates without node/edge caps.
+
+### Template Testing
+
+Set environment variables before importing server modules:
+
+```typescript
+process.env.SCM_LITE_ENABLE = '0';  // Disable caps for large templates
+process.env.RATE_LIMIT_RPM = '0';   // Disable rate limiting in tests
+```
+
+Use `vi.resetModules()` and dynamic imports to ensure clean test isolation.
