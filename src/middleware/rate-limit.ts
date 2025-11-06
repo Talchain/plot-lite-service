@@ -1,4 +1,5 @@
 import type { FastifyRequest, FastifyReply, HookHandlerDoneFunction } from 'fastify';
+import { ERR_MSG } from '../lib/error-messages.js';
 import { FLAGS } from '../config/flags.js';
 
 interface State { count: number; resetAt: number }
@@ -91,7 +92,8 @@ export function makeRateLimiter() {
     if (rec.count > max) {
       reply.header('Retry-After', String(retryAfter));
       reply.header('X-RateLimit-Reason', 'per_ip');
-      reply.code(429).send({ error: 'rate_limited' });
+      reply.header('X-RateLimit-Reset', String(resetUnix));
+      reply.code(429).send({ error: { type: 'RATE_LIMIT', message: ERR_MSG.RATE_LIMIT_RPM } });
       return;
     }
     
@@ -169,7 +171,8 @@ export function makeRateLimiterWithStoreAccess() {
     if (rec.count > max) {
       reply.header('Retry-After', String(retryAfter));
       reply.header('X-RateLimit-Reason', 'per_ip');
-      reply.code(429).send({ error: 'rate_limited' });
+      reply.header('X-RateLimit-Reset', String(resetUnix));
+      reply.code(429).send({ error: { type: 'RATE_LIMIT', message: ERR_MSG.RATE_LIMIT_RPM } });
       return;
     }
     

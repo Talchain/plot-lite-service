@@ -112,7 +112,7 @@ export async function registerV1Routes(app: FastifyInstance) {
   await registerDraftRoute(app);
   await registerSelfCheckRoute(app);
   await registerTemplatesRoutes(app);
-  await registerLimitsRoute(app);
+  if (process.env.TEST_ROUTES === '1') await registerLimitsRoute(app);
   await registerValidateRoute(app);  
   // P1: Register enhanced stream route if enabled, otherwise use legacy
   if (process.env.STREAM_PARITY_ENABLE === '1') {

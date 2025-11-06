@@ -123,11 +123,22 @@ export async function registerRunRoute(app: FastifyInstance) {
     
     // Normalize graph (map confidence|probability→belief, no default on ingress)
     const graph = normalizeGraph(body.graph, false);
+
+    // Prod placeholder when SCM-Lite disabled
+    const useScmLite = FLAGS.SCM_LITE_ENABLE === true;
+    if (process.env.NODE_ENV === 'production' && !useScmLite && FLAGS.PROD_SCM_LITE_PLACEHOLDER) {
+      return reply.send({
+        schema: 'run.v1',
+        result: { summary: { bands: [] }, notice: 'scm-lite-disabled' },
+        model_card: { response_hash: 'placeholder' },
+        meta: { seed: body.seed ?? 4242 },
+      });
+    }
     
     // SCM-Lite schema and caps
-    const schema = FLAGS.SCM_LITE_ENABLE ? 'report.v1' : 'run.v1';
-    const maxNodes = FLAGS.SCM_LITE_ENABLE ? 12 : 200;
-    const maxEdges = FLAGS.SCM_LITE_ENABLE ? 24 : 500;
+    const schema = useScmLite ? 'report.v1' : 'run.v1';
+    const maxNodes = useScmLite ? 12 : 200;
+    const maxEdges = useScmLite ? 24 : 500;
 
     const nodeCount = graph.nodes?.length ?? 0;
     const edgeCount = graph.edges?.length ?? 0;

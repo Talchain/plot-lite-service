@@ -128,6 +128,15 @@ export async function createServer(opts: ServerOpts = {}) {
     }
   }
 
+  // Initialize artifact directory and health counters
+  const ARTIFACT_DIR = process.env.ARTIFACT_DIR || '.artifacts';
+  await fsp.mkdir(ARTIFACT_DIR, { recursive: true });
+
+  app.decorate('health', {
+    lastReload: Date.now(),
+    counters: { hits: 0, runs: 0, drafts: 0 },
+  });
+
   // Register inflight plugin (self-contained: decoration + hooks)
   // Works in all entry points: main.ts, tests, tools
   await app.register(inflightPlugin);
