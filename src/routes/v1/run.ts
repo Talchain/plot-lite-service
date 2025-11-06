@@ -57,7 +57,6 @@ export async function registerRunRoute(app: FastifyInstance) {
         },
         additionalProperties: true
       },
-      response: { 200: runResponseSchema }
     },
     attachValidation: true,  // Attach validation errors to request instead of auto-failing
     bodyLimit: 96 * 1024,
