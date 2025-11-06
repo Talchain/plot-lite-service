@@ -1,0 +1,30 @@
+[
+  {
+    "id": "supplier_selection_resilience",
+    "label": "Supplier selection (cost vs resilience)",
+    "summary": "Choose A/B/Dual-source to balance gross margin, stockouts, and quality.",
+    "nodes": 14,
+    "edges": 18
+  },
+  {
+    "id": "feature_rollout_phased_learning",
+    "label": "Feature rollout (learning vs risk)",
+    "summary": "Big-bang vs phased vs delay; balance adoption, learning, and incidents.",
+    "nodes": 13,
+    "edges": 17
+  },
+  {
+    "id": "funding_strategy_runway",
+    "label": "Funding strategy (runway vs dilution)",
+    "summary": "Grants, bridge, seed now, or delay; extend runway and hit milestones.",
+    "nodes": 13,
+    "edges": 14
+  },
+  {
+    "id": "hiring_strategy_tech_lead",
+    "label": "Hiring: technical leadership",
+    "summary": "Permanent vs contractor vs agency; delivery confidence, retention, burn.",
+    "nodes": 12,
+    "edges": 12
+  }
+]
