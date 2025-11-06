@@ -1,12 +1,15 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { createServer } from '../../src/createServer.js';
-import type { FastifyInstance } from 'fastify';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 
 describe('Template: hiring_strategy_tech_lead', () => {
-  let server: FastifyInstance;
+  let server: any;
   let baseUrl: string;
 
   beforeAll(async () => {
+    vi.resetModules();
+    process.env.SCM_LITE_ENABLE = '0';  // disable SCM-Lite caps for template tests
+    process.env.RATE_LIMIT_RPM = '0';   // disable rate limiting noise in these tests
+
+    const { createServer } = await import('../../src/createServer.js');
     server = await createServer({ enableTestRoutes: true });
     await server.listen({ port: 0, host: '127.0.0.1' });
     const addr = server.server.address();
@@ -44,13 +47,13 @@ describe('Template: hiring_strategy_tech_lead', () => {
     const graphRes = await fetch(`${baseUrl}/v1/templates/hiring_strategy_tech_lead/graph`);
     const graph = await graphRes.json();
     
-    const runPayload = { graph, seed: 4242 };
+    const payload = { graph, seed: 4242 };
     
     // First run
     const res1 = await fetch(`${baseUrl}/v1/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(runPayload)
+      body: JSON.stringify(payload)
     });
     expect(res1.status).toBe(200);
     const data1 = await res1.json();
@@ -60,8 +63,9 @@ describe('Template: hiring_strategy_tech_lead', () => {
     const res2 = await fetch(`${baseUrl}/v1/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(runPayload)
+      body: JSON.stringify(payload)
     });
+    expect(res2.status).toBe(200);
     const data2 = await res2.json();
     
     // Hashes must match
