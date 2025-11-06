@@ -124,14 +124,6 @@ export async function registerRunRoute(app: FastifyInstance) {
     // Normalize graph (map confidence|probability→belief, no default on ingress)
     const graph = normalizeGraph(body.graph, false);
     
-    // Prod short-circuit when SCM-Lite disabled
-    if (process.env.NODE_ENV === 'production' && !FLAGS.SCM_LITE_ENABLE) {
-      return reply.send({
-        schema: 'run.v1',
-        result: { summary: { bands: [] }, notice: 'scm-lite-disabled' },
-      });
-    }
-
     // SCM-Lite schema and caps
     const schema = FLAGS.SCM_LITE_ENABLE ? 'report.v1' : 'run.v1';
     const maxNodes = FLAGS.SCM_LITE_ENABLE ? 12 : 200;
