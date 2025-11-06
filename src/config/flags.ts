@@ -8,7 +8,10 @@ export const FLAGS = {
   },
 
   get SCM_LITE_ENABLE() {
-    return process.env.SCM_LITE_ENABLE === '1' || process.env.NODE_ENV === 'test';
+    const v = process.env.SCM_LITE_ENABLE;
+    if (v === '0') return false;   // hard disable (even in NODE_ENV=test)
+    if (v === '1') return true;    // hard enable
+    return process.env.NODE_ENV === 'test' ? true : false;
   },
 
   get RATE_LIMIT_MAX() {
