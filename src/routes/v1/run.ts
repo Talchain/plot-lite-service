@@ -93,6 +93,7 @@ export async function registerRunRoute(app: FastifyInstance) {
         // Mark for onSend storage
         (req as any).__idempotent_replay = false;
         (req as any).__idemp = { principal, idk };
+        try { reply.header('Idempotent-Replayed', '0'); } catch {}
       },
       createValidator('run'),
     ],
@@ -128,6 +129,10 @@ export async function registerRunRoute(app: FastifyInstance) {
 
     // Prod placeholder when SCM-Lite disabled
     const useScmLite = FLAGS.SCM_LITE_ENABLE === true;
+    
+    // Test probe: harmless header for debugging
+    reply.header('x-scm-lite', useScmLite ? '1' : '0');
+    
     if (process.env.NODE_ENV === 'production' && !useScmLite && FLAGS.PROD_SCM_LITE_PLACEHOLDER) {
       return reply.send({
         schema: 'run.v1',
