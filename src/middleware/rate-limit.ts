@@ -158,11 +158,19 @@ export function makeRateLimiterTestOnly() {
     const isReplay = isIdempotentReplay(req);
     if (!isReplay) rec.count++;
     
+    // Enforce MAX_BUCKETS cap with LRU eviction
     if (store.size > MAX_BUCKETS) {
       let removed = 0;
+      // First try removing expired
       for (const [k, v] of store) {
         if (now > v.resetAt) { store.delete(k); removed++; }
-        if (removed >= SWEEP_MAX_DELETE) break;
+        if (removed >= SWEEP_MAX_DELETE || store.size <= MAX_BUCKETS) break;
+      }
+      // If still over limit, evict oldest (Map preserves insertion order)
+      while (store.size > MAX_BUCKETS) {
+        const oldest = store.keys().next();
+        if (oldest.done) break;
+        store.delete(oldest.value);
       }
     }
     
@@ -218,11 +226,19 @@ export function makeRateLimiterWithStoreAccess() {
     const isReplay = isIdempotentReplay(req);
     if (!isReplay) rec.count++;
     
+    // Enforce MAX_BUCKETS cap with LRU eviction
     if (store.size > MAX_BUCKETS) {
       let removed = 0;
+      // First try removing expired
       for (const [k, v] of store) {
         if (now > v.resetAt) { store.delete(k); removed++; }
-        if (removed >= SWEEP_MAX_DELETE) break;
+        if (removed >= SWEEP_MAX_DELETE || store.size <= MAX_BUCKETS) break;
+      }
+      // If still over limit, evict oldest (Map preserves insertion order)
+      while (store.size > MAX_BUCKETS) {
+        const oldest = store.keys().next();
+        if (oldest.done) break;
+        store.delete(oldest.value);
       }
     }
     
