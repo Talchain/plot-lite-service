@@ -37,7 +37,7 @@ export interface RunRequest {
 
 export async function registerRunRoute(app: FastifyInstance) {
   const { createValidator } = await import('../../middleware/input-validation.js');
-  const { principalFor, getCached, setCached, pruneExpired } = await import('../../middleware/idempotency.js');
+  const { principalFor, getCached, setCached, pruneExpired, markInflight } = await import('../../middleware/idempotency.js');
   
   app.post('/v1/run', {
     schema: {
@@ -90,6 +90,7 @@ export async function registerRunRoute(app: FastifyInstance) {
           try { reply.header('Idempotent-Replayed', '1'); } catch {}
           return reply.code(hit.status).type('application/json').send(hit.body);
         }
+        markInflight(principal, idk);
         // Mark for onSend storage
         (req as any).__idempotent_replay = false;
         (req as any).__idemp = { principal, idk };

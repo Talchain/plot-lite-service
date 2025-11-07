@@ -274,6 +274,10 @@ export async function createServer(opts: ServerOpts = {}) {
     });
   }
 
+  // Idempotency marker (runs before rate limiter to detect replays)
+  const { makeIdempotencyMarker } = await import('./middleware/idempotency-marker.js');
+  app.addHook('onRequest', makeIdempotencyMarker());
+
   // Optional rate limit (enabled by env; disabled when RATE_LIMIT_ENABLED=0)
   if (process.env.RATE_LIMIT_ENABLED !== '0') {
     app.addHook('onRequest', makeRateLimiter());

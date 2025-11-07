@@ -2,7 +2,7 @@ import type { FastifyRequest, FastifyReply, HookHandlerDoneFunction } from 'fast
 import { ERR_MSG } from '../lib/error-messages.js';
 import { FLAGS } from '../config/flags.js';
 import { getRateLimitRpm } from '../config/runtimeConfig.js';
-import { getCached, principalFor } from './idempotency.js';
+
 
 interface State { count: number; resetAt: number }
 
@@ -10,19 +10,9 @@ const SWEEP_INTERVAL_MS = Number(process.env.RATE_LIMIT_SWEEP_INTERVAL_MS) || 10
 const SWEEP_MAX_DELETE = Number(process.env.RATE_LIMIT_SWEEP_MAX_DELETE) || 1000;
 const MAX_BUCKETS = Number(process.env.RATE_LIMIT_MAX_BUCKETS) || 100000;
 
-// Check if request is an idempotent replay
+// Check if request is an idempotent replay (flag set by idempotency-marker)
 function isIdempotentReplay(req: FastifyRequest): boolean {
-  const idkHeader = (req.headers as any)['idempotency-key'] || (req.headers as any)['Idempotency-Key'];
-  if (!idkHeader || typeof idkHeader !== 'string' || !idkHeader.trim()) {
-    return false;
-  }
-  try {
-    const principal = principalFor(req);
-    const cached = getCached(principal, idkHeader.trim());
-    return !!cached;
-  } catch {
-    return false;
-  }
+  return (req as any).__idempotent_replay === true;
 }
 
 // Precedence: ENV.RATE_LIMIT_RPM > runtimeConfig > FLAGS.RATE_LIMIT_RPM
