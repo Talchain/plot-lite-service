@@ -41,10 +41,9 @@ export function makeRateLimiter() {
       }
     }
     
-    // Support legacy RATE_LIMIT_RPM (requests per minute) or new FLAGS
-    const legacyRpm = Number(process.env.RATE_LIMIT_RPM);
-    const max = legacyRpm > 0 ? legacyRpm : FLAGS.RATE_LIMIT_MAX;
-    const windowMs = legacyRpm > 0 ? 60_000 : FLAGS.RATE_LIMIT_WINDOW_MS;
+    // Use FLAGS.RATE_LIMIT_RPM (120 in tests, 60 in prod, respects env override)
+    const max = FLAGS.RATE_LIMIT_RPM;
+    const windowMs = 60_000; // Always 1 minute for RPM
 
     // Normalize IPv6 addresses for consistent bucketing
     let ip = req.ip ?? 'local';
@@ -126,9 +125,8 @@ export function makeRateLimiterWithStoreAccess() {
       }
     }
     
-    const legacyRpm = Number(process.env.RATE_LIMIT_RPM);
-    const max = legacyRpm > 0 ? legacyRpm : FLAGS.RATE_LIMIT_MAX;
-    const windowMs = legacyRpm > 0 ? 60_000 : FLAGS.RATE_LIMIT_WINDOW_MS;
+    const max = FLAGS.RATE_LIMIT_RPM;
+    const windowMs = 60_000;
 
     let ip = req.ip ?? 'local';
     if (ip === '::1' || ip === '::ffff:127.0.0.1') {
