@@ -4,6 +4,7 @@
  * - Bounds: >= 1, integers
  */
 import { readFileSync } from 'node:fs';
+import { FLAGS } from './flags.js';
 
 export type RuntimeConfig = {
   sse_per_ip_max: number;
@@ -15,7 +16,7 @@ function fromEnv(): RuntimeConfig {
   return {
     sse_per_ip_max: Math.max(1, Number(process.env.SSE_PER_IP_MAX ?? 10) | 0),
     sse_global_max: Math.max(1, Number(process.env.SSE_GLOBAL_MAX ?? 100) | 0),
-    rate_limit_rpm: Math.max(1, Number(process.env.RATE_LIMIT_RPM || process.env.RATE_LIMIT_PER_MIN || 60) | 0),
+    rate_limit_rpm: Number(process.env.RATE_LIMIT_RPM) || FLAGS.RATE_LIMIT_RPM,
   };
 }
 
