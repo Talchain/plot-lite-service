@@ -86,10 +86,12 @@ export async function registerRunRoute(app: FastifyInstance) {
         const principal = principalFor(req);
         const hit = getCached(principal, idk);
         if (hit) {
+          (req as any).__idempotent_replay = true;
           try { reply.header('Idempotent-Replayed', '1'); } catch {}
           return reply.code(hit.status).type('application/json').send(hit.body);
         }
         // Mark for onSend storage
+        (req as any).__idempotent_replay = false;
         (req as any).__idemp = { principal, idk };
       },
       createValidator('run'),
