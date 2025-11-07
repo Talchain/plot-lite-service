@@ -6,12 +6,15 @@ export const FLAGS = {
     return process.env.COMPARE_VIEW_ENABLE === '1' || process.env.NODE_ENV === 'test';
   },
   get SCM_LITE_ENABLE() {
+    // Never cache. Read each time.
     return process.env.SCM_LITE_ENABLE === '1';
   },
   get RATE_LIMIT_RPM() {
-    const v = Number(process.env.RATE_LIMIT_RPM);
-    if (Number.isFinite(v) && v >= 0) return v;
-    return process.env.NODE_ENV === 'test' ? 120 : 60;
+    // Test default 120 if not set; prod default 60
+    const dft = process.env.NODE_ENV === 'test' ? 120 : 60;
+    const raw = process.env.RATE_LIMIT_RPM;
+    const n = raw == null || raw === '' ? NaN : Number(raw);
+    return Number.isFinite(n) && n >= 0 ? n : dft;
   },
   get PROD_SCM_LITE_PLACEHOLDER() {
     return process.env.PROD_SCM_LITE_PLACEHOLDER === '1';
