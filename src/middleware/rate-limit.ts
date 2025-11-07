@@ -1,6 +1,5 @@
 import type { FastifyRequest, FastifyReply, HookHandlerDoneFunction } from 'fastify';
 import { ERR_MSG } from '../lib/error-messages.js';
-import { getRateLimitRpm } from '../config/runtimeConfig.js';
 import { FLAGS } from '../config/flags.js';
 
 interface State { count: number; resetAt: number }
@@ -42,9 +41,10 @@ export function makeRateLimiter() {
       }
     }
     
-    // Use runtime config rate_limit_rpm (requests per minute) with 60s window
-    const max = getRateLimitRpm();
-    const windowMs = 60_000;
+    // Support legacy RATE_LIMIT_RPM (requests per minute) or new FLAGS
+    const legacyRpm = Number(process.env.RATE_LIMIT_RPM);
+    const max = legacyRpm > 0 ? legacyRpm : FLAGS.RATE_LIMIT_MAX;
+    const windowMs = legacyRpm > 0 ? 60_000 : FLAGS.RATE_LIMIT_WINDOW_MS;
 
     // Normalize IPv6 addresses for consistent bucketing
     let ip = req.ip ?? 'local';
@@ -126,8 +126,9 @@ export function makeRateLimiterWithStoreAccess() {
       }
     }
     
-    const max = getRateLimitRpm();
-    const windowMs = 60_000;
+    const legacyRpm = Number(process.env.RATE_LIMIT_RPM);
+    const max = legacyRpm > 0 ? legacyRpm : FLAGS.RATE_LIMIT_MAX;
+    const windowMs = legacyRpm > 0 ? 60_000 : FLAGS.RATE_LIMIT_WINDOW_MS;
 
     let ip = req.ip ?? 'local';
     if (ip === '::1' || ip === '::ffff:127.0.0.1') {
