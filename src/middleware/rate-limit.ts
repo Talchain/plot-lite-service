@@ -4,7 +4,7 @@ import { FLAGS } from '../config/flags.js';
 import { getRateLimitRpm } from '../config/runtimeConfig.js';
 
 
-interface State { count: number; resetAt: number }
+interface State { count: number; pending: number; resetAt: number }
 
 const SWEEP_INTERVAL_MS = Number(process.env.RATE_LIMIT_SWEEP_INTERVAL_MS) || 1000;
 const SWEEP_MAX_DELETE = Number(process.env.RATE_LIMIT_SWEEP_MAX_DELETE) || 1000;
@@ -72,7 +72,7 @@ export function makeRateLimiter() {
 
     let rec = store.get(ip);
     if (!rec || now > rec.resetAt) {
-      rec = { count: 0, resetAt: now + windowMs };
+      rec = { count: 0, pending: 0, resetAt: now + windowMs };
       store.set(ip, rec);
     }
     
@@ -95,10 +95,11 @@ export function makeRateLimiter() {
     if (!isReplay) {
       // Mark for deferred counting in onSend (only count successful responses)
       (req as any).__rl_pending = { rec, ip };
+      rec.pending++;
     }
 
     // Check admission: would this request exceed limit?
-    const wouldExceed = (rec.count + 1) > rpm;
+    const wouldExceed = isReplay ? (rec.count > rpm) : ((rec.count + rec.pending) > rpm);
 
     // Enforce MAX_BUCKETS cap
     if (store.size > MAX_BUCKETS) {
@@ -113,8 +114,7 @@ export function makeRateLimiter() {
     }
 
     // Account for pending increment (this request will count if successful)
-    const pendingCount = isReplay ? 0 : 1;
-    const remaining = Math.max(0, rpm - rec.count - pendingCount);
+    const remaining = Math.max(0, rpm - rec.count - rec.pending);
     const resetUnix = Math.floor(rec.resetAt / 1000);
     
     // Always set rate-limit headers on all JSON routes
@@ -144,11 +144,14 @@ export function makeRateLimiter() {
   
   const commitHook = function(req: FastifyRequest, reply: FastifyReply, payload: any, done: HookHandlerDoneFunction) {
     try {
+      const marker = (req as any).__rl_pending;
+      if (marker) {
+        marker.rec.pending = Math.max(0, marker.rec.pending - 1);
+      }
+      
       // Skip counting for oversized requests
       const skip = (req as any).__rate_limit_skip;
       if (skip) return done();
-      
-      const marker = (req as any).__rl_pending;
       if (!marker) return done();
       
       const status = reply.statusCode;
@@ -190,12 +193,12 @@ export function makeRateLimiterTestOnly() {
     if (ip === '::1' || ip === '::ffff:127.0.0.1') ip = '127.0.0.1';
     let rec = store.get(ip);
     if (!rec || now > rec.resetAt) {
-      rec = { count: 0, resetAt: now + windowMs };
+      rec = { count: 0, pending: 0, resetAt: now + windowMs };
       store.set(ip, rec);
     }
     
     const isReplay = isIdempotentReplay(req);
-    const wouldExceed = (rec.count + 1) > rpm;
+    const wouldExceed = isReplay ? (rec.count > rpm) : ((rec.count + rec.pending) > rpm);
     if (!isReplay) {
       (req as any).__rl_pending = { rec, ip };
     }
@@ -217,8 +220,7 @@ export function makeRateLimiterTestOnly() {
     }
     
     // Account for pending increment (this request will count if successful)
-    const pendingCount = isReplay ? 0 : 1;
-    const remaining = Math.max(0, rpm - rec.count - pendingCount);
+    const remaining = Math.max(0, rpm - rec.count - rec.pending);
     const resetUnix = Math.floor(rec.resetAt / 1000);
     reply.header('X-RateLimit-Limit', String(rpm));
     reply.header('X-RateLimit-Remaining', String(remaining));
@@ -263,12 +265,12 @@ export function makeRateLimiterWithStoreAccess() {
     if (ip === '::1' || ip === '::ffff:127.0.0.1') ip = '127.0.0.1';
     let rec = store.get(ip);
     if (!rec || now > rec.resetAt) {
-      rec = { count: 0, resetAt: now + windowMs };
+      rec = { count: 0, pending: 0, resetAt: now + windowMs };
       store.set(ip, rec);
     }
     
     const isReplay = isIdempotentReplay(req);
-    const wouldExceed = (rec.count + 1) > rpm;
+    const wouldExceed = isReplay ? (rec.count > rpm) : ((rec.count + rec.pending) > rpm);
     if (!isReplay) {
       (req as any).__rl_pending = { rec, ip };
     }
@@ -290,8 +292,7 @@ export function makeRateLimiterWithStoreAccess() {
     }
     
     // Account for pending increment (this request will count if successful)
-    const pendingCount = isReplay ? 0 : 1;
-    const remaining = Math.max(0, rpm - rec.count - pendingCount);
+    const remaining = Math.max(0, rpm - rec.count - rec.pending);
     const resetUnix = Math.floor(rec.resetAt / 1000);
     reply.header('X-RateLimit-Limit', String(rpm));
     reply.header('X-RateLimit-Remaining', String(remaining));
