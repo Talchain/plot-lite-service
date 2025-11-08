@@ -93,14 +93,16 @@ export function makeRateLimiter() {
 
     // Check idempotent replay (set by preHandler in /v1/run)
     const isReplay = (req as any).__idempotent_replay === true;
-    if (!isReplay) {
+    
+    // Check admission BEFORE incrementing pending
+    const nextPending = rec.pending + 1;
+    const wouldExceed = isReplay ? (rec.count > rpm) : ((rec.count + nextPending) > rpm);
+    
+    if (!isReplay && !wouldExceed) {
       // Mark for deferred counting in onSend (only count successful responses)
       (req as any).__rl_pending = { rec, ip };
-      rec.pending++;
+      rec.pending = nextPending;
     }
-
-    // Check admission: would this request exceed limit?
-    const wouldExceed = isReplay ? (rec.count > rpm) : ((rec.count + rec.pending) > rpm);
 
     // Enforce MAX_BUCKETS cap
     if (store.size > MAX_BUCKETS) {
