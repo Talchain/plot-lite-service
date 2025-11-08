@@ -138,12 +138,20 @@ export async function registerRunRoute(app: FastifyInstance) {
       return env === '1' || env === 'true';
     }
     
+    // Placeholder mode: production + disabled + flag set
+    function placeholderEnabled() {
+      const isProd = process.env.NODE_ENV === 'production';
+      const flag = String(process.env.PROD_SCM_LITE_PLACEHOLDER ?? '').toLowerCase();
+      return isProd && (flag === '1' || flag === 'true');
+    }
+    
     const useScmLite = scmLiteEnabled(req);
     
     // Test probe: harmless header for debugging
     reply.header('x-scm-lite', useScmLite ? '1' : '0');
     
-    if (process.env.NODE_ENV === 'production' && !useScmLite && FLAGS.PROD_SCM_LITE_PLACEHOLDER) {
+    // Early return placeholder when disabled in production
+    if (!useScmLite && placeholderEnabled()) {
       return reply.send({
         schema: 'run.v1',
         result: { summary: { bands: [] }, notice: 'scm-lite-disabled' },
