@@ -47,8 +47,15 @@ export function makeRateLimiter() {
       url.startsWith('/v1/health') ||
       url.startsWith('/health') ||
       url.startsWith('/metrics') ||
-      url.startsWith('/v1/limits')
+      url.startsWith('/v1/limits') ||
+      url.includes('/stream')
     ) {
+      return done();
+    }
+    
+    // SSE bypass: Accept header includes text/event-stream
+    const accept = String(req.headers.accept || '');
+    if (accept.includes('text/event-stream')) {
       return done();
     }
 
