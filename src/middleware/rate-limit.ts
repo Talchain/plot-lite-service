@@ -98,7 +98,9 @@ export function makeRateLimiter() {
       }
     }
 
-    const remaining = Math.max(0, rpm - rec.count);
+    // Account for pending increment (this request will count if successful)
+    const pendingCount = isReplay ? 0 : 1;
+    const remaining = Math.max(0, rpm - rec.count - pendingCount);
     const resetUnix = Math.floor(rec.resetAt / 1000);
     
     // Always set rate-limit headers on all JSON routes
@@ -196,7 +198,9 @@ export function makeRateLimiterTestOnly() {
       }
     }
     
-    const remaining = Math.max(0, rpm - rec.count);
+    // Account for pending increment (this request will count if successful)
+    const pendingCount = isReplay ? 0 : 1;
+    const remaining = Math.max(0, rpm - rec.count - pendingCount);
     const resetUnix = Math.floor(rec.resetAt / 1000);
     reply.header('X-RateLimit-Limit', String(rpm));
     reply.header('X-RateLimit-Remaining', String(remaining));
@@ -267,7 +271,9 @@ export function makeRateLimiterWithStoreAccess() {
       }
     }
     
-    const remaining = Math.max(0, rpm - rec.count);
+    // Account for pending increment (this request will count if successful)
+    const pendingCount = isReplay ? 0 : 1;
+    const remaining = Math.max(0, rpm - rec.count - pendingCount);
     const resetUnix = Math.floor(rec.resetAt / 1000);
     reply.header('X-RateLimit-Limit', String(rpm));
     reply.header('X-RateLimit-Remaining', String(remaining));
