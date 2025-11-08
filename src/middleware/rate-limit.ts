@@ -76,6 +76,20 @@ export function makeRateLimiter() {
       store.set(ip, rec);
     }
     
+    // Oversize preflight: let 413 beat 429
+    const contentLength = Number(req.headers["content-length"] ?? 0);
+    const bodyLimit = (req.routeOptions as any)?.bodyLimit ?? (req.server as any).initialConfig?.bodyLimit ?? 1_048_576;
+    if (contentLength > bodyLimit) {
+      // Skip rate limiting - let body parser return 413
+      (req as any).__rate_limit_skip = "oversize";
+      const remaining = Math.max(0, rpm - rec.count);
+      const resetUnix = Math.floor(rec.resetAt / 1000);
+      reply.header("X-RateLimit-Limit", String(rpm));
+      reply.header("X-RateLimit-Remaining", String(remaining));
+      reply.header("X-RateLimit-Reset", String(resetUnix));
+      return done();
+    }
+
     // Check idempotent replay (set by preHandler in /v1/run)
     const isReplay = (req as any).__idempotent_replay === true;
     if (!isReplay) {
@@ -130,6 +144,10 @@ export function makeRateLimiter() {
   
   const commitHook = function(req: FastifyRequest, reply: FastifyReply, payload: any, done: HookHandlerDoneFunction) {
     try {
+      // Skip counting for oversized requests
+      const skip = (req as any).__rate_limit_skip;
+      if (skip) return done();
+      
       const marker = (req as any).__rl_pending;
       if (!marker) return done();
       
