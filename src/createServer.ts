@@ -282,26 +282,26 @@ export async function createServer(opts: ServerOpts = {}) {
   if (process.env.RATE_LIMIT_ENABLED !== '0') {
     const { rateLimiter, commitHook } = makeRateLimiter();
     
-    // onRequest: preserve 413 oversize preflight for bodyful methods only
+    // onRequest: keep 413 preflight for bodyful methods
     app.addHook('onRequest', (req, reply, done) => {
-      if (['POST', 'PUT', 'PATCH'].includes(req.method || '')) {
+      if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
+        // Run limiter here and return; do NOT call done() afterwards
         return rateLimiter(req, reply, done);
       }
-      done();
+      return done();
     });
     
-    // preHandler: run RPM limiting after validation for GET
+    // preHandler: run RPM admission for GET; bypass SSE/health/metrics
     app.addHook('preHandler', (req, reply, done) => {
       const url = req.url || '';
-      // SSE bypass - /v1/stream exempt from rate limiting
-      if (req.method === 'GET' && url.startsWith('/v1/stream')) {
-        return done();
-      }
-      // Apply rate limiting to GET after validation
       if (req.method === 'GET') {
+        if (url.includes('/stream') || url.startsWith('/v1/health') || url.startsWith('/v1/metrics')) {
+          return done(); // bypass
+        }
+        // Run limiter here and return; do NOT call done() afterwards
         return rateLimiter(req, reply, done);
       }
-      done();
+      return done();
     });
     
     app.addHook('onSend', commitHook);

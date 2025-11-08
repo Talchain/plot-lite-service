@@ -2,6 +2,7 @@ import type { FastifyRequest, FastifyReply, HookHandlerDoneFunction } from 'fast
 import { ERR_MSG } from '../lib/error-messages.js';
 import { FLAGS } from '../config/flags.js';
 import { getRateLimitRpm } from '../config/runtimeConfig.js';
+import { incJson429Count, incSse429Count } from '../metrics.js';
 
 
 interface State { count: number; pending: number; resetAt: number }
@@ -127,11 +128,12 @@ export function makeRateLimiter() {
       reply.header('Retry-After', String(retryAfter));
       reply.header('X-RateLimit-Reason', 'per_ip');
       
-      const app = (req as any).server;
-      if (app?.health) {
-        const isSSE = req.headers.accept?.includes('text/event-stream');
-        if (isSSE) app.health.sse_429_count++;
-        else app.health.json_429_count++;
+      // Increment 429 counters via metrics helpers
+      const wantsSSE = (req.headers.accept || '').includes('text/event-stream');
+      if (wantsSSE) {
+        incSse429Count();
+      } else {
+        incJson429Count();
       }
       
       return reply.code(429).send({
