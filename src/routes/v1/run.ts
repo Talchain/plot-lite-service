@@ -128,8 +128,17 @@ export async function registerRunRoute(app: FastifyInstance) {
     // Normalize graph (map confidence|probability→belief, no default on ingress)
     const graph = normalizeGraph(body.graph, false);
 
-    // Prod placeholder when SCM-Lite disabled
-    const useScmLite = FLAGS.SCM_LITE_ENABLE === true;
+    // Per-request SCM-Lite gating: header → query → env
+    function scmLiteEnabled(req: FastifyRequest) {
+      const h = String((req.headers as any)['x-scm-lite'] ?? '').toLowerCase();
+      const q = String((req as any).query?.scm_lite ?? '').toLowerCase();
+      if (h === '1' || h === 'true') return true;
+      if (q === '1' || q === 'true') return true;
+      const env = String(process.env.SCM_LITE_ENABLE ?? '').toLowerCase();
+      return env === '1' || env === 'true';
+    }
+    
+    const useScmLite = scmLiteEnabled(req);
     
     // Test probe: harmless header for debugging
     reply.header('x-scm-lite', useScmLite ? '1' : '0');
