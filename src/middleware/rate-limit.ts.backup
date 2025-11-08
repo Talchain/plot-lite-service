@@ -78,13 +78,15 @@ export function makeRateLimiter() {
     
     // Check idempotent replay (set by preHandler in /v1/run)
     const isReplay = (req as any).__idempotent_replay === true;
+    let counted = false;
+    
     if (!isReplay) {
-      // Mark for deferred counting in onSend (only count successful responses)
-      (req as any).__rl_pending = { rec, ip };
+      rec.count++;
+      counted = true;
+      
+      // Mark request so onSend can refund for non-429 errors
+      (req as any).__rl_counted = { rec, ip };
     }
-
-    // Check admission: would this request exceed limit?
-    const wouldExceed = (rec.count + 1) > rpm;
 
     // Enforce MAX_BUCKETS cap
     if (store.size > MAX_BUCKETS) {
@@ -106,7 +108,7 @@ export function makeRateLimiter() {
     reply.header('X-RateLimit-Remaining', String(remaining));
     reply.header('X-RateLimit-Reset', String(resetUnix));
 
-    if (wouldExceed && !isReplay) {
+    if (rec.count > rpm) {
       const retryAfter = Math.ceil((rec.resetAt - now) / 1000);
       reply.header('Retry-After', String(retryAfter));
       reply.header('X-RateLimit-Reason', 'per_ip');
@@ -126,21 +128,20 @@ export function makeRateLimiter() {
     done();
   };
   
-  const commitHook = function(req: FastifyRequest, reply: FastifyReply, payload: any, done: HookHandlerDoneFunction) {
+  const refundHook = function(req: FastifyRequest, reply: FastifyReply, payload: any, done: HookHandlerDoneFunction) {
     try {
-      const marker = (req as any).__rl_pending;
+      const marker = (req as any).__rl_counted;
       if (!marker) return done();
       
       const status = reply.statusCode;
-      // Only count successful responses (2xx/3xx)
-      if (status >= 200 && status < 400) {
-        marker.rec.count++;
+      if (status >= 400 && status !== 429) {
+        marker.rec.count = Math.max(0, marker.rec.count - 1);
       }
     } catch {}
     done();
   };
   
-  return { rateLimiter, commitHook };
+  return { rateLimiter, refundHook };
 }
 
 export function makeRateLimiterTestOnly() {
@@ -175,10 +176,7 @@ export function makeRateLimiterTestOnly() {
     }
     
     const isReplay = isIdempotentReplay(req);
-    const wouldExceed = (rec.count + 1) > rpm;
-    if (!isReplay) {
-      (req as any).__rl_pending = { rec, ip };
-    }
+    if (!isReplay) rec.count++;
     
     // Enforce MAX_BUCKETS cap with LRU eviction
     if (store.size > MAX_BUCKETS) {
@@ -202,7 +200,7 @@ export function makeRateLimiterTestOnly() {
     reply.header('X-RateLimit-Remaining', String(remaining));
     reply.header('X-RateLimit-Reset', String(resetUnix));
     
-    if (wouldExceed && !isReplay) {
+    if (rec.count > rpm) {
       const retryAfter = Math.ceil((rec.resetAt - now) / 1000);
       reply.header('Retry-After', String(retryAfter));
       reply.header('X-RateLimit-Reason', 'per_ip');
@@ -246,10 +244,7 @@ export function makeRateLimiterWithStoreAccess() {
     }
     
     const isReplay = isIdempotentReplay(req);
-    const wouldExceed = (rec.count + 1) > rpm;
-    if (!isReplay) {
-      (req as any).__rl_pending = { rec, ip };
-    }
+    if (!isReplay) rec.count++;
     
     // Enforce MAX_BUCKETS cap with LRU eviction
     if (store.size > MAX_BUCKETS) {
@@ -273,7 +268,7 @@ export function makeRateLimiterWithStoreAccess() {
     reply.header('X-RateLimit-Remaining', String(remaining));
     reply.header('X-RateLimit-Reset', String(resetUnix));
     
-    if (wouldExceed && !isReplay) {
+    if (rec.count > rpm) {
       const retryAfter = Math.ceil((rec.resetAt - now) / 1000);
       reply.header('Retry-After', String(retryAfter));
       reply.header('X-RateLimit-Reason', 'per_ip');

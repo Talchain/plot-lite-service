@@ -280,9 +280,9 @@ export async function createServer(opts: ServerOpts = {}) {
 
   // Optional rate limit (enabled by env; disabled when RATE_LIMIT_ENABLED=0)
   if (process.env.RATE_LIMIT_ENABLED !== '0') {
-    const { rateLimiter, refundHook } = makeRateLimiter();
+    const { rateLimiter, commitHook } = makeRateLimiter();
     app.addHook('onRequest', rateLimiter);
-    app.addHook('onSend', refundHook);
+    app.addHook('onSend', commitHook);
   }
 
   // WP-P3: Circuit breaker (flag-gated)
