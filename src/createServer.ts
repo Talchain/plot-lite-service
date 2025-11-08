@@ -284,6 +284,10 @@ export async function createServer(opts: ServerOpts = {}) {
     
     // onRequest: keep 413 preflight for bodyful methods
     app.addHook('onRequest', (req, reply, done) => {
+      // Check env on each request to honour runtime changes
+      if (process.env.RATE_LIMIT_ENABLED === '0') {
+        return done();
+      }
       if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
         // Run limiter here and return; do NOT call done() afterwards
         return rateLimiter(req, reply, done);
@@ -291,15 +295,15 @@ export async function createServer(opts: ServerOpts = {}) {
       return done();
     });
     
-    // preHandler: run RPM admission for GET/HEAD; bypass SSE/health/metrics/limits
+    // preHandler: run RPM admission for GET/HEAD
     app.addHook('preHandler', (req, reply, done) => {
-      const url = req.url || '';
+      // Check env on each request to honour runtime changes
+      if (process.env.RATE_LIMIT_ENABLED === '0') {
+        return done();
+      }
       if (req.method === 'GET' || req.method === 'HEAD') {
-        // Bypass: SSE, health, metrics, limits (rate limiter also has internal bypasses)
-        if (url.includes('/stream') || url.startsWith('/v1/health') || url.startsWith('/v1/metrics') || url.startsWith('/v1/limits') || url.startsWith('/health') || url.startsWith('/metrics')) {
-          return done(); // bypass
-        }
         // Run limiter here and return; do NOT call done() afterwards
+        // Limiter owns all route/Accept bypasses internally
         return rateLimiter(req, reply, done);
       }
       return done();
