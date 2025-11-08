@@ -281,7 +281,29 @@ export async function createServer(opts: ServerOpts = {}) {
   // Optional rate limit (enabled by env; disabled when RATE_LIMIT_ENABLED=0)
   if (process.env.RATE_LIMIT_ENABLED !== '0') {
     const { rateLimiter, commitHook } = makeRateLimiter();
-    app.addHook('onRequest', rateLimiter);
+    
+    // onRequest: preserve 413 oversize preflight for bodyful methods only
+    app.addHook('onRequest', (req, reply, done) => {
+      if (['POST', 'PUT', 'PATCH'].includes(req.method || '')) {
+        return rateLimiter(req, reply, done);
+      }
+      done();
+    });
+    
+    // preHandler: run RPM limiting after validation for GET
+    app.addHook('preHandler', (req, reply, done) => {
+      const url = req.url || '';
+      // SSE bypass - /v1/stream exempt from rate limiting
+      if (req.method === 'GET' && url.startsWith('/v1/stream')) {
+        return done();
+      }
+      // Apply rate limiting to GET after validation
+      if (req.method === 'GET') {
+        return rateLimiter(req, reply, done);
+      }
+      done();
+    });
+    
     app.addHook('onSend', commitHook);
   }
 
