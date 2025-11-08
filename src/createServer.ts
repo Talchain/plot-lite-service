@@ -291,11 +291,11 @@ export async function createServer(opts: ServerOpts = {}) {
       return done();
     });
     
-    // preHandler: run RPM admission for GET; bypass SSE/health/metrics
+    // preHandler: run RPM admission for GET/HEAD; bypass SSE/health/metrics
     app.addHook('preHandler', (req, reply, done) => {
       const url = req.url || '';
-      if (req.method === 'GET') {
-        if (url.includes('/stream') || url.startsWith('/v1/health') || url.startsWith('/v1/metrics')) {
+      if (req.method === 'GET' || req.method === 'HEAD') {
+        if (url.includes('/stream') || url.startsWith('/v1/health') || url.startsWith('/v1/metrics') || url.startsWith('/health') || url.startsWith('/metrics')) {
           return done(); // bypass
         }
         // Run limiter here and return; do NOT call done() afterwards
