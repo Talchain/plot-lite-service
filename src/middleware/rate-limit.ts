@@ -33,7 +33,7 @@ export function makeRateLimiter() {
   const store = new Map<string, State>();
   let lastSweep = 0;
   
-  return function rateLimiter(req: FastifyRequest, reply: FastifyReply, done: HookHandlerDoneFunction) {
+  const rateLimiter = function(req: FastifyRequest, reply: FastifyReply, done: HookHandlerDoneFunction) {
     // Global disable
     if (process.env.RATE_LIMIT_ENABLED === '0') return done();
     
@@ -78,9 +78,14 @@ export function makeRateLimiter() {
     
     // Check idempotent replay (set by preHandler in /v1/run)
     const isReplay = (req as any).__idempotent_replay === true;
+    let counted = false;
     
     if (!isReplay) {
       rec.count++;
+      counted = true;
+      
+      // Mark request so onSend can refund for non-429 errors
+      (req as any).__rl_counted = { rec, ip };
     }
 
     // Enforce MAX_BUCKETS cap
@@ -122,6 +127,21 @@ export function makeRateLimiter() {
     
     done();
   };
+  
+  const refundHook = function(req: FastifyRequest, reply: FastifyReply, payload: any, done: HookHandlerDoneFunction) {
+    try {
+      const marker = (req as any).__rl_counted;
+      if (!marker) return done();
+      
+      const status = reply.statusCode;
+      if (status >= 400 && status !== 429) {
+        marker.rec.count = Math.max(0, marker.rec.count - 1);
+      }
+    } catch {}
+    done();
+  };
+  
+  return { rateLimiter, refundHook };
 }
 
 export function makeRateLimiterTestOnly() {
