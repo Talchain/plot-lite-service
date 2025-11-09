@@ -280,6 +280,9 @@ export async function createServer(opts: ServerOpts = {}) {
 
   // Optional rate limit (enabled by env; disabled when RATE_LIMIT_ENABLED=0)
   if (process.env.RATE_LIMIT_ENABLED !== '0') {
+    // Instance-scoped store to prevent cross-test bleed
+    app.decorate('rateLimitStore', new Map());
+    
     const { rateLimiter, commitHook } = makeRateLimiter();
     
     // preHandler: run RPM admission for all methods after validation
@@ -294,6 +297,12 @@ export async function createServer(opts: ServerOpts = {}) {
     });
     
     app.addHook('onSend', commitHook);
+    
+    // Clean up store on close
+    app.addHook('onClose', async () => {
+      const store = (app as any).rateLimitStore as Map<string, any>;
+      if (store) store.clear();
+    });
   }
 
   // WP-P3: Circuit breaker (flag-gated)

@@ -31,12 +31,15 @@ function getEffectiveRpm(): number {
 }
 
 export function makeRateLimiter() {
-  const store = new Map<string, State>();
   let lastSweep = 0;
   
   const rateLimiter = function(req: FastifyRequest, reply: FastifyReply, done: HookHandlerDoneFunction) {
     // Global disable
     if (process.env.RATE_LIMIT_ENABLED === '0') return done();
+    
+    // Use instance-scoped store
+    const store = (req.server as any).rateLimitStore as Map<string, State>;
+    if (!store) return done();
     
     const rpm = getEffectiveRpm();
     if (rpm === 0) return done();
