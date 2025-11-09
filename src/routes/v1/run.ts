@@ -128,30 +128,36 @@ export async function registerRunRoute(app: FastifyInstance) {
     // Normalize graph (map confidence|probability→belief, no default on ingress)
     const graph = normalizeGraph(body.graph, false);
 
-    // Per-request SCM-Lite gating: header → query → env
-    function scmLiteEnabled(req: FastifyRequest) {
+    // Per-request SCM-Lite gating: header → query → env (lower-cased)
+    function scmLiteEnabled(req: FastifyRequest): { enabled: boolean; source: string } {
       const h = String((req.headers as any)['x-scm-lite'] ?? '').toLowerCase();
+      if (h === '1' || h === 'true') return { enabled: true, source: 'header' };
+      
       const q = String((req as any).query?.scm_lite ?? '').toLowerCase();
-      if (h === '1' || h === 'true') return true;
-      if (q === '1' || q === 'true') return true;
+      if (q === '1' || q === 'true') return { enabled: true, source: 'query' };
+      
       const env = String(process.env.SCM_LITE_ENABLE ?? '').toLowerCase();
-      return env === '1' || env === 'true';
+      if (env === '1' || env === 'true') return { enabled: true, source: 'env' };
+      
+      return { enabled: false, source: 'none' };
     }
     
     // Placeholder mode: production + disabled + flag set
-    function placeholderEnabled() {
+    function placeholderEnabled(useLite: boolean): boolean {
+      if (useLite) return false;  // Never placeholder if enabled
       const isProd = process.env.NODE_ENV === 'production';
       const flag = String(process.env.PROD_SCM_LITE_PLACEHOLDER ?? '').toLowerCase();
       return isProd && (flag === '1' || flag === 'true');
     }
     
-    const useScmLite = scmLiteEnabled(req);
+    const { enabled: useScmLite, source } = scmLiteEnabled(req);
+    const usePlaceholder = placeholderEnabled(useScmLite);
     
     // Test probe: harmless header for debugging
     reply.header('x-scm-lite', useScmLite ? '1' : '0');
     
     // Early return placeholder when disabled in production
-    if (!useScmLite && placeholderEnabled()) {
+    if (usePlaceholder) {
       return reply.send({
         schema: 'run.v1',
         results: [],
