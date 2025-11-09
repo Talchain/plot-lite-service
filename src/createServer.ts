@@ -287,14 +287,8 @@ export async function createServer(opts: ServerOpts = {}) {
     
     // preHandler: run RPM admission for all methods after validation
     // (Limiter internally handles 413 oversize preflight for POST/PUT/PATCH)
-    app.addHook('preHandler', (req, reply, done) => {
-      // Check env on each request to honour runtime changes
-      if (process.env.RATE_LIMIT_ENABLED === '0') {
-        return done();
-      }
-      // Run limiter for all methods; limiter owns all route/Accept bypasses internally
-      return rateLimiter(req, reply, done);
-    });
+    // Limiter owns all bypass logic via shouldBypass()
+    app.addHook('preHandler', rateLimiter);
     
     app.addHook('onResponse', commitHook);
     

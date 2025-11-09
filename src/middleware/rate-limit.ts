@@ -30,12 +30,37 @@ function getEffectiveRpm(): number {
   return FLAGS.RATE_LIMIT_RPM;
 }
 
+// Unified bypass predicate: single source of truth
+function shouldBypass(req: FastifyRequest): boolean {
+  // Hard off-switch
+  if (process.env.RATE_LIMIT_ENABLED === '0') return true;
+  
+  // SSE bypass: path or Accept header
+  const url = req.url || '';
+  const accept = String(req.headers.accept || '');
+  if (url.includes('/stream') || accept.includes('text/event-stream')) {
+    return true;
+  }
+  
+  // Health/metrics/limits bypass
+  if (
+    url.startsWith('/v1/health') ||
+    url.startsWith('/health') ||
+    url.startsWith('/metrics') ||
+    url.startsWith('/v1/limits')
+  ) {
+    return true;
+  }
+  
+  return false;
+}
+
 export function makeRateLimiter() {
   let lastSweep = 0;
   
   const rateLimiter = function(req: FastifyRequest, reply: FastifyReply, done: HookHandlerDoneFunction) {
-    // Global disable
-    if (process.env.RATE_LIMIT_ENABLED === '0') return done();
+    // Unified bypass check
+    if (shouldBypass(req)) return done();
     
     // Use instance-scoped store
     const store = (req.server as any).rateLimitStore as Map<string, State>;
@@ -43,24 +68,6 @@ export function makeRateLimiter() {
     
     const rpm = getEffectiveRpm();
     if (rpm === 0) return done();
-    
-    // Route bypasses (do not consume RPM)
-    const url = req.url || '';
-    if (
-      url.startsWith('/v1/health') ||
-      url.startsWith('/health') ||
-      url.startsWith('/metrics') ||
-      url.startsWith('/v1/limits') ||
-      url.includes('/stream')
-    ) {
-      return done();
-    }
-    
-    // SSE bypass: Accept header includes text/event-stream
-    const accept = String(req.headers.accept || '');
-    if (accept.includes('text/event-stream')) {
-      return done();
-    }
 
     const now = Date.now();
     const windowMs = 60_000;
