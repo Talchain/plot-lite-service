@@ -117,9 +117,13 @@ export function makeRateLimiter() {
     // Check idempotent replay (set by preHandler in /v1/run)
     const isReplay = (req as any).__idempotent_replay === true;
     
-    // Check admission BEFORE incrementing pending
-    const nextPending = rec.pending + 1;
-    const wouldExceed = isReplay ? (rec.count > rpm) : ((rec.count + nextPending) > rpm);
+    // Check admission: allow up to RPM requests per window
+    // For replays: only check count (pending doesn't apply)
+    // For new requests: check count + what pending would be after admission
+    const nextPending = isReplay ? rec.pending : (rec.pending + 1);
+    const wouldExceed = isReplay 
+      ? (rec.count >= rpm)  // Replays: reject if already at/over limit
+      : ((rec.count + nextPending) > rpm);  // New: reject if would exceed
     
     if (!isReplay && !wouldExceed) {
       // Mark for deferred counting in onSend (only count successful responses)
