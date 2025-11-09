@@ -154,7 +154,8 @@ export async function registerRunRoute(app: FastifyInstance) {
     if (!useScmLite && placeholderEnabled()) {
       return reply.send({
         schema: 'run.v1',
-        result: { summary: { bands: [] }, notice: 'scm-lite-disabled' },
+        results: [],
+        confidence: { p10: 0, p50: 0, p90: 0 },
         model_card: { response_hash: 'placeholder' },
         meta: { seed: body.seed ?? 4242 },
       });
