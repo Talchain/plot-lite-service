@@ -79,9 +79,15 @@ export function makeRateLimiter() {
     if (ip === '::1' || ip === '::ffff:127.0.0.1') ip = '127.0.0.1';
 
     let rec = store.get(ip);
-    if (!rec || now > rec.resetAt) {
+    if (!rec) {
+      // Initial bucket
       rec = { count: 0, pending: 0, resetAt: now + windowMs };
       store.set(ip, rec);
+    } else if (now >= rec.resetAt) {
+      // Window reset: zero counters and start new window
+      rec.count = 0;
+      rec.pending = 0;
+      rec.resetAt = now + windowMs;
     }
     
     // Oversize preflight: let 413 beat 429
