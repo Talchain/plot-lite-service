@@ -114,21 +114,16 @@ export function makeRateLimiter() {
       return done();
     }
 
-    // Check idempotent replay (set by preHandler in /v1/run)
+    // Token-bucket admission: deterministic at RPM=1
     const isReplay = (req as any).__idempotent_replay === true;
+    const needs = isReplay ? 0 : 1;
+    const tokens = rpm - rec.count - rec.pending;
+    const wouldExceed = tokens < needs;
     
-    // Check admission: allow up to RPM requests per window
-    // For replays: only check count (pending doesn't apply)
-    // For new requests: check count + what pending would be after admission
-    const nextPending = isReplay ? rec.pending : (rec.pending + 1);
-    const wouldExceed = isReplay 
-      ? (rec.count >= rpm)  // Replays: reject if already at/over limit
-      : ((rec.count + nextPending) > rpm);  // New: reject if would exceed
-    
-    if (!isReplay && !wouldExceed) {
-      // Mark for deferred counting in onSend (only count successful responses)
-      (req as any).__rl_pending = { rec, ip };
-      rec.pending = nextPending;
+    if (!wouldExceed && !isReplay) {
+      // Admit: mark for deferred counting and increment pending
+      (req as any).__rl_pending = { rec, ip, needs };
+      rec.pending += needs;
     }
 
     // Enforce MAX_BUCKETS cap
@@ -143,7 +138,7 @@ export function makeRateLimiter() {
       }
     }
 
-    // Account for pending increment (this request will count if successful)
+    // Account for pending (this request will count if successful)
     const remaining = Math.max(0, rpm - rec.count - rec.pending);
     const resetUnix = Math.floor(rec.resetAt / 1000);
     
@@ -152,7 +147,7 @@ export function makeRateLimiter() {
     reply.header('X-RateLimit-Remaining', String(remaining));
     reply.header('X-RateLimit-Reset', String(resetUnix));
 
-    if (wouldExceed && !isReplay) {
+    if (wouldExceed) {
       const retryAfter = Math.ceil((rec.resetAt - now) / 1000);
       reply.header('Retry-After', String(retryAfter));
       reply.header('X-RateLimit-Reason', 'per_ip');
@@ -178,8 +173,9 @@ export function makeRateLimiter() {
     try {
       const marker = (req as any).__rl_pending;
       if (marker) {
-        // Decrement pending (never go below zero)
-        marker.rec.pending = Math.max(0, marker.rec.pending - 1);
+        // Decrement pending by needs (never go below zero)
+        const needs = marker.needs || 1;
+        marker.rec.pending = Math.max(0, marker.rec.pending - needs);
       }
       
       // Skip counting for oversized requests
