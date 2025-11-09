@@ -62,9 +62,10 @@ export function makeRateLimiter() {
     // Unified bypass check
     if (shouldBypass(req)) return done();
     
-    // Use instance-scoped store
-    const store = (req.server as any).rateLimitStore as Map<string, State>;
-    if (!store) return done();
+    // Use instance-scoped state
+    const state = (req.server as any).rateLimitState;
+    if (!state?.buckets) return done();
+    const store = state.buckets as Map<string, State>;
     
     const rpm = getEffectiveRpm();
     if (rpm === 0) return done();
