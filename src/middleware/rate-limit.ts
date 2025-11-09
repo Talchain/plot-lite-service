@@ -162,10 +162,12 @@ export function makeRateLimiter() {
     done();
   };
   
-  const commitHook = function(req: FastifyRequest, reply: FastifyReply, payload: any, done: HookHandlerDoneFunction) {
+  // onResponse: fires after response is sent (stable lifecycle)
+  const commitHook = function(req: FastifyRequest, reply: FastifyReply, done: HookHandlerDoneFunction) {
     try {
       const marker = (req as any).__rl_pending;
       if (marker) {
+        // Decrement pending (never go below zero)
         marker.rec.pending = Math.max(0, marker.rec.pending - 1);
       }
       
@@ -175,7 +177,7 @@ export function makeRateLimiter() {
       if (!marker) return done();
       
       const status = reply.statusCode;
-      // Only count successful responses (2xx/3xx)
+      // Deferred counting: only count successful responses (2xx/3xx)
       if (status >= 200 && status < 400) {
         marker.rec.count++;
       }

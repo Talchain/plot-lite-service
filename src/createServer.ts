@@ -296,7 +296,7 @@ export async function createServer(opts: ServerOpts = {}) {
       return rateLimiter(req, reply, done);
     });
     
-    app.addHook('onSend', commitHook);
+    app.addHook('onResponse', commitHook);
     
     // Clean up store on close
     app.addHook('onClose', async () => {
