@@ -3,6 +3,7 @@ import { ERR_MSG } from '../lib/error-messages.js';
 import { FLAGS } from '../config/flags.js';
 import { getRateLimitRpm } from '../config/runtimeConfig.js';
 import { incJson429Count, incSse429Count } from '../metrics.js';
+import { clearInflight, principalFor } from './idempotency.js';
 
 
 interface State { count: number; pending: number; resetAt: number }
@@ -153,6 +154,19 @@ export function makeRateLimiter() {
       reply.header('Retry-After', String(retryAfter));
       reply.header('X-RateLimit-Reason', 'per_ip');
       
+      // Clear inflight idempotency key on early 429 so retries don't bypass limiter
+      const hdrs = (req.headers as Record<string, string | string[] | undefined>);
+      const idkRaw = hdrs['idempotency-key'] ?? (hdrs as any)['Idempotency-Key'];
+      const idk = Array.isArray(idkRaw) ? idkRaw[0] : idkRaw;
+      if (idk && typeof idk === 'string') {
+        try {
+          const principal = principalFor(req);
+          clearInflight(principal, idk.trim());
+        } catch {
+          // don't block the 429 on cleanup failure
+        }
+      }
+      
       // Increment 429 counters via metrics helpers
       const wantsSSE = (req.headers.accept || '').includes('text/event-stream');
       if (wantsSSE) {
@@ -164,6 +178,7 @@ export function makeRateLimiter() {
       return reply.code(429).send({
         error: { type: 'RATE_LIMIT', message: ERR_MSG.RATE_LIMIT_RPM }
       });
+
     }
     
     done();
