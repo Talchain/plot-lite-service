@@ -39,7 +39,12 @@ export async function registerRunRoute(app: FastifyInstance) {
   const { createValidator } = await import('../../middleware/input-validation.js');
   const { principalFor, getCached, setCached, pruneExpired, markInflight } = await import('../../middleware/idempotency.js');
   
-  app.post('/v1/run', {
+  // HEAD /v1/run for UI probe
+  app.head('/v1/run', async (_req, reply) => {
+    return reply.code(204).send();
+  });
+
+    app.post('/v1/run', {
     schema: {
       body: {
         type: 'object',
