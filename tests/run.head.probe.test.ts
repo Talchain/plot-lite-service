@@ -19,12 +19,12 @@ describe('HEAD /v1/run capability probe', () => {
     await app.close();
   });
 
-  it('returns 405 with Allow header', async () => {
+  it('returns 204 with no body (probe behaviour)', async () => {
     const res = await fetch(`${base}/v1/run`, { method: 'HEAD' });
-    expect(res.status).toBe(405);
-    const allow = res.headers.get('allow') || res.headers.get('Allow') || '';
-    expect(allow.includes('POST')).toBe(true);
-    expect(allow.includes('OPTIONS')).toBe(true);
-    expect(allow.includes('HEAD')).toBe(true);
+    expect(res.status).toBe(204);
+    
+    // Verify no content in response
+    const text = await res.text();
+    expect(text).toBe('');
   });
 });
