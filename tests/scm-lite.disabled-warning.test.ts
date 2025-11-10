@@ -15,6 +15,7 @@ describe('SCM-Lite disabled in production mode', () => {
       env: {
         SCM_LITE_ENABLE: '0',
         NODE_ENV: 'production',
+        PROD_SCM_LITE_PLACEHOLDER: '1',
         AUTH_ENABLED: '0',
         RATE_LIMIT_ENABLED: '0',
         COMPARE_VIEW_ENABLE: '0',

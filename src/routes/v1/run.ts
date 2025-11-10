@@ -21,6 +21,7 @@ import { computeSensitivitySimple } from '../../lib/sensitivity-simple.js';
 import { recordEngineComputeMs } from '../../metrics.js';
 import { runResponseSchema } from '../../schemas/response.js';
 import { normalizeGraph } from '../../util/normalize.js';
+import { FLAGS } from '../../config/flags.js';
 
 
 export interface RunRequest {
@@ -36,7 +37,7 @@ export interface RunRequest {
 
 export async function registerRunRoute(app: FastifyInstance) {
   const { createValidator } = await import('../../middleware/input-validation.js');
-  const { principalFor, getCached, setCached, pruneExpired } = await import('../../middleware/idempotency.js');
+  const { principalFor, getCached, setCached, pruneExpired, markInflight } = await import('../../middleware/idempotency.js');
   
   app.post('/v1/run', {
     schema: {
@@ -56,7 +57,6 @@ export async function registerRunRoute(app: FastifyInstance) {
         },
         additionalProperties: true
       },
-      response: { 200: runResponseSchema }
     },
     attachValidation: true,  // Attach validation errors to request instead of auto-failing
     bodyLimit: 96 * 1024,
@@ -86,11 +86,15 @@ export async function registerRunRoute(app: FastifyInstance) {
         const principal = principalFor(req);
         const hit = getCached(principal, idk);
         if (hit) {
+          (req as any).__idempotent_replay = true;
           try { reply.header('Idempotent-Replayed', '1'); } catch {}
           return reply.code(hit.status).type('application/json').send(hit.body);
         }
+        markInflight(principal, idk);
         // Mark for onSend storage
+        (req as any).__idempotent_replay = false;
         (req as any).__idemp = { principal, idk };
+        try { reply.header('Idempotent-Replayed', '0'); } catch {}
       },
       createValidator('run'),
     ],
@@ -123,6 +127,61 @@ export async function registerRunRoute(app: FastifyInstance) {
     
     // Normalize graph (map confidence|probability→belief, no default on ingress)
     const graph = normalizeGraph(body.graph, false);
+
+    // Per-request SCM-Lite gating: header → query → env (lower-cased)
+    function scmLiteEnabled(req: FastifyRequest): { enabled: boolean; source: string } {
+      const h = String((req.headers as any)['x-scm-lite'] ?? '').toLowerCase();
+      if (h === '1' || h === 'true') return { enabled: true, source: 'header' };
+      
+      const q = String((req as any).query?.scm_lite ?? '').toLowerCase();
+      if (q === '1' || q === 'true') return { enabled: true, source: 'query' };
+      
+      const env = String(process.env.SCM_LITE_ENABLE ?? '').toLowerCase();
+      if (env === '1' || env === 'true') return { enabled: true, source: 'env' };
+      
+      return { enabled: false, source: 'none' };
+    }
+    
+    // Placeholder mode: production + disabled + flag set
+    function placeholderEnabled(useLite: boolean): boolean {
+      if (useLite) return false;  // Never placeholder if enabled
+      const isProd = process.env.NODE_ENV === 'production';
+      const flag = String(process.env.PROD_SCM_LITE_PLACEHOLDER ?? '').toLowerCase();
+      return isProd && (flag === '1' || flag === 'true');
+    }
+    
+    const { enabled: useScmLite, source } = scmLiteEnabled(req);
+    const usePlaceholder = placeholderEnabled(useScmLite);
+    
+    // Test probe: harmless header for debugging
+    reply.header('x-scm-lite', useScmLite ? '1' : '0');
+    
+    // Early return placeholder when disabled in production
+    if (usePlaceholder) {
+      return reply.send({
+        schema: 'run.v1',
+        results: [],
+        confidence: { p10: 0, p50: 0, p90: 0 },
+        model_card: { response_hash: 'placeholder' },
+        meta: { seed: body.seed ?? 4242 },
+      });
+    }
+    
+    // SCM-Lite schema and caps
+    const schema = useScmLite ? 'report.v1' : 'run.v1';
+    const maxNodes = useScmLite ? 12 : 200;
+    const maxEdges = useScmLite ? 24 : 500;
+
+    const nodeCount = graph.nodes?.length ?? 0;
+    const edgeCount = graph.edges?.length ?? 0;
+    if (nodeCount > maxNodes || edgeCount > maxEdges) {
+      return reply.code(400).send({
+        error: 'bad_request',
+        reason: 'graph_too_large',
+        limits: { nodes: maxNodes, edges: maxEdges },
+      });
+    }
+
 
     const {
       seed = 42,
@@ -282,7 +341,7 @@ export async function registerRunRoute(app: FastifyInstance) {
     let debug: any = undefined;
     
     // Add debug.compare if requested and flag enabled
-    if (include_debug && process.env.COMPARE_VIEW_ENABLE === '1') {
+    if (include_debug && FLAGS.COMPARE_VIEW_ENABLE) {
       debug = {
         compare: {
           [outcome_node]: {
@@ -296,7 +355,7 @@ export async function registerRunRoute(app: FastifyInstance) {
     }
     
     // Add debug.inspector if requested and flag enabled
-    if (include_debug && process.env.INSPECTOR_DEBUG_ENABLE === '1') {
+    if (include_debug && FLAGS.INSPECTOR_DEBUG_ENABLE) {
       if (!debug) debug = {};
       debug.inspector = {
         edges: graph.edges.map((edge: any, idx: number) => ({
@@ -340,7 +399,7 @@ export async function registerRunRoute(app: FastifyInstance) {
         },
       },
       results,
-      schema: 'run.v1',
+      schema,
     };
     
     // Add BMA hash BEFORE stamping (must be included in response_hash)

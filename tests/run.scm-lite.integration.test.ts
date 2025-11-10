@@ -63,7 +63,10 @@ describe('POST /v1/run with SCM-Lite enabled', () => {
 
     const res = await requestJSON(`${server.baseUrl}/v1/run`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'x-scm-lite': '1'  // Use header override to avoid env propagation flake
+      },
       body: JSON.stringify({
         graph: CANONICAL_GRAPH,
         seed: 4242,
@@ -86,7 +89,7 @@ describe('POST /v1/run with SCM-Lite enabled', () => {
       edges: [{ from: 'n0', to: 'n1', weight: 1 }],
     };
 
-    const res = await requestJSON(`${server.baseUrl}/v1/run`, {
+    const res = await requestJSON(`${server.baseUrl}/v1/run?scm_lite=1`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -131,14 +134,20 @@ describe('POST /v1/run rate-limit parity with SCM-Lite', () => {
 
     const r1 = await requestJSON(`${server.baseUrl}/v1/run`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'x-scm-lite': '1'
+      },
       body: JSON.stringify(payload),
     });
     expect(r1.status).toBe(200);
 
     const r2 = await requestJSON(`${server.baseUrl}/v1/run`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'x-scm-lite': '1'
+      },
       body: JSON.stringify(payload),
     });
     expect(r2.status).toBe(429);

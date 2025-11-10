@@ -112,7 +112,17 @@ export async function registerV1Routes(app: FastifyInstance) {
   await registerDraftRoute(app);
   await registerSelfCheckRoute(app);
   await registerTemplatesRoutes(app);
-  await registerLimitsRoute(app);
+  if (process.env.TEST_ROUTES === '1') await registerLimitsRoute(app);
+  
+  // Test-only: echo env vars for debugging
+  if (process.env.TEST_ROUTES === '1') {
+    app.get('/__env', async () => ({
+      SCM_LITE_ENABLE: process.env.SCM_LITE_ENABLE ?? null,
+      RATE_LIMIT_RPM: process.env.RATE_LIMIT_RPM ?? null,
+      NODE_ENV: process.env.NODE_ENV ?? null,
+    }));
+  }
+  
   await registerValidateRoute(app);  
   // P1: Register enhanced stream route if enabled, otherwise use legacy
   if (process.env.STREAM_PARITY_ENABLE === '1') {

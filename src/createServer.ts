@@ -6,7 +6,7 @@ import { resolve, join as joinPath } from 'path';
 import { spawnSync } from 'child_process';
 import { createHash, timingSafeEqual } from 'crypto';
 import { promises as fsp } from 'node:fs';
-import { rateLimit } from './rateLimit.js';
+import { makeRateLimiter } from './middleware/rate-limit.js';
 import { refreshFromEnv } from './config/runtimeConfig.js';
 import { securityHeadersOnSend } from './middleware/security-headers.js';
 import { replyWithAppError } from './errors.js';
@@ -127,6 +127,15 @@ export async function createServer(opts: ServerOpts = {}) {
       throw new Error('TEST_ROUTES cannot be enabled in production');
     }
   }
+
+  // Initialize artifact directory and health counters
+  const ARTIFACT_DIR = process.env.ARTIFACT_DIR || '.artifacts';
+  await fsp.mkdir(ARTIFACT_DIR, { recursive: true });
+
+  app.decorate('health', {
+    lastReload: Date.now(),
+    counters: { hits: 0, runs: 0, drafts: 0 },
+  });
 
   // Register inflight plugin (self-contained: decoration + hooks)
   // Works in all entry points: main.ts, tests, tools
@@ -265,9 +274,34 @@ export async function createServer(opts: ServerOpts = {}) {
     });
   }
 
+  // Idempotency marker (runs before rate limiter to detect replays)
+  const { makeIdempotencyMarker } = await import('./middleware/idempotency-marker.js');
+  app.addHook('onRequest', makeIdempotencyMarker());
+
   // Optional rate limit (enabled by env; disabled when RATE_LIMIT_ENABLED=0)
   if (process.env.RATE_LIMIT_ENABLED !== '0') {
-    app.addHook('onRequest', rateLimit);
+    // Instance-scoped state to prevent cross-test/process bleed
+    const rpm = Number(process.env.RATE_LIMIT_RPM) || 60;
+    app.decorate('rateLimitState', {
+      buckets: new Map(),
+      windowMs: 60_000,
+      rpm,
+    });
+    
+    const { rateLimiter, commitHook } = makeRateLimiter();
+    
+    // preHandler: run RPM admission for all methods after validation
+    // (Limiter internally handles 413 oversize preflight for POST/PUT/PATCH)
+    // Limiter owns all bypass logic via shouldBypass()
+    app.addHook('preHandler', rateLimiter);
+    
+    app.addHook('onResponse', commitHook);
+    
+    // Clean up state on close
+    app.addHook('onClose', async () => {
+      const state = (app as any).rateLimitState;
+      if (state?.buckets) state.buckets.clear();
+    });
   }
 
   // WP-P3: Circuit breaker (flag-gated)

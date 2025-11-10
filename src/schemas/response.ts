@@ -3,7 +3,7 @@ export const runResponseSchema = {
   additionalProperties: true,
   required: ['schema', 'confidence', 'results', 'model_card', 'meta'],
   properties: {
-    schema: { type: 'string', const: 'run.v1' },
+    schema: { type: 'string', enum: ['run.v1', 'report.v1'] },
     confidence: { type: 'object', additionalProperties: true, required: ['level', 'reason', 'score'] },
     results: { type: 'object', additionalProperties: true, required: ['conservative', 'most_likely', 'optimistic'] },
     model_card: { type: 'object', additionalProperties: true, required: ['seed', 'determinism_note', 'response_hash'] },
