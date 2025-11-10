@@ -22,6 +22,7 @@ import { recordEngineComputeMs } from '../../metrics.js';
 import { runResponseSchema } from '../../schemas/response.js';
 import { normalizeGraph } from '../../util/normalize.js';
 import { FLAGS } from '../../config/flags.js';
+import { BODY_LIMIT_BYTES } from '../../config/constants.js';
 
 
 export interface RunRequest {
@@ -64,7 +65,7 @@ export async function registerRunRoute(app: FastifyInstance) {
       },
     },
     attachValidation: true,  // Attach validation errors to request instead of auto-failing
-    bodyLimit: 96 * 1024,
+    bodyLimit: BODY_LIMIT_BYTES,
     preHandler: [
       async (req: FastifyRequest, reply: FastifyReply) => {
         // Demo mode short-circuit (before validation check)
