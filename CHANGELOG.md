@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.1.1] - 2025-11-10
+
+### Fixed
+- Deterministic token-bucket admission (RPM=1 edge case resolved)
+- Instance-scoped rate-limit store (no cross-instance bleed)
+- Unified bypass predicate (health/metrics/limits/SSE)
+- Per-request SCM-Lite gating (header → query → env)
+
+### Operations
+- Expect RATE_LIMIT_ENABLED=1 in production
+- Expect PROD_SCM_LITE_PLACEHOLDER=0 in production
+- Safe test signal (serial): ≥98.5% pass; remaining flakes are test-infrastructure only
+
 ## [1.2.0] - 2025-11-09
 
 ### Fixed
