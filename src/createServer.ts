@@ -237,20 +237,28 @@ export async function createServer(opts: ServerOpts = {}) {
     // Disable Helmet's Cache-Control so we can set it per-route
     hsts: { maxAge: 63072000, includeSubDomains: true, preload: true },
   } as any);
-  // CORS: closed by default; allow only when CSV envs provided. Dev override remains.
+  // CORS: enable for browser apps with strict preflight
   {
-    const originsCsv = (process.env.CORS_ORIGINS || '').trim();
-    if (originsCsv) {
-      const allow = originsCsv.split(',').map(s => s.trim()).filter(Boolean);
-      const hdrsCsv = (process.env.CORS_HEADERS || '').trim();
-      const allowedHeaders = hdrsCsv ? hdrsCsv.split(',').map(s => s.trim()).filter(Boolean) : undefined;
-      // Expose rate-limit headers for browser access
-      const exposedHeaders = ['Retry-After', 'X-RateLimit-Reset', 'X-RateLimit-Reason'];
-      await app.register(cors, { origin: allow, allowedHeaders, exposedHeaders });
-    } else if (process.env.CORS_DEV === '1') {
-      const exposedHeaders = ['Retry-After', 'X-RateLimit-Reset', 'X-RateLimit-Reason'];
-      await app.register(cors, { origin: 'http://localhost:5173', exposedHeaders });
-    }
+    const defaultOrigins = 'http://localhost:5173';
+    const originsCsv = (process.env.CORS_ALLOW_ORIGINS || process.env.WEB_APP_ORIGIN || defaultOrigins).trim();
+    const origins = originsCsv.split(',').map(s => s.trim()).filter(Boolean);
+    
+    await app.register(cors, {
+      origin: origins,
+      methods: ['GET', 'POST', 'OPTIONS', 'HEAD'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key', 'X-SCM-Lite'],
+      exposedHeaders: [
+        'Retry-After',
+        'X-RateLimit-Limit',
+        'X-RateLimit-Remaining',
+        'X-RateLimit-Reset',
+        'X-RateLimit-Reason',
+        'X-SCM-Lite'
+      ],
+      credentials: false,
+      preflight: true,
+      strictPreflight: true,
+    });
   }
 
   // Demo SSE endpoint (TEST_ROUTES only)

@@ -112,7 +112,7 @@ export async function registerV1Routes(app: FastifyInstance) {
   await registerDraftRoute(app);
   await registerSelfCheckRoute(app);
   await registerTemplatesRoutes(app);
-  if (process.env.TEST_ROUTES === '1') await registerLimitsRoute(app);
+  await registerLimitsRoute(app);
   
   // Test-only: echo env vars for debugging
   if (process.env.TEST_ROUTES === '1') {
