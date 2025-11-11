@@ -29,9 +29,9 @@ describe('Input Bounds Validation (Track B)', () => {
   });
 
   describe('/v1/run bounds', () => {
-    it('rejects graph with >50 nodes', async () => {
+    it('rejects graph with >200 nodes', async () => {
       const oversizedGraph = {
-        nodes: Array.from({ length: 51 }, (_, i) => ({
+        nodes: Array.from({ length: 201 }, (_, i) => ({
           id: `node${i}`,
           label: `Node ${i}`,
           type: 'decision',

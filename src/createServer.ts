@@ -41,6 +41,10 @@ import {
 export interface ServerOpts { enableTestRoutes?: boolean }
 
 export async function createServer(opts: ServerOpts = {}) {
+  // P0: Validate HMAC secrets (fail-fast)
+  const { validateHMACSecrets } = await import('./config/secret-validation.js');
+  validateHMACSecrets();
+  
   // Validate feature flags on boot
   const { validateFeatureFlags } = await import('./config/feature-flags.js');
   validateFeatureFlags();
@@ -930,9 +934,9 @@ export async function createServer(opts: ServerOpts = {}) {
           try { reply.raw.end(); } catch {}
         };
 
-        // Handle disconnect
-        reply.raw.on('close', endStream);
-        reply.raw.on('error', endStream);
+        // P0: Handle disconnect (use .once for deterministic cleanup)
+        reply.raw.once('close', endStream);
+        reply.raw.once('error', endStream);
 
         const q = req.query || {};
         const id: string = String(q.id || 'default');
@@ -1053,13 +1057,13 @@ export async function createServer(opts: ServerOpts = {}) {
         app.inflight.dec('endStream');
       };
 
-      // Critical: Handle client disconnect to prevent timer leak and inflight counter leak
-      reply.raw.on('close', () => {
+      // P0: Handle client disconnect (use .once for deterministic cleanup)
+      reply.raw.once('close', () => {
         app.log.info({ reqId: req.id }, 'SSE client disconnected');
         endStream();
       });
 
-      reply.raw.on('error', (err) => {
+      reply.raw.once('error', (err) => {
         app.log.error({ reqId: req.id, err }, 'SSE stream error');
         endStream();
       });
@@ -1185,6 +1189,14 @@ export async function createServer(opts: ServerOpts = {}) {
       || emsg.includes('payload too large')
       || emsg.includes('too large');
     if (isBodyTooLarge) {
+      // P0: Clear inflight idempotency key on 413
+      const idk = req.headers['idempotency-key'];
+      if (idk && typeof idk === 'string') {
+        try {
+          const { clearInflight, principalFor } = await import('./middleware/idempotency.js');
+          clearInflight(principalFor(req), idk.trim());
+        } catch {}
+      }
       return replyWithAppError(reply, { type: 'BAD_INPUT', statusCode: 413, message: 'Request entity too large' });
     }
     // Fallback INTERNAL
