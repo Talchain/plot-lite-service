@@ -19,8 +19,8 @@ export class ModelBasedInference implements InferenceEngine {
       const scmConfig = {
         seed,
         K: k_samples || Number(process.env.SCM_LITE_K || 256),
-        maxNodes: Number(process.env.SCM_LITE_MAX_NODES || 12),
-        maxEdges: Number(process.env.SCM_LITE_MAX_EDGES || 20),
+        maxNodes: Number(process.env.SCM_LITE_MAX_NODES || 50),
+        maxEdges: Number(process.env.SCM_LITE_MAX_EDGES || 200),
         beliefDefault: Number(process.env.SCM_LITE_BELIEF_DEFAULT || 0.7),
       };
       

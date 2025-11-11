@@ -178,6 +178,50 @@ Exemptions: GET /ready, GET /health, and GET /version are not rate-limited.
 - POST /critique → deterministic rules (no AI); Ajv-validated parse_json body
 - POST /improve → echoes parse_json and returns { fix_applied: [] }
 
+
+## UI Integration
+
+### Endpoint Availability Probe
+Use `HEAD /v1/run` to verify endpoint availability before making POST requests:
+```bash
+curl -I https://plot-lite-service.onrender.com/v1/run
+# Returns: HTTP/2 204 (no body)
+```
+
+### Request Size Limits
+Check `/v1/limits` for current configuration:
+```bash
+curl https://plot-lite-service.onrender.com/v1/limits
+# Returns: { "schema": "limits.v1", "max_nodes": 50, "max_edges": 200, "max_body_kb": 96 }
+```
+
+**Important:** Requests exceeding 96 KB will receive `413 Payload Too Large`.
+Structure your graph payloads to stay under this limit.
+
+### Rate Limiting & 429 Responses
+The API enforces per-IP rate limits (default: 60 requests/minute).
+When rate-limited, you'll receive a `429 Too Many Requests` response with:
+
+- `Retry-After`: Seconds to wait before retrying
+- `X-RateLimit-Limit`: Maximum requests per minute
+- `X-RateLimit-Remaining`: Requests remaining in current window
+- `X-RateLimit-Reset`: Unix timestamp when limit resets
+
+**UX Recommendation:** Display a user-friendly message with the retry delay:
+```javascript
+if (response.status === 429) {
+  const retryAfter = response.headers.get('Retry-After');
+  showMessage(`Rate limit exceeded. Please wait ${retryAfter} seconds.`);
+}
+```
+
+### CORS Configuration
+The API allows requests from:
+- `https://olumi.netlify.app`
+- `http://localhost:5173` (development)
+
+Exposed headers include rate-limit information and `X-SCM-Lite` feature flag.
+
 ### Replay telemetry (tests & local runs)
 
 GET /health includes a compact replay section that reflects the most recent replay activity:

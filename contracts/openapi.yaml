@@ -377,6 +377,15 @@ paths:
                     message: Invalid token
   
   /v1/run:
+    head:
+      summary: Probe endpoint availability
+      operationId: headRunV1
+      tags: [v1, meta]
+      description: |
+        Returns 204 with no body. Used by UI clients to verify endpoint availability.
+      responses:
+        '204':
+          description: No Content - endpoint is available
     post:
       summary: Execute probabilistic model
       operationId: runV1
@@ -412,6 +421,18 @@ paths:
           headers:
             Idempotent-Replayed:
               description: '1 if response is a replay from cache; 0 if computed fresh (when Idempotency-Key provided)'
+              schema: { type: string, enum: ['0','1'] }
+            X-RateLimit-Limit:
+              description: Maximum requests per minute
+              schema: { type: string }
+            X-RateLimit-Remaining:
+              description: Remaining requests in current window
+              schema: { type: string }
+            X-RateLimit-Reset:
+              description: Unix timestamp when rate limit resets
+              schema: { type: string }
+            X-SCM-Lite:
+              description: SCM-Lite enablement flag (0 or 1)
               schema: { type: string, enum: ['0','1'] }
           content:
             application/json:
@@ -502,22 +523,21 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [nodes, edges]
+                required: [schema, max_nodes, max_edges, max_body_kb]
                 properties:
-                  nodes:
-                    type: object
-                    required: [max]
-                    properties:
-                      max:
-                        type: integer
-                        example: 200
-                  edges:
-                    type: object
-                    required: [max]
-                    properties:
-                      max:
-                        type: integer
-                        example: 500
+                  schema:
+                    type: string
+                    enum: [limits.v1]
+                  max_nodes:
+                    type: integer
+                    example: 50
+                  max_edges:
+                    type: integer
+                    example: 200
+                  max_body_kb:
+                    type: integer
+                    example: 96
+                    description: Maximum request body size in kilobytes
         '500':
           description: Internal server error
           content:
