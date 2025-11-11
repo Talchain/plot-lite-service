@@ -38,7 +38,7 @@ export interface RunRequest {
 
 export async function registerRunRoute(app: FastifyInstance) {
   const { createValidator } = await import('../../middleware/input-validation.js');
-  const { principalFor, getCached, setCached, pruneExpired, markInflight } = await import('../../middleware/idempotency.js');
+  const { principalFor, getCached, setCached, pruneExpired, markInflight, clearInflight } = await import('../../middleware/idempotency.js');
   
   // HEAD /v1/run for UI probe
   app.head('/v1/run', async (_req, reply) => {
@@ -181,6 +181,11 @@ export async function registerRunRoute(app: FastifyInstance) {
     const nodeCount = graph.nodes?.length ?? 0;
     const edgeCount = graph.edges?.length ?? 0;
     if (nodeCount > maxNodes || edgeCount > maxEdges) {
+      // P0: Clear inflight key on early 400 exit
+      const marker = (req as any).__idemp;
+      if (marker) {
+        try { clearInflight(marker.principal, marker.idk); } catch {}
+      }
       return reply.code(400).send({
         error: 'bad_request',
         reason: 'graph_too_large',
@@ -329,6 +334,11 @@ export async function registerRunRoute(app: FastifyInstance) {
     } catch (err: any) {
       const msg = String(err?.message || '');
       if (msg.includes('exceeds max nodes') || msg.includes('exceeds max edges')) {
+        // P0: Clear inflight key on early 400 exit
+        const marker = (req as any).__idemp;
+        if (marker) {
+          try { clearInflight(marker.principal, marker.idk); } catch {}
+        }
         return reply.code(400).send({
           schema: 'error.v1',
           code: 'SCOPE_LIMIT',

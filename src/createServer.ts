@@ -1189,6 +1189,14 @@ export async function createServer(opts: ServerOpts = {}) {
       || emsg.includes('payload too large')
       || emsg.includes('too large');
     if (isBodyTooLarge) {
+      // P0: Clear inflight idempotency key on 413
+      const idk = req.headers['idempotency-key'];
+      if (idk && typeof idk === 'string') {
+        try {
+          const { clearInflight, principalFor } = await import('./middleware/idempotency.js');
+          clearInflight(principalFor(req), idk.trim());
+        } catch {}
+      }
       return replyWithAppError(reply, { type: 'BAD_INPUT', statusCode: 413, message: 'Request entity too large' });
     }
     // Fallback INTERNAL
