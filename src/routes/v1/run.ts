@@ -116,8 +116,11 @@ export async function registerRunRoute(app: FastifyInstance) {
           }
           if (body && typeof body === 'object') {
             const status = reply.statusCode || 200;
-            setCached(marker.principal, marker.idk, status, body);
-            try { reply.header('Idempotent-Replayed', '0'); } catch {}
+            // P0: Only cache successful responses (2xx), not errors
+            if (status >= 200 && status < 300) {
+              setCached(marker.principal, marker.idk, status, body);
+              try { reply.header('Idempotent-Replayed', '0'); } catch {}
+            }
           }
           return payload;
         } catch {
