@@ -83,8 +83,8 @@ export async function spawnServer(opts: SpawnServerOptions = {}): Promise<Server
   
   const baseUrl = `http://127.0.0.1:${port}`;
   
-  // Health probe with exponential backoff: 50ms, 100ms, 200ms, 400ms
-  const delays = [50, 100, 200, 400];
+  // Health probe with exponential backoff: 100ms, 200ms, 400ms, 800ms
+  const delays = [100, 200, 400, 800];
   let ready = false;
   
   for (const delay of delays) {
@@ -103,7 +103,7 @@ export async function spawnServer(opts: SpawnServerOptions = {}): Promise<Server
   if (!ready) {
     child.kill('SIGKILL');
     rmSync(tmpDir, { recursive: true, force: true });
-    throw new Error(`Server failed to start on port ${port} within 750ms`);
+    throw new Error(`Server failed to start on port ${port} within 2000ms`);
   }
   
   const kill = async () => {
