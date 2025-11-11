@@ -41,6 +41,10 @@ import {
 export interface ServerOpts { enableTestRoutes?: boolean }
 
 export async function createServer(opts: ServerOpts = {}) {
+  // P0: Validate HMAC secrets (fail-fast)
+  const { validateHMACSecrets } = await import('./config/secret-validation.js');
+  validateHMACSecrets();
+  
   // Validate feature flags on boot
   const { validateFeatureFlags } = await import('./config/feature-flags.js');
   validateFeatureFlags();
