@@ -1,6 +1,6 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
-export async function securityHeadersOnSend(_req: FastifyRequest, reply: FastifyReply, payload: any) {
+export async function securityHeadersOnSend(req: FastifyRequest, reply: FastifyReply, payload: any) {
   try {
     const raw: any = reply?.raw;
     if (raw && (raw.headersSent || raw.writableEnded)) return payload;
@@ -17,7 +17,12 @@ export async function securityHeadersOnSend(_req: FastifyRequest, reply: Fastify
     if (!ct || !ct.includes('application/json')) return payload;
     reply.header('X-Content-Type-Options', 'nosniff');
     reply.header('Referrer-Policy', 'no-referrer');
-    reply.header('Cache-Control', 'no-store');
+    
+    // Skip Cache-Control override for /v1/limits (allows route-specific caching)
+    const url = req.url || '';
+    if (!url.startsWith('/v1/limits')) {
+      reply.header('Cache-Control', 'no-store');
+    }
   } catch {}
   return payload as any;
 }

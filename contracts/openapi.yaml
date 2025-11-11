@@ -438,6 +438,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/runResponse'
+              examples:
+                success:
+                  value:
+                    schema: run.v1
+                    result:
+                      response_hash: "a1b2c3d4e5f6..."
+                      summary:
+                        p10: 0.15
+                        p50: 0.42
+                        p90: 0.78
+                      confidence: 0.85
+                    meta:
+                      seed: 4242
+                      k_samples: 256
         '413':
           description: Payload too large
           content:
@@ -538,6 +552,13 @@ paths:
                     type: integer
                     example: 96
                     description: Maximum request body size in kilobytes
+              examples:
+                success:
+                  value:
+                    schema: limits.v1
+                    max_nodes: 50
+                    max_edges: 200
+                    max_body_kb: 96
         '500':
           description: Internal server error
           content:

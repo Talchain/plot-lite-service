@@ -259,6 +259,19 @@ export async function createServer(opts: ServerOpts = {}) {
       preflight: true,
       strictPreflight: true,
     });
+    
+    // Warn if production CORS includes localhost
+    if (process.env.NODE_ENV === 'production') {
+      const hasLocalhost = origins.some(o => 
+        o.includes('localhost') || o.includes('127.0.0.1')
+      );
+      if (hasLocalhost) {
+        console.warn(
+          '[SECURITY WARNING] Production CORS includes localhost/127.0.0.1. ' +
+          'Review CORS_ALLOW_ORIGINS configuration.'
+        );
+      }
+    }
   }
 
   // Demo SSE endpoint (TEST_ROUTES only)

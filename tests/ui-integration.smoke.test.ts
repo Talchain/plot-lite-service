@@ -46,4 +46,18 @@ describe('UI Integration Smoke Tests', () => {
     const expectedKb = Math.floor(BODY_LIMIT_BYTES / 1024);
     expect(data.max_body_kb).toBe(expectedKb);
   });
+
+  it('GET /v1/limits includes Cache-Control header with max-age', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/limits',
+    });
+
+    expect(res.statusCode).toBe(200);
+    
+    const cacheControl = res.headers['cache-control'];
+    expect(cacheControl).toBeDefined();
+    expect(cacheControl).toContain('max-age');
+    expect(cacheControl).toContain('3600');
+  });
 });

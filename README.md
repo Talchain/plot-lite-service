@@ -222,6 +222,41 @@ The API allows requests from:
 
 Exposed headers include rate-limit information and `X-SCM-Lite` feature flag.
 
+### Payload Construction
+**Client-Side Guard:** Before sending requests, verify payload size:
+```javascript
+const payload = JSON.stringify({ graph, seed });
+const sizeKB = new Blob([payload]).size / 1024;
+
+if (sizeKB > 96) {
+  showError(`Payload too large: ${sizeKB.toFixed(1)} KB (max: 96 KB)`);
+  return;
+}
+```
+
+**Graph Limits:**
+- Maximum nodes: 50
+- Maximum edges: 200
+- Enforce these limits in your UI before submission
+
+### SCM-Lite Feature Flag (Optional)
+Enable lightweight causal inference mode with `x-scm-lite: 1` header:
+```javascript
+fetch('https://plot-lite-service.onrender.com/v1/run', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'x-scm-lite': '1'  // Optional: enable SCM-Lite mode
+  },
+  body: JSON.stringify({ graph, seed: 4242 })
+});
+```
+
+**SCM-Lite Benefits:**
+- Faster inference for smaller graphs
+- Deterministic results with same seed
+- Returns `report.v1` schema with summary bands
+
 ### Replay telemetry (tests & local runs)
 
 GET /health includes a compact replay section that reflects the most recent replay activity:
