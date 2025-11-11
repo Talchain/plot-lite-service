@@ -114,9 +114,13 @@ export async function registerRunRoute(app: FastifyInstance) {
           if (typeof payload === 'string') {
             try { body = JSON.parse(payload); } catch { body = null; }
           }
+          // P0: Always clear inflight (even for non-2xx)
+          const { clearInflight } = await import('../../middleware/idempotency.js');
+          clearInflight(marker.principal, marker.idk);
+          
+          // Only cache 2xx responses
           if (body && typeof body === 'object') {
             const status = reply.statusCode || 200;
-            // P0: Only cache successful responses (2xx), not errors
             if (status >= 200 && status < 300) {
               setCached(marker.principal, marker.idk, status, body);
               try { reply.header('Idempotent-Replayed', '0'); } catch {}
