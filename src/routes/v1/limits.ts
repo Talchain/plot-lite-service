@@ -14,6 +14,10 @@ export async function registerLimitsRoute(app: FastifyInstance) {
       max_body_kb: Math.floor(BODY_LIMIT_BYTES / 1024),
     };
     
-    return reply.code(200).type('application/json').send(response);
+    return reply
+      .code(200)
+      .header('Cache-Control', 'public, max-age=3600')
+      .type('application/json')
+      .send(response);
   });
 }
