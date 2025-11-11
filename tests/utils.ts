@@ -58,12 +58,17 @@ export interface ServerHandle {
 
 export async function spawnServer(opts: SpawnServerOptions = {}): Promise<ServerHandle> {
   const port = opts.port || nextPort();
-  // Build minimal env to prevent test pollution from process.env
+  
+  // Unique TMPDIR per spawn to avoid collisions
+  const tmpId = randomBytes(4).toString('hex');
+  const tmpDir = join(process.env.TMPDIR || '/tmp', `plotlite-${tmpId}`);
+  mkdirSync(tmpDir, { recursive: true });
+  
   const baseEnv = {
     PATH: process.env.PATH || '',
     HOME: process.env.HOME || '',
     USER: process.env.USER || '',
-    TMPDIR: process.env.TMPDIR || '/tmp',
+    TMPDIR: tmpDir,
     NODE_ENV: 'test',
     PORT: String(port),
     LOG_LEVEL: 'silent',
@@ -78,23 +83,39 @@ export async function spawnServer(opts: SpawnServerOptions = {}): Promise<Server
   
   const baseUrl = `http://127.0.0.1:${port}`;
   
-  // Wait for server to be ready
-  await waitFor(
-    async () => {
-      try {
-        const res = await fetch(`${baseUrl}/v1/health`, { signal: AbortSignal.timeout(1000) });
-        return res.ok;
-      } catch {
-        return false;
+  // Health probe with exponential backoff: 50ms, 100ms, 200ms, 400ms
+  const delays = [50, 100, 200, 400];
+  let ready = false;
+  
+  for (const delay of delays) {
+    await sleep(delay);
+    try {
+      const res = await fetch(`${baseUrl}/v1/health`, { 
+        signal: AbortSignal.timeout(500) 
+      });
+      if (res.ok) {
+        ready = true;
+        break;
       }
-    },
-    { timeout: 10000, interval: 200, label: 'server ready' }
-  );
+    } catch {}
+  }
+  
+  if (!ready) {
+    child.kill('SIGKILL');
+    rmSync(tmpDir, { recursive: true, force: true });
+    throw new Error(`Server failed to start on port ${port} within 750ms`);
+  }
   
   const kill = async () => {
     if (child.pid) {
-      await killTree(child.pid);
+      child.kill('SIGTERM');
+      await sleep(2000);
+      try {
+        process.kill(child.pid, 0);
+        child.kill('SIGKILL');
+      } catch {}
     }
+    rmSync(tmpDir, { recursive: true, force: true });
   };
   
   return { child, port, baseUrl, kill };
