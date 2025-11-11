@@ -120,6 +120,8 @@ export async function createServer(opts: ServerOpts = {}) {
     requestTimeout: Number(process.env.REQUEST_TIMEOUT_MS || 5000),
     disableRequestLogging: true,
     trustProxy: process.env.TRUST_PROXY === '1',
+    requestIdHeader: 'x-request-id',
+    genReqId: (req) => (req.headers['x-request-id'] as string) || '',
   });
 
   // Guard: prevent test routes in production

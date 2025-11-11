@@ -12,6 +12,10 @@ export async function registerLimitsRoute(app: FastifyInstance) {
       max_nodes: Number(process.env.GRAPH_MAX_NODES || 50),
       max_edges: Number(process.env.GRAPH_MAX_EDGES || 200),
       max_body_kb: Math.floor(BODY_LIMIT_BYTES / 1024),
+      rate_limit_rpm: Number(process.env.RATE_LIMIT_PER_MIN || 60),
+      flags: {
+        scm_lite: process.env.SCM_LITE_ENABLE === '1' ? 1 : 0,
+      },
     };
     
     return reply
