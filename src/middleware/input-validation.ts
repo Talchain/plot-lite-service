@@ -2,7 +2,7 @@
  * Input Validation Middleware (Ajv)
  * 
  * Enforces OpenAPI bounds on /v1/* endpoints:
- * - Graph: ≤50 nodes, ≤200 edges
+ * - Graph: ≤200 nodes, ≤500 edges (handler enforces mode-specific limits)
  * - Numeric: ranges per OpenAPI spec
  * - Strings: maxLength per field
  * 
@@ -11,6 +11,18 @@
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { isDemoMode } from './demo-mode.js';
+
+// P0: Helper to clear inflight idempotency key on validation errors
+async function clearInflightKey(req: any) {
+  const idk = req.headers['idempotency-key'];
+  if (idk && typeof idk === 'string') {
+    try {
+      const { clearInflight, principalFor } = await import('./idempotency.js');
+      clearInflight(principalFor(req), idk.trim());
+    } catch {}
+  }
+}
+
 
 // Lazy-initialized Ajv validators
 let validateRun: any;
@@ -27,7 +39,7 @@ const graphSchema = {
     nodes: {
       type: 'array',
       minItems: 1,
-      maxItems: 50,
+      maxItems: 200,  // P0: Allow max capacity, handler enforces mode-specific limits
       items: {
         type: 'object',
         required: ['id', 'label'],
@@ -40,7 +52,7 @@ const graphSchema = {
     },
     edges: {
       type: 'array',
-      maxItems: 200,
+      maxItems: 500,  // P0: Allow max capacity
       items: {
         type: 'object',
         required: ['from', 'to'],
@@ -252,13 +264,15 @@ export function createQueryValidator(route: 'stream') {
             const s = qs.get('latency_ms');
             const v = s == null ? NaN : Number(s);
             if (Number.isFinite(v) && v > 10000) {
-              return reply.code(400).send({ schema: 'error.v1', code: 'BAD_INPUT', message: 'latency_ms must be ≤ 10000' });
+              await clearInflightKey(req);
+          return reply.code(400).send({ schema: 'error.v1', code: 'BAD_INPUT', message: 'latency_ms must be ≤ 10000' });
             }
           }
         } catch {}
         if (!validateStreamQuery(q)) {
           try { reply.log.warn({ q, errors: validateStreamQuery.errors }, 'stream query validation failed'); } catch {}
           const errorResponse = formatValidationErrors(validateStreamQuery.errors || []);
+          await clearInflightKey(req);
           return reply.code(400).send(errorResponse);
         }
         break;
@@ -333,6 +347,7 @@ export function createValidator(route: 'run' | 'counterfactual' | 'critique' | '
     // P0: Check for UI-editor-only fields (before schema validation)
     const uiField = checkUIFields(body);
     if (uiField) {
+      await clearInflightKey(req);
       return reply.code(400).send({
         schema: 'error.v1',
         code: 'BAD_INPUT',
@@ -347,6 +362,7 @@ export function createValidator(route: 'run' | 'counterfactual' | 'critique' | '
       const keys = Object.keys(body);
       const unknown = keys.filter(k => !allowedKeys.has(k));
       if (unknown.length > 0) {
+        await clearInflightKey(req);
         const errorResponse = formatValidationErrors([
           { instancePath: '/', keyword: 'additionalProperties', params: { additionalProperty: unknown[0] }, message: `must NOT have additional property '${unknown[0]}'` },
         ] as any);
@@ -355,6 +371,7 @@ export function createValidator(route: 'run' | 'counterfactual' | 'critique' | '
     }
 
     if (!validator(body)) {
+      await clearInflightKey(req);
       const errorResponse = formatValidationErrors(validator.errors || []);
       return reply.code(400).send(errorResponse);
     }
