@@ -934,9 +934,9 @@ export async function createServer(opts: ServerOpts = {}) {
           try { reply.raw.end(); } catch {}
         };
 
-        // Handle disconnect
-        reply.raw.on('close', endStream);
-        reply.raw.on('error', endStream);
+        // P0: Handle disconnect (use .once for deterministic cleanup)
+        reply.raw.once('close', endStream);
+        reply.raw.once('error', endStream);
 
         const q = req.query || {};
         const id: string = String(q.id || 'default');
@@ -1057,13 +1057,13 @@ export async function createServer(opts: ServerOpts = {}) {
         app.inflight.dec('endStream');
       };
 
-      // Critical: Handle client disconnect to prevent timer leak and inflight counter leak
-      reply.raw.on('close', () => {
+      // P0: Handle client disconnect (use .once for deterministic cleanup)
+      reply.raw.once('close', () => {
         app.log.info({ reqId: req.id }, 'SSE client disconnected');
         endStream();
       });
 
-      reply.raw.on('error', (err) => {
+      reply.raw.once('error', (err) => {
         app.log.error({ reqId: req.id, err }, 'SSE stream error');
         endStream();
       });
