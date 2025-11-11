@@ -8,8 +8,8 @@ import { XorShift128Plus } from './rng.js';
 
 const DEFAULT_CONFIG: Partial<KernelConfig> = {
   K: 256,
-  maxNodes: 12,
-  maxEdges: 20,
+  maxNodes: 50,
+  maxEdges: 200,
   beliefDefault: 0.7,
 };
 

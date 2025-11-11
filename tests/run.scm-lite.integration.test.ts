@@ -85,7 +85,7 @@ describe('POST /v1/run with SCM-Lite enabled', () => {
     server = await spawnServer({ env: ENV });
 
     const largeGraph = {
-      nodes: Array.from({ length: 13 }, (_, i) => ({ id: `n${i}`, label: `Node ${i}` })),
+      nodes: Array.from({ length: 51 }, (_, i) => ({ id: `n${i}`, label: `Node ${i}` })),
       edges: [{ from: 'n0', to: 'n1', weight: 1 }],
     };
 

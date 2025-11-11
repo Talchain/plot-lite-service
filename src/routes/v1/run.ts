@@ -175,8 +175,8 @@ export async function registerRunRoute(app: FastifyInstance) {
     
     // SCM-Lite schema and caps
     const schema = useScmLite ? 'report.v1' : 'run.v1';
-    const maxNodes = useScmLite ? 12 : 200;
-    const maxEdges = useScmLite ? 24 : 500;
+    const maxNodes = useScmLite ? 50 : 200;
+    const maxEdges = useScmLite ? 200 : 500;
 
     const nodeCount = graph.nodes?.length ?? 0;
     const edgeCount = graph.edges?.length ?? 0;
