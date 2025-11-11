@@ -14,6 +14,11 @@ info:
     - FEATURE_STREAM=1 enables real SSE /stream route (test-only otherwise)
     - AUTH_ENABLED=1 requires Authorization: Bearer <token> on certain routes
     
+    **Security & Limits**:
+    - Production requires server-side HMAC secret (TOKEN_HMAC_SECRET) for token signing
+    - Clients do not send or manage this secret; it's server-only configuration
+    - Request body limit: 96 KB; graph limits: 200 nodes, 500 edges (50/200 for SCM-Lite)
+    
     **Legacy Routes**: /draft-flows, /critique, /improve (v0) remain for backwards compatibility.
   contact:
     name: PLoT Engine

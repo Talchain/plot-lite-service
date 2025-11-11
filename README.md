@@ -79,6 +79,37 @@ npm start
   - Avoid response buffering/compression for SSE paths.
 - **TTFF/flush**: the stream route flushes a first frame immediately to optimise TTFF. Gate tooling measures TTFF in SLOs and GitHub Step Summary.
 
+## Operations: Required Secrets
+
+### Production Environment Variables
+
+**TOKEN_HMAC_SECRET** (required in production):
+- 64-character hexadecimal string for HMAC token signing
+- Server fails fast at startup if missing or weak
+- Generate: `openssl rand -hex 32`
+
+**Setup in Render:**
+```bash
+# Generate secret
+openssl rand -hex 32
+
+# Add to Render Dashboard:
+# Environment → Add Environment Variable
+# Key: TOKEN_HMAC_SECRET
+# Value: <paste generated hex>
+```
+
+**Local development:**
+```bash
+# Copy .env.example to .env
+cp .env.example .env
+
+# Generate and add to .env
+echo "TOKEN_HMAC_SECRET=$(openssl rand -hex 32)" >> .env
+```
+
+**CI/Testing:** Test suite automatically injects a safe dummy secret. No manual setup needed.
+
 ## Deployments via Render
 
 **Auto-deploy from GitHub** using Render Blueprint (`render.yaml`):

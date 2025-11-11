@@ -7,12 +7,15 @@
  * This runs in-process (via Vitest setupFiles) to catch leaks
  * immediately rather than waiting for CI gate.
  * 
- * Also sets default PRINCIPAL_HMAC_SECRET for tests.
+ * Also sets default TOKEN_HMAC_SECRET and PRINCIPAL_HMAC_SECRET for tests.
  */
 
 import { afterAll } from 'vitest';
 
-// Set default test secret (64 chars as required)
+// Set default test secrets (64 chars as required)
+if (!process.env.TOKEN_HMAC_SECRET) {
+  process.env.TOKEN_HMAC_SECRET = 'test-token-hmac-secret-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+}
 if (!process.env.PRINCIPAL_HMAC_SECRET) {
   process.env.PRINCIPAL_HMAC_SECRET = 'test-only-not-for-prod'.repeat(3).substring(0, 64);
 }
