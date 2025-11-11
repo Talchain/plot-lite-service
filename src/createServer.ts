@@ -1199,6 +1199,9 @@ export async function createServer(opts: ServerOpts = {}) {
           clearInflight(principalFor(req), idk.trim());
         } catch {}
       }
+      // Structured log for 413
+      const bytes = req.headers['content-length'] ? Number(req.headers['content-length']) : 0;
+      req.log.warn({ evt: 'oversize', id: req.id, route: req.url, bytes, reason: 'body_too_large' });
       return replyWithAppError(reply, { type: 'BAD_INPUT', statusCode: 413, message: 'Request entity too large' });
     }
     // Fallback INTERNAL
