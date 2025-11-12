@@ -1,7 +1,5 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
-
 ## [1.3.0] - 2025-11-12
 
 ### Added
@@ -12,15 +10,13 @@ All notable changes to this project will be documented in this file.
 - **Auto idempotency keys** - SDK automatically generates Idempotency-Key for POST requests
 - **429 auto-retry** - SDK automatically retries once on 429 using Retry-After header
 - **Performance gate CI** - Workflow to check p95 latency (warns if > 600ms)
+- **Soak test CI** - 10-minute soak test workflow (manual dispatch)
+- **Structured logs** - compare/inspect endpoints log evt, id, route, seed, duration_ms
 - **OpenAPI documentation** - Added compare.v1 and inspect.v1 schemas with examples
 
 ### Changed
 - SDK version bumped from 0.1.1 to 0.2.0
-- Package size optimized to 3.9KB
-
-### Fixed
-- Browser-safe headers (no User-Agent in browsers)
-- Deterministic outputs with seed parameter
+- Package size optimized to 3.3KB
 
 ## [1.2.0] - 2025-11-11
 
@@ -33,23 +29,3 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - Request ID generation uses crypto.randomUUID() instead of empty string
 - Startup logs include CORS allowlist and effective RPM
-
-## [1.1.0] - 2025-11-10
-
-### Added
-- Rate limiting with deterministic behavior
-- Idempotency key support
-- SCM-Lite mode
-- CORS allow-list configuration
-
-### Changed
-- Body limit set to 96 KB
-- Default RPM set to 60
-
-## [1.0.0] - 2025-11-01
-
-### Added
-- Initial release
-- POST /v1/run endpoint
-- Health and version endpoints
-- Basic trust signals
