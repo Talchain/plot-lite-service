@@ -1,0 +1,25 @@
+name: soak-10m
+on:
+  workflow_dispatch:
+jobs:
+  soak:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Soak 10 minutes @ ~1.5 RPS
+        run: |
+          set -euo pipefail
+          BASE="https://plot-lite-service.onrender.com"
+          END=$(( $(date +%s) + 600 ))
+          OK=0; ERR=0
+          while [ $(date +%s) -lt $END ]; do
+            body='{"graph":{"nodes":[{"id":"A","label":"A"}],"edges":[]},"seed":4242}'
+            code=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/v1/run" -H 'Content-Type: application/json' --data-binary "$body")
+            if [ "$code" = "200" ]; then OK=$((OK+1)); else ERR=$((ERR+1)); fi
+            sleep 0.66
+          done
+          echo "{\"ok\":$OK,\"err\":$ERR}" > soak-results.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: soak-results
+          path: soak-results.json
