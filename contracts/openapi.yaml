@@ -1350,3 +1350,131 @@ components:
         trace_id:
           type: string
           description: 'Optional client-provided trace identifier echoed from X-Trace-Id when TRACE_ID_PASSTHROUGH=1'
+
+  /v1/compare:
+    post:
+      summary: Compare graph options
+      description: Compare 2-5 graph options with deterministic p10/p50/p90 + deltas
+      operationId: compareOptions
+      tags: [v1, inference]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [graphs]
+              properties:
+                seed:
+                  type: integer
+                  example: 4242
+                graphs:
+                  type: array
+                  minItems: 2
+                  maxItems: 5
+                  items:
+                    type: object
+                    required: [graph, label]
+                    properties:
+                      graph:
+                        type: object
+                        properties:
+                          nodes:
+                            type: array
+                          edges:
+                            type: array
+                      label:
+                        type: string
+            example:
+              seed: 4242
+              graphs:
+                - graph:
+                    nodes: [{id: "A", label: "Option A"}]
+                    edges: []
+                  label: "A"
+                - graph:
+                    nodes: [{id: "B", label: "Option B"}]
+                    edges: []
+                  label: "B"
+      responses:
+        '200':
+          description: Comparison results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schema:
+                    type: string
+                    example: "compare.v1"
+                  baseline:
+                    type: string
+                  options:
+                    type: array
+                  seed:
+                    type: integer
+              example:
+                schema: "compare.v1"
+                baseline: "A"
+                options:
+                  - label: "A"
+                    p10: 0.44
+                    p50: 1.12
+                    p90: 2.12
+                    delta: {p10: 0, p50: 0, p90: 0}
+                seed: 4242
+
+  /v1/inspect:
+    post:
+      summary: Inspect graph evaluation
+      description: Returns introspection details (beliefs, weights, provenance)
+      operationId: inspectGraph
+      tags: [v1, inference]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [graph]
+              properties:
+                graph:
+                  type: object
+                  properties:
+                    nodes:
+                      type: array
+                    edges:
+                      type: array
+                seed:
+                  type: integer
+            example:
+              graph:
+                nodes: [{id: "A", label: "Node A"}]
+                edges: []
+              seed: 4242
+      responses:
+        '200':
+          description: Inspection results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schema:
+                    type: string
+                    example: "inspect.v1"
+                  explain:
+                    type: object
+                  provenance:
+                    type: object
+                  hashes:
+                    type: object
+              example:
+                schema: "inspect.v1"
+                explain:
+                  top_drivers: []
+                  assumptions: ["linear-assumption"]
+                provenance:
+                  inference_mode: "model_based"
+                hashes:
+                  response_hash: "abc123"
