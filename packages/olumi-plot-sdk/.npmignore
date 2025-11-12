@@ -1,0 +1,14 @@
+# Build artifacts
+*.tgz
+
+# Temp/backup files
+*.bak
+*.tmp
+
+# Tests (not needed in published package)
+test/
+
+# Development files
+tsconfig.json
+vitest.config.ts
+.gitignore

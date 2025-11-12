@@ -7,7 +7,7 @@ TypeScript SDK for PLoT Engine API. Works in both Node.js and browsers.
 ```bash
 # From repo (not published to npm)
 npm pack
-npm install olumi-plot-sdk-0.1.1.tgz
+npm install olumi-plot-sdk-<version>.tgz
 ```
 
 ## Usage
@@ -58,5 +58,5 @@ The SDK is browser-safe:
 ## Headers
 
 All requests include:
-- `x-olumi-sdk: olumi-plot-sdk/0.1.1` (always)
-- `User-Agent: olumi-plot-sdk/0.1.1` (Node.js only)
+- `x-olumi-sdk: olumi-plot-sdk/<version>` (always)
+- `User-Agent: olumi-plot-sdk/<version>` (Node.js only)
