@@ -1,0 +1,89 @@
+name: Performance Gate
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  perf-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Build
+        run: npm run build
+      
+      - name: Start server
+        run: |
+          npm start &
+          sleep 5
+        env:
+          PORT: 4311
+          TOKEN_HMAC_SECRET: ${{ secrets.TOKEN_HMAC_SECRET || '0000000000000000000000000000000000000000000000000000000000000000' }}
+      
+      - name: Run perf test
+        run: |
+          cat > perf-test.js << 'PERF'
+          const start = Date.now();
+          const results = [];
+          
+          async function test() {
+            for (let i = 0; i < 60; i++) {
+              const reqStart = Date.now();
+              const res = await fetch('http://127.0.0.1:4311/v1/run', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  graph: { nodes: [{ id: 'A', label: 'A' }], edges: [] },
+                  seed: 4242
+                })
+              });
+              const duration = Date.now() - reqStart;
+              results.push(duration);
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            }
+            
+            results.sort((a, b) => a - b);
+            const p95Index = Math.floor(results.length * 0.95);
+            const p95 = results[p95Index];
+            const p50 = results[Math.floor(results.length * 0.5)];
+            
+            console.log(JSON.stringify({
+              total_requests: results.length,
+              p50_ms: p50,
+              p95_ms: p95,
+              max_ms: results[results.length - 1],
+              total_duration_s: (Date.now() - start) / 1000
+            }, null, 2));
+            
+            if (p95 > 600) {
+              console.log(`⚠️  WARNING: p95 (${p95}ms) exceeds 600ms threshold`);
+            } else {
+              console.log(`✅ PASS: p95 (${p95}ms) within 600ms threshold`);
+            }
+          }
+          
+          test().catch(err => {
+            console.error('Perf test failed:', err);
+            process.exit(1);
+          });
+          PERF
+          
+          node perf-test.js | tee perf-results.json
+      
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perf-results
+          path: perf-results.json
