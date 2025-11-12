@@ -10,6 +10,7 @@
 - **Auto idempotency keys** - SDK automatically generates Idempotency-Key for POST requests
 - **429 auto-retry** - SDK automatically retries once on 429 using Retry-After header
 - **Performance gate CI** - Workflow to check p95 latency (warns if > 600ms)
+- **OpenAPI documentation** - Added compare.v1 and inspect.v1 schemas with examples
 
 ### Changed
 - SDK version bumped from 0.1.1 to 0.2.0
