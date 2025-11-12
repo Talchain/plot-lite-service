@@ -1,41 +1,29 @@
 # Changelog
 
-## [1.1.1] - 2025-11-10
-
-### Fixed
-- Deterministic token-bucket admission (RPM=1 edge case resolved)
-- Instance-scoped rate-limit store (no cross-instance bleed)
-- Unified bypass predicate (health/metrics/limits/SSE)
-- Per-request SCM-Lite gating (header → query → env)
-
-### Operations
-- Expect RATE_LIMIT_ENABLED=1 in production
-- Expect PROD_SCM_LITE_PLACEHOLDER=0 in production
-- Safe test signal (serial): ≥98.5% pass; remaining flakes are test-infrastructure only
-
-## [1.2.0] - 2025-11-09
-
-### Fixed
-- **Rate Limit**: Corrected replay admission logic to use `>=` check for count, preventing false 429s at RPM=1
-- **Rate Limit**: Fixed pending calculation to only increment for non-replay requests
-- **Rate Limit**: Instance-scoped store prevents cross-test state bleed
-- **Rate Limit**: Moved commit hook from `onSend` to `onResponse` for stable lifecycle
-- **Rate Limit**: Unified bypass predicate (`shouldBypass`) eliminates drift between checks
-- **Rate Limit**: POST/PUT/PATCH admission moved to `preHandler` ensuring 400 beats 429
-- **SCM-Lite**: Per-request gating with header → query → env precedence
-- **SCM-Lite**: Placeholder mode returns correct shape (no `bma_hash`) in production
-- **Metrics**: Health counters (`json_429_count`, `sse_429_count`) via helper functions
+## [1.3.0] - 2025-11-12
 
 ### Added
-- Smoke test script (`scripts/smoke.sh`) for staging readiness verification
-- Comprehensive rate limit conformance tests
-- SSE soak test for stability verification
+- **POST /v1/compare** - Compare 2-5 graph options with p10/p50/p90 + deltas + top_drivers
+- **POST /v1/inspect** - Introspect graph evaluation (beliefs, weights, provenance)
+- **SDK v0.2.0** - Added `compare()` and `inspect()` functions
+- **Auto request ID generation** - SDK automatically generates X-Request-Id using crypto.randomUUID
+- **Auto idempotency keys** - SDK automatically generates Idempotency-Key for POST requests
+- **429 auto-retry** - SDK automatically retries once on 429 using Retry-After header
+- **Performance gate CI** - Workflow to check p95 latency (warns if > 600ms)
+- **OpenAPI documentation** - Added compare.v1 and inspect.v1 schemas with examples
 
 ### Changed
-- Rate limiter now uses Fastify instance decoration for store isolation
-- All methods processed in `preHandler` for consistent validation precedence
-- Headers (`X-RateLimit-*`) guaranteed on all responses, 429s include `Retry-After`
+- SDK version bumped from 0.1.1 to 0.2.0
+- Package size: ESM 1.7KB, CJS 2.7KB
 
-## [1.0.0] - 2025-10-16
+## [1.2.0] - 2025-11-11
 
-Initial release with PLoT Engine core functionality.
+### Added
+- **X-Request-Id support** - Echo back if provided, generate UUID if missing
+- **Enhanced /v1/limits** - Added rate_limit_rpm and flags.scm_lite fields
+- **Structured logs** - 429 and 413 errors now logged with context
+- **TypeScript SDK v0.1.1** - Browser-safe client with TextEncoder support
+
+### Changed
+- Request ID generation uses crypto.randomUUID() instead of empty string
+- Startup logs include CORS allowlist and effective RPM
