@@ -11,12 +11,13 @@ interface InspectRequest {
 
 export async function registerInspectRoute(app: FastifyInstance) {
   app.post('/v1/inspect', async (req: FastifyRequest, reply: FastifyReply) => {
+    const startTime = Date.now();
     const body = req.body as InspectRequest;
-    
+
     if (!body.graph || !body.graph.nodes) {
       return reply.code(400).send({ error: { type: 'BAD_INPUT', message: 'graph required' } });
     }
-    
+
     const seed = body.seed || 4242;
     const graphStr = JSON.stringify(body.graph);
     const responseHash = createHash('sha256').update(graphStr + seed).digest('hex');
@@ -28,7 +29,16 @@ export async function registerInspectRoute(app: FastifyInstance) {
       sign: idx % 2 === 0 ? '+' : '-',
       contribution: 55 - idx * 10
     }));
-    
+
+    req.log.info({
+      evt: 'inspect_end',
+      id: req.id,
+      route: '/v1/inspect',
+      seed,
+      node_count: body.graph.nodes.length,
+      duration_ms: Date.now() - startTime
+    });
+
     return reply.code(200).send({
       schema: 'inspect.v1',
       graph: body.graph,

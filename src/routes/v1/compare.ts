@@ -10,17 +10,18 @@ interface CompareRequest {
 
 export async function registerCompareRoute(app: FastifyInstance) {
   app.post('/v1/compare', async (req: FastifyRequest, reply: FastifyReply) => {
+    const startTime = Date.now();
     const body = req.body as CompareRequest;
-    
+
     // Validation
     if (!body.graphs || !Array.isArray(body.graphs)) {
       return reply.code(400).send({ error: { type: 'BAD_INPUT', message: 'graphs array required' } });
     }
-    
+
     if (body.graphs.length < 2 || body.graphs.length > 5) {
       return reply.code(400).send({ error: { type: 'BAD_INPUT', message: 'graphs must contain 2-5 options' } });
     }
-    
+
     const seed = body.seed || 4242;
     
     // Simulate evaluation (deterministic with seed)
@@ -48,6 +49,15 @@ export async function registerCompareRoute(app: FastifyInstance) {
       };
     });
     
+    req.log.info({
+      evt: 'compare_end',
+      id: req.id,
+      route: '/v1/compare',
+      seed,
+      options_count: body.graphs.length,
+      duration_ms: Date.now() - startTime
+    });
+
     return reply.code(200).send({
       schema: 'compare.v1',
       baseline: body.graphs[0].label,
