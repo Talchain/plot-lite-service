@@ -4,7 +4,7 @@ import cors from '@fastify/cors';
 import { readFileSync, existsSync } from 'fs';
 import { resolve, join as joinPath } from 'path';
 import { spawnSync } from 'child_process';
-import { createHash, timingSafeEqual } from 'crypto';
+import { createHash, timingSafeEqual, randomUUID } from 'crypto';
 import { promises as fsp } from 'node:fs';
 import { makeRateLimiter } from './middleware/rate-limit.js';
 import { refreshFromEnv } from './config/runtimeConfig.js';
@@ -120,6 +120,14 @@ export async function createServer(opts: ServerOpts = {}) {
     requestTimeout: Number(process.env.REQUEST_TIMEOUT_MS || 5000),
     disableRequestLogging: true,
     trustProxy: process.env.TRUST_PROXY === '1',
+    requestIdHeader: 'x-request-id',
+    genReqId: (req) => {
+      const header = req.headers['x-request-id'];
+      if (header && typeof header === 'string' && header.trim()) {
+        return header.trim();
+      }
+      return randomUUID();
+    },
   });
 
   // Guard: prevent test routes in production
@@ -1197,6 +1205,9 @@ export async function createServer(opts: ServerOpts = {}) {
           clearInflight(principalFor(req), idk.trim());
         } catch {}
       }
+      // Structured log for 413
+      const bytes = req.headers['content-length'] ? Number(req.headers['content-length']) : 0;
+      req.log.warn({ evt: 'oversize', id: req.id, route: req.url, bytes, reason: 'body_too_large' });
       return replyWithAppError(reply, { type: 'BAD_INPUT', statusCode: 413, message: 'Request entity too large' });
     }
     // Fallback INTERNAL

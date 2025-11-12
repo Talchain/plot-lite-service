@@ -22,7 +22,15 @@ async function start() {
   const app = await createServer({ enableTestRoutes: process.env.TEST_ROUTES === '1' });
 
   await app.listen({ port: PORT, host: HOST });
-  app.log.info({ port: PORT }, 'server started');
+  
+  // Startup summary
+  const corsOrigins = process.env.CORS_ALLOW_ORIGINS || process.env.WEB_APP_ORIGIN || 'http://localhost:5173';
+  const rpm = Number(process.env.RATE_LIMIT_PER_MIN || 60);
+  app.log.info({ 
+    port: PORT, 
+    cors_allowlist: corsOrigins.split(',').map(s => s.trim()), 
+    rate_limit_rpm: rpm 
+  }, 'server started');
 
   // Hot-reload knobs on SIGHUP (safe subset)
   process.on('SIGHUP', () => {
