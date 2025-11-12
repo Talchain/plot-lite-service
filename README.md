@@ -257,6 +257,54 @@ fetch('https://plot-lite-service.onrender.com/v1/run', {
 - Deterministic results with same seed
 - Returns `report.v1` schema with summary bands
 
+### Compare & Inspect Endpoints
+
+#### POST /v1/compare
+Compare 2-5 graph options with percentile metrics and deltas:
+```javascript
+fetch('https://plot-lite-service.onrender.com/v1/compare', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    graphs: [
+      { graph: { nodes: [...], edges: [...] }, label: 'Option A' },
+      { graph: { nodes: [...], edges: [...] }, label: 'Option B' }
+    ],
+    seed: 4242
+  })
+});
+```
+
+**Returns:**
+- Schema: `compare.v1`
+- Baseline: First graph label
+- Options: Array with p10/p50/p90 metrics, top drivers, and deltas vs baseline
+- Deterministic with same seed
+
+#### POST /v1/inspect
+Introspect graph evaluation details (beliefs, weights, provenance):
+```javascript
+fetch('https://plot-lite-service.onrender.com/v1/inspect', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    graph: { nodes: [...], edges: [...] },
+    seed: 4242
+  })
+});
+```
+
+**Returns:**
+- Schema: `inspect.v1`
+- Explain: Top drivers, edge drivers, assumptions, active flags
+- Provenance: Inference mode and sample count
+- Hashes: Response hash and (if SCM-Lite enabled) BMA hash
+
+**Client Tips:**
+- Read `/v1/limits` at startup to enforce size constraints (96 KB) client-side
+- Honor `Retry-After` on 429; show a polite UX delay
+- Include `X-Request-Id` for correlation; server echoes it back
+
 ### Replay telemetry (tests & local runs)
 
 GET /health includes a compact replay section that reflects the most recent replay activity:
