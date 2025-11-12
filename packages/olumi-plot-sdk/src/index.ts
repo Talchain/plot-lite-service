@@ -12,7 +12,15 @@ export async function run(
   options: HttpOptions = {}
 ): Promise<RunResponse> {
   const body = JSON.stringify(request);
-  const bodyKb = Buffer.byteLength(body, 'utf8') / 1024;
+  
+  // Browser-safe size calculation
+  let bodyKb: number;
+  if (typeof TextEncoder !== 'undefined') {
+    bodyKb = new TextEncoder().encode(body).length / 1024;
+  } else {
+    // Node.js fallback (only if TextEncoder is missing)
+    bodyKb = Buffer.byteLength(body, 'utf8') / 1024;
+  }
   
   if (bodyKb > 96) {
     throw new OversizeError(96);

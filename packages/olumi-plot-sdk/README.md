@@ -1,13 +1,13 @@
 # @olumi/plot-sdk
 
-TypeScript SDK for PLoT Engine API.
+TypeScript SDK for PLoT Engine API. Works in both Node.js and browsers.
 
 ## Installation
 
 ```bash
 # From repo (not published to npm)
 npm pack
-npm install olumi-plot-sdk-0.1.0.tgz
+npm install olumi-plot-sdk-0.1.1.tgz
 ```
 
 ## Usage
@@ -46,3 +46,17 @@ Runs inference on a graph. Throws `OversizeError` if payload exceeds 96 KB.
 - `baseUrl`: API base URL (default: production)
 - `scmLite`: Enable SCM-Lite mode
 - `idempotencyKey`: Optional idempotency key
+
+## Browser Support
+
+The SDK is browser-safe:
+- Uses `TextEncoder` for size calculation (with Node.js `Buffer` fallback)
+- Sets `x-olumi-sdk` header for tracking
+- Skips `User-Agent` in browsers (not allowed by CORS)
+- Detects environment via `window`/`document` presence
+
+## Headers
+
+All requests include:
+- `x-olumi-sdk: olumi-plot-sdk/0.1.1` (always)
+- `User-Agent: olumi-plot-sdk/0.1.1` (Node.js only)

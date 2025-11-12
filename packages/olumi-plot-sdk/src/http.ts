@@ -5,6 +5,10 @@ export interface HttpOptions {
 }
 
 const DEFAULT_BASE_URL = 'https://plot-lite-service.onrender.com';
+const VERSION = '0.1.1';
+
+// Detect browser environment
+const isBrowser = typeof window !== 'undefined' && typeof document !== 'undefined';
 
 export async function httpRequest<T>(
   path: string,
@@ -13,7 +17,14 @@ export async function httpRequest<T>(
   const { baseUrl = DEFAULT_BASE_URL, scmLite, idempotencyKey, ...fetchOptions } = options;
   
   const headers = new Headers(fetchOptions.headers);
-  headers.set('User-Agent', 'olumi-plot-sdk/0.1.0');
+  
+  // Always set SDK header
+  headers.set('x-olumi-sdk', `olumi-plot-sdk/${VERSION}`);
+  
+  // Set User-Agent only in Node.js (browsers don't allow it)
+  if (!isBrowser) {
+    headers.set('User-Agent', `olumi-plot-sdk/${VERSION}`);
+  }
   
   if (scmLite) {
     headers.set('x-scm-lite', '1');
