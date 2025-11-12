@@ -10,13 +10,10 @@
 - **Auto idempotency keys** - SDK automatically generates Idempotency-Key for POST requests
 - **429 auto-retry** - SDK automatically retries once on 429 using Retry-After header
 - **Performance gate CI** - Workflow to check p95 latency (warns if > 600ms)
-- **Soak test CI** - 10-minute soak test workflow (manual dispatch)
-- **Structured logs** - compare/inspect endpoints log evt, id, route, seed, duration_ms
-- **OpenAPI documentation** - Added compare.v1 and inspect.v1 schemas with examples
 
 ### Changed
 - SDK version bumped from 0.1.1 to 0.2.0
-- Package size optimized to 3.3KB
+- Package size: ESM 1.7KB, CJS 2.7KB
 
 ## [1.2.0] - 2025-11-11
 
