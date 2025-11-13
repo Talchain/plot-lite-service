@@ -39,9 +39,9 @@ e374399 feat: POST /v1/preferences/fit - calibration (#99)
 ### Current Pass Rate
 
 ```
-Test Files: 209 passed | 3 failed | 9 skipped (221)
-Tests: 696 passed | 9 failed | 15 skipped (720)
-Pass Rate: 98.7% (696/705 passing tests)
+Test Files: 210 passed | 3 failed | 9 skipped (222)
+Tests: 699 passed | 9 failed | 15 skipped (723)
+Pass Rate: 98.7% (699/708 passing tests, excluding skipped)
 ```
 
 ### Flake Analysis

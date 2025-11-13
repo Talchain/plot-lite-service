@@ -23,13 +23,21 @@ const routes = [
   {
     path: '/v1/compare',
     body: {
-      graph: {
-        nodes: [{ id: 'A', label: 'A' }],
-        edges: []
-      },
-      scenarios: [
-        { label: 'Base', interventions: [] },
-        { label: 'Alt', interventions: [{ node_id: 'A', set_to: 0.8 }] }
+      graphs: [
+        {
+          graph: {
+            nodes: [{ id: 'A', label: 'A' }],
+            edges: []
+          },
+          label: 'Base'
+        },
+        {
+          graph: {
+            nodes: [{ id: 'A', label: 'A', value: 0.8 }],
+            edges: []
+          },
+          label: 'Alt'
+        }
       ],
       seed: 4242
     }

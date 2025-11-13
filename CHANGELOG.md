@@ -19,10 +19,11 @@
 - SDK package size: ~9 KB (ESM/CJS + .d.ts)
 - Test pass rate: 98.7% (696/705 passing)
 
-### Performance
-- /v1/run: p95=97ms
-- /v1/compare: p95=7ms
-- /v1/inspect: p95=5ms
+### Performance (perf-gate tests, 10 runs each)
+- /v1/run: p95=31ms (p50=1.2ms)
+- /v1/compare: p95=2ms (p50=0.6ms)
+- /v1/inspect: p95=1ms (p50=0.6ms)
+- All well under 600ms target
 
 ## [1.3.0] - 2025-11-12
 
