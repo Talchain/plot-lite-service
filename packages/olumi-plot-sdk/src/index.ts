@@ -245,3 +245,40 @@ export async function runBatch(options: {
     body,
   });
 }
+
+export async function optimise(options: {
+  graph: { nodes: any[]; edges: any[] };
+  budget: number;
+  actions: Array<{
+    id: string;
+    cost: number;
+    do: Array<{ node_id: string; set_to: number }>;
+  }>;
+  objective: { type: 'utility_linear'; weights: Record<string, number> };
+  seed?: number;
+} & HttpOptions) {
+  const { graph, budget, actions, objective, seed, ...httpOpts } = options;
+  const body = JSON.stringify({ graph, budget, actions, objective, seed });
+  
+  let bodyKb: number;
+  if (typeof TextEncoder !== 'undefined') {
+    bodyKb = new TextEncoder().encode(body).length / 1024;
+  } else {
+    bodyKb = Buffer.byteLength(body, 'utf8') / 1024;
+  }
+  
+  if (bodyKb > 96) {
+    throw new OversizeError(96);
+  }
+  
+  return httpRequest('/v1/optimise', {
+    ...httpOpts,
+    requestId: httpOpts.requestId || genReqId(),
+    idempotencyKey: httpOpts.idempotencyKey || genReqId(),
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body,
+  });
+}
