@@ -11,7 +11,7 @@ npm install @olumi/plot-sdk
 ## Usage
 
 ```typescript
-import { limits, run, compare, inspect } from '@olumi/plot-sdk';
+import { limits, run, compare, inspect, score, intervene, evidence } from '@olumi/plot-sdk';
 
 // Get service limits
 const limitsData = await limits();
@@ -40,6 +40,30 @@ const inspection = await inspect({
   graph: { nodes: [{ id: 'a', label: 'A' }], edges: [] },
   seed: 42
 });
+
+// Score options with utilities
+const scoring = await score({
+  graph: { nodes: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }], edges: [] },
+  utilities: {
+    type: 'linear',
+    weights: { a: 1.0, b: 0.5 }
+  },
+  seed: 42
+});
+
+// Causal interventions
+const intervention = await intervene({
+  graph: { nodes: [{ id: 'x', label: 'X' }, { id: 'y', label: 'Y' }], edges: [{ from: 'x', to: 'y' }] },
+  do: [{ node_id: 'x', set_to: 1.0 }],
+  seed: 42
+});
+
+// Apply priors
+const withPriors = await evidence({
+  graph: { nodes: [{ id: 'a', label: 'A' }], edges: [] },
+  priors: [{ node_id: 'a', mean: 0.8, variance: 0.05, source: 'refclass:xyz' }],
+  seed: 42
+});
 ```
 
 ## API
@@ -55,6 +79,15 @@ Compares 2-5 graph options. Returns p10/p50/p90 + deltas + top_drivers.
 
 ### `inspect(options)`
 Inspects graph evaluation details (beliefs, weights, provenance).
+
+### `score(options)`
+Scores options with utility functions. Returns ranking and percentile-based utilities.
+
+### `intervene(options)`
+Performs causal interventions (do-operator). Returns baseline, counterfactual, and delta.
+
+### `evidence(options)`
+Applies reference-class priors to influence beliefs. Returns adjusted inference with baseline comparison.
 
 ## Options
 
