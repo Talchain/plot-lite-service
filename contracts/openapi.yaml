@@ -1781,3 +1781,143 @@ components:
                     error:
                       type: "NOT_IDENTIFIABLE"
                       message: "Causal effect not identifiable: confounders detected"
+
+  /v1/evidence:
+    post:
+      summary: Evidence & Priors
+      description: |
+        Apply reference-class priors to influence beliefs.
+        Returns adjusted inference with baseline comparison.
+        Note: v1 uses simple weighted average; full Bayesian update in future versions.
+      operationId: evidence
+      tags: [v1, inference]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [graph, priors]
+              properties:
+                graph:
+                  type: object
+                  required: [nodes, edges]
+                  properties:
+                    nodes:
+                      type: array
+                      items:
+                        type: object
+                        required: [id]
+                        properties:
+                          id:
+                            type: string
+                          label:
+                            type: string
+                    edges:
+                      type: array
+                seed:
+                  type: integer
+                  example: 4242
+                priors:
+                  type: array
+                  items:
+                    type: object
+                    required: [node_id, mean, variance]
+                    properties:
+                      node_id:
+                        type: string
+                      mean:
+                        type: number
+                      variance:
+                        type: number
+                      source:
+                        type: string
+                        example: "refclass:xyz"
+            example:
+              graph:
+                nodes:
+                  - {id: "A", label: "Node A"}
+                edges: []
+              seed: 4242
+              priors:
+                - {node_id: "A", mean: 0.8, variance: 0.05, source: "refclass:xyz"}
+      responses:
+        '200':
+          description: Evidence results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schema:
+                    type: string
+                    example: "evidence.v1"
+                  result:
+                    type: object
+                    properties:
+                      summary:
+                        type: object
+                        properties:
+                          p10:
+                            type: number
+                          p50:
+                            type: number
+                          p90:
+                            type: number
+                      baseline:
+                        type: object
+                        properties:
+                          p50:
+                            type: number
+                      adjustment:
+                        type: object
+                        properties:
+                          delta:
+                            type: number
+                          direction:
+                            type: string
+                            enum: [increase, decrease, none]
+                  top_drivers:
+                    type: array
+                  meta:
+                    type: object
+                    properties:
+                      seed:
+                        type: integer
+                      inference_mode:
+                        type: string
+                      prior_alpha:
+                        type: number
+                      limitations:
+                        type: string
+              example:
+                schema: "evidence.v1"
+                result:
+                  summary: {p10: 0.524, p50: 0.724, p90: 0.924}
+                  baseline: {p50: 0.624}
+                  adjustment: {delta: 0.1, direction: "increase"}
+                top_drivers:
+                  - {node_id: "A", contribution: 80, sign: "+", source: "refclass:xyz"}
+                meta: 
+                  seed: 4242
+                  inference_mode: "model_based"
+                  prior_alpha: 0.3
+                  limitations: "v1: Simple weighted average. Full Bayesian update in future versions."
+        '400':
+          description: Bad input
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      message:
+                        type: string
+              example:
+                error:
+                  type: "BAD_INPUT"
+                  message: "Invalid node_ids in priors: Z"
