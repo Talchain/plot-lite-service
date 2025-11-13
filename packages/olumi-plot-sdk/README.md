@@ -11,7 +11,7 @@ npm install @olumi/plot-sdk
 ## Usage
 
 ```typescript
-import { limits, run, compare, inspect, score, intervene, evidence } from '@olumi/plot-sdk';
+import { limits, run, compare, inspect, score, intervene, evidence, runBatch, optimise, fitPreferences } from '@olumi/plot-sdk';
 
 // Get service limits
 const limitsData = await limits();
@@ -88,6 +88,15 @@ Performs causal interventions (do-operator). Returns baseline, counterfactual, a
 
 ### `evidence(options)`
 Applies reference-class priors to influence beliefs. Returns adjusted inference with baseline comparison.
+
+### `runBatch(options)`
+Processes multiple graphs in a single request (up to 10 items). Returns array of results with response hashes.
+
+### `optimise(options)`
+Selects actions under budget to maximize utility. Uses greedy solver for budget-constrained optimization.
+
+### `fitPreferences(options)`
+Fits utility weights from pairwise comparisons using Bradley-Terry model. Stateless calibration.
 
 ## Options
 
