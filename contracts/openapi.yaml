@@ -1616,3 +1616,137 @@ components:
                 error:
                   type: "BAD_INPUT"
                   message: "Invalid node_ids in weights: Z"
+
+  /v1/intervene:
+    post:
+      summary: Causal interventions (do-operator)
+      description: |
+        Perform causal interventions and estimate counterfactual effects.
+        Returns baseline, counterfactual, and delta with identifiability check.
+      operationId: intervene
+      tags: [v1, inference]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [graph, do]
+              properties:
+                graph:
+                  type: object
+                  required: [nodes, edges]
+                  properties:
+                    nodes:
+                      type: array
+                      items:
+                        type: object
+                        required: [id]
+                        properties:
+                          id:
+                            type: string
+                          label:
+                            type: string
+                    edges:
+                      type: array
+                seed:
+                  type: integer
+                  example: 4242
+                do:
+                  type: array
+                  items:
+                    type: object
+                    required: [node_id, set_to]
+                    properties:
+                      node_id:
+                        type: string
+                      set_to:
+                        type: number
+            example:
+              graph:
+                nodes:
+                  - {id: "X", label: "Cause"}
+                  - {id: "Y", label: "Effect"}
+                edges:
+                  - {from: "X", to: "Y", weight: 0.5}
+              seed: 4242
+              do:
+                - {node_id: "X", set_to: 1.0}
+      responses:
+        '200':
+          description: Intervention results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schema:
+                    type: string
+                    example: "intervene.v1"
+                  baseline:
+                    type: object
+                    properties:
+                      summary:
+                        type: object
+                        properties:
+                          p50:
+                            type: number
+                  counterfactual:
+                    type: object
+                    properties:
+                      summary:
+                        type: object
+                        properties:
+                          p50:
+                            type: number
+                  delta:
+                    type: object
+                    properties:
+                      p10:
+                        type: number
+                      p50:
+                        type: number
+                      p90:
+                        type: number
+                  identifiability:
+                    type: string
+                  top_drivers:
+                    type: array
+                  meta:
+                    type: object
+              example:
+                schema: "intervene.v1"
+                baseline:
+                  summary: {p50: 0.924}
+                counterfactual:
+                  summary: {p50: 1.074}
+                delta: {p10: 0.05, p50: 0.15, p90: 0.30}
+                identifiability: "Identifiable: Yes. No confounders detected - direct causal effect estimable."
+                top_drivers:
+                  - {node_id: "X", contribution: 100, sign: "+"}
+                meta: {seed: 4242, inference_mode: "model_based"}
+        '400':
+          description: Bad input or not identifiable
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      message:
+                        type: string
+              examples:
+                bad_input:
+                  value:
+                    error:
+                      type: "BAD_INPUT"
+                      message: "Invalid node_ids in do: Z"
+                not_identifiable:
+                  value:
+                    error:
+                      type: "NOT_IDENTIFIABLE"
+                      message: "Causal effect not identifiable: confounders detected"
