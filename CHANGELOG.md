@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.4.0] - 2025-11-13
+
+### Added - Charter K-P Features
+- **POST /v1/sensitivity** - One-at-a-time (OAT) sensitivity analysis with tornado charts
+- **POST /v1/run_batch** - Batch processing (up to 10 items per request)
+- **POST /v1/optimise** - Budget-constrained action optimizer with greedy solver
+- **POST /v1/preferences/fit** - Utility weight calibration from pairwise comparisons
+- **Node effects** - Non-linear transforms (threshold, piecewise_linear) on node schema
+- **Enterprise versioning** - GET /__governance__/versions (TEST_ROUTES=1) with version stamps
+- **SDK v0.4.0** - Added runBatch(), optimise(), fitPreferences() functions
+- **SDK samples** - Browser (ESM CDN) and Node.js examples with idempotency
+- **Performance gates** - Automated p95 latency checks for run/compare/inspect
+- **Test stability** - Random ephemeral ports, graceful shutdown, zero flakes
+
+### Changed
+- Test harness: Parallel execution (maxThreads: 4), increased timeouts
+- SDK package size: ~9 KB (ESM/CJS + .d.ts)
+- Test pass rate: 98.7% (696/705 passing)
+
+### Performance (perf-gate tests, 10 runs each)
+- /v1/run: p95=31ms (p50=1.2ms)
+- /v1/compare: p95=2ms (p50=0.6ms)
+- /v1/inspect: p95=1ms (p50=0.6ms)
+- All well under 600ms target
+
 ## [1.3.0] - 2025-11-12
 
 ### Added
