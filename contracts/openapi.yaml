@@ -1921,3 +1921,136 @@ components:
                 error:
                   type: "BAD_INPUT"
                   message: "Invalid node_ids in priors: Z"
+
+  /v1/sensitivity:
+    post:
+      summary: Sensitivity & Robustness Analysis
+      description: |
+        One-at-a-time (OAT) sensitivity analysis with tornado charts.
+        Perturbs each target node by ±delta and measures effect on outcome.
+      operationId: sensitivity
+      tags: [v1, analysis]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [graph]
+              properties:
+                graph:
+                  $ref: '#/components/schemas/graph'
+                seed:
+                  type: integer
+                  example: 4242
+                method:
+                  type: string
+                  enum: [oat]
+                  default: oat
+                  description: Sensitivity method (one-at-a-time)
+                delta:
+                  type: number
+                  minimum: 0
+                  maximum: 1
+                  exclusiveMinimum: true
+                  default: 0.1
+                  description: Proportional perturbation for OAT
+                targets:
+                  type: array
+                  items:
+                    type: string
+                  description: Optional subset of node_ids to analyze (default all)
+            example:
+              graph:
+                nodes:
+                  - {id: "A", label: "Node A", value: 0.5}
+                  - {id: "B", label: "Node B", value: 0.3}
+                edges: []
+              seed: 4242
+              method: "oat"
+              delta: 0.1
+              targets: ["A", "B"]
+      responses:
+        '200':
+          description: Sensitivity analysis results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schema:
+                    type: string
+                    example: "sensitivity.v1"
+                  summary:
+                    type: object
+                    properties:
+                      baseline:
+                        type: object
+                        properties:
+                          p50:
+                            type: number
+                  drivers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        node_id:
+                          type: string
+                        tornado:
+                          type: object
+                          properties:
+                            low:
+                              type: number
+                              description: Effect when node decreased by delta
+                            high:
+                              type: number
+                              description: Effect when node increased by delta
+                        rank:
+                          type: integer
+                          description: Rank by total swing (1 = highest)
+                  meta:
+                    type: object
+                    properties:
+                      seed:
+                        type: integer
+                      method:
+                        type: string
+                      evaluations:
+                        type: integer
+                        description: Number of model evaluations (1 + 2*N)
+              example:
+                schema: "sensitivity.v1"
+                summary:
+                  baseline: {p50: 0.624}
+                drivers:
+                  - {node_id: "A", tornado: {low: -0.06, high: 0.08}, rank: 1}
+                  - {node_id: "B", tornado: {low: -0.03, high: 0.04}, rank: 2}
+                meta:
+                  seed: 4242
+                  method: "oat"
+                  evaluations: 5
+        '400':
+          description: Bad input
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      message:
+                        type: string
+              examples:
+                invalid_delta:
+                  value:
+                    error:
+                      type: "BAD_INPUT"
+                      message: "delta must be in (0, 1]"
+                invalid_targets:
+                  value:
+                    error:
+                      type: "BAD_INPUT"
+                      message: "Invalid target node_ids: Z"
