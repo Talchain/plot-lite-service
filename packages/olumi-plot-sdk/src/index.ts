@@ -110,3 +110,105 @@ export async function inspect(options: {
     body,
   });
 }
+
+export async function score(options: {
+  graph: { nodes: any[]; edges: any[] };
+  utilities: {
+    type: 'linear';
+    weights: Record<string, number>;
+    risk?: { attitude: 'averse' | 'neutral' | 'seeking' };
+  };
+  seed?: number;
+} & HttpOptions) {
+  const { graph, utilities, seed, ...httpOpts } = options;
+  const body = JSON.stringify({ graph, utilities, seed });
+  
+  let bodyKb: number;
+  if (typeof TextEncoder !== 'undefined') {
+    bodyKb = new TextEncoder().encode(body).length / 1024;
+  } else {
+    bodyKb = Buffer.byteLength(body, 'utf8') / 1024;
+  }
+  
+  if (bodyKb > 96) {
+    throw new OversizeError(96);
+  }
+  
+  return httpRequest('/v1/score', {
+    ...httpOpts,
+    requestId: httpOpts.requestId || genReqId(),
+    idempotencyKey: httpOpts.idempotencyKey || genReqId(),
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body,
+  });
+}
+
+export async function intervene(options: {
+  graph: { nodes: any[]; edges: any[] };
+  do: Array<{ node_id: string; set_to: number }>;
+  seed?: number;
+} & HttpOptions) {
+  const { graph, do: doOps, seed, ...httpOpts } = options;
+  const body = JSON.stringify({ graph, do: doOps, seed });
+  
+  let bodyKb: number;
+  if (typeof TextEncoder !== 'undefined') {
+    bodyKb = new TextEncoder().encode(body).length / 1024;
+  } else {
+    bodyKb = Buffer.byteLength(body, 'utf8') / 1024;
+  }
+  
+  if (bodyKb > 96) {
+    throw new OversizeError(96);
+  }
+  
+  return httpRequest('/v1/intervene', {
+    ...httpOpts,
+    requestId: httpOpts.requestId || genReqId(),
+    idempotencyKey: httpOpts.idempotencyKey || genReqId(),
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body,
+  });
+}
+
+export async function evidence(options: {
+  graph: { nodes: any[]; edges: any[] };
+  priors: Array<{
+    node_id: string;
+    mean: number;
+    variance: number;
+    source?: string;
+  }>;
+  seed?: number;
+} & HttpOptions) {
+  const { graph, priors, seed, ...httpOpts } = options;
+  const body = JSON.stringify({ graph, priors, seed });
+  
+  let bodyKb: number;
+  if (typeof TextEncoder !== 'undefined') {
+    bodyKb = new TextEncoder().encode(body).length / 1024;
+  } else {
+    bodyKb = Buffer.byteLength(body, 'utf8') / 1024;
+  }
+  
+  if (bodyKb > 96) {
+    throw new OversizeError(96);
+  }
+  
+  return httpRequest('/v1/evidence', {
+    ...httpOpts,
+    requestId: httpOpts.requestId || genReqId(),
+    idempotencyKey: httpOpts.idempotencyKey || genReqId(),
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body,
+  });
+}
