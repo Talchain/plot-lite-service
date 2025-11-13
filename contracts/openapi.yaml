@@ -1064,6 +1064,27 @@ components:
                 minimum: -1
                 maximum: 1
                 description: 'Utility/payoff for outcome nodes [-1..+1]'
+              effect:
+                type: object
+                description: 'Optional non-linear effect transform (backwards-compatible)'
+                properties:
+                  kind:
+                    type: string
+                    enum: [linear, threshold, piecewise_linear]
+                    description: 'Effect type (default: linear)'
+                  params:
+                    type: object
+                    description: 'Effect-specific parameters'
+                examples:
+                  - kind: linear
+                  - kind: threshold
+                    params: {threshold: 0.6, low: 0.0, high: 1.0}
+                  - kind: piecewise_linear
+                    params:
+                      breakpoints:
+                        - {x: 0.0, y: 0.0}
+                        - {x: 0.5, y: 0.8}
+                        - {x: 1.0, y: 1.0}
         edges:
           type: array
           maxItems: 200

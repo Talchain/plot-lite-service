@@ -23,6 +23,7 @@ import { runResponseSchema } from '../../schemas/response.js';
 import { normalizeGraph } from '../../util/normalize.js';
 import { FLAGS } from '../../config/flags.js';
 import { BODY_LIMIT_BYTES } from '../../config/constants.js';
+import { validateEffect, applyEffect } from '../../engine/effects.js';
 
 
 export interface RunRequest {
@@ -144,6 +145,19 @@ export async function registerRunRoute(app: FastifyInstance) {
     
     // Normalize graph (map confidence|probability→belief, no default on ingress)
     const graph = normalizeGraph(body.graph, false);
+    
+    // Validate node effects if present (backwards-compatible)
+    for (const node of graph.nodes) {
+      if ((node as any).effect) {
+        const validation = validateEffect((node as any).effect);
+        if (!validation.valid) {
+          req.log.info({ evt: 'effect_validation_failed', id: req.id, route: '/v1/run', node: node.id, error: validation.error });
+          return reply.code(400).send({
+            error: { type: 'BAD_INPUT', message: `Invalid effect on node ${node.id}: ${validation.error}` }
+          });
+        }
+      }
+    }
     
     // Validate constraints if present
     if (body.constraints) {
