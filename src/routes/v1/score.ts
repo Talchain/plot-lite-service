@@ -3,6 +3,7 @@
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { createHash } from 'crypto';
+import { recordAuditEvent } from '../../governance/audit-ring.js';
 
 interface ScoreRequest {
   graph: { nodes: any[]; edges: any[] };
@@ -102,7 +103,7 @@ export async function registerScoreRoute(app: FastifyInstance) {
       duration_ms: duration 
     }, 'score completed');
     
-    return reply.code(200).send({
+    const response = {
       schema: 'score.v1',
       result: {
         options,
@@ -110,6 +111,21 @@ export async function registerScoreRoute(app: FastifyInstance) {
       },
       top_drivers: topDrivers,
       meta: { seed, inference_mode: 'model_based' }
+    };
+    
+    // Record audit event (no payload bodies, only hashes + meta)
+    const responseHash = createHash('sha256').update(JSON.stringify(response)).digest('hex').slice(0, 16);
+    recordAuditEvent({
+      evt: 'score',
+      route: '/v1/score',
+      id: req.id,
+      seed,
+      inference_mode: 'model_based',
+      response_hash: responseHash,
+      status: 200,
+      ts: new Date().toISOString()
     });
+    
+    return reply.code(200).send(response);
   });
 }
