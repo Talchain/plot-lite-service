@@ -12,9 +12,10 @@ export function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-let portCounter = 14000;
+// Use random ephemeral ports to avoid conflicts in parallel tests
 export function nextPort(): number {
-  return portCounter++;
+  // Range: 20000-30000 (avoid common ports)
+  return 20000 + Math.floor(Math.random() * 10000);
 }
 
 export interface WaitForOptions {
@@ -92,8 +93,29 @@ export async function spawnServer(opts: SpawnServerOptions = {}): Promise<Server
   );
   
   const kill = async () => {
-    if (child.pid) {
-      await killTree(child.pid);
+    if (!child.pid) return;
+    
+    try {
+      // Graceful shutdown first
+      child.kill('SIGTERM');
+      
+      // Wait up to 2s for graceful shutdown
+      const deadline = Date.now() + 2000;
+      while (Date.now() < deadline) {
+        try {
+          process.kill(child.pid, 0); // Check if still alive
+          await sleep(100);
+        } catch {
+          // Process exited
+          return;
+        }
+      }
+      
+      // Force kill if still alive
+      child.kill('SIGKILL');
+      await sleep(100);
+    } catch (err) {
+      // Process may already be gone
     }
   };
   

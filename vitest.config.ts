@@ -24,7 +24,15 @@ export default defineConfig({
     isolate: true,  // Fresh module state between tests
     
     poolOptions: {
-      threads: { singleThread: true }
-    }
+      threads: { 
+        singleThread: false,
+        maxThreads: 4,
+        minThreads: 1
+      }
+    },
+    
+    // Increase timeouts for server spawn/teardown
+    testTimeout: 15000,
+    hookTimeout: 10000
   }
 })
