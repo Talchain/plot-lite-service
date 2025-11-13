@@ -622,3 +622,40 @@ K = clamp(250 + 25×edges + 10×nodes, 250, 1000)
 **Rationale**: Conservative guardrail that scales with graph complexity while maintaining determinism (same graph structure → same K → same hashes).
 
 The computed K and reason are recorded in `model_card.compute_budget`.
+
+
+## Governance & Audit Surfaces
+
+PLoT-lite maintains minimal immutable audit surfaces for compliance and debugging without storing sensitive payloads.
+
+### Audit Ring Buffer
+
+Runtime-only in-memory ring buffer (max 100 entries) records:
+- `evt`: Event type (score, intervene, evidence, etc.)
+- `route`: Endpoint path
+- `id`: Request ID
+- `seed`: Deterministic seed (if applicable)
+- `inference_mode`: Model mode used
+- `response_hash`: SHA-256 hash of response (first 16 chars)
+- `status`: HTTP status code
+- `ts`: ISO timestamp
+
+**No payload bodies or PII are logged** - only hashes and metadata.
+
+### Test-Only Audit Endpoint
+
+When `TEST_ROUTES=1`:
+```bash
+GET /__audit__/recent?limit=50
+```
+
+Returns recent audit events for CI verification. Not available in production.
+
+### Compliance Notes
+
+- Audit events are ephemeral (in-memory only, cleared on restart)
+- Response hashes enable cache verification without storing payloads
+- Suitable for debugging, performance analysis, and compliance spot-checks
+- For persistent audit trails, integrate with external logging systems
+
+
