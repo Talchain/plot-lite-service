@@ -126,7 +126,8 @@ export async function registerV1Routes(app: FastifyInstance) {
   await registerValidateRoute(app);
   await registerCompareRoute(app);
   await registerInspectRoute(app);
-  await registerScoreRoute(app);  
+  await registerScoreRoute(app);
+  await registerInterveneRoute(app);  
   // P1: Register enhanced stream route if enabled, otherwise use legacy
   if (process.env.STREAM_PARITY_ENABLE === '1') {
     await registerStreamRouteEnhanced(app);
@@ -224,3 +225,4 @@ export async function registerV1Routes(app: FastifyInstance) {
 import { registerCompareRoute } from './compare.js';
 import { registerInspectRoute } from './inspect.js';
 import { registerScoreRoute } from './score.js';
+import { registerInterveneRoute } from './intervene.js';
