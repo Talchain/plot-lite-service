@@ -212,3 +212,36 @@ export async function evidence(options: {
     body,
   });
 }
+
+export async function runBatch(options: {
+  items: Array<{
+    graph: { nodes: any[]; edges: any[] };
+    seed?: number;
+    k_samples?: number;
+  }>;
+} & HttpOptions) {
+  const { items, ...httpOpts } = options;
+  const body = JSON.stringify({ items });
+  
+  let bodyKb: number;
+  if (typeof TextEncoder !== 'undefined') {
+    bodyKb = new TextEncoder().encode(body).length / 1024;
+  } else {
+    bodyKb = Buffer.byteLength(body, 'utf8') / 1024;
+  }
+  
+  if (bodyKb > 96) {
+    throw new OversizeError(96);
+  }
+  
+  return httpRequest('/v1/run_batch', {
+    ...httpOpts,
+    requestId: httpOpts.requestId || genReqId(),
+    idempotencyKey: httpOpts.idempotencyKey || genReqId(),
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body,
+  });
+}

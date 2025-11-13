@@ -2075,3 +2075,69 @@ components:
                     error:
                       type: "BAD_INPUT"
                       message: "Invalid target node_ids: Z"
+
+  /v1/run_batch:
+    post:
+      summary: Batch Runs
+      description: |
+        Execute multiple inference runs in a single request.
+        Each item is processed deterministically with independent seeds.
+      operationId: runBatch
+      tags: [v1, batch]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              properties:
+                items:
+                  type: array
+                  minItems: 1
+                  maxItems: 10
+                  items:
+                    type: object
+                    required: [graph]
+                    properties:
+                      graph:
+                        $ref: '#/components/schemas/graph'
+                      seed:
+                        type: integer
+                      k_samples:
+                        type: integer
+            example:
+              items:
+                - graph: {nodes: [{id: "A", label: "A"}], edges: []}
+                  seed: 1
+                - graph: {nodes: [{id: "B", label: "B"}], edges: []}
+                  seed: 2
+      responses:
+        '200':
+          description: Batch results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schema:
+                    type: string
+                    example: "run_batch.v1"
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        response_hash:
+                          type: string
+                        model_card:
+                          type: object
+              example:
+                schema: "run_batch.v1"
+                results:
+                  - response_hash: "abc123"
+                    model_card: {schema: "report.v1", seed: 1}
+                  - response_hash: "def456"
+                    model_card: {schema: "report.v1", seed: 2}
+        '400':
+          description: Bad input
