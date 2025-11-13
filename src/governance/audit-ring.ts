@@ -12,6 +12,7 @@ export interface AuditEntry {
   inference_mode?: string;
   bma_hash?: string;
   response_hash?: string;
+  engine_version?: string;
   status: number;
   ts: string;
 }
