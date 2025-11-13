@@ -1,0 +1,12 @@
+== /v1/compare ==
+{
+  "schema": "compare.v1",
+  "options": 2
+}
+== /v1/inspect ==
+{
+  "schema": "inspect.v1",
+  "explain": {
+    "flags_on": null
+  }
+}

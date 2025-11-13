@@ -1478,3 +1478,141 @@ components:
                   inference_mode: "model_based"
                 hashes:
                   response_hash: "abc123"
+
+  /v1/score:
+    post:
+      summary: Score options with utilities
+      description: |
+        Rank options under uncertainty using utility functions.
+        Returns percentile-based utility scores and ranking.
+      operationId: scoreOptions
+      tags: [v1, inference]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [graph, utilities]
+              properties:
+                graph:
+                  type: object
+                  required: [nodes, edges]
+                  properties:
+                    nodes:
+                      type: array
+                      items:
+                        type: object
+                        required: [id]
+                        properties:
+                          id:
+                            type: string
+                          label:
+                            type: string
+                    edges:
+                      type: array
+                seed:
+                  type: integer
+                  example: 4242
+                utilities:
+                  type: object
+                  required: [type, weights]
+                  properties:
+                    type:
+                      type: string
+                      enum: [linear]
+                    weights:
+                      type: object
+                      additionalProperties:
+                        type: number
+                      example: {"A": 1.0, "B": 0.5}
+                    risk:
+                      type: object
+                      properties:
+                        attitude:
+                          type: string
+                          enum: [averse, neutral, seeking]
+                          default: neutral
+            example:
+              graph:
+                nodes:
+                  - {id: "A", label: "Option A"}
+                  - {id: "B", label: "Option B"}
+                edges: []
+              seed: 4242
+              utilities:
+                type: "linear"
+                weights: {"A": 1.0, "B": 0.5}
+                risk: {attitude: "neutral"}
+      responses:
+        '200':
+          description: Scoring results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schema:
+                    type: string
+                    example: "score.v1"
+                  result:
+                    type: object
+                    properties:
+                      options:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            node_id:
+                              type: string
+                            label:
+                              type: string
+                            utility:
+                              type: object
+                              properties:
+                                p10:
+                                  type: number
+                                p50:
+                                  type: number
+                                p90:
+                                  type: number
+                                expected:
+                                  type: number
+                      ranking:
+                        type: array
+                        items:
+                          type: string
+                  top_drivers:
+                    type: array
+                  meta:
+                    type: object
+              example:
+                schema: "score.v1"
+                result:
+                  options:
+                    - node_id: "A"
+                      label: "Option A"
+                      utility: {p10: 0.524, p50: 0.924, p90: 1.324, expected: 0.924}
+                  ranking: ["A", "B"]
+                top_drivers:
+                  - {node_id: "A", contribution: 100, sign: "+"}
+                meta: {seed: 4242, inference_mode: "model_based"}
+        '400':
+          description: Bad input
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                        example: "BAD_INPUT"
+                      message:
+                        type: string
+              example:
+                error:
+                  type: "BAD_INPUT"
+                  message: "Invalid node_ids in weights: Z"
