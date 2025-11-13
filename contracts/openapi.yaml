@@ -1206,6 +1206,37 @@ components:
         treatment_node: { type: string, maxLength: 100 }
         outcome_node: { type: string, maxLength: 100 }
         baseline_value: { type: number, minimum: -1000000, maximum: 1000000 }
+        constraints:
+          type: object
+          description: Optional constraints for validation and modeling
+          properties:
+            bounds:
+              type: object
+              description: Min/max bounds for node values
+              additionalProperties:
+                type: object
+                properties:
+                  min:
+                    type: number
+                  max:
+                    type: number
+              example:
+                X: {min: 0, max: 1}
+                Y: {min: -10, max: 10}
+            structure:
+              type: object
+              description: Structural constraints
+              properties:
+                forbid_edges:
+                  type: array
+                  description: List of forbidden edges [from, to]
+                  items:
+                    type: array
+                    items:
+                      type: string
+                    minItems: 2
+                    maxItems: 2
+                  example: [["A", "B"], ["C", "D"]]
     
     runResponse:
       type: object
