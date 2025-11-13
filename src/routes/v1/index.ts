@@ -132,6 +132,7 @@ export async function registerV1Routes(app: FastifyInstance) {
   await registerSensitivityRoute(app);
   await registerRunBatchRoute(app);
   await registerOptimiseRoute(app);
+  await registerPreferencesRoute(app);
   await registerAuditTestRoute(app);  
   // P1: Register enhanced stream route if enabled, otherwise use legacy
   if (process.env.STREAM_PARITY_ENABLE === '1') {
@@ -235,4 +236,5 @@ import { registerEvidenceRoute } from './evidence.js';
 import { registerSensitivityRoute } from './sensitivity.js';
 import { registerRunBatchRoute } from './run-batch.js';
 import { registerOptimiseRoute } from './optimise.js';
+import { registerPreferencesRoute } from './preferences.js';
 import { registerAuditTestRoute } from '../test/audit.js';

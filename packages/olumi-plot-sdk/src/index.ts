@@ -282,3 +282,32 @@ export async function optimise(options: {
     body,
   });
 }
+
+export async function fitPreferences(options: {
+  pairs: Array<{ winner: string; loser: string; strength: number }>;
+  prior: { weights: Record<string, number> };
+} & HttpOptions) {
+  const { pairs, prior, ...httpOpts } = options;
+  const body = JSON.stringify({ pairs, prior });
+  
+  let bodyKb: number;
+  if (typeof TextEncoder !== 'undefined') {
+    bodyKb = new TextEncoder().encode(body).length / 1024;
+  } else {
+    bodyKb = Buffer.byteLength(body, 'utf8') / 1024;
+  }
+  
+  if (bodyKb > 96) {
+    throw new OversizeError(96);
+  }
+  
+  return httpRequest('/v1/preferences/fit', {
+    ...httpOpts,
+    requestId: httpOpts.requestId || genReqId(),
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body,
+  });
+}

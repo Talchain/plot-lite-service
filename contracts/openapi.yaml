@@ -2194,3 +2194,43 @@ components:
                   meta: { type: object }
         '400':
           description: Bad input
+
+  /v1/preferences/fit:
+    post:
+      summary: Preferences & Calibration
+      description: Fit utility weights from pairwise comparisons
+      operationId: fitPreferences
+      tags: [v1, calibration]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pairs, prior]
+              properties:
+                pairs:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      winner: { type: string }
+                      loser: { type: string }
+                      strength: { type: number }
+                prior:
+                  type: object
+                  properties:
+                    weights: { type: object }
+      responses:
+        '200':
+          description: Fitted weights
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schema: { type: string, example: "preferences.v1" }
+                  weights: { type: object }
+                  diagnostics: { type: object }
+        '400':
+          description: Bad input
