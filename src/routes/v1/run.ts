@@ -34,6 +34,10 @@ export interface RunRequest {
   baseline_value?: number;
   inference_mode?: InferenceMode;
   include_debug?: boolean;
+  constraints?: {
+    bounds?: Record<string, { min?: number; max?: number }>;
+    structure?: { forbid_edges?: Array<[string, string]> };
+  };
 }
 
 export async function registerRunRoute(app: FastifyInstance) {
@@ -140,6 +144,54 @@ export async function registerRunRoute(app: FastifyInstance) {
     
     // Normalize graph (map confidence|probability→belief, no default on ingress)
     const graph = normalizeGraph(body.graph, false);
+    
+    // Validate constraints if present
+    if (body.constraints) {
+      const nodeIds = new Set(graph.nodes.map((n: any) => n.id));
+      
+      // Validate bounds
+      if (body.constraints.bounds) {
+        for (const [nodeId, bounds] of Object.entries(body.constraints.bounds)) {
+          if (!nodeIds.has(nodeId)) {
+            req.log.info({ evt: 'constraints_violation', id: req.id, route: '/v1/run', reason: 'invalid_node_in_bounds', node: nodeId });
+            return reply.code(400).send({
+              error: { type: 'BAD_INPUT', message: `Bounds constraint references non-existent node: ${nodeId}` }
+            });
+          }
+          
+          // Check if any node values violate bounds (simplified check for now)
+          const node = graph.nodes.find((n: any) => n.id === nodeId);
+          if (node && typeof (node as any).value === 'number') {
+            const val = (node as any).value;
+            if (bounds.min !== undefined && val < bounds.min) {
+              req.log.info({ evt: 'constraints_violation', id: req.id, route: '/v1/run', reason: 'bounds_min', node: nodeId, value: val, min: bounds.min });
+              return reply.code(400).send({
+                error: { type: 'BAD_INPUT', message: `Node ${nodeId} value ${val} violates min bound ${bounds.min}` }
+              });
+            }
+            if (bounds.max !== undefined && val > bounds.max) {
+              req.log.info({ evt: 'constraints_violation', id: req.id, route: '/v1/run', reason: 'bounds_max', node: nodeId, value: val, max: bounds.max });
+              return reply.code(400).send({
+                error: { type: 'BAD_INPUT', message: `Node ${nodeId} value ${val} violates max bound ${bounds.max}` }
+              });
+            }
+          }
+        }
+      }
+      
+      // Validate structure (forbid edges)
+      if (body.constraints.structure?.forbid_edges) {
+        for (const [from, to] of body.constraints.structure.forbid_edges) {
+          const forbiddenEdge = graph.edges.find((e: any) => e.from === from && e.to === to);
+          if (forbiddenEdge) {
+            req.log.info({ evt: 'constraints_violation', id: req.id, route: '/v1/run', reason: 'forbidden_edge', from, to });
+            return reply.code(400).send({
+              error: { type: 'BAD_INPUT', message: `Forbidden edge present: ${from} → ${to}` }
+            });
+          }
+        }
+      }
+    }
 
     // Per-request SCM-Lite gating: header → query → env (lower-cased)
     function scmLiteEnabled(req: FastifyRequest): { enabled: boolean; source: string } {
