@@ -2141,3 +2141,56 @@ components:
                     model_card: {schema: "report.v1", seed: 2}
         '400':
           description: Bad input
+
+  /v1/optimise:
+    post:
+      summary: Action Optimiser
+      description: Select actions under budget to maximize utility
+      operationId: optimise
+      tags: [v1, optimisation]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [graph, budget, actions, objective]
+              properties:
+                graph: { $ref: '#/components/schemas/graph' }
+                budget: { type: number, minimum: 0 }
+                actions:
+                  type: array
+                  items:
+                    type: object
+                    required: [id, cost, do]
+                    properties:
+                      id: { type: string }
+                      cost: { type: number, minimum: 0 }
+                      do:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            node_id: { type: string }
+                            set_to: { type: number }
+                objective:
+                  type: object
+                  properties:
+                    type: { type: string, enum: [utility_linear] }
+                    weights: { type: object }
+                seed: { type: integer }
+      responses:
+        '200':
+          description: Optimisation results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schema: { type: string, example: "optimise.v1" }
+                  selected: { type: array, items: { type: string } }
+                  utility: { type: object }
+                  explanations: { type: array }
+                  meta: { type: object }
+        '400':
+          description: Bad input
