@@ -961,448 +961,6 @@ paths:
                     code: NOT_FOUND
                     message: Template 'unknown' not found
 
-components:
-  schemas:
-    # v1 error envelope (runtime validation and BAD_INPUT taxonomy)
-    # Note: errorV1 is the shared error envelope across v1 routes
-    # (run/counterfactual/critique/draft/stream/health/version) for
-    # 400/401/403/429 where applicable.
-    errorV1:
-      type: object
-      required: [schema, code, message]
-      properties:
-        schema:
-          type: string
-          enum: [error.v1]
-        code: { type: string, enum: [BAD_INPUT, UNAUTHORIZED, FORBIDDEN, RATE_LIMITED, INTERNAL] }
-        message: { type: string }
-        path:
-          type: array
-          items: { type: string }
-        details:
-          type: object
-          additionalProperties: true
-    errorResponse:
-      type: object
-      required: [error]
-      properties:
-        error:
-          type: object
-          required: [type, message]
-          properties:
-            type: { type: string }
-            message: { type: string }
-            hint: { type: string }
-            fields: { type: object }
-            retryable: { type: boolean }
-            code: { type: string }
-    sseEvent:
-      type: object
-      required: [event]
-      properties:
-        event:
-          type: string
-          enum: [hello, token, cost, done, cancelled, limited, error]
-        id:
-          type: string
-        data:
-          oneOf:
-            - type: string
-            - type: object
-              additionalProperties: true
-    reportV1:
-      type: object
-      required: [schema, meta]
-      properties:
-        schema:
-          type: string
-          enum: [report.v1]
-        meta:
-          type: object
-          required: [seed]
-          properties:
-            seed: { type: integer }
-    
-    # ========================================
-    # /v1 SCHEMAS
-    # ========================================
-    
-    graph:
-      type: object
-      required: [nodes, edges]
-      properties:
-        version:
-          type: string
-          description: 'Template version (e.g., "1.2")'
-        default_seed:
-          type: integer
-          minimum: 1
-          description: 'Default seed for reproducibility'
-        nodes:
-          type: array
-          maxItems: 50
-          minItems: 1
-          items:
-            type: object
-            required: [id, label]
-            properties:
-              id: { type: string, maxLength: 100 }
-              label: { type: string, maxLength: 200 }
-              body: { type: string, maxLength: 200, description: 'Decision context or description' }
-              type: { type: string, maxLength: 50, deprecated: true }
-              kind:
-                type: string
-                enum: [goal, decision, option, outcome]
-                description: 'Node type in decision graph'
-              prior:
-                type: number
-                minimum: 0
-                maximum: 1
-                description: 'Prior probability for option nodes [0..1]'
-              utility:
-                type: number
-                minimum: -1
-                maximum: 1
-                description: 'Utility/payoff for outcome nodes [-1..+1]'
-              effect:
-                type: object
-                description: 'Optional non-linear effect transform (backwards-compatible)'
-                properties:
-                  kind:
-                    type: string
-                    enum: [linear, threshold, piecewise_linear]
-                    description: 'Effect type (default: linear)'
-                  params:
-                    type: object
-                    description: 'Effect-specific parameters'
-                examples:
-                  - kind: linear
-                  - kind: threshold
-                    params: {threshold: 0.6, low: 0.0, high: 1.0}
-                  - kind: piecewise_linear
-                    params:
-                      breakpoints:
-                        - {x: 0.0, y: 0.0}
-                        - {x: 0.5, y: 0.8}
-                        - {x: 1.0, y: 1.0}
-        edges:
-          type: array
-          maxItems: 200
-          items:
-            type: object
-            required: [from, to]
-            properties:
-              from: { type: string, maxLength: 100 }
-              to: { type: string, maxLength: 100 }
-              label: { type: string, maxLength: 200 }
-              weight: { type: number, minimum: -1000000, maximum: 1000000 }
-              belief:
-                type: number
-                minimum: 0
-                maximum: 1
-                description: 'Inclusion confidence [0..1]. Ingress accepts legacy confidence/probability (mapped to belief). Templates emit default belief=1.0.'
-              provenance:
-                type: string
-                maxLength: 100
-                description: 'Source attribution (e.g., "template", "assumption", "user")'
-              confidence:
-                type: number
-                minimum: 0
-                maximum: 1
-                deprecated: true
-                description: 'DEPRECATED: Use belief instead. Accepted on ingress, never emitted.'
-              probability:
-                type: number
-                minimum: 0
-                maximum: 1
-                deprecated: true
-                description: 'DEPRECATED: Use belief instead. Accepted on ingress, never emitted.'
-        meta:
-          type: object
-          description: 'Template metadata'
-          properties:
-            roots:
-              type: array
-              items: { type: string }
-              description: 'Root node IDs'
-            leaves:
-              type: array
-              items: { type: string }
-              description: 'Leaf node IDs'
-            suggested_positions:
-              type: object
-              additionalProperties:
-                type: object
-                required: [x, y]
-                properties:
-                  x: { type: number }
-                  y: { type: number }
-    
-    modelCard:
-      type: object
-      required: [seed, assumptions_summary, compute_budget, flags_on, determinism_note, response_hash]
-      properties:
-        seed: { type: integer }
-        assumptions_summary:
-          type: array
-          items: { type: string }
-        compute_budget:
-          type: object
-          properties:
-            k_samples: { type: integer }
-            downgraded: { type: boolean }
-            downgrade_reason: { type: string }
-        flags_on:
-          type: array
-          items: { type: string }
-        determinism_note: { type: string }
-        warnings:
-          type: array
-          items: { type: string }
-          description: 'Optional warnings (e.g., zero baseline in counterfactual)'
-        response_hash:
-          type: string
-          description: 'Canonical SHA-256 of the normalised response'
-          pattern: '^[0-9a-f]{64}$'
-    
-    confidenceBadge:
-      type: object
-      required: [level, reason, score, factors]
-      properties:
-        level: { type: string, enum: [LOW, MEDIUM, HIGH] }
-        reason: { type: string }
-        score: { type: number, minimum: 0, maximum: 1 }
-        factors:
-          type: object
-          properties:
-            identifiability: { type: number }
-            linearity_distance: { type: number }
-            k_coverage: { type: number }
-            calibration: { type: number }
-    
-    critiqueItem:
-      type: object
-      required: [severity, message]
-      properties:
-        severity: { type: string, enum: [BLOCKER, IMPROVEMENT, OBSERVATION] }
-        message: { type: string }
-        suggested_action: { type: string }
-        auto_fixable: { type: boolean }
-    
-    explainDelta:
-      type: object
-      required: [top_drivers, summary]
-      properties:
-        top_drivers:
-          type: array
-          items:
-            type: object
-            required: [node_id, node_label, contribution, sign, explanation]
-            properties:
-              node_id: { type: string }
-              node_label: { type: string }
-              contribution: { type: number }
-              sign: { type: string, enum: ['+', '-'] }
-              explanation: { type: string }
-        summary: { type: string }
-        top_edge_drivers:
-          type: array
-          description: 'P0: Top-3 edges by sensitivity'
-          items:
-            type: object
-            properties:
-              edge_id: { type: string }
-              from: { type: string }
-              to: { type: string }
-              sensitivity: { type: number }
-              rank: { type: integer }
-    
-    runRequest:
-      type: object
-      required: [graph]
-      properties:
-        graph: { $ref: '#/components/schemas/graph' }
-        seed: { type: integer, default: 42, minimum: 0, maximum: 2147483647 }
-        k_samples: { type: integer, default: 1000, minimum: 100, maximum: 10000 }
-        treatment_node: { type: string, maxLength: 100 }
-        outcome_node: { type: string, maxLength: 100 }
-        baseline_value: { type: number, minimum: -1000000, maximum: 1000000 }
-        constraints:
-          type: object
-          description: Optional constraints for validation and modeling
-          properties:
-            bounds:
-              type: object
-              description: Min/max bounds for node values
-              additionalProperties:
-                type: object
-                properties:
-                  min:
-                    type: number
-                  max:
-                    type: number
-              example:
-                X: {min: 0, max: 1}
-                Y: {min: -10, max: 10}
-            structure:
-              type: object
-              description: Structural constraints
-              properties:
-                forbid_edges:
-                  type: array
-                  description: List of forbidden edges [from, to]
-                  items:
-                    type: array
-                    items:
-                      type: string
-                    minItems: 2
-                    maxItems: 2
-                  example: [["A", "B"], ["C", "D"]]
-    
-    runResponse:
-      type: object
-      required: [schema, graph, results, model_card, confidence]
-      properties:
-        schema: { type: string, enum: [run.v1] }
-        graph: { $ref: '#/components/schemas/graph' }
-        results: { type: object }
-        model_card: { $ref: '#/components/schemas/modelCard' }
-        confidence: { $ref: '#/components/schemas/confidenceBadge' }
-        linearity_warning: { type: object }
-        threshold_crossings:
-          type: array
-          items: { type: object }
-        fork_suggestions: { type: object }
-        critique:
-          type: array
-          items: { $ref: '#/components/schemas/critiqueItem' }
-        explain_delta: { $ref: '#/components/schemas/explainDelta' }
-        identifiability: { type: string }
-        trace_id:
-          type: string
-          description: 'Optional client-provided trace identifier echoed from X-Trace-Id when TRACE_ID_PASSTHROUGH=1; may also be present when TRACE_MIN=1'
-        result:
-          type: object
-          description: 'P0: Convenience fields for UI integration'
-          properties:
-            response_hash:
-              type: string
-              description: 'SHA-256 hash of canonical inputs for caching'
-            summary:
-              type: object
-              description: 'Direct percentile access'
-              properties:
-                p10: { type: number }
-                p50: { type: number }
-                p90: { type: number }
-    
-    counterfactualRequest:
-      type: object
-      required: [graph, intervention, outcome_node]
-      properties:
-        graph: { $ref: '#/components/schemas/graph' }
-        intervention:
-          type: object
-          required: [node_id, from_value, to_value]
-          properties:
-            node_id: { type: string, maxLength: 100 }
-            from_value: { type: number, minimum: -1000000, maximum: 1000000 }
-            to_value: { type: number, minimum: -1000000, maximum: 1000000 }
-        outcome_node: { type: string, maxLength: 100 }
-        seed: { type: integer, default: 42, minimum: 0, maximum: 2147483647 }
-        k_samples: { type: integer, default: 1000, minimum: 100, maximum: 10000 }
-    
-    counterfactualResponse:
-      type: object
-      required: [schema, intervention, graph, results, model_card, confidence]
-      properties:
-        schema: { type: string, enum: [counterfactual.v1] }
-        intervention: { type: object }
-        graph: { $ref: '#/components/schemas/graph' }
-        results:
-          type: object
-          description: 'Results with baseline, counterfactual, delta, and percentage_change (null if baseline is zero)'
-          properties:
-            baseline: { type: object }
-            counterfactual: { type: object }
-            delta: { type: object }
-            percentage_change:
-              type: string
-              nullable: true
-              description: 'Percentage change string (nullable when baseline is zero)'
-        model_card: { $ref: '#/components/schemas/modelCard' }
-        confidence: { $ref: '#/components/schemas/confidenceBadge' }
-        explain_delta: { $ref: '#/components/schemas/explainDelta' }
-        identifiability: { type: string }
-        adjustment_set: 
-          type: array
-          items: { type: string }
-        trace_id:
-          type: string
-          description: 'Optional client-provided trace identifier echoed from X-Trace-Id when TRACE_ID_PASSTHROUGH=1'
-    
-    critiqueRequest:
-      type: object
-      required: [graph]
-      properties:
-        graph: { $ref: '#/components/schemas/graph' }
-        assumptions:
-          type: array
-          maxItems: 20
-          items: { type: string, maxLength: 500 }
-        treatment_node: { type: string, maxLength: 100 }
-        outcome_node: { type: string, maxLength: 100 }
-        seed: { type: integer, default: 0, minimum: 0, maximum: 2147483647 }
-    
-    critiqueResponse:
-      type: object
-      required: [schema, graph, critique, model_card]
-      properties:
-        schema: { type: string, enum: [critique.v1] }
-        graph: { $ref: '#/components/schemas/graph' }
-        critique:
-          type: array
-          items: { $ref: '#/components/schemas/critiqueItem' }
-        model_card: { $ref: '#/components/schemas/modelCard' }
-        identifiability: { type: string }
-        summary:
-          type: object
-          properties:
-            total_issues: { type: integer }
-            blockers: { type: integer }
-            improvements: { type: integer }
-            observations: { type: integer }
-            auto_fixable: { type: integer }
-        trace_id:
-          type: string
-          description: 'Optional client-provided trace identifier echoed from X-Trace-Id when TRACE_ID_PASSTHROUGH=1'
-    
-    draftResponse:
-      type: object
-      required: [schema, description, boards, model_card]
-      properties:
-        schema: { type: string, enum: [draft.v1] }
-        description: { type: string }
-        domain: { type: string }
-        boards:
-          type: array
-          items:
-            type: object
-            required: [name, description, graph, critique, simplified]
-            properties:
-              name: { type: string }
-              description: { type: string }
-              graph: { $ref: '#/components/schemas/graph' }
-              critique:
-                type: array
-                items: { $ref: '#/components/schemas/critiqueItem' }
-              simplified: { type: boolean }
-        model_card: { $ref: '#/components/schemas/modelCard' }
-        usage_hint: { type: string }
-        trace_id:
-          type: string
-          description: 'Optional client-provided trace identifier echoed from X-Trace-Id when TRACE_ID_PASSTHROUGH=1'
-
   /v1/compare:
     post:
       summary: Compare graph options
@@ -2234,3 +1792,446 @@ components:
                   diagnostics: { type: object }
         '400':
           description: Bad input
+
+
+components:
+  schemas:
+    # v1 error envelope (runtime validation and BAD_INPUT taxonomy)
+    # Note: errorV1 is the shared error envelope across v1 routes
+    # (run/counterfactual/critique/draft/stream/health/version) for
+    # 400/401/403/429 where applicable.
+    errorV1:
+      type: object
+      required: [schema, code, message]
+      properties:
+        schema:
+          type: string
+          enum: [error.v1]
+        code: { type: string, enum: [BAD_INPUT, UNAUTHORIZED, FORBIDDEN, RATE_LIMITED, INTERNAL] }
+        message: { type: string }
+        path:
+          type: array
+          items: { type: string }
+        details:
+          type: object
+          additionalProperties: true
+    errorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [type, message]
+          properties:
+            type: { type: string }
+            message: { type: string }
+            hint: { type: string }
+            fields: { type: object }
+            retryable: { type: boolean }
+            code: { type: string }
+    sseEvent:
+      type: object
+      required: [event]
+      properties:
+        event:
+          type: string
+          enum: [hello, token, cost, done, cancelled, limited, error]
+        id:
+          type: string
+        data:
+          oneOf:
+            - type: string
+            - type: object
+              additionalProperties: true
+    reportV1:
+      type: object
+      required: [schema, meta]
+      properties:
+        schema:
+          type: string
+          enum: [report.v1]
+        meta:
+          type: object
+          required: [seed]
+          properties:
+            seed: { type: integer }
+    
+    # ========================================
+    # /v1 SCHEMAS
+    # ========================================
+    
+    graph:
+      type: object
+      required: [nodes, edges]
+      properties:
+        version:
+          type: string
+          description: 'Template version (e.g., "1.2")'
+        default_seed:
+          type: integer
+          minimum: 1
+          description: 'Default seed for reproducibility'
+        nodes:
+          type: array
+          maxItems: 50
+          minItems: 1
+          items:
+            type: object
+            required: [id, label]
+            properties:
+              id: { type: string, maxLength: 100 }
+              label: { type: string, maxLength: 200 }
+              body: { type: string, maxLength: 200, description: 'Decision context or description' }
+              type: { type: string, maxLength: 50, deprecated: true }
+              kind:
+                type: string
+                enum: [goal, decision, option, outcome]
+                description: 'Node type in decision graph'
+              prior:
+                type: number
+                minimum: 0
+                maximum: 1
+                description: 'Prior probability for option nodes [0..1]'
+              utility:
+                type: number
+                minimum: -1
+                maximum: 1
+                description: 'Utility/payoff for outcome nodes [-1..+1]'
+              effect:
+                type: object
+                description: 'Optional non-linear effect transform (backwards-compatible)'
+                properties:
+                  kind:
+                    type: string
+                    enum: [linear, threshold, piecewise_linear]
+                    description: 'Effect type (default: linear)'
+                  params:
+                    type: object
+                    description: 'Effect-specific parameters'
+                examples:
+                  - kind: linear
+                  - kind: threshold
+                    params: {threshold: 0.6, low: 0.0, high: 1.0}
+                  - kind: piecewise_linear
+                    params:
+                      breakpoints:
+                        - {x: 0.0, y: 0.0}
+                        - {x: 0.5, y: 0.8}
+                        - {x: 1.0, y: 1.0}
+        edges:
+          type: array
+          maxItems: 200
+          items:
+            type: object
+            required: [from, to]
+            properties:
+              from: { type: string, maxLength: 100 }
+              to: { type: string, maxLength: 100 }
+              label: { type: string, maxLength: 200 }
+              weight: { type: number, minimum: -1000000, maximum: 1000000 }
+              belief:
+                type: number
+                minimum: 0
+                maximum: 1
+                description: 'Inclusion confidence [0..1]. Ingress accepts legacy confidence/probability (mapped to belief). Templates emit default belief=1.0.'
+              provenance:
+                type: string
+                maxLength: 100
+                description: 'Source attribution (e.g., "template", "assumption", "user")'
+              confidence:
+                type: number
+                minimum: 0
+                maximum: 1
+                deprecated: true
+                description: 'DEPRECATED: Use belief instead. Accepted on ingress, never emitted.'
+              probability:
+                type: number
+                minimum: 0
+                maximum: 1
+                deprecated: true
+                description: 'DEPRECATED: Use belief instead. Accepted on ingress, never emitted.'
+        meta:
+          type: object
+          description: 'Template metadata'
+          properties:
+            roots:
+              type: array
+              items: { type: string }
+              description: 'Root node IDs'
+            leaves:
+              type: array
+              items: { type: string }
+              description: 'Leaf node IDs'
+            suggested_positions:
+              type: object
+              additionalProperties:
+                type: object
+                required: [x, y]
+                properties:
+                  x: { type: number }
+                  y: { type: number }
+    
+    modelCard:
+      type: object
+      required: [seed, assumptions_summary, compute_budget, flags_on, determinism_note, response_hash]
+      properties:
+        seed: { type: integer }
+        assumptions_summary:
+          type: array
+          items: { type: string }
+        compute_budget:
+          type: object
+          properties:
+            k_samples: { type: integer }
+            downgraded: { type: boolean }
+            downgrade_reason: { type: string }
+        flags_on:
+          type: array
+          items: { type: string }
+        determinism_note: { type: string }
+        warnings:
+          type: array
+          items: { type: string }
+          description: 'Optional warnings (e.g., zero baseline in counterfactual)'
+        response_hash:
+          type: string
+          description: 'Canonical SHA-256 of the normalised response'
+          pattern: '^[0-9a-f]{64}$'
+    
+    confidenceBadge:
+      type: object
+      required: [level, reason, score, factors]
+      properties:
+        level: { type: string, enum: [LOW, MEDIUM, HIGH] }
+        reason: { type: string }
+        score: { type: number, minimum: 0, maximum: 1 }
+        factors:
+          type: object
+          properties:
+            identifiability: { type: number }
+            linearity_distance: { type: number }
+            k_coverage: { type: number }
+            calibration: { type: number }
+    
+    critiqueItem:
+      type: object
+      required: [severity, message]
+      properties:
+        severity: { type: string, enum: [BLOCKER, IMPROVEMENT, OBSERVATION] }
+        message: { type: string }
+        suggested_action: { type: string }
+        auto_fixable: { type: boolean }
+    
+    explainDelta:
+      type: object
+      required: [top_drivers, summary]
+      properties:
+        top_drivers:
+          type: array
+          items:
+            type: object
+            required: [node_id, node_label, contribution, sign, explanation]
+            properties:
+              node_id: { type: string }
+              node_label: { type: string }
+              contribution: { type: number }
+              sign: { type: string, enum: ['+', '-'] }
+              explanation: { type: string }
+        summary: { type: string }
+        top_edge_drivers:
+          type: array
+          description: 'P0: Top-3 edges by sensitivity'
+          items:
+            type: object
+            properties:
+              edge_id: { type: string }
+              from: { type: string }
+              to: { type: string }
+              sensitivity: { type: number }
+              rank: { type: integer }
+    
+    runRequest:
+      type: object
+      required: [graph]
+      properties:
+        graph: { $ref: '#/components/schemas/graph' }
+        seed: { type: integer, default: 42, minimum: 0, maximum: 2147483647 }
+        k_samples: { type: integer, default: 1000, minimum: 100, maximum: 10000 }
+        treatment_node: { type: string, maxLength: 100 }
+        outcome_node: { type: string, maxLength: 100 }
+        baseline_value: { type: number, minimum: -1000000, maximum: 1000000 }
+        constraints:
+          type: object
+          description: Optional constraints for validation and modeling
+          properties:
+            bounds:
+              type: object
+              description: Min/max bounds for node values
+              additionalProperties:
+                type: object
+                properties:
+                  min:
+                    type: number
+                  max:
+                    type: number
+              example:
+                X: {min: 0, max: 1}
+                Y: {min: -10, max: 10}
+            structure:
+              type: object
+              description: Structural constraints
+              properties:
+                forbid_edges:
+                  type: array
+                  description: List of forbidden edges [from, to]
+                  items:
+                    type: array
+                    items:
+                      type: string
+                    minItems: 2
+                    maxItems: 2
+                  example: [["A", "B"], ["C", "D"]]
+    
+    runResponse:
+      type: object
+      required: [schema, graph, results, model_card, confidence]
+      properties:
+        schema: { type: string, enum: [run.v1] }
+        graph: { $ref: '#/components/schemas/graph' }
+        results: { type: object }
+        model_card: { $ref: '#/components/schemas/modelCard' }
+        confidence: { $ref: '#/components/schemas/confidenceBadge' }
+        linearity_warning: { type: object }
+        threshold_crossings:
+          type: array
+          items: { type: object }
+        fork_suggestions: { type: object }
+        critique:
+          type: array
+          items: { $ref: '#/components/schemas/critiqueItem' }
+        explain_delta: { $ref: '#/components/schemas/explainDelta' }
+        identifiability: { type: string }
+        trace_id:
+          type: string
+          description: 'Optional client-provided trace identifier echoed from X-Trace-Id when TRACE_ID_PASSTHROUGH=1; may also be present when TRACE_MIN=1'
+        result:
+          type: object
+          description: 'P0: Convenience fields for UI integration'
+          properties:
+            response_hash:
+              type: string
+              description: 'SHA-256 hash of canonical inputs for caching'
+            summary:
+              type: object
+              description: 'Direct percentile access'
+              properties:
+                p10: { type: number }
+                p50: { type: number }
+                p90: { type: number }
+    
+    counterfactualRequest:
+      type: object
+      required: [graph, intervention, outcome_node]
+      properties:
+        graph: { $ref: '#/components/schemas/graph' }
+        intervention:
+          type: object
+          required: [node_id, from_value, to_value]
+          properties:
+            node_id: { type: string, maxLength: 100 }
+            from_value: { type: number, minimum: -1000000, maximum: 1000000 }
+            to_value: { type: number, minimum: -1000000, maximum: 1000000 }
+        outcome_node: { type: string, maxLength: 100 }
+        seed: { type: integer, default: 42, minimum: 0, maximum: 2147483647 }
+        k_samples: { type: integer, default: 1000, minimum: 100, maximum: 10000 }
+    
+    counterfactualResponse:
+      type: object
+      required: [schema, intervention, graph, results, model_card, confidence]
+      properties:
+        schema: { type: string, enum: [counterfactual.v1] }
+        intervention: { type: object }
+        graph: { $ref: '#/components/schemas/graph' }
+        results:
+          type: object
+          description: 'Results with baseline, counterfactual, delta, and percentage_change (null if baseline is zero)'
+          properties:
+            baseline: { type: object }
+            counterfactual: { type: object }
+            delta: { type: object }
+            percentage_change:
+              type: string
+              nullable: true
+              description: 'Percentage change string (nullable when baseline is zero)'
+        model_card: { $ref: '#/components/schemas/modelCard' }
+        confidence: { $ref: '#/components/schemas/confidenceBadge' }
+        explain_delta: { $ref: '#/components/schemas/explainDelta' }
+        identifiability: { type: string }
+        adjustment_set: 
+          type: array
+          items: { type: string }
+        trace_id:
+          type: string
+          description: 'Optional client-provided trace identifier echoed from X-Trace-Id when TRACE_ID_PASSTHROUGH=1'
+    
+    critiqueRequest:
+      type: object
+      required: [graph]
+      properties:
+        graph: { $ref: '#/components/schemas/graph' }
+        assumptions:
+          type: array
+          maxItems: 20
+          items: { type: string, maxLength: 500 }
+        treatment_node: { type: string, maxLength: 100 }
+        outcome_node: { type: string, maxLength: 100 }
+        seed: { type: integer, default: 0, minimum: 0, maximum: 2147483647 }
+    
+    critiqueResponse:
+      type: object
+      required: [schema, graph, critique, model_card]
+      properties:
+        schema: { type: string, enum: [critique.v1] }
+        graph: { $ref: '#/components/schemas/graph' }
+        critique:
+          type: array
+          items: { $ref: '#/components/schemas/critiqueItem' }
+        model_card: { $ref: '#/components/schemas/modelCard' }
+        identifiability: { type: string }
+        summary:
+          type: object
+          properties:
+            total_issues: { type: integer }
+            blockers: { type: integer }
+            improvements: { type: integer }
+            observations: { type: integer }
+            auto_fixable: { type: integer }
+        trace_id:
+          type: string
+          description: 'Optional client-provided trace identifier echoed from X-Trace-Id when TRACE_ID_PASSTHROUGH=1'
+    
+    draftResponse:
+      type: object
+      required: [schema, description, boards, model_card]
+      properties:
+        schema: { type: string, enum: [draft.v1] }
+        description: { type: string }
+        domain: { type: string }
+        boards:
+          type: array
+          items:
+            type: object
+            required: [name, description, graph, critique, simplified]
+            properties:
+              name: { type: string }
+              description: { type: string }
+              graph: { $ref: '#/components/schemas/graph' }
+              critique:
+                type: array
+                items: { $ref: '#/components/schemas/critiqueItem' }
+              simplified: { type: boolean }
+        model_card: { $ref: '#/components/schemas/modelCard' }
+        usage_hint: { type: string }
+        trace_id:
+          type: string
+          description: 'Optional client-provided trace identifier echoed from X-Trace-Id when TRACE_ID_PASSTHROUGH=1'
