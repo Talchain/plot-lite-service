@@ -318,11 +318,13 @@ fetch('https://plot-lite-service.onrender.com/v1/intervene', {
   },
   body: JSON.stringify({
     graph: { nodes: [...], edges: [...] },
-    do: [{ node_id: 'Price', set_to: 0.8 }],
+    actions: [{ node_id: 'Price', value: 0.8 }],
     seed: 4242
   })
 });
 ```
+
+**Legacy:** `do[]` is accepted for backwards compatibility (use `actions[]` for new code).
 
 **Returns:**
 - Schema: `intervene.v1`

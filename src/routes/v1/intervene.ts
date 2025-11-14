@@ -8,7 +8,8 @@ import { recordAuditEvent } from '../../governance/audit-ring.js';
 
 interface InterveneRequest {
   graph: { nodes: any[]; edges: any[] };
-  actions: Array<{ node_id: string; value: number }>;
+  actions?: Array<{ node_id: string; value: number }>;
+  do?: Array<{ node_id: string; set_to?: number; value?: number }>; // Legacy alias
   seed?: number;
   flags?: { scm_lite?: number };
 }
@@ -23,11 +24,19 @@ export async function registerInterveneRoute(app: FastifyInstance) {
       return reply.code(400).send({ error: { type: 'BAD_INPUT', message: 'graph.nodes required' } });
     }
     
-    if (!body.actions || !Array.isArray(body.actions) || body.actions.length === 0) {
+    // Normalize actions: support both actions[] and legacy do[]
+    const normalisedActions =
+      Array.isArray(body.actions) ? body.actions :
+      Array.isArray(body.do) ? body.do.map((d: any) => ({
+        node_id: d.node_id,
+        value: (d.set_to ?? d.value)
+      })) : [];
+    
+    if (normalisedActions.length === 0) {
       return reply.code(400).send({ 
         error: { 
           type: 'BAD_INPUT', 
-          message: 'actions array required with at least one intervention',
+          message: 'actions[] (or legacy do[]) is required',
           field: 'actions'
         } 
       });
@@ -35,7 +44,7 @@ export async function registerInterveneRoute(app: FastifyInstance) {
     
     // Validate interventions refer to existing nodes
     const nodeIds = new Set(body.graph.nodes.map((n: any) => n.id));
-    const invalidActions = body.actions.filter((a: any) => !nodeIds.has(a.node_id));
+    const invalidActions = normalisedActions.filter((a: any) => !nodeIds.has(a.node_id));
     
     if (invalidActions.length > 0) {
       return reply.code(400).send({ 
@@ -52,7 +61,7 @@ export async function registerInterveneRoute(app: FastifyInstance) {
     const scmLite = flags.scm_lite === 1;
     
     // Create order-independent actions hash
-    const sortedActions = [...body.actions].sort((a, b) => 
+    const sortedActions = [...normalisedActions].sort((a, b) => 
       a.node_id.localeCompare(b.node_id)
     );
     const actionsHash = createHash('sha256')
@@ -68,7 +77,7 @@ export async function registerInterveneRoute(app: FastifyInstance) {
     
     // Compute counterfactual (with do-operator intervention)
     // do() blocks all incoming edges to intervened nodes
-    const interventionEffect = body.actions.reduce((sum: number, a: any) => sum + a.value, 0) / body.actions.length;
+    const interventionEffect = normalisedActions.reduce((sum: number, a: any) => sum + a.value, 0) / normalisedActions.length;
     const counterfactualP50 = Math.round((baselineP50 + interventionEffect * 0.15) * 1000) / 1000;
     const counterfactualP10 = Math.round(counterfactualP50 * 0.8 * 1000) / 1000;
     const counterfactualP90 = Math.round(counterfactualP50 * 1.2 * 1000) / 1000;
@@ -79,7 +88,7 @@ export async function registerInterveneRoute(app: FastifyInstance) {
     const deltaP90 = Math.round((counterfactualP90 - baselineP90) * 1000) / 1000;
     
     // Top drivers (nodes being intervened on)
-    const topDrivers = body.actions.slice(0, 3).map((a: any) => ({
+    const topDrivers = normalisedActions.slice(0, 3).map((a: any) => ({
       node_id: a.node_id,
       contribution: Math.round(Math.abs(a.value) * 100),
       sign: a.value >= 0 ? '+' : '-'
@@ -122,7 +131,7 @@ export async function registerInterveneRoute(app: FastifyInstance) {
       route: '/v1/intervene',
       nodes: body.graph.nodes.length,
       edges: body.graph.edges?.length || 0,
-      actions: body.actions.length,
+      actions: normalisedActions.length,
       seed,
       duration_ms: duration,
       flags: scmLite ? ['scm_lite'] : []
