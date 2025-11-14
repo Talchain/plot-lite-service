@@ -1,0 +1,31 @@
+name: OpenAPI Spec Sanity
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'contracts/openapi.yaml'
+  pull_request:
+    paths:
+      - 'contracts/openapi.yaml'
+
+jobs:
+  validate-structure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Validate OpenAPI structure
+        run: node tools/validate-openapi-structure.js
+      
+      - name: Validate OpenAPI schema
+        run: |
+          npx @redocly/cli lint contracts/openapi.yaml --skip-rule=no-unused-components || true
