@@ -69,6 +69,17 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
       });
     }
     
+    // Validate base_graph.edges is array if present
+    if (body.base_graph.edges !== undefined && !Array.isArray(body.base_graph.edges)) {
+      return reply.code(400).send({ 
+        error: { 
+          type: 'BAD_INPUT', 
+          message: 'base_graph.edges must be an array',
+          field: 'base_graph.edges'
+        } 
+      });
+    }
+    
     const baseEdges = body.base_graph.edges || [];
     if (baseEdges.length > MAX_EDGES) {
       return reply.code(400).send({ 
@@ -199,8 +210,8 @@ function applyDelta(baseGraph: any, delta: GraphDelta): { nodes: any[]; edges: a
   const nodeMap = new Map(baseGraph.nodes.map((n: any) => [n.id, { ...n }]));
   
   // Apply node deltas (override or add)
-  if (delta.nodes) {
-    for (const deltaNode of delta.nodes) {
+  const deltaNodes = Array.isArray(delta.nodes) ? delta.nodes : [];
+  for (const deltaNode of deltaNodes) {
       if (nodeMap.has(deltaNode.id)) {
         // Merge with existing node
         const existing = nodeMap.get(deltaNode.id)!;
@@ -210,12 +221,13 @@ function applyDelta(baseGraph: any, delta: GraphDelta): { nodes: any[]; edges: a
         nodeMap.set(deltaNode.id, { ...deltaNode });
       }
     }
-  }
   
   // Edges: use delta edges if provided, otherwise use base
+  const deltaEdges = Array.isArray(delta.edges) ? delta.edges : [];
+  const baseEdges = Array.isArray(baseGraph.edges) ? baseGraph.edges : [];
   const edges = delta.edges !== undefined 
-    ? delta.edges.map((e: any) => ({ ...e }))
-    : (baseGraph.edges || []).map((e: any) => ({ ...e }));
+    ? deltaEdges.map((e: any) => ({ ...e }))
+    : baseEdges.map((e: any) => ({ ...e }));
   
   return {
     nodes: Array.from(nodeMap.values()),
