@@ -256,9 +256,15 @@ export async function optimise(options: {
   }>;
   objective: { type: 'utility_linear'; weights: Record<string, number> };
   seed?: number;
+  constraints?: {
+    budget?: number;
+    must?: string[];
+    must_not?: string[];
+    max_changed_nodes?: number;
+  };
 } & HttpOptions) {
-  const { graph, budget, actions, objective, seed, ...httpOpts } = options;
-  const body = JSON.stringify({ graph, budget, actions, objective, seed });
+  const { graph, budget, actions, objective, seed, constraints, ...httpOpts } = options;
+  const body = JSON.stringify({ graph, budget, actions, objective, seed, constraints });
   
   let bodyKb: number;
   if (typeof TextEncoder !== 'undefined') {

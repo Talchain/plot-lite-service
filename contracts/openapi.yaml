@@ -1703,7 +1703,7 @@ paths:
   /v1/optimise:
     post:
       summary: Action Optimiser
-      description: Select actions under budget to maximize utility
+      description: Select actions under budget to maximize utility with optional constraints
       operationId: optimise
       tags: [v1, optimisation]
       requestBody:
@@ -1737,6 +1737,22 @@ paths:
                     type: { type: string, enum: [utility_linear] }
                     weights: { type: object }
                 seed: { type: integer }
+                constraints:
+                  type: object
+                  description: Optional constraints on action selection
+                  properties:
+                    must:
+                      type: array
+                      items: { type: string }
+                      description: Action IDs that must be selected
+                    must_not:
+                      type: array
+                      items: { type: string }
+                      description: Action IDs that must not be selected
+                    max_changed_nodes:
+                      type: integer
+                      minimum: 0
+                      description: Maximum number of nodes that can be affected
       responses:
         '200':
           description: Optimisation results
@@ -1751,7 +1767,43 @@ paths:
                   explanations: { type: array }
                   meta: { type: object }
         '400':
-          description: Bad input
+          description: Bad input or infeasible constraints
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      schema: { type: string, example: "error.v1" }
+                      code: { type: string, enum: [BAD_INPUT, INFEASIBLE] }
+                      message: { type: string }
+                      violations:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            type: { type: string }
+                            message: { type: string }
+                            constraint: { type: string }
+                            node_id: { type: string }
+                            required: { type: number }
+                            available: { type: number }
+                            reason: { type: string }
+              examples:
+                infeasible:
+                  value:
+                    error:
+                      schema: "error.v1"
+                      code: "INFEASIBLE"
+                      message: "Constraints cannot be satisfied"
+                      violations:
+                        - type: "MUST_ACTION_EXCEEDS_BUDGET"
+                          message: "Required action 'expensive' costs 150 but budget is 100"
+                          constraint: "must"
+                          node_id: "expensive"
+                          reason: "exceeds_budget"
 
   /v1/preferences/fit:
     post:
