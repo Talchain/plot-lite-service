@@ -32,18 +32,20 @@ function applyAction(graph: any, action: any): any {
   };
 }
 
-// Helper: Compute utility from kernel result using p50 quantile
-function computeUtility(result: any, objective: any, targetNode: string): number {
-  if (objective.type !== 'utility_linear') {
-    return 0;
+// Helper: Evaluate multi-target utility by summing weighted p50 quantiles
+async function evaluateUtility(graph: any, objective: any, seed: number): Promise<number> {
+  let total = 0;
+  for (const [target, weight] of Object.entries(objective?.weights || {})) {
+    try {
+      const dag = adaptGraphToDAG(graph);
+      const res = await runKernel(dag, target, { seed });
+      const p50 = res?.quantiles?.p50 ?? 0;
+      total += p50 * (typeof weight === 'number' ? weight : 0);
+    } catch (err) {
+      // Log but continue with other targets
+    }
   }
-  
-  const weight = objective.weights[targetNode];
-  if (weight !== undefined && result.quantiles) {
-    return result.quantiles.p50 * weight;
-  }
-  
-  return 0;
+  return total;
 }
 
 export async function registerOptimiseRoute(app: FastifyInstance) {
@@ -66,11 +68,17 @@ export async function registerOptimiseRoute(app: FastifyInstance) {
       }
     }
     
-    // Merge budget into constraints
-    const constraints: Constraints = {
-      budget: body.budget,
-      ...(body.constraints || {})
-    };
+    // Budget precedence: top-level budget always wins
+    const userConstraints = body.constraints ?? {};
+    const constraints: Constraints = { ...userConstraints, budget: body.budget };
+    if (Object.prototype.hasOwnProperty.call(userConstraints, 'budget') &&
+        (userConstraints as any).budget !== body.budget) {
+      req.log.warn({
+        evt: 'constraints_budget_override',
+        requested: (userConstraints as any).budget,
+        enforced: body.budget
+      }, 'constraints.budget overridden by top-level budget');
+    }
     
     // Check feasibility
     const { feasible, violations: feasibilityViolations } = isFeasible(body.actions as Action[], constraints);
@@ -108,32 +116,26 @@ export async function registerOptimiseRoute(app: FastifyInstance) {
     // Deterministic solver: compute marginal gain for each action using kernel
     const remainingActions = filtered.filter(a => !selected.includes(a.id));
     
-    // Get target nodes from objective weights
-    const targetNodes = Object.keys(body.objective.weights);
-    if (targetNodes.length === 0) {
+    // Validate objective weights
+    if (!body.objective.weights || Object.keys(body.objective.weights).length === 0) {
       return reply.code(400).send({ error: { type: 'BAD_INPUT', message: 'objective.weights must specify at least one target node' } });
     }
-    const targetNode = targetNodes[0]; // Use first weighted node as primary target
     
-    // Compute baseline utility (no actions)
+    // Compute baseline utility (no actions) - sum across all targets
     let baselineUtility = 0;
     try {
-      const dag = adaptGraphToDAG(body.graph);
-      const baseResult = runKernel(dag, targetNode, { seed });
-      baselineUtility = computeUtility(baseResult, body.objective, targetNode);
+      baselineUtility = await evaluateUtility(body.graph, body.objective, seed);
     } catch (err) {
       // If kernel fails, log but continue with zero baseline
       req.log.warn({ evt: 'optimise_baseline_failed', error: String(err) });
     }
     
     // Compute marginal gain for each remaining action
-    const rankedActions = remainingActions.map(a => {
+    const rankedActions = await Promise.all(remainingActions.map(async a => {
       let marginalGain = 0;
       try {
         const modifiedGraph = applyAction(body.graph, a);
-        const dag = adaptGraphToDAG(modifiedGraph);
-        const result = runKernel(dag, targetNode, { seed });
-        const actionUtility = computeUtility(result, body.objective, targetNode);
+        const actionUtility = await evaluateUtility(modifiedGraph, body.objective, seed);
         marginalGain = actionUtility - baselineUtility;
       } catch (err) {
         req.log.warn({ evt: 'optimise_action_eval_failed', action_id: a.id, error: String(err) });
@@ -144,7 +146,9 @@ export async function registerOptimiseRoute(app: FastifyInstance) {
         marginalGain,
         efficiency: marginalGain / (a.cost || 1)
       };
-    }).sort((a, b) => {
+    }));
+    
+    rankedActions.sort((a, b) => {
       // Deterministic tie-breaking by id
       if (Math.abs(b.efficiency - a.efficiency) < 0.0001) {
         return a.id.localeCompare(b.id);
@@ -188,8 +192,14 @@ export async function registerOptimiseRoute(app: FastifyInstance) {
       }
     }
     
-    // Structured logging
+    // Structured logging with constraints metadata
     const duration = Date.now() - start;
+    const appliedKeys = Object.keys(userConstraints || {}).filter(k => k !== 'budget');
+    const constraintsResolved = {
+      budget: { value: body.budget, source: 'top_level' },
+      ...Object.fromEntries(appliedKeys.map(k => [k, { source: 'user' }]))
+    };
+    
     req.log.info({
       evt: 'optimise_complete',
       id: req.id,
@@ -204,7 +214,8 @@ export async function registerOptimiseRoute(app: FastifyInstance) {
       utility_baseline: baselineUtility,
       utility_final: finalUtility,
       seed,
-      constraints_applied: body.constraints ? Object.keys(body.constraints) : []
+      constraints_applied: appliedKeys,
+      constraints_resolved: constraintsResolved
     });
     
     return reply.code(200).send({
@@ -212,7 +223,12 @@ export async function registerOptimiseRoute(app: FastifyInstance) {
       selected,
       utility: { expected: finalUtility, p10: finalUtility * 0.9, p50: finalUtility, p90: finalUtility * 1.1 },
       explanations,
-      meta: { seed, solver: 'greedy_kernel_v1', constraints_applied: body.constraints ? Object.keys(body.constraints) : [] }
+      meta: { 
+        seed, 
+        solver: 'greedy_kernel_v1', 
+        constraints_applied: appliedKeys,
+        constraints_resolved: constraintsResolved
+      }
     });
   });
 }
