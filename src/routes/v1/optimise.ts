@@ -12,6 +12,7 @@ interface OptimiseRequest {
   objective: { type: 'utility_linear'; weights: Record<string, number> };
   constraints?: Constraints;
   priors?: Record<string, number | { mean: number; sd: number }>;
+  evidence?: Array<{ node_id: string; source: string; note?: string; weight?: number }>;
 }
 
 // Helper: Apply action interventions to graph by scaling edge weights
@@ -77,6 +78,24 @@ export async function registerOptimiseRoute(app: FastifyInstance) {
       
       if (!priorsValidation.valid) {
         const firstError = priorsValidation.errors[0];
+        return reply.code(400).send({
+          error: {
+            type: 'BAD_INPUT',
+            message: firstError.message,
+            field: firstError.field
+          }
+        });
+      }
+    }
+    
+    // Validate evidence if present
+    if (body.evidence) {
+      const { validateEvidence } = await import('../../lib/validate-evidence.js');
+      const nodeIds = new Set<string>(body.graph.nodes.map((n: any) => String(n.id)));
+      const evidenceValidation = validateEvidence(body.evidence, nodeIds);
+      
+      if (!evidenceValidation.valid) {
+        const firstError = evidenceValidation.errors[0];
         return reply.code(400).send({
           error: {
             type: 'BAD_INPUT',
