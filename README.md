@@ -305,6 +305,140 @@ fetch('https://plot-lite-service.onrender.com/v1/inspect', {
 - Honor `Retry-After` on 429; show a polite UX delay
 - Include `X-Request-Id` for correlation; server echoes it back
 
+### New Endpoints (v1.5.0+)
+
+#### POST /v1/intervene - Causal Interventions (Do-Operator)
+Perform causal interventions and estimate counterfactual effects:
+```javascript
+fetch('https://plot-lite-service.onrender.com/v1/intervene', {
+  method: 'POST',
+  headers: { 
+    'Content-Type': 'application/json',
+    'X-Request-Id': crypto.randomUUID() // For request correlation
+  },
+  body: JSON.stringify({
+    graph: { nodes: [...], edges: [...] },
+    do: [{ node_id: 'Price', set_to: 0.8 }],
+    seed: 4242
+  })
+});
+```
+
+**Returns:**
+- Schema: `intervene.v1`
+- Baseline: Observational outcome
+- Counterfactual: Post-intervention outcome
+- Delta: Effect size with p10/p50/p90
+- Identifiability: Causal identifiability check
+- Deterministic with same seed
+
+**Limits:**
+- Max nodes: 50
+- Max edges: 200
+- Max payload: 96 KB
+- Performance: p95 ≤ 600ms
+
+#### POST /v1/optimise - Action Selection Under Budget
+Select optimal actions under budget to maximize utility:
+```javascript
+fetch('https://plot-lite-service.onrender.com/v1/optimise', {
+  method: 'POST',
+  headers: { 
+    'Content-Type': 'application/json',
+    'X-Request-Id': crypto.randomUUID()
+  },
+  body: JSON.stringify({
+    graph: { nodes: [...], edges: [...] },
+    budget: 100,
+    actions: [
+      { id: 'discount', cost: 50, do: [{ node_id: 'Price', set_to: 0.7 }] },
+      { id: 'marketing', cost: 80, do: [{ node_id: 'Demand', set_to: 0.9 }] }
+    ],
+    objective: {
+      type: 'utility_linear',
+      weights: { Revenue: 1.0 }
+    },
+    seed: 4242
+  })
+});
+```
+
+**Returns:**
+- Schema: `optimise.v1`
+- Selected: Array of action IDs chosen
+- Utility: Expected utility with p10/p50/p90
+- Explanations: Marginal gain per action
+- Deterministic with same seed
+
+**Action Format:**
+- `id`: Unique action identifier
+- `cost`: Non-negative cost
+- `do`: Array of interventions (node_id, set_to)
+
+**Objective:**
+- `type`: Currently only `utility_linear` supported
+- `weights`: Node weights for utility calculation
+
+**Limits:**
+- Max nodes: 50
+- Max edges: 200
+- Max payload: 96 KB
+- Performance: p95 ≤ 800ms
+
+#### POST /v1/run_bundle - Scenario Bundles
+Efficiently evaluate multiple scenarios from a base graph:
+```javascript
+fetch('https://plot-lite-service.onrender.com/v1/run_bundle', {
+  method: 'POST',
+  headers: { 
+    'Content-Type': 'application/json',
+    'X-Request-Id': crypto.randomUUID()
+  },
+  body: JSON.stringify({
+    base_graph: { nodes: [...], edges: [...] },
+    deltas: [
+      { label: 'Low Price', nodes: [{ id: 'Price', value: 0.3 }] },
+      { label: 'High Price', nodes: [{ id: 'Price', value: 0.8 }] }
+    ],
+    seed: 4242
+  })
+});
+```
+
+**Returns:**
+- Schema: `run_bundle.v1`
+- Results: Array of scenario outcomes with labels
+- Meta: Total scenarios, unique results, deduplication info
+- Each result includes p10/p50/p90 summary and response_hash
+- Deterministic with same seed
+
+**Limits:**
+- Max deltas: 10
+- Max nodes (merged): 50
+- Max edges (merged): 200
+- Max payload: 96 KB
+- Performance: p95 ≤ 700ms
+
+**Delta Merging:**
+- Deltas override or add nodes to base graph
+- If delta specifies edges, they replace base edges; otherwise base edges are used
+- Server validates merged graph against limits
+
+### Request Correlation
+All endpoints support `X-Request-Id` header for request tracking:
+```javascript
+const requestId = crypto.randomUUID();
+const response = await fetch(url, {
+  headers: { 'X-Request-Id': requestId }
+});
+console.log(response.headers.get('x-request-id')); // Echoed back
+```
+
+Use this for:
+- Debugging failed requests
+- Correlating client-side and server-side logs
+- Tracking requests across retries
+
 ### Replay telemetry (tests & local runs)
 
 GET /health includes a compact replay section that reflects the most recent replay activity:
