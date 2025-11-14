@@ -65,13 +65,17 @@ describe('Performance gates', () => {
     
     for (let i = 0; i < RUNS; i++) {
       const ms = await measureLatency(`${server.baseUrl}/v1/compare`, {
-        graph: {
-          nodes: [{ id: 'A', label: 'A' }, { id: 'B', label: 'B' }],
-          edges: [{ from: 'A', to: 'B' }]
-        },
-        scenarios: [
-          { label: 'Base', interventions: [] },
-          { label: 'Alt', interventions: [{ node_id: 'A', set_to: 0.8 }] }
+        graphs: [
+          {
+            label: 'Base',
+            nodes: [{ id: 'A', label: 'A' }, { id: 'B', label: 'B' }],
+            edges: [{ from: 'A', to: 'B', weight: 0.5 }]
+          },
+          {
+            label: 'Alt',
+            nodes: [{ id: 'A', label: 'A', value: 0.8 }, { id: 'B', label: 'B' }],
+            edges: [{ from: 'A', to: 'B', weight: 0.5 }]
+          }
         ],
         seed: 4242
       });
