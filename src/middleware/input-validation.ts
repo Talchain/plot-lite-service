@@ -84,6 +84,8 @@ const runRequestSchema = {
     baseline_value: { type: 'number', minimum: -1000000, maximum: 1000000 },
     // Optional inputs object (free-form for PoC)
     inputs: { type: 'object', additionalProperties: true },
+    query: { type: 'object', additionalProperties: true },
+    constraints: { type: 'object', additionalProperties: true },
     inference_mode: { type: 'string', enum: ['model_based', 'model_of_inference'] },
     include_debug: { type: 'boolean' },
     priors: { type: 'object', additionalProperties: true },
