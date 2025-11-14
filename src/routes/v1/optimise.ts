@@ -66,11 +66,17 @@ export async function registerOptimiseRoute(app: FastifyInstance) {
       }
     }
     
-    // Merge budget into constraints
-    const constraints: Constraints = {
-      budget: body.budget,
-      ...(body.constraints || {})
-    };
+    // Enforce top-level budget precedence
+    const incoming = body.constraints ?? {};
+    const constraints: Constraints = { ...incoming, budget: body.budget };
+    if (typeof (incoming as any).budget === 'number' && (incoming as any).budget !== body.budget) {
+      req.log.warn({
+        evt: 'constraints_budget_overridden',
+        id: req.id,
+        request_budget: body.budget,
+        constraints_budget: (incoming as any).budget
+      }, 'Nested constraints.budget ignored; using top-level budget');
+    }
     
     // Check feasibility
     const { feasible, violations: feasibilityViolations } = isFeasible(body.actions as Action[], constraints);
@@ -204,7 +210,7 @@ export async function registerOptimiseRoute(app: FastifyInstance) {
       utility_baseline: baselineUtility,
       utility_final: finalUtility,
       seed,
-      constraints_applied: body.constraints ? Object.keys(body.constraints) : []
+      constraints_applied: body.constraints ? Object.keys(body.constraints).filter(k => k !== 'budget') : []
     });
     
     return reply.code(200).send({
@@ -212,7 +218,7 @@ export async function registerOptimiseRoute(app: FastifyInstance) {
       selected,
       utility: { expected: finalUtility, p10: finalUtility * 0.9, p50: finalUtility, p90: finalUtility * 1.1 },
       explanations,
-      meta: { seed, solver: 'greedy_kernel_v1', constraints_applied: body.constraints ? Object.keys(body.constraints) : [] }
+      meta: { seed, solver: 'greedy_kernel_v1', constraints_applied: body.constraints ? Object.keys(body.constraints).filter(k => k !== 'budget') : [] }
     });
   });
 }
