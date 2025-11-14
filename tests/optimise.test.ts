@@ -28,7 +28,7 @@ describe('POST /v1/optimise', () => {
     expect(data.selected).toBeDefined();
     expect(Array.isArray(data.selected)).toBe(true);
     expect(data.utility).toBeDefined();
-    expect(data.meta.solver).toBe('greedy_v1');
+    expect(data.meta.solver).toBe('greedy_kernel_v1');
   });
 
   it('validates budget', async () => {
