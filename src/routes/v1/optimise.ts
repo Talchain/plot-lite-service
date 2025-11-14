@@ -12,36 +12,42 @@ interface OptimiseRequest {
 }
 
 // Helper: Apply action interventions to graph
+// NOTE: Current kernel doesn't support do-calculus interventions.
+// We approximate by modifying edge weights from intervened nodes.
 function applyAction(graph: any, action: any): any {
   const nodeMap = new Map(graph.nodes.map((n: any) => [n.id, { ...n }]));
+  const interventionMap = new Map(action.do.map((d: any) => [d.node_id, d.set_to]));
   
-  for (const intervention of action.do) {
-    const node: any = nodeMap.get(intervention.node_id);
-    if (node) {
-      node.value = intervention.set_to;
+  // Modify edges: scale weights from intervened nodes by intervention value
+  const modifiedEdges = graph.edges.map((e: any) => {
+    const interventionValue = interventionMap.get(e.from);
+    if (interventionValue !== undefined && typeof interventionValue === 'number') {
+      return { ...e, weight: (e.weight || 1) * interventionValue };
     }
-  }
+    return e;
+  });
   
   return {
     nodes: Array.from(nodeMap.values()),
-    edges: graph.edges
+    edges: modifiedEdges
   };
 }
 
 // Helper: Compute utility from kernel result
-function computeUtility(result: any, objective: any): number {
+// runKernel returns {target, quantiles: {p10, p50, p90}, ...}
+// We use p50 as the utility measure for the target node
+function computeUtility(result: any, objective: any, targetNode: string): number {
   if (objective.type !== 'utility_linear') {
     return 0;
   }
   
-  let utility = 0;
-  for (const [nodeId, weight] of Object.entries(objective.weights)) {
-    const nodeResult = result.nodes?.find((n: any) => n.id === nodeId);
-    if (nodeResult) {
-      utility += (nodeResult.belief || 0) * (weight as number);
-    }
+  // If the objective weights the target node, use its p50 quantile
+  const weight = objective.weights[targetNode];
+  if (weight !== undefined && result.quantiles) {
+    return result.quantiles.p50 * weight;
   }
-  return utility;
+  
+  return 0;
 }
 
 export async function registerOptimiseRoute(app: FastifyInstance) {
@@ -65,16 +71,21 @@ export async function registerOptimiseRoute(app: FastifyInstance) {
     }
     
     // Evaluate baseline utility
+    const targetNode = Object.keys(body.objective.weights)[0];
+    if (!targetNode) {
+      return reply.code(400).send({ error: { type: 'BAD_INPUT', message: 'objective.weights must specify at least one node' } });
+    }
+    
     const baselineDAG = adaptGraphToDAG(body.graph);
-    const baselineResult = runKernel(baselineDAG, Object.keys(body.objective.weights)[0] || 'target', { seed });
-    const baselineUtility = computeUtility(baselineResult, body.objective);
+    const baselineResult = runKernel(baselineDAG, targetNode, { seed });
+    const baselineUtility = computeUtility(baselineResult, body.objective, targetNode);
     
     // Evaluate marginal gain for each action deterministically
     const rankedActions = body.actions.map(a => {
       const modifiedGraph = applyAction(body.graph, a);
       const modifiedDAG = adaptGraphToDAG(modifiedGraph);
-      const actionResult = runKernel(modifiedDAG, Object.keys(body.objective.weights)[0] || 'target', { seed });
-      const actionUtility = computeUtility(actionResult, body.objective);
+      const actionResult = runKernel(modifiedDAG, targetNode, { seed });
+      const actionUtility = computeUtility(actionResult, body.objective, targetNode);
       const marginalGain = actionUtility - baselineUtility;
       const efficiency = marginalGain / (a.cost || 1);
       return { ...a, marginalGain, efficiency };
