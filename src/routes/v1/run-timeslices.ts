@@ -208,17 +208,23 @@ export async function registerRunTimeslicesRoute(app: FastifyInstance) {
     });
     
     // Record audit event
+    const { countPriors } = await import('../../lib/validate-priors.js');
+    const { countEvidence } = await import('../../lib/validate-evidence.js');
     recordAuditEvent({
       evt: 'run_timeslices',
       route: '/v1/run_timeslices',
       id: req.id,
       seed,
       response_hash: responseHash,
+      priors_count: countPriors(body.priors),
+      evidence_count: countEvidence(body.evidence),
       status: 200,
       ts: new Date().toISOString()
     });
     
-    return reply.code(200).send({
+    // Prepare response with sanitized evidence metadata
+    const { sanitizeEvidence } = await import('../../lib/validate-evidence.js');
+    const response: any = {
       schema: 'run_timeslices.v1',
       results,
       model_card: {
@@ -226,6 +232,15 @@ export async function registerRunTimeslicesRoute(app: FastifyInstance) {
         response_hash: responseHash,
         timeslices_count: body.timeslices.length
       }
-    });
+    };
+    
+    // Add evidence_applied to meta if evidence was provided
+    if (body.evidence && body.evidence.length > 0) {
+      response.meta = {
+        evidence_applied: sanitizeEvidence(body.evidence)
+      };
+    }
+    
+    return reply.code(200).send(response);
   });
 }
