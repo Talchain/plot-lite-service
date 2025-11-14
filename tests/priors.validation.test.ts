@@ -15,7 +15,6 @@ describe('Priors validation', () => {
       ],
       edges: [{ from: 'A', to: 'B', weight: 0.5 }]
     },
-    k_samples: 1000,
     seed: 4242
   };
 

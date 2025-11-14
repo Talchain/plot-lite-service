@@ -11,6 +11,7 @@ interface OptimiseRequest {
   actions: Array<{ id: string; cost: number; do: Array<{ node_id: string; set_to: number }> }>;
   objective: { type: 'utility_linear'; weights: Record<string, number> };
   constraints?: Constraints;
+  priors?: Record<string, number | { mean: number; sd: number }>;
 }
 
 // Helper: Apply action interventions to graph by scaling edge weights
@@ -65,6 +66,24 @@ export async function registerOptimiseRoute(app: FastifyInstance) {
       actionIds.add(action.id);
       if (action.cost < 0) {
         return reply.code(400).send({ error: { type: 'BAD_INPUT', message: 'Action costs must be >= 0' } });
+      }
+    }
+    
+    // Validate priors if present
+    if (body.priors) {
+      const { validatePriors } = await import('../../lib/validate-priors.js');
+      const nodeIds = new Set<string>(body.graph.nodes.map((n: any) => String(n.id)));
+      const priorsValidation = validatePriors(body.priors, nodeIds);
+      
+      if (!priorsValidation.valid) {
+        const firstError = priorsValidation.errors[0];
+        return reply.code(400).send({
+          error: {
+            type: 'BAD_INPUT',
+            message: firstError.message,
+            field: firstError.field
+          }
+        });
       }
     }
     
