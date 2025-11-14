@@ -1737,6 +1737,27 @@ paths:
                     type: { type: string, enum: [utility_linear] }
                     weights: { type: object }
                 seed: { type: integer }
+            example:
+              graph:
+                nodes:
+                  - { id: "Price", label: "Price" }
+                  - { id: "Demand", label: "Demand" }
+                  - { id: "Revenue", label: "Revenue" }
+                edges:
+                  - { from: "Price", to: "Demand", weight: -0.5 }
+                  - { from: "Demand", to: "Revenue", weight: 0.8 }
+              budget: 100
+              actions:
+                - id: "discount"
+                  cost: 50
+                  do: [{ node_id: "Price", set_to: 0.7 }]
+                - id: "marketing"
+                  cost: 80
+                  do: [{ node_id: "Demand", set_to: 0.9 }]
+              objective:
+                type: "utility_linear"
+                weights: { "Revenue": 1.0 }
+              seed: 4242
       responses:
         '200':
           description: Optimisation results
@@ -1752,6 +1773,19 @@ paths:
                   meta: { type: object }
         '400':
           description: Bad input
+          content:
+            application/json:
+              examples:
+                missing_actions:
+                  value:
+                    error:
+                      type: BAD_INPUT
+                      message: "actions and budget required"
+                duplicate_action:
+                  value:
+                    error:
+                      type: BAD_INPUT
+                      message: "Duplicate action id: action1"
 
   /v1/run_bundle:
     post:

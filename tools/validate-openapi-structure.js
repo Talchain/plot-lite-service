@@ -2,8 +2,8 @@
 /**
  * Validate OpenAPI structure - ensure paths are in paths: section, not components:
  */
-const yaml = require('yaml');
-const fs = require('fs');
+import yaml from 'yaml';
+import fs from 'fs';
 
 const content = fs.readFileSync('contracts/openapi.yaml', 'utf-8');
 const lines = content.split('\n');

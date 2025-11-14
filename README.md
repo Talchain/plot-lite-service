@@ -338,8 +338,8 @@ fetch('https://plot-lite-service.onrender.com/v1/intervene', {
 - Max payload: 96 KB
 - Performance: p95 ≤ 600ms
 
-#### POST /v1/optimise - Constraint-Aware Optimization
-Find optimal values for a target node with constraints:
+#### POST /v1/optimise - Action Selection Under Budget
+Select optimal actions under budget to maximize utility:
 ```javascript
 fetch('https://plot-lite-service.onrender.com/v1/optimise', {
   method: 'POST',
@@ -349,14 +349,14 @@ fetch('https://plot-lite-service.onrender.com/v1/optimise', {
   },
   body: JSON.stringify({
     graph: { nodes: [...], edges: [...] },
-    target_node: 'Revenue',
-    constraints: {
-      bounds: {
-        Price: { min: 0, max: 1 }
-      },
-      structure: {
-        forbid_edges: [['A', 'B']]
-      }
+    budget: 100,
+    actions: [
+      { id: 'discount', cost: 50, do: [{ node_id: 'Price', set_to: 0.7 }] },
+      { id: 'marketing', cost: 80, do: [{ node_id: 'Demand', set_to: 0.9 }] }
+    ],
+    objective: {
+      type: 'utility_linear',
+      weights: { Revenue: 1.0 }
     },
     seed: 4242
   })
@@ -365,14 +365,19 @@ fetch('https://plot-lite-service.onrender.com/v1/optimise', {
 
 **Returns:**
 - Schema: `optimise.v1`
-- Result: Optimal value and recommendations
-- Constraint violations: Structured error if infeasible
+- Selected: Array of action IDs chosen
+- Utility: Expected utility with p10/p50/p90
+- Explanations: Marginal gain per action
 - Deterministic with same seed
 
-**Constraints:**
-- `bounds`: Min/max values for nodes
-- `structure.forbid_edges`: Forbidden edge pairs
-- Infeasibility detection with clear error messages
+**Action Format:**
+- `id`: Unique action identifier
+- `cost`: Non-negative cost
+- `do`: Array of interventions (node_id, set_to)
+
+**Objective:**
+- `type`: Currently only `utility_linear` supported
+- `weights`: Node weights for utility calculation
 
 **Limits:**
 - Max nodes: 50

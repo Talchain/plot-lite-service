@@ -20,6 +20,7 @@ describe('POST /v1/optimise - OpenAPI Example Round-trip', () => {
     expect(openapi.paths['/v1/optimise']).toBeDefined();
     
     const exampleRequest = openapi.paths['/v1/optimise'].post.requestBody.content['application/json'].example;
+    expect(exampleRequest).toBeDefined();
 
     const res = await fetch(`${server.baseUrl}/v1/optimise`, {
       method: 'POST',
@@ -32,11 +33,12 @@ describe('POST /v1/optimise - OpenAPI Example Round-trip', () => {
 
     // Verify response matches OpenAPI schema
     expect(data.schema).toBe('optimise.v1');
-    expect(data.result).toBeDefined();
-    expect(data.result.optimal_value).toBeTypeOf('number');
-    expect(data.result.recommendations).toBeInstanceOf(Array);
+    expect(data.selected).toBeInstanceOf(Array);
+    expect(data.utility).toBeDefined();
+    expect(data.utility.expected).toBeTypeOf('number');
+    expect(data.explanations).toBeInstanceOf(Array);
     expect(data.meta).toBeDefined();
-    expect(data.meta.seed).toBeDefined();
+    expect(data.meta.seed).toBe(4242);
   });
 
   it('validates OpenAPI error examples structure', () => {

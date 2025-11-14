@@ -106,11 +106,19 @@ describe('New Endpoints - Headers & Idempotency', () => {
             ],
             edges: [{ from: 'Price', to: 'Revenue', weight: 0.5 }]
           },
-          target_node: 'Revenue',
+          budget: 100,
+          actions: [
+            { id: 'action1', cost: 50, do: [{ node_id: 'Price', set_to: 0.8 }] }
+          ],
+          objective: {
+            type: 'utility_linear',
+            weights: { Revenue: 1.0 }
+          },
           seed: 4242
         })
       });
 
+      expect(res.status).toBe(200);
       expect(res.headers.get('x-request-id')).toBe(requestId);
     });
 
@@ -126,11 +134,19 @@ describe('New Endpoints - Headers & Idempotency', () => {
             ],
             edges: [{ from: 'Price', to: 'Revenue', weight: 0.5 }]
           },
-          target_node: 'Revenue',
+          budget: 100,
+          actions: [
+            { id: 'action1', cost: 50, do: [{ node_id: 'Price', set_to: 0.8 }] }
+          ],
+          objective: {
+            type: 'utility_linear',
+            weights: { Revenue: 1.0 }
+          },
           seed: 4242
         })
       });
 
+      expect(res.status).toBe(200);
       expect(res.headers.has('x-ratelimit-limit') || res.headers.has('ratelimit-limit')).toBe(true);
     });
 
@@ -143,7 +159,14 @@ describe('New Endpoints - Headers & Idempotency', () => {
           })),
           edges: []
         },
-        target_node: 'N0',
+        budget: 100,
+        actions: [
+          { id: 'action1', cost: 50, do: [{ node_id: 'N0', set_to: 0.8 }] }
+        ],
+        objective: {
+          type: 'utility_linear',
+          weights: { N0: 1.0 }
+        },
         seed: 4242
       };
 
@@ -164,7 +187,8 @@ describe('New Endpoints - Headers & Idempotency', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           graph: { nodes: [], edges: [] },
-          target_node: 'NONEXISTENT'
+          budget: 100
+          // Missing required actions and objective
         })
       });
 

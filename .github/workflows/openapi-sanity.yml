@@ -27,5 +27,4 @@ jobs:
         run: node tools/validate-openapi-structure.js
       
       - name: Validate OpenAPI schema
-        run: |
-          npx @redocly/cli lint contracts/openapi.yaml --skip-rule=no-unused-components || true
+        run: npx @redocly/cli lint contracts/openapi.yaml --skip-rule=no-unused-components

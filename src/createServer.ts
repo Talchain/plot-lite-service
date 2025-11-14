@@ -130,6 +130,11 @@ export async function createServer(opts: ServerOpts = {}) {
     },
   });
 
+  // Echo X-Request-Id back to client
+  app.addHook('onSend', async (request, reply) => {
+    reply.header('x-request-id', request.id);
+  });
+
   // Guard: prevent test routes in production
   {
     const prod = process.env.NODE_ENV === 'production';
