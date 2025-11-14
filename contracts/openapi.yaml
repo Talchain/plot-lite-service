@@ -1262,16 +1262,23 @@ paths:
                 seed:
                   type: integer
                   example: 4242
-                do:
+                actions:
                   type: array
+                  description: Causal interventions via do-operator
                   items:
                     type: object
-                    required: [node_id, set_to]
+                    required: [node_id, value]
                     properties:
                       node_id:
                         type: string
-                      set_to:
+                      value:
                         type: number
+                flags:
+                  type: object
+                  properties:
+                    scm_lite:
+                      type: integer
+                      enum: [0, 1]
             example:
               graph:
                 nodes:
@@ -1280,8 +1287,9 @@ paths:
                 edges:
                   - {from: "X", to: "Y", weight: 0.5}
               seed: 4242
-              do:
-                - {node_id: "X", set_to: 1.0}
+              actions:
+                - {node_id: "X", value: 0.8}
+              flags: {scm_lite: 1}
       responses:
         '200':
           description: Intervention results
@@ -1299,42 +1307,62 @@ paths:
                       summary:
                         type: object
                         properties:
-                          p50:
-                            type: number
+                          p10: {type: number}
+                          p50: {type: number}
+                          p90: {type: number}
                   counterfactual:
                     type: object
                     properties:
                       summary:
                         type: object
                         properties:
-                          p50:
-                            type: number
+                          p10: {type: number}
+                          p50: {type: number}
+                          p90: {type: number}
                   delta:
                     type: object
                     properties:
-                      p10:
-                        type: number
-                      p50:
-                        type: number
-                      p90:
-                        type: number
-                  identifiability:
-                    type: string
-                  top_drivers:
-                    type: array
-                  meta:
+                      p10: {type: number}
+                      p50: {type: number}
+                      p90: {type: number}
+                  explain:
                     type: object
+                    properties:
+                      provenance:
+                        type: string
+                        example: "do-operator"
+                      top_drivers:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            node_id: {type: string}
+                            contribution: {type: number}
+                            sign: {type: string, enum: ["+", "-"]}
+                  model_card:
+                    type: object
+                    properties:
+                      actions_hash: {type: string}
+                      seed: {type: integer}
+                      flags_on: {type: array, items: {type: string}}
+                  response_hash:
+                    type: string
               example:
                 schema: "intervene.v1"
                 baseline:
-                  summary: {p50: 0.924}
+                  summary: {p10: 0.819, p50: 0.924, p90: 1.109}
                 counterfactual:
-                  summary: {p50: 1.074}
-                delta: {p10: 0.05, p50: 0.15, p90: 0.30}
-                identifiability: "Identifiable: Yes. No confounders detected - direct causal effect estimable."
-                top_drivers:
-                  - {node_id: "X", contribution: 100, sign: "+"}
-                meta: {seed: 4242, inference_mode: "model_based"}
+                  summary: {p10: 0.915, p50: 1.044, p90: 1.253}
+                delta: {p10: 0.096, p50: 0.120, p90: 0.144}
+                explain:
+                  provenance: "do-operator"
+                  top_drivers:
+                    - {node_id: "X", contribution: 80, sign: "+"}
+                model_card:
+                  actions_hash: "a1b2c3d4e5f6g7h8"
+                  seed: 4242
+                  flags_on: ["scm_lite"]
+                response_hash: "1234567890abcdef"
         '400':
           description: Bad input or not identifiable
           content:
@@ -1354,12 +1382,14 @@ paths:
                   value:
                     error:
                       type: "BAD_INPUT"
-                      message: "Invalid node_ids in do: Z"
-                not_identifiable:
+                      message: "Invalid node_ids in actions: Z"
+                      field: "actions[].node_id"
+                missing_actions:
                   value:
                     error:
-                      type: "NOT_IDENTIFIABLE"
-                      message: "Causal effect not identifiable: confounders detected"
+                      type: "BAD_INPUT"
+                      message: "actions array required with at least one intervention"
+                      field: "actions"
 
   /v1/evidence:
     post:
@@ -1703,7 +1733,7 @@ paths:
   /v1/optimise:
     post:
       summary: Action Optimiser
-      description: Select actions under budget to maximize utility
+      description: Select actions under budget to maximize utility with optional constraints
       operationId: optimise
       tags: [v1, optimisation]
       requestBody:
@@ -1737,27 +1767,22 @@ paths:
                     type: { type: string, enum: [utility_linear] }
                     weights: { type: object }
                 seed: { type: integer }
-            example:
-              graph:
-                nodes:
-                  - { id: "Price", label: "Price" }
-                  - { id: "Demand", label: "Demand" }
-                  - { id: "Revenue", label: "Revenue" }
-                edges:
-                  - { from: "Price", to: "Demand", weight: -0.5 }
-                  - { from: "Demand", to: "Revenue", weight: 0.8 }
-              budget: 100
-              actions:
-                - id: "discount"
-                  cost: 50
-                  do: [{ node_id: "Price", set_to: 0.7 }]
-                - id: "marketing"
-                  cost: 80
-                  do: [{ node_id: "Demand", set_to: 0.9 }]
-              objective:
-                type: "utility_linear"
-                weights: { "Revenue": 1.0 }
-              seed: 4242
+                constraints:
+                  type: object
+                  description: Optional constraints on action selection
+                  properties:
+                    must:
+                      type: array
+                      items: { type: string }
+                      description: Action IDs that must be selected
+                    must_not:
+                      type: array
+                      items: { type: string }
+                      description: Action IDs that must not be selected
+                    max_changed_nodes:
+                      type: integer
+                      minimum: 0
+                      description: Maximum number of nodes that can be affected
       responses:
         '200':
           description: Optimisation results
@@ -1772,226 +1797,43 @@ paths:
                   explanations: { type: array }
                   meta: { type: object }
         '400':
-          description: Bad input
-          content:
-            application/json:
-              examples:
-                missing_actions:
-                  value:
-                    error:
-                      type: BAD_INPUT
-                      message: "actions and budget required"
-                duplicate_action:
-                  value:
-                    error:
-                      type: BAD_INPUT
-                      message: "Duplicate action id: action1"
-
-  /v1/run_bundle:
-    post:
-      summary: Scenario Bundle Processing
-      description: |
-        Execute multiple scenario variations efficiently by applying labeled deltas to a base graph.
-        Useful for UI scenario comparison workflows.
-        
-        **Limits:**
-        - Base graph: max 50 nodes, 200 edges
-        - Max 10 deltas per request
-        - Each merged graph must respect node/edge limits
-        - 96 KiB total payload limit
-        
-        **Deduplication:** Results include `response_hash` for each scenario. Duplicate graph 
-        content (same nodes/edges/seed) produces identical hashes.
-      operationId: runBundle
-      tags: [v1, scenarios]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [base_graph, deltas]
-              properties:
-                base_graph:
-                  $ref: '#/components/schemas/graph'
-                deltas:
-                  type: array
-                  minItems: 1
-                  maxItems: 10
-                  items:
-                    type: object
-                    required: [label]
-                    properties:
-                      label:
-                        type: string
-                        description: Unique label for this scenario
-                        example: "Scenario A"
-                      nodes:
-                        type: array
-                        description: Nodes to add or override in base graph
-                        items:
-                          type: object
-                          properties:
-                            id: { type: string }
-                            label: { type: string }
-                            value: { type: number }
-                      edges:
-                        type: array
-                        description: If provided, replaces base edges entirely
-                        items:
-                          type: object
-                          properties:
-                            from: { type: string }
-                            to: { type: string }
-                seed:
-                  type: integer
-                  default: 4242
-                  description: Random seed for deterministic results
-            examples:
-              basic:
-                summary: Two scenarios with node value changes
-                value:
-                  base_graph:
-                    nodes:
-                      - id: "Price"
-                        label: "Price"
-                        value: 0.5
-                      - id: "Demand"
-                        label: "Demand"
-                    edges:
-                      - from: "Price"
-                        to: "Demand"
-                  deltas:
-                    - label: "Low Price"
-                      nodes:
-                        - id: "Price"
-                          value: 0.3
-                    - label: "High Price"
-                      nodes:
-                        - id: "Price"
-                          value: 0.8
-                  seed: 4242
-      responses:
-        '200':
-          description: Bundle results with per-scenario outcomes
+          description: Bad input or infeasible constraints
           content:
             application/json:
               schema:
                 type: object
-                required: [schema, results, meta]
                 properties:
-                  schema:
-                    type: string
-                    enum: [run_bundle.v1]
-                  results:
-                    type: array
-                    items:
-                      type: object
-                      required: [label, summary, model_card]
-                      properties:
-                        label:
-                          type: string
-                          description: Scenario label from request
-                        summary:
-                          type: object
-                          required: [p10, p50, p90]
-                          properties:
-                            p10: { type: number }
-                            p50: { type: number }
-                            p90: { type: number }
-                        model_card:
-                          type: object
-                          required: [schema, seed, nodes, edges, response_hash]
-                          properties:
-                            schema: { type: string, example: "report.v1" }
-                            seed: { type: integer }
-                            nodes: { type: integer }
-                            edges: { type: integer }
-                            response_hash:
-                              type: string
-                              pattern: '^[0-9a-f]{16}$'
-                              description: SHA-256 hash (first 16 chars) for deduplication
-                            duplicate:
-                              type: boolean
-                              description: True if this result duplicates an earlier one
-                  meta:
+                  error:
                     type: object
-                    required: [seed, total_scenarios, unique_results]
                     properties:
-                      seed: { type: integer }
-                      total_scenarios: { type: integer }
-                      unique_results:
-                        type: integer
-                        description: Number of unique result hashes
+                      schema: { type: string, example: "error.v1" }
+                      code: { type: string, enum: [BAD_INPUT, INFEASIBLE] }
+                      message: { type: string }
+                      violations:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            type: { type: string }
+                            message: { type: string }
+                            constraint: { type: string }
+                            node_id: { type: string }
+                            required: { type: number }
+                            available: { type: number }
+                            reason: { type: string }
               examples:
-                success:
-                  summary: Two scenarios processed
+                infeasible:
                   value:
-                    schema: "run_bundle.v1"
-                    results:
-                      - label: "Low Price"
-                        summary:
-                          p10: 0.42
-                          p50: 0.53
-                          p90: 0.64
-                        model_card:
-                          schema: "report.v1"
-                          seed: 4242
-                          nodes: 2
-                          edges: 1
-                          response_hash: "a1b2c3d4e5f67890"
-                      - label: "High Price"
-                        summary:
-                          p10: 0.38
-                          p50: 0.48
-                          p90: 0.58
-                        model_card:
-                          schema: "report.v1"
-                          seed: 4242
-                          nodes: 2
-                          edges: 1
-                          response_hash: "f0e9d8c7b6a54321"
-                    meta:
-                      seed: 4242
-                      total_scenarios: 2
-                      unique_results: 2
-        '400':
-          description: Bad input with field pointers
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/error.v1'
-              examples:
-                too_many_deltas:
-                  summary: Exceeds max deltas limit
-                  value:
-                    schema: "error.v1"
                     error:
-                      type: "BAD_INPUT"
-                      message: "Maximum 10 deltas allowed, got 12"
-                      field: "deltas"
-                merged_too_large:
-                  summary: Merged graph exceeds limits
-                  value:
-                    schema: "error.v1"
-                    error:
-                      type: "BAD_INPUT"
-                      message: "Delta 'Scenario X' results in 55 nodes (max 50)"
-                      field: "deltas[3]"
-                no_deltas:
-                  summary: Empty deltas array
-                  value:
-                    schema: "error.v1"
-                    error:
-                      type: "BAD_INPUT"
-                      message: "deltas array required with at least one scenario"
-                      field: "deltas"
-        '413':
-          description: Payload too large (>96 KiB)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/error.v1'
+                      schema: "error.v1"
+                      code: "INFEASIBLE"
+                      message: "Constraints cannot be satisfied"
+                      violations:
+                        - type: "MUST_ACTION_EXCEEDS_BUDGET"
+                          message: "Required action 'expensive' costs 150 but budget is 100"
+                          constraint: "must"
+                          node_id: "expensive"
+                          reason: "exceeds_budget"
 
   /v1/preferences/fit:
     post:
