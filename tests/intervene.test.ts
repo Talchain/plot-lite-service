@@ -20,7 +20,7 @@ describe('POST /v1/intervene', () => {
           edges: [{ from: 'X', to: 'Y', weight: 0.5 }]
         },
         seed: 4242,
-        do: [{ node_id: 'X', set_to: 1.0 }]
+        actions: [{ node_id: 'X', value: 1.0 }]
       })
     });
     
@@ -30,8 +30,8 @@ describe('POST /v1/intervene', () => {
     expect(data.baseline).toBeDefined();
     expect(data.counterfactual).toBeDefined();
     expect(data.delta).toBeDefined();
-    expect(data.identifiability).toContain('Identifiable');
-    expect(data.meta.seed).toBe(4242);
+    expect(data.explain.provenance).toBe('do-operator');
+    expect(data.model_card.seed).toBe(4242);
   });
 
   it('is deterministic with same seed', async () => {
@@ -41,7 +41,7 @@ describe('POST /v1/intervene', () => {
         edges: [{ from: 'A', to: 'B', weight: 0.3 }]
       },
       seed: 1234,
-      do: [{ node_id: 'A', set_to: 0.8 }]
+      actions: [{ node_id: 'A', value: 0.8 }]
     };
     
     const res1 = await fetch(`${server.baseUrl}/v1/intervene`, {
@@ -72,7 +72,7 @@ describe('POST /v1/intervene', () => {
           nodes: [{ id: 'A', label: 'A' }],
           edges: []
         },
-        do: [{ node_id: 'Z', set_to: 1.0 }] // Z doesn't exist
+        actions: [{ node_id: 'Z', value: 1.0 }] // Z doesn't exist
       })
     });
     
@@ -91,7 +91,7 @@ describe('POST /v1/intervene', () => {
           nodes: [{ id: 'A', label: 'A' }],
           edges: []
         },
-        do: [] // Empty
+        actions: [] // Empty
       })
     });
     
@@ -113,9 +113,9 @@ describe('POST /v1/intervene', () => {
           ],
           edges: []
         },
-        do: [
-          { node_id: 'X1', set_to: 1.0 },
-          { node_id: 'X2', set_to: 0.5 }
+        actions: [
+          { node_id: 'X1', value: 1.0 },
+          { node_id: 'X2', value: 0.5 }
         ]
       })
     });
@@ -123,7 +123,7 @@ describe('POST /v1/intervene', () => {
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.schema).toBe('intervene.v1');
-    expect(data.top_drivers).toBeDefined();
+    expect(data.explain.top_drivers).toBeDefined();
   });
 
   it('includes top_drivers', async () => {
@@ -135,15 +135,15 @@ describe('POST /v1/intervene', () => {
           nodes: [{ id: 'A', label: 'A' }, { id: 'B', label: 'B' }],
           edges: []
         },
-        do: [{ node_id: 'A', set_to: 1.0 }]
+        actions: [{ node_id: 'A', value: 1.0 }]
       })
     });
     
     const data = await res.json();
-    expect(data.top_drivers).toBeDefined();
-    expect(data.top_drivers.length).toBeGreaterThan(0);
-    expect(data.top_drivers[0]).toHaveProperty('node_id');
-    expect(data.top_drivers[0]).toHaveProperty('contribution');
-    expect(data.top_drivers[0]).toHaveProperty('sign');
+    expect(data.explain.top_drivers).toBeDefined();
+    expect(data.explain.top_drivers.length).toBeGreaterThan(0);
+    expect(data.explain.top_drivers[0]).toHaveProperty('node_id');
+    expect(data.explain.top_drivers[0]).toHaveProperty('contribution');
+    expect(data.explain.top_drivers[0]).toHaveProperty('sign');
   });
 });

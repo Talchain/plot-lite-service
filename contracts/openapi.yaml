@@ -1262,16 +1262,23 @@ paths:
                 seed:
                   type: integer
                   example: 4242
-                do:
+                actions:
                   type: array
+                  description: Causal interventions via do-operator
                   items:
                     type: object
-                    required: [node_id, set_to]
+                    required: [node_id, value]
                     properties:
                       node_id:
                         type: string
-                      set_to:
+                      value:
                         type: number
+                flags:
+                  type: object
+                  properties:
+                    scm_lite:
+                      type: integer
+                      enum: [0, 1]
             example:
               graph:
                 nodes:
@@ -1280,8 +1287,9 @@ paths:
                 edges:
                   - {from: "X", to: "Y", weight: 0.5}
               seed: 4242
-              do:
-                - {node_id: "X", set_to: 1.0}
+              actions:
+                - {node_id: "X", value: 0.8}
+              flags: {scm_lite: 1}
       responses:
         '200':
           description: Intervention results
@@ -1299,42 +1307,62 @@ paths:
                       summary:
                         type: object
                         properties:
-                          p50:
-                            type: number
+                          p10: {type: number}
+                          p50: {type: number}
+                          p90: {type: number}
                   counterfactual:
                     type: object
                     properties:
                       summary:
                         type: object
                         properties:
-                          p50:
-                            type: number
+                          p10: {type: number}
+                          p50: {type: number}
+                          p90: {type: number}
                   delta:
                     type: object
                     properties:
-                      p10:
-                        type: number
-                      p50:
-                        type: number
-                      p90:
-                        type: number
-                  identifiability:
-                    type: string
-                  top_drivers:
-                    type: array
-                  meta:
+                      p10: {type: number}
+                      p50: {type: number}
+                      p90: {type: number}
+                  explain:
                     type: object
+                    properties:
+                      provenance:
+                        type: string
+                        example: "do-operator"
+                      top_drivers:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            node_id: {type: string}
+                            contribution: {type: number}
+                            sign: {type: string, enum: ["+", "-"]}
+                  model_card:
+                    type: object
+                    properties:
+                      actions_hash: {type: string}
+                      seed: {type: integer}
+                      flags_on: {type: array, items: {type: string}}
+                  response_hash:
+                    type: string
               example:
                 schema: "intervene.v1"
                 baseline:
-                  summary: {p50: 0.924}
+                  summary: {p10: 0.819, p50: 0.924, p90: 1.109}
                 counterfactual:
-                  summary: {p50: 1.074}
-                delta: {p10: 0.05, p50: 0.15, p90: 0.30}
-                identifiability: "Identifiable: Yes. No confounders detected - direct causal effect estimable."
-                top_drivers:
-                  - {node_id: "X", contribution: 100, sign: "+"}
-                meta: {seed: 4242, inference_mode: "model_based"}
+                  summary: {p10: 0.915, p50: 1.044, p90: 1.253}
+                delta: {p10: 0.096, p50: 0.120, p90: 0.144}
+                explain:
+                  provenance: "do-operator"
+                  top_drivers:
+                    - {node_id: "X", contribution: 80, sign: "+"}
+                model_card:
+                  actions_hash: "a1b2c3d4e5f6g7h8"
+                  seed: 4242
+                  flags_on: ["scm_lite"]
+                response_hash: "1234567890abcdef"
         '400':
           description: Bad input or not identifiable
           content:
@@ -1354,12 +1382,14 @@ paths:
                   value:
                     error:
                       type: "BAD_INPUT"
-                      message: "Invalid node_ids in do: Z"
-                not_identifiable:
+                      message: "Invalid node_ids in actions: Z"
+                      field: "actions[].node_id"
+                missing_actions:
                   value:
                     error:
-                      type: "NOT_IDENTIFIABLE"
-                      message: "Causal effect not identifiable: confounders detected"
+                      type: "BAD_INPUT"
+                      message: "actions array required with at least one intervention"
+                      field: "actions"
 
   /v1/evidence:
     post:
