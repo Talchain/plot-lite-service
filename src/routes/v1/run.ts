@@ -35,6 +35,7 @@ export interface RunRequest {
   baseline_value?: number;
   inference_mode?: InferenceMode;
   include_debug?: boolean;
+  priors?: Record<string, number | { mean: number; sd: number }>;
   constraints?: {
     bounds?: Record<string, { min?: number; max?: number }>;
     structure?: { forbid_edges?: Array<[string, string]> };
@@ -145,6 +146,30 @@ export async function registerRunRoute(app: FastifyInstance) {
     
     // Normalize graph (map confidence|probability→belief, no default on ingress)
     const graph = normalizeGraph(body.graph, false);
+    
+    // Validate priors if present
+    if (body.priors) {
+      const { validatePriors } = await import('../../lib/validate-priors.js');
+      const nodeIds = new Set<string>(graph.nodes.map((n: any) => String(n.id)));
+      const priorsValidation = validatePriors(body.priors, nodeIds);
+      
+      if (!priorsValidation.valid) {
+        const firstError = priorsValidation.errors[0];
+        req.log.info({ 
+          evt: 'priors_validation_failed', 
+          id: req.id, 
+          route: '/v1/run', 
+          errors: priorsValidation.errors 
+        });
+        return reply.code(400).send({
+          error: { 
+            type: 'BAD_INPUT', 
+            message: firstError.message,
+            field: firstError.field
+          }
+        });
+      }
+    }
     
     // Validate node effects if present (backwards-compatible)
     for (const node of graph.nodes) {
