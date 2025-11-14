@@ -12,12 +12,16 @@ describe('Performance gates', () => {
 
   async function measureLatency(url: string, body: any): Promise<number> {
     const start = performance.now();
-    await fetch(url, {
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });
-    return performance.now() - start;
+    const elapsed = performance.now() - start;
+    if (!res.ok) {
+      throw new Error(`Request failed with ${res.status}: ${await res.text()}`);
+    }
+    return elapsed;
   }
 
   function calculatePercentile(values: number[], percentile: number): number {
@@ -104,5 +108,52 @@ describe('Performance gates', () => {
     console.log(`/v1/inspect: p50=${p50.toFixed(1)}ms p95=${p95.toFixed(1)}ms max=${max.toFixed(1)}ms`);
     
     expect(p95).toBeLessThan(P95_TARGET_MS);
+  });
+
+  it('POST /v1/intervene - p95 ≤ 600ms (1-node)', async () => {
+    const latencies: number[] = [];
+    
+    for (let i = 0; i < RUNS; i++) {
+      const ms = await measureLatency(`${server.baseUrl}/v1/intervene`, {
+        graph: {
+          nodes: [{ id: 'X', label: 'X' }],
+          edges: []
+        },
+        actions: [{ node_id: 'X', value: 1.0 }],
+        seed: 4242
+      });
+      latencies.push(ms);
+    }
+
+    const p50 = calculatePercentile(latencies, 50);
+    const p95 = calculatePercentile(latencies, 95);
+    const max = Math.max(...latencies);
+
+    console.log(`/v1/intervene (1-node): p50=${p50.toFixed(1)}ms p95=${p95.toFixed(1)}ms max=${max.toFixed(1)}ms`);
+    
+    expect(p95).toBeLessThan(600);
+  });
+
+  it('POST /v1/intervene - p95 ≤ 600ms (20-node)', async () => {
+    const latencies: number[] = [];
+    const nodes = Array.from({ length: 20 }, (_, i) => ({ id: `N${i}`, label: `Node${i}` }));
+    const edges = Array.from({ length: 19 }, (_, i) => ({ from: `N${i}`, to: `N${i+1}`, weight: 0.5 }));
+    
+    for (let i = 0; i < RUNS; i++) {
+      const ms = await measureLatency(`${server.baseUrl}/v1/intervene`, {
+        graph: { nodes, edges },
+        actions: [{ node_id: 'N0', value: 0.9 }],
+        seed: 4242
+      });
+      latencies.push(ms);
+    }
+
+    const p50 = calculatePercentile(latencies, 50);
+    const p95 = calculatePercentile(latencies, 95);
+    const max = Math.max(...latencies);
+
+    console.log(`/v1/intervene (20-node): p50=${p50.toFixed(1)}ms p95=${p95.toFixed(1)}ms max=${max.toFixed(1)}ms`);
+    
+    expect(p95).toBeLessThan(600);
   });
 });
