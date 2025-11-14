@@ -133,6 +133,7 @@ export async function registerV1Routes(app: FastifyInstance) {
   await registerRunBatchRoute(app);
   await registerOptimiseRoute(app);
   await registerPreferencesRoute(app);
+  await registerRunBundleRoute(app);
   await registerAuditTestRoute(app);
   await registerGovernanceRoute(app);  
   // P1: Register enhanced stream route if enabled, otherwise use legacy
@@ -238,5 +239,6 @@ import { registerSensitivityRoute } from './sensitivity.js';
 import { registerRunBatchRoute } from './run-batch.js';
 import { registerOptimiseRoute } from './optimise.js';
 import { registerPreferencesRoute } from './preferences.js';
+import { registerRunBundleRoute } from './run-bundle.js';
 import { registerAuditTestRoute } from '../test/audit.js';
 import { registerGovernanceRoute } from '../test/governance.js';
