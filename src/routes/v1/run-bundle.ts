@@ -208,6 +208,7 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
       base_edges: baseEdges.length,
       deltas: body.deltas.length,
       unique_results: seenHashes.size,
+      evidence_count: body.evidence ? body.evidence.length : 0,
       seed,
       duration_ms: duration
     });
@@ -228,7 +229,7 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
       ts: new Date().toISOString()
     });
     
-    return reply.code(200).send({
+    const response: any = {
       schema: 'run_bundle.v1',
       results,
       model_card: {
@@ -239,7 +240,15 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
         total_scenarios: body.deltas.length,
         unique_results: seenHashes.size
       }
-    });
+    };
+
+    // Add sanitized evidence if present
+    if (body.evidence && body.evidence.length > 0) {
+      const { sanitizeEvidence } = await import('../../lib/validate-evidence.js');
+      response.meta.evidence_applied = sanitizeEvidence(body.evidence);
+    }
+
+    return reply.code(200).send(response);
   });
 }
 
