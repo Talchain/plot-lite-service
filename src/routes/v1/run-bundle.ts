@@ -16,6 +16,7 @@ interface RunBundleRequest {
   base_graph: { nodes: any[]; edges: any[] };
   deltas: GraphDelta[];
   seed?: number;
+  priors?: Record<string, number | { mean: number; sd: number }>;
 }
 
 const MAX_NODES = 50;
@@ -78,6 +79,24 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
           field: 'base_graph.edges'
         } 
       });
+    }
+    
+    // Validate priors if present
+    if (body.priors) {
+      const { validatePriors } = await import('../../lib/validate-priors.js');
+      const nodeIds = new Set<string>(body.base_graph.nodes.map((n: any) => String(n.id)));
+      const priorsValidation = validatePriors(body.priors, nodeIds);
+      
+      if (!priorsValidation.valid) {
+        const firstError = priorsValidation.errors[0];
+        return reply.code(400).send({
+          error: {
+            type: 'BAD_INPUT',
+            message: firstError.message,
+            field: firstError.field
+          }
+        });
+      }
     }
     
     const baseEdges = body.base_graph.edges || [];

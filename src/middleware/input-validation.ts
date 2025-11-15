@@ -86,6 +86,7 @@ const runRequestSchema = {
     inputs: { type: 'object', additionalProperties: true },
     inference_mode: { type: 'string', enum: ['model_based', 'model_of_inference'] },
     include_debug: { type: 'boolean' },
+    priors: { type: 'object', additionalProperties: true },
   },
 };
 
