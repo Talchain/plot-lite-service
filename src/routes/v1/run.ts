@@ -526,6 +526,9 @@ export async function registerRunRoute(app: FastifyInstance) {
         commit: process.env.BUILD_ID || process.env.GITHUB_SHA || 'dev',
         version: '1.0.0',
         inference_mode,
+        ...(body.evidence && body.evidence.length > 0 && {
+          evidence_applied: (await import('../../lib/validate-evidence.js')).sanitizeEvidence(body.evidence)
+        }),
       },
       model_card,
       result: {

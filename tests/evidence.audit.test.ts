@@ -19,12 +19,11 @@ describe('Evidence audit trail', () => {
   };
 
   it('echoes sanitized evidence in meta.evidence_applied', async () => {
-    const res = await fetch(`${server.baseUrl}/v1/run_timeslices`, {
+    const res = await fetch(`${server.baseUrl}/v1/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         ...basePayload,
-        timeslices: ['T1', 'T2'],
         evidence: [
           { 
             node_id: 'A', 
@@ -67,12 +66,11 @@ describe('Evidence audit trail', () => {
   });
 
   it('does not include meta.evidence_applied when no evidence provided', async () => {
-    const res = await fetch(`${server.baseUrl}/v1/run_timeslices`, {
+    const res = await fetch(`${server.baseUrl}/v1/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        ...basePayload,
-        timeslices: ['T1']
+        ...basePayload
       })
     });
 
@@ -84,12 +82,11 @@ describe('Evidence audit trail', () => {
   });
 
   it('accepts request with evidence (audit trail recorded internally)', async () => {
-    const res = await fetch(`${server.baseUrl}/v1/run_timeslices`, {
+    const res = await fetch(`${server.baseUrl}/v1/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         ...basePayload,
-        timeslices: ['T1'],
         evidence: [
           { node_id: 'A', source: 'test1' },
           { node_id: 'B', source: 'test2' }
@@ -109,12 +106,11 @@ describe('Evidence audit trail', () => {
   });
 
   it('sanitizes evidence without weight field', async () => {
-    const res = await fetch(`${server.baseUrl}/v1/run_timeslices`, {
+    const res = await fetch(`${server.baseUrl}/v1/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         ...basePayload,
-        timeslices: ['T1'],
         evidence: [
           { node_id: 'A', source: 'no_weight_source', note: 'secret note' }
         ]

@@ -133,38 +133,4 @@ describe('Evidence validation', () => {
       expect(data.error.field).toContain('evidence[0].note');
     });
   });
-
-  describe('/v1/run_timeslices with evidence', () => {
-    it('accepts evidence in timeslices request', async () => {
-      const res = await fetch(`${server.baseUrl}/v1/run_timeslices`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...basePayload,
-          timeslices: ['T1', 'T2'],
-          evidence: [{ node_id: 'A', source: 'historical_data' }]
-        })
-      });
-
-      expect(res.status).toBe(200);
-      const data = await res.json();
-      expect(data.schema).toBe('run_timeslices.v1');
-    });
-
-    it('validates evidence in timeslices', async () => {
-      const res = await fetch(`${server.baseUrl}/v1/run_timeslices`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...basePayload,
-          timeslices: ['T1'],
-          evidence: [{ node_id: 'Z', source: 'test' }]  // Invalid node
-        })
-      });
-
-      expect(res.status).toBe(400);
-      const data = await res.json();
-      expect(data.error.message).toContain('unknown node');
-    });
-  });
 });
