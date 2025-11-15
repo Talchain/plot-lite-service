@@ -30,7 +30,7 @@ console.log(result.summary); // { p10, p50, p90 }
 ## Features
 
 - ✅ **7 Inference Methods**: run, compare, inspect, intervene, optimise, runBundle, runTimeslices
-- ✅ **Priors Support**: Number and distribution formats with validation
+- ✅ **Priors Support**: Number and distribution formats with validation (✅ functional in v1.7.0+)
 - ✅ **Evidence Annotations**: Attach evidence with source tracking
 - ✅ **Timeslices**: Temporal graph evaluation (up to 12 slices)
 - ✅ **TypeScript Types**: Full type definitions for all requests/responses
