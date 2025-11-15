@@ -1891,9 +1891,9 @@ paths:
               examples:
                 infeasible:
                   value:
+                    schema: "error.v1"
                     error:
-                      schema: "error.v1"
-                      code: "INFEASIBLE"
+                      type: "INFEASIBLE"
                       message: "Constraints cannot be satisfied"
                       violations:
                         - type: "MUST_ACTION_EXCEEDS_BUDGET"
@@ -1995,13 +1995,13 @@ paths:
               basic:
                 value:
                   base_graph:
-                    nodes: [{ id: "A", label: "A" }]
+                    nodes: [{ id: "price", label: "Price" }]
                     edges: []
                   deltas:
-                    - label: "Variant 1"
-                      nodes: [{ id: "A", value: 1.1 }]
-                    - label: "Variant 2"
-                      nodes: [{ id: "A", value: 0.9 }]
+                    - label: "Low Price"
+                      nodes: [{ id: "price", value: 0.8 }]
+                    - label: "High Price"
+                      nodes: [{ id: "price", value: 1.2 }]
                   seed: 4242
       responses:
         '200':
@@ -2037,6 +2037,7 @@ paths:
               examples:
                 invalid_delta:
                   value:
+                    schema: "error.v1"
                     error:
                       type: "BAD_INPUT"
                       message: "Delta label is required"
