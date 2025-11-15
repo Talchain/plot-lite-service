@@ -39,6 +39,7 @@ export interface RunRequest {
   constraints?: any;
   priors?: Record<string, number | { mean: number; sd: number }>;
   evidence?: Array<{ node_id: string; source: string; note?: string; weight?: number }>;
+  targets?: string[];
 }
 
 export async function registerRunRoute(app: FastifyInstance) {
@@ -145,6 +146,9 @@ export async function registerRunRoute(app: FastifyInstance) {
     const computeStart = performance.now();
 
     const body = (req as any).body as RunRequest;
+    
+    // Normalize targets: canonical targets field, fallback to legacy query.targets
+    const targets = body.targets ?? (body.query as any)?.targets ?? [];
     
     // Normalize graph (map confidence|probability→belief, no default on ingress)
     const graph = normalizeGraph(body.graph, false);
