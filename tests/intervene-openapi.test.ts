@@ -38,9 +38,9 @@ describe('POST /v1/intervene - OpenAPI Example Round-trip', () => {
     expect(data.delta.p10).toBeTypeOf('number');
     expect(data.delta.p50).toBeTypeOf('number');
     expect(data.delta.p90).toBeTypeOf('number');
-    expect(data.identifiability).toBeTypeOf('string');
-    expect(data.meta).toBeDefined();
-    expect(data.meta.seed).toBe(4242);
+    expect(data.model_card).toBeDefined();
+    expect(data.model_card.seed).toBe(4242);
+    expect(data.response_hash).toBeTypeOf('string');
   });
 
   it('validates OpenAPI error examples structure', () => {
