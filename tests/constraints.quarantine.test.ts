@@ -26,22 +26,28 @@ describe('Constraints on /v1/run', () => {
   });
 
   it('rejects bounds violation (min)', async () => {
+    const payload = {
+      graph: {
+        nodes: [{ id: 'X', label: 'X', value: 0.5 }],
+        edges: []
+      },
+      constraints: {
+        bounds: { X: { min: 1.0 } }
+      }
+    };
     const res = await fetch(`${server.baseUrl}/v1/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        graph: {
-          nodes: [{ id: 'X', label: 'X', value: 0.5 }],
-          edges: []
-        },
-        constraints: {
-          bounds: { X: { min: 1.0 } }
-        }
-      })
+      body: JSON.stringify(payload)
     });
     
-    expect(res.status).toBe(400);
     const data = await res.json();
+    if (res.status !== 400) {
+      console.log('Expected 400, got:', res.status);
+      console.log('Payload:', JSON.stringify(payload, null, 2));
+      console.log('Response:', JSON.stringify(data, null, 2));
+    }
+    expect(res.status).toBe(400);
     expect(data.error.type).toBe('BAD_INPUT');
     expect(data.error.message).toContain('violates min bound');
   });

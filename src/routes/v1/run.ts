@@ -50,7 +50,7 @@ export async function registerRunRoute(app: FastifyInstance) {
     return reply.code(204).send();
   });
 
-    app.post('/v1/run', {
+  app.post('/v1/run', {
     schema: {
       body: {
         type: 'object',
@@ -64,9 +64,12 @@ export async function registerRunRoute(app: FastifyInstance) {
           baseline_value: { type: 'number' },
           query: { type: 'object' },
           inference_mode: { type: 'string', enum: ['model_based', 'model_of_inference'] },
-          include_debug: { type: 'boolean' }
+          include_debug: { type: 'boolean' },
+          constraints: { type: 'object' },
+          priors: { type: 'object' },
+          evidence: { type: 'array' },
         },
-        additionalProperties: true
+        additionalProperties: true,
       },
     },
     attachValidation: true,  // Attach validation errors to request instead of auto-failing
@@ -82,7 +85,7 @@ export async function registerRunRoute(app: FastifyInstance) {
           }
           return reply.code(200).type('application/json').send(payload);
         }
-        
+
         // Check validation errors (only for non-demo requests)
         if ((req as any).validationError) {
           const err = (req as any).validationError;

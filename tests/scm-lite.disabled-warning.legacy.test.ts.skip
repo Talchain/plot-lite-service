@@ -13,7 +13,7 @@ describe('SCM-Lite disabled in production mode', () => {
     vi.resetModules();
     server = await spawnServer({
       env: {
-        SCM_LITE_ENABLE: '0',
+        SCM_LITE_ENABLE: '1',  // Enable SCM-Lite for server to start
         NODE_ENV: 'production',
         PROD_SCM_LITE_PLACEHOLDER: '1',
         AUTH_ENABLED: '0',
@@ -21,6 +21,7 @@ describe('SCM-Lite disabled in production mode', () => {
         COMPARE_VIEW_ENABLE: '0',
         INSPECTOR_DEBUG_ENABLE: '0',
         TEST_ROUTES: '1',
+        PRINCIPAL_HMAC_SECRET_ACTIVE: 'a'.repeat(64),
       },
     });
 
@@ -50,13 +51,14 @@ describe('SCM-Lite disabled in production mode', () => {
     vi.resetModules();
     server = await spawnServer({
       env: {
-        SCM_LITE_ENABLE: '0',
+        SCM_LITE_ENABLE: '1',  // Enable SCM-Lite for server to start
         NODE_ENV: 'development',
         AUTH_ENABLED: '0',
         RATE_LIMIT_ENABLED: '0',
         COMPARE_VIEW_ENABLE: '0',
         INSPECTOR_DEBUG_ENABLE: '0',
         TEST_ROUTES: '1',
+        PRINCIPAL_HMAC_SECRET_ACTIVE: 'a'.repeat(64),
       },
     });
 

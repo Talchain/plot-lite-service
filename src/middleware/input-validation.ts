@@ -86,6 +86,8 @@ const runRequestSchema = {
     inputs: { type: 'object', additionalProperties: true },
     inference_mode: { type: 'string', enum: ['model_based', 'model_of_inference'] },
     include_debug: { type: 'boolean' },
+    // P0: Constraints object (shape validated in handler; allow arbitrary keys here)
+    constraints: { type: 'object', additionalProperties: true },
     priors: { type: 'object', additionalProperties: true },
     evidence: { type: 'array', items: { type: 'object' } },
   },
@@ -350,13 +352,17 @@ export function createValidator(route: 'run' | 'counterfactual' | 'critique' | '
     const uiField = checkUIFields(body);
     if (uiField) {
       await clearInflightKey(req);
-      return reply.code(400).send({
-        schema: 'error.v1',
-        code: 'BAD_INPUT',
-        message: `UI-editor field not allowed: ${uiField}`,
-        field: uiField,
-        hint: 'Remove UI-editor fields (source, target, data, position) from graph nodes/edges',
-      });
+      // Throw Fastify-compatible validation error for global handler
+      const err: any = new Error(`UI-editor field not allowed: ${uiField}`);
+      err.validation = [{ 
+        instancePath: `/${uiField}`, 
+        keyword: 'forbidden', 
+        params: { field: uiField }, 
+        message: `UI-editor field not allowed: ${uiField}` 
+      }];
+      err.validationContext = 'body';
+      err.statusCode = 400;
+      throw err;
     }
 
     // Explicit top-level additionalProperties guard (defensive, mirrors Ajv schema intent)
@@ -365,17 +371,25 @@ export function createValidator(route: 'run' | 'counterfactual' | 'critique' | '
       const unknown = keys.filter(k => !allowedKeys.has(k));
       if (unknown.length > 0) {
         await clearInflightKey(req);
-        const errorResponse = formatValidationErrors([
+        // Throw Fastify-compatible validation error for global handler
+        const err: any = new Error(`Unknown field: ${unknown[0]}`);
+        err.validation = [
           { instancePath: '/', keyword: 'additionalProperties', params: { additionalProperty: unknown[0] }, message: `must NOT have additional property '${unknown[0]}'` },
-        ] as any);
-        return reply.code(400).send(errorResponse);
+        ];
+        err.validationContext = 'body';
+        err.statusCode = 400;
+        throw err;
       }
     }
 
     if (!validator(body)) {
       await clearInflightKey(req);
-      const errorResponse = formatValidationErrors(validator.errors || []);
-      return reply.code(400).send(errorResponse);
+      // Throw Fastify-compatible validation error for global handler
+      const err: any = new Error('Validation failed');
+      err.validation = validator.errors || [];
+      err.validationContext = 'body';
+      err.statusCode = 400;
+      throw err;
     }
   };
 }

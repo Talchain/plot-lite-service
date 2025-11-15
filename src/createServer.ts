@@ -1221,7 +1221,11 @@ export async function createServer(opts: ServerOpts = {}) {
       }
       // Structured log for 413
       const bytes = req.headers['content-length'] ? Number(req.headers['content-length']) : 0;
-      req.log.warn({ evt: 'oversize', id: req.id, route: req.url, bytes, reason: 'body_too_large' });
+      const sanitizedRoute = (req as any).routerPath || (req as any).routeOptions?.url || (() => {
+        try { return new URL(req.url, 'http://local').pathname; }
+        catch { return String(req.url || '').split('?')[0].split('#')[0]; }
+      })();
+      req.log.warn({ evt: 'oversize', id: req.id, route: sanitizedRoute, bytes, reason: 'body_too_large' });
       return replyWithAppError(reply, { type: 'BAD_INPUT', statusCode: 413, message: 'Request entity too large' });
     }
     // Fallback INTERNAL
