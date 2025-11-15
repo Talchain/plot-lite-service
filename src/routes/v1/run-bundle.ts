@@ -17,6 +17,7 @@ interface RunBundleRequest {
   deltas: GraphDelta[];
   seed?: number;
   priors?: Record<string, number | { mean: number; sd: number }>;
+  evidence?: Array<{ node_id: string; source: string; note?: string; weight?: number }>;
 }
 
 const MAX_NODES = 50;
@@ -89,6 +90,24 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
       
       if (!priorsValidation.valid) {
         const firstError = priorsValidation.errors[0];
+        return reply.code(400).send({
+          error: {
+            type: 'BAD_INPUT',
+            message: firstError.message,
+            field: firstError.field
+          }
+        });
+      }
+    }
+    
+    // Validate evidence if present
+    if (body.evidence) {
+      const { validateEvidence } = await import('../../lib/validate-evidence.js');
+      const nodeIds = new Set<string>(body.base_graph.nodes.map((n: any) => String(n.id)));
+      const evidenceValidation = validateEvidence(body.evidence, nodeIds);
+      
+      if (!evidenceValidation.valid) {
+        const firstError = evidenceValidation.errors[0];
         return reply.code(400).send({
           error: {
             type: 'BAD_INPUT',

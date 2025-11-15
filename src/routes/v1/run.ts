@@ -27,19 +27,18 @@ import { validateEffect, applyEffect } from '../../engine/effects.js';
 
 
 export interface RunRequest {
-  graph: Graph;
+  graph: { nodes: any[]; edges: any[] };
   seed?: number;
   k_samples?: number;
   treatment_node?: string;
   outcome_node?: string;
   baseline_value?: number;
-  inference_mode?: InferenceMode;
+  query?: any;
+  inference_mode?: 'model_based' | 'model_of_inference';
   include_debug?: boolean;
+  constraints?: any;
   priors?: Record<string, number | { mean: number; sd: number }>;
-  constraints?: {
-    bounds?: Record<string, { min?: number; max?: number }>;
-    structure?: { forbid_edges?: Array<[string, string]> };
-  };
+  evidence?: Array<{ node_id: string; source: string; note?: string; weight?: number }>;
 }
 
 export async function registerRunRoute(app: FastifyInstance) {
@@ -171,6 +170,30 @@ export async function registerRunRoute(app: FastifyInstance) {
       }
     }
     
+    // Validate evidence if present
+    if (body.evidence) {
+      const { validateEvidence } = await import('../../lib/validate-evidence.js');
+      const nodeIds = new Set<string>(graph.nodes.map((n: any) => String(n.id)));
+      const evidenceValidation = validateEvidence(body.evidence, nodeIds);
+      
+      if (!evidenceValidation.valid) {
+        const firstError = evidenceValidation.errors[0];
+        req.log.info({ 
+          evt: 'evidence_validation_failed', 
+          id: req.id, 
+          route: '/v1/run', 
+          errors: evidenceValidation.errors 
+        });
+        return reply.code(400).send({
+          error: { 
+            type: 'BAD_INPUT', 
+            message: firstError.message,
+            field: firstError.field
+          }
+        });
+      }
+    }
+    
     // Validate node effects if present (backwards-compatible)
     for (const node of graph.nodes) {
       if ((node as any).effect) {
@@ -202,16 +225,17 @@ export async function registerRunRoute(app: FastifyInstance) {
           const node = graph.nodes.find((n: any) => n.id === nodeId);
           if (node && typeof (node as any).value === 'number') {
             const val = (node as any).value;
-            if (bounds.min !== undefined && val < bounds.min) {
-              req.log.info({ evt: 'constraints_violation', id: req.id, route: '/v1/run', reason: 'bounds_min', node: nodeId, value: val, min: bounds.min });
+            const b = bounds as any;
+            if (b.min !== undefined && val < b.min) {
+              req.log.info({ evt: 'constraints_violation', id: req.id, route: '/v1/run', reason: 'bounds_min', node: nodeId, value: val, min: b.min });
               return reply.code(400).send({
-                error: { type: 'BAD_INPUT', message: `Node ${nodeId} value ${val} violates min bound ${bounds.min}` }
+                error: { type: 'BAD_INPUT', message: `Node ${nodeId} value ${val} violates min bound ${b.min}` }
               });
             }
-            if (bounds.max !== undefined && val > bounds.max) {
-              req.log.info({ evt: 'constraints_violation', id: req.id, route: '/v1/run', reason: 'bounds_max', node: nodeId, value: val, max: bounds.max });
+            if (b.max !== undefined && val > b.max) {
+              req.log.info({ evt: 'constraints_violation', id: req.id, route: '/v1/run', reason: 'bounds_max', node: nodeId, value: val, max: b.max });
               return reply.code(400).send({
-                error: { type: 'BAD_INPUT', message: `Node ${nodeId} value ${val} violates max bound ${bounds.max}` }
+                error: { type: 'BAD_INPUT', message: `Node ${nodeId} value ${val} violates max bound ${b.max}` }
               });
             }
           }
@@ -502,6 +526,9 @@ export async function registerRunRoute(app: FastifyInstance) {
         commit: process.env.BUILD_ID || process.env.GITHUB_SHA || 'dev',
         version: '1.0.0',
         inference_mode,
+        ...(body.evidence && body.evidence.length > 0 && {
+          evidence_applied: (await import('../../lib/validate-evidence.js')).sanitizeEvidence(body.evidence)
+        }),
       },
       model_card,
       result: {
