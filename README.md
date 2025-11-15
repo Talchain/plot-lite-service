@@ -6,6 +6,14 @@ See engine contracts, gating, determinism & Evidence Pack in `docs/engine.md`.
 
 Small, deterministic Fastify + TypeScript service for PLoT-lite. No AI calls. Privacy: never log parse_text.
 
+## ✨ New in v1.6.0
+
+- **Timeslices** (`/v1/run_timeslices`) - Evaluate graphs across multiple time periods (up to 12 slices)
+- **Priors** - Initialize node beliefs with number or distribution formats
+- **Evidence** - Annotate requests with evidence metadata (source, weight, notes)
+- **TypeScript SDK** - Full-featured SDK with client-side validation (`sdk/`)
+- **Enhanced OpenAPI** - Complete specs with examples for all endpoints
+
 ## Requirements
 - Node 20 LTS
 
