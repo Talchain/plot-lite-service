@@ -1824,34 +1824,32 @@ paths:
                       type: integer
                       minimum: 0
                       description: Maximum number of nodes that can be affected
-            examples:
-              basic:
-                value:
-                  graph:
-                    nodes:
-                      - id: "revenue"
-                        label: "Revenue"
-                      - id: "cost"
-                        label: "Cost"
-                    edges: []
-                  budget: 100
-                  actions:
-                    - id: "increase_marketing"
-                      cost: 50
-                      do:
-                        - node_id: "revenue"
-                          set_to: 1.2
-                    - id: "reduce_overhead"
-                      cost: 30
-                      do:
-                        - node_id: "cost"
-                          set_to: 0.8
-                  objective:
-                    type: "utility_linear"
-                    weights:
-                      revenue: 1.0
-                      cost: -0.5
-                  seed: 4242
+            example:
+              graph:
+                nodes:
+                  - id: "revenue"
+                    label: "Revenue"
+                  - id: "cost"
+                    label: "Cost"
+                edges: []
+              budget: 100
+              actions:
+                - id: "increase_marketing"
+                  cost: 50
+                  do:
+                    - node_id: "revenue"
+                      set_to: 1.2
+                - id: "reduce_overhead"
+                  cost: 30
+                  do:
+                    - node_id: "cost"
+                      set_to: 0.8
+              objective:
+                type: "utility_linear"
+                weights:
+                  revenue: 1.0
+                  cost: -0.5
+              seed: 4242
       responses:
         '200':
           description: Optimisation results
