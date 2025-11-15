@@ -1875,6 +1875,206 @@ paths:
         '400':
           description: Bad input
 
+  /v1/run_bundle:
+    post:
+      summary: Run Bundle
+      description: Evaluate multiple graph variations from a base graph with deltas
+      operationId: runBundle
+      tags: [v1, inference]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [base_graph, deltas]
+              properties:
+                base_graph: { $ref: '#/components/schemas/graph' }
+                deltas:
+                  type: array
+                  items:
+                    type: object
+                    required: [label]
+                    properties:
+                      label: { type: string }
+                      nodes:
+                        type: array
+                        items: { type: object }
+                      edges:
+                        type: array
+                        items: { type: object }
+                seed: { type: integer }
+                priors: { type: object }
+                evidence:
+                  type: array
+                  items:
+                    type: object
+                    required: [node_id, source]
+                    properties:
+                      node_id: { type: string }
+                      source: { type: string }
+                      note: { type: string }
+                      weight: { type: number, minimum: 0, maximum: 1 }
+            example:
+              base_graph:
+                nodes: [{ id: "A", label: "A" }]
+                edges: []
+              deltas:
+                - label: "Variant 1"
+                  nodes: [{ id: "A", value: 1.1 }]
+                - label: "Variant 2"
+                  nodes: [{ id: "A", value: 0.9 }]
+              seed: 4242
+      responses:
+        '200':
+          description: Bundle results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schema: { type: string, example: "run_bundle.v1" }
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        label: { type: string }
+                        summary:
+                          type: object
+                          properties:
+                            p10: { type: number }
+                            p50: { type: number }
+                            p90: { type: number }
+                        confidence: { type: number }
+                  model_card:
+                    type: object
+                    properties:
+                      seed: { type: integer }
+                      response_hash: { type: string }
+        '400':
+          description: Bad input
+          content:
+            application/json:
+              examples:
+                invalid_delta:
+                  value:
+                    error:
+                      type: "BAD_INPUT"
+                      message: "Delta label is required"
+                      field: "deltas[0].label"
+
+  /v1/run_timeslices:
+    post:
+      summary: Run Timeslices
+      description: Evaluate graph across multiple time periods with optional overrides
+      operationId: runTimeslices
+      tags: [v1, inference]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [graph, timeslices]
+              properties:
+                graph: { $ref: '#/components/schemas/graph' }
+                timeslices:
+                  type: array
+                  maxItems: 12
+                  items: { type: string }
+                slice_overrides:
+                  type: array
+                  items:
+                    type: object
+                    required: [slice]
+                    properties:
+                      slice: { type: string }
+                      nodes:
+                        type: array
+                        items: { type: object }
+                      edges:
+                        type: array
+                        items: { type: object }
+                priors: { type: object }
+                evidence:
+                  type: array
+                  items:
+                    type: object
+                    required: [node_id, source]
+                    properties:
+                      node_id: { type: string }
+                      source: { type: string }
+                      note: { type: string }
+                      weight: { type: number, minimum: 0, maximum: 1 }
+                seed: { type: integer }
+            example:
+              graph:
+                nodes: [{ id: "demand", label: "Demand" }]
+                edges: []
+              timeslices: ["Q1", "Q2", "Q3", "Q4"]
+              slice_overrides:
+                - slice: "Q2"
+                  nodes: [{ id: "demand", value: 1.2 }]
+              priors: { demand: 0.6 }
+              seed: 4242
+      responses:
+        '200':
+          description: Timeslices results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schema: { type: string, example: "run_timeslices.v1" }
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        slice: { type: string }
+                        summary:
+                          type: object
+                          properties:
+                            p10: { type: number }
+                            p50: { type: number }
+                            p90: { type: number }
+                        confidence: { type: number }
+                  model_card:
+                    type: object
+                    properties:
+                      seed: { type: integer }
+                      response_hash: { type: string }
+                      timeslices_count: { type: integer }
+                  meta:
+                    type: object
+                    properties:
+                      evidence_applied:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            node_id: { type: string }
+                            source: { type: string }
+                            weight: { type: number }
+        '400':
+          description: Bad input
+          content:
+            application/json:
+              examples:
+                too_many_slices:
+                  value:
+                    error:
+                      type: "BAD_INPUT"
+                      message: "Maximum 12 timeslices allowed"
+                      field: "timeslices"
+                invalid_prior:
+                  value:
+                    error:
+                      type: "BAD_INPUT"
+                      message: "Prior value must be between 0 and 1"
+                      field: "priors.demand"
+
 
 components:
   schemas:
