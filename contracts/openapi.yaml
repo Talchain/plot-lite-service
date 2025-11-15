@@ -1040,10 +1040,9 @@ paths:
               examples:
                 invalid_graphs:
                   value:
-                    error:
-                      type: "BAD_INPUT"
-                      message: "graphs array must contain 2-5 items"
-                      field: "graphs"
+                    schema: "error.v1"
+                    code: "BAD_INPUT"
+                    message: "graphs array must contain 2-5 items"
 
   /v1/inspect:
     post:
@@ -1106,10 +1105,9 @@ paths:
               examples:
                 invalid_graph:
                   value:
-                    error:
-                      type: "BAD_INPUT"
-                      message: "graph.nodes is required"
-                      field: "graph.nodes"
+                    schema: "error.v1"
+                    code: "BAD_INPUT"
+                    message: "graph.nodes is required"
 
   /v1/score:
     post:
@@ -1247,10 +1245,9 @@ paths:
               examples:
                 invalid_weights:
                   value:
-                    error:
-                      type: "BAD_INPUT"
-                      message: "Invalid node_ids in weights: Z"
-                      field: "utilities.weights"
+                    schema: "error.v1"
+                    code: "BAD_INPUT"
+                    message: "Invalid node_ids in weights: Z"
 
   /v1/intervene:
     post:
@@ -1405,16 +1402,14 @@ paths:
               examples:
                 bad_input:
                   value:
-                    error:
-                      type: "BAD_INPUT"
-                      message: "Invalid node_ids in actions: Z"
-                      field: "actions[].node_id"
+                    schema: "error.v1"
+                    code: "BAD_INPUT"
+                    message: "Invalid node_ids in actions: Z"
                 missing_actions:
                   value:
-                    error:
-                      type: "BAD_INPUT"
-                      message: "actions array required with at least one intervention"
-                      field: "actions"
+                    schema: "error.v1"
+                    code: "BAD_INPUT"
+                    message: "actions array required with at least one intervention"
 
   /v1/evidence:
     post:
@@ -1551,17 +1546,12 @@ paths:
                         type: string
                       message:
                         type: string
-              example:
-                error:
-                  type: "BAD_INPUT"
-                  message: "Invalid node_ids in priors: Z"
               examples:
                 invalid_prior:
                   value:
-                    error:
-                      type: "BAD_INPUT"
-                      message: "Invalid node_ids in priors: Z"
-                      field: "priors"
+                    schema: "error.v1"
+                    code: "BAD_INPUT"
+                    message: "Invalid node_ids in priors: Z"
 
   /v1/sensitivity:
     post:
@@ -1687,14 +1677,14 @@ paths:
               examples:
                 invalid_delta:
                   value:
-                    error:
-                      type: "BAD_INPUT"
-                      message: "delta must be in (0, 1]"
+                    schema: "error.v1"
+                    code: "BAD_INPUT"
+                    message: "delta must be in (0, 1]"
                 invalid_targets:
                   value:
-                    error:
-                      type: "BAD_INPUT"
-                      message: "Invalid target node_ids: Z"
+                    schema: "error.v1"
+                    code: "BAD_INPUT"
+                    message: "Invalid target node_ids: Z"
 
   /v1/run_batch:
     post:
@@ -1766,10 +1756,9 @@ paths:
               examples:
                 too_many_items:
                   value:
-                    error:
-                      type: "BAD_INPUT"
-                      message: "items array must contain 1-10 items"
-                      field: "items"
+                    schema: "error.v1"
+                    code: "BAD_INPUT"
+                    message: "items array must contain 1-10 items"
 
   /v1/optimise:
     post:
@@ -1892,15 +1881,8 @@ paths:
                 infeasible:
                   value:
                     schema: "error.v1"
-                    error:
-                      type: "INFEASIBLE"
-                      message: "Constraints cannot be satisfied"
-                      violations:
-                        - type: "MUST_ACTION_EXCEEDS_BUDGET"
-                          message: "Required action 'expensive' costs 150 but budget is 100"
-                          constraint: "must"
-                          node_id: "expensive"
-                          reason: "exceeds_budget"
+                    code: "INFEASIBLE"
+                    message: "Constraints cannot be satisfied"
 
   /v1/preferences/fit:
     post:
@@ -1946,10 +1928,9 @@ paths:
               examples:
                 invalid_pairs:
                   value:
-                    error:
-                      type: "BAD_INPUT"
-                      message: "pairs array is required"
-                      field: "pairs"
+                    schema: "error.v1"
+                    code: "BAD_INPUT"
+                    message: "pairs array is required"
 
   /v1/run_bundle:
     post:
@@ -2038,10 +2019,8 @@ paths:
                 invalid_delta:
                   value:
                     schema: "error.v1"
-                    error:
-                      type: "BAD_INPUT"
-                      message: "Delta label is required"
-                      field: "deltas[0].label"
+                    code: "BAD_INPUT"
+                    message: "Delta label is required"
 
   /v1/run_timeslices:
     post:
@@ -2145,16 +2124,14 @@ paths:
               examples:
                 too_many_slices:
                   value:
-                    error:
-                      type: "BAD_INPUT"
-                      message: "Maximum 12 timeslices allowed"
-                      field: "timeslices"
+                    schema: "error.v1"
+                    code: "BAD_INPUT"
+                    message: "Maximum 12 timeslices allowed"
                 invalid_prior:
                   value:
-                    error:
-                      type: "BAD_INPUT"
-                      message: "Prior value must be between 0 and 1"
-                      field: "priors.demand"
+                    schema: "error.v1"
+                    code: "BAD_INPUT"
+                    message: "Prior value must be between 0 and 1"
 
 
 components:
