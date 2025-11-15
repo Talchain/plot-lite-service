@@ -212,4 +212,54 @@ describe('Functional Priors - /v1/run', () => {
     expect(error.error.type).toBe('BAD_INPUT');
     expect(error.error.message).toContain('unknown node');
   });
+
+  it('REGRESSION: higher prior yields higher outcome', async () => {
+    const graph = {
+      nodes: [
+        { id: 'demand', label: 'Demand' },
+        { id: 'revenue', label: 'Revenue' }
+      ],
+      edges: [
+        { from: 'demand', to: 'revenue', weight: 1.0 }
+      ]
+    };
+
+    // Test with low prior
+    const lowPriorResponse = await fetch(`${baseUrl}/v1/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        graph,
+        priors: { demand: 0.2 },
+        seed: 4242,
+        outcome_node: 'revenue',
+        baseline_value: 100
+      })
+    });
+    const lowResult = await lowPriorResponse.json();
+
+    // Test with high prior
+    const highPriorResponse = await fetch(`${baseUrl}/v1/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        graph,
+        priors: { demand: 0.9 },
+        seed: 4242,
+        outcome_node: 'revenue',
+        baseline_value: 100
+      })
+    });
+    const highResult = await highPriorResponse.json();
+
+    // Higher prior should yield higher outcome
+    const lowP50 = lowResult.result.summary.p50;
+    const highP50 = highResult.result.summary.p50;
+    
+    expect(highP50).toBeGreaterThan(lowP50);
+    
+    console.log(`Low prior (0.2): p50=${lowP50}`);
+    console.log(`High prior (0.9): p50=${highP50}`);
+    console.log(`Increase: ${highP50 - lowP50} (${((highP50 / lowP50 - 1) * 100).toFixed(1)}%)`);
+  });
 });
