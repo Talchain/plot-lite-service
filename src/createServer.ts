@@ -372,9 +372,18 @@ export async function createServer(opts: ServerOpts = {}) {
     const start = (req as any).startTime as bigint | undefined;
     const end = process.hrtime.bigint();
     const durationMs = start ? Number(end - start) / 1e6 : undefined;
-    const route = (req as any)?.routeOptions?.url ?? (() => {
-      try { return new URL((req as any).url, 'http://local').pathname; }
-      catch { return String((req as any).url || '').split('?')[0]; }
+    // Extract route without query params or fragments
+    const route = (() => {
+      const routeUrl = (req as any)?.routeOptions?.url;
+      if (routeUrl) return routeUrl;
+      try { 
+        const url = new URL((req as any).url, 'http://local');
+        return url.pathname;
+      }
+      catch { 
+        const raw = String((req as any).url || '');
+        return raw.split('?')[0].split('#')[0];
+      }
     })();
     if (typeof durationMs === 'number') {
       try {
