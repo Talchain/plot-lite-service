@@ -7,12 +7,16 @@
 import type { Graph } from '../trust/types.js';
 import type { InferenceEngine, InferenceConfig, InferenceResult } from './types.js';
 import { runSCMLite } from '../scm-lite/adapter.js';
+import { applyPriorsToGraph } from './apply-priors.js';
 
 export class ModelBasedInference implements InferenceEngine {
   name = 'model_based';
 
   run(graph: Graph, config: InferenceConfig): InferenceResult {
-    const { seed, k_samples, outcome_node, baseline_value } = config;
+    const { seed, k_samples, outcome_node, baseline_value, priors } = config;
+    
+    // Apply priors to graph if provided
+    const workingGraph = priors ? applyPriorsToGraph(graph, priors, seed) : graph;
     
     // Use SCM-Lite if enabled
     if (process.env.SCM_LITE_ENABLE === '1') {
@@ -24,7 +28,7 @@ export class ModelBasedInference implements InferenceEngine {
         beliefDefault: Number(process.env.SCM_LITE_BELIEF_DEFAULT || 0.7),
       };
       
-      const scmResult = runSCMLite(graph, outcome_node, scmConfig);
+      const scmResult = runSCMLite(workingGraph, outcome_node, scmConfig);
       
       return {
         conservative: { outcome: scmResult.summary.bands.p10 },

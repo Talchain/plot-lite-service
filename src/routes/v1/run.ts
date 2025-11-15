@@ -428,6 +428,7 @@ export async function registerRunRoute(app: FastifyInstance) {
         k_samples,
         outcome_node,
         baseline_value,
+        priors: body.priors,
       });
       
       results = {
