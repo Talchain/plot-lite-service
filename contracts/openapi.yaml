@@ -1033,6 +1033,17 @@ paths:
                     p90: 2.12
                     delta: {p10: 0, p50: 0, p90: 0}
                 seed: 4242
+        '400':
+          description: Bad input
+          content:
+            application/json:
+              examples:
+                invalid_graphs:
+                  value:
+                    error:
+                      type: "BAD_INPUT"
+                      message: "graphs array must contain 2-5 items"
+                      field: "graphs"
 
   /v1/inspect:
     post:
@@ -1088,6 +1099,17 @@ paths:
                   inference_mode: "model_based"
                 hashes:
                   response_hash: "abc123"
+        '400':
+          description: Bad input
+          content:
+            application/json:
+              examples:
+                invalid_graph:
+                  value:
+                    error:
+                      type: "BAD_INPUT"
+                      message: "graph.nodes is required"
+                      field: "graph.nodes"
 
   /v1/score:
     post:
@@ -1222,10 +1244,13 @@ paths:
                         example: "BAD_INPUT"
                       message:
                         type: string
-              example:
-                error:
-                  type: "BAD_INPUT"
-                  message: "Invalid node_ids in weights: Z"
+              examples:
+                invalid_weights:
+                  value:
+                    error:
+                      type: "BAD_INPUT"
+                      message: "Invalid node_ids in weights: Z"
+                      field: "utilities.weights"
 
   /v1/intervene:
     post:
@@ -1530,6 +1555,13 @@ paths:
                 error:
                   type: "BAD_INPUT"
                   message: "Invalid node_ids in priors: Z"
+              examples:
+                invalid_prior:
+                  value:
+                    error:
+                      type: "BAD_INPUT"
+                      message: "Invalid node_ids in priors: Z"
+                      field: "priors"
 
   /v1/sensitivity:
     post:
@@ -1729,6 +1761,15 @@ paths:
                     model_card: {schema: "report.v1", seed: 2}
         '400':
           description: Bad input
+          content:
+            application/json:
+              examples:
+                too_many_items:
+                  value:
+                    error:
+                      type: "BAD_INPUT"
+                      message: "items array must contain 1-10 items"
+                      field: "items"
 
   /v1/optimise:
     post:
@@ -1783,6 +1824,34 @@ paths:
                       type: integer
                       minimum: 0
                       description: Maximum number of nodes that can be affected
+            examples:
+              basic:
+                value:
+                  graph:
+                    nodes:
+                      - id: "revenue"
+                        label: "Revenue"
+                      - id: "cost"
+                        label: "Cost"
+                    edges: []
+                  budget: 100
+                  actions:
+                    - id: "increase_marketing"
+                      cost: 50
+                      do:
+                        - node_id: "revenue"
+                          set_to: 1.2
+                    - id: "reduce_overhead"
+                      cost: 30
+                      do:
+                        - node_id: "cost"
+                          set_to: 0.8
+                  objective:
+                    type: "utility_linear"
+                    weights:
+                      revenue: 1.0
+                      cost: -0.5
+                  seed: 4242
       responses:
         '200':
           description: Optimisation results
@@ -1874,6 +1943,15 @@ paths:
                   diagnostics: { type: object }
         '400':
           description: Bad input
+          content:
+            application/json:
+              examples:
+                invalid_pairs:
+                  value:
+                    error:
+                      type: "BAD_INPUT"
+                      message: "pairs array is required"
+                      field: "pairs"
 
   /v1/run_bundle:
     post:
@@ -1915,16 +1993,18 @@ paths:
                       source: { type: string }
                       note: { type: string }
                       weight: { type: number, minimum: 0, maximum: 1 }
-            example:
-              base_graph:
-                nodes: [{ id: "A", label: "A" }]
-                edges: []
-              deltas:
-                - label: "Variant 1"
-                  nodes: [{ id: "A", value: 1.1 }]
-                - label: "Variant 2"
-                  nodes: [{ id: "A", value: 0.9 }]
-              seed: 4242
+            examples:
+              basic:
+                value:
+                  base_graph:
+                    nodes: [{ id: "A", label: "A" }]
+                    edges: []
+                  deltas:
+                    - label: "Variant 1"
+                      nodes: [{ id: "A", value: 1.1 }]
+                    - label: "Variant 2"
+                      nodes: [{ id: "A", value: 0.9 }]
+                  seed: 4242
       responses:
         '200':
           description: Bundle results
@@ -2008,16 +2088,18 @@ paths:
                       note: { type: string }
                       weight: { type: number, minimum: 0, maximum: 1 }
                 seed: { type: integer }
-            example:
-              graph:
-                nodes: [{ id: "demand", label: "Demand" }]
-                edges: []
-              timeslices: ["Q1", "Q2", "Q3", "Q4"]
-              slice_overrides:
-                - slice: "Q2"
-                  nodes: [{ id: "demand", value: 1.2 }]
-              priors: { demand: 0.6 }
-              seed: 4242
+            examples:
+              basic:
+                value:
+                  graph:
+                    nodes: [{ id: "demand", label: "Demand" }]
+                    edges: []
+                  timeslices: ["Q1", "Q2", "Q3", "Q4"]
+                  slice_overrides:
+                    - slice: "Q2"
+                      nodes: [{ id: "demand", value: 1.2 }]
+                  priors: { demand: 0.6 }
+                  seed: 4242
       responses:
         '200':
           description: Timeslices results
