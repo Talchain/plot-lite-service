@@ -11,6 +11,7 @@ export interface InferenceConfig {
   k_samples: number;
   outcome_node: string;
   baseline_value: number;
+  priors?: Record<string, number | { mean: number; sd: number }>;
 }
 
 export interface InferenceResult {

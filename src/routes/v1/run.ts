@@ -27,18 +27,18 @@ import { validateEffect, applyEffect } from '../../engine/effects.js';
 
 
 export interface RunRequest {
-  graph: Graph;
+  graph: { nodes: any[]; edges: any[] };
   seed?: number;
   k_samples?: number;
   treatment_node?: string;
   outcome_node?: string;
   baseline_value?: number;
-  inference_mode?: InferenceMode;
+  query?: any;
+  inference_mode?: 'model_based' | 'model_of_inference';
   include_debug?: boolean;
-  constraints?: {
-    bounds?: Record<string, { min?: number; max?: number }>;
-    structure?: { forbid_edges?: Array<[string, string]> };
-  };
+  constraints?: any;
+  priors?: Record<string, number | { mean: number; sd: number }>;
+  evidence?: Array<{ node_id: string; source: string; note?: string; weight?: number }>;
 }
 
 export async function registerRunRoute(app: FastifyInstance) {
@@ -50,7 +50,7 @@ export async function registerRunRoute(app: FastifyInstance) {
     return reply.code(204).send();
   });
 
-    app.post('/v1/run', {
+  app.post('/v1/run', {
     schema: {
       body: {
         type: 'object',
@@ -64,9 +64,12 @@ export async function registerRunRoute(app: FastifyInstance) {
           baseline_value: { type: 'number' },
           query: { type: 'object' },
           inference_mode: { type: 'string', enum: ['model_based', 'model_of_inference'] },
-          include_debug: { type: 'boolean' }
+          include_debug: { type: 'boolean' },
+          constraints: { type: 'object' },
+          priors: { type: 'object' },
+          evidence: { type: 'array' },
         },
-        additionalProperties: true
+        additionalProperties: true,
       },
     },
     attachValidation: true,  // Attach validation errors to request instead of auto-failing
@@ -82,7 +85,7 @@ export async function registerRunRoute(app: FastifyInstance) {
           }
           return reply.code(200).type('application/json').send(payload);
         }
-        
+
         // Check validation errors (only for non-demo requests)
         if ((req as any).validationError) {
           const err = (req as any).validationError;
@@ -146,6 +149,54 @@ export async function registerRunRoute(app: FastifyInstance) {
     // Normalize graph (map confidence|probability→belief, no default on ingress)
     const graph = normalizeGraph(body.graph, false);
     
+    // Validate priors if present
+    if (body.priors) {
+      const { validatePriors } = await import('../../lib/validate-priors.js');
+      const nodeIds = new Set<string>(graph.nodes.map((n: any) => String(n.id)));
+      const priorsValidation = validatePriors(body.priors, nodeIds);
+      
+      if (!priorsValidation.valid) {
+        const firstError = priorsValidation.errors[0];
+        req.log.info({ 
+          evt: 'priors_validation_failed', 
+          id: req.id, 
+          route: '/v1/run', 
+          errors: priorsValidation.errors 
+        });
+        return reply.code(400).send({
+          error: { 
+            type: 'BAD_INPUT', 
+            message: firstError.message,
+            field: firstError.field
+          }
+        });
+      }
+    }
+    
+    // Validate evidence if present
+    if (body.evidence) {
+      const { validateEvidence } = await import('../../lib/validate-evidence.js');
+      const nodeIds = new Set<string>(graph.nodes.map((n: any) => String(n.id)));
+      const evidenceValidation = validateEvidence(body.evidence, nodeIds);
+      
+      if (!evidenceValidation.valid) {
+        const firstError = evidenceValidation.errors[0];
+        req.log.info({ 
+          evt: 'evidence_validation_failed', 
+          id: req.id, 
+          route: '/v1/run', 
+          errors: evidenceValidation.errors 
+        });
+        return reply.code(400).send({
+          error: { 
+            type: 'BAD_INPUT', 
+            message: firstError.message,
+            field: firstError.field
+          }
+        });
+      }
+    }
+    
     // Validate node effects if present (backwards-compatible)
     for (const node of graph.nodes) {
       if ((node as any).effect) {
@@ -177,16 +228,17 @@ export async function registerRunRoute(app: FastifyInstance) {
           const node = graph.nodes.find((n: any) => n.id === nodeId);
           if (node && typeof (node as any).value === 'number') {
             const val = (node as any).value;
-            if (bounds.min !== undefined && val < bounds.min) {
-              req.log.info({ evt: 'constraints_violation', id: req.id, route: '/v1/run', reason: 'bounds_min', node: nodeId, value: val, min: bounds.min });
+            const b = bounds as any;
+            if (b.min !== undefined && val < b.min) {
+              req.log.info({ evt: 'constraints_violation', id: req.id, route: '/v1/run', reason: 'bounds_min', node: nodeId, value: val, min: b.min });
               return reply.code(400).send({
-                error: { type: 'BAD_INPUT', message: `Node ${nodeId} value ${val} violates min bound ${bounds.min}` }
+                error: { type: 'BAD_INPUT', message: `Node ${nodeId} value ${val} violates min bound ${b.min}` }
               });
             }
-            if (bounds.max !== undefined && val > bounds.max) {
-              req.log.info({ evt: 'constraints_violation', id: req.id, route: '/v1/run', reason: 'bounds_max', node: nodeId, value: val, max: bounds.max });
+            if (b.max !== undefined && val > b.max) {
+              req.log.info({ evt: 'constraints_violation', id: req.id, route: '/v1/run', reason: 'bounds_max', node: nodeId, value: val, max: b.max });
               return reply.code(400).send({
-                error: { type: 'BAD_INPUT', message: `Node ${nodeId} value ${val} violates max bound ${bounds.max}` }
+                error: { type: 'BAD_INPUT', message: `Node ${nodeId} value ${val} violates max bound ${b.max}` }
               });
             }
           }
@@ -293,6 +345,8 @@ export async function registerRunRoute(app: FastifyInstance) {
     });
 
     // Model card
+    const { getActiveBackend } = await import('../../config/backend.js');
+    const backend = getActiveBackend();
     const model_card = buildModelCard({
       seed,
       assumptions: [
@@ -304,6 +358,7 @@ export async function registerRunRoute(app: FastifyInstance) {
       downgraded: budget.downgraded,
       downgrade_reason: budget.reason,
       feature_flags: getActiveFeatureFlags(),
+      backend,
     });
 
     // Identifiability tag (flag-gated)
@@ -379,6 +434,7 @@ export async function registerRunRoute(app: FastifyInstance) {
         k_samples,
         outcome_node,
         baseline_value,
+        priors: body.priors,
       });
       
       results = {
@@ -477,6 +533,9 @@ export async function registerRunRoute(app: FastifyInstance) {
         commit: process.env.BUILD_ID || process.env.GITHUB_SHA || 'dev',
         version: '1.0.0',
         inference_mode,
+        ...(body.evidence && body.evidence.length > 0 && {
+          evidence_applied: (await import('../../lib/validate-evidence.js')).sanitizeEvidence(body.evidence)
+        }),
       },
       model_card,
       result: {
@@ -506,6 +565,9 @@ export async function registerRunRoute(app: FastifyInstance) {
     // Record compute time for observability
     const computeMs = performance.now() - computeStart;
     recordEngineComputeMs(computeMs);
+    
+    // Add X-Olumi-Backend header
+    reply.header('X-Olumi-Backend', backend);
     
     return stamped;
   });

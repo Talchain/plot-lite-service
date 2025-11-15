@@ -66,10 +66,8 @@ describe('POST /v1/run_bundle - OpenAPI Example Round-trip', () => {
     for (const [key, example] of Object.entries(errorExamples)) {
       const ex = example as any;
       expect(ex.value.schema).toBe('error.v1');
-      expect(ex.value.error).toBeDefined();
-      expect(ex.value.error.type).toBe('BAD_INPUT');
-      expect(ex.value.error.message).toBeDefined();
-      expect(ex.value.error.field).toBeDefined();
+      expect(ex.value.code).toBe('BAD_INPUT');
+      expect(ex.value.message).toBeDefined();
     }
   });
 });

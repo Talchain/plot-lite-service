@@ -13,6 +13,8 @@ export interface AuditEntry {
   bma_hash?: string;
   response_hash?: string;
   engine_version?: string;
+  priors_count?: number;
+  evidence_count?: number;
   status: number;
   ts: string;
 }

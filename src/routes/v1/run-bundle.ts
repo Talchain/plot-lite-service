@@ -16,6 +16,8 @@ interface RunBundleRequest {
   base_graph: { nodes: any[]; edges: any[] };
   deltas: GraphDelta[];
   seed?: number;
+  priors?: Record<string, number | { mean: number; sd: number }>;
+  evidence?: Array<{ node_id: string; source: string; note?: string; weight?: number }>;
 }
 
 const MAX_NODES = 50;
@@ -78,6 +80,42 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
           field: 'base_graph.edges'
         } 
       });
+    }
+    
+    // Validate priors if present
+    if (body.priors) {
+      const { validatePriors } = await import('../../lib/validate-priors.js');
+      const nodeIds = new Set<string>(body.base_graph.nodes.map((n: any) => String(n.id)));
+      const priorsValidation = validatePriors(body.priors, nodeIds);
+      
+      if (!priorsValidation.valid) {
+        const firstError = priorsValidation.errors[0];
+        return reply.code(400).send({
+          error: {
+            type: 'BAD_INPUT',
+            message: firstError.message,
+            field: firstError.field
+          }
+        });
+      }
+    }
+    
+    // Validate evidence if present
+    if (body.evidence) {
+      const { validateEvidence } = await import('../../lib/validate-evidence.js');
+      const nodeIds = new Set<string>(body.base_graph.nodes.map((n: any) => String(n.id)));
+      const evidenceValidation = validateEvidence(body.evidence, nodeIds);
+      
+      if (!evidenceValidation.valid) {
+        const firstError = evidenceValidation.errors[0];
+        return reply.code(400).send({
+          error: {
+            type: 'BAD_INPUT',
+            message: firstError.message,
+            field: firstError.field
+          }
+        });
+      }
     }
     
     const baseEdges = body.base_graph.edges || [];
@@ -170,6 +208,7 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
       base_edges: baseEdges.length,
       deltas: body.deltas.length,
       unique_results: seenHashes.size,
+      evidence_count: body.evidence ? body.evidence.length : 0,
       seed,
       duration_ms: duration
     });
@@ -190,15 +229,27 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
       ts: new Date().toISOString()
     });
     
-    return reply.code(200).send({
+    const response: any = {
       schema: 'run_bundle.v1',
       results,
+      model_card: {
+        seed,
+        response_hash: bundleHash
+      },
       meta: {
         seed,
         total_scenarios: body.deltas.length,
         unique_results: seenHashes.size
       }
-    });
+    };
+
+    // Add sanitized evidence if present
+    if (body.evidence && body.evidence.length > 0) {
+      const { sanitizeEvidence } = await import('../../lib/validate-evidence.js');
+      response.meta.evidence_applied = sanitizeEvidence(body.evidence);
+    }
+
+    return reply.code(200).send(response);
   });
 }
 

@@ -48,6 +48,7 @@ export interface SpawnServerOptions {
   env?: Record<string, string>;
   port?: number;
   cwd?: string;
+  profile?: 'fallback';  // Predefined server profiles
 }
 
 export interface ServerHandle {
@@ -69,7 +70,20 @@ export async function spawnServer(opts: SpawnServerOptions = {}): Promise<Server
     PORT: String(port),
     LOG_LEVEL: 'silent',
   };
-  const env = { ...baseEnv, ...(opts?.env ?? {}) };
+  
+  // Apply profile presets
+  let profileEnv: Record<string, string> = {};
+  if (opts.profile === 'fallback') {
+    profileEnv = {
+      SCM_LITE_ENABLE: '0',
+      RATE_LIMIT_ENABLED: '0',
+      PRINCIPAL_HMAC_SECRET_ACTIVE: 'a'.repeat(64),
+      AUTH_ENABLED: '0',
+      TEST_ROUTES: '1',
+    };
+  }
+  
+  const env = { ...baseEnv, ...profileEnv, ...(opts?.env ?? {}) };
   
   const child = spawn('node', ['dist/main.js'], {
     env,
