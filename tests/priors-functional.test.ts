@@ -13,11 +13,14 @@ describe('Functional Priors - /v1/run', () => {
 
   beforeAll(async () => {
     server = await spawnServer();
-    baseUrl = server.url;
-  });
+    baseUrl = server.baseUrl;
+    console.log(`Test server started at ${baseUrl}`);
+  }, 15000);
 
   afterAll(async () => {
-    if (server?.kill) await server.kill();
+    if (server?.kill) {
+      await server.kill();
+    }
   });
 
   it('priors influence results (number format)', async () => {
@@ -43,6 +46,11 @@ describe('Functional Priors - /v1/run', () => {
       })
     });
     const resultWithout = await withoutPriors.json();
+    
+    // Debug: log response if not 200
+    if (withoutPriors.status !== 200) {
+      console.log('Without priors failed:', resultWithout);
+    }
 
     // Run with priors
     const withPriors = await fetch(`${baseUrl}/v1/run`, {
@@ -57,18 +65,27 @@ describe('Functional Priors - /v1/run', () => {
       })
     });
     const resultWith = await withPriors.json();
+    
+    // Debug: log response if not 200
+    if (withPriors.status !== 200) {
+      console.log('With priors failed:', resultWith);
+    }
 
     // Results should be different
-    expect(resultWith.summary).toBeDefined();
-    expect(resultWithout.summary).toBeDefined();
+    expect(resultWith.result?.summary).toBeDefined();
+    expect(resultWithout.result?.summary).toBeDefined();
     
     // With higher prior on demand, results should differ
     // (exact values depend on inference engine, but they should not be identical)
-    const withP50 = resultWith.summary.p50;
-    const withoutP50 = resultWithout.summary.p50;
+    const withP50 = resultWith.result.summary.p50;
+    const withoutP50 = resultWithout.result.summary.p50;
     
     // Allow for some tolerance, but they should be measurably different
     expect(Math.abs(withP50 - withoutP50)).toBeGreaterThan(0.01);
+    
+    console.log(`Without priors: p50=${withoutP50}`);
+    console.log(`With priors (demand=0.8): p50=${withP50}`);
+    console.log(`Difference: ${Math.abs(withP50 - withoutP50)}`);
   });
 
   it('priors influence results (distribution format)', async () => {
@@ -103,10 +120,10 @@ describe('Functional Priors - /v1/run', () => {
     expect(response.status).toBe(200);
     const result = await response.json();
     expect(result.schema).toBe('run.v1');
-    expect(result.summary).toBeDefined();
-    expect(result.summary.p10).toBeTypeOf('number');
-    expect(result.summary.p50).toBeTypeOf('number');
-    expect(result.summary.p90).toBeTypeOf('number');
+    expect(result.result?.summary).toBeDefined();
+    expect(result.result.summary.p10).toBeTypeOf('number');
+    expect(result.result.summary.p50).toBeTypeOf('number');
+    expect(result.result.summary.p90).toBeTypeOf('number');
   });
 
   it('deterministic with same seed and priors', async () => {
@@ -142,9 +159,9 @@ describe('Functional Priors - /v1/run', () => {
     const result2 = await response2.json();
 
     // Results should be identical
-    expect(result1.summary.p10).toBe(result2.summary.p10);
-    expect(result1.summary.p50).toBe(result2.summary.p50);
-    expect(result1.summary.p90).toBe(result2.summary.p90);
+    expect(result1.result.summary.p10).toBe(result2.result.summary.p10);
+    expect(result1.result.summary.p50).toBe(result2.result.summary.p50);
+    expect(result1.result.summary.p90).toBe(result2.result.summary.p90);
     expect(result1.model_card.response_hash).toBe(result2.model_card.response_hash);
   });
 
@@ -193,6 +210,6 @@ describe('Functional Priors - /v1/run', () => {
     expect(response.status).toBe(400);
     const error = await response.json();
     expect(error.error.type).toBe('BAD_INPUT');
-    expect(error.error.message).toContain('does not exist');
+    expect(error.error.message).toContain('unknown node');
   });
 });
