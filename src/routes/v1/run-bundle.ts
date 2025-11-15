@@ -231,8 +231,11 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
     return reply.code(200).send({
       schema: 'run_bundle.v1',
       results,
-      meta: {
+      model_card: {
         seed,
+        response_hash: bundleHash
+      },
+      meta: {
         total_scenarios: body.deltas.length,
         unique_results: seenHashes.size
       }

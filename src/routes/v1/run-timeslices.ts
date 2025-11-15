@@ -17,6 +17,7 @@ interface RunTimeslicesRequest {
   timeslices: string[];
   slice_overrides?: SliceOverride[];
   priors?: Record<string, number | { mean: number; sd: number }>;
+  evidence?: Array<{ node_id: string; source: string; note?: string; weight?: number }>;
   seed?: number;
 }
 
@@ -114,6 +115,24 @@ export async function registerRunTimeslicesRoute(app: FastifyInstance) {
         });
       }
     }
+
+    // Validate evidence if present
+    if (body.evidence) {
+      const { validateEvidence } = await import('../../lib/validate-evidence.js');
+      const nodeIds = new Set<string>(body.graph.nodes.map((n: any) => String(n.id)));
+      const evidenceValidation = validateEvidence(body.evidence, nodeIds);
+
+      if (!evidenceValidation.valid) {
+        const firstError = evidenceValidation.errors[0];
+        return reply.code(400).send({
+          error: {
+            type: 'BAD_INPUT',
+            message: firstError.message,
+            field: firstError.field
+          }
+        });
+      }
+    }
     
     const seed = body.seed || 4242;
     
@@ -184,6 +203,7 @@ export async function registerRunTimeslicesRoute(app: FastifyInstance) {
       timeslices: body.timeslices.length,
       overrides: overrides.length,
       priors_count: body.priors ? Object.keys(body.priors).length : 0,
+      evidence_count: body.evidence ? body.evidence.length : 0,
       seed,
       duration_ms: duration
     });
@@ -199,7 +219,7 @@ export async function registerRunTimeslicesRoute(app: FastifyInstance) {
       ts: new Date().toISOString()
     });
     
-    return reply.code(200).send({
+    const response: any = {
       schema: 'run_timeslices.v1',
       results,
       model_card: {
@@ -207,6 +227,16 @@ export async function registerRunTimeslicesRoute(app: FastifyInstance) {
         response_hash: responseHash,
         timeslices_count: body.timeslices.length
       }
-    });
+    };
+
+    // Add sanitized evidence if present
+    if (body.evidence && body.evidence.length > 0) {
+      const { sanitizeEvidence } = await import('../../lib/validate-evidence.js');
+      response.meta = {
+        evidence_applied: sanitizeEvidence(body.evidence)
+      };
+    }
+
+    return reply.code(200).send(response);
   });
 }
