@@ -2,17 +2,6 @@
 
 All notable changes to the PLoT Lite SDK will be documented in this file.
 
-## [0.5.1] - 2025-11-15
-
-### Changed
-- **Priors now functional**: Priors influence inference results in v1.7.0 engine (was validation-only in v1.6.0)
-- No API changes - existing priors usage now works functionally
-
-### Notes
-- SDK already had priors support since v0.5.0
-- This release aligns with engine v1.7.0 where priors are functional
-- All client-side validation remains the same
-
 ## [0.5.0] - 2025-11-15
 
 ### Added
