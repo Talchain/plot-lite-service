@@ -276,7 +276,8 @@ export async function createServer(opts: ServerOpts = {}) {
         'X-RateLimit-Remaining',
         'X-RateLimit-Reset',
         'X-RateLimit-Reason',
-        'X-SCM-Lite'
+        'X-SCM-Lite',
+        'X-Olumi-Backend'
       ],
       credentials: false,
       preflight: true,

@@ -415,6 +415,44 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/runRequest'
+            examples:
+              canonical_targets:
+                summary: Canonical targets field
+                value:
+                  graph:
+                    nodes:
+                      - id: "A"
+                        label: "Driver"
+                        belief: 0.6
+                      - id: "B"
+                        label: "Outcome"
+                    edges:
+                      - id: "e1"
+                        from: "A"
+                        to: "B"
+                        weight: 0.7
+                        rationale: "A pushes B"
+                  targets: ["B"]
+                  seed: 4242
+              legacy_query_targets:
+                summary: Legacy query.targets (deprecated)
+                value:
+                  graph:
+                    nodes:
+                      - id: "A"
+                        label: "Driver"
+                        belief: 0.6
+                      - id: "B"
+                        label: "Outcome"
+                    edges:
+                      - id: "e1"
+                        from: "A"
+                        to: "B"
+                        weight: 0.7
+                        rationale: "A pushes B"
+                  query:
+                    targets: ["B"]
+                  seed: 4242
       responses:
         '200':
           description: OK
@@ -434,6 +472,9 @@ paths:
             X-SCM-Lite:
               description: SCM-Lite enablement flag (0 or 1)
               schema: { type: string, enum: ['0','1'] }
+            X-Olumi-Backend:
+              description: Active backend mode (fallback or scm_lite)
+              schema: { type: string, enum: ['fallback','scm_lite'] }
           content:
             application/json:
               schema:
@@ -2400,6 +2441,29 @@ components:
         treatment_node: { type: string, maxLength: 100 }
         outcome_node: { type: string, maxLength: 100 }
         baseline_value: { type: number, minimum: -1000000, maximum: 1000000 }
+        targets:
+          type: array
+          description: 'Canonical: array of node IDs to target for inference'
+          items:
+            type: string
+            minLength: 1
+          minItems: 1
+          uniqueItems: true
+          example: ["Revenue", "Profit"]
+        query:
+          type: object
+          description: 'DEPRECATED: Legacy container for query.targets. Use top-level targets instead.'
+          properties:
+            targets:
+              type: array
+              description: 'Legacy: array of node IDs to target (use top-level targets field instead)'
+              items:
+                type: string
+                minLength: 1
+              minItems: 1
+              uniqueItems: true
+              example: ["Revenue"]
+          additionalProperties: false
         constraints:
           type: object
           description: Optional constraints for validation and modeling

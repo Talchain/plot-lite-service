@@ -90,6 +90,26 @@ const runRequestSchema = {
     constraints: { type: 'object', additionalProperties: true },
     priors: { type: 'object', additionalProperties: true },
     evidence: { type: 'array', items: { type: 'object' } },
+    // Canonical targets field
+    targets: {
+      type: 'array',
+      items: { type: 'string', minLength: 1 },
+      minItems: 1,
+      uniqueItems: true,
+    },
+    // Legacy query.targets bridge (strict shape)
+    query: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        targets: {
+          type: 'array',
+          items: { type: 'string', minLength: 1 },
+          minItems: 1,
+          uniqueItems: true,
+        },
+      },
+    },
   },
 };
 
@@ -330,7 +350,7 @@ export function createValidator(route: 'run' | 'counterfactual' | 'critique' | '
     switch (route) {
       case 'run':
         validator = validateRun;
-        allowedKeys = new Set(['graph','seed','k_samples','treatment_node','outcome_node','baseline_value','inputs','query','constraints','inference_mode','include_debug','priors','evidence']);
+        allowedKeys = new Set(['graph','seed','k_samples','treatment_node','outcome_node','baseline_value','inputs','query','constraints','inference_mode','include_debug','priors','evidence','targets']);
         break;
       case 'counterfactual':
         validator = validateCounterfactual;
