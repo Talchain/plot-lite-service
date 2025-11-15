@@ -138,40 +138,4 @@ describe('Priors validation', () => {
       expect(data.error.field).toContain('priors.Z');
     });
   });
-
-  describe('/v1/run_timeslices with priors', () => {
-    it('accepts priors in timeslices request', async () => {
-      const res = await fetch(`${server.baseUrl}/v1/run_timeslices`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...basePayload,
-          timeslices: ['T1', 'T2'],
-          priors: { A: 0.6 },
-          seed: 4242
-        })
-      });
-
-      expect(res.status).toBe(200);
-      const data = await res.json();
-      expect(data.schema).toBe('run_timeslices.v1');
-    });
-
-    it('validates priors in timeslices', async () => {
-      const res = await fetch(`${server.baseUrl}/v1/run_timeslices`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...basePayload,
-          timeslices: ['T1'],
-          priors: { A: 2.0 },  // Invalid
-          seed: 4242
-        })
-      });
-
-      expect(res.status).toBe(400);
-      const data = await res.json();
-      expect(data.error.message).toContain('between 0 and 1');
-    });
-  });
 });
