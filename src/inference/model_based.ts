@@ -42,15 +42,59 @@ export class ModelBasedInference implements InferenceEngine {
       };
     }
     
-    // Fallback: placeholder simulation
+    // Fallback: simple simulation with priors support
     // In production, this should log a warning (handled by caller)
-    const current_value = baseline_value * 1.15; // Simple placeholder
+    const outcome = this.simulateOutcome(workingGraph, outcome_node, baseline_value);
     
     return {
-      conservative: { outcome: baseline_value * 1.05 },
-      most_likely: { outcome: current_value },
-      optimistic: { outcome: baseline_value * 1.25 },
+      conservative: { outcome: outcome * 0.95 },
+      most_likely: { outcome },
+      optimistic: { outcome: outcome * 1.05 },
     };
+  }
+
+  /**
+   * Simple outcome simulation using graph structure and node values
+   * Node values are set by applyPriorsToGraph when priors are provided
+   */
+  private simulateOutcome(graph: Graph, outcomeNode: string, baseline: number): number {
+    // Find outcome node
+    const node = graph.nodes.find(n => n.id === outcomeNode);
+    if (!node) return baseline;
+    
+    // Get node value (set by priors, or default to 0.5)
+    const nodeValue = (node as any).value ?? 0.5;
+    
+    // Find incoming edges to outcome node
+    const incomingEdges = graph.edges.filter(e => e.to === outcomeNode);
+    
+    if (incomingEdges.length === 0) {
+      // No incoming edges: use node value directly
+      return baseline * (0.8 + nodeValue * 0.4);
+    }
+    
+    // Calculate weighted influence from parent nodes
+    let totalInfluence = 0;
+    let totalWeight = 0;
+    
+    for (const edge of incomingEdges) {
+      const parentNode = graph.nodes.find(n => n.id === edge.from);
+      if (parentNode) {
+        const parentValue = (parentNode as any).value ?? 0.5;
+        const edgeWeight = edge.weight ?? 1.0;
+        totalInfluence += parentValue * edgeWeight;
+        totalWeight += edgeWeight;
+      }
+    }
+    
+    // Average influence from parents
+    const avgInfluence = totalWeight > 0 ? totalInfluence / totalWeight : 0.5;
+    
+    // Combine node value (30%) and parent influence (70%)
+    const combinedValue = nodeValue * 0.3 + avgInfluence * 0.7;
+    
+    // Scale baseline by combined value (range: 0.8 to 1.2)
+    return baseline * (0.8 + combinedValue * 0.4);
   }
 }
 
