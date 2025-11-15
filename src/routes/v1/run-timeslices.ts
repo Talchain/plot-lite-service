@@ -97,6 +97,24 @@ export async function registerRunTimeslicesRoute(app: FastifyInstance) {
       }
     }
     
+    // Validate priors if present
+    if (body.priors) {
+      const { validatePriors } = await import('../../lib/validate-priors.js');
+      const nodeIds = new Set<string>(body.graph.nodes.map((n: any) => String(n.id)));
+      const priorsValidation = validatePriors(body.priors, nodeIds);
+      
+      if (!priorsValidation.valid) {
+        const firstError = priorsValidation.errors[0];
+        return reply.code(400).send({
+          error: { 
+            type: 'BAD_INPUT', 
+            message: firstError.message,
+            field: firstError.field
+          }
+        });
+      }
+    }
+    
     const seed = body.seed || 4242;
     
     // Build override map
