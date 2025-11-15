@@ -47,9 +47,9 @@ describe('POST /v1/optimise - OpenAPI Example Round-trip', () => {
     // Verify error examples have required fields
     for (const [key, example] of Object.entries(errorExamples)) {
       const ex = example as any;
-      expect(ex.value.error).toBeDefined();
-      expect(ex.value.error.type).toBeDefined();
-      expect(ex.value.error.message).toBeDefined();
+      expect(ex.value.schema).toBe('error.v1');
+      expect(ex.value.code).toBeDefined();
+      expect(ex.value.message).toBeDefined();
     }
   });
 });
