@@ -345,6 +345,8 @@ export async function registerRunRoute(app: FastifyInstance) {
     });
 
     // Model card
+    const { getActiveBackend } = await import('../../config/backend.js');
+    const backend = getActiveBackend();
     const model_card = buildModelCard({
       seed,
       assumptions: [
@@ -356,6 +358,7 @@ export async function registerRunRoute(app: FastifyInstance) {
       downgraded: budget.downgraded,
       downgrade_reason: budget.reason,
       feature_flags: getActiveFeatureFlags(),
+      backend,
     });
 
     // Identifiability tag (flag-gated)
@@ -562,6 +565,9 @@ export async function registerRunRoute(app: FastifyInstance) {
     // Record compute time for observability
     const computeMs = performance.now() - computeStart;
     recordEngineComputeMs(computeMs);
+    
+    // Add X-Olumi-Backend header
+    reply.header('X-Olumi-Backend', backend);
     
     return stamped;
   });

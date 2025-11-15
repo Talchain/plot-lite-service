@@ -11,6 +11,7 @@ export interface ModelCardOptions {
   downgraded?: boolean;
   downgrade_reason?: string;
   feature_flags?: Record<string, string | boolean>;
+  backend?: 'scm_lite' | 'fallback';
 }
 
 /**
@@ -24,6 +25,7 @@ export function buildModelCard(options: ModelCardOptions): ModelCard {
     downgraded = false,
     downgrade_reason,
     feature_flags = {},
+    backend,
   } = options;
 
   // Extract active flags
@@ -50,7 +52,7 @@ export function buildModelCard(options: ModelCardOptions): ModelCard {
         'No external shocks during period',
       ];
 
-  return {
+  const card: ModelCard = {
     seed,
     assumptions_summary,
     compute_budget: {
@@ -61,6 +63,13 @@ export function buildModelCard(options: ModelCardOptions): ModelCard {
     flags_on,
     determinism_note,
   };
+
+  // Add backend if provided
+  if (backend) {
+    (card as any).backend = backend;
+  }
+
+  return card;
 }
 
 /**

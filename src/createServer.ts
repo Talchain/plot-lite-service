@@ -145,6 +145,12 @@ export async function createServer(opts: ServerOpts = {}) {
     }
   }
 
+  // Log backend selection
+  {
+    const { logBackendSelection } = await import('./config/backend.js');
+    logBackendSelection(app.log);
+  }
+
   // Initialize artifact directory and health counters
   const ARTIFACT_DIR = process.env.ARTIFACT_DIR || '.artifacts';
   await fsp.mkdir(ARTIFACT_DIR, { recursive: true });

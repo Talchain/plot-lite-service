@@ -9,21 +9,9 @@ describe('SCM-Lite disabled in production mode', () => {
     server = null;
   });
 
-  it('returns placeholder results when SCM-Lite is disabled', async () => {
+  it('returns fallback results when SCM-Lite is disabled', async () => {
     vi.resetModules();
-    server = await spawnServer({
-      env: {
-        SCM_LITE_ENABLE: '1',  // Enable SCM-Lite for server to start
-        NODE_ENV: 'production',
-        PROD_SCM_LITE_PLACEHOLDER: '1',
-        AUTH_ENABLED: '0',
-        RATE_LIMIT_ENABLED: '0',
-        COMPARE_VIEW_ENABLE: '0',
-        INSPECTOR_DEBUG_ENABLE: '0',
-        TEST_ROUTES: '1',
-        PRINCIPAL_HMAC_SECRET_ACTIVE: 'a'.repeat(64),
-      },
-    });
+    server = await spawnServer({ profile: 'fallback' });
 
     const payload = {
       graph: {
@@ -44,23 +32,14 @@ describe('SCM-Lite disabled in production mode', () => {
     expect(res.data).toHaveProperty('results');
     expect(res.data).toHaveProperty('confidence');
     expect(res.data).toHaveProperty('model_card');
+    expect(res.data.model_card.backend).toBe('fallback');
     expect(res.data.model_card.bma_hash).toBeUndefined();
+    expect(res.headers.get('x-olumi-backend')).toBe('fallback');
   });
 
-  it('runs correctly in development mode with SCM-Lite disabled', async () => {
+  it('runs correctly with fallback backend', async () => {
     vi.resetModules();
-    server = await spawnServer({
-      env: {
-        SCM_LITE_ENABLE: '1',  // Enable SCM-Lite for server to start
-        NODE_ENV: 'development',
-        AUTH_ENABLED: '0',
-        RATE_LIMIT_ENABLED: '0',
-        COMPARE_VIEW_ENABLE: '0',
-        INSPECTOR_DEBUG_ENABLE: '0',
-        TEST_ROUTES: '1',
-        PRINCIPAL_HMAC_SECRET_ACTIVE: 'a'.repeat(64),
-      },
-    });
+    server = await spawnServer({ profile: 'fallback' });
 
     const payload = {
       graph: {
@@ -79,6 +58,8 @@ describe('SCM-Lite disabled in production mode', () => {
 
     expect([200, 201]).toContain(res.status);
     expect(res.data).toHaveProperty('results');
+    expect(res.data.model_card.backend).toBe('fallback');
     expect(res.data.model_card.bma_hash).toBeUndefined();
+    expect(res.headers.get('x-olumi-backend')).toBe('fallback');
   });
 });
