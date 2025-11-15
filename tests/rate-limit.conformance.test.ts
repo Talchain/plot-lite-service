@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { spawn } from 'node:child_process';
 
 async function waitFor(url: string, timeoutMs = 5000) {
@@ -15,6 +15,7 @@ function epochSec(): number { return Math.floor(Date.now() / 1000); }
 describe('Rate-limit conformance', () => {
   let child: ReturnType<typeof spawn> | null = null;
   let logs = '';
+  let logMarker = 0;  // Track log position for test isolation
   const PORT = '4366';
   const BASE = `http://127.0.0.1:${PORT}`;
 
@@ -28,6 +29,9 @@ describe('Rate-limit conformance', () => {
     await waitFor(`${BASE}/health`, 5000);
   });
   afterAll(async () => { try { if (child?.pid) process.kill(child.pid, 'SIGINT'); } catch {} });
+  
+  // Mark log position before each test for isolation
+  beforeEach(() => { logMarker = logs.length; });
 
   it('GET/HEAD persist headers; 429 has numeric Retry-After and sane X-RateLimit-Reset', async () => {
     // Allowed GET
@@ -55,10 +59,25 @@ describe('Rate-limit conformance', () => {
   });
 
   it('does not log payloads or query strings', async () => {
-    logs = '';
-    await fetch(`${BASE}/draft-flows?template=pricing_change&seed=101&Authorization=sekret`);
-    await new Promise(r => setTimeout(r, 100));
-    // No '?' should appear in structured access logs
-    expect(logs.includes('?')).toBe(false);
+    // Make request with query string containing sensitive data
+    await fetch(`${BASE}/draft-flows?template=pricing_change&seed=999888777&Authorization=sekret`);
+    
+    // Wait for async log writes to complete (generous timeout for CI)
+    await new Promise(r => setTimeout(r, 500));
+    
+    // Extract only logs generated since this test started (using logMarker from beforeEach)
+    const testLogs = logs.substring(logMarker);
+    
+    // Verify we captured some logs from this request
+    expect(testLogs.length).toBeGreaterThan(0);
+    expect(testLogs).toContain('/draft-flows');
+    
+    // Critical: No '?' should appear in any log line (query strings must be stripped)
+    // This includes route logs, error logs, and structured access logs
+    expect(testLogs.includes('?')).toBe(false);
+    
+    // Also verify sensitive params don't leak
+    expect(testLogs.toLowerCase()).not.toContain('authorization');
+    expect(testLogs.toLowerCase()).not.toContain('sekret');
   });
 });
