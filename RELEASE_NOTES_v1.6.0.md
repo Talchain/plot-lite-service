@@ -14,6 +14,8 @@ Version 1.6.0 introduces three major feature sets that enhance the PLoT Lite inf
 
 ## ✨ New Features
 
+**Note**: See [Known Limitations](#known-limitations) for important details about priors support.
+
 ### 1. Timeslices Endpoint (`/v1/run_timeslices`)
 
 Evaluate graphs across multiple time periods with optional per-slice overrides.
@@ -71,9 +73,11 @@ POST /v1/run_timeslices
 
 ---
 
-### 2. Priors Support
+### 2. Priors Support ⚠️ API-Ready, Inference Pending
 
 Initialize node beliefs with prior probabilities or distributions.
+
+**⚠️ Current Status**: Priors are **validated but not yet applied to inference**. The API accepts and validates priors, but they do not currently influence inference results. Full functional integration planned for v1.7.0.
 
 **Supported Formats:**
 
@@ -404,9 +408,10 @@ This release was developed through the WP-B/C sprint, implementing timeslices (B
 ## 📝 Notes
 
 ### Known Limitations
+- **Priors**: ⚠️ **Validation-only in v1.6.0** - Priors are validated but not yet applied to inference. Results are identical with or without priors. Full functional integration planned for v1.7.0. See `CRITICAL_FINDINGS.md` for details.
 - Timeslices: Maximum 12 per request
 - Evidence notes: Not echoed in responses (privacy)
-- Priors: Must reference existing nodes
+- Priors: Must reference existing nodes (when functional)
 
 ### Future Enhancements
 - Streaming support for long-running timeslices
