@@ -174,20 +174,20 @@
   "result": {
     "response_hash": "de96956c7db88a130173bed6c9b72f8bf680b91df451c80087f588b3961bf7ba",
     "summary": {
-      "p10": 105,
-      "p50": 114.99999999999999,
-      "p90": 125
+      "p10": 95,
+      "p50": 100,
+      "p90": 105
     }
   },
   "results": {
     "conservative": {
-      "outcome": 105
+      "outcome": 95
     },
     "most_likely": {
-      "outcome": 114.99999999999999
+      "outcome": 100
     },
     "optimistic": {
-      "outcome": 125
+      "outcome": 105
     }
   },
   "schema": "run.v1"
