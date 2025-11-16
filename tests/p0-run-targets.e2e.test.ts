@@ -134,4 +134,40 @@ describe('P0: /v1/run targets field', () => {
     expect(body.schema).toBe('error.v1');
     expect(body.code).toBe('BAD_INPUT');
   });
+
+  it('rejects targets with non-string types (no coercion)', async () => {
+    const res = await fetch(`${baseUrl}/v1/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        graph: minimalGraph,
+        targets: [123, 'B']  // number should be rejected
+      })
+    });
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.schema).toBe('error.v1');
+    expect(body.code).toBe('BAD_INPUT');
+    expect(body.message).toContain('string');
+    expect(body.field).toBe('targets');
+  });
+
+  it('rejects query.targets with non-string types (no coercion)', async () => {
+    const res = await fetch(`${baseUrl}/v1/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        graph: minimalGraph,
+        query: { targets: [123] }  // number should be rejected
+      })
+    });
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.schema).toBe('error.v1');
+    expect(body.code).toBe('BAD_INPUT');
+    expect(body.message).toContain('string');
+    expect(body.field).toBe('query.targets');
+  });
 });

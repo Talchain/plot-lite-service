@@ -75,6 +75,24 @@ export async function registerRunRoute(app: FastifyInstance) {
     },
     attachValidation: true,  // Attach validation errors to request instead of auto-failing
     bodyLimit: BODY_LIMIT_BYTES,
+    preValidation: [
+      async (req: FastifyRequest, reply: FastifyReply) => {
+        // Strict type validation BEFORE Ajv coercion: targets must be string[]
+        const body = (req as any).body;
+        if (body) {
+          const targets = body.targets ?? body.query?.targets;
+          if (targets && (!Array.isArray(targets) || !targets.every((t: any) => typeof t === 'string'))) {
+            return reply.code(400).send({
+              schema: 'error.v1',
+              code: 'BAD_INPUT',
+              message: 'targets must be an array of strings',
+              field: body.targets !== undefined ? 'targets' : 'query.targets',
+              error: { type: 'BAD_INPUT', message: 'targets must be an array of strings' }
+            });
+          }
+        }
+      },
+    ],
     preHandler: [
       async (req: FastifyRequest, reply: FastifyReply) => {
         // Demo mode short-circuit (before validation check)
