@@ -8,11 +8,13 @@ Small, deterministic Fastify + TypeScript service for PLoT-lite. No AI calls. Pr
 
 ## ✨ New in v1.6.0
 
+- **Backend Observability** - All inference endpoints now report `X-Olumi-Backend` header and `model_card.backend` field
+- **Determinism Verified** - Comprehensive golden tests prove seed-based reproducibility across all endpoints
+- **Constraints Clarity** - `/v1/run` validates only; `/v1/optimise` applies constraints with `meta.constraints_applied`
+- **Evidence Security** - Sanitized evidence metadata (only `node_id` + `source` fields exposed)
 - **Timeslices** (`/v1/run_timeslices`) - Evaluate graphs across multiple time periods (up to 12 slices)
-- **Priors** - Initialize node beliefs with number or distribution formats (⚠️ validation-only, functional in future release)
-- **Evidence** - Annotate requests with evidence metadata (source, weight, notes)
-- **TypeScript SDK** - Full-featured SDK with client-side validation (`sdk/`)
-- **Enhanced OpenAPI** - Complete specs with examples for all endpoints
+- **TypeScript SDK v0.6.0** - Backend header helpers + full-featured client (`sdk/`)
+- **Enhanced OpenAPI** - Complete specs with request examples and headers for all endpoints
 
 ## Requirements
 - Node 20 LTS

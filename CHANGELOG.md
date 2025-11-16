@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.6.0] - 2025-11-16
+
+### Added - Backend Observability & Determinism
+- **X-Olumi-Backend header** - All inference endpoints now expose backend mode (fallback/scm_lite) via response header
+- **model_card.backend** - Backend field added to model_card in all inference endpoint responses
+- **Determinism golden tests** - Comprehensive seed-based reproducibility tests for /v1/run, /v1/optimise, /v1/run_bundle, /v1/run_timeslices
+- **OpenAPI completeness** - Request examples and X-Olumi-Backend header documentation for all /v1/* routes
+- **SDK v0.6.0** - Backend header helpers (getBackendFromResponse, isScmLiteActive, etc.)
+- **Constraints clarity** - Tests proving /v1/run validates only, /v1/optimise applies constraints
+
+### Changed
+- **Evidence sanitization** - Only `node_id` and `source` fields exposed in meta.evidence_applied (security)
+- **Constraints behavior** - /v1/run validates but doesn't apply; /v1/optimise validates and applies with meta.constraints_applied
+- **Test stability** - 98.2% pass rate (839/854), zero flakes across 2 consecutive runs
+- **OpenAPI** - Added request examples for /v1/critique and /v1/counterfactual
+
+### Security
+- Evidence metadata sanitized: removed `weight` and `note` fields from responses
+- Constraints validation enforced on /v1/run (rejects malformed/violated constraints)
+
 ## [1.4.0] - 2025-11-13
 
 ### Added - Charter K-P Features
