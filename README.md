@@ -373,20 +373,20 @@ fetch('https://plot-lite-service.onrender.com/v1/intervene', {
   },
   body: JSON.stringify({
     graph: { nodes: [...], edges: [...] },
-    actions: [{ node_id: 'Price', value: 0.8 }],
+    do: [{ node_id: 'Price', set_to: 0.8 }],
     seed: 4242
   })
 });
 ```
 
-**Legacy:** `do[]` is accepted for backwards compatibility (use `actions[]` for new code).
-
 **Returns:**
 - Schema: `intervene.v1`
-- Baseline: Observational outcome
-- Counterfactual: Post-intervention outcome
-- Delta: Effect size with p10/p50/p90
-- Identifiability: Causal identifiability check
+- Baseline/Counterfactual/Delta: Each with `summary` containing p10/p50/p90
+- `explain.provenance`: Source of causal estimate (e.g., "do-operator")
+- `explain.top_drivers`: Main factors driving the change
+- `model_card.actions_hash`: Deterministic hash of interventions
+- `model_card.flags_on`: Runtime feature flags (if any)
+- `response_hash`: Overall response determinism marker
 - Deterministic with same seed
 
 **Limits:**
