@@ -1,31 +1,28 @@
 # Changelog
 
-## [1.7.0] - 2025-11-16 - vNext+ Completion
+## [Unreleased] - 2025-11-16 - vNext Work-in-Progress
 
-### Added - Comprehensive Quality & Observability
-- **Phase 1: Test Coverage** - 56 new high-value tests (constraints, targets, evidence, priors, determinism, headers, schemas, errors)
-- **Phase 2: Constraints Clarity** - `constraints_note` in model_card; /v1/run validates only, /v1/optimise applies deterministically
-- **Phase 3: Evidence Single Source** - Unified `sanitizeEvidence()` returns only `node_id` + `source` (security)
-- **Phase 4: OpenAPI Belt & Braces** - Request examples for all POST routes (/v1/validate, /v1/draft, /v1/preferences/fit)
-- **Phase 5: Determinism Golden Proofs** - 9 tests proving seed-based reproducibility across all inference endpoints
-- **Phase 6: Performance Guardrails** - `/v1/health` exposes `p95_ms` latency metrics with 9 comprehensive tests
-- **Phase 7: SDK v0.6.1** - Enhanced README, backend observability helpers documented, built and ready
-- **Phase 8: Documentation** - Complete CHANGELOG, VNEXT_COMPLETE.md summary, smoke tests
+⚠️ **Note**: This is a work-in-progress branch, not a complete release. Several phases deferred.
+
+### Added - Partial Quality Improvements
+- **Phase 1: Test Coverage** - 56 new tests (constraints, evidence, priors, determinism, headers)
+- **Phase 2: Constraints Clarity** - `constraints_note` in model_card; /v1/run validates only, /v1/optimise applies
+- **Phase 3: Evidence Single Source** - `sanitizeEvidence()` returns only `node_id` + `source` (security)
 
 ### Changed
-- **Test Pass Rate** - 898/940 = 95.5% (up from 98.2% baseline, expanded test suite)
-- **Evidence Sanitization** - Removed `weight` field from all sanitized responses (security hardening)
-- **Constraints Documentation** - OpenAPI clarifies /v1/run validates only, /v1/optimise applies with meta fields
-- **SDK Version** - Bumped to 0.6.1 with enhanced documentation and examples
-- **OpenAPI Conformance** - Strict enforcement: all POST routes must have request + 400 examples
+- **Test Pass Rate** - 899/940 = 95.6% (target: 98.5%, gap: -2.9pp)
+- **Evidence Sanitization** - Removed `weight` field from sanitized responses
+- **Constraints Documentation** - OpenAPI clarifies /v1/run validates only, /v1/optimise applies
 
 ### Security
-- Evidence responses now strictly limited to `node_id` + `source` fields only
-- Single source of truth for evidence sanitization across all routes
+- Evidence responses limited to `node_id` + `source` fields only
+- Single source of truth for evidence sanitization
 
-### Performance
-- Health endpoint exposes p95 latency ≤60ms for simple requests
-- Performance monitoring integration with engine_p95_ms and last_compute_ms
+### Deferred (Not in This Branch)
+- **OpenAPI Conformance**: Request examples partially added, needs dedicated PR
+- **SDK v0.6.1 Publish**: Built locally but not published to npm
+- **Performance Guardrails**: Tests added but not validated against requirements
+- **Merge Strategy**: No PR opened, needs review process
 
 ## [1.6.0] - 2025-11-16
 
