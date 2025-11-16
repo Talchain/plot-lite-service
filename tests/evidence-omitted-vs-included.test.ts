@@ -52,7 +52,7 @@ describe('Evidence omitted vs included', () => {
     expect(body.schema).toBe('run.v1');
   });
 
-  it('accepts valid evidence and sanitizes (strips note, keeps weight)', async () => {
+  it('accepts valid evidence and sanitizes to node_id + source only', async () => {
     const res = await fetch(`${server.baseUrl}/v1/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -62,7 +62,7 @@ describe('Evidence omitted vs included', () => {
           {
             node_id: 'A',
             source: 'user_input',
-            weight: 0.9,  // Currently kept (Phase 3 will remove)
+            weight: 0.9,  // Should be stripped
             note: 'test note'  // Should be stripped
           }
         ],
@@ -79,8 +79,9 @@ describe('Evidence omitted vs included', () => {
       const ev = body.meta.evidence_applied[0];
       expect(ev).toHaveProperty('node_id', 'A');
       expect(ev).toHaveProperty('source', 'user_input');
-      expect(ev).not.toHaveProperty('note');  // Note is stripped
-      // Weight currently kept (will be removed in Phase 3)
+      expect(ev).not.toHaveProperty('note');
+      expect(ev).not.toHaveProperty('weight');
+      expect(Object.keys(ev)).toHaveLength(2);  // Only node_id and source
     }
   });
 

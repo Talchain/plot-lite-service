@@ -115,19 +115,17 @@ export function validateEvidence(
 }
 
 /**
- * Sanitize evidence for response metadata (remove sensitive notes)
+ * Sanitize evidence for response (security: only node_id and source)
  * @param evidence - Evidence items to sanitize
- * @returns Sanitized evidence array safe for response
+ * @returns Sanitized evidence array safe for response (node_id + source only)
  */
 export function sanitizeEvidence(evidence: EvidenceItem[]): Array<{
   node_id: string;
   source: string;
-  weight?: number;
 }> {
   return evidence.map(item => ({
     node_id: item.node_id,
-    source: item.source,
-    ...(item.weight !== undefined && { weight: item.weight })
+    source: item.source
   }));
 }
 
