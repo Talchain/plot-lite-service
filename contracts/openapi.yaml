@@ -1399,6 +1399,10 @@ paths:
       responses:
         '200':
           description: Intervention results
+          headers:
+            X-Olumi-Backend:
+              description: Active backend mode (fallback or scm_lite)
+              schema: { type: string, enum: ['fallback','scm_lite'] }
           content:
             application/json:
               schema:
