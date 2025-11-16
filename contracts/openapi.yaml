@@ -1488,12 +1488,14 @@ paths:
                   value:
                     schema: "error.v1"
                     code: "BAD_INPUT"
-                    message: "Invalid node_ids in actions: Z"
-                missing_actions:
+                    message: "Invalid node_ids in do: Z"
+                    field: "do[].node_id"
+                missing_do:
                   value:
                     schema: "error.v1"
                     code: "BAD_INPUT"
-                    message: "actions array required with at least one intervention"
+                    message: "do array required with at least one intervention"
+                    field: "do"
 
   /v1/evidence:
     post:
@@ -2225,12 +2227,13 @@ paths:
                     properties:
                       evidence_applied:
                         type: array
+                        description: "Sanitized evidence (privacy-first: only node_id and source exposed)"
                         items:
                           type: object
+                          required: [node_id, source]
                           properties:
                             node_id: { type: string }
                             source: { type: string }
-                            weight: { type: number }
         '400':
           description: Bad input
           content:
