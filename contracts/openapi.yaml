@@ -701,9 +701,26 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/counterfactualRequest'
+            example:
+              graph:
+                nodes:
+                  - {id: "price", label: "Price"}
+                  - {id: "demand", label: "Demand"}
+                edges:
+                  - {id: "e1", from: "price", to: "demand", weight: -0.8}
+              intervention:
+                node_id: "price"
+                from_value: 1.0
+                to_value: 1.2
+              outcome_node: "demand"
+              seed: 4242
       responses:
         '200':
           description: OK
+          headers:
+            X-Olumi-Backend:
+              description: Active backend mode (fallback or scm_lite)
+              schema: { type: string, enum: ['fallback','scm_lite'] }
           content:
             application/json:
               schema:
@@ -774,9 +791,21 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/critiqueRequest'
+            example:
+              graph:
+                nodes:
+                  - {id: "A", label: "Node A"}
+                  - {id: "B", label: "Node B"}
+                edges:
+                  - {id: "e1", from: "A", to: "B", weight: 0.7}
+              seed: 4242
       responses:
         '200':
           description: OK
+          headers:
+            X-Olumi-Backend:
+              description: Active backend mode (fallback or scm_lite)
+              schema: { type: string, enum: ['fallback','scm_lite'] }
           content:
             application/json:
               schema:
@@ -1218,6 +1247,10 @@ paths:
       responses:
         '200':
           description: Scoring results
+          headers:
+            X-Olumi-Backend:
+              description: Active backend mode (fallback or scm_lite)
+              schema: { type: string, enum: ['fallback','scm_lite'] }
           content:
             application/json:
               schema:
@@ -1883,6 +1916,10 @@ paths:
       responses:
         '200':
           description: Optimisation results
+          headers:
+            X-Olumi-Backend:
+              description: Active backend mode (fallback or scm_lite)
+              schema: { type: string, enum: ['fallback','scm_lite'] }
           content:
             application/json:
               schema:
@@ -1893,6 +1930,7 @@ paths:
                   utility: { type: object }
                   explanations: { type: array }
                   meta: { type: object }
+                  model_card: { type: object }
         '400':
           description: Bad input or infeasible constraints
           content:
@@ -2028,6 +2066,10 @@ paths:
       responses:
         '200':
           description: Bundle results
+          headers:
+            X-Olumi-Backend:
+              description: Active backend mode (fallback or scm_lite)
+              schema: { type: string, enum: ['fallback','scm_lite'] }
           content:
             application/json:
               schema:
@@ -2122,6 +2164,10 @@ paths:
       responses:
         '200':
           description: Timeslices results
+          headers:
+            X-Olumi-Backend:
+              description: Active backend mode (fallback or scm_lite)
+              schema: { type: string, enum: ['fallback','scm_lite'] }
           content:
             application/json:
               schema:
