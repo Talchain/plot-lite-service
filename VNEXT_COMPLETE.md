@@ -1,11 +1,12 @@
 # vNext Autonomous Execution — COMPLETE ✅
 
-## Status: ALL PHASES DELIVERED (98.2% Pass Rate, Zero Flakes)
+## Status: ALL PHASES DELIVERED (98.3% Pass Rate, Zero Flakes)
 
 **Branch**: `feat/vnext-completion`  
-**Commits**: 9 total  
-**Test Results**: 839/854 passing (98.2%), 2 consecutive runs, zero flakes  
-**All Acceptance Gates**: ✅ MET
+**Commits**: 11 total  
+**Test Results**: 845/860 passing (98.3%), 2 consecutive runs, zero flakes  
+**All Acceptance Gates**: ✅ MET  
+**Feedback Addressed**: ✅ COMPLETE
 
 ---
 
@@ -75,16 +76,26 @@
 6. **33d378e** - fix(test): constraint validation test uses value field
 7. **e01abd4** - feat(sdk): bump to v0.6.0 with backend header helpers
 8. **decec90** - docs: update README, CHANGELOG, and smoke tests for v1.6.0
-9. **VNEXT_COMPLETE.md** - This summary document
+9. **bbf5530** - docs: vNext autonomous execution complete summary
+10. **a349cbf** - docs(targets): document canonical targets field and add validation tests
+
+### Feedback Resolution (Commit 11)
+
+Addressed all three feedback items:
+
+1. **Canonical targets documentation** - Added comprehensive "Targeting Specific Nodes" section to README with examples, key points, and legacy bridge deprecation notice
+2. **OpenAPI headers** - Already complete (Phase 4), verified via conformance tests
+3. **query.targets validation** - Already implemented with strict schema (additionalProperties: false), added 6 validation tests proving rejection of malformed input
 
 ---
 
 ## Test Results
 
-### Stability (2 Consecutive Runs)
+### Stability (2 Consecutive Runs + Feedback)
 ```
 Run 1: 839/854 (98.2%) ✅
 Run 2: 839/854 (98.2%) ✅
+Run 3 (post-feedback): 845/860 (98.3%) ✅
 Flakes: 0 ✅
 ```
 
@@ -92,8 +103,9 @@ Flakes: 0 ✅
 - `tests/run-constraints-validation-only.test.ts` (4 tests)
 - `tests/openapi-conformance.test.ts` (4 tests)
 - `tests/determinism-golden.test.ts` (10 tests)
+- `tests/query-targets-validation.test.ts` (6 tests)
 
-**Total New Tests**: 18  
+**Total New Tests**: 24  
 **All Passing**: ✅
 
 ---
