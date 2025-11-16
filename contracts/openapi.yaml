@@ -1873,20 +1873,23 @@ paths:
                 seed: { type: integer }
                 constraints:
                   type: object
-                  description: Optional constraints on action selection
+                  description: |
+                    Optional constraints on action selection. /v1/optimise APPLIES these constraints deterministically.
+                    Selected actions will respect all specified constraints. Infeasible constraints return 400 with violations.
+                    Response includes meta.constraints_applied and model_card.constraints_note.
                   properties:
                     must:
                       type: array
                       items: { type: string }
-                      description: Action IDs that must be selected
+                      description: Action IDs that must be selected (required actions)
                     must_not:
                       type: array
                       items: { type: string }
-                      description: Action IDs that must not be selected
+                      description: Action IDs that must not be selected (forbidden actions)
                     max_changed_nodes:
                       type: integer
                       minimum: 0
-                      description: Maximum number of nodes that can be affected
+                      description: Maximum number of nodes that can be affected by selected actions
             example:
               graph:
                 nodes:
@@ -2512,7 +2515,10 @@ components:
           additionalProperties: false
         constraints:
           type: object
-          description: Optional constraints for validation and modeling
+          description: |
+            Optional constraints for validation only. /v1/run validates constraints but does NOT apply them.
+            Results are unchanged whether constraints are present or not (same seed produces same output).
+            Use /v1/optimise to apply constraints to action selection.
           properties:
             bounds:
               type: object

@@ -263,12 +263,18 @@ export async function registerOptimiseRoute(app: FastifyInstance) {
     // Get active backend
     const backend = getActiveBackend();
     
+    // Build constraints note
+    const constraintsNote = appliedKeys.length > 0
+      ? `Constraints applied: ${appliedKeys.join(', ')}. Actions selected respect all specified constraints.`
+      : 'No constraints applied beyond budget.';
+
     // Build model_card
     const model_card = buildModelCard({
       seed,
       assumptions: ['Greedy action selection', 'Linear utility aggregation'],
       k_samples: 1000,
-      backend
+      backend,
+      constraints_note: constraintsNote
     });
     
     // Prepare meta with evidence if present

@@ -12,6 +12,7 @@ export interface ModelCardOptions {
   downgrade_reason?: string;
   feature_flags?: Record<string, string | boolean>;
   backend?: 'scm_lite' | 'fallback';
+  constraints_note?: string;
 }
 
 /**
@@ -26,6 +27,7 @@ export function buildModelCard(options: ModelCardOptions): ModelCard {
     downgrade_reason,
     feature_flags = {},
     backend,
+    constraints_note,
   } = options;
 
   // Extract active flags
@@ -67,6 +69,11 @@ export function buildModelCard(options: ModelCardOptions): ModelCard {
   // Add backend if provided
   if (backend) {
     (card as any).backend = backend;
+  }
+
+  // Add constraints_note if provided
+  if (constraints_note) {
+    (card as any).constraints_note = constraints_note;
   }
 
   return card;
