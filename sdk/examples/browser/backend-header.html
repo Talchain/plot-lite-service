@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PLoT SDK v0.6.0 - Backend Header Example</title>
+  <style>
+    body { font-family: system-ui; max-width: 800px; margin: 40px auto; padding: 20px; }
+    pre { background: #f5f5f5; padding: 15px; border-radius: 4px; overflow-x: auto; }
+    button { padding: 10px 20px; font-size: 16px; cursor: pointer; }
+    .result { margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <h1>PLoT SDK v0.6.0 - Reading X-Olumi-Backend Header</h1>
+  
+  <p>This example demonstrates how to read the <code>X-Olumi-Backend</code> header from API responses.</p>
+  
+  <button onclick="runExample()">Run /v1/run Example</button>
+  
+  <div class="result" id="result"></div>
+
+  <script type="module">
+    import { getBackendFromResponse, getBackendFromBody } from '../../dist/esm/helpers.js';
+
+    window.runExample = async function() {
+      const resultDiv = document.getElementById('result');
+      resultDiv.innerHTML = '<p>Loading...</p>';
+
+      try {
+        const response = await fetch('http://localhost:4311/v1/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            graph: {
+              nodes: [
+                { id: 'price', label: 'Price', belief: 0.6 },
+                { id: 'demand', label: 'Demand' }
+              ],
+              edges: [
+                { id: 'e1', from: 'price', to: 'demand', weight: -0.7 }
+              ]
+            },
+            targets: ['demand'],
+            seed: 4242
+          })
+        });
+
+        const body = await response.json();
+
+        // Method 1: Read from header
+        const backendFromHeader = getBackendFromResponse(response);
+        
+        // Method 2: Read from body
+        const backendFromBody = getBackendFromBody(body);
+
+        resultDiv.innerHTML = `
+          <h3>✅ Success</h3>
+          <pre><strong>Backend from header:</strong> ${backendFromHeader}
+<strong>Backend from body:</strong> ${backendFromBody}
+<strong>Match:</strong> ${backendFromHeader === backendFromBody ? '✅ Yes' : '❌ No'}
+
+<strong>Response schema:</strong> ${body.schema}
+<strong>Result p50:</strong> ${body.result?.summary?.p50}</pre>
+        `;
+      } catch (error) {
+        resultDiv.innerHTML = `<p style="color: red;">❌ Error: ${error.message}</p>`;
+      }
+    };
+  </script>
+</body>
+</html>
