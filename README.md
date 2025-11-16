@@ -187,6 +187,36 @@ Exemptions: GET /ready, GET /health, and GET /version are not rate-limited.
 - POST /improve → echoes parse_json and returns { fix_applied: [] }
 
 
+## Constraints Behavior
+
+### /v1/run (Conservative)
+- **Validates** constraints syntax and node references
+- **Does NOT apply** constraints during inference (legacy behavior preserved)
+- Returns 400 if constraints are malformed
+- Use `/v1/optimise` for constraint-aware action selection
+
+### /v1/optimise (Constraint-Aware)
+- **Validates AND applies** constraints during optimization
+- Supports: `must`, `must_not`, `max_changed_nodes`, top-level `budget`
+- Returns `meta.constraints_applied` and `meta.constraints_resolved`
+- Budget precedence: top-level `budget` always overrides `constraints.budget`
+
+Example:
+```bash
+curl -X POST http://localhost:4311/v1/optimise \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "graph": {...},
+    "budget": 100,
+    "actions": [...],
+    "objective": {"type": "utility_linear", "weights": {...}},
+    "constraints": {
+      "must": ["action1"],
+      "must_not": ["action2"]
+    }
+  }'
+```
+
 ## UI Integration
 
 ### Endpoint Availability Probe
