@@ -141,7 +141,6 @@ export async function registerInterveneRoute(app: FastifyInstance) {
       },
       model_card: {
         schema: 'model_card.v1',
-        timestamp: new Date().toISOString(),
         seed,
         backend: 'fallback',
         actions_hash: actionsHash,

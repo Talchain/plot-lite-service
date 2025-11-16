@@ -1372,23 +1372,20 @@ paths:
                 seed:
                   type: integer
                   example: 4242
-                actions:
+                do:
                   type: array
                   description: Causal interventions via do-operator
                   items:
                     type: object
-                    required: [node_id, value]
+                    required: [node_id, set_to]
                     properties:
                       node_id:
                         type: string
+                      set_to:
+                        type: number
                       value:
                         type: number
-                flags:
-                  type: object
-                  properties:
-                    scm_lite:
-                      type: integer
-                      enum: [0, 1]
+                        description: Alias for set_to (deprecated)
             example:
               graph:
                 nodes:
@@ -1397,9 +1394,8 @@ paths:
                 edges:
                   - {from: "X", to: "Y", weight: 0.5}
               seed: 4242
-              actions:
-                - {node_id: "X", value: 0.8}
-              flags: {scm_lite: 1}
+              do:
+                - {node_id: "X", set_to: 0.8}
       responses:
         '200':
           description: Intervention results
