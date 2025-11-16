@@ -2,6 +2,14 @@
 
 TypeScript SDK for PLoT Lite inference engine with full support for priors, evidence, and timeslices.
 
+## What's New in v0.6.1
+
+- ✨ **Backend Observability**: Helper functions to read `X-Olumi-Backend` header
+- ✨ **Model Card Helpers**: Extract backend mode from `model_card` field
+- ✨ **Constraints Clarity**: Enhanced support for constraints in `/v1/optimise`
+- ✨ **Evidence Security**: Sanitized evidence responses (node_id + source only)
+- ✨ **Performance Metrics**: Access p95 latency from `/v1/health`
+
 ## Installation
 
 ```bash
@@ -198,6 +206,36 @@ evidence: [
       { node_id: 'demand', source: 'survey_2024', weight: 0.8 }
     ]
   }
+}
+```
+
+## Backend Observability Helpers
+
+Extract backend mode from API responses:
+
+```typescript
+import { 
+  getBackendFromResponse, 
+  getBackendFromBody,
+  isScmLiteActive,
+  isFallbackActive 
+} from '@talchain/plot-lite-sdk';
+
+// From fetch Response object (reads X-Olumi-Backend header)
+const response = await fetch('/v1/run', { method: 'POST', body: ... });
+const backend = getBackendFromResponse(response);
+console.log(backend); // 'scm_lite' or 'fallback' or null
+
+// From response body (reads model_card.backend)
+const body = await response.json();
+const backend2 = getBackendFromBody(body);
+
+// Check specific backend
+if (isScmLiteActive(body)) {
+  console.log('Using SCM-Lite engine');
+}
+if (isFallbackActive(body)) {
+  console.log('Using fallback engine');
 }
 ```
 
