@@ -49,20 +49,20 @@ describe('Evidence audit trail', () => {
     expect(Array.isArray(data.meta.evidence_applied)).toBe(true);
     expect(data.meta.evidence_applied.length).toBe(2);
     
-    // Check first evidence item (sanitized - no note)
+    // Check first evidence item (sanitized - only node_id and source)
     expect(data.meta.evidence_applied[0]).toEqual({
       node_id: 'A',
-      source: 'survey_2024',
-      weight: 0.8
+      source: 'survey_2024'
     });
     expect(data.meta.evidence_applied[0].note).toBeUndefined();
+    expect(data.meta.evidence_applied[0].weight).toBeUndefined();
     
-    // Check second evidence item
+    // Check second evidence item (sanitized - only node_id and source)
     expect(data.meta.evidence_applied[1]).toEqual({
       node_id: 'B',
-      source: 'expert_panel',
-      weight: 0.9
+      source: 'expert_panel'
     });
+    expect(data.meta.evidence_applied[1].weight).toBeUndefined();
   });
 
   it('does not include meta.evidence_applied when no evidence provided', async () => {
