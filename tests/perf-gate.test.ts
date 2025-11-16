@@ -163,7 +163,7 @@ describe('Performance gates', () => {
           ]
         },
         budget: 100,
-        do: [
+        actions: [
           { id: 'discount',  cost: 50, do: [{ node_id: 'Price',  set_to: 0.7  }] },
           { id: 'marketing', cost: 80, do: [{ node_id: 'Demand', set_to: 0.9  }] },
           { id: 'promo',     cost: 30, do: [{ node_id: 'Price',  set_to: 0.85 }] }
