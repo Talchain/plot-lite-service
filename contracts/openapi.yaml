@@ -1883,6 +1883,10 @@ paths:
       responses:
         '200':
           description: Optimisation results
+          headers:
+            X-Olumi-Backend:
+              description: Active backend mode (fallback or scm_lite)
+              schema: { type: string, enum: ['fallback','scm_lite'] }
           content:
             application/json:
               schema:
@@ -1893,6 +1897,7 @@ paths:
                   utility: { type: object }
                   explanations: { type: array }
                   meta: { type: object }
+                  model_card: { type: object }
         '400':
           description: Bad input or infeasible constraints
           content:
