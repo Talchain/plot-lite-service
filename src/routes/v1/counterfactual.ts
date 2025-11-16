@@ -12,6 +12,7 @@ import { buildExplainDelta } from '../../trust/explain-delta.js';
 import { checkIdentifiability } from '../../trust/identifiability.js';
 import { enforceComputeBudget } from '../../governance/cost-estimator.js';
 import type { Graph } from '../../trust/types.js';
+import { getActiveBackend } from '../../config/backend.js';
 
 export interface CounterfactualRequest {
   graph: Graph;
@@ -78,6 +79,9 @@ export async function registerCounterfactualRoute(app: FastifyInstance) {
       });
     }
 
+    // Get active backend
+    const backend = getActiveBackend();
+
     // Model card
     const model_card = buildModelCard({
       seed,
@@ -91,6 +95,7 @@ export async function registerCounterfactualRoute(app: FastifyInstance) {
       downgraded: budget.downgraded,
       downgrade_reason: budget.reason,
       feature_flags: getActiveFeatureFlags(),
+      backend,
     });
 
     // Confidence badge
@@ -150,6 +155,10 @@ export async function registerCounterfactualRoute(app: FastifyInstance) {
       identifiability: identifiability.summary,
       adjustment_set: identifiability.adjustment_set,
     } as any;
+    
+    // Set X-Olumi-Backend header
+    reply.header('X-Olumi-Backend', backend);
+    
     return stampResponseHash(response);
   });
 }

@@ -4,6 +4,8 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { createHash } from 'crypto';
 import { recordAuditEvent } from '../../governance/audit-ring.js';
+import { getActiveBackend } from '../../config/backend.js';
+import { buildModelCard } from '../../trust/model-card.js';
 
 interface ScoreRequest {
   graph: { nodes: any[]; edges: any[] };
@@ -103,6 +105,17 @@ export async function registerScoreRoute(app: FastifyInstance) {
       duration_ms: duration 
     }, 'score completed');
     
+    // Get active backend
+    const backend = getActiveBackend();
+    
+    // Build model_card
+    const model_card = buildModelCard({
+      seed,
+      assumptions: ['Linear utility aggregation', 'Risk-neutral scoring'],
+      k_samples: 1000,
+      backend
+    });
+    
     const response = {
       schema: 'score.v1',
       result: {
@@ -110,6 +123,7 @@ export async function registerScoreRoute(app: FastifyInstance) {
         ranking
       },
       top_drivers: topDrivers,
+      model_card,
       meta: { seed, inference_mode: 'model_based' }
     };
     
@@ -125,6 +139,9 @@ export async function registerScoreRoute(app: FastifyInstance) {
       status: 200,
       ts: new Date().toISOString()
     });
+    
+    // Set X-Olumi-Backend header
+    reply.header('X-Olumi-Backend', backend);
     
     return reply.code(200).send(response);
   });

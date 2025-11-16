@@ -1,4 +1,8 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { recordAuditEvent } from '../../governance/audit-ring.js';
+import { getActiveBackend } from '../../config/backend.js';
+import { buildModelCard } from '../../trust/model-card.js';
+import { sanitizeEvidence } from '../../lib/validate-evidence.js';
 import { createHash } from 'crypto';
 import { validateConstraints, filterActionsByConstraints, isFeasible, type Constraints, type Action } from '../../engine/constraints.js';
 import { runKernel } from '../../scm-lite/kernel.js';
@@ -256,17 +260,39 @@ export async function registerOptimiseRoute(app: FastifyInstance) {
       constraints_resolved: constraintsResolved
     });
     
+    // Get active backend
+    const backend = getActiveBackend();
+    
+    // Build model_card
+    const model_card = buildModelCard({
+      seed,
+      assumptions: ['Greedy action selection', 'Linear utility aggregation'],
+      k_samples: 1000,
+      backend
+    });
+    
+    // Prepare meta with evidence if present
+    const meta: any = {
+      seed,
+      solver: 'greedy_kernel_v1',
+      constraints_applied: appliedKeys,
+      constraints_resolved: constraintsResolved
+    };
+    
+    if (body.evidence && body.evidence.length > 0) {
+      meta.evidence_applied = sanitizeEvidence(body.evidence);
+    }
+    
+    // Set X-Olumi-Backend header
+    reply.header('X-Olumi-Backend', backend);
+    
     return reply.code(200).send({
       schema: 'optimise.v1',
       selected,
       utility: { expected: finalUtility, p10: finalUtility * 0.9, p50: finalUtility, p90: finalUtility * 1.1 },
       explanations,
-      meta: { 
-        seed, 
-        solver: 'greedy_kernel_v1', 
-        constraints_applied: appliedKeys,
-        constraints_resolved: constraintsResolved
-      }
+      model_card,
+      meta
     });
   });
 }
