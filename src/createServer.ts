@@ -1191,6 +1191,13 @@ export async function createServer(opts: ServerOpts = {}) {
           field = firstErr.params.additionalProperty;
           errorMsg = `Unknown field: ${field}`;
           hint = `Remove '${field}' or check spelling`;
+        } else if (firstErr.instancePath) {
+          // Extract field from instancePath (e.g., "/targets" or "/query/targets")
+          field = firstErr.instancePath.replace(/^\//, '').replace(/\//g, '.');
+          errorMsg = firstErr.message || 'Validation failed';
+          if (firstErr.keyword === 'type') {
+            errorMsg = `${field} ${errorMsg}`;
+          }
         } else if (firstErr.message) {
           errorMsg = firstErr.message;
         }

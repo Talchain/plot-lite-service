@@ -82,13 +82,19 @@ export async function registerRunRoute(app: FastifyInstance) {
         if (body) {
           const targets = body.targets ?? body.query?.targets;
           if (targets && (!Array.isArray(targets) || !targets.every((t: any) => typeof t === 'string'))) {
-            return reply.code(400).send({
-              schema: 'error.v1',
-              code: 'BAD_INPUT',
-              message: 'targets must be an array of strings',
-              field: body.targets !== undefined ? 'targets' : 'query.targets',
-              error: { type: 'BAD_INPUT', message: 'targets must be an array of strings' }
-            });
+            // Throw validation error in Ajv format so metrics increment
+            const field = body.targets !== undefined ? 'targets' : 'query.targets';
+            const err: any = new Error('targets must be an array of strings');
+            err.statusCode = 400;
+            err.validation = [{
+              instancePath: `/${field.replace('.', '/')}`,
+              schemaPath: '#/properties/targets/items/type',
+              keyword: 'type',
+              params: { type: 'string' },
+              message: 'must be string'
+            }];
+            err.validationContext = 'body';
+            throw err;
           }
         }
       },
