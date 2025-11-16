@@ -87,6 +87,6 @@ describe('POST /v1/intervene - legacy do[] alias', () => {
 
     expect(res.status).toBe(400);
     const data = await res.json();
-    expect(data.error.message).toContain('actions');
+    expect(data.error.message).toContain('do');
   });
 });

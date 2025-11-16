@@ -35,7 +35,7 @@ describe('Simple smoke tests', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        graph: { nodes: [{ id: 'A' }], edges: [] },
+        graph: { nodes: [{ id: 'A', label: 'Node A' }], edges: [] },
         seed: 1
       })
     });
@@ -47,7 +47,7 @@ describe('Simple smoke tests', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        graph: { nodes: [{ id: 'A' }], edges: [] },
+        graph: { nodes: [{ id: 'A', label: 'Node A' }], edges: [] },
         seed: 1
       })
     });
@@ -79,7 +79,7 @@ describe('Simple smoke tests', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        graph: { nodes: [{ id: 'A' }], edges: [] },
+        graph: { nodes: [{ id: 'A', label: 'Node A' }], edges: [] },
         seed: 999
       })
     });
@@ -92,7 +92,7 @@ describe('Simple smoke tests', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        graph: { nodes: [{ id: 'A' }], edges: [] },
+        graph: { nodes: [{ id: 'A', label: 'Node A' }], edges: [] },
         seed: 1
       })
     });
@@ -105,7 +105,7 @@ describe('Simple smoke tests', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        graph: { nodes: [{ id: 'A' }], edges: [] },
+        graph: { nodes: [{ id: 'A', label: 'Node A' }], edges: [] },
         seed: 1
       })
     });

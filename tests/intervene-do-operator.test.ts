@@ -13,7 +13,7 @@ describe('POST /v1/intervene - do-operator', () => {
         nodes: [{ id: 'X', label: 'X' }, { id: 'Y', label: 'Y' }],
         edges: [{ from: 'X', to: 'Y' }]
       },
-      actions: [{ node_id: 'X', value: 0.8 }],
+      do: [{ node_id: 'X', value: 0.8 }],
       seed: 4242
     };
 
@@ -41,7 +41,7 @@ describe('POST /v1/intervene - do-operator', () => {
         nodes: [{ id: 'X', label: 'X' }],
         edges: []
       },
-      actions: [{ node_id: 'X', value: 0.5 }],
+      do: [{ node_id: 'X', value: 0.5 }],
       seed: 1111
     };
 
@@ -80,7 +80,7 @@ describe('POST /v1/intervene - do-operator', () => {
           { from: 'Z', to: 'Y' }
         ]
       },
-      actions: [{ node_id: 'X', value: 0.9 }],
+      do: [{ node_id: 'X', value: 0.9 }],
       seed: 4242
     };
 
@@ -105,7 +105,7 @@ describe('POST /v1/intervene - do-operator', () => {
         nodes: [{ id: 'A', label: 'A' }],
         edges: []
       },
-      actions: [{ node_id: 'NonExistent', value: 0.5 }],
+      do: [{ node_id: 'NonExistent', value: 0.5 }],
       seed: 4242
     };
 
@@ -118,7 +118,7 @@ describe('POST /v1/intervene - do-operator', () => {
 
     expect(res.status).toBe(400);
     expect(data.error.type).toBe('BAD_INPUT');
-    expect(data.error.field).toBe('actions[].node_id');
+    expect(data.error.field).toBe('do[].node_id');
     expect(data.error.message).toContain('NonExistent');
   });
 
@@ -140,7 +140,7 @@ describe('POST /v1/intervene - do-operator', () => {
 
     expect(res.status).toBe(400);
     expect(data.error.type).toBe('BAD_INPUT');
-    expect(data.error.field).toBe('actions');
+    expect(data.error.field).toBe('do');
   });
 
   it('multiple simultaneous interventions', async () => {
@@ -156,7 +156,7 @@ describe('POST /v1/intervene - do-operator', () => {
           { from: 'B', to: 'C' }
         ]
       },
-      actions: [
+      do: [
         { node_id: 'A', value: 0.8 },
         { node_id: 'B', value: 0.6 }
       ],
@@ -181,7 +181,7 @@ describe('POST /v1/intervene - do-operator', () => {
         nodes: [{ id: 'X', label: 'X' }],
         edges: []
       },
-      actions: [{ node_id: 'X', value: 0.5 }],
+      do: [{ node_id: 'X', value: 0.5 }],
       seed: 4242,
       flags: { scm_lite: 1 }
     };
@@ -203,7 +203,7 @@ describe('POST /v1/intervene - do-operator', () => {
         nodes: [{ id: 'A', label: 'A' }, { id: 'B', label: 'B' }],
         edges: []
       },
-      actions: [
+      do: [
         { node_id: 'A', value: 0.5 },
         { node_id: 'B', value: 0.7 }
       ],
@@ -212,7 +212,7 @@ describe('POST /v1/intervene - do-operator', () => {
 
     const payload2 = {
       ...payload1,
-      actions: [
+      do: [
         { node_id: 'B', value: 0.7 },
         { node_id: 'A', value: 0.5 }
       ]
@@ -241,7 +241,7 @@ describe('POST /v1/intervene - do-operator', () => {
         nodes: [{ id: 'X', label: 'X' }],
         edges: []
       },
-      actions: [{ node_id: 'X', value: 0.8 }],
+      do: [{ node_id: 'X', value: 0.8 }],
       seed: 4242
     };
 
@@ -271,7 +271,7 @@ describe('POST /v1/intervene - do-operator', () => {
         nodes: [{ id: 'A', label: 'A' }],
         edges: []
       },
-      actions: [{ node_id: 'A', value: 0.5 }],
+      do: [{ node_id: 'A', value: 0.5 }],
       seed: 9999
     };
 
@@ -303,7 +303,7 @@ describe('POST /v1/intervene - do-operator', () => {
         ],
         edges: []
       },
-      actions: [
+      do: [
         { node_id: 'X', value: 0.9 },
         { node_id: 'Y', value: -0.5 },
         { node_id: 'Z', value: 0.3 }

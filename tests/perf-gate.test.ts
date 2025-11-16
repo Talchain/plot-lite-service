@@ -116,7 +116,7 @@ describe('Performance gates', () => {
     for (let i = 0; i < RUNS; i++) {
       const ms = await measureLatency(`${server.baseUrl}/v1/intervene`, {
         graph: { nodes: [{ id: 'X', label: 'X' }], edges: [] },
-        actions: [{ node_id: 'X', value: 1.0 }],
+        do: [{ node_id: 'X', value: 1.0 }],
         seed: 4242
       });
       latencies.push(ms);
@@ -135,7 +135,7 @@ describe('Performance gates', () => {
     for (let i = 0; i < RUNS; i++) {
       const ms = await measureLatency(`${server.baseUrl}/v1/intervene`, {
         graph: { nodes, edges },
-        actions: [{ node_id: 'N0', value: 0.9 }],
+        do: [{ node_id: 'N0', value: 0.9 }],
         seed: 4242
       });
       latencies.push(ms);
@@ -163,7 +163,7 @@ describe('Performance gates', () => {
           ]
         },
         budget: 100,
-        actions: [
+        do: [
           { id: 'discount',  cost: 50, do: [{ node_id: 'Price',  set_to: 0.7  }] },
           { id: 'marketing', cost: 80, do: [{ node_id: 'Demand', set_to: 0.9  }] },
           { id: 'promo',     cost: 30, do: [{ node_id: 'Price',  set_to: 0.85 }] }

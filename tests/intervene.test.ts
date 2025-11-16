@@ -20,7 +20,7 @@ describe('POST /v1/intervene', () => {
           edges: [{ from: 'X', to: 'Y', weight: 0.5 }]
         },
         seed: 4242,
-        actions: [{ node_id: 'X', value: 1.0 }]
+        do: [{ node_id: 'X', value: 1.0 }]
       })
     });
     
@@ -41,7 +41,7 @@ describe('POST /v1/intervene', () => {
         edges: [{ from: 'A', to: 'B', weight: 0.3 }]
       },
       seed: 1234,
-      actions: [{ node_id: 'A', value: 0.8 }]
+      do: [{ node_id: 'A', value: 0.8 }]
     };
     
     const res1 = await fetch(`${server.baseUrl}/v1/intervene`, {
@@ -72,7 +72,7 @@ describe('POST /v1/intervene', () => {
           nodes: [{ id: 'A', label: 'A' }],
           edges: []
         },
-        actions: [{ node_id: 'Z', value: 1.0 }] // Z doesn't exist
+        do: [{ node_id: 'Z', value: 1.0 }] // Z doesn't exist
       })
     });
     
@@ -91,7 +91,7 @@ describe('POST /v1/intervene', () => {
           nodes: [{ id: 'A', label: 'A' }],
           edges: []
         },
-        actions: [] // Empty
+        do: [] // Empty
       })
     });
     
@@ -113,7 +113,7 @@ describe('POST /v1/intervene', () => {
           ],
           edges: []
         },
-        actions: [
+        do: [
           { node_id: 'X1', value: 1.0 },
           { node_id: 'X2', value: 0.5 }
         ]
@@ -135,7 +135,7 @@ describe('POST /v1/intervene', () => {
           nodes: [{ id: 'A', label: 'A' }, { id: 'B', label: 'B' }],
           edges: []
         },
-        actions: [{ node_id: 'A', value: 1.0 }]
+        do: [{ node_id: 'A', value: 1.0 }]
       })
     });
     
