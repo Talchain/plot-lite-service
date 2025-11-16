@@ -10,6 +10,7 @@ import { buildModelCard, getActiveFeatureFlags } from '../../trust/model-card.js
 import { buildCritique } from '../../trust/critique-builder.js';
 import { checkIdentifiability } from '../../trust/identifiability.js';
 import type { Graph } from '../../trust/types.js';
+import { getActiveBackend } from '../../config/backend.js';
 
 export interface CritiqueRequest {
   graph: Graph;
@@ -55,11 +56,15 @@ export async function registerCritiqueRoute(app: FastifyInstance) {
       outcome_node,
     });
 
+    // Get active backend
+    const backend = getActiveBackend();
+
     // Model card
     const model_card = buildModelCard({
       seed,
       assumptions: assumptions.length > 0 ? assumptions : undefined,
       feature_flags: getActiveFeatureFlags(),
+      backend,
     });
 
     // Build critique
@@ -87,6 +92,10 @@ export async function registerCritiqueRoute(app: FastifyInstance) {
         auto_fixable: auto_fixable_count,
       },
     };
+    
+    // Set X-Olumi-Backend header
+    reply.header('X-Olumi-Backend', backend);
+    
     return stampResponseHash(response);
   });
 }

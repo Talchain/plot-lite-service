@@ -5,6 +5,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { createHash } from 'crypto';
 import { recordAuditEvent } from '../../governance/audit-ring.js';
+import { getActiveBackend } from '../../config/backend.js';
 
 interface SliceOverride {
   slice: string;
@@ -219,13 +220,20 @@ export async function registerRunTimeslicesRoute(app: FastifyInstance) {
       ts: new Date().toISOString()
     });
     
+    // Get active backend
+    const backend = getActiveBackend();
+    
+    // Set X-Olumi-Backend header
+    reply.header('X-Olumi-Backend', backend);
+    
     const response: any = {
       schema: 'run_timeslices.v1',
       results,
       model_card: {
         seed,
         response_hash: responseHash,
-        timeslices_count: body.timeslices.length
+        timeslices_count: body.timeslices.length,
+        backend
       }
     };
 

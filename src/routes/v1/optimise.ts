@@ -3,6 +3,8 @@ import { createHash } from 'crypto';
 import { validateConstraints, filterActionsByConstraints, isFeasible, type Constraints, type Action } from '../../engine/constraints.js';
 import { runKernel } from '../../scm-lite/kernel.js';
 import { adaptGraphToDAG } from '../../scm-lite/adapter.js';
+import { buildModelCard } from '../../trust/model-card.js';
+import { getActiveBackend } from '../../config/backend.js';
 
 interface OptimiseRequest {
   graph: { nodes: any[]; edges: any[] };
@@ -230,6 +232,26 @@ export async function registerOptimiseRoute(app: FastifyInstance) {
       }
     }
     
+    // Get active backend for model card
+    const backend = getActiveBackend();
+    
+    // Build model card
+    const model_card = buildModelCard({
+      seed,
+      assumptions: ['Greedy action selection', 'Linear utility aggregation'],
+      k_samples: 1000,
+      backend
+    });
+    
+    // Sanitize evidence if present
+    let evidenceApplied: Array<{ node_id: string; source: string }> | undefined;
+    if (body.evidence && body.evidence.length > 0) {
+      evidenceApplied = body.evidence.map(e => ({
+        node_id: e.node_id,
+        source: e.source
+      }));
+    }
+    
     // Structured logging with constraints metadata
     const duration = Date.now() - start;
     const appliedKeys = Object.keys(userConstraints || {}).filter(k => k !== 'budget');
@@ -256,16 +278,21 @@ export async function registerOptimiseRoute(app: FastifyInstance) {
       constraints_resolved: constraintsResolved
     });
     
+    // Set X-Olumi-Backend header
+    reply.header('X-Olumi-Backend', backend);
+    
     return reply.code(200).send({
       schema: 'optimise.v1',
       selected,
       utility: { expected: finalUtility, p10: finalUtility * 0.9, p50: finalUtility, p90: finalUtility * 1.1 },
       explanations,
+      model_card,
       meta: { 
         seed, 
         solver: 'greedy_kernel_v1', 
         constraints_applied: appliedKeys,
-        constraints_resolved: constraintsResolved
+        constraints_resolved: constraintsResolved,
+        ...(evidenceApplied && { evidence_applied: evidenceApplied })
       }
     });
   });
