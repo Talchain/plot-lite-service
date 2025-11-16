@@ -79,10 +79,19 @@ describe('/v1/run - Constraints Validation Only (Conservative)', () => {
 
   it('validates constraints that violate current node values', async () => {
     const payload = {
-      ...minimalPayload,
+      graph: {
+        nodes: [
+          { id: 'A', label: 'Node A', value: 0.6 }, // Use value, not belief
+          { id: 'B', label: 'Node B' }
+        ],
+        edges: [
+          { id: 'e1', from: 'A', to: 'B', weight: 0.7 }
+        ]
+      },
+      seed: 4242,
       constraints: {
         bounds: {
-          A: { min: 0.8, max: 0.9 } // Node A has belief 0.6, violates min 0.8
+          A: { min: 0.8, max: 0.9 } // Node A has value 0.6, violates min 0.8
         }
       }
     };
