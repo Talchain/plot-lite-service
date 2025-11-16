@@ -267,6 +267,51 @@ fetch('https://plot-lite-service.onrender.com/v1/run', {
 - Deterministic results with same seed
 - Returns `report.v1` schema with summary bands
 
+### Targeting Specific Nodes (targets field)
+
+The `/v1/run` endpoint now supports a **canonical `targets` field** to focus inference on specific nodes:
+
+```javascript
+fetch('https://plot-lite-service.onrender.com/v1/run', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    graph: {
+      nodes: [
+        { id: 'price', label: 'Price', belief: 0.6 },
+        { id: 'demand', label: 'Demand' },
+        { id: 'revenue', label: 'Revenue' }
+      ],
+      edges: [
+        { id: 'e1', from: 'price', to: 'demand', weight: -0.7 },
+        { id: 'e2', from: 'demand', to: 'revenue', weight: 0.9 }
+      ]
+    },
+    targets: ['revenue'],  // Focus inference on revenue node
+    seed: 4242
+  })
+});
+```
+
+**Key Points:**
+- `targets` is an optional `string[]` array of node IDs
+- When provided, inference focuses on the specified nodes
+- Must contain at least 1 node ID if present
+- All IDs must exist in the graph (validated)
+- Improves performance for large graphs when you only need specific outputs
+
+**Legacy Bridge:**
+For backward compatibility, `query.targets` is still supported but deprecated:
+```javascript
+// ⚠️ Deprecated (still works, but use top-level targets instead)
+body: JSON.stringify({
+  graph: { ... },
+  query: { targets: ['revenue'] }  // Old format
+})
+```
+
+The service automatically normalizes `query.targets` to the canonical `targets` field.
+
 ### Compare & Inspect Endpoints
 
 #### POST /v1/compare
