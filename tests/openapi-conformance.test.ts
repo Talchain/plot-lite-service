@@ -65,7 +65,37 @@ describe('OpenAPI Conformance', () => {
     expect(missing).toEqual([]);
   });
 
-  it('all v1 routes have 400 error examples', () => {
+  it('all v1 POST routes have request examples', () => {
+    const missing: string[] = [];
+    const allV1Routes = Object.keys(spec.paths).filter(p => p.startsWith('/v1/'));
+
+    for (const route of allV1Routes) {
+      const endpoint = spec.paths[route];
+      const post = endpoint?.post;
+      if (!post) continue;
+
+      const requestBody = post.requestBody;
+      if (!requestBody) {
+        // Some routes like /v1/health don't have request bodies
+        continue;
+      }
+
+      const content = requestBody.content?.['application/json'];
+      if (!content) {
+        missing.push(`${route}: no JSON request body`);
+        continue;
+      }
+
+      // Check for examples (either example or examples)
+      if (!content.example && !content.examples) {
+        missing.push(`${route}: no request example`);
+      }
+    }
+
+    expect(missing).toEqual([]);
+  });
+
+  it('all v1 POST routes have 400 error examples', () => {
     const missing: string[] = [];
     const allV1Routes = Object.keys(spec.paths).filter(p => p.startsWith('/v1/'));
 
@@ -92,13 +122,8 @@ describe('OpenAPI Conformance', () => {
       }
     }
 
-    // Allow some routes to not have 400 examples (e.g., health, version)
-    const exemptRoutes = ['/v1/health', '/v1/version', '/v1/limits'];
-    const filteredMissing = missing.filter(m => 
-      !exemptRoutes.some(exempt => m.startsWith(exempt))
-    );
-
-    expect(filteredMissing.length).toBeLessThan(5); // Allow a few missing, but not many
+    // All POST routes should have 400 examples
+    expect(missing).toEqual([]);
   });
 
   it('400 examples use flat error.v1 schema', () => {

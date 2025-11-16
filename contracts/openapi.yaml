@@ -626,6 +626,18 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/runRequest'
+            example:
+              graph:
+                nodes:
+                  - id: "Price"
+                    label: "Price"
+                  - id: "Revenue"
+                    label: "Revenue"
+                edges:
+                  - id: "e1"
+                    from: "Price"
+                    to: "Revenue"
+                    weight: 0.8
       responses:
         '200':
           description: Validation result
@@ -888,10 +900,12 @@ paths:
                 description: 
                   type: string
                   maxLength: 500
-                  example: 'Optimise subscription pricing with competitor response'
                 domain:
                   type: string
                   enum: [pricing, product, marketing]
+            example:
+              description: "Optimise subscription pricing with competitor response"
+              domain: "pricing"
       responses:
         '200':
           description: OK
@@ -1992,6 +2006,20 @@ paths:
                   type: object
                   properties:
                     weights: { type: object }
+            example:
+              pairs:
+                - winner: "revenue"
+                  loser: "cost"
+                  strength: 0.7
+                - winner: "quality"
+                  loser: "speed"
+                  strength: 0.5
+              prior:
+                weights:
+                  revenue: 0.4
+                  cost: 0.3
+                  quality: 0.2
+                  speed: 0.1
       responses:
         '200':
           description: Fitted weights
