@@ -21,7 +21,13 @@ export async function registerInterveneRoute(app: FastifyInstance) {
     }
     
     if (!body.do || !Array.isArray(body.do) || body.do.length === 0) {
-      return reply.code(400).send({ error: { type: 'BAD_INPUT', message: 'do array required with at least one intervention' } });
+      return reply.code(400).send({ 
+        error: { 
+          type: 'BAD_INPUT', 
+          message: 'do array required with at least one intervention',
+          field: 'do'
+        } 
+      });
     }
     
     // Validate interventions refer to existing nodes
@@ -32,7 +38,8 @@ export async function registerInterveneRoute(app: FastifyInstance) {
       return reply.code(400).send({ 
         error: { 
           type: 'BAD_INPUT', 
-          message: `Invalid node_ids in do: ${invalidDos.map(d => d.node_id).join(', ')}` 
+          message: `Invalid node_ids in do: ${invalidDos.map(d => d.node_id).join(', ')}`,
+          field: 'do[].node_id'
         } 
       });
     }
@@ -55,16 +62,20 @@ export async function registerInterveneRoute(app: FastifyInstance) {
     // Compute baseline (no intervention)
     const baselineSeed = seed;
     const baselineP50 = Math.round((baselineSeed / 10000 + 0.5) * 1000) / 1000;
+    const baselineP10 = Math.round(baselineP50 * 0.85 * 1000) / 1000;
+    const baselineP90 = Math.round(baselineP50 * 1.15 * 1000) / 1000;
     
     // Compute counterfactual (with intervention)
     // Effect is deterministic based on seed + intervention values
     const interventionEffect = body.do.reduce((sum, d) => sum + d.set_to, 0) / body.do.length;
     const counterfactualP50 = Math.round((baselineP50 + interventionEffect * 0.15) * 1000) / 1000;
+    const counterfactualP10 = Math.round(counterfactualP50 * 0.85 * 1000) / 1000;
+    const counterfactualP90 = Math.round(counterfactualP50 * 1.15 * 1000) / 1000;
     
     // Compute delta
     const deltaP50 = Math.round((counterfactualP50 - baselineP50) * 1000) / 1000;
-    const deltaP10 = Math.round(deltaP50 * 0.33 * 1000) / 1000;
-    const deltaP90 = Math.round(deltaP50 * 2.0 * 1000) / 1000;
+    const deltaP10 = Math.round((counterfactualP10 - baselineP10) * 1000) / 1000;
+    const deltaP90 = Math.round((counterfactualP90 - baselineP90) * 1000) / 1000;
     
     // Top drivers (nodes being intervened on)
     const topDrivers = body.do.slice(0, 3).map((d, idx) => {
@@ -76,6 +87,27 @@ export async function registerInterveneRoute(app: FastifyInstance) {
       };
     });
     
+    // Compute actions_hash (deterministic based on do array + seed, order-independent)
+    const sortedActions = body.do
+      .map(d => ({ node_id: d.node_id, value: d.set_to }))
+      .sort((a, b) => a.node_id.localeCompare(b.node_id));
+    const actionsString = JSON.stringify(sortedActions) + seed;
+    const actionsHash = createHash('sha256').update(actionsString).digest('hex').substring(0, 16);
+    
+    // Compute response_hash (deterministic based on all outputs + seed)
+    const responseString = JSON.stringify({
+      baseline: { p10: baselineP10, p50: baselineP50, p90: baselineP90 },
+      counterfactual: { p10: counterfactualP10, p50: counterfactualP50, p90: counterfactualP90 },
+      delta: { p10: deltaP10, p50: deltaP50, p90: deltaP90 },
+      seed
+    });
+    const responseHash = createHash('sha256').update(responseString).digest('hex').substring(0, 16);
+    
+    // Get flags_on from environment
+    const flagsOn: string[] = [];
+    if (process.env.SCM_LITE_ENABLE === '1') flagsOn.push('scm_lite');
+    if (process.env.ADAPTIVE_K_ENABLE === '1') flagsOn.push('adaptive_k');
+    
     const duration = Date.now() - start;
     req.log.info({ 
       evt: 'intervene', 
@@ -86,21 +118,35 @@ export async function registerInterveneRoute(app: FastifyInstance) {
       duration_ms: duration 
     }, 'intervene completed');
     
+    // Add backend header
+    reply.header('X-Olumi-Backend', 'fallback');
+    
     return reply.code(200).send({
       schema: 'intervene.v1',
+      response_hash: responseHash,
       baseline: {
-        summary: { p50: baselineP50 }
+        summary: { p10: baselineP10, p50: baselineP50, p90: baselineP90 }
       },
       counterfactual: {
-        summary: { p50: counterfactualP50 }
+        summary: { p10: counterfactualP10, p50: counterfactualP50, p90: counterfactualP90 }
       },
       delta: {
         p10: deltaP10,
         p50: deltaP50,
         p90: deltaP90
       },
-      identifiability: 'Identifiable: Yes. No confounders detected - direct causal effect estimable.',
-      top_drivers: topDrivers,
+      explain: {
+        provenance: 'do-operator',
+        top_drivers: topDrivers
+      },
+      model_card: {
+        schema: 'model_card.v1',
+        timestamp: new Date().toISOString(),
+        seed,
+        backend: 'fallback',
+        actions_hash: actionsHash,
+        ...(flagsOn.length > 0 && { flags_on: flagsOn })
+      },
       meta: { seed, inference_mode: 'model_based' }
     });
   });
