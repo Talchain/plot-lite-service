@@ -123,11 +123,12 @@ describe('Determinism: /v1/run_bundle', () => {
     expect(Array.isArray(body.results)).toBe(true);
     expect(body.results.length).toBe(2);
     
-    // Each result should have deterministic hash
+    // Each result should have deterministic hash in model_card
     for (const result of body.results) {
       expect(result.label).toBeDefined();
-      expect(result.response_hash).toBeDefined();
-      expect(typeof result.response_hash).toBe('string');
+      expect(result.model_card).toBeDefined();
+      expect(result.model_card.response_hash).toBeDefined();
+      expect(typeof result.model_card.response_hash).toBe('string');
     }
   });
 });
