@@ -175,8 +175,10 @@ export function makeRateLimiter() {
         incJson429Count();
       }
       
-      // Structured log for 429
-      req.log.warn({ evt: 'throttle', id: req.id, route: req.url, rpm: getRateLimitRpm(), reason: 'rate_limit' });
+      // Structured log for 429 (strip query strings and fragments from route)
+      const rawRoute = (req as any)?.routeOptions?.url ?? req.url;
+      const route = String(rawRoute).split('?')[0].split('#')[0];
+      req.log.warn({ evt: 'throttle', id: req.id, route, rpm: getRateLimitRpm(), reason: 'rate_limit' });
       
       return reply.code(429).send({
         error: { type: 'RATE_LIMIT', message: ERR_MSG.RATE_LIMIT_RPM }
