@@ -1,5 +1,5 @@
 /**
- * CEE (Client Error Evaluation) Decision Review Integration Tests
+ * CEE (Causal Event Engine) Decision Review Integration Tests
  *
  * Tests the integration of CEE orchestrator into /v1/run endpoint:
  * - CEE disabled/misconfigured → no cee* fields, main response unaffected
