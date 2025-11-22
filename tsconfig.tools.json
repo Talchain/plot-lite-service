@@ -7,16 +7,21 @@
     "outDir": ".",
     "esModuleInterop": true,
     "skipLibCheck": true,
+    "types": ["node"],
     "declaration": false,
     "emitDeclarationOnly": false
   },
   "include": [
     "tools/replay-fixtures.ts",
     "tools/run-all-tests.ts",
+    "tools/run-lane.ts",
     "tools/validate-openapi-response.ts",
     "tools/loadcheck.ts",
     "tools/test-server.ts",
-    "lib/canonical-json.ts"
+    "lib/canonical-json.ts",
+    "scripts/mock-server.ts",
+    "sdk/node/index.ts",
+    "sdk/node/example.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }

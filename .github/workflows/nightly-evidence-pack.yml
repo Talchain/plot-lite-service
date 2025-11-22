@@ -1,0 +1,68 @@
+name: Nightly Evidence Pack
+
+on:
+  schedule:
+    - cron: '0 2 * * *' # nightly UTC
+  workflow_dispatch: {}
+
+concurrency:
+  group: nightly-evidence-pack
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+  checks: write
+  id-token: write
+
+jobs:
+  nightly-evidence:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install deps
+        run: npm ci --prefer-offline
+
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Contracts lane
+        run: npm run test:contracts
+
+      - name: Stream lane
+        run: npm run test:stream
+
+      - name: Security lane
+        run: npm run test:security
+
+      - name: Performance lane
+        run: npm run test:perf
+
+      - name: Full test suite
+        run: npm test
+
+      - name: Generate Evidence Pack (self-start)
+        env:
+          PACK_SELF_START: '1'
+        run: bash tools/verify-and-pack.sh
+
+      - name: CI assertions (contracts/perf/health/head parity)
+        run: node tools/ci-assert.mjs
+
+      - name: Upload artifact folder
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidence-pack-${{ github.run_id }}
+          path: artifact/
+          if-no-files-found: error

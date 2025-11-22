@@ -1,0 +1,66 @@
+--- starting test-server on 4311 ---
+test-server failed FastifyError [Error]: Method 'HEAD' already declared for route '/draft-flows'
+    at Object.addNewRoute (/Users/paulslee/Documents/GitHub/plot-lite-service/node_modules/fastify/lib/route.js:359:19)
+    at Object.route (/Users/paulslee/Documents/GitHub/plot-lite-service/node_modules/fastify/lib/route.js:263:19)
+    at Object.prepareRoute (/Users/paulslee/Documents/GitHub/plot-lite-service/node_modules/fastify/lib/route.js:163:18)
+    at Object._head [as head] (/Users/paulslee/Documents/GitHub/plot-lite-service/node_modules/fastify/fastify.js:276:34)
+    at createServer (/Users/paulslee/Documents/GitHub/plot-lite-service/src/createServer.js:340:9)
+    at async start (/Users/paulslee/Documents/GitHub/plot-lite-service/tools/test-server.js:6:17) {
+  code: 'FST_ERR_DUPLICATED_ROUTE',
+  statusCode: 500
+}
+--- starting test-server on 4312 ---
+test-server failed FastifyError [Error]: Method 'HEAD' already declared for route '/draft-flows'
+    at Object.addNewRoute (/Users/paulslee/Documents/GitHub/plot-lite-service/node_modules/fastify/lib/route.js:359:19)
+    at Object.route (/Users/paulslee/Documents/GitHub/plot-lite-service/node_modules/fastify/lib/route.js:263:19)
+    at Object.prepareRoute (/Users/paulslee/Documents/GitHub/plot-lite-service/node_modules/fastify/lib/route.js:163:18)
+    at Object._head [as head] (/Users/paulslee/Documents/GitHub/plot-lite-service/node_modules/fastify/fastify.js:276:34)
+    at createServer (/Users/paulslee/Documents/GitHub/plot-lite-service/src/createServer.js:340:9)
+    at async start (/Users/paulslee/Documents/GitHub/plot-lite-service/tools/test-server.js:6:17) {
+  code: 'FST_ERR_DUPLICATED_ROUTE',
+  statusCode: 500
+}
+--- starting test-server on 4313 ---
+test-server failed FastifyError [Error]: Method 'HEAD' already declared for route '/draft-flows'
+    at Object.addNewRoute (/Users/paulslee/Documents/GitHub/plot-lite-service/node_modules/fastify/lib/route.js:359:19)
+    at Object.route (/Users/paulslee/Documents/GitHub/plot-lite-service/node_modules/fastify/lib/route.js:263:19)
+    at Object.prepareRoute (/Users/paulslee/Documents/GitHub/plot-lite-service/node_modules/fastify/lib/route.js:163:18)
+    at Object._head [as head] (/Users/paulslee/Documents/GitHub/plot-lite-service/node_modules/fastify/fastify.js:276:34)
+    at createServer (/Users/paulslee/Documents/GitHub/plot-lite-service/src/createServer.js:340:9)
+    at async start (/Users/paulslee/Documents/GitHub/plot-lite-service/tools/test-server.js:6:17) {
+  code: 'FST_ERR_DUPLICATED_ROUTE',
+  statusCode: 500
+}
+--- starting test-server on 4314 ---
+test-server failed FastifyError [Error]: Method 'HEAD' already declared for route '/draft-flows'
+    at Object.addNewRoute (/Users/paulslee/Documents/GitHub/plot-lite-service/node_modules/fastify/lib/route.js:359:19)
+    at Object.route (/Users/paulslee/Documents/GitHub/plot-lite-service/node_modules/fastify/lib/route.js:263:19)
+    at Object.prepareRoute (/Users/paulslee/Documents/GitHub/plot-lite-service/node_modules/fastify/lib/route.js:163:18)
+    at Object._head [as head] (/Users/paulslee/Documents/GitHub/plot-lite-service/node_modules/fastify/fastify.js:276:34)
+    at createServer (/Users/paulslee/Documents/GitHub/plot-lite-service/src/createServer.js:340:9)
+    at async start (/Users/paulslee/Documents/GitHub/plot-lite-service/tools/test-server.js:6:17) {
+  code: 'FST_ERR_DUPLICATED_ROUTE',
+  statusCode: 500
+}
+--- starting test-server on 4315 ---
+test-server failed FastifyError [Error]: Method 'HEAD' already declared for route '/draft-flows'
+    at Object.addNewRoute (/Users/paulslee/Documents/GitHub/plot-lite-service/node_modules/fastify/lib/route.js:359:19)
+    at Object.route (/Users/paulslee/Documents/GitHub/plot-lite-service/node_modules/fastify/lib/route.js:263:19)
+    at Object.prepareRoute (/Users/paulslee/Documents/GitHub/plot-lite-service/node_modules/fastify/lib/route.js:163:18)
+    at Object._head [as head] (/Users/paulslee/Documents/GitHub/plot-lite-service/node_modules/fastify/fastify.js:276:34)
+    at createServer (/Users/paulslee/Documents/GitHub/plot-lite-service/src/createServer.js:340:9)
+    at async start (/Users/paulslee/Documents/GitHub/plot-lite-service/tools/test-server.js:6:17) {
+  code: 'FST_ERR_DUPLICATED_ROUTE',
+  statusCode: 500
+}
+--- starting test-server on 4316 ---
+test-server failed FastifyError [Error]: Method 'HEAD' already declared for route '/draft-flows'
+    at Object.addNewRoute (/Users/paulslee/Documents/GitHub/plot-lite-service/node_modules/fastify/lib/route.js:359:19)
+    at Object.route (/Users/paulslee/Documents/GitHub/plot-lite-service/node_modules/fastify/lib/route.js:263:19)
+    at Object.prepareRoute (/Users/paulslee/Documents/GitHub/plot-lite-service/node_modules/fastify/lib/route.js:163:18)
+    at Object._head [as head] (/Users/paulslee/Documents/GitHub/plot-lite-service/node_modules/fastify/fastify.js:276:34)
+    at createServer (/Users/paulslee/Documents/GitHub/plot-lite-service/src/createServer.js:340:9)
+    at async start (/Users/paulslee/Documents/GitHub/plot-lite-service/tools/test-server.js:6:17) {
+  code: 'FST_ERR_DUPLICATED_ROUTE',
+  statusCode: 500
+}

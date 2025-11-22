@@ -1,0 +1,161 @@
+{
+  "commit": "",
+  "created_utc": "2025-10-01T11:37:35.770Z",
+  "engine": "http://127.0.0.1:4311",
+  "features_on": [],
+  "files": [
+    {
+      "path": "README.txt",
+      "sha256": "93b43d925d036f0e0dfc5fddc593bd69b5f1e45638f5219eebec46d3f3046d28",
+      "size_bytes": 666
+    },
+    {
+      "path": "SLO_SUMMARY.md",
+      "sha256": "b65f268c8685becc6222e248772638bc6b5bc9313a929637bba68ff43f70e908",
+      "size_bytes": 166
+    },
+    {
+      "path": "engine/access-log-snippet.txt",
+      "sha256": "93a3fcb96b0f92ca9a90e7b33af28f97c556df0bbd7a4c537b9aa5261dffa80c",
+      "size_bytes": 3192
+    },
+    {
+      "path": "engine/bad-query-400.txt",
+      "sha256": "925e15af013aa4c0d18aa96a871f14aedfa297dec73dc82a547f0d13ffe0835b",
+      "size_bytes": 1048
+    },
+    {
+      "path": "engine/draft-flows-200.h",
+      "sha256": "47e13d660527cc49324d201b8bdc3d72c07725b2f6a6aa731b3f9569ccec466f",
+      "size_bytes": 922
+    },
+    {
+      "path": "engine/draft-flows-200.json",
+      "sha256": "3cb8d5a8d3602a9508e9d498bb6e005b55b56673ad8c50564166bb1725cf7763",
+      "size_bytes": 126
+    },
+    {
+      "path": "engine/draft-flows-304.h",
+      "sha256": "c9c9a9c8798ab4e321911533f708a4357f475b39aae332b822bed60d4e0148a7",
+      "size_bytes": 922
+    },
+    {
+      "path": "engine/draft-flows-304.txt",
+      "sha256": "50dedf5dc6d067a2d65638c7647f87f18378808005b56e746b9be98894bca432",
+      "size_bytes": 1048
+    },
+    {
+      "path": "engine/draft-flows-4242.json",
+      "sha256": "3cb8d5a8d3602a9508e9d498bb6e005b55b56673ad8c50564166bb1725cf7763",
+      "size_bytes": 126
+    },
+    {
+      "path": "engine/fixture-seed-4242.sha256",
+      "sha256": "8b0f2cca6e03cacd4026dd3f43311fa2a1ae87c19779105b007ea9482f42a72d",
+      "size_bytes": 132
+    },
+    {
+      "path": "engine/head-200.h",
+      "sha256": "8b2352033e5cb77f21bbc710169a4844970448439d99c5e04519b62eb5c664bc",
+      "size_bytes": 922
+    },
+    {
+      "path": "engine/head-304.h",
+      "sha256": "9325d207fc239fd303f9e49b07fe4feff743eb7f5ed85ce1948e3b63b81d6ea1",
+      "size_bytes": 922
+    },
+    {
+      "path": "engine/health.h",
+      "sha256": "2f1308744f7613e3eece32e25acd311cddd777bc3066f68672026f9562ce81a7",
+      "size_bytes": 859
+    },
+    {
+      "path": "engine/health.json",
+      "sha256": "824b437fb2379ba63f6a80b3c9f932b588dc35d68a5f0865fb242ec326982cfa",
+      "size_bytes": 652
+    },
+    {
+      "path": "engine/health.raw",
+      "sha256": "214c9412868972080edf30eb85e94ac9aa6aae0e48f070d242eb63359062b1e3",
+      "size_bytes": 485
+    },
+    {
+      "path": "engine/invalid-seed-404.txt",
+      "sha256": "89ba731f55e8d4b04312d0d46136e42a31b2f6de8b3aa07207a8d72d21a56c08",
+      "size_bytes": 1048
+    },
+    {
+      "path": "engine/invalid-template-404.txt",
+      "sha256": "b27a846ad66012c8cb8c8ae160e9013d7780e7d244d16d7bebdc81f96a3cc102",
+      "size_bytes": 1048
+    },
+    {
+      "path": "engine/report-v1-stamp.txt",
+      "sha256": "4627489ad369c84ad6dcbfcd9f908d6df34bb4b9332c56675510604e9c79d1fe",
+      "size_bytes": 29
+    },
+    {
+      "path": "engine/selfstart.env.txt",
+      "sha256": "ba3b0a5d0ea0681f1d420c6410fceae3d284d35e7e05476cd92bdcf6937a541a",
+      "size_bytes": 106
+    },
+    {
+      "path": "engine/selfstart.log",
+      "sha256": "89035c3d4784c97cfa56190e5163d962c337b642e559429edf74bbf5faf0d22a",
+      "size_bytes": 59376547
+    },
+    {
+      "path": "engine/selfstart.pid",
+      "sha256": "db656c7e0413042f8eb274505c921a2e573b0cb75e40cefc2d015cb7706448b3",
+      "size_bytes": 5
+    },
+    {
+      "path": "engine/stream-ndjson.sha256",
+      "sha256": "e99f59a5986fbf15cb6ba61dd0690c5f52fa3d8909d35428d7ad6cd4486f8fb1",
+      "size_bytes": 106
+    },
+    {
+      "path": "engine/version-200.h",
+      "sha256": "444b608cfb051a265fd977150e30b13939d539ae1be03d578f07f1153d810e56",
+      "size_bytes": 858
+    },
+    {
+      "path": "engine/version-head.h",
+      "sha256": "2dafd12cffb0a9ec2cbade73d9a8f457c29693481805214fa2348c5384c0b3aa",
+      "size_bytes": 922
+    },
+    {
+      "path": "engine/version.json",
+      "sha256": "e2bb17c9a2469f9fa60ceaf19a4ae5d51f2dcfba21d633f5bee34d2b4cb0489e",
+      "size_bytes": 66
+    },
+    {
+      "path": "manifest.json",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size_bytes": 0
+    },
+    {
+      "path": "pack-manifest.txt",
+      "sha256": "aa30a0f64493f81b9949551bacde93b9b53e687fef2e292aab21bf7810bdd881",
+      "size_bytes": 2531
+    },
+    {
+      "path": "reports/loadcheck.json",
+      "sha256": "9a348248443d7a910b44094ff4d11bcb7707471dc828e14a4a15f824b12844fd",
+      "size_bytes": 257
+    },
+    {
+      "path": "repro.txt",
+      "sha256": "2ba8f3194779fcf6506ef03fa292cf161b3ad2538f44293e76a8f7a7dbaf7db3",
+      "size_bytes": 609
+    }
+  ],
+  "path": "/Users/paulslee/Documents/GitHub/plot-lite-service/artifact/Evidence-Pack-20251001-1232",
+  "privacy": {
+    "no_queries_in_logs": true
+  },
+  "schema": "pack.manifest.v1",
+  "slos": {
+    "engine_get_p95_ms": 1.9448329999977432
+  }
+}

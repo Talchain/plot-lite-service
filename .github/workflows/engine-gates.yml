@@ -1,0 +1,69 @@
+name: Engine Gates
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+
+jobs:
+  gates:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # Detect maintenance-only changes up front
+      - uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            non_maintenance:
+              - 'src/**'
+              - 'tests/**'
+              - 'tools/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+            maintenance:
+              - '.gitignore'
+              - '.github/workflows/**'
+              - '.ci-run*.txt'
+              - '.baseline-summary*.json'
+
+      - name: Short-circuit for maintenance-only PRs
+        if: steps.changes.outputs.non_maintenance == 'false' && steps.changes.outputs.maintenance == 'true'
+        run: echo "Maintenance-only PR; skipping gates." && exit 0
+
+      - name: Checkout
+        if: steps.changes.outputs.non_maintenance == 'true'
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        if: steps.changes.outputs.non_maintenance == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        if: steps.changes.outputs.non_maintenance == 'true'
+        run: npm ci
+
+      - name: Ensure jq (Linux only)
+        if: runner.os == 'Linux' && steps.changes.outputs.non_maintenance == 'true'
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Make gates executable
+        if: steps.changes.outputs.non_maintenance == 'true'
+        run: chmod +x RUN_NIGHTLY_GATES.sh || true
+
+      - name: Run Engine Gates
+        if: steps.changes.outputs.non_maintenance == 'true'
+        env:
+          ENGINE_DIR: ${{ github.workspace }}
+          TOOLS_DIR: ${{ github.workspace }}
+          CONTRACTS_DIR: ${{ github.workspace }}
+        run: bash -eo pipefail RUN_NIGHTLY_GATES.sh

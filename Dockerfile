@@ -12,5 +12,12 @@ COPY . .
 
 RUN npm run build
 
+# Create non-root user and set ownership
+RUN groupadd -r appgroup && useradd -r -g appgroup appuser && \
+    chown -R appuser:appgroup /app
+
+# Switch to non-root user
+USER appuser
+
 EXPOSE 4311
 CMD ["npm", "start"]

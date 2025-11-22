@@ -1,0 +1,20 @@
+[2m    "B",[22m
+[32m-   "C",[39m
+[2m  ][22m
+
+ ❯ tests/score.test.ts:133:33
+    131|     const data = await res.json();
+    132|     // With equal weights, ranking should be stable (alphabetical by n…
+    133|     expect(data.result.ranking).toEqual(['A', 'B', 'C']);
+       |                                 ^
+    134|   });
+    135| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/11]⎯
+
+
+ Test Files  5 failed | 208 passed | 9 skipped (222)
+      Tests  11 failed | 701 passed | 15 skipped (727)
+   Start at  11:21:01
+   Duration  20.46s (transform 1.43s, setup 1.15s, collect 11.15s, tests 112.18s, environment 29ms, prepare 10.79s)
+

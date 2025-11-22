@@ -1,0 +1,33 @@
+{
+  "name": "@olumi/plot-sdk",
+  "version": "0.4.0",
+  "description": "TypeScript SDK for PLoT Engine API",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts",
+    "pack": "npm pack",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "plot",
+    "causal",
+    "inference",
+    "sdk"
+  ],
+  "author": "Olumi",
+  "license": "MIT",
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.3.0",
+    "@types/node": "^20.0.0",
+    "vitest": "^1.0.0"
+  }
+}

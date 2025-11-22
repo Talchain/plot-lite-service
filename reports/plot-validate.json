@@ -1,0 +1,20 @@
+{
+  "summary": {
+    "total": 2,
+    "ok": 2,
+    "failed": 0,
+    "timestamp": "2025-09-23T11:47:10.793Z"
+  },
+  "results": [
+    {
+      "file": "fixtures/plots/fork-suggest.json",
+      "ok": true,
+      "errors": []
+    },
+    {
+      "file": "fixtures/plots/hello-world.json",
+      "ok": true,
+      "errors": []
+    }
+  ]
+}

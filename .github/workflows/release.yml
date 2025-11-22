@@ -28,7 +28,6 @@ jobs:
       - name: Test
         run: npm test
         env:
-          NODE_OPTIONS: --experimental-global-fetch
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

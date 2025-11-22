@@ -1,0 +1,11 @@
+{
+  "timestamp": "2025-10-01T10:04:22.400Z",
+  "budget_ms": 600,
+  "p50_ms": null,
+  "p95_ms": null,
+  "p99_ms": null,
+  "over_budget": null,
+  "probe_exit_code": 2,
+  "error_name": "ReadinessTimeout",
+  "error_message": "readiness_timeout"
+}

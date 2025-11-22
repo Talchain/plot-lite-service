@@ -1,0 +1,131 @@
+# Circuit Breaker Prometheus Alert Rules
+# Tiered alerts (P1/P2/P3) for circuit breaker monitoring
+#
+# Runbook: docs/ALERT_RUNBOOK.md#circuit-breaker--principal-extraction
+
+groups:
+  - name: circuit_breaker
+    interval: 30s
+    rules:
+      # P1: Critical - Global Circuit Stuck Open
+      - alert: CircuitBreakerStuckOpen
+        expr: |
+          plot_engine_circuit_breaker_state{scope="global"} == 1
+          and
+          time() - plot_engine_circuit_breaker_last_transition_at{scope="global"} > 300
+        for: 5m
+        labels:
+          severity: critical
+          component: circuit_breaker
+          priority: P1
+        annotations:
+          summary: "Circuit breaker stuck in open state"
+          description: "Global circuit breaker has been open for >5 minutes. Service may be degraded."
+          runbook_url: "https://github.com/Talchain/plot-lite-service/blob/main/docs/ALERT_RUNBOOK.md#global-circuit-open-legitimate-load-spike"
+          dashboard_url: "https://grafana.example.com/d/circuit-breaker"
+
+      # P1: Critical - Global Circuit Opens
+      - alert: CircuitBreakerGlobalOpen
+        expr: increase(plot_engine_circuit_open_total{scope="global"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          component: circuit_breaker
+          priority: P1
+        annotations:
+          summary: "Global circuit breaker opened"
+          description: "Global circuit breaker has opened ({{ $value }} times in 5m). System-wide overload detected."
+          runbook_url: "https://github.com/Talchain/plot-lite-service/blob/main/docs/ALERT_RUNBOOK.md#global-circuit-open-legitimate-load-spike"
+          dashboard_url: "https://grafana.example.com/d/circuit-breaker"
+
+      # P2: Warning - High Circuit Trip Rate
+      - alert: CircuitBreakerHighTrips
+        expr: rate(plot_engine_circuit_open_total[5m]) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          component: circuit_breaker
+          priority: P2
+        annotations:
+          summary: "High circuit breaker trip rate"
+          description: "Circuit breaker tripping frequently ({{ $value | humanize }} trips/sec over 5m). Scope: {{ $labels.scope }}, Reason: {{ $labels.reason }}"
+          runbook_url: "https://github.com/Talchain/plot-lite-service/blob/main/docs/ALERT_RUNBOOK.md#remediation-playbooks"
+          dashboard_url: "https://grafana.example.com/d/circuit-breaker"
+
+      # P2: Warning - Half-Open Timeout Spike
+      - alert: CircuitBreakerHalfOpenTimeouts
+        expr: sum(increase(plot_engine_circuit_open_total{reason="half_open_timeout"}[15m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+          component: circuit_breaker
+          priority: P2
+        annotations:
+          summary: "High half-open timeout rate"
+          description: "Circuit breaker experiencing frequent half-open timeouts ({{ $value }} in 15m). Probes not succeeding."
+          runbook_url: "https://github.com/Talchain/plot-lite-service/blob/main/docs/ALERT_RUNBOOK.md#4-half-open-timeout-spikes"
+          dashboard_url: "https://grafana.example.com/d/circuit-breaker"
+
+      # P2: Warning - Degraded Mode
+      - alert: CircuitBreakerDegradedMode
+        expr: |
+          plot_engine_principal_extraction_mode == 2
+        for: 15m
+        labels:
+          severity: warning
+          component: circuit_breaker
+          priority: P2
+        annotations:
+          summary: "Circuit breaker in degraded mode"
+          description: "Principal extraction is degraded (missing PRINCIPAL_HMAC_SECRET). Per-principal circuit breaker disabled."
+          runbook_url: "https://github.com/Talchain/plot-lite-service/blob/main/docs/ALERT_RUNBOOK.md#1-degraded-mode-missing-secret"
+          dashboard_url: "https://grafana.example.com/d/circuit-breaker"
+
+      # P3: Info - High Principal Capacity
+      - alert: CircuitBreakerPrincipalCapacityHigh
+        expr: |
+          plot_engine_circuit_breaker_principals_tracked
+          /
+          plot_engine_circuit_breaker_principals_capacity
+          > 0.8
+        for: 30m
+        labels:
+          severity: info
+          component: circuit_breaker
+          priority: P3
+        annotations:
+          summary: "Principal circuit capacity high"
+          description: "Principal circuit capacity at {{ $value | humanizePercentage }}. Consider increasing RL_CB_MAX_PRINCIPALS."
+          runbook_url: "https://github.com/Talchain/plot-lite-service/blob/main/docs/ALERT_RUNBOOK.md#what-to-watch-fast-triage"
+          dashboard_url: "https://grafana.example.com/d/circuit-breaker"
+
+      # P3: Info - Many Principal Circuits Open
+      - alert: CircuitBreakerManyPrincipalsOpen
+        expr: plot_engine_circuit_breaker_principals_open > 10
+        for: 15m
+        labels:
+          severity: info
+          component: circuit_breaker
+          priority: P3
+        annotations:
+          summary: "Many principal circuits open"
+          description: "{{ $value }} principal circuits are open. May indicate distributed abuse or bot activity."
+          runbook_url: "https://github.com/Talchain/plot-lite-service/blob/main/docs/ALERT_RUNBOOK.md#3-principal-circuits-open-botflood-attack"
+          dashboard_url: "https://grafana.example.com/d/circuit-breaker"
+
+      # P3: Info - 429 Rate Surge
+      - alert: RateLimitSurge
+        expr: |
+          sum by (route) (rate(plot_engine_rate_limit_429_total[5m]))
+          >
+          sum by (route) (rate(plot_engine_rate_limit_429_total[1h] offset 1h)) * 3
+        for: 10m
+        labels:
+          severity: info
+          component: rate_limiter
+          priority: P3
+        annotations:
+          summary: "429 rate surge detected"
+          description: "Route {{ $labels.route }} experiencing 3x baseline 429 rate ({{ $value | humanize }}/sec)."
+          runbook_url: "https://github.com/Talchain/plot-lite-service/blob/main/docs/ALERT_RUNBOOK.md#symptoms--alerts"
+          dashboard_url: "https://grafana.example.com/d/circuit-breaker"

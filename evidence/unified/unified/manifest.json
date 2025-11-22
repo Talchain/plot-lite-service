@@ -1,0 +1,192 @@
+{
+  "ui": null,
+  "engine": {
+    "schema": "pack.manifest.v1",
+    "created_utc": "2025-09-30T00:18:01.324Z",
+    "path": "/Users/paulslee/Documents/GitHub/plot-lite-service/artifact/Evidence-Pack-20250930-0116",
+    "commit": "",
+    "engine": "http://127.0.0.1:4311",
+    "files": [
+      {
+        "path": "README.txt",
+        "size_bytes": 666,
+        "sha256": "3c61a0a0572025fb64cdb97d92abccce6e816a5b2431f7e45c5153546e8e08d1"
+      },
+      {
+        "path": "engine/access-log-snippet.txt",
+        "size_bytes": 3606,
+        "sha256": "03fc3027f7165b272fa1d389b2242a989b6b2d7ef501a2af8151a1fd1efaad18"
+      },
+      {
+        "path": "engine/bad-query-400.txt",
+        "size_bytes": 1012,
+        "sha256": "5ce1547dd9fe5a9d56458054806b59305fc4025c88d21298372559cc5a4357d6"
+      },
+      {
+        "path": "engine/draft-flows-200.h",
+        "size_bytes": 964,
+        "sha256": "391a47a549250da871225462cf47ae8435d400fb2b0b67cae4810549861bce3e"
+      },
+      {
+        "path": "engine/draft-flows-200.json",
+        "size_bytes": 808,
+        "sha256": "ffa962ca91a3383ec5d4bec8c484674b93b8f8c36be8911a394805bc46b2d1b4"
+      },
+      {
+        "path": "engine/draft-flows-304.h",
+        "size_bytes": 974,
+        "sha256": "a2cf75a3540875b343d6e0d368ce8c2ea6924d7dcf5abc3a3a1669c1476bbf22"
+      },
+      {
+        "path": "engine/draft-flows-304.txt",
+        "size_bytes": 974,
+        "sha256": "a2cf75a3540875b343d6e0d368ce8c2ea6924d7dcf5abc3a3a1669c1476bbf22"
+      },
+      {
+        "path": "engine/draft-flows-4242.json",
+        "size_bytes": 812,
+        "sha256": "61f9355be1fb87651cb128ee3c391966503a91c39f9cd0e619c1b12c59dfd80e"
+      },
+      {
+        "path": "engine/fixture-seed-4242.sha256",
+        "size_bytes": 132,
+        "sha256": "e5588cae4c4e1a5a83da37a6bb7a21a3670fff8ffd12d195cbc2f8c3b1d37bbd"
+      },
+      {
+        "path": "engine/head-200.h",
+        "size_bytes": 964,
+        "sha256": "bda0774e0c55ead0f15cb0613eb5e1049239e4d76edb01915e89198e61c607f6"
+      },
+      {
+        "path": "engine/head-304.h",
+        "size_bytes": 972,
+        "sha256": "d765c0b198524e5e86c58223bc423e06e1e4107890c86f4eeb65f290f82c01d2"
+      },
+      {
+        "path": "engine/health.h",
+        "size_bytes": 859,
+        "sha256": "6fb8291d29befb204c63e2c91bd518ae271049687cf65b6036ba8fb465ec5acf"
+      },
+      {
+        "path": "engine/health.json",
+        "size_bytes": 565,
+        "sha256": "8bf8f13bef3e1063a2a6791aff79ffffa92cb81a1b0da66cbed7aac84d59e400"
+      },
+      {
+        "path": "engine/health.raw",
+        "size_bytes": 417,
+        "sha256": "0ff2eed397aa7a64d3c278ba74bf2320c6b4efc844cc425433f4f88265a2923c"
+      },
+      {
+        "path": "engine/invalid-seed-404.txt",
+        "size_bytes": 933,
+        "sha256": "149dba775fbfd1f1b221f0ed99c5a55dea669a6e6839f0a1b8b3c80138f6b69c"
+      },
+      {
+        "path": "engine/invalid-template-404.txt",
+        "size_bytes": 929,
+        "sha256": "fd24e617f78b15d47b19e4b7a1701453ee58be5a824526b49175740c3d2cb398"
+      },
+      {
+        "path": "engine/report-v1-stamp.txt",
+        "size_bytes": 33,
+        "sha256": "2667c61b5e8a7ab0eb40f2ddf1182e8a466221642cf9e81a06f0a50ec57757d0"
+      },
+      {
+        "path": "engine/selfstart.env.txt",
+        "size_bytes": 140,
+        "sha256": "b93d77b12e7d89616680b6c9d2739754b1e31c9c4eb556d7821961717a05386c"
+      },
+      {
+        "path": "engine/selfstart.log",
+        "size_bytes": 29179767,
+        "sha256": "69a94ca65fd5b05f74093a9050f27fdc89d6f5feef7a1f33ffb256b86dfb84e1"
+      },
+      {
+        "path": "engine/selfstart.pid",
+        "size_bytes": 6,
+        "sha256": "5d58bd9852441db4fa4848bf5cda0b1d14622c753f8e9073e031a959559dd85a"
+      },
+      {
+        "path": "engine/stream-ndjson.sha256",
+        "size_bytes": 106,
+        "sha256": "e99f59a5986fbf15cb6ba61dd0690c5f52fa3d8909d35428d7ad6cd4486f8fb1"
+      },
+      {
+        "path": "engine/version-200.h",
+        "size_bytes": 858,
+        "sha256": "9c8a7e8a3eed2ba5df8aec6fb4272c090babf5166d74e213f271ada3e2f8499a"
+      },
+      {
+        "path": "engine/version-head.h",
+        "size_bytes": 858,
+        "sha256": "f41dea494fb5e7817337dfa4b9441c11af47e6e581237f28f113698746865312"
+      },
+      {
+        "path": "engine/version.json",
+        "size_bytes": 66,
+        "sha256": "e2bb17c9a2469f9fa60ceaf19a4ae5d51f2dcfba21d633f5bee34d2b4cb0489e"
+      },
+      {
+        "path": "extended.json",
+        "size_bytes": 443,
+        "sha256": "7e10eed251ee6bc8916c1e33453a5b68f93faf0ebdee389f29db22aa6e643228"
+      },
+      {
+        "path": "manifest.json",
+        "size_bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "pack-manifest.txt",
+        "size_bytes": 2877,
+        "sha256": "80ac274c0e178a48f99f497fadab99cb9308e70798b9efb162879cd4ed60565d"
+      },
+      {
+        "path": "reports/loadcheck.json",
+        "size_bytes": 255,
+        "sha256": "313583a5e0ebbcef0d7dcdc1ba5693597ff96bbac0e388e29c02c9ac5c642db7"
+      },
+      {
+        "path": "reports/rate-soak.json",
+        "size_bytes": 81,
+        "sha256": "d6fdb49ea6c091eaa018a95ff77c7a437eb0ab7e45675f307e424bad906a1271"
+      },
+      {
+        "path": "reports/replay.json",
+        "size_bytes": 228,
+        "sha256": "185ce44f7c3edb5aa3da5e1a5209e330b7c6c7a78b7e243c432e346e55669d5f"
+      },
+      {
+        "path": "reports/soak.json",
+        "size_bytes": 89,
+        "sha256": "2743f24a85200e8d35baee1e31112ccc7d7a7546f2be559f2d97c6a801843fd0"
+      },
+      {
+        "path": "repro.txt",
+        "size_bytes": 609,
+        "sha256": "2ba8f3194779fcf6506ef03fa292cf161b3ad2538f44293e76a8f7a7dbaf7db3"
+      }
+    ]
+  },
+  "claude": null,
+  "contracts": {
+    "sse_events": 7,
+    "report_schema": "report.v1",
+    "health_keys": [
+      "status",
+      "p95_ms",
+      "replay",
+      "test_routes_enabled"
+    ]
+  },
+  "slos": {
+    "ui_layout_p95_ms": null,
+    "engine_get_p95_ms": 2.6759170000004815,
+    "claude_ttff_ms": null,
+    "claude_cancel_ms": null
+  },
+  "checksums": [
+    "0c639144ce5e1f0a9f8bb26b19e6d2734fbcb420c25b8e898c074e634df9f08e"
+  ]
+}

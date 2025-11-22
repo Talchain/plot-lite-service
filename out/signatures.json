@@ -1,0 +1,12 @@
+{
+  "schema": "signatures.v1",
+  "algorithm": "Ed25519",
+  "key_fpr": "1c5833fff161bca9",
+  "timestamp": "2025-10-13T13:27:58.527Z",
+  "pack": {
+    "filename": "engine_pack_2025-10-13_3577eec.zip",
+    "sha256": "b95b5057bd7772b902407a1ea9a3a28e20a6cc85d91dc5c86e28f0e1f26ea2bd",
+    "signature_b64": "FieGRvJDVINFC1kkmVvekEw1TEeUH3rnx+o9mCjkTxsD+AausvpyuU6MPGdBH7m0PgjJubG9PzQJYSdvU+6OBA=="
+  },
+  "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAqagjK/VDfysYp/HXDQonaLDtE2gD/iuPLfz//4ETxMk=\n-----END PUBLIC KEY-----\n"
+}

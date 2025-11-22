@@ -1,0 +1,2641 @@
+openapi: 3.0.3
+info:
+  title: PLoT Engine API
+  version: 1.0.0
+  description: |
+    PLoT Engine v1 - Deterministic, auditable probabilistic models with trust signals.
+    
+    **Trust Signals**: All /v1 responses include Model Card, Confidence badge, and Explain-Δ.
+    
+    **Demo Mode**: Add `?demo=1` or header `X-Demo: 1` for deterministic sample payloads.
+    When present, demo mode short-circuits request validation and returns a canonical demo payload.
+    
+    **Feature Flags**:
+    - FEATURE_STREAM=1 enables real SSE /stream route (test-only otherwise)
+    - AUTH_ENABLED=1 requires Authorization: Bearer <token> on certain routes
+    
+    **Legacy Routes**: /draft-flows, /critique, /improve (v0) remain for backwards compatibility.
+  contact:
+    name: PLoT Engine
+    url: https://github.com/Talchain/plot-lite-service
+    email: devnull@talchain.ai
+servers:
+  - url: http://127.0.0.1:4311
+    description: Local development
+  - url: https://api.olumi.ai
+    description: Production (future)
+tags:
+  - name: v1
+    description: v1 API group
+  - name: stream
+    description: Streaming endpoints
+  - name: health
+    description: Health and status endpoints
+  - name: meta
+    description: Version and metadata endpoints
+  - name: inference
+    description: Inference endpoints
+  - name: validation
+    description: Validation and critique endpoints
+  - name: ergonomics
+    description: Drafting and UX endpoints
+  - name: legacy
+    description: Legacy endpoints for backwards compatibility
+paths:
+  /health:
+    get:
+      summary: Engine health
+      description: Returns engine health and minimal status for legacy clients.
+      operationId: healthLegacy
+      tags: [health]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, p95_ms, test_routes_enabled, replay]
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+                  p95_ms:
+                    type: number
+                  test_routes_enabled:
+                    type: boolean
+                  replay:
+                    type: object
+  /version:
+    get:
+      summary: Engine version
+      description: Returns engine version and build metadata for legacy clients.
+      operationId: versionLegacy
+      tags: [meta]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [api, build, model]
+                properties:
+                  api:
+                    type: string
+                  build:
+                    type: string
+                  model:
+                    type: string
+  /draft-flows:
+    get:
+      summary: Deterministic report for a template+seed
+      operationId: draftFlowsGet
+      tags: [legacy]
+      description: |
+        Returns a deterministic report.v1 fixture by template and seed.
+        Authentication may be required when AUTH_ENABLED=1.
+      parameters:
+        - name: template
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [pricing_change, feature_launch, build_vs_buy]
+        - name: seed
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: budget
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: OK
+          headers:
+            Cache-Control: { schema: { type: string } }
+            ETag: { schema: { type: string } }
+            Vary: { schema: { type: string } }
+            Content-Length: { schema: { type: string } }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/reportV1'
+        '304':
+          description: Not Modified
+        '400':
+          description: Bad input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                unauthorized:
+                  value:
+                    schema: error.v1
+                    code: UNAUTHORIZED
+                    message: Missing bearer token
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                forbidden:
+                  value:
+                    schema: error.v1
+                    code: FORBIDDEN
+                    message: Invalid token
+    head:
+      summary: Capability probe (method not allowed)
+      operationId: runHeadV1
+      tags: [v1, inference]
+      responses:
+        '405':
+          description: Method Not Allowed
+          headers:
+            Allow:
+              schema: { type: string, example: 'POST, OPTIONS, HEAD' }
+
+  /v1/stream:
+    get:
+      summary: Stream first tokens
+      operationId: streamV1
+      tags: [v1, stream]
+      description: |
+        Streams the first tokens for a run. `?demo=1`  short-circuits validation and returns a canonical deterministic sample.
+      parameters:
+        - in: query
+          name: demo
+          schema: { type: integer, enum: [0,1], default: 0 }
+          description: Enable deterministic demo stream (short-circuit before validation).
+        - in: query
+          name: latency_ms
+          schema: { type: integer, minimum: 0, maximum: 10000, default: 0 }
+          description: Optional sleep to simulate latency (ms).
+      responses:
+        "200":
+          description: Server-Sent Events stream
+          headers:
+            Content-Type:
+              description: SSE content type with charset
+              schema: { type: string, example: 'text/event-stream; charset=utf-8' }
+          content:
+            text/event-stream:
+              schema:
+                $ref: "#/components/schemas/sseEvent"
+          x-examples:
+            sse:
+              description: Example first frames
+              value: |
+                event: hello
+                data: {"schema":"hello.v1","trace_id":"11111111-2222-4333-8444-555555555555"}
+
+                event: token
+                data: {"t":"hello"}
+        "400":
+          description: Bad input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/errorV1"
+        "401":
+          description: Unauthorized (missing/expired token)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/errorV1"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/errorV1"
+        "429":
+          description: Too many concurrent streams
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying
+              schema: { type: integer, minimum: 0 }
+            X-RateLimit-Reason:
+              description: Reason for rate limit decision
+              schema: { type: string, enum: [per_ip, global] }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/errorV1"
+              examples:
+                rate_limited:
+                  value:
+                    schema: error.v1
+                    code: RATE_LIMITED
+                    message: Too many streams
+                    retry_after_s: 120
+  /v1/health:
+    get:
+      summary: v1 Health endpoint
+      operationId: healthV1
+      description: |
+        Returns engine health and minimal status for v1 clients.
+      tags: [v1, health]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [ok] }
+                  api_version: { type: string }
+                  p95_ms: { type: number }
+                  version: { type: string, description: 'API version string (optional)' }
+                  uptime_s: { type: number, description: 'Process uptime in seconds (optional)' }
+                  last_request_at: { type: string, description: 'ISO timestamp of last observed request (optional)' }
+                  environment: { type: string, description: 'Optional environment name (e.g., staging, prod)' }
+                  build: { type: string, description: 'Optional short build identifier' }
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                unauthorized:
+                  value:
+                    schema: error.v1
+                    code: UNAUTHORIZED
+                    message: Missing bearer token
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                forbidden:
+                  value:
+                    schema: error.v1
+                    code: FORBIDDEN
+                    message: Invalid token
+  
+  /v1/version:
+    get:
+      summary: v1 Version and features
+      operationId: versionV1
+      description: |
+        Returns engine version, build metadata, and feature flags for v1 clients.
+      tags: [v1, meta]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [api, version, build, model, features]
+                properties:
+                  api: { type: string, example: 'plot-engine/v1' }
+                  version: { type: string, example: '1.0.0' }
+                  build: { type: string }
+                  model: { type: string }
+                  features:
+                    type: object
+                    properties:
+                      trust_signals: { type: boolean }
+                      model_card: { type: string }
+                      confidence_badge: { type: boolean }
+                      explain_delta: { type: boolean }
+                      cost_governance: { type: boolean }
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                internal_error:
+                  value:
+                    schema: error.v1
+                    code: INTERNAL_ERROR
+                    message: Failed to retrieve version information
+  
+  /v1/openapi.json:
+    get:
+      summary: OpenAPI specification (read-only)
+      operationId: openapiServeV1
+      tags: [v1, meta]
+      responses:
+        '200':
+          description: OK
+          headers:
+            Cache-Control: { schema: { type: string, example: 'public, max-age=300' } }
+            ETag: { schema: { type: string } }
+            Vary: { schema: { type: string, example: 'If-None-Match' } }
+          content:
+            application/json:
+              schema:
+                type: object
+              example:
+                openapi: '3.0.3'
+                info: { title: 'PLoT Engine API', version: '1.0.0' }
+        '304':
+          description: Not Modified
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                unauthorized:
+                  value:
+                    schema: error.v1
+                    code: UNAUTHORIZED
+                    message: Missing bearer token
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                forbidden:
+                  value:
+                    schema: error.v1
+                    code: FORBIDDEN
+                    message: Invalid token
+  
+  /v1/run:
+    head:
+      summary: Probe endpoint availability
+      operationId: headRunV1
+      tags: [v1, meta]
+      description: |
+        Returns 204 with no body. Used by UI clients to verify endpoint availability.
+      responses:
+        '204':
+          description: No Content - endpoint is available
+    post:
+      summary: Execute probabilistic model
+      operationId: runV1
+      tags: [v1, inference]
+      description: |
+        Run inference on a causal graph with full trust signals.
+        Demo mode: `?demo=1` short-circuits validation and returns a canonical deterministic sample.
+      parameters:
+        - name: demo
+          in: query
+          required: false
+          schema: { type: integer, enum: [0, 1] }
+        - name: X-Demo
+          in: header
+          required: false
+          schema: { type: string, enum: ['0', '1'] }
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: Optional key to replay the exact prior response within a TTL (scoped per principal)
+          schema:
+            type: string
+            maxLength: 200
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/runRequest'
+            examples:
+              canonical_targets:
+                summary: Canonical targets field
+                value:
+                  graph:
+                    nodes:
+                      - id: "A"
+                        label: "Driver"
+                        belief: 0.6
+                      - id: "B"
+                        label: "Outcome"
+                    edges:
+                      - id: "e1"
+                        from: "A"
+                        to: "B"
+                        weight: 0.7
+                        rationale: "A pushes B"
+                  targets: ["B"]
+                  seed: 4242
+              legacy_query_targets:
+                summary: Legacy query.targets (deprecated)
+                value:
+                  graph:
+                    nodes:
+                      - id: "A"
+                        label: "Driver"
+                        belief: 0.6
+                      - id: "B"
+                        label: "Outcome"
+                    edges:
+                      - id: "e1"
+                        from: "A"
+                        to: "B"
+                        weight: 0.7
+                        rationale: "A pushes B"
+                  query:
+                    targets: ["B"]
+                  seed: 4242
+      responses:
+        '200':
+          description: OK
+          headers:
+            Idempotent-Replayed:
+              description: '1 if response is a replay from cache; 0 if computed fresh (when Idempotency-Key provided)'
+              schema: { type: string, enum: ['0','1'] }
+            X-RateLimit-Limit:
+              description: Maximum requests per minute
+              schema: { type: string }
+            X-RateLimit-Remaining:
+              description: Remaining requests in current window
+              schema: { type: string }
+            X-RateLimit-Reset:
+              description: Unix timestamp when rate limit resets
+              schema: { type: string }
+            X-SCM-Lite:
+              description: SCM-Lite enablement flag (0 or 1)
+              schema: { type: string, enum: ['0','1'] }
+            X-Olumi-Backend:
+              description: Active backend mode (fallback or scm_lite)
+              schema: { type: string, enum: ['fallback','scm_lite'] }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/runResponse'
+              examples:
+                success:
+                  value:
+                    schema: run.v1
+                    result:
+                      response_hash: "a1b2c3d4e5f6..."
+                      summary:
+                        p10: 0.15
+                        p50: 0.42
+                        p90: 0.78
+                      confidence: 0.85
+                    meta:
+                      seed: 4242
+                      k_samples: 256
+        '413':
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                too_large:
+                  value:
+                    schema: error.v1
+                    code: BAD_INPUT
+                    message: Request entity too large
+        '429':
+          description: Too many requests (per-minute limit)
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying
+              schema: { type: integer, minimum: 0 }
+            X-RateLimit-Reset:
+              description: Unix epoch seconds when the window resets
+              schema: { type: string }
+            X-RateLimit-Reason:
+              description: Reason for rate limit decision
+              schema: { type: string, enum: [per_ip] }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                rate_limited:
+                  value:
+                    schema: error.v1
+                    code: RATE_LIMITED
+                    message: Too many requests
+        '400':
+          description: Bad input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                bad_input:
+                  value:
+                    schema: error.v1
+                    code: BAD_INPUT
+                    message: 'Missing required field: graph'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                unauthorized:
+                  value:
+                    schema: error.v1
+                    code: UNAUTHORIZED
+                    message: Missing bearer token
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                forbidden:
+                  value:
+                    schema: error.v1
+                    code: FORBIDDEN
+                    message: Invalid token
+  
+  /v1/limits:
+    get:
+      summary: Get graph size limits
+      operationId: limitsV1
+      tags: [v1, meta]
+      description: |
+        Returns the configured maximum graph size limits.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [schema, max_nodes, max_edges, max_body_kb]
+                properties:
+                  schema:
+                    type: string
+                    enum: [limits.v1]
+                  max_nodes:
+                    type: integer
+                    example: 50
+                  max_edges:
+                    type: integer
+                    example: 200
+                  max_body_kb:
+                    type: integer
+                    example: 96
+                    description: Maximum request body size in kilobytes
+              examples:
+                success:
+                  value:
+                    schema: limits.v1
+                    max_nodes: 50
+                    max_edges: 200
+                    max_body_kb: 96
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                internal_error:
+                  value:
+                    schema: error.v1
+                    code: INTERNAL
+                    message: Failed to retrieve limits
+  
+  /v1/validate:
+    post:
+      summary: Validate /v1/run payload
+      operationId: validateV1
+      tags: [v1, validation]
+      description: |
+        Validates a /v1/run request payload without execution.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/runRequest'
+      responses:
+        '200':
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [valid, violations]
+                properties:
+                  valid:
+                    type: boolean
+                  violations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        path:
+                          type: string
+                        reason:
+                          type: string
+                        code:
+                          type: string
+                          description: 'Violation code (e.g., MISSING_BELIEF_ON_OUTCOME_EDGE)'
+                        severity:
+                          type: string
+                          enum: [warning, error]
+                          description: 'Severity level (warning = non-fatal)'
+                        at:
+                          type: object
+                          description: 'Location of violation (e.g., edge from/to)'
+                        suggestion:
+                          type: string
+                          description: 'Coaching text for UI display'
+              examples:
+                valid_with_warnings:
+                  value:
+                    valid: true
+                    violations:
+                      - code: MISSING_BELIEF_ON_OUTCOME_EDGE
+                        severity: warning
+                        at:
+                          from: Price
+                          to: Revenue
+                        suggestion: Add belief 0..1 to edges into outcomes to calibrate uncertainty.
+        '400':
+          description: Bad input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                bad_input:
+                  value:
+                    schema: error.v1
+                    code: BAD_INPUT
+                    message: Graph validation failed
+  
+  /v1/counterfactual:
+    post:
+      summary: Counterfactual analysis
+      tags: [v1, inference]
+      description: |
+        Perform counterfactual intervention with trust signals.
+        Demo mode: `?demo=1` short-circuits validation and returns a canonical deterministic sample.
+      parameters:
+        - name: demo
+          in: query
+          required: false
+          schema: { type: integer, enum: [0, 1] }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/counterfactualRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/counterfactualResponse'
+        '400':
+          description: Bad input or not identifiable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                bad_input:
+                  value:
+                    schema: error.v1
+                    code: BAD_INPUT
+                    message: 'Missing required field: graph'
+        '429':
+          description: Too many requests (per-minute limit)
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying
+              schema: { type: integer, minimum: 0 }
+            X-RateLimit-Reset:
+              description: Unix epoch seconds when the window resets
+              schema: { type: string }
+            X-RateLimit-Reason:
+              description: Reason for rate limit decision
+              schema: { type: string, enum: [per_ip] }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                rate_limited:
+                  value:
+                    schema: error.v1
+                    code: RATE_LIMITED
+                    message: Too many requests
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+  
+  /v1/critique:
+    post:
+      summary: Model critique with fix suggestions
+      tags: [v1, validation]
+      operationId: critiqueV1
+      description: |
+        Analyse graph structure and return actionable issues.
+        Demo mode: `?demo=1` short-circuits validation and returns a canonical deterministic sample.
+      parameters:
+        - name: demo
+          in: query
+          required: false
+          schema: { type: integer, enum: [0, 1] }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/critiqueRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/critiqueResponse'
+        '413':
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                too_large:
+                  value:
+                    schema: error.v1
+                    code: BAD_INPUT
+                    message: Request entity too large
+        '429':
+          description: Too many requests (per-minute limit)
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying
+              schema: { type: integer, minimum: 0 }
+            X-RateLimit-Reset:
+              description: Unix epoch seconds when the window resets
+              schema: { type: string }
+            X-RateLimit-Reason:
+              description: Reason for rate limit decision
+              schema: { type: string, enum: [per_ip] }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                rate_limited:
+                  value:
+                    schema: error.v1
+                    code: RATE_LIMITED
+                    message: Too many requests
+        '400':
+          description: Bad input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                bad_input:
+                  value:
+                    schema: error.v1
+                    code: BAD_INPUT
+                    message: Field parse_json is required
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+  
+  /v1/draft:
+    post:
+      summary: Text to model drafting
+      tags: [v1, ergonomics]
+      operationId: draftV1
+      description: |
+        Generate 2-3 starter boards from text description.
+        Returns ≤12 node graphs with immediate critique.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [description]
+              properties:
+                description: 
+                  type: string
+                  maxLength: 500
+                  example: 'Optimise subscription pricing with competitor response'
+                domain:
+                  type: string
+                  enum: [pricing, product, marketing]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/draftResponse'
+        '413':
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                too_large:
+                  value:
+                    schema: error.v1
+                    code: BAD_INPUT
+                    message: Request entity too large
+        '429':
+          description: Too many requests (per-minute limit)
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying
+              schema: { type: integer, minimum: 0 }
+            X-RateLimit-Reset:
+              description: Unix epoch seconds when the window resets
+              schema: { type: string }
+            X-RateLimit-Reason:
+              description: Reason for rate limit decision
+              schema: { type: string, enum: [per_ip] }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                rate_limited:
+                  value:
+                    schema: error.v1
+                    code: RATE_LIMITED
+                    message: Too many requests
+        '400':
+          description: Bad input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                bad_input:
+                  value:
+                    schema: error.v1
+                    code: BAD_INPUT
+                    message: Field description is required
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                unauthorized:
+                  value:
+                    schema: error.v1
+                    code: UNAUTHORIZED
+                    message: Missing bearer token
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                forbidden:
+                  value:
+                    schema: error.v1
+                    code: FORBIDDEN
+                    message: Invalid token
+  
+  /v1/templates:
+    get:
+      summary: List available templates
+      operationId: templatesList
+      tags: [v1, ergonomics]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/templateList'
+              examples:
+                example:
+                  value:
+                    - { id: small, label: Small Demo, summary: Minimal A→B graph, updated_at: '2025-01-01T00:00:00.000Z' }
+                    - { id: medium, label: Medium Demo, summary: Price→Demand→Revenue (+Marketing), updated_at: '2025-01-01T00:00:00.000Z' }
+                    - { id: edge, label: Edge Case, summary: Near-zero baseline, updated_at: '2025-01-01T00:00:00.000Z' }
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                internal_error:
+                  value:
+                    schema: error.v1
+                    code: INTERNAL_ERROR
+                    message: Failed to load templates
+
+  /v1/templates/{id}/graph:
+    get:
+      summary: Get canonical graph for a template
+      operationId: templateGraph
+      tags: [v1, ergonomics]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, enum: [small, medium, edge] }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/graph'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                not_found:
+                  value:
+                    schema: error.v1
+                    code: NOT_FOUND
+                    message: Template 'unknown' not found
+
+  /v1/compare:
+    post:
+      summary: Compare graph options
+      description: Compare 2-5 graph options with deterministic p10/p50/p90 + deltas
+      operationId: compareOptions
+      tags: [v1, inference]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [graphs]
+              properties:
+                seed:
+                  type: integer
+                  example: 4242
+                graphs:
+                  type: array
+                  minItems: 2
+                  maxItems: 5
+                  items:
+                    type: object
+                    required: [graph, label]
+                    properties:
+                      graph:
+                        type: object
+                        properties:
+                          nodes:
+                            type: array
+                          edges:
+                            type: array
+                      label:
+                        type: string
+            example:
+              seed: 4242
+              graphs:
+                - graph:
+                    nodes: [{id: "A", label: "Option A"}]
+                    edges: []
+                  label: "A"
+                - graph:
+                    nodes: [{id: "B", label: "Option B"}]
+                    edges: []
+                  label: "B"
+      responses:
+        '200':
+          description: Comparison results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schema:
+                    type: string
+                    example: "compare.v1"
+                  baseline:
+                    type: string
+                  options:
+                    type: array
+                  seed:
+                    type: integer
+              example:
+                schema: "compare.v1"
+                baseline: "A"
+                options:
+                  - label: "A"
+                    p10: 0.44
+                    p50: 1.12
+                    p90: 2.12
+                    delta: {p10: 0, p50: 0, p90: 0}
+                seed: 4242
+        '400':
+          description: Bad input
+          content:
+            application/json:
+              examples:
+                invalid_graphs:
+                  value:
+                    schema: "error.v1"
+                    code: "BAD_INPUT"
+                    message: "graphs array must contain 2-5 items"
+
+  /v1/inspect:
+    post:
+      summary: Inspect graph evaluation
+      description: Returns introspection details (beliefs, weights, provenance)
+      operationId: inspectGraph
+      tags: [v1, inference]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [graph]
+              properties:
+                graph:
+                  type: object
+                  properties:
+                    nodes:
+                      type: array
+                    edges:
+                      type: array
+                seed:
+                  type: integer
+            example:
+              graph:
+                nodes: [{id: "A", label: "Node A"}]
+                edges: []
+              seed: 4242
+      responses:
+        '200':
+          description: Inspection results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schema:
+                    type: string
+                    example: "inspect.v1"
+                  explain:
+                    type: object
+                  provenance:
+                    type: object
+                  hashes:
+                    type: object
+              example:
+                schema: "inspect.v1"
+                explain:
+                  top_drivers: []
+                  assumptions: ["linear-assumption"]
+                provenance:
+                  inference_mode: "model_based"
+                hashes:
+                  response_hash: "abc123"
+        '400':
+          description: Bad input
+          content:
+            application/json:
+              examples:
+                invalid_graph:
+                  value:
+                    schema: "error.v1"
+                    code: "BAD_INPUT"
+                    message: "graph.nodes is required"
+
+  /v1/score:
+    post:
+      summary: Score options with utilities
+      description: |
+        Rank options under uncertainty using utility functions.
+        Returns percentile-based utility scores and ranking.
+      operationId: scoreOptions
+      tags: [v1, inference]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [graph, utilities]
+              properties:
+                graph:
+                  type: object
+                  required: [nodes, edges]
+                  properties:
+                    nodes:
+                      type: array
+                      items:
+                        type: object
+                        required: [id]
+                        properties:
+                          id:
+                            type: string
+                          label:
+                            type: string
+                    edges:
+                      type: array
+                seed:
+                  type: integer
+                  example: 4242
+                utilities:
+                  type: object
+                  required: [type, weights]
+                  properties:
+                    type:
+                      type: string
+                      enum: [linear]
+                    weights:
+                      type: object
+                      additionalProperties:
+                        type: number
+                      example: {"A": 1.0, "B": 0.5}
+                    risk:
+                      type: object
+                      properties:
+                        attitude:
+                          type: string
+                          enum: [averse, neutral, seeking]
+                          default: neutral
+            example:
+              graph:
+                nodes:
+                  - {id: "A", label: "Option A"}
+                  - {id: "B", label: "Option B"}
+                edges: []
+              seed: 4242
+              utilities:
+                type: "linear"
+                weights: {"A": 1.0, "B": 0.5}
+                risk: {attitude: "neutral"}
+      responses:
+        '200':
+          description: Scoring results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schema:
+                    type: string
+                    example: "score.v1"
+                  result:
+                    type: object
+                    properties:
+                      options:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            node_id:
+                              type: string
+                            label:
+                              type: string
+                            utility:
+                              type: object
+                              properties:
+                                p10:
+                                  type: number
+                                p50:
+                                  type: number
+                                p90:
+                                  type: number
+                                expected:
+                                  type: number
+                      ranking:
+                        type: array
+                        items:
+                          type: string
+                  top_drivers:
+                    type: array
+                  meta:
+                    type: object
+              example:
+                schema: "score.v1"
+                result:
+                  options:
+                    - node_id: "A"
+                      label: "Option A"
+                      utility: {p10: 0.524, p50: 0.924, p90: 1.324, expected: 0.924}
+                  ranking: ["A", "B"]
+                top_drivers:
+                  - {node_id: "A", contribution: 100, sign: "+"}
+                meta: {seed: 4242, inference_mode: "model_based"}
+        '400':
+          description: Bad input
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                        example: "BAD_INPUT"
+                      message:
+                        type: string
+              examples:
+                invalid_weights:
+                  value:
+                    schema: "error.v1"
+                    code: "BAD_INPUT"
+                    message: "Invalid node_ids in weights: Z"
+
+  /v1/intervene:
+    post:
+      summary: Causal interventions (do-operator)
+      description: |
+        Perform causal interventions and estimate counterfactual effects.
+        Returns baseline, counterfactual, and delta with identifiability check.
+      operationId: intervene
+      tags: [v1, inference]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [graph, do]
+              properties:
+                graph:
+                  type: object
+                  required: [nodes, edges]
+                  properties:
+                    nodes:
+                      type: array
+                      items:
+                        type: object
+                        required: [id]
+                        properties:
+                          id:
+                            type: string
+                          label:
+                            type: string
+                    edges:
+                      type: array
+                seed:
+                  type: integer
+                  example: 4242
+                actions:
+                  type: array
+                  description: Causal interventions via do-operator
+                  items:
+                    type: object
+                    required: [node_id, value]
+                    properties:
+                      node_id:
+                        type: string
+                      value:
+                        type: number
+                flags:
+                  type: object
+                  properties:
+                    scm_lite:
+                      type: integer
+                      enum: [0, 1]
+            example:
+              graph:
+                nodes:
+                  - {id: "X", label: "Cause"}
+                  - {id: "Y", label: "Effect"}
+                edges:
+                  - {from: "X", to: "Y", weight: 0.5}
+              seed: 4242
+              actions:
+                - {node_id: "X", value: 0.8}
+              flags: {scm_lite: 1}
+      responses:
+        '200':
+          description: Intervention results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schema:
+                    type: string
+                    example: "intervene.v1"
+                  baseline:
+                    type: object
+                    properties:
+                      summary:
+                        type: object
+                        properties:
+                          p10: {type: number}
+                          p50: {type: number}
+                          p90: {type: number}
+                  counterfactual:
+                    type: object
+                    properties:
+                      summary:
+                        type: object
+                        properties:
+                          p10: {type: number}
+                          p50: {type: number}
+                          p90: {type: number}
+                  delta:
+                    type: object
+                    properties:
+                      p10: {type: number}
+                      p50: {type: number}
+                      p90: {type: number}
+                  explain:
+                    type: object
+                    properties:
+                      provenance:
+                        type: string
+                        example: "do-operator"
+                      top_drivers:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            node_id: {type: string}
+                            contribution: {type: number}
+                            sign: {type: string, enum: ["+", "-"]}
+                  model_card:
+                    type: object
+                    properties:
+                      actions_hash: {type: string}
+                      seed: {type: integer}
+                      flags_on: {type: array, items: {type: string}}
+                  response_hash:
+                    type: string
+              example:
+                schema: "intervene.v1"
+                baseline:
+                  summary: {p10: 0.819, p50: 0.924, p90: 1.109}
+                counterfactual:
+                  summary: {p10: 0.915, p50: 1.044, p90: 1.253}
+                delta: {p10: 0.096, p50: 0.120, p90: 0.144}
+                explain:
+                  provenance: "do-operator"
+                  top_drivers:
+                    - {node_id: "X", contribution: 80, sign: "+"}
+                model_card:
+                  actions_hash: "a1b2c3d4e5f6g7h8"
+                  seed: 4242
+                  flags_on: ["scm_lite"]
+                response_hash: "1234567890abcdef"
+        '400':
+          description: Bad input or not identifiable
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      message:
+                        type: string
+              examples:
+                bad_input:
+                  value:
+                    schema: "error.v1"
+                    code: "BAD_INPUT"
+                    message: "Invalid node_ids in actions: Z"
+                missing_actions:
+                  value:
+                    schema: "error.v1"
+                    code: "BAD_INPUT"
+                    message: "actions array required with at least one intervention"
+
+  /v1/evidence:
+    post:
+      summary: Evidence & Priors
+      description: |
+        Apply reference-class priors to influence beliefs.
+        Returns adjusted inference with baseline comparison.
+        Note: v1 uses simple weighted average; full Bayesian update in future versions.
+      operationId: evidence
+      tags: [v1, inference]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [graph, priors]
+              properties:
+                graph:
+                  type: object
+                  required: [nodes, edges]
+                  properties:
+                    nodes:
+                      type: array
+                      items:
+                        type: object
+                        required: [id]
+                        properties:
+                          id:
+                            type: string
+                          label:
+                            type: string
+                    edges:
+                      type: array
+                seed:
+                  type: integer
+                  example: 4242
+                priors:
+                  type: array
+                  items:
+                    type: object
+                    required: [node_id, mean, variance]
+                    properties:
+                      node_id:
+                        type: string
+                      mean:
+                        type: number
+                      variance:
+                        type: number
+                      source:
+                        type: string
+                        example: "refclass:xyz"
+            example:
+              graph:
+                nodes:
+                  - {id: "A", label: "Node A"}
+                edges: []
+              seed: 4242
+              priors:
+                - {node_id: "A", mean: 0.8, variance: 0.05, source: "refclass:xyz"}
+      responses:
+        '200':
+          description: Evidence results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schema:
+                    type: string
+                    example: "evidence.v1"
+                  result:
+                    type: object
+                    properties:
+                      summary:
+                        type: object
+                        properties:
+                          p10:
+                            type: number
+                          p50:
+                            type: number
+                          p90:
+                            type: number
+                      baseline:
+                        type: object
+                        properties:
+                          p50:
+                            type: number
+                      adjustment:
+                        type: object
+                        properties:
+                          delta:
+                            type: number
+                          direction:
+                            type: string
+                            enum: [increase, decrease, none]
+                  top_drivers:
+                    type: array
+                  meta:
+                    type: object
+                    properties:
+                      seed:
+                        type: integer
+                      inference_mode:
+                        type: string
+                      prior_alpha:
+                        type: number
+                      limitations:
+                        type: string
+              example:
+                schema: "evidence.v1"
+                result:
+                  summary: {p10: 0.524, p50: 0.724, p90: 0.924}
+                  baseline: {p50: 0.624}
+                  adjustment: {delta: 0.1, direction: "increase"}
+                top_drivers:
+                  - {node_id: "A", contribution: 80, sign: "+", source: "refclass:xyz"}
+                meta: 
+                  seed: 4242
+                  inference_mode: "model_based"
+                  prior_alpha: 0.3
+                  limitations: "v1: Simple weighted average. Full Bayesian update in future versions."
+        '400':
+          description: Bad input
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      message:
+                        type: string
+              examples:
+                invalid_prior:
+                  value:
+                    schema: "error.v1"
+                    code: "BAD_INPUT"
+                    message: "Invalid node_ids in priors: Z"
+
+  /v1/sensitivity:
+    post:
+      summary: Sensitivity & Robustness Analysis
+      description: |
+        One-at-a-time (OAT) sensitivity analysis with tornado charts.
+        Perturbs each target node by ±delta and measures effect on outcome.
+      operationId: sensitivity
+      tags: [v1, analysis]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [graph]
+              properties:
+                graph:
+                  $ref: '#/components/schemas/graph'
+                seed:
+                  type: integer
+                  example: 4242
+                method:
+                  type: string
+                  enum: [oat]
+                  default: oat
+                  description: Sensitivity method (one-at-a-time)
+                delta:
+                  type: number
+                  minimum: 0
+                  maximum: 1
+                  exclusiveMinimum: true
+                  default: 0.1
+                  description: Proportional perturbation for OAT
+                targets:
+                  type: array
+                  items:
+                    type: string
+                  description: Optional subset of node_ids to analyze (default all)
+            example:
+              graph:
+                nodes:
+                  - {id: "A", label: "Node A", value: 0.5}
+                  - {id: "B", label: "Node B", value: 0.3}
+                edges: []
+              seed: 4242
+              method: "oat"
+              delta: 0.1
+              targets: ["A", "B"]
+      responses:
+        '200':
+          description: Sensitivity analysis results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schema:
+                    type: string
+                    example: "sensitivity.v1"
+                  summary:
+                    type: object
+                    properties:
+                      baseline:
+                        type: object
+                        properties:
+                          p50:
+                            type: number
+                  drivers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        node_id:
+                          type: string
+                        tornado:
+                          type: object
+                          properties:
+                            low:
+                              type: number
+                              description: Effect when node decreased by delta
+                            high:
+                              type: number
+                              description: Effect when node increased by delta
+                        rank:
+                          type: integer
+                          description: Rank by total swing (1 = highest)
+                  meta:
+                    type: object
+                    properties:
+                      seed:
+                        type: integer
+                      method:
+                        type: string
+                      evaluations:
+                        type: integer
+                        description: Number of model evaluations (1 + 2*N)
+              example:
+                schema: "sensitivity.v1"
+                summary:
+                  baseline: {p50: 0.624}
+                drivers:
+                  - {node_id: "A", tornado: {low: -0.06, high: 0.08}, rank: 1}
+                  - {node_id: "B", tornado: {low: -0.03, high: 0.04}, rank: 2}
+                meta:
+                  seed: 4242
+                  method: "oat"
+                  evaluations: 5
+        '400':
+          description: Bad input
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      message:
+                        type: string
+              examples:
+                invalid_delta:
+                  value:
+                    schema: "error.v1"
+                    code: "BAD_INPUT"
+                    message: "delta must be in (0, 1]"
+                invalid_targets:
+                  value:
+                    schema: "error.v1"
+                    code: "BAD_INPUT"
+                    message: "Invalid target node_ids: Z"
+
+  /v1/run_batch:
+    post:
+      summary: Batch Runs
+      description: |
+        Execute multiple inference runs in a single request.
+        Each item is processed deterministically with independent seeds.
+      operationId: runBatch
+      tags: [v1, batch]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              properties:
+                items:
+                  type: array
+                  minItems: 1
+                  maxItems: 10
+                  items:
+                    type: object
+                    required: [graph]
+                    properties:
+                      graph:
+                        $ref: '#/components/schemas/graph'
+                      seed:
+                        type: integer
+                      k_samples:
+                        type: integer
+            example:
+              items:
+                - graph: {nodes: [{id: "A", label: "A"}], edges: []}
+                  seed: 1
+                - graph: {nodes: [{id: "B", label: "B"}], edges: []}
+                  seed: 2
+      responses:
+        '200':
+          description: Batch results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schema:
+                    type: string
+                    example: "run_batch.v1"
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        response_hash:
+                          type: string
+                        model_card:
+                          type: object
+              example:
+                schema: "run_batch.v1"
+                results:
+                  - response_hash: "abc123"
+                    model_card: {schema: "report.v1", seed: 1}
+                  - response_hash: "def456"
+                    model_card: {schema: "report.v1", seed: 2}
+        '400':
+          description: Bad input
+          content:
+            application/json:
+              examples:
+                too_many_items:
+                  value:
+                    schema: "error.v1"
+                    code: "BAD_INPUT"
+                    message: "items array must contain 1-10 items"
+
+  /v1/optimise:
+    post:
+      summary: Action Optimiser
+      description: Select actions under budget to maximize utility with optional constraints
+      operationId: optimise
+      tags: [v1, optimisation]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [graph, budget, actions, objective]
+              properties:
+                graph: { $ref: '#/components/schemas/graph' }
+                budget: { type: number, minimum: 0 }
+                actions:
+                  type: array
+                  items:
+                    type: object
+                    required: [id, cost, do]
+                    properties:
+                      id: { type: string }
+                      cost: { type: number, minimum: 0 }
+                      do:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            node_id: { type: string }
+                            set_to: { type: number }
+                objective:
+                  type: object
+                  properties:
+                    type: { type: string, enum: [utility_linear] }
+                    weights: { type: object }
+                seed: { type: integer }
+                constraints:
+                  type: object
+                  description: Optional constraints on action selection
+                  properties:
+                    must:
+                      type: array
+                      items: { type: string }
+                      description: Action IDs that must be selected
+                    must_not:
+                      type: array
+                      items: { type: string }
+                      description: Action IDs that must not be selected
+                    max_changed_nodes:
+                      type: integer
+                      minimum: 0
+                      description: Maximum number of nodes that can be affected
+            example:
+              graph:
+                nodes:
+                  - id: "revenue"
+                    label: "Revenue"
+                  - id: "cost"
+                    label: "Cost"
+                edges: []
+              budget: 100
+              actions:
+                - id: "increase_marketing"
+                  cost: 50
+                  do:
+                    - node_id: "revenue"
+                      set_to: 1.2
+                - id: "reduce_overhead"
+                  cost: 30
+                  do:
+                    - node_id: "cost"
+                      set_to: 0.8
+              objective:
+                type: "utility_linear"
+                weights:
+                  revenue: 1.0
+                  cost: -0.5
+              seed: 4242
+      responses:
+        '200':
+          description: Optimisation results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schema: { type: string, example: "optimise.v1" }
+                  selected: { type: array, items: { type: string } }
+                  utility: { type: object }
+                  explanations: { type: array }
+                  meta: { type: object }
+        '400':
+          description: Bad input or infeasible constraints
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      schema: { type: string, example: "error.v1" }
+                      code: { type: string, enum: [BAD_INPUT, INFEASIBLE] }
+                      message: { type: string }
+                      violations:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            type: { type: string }
+                            message: { type: string }
+                            constraint: { type: string }
+                            node_id: { type: string }
+                            required: { type: number }
+                            available: { type: number }
+                            reason: { type: string }
+              examples:
+                infeasible:
+                  value:
+                    schema: "error.v1"
+                    code: "INFEASIBLE"
+                    message: "Constraints cannot be satisfied"
+
+  /v1/preferences/fit:
+    post:
+      summary: Preferences & Calibration
+      description: Fit utility weights from pairwise comparisons
+      operationId: fitPreferences
+      tags: [v1, calibration]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pairs, prior]
+              properties:
+                pairs:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      winner: { type: string }
+                      loser: { type: string }
+                      strength: { type: number }
+                prior:
+                  type: object
+                  properties:
+                    weights: { type: object }
+      responses:
+        '200':
+          description: Fitted weights
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schema: { type: string, example: "preferences.v1" }
+                  weights: { type: object }
+                  diagnostics: { type: object }
+        '400':
+          description: Bad input
+          content:
+            application/json:
+              examples:
+                invalid_pairs:
+                  value:
+                    schema: "error.v1"
+                    code: "BAD_INPUT"
+                    message: "pairs array is required"
+
+  /v1/run_bundle:
+    post:
+      summary: Run Bundle
+      description: Evaluate multiple graph variations from a base graph with deltas
+      operationId: runBundle
+      tags: [v1, inference]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [base_graph, deltas]
+              properties:
+                base_graph: { $ref: '#/components/schemas/graph' }
+                deltas:
+                  type: array
+                  items:
+                    type: object
+                    required: [label]
+                    properties:
+                      label: { type: string }
+                      nodes:
+                        type: array
+                        items: { type: object }
+                      edges:
+                        type: array
+                        items: { type: object }
+                seed: { type: integer }
+                priors: { type: object }
+                evidence:
+                  type: array
+                  items:
+                    type: object
+                    required: [node_id, source]
+                    properties:
+                      node_id: { type: string }
+                      source: { type: string }
+                      note: { type: string }
+                      weight: { type: number, minimum: 0, maximum: 1 }
+            examples:
+              basic:
+                value:
+                  base_graph:
+                    nodes: [{ id: "price", label: "Price" }]
+                    edges: []
+                  deltas:
+                    - label: "Low Price"
+                      nodes: [{ id: "price", value: 0.8 }]
+                    - label: "High Price"
+                      nodes: [{ id: "price", value: 1.2 }]
+                  seed: 4242
+      responses:
+        '200':
+          description: Bundle results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schema: { type: string, example: "run_bundle.v1" }
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        label: { type: string }
+                        summary:
+                          type: object
+                          properties:
+                            p10: { type: number }
+                            p50: { type: number }
+                            p90: { type: number }
+                        confidence: { type: number }
+                  model_card:
+                    type: object
+                    properties:
+                      seed: { type: integer }
+                      response_hash: { type: string }
+        '400':
+          description: Bad input
+          content:
+            application/json:
+              examples:
+                invalid_delta:
+                  value:
+                    schema: "error.v1"
+                    code: "BAD_INPUT"
+                    message: "Delta label is required"
+
+  /v1/run_timeslices:
+    post:
+      summary: Run Timeslices
+      description: Evaluate graph across multiple time periods with optional overrides
+      operationId: runTimeslices
+      tags: [v1, inference]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [graph, timeslices]
+              properties:
+                graph: { $ref: '#/components/schemas/graph' }
+                timeslices:
+                  type: array
+                  maxItems: 12
+                  items: { type: string }
+                slice_overrides:
+                  type: array
+                  items:
+                    type: object
+                    required: [slice]
+                    properties:
+                      slice: { type: string }
+                      nodes:
+                        type: array
+                        items: { type: object }
+                      edges:
+                        type: array
+                        items: { type: object }
+                priors: { type: object }
+                evidence:
+                  type: array
+                  items:
+                    type: object
+                    required: [node_id, source]
+                    properties:
+                      node_id: { type: string }
+                      source: { type: string }
+                      note: { type: string }
+                      weight: { type: number, minimum: 0, maximum: 1 }
+                seed: { type: integer }
+            examples:
+              basic:
+                value:
+                  graph:
+                    nodes: [{ id: "demand", label: "Demand" }]
+                    edges: []
+                  timeslices: ["Q1", "Q2", "Q3", "Q4"]
+                  slice_overrides:
+                    - slice: "Q2"
+                      nodes: [{ id: "demand", value: 1.2 }]
+                  priors: { demand: 0.6 }
+                  seed: 4242
+      responses:
+        '200':
+          description: Timeslices results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schema: { type: string, example: "run_timeslices.v1" }
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        slice: { type: string }
+                        summary:
+                          type: object
+                          properties:
+                            p10: { type: number }
+                            p50: { type: number }
+                            p90: { type: number }
+                        confidence: { type: number }
+                  model_card:
+                    type: object
+                    properties:
+                      seed: { type: integer }
+                      response_hash: { type: string }
+                      timeslices_count: { type: integer }
+                  meta:
+                    type: object
+                    properties:
+                      evidence_applied:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            node_id: { type: string }
+                            source: { type: string }
+                            weight: { type: number }
+        '400':
+          description: Bad input
+          content:
+            application/json:
+              examples:
+                too_many_slices:
+                  value:
+                    schema: "error.v1"
+                    code: "BAD_INPUT"
+                    message: "Maximum 12 timeslices allowed"
+                invalid_prior:
+                  value:
+                    schema: "error.v1"
+                    code: "BAD_INPUT"
+                    message: "Prior value must be between 0 and 1"
+
+
+components:
+  schemas:
+    # v1 error envelope (runtime validation and BAD_INPUT taxonomy)
+    # Note: errorV1 is the shared error envelope across v1 routes
+    # (run/counterfactual/critique/draft/stream/health/version) for
+    # 400/401/403/429 where applicable.
+    errorV1:
+      type: object
+      required: [schema, code, message]
+      properties:
+        schema:
+          type: string
+          enum: [error.v1]
+        code: { type: string, enum: [BAD_INPUT, UNAUTHORIZED, FORBIDDEN, RATE_LIMITED, INTERNAL] }
+        message: { type: string }
+        path:
+          type: array
+          items: { type: string }
+        details:
+          type: object
+          additionalProperties: true
+    errorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [type, message]
+          properties:
+            type: { type: string }
+            message: { type: string }
+            hint: { type: string }
+            fields: { type: object }
+            retryable: { type: boolean }
+            code: { type: string }
+    sseEvent:
+      type: object
+      required: [event]
+      properties:
+        event:
+          type: string
+          enum: [hello, token, cost, done, cancelled, limited, error]
+        id:
+          type: string
+        data:
+          oneOf:
+            - type: string
+            - type: object
+              additionalProperties: true
+    reportV1:
+      type: object
+      required: [schema, meta]
+      properties:
+        schema:
+          type: string
+          enum: [report.v1]
+        meta:
+          type: object
+          required: [seed]
+          properties:
+            seed: { type: integer }
+    
+    # ========================================
+    # /v1 SCHEMAS
+    # ========================================
+    
+    graph:
+      type: object
+      required: [nodes, edges]
+      properties:
+        version:
+          type: string
+          description: 'Template version (e.g., "1.2")'
+        default_seed:
+          type: integer
+          minimum: 1
+          description: 'Default seed for reproducibility'
+        nodes:
+          type: array
+          maxItems: 50
+          minItems: 1
+          items:
+            type: object
+            required: [id, label]
+            properties:
+              id: { type: string, maxLength: 100 }
+              label: { type: string, maxLength: 200 }
+              body: { type: string, maxLength: 200, description: 'Decision context or description' }
+              type: { type: string, maxLength: 50, deprecated: true }
+              kind:
+                type: string
+                enum: [goal, decision, option, outcome]
+                description: 'Node type in decision graph'
+              prior:
+                type: number
+                minimum: 0
+                maximum: 1
+                description: 'Prior probability for option nodes [0..1]'
+              utility:
+                type: number
+                minimum: -1
+                maximum: 1
+                description: 'Utility/payoff for outcome nodes [-1..+1]'
+              effect:
+                type: object
+                description: 'Optional non-linear effect transform (backwards-compatible)'
+                properties:
+                  kind:
+                    type: string
+                    enum: [linear, threshold, piecewise_linear]
+                    description: 'Effect type (default: linear)'
+                  params:
+                    type: object
+                    description: 'Effect-specific parameters'
+                examples:
+                  - kind: linear
+                  - kind: threshold
+                    params: {threshold: 0.6, low: 0.0, high: 1.0}
+                  - kind: piecewise_linear
+                    params:
+                      breakpoints:
+                        - {x: 0.0, y: 0.0}
+                        - {x: 0.5, y: 0.8}
+                        - {x: 1.0, y: 1.0}
+        edges:
+          type: array
+          maxItems: 200
+          items:
+            type: object
+            required: [from, to]
+            properties:
+              from: { type: string, maxLength: 100 }
+              to: { type: string, maxLength: 100 }
+              label: { type: string, maxLength: 200 }
+              weight: { type: number, minimum: -1000000, maximum: 1000000 }
+              belief:
+                type: number
+                minimum: 0
+                maximum: 1
+                description: 'Inclusion confidence [0..1]. Ingress accepts legacy confidence/probability (mapped to belief). Templates emit default belief=1.0.'
+              provenance:
+                type: string
+                maxLength: 100
+                description: 'Source attribution (e.g., "template", "assumption", "user")'
+              confidence:
+                type: number
+                minimum: 0
+                maximum: 1
+                deprecated: true
+                description: 'DEPRECATED: Use belief instead. Accepted on ingress, never emitted.'
+              probability:
+                type: number
+                minimum: 0
+                maximum: 1
+                deprecated: true
+                description: 'DEPRECATED: Use belief instead. Accepted on ingress, never emitted.'
+        meta:
+          type: object
+          description: 'Template metadata'
+          properties:
+            roots:
+              type: array
+              items: { type: string }
+              description: 'Root node IDs'
+            leaves:
+              type: array
+              items: { type: string }
+              description: 'Leaf node IDs'
+            suggested_positions:
+              type: object
+              additionalProperties:
+                type: object
+                required: [x, y]
+                properties:
+                  x: { type: number }
+                  y: { type: number }
+    
+    modelCard:
+      type: object
+      required: [seed, assumptions_summary, compute_budget, flags_on, determinism_note, response_hash]
+      properties:
+        seed: { type: integer }
+        assumptions_summary:
+          type: array
+          items: { type: string }
+        compute_budget:
+          type: object
+          properties:
+            k_samples: { type: integer }
+            downgraded: { type: boolean }
+            downgrade_reason: { type: string }
+        flags_on:
+          type: array
+          items: { type: string }
+        determinism_note: { type: string }
+        warnings:
+          type: array
+          items: { type: string }
+          description: 'Optional warnings (e.g., zero baseline in counterfactual)'
+        response_hash:
+          type: string
+          description: 'Canonical SHA-256 of the normalised response'
+          pattern: '^[0-9a-f]{64}$'
+    
+    confidenceBadge:
+      type: object
+      required: [level, reason, score, factors]
+      properties:
+        level: { type: string, enum: [LOW, MEDIUM, HIGH] }
+        reason: { type: string }
+        score: { type: number, minimum: 0, maximum: 1 }
+        factors:
+          type: object
+          properties:
+            identifiability: { type: number }
+            linearity_distance: { type: number }
+            k_coverage: { type: number }
+            calibration: { type: number }
+    
+    critiqueItem:
+      type: object
+      required: [severity, message]
+      properties:
+        severity: { type: string, enum: [BLOCKER, IMPROVEMENT, OBSERVATION] }
+        message: { type: string }
+        suggested_action: { type: string }
+        auto_fixable: { type: boolean }
+    
+    explainDelta:
+      type: object
+      required: [top_drivers, summary]
+      properties:
+        top_drivers:
+          type: array
+          items:
+            type: object
+            required: [node_id, node_label, contribution, sign, explanation]
+            properties:
+              node_id: { type: string }
+              node_label: { type: string }
+              contribution: { type: number }
+              sign: { type: string, enum: ['+', '-'] }
+              explanation: { type: string }
+        summary: { type: string }
+        top_edge_drivers:
+          type: array
+          description: 'P0: Top-3 edges by sensitivity'
+          items:
+            type: object
+            properties:
+              edge_id: { type: string }
+              from: { type: string }
+              to: { type: string }
+              sensitivity: { type: number }
+              rank: { type: integer }
+    
+    runRequest:
+      type: object
+      required: [graph]
+      properties:
+        graph: { $ref: '#/components/schemas/graph' }
+        seed: { type: integer, default: 42, minimum: 0, maximum: 2147483647 }
+        k_samples: { type: integer, default: 1000, minimum: 100, maximum: 10000 }
+        treatment_node: { type: string, maxLength: 100 }
+        outcome_node: { type: string, maxLength: 100 }
+        baseline_value: { type: number, minimum: -1000000, maximum: 1000000 }
+        targets:
+          type: array
+          description: 'Canonical: array of node IDs to target for inference'
+          items:
+            type: string
+            minLength: 1
+          minItems: 1
+          uniqueItems: true
+          example: ["Revenue", "Profit"]
+        query:
+          type: object
+          description: 'DEPRECATED: Legacy container for query.targets. Use top-level targets instead.'
+          properties:
+            targets:
+              type: array
+              description: 'Legacy: array of node IDs to target (use top-level targets field instead)'
+              items:
+                type: string
+                minLength: 1
+              minItems: 1
+              uniqueItems: true
+              example: ["Revenue"]
+          additionalProperties: false
+        constraints:
+          type: object
+          description: Optional constraints for validation and modeling
+          properties:
+            bounds:
+              type: object
+              description: Min/max bounds for node values
+              additionalProperties:
+                type: object
+                properties:
+                  min:
+                    type: number
+                  max:
+                    type: number
+              example:
+                X: {min: 0, max: 1}
+                Y: {min: -10, max: 10}
+            structure:
+              type: object
+              description: Structural constraints
+              properties:
+                forbid_edges:
+                  type: array
+                  description: List of forbidden edges [from, to]
+                  items:
+                    type: array
+                    items:
+                      type: string
+                    minItems: 2
+                    maxItems: 2
+                  example: [["A", "B"], ["C", "D"]]
+    
+    runResponse:
+      type: object
+      required: [schema, graph, results, model_card, confidence]
+      properties:
+        schema: { type: string, enum: [run.v1] }
+        graph: { $ref: '#/components/schemas/graph' }
+        results: { type: object }
+        model_card: { $ref: '#/components/schemas/modelCard' }
+        confidence: { $ref: '#/components/schemas/confidenceBadge' }
+        linearity_warning: { type: object }
+        threshold_crossings:
+          type: array
+          items: { type: object }
+        fork_suggestions: { type: object }
+        critique:
+          type: array
+          items: { $ref: '#/components/schemas/critiqueItem' }
+        explain_delta: { $ref: '#/components/schemas/explainDelta' }
+        identifiability: { type: string }
+        trace_id:
+          type: string
+          description: 'Optional client-provided trace identifier echoed from X-Trace-Id when TRACE_ID_PASSTHROUGH=1; may also be present when TRACE_MIN=1'
+        result:
+          type: object
+          description: 'P0: Convenience fields for UI integration'
+          properties:
+            response_hash:
+              type: string
+              description: 'SHA-256 hash of canonical inputs for caching'
+            summary:
+              type: object
+              description: 'Direct percentile access'
+              properties:
+                p10: { type: number }
+                p50: { type: number }
+                p90: { type: number }
+    
+    counterfactualRequest:
+      type: object
+      required: [graph, intervention, outcome_node]
+      properties:
+        graph: { $ref: '#/components/schemas/graph' }
+        intervention:
+          type: object
+          required: [node_id, from_value, to_value]
+          properties:
+            node_id: { type: string, maxLength: 100 }
+            from_value: { type: number, minimum: -1000000, maximum: 1000000 }
+            to_value: { type: number, minimum: -1000000, maximum: 1000000 }
+        outcome_node: { type: string, maxLength: 100 }
+        seed: { type: integer, default: 42, minimum: 0, maximum: 2147483647 }
+        k_samples: { type: integer, default: 1000, minimum: 100, maximum: 10000 }
+    
+    counterfactualResponse:
+      type: object
+      required: [schema, intervention, graph, results, model_card, confidence]
+      properties:
+        schema: { type: string, enum: [counterfactual.v1] }
+        intervention: { type: object }
+        graph: { $ref: '#/components/schemas/graph' }
+        results:
+          type: object
+          description: 'Results with baseline, counterfactual, delta, and percentage_change (null if baseline is zero)'
+          properties:
+            baseline: { type: object }
+            counterfactual: { type: object }
+            delta: { type: object }
+            percentage_change:
+              type: string
+              nullable: true
+              description: 'Percentage change string (nullable when baseline is zero)'
+        model_card: { $ref: '#/components/schemas/modelCard' }
+        confidence: { $ref: '#/components/schemas/confidenceBadge' }
+        explain_delta: { $ref: '#/components/schemas/explainDelta' }
+        identifiability: { type: string }
+        adjustment_set: 
+          type: array
+          items: { type: string }
+        trace_id:
+          type: string
+          description: 'Optional client-provided trace identifier echoed from X-Trace-Id when TRACE_ID_PASSTHROUGH=1'
+    
+    critiqueRequest:
+      type: object
+      required: [graph]
+      properties:
+        graph: { $ref: '#/components/schemas/graph' }
+        assumptions:
+          type: array
+          maxItems: 20
+          items: { type: string, maxLength: 500 }
+        treatment_node: { type: string, maxLength: 100 }
+        outcome_node: { type: string, maxLength: 100 }
+        seed: { type: integer, default: 0, minimum: 0, maximum: 2147483647 }
+    
+    critiqueResponse:
+      type: object
+      required: [schema, graph, critique, model_card]
+      properties:
+        schema: { type: string, enum: [critique.v1] }
+        graph: { $ref: '#/components/schemas/graph' }
+        critique:
+          type: array
+          items: { $ref: '#/components/schemas/critiqueItem' }
+        model_card: { $ref: '#/components/schemas/modelCard' }
+        identifiability: { type: string }
+        summary:
+          type: object
+          properties:
+            total_issues: { type: integer }
+            blockers: { type: integer }
+            improvements: { type: integer }
+            observations: { type: integer }
+            auto_fixable: { type: integer }
+        trace_id:
+          type: string
+          description: 'Optional client-provided trace identifier echoed from X-Trace-Id when TRACE_ID_PASSTHROUGH=1'
+    
+    draftResponse:
+      type: object
+      required: [schema, description, boards, model_card]
+      properties:
+        schema: { type: string, enum: [draft.v1] }
+        description: { type: string }
+        domain: { type: string }
+        boards:
+          type: array
+          items:
+            type: object
+            required: [name, description, graph, critique, simplified]
+            properties:
+              name: { type: string }
+              description: { type: string }
+              graph: { $ref: '#/components/schemas/graph' }
+              critique:
+                type: array
+                items: { $ref: '#/components/schemas/critiqueItem' }
+              simplified: { type: boolean }
+        model_card: { $ref: '#/components/schemas/modelCard' }
+        usage_hint: { type: string }
+        trace_id:
+          type: string
+          description: 'Optional client-provided trace identifier echoed from X-Trace-Id when TRACE_ID_PASSTHROUGH=1'

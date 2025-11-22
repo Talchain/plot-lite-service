@@ -1,0 +1,8 @@
+{
+  "schema": "repro-summary.v1",
+  "os_tested": 1,
+  "runs_per_os": 2,
+  "all_identical": true,
+  "canonical_hash": "685cca6dfc7cee2c",
+  "timestamp": "2025-10-07T10:07:15.624Z"
+}

@@ -1,0 +1,49 @@
+name: Warp Apply Manual
+
+on:
+  workflow_dispatch:
+    inputs:
+      patch:
+        description: "Paste a unified diff patch (```diff ... ``` contents)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  apply-patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Write patch file
+        run: |
+          cat > warp.patch <<'PATCH'
+          ${{ inputs.patch }}
+          PATCH
+
+      - name: Validate allowed paths
+        run: node .github/scripts/validate-allowed-paths.js warp.patch
+
+      - name: Apply patch and push branch
+        id: apply
+        run: |
+          set -e
+          git config user.name "warp-bot"
+          git config user.email "warp-bot@users.noreply.github.com"
+          BR="warp-manual-apply-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          git switch -c "$BR"
+          git apply warp.patch
+          git add -A
+          git commit -m "chore: manual apply patch via workflow"
+          git push -u origin "$BR"
+          echo "compare_url=https://github.com/${GITHUB_REPOSITORY}/compare/main...$BR?expand=1" >> "$GITHUB_OUTPUT"
+
+      - name: Output compare link
+        if: always()
+        run: echo "Compare URL: ${{ steps.apply.outputs.compare_url }}"

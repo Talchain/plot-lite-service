@@ -1,0 +1,8 @@
+{
+  "schema": "trust-bundle.v1",
+  "timestamp": "2025-10-06T17:55:48.182Z",
+  "pack": false,
+  "signatures": true,
+  "sbom": true,
+  "manifest": true
+}

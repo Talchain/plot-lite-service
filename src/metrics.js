@@ -4,25 +4,13 @@ const MAX_SAMPLES = 500;
 const samples = [];
 let c2xx = 0, c4xx = 0, c5xx = 0;
 let lastReplayStatus = 'unknown';
-// P1: Track last request timestamp for /v1/health enrichment
-let lastRequestAtISO = new Date().toISOString();
-// P1: Engine compute metrics (separate from overall request latency)
-const engineSamples = [];
-let lastComputeMs = 0;
-let rollingEngineP95Ms = 0;
-// P1: 429 counters (JSON vs SSE)
-let json429Count = 0;
-let sse429Count = 0;
-// P1: SSE guardrail counters
-let sseOpen = 0;
-let sseClosed = 0;
-let sseTimeout = 0;
-// P1: Stream backpressure / lifecycle counters (used for health extras)
-let streamRateLimited = 0;
-let streamDisconnect = 0;
-let streamWriteBackpressure = 0;
-// P1: Last config reload timestamp (SIGHUP hot-reload)
-let lastConfigReloadISO;
+// Replay telemetry snapshot (in-memory only)
+// Note: keep distinct from lastReplayStatus (legacy) to avoid breaking existing consumers.
+// Monotonic counters: refusals, retries. lastStatus is 'ok' | 'fail' | 'unknown'.
+let replayRefusals = 0;
+let replayRetries = 0;
+let replayLastStatus = 'unknown';
+let replayLastTs = null;
 // Event loop delay histogram (Node >=12)
 const eld = monitorEventLoopDelay({ resolution: 10 });
 eld.enable();
@@ -30,6 +18,22 @@ eld.enable();
 let idemCacheSize = 0;
 export function setIdemCacheSize(n) { idemCacheSize = n; }
 export function getIdemCacheSize() { return idemCacheSize; }
+// Idempotency principal tracking (C1)
+let idemPrincipals = 0;
+let idemEvictions = 0;
+export function setIdemPrincipals(n) { idemPrincipals = n; }
+export function setIdemEvictions(n) { idemEvictions = n; }
+export function getIdemPrincipals() { return idemPrincipals; }
+export function getIdemEvictions() { return idemEvictions; }
+// --- Last request timestamp (for health enrichment) ---
+let lastRequestAtISO = null;
+export function noteLastRequestAt() { try {
+    lastRequestAtISO = new Date().toISOString();
+}
+catch {
+    lastRequestAtISO = null;
+} }
+export function getLastRequestAt() { return lastRequestAtISO; }
 export function recordDurationMs(ms) {
     samples.push(ms);
     if (samples.length > MAX_SAMPLES)
@@ -48,8 +52,25 @@ export function recordStatus(code) {
     else if (code >= 500)
         c5xx++;
 }
+// Legacy replay status (ok/drift) — keep for back-compat
 export function setLastReplay(status) {
     lastReplayStatus = status;
+}
+// Replay telemetry API (test/ops)
+export function recordReplayRefusal() {
+    replayRefusals++;
+    replayLastTs = new Date().toISOString();
+}
+export function recordReplayRetry() {
+    replayRetries++;
+    replayLastTs = new Date().toISOString();
+}
+export function recordReplayStatus(status) {
+    replayLastStatus = status;
+    replayLastTs = new Date().toISOString();
+}
+export function replaySnapshot() {
+    return { lastStatus: replayLastStatus, refusals: replayRefusals, retries: replayRetries, lastTs: replayLastTs };
 }
 export function snapshot() {
     return { c2xx, c4xx, c5xx, lastReplayStatus };
@@ -78,21 +99,96 @@ export function eventLoopDelayMs() {
         return 0;
     }
 }
-// --- P1: Engine compute metrics ---
-export function recordEngineComputeMs(ms) {
-    if (!Number.isFinite(ms) || ms < 0)
+// --- Stream counters (for METRICS endpoint) ---
+let stream_started = 0, stream_done = 0, stream_cancelled = 0, stream_limited = 0, stream_retryable = 0;
+export function streamStarted() { stream_started++; }
+export function streamDone() { stream_done++; }
+export function streamCancelled() { stream_cancelled++; }
+export function streamLimited() { stream_limited++; }
+export function streamRetryable() { stream_retryable++; }
+export function getStreamCounters() {
+    return { stream_started, stream_done, stream_cancelled, stream_limited, stream_retryable };
+}
+// --- Live stream gauges ---
+let currentStreams = 0;
+let lastHeartbeatAt = null; // ms epoch
+export function incCurrentStreams() { currentStreams++; }
+export function decCurrentStreams() { currentStreams = Math.max(0, currentStreams - 1); }
+export function getCurrentStreams() { return currentStreams; }
+export function noteHeartbeat() { lastHeartbeatAt = Date.now(); }
+export function getLastHeartbeatMs() { return lastHeartbeatAt ? Math.max(0, Date.now() - lastHeartbeatAt) : 0; }
+// --- Draft-flows p95 history (last 5) ---
+const DRAFT_MAX_SAMPLES = 500;
+const draftSamples = [];
+const draftP95History = [];
+export function recordDraftDurationMs(ms) {
+    draftSamples.push(ms);
+    if (draftSamples.length > DRAFT_MAX_SAMPLES)
+        draftSamples.shift();
+    // compute p95 for draft samples
+    if (draftSamples.length > 0) {
+        const sorted = [...draftSamples].sort((a, b) => a - b);
+        const idx = Math.min(sorted.length - 1, Math.floor(0.95 * (sorted.length - 1)));
+        const p = Math.round(sorted[idx]);
+        draftP95History.push(p);
+        while (draftP95History.length > 5)
+            draftP95History.shift();
+    }
+}
+export function getDraftP95History() { return [...draftP95History]; }
+// --- Optional health counters for /v1/health ---
+let stream_rate_limited = 0; // number of limiter rejections
+let stream_disconnects = 0; // number of client disconnect events
+let stream_write_backpressure = 0; // number of write() false occurrences
+export function incStreamRateLimited() { stream_rate_limited++; }
+export function incStreamDisconnect() { stream_disconnects++; }
+export function incStreamWriteBackpressure() { stream_write_backpressure++; }
+// Only include keys when any metric has been observed to preserve optionality
+export function getStreamHealthExtras() {
+    const out = {};
+    if (stream_rate_limited > 0)
+        out.stream_rate_limited = stream_rate_limited;
+    if (stream_disconnects > 0)
+        out.stream_disconnects = stream_disconnects;
+    if (stream_write_backpressure > 0)
+        out.stream_write_backpressure = stream_write_backpressure;
+    return out;
+}
+// Test-only reset to keep suites isolated
+export function resetStreamMetrics() {
+    if (process.env.NODE_ENV !== 'test')
         return;
+    stream_rate_limited = 0;
+    stream_disconnects = 0;
+    stream_write_backpressure = 0;
+}
+// --- Observability polish: counters and last reload ---
+let json429Count = 0;
+let sse429Count = 0;
+let lastConfigReloadISO = null;
+export function incJson429Count() { json429Count++; }
+export function incSse429Count() { sse429Count++; }
+export function getJson429Count() { return json429Count; }
+export function getSse429Count() { return sse429Count; }
+export function setLastConfigReloadISO(iso) { lastConfigReloadISO = iso; }
+export function getLastConfigReloadISO() { return lastConfigReloadISO; }
+// --- Engine compute metrics (for /v1/run observability) ---
+const engineSamples = [];
+const ENGINE_MAX_SAMPLES = 100;
+let lastComputeMs = 0;
+let rollingP95Ms = 0; // EWMA-based rolling p95
+export function recordEngineComputeMs(ms) {
     lastComputeMs = ms;
     engineSamples.push(ms);
-    if (engineSamples.length > MAX_SAMPLES)
+    if (engineSamples.length > ENGINE_MAX_SAMPLES)
         engineSamples.shift();
+    // Update rolling p95 with EWMA (alpha=0.1 for smooth tracking)
     const currentP95 = getEngineP95Ms();
-    if (rollingEngineP95Ms === 0) {
-        rollingEngineP95Ms = currentP95;
+    if (rollingP95Ms === 0) {
+        rollingP95Ms = currentP95; // Initialize
     }
     else {
-        // EWMA with alpha=0.1 for smooth tracking
-        rollingEngineP95Ms = 0.1 * currentP95 + 0.9 * rollingEngineP95Ms;
+        rollingP95Ms = 0.1 * currentP95 + 0.9 * rollingP95Ms;
     }
 }
 export function getLastComputeMs() {
@@ -106,87 +202,15 @@ export function getEngineP95Ms() {
     return Math.round(sorted[idx]);
 }
 export function getEngineP95MsRolling() {
-    return Math.round(rollingEngineP95Ms);
+    return Math.round(rollingP95Ms);
 }
-// --- P1: Health enrichment helpers ---
-export function getLastRequestAt() {
-    return lastRequestAtISO;
-}
-export function setLastConfigReloadISO(iso) {
-    lastConfigReloadISO = iso;
-}
-export function getLastConfigReloadISO() {
-    return lastConfigReloadISO;
-}
-// --- P1: 429 counters ---
-export function incJson429Count() {
-    json429Count++;
-}
-export function incSse429Count() {
-    sse429Count++;
-}
-export function getJson429Count() {
-    return json429Count;
-}
-export function getSse429Count() {
-    return sse429Count;
-}
-// --- P1: SSE guardrail counters ---
-export function incSseOpen() {
-    sseOpen++;
-}
-export function incSseClosed() {
-    sseClosed++;
-}
-export function incSseTimeout() {
-    sseTimeout++;
-}
-export function getSseOpen() {
-    return sseOpen;
-}
-export function getSseClosed() {
-    return sseClosed;
-}
-export function getSseTimeout() {
-    return sseTimeout;
-}
-// --- P1: Stream metrics for health probes (/v1/health) ---
-export function incStreamRateLimited() {
-    streamRateLimited++;
-}
-export function incStreamDisconnect() {
-    streamDisconnect++;
-}
-export function incStreamWriteBackpressure() {
-    streamWriteBackpressure++;
-}
-export function getStreamHealthExtras() {
-    // If nothing has happened yet, omit optional keys entirely
-    if (streamRateLimited === 0 &&
-        streamDisconnect === 0 &&
-        streamWriteBackpressure === 0 &&
-        sseOpen === 0 &&
-        sseClosed === 0 &&
-        sseTimeout === 0) {
-        return {};
-    }
-    return {
-        stream_rate_limited: streamRateLimited,
-        stream_disconnects: streamDisconnect,
-        stream_write_backpressure: streamWriteBackpressure,
-        sse_open: sseOpen,
-        sse_closed: sseClosed,
-        sse_timeout: sseTimeout,
-    };
-}
-// Test-only helper: reset stream/SSE metrics between health tests
-export function resetStreamMetrics() {
-    json429Count = 0;
-    sse429Count = 0;
-    sseOpen = 0;
-    sseClosed = 0;
-    sseTimeout = 0;
-    streamRateLimited = 0;
-    streamDisconnect = 0;
-    streamWriteBackpressure = 0;
-}
+// SSE guardrails counters (C3)
+let sseOpen = 0;
+let sseClosed = 0;
+let sseTimeout = 0;
+export function incSseOpen() { sseOpen++; }
+export function incSseClosed() { sseClosed++; }
+export function incSseTimeout() { sseTimeout++; }
+export function getSseOpen() { return sseOpen; }
+export function getSseClosed() { return sseClosed; }
+export function getSseTimeout() { return sseTimeout; }

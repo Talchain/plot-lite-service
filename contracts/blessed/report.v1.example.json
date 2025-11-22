@@ -1,0 +1,19 @@
+{
+  "actions": [
+    {}
+  ],
+  "confidence": {},
+  "identifiability": {},
+  "kpis": [
+    {},
+    {}
+  ],
+  "meta": {},
+  "model_averaging": {},
+  "model_card": {},
+  "reward": {},
+  "schema": "report.v1",
+  "summary": {
+    "confidence": "HIGH"
+  }
+}

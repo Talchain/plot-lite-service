@@ -1,0 +1,18 @@
+{
+  "schema": "repro-artifacts.v1",
+  "runs": [
+    {
+      "run": 1,
+      "os": "darwin",
+      "pack_hash": "685cca6dfc7cee2c",
+      "duration_s": 0
+    },
+    {
+      "run": 2,
+      "os": "darwin",
+      "pack_hash": "685cca6dfc7cee2c",
+      "duration_s": 0
+    }
+  ],
+  "timestamp": "2025-10-07T10:07:15.624Z"
+}

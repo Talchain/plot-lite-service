@@ -1,0 +1,70 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://plot.talchain.com/schemas/plot.run.response.v1.json",
+  "title": "PLoT Engine Run Response v1",
+  "description": "Response schema for POST /v1/run with strict validation",
+  "type": "object",
+  "required": ["model_card", "confidence", "meta"],
+  "additionalProperties": true,
+  "properties": {
+    "model_card": {
+      "type": "object",
+      "required": ["seed", "response_hash"],
+      "properties": {
+        "seed": {
+          "type": "integer",
+          "description": "Random seed used"
+        },
+        "response_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "SHA-256 hash of canonical response"
+        },
+        "assumptions_summary": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "compute_budget": {
+          "type": "object"
+        },
+        "determinism_note": {
+          "type": "string"
+        },
+        "flags_on": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "confidence": {
+      "type": "object",
+      "required": ["score", "level"],
+      "properties": {
+        "score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "level": {
+          "type": "string",
+          "enum": ["HIGH", "MEDIUM", "LOW"]
+        },
+        "factors": {
+          "type": "object"
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "meta": {
+      "type": "object",
+      "required": ["seed"],
+      "properties": {
+        "seed": { "type": "integer" },
+        "commit": { "type": "string" },
+        "version": { "type": "string" }
+      }
+    }
+  }
+}

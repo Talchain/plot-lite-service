@@ -1,0 +1,4 @@
+{"event":"hello","data":{"ts":"2025-09-29T21:05:00.208Z"}}
+{"event":"token","data":{"text":"draft","index":0}}
+{"event":"cost","data":{"tokens":5,"currency":"USD","amount":0}}
+{"event":"done","data":{"reason":"complete"}}

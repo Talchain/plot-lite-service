@@ -1,0 +1,24 @@
+{
+  "sha": "0852b63",
+  "ref": "feat/ci-sdk-docs-adapter",
+  "node": "v22.15.0",
+  "p95_ms": 2.110500000000684,
+  "gates": {
+    "p95": {
+      "ok": true,
+      "value": 2.110500000000684,
+      "budget": 600
+    },
+    "sse_enum": {
+      "ok": true
+    },
+    "health_keys": {
+      "ok": true,
+      "missing": []
+    },
+    "head_parity": {
+      "ok": true,
+      "diffs": []
+    }
+  }
+}

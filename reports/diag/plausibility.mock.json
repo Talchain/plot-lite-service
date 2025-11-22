@@ -1,0 +1,24 @@
+{
+  "schema": "plausibility.v1",
+  "source": "mock",
+  "samples": 50,
+  "violations": 0,
+  "checks": {
+    "engine_get_p95_ms": {
+      "value": 5,
+      "budget": 600,
+      "pass": true
+    },
+    "ttff_p95": {
+      "value": 5,
+      "budget": 450,
+      "pass": true
+    },
+    "cancel_p95": {
+      "value": 0,
+      "budget": 200,
+      "pass": true
+    }
+  },
+  "timestamp": "2025-10-13T12:56:46.009Z"
+}

@@ -1,0 +1,213 @@
+# OpenAPI fragment for report.v1 schema
+components:
+  schemas:
+    ReportV1:
+      type: object
+      required:
+        - schema
+        - meta
+        - summary
+        - kpis
+        - model_card
+      properties:
+        schema:
+          type: string
+          const: report.v1
+        meta:
+          type: object
+          required: [seed]
+          properties:
+            seed:
+              type: integer
+            generated_at:
+              type: string
+              format: date-time
+        summary:
+          type: object
+          required: [option_best]
+          properties:
+            option_best:
+              type: string
+              minLength: 1
+            confidence:
+              type: string
+              enum: [LOW, MEDIUM, HIGH]
+        kpis:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [name, p10, p50, p90]
+            properties:
+              name:
+                type: string
+                minLength: 1
+              p10:
+                type: number
+              p50:
+                type: number
+              p90:
+                type: number
+              unit:
+                type: string
+        model_card:
+          type: object
+          required: [response_hash]
+          properties:
+            response_hash:
+              type: string
+              pattern: '^[0-9a-f]{64}$'
+            seed:
+              type: integer
+            assumptions:
+              type: array
+              items:
+                type: string
+        model_averaging:
+          $ref: '#/components/schemas/ModelAveraging'
+        confidence:
+          $ref: '#/components/schemas/Confidence'
+        identifiability:
+          $ref: '#/components/schemas/Identifiability'
+        actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Action'
+        reward:
+          $ref: '#/components/schemas/Reward'
+        time:
+          $ref: '#/components/schemas/Timing'
+        provenance:
+          $ref: '#/components/schemas/Provenance'
+
+    ModelAveraging:
+      type: object
+      required: [bma_hash, K_evaluated, K_used, mass_covered]
+      properties:
+        bma_hash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        K_evaluated:
+          type: integer
+          minimum: 1
+        K_used:
+          type: integer
+          minimum: 1
+        mass_covered:
+          type: number
+          minimum: 0
+          maximum: 1
+        action_consistency:
+          type: number
+          minimum: 0
+          maximum: 1
+        sign_flip_rate:
+          type: number
+          minimum: 0
+          maximum: 1
+
+    Confidence:
+      type: object
+      required: [level, stability]
+      properties:
+        level:
+          type: string
+          enum: [LOW, MEDIUM, HIGH]
+        stability:
+          type: object
+          required: [stable]
+          properties:
+            variance_ratio:
+              type: number
+              minimum: 0
+            cv:
+              type: number
+              minimum: 0
+            stable:
+              type: boolean
+
+    Identifiability:
+      type: object
+      required: [identifiable]
+      properties:
+        identifiable:
+          type: boolean
+        adjustment_set:
+          type: array
+          items:
+            type: string
+        backdoor_satisfied:
+          type: boolean
+
+    Action:
+      type: object
+      required: [action_id, type, node, value]
+      properties:
+        action_id:
+          type: string
+          minLength: 1
+        type:
+          type: string
+          enum: [set, delta]
+        node:
+          type: string
+          minLength: 1
+        value:
+          type: number
+        relative_to:
+          type: string
+
+    Reward:
+      type: object
+      required: [best_action, top_k]
+      properties:
+        best_action:
+          type: string
+        regret:
+          type: number
+          minimum: 0
+        top_k:
+          type: array
+          items:
+            type: object
+            required: [action_id, expected_reward, rank]
+            properties:
+              action_id:
+                type: string
+              expected_reward:
+                type: number
+              rank:
+                type: integer
+                minimum: 1
+
+    Timing:
+      type: object
+      properties:
+        inference_ms:
+          type: number
+          minimum: 0
+        bma_ms:
+          type: number
+          minimum: 0
+        total_ms:
+          type: number
+          minimum: 0
+
+    Provenance:
+      type: object
+      properties:
+        nodes_source:
+          type: string
+          enum: [human, llm, auto]
+        edges_source:
+          type: string
+          enum: [human, llm, auto]
+        human_count:
+          type: integer
+          minimum: 0
+        llm_count:
+          type: integer
+          minimum: 0
+        auto_count:
+          type: integer
+          minimum: 0

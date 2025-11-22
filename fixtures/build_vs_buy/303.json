@@ -1,0 +1,35 @@
+{
+  "schema": "report.v1",
+  "meta": {
+    "seed": 303,
+    "fixtures_version": "1.0.0",
+    "template": "build_vs_buy"
+  },
+  "graph": {
+    "nodes": [
+      { "id": "n1", "label": "Start" },
+      { "id": "n2", "label": "Build" },
+      { "id": "n3", "label": "Buy" }
+    ],
+    "edges": [
+      { "from": "n1", "to": "n2", "label": "option" },
+      { "from": "n1", "to": "n3", "label": "option" }
+    ]
+  },
+  "results": {
+    "conservative": { "time_to_value_weeks": 12, "tco_year1": 8 },
+    "most_likely": { "time_to_value_weeks": 8, "tco_year1": 10 },
+    "optimistic": { "time_to_value_weeks": 6, "tco_year1": 12 }
+  },
+  "thresholds": [
+    { "metric": "time_to_value_weeks", "from": 10, "to": 8, "crossed": true },
+    { "metric": "tco_year1", "from": 12, "to": 10, "crossed": false }
+  ],
+  "provenance": {
+    "critique": [
+      "Assumes vendor availability.",
+      "Build estimate excludes long-term maintenance tail."
+    ],
+    "notes": []
+  }
+}

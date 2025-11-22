@@ -1,0 +1,59 @@
+# render.yaml — Render Blueprint for auto-deploy from GitHub
+# After connecting repo in Render dashboard, use "Create from Blueprint" to provision both services
+
+services:
+  # Staging: auto-deploys on every merge to main
+  - type: web
+    name: plot-lite-service-staging
+    env: node
+    plan: starter
+    region: oregon
+    branch: main
+    autoDeploy: true
+    healthCheckPath: /v1/health
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SCM_LITE_ENABLE
+        value: "0"
+      - key: SCM_LITE_K
+        value: "500"
+      - key: SCM_LITE_BELIEF_DEFAULT
+        value: "0.5"
+      - key: AUTH_ENABLED
+        value: "1"
+      - key: RATE_LIMIT_ENABLED
+        value: "1"
+      - key: RATE_LIMIT_RPM
+        value: "60"
+      # Add AUTH_TOKEN as secret in Render dashboard after connecting repo
+
+  # Production: manual deploy only (safer)
+  - type: web
+    name: plot-lite-service
+    env: node
+    plan: starter
+    region: oregon
+    branch: main
+    autoDeploy: false
+    healthCheckPath: /v1/health
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SCM_LITE_ENABLE
+        value: "0"
+      - key: SCM_LITE_K
+        value: "500"
+      - key: SCM_LITE_BELIEF_DEFAULT
+        value: "0.5"
+      - key: AUTH_ENABLED
+        value: "1"
+      - key: RATE_LIMIT_ENABLED
+        value: "1"
+      - key: RATE_LIMIT_RPM
+        value: "60"
+      # Add AUTH_TOKEN as secret in Render dashboard after connecting repo

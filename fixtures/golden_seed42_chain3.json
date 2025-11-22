@@ -1,0 +1,15 @@
+{
+  "graph": {
+    "nodes": [
+      { "id": "A", "label": "A" },
+      { "id": "B", "label": "B" },
+      { "id": "C", "label": "C" }
+    ],
+    "edges": [
+      { "from": "A", "to": "B" },
+      { "from": "B", "to": "C" }
+    ]
+  },
+  "seed": 42,
+  "outcome_node": "C"
+}

@@ -1,0 +1,26 @@
+components:
+  schemas:
+    Report:
+      type: object
+      required:
+        - schema
+        - timestamp
+        - status
+      properties:
+        schema:
+          type: string
+          enum: ["report.v1"]
+        timestamp:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: ["PASS", "FAIL", "WARN"]
+        violations:
+          type: array
+          items:
+            type: object
+        warnings:
+          type: array
+          items:
+            type: object

@@ -1,0 +1,13 @@
+{
+  "schema": "flags.manifest.v1",
+  "flags": [
+    { "key": "test_routes_enabled", "default": false, "source": "/health" },
+    { "key": "rate_limit.enabled", "default": true, "source": "/health" },
+    { "key": "metrics", "default": false, "source": "/metrics" },
+    { "key": "feature_stream", "default": false, "source": "env" },
+    { "key": "openapi_dev", "default": false, "source": "env" },
+    { "key": "ops_snapshot", "default": false, "source": "env" },
+    { "key": "auth_enabled", "default": false, "source": "env" },
+    { "key": "trust_proxy", "default": false, "source": "env" }
+  ]
+}

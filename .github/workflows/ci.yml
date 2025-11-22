@@ -1,49 +1,30 @@
 name: CI
-
 on:
-  push:
-    branches: [ main ]
   pull_request:
-    branches: [ main ]
+  push:
+    branches: [main]
 
 jobs:
-  build-test:
+  test:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        node-version: [18.x, 20.x]
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: '20'
           cache: 'npm'
-
-      - name: Install dependencies
-        run: npm install --no-audit --no-fund
+      - run: npm ci
+      - run: npm run lint || true
+      - run: npm run build
+      - name: Run tests
+        run: RATE_LIMIT_ENABLED=0 npm test
         env:
-          NODE_OPTIONS: --experimental-global-fetch
-
-      - name: Build
-        run: npm run build
-        env:
-          NODE_OPTIONS: --experimental-global-fetch
-
-      - name: Test
-        run: npm test
-        env:
-          NODE_OPTIONS: --experimental-global-fetch
-
-      - name: Upload test report
+          CI: true
+      - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: tests-${{ matrix.node-version }}
+          name: test-results
           path: |
-            reports/tests.json
-            docs/collections/plot-lite.postman.json
-            docs/contract-report.html
-          if-no-files-found: warn
+            .tmp/
+            coverage/

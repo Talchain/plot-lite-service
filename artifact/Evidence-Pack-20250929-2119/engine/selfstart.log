@@ -1,0 +1,12 @@
+--- starting test-server on 4311 ---
+tools/verify-and-pack.sh: line 32: FEATURE_STREAM=1: command not found
+--- starting test-server on 4312 ---
+tools/verify-and-pack.sh: line 32: FEATURE_STREAM=1: command not found
+--- starting test-server on 4313 ---
+tools/verify-and-pack.sh: line 32: FEATURE_STREAM=1: command not found
+--- starting test-server on 4314 ---
+tools/verify-and-pack.sh: line 32: FEATURE_STREAM=1: command not found
+--- starting test-server on 4315 ---
+tools/verify-and-pack.sh: line 32: FEATURE_STREAM=1: command not found
+--- starting test-server on 4316 ---
+tools/verify-and-pack.sh: line 32: FEATURE_STREAM=1: command not found

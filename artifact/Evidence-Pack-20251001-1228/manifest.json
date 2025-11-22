@@ -1,0 +1,157 @@
+{
+  "schema": "pack.manifest.v1",
+  "created_utc": "2025-10-01T11:32:02.122Z",
+  "path": "/Users/paulslee/Documents/GitHub/plot-lite-service/artifact/Evidence-Pack-20251001-1228",
+  "commit": "",
+  "engine": "http://127.0.0.1:4311",
+  "files": [
+    {
+      "path": "README.txt",
+      "size_bytes": 665,
+      "sha256": "f89efac7bf10d9d219bbeb626d07d4afccfe7a5a6979c6a31666dfb7969612ff"
+    },
+    {
+      "path": "SLO_SUMMARY.md",
+      "size_bytes": 165,
+      "sha256": "f20470d3e2e1d2661d2d7c8b82e7e55bc48ecbb652b0fdf5d8cc36098820aada"
+    },
+    {
+      "path": "engine/access-log-snippet.txt",
+      "size_bytes": 3192,
+      "sha256": "a62cbf2f080dc35b1c14e86a9b322255fe01c95f78a2589747ab7ae6525c3a14"
+    },
+    {
+      "path": "engine/bad-query-400.txt",
+      "size_bytes": 1048,
+      "sha256": "97680da28f1048947b79ec09f780b3f5622f547603bbd5c0fb9f527a1a5442c4"
+    },
+    {
+      "path": "engine/draft-flows-200.h",
+      "size_bytes": 922,
+      "sha256": "306467cbf16e74c77977b85a0b2b02a53e393b5d2fd9962b12a0807a2ae9c2c3"
+    },
+    {
+      "path": "engine/draft-flows-200.json",
+      "size_bytes": 126,
+      "sha256": "32334575e19e2aec03751f780ad4c4a72b2c01bf4ec516449400418c2fa5dfbc"
+    },
+    {
+      "path": "engine/draft-flows-304.h",
+      "size_bytes": 922,
+      "sha256": "f03d3ea31566abdd7afde38ab784df645c490d511e4d0cf6ddcebc6b27bcf035"
+    },
+    {
+      "path": "engine/draft-flows-304.txt",
+      "size_bytes": 1048,
+      "sha256": "9d1645f4a0971ce30cd19619e0a25c9c6ea66f7e2db39107dd37d62d347476df"
+    },
+    {
+      "path": "engine/draft-flows-4242.json",
+      "size_bytes": 126,
+      "sha256": "f4557a20529b42af68a077f5b7972c05c1dc646abf3ed1509fd86d35b0f26798"
+    },
+    {
+      "path": "engine/fixture-seed-4242.sha256",
+      "size_bytes": 132,
+      "sha256": "75b962ac71417a786d71b803b644fbe108c8688ef45a81d19d5411602e2807d7"
+    },
+    {
+      "path": "engine/head-200.h",
+      "size_bytes": 922,
+      "sha256": "fd48acae6c8cb44ab75a0b06b9939b712f0827226824396bfc5281036e67f763"
+    },
+    {
+      "path": "engine/head-304.h",
+      "size_bytes": 922,
+      "sha256": "9563d7ac8db98fbf1f63d0601d24026221407c41a8bda5b7524dd7071fc4fc50"
+    },
+    {
+      "path": "engine/health.h",
+      "size_bytes": 859,
+      "sha256": "a0fb8971891c037836fde066716050cafe3891168ced2b6f5e7cb0e028c53e9b"
+    },
+    {
+      "path": "engine/health.json",
+      "size_bytes": 653,
+      "sha256": "580f2bd41b1094506a8f1ab923ef2e7847cc3ce6f84f80467c386ab3980b1ef7"
+    },
+    {
+      "path": "engine/health.raw",
+      "size_bytes": 486,
+      "sha256": "2a82a00062ab47fd4e56ebfb1f628f9b0437bfe2f805b06dd6875e10dbaef4a5"
+    },
+    {
+      "path": "engine/invalid-seed-404.txt",
+      "size_bytes": 1048,
+      "sha256": "cfae53bb8e636bab3585dde50b5f76c79daed83ed9e92e8c581b464317f011b0"
+    },
+    {
+      "path": "engine/invalid-template-404.txt",
+      "size_bytes": 1048,
+      "sha256": "7a1cd9e50a22e8c4a9f61f39df2b7d1fe8f7019b0956b2ad51af82db8e1df431"
+    },
+    {
+      "path": "engine/report-v1-stamp.txt",
+      "size_bytes": 29,
+      "sha256": "4627489ad369c84ad6dcbfcd9f908d6df34bb4b9332c56675510604e9c79d1fe"
+    },
+    {
+      "path": "engine/selfstart.env.txt",
+      "size_bytes": 106,
+      "sha256": "ba3b0a5d0ea0681f1d420c6410fceae3d284d35e7e05476cd92bdcf6937a541a"
+    },
+    {
+      "path": "engine/selfstart.log",
+      "size_bytes": 32493041,
+      "sha256": "bad5273c09f64ac6121485b829e7617ddb67bdf8ba8bc56e65c42c85cc17fa49"
+    },
+    {
+      "path": "engine/selfstart.pid",
+      "size_bytes": 5,
+      "sha256": "ce9273cbf0a1775620e3f79b44ebb8606a49d46f82bce30a6fead0f596716bcf"
+    },
+    {
+      "path": "engine/stream-ndjson.sha256",
+      "size_bytes": 106,
+      "sha256": "e99f59a5986fbf15cb6ba61dd0690c5f52fa3d8909d35428d7ad6cd4486f8fb1"
+    },
+    {
+      "path": "engine/version-200.h",
+      "size_bytes": 858,
+      "sha256": "9bd91ea056460681a88c0063c9d96b4278fd661002d07a72c5bbde22f34dc95f"
+    },
+    {
+      "path": "engine/version-head.h",
+      "size_bytes": 922,
+      "sha256": "fb3d3401c01ca7b8b8552d7cd7ca9bd62af5db763024653dde06503271e575de"
+    },
+    {
+      "path": "engine/version.json",
+      "size_bytes": 66,
+      "sha256": "e2bb17c9a2469f9fa60ceaf19a4ae5d51f2dcfba21d633f5bee34d2b4cb0489e"
+    },
+    {
+      "path": "manifest.json",
+      "size_bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "pack-manifest.txt",
+      "size_bytes": 2531,
+      "sha256": "5433b7716eabb40d95fca283d44d0bed762a5d20573d7554600a721268ee4b94"
+    },
+    {
+      "path": "reports/loadcheck.json",
+      "size_bytes": 255,
+      "sha256": "143bcb5bd77bc23efeb9e39d6843d769e4ac360e4ef664946b2dbf8e00d6bb12"
+    },
+    {
+      "path": "repro.txt",
+      "size_bytes": 609,
+      "sha256": "2ba8f3194779fcf6506ef03fa292cf161b3ad2538f44293e76a8f7a7dbaf7db3"
+    }
+  ],
+  "slos": {
+    "engine_get_p95_ms": 2.294459000000643
+  }
+}

@@ -1,0 +1,24 @@
+name: PR Guard (Baseline Artifacts)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: scan
+        with:
+          filters: |
+            forbidden:
+              - '.ci-run*.txt'
+              - '.baseline-summary*.json'
+
+      - name: Fail if baseline artifacts present
+        if: steps.scan.outputs.forbidden == 'true'
+        run: |
+          echo "❌ Baseline measurement artifacts detected in PR. Please remove and post evidence as a PR comment instead."
+          exit 1

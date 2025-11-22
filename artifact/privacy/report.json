@@ -1,0 +1,15 @@
+{
+  "schema": "privacy-report.v1",
+  "timestamp": "2025-10-06T20:06:01.918Z",
+  "violations": [],
+  "warnings": [],
+  "checks": [
+    "ast_scan",
+    "provenance"
+  ],
+  "samples_checked": 0,
+  "sinks_patched": 0,
+  "provenance": {},
+  "status": "PASS",
+  "note": "Static AST scan via grep heuristic; TODO: full AST parse"
+}

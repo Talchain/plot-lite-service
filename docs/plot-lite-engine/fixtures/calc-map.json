@@ -1,0 +1,10 @@
+{
+  "id": "demo-calc-map",
+  "version": "1",
+  "steps": [
+    { "id": "t1", "type": "transform", "inputs": { "assign": { "a": 2, "b": 3, "tier": "gold" } } },
+    { "id": "c1", "type": "calc", "inputs": { "assignTo": "score.total", "expr": "(a+b)*2" } },
+    { "id": "m1", "type": "map", "inputs": { "fromPath": "tier", "mapping": { "gold": "GOLD", "free": "FREE" }, "default": "UNK", "assignTo": "tierLabel" } },
+    { "id": "g1", "type": "gate", "inputs": { "path": "score.total", "op": ">=", "value": 10, "onTrue": "__end" } }
+  ]
+}

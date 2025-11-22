@@ -1,0 +1,10 @@
+{
+  "schema": "slos.v1",
+  "source": "mock",
+  "engine_get_p95_ms": 5,
+  "ttff_p95": 5,
+  "cancel_p95": 0,
+  "K_per_sec": 390625,
+  "samples": 50,
+  "timestamp": "2025-10-13T12:56:46.000Z"
+}

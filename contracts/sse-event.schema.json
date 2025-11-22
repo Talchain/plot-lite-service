@@ -1,0 +1,12 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/contracts/sse-event.schema.json",
+  "title": "PLoT-lite SSE Event",
+  "type": "object",
+  "properties": {
+    "event": { "type": "string", "enum": ["hello", "token", "cost", "done", "cancelled", "limited", "error"] },
+    "data": { "type": ["object", "string", "number", "boolean", "null"] }
+  },
+  "required": ["event", "data"],
+  "additionalProperties": false
+}

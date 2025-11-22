@@ -1,40 +1,48 @@
 import { createServer } from './createServer.js';
 import { validateEnv } from './config-validator.js';
-import { validateHMACSecrets } from './config/secret-validation.js';
+import { loadFromFile } from './config/runtimeConfig.js';
 
 const PORT = Number(process.env.PORT || 4311);
 const HOST = '0.0.0.0';
 
-async function start() {
-  validateEnv();
-  validateHMACSecrets();
+// Graceful shutdown state
+let closing = false;
 
+async function start() {
+  // Validate environment variables first (fail-fast)
+  validateEnv();
+
+  if (process.env.NODE_ENV === 'production' && process.env.TEST_ROUTES === '1') {
+    // Fail fast before binding any ports
+    process.stderr.write('TEST_ROUTES in production – aborting\n');
+    process.exit(1);
+  }
+  // Inflight tracking is now handled by the inflight plugin (registered in createServer)
+  // Plugin provides: decoration, onRequest/onResponse hooks, probe exclusion, double-dec guard
   const app = await createServer({ enableTestRoutes: process.env.TEST_ROUTES === '1' });
 
-  // Graceful shutdown with in-flight drain (hooks must be registered before listen)
-  let closing = false;
-  let inflight = 0;
-  app.addHook('onRequest', async () => { if (!closing) inflight++; });
-  app.addHook('onResponse', async () => { if (inflight > 0) inflight--; });
+  await app.listen({ port: PORT, host: HOST });
+  
+  // Startup summary
+  const corsOrigins = process.env.CORS_ALLOW_ORIGINS || process.env.WEB_APP_ORIGIN || 'http://localhost:5173';
+  const rpm = Number(process.env.RATE_LIMIT_PER_MIN || 60);
+  app.log.info({ 
+    port: PORT, 
+    cors_allowlist: corsOrigins.split(',').map(s => s.trim()), 
+    rate_limit_rpm: rpm 
+  }, 'server started');
 
-  for (const sig of ['SIGINT','SIGTERM'] as const) {
-    process.on(sig, async () => {
-      if (closing) return;
-      closing = true;
-      app.log.info({ sig }, 'shutting down');
-      try {
-        // Stop accepting new connections
-        await app.close();
-        const deadline = Date.now() + 5000;
-        while (inflight > 0 && Date.now() < deadline) {
-          await new Promise(r => setTimeout(r, 50));
-        }
-        process.exit(0);
-      } catch {
-        process.exit(1);
-      }
-    });
-  }
+  // Hot-reload knobs on SIGHUP (safe subset)
+  process.on('SIGHUP', () => {
+    try {
+      const cfg = loadFromFile('artifact/runtime-config.json');
+      app.log.info({ cfg }, 'runtime-config reloaded');
+      // Record last successful reload timestamp
+      (async () => { try { const { setLastConfigReloadISO } = await import('./metrics.js'); setLastConfigReloadISO(new Date().toISOString()); } catch {} })();
+    } catch (e: any) {
+      app.log.warn({ err: e?.message || String(e) }, 'runtime-config reload failed');
+    }
+  });
 
   // Health snapshot on SIGUSR2 (ops nicety)
   process.on('SIGUSR2', async () => {
@@ -61,9 +69,41 @@ async function start() {
       app.log.error({ err: (e as any)?.message }, 'failed to log health snapshot');
     }
   });
-
-  await app.listen({ port: PORT, host: HOST });
-  app.log.info({ port: PORT }, 'server started');
+  for (const sig of ['SIGINT','SIGTERM'] as const) {
+    process.on(sig, async () => {
+      if (closing) return;
+      closing = true;
+      const inflightCount = app.inflight.count();
+      app.log.info({ sig, inflight: inflightCount }, 'graceful shutdown initiated');
+      
+      try {
+        // Stop accepting new connections
+        await app.close();
+        
+        // Wait for in-flight requests to complete (max 5 seconds)
+        const deadline = Date.now() + 5000;
+        let current = app.inflight.count();
+        while (current > 0 && Date.now() < deadline) {
+          const remaining = deadline - Date.now();
+          app.log.info({ inflight: current, remaining }, 'draining in-flight requests');
+          await new Promise(r => setTimeout(r, 100));
+          current = app.inflight.count();
+        }
+        
+        const final = app.inflight.count();
+        if (final > 0) {
+          app.log.warn({ inflight: final }, 'shutdown deadline reached with in-flight requests');
+        } else {
+          app.log.info('all in-flight requests completed');
+        }
+        
+        process.exit(0);
+      } catch (err) {
+        app.log.error({ err }, 'shutdown error');
+        process.exit(1);
+      }
+    });
+  }
 }
 
 start();

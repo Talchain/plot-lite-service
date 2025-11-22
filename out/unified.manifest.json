@@ -1,0 +1,18 @@
+{
+  "schema": "unified.manifest.v1",
+  "timestamp": "2025-10-06T23:46:07.679Z",
+  "trust_status": "GREEN",
+  "reasons": [],
+  "components": {
+    "slos": null,
+    "determinism": {
+      "resp_hash": "a0264f9c",
+      "bma_hash": "23134876"
+    },
+    "trust_bundle": true,
+    "licences": {
+      "packages": 18,
+      "violations": 0
+    }
+  }
+}

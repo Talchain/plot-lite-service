@@ -1,0 +1,24 @@
+name: Plot Schema Validate
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "fixtures/plots/**"
+      - "tools/plot-validate.cjs"
+      - "openapi/schemas/plot.schema.json"
+permissions: { contents: read }
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate plots (no-deps)
+        run: node tools/plot-validate.cjs || true
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: plot-validate
+          path: reports/plot-validate.json
+          if-no-files-found: ignore

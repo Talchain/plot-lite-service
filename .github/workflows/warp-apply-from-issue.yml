@@ -1,0 +1,48 @@
+name: Warp Apply from Issue
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  apply-patch:
+    if: >-
+      ${{ github.event.issue.pull_request && contains(github.event.comment.body, '```diff') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract diff from comment
+        id: extract
+        run: |
+          node .github/scripts/extract-diff-from-comment.js > warp.patch
+          echo "patch_file=warp.patch" >> "$GITHUB_OUTPUT"
+
+      - name: Validate allowed paths
+        run: node .github/scripts/validate-allowed-paths.js "${{ steps.extract.outputs.patch_file }}"
+
+      - name: Apply patch and push branch
+        id: apply
+        run: |
+          set -e
+          git config user.name "warp-bot"
+          git config user.email "warp-bot@users.noreply.github.com"
+          BR="warp-auto-apply-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          git switch -c "$BR"
+          git apply "${{ steps.extract.outputs.patch_file }}"
+          git add -A
+          git commit -m "chore: auto-apply patch from issue comment"
+          git push -u origin "$BR"
+          echo "compare_url=https://github.com/${GITHUB_REPOSITORY}/compare/main...$BR?expand=1" >> "$GITHUB_OUTPUT"
+
+      - name: Output compare link
+        if: always()
+        run: echo "Compare URL: ${{ steps.apply.outputs.compare_url }}"
