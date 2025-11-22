@@ -102,6 +102,7 @@ describe('CEE Integration', () => {
       process.env.CEE_ORCHESTRATOR_ENABLE = '1';
       process.env.CEE_REVIEW_ENABLED = '1';
       process.env.CEE_BASE_URL = 'http://localhost:9999';
+      process.env.CEE_API_KEY = 'test-api-key-12345';
       process.env.CEE_TIMEOUT_MS = '1000';
       process.env.RATE_LIMIT_ENABLED = '0';
       app = await createServer();
@@ -116,6 +117,7 @@ describe('CEE Integration', () => {
       delete process.env.CEE_ORCHESTRATOR_ENABLE;
       delete process.env.CEE_REVIEW_ENABLED;
       delete process.env.CEE_BASE_URL;
+      delete process.env.CEE_API_KEY;
       delete process.env.CEE_TIMEOUT_MS;
       delete process.env.RATE_LIMIT_ENABLED;
     });
@@ -191,6 +193,7 @@ describe('CEE Integration', () => {
       process.env.CEE_ORCHESTRATOR_ENABLE = '1';
       process.env.CEE_REVIEW_ENABLED = '1';
       process.env.CEE_BASE_URL = 'http://localhost:1';
+      process.env.CEE_API_KEY = 'test-api-key-degraded';
       process.env.CEE_TIMEOUT_MS = '100';
       process.env.RATE_LIMIT_ENABLED = '0';
       app = await createServer();
@@ -205,6 +208,7 @@ describe('CEE Integration', () => {
       delete process.env.CEE_ORCHESTRATOR_ENABLE;
       delete process.env.CEE_REVIEW_ENABLED;
       delete process.env.CEE_BASE_URL;
+      delete process.env.CEE_API_KEY;
       delete process.env.CEE_TIMEOUT_MS;
       delete process.env.RATE_LIMIT_ENABLED;
     });
@@ -251,6 +255,7 @@ describe('CEE Integration', () => {
       process.env.CEE_ORCHESTRATOR_ENABLE = '1';
       process.env.CEE_REVIEW_ENABLED = '1';
       process.env.CEE_BASE_URL = 'http://localhost:9999';
+      process.env.CEE_API_KEY = 'test-api-key-hash-stability';
       process.env.RATE_LIMIT_ENABLED = '0';
       app = await createServer();
       await app.listen({ port: 0, host: '127.0.0.1' });
@@ -264,6 +269,7 @@ describe('CEE Integration', () => {
       delete process.env.CEE_ORCHESTRATOR_ENABLE;
       delete process.env.CEE_REVIEW_ENABLED;
       delete process.env.CEE_BASE_URL;
+      delete process.env.CEE_API_KEY;
       delete process.env.RATE_LIMIT_ENABLED;
     });
 
@@ -309,6 +315,50 @@ describe('CEE Integration', () => {
 
       // Hashes MUST be identical (CEE fields not included in hash)
       expect(hash1).toBe(hash2);
+    });
+
+    it('does not include cee* fields in model_card.response_hash', async () => {
+      const payload = {
+        graph: {
+          nodes: [
+            { id: 'A', label: 'Input' },
+            { id: 'B', label: 'Output' }
+          ],
+          edges: [{ from: 'A', to: 'B', weight: 0.5 }]
+        },
+        seed: 48,
+        outcome_node: 'B'
+      };
+
+      // Make request WITH Idempotency-Key (CEE enabled)
+      const res1 = await fetch(`${baseUrl}/v1/run`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': 'test-model-card-hash-stability-1'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      expect(res1.status).toBe(200);
+      const body1 = await res1.json();
+      const modelCardHash1 = body1.model_card?.response_hash;
+      expect(modelCardHash1).toBeDefined();
+
+      // Make identical request WITHOUT Idempotency-Key (CEE disabled)
+      const res2 = await fetch(`${baseUrl}/v1/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      expect(res2.status).toBe(200);
+      const body2 = await res2.json();
+      const modelCardHash2 = body2.model_card?.response_hash;
+      expect(modelCardHash2).toBeDefined();
+
+      // Model card hashes MUST be identical (CEE fields excluded from stampResponseHash)
+      expect(modelCardHash1).toBe(modelCardHash2);
     });
   });
 });
