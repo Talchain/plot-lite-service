@@ -55,7 +55,6 @@ function pruneAndEnforceCapacity(now: number) {
 
 // Periodic cleanup to prevent memory leak (runs every 10s for faster response); unref'd
 setInterval(() => { try { pruneAndEnforceCapacity(Date.now()); } catch {} }, 10000).unref();
-
 export async function rateLimit(req: FastifyRequest, reply: FastifyReply) {
   // Opportunistic pruning (1% of requests to avoid overhead)
   if (Math.random() < 0.01) {

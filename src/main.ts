@@ -69,7 +69,6 @@ async function start() {
       app.log.error({ err: (e as any)?.message }, 'failed to log health snapshot');
     }
   });
-
   for (const sig of ['SIGINT','SIGTERM'] as const) {
     process.on(sig, async () => {
       if (closing) return;

@@ -60,7 +60,8 @@ app.addHook('onResponse', async (req, reply) => {
   const start = (req as any).startTime as bigint | undefined;
   const end = process.hrtime.bigint();
   const durationMs = start ? Number(end - start) / 1e6 : undefined;
-  const route = (req as any)?.routeOptions?.url ?? req.url;
+  const rawRoute = (req as any)?.routeOptions?.url ?? req.url ?? '';
+  const route = String(rawRoute).split('?')[0].split('#')[0];
   if (typeof durationMs === 'number') {
     try {
       const { recordDurationMs, recordStatus } = await import('./metrics.js');

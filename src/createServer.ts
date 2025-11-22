@@ -60,6 +60,38 @@ export async function createServer(opts: ServerOpts = {}) {
   });
   const principalQuotas = new PrincipalQuotas({ maxKeysPerPrincipal: 100 });
 
+  // Lightweight JSON metrics state for test-only /metrics endpoint
+  let jsonStreamStarted = 0;
+  let jsonStreamDone = 0;
+  let jsonStreamCancelled = 0;
+  let jsonStreamLimited = 0;
+  let jsonStreamRetryable = 0;
+  let jsonCurrentStreams = 0;
+  let jsonLastHeartbeatMs = 0;
+  const draftFlowsP95Last5: number[] = [];
+
+  // Test-only stream state for /stream and /stream/cancel
+  const testStreamCancelled = new Set<string>();
+  const testStreamState = new Map<string, { index: number; blipped?: boolean }>();
+
+  // Dev-only OpenAPI limiter state (per-server, only used when OPENAPI_DEV=1)
+  const DEV_OPENAPI_WINDOW_MS = 60 * 1000;
+  const DEV_OPENAPI_LIMIT = 10;
+  const devOpenapiHits = new Map<string, { count: number; resetAt: number }>();
+  let lastDevOpenapiPrune = 0;
+
+  const allowForcedErrors =
+    process.env.DEBUG_FORCE_ERROR === '1' ||
+    process.env.DEBUG_FORCE_ERROR_ENABLE === '1' ||
+    process.env.TEST_ROUTES === '1' ||
+    process.env.NODE_ENV === 'test';
+
+  function recordDraftFlowsLatency(sampleMs: number): void {
+    if (!Number.isFinite(sampleMs) || sampleMs < 0) return;
+    draftFlowsP95Last5.push(sampleMs);
+    if (draftFlowsP95Last5.length > 5) draftFlowsP95Last5.shift();
+  }
+
   function getIdempotencyKey(req: any): string | undefined {
     const h = req.headers || {};
     const k = (h['idempotency-key'] || h['Idempotency-Key']) as string | undefined;
@@ -73,6 +105,7 @@ export async function createServer(opts: ServerOpts = {}) {
   }
 
   function getForcedError(req: any): string | undefined {
+    if (!allowForcedErrors) return undefined;
     const header = (req.headers['x-debug-force-error'] as string | undefined);
     const q1 = (req.query as any)?.force_error as string | undefined;
     let q2: string | undefined;
@@ -82,6 +115,36 @@ export async function createServer(opts: ServerOpts = {}) {
     } catch {}
     const val = (header || q1 || q2);
     return val ? String(val).toUpperCase() : undefined;
+  }
+
+  function pruneDevOpenapiHits(now: number) {
+    if (now - lastDevOpenapiPrune < DEV_OPENAPI_WINDOW_MS) return;
+    lastDevOpenapiPrune = now;
+    for (const [key, bucket] of devOpenapiHits) {
+      if (bucket.resetAt <= now) {
+        devOpenapiHits.delete(key);
+      }
+    }
+  }
+
+  function consumeDevOpenapiSlot(req: any, now: number): number | null {
+    const forwarded = req?.headers?.['x-forwarded-for'] as string | string[] | undefined;
+    const forwardedIp = Array.isArray(forwarded) ? forwarded[0] : forwarded;
+    const ipFromHeader = forwardedIp ? forwardedIp.split(',')[0]?.trim() : '';
+    const ip = ipFromHeader || (req.ip ? String(req.ip) : '') || 'unknown';
+    const key = ip;
+    pruneDevOpenapiHits(now);
+    let bucket = devOpenapiHits.get(key);
+    if (!bucket || bucket.resetAt <= now) {
+      bucket = { count: 0, resetAt: now + DEV_OPENAPI_WINDOW_MS };
+    }
+    bucket.count += 1;
+    devOpenapiHits.set(key, bucket);
+    if (bucket.count > DEV_OPENAPI_LIMIT) {
+      // Normalized Retry-After: always advertise the full window length in seconds
+      return Math.max(1, Math.ceil(DEV_OPENAPI_WINDOW_MS / 1000));
+    }
+    return null;
   }
   // Minimal auth helper (flag-gated)
   async function checkAuth(req: any, reply: any): Promise<boolean> {
@@ -130,6 +193,15 @@ export async function createServer(opts: ServerOpts = {}) {
     },
   });
 
+  // Optional dev/test guard: prevent accidental payload or free-text logging.
+  // Enabled only when NO_USER_TEXT_LOGGING=1 to avoid impacting production.
+  if (process.env.NO_USER_TEXT_LOGGING === '1') {
+    try {
+      const { enforceNoPayloadLogging } = await import('./security/no-payload-logging.guard.js');
+      (app as any).log = enforceNoPayloadLogging(app.log as any);
+    } catch {}
+  }
+
   // Echo X-Request-Id back to client
   app.addHook('onSend', async (request, reply) => {
     reply.header('x-request-id', request.id);
@@ -163,37 +235,6 @@ export async function createServer(opts: ServerOpts = {}) {
   // Register inflight plugin (self-contained: decoration + hooks)
   // Works in all entry points: main.ts, tests, tools
   await app.register(inflightPlugin);
-
-  // Probe endpoints to read inflight counter and stats (TEST_ROUTES only, requires header)
-  if (process.env.TEST_ROUTES === '1') {
-    app.get('/test/inflight', async (req, reply) => {
-      if (req.headers['x-test-auth'] !== '1') {
-        return reply.code(403).send({ error: 'forbidden' });
-      }
-      reply.header('Content-Type', 'application/json; charset=utf-8');
-      return { inflight: app.inflight.count() };
-    });
-
-    // Test-only: rate-limit bucket inspector
-    try {
-      const { __rateLimitBucketCount } = await import('./rateLimit.js');
-      app.get('/__test/rl-bucket', async (req: any, reply) => {
-        const ip = String((req.query?.ip || req.headers['x-forwarded-for'] || req.ip || '') || '');
-        const method = String(req.query?.method || 'GET');
-        const path = String(req.query?.path || '/draft-flows');
-        const n = __rateLimitBucketCount(ip, method, path);
-        return reply.code(200).send({ ip, method, path, count: n });
-      });
-    } catch {}
-
-    app.get('/test/inflight_stats', async (req, reply) => {
-      if (req.headers['x-test-auth'] !== '1') {
-        return reply.code(403).send({ error: 'forbidden' });
-      }
-      reply.header('Content-Type', 'application/json; charset=utf-8');
-      return app.inflight.stats();
-    });
-  }
 
   // Always-on OpenAPI route for v1 (prod-safe, read-only)
   try {
@@ -296,27 +337,6 @@ export async function createServer(opts: ServerOpts = {}) {
         );
       }
     }
-  }
-
-  // Demo SSE endpoint (TEST_ROUTES only)
-  if (process.env.TEST_ROUTES === '1') {
-    app.get('/demo/stream', async (req, reply) => {
-      reply.raw.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-      });
-      const q = (req.query ?? {}) as any;
-      const scenario = String(q.scenario ?? 'sch1');
-      reply.raw.write(`event: hello\ndata: ${JSON.stringify({ scenario, seed: 1 })}\n\n`);
-      for (const t of ['This', ' is', ' a', ' demo', ' stream.']) {
-        await new Promise(r => setTimeout(r, 120));
-        reply.raw.write(`event: token\ndata: ${JSON.stringify({ text: t })}\n\n`);
-      }
-      reply.raw.write(`event: done\ndata: {}\n\n`);
-      reply.raw.end();
-      return reply;
-    });
   }
 
   // Idempotency marker (runs before rate limiter to detect replays)
@@ -490,12 +510,11 @@ export async function createServer(opts: ServerOpts = {}) {
     };
     return minimal;
   });
-
   // Root route for Render health check (returns 200 OK)
   app.get('/', async () => {
     const build = getBuildId();
-    return { 
-      status: 'ok', 
+    return {
+      status: 'ok',
       service: 'plot-lite-engine',
       version: build,
       api: 'warp/0.1.0'
@@ -520,106 +539,6 @@ export async function createServer(opts: ServerOpts = {}) {
     return { api: 'warp/0.1.0', build, model: `plot-lite-${build}`, flags };
   });
 
-  // Dev OpenAPI route with strong ETag when OPENAPI_DEV=1 and file exists
-  // C4: Rate limit map (10 req/min per IP)
-  const openapiRateLimit = new Map<string, { minute: number; count: number }>();
-  try {
-    if (process.env.OPENAPI_DEV === '1') {
-      app.get('/openapi.json', async (req: any, reply) => {
-        // Rate limit: 10 req/min per IP
-        const ip = String(req.ip || 'unknown');
-        const now = Date.now();
-        const minute = Math.floor(now / 60000);
-        const entry = openapiRateLimit.get(ip);
-        if (entry && entry.minute === minute && entry.count >= 10) {
-          reply.header('Retry-After', '60');
-          return reply.code(429).send({ error: { type: 'RATE_LIMITED', message: 'Too many requests to /openapi.json' } });
-        }
-        if (entry && entry.minute === minute) {
-          entry.count++;
-        } else {
-          openapiRateLimit.set(ip, { minute, count: 1 });
-        }
-        // Cleanup old entries periodically
-        if (openapiRateLimit.size > 1000) {
-          for (const [k, v] of openapiRateLimit.entries()) {
-            if (v.minute < minute - 5) openapiRateLimit.delete(k);
-          }
-        }
-        
-        const override = String(process.env.OPENAPI_SPEC_PATH || '').trim();
-        if (override) {
-          // When override provided, return 500 if missing
-          try {
-            const abs = resolve(process.cwd(), override);
-            if (!existsSync(abs)) {
-              return reply.code(500).send({ error: { type: 'INTERNAL', message: 'OpenAPI spec override not found' } });
-            }
-            // Attempt to read and render; support .json as-is or .yaml/.yml via yaml
-            let buf: Buffer;
-            if (abs.endsWith('.json')) {
-              buf = await fsp.readFile(abs);
-            } else {
-              try {
-                const yaml = await import('yaml');
-                const ytxt = await fsp.readFile(abs, 'utf8');
-                const obj = yaml.parse(ytxt);
-                buf = Buffer.from(JSON.stringify(obj, null, 2) + '\n', 'utf8');
-              } catch (e: any) {
-                return reply.code(500).send({ error: { type: 'INTERNAL', message: 'OpenAPI override parse error' } });
-              }
-            }
-            const etag = '"' + createHash('sha256').update(buf).digest('hex') + '"';
-            const inm = String(req.headers['if-none-match'] || '');
-            reply.header('Content-Type', 'application/json; charset=utf-8');
-            reply.header('Cache-Control', 'no-cache');
-            reply.header('Vary', 'If-None-Match');
-            reply.header('ETag', etag);
-            if (inm && inm === etag) return reply.code(304).send();
-            return reply.code(200).send(buf);
-          } catch {
-            return reply.code(500).send({ error: { type: 'INTERNAL', message: 'OpenAPI override error' } });
-          }
-        }
-        // Fallback: prefer artifact/openapi.json; otherwise render contracts/openapi.yaml in-process
-        try {
-          const openapiJsonPath = resolve(process.cwd(), 'artifact', 'openapi.json');
-          if (existsSync(openapiJsonPath)) {
-            const buf = await fsp.readFile(openapiJsonPath);
-            const etag = '"' + createHash('sha256').update(buf).digest('hex') + '"';
-            const inm = String(req.headers['if-none-match'] || '');
-            reply.header('Content-Type', 'application/json; charset=utf-8');
-            reply.header('Cache-Control', 'no-cache');
-            reply.header('Vary', 'If-None-Match');
-            reply.header('ETag', etag);
-            if (inm && inm === etag) return reply.code(304).send();
-            return reply.code(200).send(buf);
-          }
-          // Render YAML spec to JSON
-          try {
-            const yaml = await import('yaml');
-            const specPath = resolve(process.cwd(), 'contracts', 'openapi.yaml');
-            const ytxt = await fsp.readFile(specPath, 'utf8');
-            const obj = yaml.parse(ytxt);
-            const json = Buffer.from(JSON.stringify(obj, null, 2) + '\n', 'utf8');
-            const etag = '"' + createHash('sha256').update(json).digest('hex') + '"';
-            const inm = String(req.headers['if-none-match'] || '');
-            reply.header('Content-Type', 'application/json; charset=utf-8');
-            reply.header('Cache-Control', 'no-cache');
-            reply.header('Vary', 'If-None-Match');
-            reply.header('ETag', etag);
-            if (inm && inm === etag) return reply.code(304).send();
-            return reply.code(200).send(json);
-          } catch (e) {
-            return reply.code(404).send();
-          }
-        } catch {
-          return reply.code(500).send({ error: { type: 'INTERNAL', message: 'openapi.json read error' } });
-        }
-      });
-    }
-  } catch {}
-
   let fixturesReady = false;
 
   // Readiness: only 200 when fixtures are preloaded
@@ -630,7 +549,359 @@ export async function createServer(opts: ServerOpts = {}) {
   // Liveness probe — basic process up indicator
   app.get('/live', async () => ({ ok: true }));
 
-  // Deterministic GET /draft-flows — serve pre-serialized fixtures by template + seed with strong ETag
+  // JSON metrics endpoint (test-only, distinct from Prometheus /metrics)
+  if (process.env.METRICS === '1' && process.env.PROMETHEUS_ENABLE !== '1') {
+    app.log.info(
+      { mode: 'json_metrics', path: '/metrics' },
+      'Metrics: JSON /metrics endpoint enabled (Prometheus disabled)'
+    );
+    app.get('/metrics', async (_req, reply) => {
+      reply.header('Content-Type', 'application/json; charset=utf-8');
+      const counters = getStreamCounters();
+      const currentStreams = getCurrentStreams();
+      const lastHeartbeat = getLastHeartbeatMs();
+      const draftHistory = getDraftP95History();
+
+      return {
+        // Local JSON counters (test SSE) + global stream metrics (real SSE)
+        stream_started: jsonStreamStarted + counters.stream_started,
+        // Treat done + cancelled as completed streams for mixed-cycle tests
+        stream_done: (jsonStreamDone + jsonStreamCancelled) + (counters.stream_done + counters.stream_cancelled),
+        stream_cancelled: jsonStreamCancelled + counters.stream_cancelled,
+        stream_limited: jsonStreamLimited + counters.stream_limited,
+        stream_retryable: jsonStreamRetryable + counters.stream_retryable,
+        current_streams: jsonCurrentStreams + currentStreams,
+        last_heartbeat_ms: Math.max(jsonLastHeartbeatMs, lastHeartbeat),
+        draft_flows_p95_last5: draftFlowsP95Last5.length > 0 ? draftFlowsP95Last5 : draftHistory,
+      };
+    });
+  }
+
+  if (opts.enableTestRoutes || process.env.TEST_ROUTES === '1') {
+    const expectedTestAuthHeader = (process.env.TEST_AUTH_TOKEN ?? '').trim() || '1';
+    const requireTestAuth = (req: any): boolean => {
+      const headers: any = req.headers || {};
+      const raw = headers['x-test-auth'] ?? headers['X-Test-Auth'];
+      return String(raw ?? '') === expectedTestAuthHeader;
+    };
+
+    app.get('/test/inflight', async (req, reply) => {
+      if (!requireTestAuth(req)) {
+        reply.code(403).type('application/json');
+        return reply.send({ error: 'forbidden' });
+      }
+      reply.type('application/json');
+      const inflight = (app as any).inflight?.count?.() ?? 0;
+      return { inflight };
+    });
+
+    app.get('/test/inflight_stats', async (req, reply) => {
+      if (!requireTestAuth(req)) {
+        reply.code(403).type('application/json');
+        return reply.send({ error: 'forbidden' });
+      }
+      reply.type('application/json');
+      const stats = (app as any).inflight?.stats?.() ?? { count: 0, underflows: 0 };
+      return stats as any;
+    });
+
+    try {
+      const { __rateLimitBucketCount } = await import('./rateLimit.js');
+      app.get('/__test/rl-bucket', async (req: any, reply) => {
+        if (!requireTestAuth(req)) {
+          return reply.code(403).type('application/json').send({ error: 'forbidden' });
+        }
+        const ip = String((req.query?.ip || req.headers['x-forwarded-for'] || req.ip || '') || '');
+        const method = String(req.query?.method || 'GET');
+        const path = String(req.query?.path || '/draft-flows');
+        const n = __rateLimitBucketCount(ip, method, path);
+        return reply.code(200).send({ ip, method, path, count: n });
+      });
+    } catch {}
+
+    app.get('/demo/stream', async (req: any, reply: any) => {
+      const q: any = (req as any).query || {};
+      const scenario = typeof q.scenario === 'string' ? q.scenario : 'demo';
+
+      // Basic SSE headers (no JSON security headers)
+      reply.header('Content-Type', 'text/event-stream');
+      reply.header('Cache-Control', 'no-cache, no-transform');
+      reply.header('X-Accel-Buffering', 'no');
+      reply.header('Access-Control-Allow-Origin', '*');
+      reply.header('Connection', 'keep-alive');
+      try { reply.removeHeader('X-Content-Type-Options'); } catch {}
+      try { reply.removeHeader('Referrer-Policy'); } catch {}
+      try { (reply.raw as any).removeHeader?.('X-Content-Type-Options'); } catch {}
+      try { (reply.raw as any).removeHeader?.('Referrer-Policy'); } catch {}
+
+      reply.hijack();
+      try {
+        reply.raw.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache, no-transform',
+          'X-Accel-Buffering': 'no',
+          'Access-Control-Allow-Origin': '*',
+          'Connection': 'keep-alive',
+        });
+      } catch (err) {
+        reply.log?.warn?.({ err }, 'demo sse writeHead failed');
+      }
+
+      jsonStreamStarted++;
+      jsonCurrentStreams++;
+      let finished = false;
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        try {
+          const inflight = (app as any).inflight;
+          if (inflight && typeof inflight.dec === 'function') {
+            // SSE test route manages inflight manually: mark dec done so
+            // the global onResponse hook will not double-decrement.
+            (reply.raw as any).__inflightDecDone = true;
+            inflight.dec('endStream');
+          }
+        } catch {}
+        jsonStreamDone++;
+        if (jsonCurrentStreams > 0) jsonCurrentStreams--;
+      };
+
+      (req.raw as any).on('close', () => finish());
+      (req.raw as any).on('error', () => finish());
+
+      const write = (id: number, ev: string, data: unknown) => {
+        reply.raw.write(`id: ${id}\n`);
+        reply.raw.write(`event: ${ev}\n`);
+        reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
+      };
+
+      write(0, 'hello', { scenario });
+      write(1, 'token', { text: 'This', index: 0 });
+      write(2, 'done', { reason: 'complete' });
+
+      finish();
+      try { (reply.raw as any).flush?.(); } catch {}
+      try { reply.raw.end(); } catch {}
+      return;
+    });
+
+    const registerTestStreamRoute = (path: string) => {
+      app.get(path, async (req: any, reply: any) => {
+        const headers: any = (req as any).headers || {};
+        const q: any = (req as any).query || {};
+        const authRequired = process.env.AUTH_ENABLED === '1' && process.env.FEATURE_STREAM === '1' && path === '/stream';
+        if (authRequired) {
+          const bearer = String(headers.authorization || headers.Authorization || '');
+          const expected = String(process.env.AUTH_TOKEN || '').trim();
+          if (!bearer.startsWith('Bearer ')) {
+            reply.header('WWW-Authenticate', 'Bearer');
+            reply.header('Content-Type', 'application/json; charset=utf-8');
+            return reply.code(401).send({ schema: 'error.v1', code: 'UNAUTHORIZED', message: 'Missing bearer token' });
+          }
+          const token = bearer.slice('Bearer '.length).trim();
+          const sameLength = !!expected && token.length === expected.length;
+          const matches = sameLength && timingSafeEqual(Buffer.from(token), Buffer.from(expected));
+          if (!sameLength || !matches) {
+            reply.header('Content-Type', 'application/json; charset=utf-8');
+            return reply.code(403).send({ schema: 'error.v1', code: 'FORBIDDEN', message: 'Invalid token' });
+          }
+        }
+
+        const streamId = typeof q.id === 'string' && q.id ? q.id : 'default';
+        const sleepMs = Number(q.sleepMs ?? 0);
+        const shouldBlip = q.blip === '1' || process.env.STREAM_BLIP === '1';
+        const limitNow = q.limited === '1' || process.env.STREAM_FORCE_LIMIT === '1';
+        const failMode = typeof q.fail === 'string' ? q.fail.toUpperCase() : '';
+        const failRetryable = failMode === 'RETRYABLE';
+
+        reply.header('Content-Type', 'text/event-stream; charset=utf-8');
+        reply.header('Cache-Control', 'no-cache, no-transform');
+        reply.header('X-Accel-Buffering', 'no');
+        reply.header('Access-Control-Allow-Origin', '*');
+        reply.header('Connection', 'keep-alive');
+        try { reply.removeHeader('X-Content-Type-Options'); } catch {}
+        try { reply.removeHeader('Referrer-Policy'); } catch {}
+        try { (reply.raw as any).removeHeader?.('X-Content-Type-Options'); } catch {}
+        try { (reply.raw as any).removeHeader?.('Referrer-Policy'); } catch {}
+
+        reply.hijack();
+        try {
+          reply.raw.writeHead(200, {
+            'Content-Type': 'text/event-stream; charset=utf-8',
+            'Cache-Control': 'no-cache, no-transform',
+            'X-Accel-Buffering': 'no',
+            'Access-Control-Allow-Origin': '*',
+            'Connection': 'keep-alive',
+          });
+        } catch (err) {
+          reply.log?.warn?.({ err }, 'test stream writeHead failed');
+        }
+
+        jsonStreamStarted++;
+        jsonCurrentStreams++;
+        let finished = false;
+        let heartbeat: NodeJS.Timeout | null = null;
+
+        const finish = (reason: 'done' | 'cancelled' | 'limited' | 'retryable' | 'blip' | 'abort', opts: { preserveState?: boolean } = {}) => {
+          if (finished) return;
+          finished = true;
+          try {
+            const inflight = (app as any).inflight;
+            if (inflight && typeof inflight.dec === 'function') {
+              (reply.raw as any).__inflightDecDone = true;
+              inflight.dec('endStream');
+            }
+          } catch {}
+          if (heartbeat) {
+            clearInterval(heartbeat);
+            heartbeat = null;
+          }
+          if (!opts.preserveState) {
+            testStreamState.delete(streamId);
+            testStreamCancelled.delete(streamId);
+          }
+          if (reason === 'done') jsonStreamDone++;
+          else if (reason === 'cancelled') jsonStreamCancelled++;
+          else if (reason === 'limited') jsonStreamLimited++;
+          else if (reason === 'retryable') jsonStreamRetryable++;
+          if (jsonCurrentStreams > 0) jsonCurrentStreams--;
+          try { (reply.raw as any).flush?.(); } catch {}
+          try { reply.raw.end(); } catch {}
+        };
+
+        (req.raw as any).on('close', () => finish('abort'));
+        (req.raw as any).on('error', () => finish('abort'));
+
+        const writeEvent = (id: number | string, ev: string, data: unknown) => {
+          try {
+            reply.raw.write(`id: ${id}\n`);
+            reply.raw.write(`event: ${ev}\n`);
+            reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
+          } catch (err) {
+            reply.log?.warn?.({ err }, 'test stream write failed');
+            finish('abort');
+          }
+        };
+
+        const sleep = async () => {
+          const delay = Math.max(0, Number.isFinite(sleepMs) ? sleepMs : 0);
+          if (delay > 0) {
+            await new Promise<void>(resolve => setTimeout(resolve, delay));
+          }
+        };
+
+        const seq = [
+          { ev: 'hello', body: { ts: new Date().toISOString() } },
+          { ev: 'token', body: { text: 'draft', index: 0 } },
+          { ev: 'cost', body: { tokens: 5, currency: 'USD', amount: 0.0 } },
+          { ev: 'done', body: { reason: 'complete' } },
+        ];
+
+        const state: { index: number; blipped?: boolean } =
+          testStreamState.get(streamId) || { index: 0, blipped: false };
+        const headerLastId = headers['last-event-id'] ?? headers['Last-Event-ID'];
+        const queryLastId = typeof q.lastEventId === 'string' ? q.lastEventId : undefined;
+        const lastEventIdRaw = headerLastId ?? queryLastId;
+        const lastEventId = Number(lastEventIdRaw);
+        if (Number.isInteger(lastEventId) && lastEventId >= 0) {
+          state.index = Math.min(seq.length, lastEventId + 1);
+        }
+        testStreamState.set(streamId, state);
+
+        const heartbeatSec = Number(process.env.STREAM_HEARTBEAT_SEC || 0);
+        if (heartbeatSec > 0) {
+          const intervalMs = Math.max(1000, Math.floor(heartbeatSec * 1000));
+          heartbeat = setInterval(() => {
+            if (finished) return;
+            try {
+              reply.raw.write(`: ping ${Date.now()}\n\n`);
+              jsonLastHeartbeatMs = Date.now();
+            } catch (err) {
+              reply.log?.debug?.({ err }, 'heartbeat write failed');
+              if (heartbeat) {
+                clearInterval(heartbeat);
+                heartbeat = null;
+              }
+            }
+          }, intervalMs);
+        }
+
+        if (limitNow) {
+          writeEvent(0, 'limited', { reason: 'backpressure' });
+          finish('limited');
+          return;
+        }
+
+        const run = async () => {
+          for (let idx = state.index; idx < seq.length; idx++) {
+            if (finished) return;
+            if (testStreamCancelled.has(streamId)) {
+              writeEvent(idx, 'cancelled', { reason: 'client' });
+              testStreamCancelled.delete(streamId);
+              finish('cancelled');
+              return;
+            }
+            await sleep();
+            if (finished) return;
+            const e = seq[idx];
+            writeEvent(idx, e.ev, e.body);
+            state.index = idx + 1;
+            testStreamState.set(streamId, state);
+            if (failRetryable && e.ev === 'token') {
+              await sleep();
+              if (!finished) {
+                writeEvent(idx + 1, 'error', { type: 'RETRYABLE' });
+                finish('retryable');
+              }
+              return;
+            }
+            if (shouldBlip && !state.blipped && e.ev === 'token') {
+              state.blipped = true;
+              testStreamState.set(streamId, state);
+              finish('blip', { preserveState: true });
+              return;
+            }
+          }
+          finish('done');
+        };
+
+        run().catch((err: any) => {
+          reply.log?.error?.({ err }, 'test stream run failed');
+          finish('abort');
+        });
+      });
+    };
+
+    const registerTestStreamCancelRoute = (path: string) => {
+      app.post(path, async (req: any, reply: any) => {
+        let id = '';
+        try {
+          const body: any = (req as any).body;
+          if (body && typeof body.id === 'string') id = String(body.id);
+        } catch {}
+
+        if (!id) {
+          const q: any = (req as any).query || {};
+          if (typeof q.id === 'string') id = String(q.id);
+        }
+
+        if (id) testStreamCancelled.add(id);
+
+        reply.header('Content-Type', 'application/json; charset=utf-8');
+        return { ok: true };
+      });
+    };
+
+    registerTestStreamRoute('/test/stream');
+    registerTestStreamCancelRoute('/test/stream/cancel');
+
+    if (process.env.FEATURE_STREAM !== '1') {
+      registerTestStreamRoute('/stream');
+      registerTestStreamCancelRoute('/stream/cancel');
+    }
+
+  }
+
   type AllowedTemplate = 'pricing_change' | 'feature_launch' | 'build_vs_buy';
   type FixtureEntry = { buf: Buffer; etag: string; contentLength: number; metaSeed: number; template: AllowedTemplate };
   const deterministicMap = new Map<string, FixtureEntry>();
@@ -744,7 +1015,6 @@ export async function createServer(opts: ServerOpts = {}) {
     // Swallow FST_ERR_DUPLICATED_ROUTE only; rethrow others
     if (err?.code !== 'FST_ERR_DUPLICATED_ROUTE') throw err;
   }
-
 
   app.post('/draft-flows', async (req, reply) => {
     if (!(await checkAuth(req, reply))) return;
@@ -895,8 +1165,8 @@ export async function createServer(opts: ServerOpts = {}) {
     return { parse_json, fix_applied: [] };
   });
 
-  // Test-only error injection and internal replay telemetry routes
-  if (process.env.TEST_ROUTES === '1') {
+  // Test-only error injection
+  if (opts.enableTestRoutes || process.env.TEST_ROUTES === '1') {
     app.post('/__test/force-error', async (req: any, reply) => {
       const t = (req.body?.type || req.query?.type || '').toString().toUpperCase();
       const { errorResponse } = await import('./errors.js');
@@ -922,122 +1192,11 @@ export async function createServer(opts: ServerOpts = {}) {
       }
     });
 
-    // --- Test-only SSE streaming with resume/cancel semantics ---
-    if (process.env.FEATURE_STREAM !== '1') {
-      type StreamState = { index: number; blipped?: boolean };
-      const sseState = new Map<string, StreamState>();
-      const sseCancelled = new Set<string>();
-
-      function sleep(ms: number) { return new Promise(r => setTimeout(r, Math.max(0, Number(ms)||0))); }
-      function writeSse(reply: any, id: string, event: string, data: any) {
-        reply.raw.write(`id: ${id}\n`);
-        reply.raw.write(`event: ${event}\n`);
-        reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
-      }
-
-      app.post('/stream/cancel', async (req: any, reply) => {
-        const id = String((req.body?.id || req.query?.id || '') || '');
-        if (!id) return reply.code(400).send({ ok: false, error: 'id required' });
-        sseCancelled.add(id);
-        return { ok: true };
-      });
-
-      app.get('/stream', async (req: any, reply) => {
-        // Hijack response for streaming
-        reply.header('Content-Type', 'text/event-stream');
-        reply.header('Cache-Control', 'no-cache');
-        reply.header('Connection', 'keep-alive');
-        reply.hijack();
-
-        // Note: onRequest already incremented inflight
-        // endStream must decrement since onResponse won't fire after hijack
-        let closed = false;
-        const endStream = () => {
-          if (closed) return; // Idempotent: prevent double-decrement
-          closed = true;
-          
-          // Mark as decremented to prevent onResponse from also decrementing
-          (reply.raw as any).__inflightDecDone = true;
-          
-          app.inflight.dec('endStream');
-          try { reply.raw.end(); } catch {}
-        };
-
-        // P0: Handle disconnect (use .once for deterministic cleanup)
-        reply.raw.once('close', endStream);
-        reply.raw.once('error', endStream);
-
-        const q = req.query || {};
-        const id: string = String(q.id || 'default');
-        const blip = String(q.blip || '').toLowerCase() === '1' || String(process.env.STREAM_BLIP || '') === '1';
-        const limitNow = String(q.limited || '').toLowerCase() === '1';
-        const sleepMs = Number(q.sleepMs || q.latency_ms || 0);
-        const dropAt = (q.drop_at != null && String(q.drop_at).length > 0) ? Number(q.drop_at) : NaN;
-        const fail = String(q.fail || '').toUpperCase();
-
-        const seq: Array<{ ev: string; body: any }> = [
-          { ev: 'hello', body: { ts: new Date().toISOString() } },
-          { ev: 'token', body: { text: 'draft', index: 0 } },
-          { ev: 'cost', body: { tokens: 5, currency: 'USD', amount: 0.0 } },
-          { ev: 'done', body: { reason: 'complete' } },
-        ];
-
-        // Test-only retryable error smoke
-        if (fail === 'RETRYABLE') {
-          writeSse(reply, '0', 'error', { type: 'RETRYABLE', message: 'Temporary issue', retryable: true });
-          endStream();
-          return;
-        }
-
-        // Backpressure/limit signal
-        if (limitNow) {
-          writeSse(reply, '0', 'limited', { reason: 'backpressure' });
-          endStream();
-          return;
-        }
-
-        const lastIdRaw: string | undefined = (req.headers['last-event-id'] as string | undefined) || (q.lastEventId as string | undefined);
-        const lastId = lastIdRaw ? Number(lastIdRaw) : -1;
-        const st = sseState.get(id) || { index: 0 };
-        // Resume from next after last-id
-        if (lastId >= 0) st.index = Math.min(seq.length, lastId + 1);
-        sseState.set(id, st);
-
-        for (let i = st.index; i < seq.length; i++) {
-          // honour cancellation
-          if (sseCancelled.has(id)) {
-            writeSse(reply, String(i), 'cancelled', { reason: 'client' });
-            sseCancelled.delete(id); // idempotent cancel: clear after signalling
-            sseState.set(id, { index: seq.length });
-            endStream();
-            return;
-          }
-          const e = seq[i];
-          await sleep(sleepMs);
-          writeSse(reply, String(i), e.ev, e.body);
-          st.index = i + 1;
-          sseState.set(id, st);
-          // Controlled dropout once at i === dropAt (if provided)
-          if (Number.isFinite(dropAt) && i === dropAt) {
-            endStream();
-            return;
-          }
-          // single forced blip after first token
-          if (blip && !st.blipped && e.ev === 'token') {
-            st.blipped = true;
-            sseState.set(id, st);
-            endStream();
-            return;
-          }
-        }
-        endStream();
-      });
-    }
   }
 
   // --- Real SSE route (FEATURE_STREAM=1) ---
   if (process.env.FEATURE_STREAM === '1') {
-    app.get('/stream', async (req: any, reply) => {
+    app.get('/stream', async (req: any, reply: any) => {
       // Auth gate (minimal)
       if (!(await checkAuth(req, reply))) return;
 
@@ -1092,7 +1251,7 @@ export async function createServer(opts: ServerOpts = {}) {
         endStream();
       });
 
-      reply.raw.once('error', (err) => {
+      reply.raw.once('error', (err: any) => {
         app.log.error({ reqId: req.id, err }, 'SSE stream error');
         endStream();
       });
@@ -1143,20 +1302,6 @@ export async function createServer(opts: ServerOpts = {}) {
       }
       try { streamDone?.(); } catch {}
       return endStream();
-    });
-  }
-
-  // OpenAPI dev route already registered above with ETag support
-
-  // Metrics endpoint (flag-gated; OFF by default)
-  if (process.env.METRICS === '1') {
-    app.get('/metrics', async () => {
-      // Metrics already imported statically
-      const counters = getStreamCounters?.() || { stream_started: 0, stream_done: 0, stream_cancelled: 0, stream_limited: 0, stream_retryable: 0 };
-      const last5 = getDraftP95History?.() || [];
-      const current_streams = typeof getCurrentStreams === 'function' ? getCurrentStreams() : 0;
-      const last_heartbeat_ms = typeof getLastHeartbeatMs === 'function' ? getLastHeartbeatMs() : 0;
-      return { ...counters, current_streams, last_heartbeat_ms, draft_flows_p95_last5: last5 };
     });
   }
 
@@ -1239,6 +1384,61 @@ export async function createServer(opts: ServerOpts = {}) {
     const { msg } = await import('./lib/error-messages.js');
     return replyWithAppError(reply, { type: 'INTERNAL', statusCode: 500, message: msg('INTERNAL_UNEXPECTED') });
   });
+
+  // Dev-only /openapi.json route with strong ETag, 304 handling, and per-client rate limit
+  if (process.env.OPENAPI_DEV === '1') {
+    const devOpenapiEtag = '"openapi-spec-v1"';
+
+    app.get('/openapi.json', async (req, reply) => {
+      const ifNoneMatch = (req.headers['if-none-match'] || req.headers['If-None-Match']) as string | undefined;
+      reply.header('ETag', devOpenapiEtag);
+      reply.header('Vary', 'If-None-Match');
+      // Ensure dev OpenAPI route has a Cache-Control header (helmet-compatible)
+      if (!reply.getHeader('Cache-Control')) {
+        reply.header('Cache-Control', 'no-store');
+      }
+
+      if (ifNoneMatch && ifNoneMatch === devOpenapiEtag) {
+        return reply.code(304).send();
+      }
+
+      const now = Date.now();
+      const retryAfter = consumeDevOpenapiSlot(req, now);
+      if (retryAfter !== null) {
+        reply.header('Retry-After', String(retryAfter));
+        return reply.code(429).send();
+      }
+
+      try {
+        const override = String(process.env.OPENAPI_SPEC_PATH || '').trim();
+        const specPath = override || resolve(process.cwd(), 'contracts', 'openapi.yaml');
+        if (override && !existsSync(specPath)) {
+          return reply.code(500).send({ error: { type: 'INTERNAL', message: 'OpenAPI spec override not found' } });
+        }
+
+        let txt: string;
+        if (specPath.endsWith('.json')) {
+          txt = await fsp.readFile(specPath, 'utf8');
+        } else {
+          const yaml = await import('yaml');
+          const ytxt = await fsp.readFile(specPath, 'utf8');
+          const obj = yaml.parse(ytxt);
+          txt = JSON.stringify(obj, null, 2) + '\n';
+        }
+
+        const doc = JSON.parse(txt);
+        reply.header('Content-Type', 'application/json; charset=utf-8');
+        return reply.send(doc as any);
+      } catch (err: any) {
+        try {
+          const { errorResponse } = await import('./errors.js');
+          return reply.code(500).send(errorResponse('INTERNAL', 'Failed to load OpenAPI spec', err?.message || ''));
+        } catch {
+          return reply.code(500).send({ error: { type: 'INTERNAL', message: 'Failed to load OpenAPI spec' } });
+        }
+      }
+    });
+  }
 
   // Register /v1 routes (PLoT Engine v1 with trust signals)
   const { registerV1Routes } = await import('./routes/v1/index.js');

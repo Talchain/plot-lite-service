@@ -5,7 +5,6 @@ const MAX_SAMPLES = 500;
 const samples: number[] = [];
 let c2xx = 0, c4xx = 0, c5xx = 0;
 let lastReplayStatus: 'unknown' | 'ok' | 'drift' = 'unknown';
-
 // Replay telemetry snapshot (in-memory only)
 // Note: keep distinct from lastReplayStatus (legacy) to avoid breaking existing consumers.
 // Monotonic counters: refusals, retries. lastStatus is 'ok' | 'fail' | 'unknown'.
@@ -39,6 +38,8 @@ export function getLastRequestAt(): string | null { return lastRequestAtISO; }
 export function recordDurationMs(ms: number) {
   samples.push(ms);
   if (samples.length > MAX_SAMPLES) samples.shift();
+  // Update last_request_at for /v1/health
+  try { lastRequestAtISO = new Date().toISOString(); } catch {}
 }
 
 export function recordStatus(code: number) {

@@ -11,7 +11,7 @@
    - Auto-Deploy: ✅ Enabled
 
 2. **Environment Variables**
-   
+
    **Production (recommended)**:
    ```
    NODE_ENV=production
@@ -26,15 +26,17 @@
    CORS_ORIGINS=https://olumi.netlify.app,https://olumi.netlify.app/#/sandbox
    TEST_ROUTES=1
    ```
-   
+
    **CORS Options**:
-   - `CORS_ORIGINS`: Comma-separated list for multiple origins (recommended)
+   - `CORS_ORIGINS`: Comma-separated list for multiple origins (recommended).  
      Example: `CORS_ORIGINS=https://app.example.com,https://staging.example.com`
-   - If not set, CORS is disabled (secure default)
-   
+   - `CORS_ORIGIN`: Single origin fallback used only if `CORS_ORIGINS` is not set.  
+     Example: `CORS_ORIGIN=https://app.example.com`
+   - If neither is set, CORS is disabled (secure default).
+
    **Feature Flags**:
-   - `TEST_ROUTES=1`: Enables demo endpoints like `/demo/stream` (can be toggled off later)
-   - `RATE_LIMIT_ENABLED=0`: Disables rate limiting (not recommended for production)
+   - `TEST_ROUTES=1`: Enables demo endpoints like `/demo/stream` (can be toggled off later).
+   - `RATE_LIMIT_ENABLED=0`: Disables rate limiting (not recommended for production).
 
 3. **Optional: CI Deploy Hook**
    - In Render: Settings → Deploy Hook → Copy URL
@@ -87,7 +89,7 @@ curl -Ns http://127.0.0.1:4311/demo/stream?scenario=sch1 | sed -n '1,20p'
 ```
 
 ## Notes
-- Server auto-deploys on push to `main`
-- Graceful shutdown on SIGTERM (zero-downtime)
-- CORS disabled by default; set `CORS_ORIGINS` to enable
-- Demo endpoints only available when `TEST_ROUTES=1`
+- Server auto-deploys on push to `main`.
+- Graceful shutdown on SIGTERM (zero-downtime).
+- CORS disabled by default; set `CORS_ORIGINS` or `CORS_ORIGIN` to enable.
+- Demo endpoints only available when `TEST_ROUTES=1`.
