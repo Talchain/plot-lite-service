@@ -1,5 +1,6 @@
+import { incJson429Count } from './metrics.js';
+import { ERR_MSG } from './lib/error-messages.js';
 const perIp = new Map();
-const LIMIT = Number(process.env.RATE_LIMIT_RPM || process.env.RATE_LIMIT_PER_MIN || 60);
 // Track 429s per-minute to expose last5m_429 in /health
 const perMinute429 = new Map();
 function record429(now) {
@@ -19,13 +20,32 @@ function last5m429(now) {
         sum += perMinute429.get(m) || 0;
     return sum;
 }
+function getLimit() {
+    const envRpm = process.env.RATE_LIMIT_RPM || process.env.RATE_LIMIT_PER_MIN;
+    const n = Number(envRpm);
+    if (Number.isFinite(n))
+        return n;
+    return 60;
+}
 export async function rateLimit(req, reply) {
     const ENABLED = process.env.RATE_LIMIT_ENABLED !== '0';
     if (!ENABLED)
         return; // disabled
-    // Exempt basic health/readiness endpoints from rate limiting
+    const LIMIT = getLimit();
+    if (LIMIT <= 0)
+        return; // rpm<=0 disables limiter
+    // Exempt basic health/readiness + test probe/SSE endpoints from this coarse limiter
     const url = req.url || '';
-    if (req.method === 'GET' && (url.startsWith('/health') || url.startsWith('/ready') || url.startsWith('/version'))) {
+    if (req.method === 'GET' && (url.startsWith('/health') ||
+        url.startsWith('/v1/health') ||
+        url.startsWith('/ready') ||
+        url.startsWith('/live') ||
+        url.startsWith('/version') ||
+        url.startsWith('/ops/snapshot') ||
+        url.startsWith('/metrics') ||
+        url.startsWith('/test/inflight') ||
+        url.startsWith('/stream') ||
+        url.startsWith('/demo/stream'))) {
         return;
     }
     const ip = req.ip || 'unknown';
@@ -39,25 +59,35 @@ export async function rateLimit(req, reply) {
         // set 2xx rate-limit headers for allowed request
         reply.header('X-RateLimit-Limit', String(LIMIT));
         reply.header('X-RateLimit-Remaining', String(Math.max(0, LIMIT - s.count)));
+        reply.header('X-RateLimit-Reset', String(Math.floor(s.resetAt / 1000)));
         return;
     }
     s.count += 1;
     if (s.count > LIMIT) {
         const retryMs = Math.max(1, s.resetAt - now);
         reply.header('Retry-After', Math.ceil(retryMs / 1000));
+        reply.header('X-RateLimit-Limit', String(LIMIT));
+        reply.header('X-RateLimit-Remaining', '0');
+        reply.header('X-RateLimit-Reset', String(Math.floor(s.resetAt / 1000)));
+        try {
+            incJson429Count();
+        }
+        catch { }
         record429(now);
-        return reply.code(429).send({ error: { type: 'RETRYABLE', message: 'Rate limit exceeded', hint: `Please retry after ${Math.ceil(retryMs / 1000)} seconds` } });
+        return reply.code(429).send({ error: { type: 'RATE_LIMIT', message: ERR_MSG.RATE_LIMIT_RPM } });
     }
     // set 2xx rate-limit headers for allowed request
     reply.header('X-RateLimit-Limit', String(LIMIT));
     reply.header('X-RateLimit-Remaining', String(Math.max(0, LIMIT - s.count)));
+    reply.header('X-RateLimit-Reset', String(Math.floor(s.resetAt / 1000)));
 }
 export function rateLimitState() {
     const enabled = process.env.RATE_LIMIT_ENABLED !== '0';
     const now = Date.now();
+    const rpm = getLimit();
     return {
         enabled,
-        rpm: LIMIT,
+        rpm,
         last5m_429: last5m429(now),
     };
 }

@@ -90,6 +90,50 @@ Exemptions: GET /ready, GET /health, and GET /version are not rate-limited.
 - POST /critique → deterministic rules (no AI); Ajv-validated parse_json body
 - POST /improve → echoes parse_json and returns { fix_applied: [] }
 
+## Engine contracts (v1)
+
+- **SSOT triad (v1)**
+  - `src/contracts/types.ts` – `GraphV1`, `EvidenceAppliedV1`, `ReportV1`
+  - `contracts/openapi.yaml` – OpenAPI schemas for `graph`, `runResponse`, `errorV1`, `limits`, `health`
+  - `src/schemas/response.ts` – Ajv `runResponseSchema` and `healthResponseSchema` used at runtime
+
+- **GraphV1 (decision graph)**
+  - Canonical graph contract used on `/v1/*` engine routes.
+  - Defined in `src/contracts/types.ts` as `GraphV1` and mirrored in `contracts/openapi.yaml` under `components.schemas.graph`.
+  - Shape (high level):
+    - `nodes: { id: string; label: string; ... }[]`
+    - `edges: { from: string; to: string; weight?: number; ... }[]`
+  - Graph, node, and edge objects may carry extra metadata fields that the engine ignores but preserves.
+  - Ingress limits: up to 200 nodes and 500 edges (enforced at `/v1/run` and documented in OpenAPI and `/v1/limits`).
+
+- **ReportV1 (run result)**
+  - Canonical response contract for `/v1/run` (and demo fixtures), defined in `src/contracts/types.ts` as `ReportV1`.
+  - Top-level:
+    - `schema: 'run.v1' | 'report.v1'`
+    - `graph: GraphV1` (canonical graph used for inference)
+    - `results`: full envelope `{ conservative, most_likely, optimistic, ... }`
+    - `result`: deterministic summary `{ response_hash, summary: { p10, p50, p90 } }`
+    - `model_card`: includes `seed`, `determinism_note`, and stamped `response_hash`
+    - `meta`: includes `seed`, optional `commit` / `version` / `inference_mode`, and sanitized `evidence_applied` as `{ node_id, source }[]`
+    - Optional trust artefacts: `critique`, `explain_delta`, `identifiability`, `linearity_warning`, `threshold_crossings`, `fork_suggestions`, `trace_id`, `debug`
+  - OpenAPI `components.schemas.runResponse` and the Ajv `runResponseSchema` in `src/schemas/response.ts` are aligned with this contract.
+
+- **Error contract (error.v1)**
+  - All v1 JSON errors share a common envelope, defined in OpenAPI as `components.schemas.errorV1` and implemented by the global error handler.
+  - Shape:
+    - `schema: 'error.v1'`
+    - `code: 'BAD_INPUT' | 'UNAUTHORIZED' | 'FORBIDDEN' | 'RATE_LIMITED' | 'INTERNAL'`
+    - `message: string` (human-readable)
+    - Optional `field`, `path[]`, and `details` to locate the offending input.
+  - Malformed JSON bodies on `/v1/run` are normalised to a flat `error.v1` with `code: 'BAD_INPUT'`, `field: 'body'`, and `path: ['/body']`.
+
+- **Key v1 engine endpoints**
+  - `/v1/run` → returns `ReportV1` with full trust signals and deterministic `result.summary`.
+  - `/v1/validate` → validates a `GraphV1` payload and returns structured violations (no inference).
+  - `/v1/limits` → returns `limits.v1` (graph size limits, body limit in KB, rate_limit_rpm, and feature flags such as `scm_lite`).
+  - `/v1/health` → returns health, p95 metrics, and rate-limit/stream counters (shape documented in OpenAPI but intentionally flexible).
+  - `/v1/openapi.json` → serves the machine-readable OpenAPI spec for all v1 routes.
+
 ## Determinism
 
 - Responses from /draft-flows are pre-serialised from fixtures; byte-for-byte equality is enforced by tools/replay-fixtures.js across all cases.

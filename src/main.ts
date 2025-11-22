@@ -1,12 +1,40 @@
 import { createServer } from './createServer.js';
+import { validateEnv } from './config-validator.js';
+import { validateHMACSecrets } from './config/secret-validation.js';
 
 const PORT = Number(process.env.PORT || 4311);
 const HOST = '0.0.0.0';
 
 async function start() {
+  validateEnv();
+  validateHMACSecrets();
+
   const app = await createServer({ enableTestRoutes: process.env.TEST_ROUTES === '1' });
-  await app.listen({ port: PORT, host: HOST });
-  app.log.info({ port: PORT }, 'server started');
+
+  // Graceful shutdown with in-flight drain (hooks must be registered before listen)
+  let closing = false;
+  let inflight = 0;
+  app.addHook('onRequest', async () => { if (!closing) inflight++; });
+  app.addHook('onResponse', async () => { if (inflight > 0) inflight--; });
+
+  for (const sig of ['SIGINT','SIGTERM'] as const) {
+    process.on(sig, async () => {
+      if (closing) return;
+      closing = true;
+      app.log.info({ sig }, 'shutting down');
+      try {
+        // Stop accepting new connections
+        await app.close();
+        const deadline = Date.now() + 5000;
+        while (inflight > 0 && Date.now() < deadline) {
+          await new Promise(r => setTimeout(r, 50));
+        }
+        process.exit(0);
+      } catch {
+        process.exit(1);
+      }
+    });
+  }
 
   // Health snapshot on SIGUSR2 (ops nicety)
   process.on('SIGUSR2', async () => {
@@ -34,30 +62,8 @@ async function start() {
     }
   });
 
-  // Graceful shutdown with in-flight drain
-  let closing = false;
-  let inflight = 0;
-  app.addHook('onRequest', async () => { if (!closing) inflight++; });
-  app.addHook('onResponse', async () => { if (inflight > 0) inflight--; });
-
-  for (const sig of ['SIGINT','SIGTERM'] as const) {
-    process.on(sig, async () => {
-      if (closing) return;
-      closing = true;
-      app.log.info({ sig }, 'shutting down');
-      try {
-        // Stop accepting new connections
-        await app.close();
-        const deadline = Date.now() + 5000;
-        while (inflight > 0 && Date.now() < deadline) {
-          await new Promise(r => setTimeout(r, 50));
-        }
-        process.exit(0);
-      } catch {
-        process.exit(1);
-      }
-    });
-  }
+  await app.listen({ port: PORT, host: HOST });
+  app.log.info({ port: PORT }, 'server started');
 }
 
 start();
