@@ -294,7 +294,12 @@ export function createQueryValidator(route: 'stream') {
           }
         } catch {}
         if (!validateStreamQuery(q)) {
-          try { reply.log.warn({ q, errors: validateStreamQuery.errors }, 'stream query validation failed'); } catch {}
+          try {
+            reply.log.warn({ q, errors: validateStreamQuery.errors }, 'stream query validation failed');
+          } catch (logErr) {
+            // Logging failure shouldn't block validation response
+            console.error('[validation] Failed to log stream query validation error:', logErr);
+          }
           const errorResponse = formatValidationErrors(validateStreamQuery.errors || []);
           await clearInflightKey(req);
           return reply.code(400).send(errorResponse);
