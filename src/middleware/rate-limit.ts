@@ -178,7 +178,16 @@ export function makeRateLimiter() {
       }
       
       // Structured log for 429
-      req.log.warn({ evt: 'throttle', id: req.id, route: req.url, rpm: getRateLimitRpm(), reason: 'rate_limit' });
+      // Avoid logging query strings or fragments in route to prevent leaking sensitive data
+      let sanitizedRoute: string;
+      const rawUrl = String((req as any).url || '');
+      try {
+        const u = new URL(rawUrl, 'http://local');
+        sanitizedRoute = u.pathname;
+      } catch {
+        sanitizedRoute = rawUrl.split('?')[0].split('#')[0];
+      }
+      req.log.warn({ evt: 'throttle', id: req.id, route: sanitizedRoute, rpm: getRateLimitRpm(), reason: 'rate_limit' });
       
       return reply.code(429).send({
         error: { type: 'RATE_LIMIT', message: ERR_MSG.RATE_LIMIT_RPM }
