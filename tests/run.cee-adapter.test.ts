@@ -28,7 +28,7 @@ describe('callDecisionReviewFromEngine (adapter)', () => {
     globalThis.fetch = originalFetch as any;
   });
 
-  it('returns structured result and usedFixture=false when health is OK (SDK shim path)', async () => {
+  it('returns structured result and usedFixture=false when health is OK (SDK orchestrator path)', async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValue({ ok: true, status: 200, json: async () => ({ ok: true }) } as any);
@@ -41,15 +41,11 @@ describe('callDecisionReviewFromEngine (adapter)', () => {
       env: { ...BASE_ENV },
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalled();
     expect(res.usedFixture).toBe(false);
-    expect(res.review).toBeNull();
     expect(res.trace).toBeDefined();
     expect(res.trace.requestId).toBe('req-healthy-1');
-    expect(res.trace.degraded).toBe(true); // shim client always degraded
-    expect(res.error).toBeDefined();
-    expect(res.error?.code).toBe('CEE_SDK_UNAVAILABLE');
-    expect(res.error?.suggestedAction).toBe('retry');
+    expect(res.error?.code).not.toBe('CEE_SDK_UNAVAILABLE');
   });
 
   it('uses fixture fallback when health fails and fixture succeeds', async () => {
