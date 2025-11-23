@@ -658,6 +658,10 @@ export async function registerRunRoute(app: FastifyInstance) {
     recordEngineComputeMs(computeMs);
 
     // Add X-Olumi-Backend header
+    try {
+      const buildTag = process.env.BUILD_ID || process.env.GITHUB_SHA || 'dev';
+      reply.header('X-Build-Tag', buildTag);
+    } catch {}
     reply.header('X-Olumi-Backend', backend);
 
     return response;
