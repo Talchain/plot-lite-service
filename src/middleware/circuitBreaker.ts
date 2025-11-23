@@ -167,7 +167,9 @@ function transitionTo(circuit: CircuitStats, newState: CircuitState, scope?: 'gl
       try {
         const { recordCircuitOpen } = require('../metrics/registry.js');
         recordCircuitOpen(scope, reason);
-      } catch {}
+      } catch (err) {
+        console.warn('[circuit-breaker] Failed to record circuit open event:', err);
+      }
     }
   } else if (newState === 'half_open') {
     circuit.halfOpenProbes = 0;
@@ -210,7 +212,9 @@ function recordOutcome(circuit: CircuitStats, is429: boolean, scope?: 'global' |
         try {
           const { recordCircuitProbe } = require('../metrics/registry.js');
           recordCircuitProbe(scope, 'success');
-        } catch {}
+        } catch (err) {
+          console.warn('[circuit-breaker] Failed to record circuit probe:', err);
+        }
       }
       
       if (circuit.halfOpenProbes >= CONFIG.halfOpenProbes) {
@@ -317,7 +321,9 @@ export function trackCircuitBreakerResponse(
       const { recordRateLimit429 } = require('../metrics/registry.js');
       const route = (req as any)?.routeOptions?.url || 'unknown';
       recordRateLimit429(route);
-    } catch {}
+    } catch (err) {
+      console.warn('[circuit-breaker] Failed to record 429 metric:', err);
+    }
   }
   
   // Only update circuit state if breaker is enabled

@@ -37,7 +37,9 @@ export function getCached(principal: string, idempKey: string): Entry | null {
   const e = store.get(k);
   if (!e) return null;
   if (e.expiry < now()) { store.delete(k); return null; }
-  try { const tmp = store.get(k)!; store.delete(k); store.set(k, tmp); } catch {}
+  try { const tmp = store.get(k)!; store.delete(k); store.set(k, tmp); } catch (err) {
+    console.warn('[idempotency] Failed to reorder LRU cache entry:', err);
+  }
   return e;
 }
 
@@ -63,7 +65,9 @@ export function pruneExpired(max = 1000) {
   }
 }
 
-setInterval(() => { try { pruneExpired(500); } catch {} }, 60000).unref();
+setInterval(() => { try { pruneExpired(500); } catch (err) {
+  console.warn('[idempotency] Failed to prune expired entries:', err);
+} }, 60000).unref();
 
 export function getIdemStoreSize(): number { return store.size; }
 export function __idemSize(): number { return store.size; }

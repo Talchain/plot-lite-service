@@ -73,7 +73,9 @@ export function replyWithAppError(reply: ReplyLike, args: ReplyAppErrorArgs) {
       const req = (reply as any)?.request;
       req?.log?.debug?.({ type: args.type, statusCode: args.statusCode, devDetail: args.devDetail }, 'validation detail (dev only)');
     }
-  } catch {}
+  } catch (err) {
+    console.warn('[errors] Failed to log debug validation detail:', err);
+  }
 
   const publicMessage = ((): string => {
     if (args.message) return args.message;

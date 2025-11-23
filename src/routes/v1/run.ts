@@ -29,7 +29,7 @@ import {
   VALIDATION_MAX_EDGES
 } from '../../config/constants.js';
 import { validateEffect, applyEffect } from '../../engine/effects.js';
-import { runDecisionReview } from '../../cee/client.js';
+import { callDecisionReviewFromEngine } from '../../cee/client.js';
 
 
 export interface RunRequest {
@@ -575,35 +575,38 @@ export async function registerRunRoute(app: FastifyInstance) {
     let response: any = stamped;
     try {
       const idk = String((req.headers as any)['idempotency-key'] || (req.headers as any)['Idempotency-Key'] || '').trim();
-      if (idk) {
-        const ceeContext = {
-          schema,
-          response_hash: response.result?.response_hash,
-          seed,
-          inference_mode,
-          graph_summary: {
-            nodes: graph.nodes?.length ?? 0,
-            edges: graph.edges?.length ?? 0,
-          },
-        };
+      const enableRaw = String(process.env.CEE_ORCHESTRATOR_ENABLE ?? '').toLowerCase();
+      const ceeEnabled = enableRaw === '1' || enableRaw === 'true';
 
-        const ceeResult = await runDecisionReview({
-          context: ceeContext,
+      if (idk && ceeEnabled) {
+        const cee = await callDecisionReviewFromEngine({
           requestId: String(req.id),
-          logger: req.log,
+          context: {
+            response_hash: response.result?.response_hash,
+            seed,
+            inference_mode,
+            graph_summary: {
+              nodes: graph.nodes?.length ?? 0,
+              edges: graph.edges?.length ?? 0,
+            },
+          },
+          env: {
+            enable: process.env.CEE_ORCHESTRATOR_ENABLE,
+            baseUrl: process.env.CEE_BASE_URL,
+            apiKey: process.env.CEE_API_KEY,
+            timeoutMs: Number(process.env.CEE_TIMEOUT_MS ?? 10_000),
+          },
         });
 
-        if (ceeResult) {
-          // Only attach CEE fields if they have actual data (not null)
-          if (ceeResult.ceeReview !== null) {
-            (response as any).ceeReview = ceeResult.ceeReview;
-          }
-          if (ceeResult.ceeTrace !== null) {
-            (response as any).ceeTrace = ceeResult.ceeTrace;
-          }
-          if (ceeResult.ceeError !== null) {
-            (response as any).ceeError = ceeResult.ceeError;
-          }
+        // Only attach CEE fields if they have actual data (not null)
+        if (cee.review !== null) {
+          (response as any).ceeReview = cee.review;
+        }
+        if (cee.trace) {
+          (response as any).ceeTrace = cee.trace;
+        }
+        if (cee.error) {
+          (response as any).ceeError = cee.error;
         }
       }
     } catch (err: any) {

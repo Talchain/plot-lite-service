@@ -11,7 +11,7 @@ import { refreshFromEnv } from './config/runtimeConfig.js';
 import { securityHeadersOnSend } from './middleware/security-headers.js';
 import { replyWithAppError } from './errors.js';
 import inflightPlugin from './plugins/inflight.js';
-import { noteLastRequestAt, recordDurationMs, recordStatus, recordDraftDurationMs, recordReplayStatus, recordReplayRefusal, recordReplayRetry, p95Ms, p99Ms, eventLoopDelayMs, snapshot, replaySnapshot, streamStarted, streamDone, streamLimited, incCurrentStreams, decCurrentStreams, noteHeartbeat, getStreamCounters, getDraftP95History, getCurrentStreams, getLastHeartbeatMs, setIdemCacheSize, setIdemPrincipals, setIdemEvictions, } from './metrics.js';
+import { noteLastRequestAt, recordDurationMs, recordStatus, recordDraftDurationMs, recordReplayStatus, recordReplayRefusal, recordReplayRetry, p95Ms, p99Ms, eventLoopDelayMs, snapshot, replaySnapshot, streamStarted, streamDone, streamLimited, incCurrentStreams, decCurrentStreams, noteHeartbeat, getStreamCounters, getDraftP95History, getCurrentStreams, getLastHeartbeatMs, setIdemCacheSize, } from './metrics.js';
 export async function createServer(opts = {}) {
     // P0: Validate HMAC secrets (fail-fast)
     const { validateHMACSecrets } = await import('./config/secret-validation.js');
@@ -267,9 +267,11 @@ export async function createServer(opts = {}) {
     });
     // CORS: enable for browser apps with strict preflight
     {
+        const { parseCorsCsv } = await import('./lib/corsParser.js');
         const defaultOrigins = 'http://localhost:5173';
-        const originsCsv = (process.env.CORS_ALLOW_ORIGINS || process.env.WEB_APP_ORIGIN || defaultOrigins).trim();
-        const origins = originsCsv.split(',').map(s => s.trim()).filter(Boolean);
+        // CORS_ORIGINS is the primary variable (documented, validated), CORS_ALLOW_ORIGINS for backward compat
+        const originsCsv = (process.env.CORS_ORIGINS || process.env.CORS_ALLOW_ORIGINS || process.env.WEB_APP_ORIGIN || defaultOrigins).trim();
+        const origins = parseCorsCsv(originsCsv, { allowWildcardDev: process.env.CORS_DEV === '1' });
         await app.register(cors, {
             origin: origins,
             methods: ['GET', 'POST', 'OPTIONS', 'HEAD'],
@@ -292,7 +294,7 @@ export async function createServer(opts = {}) {
             const hasLocalhost = origins.some(o => o.includes('localhost') || o.includes('127.0.0.1'));
             if (hasLocalhost) {
                 console.warn('[SECURITY WARNING] Production CORS includes localhost/127.0.0.1. ' +
-                    'Review CORS_ALLOW_ORIGINS configuration.');
+                    'Review CORS_ORIGINS configuration.');
             }
         }
     }
