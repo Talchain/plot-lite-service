@@ -27,7 +27,9 @@ function getEffectiveRpm(): number {
   try {
     const rc = getRateLimitRpm();
     if (Number.isFinite(rc) && rc > 0) return rc;
-  } catch {}
+  } catch (err) {
+    console.warn('[rate-limit] Failed to get runtime RPM config:', err);
+  }
   return FLAGS.RATE_LIMIT_RPM;
 }
 
@@ -207,7 +209,9 @@ export function makeRateLimiter() {
       if (status >= 200 && status < 400) {
         marker.rec.count++;
       }
-    } catch {}
+    } catch (err) {
+      console.warn('[rate-limit] Failed to update request count:', err);
+    }
     done();
   };
   

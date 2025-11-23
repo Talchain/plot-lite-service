@@ -23,6 +23,8 @@ export async function securityHeadersOnSend(req: FastifyRequest, reply: FastifyR
     if (!url.startsWith('/v1/limits')) {
       reply.header('Cache-Control', 'no-store');
     }
-  } catch {}
+  } catch (err) {
+    console.warn('[security-headers] Failed to apply security headers:', err);
+  }
   return payload as any;
 }

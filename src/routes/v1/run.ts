@@ -15,15 +15,21 @@ import { checkIdentifiability } from '../../trust/identifiability.js';
 import { enforceComputeBudget } from '../../governance/cost-estimator.js';
 import { stampResponseHash, hashCanonicalInput } from '../../util/canonical-json.js';
 import type { Graph } from '../../trust/types.js';
-import { runSCMLite } from '../../scm-lite/adapter.js';
 import { getInferenceEngine, type InferenceMode } from '../../inference/index.js';
 import { computeSensitivitySimple } from '../../lib/sensitivity-simple.js';
 import { recordEngineComputeMs } from '../../metrics.js';
 import { runResponseSchema } from '../../schemas/response.js';
 import { normalizeGraph } from '../../util/normalize.js';
 import { FLAGS } from '../../config/flags.js';
-import { BODY_LIMIT_BYTES } from '../../config/constants.js';
+import {
+  BODY_LIMIT_BYTES,
+  LIMITS_MAX_NODES,
+  LIMITS_MAX_EDGES,
+  VALIDATION_MAX_NODES,
+  VALIDATION_MAX_EDGES
+} from '../../config/constants.js';
 import { validateEffect, applyEffect } from '../../engine/effects.js';
+import { callDecisionReviewFromEngine } from '../../cee/client.js';
 
 
 export interface RunRequest {
@@ -302,10 +308,10 @@ export async function registerRunRoute(app: FastifyInstance) {
       });
     }
     
-    // SCM-Lite schema and caps
+    // SCM-Lite schema and caps (use centralized constants)
     const schema = useScmLite ? 'report.v1' : 'run.v1';
-    const maxNodes = useScmLite ? 50 : 200;
-    const maxEdges = useScmLite ? 200 : 500;
+    const maxNodes = useScmLite ? LIMITS_MAX_NODES : VALIDATION_MAX_NODES;
+    const maxEdges = useScmLite ? LIMITS_MAX_EDGES : VALIDATION_MAX_EDGES;
 
     const nodeCount = graph.nodes?.length ?? 0;
     const edgeCount = graph.edges?.length ?? 0;
@@ -528,7 +534,7 @@ export async function registerRunRoute(app: FastifyInstance) {
       ...(debug && { debug }),
       explain_delta: {
         ...explain_delta,
-        top_edge_drivers, // P0: top-3 edge drivers (separate from node-based top_drivers)
+        top_edge_drivers,
       },
       graph,
       identifiability: identifiability.summary,
@@ -543,7 +549,7 @@ export async function registerRunRoute(app: FastifyInstance) {
       },
       model_card,
       result: {
-        response_hash: hashCanonicalInput(body), // P0: hash of canonical inputs only
+        response_hash: hashCanonicalInput(body),
         summary: {
           p10: results.conservative.outcome,
           p50: results.most_likely.outcome,
@@ -553,27 +559,70 @@ export async function registerRunRoute(app: FastifyInstance) {
       results,
       schema,
     };
-    
     // Add BMA hash BEFORE stamping (must be included in response_hash)
     if (scm_bma_hash) {
       base.model_card.bma_hash = scm_bma_hash;
     }
-    
+
     // Stamp response hash (handles circularity correctly)
     const stamped = stampResponseHash(base);
     // Optional trace_id (not included in response_hash)
     if (process.env.TRACE_MIN === '1') {
       stamped.trace_id = randomUUID();
     }
-    
+
+    // Attach optional CEE decision review for idempotent (saved) runs
+    let response: any = stamped;
+    try {
+      const idk = String((req.headers as any)['idempotency-key'] || (req.headers as any)['Idempotency-Key'] || '').trim();
+      const enableRaw = String(process.env.CEE_ORCHESTRATOR_ENABLE ?? '').toLowerCase();
+      const ceeEnabled = enableRaw === '1' || enableRaw === 'true';
+
+      if (idk && ceeEnabled) {
+        const cee = await callDecisionReviewFromEngine({
+          requestId: String(req.id),
+          context: {
+            response_hash: response.result?.response_hash,
+            seed,
+            inference_mode,
+            graph_summary: {
+              nodes: graph.nodes?.length ?? 0,
+              edges: graph.edges?.length ?? 0,
+            },
+          },
+          env: {
+            enable: process.env.CEE_ORCHESTRATOR_ENABLE,
+            baseUrl: process.env.CEE_BASE_URL,
+            apiKey: process.env.CEE_API_KEY,
+            timeoutMs: Number(process.env.CEE_TIMEOUT_MS ?? 10_000),
+          },
+        });
+
+        // Only attach CEE fields if they have actual data (not null)
+        if (cee.review !== null) {
+          (response as any).ceeReview = cee.review;
+        }
+        if (cee.trace) {
+          (response as any).ceeTrace = cee.trace;
+        }
+        if (cee.error) {
+          (response as any).ceeError = cee.error;
+        }
+      }
+    } catch (err: any) {
+      try {
+        req.log?.warn?.({ evt: 'cee_integration_error', error: String(err?.message || err) }, 'CEE integration failed; continuing without CEE');
+      } catch {}
+    }
+
     // Record compute time for observability
     const computeMs = performance.now() - computeStart;
     recordEngineComputeMs(computeMs);
-    
+
     // Add X-Olumi-Backend header
     reply.header('X-Olumi-Backend', backend);
-    
-    return stamped;
+
+    return response;
   });
 
   // Capability probe: HEAD /v1/run returns 405 with Allow header

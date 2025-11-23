@@ -21,7 +21,20 @@ export async function registerPrometheusMetrics(app: FastifyInstance) {
     return; // Skip registration
   }
 
-  app.get('/metrics', async (_req, reply) => {
+  const metricsAuthToken = (process.env.METRICS_AUTH_TOKEN || '').trim();
+
+  app.get('/metrics', async (req, reply) => {
+    if (metricsAuthToken) {
+      const authHeader = String(req.headers?.authorization || req.headers?.Authorization || '');
+      const bearerPrefix = 'Bearer ';
+      const bearerToken = authHeader.startsWith(bearerPrefix) ? authHeader.slice(bearerPrefix.length).trim() : '';
+      const headerToken = String(req.headers?.['x-metrics-token'] || '');
+      if (bearerToken !== metricsAuthToken && headerToken !== metricsAuthToken) {
+        reply.header('WWW-Authenticate', 'Bearer');
+        return reply.code(401).send('unauthorized');
+      }
+    }
+
     const metrics = [];
     
     // P1: Histograms (request duration, engine latency)

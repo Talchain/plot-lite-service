@@ -22,14 +22,17 @@ async function start() {
   const app = await createServer({ enableTestRoutes: process.env.TEST_ROUTES === '1' });
 
   await app.listen({ port: PORT, host: HOST });
-  
-  // Startup summary
-  const corsOrigins = process.env.CORS_ALLOW_ORIGINS || process.env.WEB_APP_ORIGIN || 'http://localhost:5173';
+
+  // Startup summary - use same CORS precedence as createServer
+  const { parseCorsCsv } = await import('./lib/corsParser.js');
+  const defaultOrigins = 'http://localhost:5173';
+  const originsCsv = (process.env.CORS_ORIGINS || process.env.CORS_ALLOW_ORIGINS || process.env.WEB_APP_ORIGIN || defaultOrigins).trim();
+  const corsOrigins = parseCorsCsv(originsCsv, { allowWildcardDev: process.env.CORS_DEV === '1' });
   const rpm = Number(process.env.RATE_LIMIT_PER_MIN || 60);
-  app.log.info({ 
-    port: PORT, 
-    cors_allowlist: corsOrigins.split(',').map(s => s.trim()), 
-    rate_limit_rpm: rpm 
+  app.log.info({
+    port: PORT,
+    cors_allowlist: corsOrigins,
+    rate_limit_rpm: rpm
   }, 'server started');
 
   // Hot-reload knobs on SIGHUP (safe subset)
@@ -38,7 +41,9 @@ async function start() {
       const cfg = loadFromFile('artifact/runtime-config.json');
       app.log.info({ cfg }, 'runtime-config reloaded');
       // Record last successful reload timestamp
-      (async () => { try { const { setLastConfigReloadISO } = await import('./metrics.js'); setLastConfigReloadISO(new Date().toISOString()); } catch {} })();
+      (async () => { try { const { setLastConfigReloadISO } = await import('./metrics.js'); setLastConfigReloadISO(new Date().toISOString()); } catch (err) {
+        app.log.warn({ err }, 'Failed to update config reload timestamp');
+      } })();
     } catch (e: any) {
       app.log.warn({ err: e?.message || String(e) }, 'runtime-config reload failed');
     }

@@ -493,6 +493,48 @@ paths:
                     meta:
                       seed: 4242
                       k_samples: 256
+                success_with_cee:
+                  summary: Response with CEE Decision Review (when CEE enabled)
+                  value:
+                    schema: run.v1
+                    result:
+                      response_hash: "a1b2c3d4e5f6..."
+                      summary:
+                        p10: 0.15
+                        p50: 0.42
+                        p90: 0.78
+                    ceeReview:
+                      schema: cee.decision-review.v1
+                      response_hash: "a1b2c3d4e5f6..."
+                      seed: 4242
+                      inference_mode: fallback
+                      graph_summary:
+                        nodes: 5
+                        edges: 8
+                    ceeTrace:
+                      requestId: "req-abc123"
+                      degraded: false
+                      timestamp: "2025-01-15T10:30:00Z"
+                      featureVersion: "v1.0"
+                cee_degraded:
+                  summary: Response when CEE service unavailable (graceful degradation)
+                  value:
+                    schema: run.v1
+                    result:
+                      response_hash: "a1b2c3d4e5f6..."
+                      summary:
+                        p10: 0.15
+                        p50: 0.42
+                        p90: 0.78
+                    ceeTrace:
+                      requestId: "req-xyz789"
+                      degraded: true
+                      timestamp: "2025-01-15T10:30:00Z"
+                    ceeError:
+                      code: "CEE_SERVICE_UNAVAILABLE"
+                      message: "CEE service is temporarily unavailable"
+                      retryable: true
+                      suggestedAction: "retry"
         '413':
           description: Payload too large
           content:
@@ -2532,7 +2574,72 @@ components:
                 p10: { type: number }
                 p50: { type: number }
                 p90: { type: number }
-    
+        ceeReview:
+          type: object
+          description: 'CEE Decision Review payload (optional; only present when CEE_ORCHESTRATOR_ENABLE=1 and Idempotency-Key header provided)'
+          properties:
+            schema:
+              type: string
+              enum: [cee.decision-review.v1]
+            response_hash:
+              type: string
+              description: 'Hash of the response being reviewed'
+            seed:
+              oneOf:
+                - type: number
+                - type: string
+              description: 'Seed used for inference'
+            inference_mode:
+              type: string
+              description: 'Inference mode (e.g., fallback, scm_lite)'
+            graph_summary:
+              type: object
+              properties:
+                nodes: { type: integer }
+                edges: { type: integer }
+            scenario_kind:
+              type: string
+              description: 'Optional scenario classification'
+        ceeTrace:
+          type: object
+          description: 'CEE execution trace (optional; present when CEE is called)'
+          required: [requestId, degraded, timestamp]
+          properties:
+            requestId:
+              type: string
+              description: 'Request ID for tracing'
+            degraded:
+              type: boolean
+              description: 'True if CEE service was unavailable and degraded gracefully'
+            timestamp:
+              type: string
+              format: date-time
+              description: 'ISO 8601 timestamp of CEE call'
+            featureVersion:
+              type: string
+              description: 'Optional CEE feature version'
+        ceeError:
+          type: object
+          description: 'CEE error details (optional; only present when CEE call failed)'
+          required: [suggestedAction]
+          properties:
+            code:
+              type: string
+              description: 'Error code'
+            message:
+              type: string
+              description: 'Human-readable error message'
+            traceId:
+              type: string
+              description: 'Trace ID for debugging'
+            retryable:
+              type: boolean
+              description: 'Whether the request can be retried'
+            suggestedAction:
+              type: string
+              enum: [retry, fix_input, fail]
+              description: 'Recommended action to take'
+
     counterfactualRequest:
       type: object
       required: [graph, intervention, outcome_node]
