@@ -50,22 +50,23 @@ describe('P0-1: Validation Metrics E2E', () => {
     expect(after.value).toBeGreaterThan(beforeCount);
   });
 
-  it.skip('does not increment validation counter for valid request (TODO: fix payload)', async () => {
+  it('does not increment validation counter for valid request', async () => {
     // Get baseline
     const metricsBefore = await fetch(`${baseUrl}/metrics`).then(r => r.text());
     const beforeMatch = metricsBefore.match(/plot_engine_validation_errors_total\{route="\/v1\/run",phase="request",error_type="ajv"\} (\d+)/);
     const beforeCount = beforeMatch ? parseInt(beforeMatch[1], 10) : 0;
 
-    // Send valid request
+    // Send valid request (using correct v1 schema)
     const validPayload = {
       graph: {
         nodes: [
-          { id: 'A', label: 'Price', type: 'input' },
-          { id: 'B', label: 'Demand', type: 'output' }
+          { id: 'Price', label: 'Price' },
+          { id: 'Demand', label: 'Demand' }
         ],
-        edges: [{ from: 'A', to: 'B', label: 'affects' }]
+        edges: [{ from: 'Price', to: 'Demand' }]
       },
-      query: { target: 'B', intervention: { node: 'A', delta: 0.1 } }
+      outcome_node: 'Demand',
+      seed: 4242
     };
 
     const response = await fetch(`${baseUrl}/v1/run`, {
