@@ -11,7 +11,7 @@ import { refreshFromEnv } from './config/runtimeConfig.js';
 import { securityHeadersOnSend } from './middleware/security-headers.js';
 import { replyWithAppError } from './errors.js';
 import inflightPlugin from './plugins/inflight.js';
-import { noteLastRequestAt, recordDurationMs, recordStatus, recordDraftDurationMs, recordReplayStatus, recordReplayRefusal, recordReplayRetry, p95Ms, p99Ms, eventLoopDelayMs, snapshot, replaySnapshot, streamStarted, streamDone, streamLimited, incCurrentStreams, decCurrentStreams, noteHeartbeat, getStreamCounters, getDraftP95History, getCurrentStreams, getLastHeartbeatMs, setIdemCacheSize, } from './metrics.js';
+import { noteLastRequestAt, recordDurationMs, recordStatus, recordDraftDurationMs, recordReplayStatus, recordReplayRefusal, recordReplayRetry, p95Ms, p99Ms, eventLoopDelayMs, snapshot, replaySnapshot, streamStarted, streamDone, streamLimited, incCurrentStreams, decCurrentStreams, noteHeartbeat, getStreamCounters, getDraftP95History, getCurrentStreams, getLastHeartbeatMs, setIdemCacheSize, setIdemPrincipals, setIdemEvictions, } from './metrics.js';
 export async function createServer(opts = {}) {
     // P0: Validate HMAC secrets (fail-fast)
     const { validateHMACSecrets } = await import('./config/secret-validation.js');
