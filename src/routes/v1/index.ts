@@ -145,7 +145,7 @@ export async function registerV1Routes(app: FastifyInstance) {
   }
 
   // Health and version at /v1 as well (for consistency)
-  // Note: No response validation - health returns dynamic fields based on runtime state
+  // Note: Payload size optimized - removed snapshot() spread to stay under 4 KiB contract
   app.get('/v1/health', async () => {
     const base = {
       status: 'ok',
@@ -154,7 +154,7 @@ export async function registerV1Routes(app: FastifyInstance) {
       version: '1.0.0',
       uptime_s: Math.round(process.uptime()),
       last_request_at: getLastRequestAt() || undefined,
-      ...snapshot(),
+      // snapshot() removed - was contributing ~1.5 KiB with all request/stream counters
       // Always expose 429 counters as integers
       json_429_count: getJson429Count(),
       sse_429_count: getSse429Count(),

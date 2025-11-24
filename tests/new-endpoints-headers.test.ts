@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { spawnServer, type ServerHandle } from './utils.js';
+import { spawnServer, type ServerHandle, sleep, consumeBody } from './utils.js';
 
 describe('New Endpoints - Headers & Idempotency', () => {
   let server: ServerHandle;
+  const REQUEST_DELAY_MS = 50; // Pace requests to avoid connection exhaustion
 
   beforeAll(async () => { server = await spawnServer(); });
   afterAll(async () => { await server.kill(); });
@@ -12,7 +13,7 @@ describe('New Endpoints - Headers & Idempotency', () => {
       const requestId = 'test-intervene-123';
       const res = await fetch(`${server.baseUrl}/v1/intervene`, {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'X-Request-Id': requestId
         },
@@ -26,7 +27,9 @@ describe('New Endpoints - Headers & Idempotency', () => {
         })
       });
 
+      await consumeBody(res); // Consume body to prevent connection leaks
       expect(res.headers.get('x-request-id')).toBe(requestId);
+      await sleep(REQUEST_DELAY_MS); // Pace requests
     });
 
     it('includes rate-limit headers', async () => {
@@ -43,15 +46,17 @@ describe('New Endpoints - Headers & Idempotency', () => {
         })
       });
 
+      await consumeBody(res); // Consume body to prevent connection leaks
       // Rate limit headers should be present
       expect(res.headers.has('x-ratelimit-limit') || res.headers.has('ratelimit-limit')).toBe(true);
+      await sleep(REQUEST_DELAY_MS); // Pace requests
     });
 
     it('enforces 96 KiB guard with structured 413', async () => {
       const largePayload = {
         graph: {
-          nodes: Array.from({ length: 5000 }, (_, i) => ({ 
-            id: `N${i}`, 
+          nodes: Array.from({ length: 5000 }, (_, i) => ({
+            id: `N${i}`,
             label: `Node ${i}`.repeat(100) // Make it large
           })),
           edges: []
@@ -67,9 +72,10 @@ describe('New Endpoints - Headers & Idempotency', () => {
       });
 
       expect(res.status).toBe(413);
-      const data = await res.json();
+      const data = await res.json(); // res.json() consumes body
       expect(data.error).toBeDefined();
       expect(data.error.type).toBeDefined();
+      await sleep(REQUEST_DELAY_MS); // Pace requests
     });
 
     it('returns 400 for invalid input', async () => {
@@ -83,9 +89,10 @@ describe('New Endpoints - Headers & Idempotency', () => {
       });
 
       expect(res.status).toBe(400);
-      const data = await res.json();
+      const data = await res.json(); // res.json() consumes body
       expect(data.error).toBeDefined();
       expect(data.error.type).toBe('BAD_INPUT');
+      await sleep(REQUEST_DELAY_MS); // Pace requests
     });
   });
 
@@ -94,7 +101,7 @@ describe('New Endpoints - Headers & Idempotency', () => {
       const requestId = 'test-optimise-456';
       const res = await fetch(`${server.baseUrl}/v1/optimise`, {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'X-Request-Id': requestId
         },
@@ -118,8 +125,10 @@ describe('New Endpoints - Headers & Idempotency', () => {
         })
       });
 
+      await consumeBody(res); // Consume body to prevent connection leaks
       expect(res.status).toBe(200);
       expect(res.headers.get('x-request-id')).toBe(requestId);
+      await sleep(REQUEST_DELAY_MS); // Pace requests
     });
 
     it('includes rate-limit headers', async () => {
@@ -146,15 +155,17 @@ describe('New Endpoints - Headers & Idempotency', () => {
         })
       });
 
+      await consumeBody(res); // Consume body to prevent connection leaks
       expect(res.status).toBe(200);
       expect(res.headers.has('x-ratelimit-limit') || res.headers.has('ratelimit-limit')).toBe(true);
+      await sleep(REQUEST_DELAY_MS); // Pace requests
     });
 
     it('enforces 96 KiB guard with structured 413', async () => {
       const largePayload = {
         graph: {
-          nodes: Array.from({ length: 5000 }, (_, i) => ({ 
-            id: `N${i}`, 
+          nodes: Array.from({ length: 5000 }, (_, i) => ({
+            id: `N${i}`,
             label: `Node ${i}`.repeat(100)
           })),
           edges: []
@@ -177,8 +188,9 @@ describe('New Endpoints - Headers & Idempotency', () => {
       });
 
       expect(res.status).toBe(413);
-      const data = await res.json();
+      const data = await res.json(); // res.json() consumes body
       expect(data.error).toBeDefined();
+      await sleep(REQUEST_DELAY_MS); // Pace requests
     });
 
     it('returns 400 for invalid input', async () => {
@@ -193,9 +205,10 @@ describe('New Endpoints - Headers & Idempotency', () => {
       });
 
       expect(res.status).toBe(400);
-      const data = await res.json();
+      const data = await res.json(); // res.json() consumes body
       expect(data.error).toBeDefined();
       expect(data.error.type).toBe('BAD_INPUT');
+      await sleep(REQUEST_DELAY_MS); // Pace requests
     });
   });
 
@@ -204,7 +217,7 @@ describe('New Endpoints - Headers & Idempotency', () => {
       const requestId = 'test-bundle-789';
       const res = await fetch(`${server.baseUrl}/v1/run_bundle`, {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'X-Request-Id': requestId
         },
@@ -218,7 +231,9 @@ describe('New Endpoints - Headers & Idempotency', () => {
         })
       });
 
+      await consumeBody(res); // Consume body to prevent connection leaks
       expect(res.headers.get('x-request-id')).toBe(requestId);
+      await sleep(REQUEST_DELAY_MS); // Pace requests
     });
 
     it('includes rate-limit headers', async () => {
@@ -235,14 +250,16 @@ describe('New Endpoints - Headers & Idempotency', () => {
         })
       });
 
+      await consumeBody(res); // Consume body to prevent connection leaks
       expect(res.headers.has('x-ratelimit-limit') || res.headers.has('ratelimit-limit')).toBe(true);
+      await sleep(REQUEST_DELAY_MS); // Pace requests
     });
 
     it('enforces 96 KiB guard with structured 413', async () => {
       const largePayload = {
         base_graph: {
-          nodes: Array.from({ length: 5000 }, (_, i) => ({ 
-            id: `N${i}`, 
+          nodes: Array.from({ length: 5000 }, (_, i) => ({
+            id: `N${i}`,
             label: `Node ${i}`.repeat(100)
           })),
           edges: []
@@ -258,8 +275,9 @@ describe('New Endpoints - Headers & Idempotency', () => {
       });
 
       expect(res.status).toBe(413);
-      const data = await res.json();
+      const data = await res.json(); // res.json() consumes body
       expect(data.error).toBeDefined();
+      await sleep(REQUEST_DELAY_MS); // Pace requests
     });
 
     it('returns 400 for invalid input', async () => {
@@ -273,9 +291,10 @@ describe('New Endpoints - Headers & Idempotency', () => {
       });
 
       expect(res.status).toBe(400);
-      const data = await res.json();
+      const data = await res.json(); // res.json() consumes body
       expect(data.error).toBeDefined();
       expect(data.error.type).toBe('BAD_INPUT');
+      await sleep(REQUEST_DELAY_MS); // Pace requests
     });
   });
 });
