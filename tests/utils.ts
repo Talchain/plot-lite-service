@@ -201,3 +201,15 @@ export function writeTestConfig(dir: string, config: Record<string, any>): strin
   writeFileSync(path, JSON.stringify(config, null, 2));
   return path;
 }
+
+/**
+ * Consume response body to prevent ECONNRESET errors
+ * Must be called before assertions to ensure connection is fully closed
+ */
+export async function consumeBody(res: Response): Promise<void> {
+  try {
+    await res.arrayBuffer();
+  } catch {
+    // Already consumed or connection closed
+  }
+}

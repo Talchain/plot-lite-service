@@ -14,7 +14,9 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci
-      - run: npm run lint || true
+      - name: Lint (ESLint - non-blocking during remediation)
+        run: npm run lint || echo "::warning::Lint failures detected - 72 empty catches remain, see docs/empty-catch-remediation-roadmap.md"
+        continue-on-error: true
       - run: npm run build
       - name: Run tests
         run: RATE_LIMIT_ENABLED=0 npm test

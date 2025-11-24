@@ -11,6 +11,7 @@
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { isDemoMode } from './demo-mode.js';
+import { sanitizeQueryParams } from '../lib/log-sanitizer.js';
 
 // P0: Helper to clear inflight idempotency key on validation errors
 async function clearInflightKey(req: any) {
@@ -294,7 +295,18 @@ export function createQueryValidator(route: 'stream') {
           }
         } catch {}
         if (!validateStreamQuery(q)) {
-          try { reply.log.warn({ q, errors: validateStreamQuery.errors }, 'stream query validation failed'); } catch {}
+          try {
+            reply.log.warn({
+              evt: 'stream_query_validation_failed',
+              reqId: (req as any).id,
+              route: '/v1/stream',
+              query: sanitizeQueryParams(q),
+              errors: validateStreamQuery.errors
+            }, 'stream query validation failed');
+          } catch (logErr) {
+            // Logging failure shouldn't block validation response
+            console.error('[validation] Failed to log stream query validation error:', logErr);
+          }
           const errorResponse = formatValidationErrors(validateStreamQuery.errors || []);
           await clearInflightKey(req);
           return reply.code(400).send(errorResponse);

@@ -14,6 +14,9 @@ jobs:
         with: { node-version: 20 }
       - name: Install deps (if any)
         run: if [ -f package.json ]; then npm ci || true; fi
+      - name: Lint (ESLint)
+        run: npm run lint || echo "::warning::Lint failures detected - see roadmap for remediation plan"
+        continue-on-error: true
       - name: Run pr-verify (Node)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
