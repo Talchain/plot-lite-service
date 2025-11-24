@@ -1,6 +1,7 @@
 import {
   createCEEClient,
   buildCeeDecisionReviewPayload,
+  buildCeeErrorView,
   type CeeDecisionReviewPayloadV1,
 } from '@olumi/assistants-sdk';
 
@@ -28,22 +29,20 @@ export async function runDecisionReviewViaSdk(env: OrchestratorEnv, brief: strin
   });
 
   try {
-    // 1) Draft a small graph from brief
-    const draft = await client.draftGraph({ brief });
+    // 1) Draft a small graph from brief (non-streaming for deterministic behaviour)
+    const draft = await client.draftGraph({ brief, config: { streaming: false } });
 
-    // 2) Options from draft graph
-    const options = await client.options({ graph: draft.graph, archetype: draft.archetype });
+    // 2) Options from draft graph – strict payload: { graph, archetype }
+    const archetype = (draft as any)?.archetype ?? null;
+    const options = await client.options({ graph: draft.graph, archetype });
 
     // 3) Evidence suggestions (empty seed list is fine)
     const evidence = await client.evidenceHelper({ evidence: [] });
 
-    // 4) Bias/structure checks
-    const bias = await client.biasCheck({ graph: draft.graph, archetype: draft.archetype });
+    // 4) Bias/structure checks – strict payload: { graph, archetype }
+    const bias = await client.biasCheck({ graph: draft.graph, archetype });
 
-    // 5) Optional team perspectives (empty set for now)
-    const team = await client.teamPerspectives({ perspectives: [] });
-
-    const review = buildCeeDecisionReviewPayload({ draft, options, evidence, bias, team });
+    const review = buildCeeDecisionReviewPayload({ draft, options, evidence, bias });
 
     return {
       review,
@@ -54,15 +53,16 @@ export async function runDecisionReviewViaSdk(env: OrchestratorEnv, brief: strin
       },
     };
   } catch (err: any) {
-    const code =
-      err?.code ||
-      err?.response?.data?.code ||
-      'CEE_CLIENT_ERROR';
-    const retryable = code === 'CEE_TIMEOUT' || code === 'CEE_UNAVAILABLE';
+    const view = buildCeeErrorView(err);
     return {
       review: null,
       trace: { degraded: true, timestamp: new Date().toISOString() },
-      error: { code, retryable, suggestedAction: retryable ? 'retry' : 'fail', traceId: err?.traceId },
+      error: {
+        code: view.code,
+        retryable: view.retryable,
+        suggestedAction: view.suggestedAction,
+        traceId: view.traceId,
+      },
     };
   }
 }

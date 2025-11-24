@@ -452,10 +452,10 @@ export async function callDecisionReviewFromEngine(opts: {
     );
 
     const trace = {
+      ...(res.trace ?? {}),
       requestId,
       degraded: !!res.error,
       timestamp: new Date().toISOString(),
-      ...(res.trace ?? {}),
     };
 
     let error: PortCeeError | undefined;
