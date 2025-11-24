@@ -213,7 +213,9 @@ export async function runDecisionReview(opts: RunDecisionReviewOptions): Promise
   const { context, requestId, logger } = opts;
 
   const legacyOn = isFlagOn(process.env.CEE_REVIEW_ENABLED);
-  const orchestratorOn = isFlagOn(process.env.CEE_ORCHESTRATOR_ENABLE);
+  const orchestratorOn = isFlagOn(
+    (process.env.CEE_ORCHESTRATOR_ENABLE ?? process.env.CEE_ORCHESTRATOR_ENABLED) ?? undefined,
+  );
 
   // Master gate: without orchestrator flag, behave exactly as today (no CEE fields populated).
   if (!orchestratorOn) {
