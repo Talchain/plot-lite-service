@@ -160,7 +160,16 @@ export async function createServer(opts: ServerOpts = {}) {
     const hdr = String((req.headers?.authorization || req.headers?.Authorization || '') || '');
     const expected = String(process.env.AUTH_TOKEN || '').trim();
     if (!hdr.startsWith('Bearer ')) {
-      try { reply.header('WWW-Authenticate', 'Bearer'); } catch {}
+      try {
+        reply.header('WWW-Authenticate', 'Bearer');
+      } catch (err) {
+        req.log?.error?.({
+          evt: 'auth_header_failed',
+          reqId: req.id,
+          header: 'WWW-Authenticate',
+          error: err instanceof Error ? err.message : String(err)
+        }, 'Failed to set WWW-Authenticate header on 401 response');
+      }
       await reply.code(401).send({ error: { type: 'UNAUTHORIZED', message: 'Missing bearer token' } });
       return false;
     }

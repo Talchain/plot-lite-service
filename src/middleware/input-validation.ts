@@ -17,13 +17,41 @@ import { sanitizeQueryParams } from '../lib/log-sanitizer.js';
 async function clearInflightKey(req: any) {
   const idk = req.headers['idempotency-key'];
   if (idk && typeof idk === 'string') {
+    const idkTrimmed = idk.trim();
+    let principal: string | undefined;
+
     try {
       const { clearInflight, principalFor } = await import('./idempotency.js');
-      clearInflight(principalFor(req), idk.trim());
-    } catch {}
+      principal = principalFor(req);
+      clearInflight(principal, idkTrimmed);
+    } catch (err) {
+      try {
+        const route =
+          (req as any).routeOptions?.url ||
+          (req as any).routerPath ||
+          (req as any).url ||
+          'unknown';
+
+        req.log?.error?.(
+          {
+            evt: 'clear_inflight_failed',
+            reqId: (req as any).id,
+            route,
+            principal,
+            idempotencyKey: idkTrimmed,
+            error: err instanceof Error ? err.message : String(err),
+          },
+          'Failed to clear inflight idempotency key',
+        );
+      } catch (logErr) {
+        console.error(
+          '[idempotency] Failed to log clear_inflight_failed:',
+          logErr,
+        );
+      }
+    }
   }
 }
-
 
 // Lazy-initialized Ajv validators
 let validateRun: any;
