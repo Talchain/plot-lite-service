@@ -3,8 +3,8 @@
 // For now we implement health probing and a fixture-based fallback example endpoint.
 
 import type { FastifyBaseLogger } from 'fastify';
-import { createCEEClient, buildCeeDecisionReviewPayload } from './ceePort.js';
 import type { CeeReviewResult as PortCeeReviewResult, CeeError as PortCeeError } from './types.js';
+import { runDecisionReviewViaSdk } from './orchestrator.js';
 
 export interface CeeRunContext {
   // Minimal, non-sensitive context about the run
@@ -443,18 +443,37 @@ export async function callDecisionReviewFromEngine(opts: {
     return degraded('CEE_UNAVAILABLE', 'retry');
   }
 
-  // 3) Real path (via SDK port; currently shim returns degraded result)
+  // 3) Real path via Assistants SDK orchestrator
   try {
-    const client = createCEEClient({ baseUrl, apiKey, timeoutMs });
-    const payload = buildCeeDecisionReviewPayload({
-      response_hash: opts.context.response_hash,
-      seed: opts.context.seed,
-      inference_mode: opts.context.inference_mode,
-      graph_summary: opts.context.graph_summary,
-      scenario_kind: opts.context.scenario_kind,
-    });
-    const res = await client.reviewDecision(payload, { requestId });
-    return { ...res, usedFixture: false };
+    const brief = 'Create a small decision graph from the run context.';
+    const res = await runDecisionReviewViaSdk(
+      { baseUrl, apiKey, timeoutMs },
+      brief,
+    );
+
+    const trace = {
+      ...(res.trace ?? {}),
+      requestId,
+      degraded: !!res.error,
+      timestamp: new Date().toISOString(),
+    };
+
+    let error: PortCeeError | undefined;
+    if (res.error) {
+      error = {
+        code: res.error.code,
+        retryable: res.error.retryable,
+        traceId: res.error.traceId,
+        suggestedAction: res.error.suggestedAction,
+      };
+    }
+
+    return {
+      review: (res.review ?? null) as any,
+      trace: trace as any,
+      ...(error ? { error } : {}),
+      usedFixture: false,
+    };
   } catch {
     return degraded('CEE_CLIENT_ERROR', 'retry');
   }

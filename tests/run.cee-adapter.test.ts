@@ -28,10 +28,105 @@ describe('callDecisionReviewFromEngine (adapter)', () => {
     globalThis.fetch = originalFetch as any;
   });
 
-  it('returns structured result and usedFixture=false when health is OK (SDK shim path)', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue({ ok: true, status: 200, json: async () => ({ ok: true }) } as any);
+  it('uses SDK orchestrator real path with strict {graph, archetype} payloads and returns non-null review', async () => {
+    const graph = { nodes: [], edges: [] };
+    const archetype = { id: 'archetype-1' };
+
+    const fetchMock = vi.fn(async (url: string, init?: any) => {
+      const u = new URL(url);
+      const path = u.pathname;
+
+      // 1) Health probe
+      if (path.endsWith('/healthz')) {
+        const payload = { ok: true };
+        return {
+          ok: true,
+          status: 200,
+          json: async () => payload,
+          text: async () => JSON.stringify(payload),
+        } as any;
+      }
+
+      // 2) Draft graph from brief (non-streaming)
+      if (path.endsWith('/assist/v1/draft-graph')) {
+        const body = init?.body ? JSON.parse(init.body) : {};
+        expect(body).toMatchObject({ brief: expect.any(String) });
+        expect(body.config?.streaming).toBe(false);
+
+        const payload = {
+          graph,
+          archetype,
+          trace: { request_id: 'cee-req-1' },
+        };
+
+        return {
+          ok: true,
+          status: 200,
+          json: async () => payload,
+          text: async () => JSON.stringify(payload),
+        } as any;
+      }
+
+      // 3) Options helper – must send { graph, archetype }
+      if (path.endsWith('/assist/v1/options')) {
+        const body = init?.body ? JSON.parse(init.body) : {};
+        expect(Object.keys(body).sort()).toEqual(['archetype', 'graph']);
+        expect(body.graph).toEqual(graph);
+        expect(body.archetype).toEqual(archetype);
+
+        const payload = {
+          options: [],
+          trace: { request_id: 'cee-req-1' },
+        };
+
+        return {
+          ok: true,
+          status: 200,
+          json: async () => payload,
+          text: async () => JSON.stringify(payload),
+        } as any;
+      }
+
+      // 4) Evidence helper – empty evidence list is fine
+      if (path.endsWith('/assist/v1/evidence-helper')) {
+        const body = init?.body ? JSON.parse(init.body) : {};
+        expect(body).toEqual({ evidence: [] });
+
+        const payload = {
+          items: [],
+          trace: { request_id: 'cee-req-1' },
+        };
+
+        return {
+          ok: true,
+          status: 200,
+          json: async () => payload,
+          text: async () => JSON.stringify(payload),
+        } as any;
+      }
+
+      // 5) Bias check – must send { graph, archetype }
+      if (path.endsWith('/assist/v1/bias-check')) {
+        const body = init?.body ? JSON.parse(init.body) : {};
+        expect(Object.keys(body).sort()).toEqual(['archetype', 'graph']);
+        expect(body.graph).toEqual(graph);
+        expect(body.archetype).toEqual(archetype);
+
+        const payload = {
+          bias_findings: [],
+          trace: { request_id: 'cee-req-1' },
+        };
+
+        return {
+          ok: true,
+          status: 200,
+          json: async () => payload,
+          text: async () => JSON.stringify(payload),
+        } as any;
+      }
+
+      throw new Error(`Unexpected URL in CEE adapter test: ${url}`);
+    });
 
     globalThis.fetch = fetchMock as any;
 
@@ -41,15 +136,13 @@ describe('callDecisionReviewFromEngine (adapter)', () => {
       env: { ...BASE_ENV },
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalled();
     expect(res.usedFixture).toBe(false);
-    expect(res.review).toBeNull();
     expect(res.trace).toBeDefined();
     expect(res.trace.requestId).toBe('req-healthy-1');
-    expect(res.trace.degraded).toBe(true); // shim client always degraded
-    expect(res.error).toBeDefined();
-    expect(res.error?.code).toBe('CEE_SDK_UNAVAILABLE');
-    expect(res.error?.suggestedAction).toBe('retry');
+    expect(res.trace.degraded).toBe(false);
+    expect(res.review).not.toBeNull();
+    expect(res.error).toBeUndefined();
   });
 
   it('uses fixture fallback when health fails and fixture succeeds', async () => {

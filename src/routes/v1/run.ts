@@ -573,10 +573,17 @@ export async function registerRunRoute(app: FastifyInstance) {
 
     // Attach optional CEE decision review for idempotent (saved) runs
     let response: any = stamped;
+    let ceeDebugIdkSeen = false;
+    let ceeDebugEnabled = false;
+    let ceeDebugPath: string | undefined;
+    let ceeDebugUsedFixture = false;
     try {
       const idk = String((req.headers as any)['idempotency-key'] || (req.headers as any)['Idempotency-Key'] || '').trim();
       const enableRaw = String(process.env.CEE_ORCHESTRATOR_ENABLE ?? '').toLowerCase();
       const ceeEnabled = enableRaw === '1' || enableRaw === 'true';
+
+      ceeDebugIdkSeen = !!idk;
+      ceeDebugEnabled = ceeEnabled;
 
       if (idk && ceeEnabled) {
         const cee = await callDecisionReviewFromEngine({
@@ -598,6 +605,17 @@ export async function registerRunRoute(app: FastifyInstance) {
           },
         });
 
+        ceeDebugUsedFixture = !!(cee as any).usedFixture;
+        const code = (cee as any).error?.code as string | undefined;
+        ceeDebugPath = ceeDebugUsedFixture
+          ? 'fixture'
+          : code === 'CEE_CONFIG_MISSING' ? 'config'
+          : code === 'CEE_DISABLED' ? 'disabled'
+          : code === 'CEE_UNAVAILABLE' ? 'health'
+          : code === 'CEE_SDK_UNAVAILABLE' ? 'sdk'
+          : code === 'CEE_CLIENT_ERROR' || code === 'CEE_ADAPTER_ERROR' ? 'client'
+          : 'client';
+
         // Only attach CEE fields if they have actual data (not null)
         if (cee.review !== null) {
           (response as any).ceeReview = cee.review;
@@ -615,11 +633,35 @@ export async function registerRunRoute(app: FastifyInstance) {
       } catch {}
     }
 
+    // Lightweight CEE debug header + log (no PII, post-hash)
+    try {
+      const hdr = [
+        ceeDebugIdkSeen ? '1' : '0',
+        ceeDebugEnabled ? '1' : '0',
+        ceeDebugPath ?? 'none',
+        ceeDebugUsedFixture ? '1' : '0',
+      ].join(':');
+      reply.header('X-CEE-Debug', hdr);
+    } catch {}
+    try {
+      req.log?.info?.({
+        evt: 'cee_debug',
+        idk_seen: ceeDebugIdkSeen,
+        cee_enabled: ceeDebugEnabled,
+        path: ceeDebugPath,
+        usedFixture: ceeDebugUsedFixture,
+      }, 'CEE debug');
+    } catch {}
+
     // Record compute time for observability
     const computeMs = performance.now() - computeStart;
     recordEngineComputeMs(computeMs);
 
     // Add X-Olumi-Backend header
+    try {
+      const buildTag = process.env.BUILD_ID || process.env.GITHUB_SHA || 'dev';
+      reply.header('X-Build-Tag', buildTag);
+    } catch {}
     reply.header('X-Olumi-Backend', backend);
 
     return response;
