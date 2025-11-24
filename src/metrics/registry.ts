@@ -201,6 +201,10 @@ let engineLatencyHistogram: HistogramMetric | null = null;
 let rateLimitCounter: CounterMetric | null = null;
 let circuitOpenCounter: CounterMetric | null = null;
 let circuitProbesCounter: CounterMetric | null = null;
+let ceeAttemptedCounter: CounterMetric | null = null;
+let ceeOkCounter: CounterMetric | null = null;
+let ceeSkippedCounter: CounterMetric | null = null;
+let ceeDegradedCounter: CounterMetric | null = null;
 
 export function initializeHistograms(): void {
   if (process.env.PROMETHEUS_ENABLE !== '1') {
@@ -236,6 +240,30 @@ export function initializeHistograms(): void {
     'plot_engine_circuit_probes_total',
     'Total number of circuit breaker half-open probes',
     ['scope', 'result']
+  );
+
+  ceeAttemptedCounter = new CounterMetric(
+    'plot_engine_cee_attempted_total',
+    'Total number of CEE decision review attempts',
+    ['route']
+  );
+
+  ceeOkCounter = new CounterMetric(
+    'plot_engine_cee_ok_total',
+    'Total number of successful CEE decision reviews',
+    ['route']
+  );
+
+  ceeSkippedCounter = new CounterMetric(
+    'plot_engine_cee_skipped_total',
+    'Total number of skipped CEE decision reviews',
+    ['route', 'reason']
+  );
+
+  ceeDegradedCounter = new CounterMetric(
+    'plot_engine_cee_degraded_total',
+    'Total number of degraded CEE decision reviews',
+    ['route', 'code']
   );
 }
 
@@ -281,6 +309,22 @@ export function recordCircuitProbe(scope: 'global' | 'principal', result: 'succe
   circuitProbesCounter?.inc({ scope, result });
 }
 
+export function recordCeeAttempted(route: string): void {
+  ceeAttemptedCounter?.inc({ route });
+}
+
+export function recordCeeOk(route: string): void {
+  ceeOkCounter?.inc({ route });
+}
+
+export function recordCeeSkipped(route: string, reason: string): void {
+  ceeSkippedCounter?.inc({ route, reason });
+}
+
+export function recordCeeDegraded(route: string, code: string): void {
+  ceeDegradedCounter?.inc({ route, code });
+}
+
 export function renderHistograms(): string {
   const lines: string[] = [];
 
@@ -305,6 +349,22 @@ export function renderHistograms(): string {
     lines.push(circuitProbesCounter.render());
   }
 
+  if (ceeAttemptedCounter) {
+    lines.push(ceeAttemptedCounter.render());
+  }
+
+  if (ceeOkCounter) {
+    lines.push(ceeOkCounter.render());
+  }
+
+  if (ceeSkippedCounter) {
+    lines.push(ceeSkippedCounter.render());
+  }
+
+  if (ceeDegradedCounter) {
+    lines.push(ceeDegradedCounter.render());
+  }
+
   return lines.join('\n');
 }
 
@@ -314,4 +374,8 @@ export function resetHistograms(): void {
   rateLimitCounter?.reset();
   circuitOpenCounter?.reset();
   circuitProbesCounter?.reset();
+  ceeAttemptedCounter?.reset();
+  ceeOkCounter?.reset();
+  ceeSkippedCounter?.reset();
+  ceeDegradedCounter?.reset();
 }

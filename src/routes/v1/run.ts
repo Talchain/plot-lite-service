@@ -579,7 +579,7 @@ export async function registerRunRoute(app: FastifyInstance) {
     let ceeDebugUsedFixture = false;
     try {
       const idk = String((req.headers as any)['idempotency-key'] || (req.headers as any)['Idempotency-Key'] || '').trim();
-      const enableRaw = String(process.env.CEE_ORCHESTRATOR_ENABLE ?? '').toLowerCase();
+      const enableRaw = String((process.env.CEE_ORCHESTRATOR_ENABLE ?? process.env.CEE_ORCHESTRATOR_ENABLED) ?? '').toLowerCase();
       const ceeEnabled = enableRaw === '1' || enableRaw === 'true';
 
       ceeDebugIdkSeen = !!idk;
@@ -598,7 +598,7 @@ export async function registerRunRoute(app: FastifyInstance) {
             },
           },
           env: {
-            enable: process.env.CEE_ORCHESTRATOR_ENABLE,
+            enable: process.env.CEE_ORCHESTRATOR_ENABLE ?? process.env.CEE_ORCHESTRATOR_ENABLED,
             baseUrl: process.env.CEE_BASE_URL,
             apiKey: process.env.CEE_API_KEY,
             timeoutMs: Number(process.env.CEE_TIMEOUT_MS ?? 10_000),
