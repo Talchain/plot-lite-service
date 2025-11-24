@@ -25,9 +25,19 @@ async function opsAuthGuard(req: FastifyRequest, reply: FastifyReply): Promise<b
   if (process.env.AUTH_ENABLED === '1') {
     const hdr = String((req.headers?.authorization || req.headers?.Authorization || '') || '');
     const expected = String(process.env.AUTH_TOKEN || '').trim();
-    
+
     if (!hdr.startsWith('Bearer ')) {
-      try { reply.header('WWW-Authenticate', 'Bearer'); } catch {}
+      try {
+        reply.header('WWW-Authenticate', 'Bearer');
+      } catch (err) {
+        req.log?.error?.({
+          evt: 'auth_header_failed',
+          reqId: req.id,
+          route: '/ops/snapshot',
+          header: 'WWW-Authenticate',
+          error: err instanceof Error ? err.message : String(err)
+        }, 'Failed to set WWW-Authenticate header on 401 response');
+      }
       await reply.code(401).send({ error: { type: 'UNAUTHORIZED', message: 'Missing bearer token' } });
       return false;
     }
@@ -52,13 +62,33 @@ async function opsAuthGuard(req: FastifyRequest, reply: FastifyReply): Promise<b
   
   if (!expected) {
     // Fail closed: no default OPS_KEY
-    try { reply.header('WWW-Authenticate', 'ops-key'); } catch {}
+    try {
+      reply.header('WWW-Authenticate', 'ops-key');
+    } catch (err) {
+      req.log?.error?.({
+        evt: 'auth_header_failed',
+        reqId: req.id,
+        route: '/ops/snapshot',
+        header: 'WWW-Authenticate',
+        error: err instanceof Error ? err.message : String(err)
+      }, 'Failed to set WWW-Authenticate header on 401 response');
+    }
     await reply.code(401).send({ error: { type: 'UNAUTHORIZED', message: 'OPS_KEY not configured' } });
     return false;
   }
-  
+
   if (!opsKey) {
-    try { reply.header('WWW-Authenticate', 'ops-key'); } catch {}
+    try {
+      reply.header('WWW-Authenticate', 'ops-key');
+    } catch (err) {
+      req.log?.error?.({
+        evt: 'auth_header_failed',
+        reqId: req.id,
+        route: '/ops/snapshot',
+        header: 'WWW-Authenticate',
+        error: err instanceof Error ? err.message : String(err)
+      }, 'Failed to set WWW-Authenticate header on 401 response');
+    }
     await reply.code(401).send({ error: { type: 'UNAUTHORIZED', message: 'Missing X-OPS-KEY header' } });
     return false;
   }
