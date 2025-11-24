@@ -10,6 +10,7 @@ import { makeRateLimiter } from './middleware/rate-limit.js';
 import { refreshFromEnv } from './config/runtimeConfig.js';
 import { securityHeadersOnSend } from './middleware/security-headers.js';
 import { replyWithAppError } from './errors.js';
+import { sanitizeUrl } from './lib/log-sanitizer.js';
 import inflightPlugin from './plugins/inflight.js';
 import { noteLastRequestAt, recordDurationMs, recordStatus, recordDraftDurationMs, recordReplayStatus, recordReplayRefusal, recordReplayRetry, p95Ms, p99Ms, eventLoopDelayMs, snapshot, replaySnapshot, streamStarted, streamDone, streamLimited, incCurrentStreams, decCurrentStreams, noteHeartbeat, getStreamCounters, getDraftP95History, getCurrentStreams, getLastHeartbeatMs, setIdemCacheSize, } from './metrics.js';
 export async function createServer(opts = {}) {
@@ -75,7 +76,12 @@ export async function createServer(opts = {}) {
             q2 = u.searchParams.get('force_error') ?? undefined;
         }
         catch (err) {
-            req.log?.debug?.({ err, url: req.url }, '[debug-force-error] Failed to parse URL for force_error param');
+            req.log?.debug?.({
+                evt: 'url_parse_failed',
+                err,
+                url: sanitizeUrl(req.url),
+                feature: 'debug-force-error'
+            }, '[debug-force-error] Failed to parse URL for force_error param');
         }
         const val = (header || q1 || q2);
         return val ? String(val).toUpperCase() : undefined;
@@ -140,7 +146,13 @@ export async function createServer(opts = {}) {
     }
     catch (err) {
         // Non-fatal: server continues with default config values
-        console.error('[runtime-config] Failed to refresh config from environment:', err);
+        console.error(JSON.stringify({
+            evt: 'runtime_config_refresh_failed',
+            level: 'error',
+            timestamp: new Date().toISOString(),
+            error: err instanceof Error ? err.message : String(err),
+            context: 'server_startup'
+        }));
     }
     // P1: Initialize Prometheus histograms (flag-gated)
     const { initializeHistograms } = await import('./metrics/registry.js');
@@ -1060,7 +1072,12 @@ export async function createServer(opts = {}) {
             }
             catch (err) {
                 // Non-fatal: fall through to deep scan if fast path fails
-                app.log?.debug?.({ err, route: '/draft-flows' }, '[sensitive-scan] Fast path failed, using deep scan');
+                app.log?.debug?.({
+                    evt: 'sensitive_scan_fallback',
+                    err,
+                    reqId: req.id,
+                    route: '/draft-flows'
+                }, '[sensitive-scan] Fast path failed, using deep scan');
             }
             if (containsSensitive(body)) {
                 const { errorResponse } = await import('./errors.js');
