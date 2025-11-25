@@ -5,6 +5,7 @@
 import type { FastifyBaseLogger } from 'fastify';
 import type { CeeReviewResult as PortCeeReviewResult, CeeError as PortCeeError } from './types.js';
 import { runDecisionReviewViaSdk, type EvidenceHelperItem } from './orchestrator.js';
+import { isFlagOn } from './codes.js';
 
 export interface CeeRunContext {
   // Minimal, non-sensitive context about the run
@@ -67,11 +68,7 @@ export interface CeeReviewResult {
   usedFixture: boolean;
 }
 
-function isFlagOn(raw: string | undefined | null): boolean {
-  if (!raw) return false;
-  const v = raw.toLowerCase();
-  return v === '1' || v === 'true';
-}
+// isFlagOn moved to shared codes.js module
 
 function getBaseUrl(): string | null {
   const url = process.env.CEE_BASE_URL?.trim();

@@ -24,6 +24,7 @@ import {
   recordCeeDegraded,
   recordCeeSkipped,
 } from '../../metrics/registry.js';
+import { normalizeCeeCode, isFlagOn } from '../../cee/codes.js';
 import { runResponseSchema } from '../../schemas/response.js';
 import { normalizeGraph } from '../../util/normalize.js';
 import { FLAGS } from '../../config/flags.js';
@@ -581,9 +582,8 @@ export async function registerRunRoute(app: FastifyInstance) {
     let response: any = stamped;
 
     // CEE gate: {idk}:{flag}:{status}:{code}
-    const idk = String((req.headers as any)['idempotency-key'] || (req.headers as any)['Idempotency-Key'] || '').trim();
-    const enableRaw = String((process.env.CEE_ORCHESTRATOR_ENABLE ?? process.env.CEE_ORCHESTRATOR_ENABLED) ?? '').toLowerCase();
-    const ceeEnabled = enableRaw === '1' || enableRaw === 'true';
+    const idkHeader = String((req.headers as any)['idempotency-key'] || (req.headers as any)['Idempotency-Key'] || '').trim();
+    const ceeEnabled = isFlagOn(process.env.CEE_ORCHESTRATOR_ENABLE ?? process.env.CEE_ORCHESTRATOR_ENABLED);
     const baseUrl = String(process.env.CEE_BASE_URL ?? '').trim();
     const apiKey = String(process.env.CEE_API_KEY ?? '').trim();
     const hasConfig = baseUrl.length > 0 && apiKey.length > 0;
@@ -591,7 +591,7 @@ export async function registerRunRoute(app: FastifyInstance) {
     let ceeStatus = 'skipped';
     let ceeCode = '';
 
-    if (!idk) {
+    if (!idkHeader) {
       ceeStatus = 'skipped';
       ceeCode = 'no_idk';
       recordCeeSkipped('/v1/run', 'no_idk');
@@ -631,7 +631,7 @@ export async function registerRunRoute(app: FastifyInstance) {
         if (cee.error) {
           ceeStatus = 'degraded';
           ceeCode = cee.error.code || 'unknown';
-          recordCeeDegraded('/v1/run', ceeCode);
+          recordCeeDegraded('/v1/run', normalizeCeeCode(ceeCode));
         } else {
           ceeStatus = 'ok';
           ceeCode = '';
@@ -651,7 +651,7 @@ export async function registerRunRoute(app: FastifyInstance) {
       } catch (err: any) {
         ceeStatus = 'error';
         ceeCode = err?.code || 'client_error';
-        recordCeeDegraded('/v1/run', ceeCode);
+        recordCeeDegraded('/v1/run', normalizeCeeCode(ceeCode));
 
         const errorMeta = {
           evt: 'cee_integration_error',
@@ -679,7 +679,7 @@ export async function registerRunRoute(app: FastifyInstance) {
     if (process.env.NODE_ENV !== 'production' || process.env.CEE_DEBUG_ENABLE === '1') {
       try {
         const hdr = [
-          idk ? '1' : '0',
+          idkHeader ? '1' : '0',
           ceeEnabled ? '1' : '0',
           ceeStatus,
           ceeCode,
@@ -692,7 +692,7 @@ export async function registerRunRoute(app: FastifyInstance) {
     try {
       req.log?.info?.({
         evt: 'cee_debug',
-        idk_seen: !!idk,
+        idk_seen: !!idkHeader,
         cee_enabled: ceeEnabled,
         has_config: hasConfig,
         status: ceeStatus,
