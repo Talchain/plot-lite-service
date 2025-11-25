@@ -4,7 +4,7 @@
 
 import type { FastifyBaseLogger } from 'fastify';
 import type { CeeReviewResult as PortCeeReviewResult, CeeError as PortCeeError } from './types.js';
-import { runDecisionReviewViaSdk } from './orchestrator.js';
+import { runDecisionReviewViaSdk, type EvidenceHelperItem } from './orchestrator.js';
 
 export interface CeeRunContext {
   // Minimal, non-sensitive context about the run
@@ -355,6 +355,39 @@ async function fetchJson(
   }
 }
 
+type EngineEvidenceItem = {
+  node_id: string;
+  source: string;
+  note?: string;
+  weight?: number;
+};
+
+function mapEvidenceItems(evidence?: EngineEvidenceItem[]): EvidenceHelperItem[] {
+  if (!Array.isArray(evidence)) return [];
+
+  const items: EvidenceHelperItem[] = [];
+  for (const item of evidence) {
+    if (!item || typeof item.node_id !== 'string' || item.node_id.trim() === '') {
+      continue;
+    }
+
+    const id = item.node_id;
+    const source = typeof item.source === 'string' && item.source.trim() ? item.source : undefined;
+    const content = typeof item.note === 'string' && item.note.trim() ? item.note : undefined;
+
+    const mapped: EvidenceHelperItem = {
+      id,
+      type: 'other',
+      ...(source ? { source } : {}),
+      ...(content ? { content } : {}),
+    };
+
+    items.push(mapped);
+  }
+
+  return items;
+}
+
 export async function callDecisionReviewFromEngine(opts: {
   requestId?: string;
   context: {
@@ -370,6 +403,7 @@ export async function callDecisionReviewFromEngine(opts: {
     apiKey?: string;
     timeoutMs?: number;
   };
+  evidence?: EngineEvidenceItem[];
 }): Promise<PortCeeReviewResult & { usedFixture: boolean }> {
   const requestId = String(opts.requestId || '');
   const timeoutMs = Number(opts.env.timeoutMs ?? 10_000);
@@ -448,9 +482,11 @@ export async function callDecisionReviewFromEngine(opts: {
   // 3) Real path via Assistants SDK orchestrator
   try {
     const brief = 'Create a small decision graph from the run context.';
+    const evidenceItems = mapEvidenceItems(opts.evidence);
     const res = await runDecisionReviewViaSdk(
       { baseUrl, apiKey, timeoutMs },
       brief,
+      evidenceItems,
     );
 
     const trace = {
