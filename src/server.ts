@@ -93,12 +93,30 @@ try {
   process.exit(1);
 }
 
+// Cached build ID to avoid per-request git calls
+let cachedBuildId: string | null = null;
+
 function getBuildId(): string {
+  if (cachedBuildId !== null) return cachedBuildId;
+
+  // Prefer env vars from CI/CD
+  const envBuildId = process.env.BUILD_ID || process.env.GITHUB_SHA;
+  if (envBuildId) {
+    cachedBuildId = envBuildId.slice(0, 7);
+    return cachedBuildId;
+  }
+
+  // Fallback to git (one-time only)
   try {
     const res = spawnSync('git', ['--no-pager', 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' });
-    if (res.status === 0) return res.stdout.trim() || new Date().toISOString();
+    if (res.status === 0) {
+      cachedBuildId = res.stdout.trim() || new Date().toISOString();
+      return cachedBuildId;
+    }
   } catch {}
-  return new Date().toISOString();
+
+  cachedBuildId = new Date().toISOString();
+  return cachedBuildId;
 }
 
 app.get('/health', async () => {
