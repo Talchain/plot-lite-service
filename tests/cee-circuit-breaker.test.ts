@@ -92,12 +92,16 @@ describe('CEE Circuit Breaker', () => {
       }
       // Wait for cooldown to enter half-open
       vi.advanceTimersByTime(30_000);
-      shouldAllowCeeCall(); // Triggers transition to half-open
+      shouldAllowCeeCall(); // Triggers transition to half-open and starts probe
       expect(getCeeCircuitBreakerStats().state).toBe('half-open');
     });
 
-    it('allows one test call', () => {
-      expect(shouldAllowCeeCall()).toBe(true);
+    it('blocks additional calls while probe is in flight (single-probe guard)', () => {
+      // Probe is already in flight from beforeEach
+      expect(getCeeCircuitBreakerStats().probeInFlight).toBe(true);
+      // Additional calls should be blocked
+      expect(shouldAllowCeeCall()).toBe(false);
+      expect(shouldAllowCeeCall()).toBe(false);
     });
 
     it('closes circuit on success', () => {
@@ -105,16 +109,17 @@ describe('CEE Circuit Breaker', () => {
       const stats = getCeeCircuitBreakerStats();
       expect(stats.state).toBe('closed');
       expect(stats.consecutiveFailures).toBe(0);
+      expect(stats.probeInFlight).toBe(false);
       expect(shouldAllowCeeCall()).toBe(true);
     });
 
-    it('reopens circuit if test call fails (timeout after 10s)', () => {
-      // Allow the initial test call
-      expect(shouldAllowCeeCall()).toBe(true);
+    it('reopens circuit if probe times out (after 10s)', () => {
+      // Probe is in flight from beforeEach
+      expect(getCeeCircuitBreakerStats().probeInFlight).toBe(true);
 
-      // Advance time by 9 seconds - still half-open, allows call
+      // Advance time by 9 seconds - still half-open, but calls blocked
       vi.advanceTimersByTime(9_000);
-      expect(shouldAllowCeeCall()).toBe(true);
+      expect(shouldAllowCeeCall()).toBe(false); // Still blocked by probe in flight
       expect(getCeeCircuitBreakerStats().state).toBe('half-open');
 
       // Advance time by 1 more second - timeout, reopens
@@ -126,7 +131,36 @@ describe('CEE Circuit Breaker', () => {
     it('reopens circuit on explicit failure', () => {
       recordCeeFailure();
       expect(getCeeCircuitBreakerStats().state).toBe('open');
+      expect(getCeeCircuitBreakerStats().probeInFlight).toBe(false);
       expect(shouldAllowCeeCall()).toBe(false);
+    });
+
+    it('allows new probe after previous probe completes (success)', () => {
+      // First probe succeeds, closes circuit
+      recordCeeSuccess();
+      expect(getCeeCircuitBreakerStats().state).toBe('closed');
+
+      // Open circuit again
+      for (let i = 0; i < 5; i++) {
+        recordCeeFailure();
+      }
+
+      // Wait for cooldown
+      vi.advanceTimersByTime(30_000);
+      expect(shouldAllowCeeCall()).toBe(true); // New probe allowed
+      expect(getCeeCircuitBreakerStats().probeInFlight).toBe(true);
+    });
+
+    it('allows new probe after previous probe completes (failure)', () => {
+      // First probe fails
+      recordCeeFailure();
+      expect(getCeeCircuitBreakerStats().state).toBe('open');
+      expect(getCeeCircuitBreakerStats().probeInFlight).toBe(false);
+
+      // Wait for cooldown
+      vi.advanceTimersByTime(30_000);
+      expect(shouldAllowCeeCall()).toBe(true); // New probe allowed
+      expect(getCeeCircuitBreakerStats().probeInFlight).toBe(true);
     });
   });
 
@@ -178,8 +212,10 @@ describe('CEE Circuit Breaker', () => {
       expect(stats).toHaveProperty('consecutiveFailures');
       expect(stats).toHaveProperty('threshold');
       expect(stats).toHaveProperty('cooldownMs');
+      expect(stats).toHaveProperty('probeInFlight');
       expect(stats.threshold).toBe(5);
       expect(stats.cooldownMs).toBe(30_000);
+      expect(stats.probeInFlight).toBe(false);
     });
 
     it('updates stats in real-time', () => {
@@ -191,6 +227,26 @@ describe('CEE Circuit Breaker', () => {
 
       recordCeeSuccess();
       expect(getCeeCircuitBreakerStats().consecutiveFailures).toBe(0);
+    });
+
+    it('tracks probeInFlight status', () => {
+      // Start closed, no probe
+      expect(getCeeCircuitBreakerStats().probeInFlight).toBe(false);
+
+      // Open the circuit
+      for (let i = 0; i < 5; i++) {
+        recordCeeFailure();
+      }
+      expect(getCeeCircuitBreakerStats().probeInFlight).toBe(false);
+
+      // Wait for cooldown and trigger probe
+      vi.advanceTimersByTime(30_000);
+      shouldAllowCeeCall();
+      expect(getCeeCircuitBreakerStats().probeInFlight).toBe(true);
+
+      // Complete probe with success
+      recordCeeSuccess();
+      expect(getCeeCircuitBreakerStats().probeInFlight).toBe(false);
     });
   });
 });
