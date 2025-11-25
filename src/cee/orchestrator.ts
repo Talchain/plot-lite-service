@@ -24,10 +24,20 @@ export type EvidenceHelperItem = {
   content?: string;
 };
 
-export function buildCeeBrief(shortLabel: string): string {
+export type BriefContext = {
+  nodes?: number;
+  edges?: number;
+};
+
+export function buildCeeBrief(shortLabel: string, context?: BriefContext): string {
   const prefix = 'Decision review context: ';
   const label = (shortLabel ?? '').trim();
   let brief = prefix + (label || 'scenario');
+
+  // Add structural hints (no user content exposed)
+  if (context && (context.nodes || context.edges)) {
+    brief += ` (${context.nodes ?? 0} nodes, ${context.edges ?? 0} edges)`;
+  }
 
   if (brief.length < 30) {
     brief += ' Please elaborate.';
@@ -44,6 +54,7 @@ export async function runDecisionReviewViaSdk(
   env: OrchestratorEnv,
   brief: string,
   evidenceItems?: EvidenceHelperItem[],
+  briefContext?: BriefContext,
 ): Promise<OrchestratorResult> {
   const client = createCEEClient({
     apiKey: String(env.apiKey ?? ''),
@@ -53,7 +64,7 @@ export async function runDecisionReviewViaSdk(
 
   try {
     // 1) Draft a small graph from brief (non-streaming for deterministic behaviour)
-    const draftBrief = buildCeeBrief(brief);
+    const draftBrief = buildCeeBrief(brief, briefContext);
     const draft = await client.draftGraph({ brief: draftBrief, config: { streaming: false } });
 
     // 2) Options from draft graph – strict payload: { graph, archetype }

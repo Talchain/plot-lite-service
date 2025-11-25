@@ -18,6 +18,14 @@ import type { Graph } from '../../trust/types.js';
 import { getInferenceEngine, type InferenceMode } from '../../inference/index.js';
 import { computeSensitivitySimple } from '../../lib/sensitivity-simple.js';
 import { recordEngineComputeMs } from '../../metrics.js';
+import {
+  recordCeeAttempted,
+  recordCeeOk,
+  recordCeeDegraded,
+  recordCeeSkipped,
+} from '../../metrics/registry.js';
+import { normalizeCeeCode, isFlagOn } from '../../cee/codes.js';
+import { shouldAllowCeeCall, recordCeeSuccess, recordCeeFailure } from '../../cee/circuit-breaker.js';
 import { runResponseSchema } from '../../schemas/response.js';
 import { normalizeGraph } from '../../util/normalize.js';
 import { FLAGS } from '../../config/flags.js';
@@ -489,7 +497,13 @@ export async function registerRunRoute(app: FastifyInstance) {
     
     // Warn in production when SCM-Lite is disabled
     if (process.env.NODE_ENV === 'production' && process.env.SCM_LITE_ENABLE !== '1') {
-      app.log.warn({ feature: 'scm_lite', enabled: false, inference_mode }, 'SCM_LITE disabled — using placeholder results');
+      const usesPlaceholder = process.env.PROD_SCM_LITE_PLACEHOLDER === '1';
+      app.log.warn(
+        { feature: 'scm_lite', enabled: false, placeholder: usesPlaceholder, inference_mode },
+        usesPlaceholder
+          ? 'SCM_LITE disabled — using placeholder results'
+          : 'SCM_LITE disabled — running full inference'
+      );
     }
 
     // Build response with meta in alphabetical position
@@ -575,9 +589,8 @@ export async function registerRunRoute(app: FastifyInstance) {
     let response: any = stamped;
 
     // CEE gate: {idk}:{flag}:{status}:{code}
-    const idk = String((req.headers as any)['idempotency-key'] || (req.headers as any)['Idempotency-Key'] || '').trim();
-    const enableRaw = String((process.env.CEE_ORCHESTRATOR_ENABLE ?? process.env.CEE_ORCHESTRATOR_ENABLED) ?? '').toLowerCase();
-    const ceeEnabled = enableRaw === '1' || enableRaw === 'true';
+    const idkHeader = String((req.headers as any)['idempotency-key'] || (req.headers as any)['Idempotency-Key'] || '').trim();
+    const ceeEnabled = isFlagOn(process.env.CEE_ORCHESTRATOR_ENABLE ?? process.env.CEE_ORCHESTRATOR_ENABLED);
     const baseUrl = String(process.env.CEE_BASE_URL ?? '').trim();
     const apiKey = String(process.env.CEE_API_KEY ?? '').trim();
     const hasConfig = baseUrl.length > 0 && apiKey.length > 0;
@@ -585,17 +598,26 @@ export async function registerRunRoute(app: FastifyInstance) {
     let ceeStatus = 'skipped';
     let ceeCode = '';
 
-    if (!idk) {
+    if (!idkHeader) {
       ceeStatus = 'skipped';
       ceeCode = 'no_idk';
+      recordCeeSkipped('/v1/run', 'no_idk');
     } else if (!ceeEnabled) {
       ceeStatus = 'skipped';
       ceeCode = 'flag_off';
+      recordCeeSkipped('/v1/run', 'flag_off');
     } else if (!hasConfig) {
       ceeStatus = 'skipped';
       ceeCode = 'no_config';
+      recordCeeSkipped('/v1/run', 'no_config');
+    } else if (!shouldAllowCeeCall()) {
+      // Circuit breaker is open - skip CEE to prevent cascading failures
+      ceeStatus = 'skipped';
+      ceeCode = 'circuit_open';
+      recordCeeSkipped('/v1/run', 'circuit_open');
     } else {
       // Attempt CEE call
+      recordCeeAttempted('/v1/run');
       try {
         const cee = await callDecisionReviewFromEngine({
           requestId: String(req.id),
@@ -621,9 +643,13 @@ export async function registerRunRoute(app: FastifyInstance) {
         if (cee.error) {
           ceeStatus = 'degraded';
           ceeCode = cee.error.code || 'unknown';
+          recordCeeDegraded('/v1/run', normalizeCeeCode(ceeCode));
+          recordCeeFailure(); // Circuit breaker: track failure
         } else {
           ceeStatus = 'ok';
           ceeCode = '';
+          recordCeeOk('/v1/run');
+          recordCeeSuccess(); // Circuit breaker: reset on success
         }
 
         // Only attach CEE fields if they have actual data (not null)
@@ -638,32 +664,50 @@ export async function registerRunRoute(app: FastifyInstance) {
         }
       } catch (err: any) {
         ceeStatus = 'error';
-        ceeCode = 'client_error';
+        ceeCode = err?.code || 'client_error';
+        recordCeeDegraded('/v1/run', normalizeCeeCode(ceeCode));
+        recordCeeFailure(); // Circuit breaker: track failure
+
+        const errorMeta = {
+          evt: 'cee_integration_error',
+          error: err instanceof Error ? err.message : String(err),
+          stack: err instanceof Error ? err.stack : undefined,
+          requestId: req.id,
+          ceeBaseUrl: baseUrl,
+          hasEvidence: !!body.evidence,
+        };
+
         try {
-          req.log?.warn?.({
-            evt: 'cee_integration_error',
-            error: String(err?.message || err)
-          }, 'CEE integration failed; continuing without CEE');
-        } catch {}
+          req.log?.error?.(errorMeta, 'CEE integration failed; continuing without CEE');
+        } catch (logErr) {
+          // Last resort: don't crash, but ensure visibility
+          console.error('[CEE] Integration and logging failed', {
+            originalError: errorMeta,
+            loggingError: logErr instanceof Error ? logErr.message : String(logErr),
+          });
+        }
       }
     }
 
     // X-CEE-Debug header: {idk}:{flag}:{status}:{code}
-    try {
-      const hdr = [
-        idk ? '1' : '0',
-        ceeEnabled ? '1' : '0',
-        ceeStatus,
-        ceeCode,
-      ].join(':');
-      reply.header('X-CEE-Debug', hdr);
-    } catch {}
+    // Only expose in non-production or when explicitly enabled
+    if (process.env.NODE_ENV !== 'production' || process.env.CEE_DEBUG_ENABLE === '1') {
+      try {
+        const hdr = [
+          idkHeader ? '1' : '0',
+          ceeEnabled ? '1' : '0',
+          ceeStatus,
+          ceeCode,
+        ].join(':');
+        reply.header('X-CEE-Debug', hdr);
+      } catch {}
+    }
 
     // Structured log
     try {
       req.log?.info?.({
         evt: 'cee_debug',
-        idk_seen: !!idk,
+        idk_seen: !!idkHeader,
         cee_enabled: ceeEnabled,
         has_config: hasConfig,
         status: ceeStatus,
@@ -684,14 +728,4 @@ export async function registerRunRoute(app: FastifyInstance) {
 
     return response;
   });
-
-  // Capability probe: HEAD /v1/run returns 405 with Allow header
-  try {
-    app.head('/v1/run', async (_req: FastifyRequest, reply: FastifyReply) => {
-      try { reply.header('Allow', 'POST, OPTIONS, HEAD'); } catch {}
-      return reply.code(405).send();
-    });
-  } catch (err: any) {
-    if (err?.code !== 'FST_ERR_DUPLICATED_ROUTE') throw err;
-  }
 }
