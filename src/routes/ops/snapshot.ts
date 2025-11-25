@@ -14,6 +14,7 @@ import {
   getSseTimeout,
   getJson429Count,
   getSse429Count,
+  eventLoopDelayMs,
 } from '../../metrics.js';
 import { getFixtureCacheStats } from '../../lib/fixtures-cache.js';
 
@@ -135,7 +136,7 @@ export async function registerOpsSnapshot(app: FastifyInstance) {
       uptime_s: Math.round(process.uptime()),
       rss_mb: Math.round(mem.rss / 1024 / 1024),
       heap_used_mb: Math.round(mem.heapUsed / 1024 / 1024),
-      eventloop_delay_ms: 0, // Placeholder (would need perf_hooks for real value)
+      eventloop_delay_ms: eventLoopDelayMs(),
     };
 
     // Engine stats (reuse existing accessors)

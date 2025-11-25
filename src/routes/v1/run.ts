@@ -18,6 +18,12 @@ import type { Graph } from '../../trust/types.js';
 import { getInferenceEngine, type InferenceMode } from '../../inference/index.js';
 import { computeSensitivitySimple } from '../../lib/sensitivity-simple.js';
 import { recordEngineComputeMs } from '../../metrics.js';
+import {
+  recordCeeAttempted,
+  recordCeeOk,
+  recordCeeDegraded,
+  recordCeeSkipped,
+} from '../../metrics/registry.js';
 import { runResponseSchema } from '../../schemas/response.js';
 import { normalizeGraph } from '../../util/normalize.js';
 import { FLAGS } from '../../config/flags.js';
@@ -588,14 +594,18 @@ export async function registerRunRoute(app: FastifyInstance) {
     if (!idk) {
       ceeStatus = 'skipped';
       ceeCode = 'no_idk';
+      recordCeeSkipped('/v1/run', 'no_idk');
     } else if (!ceeEnabled) {
       ceeStatus = 'skipped';
       ceeCode = 'flag_off';
+      recordCeeSkipped('/v1/run', 'flag_off');
     } else if (!hasConfig) {
       ceeStatus = 'skipped';
       ceeCode = 'no_config';
+      recordCeeSkipped('/v1/run', 'no_config');
     } else {
       // Attempt CEE call
+      recordCeeAttempted('/v1/run');
       try {
         const cee = await callDecisionReviewFromEngine({
           requestId: String(req.id),
@@ -621,9 +631,11 @@ export async function registerRunRoute(app: FastifyInstance) {
         if (cee.error) {
           ceeStatus = 'degraded';
           ceeCode = cee.error.code || 'unknown';
+          recordCeeDegraded('/v1/run', ceeCode);
         } else {
           ceeStatus = 'ok';
           ceeCode = '';
+          recordCeeOk('/v1/run');
         }
 
         // Only attach CEE fields if they have actual data (not null)
@@ -639,6 +651,7 @@ export async function registerRunRoute(app: FastifyInstance) {
       } catch (err: any) {
         ceeStatus = 'error';
         ceeCode = err?.code || 'client_error';
+        recordCeeDegraded('/v1/run', ceeCode);
 
         const errorMeta = {
           evt: 'cee_integration_error',
