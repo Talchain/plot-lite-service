@@ -11,6 +11,7 @@ import {
   snapshot,
   replaySnapshot,
 } from '../metrics.js';
+import { getCeeCircuitBreakerStats } from '../cee/circuit-breaker.js';
 
 export interface HealthRoutesOptions {
   enableTestRoutes?: boolean;
@@ -61,6 +62,7 @@ export async function registerHealthRoutes(app: FastifyInstance, opts: HealthRou
         idempotency_current: opts.idemCacheSize(),
       },
       rate_limit: rateLimitState(),
+      cee_circuit_breaker: getCeeCircuitBreakerStats(),
       test_routes_enabled: process.env.NODE_ENV === 'production' ? false : (process.env.TEST_ROUTES === '1'),
       replay: replaySnapshot(),
       // Dev-only documentation of defaults for CI drift checks (add-only)

@@ -25,6 +25,7 @@ import {
   recordCeeSkipped,
 } from '../../metrics/registry.js';
 import { normalizeCeeCode, isFlagOn } from '../../cee/codes.js';
+import { shouldAllowCeeCall, recordCeeSuccess, recordCeeFailure } from '../../cee/circuit-breaker.js';
 import { runResponseSchema } from '../../schemas/response.js';
 import { normalizeGraph } from '../../util/normalize.js';
 import { FLAGS } from '../../config/flags.js';
@@ -603,6 +604,11 @@ export async function registerRunRoute(app: FastifyInstance) {
       ceeStatus = 'skipped';
       ceeCode = 'no_config';
       recordCeeSkipped('/v1/run', 'no_config');
+    } else if (!shouldAllowCeeCall()) {
+      // Circuit breaker is open - skip CEE to prevent cascading failures
+      ceeStatus = 'skipped';
+      ceeCode = 'circuit_open';
+      recordCeeSkipped('/v1/run', 'circuit_open');
     } else {
       // Attempt CEE call
       recordCeeAttempted('/v1/run');
@@ -632,10 +638,12 @@ export async function registerRunRoute(app: FastifyInstance) {
           ceeStatus = 'degraded';
           ceeCode = cee.error.code || 'unknown';
           recordCeeDegraded('/v1/run', normalizeCeeCode(ceeCode));
+          recordCeeFailure(); // Circuit breaker: track failure
         } else {
           ceeStatus = 'ok';
           ceeCode = '';
           recordCeeOk('/v1/run');
+          recordCeeSuccess(); // Circuit breaker: reset on success
         }
 
         // Only attach CEE fields if they have actual data (not null)
@@ -652,6 +660,7 @@ export async function registerRunRoute(app: FastifyInstance) {
         ceeStatus = 'error';
         ceeCode = err?.code || 'client_error';
         recordCeeDegraded('/v1/run', normalizeCeeCode(ceeCode));
+        recordCeeFailure(); // Circuit breaker: track failure
 
         const errorMeta = {
           evt: 'cee_integration_error',
