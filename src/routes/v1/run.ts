@@ -497,7 +497,13 @@ export async function registerRunRoute(app: FastifyInstance) {
     
     // Warn in production when SCM-Lite is disabled
     if (process.env.NODE_ENV === 'production' && process.env.SCM_LITE_ENABLE !== '1') {
-      app.log.warn({ feature: 'scm_lite', enabled: false, inference_mode }, 'SCM_LITE disabled — using placeholder results');
+      const usesPlaceholder = process.env.PROD_SCM_LITE_PLACEHOLDER === '1';
+      app.log.warn(
+        { feature: 'scm_lite', enabled: false, placeholder: usesPlaceholder, inference_mode },
+        usesPlaceholder
+          ? 'SCM_LITE disabled — using placeholder results'
+          : 'SCM_LITE disabled — running full inference'
+      );
     }
 
     // Build response with meta in alphabetical position
@@ -722,14 +728,4 @@ export async function registerRunRoute(app: FastifyInstance) {
 
     return response;
   });
-
-  // Capability probe: HEAD /v1/run returns 405 with Allow header
-  try {
-    app.head('/v1/run', async (_req: FastifyRequest, reply: FastifyReply) => {
-      try { reply.header('Allow', 'POST, OPTIONS, HEAD'); } catch {}
-      return reply.code(405).send();
-    });
-  } catch (err: any) {
-    if (err?.code !== 'FST_ERR_DUPLICATED_ROUTE') throw err;
-  }
 }

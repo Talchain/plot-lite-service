@@ -420,6 +420,8 @@ export async function callDecisionReviewFromEngine(opts: {
     usedFixture,
   });
 
+  // Defense-in-depth: Caller (/v1/run) is expected to gate enable/config before calling.
+  // These checks provide safety for direct callers that may skip upstream gating.
   if (!toBool(opts.env.enable)) {
     return degraded('CEE_DISABLED', 'fix_input');
   }
@@ -480,10 +482,13 @@ export async function callDecisionReviewFromEngine(opts: {
   try {
     const brief = 'Create a small decision graph from the run context.';
     const evidenceItems = mapEvidenceItems(opts.evidence);
+    // Pass graph_summary as structural context (no user content exposed)
+    const briefContext = opts.context.graph_summary;
     const res = await runDecisionReviewViaSdk(
       { baseUrl, apiKey, timeoutMs },
       brief,
       evidenceItems,
+      briefContext,
     );
 
     const trace = {
