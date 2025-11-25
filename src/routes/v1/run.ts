@@ -638,26 +638,42 @@ export async function registerRunRoute(app: FastifyInstance) {
         }
       } catch (err: any) {
         ceeStatus = 'error';
-        ceeCode = 'client_error';
+        ceeCode = err?.code || 'client_error';
+
+        const errorMeta = {
+          evt: 'cee_integration_error',
+          error: err instanceof Error ? err.message : String(err),
+          stack: err instanceof Error ? err.stack : undefined,
+          requestId: req.id,
+          ceeBaseUrl: baseUrl,
+          hasEvidence: !!body.evidence,
+        };
+
         try {
-          req.log?.warn?.({
-            evt: 'cee_integration_error',
-            error: String(err?.message || err)
-          }, 'CEE integration failed; continuing without CEE');
-        } catch {}
+          req.log?.error?.(errorMeta, 'CEE integration failed; continuing without CEE');
+        } catch (logErr) {
+          // Last resort: don't crash, but ensure visibility
+          console.error('[CEE] Integration and logging failed', {
+            originalError: errorMeta,
+            loggingError: logErr instanceof Error ? logErr.message : String(logErr),
+          });
+        }
       }
     }
 
     // X-CEE-Debug header: {idk}:{flag}:{status}:{code}
-    try {
-      const hdr = [
-        idk ? '1' : '0',
-        ceeEnabled ? '1' : '0',
-        ceeStatus,
-        ceeCode,
-      ].join(':');
-      reply.header('X-CEE-Debug', hdr);
-    } catch {}
+    // Only expose in non-production or when explicitly enabled
+    if (process.env.NODE_ENV !== 'production' || process.env.CEE_DEBUG_ENABLE === '1') {
+      try {
+        const hdr = [
+          idk ? '1' : '0',
+          ceeEnabled ? '1' : '0',
+          ceeStatus,
+          ceeCode,
+        ].join(':');
+        reply.header('X-CEE-Debug', hdr);
+      } catch {}
+    }
 
     // Structured log
     try {
