@@ -17,11 +17,34 @@ export type OrchestratorResult = {
   error?: { code?: string; retryable: boolean; suggestedAction: 'retry' | 'fix_input' | 'fail'; traceId?: string };
 };
 
+export type EvidenceHelperItem = {
+  id: string;
+  type: 'experiment' | 'user_research' | 'market_data' | 'expert_opinion' | 'other';
+  source?: string;
+  content?: string;
+};
+
+export function buildCeeBrief(shortLabel: string): string {
+  const prefix = 'Decision review context: ';
+  const label = (shortLabel ?? '').trim();
+  let brief = prefix + (label || 'scenario');
+
+  if (brief.length < 30) {
+    brief += ' Please elaborate.';
+  }
+
+  return brief;
+}
+
 /**
  * Calls Assistants CEE endpoints via SDK and collapses into the frozen v1 Decision Review payload.
  * Keep inputs minimal for now (safe brief); you can pass a real graph later if desired.
  */
-export async function runDecisionReviewViaSdk(env: OrchestratorEnv, brief: string): Promise<OrchestratorResult> {
+export async function runDecisionReviewViaSdk(
+  env: OrchestratorEnv,
+  brief: string,
+  evidenceItems?: EvidenceHelperItem[],
+): Promise<OrchestratorResult> {
   const client = createCEEClient({
     apiKey: String(env.apiKey ?? ''),
     baseUrl: env.baseUrl,
@@ -30,14 +53,18 @@ export async function runDecisionReviewViaSdk(env: OrchestratorEnv, brief: strin
 
   try {
     // 1) Draft a small graph from brief (non-streaming for deterministic behaviour)
-    const draft = await client.draftGraph({ brief, config: { streaming: false } });
+    const draftBrief = buildCeeBrief(brief);
+    const draft = await client.draftGraph({ brief: draftBrief, config: { streaming: false } });
 
     // 2) Options from draft graph – strict payload: { graph, archetype }
     const archetype = (draft as any)?.archetype ?? null;
     const options = await client.options({ graph: draft.graph, archetype });
 
-    // 3) Evidence suggestions (empty seed list is fine)
-    const evidence = await client.evidenceHelper({ evidence: [] });
+    // 3) Evidence helper – only call when we have at least one evidence item
+    let evidence: any | undefined;
+    if (Array.isArray(evidenceItems) && evidenceItems.length > 0) {
+      evidence = await client.evidenceHelper({ evidence: evidenceItems });
+    }
 
     // 4) Bias/structure checks – strict payload: { graph, archetype }
     const bias = await client.biasCheck({ graph: draft.graph, archetype });
