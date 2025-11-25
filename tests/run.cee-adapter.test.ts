@@ -50,7 +50,9 @@ describe('callDecisionReviewFromEngine (adapter)', () => {
       // 2) Draft graph from brief (non-streaming)
       if (path.endsWith('/assist/v1/draft-graph')) {
         const body = init?.body ? JSON.parse(init.body) : {};
-        expect(body).toMatchObject({ brief: expect.any(String) });
+        expect(Object.keys(body).sort()).toEqual(['brief', 'config']);
+        expect(typeof body.brief).toBe('string');
+        expect(body.brief.length).toBeGreaterThanOrEqual(30);
         expect(body.config?.streaming).toBe(false);
 
         const payload = {

@@ -573,19 +573,30 @@ export async function registerRunRoute(app: FastifyInstance) {
 
     // Attach optional CEE decision review for idempotent (saved) runs
     let response: any = stamped;
-    let ceeDebugIdkSeen = false;
-    let ceeDebugEnabled = false;
-    let ceeDebugPath: string | undefined;
-    let ceeDebugUsedFixture = false;
-    try {
-      const idk = String((req.headers as any)['idempotency-key'] || (req.headers as any)['Idempotency-Key'] || '').trim();
-      const enableRaw = String((process.env.CEE_ORCHESTRATOR_ENABLE ?? process.env.CEE_ORCHESTRATOR_ENABLED) ?? '').toLowerCase();
-      const ceeEnabled = enableRaw === '1' || enableRaw === 'true';
 
-      ceeDebugIdkSeen = !!idk;
-      ceeDebugEnabled = ceeEnabled;
+    // CEE gate: {idk}:{flag}:{status}:{code}
+    const idk = String((req.headers as any)['idempotency-key'] || (req.headers as any)['Idempotency-Key'] || '').trim();
+    const enableRaw = String((process.env.CEE_ORCHESTRATOR_ENABLE ?? process.env.CEE_ORCHESTRATOR_ENABLED) ?? '').toLowerCase();
+    const ceeEnabled = enableRaw === '1' || enableRaw === 'true';
+    const baseUrl = String(process.env.CEE_BASE_URL ?? '').trim();
+    const apiKey = String(process.env.CEE_API_KEY ?? '').trim();
+    const hasConfig = baseUrl.length > 0 && apiKey.length > 0;
 
-      if (idk && ceeEnabled) {
+    let ceeStatus = 'skipped';
+    let ceeCode = '';
+
+    if (!idk) {
+      ceeStatus = 'skipped';
+      ceeCode = 'no_idk';
+    } else if (!ceeEnabled) {
+      ceeStatus = 'skipped';
+      ceeCode = 'flag_off';
+    } else if (!hasConfig) {
+      ceeStatus = 'skipped';
+      ceeCode = 'no_config';
+    } else {
+      // Attempt CEE call
+      try {
         const cee = await callDecisionReviewFromEngine({
           requestId: String(req.id),
           context: {
@@ -598,23 +609,22 @@ export async function registerRunRoute(app: FastifyInstance) {
             },
           },
           env: {
-            enable: process.env.CEE_ORCHESTRATOR_ENABLE ?? process.env.CEE_ORCHESTRATOR_ENABLED,
-            baseUrl: process.env.CEE_BASE_URL,
-            apiKey: process.env.CEE_API_KEY,
+            enable: ceeEnabled,
+            baseUrl,
+            apiKey,
             timeoutMs: Number(process.env.CEE_TIMEOUT_MS ?? 10_000),
           },
+          evidence: body.evidence,
         });
 
-        ceeDebugUsedFixture = !!(cee as any).usedFixture;
-        const code = (cee as any).error?.code as string | undefined;
-        ceeDebugPath = ceeDebugUsedFixture
-          ? 'fixture'
-          : code === 'CEE_CONFIG_MISSING' ? 'config'
-          : code === 'CEE_DISABLED' ? 'disabled'
-          : code === 'CEE_UNAVAILABLE' ? 'health'
-          : code === 'CEE_SDK_UNAVAILABLE' ? 'sdk'
-          : code === 'CEE_CLIENT_ERROR' || code === 'CEE_ADAPTER_ERROR' ? 'client'
-          : 'client';
+        // Determine status and code
+        if (cee.error) {
+          ceeStatus = 'degraded';
+          ceeCode = cee.error.code || 'unknown';
+        } else {
+          ceeStatus = 'ok';
+          ceeCode = '';
+        }
 
         // Only attach CEE fields if they have actual data (not null)
         if (cee.review !== null) {
@@ -626,30 +636,38 @@ export async function registerRunRoute(app: FastifyInstance) {
         if (cee.error) {
           (response as any).ceeError = cee.error;
         }
+      } catch (err: any) {
+        ceeStatus = 'error';
+        ceeCode = 'client_error';
+        try {
+          req.log?.warn?.({
+            evt: 'cee_integration_error',
+            error: String(err?.message || err)
+          }, 'CEE integration failed; continuing without CEE');
+        } catch {}
       }
-    } catch (err: any) {
-      try {
-        req.log?.warn?.({ evt: 'cee_integration_error', error: String(err?.message || err) }, 'CEE integration failed; continuing without CEE');
-      } catch {}
     }
 
-    // Lightweight CEE debug header + log (no PII, post-hash)
+    // X-CEE-Debug header: {idk}:{flag}:{status}:{code}
     try {
       const hdr = [
-        ceeDebugIdkSeen ? '1' : '0',
-        ceeDebugEnabled ? '1' : '0',
-        ceeDebugPath ?? 'none',
-        ceeDebugUsedFixture ? '1' : '0',
+        idk ? '1' : '0',
+        ceeEnabled ? '1' : '0',
+        ceeStatus,
+        ceeCode,
       ].join(':');
       reply.header('X-CEE-Debug', hdr);
     } catch {}
+
+    // Structured log
     try {
       req.log?.info?.({
         evt: 'cee_debug',
-        idk_seen: ceeDebugIdkSeen,
-        cee_enabled: ceeDebugEnabled,
-        path: ceeDebugPath,
-        usedFixture: ceeDebugUsedFixture,
+        idk_seen: !!idk,
+        cee_enabled: ceeEnabled,
+        has_config: hasConfig,
+        status: ceeStatus,
+        code: ceeCode,
       }, 'CEE debug');
     } catch {}
 
