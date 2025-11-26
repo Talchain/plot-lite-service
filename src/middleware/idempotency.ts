@@ -46,14 +46,21 @@ export function getCached(principal: string, idempKey: string): Entry | null {
 export function setCached(principal: string, idempKey: string, status: number, body: any) {
   const k = makeKey(principal, idempKey);
   clearInflight(principal, idempKey);
+
+  // Remove existing entry if present (to update LRU order)
   if (store.has(k)) store.delete(k);
-  store.set(k, { status, body, expiry: now() + TTL_MS });
-  while (store.size > MAX_IDEM_ENTRIES) {
+
+  // Evict BEFORE insertion to prevent race condition where concurrent requests
+  // all pass the size check and insert before any eviction occurs.
+  // Use >= to stay at or below MAX_IDEM_ENTRIES
+  while (store.size >= MAX_IDEM_ENTRIES) {
     const it = store.keys();
     const oldest = it.next();
     if (!oldest.done) store.delete(oldest.value);
     else break;
   }
+
+  store.set(k, { status, body, expiry: now() + TTL_MS });
 }
 
 export function pruneExpired(max = 1000) {

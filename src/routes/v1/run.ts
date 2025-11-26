@@ -356,13 +356,13 @@ export async function registerRunRoute(app: FastifyInstance) {
       include_debug = false,
     } = body;
 
-    // K samples: explicit k_samples overrides detail_level default
-    const k_samples = body.k_samples ?? detailConfig.k_samples;
+    // K samples: explicit k_samples provides a hint, but budget.k is enforced
+    const requested_k = body.k_samples ?? detailConfig.k_samples;
 
-    // Cost governance
+    // Cost governance - enforces budget limits on requested K
     const budget = enforceComputeBudget({
       graph,
-      requested_k: k_samples,
+      requested_k,
       soft_cap_k: 5000,
       max_compute_ms: 30000,
     });
@@ -435,6 +435,9 @@ export async function registerRunRoute(app: FastifyInstance) {
     // quick = no adaptive, standard = 1%, deep = 0.5%
     const adaptiveK = detail_level !== 'quick';
     const convergenceThreshold = detail_level === 'deep' ? 0.005 : 0.01;
+
+    // Use budget.k (enforced value) for actual inference, not the raw request
+    const k_samples = budget.k;
 
     try {
       const inferenceResult = await inferenceEngine.run(graph, {

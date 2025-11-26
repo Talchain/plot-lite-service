@@ -354,16 +354,12 @@ export function getCircuitBreakerStats() {
   const now = Date.now();
   const globalFailures = globalCircuit.failureWindow.countSince(now, CONFIG.windowMs);
   
-  // PR-2C.1: Count principal states (single loop, no Array.from)
+  // PR-2C.1: Count principal states using public API (no unsafe type cast)
   let principalOpen = 0;
   let principalHalfOpen = 0;
-  const lruCache = (principalCircuits as any).cache; // Access internal Map
-  if (lruCache) {
-    for (const [, entry] of lruCache.entries()) {
-      const circuit = entry.value;
-      if (circuit.state === 'open') principalOpen++;
-      else if (circuit.state === 'half_open') principalHalfOpen++;
-    }
+  for (const circuit of principalCircuits.values()) {
+    if (circuit.state === 'open') principalOpen++;
+    else if (circuit.state === 'half_open') principalHalfOpen++;
   }
   
   return {
