@@ -174,7 +174,7 @@ export async function registerStreamRouteEnhanced(app: FastifyInstance) {
             .send({ schema: 'error.v1', code: 'RATE_LIMITED', message: 'Too many streams', retry_after_s: retryAfterS });
         }
 
-        // Ensure release on socket lifecycle
+        // Ensure release on socket lifecycle with single metric increment
         let fallbackTimer: NodeJS.Timeout | null = null;
         const releaseOnce = (() => {
           let done = false;
@@ -182,6 +182,9 @@ export async function registerStreamRouteEnhanced(app: FastifyInstance) {
           return (fromTimeout = false) => {
             if (done) return;
             done = true;
+            // Increment disconnect metric only once (inside guard to prevent double-counting
+            // when both 'close' and 'error' events fire)
+            try { incStreamDisconnect(); } catch {}
             if (fromTimeout) { timedOut = true; try { incSseTimeout(); } catch {} }
             else { try { incSseClosed(); } catch {} }
             try { if (fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null; } } catch {}
@@ -191,8 +194,8 @@ export async function registerStreamRouteEnhanced(app: FastifyInstance) {
             try { recordStreamDuration(Date.now() - startTime); } catch {}
           };
         })();
-        (req.raw as any).on('close', () => { try { incStreamDisconnect(); } catch {} releaseOnce(); });
-        (req.raw as any).on('error', () => { try { incStreamDisconnect(); } catch {} releaseOnce(); });
+        (req.raw as any).on('close', () => { releaseOnce(); });
+        (req.raw as any).on('error', () => { releaseOnce(); });
         
         try {
           fallbackTimer = setTimeout(() => { reply.log?.info({ reqId }, 'sse timeout'); releaseOnce(true); }, SSE_SLOT_MAX_MS);

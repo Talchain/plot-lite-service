@@ -91,6 +91,32 @@ export class BoundedLRU<T> {
     };
   }
 
+  /**
+   * Iterate over all non-expired values in the cache.
+   * This is a public API to avoid unsafe type casts accessing internal cache.
+   */
+  *values(): Generator<T> {
+    const now = Date.now();
+    for (const entry of this.cache.values()) {
+      if (now - entry.createdAt <= this.ttlMs) {
+        yield entry.value;
+      }
+    }
+  }
+
+  /**
+   * Iterate over all non-expired entries in the cache.
+   * This is a public API to avoid unsafe type casts accessing internal cache.
+   */
+  *entries(): Generator<[string, T]> {
+    const now = Date.now();
+    for (const [key, entry] of this.cache.entries()) {
+      if (now - entry.createdAt <= this.ttlMs) {
+        yield [key, entry.value];
+      }
+    }
+  }
+
   private purgeExpired(now: number): void {
     for (const [key, entry] of this.cache.entries()) {
       if (now - entry.createdAt > this.ttlMs) {
