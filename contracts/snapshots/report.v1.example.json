@@ -198,7 +198,6 @@
     "recommendation": "Within linear range (±20%)"
   },
   "meta": {
-    "commit": "dev",
     "inference_mode": "model_based",
     "seed": 42,
     "version": "1.0.0"
