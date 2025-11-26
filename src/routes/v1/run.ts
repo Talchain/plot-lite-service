@@ -693,16 +693,17 @@ export async function registerRunRoute(app: FastifyInstance) {
       ceeStatus = 'skipped';
       ceeCode = 'no_config';
       recordCeeSkipped('/v1/run', 'no_config');
+    } else if (!detailConfig.run_cee) {
+      // Quick mode skips CEE for speed - check BEFORE circuit breaker
+      // to avoid toggling breaker state for requests that won't call CEE anyway
+      ceeStatus = 'skipped';
+      ceeCode = 'quick_mode';
+      recordCeeSkipped('/v1/run', 'quick_mode');
     } else if (!shouldAllowCeeCall()) {
       // Circuit breaker is open - skip CEE to prevent cascading failures
       ceeStatus = 'skipped';
       ceeCode = 'circuit_open';
       recordCeeSkipped('/v1/run', 'circuit_open');
-    } else if (!detailConfig.run_cee) {
-      // Quick mode skips CEE for speed
-      ceeStatus = 'skipped';
-      ceeCode = 'quick_mode';
-      recordCeeSkipped('/v1/run', 'quick_mode');
     } else {
       // Attempt CEE call
       recordCeeAttempted('/v1/run');
