@@ -704,11 +704,6 @@ export async function registerRunRoute(app: FastifyInstance) {
       ceeStatus = 'skipped';
       ceeCode = 'circuit_open';
       recordCeeSkipped('/v1/run', 'circuit_open');
-    } else if (!detailConfig.run_cee) {
-      // Quick mode skips CEE for speed
-      ceeStatus = 'skipped';
-      ceeCode = 'quick_mode';
-      recordCeeSkipped('/v1/run', 'quick_mode');
     } else {
       // Attempt CEE call
       recordCeeAttempted('/v1/run');
