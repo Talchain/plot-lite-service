@@ -12,6 +12,9 @@ export interface InferenceConfig {
   outcome_node: string;
   baseline_value: number;
   priors?: Record<string, number | { mean: number; sd: number }>;
+  // Adaptive K early-stopping
+  adaptiveK?: boolean;
+  convergenceThreshold?: number; // e.g., 0.01 = 1%
 }
 
 export interface InferenceResult {
@@ -22,6 +25,9 @@ export interface InferenceResult {
     unique_graphs?: number;
     sign_stability?: number;
     bma_hash?: string;
+    K_evaluated?: number;
+    K_requested?: number;
+    K_converged?: boolean;
   };
 }
 

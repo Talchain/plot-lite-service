@@ -31,6 +31,11 @@ export interface KernelConfig {
   maxNodes: number; // hard cap (default 12)
   maxEdges: number; // hard cap (default 20)
   beliefDefault: number; // default edge belief (default 0.7)
+  // Adaptive K early-stopping
+  adaptiveK?: boolean; // enable early stopping when p50 converges
+  convergenceThreshold?: number; // percentage threshold (e.g., 0.01 = 1%)
+  kStep?: number; // batch size for convergence checks (default 8)
+  kMin?: number; // minimum samples before checking convergence (default 16)
 }
 
 export interface KernelResult {
@@ -44,6 +49,8 @@ export interface KernelResult {
   bma_hash: string; // hash over K-wise canonical buffer
   meta: {
     K_evaluated: number;
+    K_requested?: number; // original K before early stopping
+    K_converged?: boolean; // true if stopped early due to convergence
     unique_graphs: number;
     sign_stability: number; // [0,1]
     identified_paths: number;

@@ -5,6 +5,27 @@
 
 export type ConfidenceLevel = 'LOW' | 'MEDIUM' | 'HIGH';
 
+export type DetailLevel = 'quick' | 'standard' | 'deep';
+
+/**
+ * Detail level configuration - controls compute budget and feature enablement
+ * quick: fast iteration, minimal analysis (K=16)
+ * standard: normal runs, default (K=32)
+ * deep: thorough analysis, audit/export (K=64)
+ */
+export interface DetailLevelConfig {
+  k_samples: number;
+  run_critique: boolean;
+  run_sensitivity: boolean;
+  run_cee: boolean;
+}
+
+export const DETAIL_LEVEL_CONFIG: Record<DetailLevel, DetailLevelConfig> = {
+  quick: { k_samples: 16, run_critique: false, run_sensitivity: false, run_cee: false },
+  standard: { k_samples: 32, run_critique: true, run_sensitivity: true, run_cee: true },
+  deep: { k_samples: 64, run_critique: true, run_sensitivity: true, run_cee: true },
+};
+
 export interface ModelCard {
   seed: number;
   assumptions_summary: string[];
@@ -18,6 +39,13 @@ export interface ModelCard {
   response_hash?: string; // SHA-256 of normalised payload (added for auditability)
   warnings?: string[]; // Optional warnings (e.g., zero baseline)
   identifiability_tag?: string; // Plain-English identifiability summary (IDENT_TAG_ENABLE=1)
+  detail_level?: DetailLevel; // P1: quick | standard | deep
+  // P1: Adaptive K early-stopping parameters
+  parameters?: {
+    K: number;
+    K_requested?: number;
+    K_converged?: boolean;
+  };
 }
 
 export interface ConfidenceBadge {
@@ -36,6 +64,28 @@ export interface LinearityWarning {
   outside_range: boolean;
   distance_from_center: number; // percentage
   recommendation: string;
+}
+
+export interface SensitivitySummary {
+  concentration: 'high' | 'medium' | 'diffuse';
+  top_n_explain_pct: number;
+  top_n: number;
+  interpretation: string;
+}
+
+export interface GraphQuality {
+  score: number; // 0.00–1.00
+  completeness: number;
+  evidence_coverage: number;
+  balance: number;
+  issues_count: number;
+  recommendation?: string;
+}
+
+export interface Insights {
+  summary: string; // ≤200 chars
+  risks: string[]; // max 5, each ≤100 chars
+  next_steps: string[]; // max 3, each ≤150 chars
 }
 
 export interface ThresholdCrossing {
@@ -84,6 +134,9 @@ export interface TrustedResponse {
   fork_suggestions?: ForkSuggestion[];
   explain_delta?: ExplainDelta;
   critique?: CritiqueItem[];
+  sensitivity_summary?: SensitivitySummary;
+  graph_quality?: GraphQuality;
+  insights?: Insights;
 }
 
 export interface GraphNode {

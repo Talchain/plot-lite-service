@@ -12,16 +12,20 @@ export interface SensitivityEdge {
   score: number;
 }
 
-export function computeSensitivitySimple(
+/**
+ * Compute sensitivity scores for ALL edges, sorted by impact.
+ * Returns full list with ranks assigned.
+ */
+export function computeSensitivityAll(
   edges: GraphEdge[],
-  targetNode: string
+  _targetNode: string
 ): SensitivityEdge[] {
   const scored = edges.map((edge, idx) => {
     const weight = edge.weight ?? 0;
     const belief = edge.belief ?? 1.0;
     const provenance = edge.provenance ?? 'template';
     const score = Math.abs(weight) * belief;
-    
+
     return {
       edge_id: `${edge.from}::${edge.to}::${idx}`,
       from: edge.from,
@@ -34,7 +38,7 @@ export function computeSensitivitySimple(
       rank: 0,
     };
   });
-  
+
   scored.sort((a, b) => {
     const EPS = 1e-12;
     if (Math.abs(a.score - b.score) > EPS) return b.score - a.score;
@@ -42,6 +46,18 @@ export function computeSensitivitySimple(
     if (Math.abs(wDiff) > EPS) return wDiff;
     return a.edge_id.localeCompare(b.edge_id);
   });
-  
-  return scored.slice(0, 3).map((s, i) => ({ ...s, rank: i + 1 }));
+
+  // Assign ranks to all edges
+  return scored.map((s, i) => ({ ...s, rank: i + 1 }));
+}
+
+/**
+ * Compute sensitivity scores and return only top 3.
+ * This is the original function for backward compatibility.
+ */
+export function computeSensitivitySimple(
+  edges: GraphEdge[],
+  targetNode: string
+): SensitivityEdge[] {
+  return computeSensitivityAll(edges, targetNode).slice(0, 3);
 }

@@ -12,6 +12,9 @@ export interface AdapterConfig {
   K: number;
   maxNodes: number;
   beliefDefault: number;
+  // Adaptive K early-stopping
+  adaptiveK?: boolean;
+  convergenceThreshold?: number;
 }
 
 export interface AdaptedResults {
@@ -26,6 +29,8 @@ export interface AdaptedResults {
   bma_hash: string;
   meta: {
     K_evaluated: number;
+    K_requested?: number;
+    K_converged?: boolean;
     unique_graphs: number;
     sign_stability: number;
     identified_paths: number;
@@ -49,14 +54,17 @@ export function runSCMLite(
   config: AdapterConfig
 ): AdaptedResults {
   const dag = adaptGraphToDAG(graph, config.beliefDefault);
-  
+
   const result: KernelResult = runKernel(dag, target, {
     seed: config.seed,
     K: config.K,
     maxNodes: config.maxNodes,
     beliefDefault: config.beliefDefault,
+    // Adaptive K early-stopping
+    adaptiveK: config.adaptiveK,
+    convergenceThreshold: config.convergenceThreshold,
   });
-  
+
   return {
     summary: {
       bands: {

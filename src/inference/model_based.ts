@@ -13,11 +13,11 @@ export class ModelBasedInference implements InferenceEngine {
   name = 'model_based';
 
   run(graph: Graph, config: InferenceConfig): InferenceResult {
-    const { seed, k_samples, outcome_node, baseline_value, priors } = config;
-    
+    const { seed, k_samples, outcome_node, baseline_value, priors, adaptiveK, convergenceThreshold } = config;
+
     // Apply priors to graph if provided
     const workingGraph = priors ? applyPriorsToGraph(graph, priors, seed) : graph;
-    
+
     // Use SCM-Lite if enabled
     if (process.env.SCM_LITE_ENABLE === '1') {
       const scmConfig = {
@@ -26,10 +26,13 @@ export class ModelBasedInference implements InferenceEngine {
         maxNodes: Number(process.env.SCM_LITE_MAX_NODES || 50),
         maxEdges: Number(process.env.SCM_LITE_MAX_EDGES || 200),
         beliefDefault: Number(process.env.SCM_LITE_BELIEF_DEFAULT || 0.7),
+        // Adaptive K early-stopping
+        adaptiveK,
+        convergenceThreshold,
       };
-      
+
       const scmResult = runSCMLite(workingGraph, outcome_node, scmConfig);
-      
+
       return {
         conservative: { outcome: scmResult.summary.bands.p10 },
         most_likely: { outcome: scmResult.summary.bands.p50 },
@@ -38,6 +41,9 @@ export class ModelBasedInference implements InferenceEngine {
           unique_graphs: scmResult.meta.unique_graphs,
           sign_stability: scmResult.meta.sign_stability,
           bma_hash: scmResult.bma_hash,
+          K_evaluated: scmResult.meta.K_evaluated,
+          K_requested: scmResult.meta.K_requested,
+          K_converged: scmResult.meta.K_converged,
         },
       };
     }

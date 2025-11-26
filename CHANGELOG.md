@@ -1,5 +1,25 @@
 # Changelog
 
+## [Unreleased]
+
+### Added - P1 Trust Signal Enhancements
+- **detail_level** - `quick` | `standard` | `deep` controls compute budget and feature enablement
+- **Adaptive K early-stopping** - Convergence detection stops sampling when p50 stabilizes (1% for standard, 0.5% for deep)
+- **sensitivity_summary** - Concentration analysis (`high` | `medium` | `diffuse`) based on top driver impact
+- **graph_quality** - Weighted score (0-1) combining completeness, evidence coverage, balance, identifiability
+- **insights** - Human-readable summary, risks, and next_steps without user content leakage
+- **linearity_warning** - Now exposed in `/v1/run` response (was computed but hidden)
+
+### Fixed
+- Linearity check now uses actual inference p50 (was using placeholder `baseline * 1.15`)
+- Confidence k_coverage now uses actual K_evaluated (was using requested K)
+- Evidence coverage excludes `template` provenance (only counts external evidence)
+- sensitivity_summary concentration now calculated from all edges (was incorrectly using only top 3)
+
+### Changed
+- OpenAPI contract updated with P1 fields (`insights`, `graph_quality`, `sensitivity_summary`, `detail_level`)
+- Contract snapshot regenerated for P1 fields
+
 ## [1.4.0] - 2025-11-13
 
 ### Added - Charter K-P Features

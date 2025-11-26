@@ -2506,6 +2506,15 @@ components:
               uniqueItems: true
               example: ["Revenue"]
           additionalProperties: false
+        detail_level:
+          type: string
+          enum: [quick, standard, deep]
+          default: standard
+          description: |
+            Controls compute budget and feature enablement:
+            - quick: K=16, no critique/sensitivity/CEE
+            - standard: K=32, all features enabled (default)
+            - deep: K=64, stricter convergence threshold (0.5%)
         constraints:
           type: object
           description: Optional constraints for validation and modeling
@@ -2557,6 +2566,69 @@ components:
           items: { $ref: '#/components/schemas/critiqueItem' }
         explain_delta: { $ref: '#/components/schemas/explainDelta' }
         identifiability: { type: string }
+        insights:
+          type: object
+          description: 'P1: Human-readable summary without user content leakage'
+          properties:
+            summary:
+              type: string
+              maxLength: 200
+              description: 'Brief outcome summary'
+            risks:
+              type: array
+              maxItems: 5
+              items:
+                type: string
+                maxLength: 100
+              description: 'Key risks identified from model quality signals'
+            next_steps:
+              type: array
+              maxItems: 3
+              items:
+                type: string
+                maxLength: 150
+              description: 'Recommended actions for decision makers'
+        graph_quality:
+          type: object
+          description: 'P1: Graph quality score (0-1) with breakdown'
+          properties:
+            score:
+              type: number
+              minimum: 0
+              maximum: 1
+              description: 'Weighted quality score'
+            completeness:
+              type: number
+              minimum: 0
+              maximum: 1
+            evidence_coverage:
+              type: number
+              minimum: 0
+              maximum: 1
+              description: 'Proportion of edges with external evidence'
+            balance:
+              type: number
+              minimum: 0
+              maximum: 1
+            issues_count:
+              type: integer
+            recommendation:
+              type: string
+        sensitivity_summary:
+          type: object
+          description: 'P1: Sensitivity concentration analysis (standard/deep only)'
+          properties:
+            concentration:
+              type: string
+              enum: [high, medium, diffuse]
+            top_n_explain_pct:
+              type: number
+              minimum: 0
+              maximum: 1
+            top_n:
+              type: integer
+            interpretation:
+              type: string
         trace_id:
           type: string
           description: 'Optional client-provided trace identifier echoed from X-Trace-Id when TRACE_ID_PASSTHROUGH=1; may also be present when TRACE_MIN=1'
