@@ -19,10 +19,15 @@ describe('HEAD /v1/run capability probe', () => {
     await app.close();
   });
 
-  it('returns 204 with no body (probe behaviour)', async () => {
+  it('returns 405 with Allow header (probe behaviour)', async () => {
     const res = await fetch(`${base}/v1/run`, { method: 'HEAD' });
-    expect(res.status).toBe(204);
-    
+    // 405 indicates route exists but method not supported for inference
+    // UI probe accepts any of 200/401/403/405 as "engine online"
+    expect(res.status).toBe(405);
+
+    // Verify Allow header lists supported methods
+    expect(res.headers.get('allow')).toBe('POST, OPTIONS, HEAD');
+
     // Verify no content in response
     const text = await res.text();
     expect(text).toBe('');

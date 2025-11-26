@@ -68,9 +68,11 @@ export async function registerRunRoute(app: FastifyInstance) {
   const { createValidator } = await import('../../middleware/input-validation.js');
   const { principalFor, getCached, setCached, pruneExpired, markInflight, clearInflight } = await import('../../middleware/idempotency.js');
   
-  // HEAD /v1/run for UI probe
+  // HEAD /v1/run for UI probe - returns 405 with Allow header
+  // UI expects non-404 to indicate route exists (200/401/403/405 all valid)
   app.head('/v1/run', async (_req, reply) => {
-    return reply.code(204).send();
+    reply.header('Allow', 'POST, OPTIONS, HEAD');
+    return reply.code(405).send();
   });
 
   app.post('/v1/run', {

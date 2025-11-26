@@ -34,13 +34,15 @@ describe('CORS + HEAD + Limits', () => {
     expect(res.headers['access-control-expose-headers']).toContain('Retry-After');
   });
 
-  it('HEAD /v1/run returns 204 with no body', async () => {
+  it('HEAD /v1/run returns 405 with Allow header (UI probe)', async () => {
     const res = await app.inject({
       method: 'HEAD',
       url: '/v1/run',
     });
 
-    expect(res.statusCode).toBe(204);
+    // 405 indicates route exists; UI probe treats non-404 as "engine online"
+    expect(res.statusCode).toBe(405);
+    expect(res.headers['allow']).toBe('POST, OPTIONS, HEAD');
     expect(res.body).toBe('');
   });
 
