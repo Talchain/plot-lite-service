@@ -1,9 +1,23 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
 import { createServer } from '../src/createServer.js';
 import type { FastifyInstance } from 'fastify';
 
 describe('Idempotency: Early-Exit Cleanup (P0)', () => {
   let app: FastifyInstance;
+  let origRateLimitEnabled: string | undefined;
+
+  beforeAll(() => {
+    origRateLimitEnabled = process.env.RATE_LIMIT_ENABLED;
+    process.env.RATE_LIMIT_ENABLED = '1';
+  });
+
+  afterAll(() => {
+    if (origRateLimitEnabled !== undefined) {
+      process.env.RATE_LIMIT_ENABLED = origRateLimitEnabled;
+    } else {
+      delete process.env.RATE_LIMIT_ENABLED;
+    }
+  });
 
   beforeEach(async () => {
     app = await createServer();

@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { principalFor, setCached, getCached } from '../src/middleware/idempotency.js';
 import { createServer } from '../src/createServer.js';
+import { __resetTokenSecret } from '../src/lib/token-principal.js';
+
+// P2: Secret must be ≥64 hex chars (32 bytes) per security requirements
+const VALID_SECRET = 'abc123456789012345678901234567890123456789012345678901234567890123';
 
 describe('Idempotency HMAC Principal (F5)', () => {
   let origSecret: string | undefined;
@@ -9,7 +13,8 @@ describe('Idempotency HMAC Principal (F5)', () => {
   beforeEach(() => {
     origSecret = process.env.TOKEN_HMAC_SECRET;
     origRL = process.env.TOKEN_RL_ENABLE;
-    process.env.TOKEN_HMAC_SECRET = 'test-secret-f5';
+    __resetTokenSecret();
+    process.env.TOKEN_HMAC_SECRET = VALID_SECRET;
     process.env.TOKEN_RL_ENABLE = '1';
   });
 
@@ -18,6 +23,7 @@ describe('Idempotency HMAC Principal (F5)', () => {
     else delete process.env.TOKEN_HMAC_SECRET;
     if (origRL) process.env.TOKEN_RL_ENABLE = origRL;
     else delete process.env.TOKEN_RL_ENABLE;
+    __resetTokenSecret();
   });
 
   it('same token identical replay', () => {

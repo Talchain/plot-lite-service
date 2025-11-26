@@ -4,6 +4,7 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 describe('Rate limiter pruning', () => {
   it('prunes expired buckets and enforces MAX_BUCKETS cap', async () => {
     vi.resetModules();
+    process.env.RATE_LIMIT_ENABLED = '1';
     process.env.RATE_LIMIT_MAX_BUCKETS = '50';
     process.env.RATE_LIMIT_SWEEP_INTERVAL_MS = '100';
     process.env.RATE_LIMIT_RPM = '100';

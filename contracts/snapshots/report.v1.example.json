@@ -17,6 +17,31 @@
       "severity": "OBSERVATION"
     }
   ],
+  "evidence_analysis": {
+    "assumption_edges": [
+      "process::approved::2",
+      "process::rejected::3",
+      "process::review::4",
+      "start::process::0",
+      "start::rejected::1"
+    ],
+    "coverage_pct": 0,
+    "critical_gaps": [
+      {
+        "edge_id": "process::approved::2",
+        "reason": "High-impact edge (score: 0.00) relies on unspecified provenance"
+      },
+      {
+        "edge_id": "process::rejected::3",
+        "reason": "High-impact edge (score: 0.00) relies on unspecified provenance"
+      },
+      {
+        "edge_id": "process::review::4",
+        "reason": "High-impact edge (score: 0.00) relies on unspecified provenance"
+      }
+    ],
+    "evidence_backed_edges": []
+  },
   "explain_delta": {
     "summary": "No change from baseline; all contributions are 0%",
     "top_drivers": [
