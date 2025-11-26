@@ -21,6 +21,9 @@ import { computeSensitivitySimple, computeSensitivityAll } from '../../lib/sensi
 import { computeSensitivitySummary } from '../../trust/sensitivity-summary.js';
 import { computeGraphQuality } from '../../trust/graph-quality.js';
 import { generateInsights } from '../../trust/insights.js';
+import { analyseEvidence } from '../../trust/evidence-analysis.js';
+import { computeFullSensitivity } from '../../trust/sensitivity-full.js';
+import { calculateCalibratedConfidence, compareConfidence } from '../../trust/confidence-calibrated.js';
 import { recordEngineComputeMs } from '../../metrics.js';
 import {
   recordCeeAttempted,
@@ -591,15 +594,57 @@ export async function registerRunRoute(app: FastifyInstance) {
     // P0: Compute top edge drivers (always included, not gated by include_debug)
     const top_edge_drivers = computeSensitivitySimple(graph.edges, outcome_node);
 
+    // Compute all edges once and reuse for summary, full sensitivity, etc.
+    const all_edges = detailConfig.run_sensitivity || detail_level === 'deep'
+      ? computeSensitivityAll(graph.edges, outcome_node)
+      : [];
+
     // P1: Compute sensitivity summary using ALL edges (not just top 3) for accurate concentration
     const sensitivity_summary = detailConfig.run_sensitivity
-      ? computeSensitivitySummary(computeSensitivityAll(graph.edges, outcome_node))
+      ? computeSensitivitySummary(all_edges)
+      : undefined;
+
+    // Sprint N: Evidence-Aware Critique - analyse which edges are backed by evidence vs assumptions
+    const evidence_analysis = detailConfig.run_critique
+      ? analyseEvidence({
+          edges: graph.edges.map((edge: any, idx: number) => ({
+            id: `${edge.from}::${edge.to}::${idx}`,
+            from: edge.from,
+            to: edge.to,
+            provenance: edge.provenance,
+          })),
+          top_drivers: top_edge_drivers.map(d => ({
+            edge_id: d.edge_id,
+            score: d.score,
+          })),
+        })
+      : undefined;
+
+    // Sprint N: Full Sensitivity - all edges with HHI concentration (deep detail level only)
+    const sensitivity_full = detail_level === 'deep'
+      ? computeFullSensitivity(all_edges)
+      : undefined;
+
+    // Sprint N: Confidence Comparison - compare current vs calibrated formulas (deep detail level only)
+    // Note: This is an experimental comparison between current and a prototype calibrated formula
+    const confidence_comparison = detail_level === 'deep'
+      ? (() => {
+          // Calculate calibrated confidence using kernel meta if available
+          const calibratedResult = calculateCalibratedConfidence({
+            mask_diversity: scm_bma_hash ? 0.7 : 0.5, // Better diversity if BMA hash available
+            path_stability: identifiability.identifiable ? 0.8 : 0.4,
+            linearity_distance: linearity_warning.distance_from_center / 100,
+            k_samples: K_evaluated ?? budget.k,
+          });
+          return compareConfidence(confidence, calibratedResult);
+        })()
       : undefined;
 
     // P1: Compute graph quality score
-    // Only count edges with external evidence (exclude 'template' as it's just baseline assumption)
+    // Only count edges with external evidence (exclude 'template' and 'assumption' - aligned with evidence-analysis)
+    const ASSUMPTION_PROVENANCES = ['template', 'assumption'];
     const edges_with_provenance = graph.edges.filter(
-      (e: any) => e.provenance && e.provenance !== 'template'
+      (e: any) => e.provenance && !ASSUMPTION_PROVENANCES.includes(e.provenance.toLowerCase())
     ).length;
     const critique_blockers = critique.filter((c: any) => c.severity === 'BLOCKER').length;
     const critique_warnings = critique.filter((c: any) => c.severity === 'IMPROVEMENT').length;
@@ -638,6 +683,9 @@ export async function registerRunRoute(app: FastifyInstance) {
       insights,
       linearity_warning,
       ...(sensitivity_summary && { sensitivity_summary }),
+      ...(evidence_analysis && { evidence_analysis }),
+      ...(sensitivity_full && { sensitivity_full }),
+      ...(confidence_comparison && { confidence_comparison }),
       meta: {
         seed,
         commit: process.env.BUILD_ID || process.env.GITHUB_SHA || 'dev',
