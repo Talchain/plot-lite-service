@@ -126,6 +126,8 @@ const runRequestSchema = {
       minItems: 1,
       uniqueItems: true,
     },
+    // P1: Detail level for compute budget and feature enablement
+    detail_level: { type: 'string', enum: ['quick', 'standard', 'deep'] },
     // Legacy query.targets bridge (strict shape)
     query: {
       type: 'object',
@@ -390,7 +392,7 @@ export function createValidator(route: 'run' | 'counterfactual' | 'critique' | '
     switch (route) {
       case 'run':
         validator = validateRun;
-        allowedKeys = new Set(['graph','seed','k_samples','treatment_node','outcome_node','baseline_value','inputs','query','constraints','inference_mode','include_debug','priors','evidence','targets']);
+        allowedKeys = new Set(['graph','seed','k_samples','treatment_node','outcome_node','baseline_value','inputs','query','constraints','inference_mode','include_debug','priors','evidence','targets','detail_level']);
         break;
       case 'counterfactual':
         validator = validateCounterfactual;
