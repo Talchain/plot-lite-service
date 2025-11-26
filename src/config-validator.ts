@@ -115,6 +115,41 @@ export function validateEnv(): void {
     }
   }
 
+  // ISL_MAX_RETRIES validation
+  if (process.env.ISL_MAX_RETRIES) {
+    const retries = Number(process.env.ISL_MAX_RETRIES);
+    if (isNaN(retries) || retries < 0 || retries > 5) {
+      errors.push(`Invalid ISL_MAX_RETRIES: ${process.env.ISL_MAX_RETRIES} (must be 0-5)`);
+    }
+  }
+
+  // P0.1: Combined timeout budget validation
+  // Ensure worst-case latency fits within proxy timeout (default 26s for Netlify)
+  const PROXY_TIMEOUT_MS = Number(process.env.PROXY_TIMEOUT_MS || '26000');
+  const islTimeoutMs = Number(process.env.ISL_TIMEOUT_MS || '15000');
+  const islMaxRetries = Number(process.env.ISL_MAX_RETRIES || '3');
+  const ceeTimeoutMs = Number(process.env.CEE_TIMEOUT_MS || '5000');
+  const computeBudgetMs = Number(process.env.MAX_COMPUTE_MS || '10000');
+
+  // ISL worst-case: timeout × retries (sequential retries with exponential backoff)
+  // Simplified: assume full timeout per retry
+  const islWorstCaseMs = islTimeoutMs * islMaxRetries;
+
+  // Total worst-case: ISL + CEE + compute (these can run in parallel, but be conservative)
+  const totalWorstCaseMs = Math.max(islWorstCaseMs, ceeTimeoutMs) + computeBudgetMs;
+
+  if (totalWorstCaseMs > PROXY_TIMEOUT_MS) {
+    logger.warn({
+      islTimeoutMs,
+      islMaxRetries,
+      islWorstCaseMs,
+      ceeTimeoutMs,
+      computeBudgetMs,
+      totalWorstCaseMs,
+      proxyTimeoutMs: PROXY_TIMEOUT_MS,
+    }, `Combined timeout budget (${totalWorstCaseMs}ms) exceeds proxy timeout (${PROXY_TIMEOUT_MS}ms). Consider reducing ISL_TIMEOUT_MS, ISL_MAX_RETRIES, or MAX_COMPUTE_MS.`);
+  }
+
   if (errors.length > 0) {
     logger.fatal({ errors, env: process.env.NODE_ENV }, 'Environment validation failed');
     // Also log to stderr for visibility during startup
