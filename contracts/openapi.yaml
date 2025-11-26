@@ -13,6 +13,7 @@ info:
     **Feature Flags**:
     - FEATURE_STREAM=1 enables real SSE /stream route (test-only otherwise)
     - AUTH_ENABLED=1 requires Authorization: Bearer <token> on certain routes
+    - ISL_ENABLE=1 enables ISL (Inference Service Layer) integration for enhanced causal validation and sensitivity analysis
     
     **Legacy Routes**: /draft-flows, /critique, /improve (v0) remain for backwards compatibility.
   contact:
@@ -68,8 +69,10 @@ paths:
                     type: object
   /version:
     get:
-      summary: Engine version
-      description: Returns engine version and build metadata for legacy clients.
+      summary: Engine version and capabilities
+      description: |
+        Returns engine version, build metadata, feature flags, and supported capabilities.
+        UI clients should use the `capabilities` field to negotiate features.
       operationId: versionLegacy
       tags: [meta]
       responses:
@@ -79,14 +82,62 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [api, build, model]
+                required: [api, build, model, version, flags, capabilities]
                 properties:
                   api:
                     type: string
+                    example: 'warp/0.1.0'
                   build:
                     type: string
+                    description: 'Short git SHA or build identifier'
                   model:
                     type: string
+                    example: 'plot-lite-abc1234'
+                  version:
+                    type: string
+                    description: 'Package version for explicit tracking'
+                    example: '1.5.0'
+                  flags:
+                    type: object
+                    description: 'Feature flag states (ON/OFF)'
+                    properties:
+                      SCM_LITE_ENABLE: { type: string, enum: ['ON', 'OFF'] }
+                      IDENT_TAG_ENABLE: { type: string, enum: ['ON', 'OFF'] }
+                      PROVENANCE_ENABLE: { type: string, enum: ['ON', 'OFF'] }
+                      ADAPTIVE_K_ENABLE: { type: string, enum: ['ON', 'OFF'] }
+                      CONFIDENCE_CALIBRATED: { type: string, enum: ['ON', 'OFF'] }
+                      PROMETHEUS_ENABLE: { type: string, enum: ['ON', 'OFF'] }
+                      OPS_SNAPSHOT_ENABLE: { type: string, enum: ['ON', 'OFF'] }
+                      RL_CB_ENABLE: { type: string, enum: ['ON', 'OFF'] }
+                      SSE_MAX_MS: { type: string }
+                      AUTH_ENABLED: { type: string, enum: ['ON', 'OFF'] }
+                      ISL_ENABLE: { type: string, enum: ['ON', 'OFF'] }
+                  capabilities:
+                    type: object
+                    description: 'Supported features for client capability negotiation'
+                    required: [detail_level, inference_mode, streaming, isl_integration, max_recommended_latency_ms]
+                    properties:
+                      detail_level:
+                        type: array
+                        description: 'Supported detail levels for /v1/run'
+                        items: { type: string, enum: ['quick', 'standard', 'deep'] }
+                        example: ['quick', 'standard', 'deep']
+                      inference_mode:
+                        type: array
+                        description: 'Supported inference modes'
+                        items: { type: string, enum: ['model_based', 'model_of_inference'] }
+                        example: ['model_based', 'model_of_inference']
+                      streaming:
+                        type: string
+                        description: 'Streaming support level'
+                        enum: ['legacy', 'enhanced']
+                      isl_integration:
+                        type: boolean
+                        description: 'Whether ISL integration is enabled'
+                      max_recommended_latency_ms:
+                        type: integer
+                        description: 'Hint for clients about expected latency (helps with proxy timeout config)'
+                        example: 25000
   /draft-flows:
     get:
       summary: Deterministic report for a template+seed
@@ -2420,7 +2471,14 @@ components:
           type: string
           description: 'Canonical SHA-256 of the normalised response'
           pattern: '^[0-9a-f]{64}$'
-    
+        isl_enriched:
+          type: boolean
+          description: 'True if ISL enrichment was attempted'
+        isl_endpoints_called:
+          type: array
+          items: { type: string }
+          description: 'ISL endpoints that were called (e.g., ["validation", "sensitivity"])'
+
     confidenceBadge:
       type: object
       required: [level, reason, score, factors]
@@ -2711,6 +2769,92 @@ components:
               type: string
               enum: [retry, fix_input, fail]
               description: 'Recommended action to take'
+        isl_validation:
+          $ref: '#/components/schemas/islValidationResult'
+        isl_sensitivity:
+          $ref: '#/components/schemas/islSensitivityResult'
+
+    islValidationResult:
+      type: object
+      description: 'ISL causal validation result (optional; present when ISL_ENABLE=1 and detail_level != quick)'
+      required: [status, confidence, source]
+      properties:
+        status:
+          type: string
+          enum: [identifiable, uncertain, cannot_identify]
+          description: 'Causal identifiability status'
+        confidence:
+          type: string
+          enum: [high, medium, low]
+          description: 'Confidence level of the validation result'
+        adjustment_sets:
+          type: array
+          description: 'Valid adjustment sets for causal identification'
+          items:
+            type: array
+            items: { type: string }
+        minimal_set:
+          type: array
+          description: 'Minimal adjustment set'
+          items: { type: string }
+        issues:
+          type: array
+          description: 'Structural issues detected'
+          items:
+            type: object
+            properties:
+              type: { type: string }
+              description: { type: string }
+              affected_nodes:
+                type: array
+                items: { type: string }
+              suggested_action: { type: string }
+        explanation:
+          type: object
+          properties:
+            summary: { type: string }
+            reasoning: { type: string }
+        source:
+          type: string
+          enum: [isl, engine_fallback]
+          description: 'Source of the result (isl = from ISL service, engine_fallback = local fallback)'
+
+    islSensitivityResult:
+      type: object
+      description: 'ISL sensitivity analysis result (optional; present when ISL_ENABLE=1 and detail_level = deep)'
+      required: [overall_robustness, sensitive_parameters, recommendations, source]
+      properties:
+        overall_robustness:
+          type: string
+          enum: [robust, moderate, fragile]
+          description: 'Overall model robustness assessment'
+        sensitive_parameters:
+          type: array
+          description: 'Parameters sorted by sensitivity (highest first)'
+          items:
+            type: object
+            required: [parameter, sensitivity, impact_direction]
+            properties:
+              parameter:
+                type: string
+                description: 'Parameter identifier'
+              sensitivity:
+                type: number
+                minimum: 0
+                maximum: 1
+                description: 'Sensitivity score (0=insensitive, 1=highly sensitive)'
+              impact_direction:
+                type: string
+                enum: [positive, negative]
+                description: 'Direction of impact when parameter increases'
+        recommendations:
+          type: array
+          items: { type: string }
+          description: 'Actionable recommendations based on sensitivity analysis'
+        source:
+          type: string
+          enum: [isl, engine_fallback]
+          description: 'Source of the result'
 
     counterfactualRequest:
       type: object

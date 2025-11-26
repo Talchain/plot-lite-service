@@ -119,8 +119,24 @@ export async function registerHealthRoutes(app: FastifyInstance, opts: HealthRou
       RL_CB_ENABLE: process.env.RL_CB_ENABLE === '1' ? 'ON' : 'OFF',
       SSE_MAX_MS: process.env.SSE_MAX_MS || '120000',
       AUTH_ENABLED: process.env.AUTH_ENABLED === '1' ? 'ON' : 'OFF',
+      ISL_ENABLE: process.env.ISL_ENABLE === '1' ? 'ON' : 'OFF',
     };
-    return { api: 'warp/0.1.0', build, model: `plot-lite-${build}`, flags };
+    // Capabilities: advertise supported features for client capability negotiation
+    const capabilities = {
+      detail_level: ['quick', 'standard', 'deep'] as const,
+      inference_mode: ['model_based', 'model_of_inference'] as const,
+      streaming: process.env.STREAM_PARITY_ENABLE === '1' ? 'enhanced' : 'legacy',
+      isl_integration: process.env.ISL_ENABLE === '1',
+      max_recommended_latency_ms: 25000, // Hint for clients about proxy timeouts
+    };
+    return {
+      api: 'warp/0.1.0',
+      build,
+      model: `plot-lite-${build}`,
+      version: '1.5.0', // Package version for explicit tracking
+      flags,
+      capabilities,
+    };
   });
 
   // Readiness: only 200 when fixtures are preloaded
