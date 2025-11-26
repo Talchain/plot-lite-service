@@ -68,6 +68,7 @@ export function normaliseReport(report: unknown): unknown {
     delete meta.generated_at;
     delete meta.duration_ms;
     delete meta.request_id;
+    delete meta.commit; // Volatile between CI and local dev
     normalised.meta = meta;
   }
   

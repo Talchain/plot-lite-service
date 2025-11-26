@@ -16,7 +16,7 @@ export interface ApiError {
   };
 }
 
-export function errorResponse(type: ErrorType, message: string, hint?: string, fields?: Record<string, any>): any {
+export function errorResponse(type: ErrorType, message: string, hint?: string, fields?: Record<string, any>, request_id?: string): any {
   // P1C-3C: Return error.v1 envelope with legacy back-compat shim
   const envelope: any = {
     schema: 'error.v1',
@@ -24,17 +24,20 @@ export function errorResponse(type: ErrorType, message: string, hint?: string, f
     message,
   };
   if (hint) envelope.hint = hint;
-  
+
+  // P1.2: Include request_id for end-to-end tracing
+  if (request_id) envelope.request_id = request_id;
+
   // Spread additional fields at top level (e.g., field, path from validation)
   if (fields) {
     Object.assign(envelope, fields);
   }
-  
+
   // Legacy back-compat: also include top-level { error: { type, message } } for old tests
   envelope.error = { type, message };
   if (hint) envelope.error.hint = hint;
   if (fields) envelope.error.fields = fields;
-  
+
   return envelope;
 }
 
@@ -68,9 +71,12 @@ export interface ReplyAppErrorArgs {
 }
 
 export function replyWithAppError(reply: ReplyLike, args: ReplyAppErrorArgs) {
+  // P1.2: Extract request_id for tracing
+  let request_id: string | undefined;
   try {
+    const req = (reply as any)?.request;
+    request_id = req?.id;
     if (process.env.NODE_ENV !== 'production') {
-      const req = (reply as any)?.request;
       req?.log?.debug?.({ type: args.type, statusCode: args.statusCode, devDetail: args.devDetail }, 'validation detail (dev only)');
     }
   } catch (err) {
@@ -84,6 +90,6 @@ export function replyWithAppError(reply: ReplyLike, args: ReplyAppErrorArgs) {
   })();
 
   return reply.code(args.statusCode).send(
-    errorResponse(args.type, publicMessage, args.hint, args.fields)
+    errorResponse(args.type, publicMessage, args.hint, args.fields, request_id)
   );
 }

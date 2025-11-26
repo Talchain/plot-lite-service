@@ -89,3 +89,77 @@ describe('Error taxonomy: stable types and catalogue phrases', () => {
     }
   }, 10000);
 });
+
+describe('Error envelope uniformity (P1.5)', () => {
+  let child: ReturnType<typeof spawn> | null = null;
+  const PORT = '4344';
+  const BASE = `http://127.0.0.1:${PORT}`;
+
+  beforeAll(async () => {
+    child = spawn(process.execPath, ['tools/test-server.js'], { env: { ...process.env, TEST_PORT: PORT, TEST_ROUTES: '1', RATE_LIMIT_ENABLED: '0' }, stdio: 'ignore' });
+    await waitFor(`${BASE}/health`, 5000);
+  });
+  afterAll(async () => { try { if (child?.pid) process.kill(child.pid, 'SIGINT'); } catch {} });
+
+  it('BAD_INPUT error has schema, code, and error.type fields', async () => {
+    const r = await fetch(`${BASE}/draft-flows?template=__nope__&seed=101`);
+    expect(r.status).toBe(404);
+    const j: any = await r.json();
+    // P0.2: Required envelope fields
+    expect(j?.schema).toBe('error.v1');
+    expect(j?.code).toBe('BAD_INPUT');
+    // Legacy back-compat
+    expect(j?.error?.type).toBe('BAD_INPUT');
+    expect(typeof j?.error?.message).toBe('string');
+  });
+
+  it('TIMEOUT error has schema, code, and error.type fields', async () => {
+    const r = await fetch(`${BASE}/draft-flows?template=pricing_change&seed=101&force_error=TIMEOUT`);
+    expect(r.status).toBe(504);
+    const j: any = await r.json();
+    expect(j?.schema).toBe('error.v1');
+    expect(j?.code).toBe('TIMEOUT');
+    expect(j?.error?.type).toBe('TIMEOUT');
+  });
+
+  it('RETRYABLE error has schema, code, and error.type fields', async () => {
+    const r = await fetch(`${BASE}/draft-flows?template=pricing_change&seed=101&force_error=RETRYABLE`);
+    expect(r.status).toBe(503);
+    const j: any = await r.json();
+    expect(j?.schema).toBe('error.v1');
+    expect(j?.code).toBe('RETRYABLE');
+    expect(j?.error?.type).toBe('RETRYABLE');
+  });
+
+  it('INTERNAL error has schema, code, and error.type fields', async () => {
+    const r = await fetch(`${BASE}/draft-flows?template=pricing_change&seed=101&force_error=INTERNAL`);
+    expect(r.status).toBe(500);
+    const j: any = await r.json();
+    expect(j?.schema).toBe('error.v1');
+    expect(j?.code).toBe('INTERNAL');
+    expect(j?.error?.type).toBe('INTERNAL');
+  });
+
+  it('RATE_LIMIT error has schema, code, request_id, and error.type fields', async () => {
+    const PORT2 = '4345';
+    const BASE2 = `http://127.0.0.1:${PORT2}`;
+    const child2 = spawn(process.execPath, ['tools/test-server.js'], { env: { ...process.env, TEST_PORT: PORT2, TEST_ROUTES: '1', RATE_LIMIT_ENABLED: '1', RATE_LIMIT_RPM: '1' }, stdio: 'ignore' });
+    try {
+      await waitFor(`${BASE2}/health`, 5000);
+      await fetch(`${BASE2}/draft-flows?template=pricing_change&seed=101`);
+      const r = await fetch(`${BASE2}/draft-flows?template=pricing_change&seed=101`);
+      expect(r.status).toBe(429);
+      const j: any = await r.json();
+      // P0.2: Required envelope fields
+      expect(j?.schema).toBe('error.v1');
+      expect(j?.code).toBe('RATE_LIMIT');
+      // P1.2: request_id for tracing
+      expect(typeof j?.request_id).toBe('string');
+      expect(j?.request_id?.length).toBeGreaterThan(0);
+      // Legacy back-compat
+      expect(j?.error?.type).toBe('RATE_LIMIT');
+    } finally {
+      try { process.kill(child2.pid!, 'SIGINT'); } catch {}
+    }
+  }, 10000);
+});

@@ -2,9 +2,12 @@
  * P0.1: Principal Unification Test
  * Verifies principalFor() and extractPrincipal() return identical values
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { principalFor } from '../src/middleware/idempotency.js';
-import { extractPrincipal } from '../src/lib/token-principal.js';
+import { extractPrincipal, __resetTokenSecret } from '../src/lib/token-principal.js';
+
+// P2: Secret must be ≥64 hex chars (32 bytes) per security requirements
+const VALID_SECRET = 'abc123456789012345678901234567890123456789012345678901234567890123';
 
 describe('Principal Unification (P0.1)', () => {
   let origTokenRL: string | undefined;
@@ -15,11 +18,16 @@ describe('Principal Unification (P0.1)', () => {
     origSecret = process.env.TOKEN_HMAC_SECRET;
   });
 
+  beforeEach(() => {
+    __resetTokenSecret();
+  });
+
   afterAll(() => {
     if (origTokenRL) process.env.TOKEN_RL_ENABLE = origTokenRL;
     else delete process.env.TOKEN_RL_ENABLE;
     if (origSecret) process.env.TOKEN_HMAC_SECRET = origSecret;
     else delete process.env.TOKEN_HMAC_SECRET;
+    __resetTokenSecret();
   });
 
   it('returns identical principals for IP-based requests (token RL OFF)', () => {
@@ -39,7 +47,7 @@ describe('Principal Unification (P0.1)', () => {
 
   it('returns identical principals for token-based requests (token RL ON)', () => {
     process.env.TOKEN_RL_ENABLE = '1';
-    process.env.TOKEN_HMAC_SECRET = 'test-secret-for-unification';
+    process.env.TOKEN_HMAC_SECRET = VALID_SECRET;
     
     const mockReq = {
       ip: '192.168.1.100',
@@ -75,7 +83,7 @@ describe('Principal Unification (P0.1)', () => {
 
   it('returns identical principals for requests without Bearer token (token RL ON)', () => {
     process.env.TOKEN_RL_ENABLE = '1';
-    process.env.TOKEN_HMAC_SECRET = 'test-secret-for-unification';
+    process.env.TOKEN_HMAC_SECRET = VALID_SECRET;
     
     const mockReq = {
       ip: '10.0.0.1',

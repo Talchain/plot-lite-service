@@ -27,7 +27,7 @@ export function estimateCost(inputs: CostInputs): CostEstimate {
     graph,
     requested_k = 1000,
     soft_cap_k = 5000,
-    max_compute_ms = 30000, // 30 seconds
+    max_compute_ms = 25000, // P0.1: Aligned with Netlify proxy timeout (~26s)
   } = inputs;
 
   const node_count = graph.nodes.length;

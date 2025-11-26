@@ -3,7 +3,6 @@ import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
 import { existsSync } from 'fs';
 import { resolve, join as joinPath } from 'path';
-import { spawnSync } from 'child_process';
 import { createHash, timingSafeEqual, randomUUID } from 'crypto';
 import { promises as fsp } from 'node:fs';
 import { makeRateLimiter } from './middleware/rate-limit.js';
@@ -12,7 +11,8 @@ import { securityHeadersOnSend } from './middleware/security-headers.js';
 import { replyWithAppError } from './errors.js';
 import { sanitizeUrl } from './lib/log-sanitizer.js';
 import inflightPlugin from './plugins/inflight.js';
-import { noteLastRequestAt, recordDurationMs, recordStatus, recordDraftDurationMs, recordReplayStatus, recordReplayRefusal, recordReplayRetry, p95Ms, p99Ms, eventLoopDelayMs, snapshot, replaySnapshot, streamStarted, streamDone, streamLimited, incCurrentStreams, decCurrentStreams, noteHeartbeat, getStreamCounters, getDraftP95History, getCurrentStreams, getLastHeartbeatMs, setIdemCacheSize, } from './metrics.js';
+import { registerHealthRoutes } from './routes/health.js';
+import { noteLastRequestAt, recordDurationMs, recordStatus, recordDraftDurationMs, recordReplayStatus, recordReplayRefusal, recordReplayRetry, streamStarted, streamDone, streamLimited, incCurrentStreams, decCurrentStreams, noteHeartbeat, getStreamCounters, getDraftP95History, getCurrentStreams, getLastHeartbeatMs, setIdemCacheSize, replaySnapshot, } from './metrics.js';
 export async function createServer(opts = {}) {
     // P0: Validate HMAC secrets (fail-fast)
     const { validateHMACSecrets } = await import('./config/secret-validation.js');
@@ -170,7 +170,9 @@ export async function createServer(opts = {}) {
             redact: { paths: ['parse_text', 'body.parse_text', 'request.body.parse_text'], remove: true },
         },
         bodyLimit: 128 * 1024,
-        requestTimeout: Number(process.env.REQUEST_TIMEOUT_MS || 5000),
+        // P0.1: Increased from 5s to 60s to allow large request bodies
+        // Note: This is for receiving request body, not response duration
+        requestTimeout: Number(process.env.REQUEST_TIMEOUT_MS || 60000),
         disableRequestLogging: true,
         trustProxy: process.env.TRUST_PROXY === '1',
         requestIdHeader: 'x-request-id',
@@ -448,94 +450,14 @@ export async function createServer(opts = {}) {
         app.log.error({ err }, `Failed to load fixtures from ${fixturesPath}`);
         process.exit(1);
     }
-    function getBuildId() {
-        try {
-            const res = spawnSync('git', ['--no-pager', 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' });
-            if (res.status === 0)
-                return res.stdout.trim() || new Date().toISOString();
-        }
-        catch { }
-        return new Date().toISOString();
-    }
-    app.get('/health', async () => {
-        // Metrics already imported statically
-        const { rateLimitState } = await import('./rateLimit.js');
-        const mem = process.memoryUsage();
-        const base = {
-            status: 'ok',
-            // Preserve legacy top-level p95 for compatibility
-            p95_ms: p95Ms(),
-            ...snapshot(),
-            runtime: {
-                node: process.version,
-                uptime_s: Math.round(process.uptime()),
-                rss_mb: Math.round(mem.rss / 1024 / 1024),
-                heap_used_mb: Math.round(mem.heapUsed / 1024 / 1024),
-                eventloop_delay_ms: eventLoopDelayMs(),
-                p95_ms: p95Ms(),
-                p99_ms: p99Ms(),
-            },
-            caches: {
-                idempotency_current: idemCache.getSize(),
-            },
-            rate_limit: rateLimitState(),
-            test_routes_enabled: process.env.NODE_ENV === 'production' ? false : (process.env.TEST_ROUTES === '1'),
-            replay: replaySnapshot(),
-            // Dev-only documentation of defaults for CI drift checks (add-only)
-            ...(process.env.NODE_ENV === 'production' ? {} : {
-                flags_doc: {
-                    'test_routes_enabled': false,
-                    'rate_limit.enabled': true,
-                }
-            }),
-        };
-        // Enforce a small upper bound to prevent accidental drift; keep required keys
-        const MAX_BYTES = 4 * 1024;
-        const txt = JSON.stringify(base);
-        if (Buffer.byteLength(txt, 'utf8') <= MAX_BYTES)
-            return base;
-        const minimal = {
-            status: 'ok',
-            p95_ms: p95Ms(),
-            test_routes_enabled: process.env.NODE_ENV === 'production' ? false : Boolean(opts.enableTestRoutes || process.env.TEST_ROUTES === '1'),
-            replay: replaySnapshot(),
-        };
-        return minimal;
-    });
-    // Root route for Render health check (returns 200 OK)
-    app.get('/', async () => {
-        const build = getBuildId();
-        return {
-            status: 'ok',
-            service: 'plot-lite-engine',
-            version: build,
-            api: 'warp/0.1.0'
-        };
-    });
-    app.get('/version', async () => {
-        const build = getBuildId();
-        // C7: Expose feature flags for ops visibility
-        const flags = {
-            SCM_LITE_ENABLE: process.env.SCM_LITE_ENABLE === '1' ? 'ON' : 'OFF',
-            IDENT_TAG_ENABLE: process.env.IDENT_TAG_ENABLE === '1' ? 'ON' : 'OFF',
-            PROVENANCE_ENABLE: process.env.PROVENANCE_ENABLE === '1' ? 'ON' : 'OFF',
-            ADAPTIVE_K_ENABLE: process.env.ADAPTIVE_K_ENABLE === '1' ? 'ON' : 'OFF',
-            CONFIDENCE_CALIBRATED: process.env.CONFIDENCE_CALIBRATED === '1' ? 'ON' : 'OFF',
-            PROMETHEUS_ENABLE: process.env.PROMETHEUS_ENABLE === '1' ? 'ON' : 'OFF',
-            OPS_SNAPSHOT_ENABLE: process.env.OPS_SNAPSHOT_ENABLE === '1' ? 'ON' : 'OFF',
-            RL_CB_ENABLE: process.env.RL_CB_ENABLE === '1' ? 'ON' : 'OFF',
-            SSE_MAX_MS: process.env.SSE_MAX_MS || '120000',
-            AUTH_ENABLED: process.env.AUTH_ENABLED === '1' ? 'ON' : 'OFF',
-        };
-        return { api: 'warp/0.1.0', build, model: `plot-lite-${build}`, flags };
-    });
+    // Track fixture readiness for /ready endpoint
     let fixturesReady = false;
-    // Readiness: only 200 when fixtures are preloaded
-    app.get('/ready', async (_req, reply) => {
-        return reply.code(fixturesReady ? 200 : 503).send({ ok: fixturesReady });
+    // Register health, readiness, liveness, and version endpoints
+    await registerHealthRoutes(app, {
+        enableTestRoutes: opts.enableTestRoutes,
+        idemCacheSize: () => idemCache.getSize(),
+        getReadinessStatus: () => fixturesReady,
     });
-    // Liveness probe — basic process up indicator
-    app.get('/live', async () => ({ ok: true }));
     // JSON metrics endpoint (test-only, distinct from Prometheus /metrics)
     if (process.env.METRICS === '1' && process.env.PROMETHEUS_ENABLE !== '1') {
         app.log.info({ mode: 'json_metrics', path: '/metrics' }, 'Metrics: JSON /metrics endpoint enabled (Prometheus disabled)');

@@ -204,7 +204,9 @@ export async function createServer(opts: ServerOpts = {}) {
       redact: { paths: ['parse_text', 'body.parse_text', 'request.body.parse_text'], remove: true },
     },
     bodyLimit: 128 * 1024,
-    requestTimeout: Number(process.env.REQUEST_TIMEOUT_MS || 5000),
+    // P0.1: Increased from 5s to 60s to allow large request bodies
+    // Note: This is for receiving request body, not response duration
+    requestTimeout: Number(process.env.REQUEST_TIMEOUT_MS || 60000),
     disableRequestLogging: true,
     trustProxy: process.env.TRUST_PROXY === '1',
     requestIdHeader: 'x-request-id',

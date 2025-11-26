@@ -189,7 +189,13 @@ export function makeRateLimiter() {
       }
       req.log.warn({ evt: 'throttle', id: req.id, route: sanitizedRoute, rpm: getRateLimitRpm(), reason: 'rate_limit' });
       
+      // P0.2: Standardized error envelope with schema: 'error.v1'
+      // P1.2: Include request_id for tracing
       return reply.code(429).send({
+        schema: 'error.v1',
+        code: 'RATE_LIMIT',
+        message: ERR_MSG.RATE_LIMIT_RPM,
+        request_id: req.id,
         error: { type: 'RATE_LIMIT', message: ERR_MSG.RATE_LIMIT_RPM }
       });
 

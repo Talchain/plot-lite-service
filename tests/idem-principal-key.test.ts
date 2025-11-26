@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { principalFor, setCached, getCached } from '../src/middleware/idempotency.js';
+import { __resetTokenSecret } from '../src/lib/token-principal.js';
+
+// P2: Secret must be ≥64 hex chars (32 bytes) per security requirements
+const VALID_SECRET = 'abc123456789012345678901234567890123456789012345678901234567890123';
 
 describe('Idem Cache Principal Key (F4)', () => {
   let origTokenRL: string | undefined;
@@ -8,8 +12,9 @@ describe('Idem Cache Principal Key (F4)', () => {
   beforeAll(() => {
     origTokenRL = process.env.TOKEN_RL_ENABLE;
     origSecret = process.env.TOKEN_HMAC_SECRET;
+    __resetTokenSecret();
     process.env.TOKEN_RL_ENABLE = '1';
-    process.env.TOKEN_HMAC_SECRET = 'test-secret-not-for-prod';
+    process.env.TOKEN_HMAC_SECRET = VALID_SECRET;
   });
 
   afterAll(() => {
@@ -17,6 +22,7 @@ describe('Idem Cache Principal Key (F4)', () => {
     else delete process.env.TOKEN_RL_ENABLE;
     if (origSecret) process.env.TOKEN_HMAC_SECRET = origSecret;
     else delete process.env.TOKEN_HMAC_SECRET;
+    __resetTokenSecret();
   });
 
   it('different tokens isolated', () => {

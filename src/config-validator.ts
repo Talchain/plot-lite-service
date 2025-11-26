@@ -83,6 +83,38 @@ export function validateEnv(): void {
     }
   }
 
+  // P1.4: Timeout configuration validation
+  if (process.env.CEE_TIMEOUT_MS) {
+    const timeout = Number(process.env.CEE_TIMEOUT_MS);
+    if (isNaN(timeout) || timeout < 500 || timeout > 30000) {
+      errors.push(`Invalid CEE_TIMEOUT_MS: ${process.env.CEE_TIMEOUT_MS} (must be 500-30000)`);
+    }
+  }
+  if (process.env.ISL_TIMEOUT_MS) {
+    const timeout = Number(process.env.ISL_TIMEOUT_MS);
+    if (isNaN(timeout) || timeout < 1000 || timeout > 30000) {
+      errors.push(`Invalid ISL_TIMEOUT_MS: ${process.env.ISL_TIMEOUT_MS} (must be 1000-30000)`);
+    }
+  }
+  if (process.env.SSE_MAX_MS) {
+    const timeout = Number(process.env.SSE_MAX_MS);
+    if (isNaN(timeout) || timeout < 10000 || timeout > 300000) {
+      errors.push(`Invalid SSE_MAX_MS: ${process.env.SSE_MAX_MS} (must be 10000-300000)`);
+    }
+  }
+  if (process.env.CEE_CB_HALF_OPEN_TIMEOUT_MS) {
+    const timeout = Number(process.env.CEE_CB_HALF_OPEN_TIMEOUT_MS);
+    if (isNaN(timeout) || timeout < 1000 || timeout > 120000) {
+      errors.push(`Invalid CEE_CB_HALF_OPEN_TIMEOUT_MS: ${process.env.CEE_CB_HALF_OPEN_TIMEOUT_MS} (must be 1000-120000)`);
+    }
+  }
+  if (process.env.RL_CB_HALF_OPEN_TIMEOUT_MS) {
+    const timeout = Number(process.env.RL_CB_HALF_OPEN_TIMEOUT_MS);
+    if (isNaN(timeout) || timeout < 1000 || timeout > 120000) {
+      errors.push(`Invalid RL_CB_HALF_OPEN_TIMEOUT_MS: ${process.env.RL_CB_HALF_OPEN_TIMEOUT_MS} (must be 1000-120000)`);
+    }
+  }
+
   if (errors.length > 0) {
     logger.fatal({ errors, env: process.env.NODE_ENV }, 'Environment validation failed');
     // Also log to stderr for visibility during startup

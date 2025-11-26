@@ -236,8 +236,9 @@ async function initValidators() {
 
 /**
  * Format Ajv errors into BAD_INPUT response with field and hint (WP-P4)
+ * P1.2: Added request_id for end-to-end tracing
  */
-function formatValidationErrors(errors: any[]): any {
+function formatValidationErrors(errors: any[], request_id?: string): any {
   const messages: string[] = [];
   const paths: string[] = [];
   let field = '';
@@ -294,8 +295,12 @@ function formatValidationErrors(errors: any[]): any {
     hint: hint || 'Check request format',
     path: paths,
   };
-  // Additive concise error string for assertions and DX (present in all envs)
-  try { out.error = messages[0] || 'BAD_INPUT'; } catch {}
+  // P1.2: Include request_id for end-to-end tracing
+  if (request_id) out.request_id = request_id;
+  // P0.2: Standardized error object for back-compat with canonical envelope
+  try {
+    out.error = { type: 'BAD_INPUT', message: messages[0] || 'BAD_INPUT' };
+  } catch {}
   return out;
 }
 
@@ -320,7 +325,15 @@ export function createQueryValidator(route: 'stream') {
             const v = s == null ? NaN : Number(s);
             if (Number.isFinite(v) && v > 10000) {
               await clearInflightKey(req);
-          return reply.code(400).send({ schema: 'error.v1', code: 'BAD_INPUT', message: 'latency_ms must be ≤ 10000' });
+          // P0.2: Standardized error envelope
+          // P1.2: Include request_id for tracing
+          return reply.code(400).send({
+            schema: 'error.v1',
+            code: 'BAD_INPUT',
+            message: 'latency_ms must be ≤ 10000',
+            request_id: (req as any).id,
+            error: { type: 'BAD_INPUT', message: 'latency_ms must be ≤ 10000' }
+          });
             }
           }
         } catch {}
@@ -337,7 +350,8 @@ export function createQueryValidator(route: 'stream') {
             // Logging failure shouldn't block validation response
             console.error('[validation] Failed to log stream query validation error:', logErr);
           }
-          const errorResponse = formatValidationErrors(validateStreamQuery.errors || []);
+          // P1.2: Pass request_id for tracing
+          const errorResponse = formatValidationErrors(validateStreamQuery.errors || [], (req as any).id);
           await clearInflightKey(req);
           return reply.code(400).send(errorResponse);
         }
