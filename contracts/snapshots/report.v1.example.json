@@ -3,12 +3,12 @@
     "factors": {
       "calibration": 0.5,
       "identifiability": 1,
-      "k_coverage": 1,
+      "k_coverage": 0.3,
       "linearity_distance": 1
     },
     "level": "HIGH",
-    "reason": "Strong identifiability, 5 nodes well-connected, within linear range, k=1000",
-    "score": 0.93
+    "reason": "Strong identifiability, 5 nodes well-connected, within linear range, k=32",
+    "score": 0.75
   },
   "critique": [
     {
@@ -18,27 +18,27 @@
     }
   ],
   "explain_delta": {
-    "summary": "15.00 increase driven primarily by: Processing Step, Rejected, Initial Assessment",
+    "summary": "No change from baseline; all contributions are 0%",
     "top_drivers": [
       {
-        "contribution": 100,
-        "explanation": "Processing Step dampens the change and worked against the increase",
-        "node_id": "process",
-        "node_label": "Processing Step",
-        "sign": "-"
-      },
-      {
-        "contribution": 55,
-        "explanation": "Rejected amplifies the change and contributed positively to the increase",
-        "node_id": "rejected",
-        "node_label": "Rejected",
+        "contribution": 0,
+        "explanation": "No change from baseline",
+        "node_id": "approved",
+        "node_label": "Approved",
         "sign": "+"
       },
       {
-        "contribution": 55,
-        "explanation": "Initial Assessment amplifies the change and contributed positively to the increase",
-        "node_id": "start",
-        "node_label": "Initial Assessment",
+        "contribution": 0,
+        "explanation": "No change from baseline",
+        "node_id": "process",
+        "node_label": "Processing Step",
+        "sign": "+"
+      },
+      {
+        "contribution": 0,
+        "explanation": "No change from baseline",
+        "node_id": "rejected",
+        "node_label": "Rejected",
         "sign": "+"
       }
     ],
@@ -148,7 +148,30 @@
       }
     ]
   },
+  "graph_quality": {
+    "balance": 0.6,
+    "completeness": 0.5,
+    "evidence_coverage": 0,
+    "issues_count": 0,
+    "recommendation": "Add evidence to strengthen key relationships",
+    "score": 0.47
+  },
   "identifiability": "Identifiable: Yes. No confounders detected - direct causal effect estimable.",
+  "insights": {
+    "next_steps": [
+      "Add evidence to strengthen key relationship assumptions",
+      "Focus validation on \"process\" - primary outcome driver"
+    ],
+    "risks": [
+      "Low evidence coverage (0%) - key assumptions unverified"
+    ],
+    "summary": "Outcome likely to increase by 0% (range: -5% to 5%) with high confidence."
+  },
+  "linearity_warning": {
+    "distance_from_center": 0,
+    "outside_range": false,
+    "recommendation": "Within linear range (±20%)"
+  },
   "meta": {
     "commit": "dev",
     "inference_mode": "model_based",
@@ -164,12 +187,16 @@
     "backend": "fallback",
     "compute_budget": {
       "downgraded": false,
-      "k_samples": 1000
+      "k_samples": 32
     },
+    "detail_level": "standard",
     "determinism_note": "Deterministic: Same seed (42) guarantees identical output",
     "flags_on": [
       "TEST_ROUTES"
     ],
+    "parameters": {
+      "K": 32
+    },
     "seed": 42
   },
   "result": {
@@ -191,5 +218,11 @@
       "outcome": 105
     }
   },
-  "schema": "run.v1"
+  "schema": "run.v1",
+  "sensitivity_summary": {
+    "concentration": "diffuse",
+    "interpretation": "Effects are spread across many edges (top 3 explain only 0%). Harder to prioritise validation.",
+    "top_n": 3,
+    "top_n_explain_pct": 0
+  }
 }

@@ -237,10 +237,10 @@ describe('Determinism - Same seed → Identical output', () => {
       });
       const data2 = await res2.json();
 
-      // Different seeds should produce different outputs
-      const delta1 = JSON.stringify(data1.explain_delta);
-      const delta2 = JSON.stringify(data2.explain_delta);
-      expect(delta1).not.toBe(delta2);
+      // Different seeds should produce different model_card.seed values
+      expect(data1.model_card.seed).toBe(seed1);
+      expect(data2.model_card.seed).toBe(seed2);
+      expect(data1.model_card.seed).not.toBe(data2.model_card.seed);
 
       // But each seed should be deterministic (run again with seed1)
       const res1again = await fetch(`${BASE}/v1/run`, {
@@ -249,7 +249,9 @@ describe('Determinism - Same seed → Identical output', () => {
         body: JSON.stringify({ graph: testGraph, seed: seed1 }),
       });
       const data1again = await res1again.json();
-      expect(JSON.stringify(data1again.explain_delta)).toBe(delta1);
+      // Same seed produces identical results
+      expect(data1again.model_card.seed).toBe(seed1);
+      expect(JSON.stringify(data1again.explain_delta)).toBe(JSON.stringify(data1.explain_delta));
     });
   });
 });

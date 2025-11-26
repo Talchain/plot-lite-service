@@ -14,9 +14,13 @@ import { checkLinearity, detectThresholdCrossings, generateForkSuggestions } fro
 import { checkIdentifiability } from '../../trust/identifiability.js';
 import { enforceComputeBudget } from '../../governance/cost-estimator.js';
 import { stampResponseHash, hashCanonicalInput } from '../../util/canonical-json.js';
-import type { Graph } from '../../trust/types.js';
+import type { Graph, DetailLevel } from '../../trust/types.js';
+import { DETAIL_LEVEL_CONFIG } from '../../trust/types.js';
 import { getInferenceEngine, type InferenceMode } from '../../inference/index.js';
-import { computeSensitivitySimple } from '../../lib/sensitivity-simple.js';
+import { computeSensitivitySimple, computeSensitivityAll } from '../../lib/sensitivity-simple.js';
+import { computeSensitivitySummary } from '../../trust/sensitivity-summary.js';
+import { computeGraphQuality } from '../../trust/graph-quality.js';
+import { generateInsights } from '../../trust/insights.js';
 import { recordEngineComputeMs } from '../../metrics.js';
 import {
   recordCeeAttempted,
@@ -54,6 +58,7 @@ export interface RunRequest {
   priors?: Record<string, number | { mean: number; sd: number }>;
   evidence?: Array<{ node_id: string; source: string; note?: string; weight?: number }>;
   targets?: string[];
+  detail_level?: 'quick' | 'standard' | 'deep';
 }
 
 export async function registerRunRoute(app: FastifyInstance) {
@@ -83,6 +88,7 @@ export async function registerRunRoute(app: FastifyInstance) {
           constraints: { type: 'object' },
           priors: { type: 'object' },
           evidence: { type: 'array' },
+          detail_level: { type: 'string', enum: ['quick', 'standard', 'deep'] },
         },
         additionalProperties: true,
       },
@@ -337,15 +343,21 @@ export async function registerRunRoute(app: FastifyInstance) {
     }
 
 
+    // Resolve detail_level and its configuration
+    const detail_level: DetailLevel = body.detail_level ?? 'standard';
+    const detailConfig = DETAIL_LEVEL_CONFIG[detail_level];
+
     const {
       seed = 42,
-      k_samples = 1000,
       treatment_node = graph.nodes[0]?.id,
       outcome_node = graph.nodes[graph.nodes.length - 1]?.id,
       baseline_value = 100,
       inference_mode = 'model_based',
       include_debug = false,
     } = body;
+
+    // K samples: explicit k_samples overrides detail_level default
+    const k_samples = body.k_samples ?? detailConfig.k_samples;
 
     // Cost governance
     const budget = enforceComputeBudget({
@@ -379,6 +391,9 @@ export async function registerRunRoute(app: FastifyInstance) {
       backend,
     });
 
+    // Add detail_level to model_card
+    model_card.detail_level = detail_level;
+
     // Identifiability tag (flag-gated)
     if (process.env.IDENT_TAG_ENABLE === '1') {
       const { generateIdentifiabilityTag } = await import('../../trust/identifiability-tag.js');
@@ -389,63 +404,38 @@ export async function registerRunRoute(app: FastifyInstance) {
       });
     }
 
-    // Linearity check (placeholder - would use actual run results)
-    const current_value = baseline_value * 1.15; // Simulated
-    const linearity_warning = checkLinearity({
-      baseline_value,
-      current_value,
-      linear_range_percent: 20,
-    });
+    // Linearity check and confidence - will be computed after inference with actual p50
+    let linearity_warning: ReturnType<typeof checkLinearity>;
+    let confidence: ReturnType<typeof calculateConfidence>;
+    let threshold_crossings: ReturnType<typeof detectThresholdCrossings>;
+    let fork_suggestions: ReturnType<typeof generateForkSuggestions> | undefined;
 
-    // Confidence badge (may be overridden by SCM-Lite)
-    let confidence = calculateConfidence({
-      graph,
-      identifiable: identifiability.identifiable,
-      in_linear_range: !linearity_warning.outside_range,
-      k_samples: budget.k,
-      calibrated: false,
-    });
-
-    // Threshold crossings (example with price thresholds)
-    const threshold_crossings = detectThresholdCrossings({
-      metric_name: 'outcome',
-      from_value: baseline_value,
-      to_value: current_value,
-      thresholds: [99, 199, 299],
-    });
-
-    // Fork suggestions if threshold crossed
-    const fork_suggestions = threshold_crossings.length > 0
-      ? generateForkSuggestions({
-          metric_name: 'outcome',
-          current_value,
-          threshold: threshold_crossings[0].threshold,
-          direction: threshold_crossings[0].direction,
+    // Critique (skipped for quick mode)
+    const critique = detailConfig.run_critique
+      ? buildCritique({
+          graph,
+          assumptions: model_card.assumptions_summary,
+          identifiable: identifiability.identifiable,
+          node_limit: 12,
         })
-      : undefined;
+      : [];
 
-    // Critique
-    const critique = buildCritique({
-      graph,
-      assumptions: model_card.assumptions_summary,
-      identifiable: identifiability.identifiable,
-      node_limit: 12,
-    });
-
-    // Explain-Δ (deterministic with seed)
-    const explain_delta = buildExplainDelta({
-      graph,
-      baseline_outcome: baseline_value,
-      counterfactual_outcome: current_value,
-      seed,
-      top_n: 3,
-    });
+    // Explain-Δ - will be computed after inference with actual p50
+    let explain_delta: ReturnType<typeof buildExplainDelta>;
 
     // Execute inference using selected mode
     const inferenceEngine = getInferenceEngine(inference_mode);
     let results: any;
     let scm_bma_hash: string | undefined;
-    
+    let K_evaluated: number | undefined;
+    let K_requested: number | undefined;
+    let K_converged: boolean | undefined;
+
+    // Adaptive K: enabled for standard/deep, threshold varies
+    // quick = no adaptive, standard = 1%, deep = 0.5%
+    const adaptiveK = detail_level !== 'quick';
+    const convergenceThreshold = detail_level === 'deep' ? 0.005 : 0.01;
+
     try {
       const inferenceResult = await inferenceEngine.run(graph, {
         seed,
@@ -453,6 +443,8 @@ export async function registerRunRoute(app: FastifyInstance) {
         outcome_node,
         baseline_value,
         priors: body.priors,
+        adaptiveK,
+        convergenceThreshold,
       });
       
       results = {
@@ -460,9 +452,63 @@ export async function registerRunRoute(app: FastifyInstance) {
         most_likely: inferenceResult.most_likely,
         optimistic: inferenceResult.optimistic,
       };
-      
+
       scm_bma_hash = inferenceResult.meta?.bma_hash;
-      
+      K_evaluated = inferenceResult.meta?.K_evaluated;
+      K_requested = inferenceResult.meta?.K_requested;
+      K_converged = inferenceResult.meta?.K_converged;
+
+      // Add adaptive K parameters to model_card
+      model_card.parameters = {
+        K: K_evaluated ?? k_samples,
+        ...(K_requested !== undefined && { K_requested }),
+        ...(K_converged !== undefined && { K_converged }),
+      };
+
+      // P1-6: Compute linearity using actual p50 outcome (not placeholder)
+      const current_value = results.most_likely.outcome;
+      linearity_warning = checkLinearity({
+        baseline_value,
+        current_value,
+        linear_range_percent: 20,
+      });
+
+      // Compute confidence with actual linearity and actual K evaluated (not requested)
+      confidence = calculateConfidence({
+        graph,
+        identifiable: identifiability.identifiable,
+        in_linear_range: !linearity_warning.outside_range,
+        k_samples: K_evaluated ?? budget.k,
+        calibrated: false,
+      });
+
+      // Threshold crossings with actual p50
+      threshold_crossings = detectThresholdCrossings({
+        metric_name: 'outcome',
+        from_value: baseline_value,
+        to_value: current_value,
+        thresholds: [99, 199, 299],
+      });
+
+      // Fork suggestions if threshold crossed
+      fork_suggestions = threshold_crossings.length > 0
+        ? generateForkSuggestions({
+            metric_name: 'outcome',
+            current_value,
+            threshold: threshold_crossings[0].threshold,
+            direction: threshold_crossings[0].direction,
+          })
+        : undefined;
+
+      // Explain-Δ with actual p50
+      explain_delta = buildExplainDelta({
+        graph,
+        baseline_outcome: baseline_value,
+        counterfactual_outcome: current_value,
+        seed,
+        top_n: 3,
+      });
+
       // Update confidence if SCM meta available
       if (inferenceResult.meta?.unique_graphs) {
         const scmLevelMap: Record<string, number> = { low: 0.3, medium: 0.6, high: 0.9 };
@@ -540,8 +586,41 @@ export async function registerRunRoute(app: FastifyInstance) {
     }
     
     // P0: Compute top edge drivers (always included, not gated by include_debug)
-    const top_edge_drivers = computeSensitivitySimple(graph.edges, outcome_node).slice(0, 3);
-    
+    const top_edge_drivers = computeSensitivitySimple(graph.edges, outcome_node);
+
+    // P1: Compute sensitivity summary using ALL edges (not just top 3) for accurate concentration
+    const sensitivity_summary = detailConfig.run_sensitivity
+      ? computeSensitivitySummary(computeSensitivityAll(graph.edges, outcome_node))
+      : undefined;
+
+    // P1: Compute graph quality score
+    // Only count edges with external evidence (exclude 'template' as it's just baseline assumption)
+    const edges_with_provenance = graph.edges.filter(
+      (e: any) => e.provenance && e.provenance !== 'template'
+    ).length;
+    const critique_blockers = critique.filter((c: any) => c.severity === 'BLOCKER').length;
+    const critique_warnings = critique.filter((c: any) => c.severity === 'IMPROVEMENT').length;
+    const graph_quality = computeGraphQuality({
+      nodes: graph.nodes.length,
+      edges: graph.edges.length,
+      edges_with_provenance,
+      critique_issues: critique_blockers,
+      identifiable: identifiability.identifiable,
+    });
+
+    // P1: Generate insights block (human-readable summary without user content)
+    const insights = generateInsights({
+      p10: results.conservative.outcome,
+      p50: results.most_likely.outcome,
+      p90: results.optimistic.outcome,
+      baseline: baseline_value,
+      confidence_level: confidence.level,
+      critique_blockers,
+      critique_warnings,
+      evidence_coverage: graph_quality.evidence_coverage,
+      top_driver_label: top_edge_drivers[0]?.edge_id?.split('::')[0],
+    });
+
     const base: any = {
       confidence,
       critique,
@@ -551,7 +630,11 @@ export async function registerRunRoute(app: FastifyInstance) {
         top_edge_drivers,
       },
       graph,
+      graph_quality,
       identifiability: identifiability.summary,
+      insights,
+      linearity_warning,
+      ...(sensitivity_summary && { sensitivity_summary }),
       meta: {
         seed,
         commit: process.env.BUILD_ID || process.env.GITHUB_SHA || 'dev',
@@ -615,6 +698,11 @@ export async function registerRunRoute(app: FastifyInstance) {
       ceeStatus = 'skipped';
       ceeCode = 'circuit_open';
       recordCeeSkipped('/v1/run', 'circuit_open');
+    } else if (!detailConfig.run_cee) {
+      // Quick mode skips CEE for speed
+      ceeStatus = 'skipped';
+      ceeCode = 'quick_mode';
+      recordCeeSkipped('/v1/run', 'quick_mode');
     } else {
       // Attempt CEE call
       recordCeeAttempted('/v1/run');

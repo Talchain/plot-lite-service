@@ -11,6 +11,11 @@ const DEFAULT_CONFIG: Partial<KernelConfig> = {
   maxNodes: 50,
   maxEdges: 200,
   beliefDefault: 0.7,
+  // Adaptive K defaults
+  adaptiveK: false,
+  convergenceThreshold: 0.01, // 1% default
+  kStep: 8,
+  kMin: 16,
 };
 
 export function runKernel(dag: DAG, target: string, config: Partial<KernelConfig>): KernelResult {
@@ -41,47 +46,86 @@ export function runKernel(dag: DAG, target: string, config: Partial<KernelConfig
   // Topological order
   const topoOrder = topologicalSort(dag, nodeIds);
   
-  // Sample K edge masks
+  // Sample K edge masks with optional adaptive early-stopping
   const rng = new XorShift128Plus(cfg.seed);
   const samples: number[] = [];
   const graphHashes = new Set<string>();
-  
+
+  const K_requested = cfg.K;
+  const kStep = cfg.kStep ?? 8;
+  const kMin = cfg.kMin ?? 16;
+  const threshold = cfg.convergenceThreshold ?? 0.01;
+  let K_converged = false;
+  let prevP50Int: number | null = null;
+
   for (let k = 0; k < cfg.K; k++) {
     const mask = sampleEdgeMask(dag, rng, cfg.beliefDefault);
     const value = forwardPass(dag, mask, topoOrder, target);
     samples.push(value);
     graphHashes.add(hashMask(mask));
+
+    // Adaptive K convergence check
+    if (cfg.adaptiveK && k >= kMin - 1 && (k + 1) % kStep === 0) {
+      // Compute p50 on current samples (without mutating for hash consistency)
+      const sorted = [...samples].sort((a, b) => a - b);
+      const currP50 = sorted[Math.floor(sorted.length / 2)];
+      // Integer-based comparison for determinism: Math.round(p50 * 1000)
+      const currP50Int = Math.round(currP50 * 1000);
+
+      if (prevP50Int !== null) {
+        // Check if change is within threshold
+        const changeRatio = prevP50Int !== 0
+          ? Math.abs(currP50Int - prevP50Int) / Math.abs(prevP50Int)
+          : Math.abs(currP50Int - prevP50Int) / 1000;
+
+        if (changeRatio <= threshold) {
+          K_converged = true;
+          break;
+        }
+      }
+      prevP50Int = currP50Int;
+    }
   }
-  
-  // Compute quantiles
+
+  // Compute quantiles on final samples
   samples.sort((a, b) => a - b);
-  const p10 = samples[Math.floor(cfg.K * 0.1)];
-  const p50 = samples[Math.floor(cfg.K * 0.5)];
-  const p90 = samples[Math.floor(cfg.K * 0.9)];
+  const K_evaluated = samples.length;
+  const p10 = samples[Math.floor(K_evaluated * 0.1)];
+  const p50 = samples[Math.floor(K_evaluated * 0.5)];
+  const p90 = samples[Math.floor(K_evaluated * 0.9)];
   
   // Confidence heuristic
   const uniqueGraphs = graphHashes.size;
-  const diversity = uniqueGraphs / cfg.K;
+  const diversity = uniqueGraphs / K_evaluated;
   const signStability = computeSignStability(samples);
   const identifiedPaths = countPaths(dag, target);
-  
+
   const confidence = mapConfidence(diversity, signStability, identifiedPaths);
-  
+
   // BMA hash
   const canonical = samples.map(s => s.toFixed(6)).join(',');
   const bma_hash = createHash('sha256').update(canonical).digest('hex');
-  
+
+  // Build meta with optional adaptive K fields
+  const meta: KernelResult['meta'] = {
+    K_evaluated,
+    unique_graphs: uniqueGraphs,
+    sign_stability: signStability,
+    identified_paths: identifiedPaths,
+  };
+
+  // Only include adaptive K fields when enabled
+  if (cfg.adaptiveK) {
+    meta.K_requested = K_requested;
+    meta.K_converged = K_converged;
+  }
+
   return {
     target,
     quantiles: { p10, p50, p90 },
     confidence,
     bma_hash,
-    meta: {
-      K_evaluated: cfg.K,
-      unique_graphs: uniqueGraphs,
-      sign_stability: signStability,
-      identified_paths: identifiedPaths,
-    },
+    meta,
   };
 }
 
