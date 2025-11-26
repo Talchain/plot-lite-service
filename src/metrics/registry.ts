@@ -196,6 +196,8 @@ class HistogramMetric {
 // Singleton registry
 let requestDurationHistogram: HistogramMetric | null = null;
 let engineLatencyHistogram: HistogramMetric | null = null;
+// P1.3: SLO metrics by detail_level
+let sloLatencyHistogram: HistogramMetric | null = null;
 
 // PR-1: Circuit breaker counters (always-on collection)
 let rateLimitCounter: CounterMetric | null = null;
@@ -205,6 +207,11 @@ let ceeAttemptedCounter: CounterMetric | null = null;
 let ceeOkCounter: CounterMetric | null = null;
 let ceeSkippedCounter: CounterMetric | null = null;
 let ceeDegradedCounter: CounterMetric | null = null;
+
+// P1.1: ISL integration metrics
+let islValidationCounter: CounterMetric | null = null;
+let islSensitivityCounter: CounterMetric | null = null;
+let islLatencyHistogram: HistogramMetric | null = null;
 
 export function initializeHistograms(): void {
   if (process.env.PROMETHEUS_ENABLE !== '1') {
@@ -221,6 +228,13 @@ export function initializeHistograms(): void {
     'plot_engine_engine_latency_seconds',
     'Core engine compute latency in seconds',
     ['phase', 'status_class']
+  );
+
+  // P1.3: SLO metrics by detail_level
+  sloLatencyHistogram = new HistogramMetric(
+    'plot_engine_slo_latency_seconds',
+    'Request latency by detail_level for SLO tracking',
+    ['detail_level', 'status_class']
   );
 
   // PR-1: Circuit breaker counters (always-on, regardless of RL_CB_ENABLE)
@@ -265,6 +279,25 @@ export function initializeHistograms(): void {
     'Total number of degraded CEE decision reviews',
     ['route', 'code']
   );
+
+  // P1.1: ISL integration metrics
+  islValidationCounter = new CounterMetric(
+    'plot_engine_isl_validation_total',
+    'Total number of ISL validation calls',
+    ['backend', 'result'] // backend: isl|fallback, result: ok|error|timeout
+  );
+
+  islSensitivityCounter = new CounterMetric(
+    'plot_engine_isl_sensitivity_total',
+    'Total number of ISL sensitivity calls',
+    ['backend', 'result'] // backend: isl|fallback, result: ok|error|timeout
+  );
+
+  islLatencyHistogram = new HistogramMetric(
+    'plot_engine_isl_latency_seconds',
+    'ISL request latency in seconds',
+    ['operation', 'result'] // operation: validation|sensitivity, result: ok|error
+  );
 }
 
 export function observeRequestDuration(
@@ -292,6 +325,21 @@ export function observeEngineLatency(
   const statusClass = `${Math.floor(statusCode / 100)}xx`;
   engineLatencyHistogram.observe(
     { phase, status_class: statusClass },
+    durationMs / 1000 // Convert to seconds
+  );
+}
+
+// P1.3: Observe SLO latency by detail_level
+export function observeSloLatency(
+  detailLevel: 'quick' | 'standard' | 'deep',
+  statusCode: number,
+  durationMs: number
+): void {
+  if (!sloLatencyHistogram) return;
+
+  const statusClass = `${Math.floor(statusCode / 100)}xx`;
+  sloLatencyHistogram.observe(
+    { detail_level: detailLevel, status_class: statusClass },
     durationMs / 1000 // Convert to seconds
   );
 }
@@ -325,6 +373,19 @@ export function recordCeeDegraded(route: string, code: string): void {
   ceeDegradedCounter?.inc({ route, code });
 }
 
+// P1.1: ISL metrics recording functions
+export function recordIslValidation(backend: 'isl' | 'fallback', result: 'ok' | 'error' | 'timeout'): void {
+  islValidationCounter?.inc({ backend, result });
+}
+
+export function recordIslSensitivity(backend: 'isl' | 'fallback', result: 'ok' | 'error' | 'timeout'): void {
+  islSensitivityCounter?.inc({ backend, result });
+}
+
+export function observeIslLatency(operation: 'validation' | 'sensitivity', result: 'ok' | 'error', durationMs: number): void {
+  islLatencyHistogram?.observe({ operation, result }, durationMs / 1000);
+}
+
 export function renderHistograms(): string {
   const lines: string[] = [];
 
@@ -334,6 +395,11 @@ export function renderHistograms(): string {
 
   if (engineLatencyHistogram) {
     lines.push(engineLatencyHistogram.render());
+  }
+
+  // P1.3: Render SLO latency histogram
+  if (sloLatencyHistogram) {
+    lines.push(sloLatencyHistogram.render());
   }
 
   // PR-1: Render circuit breaker counters
@@ -365,12 +431,26 @@ export function renderHistograms(): string {
     lines.push(ceeDegradedCounter.render());
   }
 
+  // P1.1: Render ISL metrics
+  if (islValidationCounter) {
+    lines.push(islValidationCounter.render());
+  }
+
+  if (islSensitivityCounter) {
+    lines.push(islSensitivityCounter.render());
+  }
+
+  if (islLatencyHistogram) {
+    lines.push(islLatencyHistogram.render());
+  }
+
   return lines.join('\n');
 }
 
 export function resetHistograms(): void {
   requestDurationHistogram?.reset();
   engineLatencyHistogram?.reset();
+  sloLatencyHistogram?.reset(); // P1.3
   rateLimitCounter?.reset();
   circuitOpenCounter?.reset();
   circuitProbesCounter?.reset();
@@ -378,4 +458,8 @@ export function resetHistograms(): void {
   ceeOkCounter?.reset();
   ceeSkippedCounter?.reset();
   ceeDegradedCounter?.reset();
+  // P1.1: Reset ISL metrics
+  islValidationCounter?.reset();
+  islSensitivityCounter?.reset();
+  islLatencyHistogram?.reset();
 }

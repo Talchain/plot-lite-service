@@ -262,9 +262,16 @@ export async function circuitBreakerMiddleware(
       const retryAfter = Math.ceil((globalCircuit.openedAt + CONFIG.cooldownMs - Date.now()) / 1000);
       reply.header('Retry-After', String(retryAfter));
       reply.header('X-RateLimit-Reason', 'circuit_open_global');
+      // P0.2: Standardized error envelope with schema: 'error.v1'
+      // P1.2: Include request_id for end-to-end tracing
       await reply.code(503).send({
+        schema: 'error.v1',
+        code: 'BREAKER_OPEN',
+        message: 'Circuit breaker open (global)',
+        request_id: req.id,
+        retry_after_seconds: retryAfter,
         error: {
-          type: 'SERVICE_UNAVAILABLE',
+          type: 'BREAKER_OPEN',
           message: 'Circuit breaker open (global)',
           retry_after_seconds: retryAfter,
         },
@@ -290,9 +297,16 @@ export async function circuitBreakerMiddleware(
       const retryAfter = Math.ceil((circuit.openedAt + CONFIG.cooldownMs - Date.now()) / 1000);
       reply.header('Retry-After', String(retryAfter));
       reply.header('X-RateLimit-Reason', 'circuit_open_principal');
+      // P0.2: Standardized error envelope with schema: 'error.v1'
+      // P1.2: Include request_id for end-to-end tracing
       await reply.code(503).send({
+        schema: 'error.v1',
+        code: 'BREAKER_OPEN',
+        message: 'Circuit breaker open (principal)',
+        request_id: req.id,
+        retry_after_seconds: retryAfter,
         error: {
-          type: 'SERVICE_UNAVAILABLE',
+          type: 'BREAKER_OPEN',
           message: 'Circuit breaker open (principal)',
           retry_after_seconds: retryAfter,
         },

@@ -24,12 +24,14 @@ import { generateInsights } from '../../trust/insights.js';
 import { analyseEvidence } from '../../trust/evidence-analysis.js';
 import { computeFullSensitivity } from '../../trust/sensitivity-full.js';
 import { calculateCalibratedConfidence, compareConfidence } from '../../trust/confidence-calibrated.js';
+import { getISLService, type PLoTValidationResult, type PLoTSensitivityResult } from '../../integrations/isl/index.js';
 import { recordEngineComputeMs } from '../../metrics.js';
 import {
   recordCeeAttempted,
   recordCeeOk,
   recordCeeDegraded,
   recordCeeSkipped,
+  observeSloLatency,
 } from '../../metrics/registry.js';
 import { normalizeCeeCode, isFlagOn } from '../../cee/codes.js';
 import { shouldAllowCeeCall, recordCeeSuccess, recordCeeFailure } from '../../cee/circuit-breaker.js';
@@ -106,8 +108,12 @@ export async function registerRunRoute(app: FastifyInstance) {
         if (isDemoMode(req)) {
           const demo_seed = getDemoSeed(req);
           const payload = getDemoRunResponse(demo_seed) as any;
-          if (process.env.TRACE_MIN === '1') {
-            try { payload.trace_id = randomUUID(); } catch {}
+          // trace_id: use client-provided X-Request-Id/X-Trace-Id or generate new
+          const clientTraceId = String(
+            req.headers['x-request-id'] || req.headers['x-trace-id'] || ''
+          ).trim();
+          if (process.env.TRACE_ID_PASSTHROUGH === '1' || process.env.TRACE_MIN === '1' || clientTraceId) {
+            try { payload.trace_id = clientTraceId || randomUUID(); } catch {}
           }
           return reply.code(200).type('application/json').send(payload);
         }
@@ -642,6 +648,41 @@ export async function registerRunRoute(app: FastifyInstance) {
         })()
       : undefined;
 
+    // Sprint N+1: ISL Integration - Enhanced causal validation and sensitivity analysis
+    // ISL calls are non-blocking and use graceful fallback on failure
+    let isl_validation: PLoTValidationResult | undefined;
+    let isl_sensitivity: PLoTSensitivityResult | undefined;
+    const islService = getISLService();
+
+    if (islService.isEnabled() && detail_level !== 'quick') {
+      try {
+        // Run ISL calls in parallel for efficiency
+        const [validationResult, sensitivityResult] = await Promise.allSettled([
+          islService.validateCausal(graph, treatment_node, outcome_node, String(req.id)),
+          detail_level === 'deep'
+            ? islService.analyseSensitivity(graph, treatment_node, outcome_node, String(req.id))
+            : Promise.resolve(undefined),
+        ]);
+
+        if (validationResult.status === 'fulfilled' && validationResult.value) {
+          isl_validation = validationResult.value;
+        }
+
+        if (sensitivityResult.status === 'fulfilled' && sensitivityResult.value) {
+          isl_sensitivity = sensitivityResult.value;
+        }
+      } catch (err) {
+        // Log but don't fail the request - ISL errors are non-fatal
+        try {
+          req.log?.warn?.({
+            evt: 'isl_enrichment_failed',
+            error: err instanceof Error ? err.message : String(err),
+            requestId: req.id,
+          }, 'ISL enrichment failed; continuing without ISL');
+        } catch {}
+      }
+    }
+
     // P1: Compute graph quality score
     // Only count edges with external evidence (exclude 'template' and 'assumption' - aligned with evidence-analysis)
     const ASSUMPTION_PROVENANCES = ['template', 'assumption'];
@@ -688,6 +729,8 @@ export async function registerRunRoute(app: FastifyInstance) {
       ...(evidence_analysis && { evidence_analysis }),
       ...(sensitivity_full && { sensitivity_full }),
       ...(confidence_comparison && { confidence_comparison }),
+      ...(isl_validation && { isl_validation }),
+      ...(isl_sensitivity && { isl_sensitivity }),
       meta: {
         seed,
         commit: process.env.BUILD_ID || process.env.GITHUB_SHA || 'dev',
@@ -714,11 +757,27 @@ export async function registerRunRoute(app: FastifyInstance) {
       base.model_card.bma_hash = scm_bma_hash;
     }
 
+    // Add ISL enrichment status to model_card
+    const islEnriched = !!(isl_validation?.source === 'isl' || isl_sensitivity?.source === 'isl');
+    const islEndpointsCalled = [
+      isl_validation?.source === 'isl' ? 'causal/validate' : null,
+      isl_sensitivity?.source === 'isl' ? 'causal/sensitivity/detailed' : null,
+    ].filter(Boolean) as string[];
+
+    if (islEnriched || islEndpointsCalled.length > 0) {
+      base.model_card.isl_enriched = islEnriched;
+      base.model_card.isl_endpoints_called = islEndpointsCalled;
+    }
+
     // Stamp response hash (handles circularity correctly)
     const stamped = stampResponseHash(base);
-    // Optional trace_id (not included in response_hash)
-    if (process.env.TRACE_MIN === '1') {
-      stamped.trace_id = randomUUID();
+    // trace_id: use client-provided X-Request-Id/X-Trace-Id or generate new
+    // Always enabled when TRACE_ID_PASSTHROUGH=1 or TRACE_MIN=1
+    const clientTraceId = String(
+      req.headers['x-request-id'] || req.headers['x-trace-id'] || ''
+    ).trim();
+    if (process.env.TRACE_ID_PASSTHROUGH === '1' || process.env.TRACE_MIN === '1' || clientTraceId) {
+      stamped.trace_id = clientTraceId || randomUUID();
     }
 
     // Attach optional CEE decision review for idempotent (saved) runs
@@ -860,6 +919,8 @@ export async function registerRunRoute(app: FastifyInstance) {
     // Record compute time for observability
     const computeMs = performance.now() - computeStart;
     recordEngineComputeMs(computeMs);
+    // P1.3: Record SLO latency by detail_level
+    observeSloLatency(detail_level, 200, computeMs);
 
     // Add X-Olumi-Backend header
     try {
