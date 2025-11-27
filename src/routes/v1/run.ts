@@ -17,7 +17,7 @@ import { stampResponseHash, hashCanonicalInput } from '../../util/canonical-json
 import type { Graph, DetailLevel } from '../../trust/types.js';
 import { DETAIL_LEVEL_CONFIG } from '../../trust/types.js';
 import { getInferenceEngine, type InferenceMode } from '../../inference/index.js';
-import { computeSensitivitySimple, computeSensitivityAll } from '../../lib/sensitivity-simple.js';
+import { computeSensitivityAll } from '../../lib/sensitivity-simple.js';
 import { computeSensitivitySummary } from '../../trust/sensitivity-summary.js';
 import { computeGraphQuality } from '../../trust/graph-quality.js';
 import { generateInsights } from '../../trust/insights.js';
@@ -567,9 +567,15 @@ export async function registerRunRoute(app: FastifyInstance) {
     }
 
     // Build response with meta in alphabetical position
+    // Compute all edges once and reuse for top drivers, summary, full sensitivity, debug
+    // Performance: avoids calling computeSensitivityAll twice (once for top 3, once for full)
+    const all_edges = computeSensitivityAll(graph.edges, outcome_node);
+
+    // P0: Top edge drivers derived from all_edges (always included, not gated by include_debug)
+    const top_edge_drivers = all_edges.slice(0, 3);
+
+    // Debug compare view (flag-gated, uses pre-computed all_edges)
     let debug: any = undefined;
-    
-    // Add debug.compare if requested and flag enabled
     if (include_debug && FLAGS.COMPARE_VIEW_ENABLE) {
       debug = {
         compare: {
@@ -577,35 +583,11 @@ export async function registerRunRoute(app: FastifyInstance) {
             p10: results.conservative.outcome,
             p50: results.most_likely.outcome,
             p90: results.optimistic.outcome,
-            top3_edges: computeSensitivitySimple(graph.edges, outcome_node),
+            top3_edges: all_edges.slice(0, 3),
           },
         },
       };
     }
-    
-    // Add debug.inspector if requested and flag enabled
-    if (include_debug && FLAGS.INSPECTOR_DEBUG_ENABLE) {
-      if (!debug) debug = {};
-      debug.inspector = {
-        edges: graph.edges.map((edge: any, idx: number) => ({
-          edge_id: `${edge.from}::${edge.to}::${idx}`,
-          from: edge.from,
-          to: edge.to,
-          label: edge.label ?? '',
-          weight: edge.weight ?? 0,
-          belief: edge.belief ?? 1.0,
-          provenance: edge.provenance ?? 'template',
-        })),
-      };
-    }
-    
-    // P0: Compute top edge drivers (always included, not gated by include_debug)
-    const top_edge_drivers = computeSensitivitySimple(graph.edges, outcome_node);
-
-    // Compute all edges once and reuse for summary, full sensitivity, etc.
-    const all_edges = detailConfig.run_sensitivity || detail_level === 'deep'
-      ? computeSensitivityAll(graph.edges, outcome_node)
-      : [];
 
     // P1: Compute sensitivity summary using ALL edges (not just top 3) for accurate concentration
     const sensitivity_summary = detailConfig.run_sensitivity
