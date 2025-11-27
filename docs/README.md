@@ -26,6 +26,10 @@ Welcome to the PLoT Engine documentation. This directory contains all operationa
 
 ### `/archive/` - Historical Documents
 Archived status reports, delivery summaries, and superseded documentation.
+- `/archive/sessions/` - Session summaries and progress reports
+- `/archive/releases/` - Release notes and acceptance reports
+- `/archive/pr-history/` - PR bodies and merge notes
+- `/archive/status-reports/` - Historical status and verification reports
 
 ---
 
@@ -64,22 +68,20 @@ curl -s https://plot-lite-service.onrender.com/metrics | \
 
 ---
 
-## 🚀 Roadmap
+## 🚀 Project Status
 
-### P0.5 - Documentation Organization ✅
-- Organized docs structure
-- Clean root directory
-- Single source of truth (STATUS.md)
+### Completed ✅
+- Full test suite passing (1121 tests)
+- ISL integration with metrics and fallback
+- CEE circuit breaker integration
+- Boot-time timeout budget validation
+- Comprehensive ARCHITECTURE.md
+- Strict TypeScript config for incremental adoption
 
-### P1 - CI Green (In Progress)
-- Test helpers for consistency
-- All tests passing
-- No flaky/ignored tests
-
-### P2 - Streaming Canary (Planned)
-- Header-based canary rollout
-- Metrics proof (heartbeat, backpressure, circuit breaker)
-- Operator one-pager
+### Documentation Structure
+- **Root**: Essential docs only (README, ARCHITECTURE, CHANGELOG, CONTRIBUTING, DEPLOYING, RELEASING, ONBOARDING)
+- **docs/**: Operational guides and technical documentation
+- **docs/archive/**: Historical reports and session notes
 
 ---
 
@@ -108,5 +110,5 @@ When adding new documentation:
 
 ---
 
-**Last Updated**: 2025-10-20  
+**Last Updated**: 2025-11-27
 **Maintained By**: PLoT Engine Team

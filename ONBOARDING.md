@@ -195,11 +195,15 @@ Some tests are quarantined or marked as known-flaky; see `KNOWN_TEST_FAILURES.md
 
 If you are new to the project, these docs are worth skimming early:
 
-- `README.md` – high-level project description (if present).
-- `DEPLOYING.md` – Render / deployment setup and environment variables.
-- `contracts/openapi.yaml` – API contracts and examples.
-- `COMPREHENSIVE_CODEBASE_REVIEW.md` – deeper architecture + risk notes.
-- `WINDSURF_CEE_COMPLETION_REPORT.md` – CEE integration design and tradeoffs.
-- `KNOWN_TEST_FAILURES.md` – test stability status.
+| Document | Description |
+|----------|-------------|
+| [README.md](README.md) | Project overview, quickstart, API contracts |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | System design, request lifecycle, on-call runbook |
+| [DEPLOYING.md](DEPLOYING.md) | Render deployment and environment variables |
+| [RELEASING.md](RELEASING.md) | Release checklist and versioning |
+| [contracts/openapi.yaml](contracts/openapi.yaml) | OpenAPI specification |
+| [docs/](docs/) | Additional technical documentation |
+
+Historical session reports and PR notes are archived in `docs/archive/`.
 
 Use this onboarding doc as your map; the above files provide the details.
