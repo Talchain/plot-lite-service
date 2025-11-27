@@ -589,6 +589,22 @@ export async function registerRunRoute(app: FastifyInstance) {
       };
     }
 
+    // Debug inspector view (flag-gated)
+    if (include_debug && FLAGS.INSPECTOR_DEBUG_ENABLE) {
+      if (!debug) debug = {};
+      debug.inspector = {
+        edges: graph.edges.map((edge: any, idx: number) => ({
+          edge_id: `${edge.from}::${edge.to}::${idx}`,
+          from: edge.from,
+          to: edge.to,
+          label: edge.label ?? '',
+          weight: edge.weight ?? 0,
+          belief: edge.belief ?? 1.0,
+          provenance: edge.provenance ?? 'template',
+        })),
+      };
+    }
+
     // P1: Compute sensitivity summary using ALL edges (not just top 3) for accurate concentration
     const sensitivity_summary = detailConfig.run_sensitivity
       ? computeSensitivitySummary(all_edges)
