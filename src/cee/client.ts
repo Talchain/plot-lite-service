@@ -248,7 +248,7 @@ export async function runDecisionReview(opts: RunDecisionReviewOptions): Promise
   }
 
   // POST to real CEE Decision Review endpoint
-  return postDecisionReview(baseUrl, apiKey, timeoutMs, _context, requestId, logger);
+  return postDecisionReview(baseUrl, apiKey, timeoutMs, context, requestId, logger);
 }
 
 /**
