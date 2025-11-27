@@ -134,7 +134,7 @@ HTTP Request
 │    - evidence_analysis, graph_quality, insights                      │
 │    - sensitivity_summary (if detail_level != quick)                  │
 │    - sensitivity_full (if detail_level == deep)                      │
-│ 4. Optional: ISL validation/sensitivity (if ISL_ENABLE=1)            │
+│ 4. Optional: ISL validation/sensitivity (if ISL_BASE_URL set)        │
 │ 5. Optional: CEE decision review (if enabled + IDK detected)         │
 │ 6. Build response with model_card                                    │
 └─────────────────────────────────────────────────────────────────────┘
@@ -158,8 +158,12 @@ HTTP Request
 | `PORT` | 4311 | Server port |
 | `AUTH_ENABLED` | 0 | Enable bearer token auth |
 | `RATE_LIMIT_ENABLED` | 1 | Enable rate limiting |
-| `ISL_ENABLE` | 0 | Enable ISL integration |
-| `CEE_ENABLE` | 0 | Enable CEE integration |
+| `ISL_BASE_URL` | - | ISL service URL (enables integration) |
+| `ISL_TIMEOUT_MS` | 5000 | ISL request timeout |
+| `ISL_MAX_RETRIES` | 2 | ISL retry attempts |
+| `CEE_ORCHESTRATOR_ENABLE` | 0 | Enable CEE integration |
+| `CEE_BASE_URL` | - | CEE service URL |
+| `CEE_API_KEY` | - | CEE API key |
 | `PROMETHEUS_ENABLE` | 0 | Enable Prometheus metrics |
 | `TEST_ROUTES` | 0 | Enable test-only routes |
 | `detail_level` | standard | Default detail level |
@@ -188,7 +192,7 @@ Error types: `BAD_INPUT`, `INTERNAL`, `TIMEOUT`, `NOT_FOUND`, `RATE_LIMIT`, `AUT
 
 1. Check `detail_level` - `deep` mode is slower
 2. Check `/v1/health` for `engine_p95_ms_rolling`
-3. Check ISL health if `ISL_ENABLE=1`
+3. Check ISL health if `ISL_BASE_URL` is configured
 4. Check CEE circuit breaker state in health response
 5. Review `PROXY_TIMEOUT_MS` vs actual latencies
 

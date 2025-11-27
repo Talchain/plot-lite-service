@@ -141,8 +141,8 @@ curl -s -X POST http://localhost:4311/draft-flows \
 ## Privacy and limits
 - Never log parse_text or any request body contents.
 - Structured logs only: request id, route, status, duration.
-- JSON body limit: 128 KiB.
-- Request timeout: 5 seconds.
+- JSON body limit: 96 KiB.
+- Request timeout: 60 seconds (server), ~26s proxy budget.
 
 ## Rate limiting
 
@@ -158,7 +158,7 @@ Exemptions: GET /ready, GET /health, and GET /version are not rate-limited.
 - PORT: service port (default 4311)
 - RATE_LIMIT_ENABLED: enable per-IP rate limiting (default on; set 0 to disable)
 - RATE_LIMIT_RPM: requests per minute per IP (default 60)
-- REQUEST_TIMEOUT_MS: request timeout in milliseconds (default 5000)
+- REQUEST_TIMEOUT_MS: request timeout in milliseconds (default 60000)
 - TRUST_PROXY: if 1, trust X-Forwarded-* headers from a front proxy (add-only; default off)
 - CORS_DEV: if 1, enable CORS for http://localhost:5173 (dev only)
 
