@@ -47,6 +47,16 @@ reports/**/*
 phase*.txt
 final.txt
 test-baseline.txt
+baseline-verification.txt
+determinism-check.txt
+final-verification.txt
+full-suite-verification.txt
+hash-check.txt
+perf-gate-results.txt
+rl-tests-verification.txt
+test-output.txt
+test-report.txt
+test-run-*.txt
 
 # Temp and analysis directories
 .tmp/

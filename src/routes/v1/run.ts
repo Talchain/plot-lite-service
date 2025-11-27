@@ -47,6 +47,7 @@ import {
 } from '../../config/constants.js';
 import { validateEffect, applyEffect } from '../../engine/effects.js';
 import { callDecisionReviewFromEngine } from '../../cee/client.js';
+import { errorResponse } from '../../errors.js';
 
 
 export interface RunRequest {
@@ -192,19 +193,13 @@ export async function registerRunRoute(app: FastifyInstance) {
       
       if (!priorsValidation.valid) {
         const firstError = priorsValidation.errors[0];
-        req.log.info({ 
-          evt: 'priors_validation_failed', 
-          id: req.id, 
-          route: '/v1/run', 
-          errors: priorsValidation.errors 
+        req.log.info({
+          evt: 'priors_validation_failed',
+          id: req.id,
+          route: '/v1/run',
+          errors: priorsValidation.errors
         });
-        return reply.code(400).send({
-          error: { 
-            type: 'BAD_INPUT', 
-            message: firstError.message,
-            field: firstError.field
-          }
-        });
+        return reply.code(400).send(errorResponse('BAD_INPUT', firstError.message, undefined, { field: firstError.field }, String(req.id)));
       }
     }
     
@@ -216,19 +211,13 @@ export async function registerRunRoute(app: FastifyInstance) {
       
       if (!evidenceValidation.valid) {
         const firstError = evidenceValidation.errors[0];
-        req.log.info({ 
-          evt: 'evidence_validation_failed', 
-          id: req.id, 
-          route: '/v1/run', 
-          errors: evidenceValidation.errors 
+        req.log.info({
+          evt: 'evidence_validation_failed',
+          id: req.id,
+          route: '/v1/run',
+          errors: evidenceValidation.errors
         });
-        return reply.code(400).send({
-          error: { 
-            type: 'BAD_INPUT', 
-            message: firstError.message,
-            field: firstError.field
-          }
-        });
+        return reply.code(400).send(errorResponse('BAD_INPUT', firstError.message, undefined, { field: firstError.field }, String(req.id)));
       }
     }
     
@@ -238,9 +227,7 @@ export async function registerRunRoute(app: FastifyInstance) {
         const validation = validateEffect((node as any).effect);
         if (!validation.valid) {
           req.log.info({ evt: 'effect_validation_failed', id: req.id, route: '/v1/run', node: node.id, error: validation.error });
-          return reply.code(400).send({
-            error: { type: 'BAD_INPUT', message: `Invalid effect on node ${node.id}: ${validation.error}` }
-          });
+          return reply.code(400).send(errorResponse('BAD_INPUT', `Invalid effect on node ${node.id}: ${validation.error}`, undefined, { field: `nodes[${node.id}].effect` }, String(req.id)));
         }
       }
     }
@@ -254,9 +241,7 @@ export async function registerRunRoute(app: FastifyInstance) {
         for (const [nodeId, bounds] of Object.entries(body.constraints.bounds)) {
           if (!nodeIds.has(nodeId)) {
             req.log.info({ evt: 'constraints_violation', id: req.id, route: '/v1/run', reason: 'invalid_node_in_bounds', node: nodeId });
-            return reply.code(400).send({
-              error: { type: 'BAD_INPUT', message: `Bounds constraint references non-existent node: ${nodeId}` }
-            });
+            return reply.code(400).send(errorResponse('BAD_INPUT', `Bounds constraint references non-existent node: ${nodeId}`, undefined, { field: `constraints.bounds.${nodeId}` }, String(req.id)));
           }
           
           // Check if any node values violate bounds (simplified check for now)
@@ -266,15 +251,11 @@ export async function registerRunRoute(app: FastifyInstance) {
             const b = bounds as any;
             if (b.min !== undefined && val < b.min) {
               req.log.info({ evt: 'constraints_violation', id: req.id, route: '/v1/run', reason: 'bounds_min', node: nodeId, value: val, min: b.min });
-              return reply.code(400).send({
-                error: { type: 'BAD_INPUT', message: `Node ${nodeId} value ${val} violates min bound ${b.min}` }
-              });
+              return reply.code(400).send(errorResponse('BAD_INPUT', `Node ${nodeId} value ${val} violates min bound ${b.min}`, undefined, { field: `constraints.bounds.${nodeId}.min` }, String(req.id)));
             }
             if (b.max !== undefined && val > b.max) {
               req.log.info({ evt: 'constraints_violation', id: req.id, route: '/v1/run', reason: 'bounds_max', node: nodeId, value: val, max: b.max });
-              return reply.code(400).send({
-                error: { type: 'BAD_INPUT', message: `Node ${nodeId} value ${val} violates max bound ${b.max}` }
-              });
+              return reply.code(400).send(errorResponse('BAD_INPUT', `Node ${nodeId} value ${val} violates max bound ${b.max}`, undefined, { field: `constraints.bounds.${nodeId}.max` }, String(req.id)));
             }
           }
         }
@@ -286,9 +267,7 @@ export async function registerRunRoute(app: FastifyInstance) {
           const forbiddenEdge = graph.edges.find((e: any) => e.from === from && e.to === to);
           if (forbiddenEdge) {
             req.log.info({ evt: 'constraints_violation', id: req.id, route: '/v1/run', reason: 'forbidden_edge', from, to });
-            return reply.code(400).send({
-              error: { type: 'BAD_INPUT', message: `Forbidden edge present: ${from} → ${to}` }
-            });
+            return reply.code(400).send(errorResponse('BAD_INPUT', `Forbidden edge present: ${from} → ${to}`, undefined, { field: 'constraints.structure.forbid_edges' }, String(req.id)));
           }
         }
       }
@@ -346,11 +325,7 @@ export async function registerRunRoute(app: FastifyInstance) {
       if (marker) {
         try { clearInflight(marker.principal, marker.idk); } catch {}
       }
-      return reply.code(400).send({
-        error: 'bad_request',
-        reason: 'graph_too_large',
-        limits: { nodes: maxNodes, edges: maxEdges },
-      });
+      return reply.code(400).send(errorResponse('BAD_INPUT', `Graph too large: max ${maxNodes} nodes and ${maxEdges} edges allowed`, undefined, { reason: 'graph_too_large', limits: { nodes: maxNodes, edges: maxEdges } }, String(req.id)));
     }
 
 
