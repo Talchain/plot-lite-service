@@ -1,18 +1,18 @@
 // src/lib/error-messages.ts
+// P2.4: Normalized to sentence-case, period-terminated phrases
 export const ERR_MSG = {
-  REQUEST_ITEMS_REQUIRED: "Request must include items array",
-  BAD_INPUT_SCHEMA: "Request validation failed",
-  NODE_CAP_EXCEEDED: "Scenario too large for pilot (12-node cap)",
-  URL_TOO_LARGE: "Share link too large (8 KB maximum)",
+  REQUEST_ITEMS_REQUIRED: "Request must include items array.",
+  BAD_INPUT_SCHEMA: "Request validation failed.",
+  NODE_CAP_EXCEEDED: "Scenario too large for pilot (12-node cap).",
+  URL_TOO_LARGE: "Share link too large (8 KB maximum).",
   RATE_LIMIT_RPM: "Please retry after the current rate-limit window resets.",
-  TIMEOUT_UPSTREAM: "The service took too long to respond",
-  RETRYABLE_UPSTREAM: "Temporary problem, please try again shortly",
-  INTERNAL_UNEXPECTED: "Something went wrong",
-  BREAKER_OPEN: "Service temporarily unavailable, please try again shortly",
-  // add any other phrases our tests/docs expect:
-  INVALID_TEMPLATE: "Unknown template name",
-  INVALID_SEED: "Unknown seed for template",
-  BAD_QUERY_PARAMS: "Invalid query parameters",
+  TIMEOUT_UPSTREAM: "The service took too long to respond.",
+  RETRYABLE_UPSTREAM: "Temporary problem, please try again shortly.",
+  INTERNAL_UNEXPECTED: "Something went wrong.",
+  BREAKER_OPEN: "Service temporarily unavailable, please try again shortly.",
+  INVALID_TEMPLATE: "Unknown template name.",
+  INVALID_SEED: "Unknown seed for template.",
+  BAD_QUERY_PARAMS: "Invalid query parameters.",
 } as const;
 
 export type ErrKey = keyof typeof ERR_MSG;

@@ -5,6 +5,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { createHash } from 'crypto';
 import { recordAuditEvent } from '../../governance/audit-ring.js';
+import { errorResponse } from '../../errors.js';
 
 interface InterveneRequest {
   graph: { nodes: any[]; edges: any[] };
@@ -21,7 +22,7 @@ export async function registerInterveneRoute(app: FastifyInstance) {
     
     // Validation
     if (!body.graph || !body.graph.nodes || !Array.isArray(body.graph.nodes)) {
-      return reply.code(400).send({ error: { type: 'BAD_INPUT', message: 'graph.nodes required' } });
+      return reply.code(400).send(errorResponse('BAD_INPUT', 'graph.nodes required', undefined, undefined, String(req.id)));
     }
     
     // Normalize actions: support both actions[] and legacy do[]
@@ -33,27 +34,15 @@ export async function registerInterveneRoute(app: FastifyInstance) {
       })) : [];
     
     if (normalisedActions.length === 0) {
-      return reply.code(400).send({ 
-        error: { 
-          type: 'BAD_INPUT', 
-          message: 'actions[] (or legacy do[]) is required',
-          field: 'actions'
-        } 
-      });
+      return reply.code(400).send(errorResponse('BAD_INPUT', 'actions[] (or legacy do[]) is required', undefined, { field: 'actions' }, String(req.id)));
     }
-    
+
     // Validate interventions refer to existing nodes
     const nodeIds = new Set(body.graph.nodes.map((n: any) => n.id));
     const invalidActions = normalisedActions.filter((a: any) => !nodeIds.has(a.node_id));
-    
+
     if (invalidActions.length > 0) {
-      return reply.code(400).send({ 
-        error: { 
-          type: 'BAD_INPUT', 
-          message: `Invalid node_ids in actions: ${invalidActions.map((a: any) => a.node_id).join(', ')}`,
-          field: 'actions[].node_id'
-        } 
-      });
+      return reply.code(400).send(errorResponse('BAD_INPUT', `Invalid node_ids in actions: ${invalidActions.map((a: any) => a.node_id).join(', ')}`, undefined, { field: 'actions[].node_id' }, String(req.id)));
     }
     
     const seed = body.seed || 4242;

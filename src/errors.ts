@@ -36,7 +36,11 @@ export function errorResponse(type: ErrorType, message: string, hint?: string, f
   // Legacy back-compat: also include top-level { error: { type, message } } for old tests
   envelope.error = { type, message };
   if (hint) envelope.error.hint = hint;
-  if (fields) envelope.error.fields = fields;
+  // P1.4: Copy fields directly onto error for backward compat (e.g., error.field = 'foo')
+  if (fields) {
+    Object.assign(envelope.error, fields);
+    envelope.error.fields = fields;
+  }
 
   return envelope;
 }

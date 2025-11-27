@@ -1,6 +1,6 @@
 /**
  * Helper for asserting error.v1 envelope format
- * 
+ *
  * Usage:
  *   const body = await res.json();
  *   expectErrorV1(body, 'BAD_INPUT');
@@ -9,6 +9,19 @@ export function expectErrorV1(body: any, code: string) {
   expect(body?.schema).toBe('error.v1');
   expect(body?.code).toBe(code);
   expect(typeof body?.message).toBe('string');
+}
+
+/**
+ * Helper for asserting error.v1 envelope with request_id
+ *
+ * Usage:
+ *   const body = await res.json();
+ *   expectErrorV1WithRequestId(body, 'BAD_INPUT');
+ */
+export function expectErrorV1WithRequestId(body: any, code: string) {
+  expectErrorV1(body, code);
+  expect(typeof body?.request_id).toBe('string');
+  expect(body?.request_id?.length).toBeGreaterThan(0);
 }
 
 /**

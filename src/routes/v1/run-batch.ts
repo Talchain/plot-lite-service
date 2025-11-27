@@ -4,6 +4,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { recordAuditEvent } from '../../governance/audit-ring.js';
 import { createHash } from 'crypto';
+import { errorResponse } from '../../errors.js';
 
 interface BatchItem {
   graph: { nodes: any[]; edges: any[] };
@@ -26,45 +27,35 @@ export async function registerRunBatchRoute(app: FastifyInstance) {
     
     // Validation
     if (!body.items || !Array.isArray(body.items)) {
-      return reply.code(400).send({ error: { type: 'BAD_INPUT', message: 'items array required' } });
+      return reply.code(400).send(errorResponse('BAD_INPUT', 'items array required', undefined, undefined, String(req.id)));
     }
-    
+
     if (body.items.length === 0) {
-      return reply.code(400).send({ error: { type: 'BAD_INPUT', message: 'items array must not be empty' } });
+      return reply.code(400).send(errorResponse('BAD_INPUT', 'items array must not be empty', undefined, undefined, String(req.id)));
     }
-    
+
     if (body.items.length > MAX_BATCH_ITEMS) {
-      return reply.code(400).send({
-        error: { type: 'BAD_INPUT', message: `Batch size exceeds limit: ${body.items.length} > ${MAX_BATCH_ITEMS}` }
-      });
+      return reply.code(400).send(errorResponse('BAD_INPUT', `Batch size exceeds limit: ${body.items.length} > ${MAX_BATCH_ITEMS}`, undefined, undefined, String(req.id)));
     }
-    
+
     // Validate each item
     for (let i = 0; i < body.items.length; i++) {
       const item = body.items[i];
-      
+
       if (!item.graph || !item.graph.nodes || !Array.isArray(item.graph.nodes)) {
-        return reply.code(400).send({
-          error: { type: 'BAD_INPUT', message: `Item ${i}: graph.nodes required` }
-        });
+        return reply.code(400).send(errorResponse('BAD_INPUT', `Item ${i}: graph.nodes required`, undefined, undefined, String(req.id)));
       }
       
       if (item.graph.nodes.length > MAX_NODES_PER_ITEM) {
-        return reply.code(400).send({
-          error: { type: 'BAD_INPUT', message: `Item ${i}: nodes exceed limit (${item.graph.nodes.length} > ${MAX_NODES_PER_ITEM})` }
-        });
+        return reply.code(400).send(errorResponse('BAD_INPUT', `Item ${i}: nodes exceed limit (${item.graph.nodes.length} > ${MAX_NODES_PER_ITEM})`, undefined, undefined, String(req.id)));
       }
-      
+
       if (!item.graph.edges || !Array.isArray(item.graph.edges)) {
-        return reply.code(400).send({
-          error: { type: 'BAD_INPUT', message: `Item ${i}: graph.edges required` }
-        });
+        return reply.code(400).send(errorResponse('BAD_INPUT', `Item ${i}: graph.edges required`, undefined, undefined, String(req.id)));
       }
-      
+
       if (item.graph.edges.length > MAX_EDGES_PER_ITEM) {
-        return reply.code(400).send({
-          error: { type: 'BAD_INPUT', message: `Item ${i}: edges exceed limit (${item.graph.edges.length} > ${MAX_EDGES_PER_ITEM})` }
-        });
+        return reply.code(400).send(errorResponse('BAD_INPUT', `Item ${i}: edges exceed limit (${item.graph.edges.length} > ${MAX_EDGES_PER_ITEM})`, undefined, undefined, String(req.id)));
       }
     }
     

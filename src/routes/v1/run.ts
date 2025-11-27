@@ -546,6 +546,9 @@ export async function registerRunRoute(app: FastifyInstance) {
         if (marker) {
           try { clearInflight(marker.principal, marker.idk); } catch {}
         }
+        // P1.3: Record SLO latency for error paths
+        const computeMs = performance.now() - computeStart;
+        observeSloLatency(detail_level, 400, computeMs);
         return reply.code(400).send({
           schema: 'error.v1',
           code: 'SCOPE_LIMIT',

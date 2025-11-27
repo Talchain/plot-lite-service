@@ -433,10 +433,17 @@ paths:
       operationId: headRunV1
       tags: [v1, meta]
       description: |
-        Returns 204 with no body. Used by UI clients to verify endpoint availability.
+        Returns 405 Method Not Allowed with Allow header listing permitted methods.
+        Used by UI clients to verify endpoint existence (any non-404 indicates route exists).
       responses:
-        '204':
-          description: No Content - endpoint is available
+        '405':
+          description: Method Not Allowed - endpoint exists but HEAD not supported
+          headers:
+            Allow:
+              description: Permitted HTTP methods
+              schema:
+                type: string
+                example: 'POST, OPTIONS, HEAD'
     post:
       summary: Execute probabilistic model
       operationId: runV1
@@ -2281,8 +2288,30 @@ components:
         schema:
           type: string
           enum: [error.v1]
-        code: { type: string, enum: [BAD_INPUT, UNAUTHORIZED, FORBIDDEN, RATE_LIMITED, INTERNAL] }
+        code:
+          type: string
+          enum: [BAD_INPUT, UNAUTHORIZED, FORBIDDEN, RATE_LIMITED, INTERNAL, TIMEOUT, SCOPE_LIMIT, NOT_FOUND, BREAKER_OPEN]
+          description: |
+            Error taxonomy:
+            - BAD_INPUT: Invalid request payload or parameters
+            - UNAUTHORIZED: Missing or invalid authentication
+            - FORBIDDEN: Authentication valid but insufficient permissions
+            - RATE_LIMITED: Too many requests (check Retry-After header)
+            - INTERNAL: Server error (retry may help)
+            - TIMEOUT: Request exceeded compute budget
+            - SCOPE_LIMIT: Graph exceeds size limits
+            - NOT_FOUND: Requested resource not found
+            - BREAKER_OPEN: Circuit breaker open (external service degraded)
         message: { type: string }
+        request_id:
+          type: string
+          description: Unique request identifier for tracing (matches x-request-id header)
+        hint:
+          type: string
+          description: Optional human-readable suggestion for resolution
+        field:
+          type: string
+          description: Field path that caused the error (for validation errors)
         path:
           type: array
           items: { type: string }

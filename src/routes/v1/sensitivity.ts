@@ -4,6 +4,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { recordAuditEvent } from '../../governance/audit-ring.js';
 import { createHash } from 'crypto';
+import { errorResponse } from '../../errors.js';
 
 interface SensitivityRequest {
   graph: { nodes: any[]; edges: any[] };
@@ -20,32 +21,30 @@ export async function registerSensitivityRoute(app: FastifyInstance) {
     
     // Validation
     if (!body.graph || !body.graph.nodes || !Array.isArray(body.graph.nodes)) {
-      return reply.code(400).send({ error: { type: 'BAD_INPUT', message: 'graph.nodes required' } });
+      return reply.code(400).send(errorResponse('BAD_INPUT', 'graph.nodes required', undefined, undefined, String(req.id)));
     }
-    
+
     const method = body.method || 'oat';
     if (method !== 'oat') {
-      return reply.code(400).send({ error: { type: 'BAD_INPUT', message: 'method must be "oat"' } });
+      return reply.code(400).send(errorResponse('BAD_INPUT', 'method must be "oat"', undefined, undefined, String(req.id)));
     }
-    
+
     const delta = body.delta ?? 0.1;
     if (delta <= 0 || delta > 1) {
-      return reply.code(400).send({ error: { type: 'BAD_INPUT', message: 'delta must be in (0, 1]' } });
+      return reply.code(400).send(errorResponse('BAD_INPUT', 'delta must be in (0, 1]', undefined, undefined, String(req.id)));
     }
-    
+
     const seed = body.seed || 4242;
-    
+
     // Determine targets (default: all nodes)
     const nodeIds = body.graph.nodes.map((n: any) => n.id);
     const targets = body.targets || nodeIds;
-    
+
     // Validate targets exist
     const nodeIdSet = new Set(nodeIds);
     const invalidTargets = targets.filter(t => !nodeIdSet.has(t));
     if (invalidTargets.length > 0) {
-      return reply.code(400).send({
-        error: { type: 'BAD_INPUT', message: `Invalid target node_ids: ${invalidTargets.join(', ')}` }
-      });
+      return reply.code(400).send(errorResponse('BAD_INPUT', `Invalid target node_ids: ${invalidTargets.join(', ')}`, undefined, undefined, String(req.id)));
     }
     
     // Compute baseline

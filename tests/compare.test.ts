@@ -46,6 +46,24 @@ describe('POST /v1/compare', () => {
     expect(res.status).toBe(400);
   });
 
+  it('error envelope includes schema, code, message, and request_id', async () => {
+    const res = await fetch(`${server.baseUrl}/v1/compare`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        graphs: [] // Empty graphs array triggers BAD_INPUT
+      })
+    });
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    // P0.3: Standardized error envelope
+    expect(data.schema).toBe('error.v1');
+    expect(data.code).toBe('BAD_INPUT');
+    expect(typeof data.message).toBe('string');
+    expect(typeof data.request_id).toBe('string');
+    expect(data.request_id.length).toBeGreaterThan(0);
+  });
+
   it('is deterministic with same seed', async () => {
     const payload = {
       seed: 1234,

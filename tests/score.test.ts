@@ -101,10 +101,15 @@ describe('POST /v1/score', () => {
         }
       })
     });
-    
+
     expect(res.status).toBe(400);
     const data = await res.json();
-    expect(data.error.type).toBe('BAD_INPUT');
+    // P0.3: Standardized error envelope with request_id
+    expect(data.schema).toBe('error.v1');
+    expect(data.code).toBe('BAD_INPUT');
+    expect(typeof data.message).toBe('string');
+    expect(typeof data.request_id).toBe('string');
+    expect(data.request_id.length).toBeGreaterThan(0);
   });
 
   it('produces stable ranking with ties resolved by node_id', async () => {

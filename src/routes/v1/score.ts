@@ -4,6 +4,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { createHash } from 'crypto';
 import { recordAuditEvent } from '../../governance/audit-ring.js';
+import { errorResponse } from '../../errors.js';
 
 interface ScoreRequest {
   graph: { nodes: any[]; edges: any[] };
@@ -22,29 +23,24 @@ export async function registerScoreRoute(app: FastifyInstance) {
     
     // Validation
     if (!body.graph || !body.graph.nodes || !Array.isArray(body.graph.nodes)) {
-      return reply.code(400).send({ error: { type: 'BAD_INPUT', message: 'graph.nodes required' } });
+      return reply.code(400).send(errorResponse('BAD_INPUT', 'graph.nodes required', undefined, undefined, String(req.id)));
     }
-    
+
     if (!body.utilities || body.utilities.type !== 'linear') {
-      return reply.code(400).send({ error: { type: 'BAD_INPUT', message: 'utilities.type must be "linear"' } });
+      return reply.code(400).send(errorResponse('BAD_INPUT', 'utilities.type must be "linear"', undefined, undefined, String(req.id)));
     }
-    
+
     if (!body.utilities.weights || typeof body.utilities.weights !== 'object') {
-      return reply.code(400).send({ error: { type: 'BAD_INPUT', message: 'utilities.weights required' } });
+      return reply.code(400).send(errorResponse('BAD_INPUT', 'utilities.weights required', undefined, undefined, String(req.id)));
     }
-    
+
     // Validate weights refer to existing nodes
     const nodeIds = new Set(body.graph.nodes.map((n: any) => n.id));
     const weightKeys = Object.keys(body.utilities.weights);
     const invalidWeights = weightKeys.filter(k => !nodeIds.has(k));
-    
+
     if (invalidWeights.length > 0) {
-      return reply.code(400).send({ 
-        error: { 
-          type: 'BAD_INPUT', 
-          message: `Invalid node_ids in weights: ${invalidWeights.join(', ')}` 
-        } 
-      });
+      return reply.code(400).send(errorResponse('BAD_INPUT', `Invalid node_ids in weights: ${invalidWeights.join(', ')}`, undefined, undefined, String(req.id)));
     }
     
     const seed = body.seed || 4242;

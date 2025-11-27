@@ -32,10 +32,11 @@ describe("Error Message Catalogue", () => {
 
   it("preserves taxonomy and status expectations at call sites (example snapshot)", () => {
     const out = toPublicError({ type: "TIMEOUT", http: 504 });
+    // P2.4: Updated to period-terminated message
     expect(stable(out)).toMatchInlineSnapshot(`
       {
         "code": undefined,
-        "message": "The service took too long to respond",
+        "message": "The service took too long to respond.",
         "retryable": true,
         "type": "TIMEOUT",
       }

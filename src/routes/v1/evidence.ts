@@ -2,6 +2,7 @@
  * POST /v1/evidence - Evidence & Priors
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { errorResponse } from '../../errors.js';
 
 interface EvidenceRequest {
   graph: { nodes: any[]; edges: any[] };
@@ -24,24 +25,19 @@ export async function registerEvidenceRoute(app: FastifyInstance) {
     
     // Validation
     if (!body.graph || !body.graph.nodes || !Array.isArray(body.graph.nodes)) {
-      return reply.code(400).send({ error: { type: 'BAD_INPUT', message: 'graph.nodes required' } });
+      return reply.code(400).send(errorResponse('BAD_INPUT', 'graph.nodes required', undefined, undefined, String(req.id)));
     }
-    
+
     if (!body.priors || !Array.isArray(body.priors) || body.priors.length === 0) {
-      return reply.code(400).send({ error: { type: 'BAD_INPUT', message: 'priors array required with at least one prior' } });
+      return reply.code(400).send(errorResponse('BAD_INPUT', 'priors array required with at least one prior', undefined, undefined, String(req.id)));
     }
-    
+
     // Validate priors refer to existing nodes
     const nodeIds = new Set(body.graph.nodes.map((n: any) => n.id));
     const invalidPriors = body.priors.filter(p => !nodeIds.has(p.node_id));
-    
+
     if (invalidPriors.length > 0) {
-      return reply.code(400).send({ 
-        error: { 
-          type: 'BAD_INPUT', 
-          message: `Invalid node_ids in priors: ${invalidPriors.map(p => p.node_id).join(', ')}` 
-        } 
-      });
+      return reply.code(400).send(errorResponse('BAD_INPUT', `Invalid node_ids in priors: ${invalidPriors.map(p => p.node_id).join(', ')}`, undefined, undefined, String(req.id)));
     }
     
     const seed = body.seed || 4242;

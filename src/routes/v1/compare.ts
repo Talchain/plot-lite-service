@@ -2,6 +2,7 @@
  * POST /v1/compare - Compare multiple graph options
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { errorResponse } from '../../errors.js';
 
 interface CompareRequest {
   seed?: number;
@@ -15,11 +16,11 @@ export async function registerCompareRoute(app: FastifyInstance) {
 
     // Validation
     if (!body.graphs || !Array.isArray(body.graphs)) {
-      return reply.code(400).send({ error: { type: 'BAD_INPUT', message: 'graphs array required' } });
+      return reply.code(400).send(errorResponse('BAD_INPUT', 'graphs array required', undefined, undefined, String(req.id)));
     }
 
     if (body.graphs.length < 2 || body.graphs.length > 5) {
-      return reply.code(400).send({ error: { type: 'BAD_INPUT', message: 'graphs must contain 2-5 options' } });
+      return reply.code(400).send(errorResponse('BAD_INPUT', 'graphs must contain 2-5 options', undefined, undefined, String(req.id)));
     }
 
     const seed = body.seed || 4242;
