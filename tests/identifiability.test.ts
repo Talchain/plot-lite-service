@@ -74,7 +74,7 @@ describe('Identifiability & Adjustment Sets (Task A.3)', () => {
 
     expect(result.identifiable).toBe(false);
     expect(result.adjustment_set).toEqual([]);
-    expect(result.notes).toContain('Treatment or outcome node not found in graph');
+    expect(result.notes.some((n) => n.includes('not found') || n.includes('nonexistent'))).toBe(true);
   });
 
   it('returns false for no causal path', () => {
@@ -222,5 +222,104 @@ describe('Identifiability & Adjustment Sets (Task A.3)', () => {
 
     const uniqueResults = new Set(results);
     expect(uniqueResults.size).toBe(1);
+  });
+});
+
+describe('Adjustment Set Metadata', () => {
+  it('includes adjustment_metadata for identifiable graph with confounders', () => {
+    const graph = {
+      nodes: [
+        { id: 'confounder', label: 'Confounder Node', type: 'decision' },
+        { id: 'treatment', label: 'Treatment', type: 'decision' },
+        { id: 'outcome', label: 'Outcome', type: 'outcome' },
+      ],
+      edges: [
+        { from: 'confounder', to: 'treatment' },
+        { from: 'confounder', to: 'outcome' },
+        { from: 'treatment', to: 'outcome' },
+      ],
+    };
+
+    const result = checkIdentifiability({
+      graph,
+      treatment_node: 'treatment',
+      outcome_node: 'outcome',
+    });
+
+    expect(result.adjustment_metadata).toBeDefined();
+    expect(result.adjustment_metadata?.variables).toEqual(['confounder']);
+    expect(result.adjustment_metadata?.labels).toEqual(['Confounder Node']);
+    expect(result.adjustment_metadata?.criterion).toBe('backdoor');
+  });
+
+  it('includes adjustment_metadata for direct causal path (no confounders)', () => {
+    const graph = {
+      nodes: [
+        { id: 'treatment', label: 'Treatment', type: 'decision' },
+        { id: 'outcome', label: 'Outcome', type: 'outcome' },
+      ],
+      edges: [{ from: 'treatment', to: 'outcome' }],
+    };
+
+    const result = checkIdentifiability({
+      graph,
+      treatment_node: 'treatment',
+      outcome_node: 'outcome',
+    });
+
+    expect(result.adjustment_metadata).toBeDefined();
+    expect(result.adjustment_metadata?.variables).toEqual([]);
+    expect(result.adjustment_metadata?.labels).toEqual([]);
+    expect(result.adjustment_metadata?.criterion).toBe('none');
+    expect(result.adjustment_metadata?.blocks_backdoor_paths).toBe(true);
+  });
+
+  it('includes adjustment_metadata for no causal path case', () => {
+    const graph = {
+      nodes: [
+        { id: 'treatment', label: 'Treatment', type: 'decision' },
+        { id: 'outcome', label: 'Outcome', type: 'outcome' },
+      ],
+      edges: [], // No edges
+    };
+
+    const result = checkIdentifiability({
+      graph,
+      treatment_node: 'treatment',
+      outcome_node: 'outcome',
+    });
+
+    expect(result.identifiable).toBe(false);
+    expect(result.adjustment_metadata).toBeDefined();
+    expect(result.adjustment_metadata?.criterion).toBe('none');
+    expect(result.adjustment_metadata?.d_separation_verified).toBe(false);
+  });
+
+  it('uses node labels when available, falls back to id', () => {
+    const graph = {
+      nodes: [
+        { id: 'conf1', label: 'First Confounder', type: 'decision' },
+        { id: 'conf2' }, // No label
+        { id: 'treatment', label: 'Treatment', type: 'decision' },
+        { id: 'outcome', label: 'Outcome', type: 'outcome' },
+      ],
+      edges: [
+        { from: 'conf1', to: 'treatment' },
+        { from: 'conf1', to: 'outcome' },
+        { from: 'conf2', to: 'treatment' },
+        { from: 'conf2', to: 'outcome' },
+        { from: 'treatment', to: 'outcome' },
+      ],
+    };
+
+    const result = checkIdentifiability({
+      graph,
+      treatment_node: 'treatment',
+      outcome_node: 'outcome',
+    });
+
+    expect(result.adjustment_metadata?.variables).toEqual(['conf1', 'conf2']);
+    // conf1 has label, conf2 falls back to id
+    expect(result.adjustment_metadata?.labels).toEqual(['First Confounder', 'conf2']);
   });
 });

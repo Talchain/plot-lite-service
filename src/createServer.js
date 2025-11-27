@@ -1145,7 +1145,6 @@ export async function createServer(opts = {}) {
     if (opts.enableTestRoutes || process.env.TEST_ROUTES === '1') {
         app.post('/__test/force-error', async (req, reply) => {
             const t = (req.body?.type || req.query?.type || '').toString().toUpperCase();
-            const { errorResponse } = await import('./errors.js');
             if (t === 'TIMEOUT')
                 return replyWithAppError(reply, { type: 'TIMEOUT', statusCode: 504, hint: 'Reduce processing time' });
             if (t === 'RETRYABLE')
@@ -1158,7 +1157,7 @@ export async function createServer(opts = {}) {
         app.get('/internal/replay-status', async (_req, reply) => {
             return reply.code(200).send(replaySnapshot());
         });
-        app.post('/internal/replay-report', async (req, reply) => {
+        app.post('/internal/replay-report', async (req, _reply) => {
             try {
                 const b = req.body || {};
                 if (b.refusal)

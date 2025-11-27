@@ -32,6 +32,7 @@ import {
   recordCeeDegraded,
   recordCeeSkipped,
   observeSloLatency,
+  recordMetaReasoningMetrics,
 } from '../../metrics/registry.js';
 import { normalizeCeeCode, isFlagOn } from '../../cee/codes.js';
 import { shouldAllowCeeCall, recordCeeSuccess, recordCeeFailure } from '../../cee/circuit-breaker.js';
@@ -441,6 +442,7 @@ export async function registerRunRoute(app: FastifyInstance) {
     let K_evaluated: number | undefined;
     let K_requested: number | undefined;
     let K_converged: boolean | undefined;
+    let meta_reasoning: any | undefined;
 
     // Adaptive K: enabled for standard/deep, threshold varies
     // quick = no adaptive, standard = 1%, deep = 0.5%
@@ -471,6 +473,24 @@ export async function registerRunRoute(app: FastifyInstance) {
       K_evaluated = inferenceResult.meta?.K_evaluated;
       K_requested = inferenceResult.meta?.K_requested;
       K_converged = inferenceResult.meta?.K_converged;
+
+      // Extract meta_reasoning from model_of_inference engine
+      meta_reasoning = (inferenceResult as any).meta_reasoning;
+
+      // Record metrics when meta_reasoning is available
+      if (meta_reasoning?.quality_assessment && meta_reasoning?.reliability) {
+        recordMetaReasoningMetrics(
+          inference_mode,
+          {
+            overall_score: meta_reasoning.quality_assessment.overall_score,
+            confidence_level: meta_reasoning.quality_assessment.confidence_level,
+          },
+          {
+            estimate_stability: meta_reasoning.reliability.estimate_stability,
+            convergence_status: meta_reasoning.reliability.convergence_status,
+          }
+        );
+      }
 
       // Add adaptive K parameters to model_card
       model_card.parameters = {
@@ -740,6 +760,7 @@ export async function registerRunRoute(app: FastifyInstance) {
           evidence_applied: (await import('../../lib/validate-evidence.js')).sanitizeEvidence(body.evidence)
         }),
       },
+      ...(meta_reasoning && { meta_reasoning }),
       model_card,
       result: {
         response_hash: hashCanonicalInput(body),

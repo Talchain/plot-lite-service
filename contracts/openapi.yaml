@@ -2573,6 +2573,24 @@ components:
             - quick: K=16, no critique/sensitivity/CEE
             - standard: K=32, all features enabled (default)
             - deep: K=64, stricter convergence threshold (0.5%)
+        inference_mode:
+          type: string
+          enum: [model_based, model_of_inference]
+          default: model_based
+          description: |
+            Selects the inference engine for running the model:
+            - model_based: Standard simulation-based inference (default).
+              Uses Monte Carlo sampling to propagate beliefs through the causal graph.
+            - model_of_inference: Meta-reasoning engine that wraps model_based inference.
+              Provides additional quality assessment metadata including:
+              * quality_assessment.overall_score (0-1): Overall inference quality
+              * quality_assessment.confidence_level (HIGH/MEDIUM/LOW): Result confidence
+              * quality_assessment.identifiable: Whether causal effect is identifiable
+              * quality_assessment.in_linear_range: Whether estimates are in linear range
+              * reliability.estimate_stability (stable/moderate/volatile)
+              * reliability.convergence_status (converged/marginal/not_converged)
+              * diagnostics.issues/warnings/suggestions: Actionable feedback
+            Note: model_of_inference adds ~5-10ms compute overhead per request.
         constraints:
           type: object
           description: Optional constraints for validation and modeling
@@ -2704,6 +2722,67 @@ components:
                 p10: { type: number }
                 p50: { type: number }
                 p90: { type: number }
+        meta_reasoning:
+          type: object
+          description: |
+            Meta-reasoning output (only present when inference_mode=model_of_inference).
+            Provides quality assessment and diagnostic feedback about the inference results.
+          properties:
+            quality_assessment:
+              type: object
+              description: 'Overall quality metrics for the inference'
+              properties:
+                overall_score:
+                  type: number
+                  minimum: 0
+                  maximum: 1
+                  description: 'Weighted quality score (0=poor, 1=excellent)'
+                confidence_level:
+                  type: string
+                  enum: [HIGH, MEDIUM, LOW]
+                  description: 'Categorical confidence in the results'
+                identifiable:
+                  type: boolean
+                  description: 'Whether the causal effect is identifiable via backdoor criterion'
+                in_linear_range:
+                  type: boolean
+                  description: 'Whether estimates fall within linear/trustworthy range'
+                graph_quality:
+                  type: number
+                  minimum: 0
+                  maximum: 1
+                  description: 'Structural quality of the input graph'
+            diagnostics:
+              type: object
+              description: 'Diagnostic information for debugging/improvement'
+              properties:
+                issues:
+                  type: array
+                  items: { type: string }
+                  description: 'Critical issues that may affect result validity'
+                warnings:
+                  type: array
+                  items: { type: string }
+                  description: 'Non-critical concerns to be aware of'
+                suggestions:
+                  type: array
+                  items: { type: string }
+                  description: 'Actionable recommendations to improve results'
+            reliability:
+              type: object
+              description: 'Reliability assessment of the estimates'
+              properties:
+                estimate_stability:
+                  type: string
+                  enum: [stable, moderate, volatile]
+                  description: 'How stable the estimates are across samples'
+                sensitivity_flag:
+                  type: boolean
+                  description: 'True if results are highly sensitive to input changes'
+                convergence_status:
+                  type: string
+                  enum: [converged, marginal, not_converged]
+                  description: 'Whether Monte Carlo sampling has converged'
         ceeReview:
           type: object
           description: 'CEE Decision Review payload (optional; only present when CEE_ORCHESTRATOR_ENABLE=1 and Idempotency-Key header provided)'
