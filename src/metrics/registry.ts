@@ -213,6 +213,12 @@ let islValidationCounter: CounterMetric | null = null;
 let islSensitivityCounter: CounterMetric | null = null;
 let islLatencyHistogram: HistogramMetric | null = null;
 
+// Meta-reasoning quality metrics
+let metaQualityHistogram: HistogramMetric | null = null;
+let metaConfidenceCounter: CounterMetric | null = null;
+let metaStabilityCounter: CounterMetric | null = null;
+let metaConvergenceCounter: CounterMetric | null = null;
+
 export function initializeHistograms(): void {
   if (process.env.PROMETHEUS_ENABLE !== '1') {
     return;
@@ -297,6 +303,31 @@ export function initializeHistograms(): void {
     'plot_engine_isl_latency_seconds',
     'ISL request latency in seconds',
     ['operation', 'result'] // operation: validation|sensitivity, result: ok|error
+  );
+
+  // Meta-reasoning quality metrics
+  metaQualityHistogram = new HistogramMetric(
+    'plot_engine_meta_quality_score',
+    'Distribution of meta-reasoning quality scores (0-1)',
+    ['engine'] // engine: model_of_inference
+  );
+
+  metaConfidenceCounter = new CounterMetric(
+    'plot_engine_meta_confidence_total',
+    'Count of inference results by confidence level',
+    ['engine', 'level'] // level: HIGH|MEDIUM|LOW
+  );
+
+  metaStabilityCounter = new CounterMetric(
+    'plot_engine_meta_stability_total',
+    'Count of inference results by estimate stability',
+    ['engine', 'stability'] // stability: stable|moderate|volatile
+  );
+
+  metaConvergenceCounter = new CounterMetric(
+    'plot_engine_meta_convergence_total',
+    'Count of inference results by convergence status',
+    ['engine', 'status'] // status: converged|marginal|not_converged
   );
 }
 
@@ -386,6 +417,37 @@ export function observeIslLatency(operation: 'validation' | 'sensitivity', resul
   islLatencyHistogram?.observe({ operation, result }, durationMs / 1000);
 }
 
+// Meta-reasoning quality metrics recording functions
+export function observeMetaQuality(engine: string, score: number): void {
+  metaQualityHistogram?.observe({ engine }, score);
+}
+
+export function recordMetaConfidence(engine: string, level: 'HIGH' | 'MEDIUM' | 'LOW'): void {
+  metaConfidenceCounter?.inc({ engine, level });
+}
+
+export function recordMetaStability(engine: string, stability: 'stable' | 'moderate' | 'volatile'): void {
+  metaStabilityCounter?.inc({ engine, stability });
+}
+
+export function recordMetaConvergence(engine: string, status: 'converged' | 'marginal' | 'not_converged'): void {
+  metaConvergenceCounter?.inc({ engine, status });
+}
+
+/**
+ * Record all meta-reasoning metrics from a model_of_inference result
+ */
+export function recordMetaReasoningMetrics(
+  engine: string,
+  quality: { overall_score: number; confidence_level: 'HIGH' | 'MEDIUM' | 'LOW' },
+  reliability: { estimate_stability: 'stable' | 'moderate' | 'volatile'; convergence_status: 'converged' | 'marginal' | 'not_converged' }
+): void {
+  observeMetaQuality(engine, quality.overall_score);
+  recordMetaConfidence(engine, quality.confidence_level);
+  recordMetaStability(engine, reliability.estimate_stability);
+  recordMetaConvergence(engine, reliability.convergence_status);
+}
+
 export function renderHistograms(): string {
   const lines: string[] = [];
 
@@ -444,6 +506,23 @@ export function renderHistograms(): string {
     lines.push(islLatencyHistogram.render());
   }
 
+  // Meta-reasoning quality metrics
+  if (metaQualityHistogram) {
+    lines.push(metaQualityHistogram.render());
+  }
+
+  if (metaConfidenceCounter) {
+    lines.push(metaConfidenceCounter.render());
+  }
+
+  if (metaStabilityCounter) {
+    lines.push(metaStabilityCounter.render());
+  }
+
+  if (metaConvergenceCounter) {
+    lines.push(metaConvergenceCounter.render());
+  }
+
   return lines.join('\n');
 }
 
@@ -462,4 +541,9 @@ export function resetHistograms(): void {
   islValidationCounter?.reset();
   islSensitivityCounter?.reset();
   islLatencyHistogram?.reset();
+  // Meta-reasoning quality metrics
+  metaQualityHistogram?.reset();
+  metaConfidenceCounter?.reset();
+  metaStabilityCounter?.reset();
+  metaConvergenceCounter?.reset();
 }

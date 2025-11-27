@@ -247,9 +247,106 @@ export async function runDecisionReview(opts: RunDecisionReviewOptions): Promise
     return fetchFixtureExample(baseUrl, timeoutMs, requestId, logger);
   }
 
-  // TODO: Implement real CEE Decision Review POST endpoint once contract is available.
-  // For now, we use the fixture example as a stand-in to exercise plumbing.
-  return fetchFixtureExample(baseUrl, timeoutMs, requestId, logger);
+  // POST to real CEE Decision Review endpoint
+  return postDecisionReview(baseUrl, apiKey, timeoutMs, _context, requestId, logger);
+}
+
+/**
+ * POST to /assist/v1/decision-review endpoint with structured context.
+ * Falls back to fixture on failure for graceful degradation.
+ */
+async function postDecisionReview(
+  baseUrl: string,
+  apiKey: string,
+  timeoutMs: number,
+  context: CeeRunContext,
+  requestId: string,
+  logger?: FastifyBaseLogger
+): Promise<CeeDecisionReviewResult> {
+  const url = `${baseUrl.replace(/\/$/, '')}/assist/v1/decision-review`;
+  const started = Date.now();
+
+  // Build the decision review payload following CeeDecisionReviewPayloadV1 contract
+  const payload: CeeDecisionReviewPayloadV1 = {
+    schema: 'cee.decision-review.v1',
+    response_hash: context.response_hash || '',
+    seed: context.seed ?? 0,
+    inference_mode: context.inference_mode || 'standard',
+    graph_summary: context.graph_summary || { nodes: 0, edges: 0 },
+    scenario_kind: context.scenario_kind,
+  };
+
+  try {
+    const res = await fetchWithTimeout(url, {
+      timeoutMs,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+        'X-Request-Id': requestId,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const durationMs = Date.now() - started;
+    logger?.info(
+      { evt: 'cee_decision_review_post', status: res.status, duration_ms: durationMs },
+      'CEE decision review POST completed'
+    );
+
+    if (!res.ok) {
+      // Non-2xx response - fallback to fixture
+      logger?.warn(
+        { evt: 'cee_decision_review_error', status: res.status, duration_ms: durationMs },
+        'CEE decision review POST failed; falling back to fixture'
+      );
+      return fetchFixtureExample(baseUrl, timeoutMs, requestId, logger);
+    }
+
+    let responsePayload: any = null;
+    try {
+      responsePayload = await res.json();
+    } catch {
+      logger?.warn({ evt: 'cee_decision_review_parse_error' }, 'Failed to parse CEE response');
+      return {
+        ceeReview: null,
+        ceeTrace: {
+          requestId,
+          degraded: true,
+          timestamp: new Date().toISOString(),
+          reason: 'parse_error',
+        },
+        ceeError: {
+          code: 'CEE_PARSE_ERROR',
+          retryable: true,
+          suggestedAction: 'retry',
+        },
+        usedFixture: false,
+      };
+    }
+
+    return {
+      ceeReview: responsePayload ?? null,
+      ceeTrace: {
+        requestId,
+        degraded: false,
+        timestamp: new Date().toISOString(),
+        source: 'decision_review_post',
+      },
+      ceeError: null,
+      usedFixture: false,
+    };
+  } catch (err: any) {
+    const durationMs = Date.now() - started;
+    logger?.warn(
+      { evt: 'cee_decision_review_fetch_error', error: String(err?.message || err), duration_ms: durationMs },
+      'CEE decision review fetch failed; falling back to fixture'
+    );
+
+    // Graceful degradation: fallback to fixture
+    return fetchFixtureExample(baseUrl, timeoutMs, requestId, logger);
+  }
 }
 
 export async function callDecisionReviewFromEngineLegacy(opts: {

@@ -4,6 +4,26 @@
  */
 
 import type { Graph } from './types.js';
+import {
+  validateDAG,
+  validateNodesExist,
+  computeIdentifiability as computeIdentifiabilityDSep,
+  type DAG,
+  type DAGValidationResult,
+} from './d-separation.js';
+
+export interface AdjustmentSetMetadata {
+  /** Variables in the adjustment set */
+  variables: string[];
+  /** Labels of variables (when available) */
+  labels: string[];
+  /** Whether adjustment blocks all backdoor paths */
+  blocks_backdoor_paths: boolean;
+  /** Whether adjustment set was verified via d-separation */
+  d_separation_verified: boolean;
+  /** Criterion used: 'backdoor' | 'frontdoor' | 'none' */
+  criterion: 'backdoor' | 'frontdoor' | 'none';
+}
 
 export interface IdentifiabilityResult {
   identifiable: boolean;
@@ -11,6 +31,10 @@ export interface IdentifiabilityResult {
   adjustment_set: string[];
   notes: string[];
   reason?: string;
+  /** Detailed metadata about the adjustment set */
+  adjustment_metadata?: AdjustmentSetMetadata;
+  /** DAG validation results (when validation is enabled) */
+  dag_validation?: DAGValidationResult;
 }
 
 export interface IdentifiabilityInputs {
@@ -20,11 +44,40 @@ export interface IdentifiabilityInputs {
 }
 
 /**
+ * Convert Graph to DAG format for d-separation functions
+ */
+function graphToDAG(graph: Graph): DAG {
+  return {
+    nodes: graph.nodes.map((n) => n.id),
+    edges: graph.edges.map((e) => ({ from: e.from, to: e.to })),
+  };
+}
+
+/**
  * Check identifiability and suggest adjustment set
- * Simplified implementation - real version would use d-separation
+ * Uses d-separation when IDENT_DSEP_ENABLE=1
  */
 export function checkIdentifiability(inputs: IdentifiabilityInputs): IdentifiabilityResult {
   const { graph, treatment_node, outcome_node } = inputs;
+
+  // Convert to DAG format for validation
+  const dag = graphToDAG(graph);
+
+  // Validate DAG structure (optional, controlled by env var)
+  let dagValidation: DAGValidationResult | undefined;
+  if (process.env.IDENT_DAG_VALIDATE === '1') {
+    dagValidation = validateDAG(dag);
+    if (!dagValidation.valid) {
+      return {
+        identifiable: false,
+        summary: 'Identifiable: No',
+        adjustment_set: [],
+        notes: dagValidation.issues,
+        reason: 'invalid_dag',
+        dag_validation: dagValidation,
+      };
+    }
+  }
 
   // Build adjacency map
   const parents = new Map<string, Set<string>>();
@@ -41,16 +94,15 @@ export function checkIdentifiability(inputs: IdentifiabilityInputs): Identifiabi
   }
 
   // Check if treatment and outcome nodes exist
-  const treatment_exists = graph.nodes.some(n => n.id === treatment_node);
-  const outcome_exists = graph.nodes.some(n => n.id === outcome_node);
-
-  if (!treatment_exists || !outcome_exists) {
+  const missingNodes = validateNodesExist(dag, [treatment_node, outcome_node]);
+  if (missingNodes.length > 0) {
     return {
       identifiable: false,
       summary: 'Identifiable: No',
       adjustment_set: [],
-      notes: ['Treatment or outcome node not found in graph'],
+      notes: [`Nodes not found in graph: ${missingNodes.join(', ')}`],
       reason: 'node not found',
+      dag_validation: dagValidation,
     };
   }
 
@@ -80,28 +132,67 @@ export function checkIdentifiability(inputs: IdentifiabilityInputs): Identifiabi
       adjustment_set: [],
       notes: ['No causal path from treatment to outcome'],
       reason: 'no causal path',
+      dag_validation: dagValidation,
+      adjustment_metadata: {
+        variables: [],
+        labels: [],
+        blocks_backdoor_paths: false,
+        d_separation_verified: false,
+        criterion: 'none',
+      },
     };
   }
 
   // Sort adjustment set for determinism
   const sorted_adjustment_set = filtered_adjustment_set.sort();
 
+  // Optional: verify adjustment set using d-separation
+  let d_separation_verified = false;
+  let blocks_backdoor_paths = sorted_adjustment_set.length === 0;
+
+  if (process.env.IDENT_DSEP_ENABLE === '1') {
+    const dsepResult = computeIdentifiabilityDSep(dag, treatment_node, outcome_node);
+    d_separation_verified = true;
+    blocks_backdoor_paths = dsepResult.identifiable;
+
+    // Use d-separation based adjustment set if available
+    if (dsepResult.adjustment_set.length > 0) {
+      sorted_adjustment_set.length = 0;
+      sorted_adjustment_set.push(...dsepResult.adjustment_set);
+    }
+  }
+
+  // Build adjustment metadata
+  const adjustment_labels = sorted_adjustment_set.map(
+    (id) => graph.nodes.find((n) => n.id === id)?.label || id
+  );
+
+  const adjustment_metadata: AdjustmentSetMetadata = {
+    variables: sorted_adjustment_set,
+    labels: adjustment_labels,
+    blocks_backdoor_paths,
+    d_separation_verified,
+    criterion: sorted_adjustment_set.length > 0 ? 'backdoor' : 'none',
+  };
+
   // Build summary and notes
-  const identifiable = true; // Simplified - assume identifiable if we can find adjustment set
+  const identifiable = blocks_backdoor_paths || !d_separation_verified;
   const notes: string[] = [];
-  
+
   let summary: string;
   if (sorted_adjustment_set.length === 0) {
     summary = 'Identifiable: Yes. No confounders detected - direct causal effect estimable.';
     notes.push('Direct causal effect estimable');
     notes.push('Acyclic graph assumption');
   } else {
-    const node_labels = sorted_adjustment_set
-      .map(id => graph.nodes.find(n => n.id === id)?.label || id)
-      .join(', ');
+    const node_labels = adjustment_labels.join(', ');
     summary = `Identifiable: Yes. Adjust for: ${node_labels}`;
     notes.push(`Backdoor criterion: adjust for ${sorted_adjustment_set.length} confounder(s)`);
     notes.push('Acyclic graph assumption');
+  }
+
+  if (d_separation_verified) {
+    notes.push('Verified via d-separation (Bayes-ball algorithm)');
   }
 
   return {
@@ -109,6 +200,8 @@ export function checkIdentifiability(inputs: IdentifiabilityInputs): Identifiabi
     summary,
     adjustment_set: sorted_adjustment_set,
     notes,
+    adjustment_metadata,
+    dag_validation: dagValidation,
   };
 }
 

@@ -28,6 +28,7 @@ export interface InferenceResult {
     K_evaluated?: number;
     K_requested?: number;
     K_converged?: boolean;
+    engine?: string; // Identifies which inference engine produced the result
   };
 }
 
