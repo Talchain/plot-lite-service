@@ -14,9 +14,9 @@ import { checkLinearity, detectThresholdCrossings, generateForkSuggestions } fro
 import { checkIdentifiability } from '../../trust/identifiability.js';
 import { enforceComputeBudget } from '../../governance/cost-estimator.js';
 import { stampResponseHash, hashCanonicalInput } from '../../util/canonical-json.js';
-import type { Graph, DetailLevel } from '../../trust/types.js';
+import type { DetailLevel } from '../../trust/types.js';
 import { DETAIL_LEVEL_CONFIG } from '../../trust/types.js';
-import { getInferenceEngine, type InferenceMode } from '../../inference/index.js';
+import { getInferenceEngine } from '../../inference/index.js';
 import { computeSensitivityAll } from '../../lib/sensitivity-simple.js';
 import { computeSensitivitySummary } from '../../trust/sensitivity-summary.js';
 import { computeGraphQuality } from '../../trust/graph-quality.js';
@@ -35,7 +35,7 @@ import {
 } from '../../metrics/registry.js';
 import { normalizeCeeCode, isFlagOn } from '../../cee/codes.js';
 import { shouldAllowCeeCall, recordCeeSuccess, recordCeeFailure } from '../../cee/circuit-breaker.js';
-import { runResponseSchema } from '../../schemas/response.js';
+// runResponseSchema imported for OpenAPI but not runtime-used
 import { normalizeGraph } from '../../util/normalize.js';
 import { FLAGS } from '../../config/flags.js';
 import {
@@ -45,7 +45,7 @@ import {
   VALIDATION_MAX_NODES,
   VALIDATION_MAX_EDGES
 } from '../../config/constants.js';
-import { validateEffect, applyEffect } from '../../engine/effects.js';
+import { validateEffect } from '../../engine/effects.js';
 import { callDecisionReviewFromEngine } from '../../cee/client.js';
 import { errorResponse } from '../../errors.js';
 
@@ -180,7 +180,7 @@ export async function registerRunRoute(app: FastifyInstance) {
     const body = (req as any).body as RunRequest;
     
     // Normalize targets: canonical targets field, fallback to legacy query.targets
-    const targets = body.targets ?? (body.query as any)?.targets ?? [];
+    const _targets = body.targets ?? (body.query as any)?.targets ?? [];
     
     // Normalize graph (map confidence|probability→belief, no default on ingress)
     const graph = normalizeGraph(body.graph, false);
@@ -295,7 +295,7 @@ export async function registerRunRoute(app: FastifyInstance) {
       return isProd && (flag === '1' || flag === 'true');
     }
     
-    const { enabled: useScmLite, source } = scmLiteEnabled(req);
+    const { enabled: useScmLite } = scmLiteEnabled(req);
     const usePlaceholder = placeholderEnabled(useScmLite);
     
     // Test probe: harmless header for debugging

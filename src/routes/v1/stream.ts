@@ -1,5 +1,9 @@
 /**
  * GET /v1/stream — SSE stream with demo-first semantics
+ *
+ * @deprecated This legacy stream implementation will be replaced by stream-enhanced.ts
+ * in a future version. New features should be added to stream-enhanced.ts.
+ * Migration: Set STREAM_PARITY_ENABLE=1 to use the enhanced stream.
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { randomUUID } from 'node:crypto';

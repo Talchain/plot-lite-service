@@ -207,7 +207,7 @@ export interface RunDecisionReviewOptions {
 const DEFAULT_TIMEOUT_MS = Number(process.env.CEE_TIMEOUT_MS || 2000);
 
 export async function runDecisionReview(opts: RunDecisionReviewOptions): Promise<CeeDecisionReviewResult> {
-  const { context, requestId, logger } = opts;
+  const { context: _context, requestId, logger } = opts;
 
   const legacyOn = isFlagOn(process.env.CEE_REVIEW_ENABLED);
   const orchestratorOn = isFlagOn(

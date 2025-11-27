@@ -18,7 +18,7 @@ interface NormaliserInput {
 }
 
 export function toPublicError(input: NormaliserInput): PublicError {
-  const { type, http, key, retryable, code } = input;
+  const { type, key, retryable, code } = input;
 
   // Prefer explicit mapping if key provided by the caller
   if (key) return { type, message: msg(key as any), retryable, code };

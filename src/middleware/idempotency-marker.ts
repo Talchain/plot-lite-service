@@ -6,7 +6,7 @@ import type { FastifyRequest, FastifyReply, HookHandlerDoneFunction } from 'fast
 import { principalFor, markInflight, isInflightOrCached } from './idempotency.js';
 
 export function makeIdempotencyMarker() {
-  return function idempotencyMarker(req: FastifyRequest, reply: FastifyReply, done: HookHandlerDoneFunction) {
+  return function idempotencyMarker(req: FastifyRequest, _reply: FastifyReply, done: HookHandlerDoneFunction) {
     try {
       const idkHeader = (req.headers as any)['idempotency-key'] || (req.headers as any)['Idempotency-Key'];
       if (!idkHeader || typeof idkHeader !== 'string' || !idkHeader.trim()) {

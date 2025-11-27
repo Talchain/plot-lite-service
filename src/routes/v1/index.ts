@@ -13,13 +13,13 @@ import { registerSelfCheckRoute } from './self-check.js';
 import { registerTemplatesRoutes } from './templates.js';
 import { registerLimitsRoute } from './limits.js';
 import { registerValidateRoute } from './validate.js';
-import { getStreamHealthExtras, p95Ms, snapshot, getLastRequestAt, getJson429Count, getSse429Count, getLastConfigReloadISO, getLastComputeMs, getEngineP95Ms, getEngineP95MsRolling, getSseOpen, getSseClosed, getSseTimeout } from '../../metrics.js';
+import { getStreamHealthExtras, p95Ms, getLastRequestAt, getJson429Count, getSse429Count, getLastConfigReloadISO, getLastComputeMs, getEngineP95Ms, getEngineP95MsRolling, getSseOpen, getSseClosed, getSseTimeout } from '../../metrics.js';
 import { getFixtureCacheSize, getFixtureCacheStats } from '../../lib/fixtures-cache.js';
 import { registerStreamRoute } from './stream.js';
 import { registerStreamRouteEnhanced } from './stream-enhanced.js';
 import { isDemoMode } from '../../middleware/demo-mode.js';
 import { getIdemStoreSize } from '../../middleware/idempotency.js';
-import { healthResponseSchema } from '../../schemas/response.js';
+// healthResponseSchema used for OpenAPI schema, not runtime
 
 /**
  * Auth preHandler for /v1/* routes

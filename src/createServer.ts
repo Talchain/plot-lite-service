@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
-import { readFileSync, existsSync } from 'fs';
+import { existsSync } from 'fs';
 import { resolve, join as joinPath } from 'path';
 import { createHash, timingSafeEqual, randomUUID } from 'crypto';
 import { promises as fsp } from 'node:fs';
@@ -31,7 +31,7 @@ import {
   getDraftP95History,
   getCurrentStreams,
   getLastHeartbeatMs,
-  setIdemCacheSize, setIdemPrincipals, setIdemEvictions,
+  setIdemCacheSize,
   replaySnapshot,
 } from './metrics.js';
 
@@ -1127,7 +1127,6 @@ export async function createServer(opts: ServerOpts = {}) {
   if (opts.enableTestRoutes || process.env.TEST_ROUTES === '1') {
     app.post('/__test/force-error', async (req: any, reply) => {
       const t = (req.body?.type || req.query?.type || '').toString().toUpperCase();
-      const { errorResponse } = await import('./errors.js');
       if (t === 'TIMEOUT') return replyWithAppError(reply, { type: 'TIMEOUT', statusCode: 504, hint: 'Reduce processing time' });
       if (t === 'RETRYABLE') return replyWithAppError(reply, { type: 'RETRYABLE', statusCode: 503, hint: 'Please retry', retryable: true });
       if (t === 'INTERNAL') return replyWithAppError(reply, { type: 'INTERNAL', statusCode: 500, hint: 'See server logs' });
@@ -1138,7 +1137,7 @@ export async function createServer(opts: ServerOpts = {}) {
     app.get('/internal/replay-status', async (_req, reply) => {
       return reply.code(200).send(replaySnapshot());
     });
-    app.post('/internal/replay-report', async (req: any, reply) => {
+    app.post('/internal/replay-report', async (req: any, _reply) => {
       try {
         const b = req.body || {};
         if (b.refusal) recordReplayRefusal();
