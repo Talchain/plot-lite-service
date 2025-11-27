@@ -37,6 +37,7 @@
     "release:major": "standard-version --release-as major",
     "prepare": "husky install",
     "lint": "eslint src tests --ext .ts --max-warnings 0",
+    "lint:strict": "tsc -p tsconfig.strict.json",
     "format": "prettier --write \"**/*.{ts,js,json,md}\"",
     "format:check": "prettier --check \"**/*.{ts,js,json,md}\"",
     "selfcheck:refresh": "npm run build && node scripts/selfcheck-refresh.mjs",
