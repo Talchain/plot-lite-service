@@ -200,12 +200,11 @@ export async function registerRunRoute(app: FastifyInstance) {
           route: '/v1/run', 
           errors: priorsValidation.errors 
         });
-        return reply.code(400).send({
-          error: { 
-            type: 'BAD_INPUT', 
-            message: firstError.message,
-            field: firstError.field
-          }
+        return replyWithAppError(reply, {
+          type: 'BAD_INPUT',
+          statusCode: 400,
+          message: firstError.message,
+          fields: { field: firstError.field },
         });
       }
     }
@@ -224,12 +223,11 @@ export async function registerRunRoute(app: FastifyInstance) {
           route: '/v1/run', 
           errors: evidenceValidation.errors 
         });
-        return reply.code(400).send({
-          error: { 
-            type: 'BAD_INPUT', 
-            message: firstError.message,
-            field: firstError.field
-          }
+        return replyWithAppError(reply, {
+          type: 'BAD_INPUT',
+          statusCode: 400,
+          message: firstError.message,
+          fields: { field: firstError.field },
         });
       }
     }
@@ -240,8 +238,10 @@ export async function registerRunRoute(app: FastifyInstance) {
         const validation = validateEffect((node as any).effect);
         if (!validation.valid) {
           req.log.info({ evt: 'effect_validation_failed', id: req.id, route: '/v1/run', node: node.id, error: validation.error });
-          return reply.code(400).send({
-            error: { type: 'BAD_INPUT', message: `Invalid effect on node ${node.id}: ${validation.error}` }
+          return replyWithAppError(reply, {
+            type: 'BAD_INPUT',
+            statusCode: 400,
+            message: `Invalid effect on node ${node.id}: ${validation.error}`,
           });
         }
       }
@@ -256,8 +256,10 @@ export async function registerRunRoute(app: FastifyInstance) {
         for (const [nodeId, bounds] of Object.entries(body.constraints.bounds)) {
           if (!nodeIds.has(nodeId)) {
             req.log.info({ evt: 'constraints_violation', id: req.id, route: '/v1/run', reason: 'invalid_node_in_bounds', node: nodeId });
-            return reply.code(400).send({
-              error: { type: 'BAD_INPUT', message: `Bounds constraint references non-existent node: ${nodeId}` }
+            return replyWithAppError(reply, {
+              type: 'BAD_INPUT',
+              statusCode: 400,
+              message: `Bounds constraint references non-existent node: ${nodeId}`,
             });
           }
           
@@ -268,14 +270,18 @@ export async function registerRunRoute(app: FastifyInstance) {
             const b = bounds as any;
             if (b.min !== undefined && val < b.min) {
               req.log.info({ evt: 'constraints_violation', id: req.id, route: '/v1/run', reason: 'bounds_min', node: nodeId, value: val, min: b.min });
-              return reply.code(400).send({
-                error: { type: 'BAD_INPUT', message: `Node ${nodeId} value ${val} violates min bound ${b.min}` }
+              return replyWithAppError(reply, {
+                type: 'BAD_INPUT',
+                statusCode: 400,
+                message: `Node ${nodeId} value ${val} violates min bound ${b.min}`,
               });
             }
             if (b.max !== undefined && val > b.max) {
               req.log.info({ evt: 'constraints_violation', id: req.id, route: '/v1/run', reason: 'bounds_max', node: nodeId, value: val, max: b.max });
-              return reply.code(400).send({
-                error: { type: 'BAD_INPUT', message: `Node ${nodeId} value ${val} violates max bound ${b.max}` }
+              return replyWithAppError(reply, {
+                type: 'BAD_INPUT',
+                statusCode: 400,
+                message: `Node ${nodeId} value ${val} violates max bound ${b.max}`,
               });
             }
           }
@@ -288,8 +294,10 @@ export async function registerRunRoute(app: FastifyInstance) {
           const forbiddenEdge = graph.edges.find((e: any) => e.from === from && e.to === to);
           if (forbiddenEdge) {
             req.log.info({ evt: 'constraints_violation', id: req.id, route: '/v1/run', reason: 'forbidden_edge', from, to });
-            return reply.code(400).send({
-              error: { type: 'BAD_INPUT', message: `Forbidden edge present: ${from} → ${to}` }
+            return replyWithAppError(reply, {
+              type: 'BAD_INPUT',
+              statusCode: 400,
+              message: `Forbidden edge present: ${from} → ${to}`,
             });
           }
         }

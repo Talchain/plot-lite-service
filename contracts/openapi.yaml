@@ -2283,7 +2283,7 @@ components:
           enum: [error.v1]
         code:
           type: string
-          enum: [BAD_INPUT, UNAUTHORIZED, FORBIDDEN, RATE_LIMITED, RATE_LIMIT, TIMEOUT, RETRYABLE, INTERNAL, BREAKER_OPEN, NOT_FOUND]
+          enum: [BAD_INPUT, SCOPE_LIMIT, UNAUTHORIZED, FORBIDDEN, RATE_LIMITED, RATE_LIMIT, TIMEOUT, RETRYABLE, INTERNAL, BREAKER_OPEN, NOT_FOUND]
         message:
           type: string
         retryable:
@@ -3063,3 +3063,34 @@ components:
         trace_id:
           type: string
           description: 'Optional client-provided trace identifier echoed from X-Trace-Id when TRACE_ID_PASSTHROUGH=1'
+  responses:
+    BadRequestOlumiError:
+      description: Bad input
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/OlumiErrorV1'
+    UnauthorizedOlumiError:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/OlumiErrorV1'
+    ForbiddenOlumiError:
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/OlumiErrorV1'
+    TooManyRequestsOlumiError:
+      description: Too many requests
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/OlumiErrorV1'
+    PayloadTooLargeOlumiError:
+      description: Payload too large
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/OlumiErrorV1'

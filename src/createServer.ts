@@ -166,17 +166,30 @@ export async function createServer(opts: ServerOpts = {}) {
           error: err instanceof Error ? err.message : String(err)
         }, 'Failed to set WWW-Authenticate header on 401 response');
       }
-      await reply.code(401).send({ error: { type: 'UNAUTHORIZED', message: 'Missing bearer token' } });
-      return false;
+      // Use standardized error envelope (error.v1) for missing auth
+      return replyWithAppError(reply, {
+        type: 'BAD_INPUT',
+        statusCode: 401,
+        message: 'Missing bearer token',
+        fields: { code: 'UNAUTHORIZED' },
+      }) as any;
     }
     const tok = hdr.slice('Bearer '.length).trim();
     if (!expected || tok.length !== expected.length) {
-      await reply.code(403).send({ error: { type: 'FORBIDDEN', message: 'Invalid token' } });
-      return false;
+      return replyWithAppError(reply, {
+        type: 'BAD_INPUT',
+        statusCode: 403,
+        message: 'Invalid token',
+        fields: { code: 'FORBIDDEN' },
+      }) as any;
     }
     if (!timingSafeEqual(Buffer.from(tok), Buffer.from(expected))) {
-      await reply.code(403).send({ error: { type: 'FORBIDDEN', message: 'Invalid token' } });
-      return false;
+      return replyWithAppError(reply, {
+        type: 'BAD_INPUT',
+        statusCode: 403,
+        message: 'Invalid token',
+        fields: { code: 'FORBIDDEN' },
+      }) as any;
     }
     return true;
   }
