@@ -12,6 +12,7 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { isDemoMode } from './demo-mode.js';
 import { sanitizeQueryParams } from '../lib/log-sanitizer.js';
+import { errorResponse } from '../errors.js';
 
 // P0: Helper to clear inflight idempotency key on validation errors
 async function clearInflightKey(req: any) {
@@ -287,21 +288,16 @@ function formatValidationErrors(errors: any[], request_id?: string): any {
     paths.push(path);
   }
 
-  const out: any = {
-    schema: 'error.v1',
-    code: 'BAD_INPUT',
-    message: messages.join('; '),
-    field: field || paths[0] || 'unknown',
-    hint: hint || 'Check request format',
+  const finalField = field || paths[0] || 'unknown';
+  const finalHint = hint || 'Check request format';
+
+  const fields: Record<string, any> = {
+    field: finalField,
+    hint: finalHint,
     path: paths,
   };
-  // P1.2: Include request_id for end-to-end tracing
-  if (request_id) out.request_id = request_id;
-  // P0.2: Standardized error object for back-compat with canonical envelope
-  try {
-    out.error = { type: 'BAD_INPUT', message: messages[0] || 'BAD_INPUT' };
-  } catch {}
-  return out;
+
+  return errorResponse('BAD_INPUT', messages.join('; '), finalHint, fields, request_id);
 }
 
 /**
@@ -325,15 +321,15 @@ export function createQueryValidator(route: 'stream') {
             const v = s == null ? NaN : Number(s);
             if (Number.isFinite(v) && v > 10000) {
               await clearInflightKey(req);
-          // P0.2: Standardized error envelope
-          // P1.2: Include request_id for tracing
-          return reply.code(400).send({
-            schema: 'error.v1',
-            code: 'BAD_INPUT',
-            message: 'latency_ms must be ≤ 10000',
-            request_id: (req as any).id,
-            error: { type: 'BAD_INPUT', message: 'latency_ms must be ≤ 10000' }
-          });
+              const reqId = (req as any).id;
+              const payload = errorResponse(
+                'BAD_INPUT',
+                'latency_ms must be ≤ 10000',
+                undefined,
+                undefined,
+                reqId,
+              );
+              return reply.code(400).send(payload);
             }
           }
         } catch {}

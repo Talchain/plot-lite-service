@@ -39,6 +39,7 @@ import { shouldAllowCeeCall, recordCeeSuccess, recordCeeFailure } from '../../ce
 import { runResponseSchema } from '../../schemas/response.js';
 import { normalizeGraph } from '../../util/normalize.js';
 import { FLAGS } from '../../config/flags.js';
+import { replyWithAppError } from '../../errors.js';
 import {
   BODY_LIMIT_BYTES,
   LIMITS_MAX_NODES,
@@ -566,10 +567,11 @@ export async function registerRunRoute(app: FastifyInstance) {
         if (marker) {
           try { clearInflight(marker.principal, marker.idk); } catch {}
         }
-        return reply.code(400).send({
-          schema: 'error.v1',
-          code: 'SCOPE_LIMIT',
+        return replyWithAppError(reply, {
+          type: 'BAD_INPUT',
+          statusCode: 400,
           message: msg,
+          fields: { code: 'SCOPE_LIMIT' },
         });
       }
       throw err;
@@ -720,6 +722,14 @@ export async function registerRunRoute(app: FastifyInstance) {
     });
 
     // P1: Generate insights block (human-readable summary without user content)
+    const topDriverEdge = top_edge_drivers[0];
+    let topDriverLabel: string | undefined;
+    if (topDriverEdge) {
+      const nodeId = topDriverEdge.from;
+      const node = graph.nodes.find((n: any) => String(n.id) === String(nodeId));
+      topDriverLabel = (node as any)?.label || String(nodeId);
+    }
+
     const insights = generateInsights({
       p10: results.conservative.outcome,
       p50: results.most_likely.outcome,
@@ -729,7 +739,7 @@ export async function registerRunRoute(app: FastifyInstance) {
       critique_blockers,
       critique_warnings,
       evidence_coverage: graph_quality.evidence_coverage,
-      top_driver_label: top_edge_drivers[0]?.edge_id?.split('::')[0],
+      top_driver_label: topDriverLabel,
     });
 
     const base: any = {

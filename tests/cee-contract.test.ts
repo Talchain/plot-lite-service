@@ -321,6 +321,7 @@ describe('CEE Contract Tests', () => {
       'CEE_CLIENT_ERROR',
       'CEE_DISABLED',
       'CEE_FALLBACK_FIXTURE',
+      'CEE_EMPTY_REVIEW',
     ];
 
     it('documents known error codes', () => {

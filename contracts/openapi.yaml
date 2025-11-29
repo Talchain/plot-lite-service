@@ -182,7 +182,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/errorResponse'
+                $ref: '#/components/schemas/errorV1'
         '401':
           description: Unauthorized
           content:
@@ -2281,14 +2281,36 @@ components:
         schema:
           type: string
           enum: [error.v1]
-        code: { type: string, enum: [BAD_INPUT, UNAUTHORIZED, FORBIDDEN, RATE_LIMITED, INTERNAL] }
-        message: { type: string }
+        code:
+          type: string
+          enum: [BAD_INPUT, UNAUTHORIZED, FORBIDDEN, RATE_LIMITED, RATE_LIMIT, TIMEOUT, RETRYABLE, INTERNAL, BREAKER_OPEN, NOT_FOUND]
+        message:
+          type: string
+        retryable:
+          type: boolean
+        source:
+          type: string
+        request_id:
+          type: string
+        degraded:
+          type: boolean
+        reason:
+          type: string
+        recovery:
+          type: object
+          additionalProperties: true
         path:
           type: array
           items: { type: string }
         details:
           type: object
           additionalProperties: true
+        error:
+          type: object
+          additionalProperties: true
+    OlumiErrorV1:
+      allOf:
+        - $ref: '#/components/schemas/errorV1'
     errorResponse:
       type: object
       required: [error]

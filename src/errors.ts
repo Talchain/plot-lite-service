@@ -7,6 +7,22 @@ export type ErrorType =
   | 'RATE_LIMIT'
   | 'BREAKER_OPEN';
 
+export interface OlumiErrorV1 {
+  code: string;
+  message: string;
+  reason?: string;
+  recovery?: {
+    hints: string[];
+    suggestion: string;
+    example?: string;
+  };
+  retryable: boolean;
+  source: string;
+  request_id: string;
+  degraded?: boolean;
+  [key: string]: any;
+}
+
 export interface ApiError {
   error: {
     type: ErrorType;
@@ -18,25 +34,46 @@ export interface ApiError {
 
 export function errorResponse(type: ErrorType, message: string, hint?: string, fields?: Record<string, any>, request_id?: string): any {
   // P1C-3C: Return error.v1 envelope with legacy back-compat shim
-  const envelope: any = {
-    schema: 'error.v1',
-    code: type,
+  const baseRetryable =
+    type === 'TIMEOUT' ||
+    type === 'RETRYABLE' ||
+    type === 'RATE_LIMIT' ||
+    type === 'BREAKER_OPEN' ||
+    type === 'INTERNAL';
+  const explicitRetryable = fields && typeof (fields as any).retryable === 'boolean'
+    ? Boolean((fields as any).retryable)
+    : undefined;
+  const retryable = explicitRetryable !== undefined ? explicitRetryable : baseRetryable;
+  const requestId = request_id || (fields as any)?.request_id || '';
+
+  const olumi: OlumiErrorV1 = {
+    code: String((fields as any)?.code || type),
     message,
+    ...(fields && typeof (fields as any).reason === 'string' ? { reason: (fields as any).reason } : {}),
+    ...(fields && (fields as any).recovery ? { recovery: (fields as any).recovery } : {}),
+    retryable,
+    source: 'plot',
+    request_id: String(requestId),
+    degraded: (fields as any)?.degraded === true,
   };
-  if (hint) envelope.hint = hint;
 
-  // P1.2: Include request_id for end-to-end tracing
-  if (request_id) envelope.request_id = request_id;
-
-  // Spread additional fields at top level (e.g., field, path from validation)
   if (fields) {
-    Object.assign(envelope, fields);
+    for (const [k, v] of Object.entries(fields)) {
+      if (!(k in olumi)) {
+        (olumi as any)[k] = v;
+      }
+    }
   }
 
-  // Legacy back-compat: also include top-level { error: { type, message } } for old tests
-  envelope.error = { type, message };
-  if (hint) envelope.error.hint = hint;
-  if (fields) envelope.error.fields = fields;
+  const envelope: any = {
+    schema: 'error.v1',
+    ...olumi,
+  };
+
+  const legacyError: any = { type, message };
+  if (hint) legacyError.hint = hint;
+  if (fields) legacyError.fields = fields;
+  envelope.error = legacyError;
 
   return envelope;
 }

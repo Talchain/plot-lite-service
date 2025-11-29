@@ -1,6 +1,0 @@
-tests/circuit-breaker.lru.test.ts
-tests/confidence.calibration.test.ts
-tests/extract-principal.integration.test.ts
-tests/report.contract.test.ts
-tests/secret-strength-guard.test.ts
-tests/selfcheck.parity.test.ts

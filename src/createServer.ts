@@ -313,7 +313,11 @@ export async function createServer(opts: ServerOpts = {}) {
         if (inm && inm === etag) return reply.code(304).send();
         return reply.code(200).send(json);
       } catch (e) {
-        return reply.code(500).send({ schema: 'error.v1', code: 'INTERNAL', message: 'OpenAPI serving error' });
+        return replyWithAppError(reply, {
+          type: 'INTERNAL',
+          statusCode: 500,
+          message: 'OpenAPI serving error',
+        });
       }
     });
   } catch {}
@@ -646,14 +650,24 @@ export async function createServer(opts: ServerOpts = {}) {
           if (!bearer.startsWith('Bearer ')) {
             reply.header('WWW-Authenticate', 'Bearer');
             reply.header('Content-Type', 'application/json; charset=utf-8');
-            return reply.code(401).send({ schema: 'error.v1', code: 'UNAUTHORIZED', message: 'Missing bearer token' });
+            return replyWithAppError(reply, {
+              type: 'BAD_INPUT',
+              statusCode: 401,
+              message: 'Missing bearer token',
+              fields: { code: 'UNAUTHORIZED' },
+            });
           }
           const token = bearer.slice('Bearer '.length).trim();
           const sameLength = !!expected && token.length === expected.length;
           const matches = sameLength && timingSafeEqual(Buffer.from(token), Buffer.from(expected));
           if (!sameLength || !matches) {
             reply.header('Content-Type', 'application/json; charset=utf-8');
-            return reply.code(403).send({ schema: 'error.v1', code: 'FORBIDDEN', message: 'Invalid token' });
+            return replyWithAppError(reply, {
+              type: 'BAD_INPUT',
+              statusCode: 403,
+              message: 'Invalid token',
+              fields: { code: 'FORBIDDEN' },
+            });
           }
         }
 
@@ -1371,7 +1385,11 @@ export async function createServer(opts: ServerOpts = {}) {
         const override = String(process.env.OPENAPI_SPEC_PATH || '').trim();
         const specPath = override || resolve(process.cwd(), 'contracts', 'openapi.yaml');
         if (override && !existsSync(specPath)) {
-          return reply.code(500).send({ error: { type: 'INTERNAL', message: 'OpenAPI spec override not found' } });
+          return replyWithAppError(reply as any, {
+            type: 'INTERNAL',
+            statusCode: 500,
+            message: 'OpenAPI spec override not found',
+          });
         }
 
         let txt: string;

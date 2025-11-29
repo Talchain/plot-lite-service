@@ -1,15 +1,15 @@
 {
   "record": {
     "plotId": "safety-nets-demo",
-    "traceId": "1758894584944-w9l31ap3xao",
-    "startedAt": "2025-09-26T13:49:44.944Z",
-    "finishedAt": "2025-09-26T13:49:44.945Z",
+    "traceId": "1764370404666-kskprohx03e",
+    "startedAt": "2025-11-28T22:53:24.666Z",
+    "finishedAt": "2025-11-28T22:53:24.667Z",
     "steps": [
       {
         "id": "t",
         "type": "transform",
         "status": "ok",
-        "durationMs": 1,
+        "durationMs": 0,
         "attempts": 1
       }
     ],
@@ -42,7 +42,7 @@
     {
       "type": "transform",
       "id": "t",
-      "durationMs": 1
+      "durationMs": 0
     },
     {
       "type": "done",

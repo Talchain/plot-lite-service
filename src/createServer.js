@@ -277,7 +277,11 @@ export async function createServer(opts = {}) {
                 return reply.code(200).send(json);
             }
             catch (e) {
-                return reply.code(500).send({ schema: 'error.v1', code: 'INTERNAL', message: 'OpenAPI serving error' });
+                return replyWithAppError(reply, {
+                    type: 'INTERNAL',
+                    statusCode: 500,
+                    message: 'OpenAPI serving error',
+                });
             }
         });
     }
@@ -611,14 +615,24 @@ export async function createServer(opts = {}) {
                     if (!bearer.startsWith('Bearer ')) {
                         reply.header('WWW-Authenticate', 'Bearer');
                         reply.header('Content-Type', 'application/json; charset=utf-8');
-                        return reply.code(401).send({ schema: 'error.v1', code: 'UNAUTHORIZED', message: 'Missing bearer token' });
+                        return replyWithAppError(reply, {
+                            type: 'BAD_INPUT',
+                            statusCode: 401,
+                            message: 'Missing bearer token',
+                            fields: { code: 'UNAUTHORIZED' },
+                        });
                     }
                     const token = bearer.slice('Bearer '.length).trim();
                     const sameLength = !!expected && token.length === expected.length;
                     const matches = sameLength && timingSafeEqual(Buffer.from(token), Buffer.from(expected));
                     if (!sameLength || !matches) {
                         reply.header('Content-Type', 'application/json; charset=utf-8');
-                        return reply.code(403).send({ schema: 'error.v1', code: 'FORBIDDEN', message: 'Invalid token' });
+                        return replyWithAppError(reply, {
+                            type: 'BAD_INPUT',
+                            statusCode: 403,
+                            message: 'Invalid token',
+                            fields: { code: 'FORBIDDEN' },
+                        });
                     }
                 }
                 const streamId = typeof q.id === 'string' && q.id ? q.id : 'default';
@@ -1145,6 +1159,7 @@ export async function createServer(opts = {}) {
     if (opts.enableTestRoutes || process.env.TEST_ROUTES === '1') {
         app.post('/__test/force-error', async (req, reply) => {
             const t = (req.body?.type || req.query?.type || '').toString().toUpperCase();
+            const { errorResponse } = await import('./errors.js');
             if (t === 'TIMEOUT')
                 return replyWithAppError(reply, { type: 'TIMEOUT', statusCode: 504, hint: 'Reduce processing time' });
             if (t === 'RETRYABLE')
@@ -1157,7 +1172,7 @@ export async function createServer(opts = {}) {
         app.get('/internal/replay-status', async (_req, reply) => {
             return reply.code(200).send(replaySnapshot());
         });
-        app.post('/internal/replay-report', async (req, _reply) => {
+        app.post('/internal/replay-report', async (req, reply) => {
             try {
                 const b = req.body || {};
                 if (b.refusal)
