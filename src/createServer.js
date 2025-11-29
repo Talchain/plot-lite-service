@@ -1425,7 +1425,11 @@ export async function createServer(opts = {}) {
                 const override = String(process.env.OPENAPI_SPEC_PATH || '').trim();
                 const specPath = override || resolve(process.cwd(), 'contracts', 'openapi.yaml');
                 if (override && !existsSync(specPath)) {
-                    return reply.code(500).send({ error: { type: 'INTERNAL', message: 'OpenAPI spec override not found' } });
+                    return replyWithAppError(reply, {
+                        type: 'INTERNAL',
+                        statusCode: 500,
+                        message: 'OpenAPI spec override not found',
+                    });
                 }
                 let txt;
                 if (specPath.endsWith('.json')) {
