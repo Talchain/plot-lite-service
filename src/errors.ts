@@ -72,7 +72,12 @@ export function errorResponse(type: ErrorType, message: string, hint?: string, f
 
   const legacyError: any = { type, message };
   if (hint) legacyError.hint = hint;
-  if (fields) legacyError.fields = fields;
+  if (fields) {
+    legacyError.fields = fields;
+    if (typeof (fields as any).field === 'string') {
+      legacyError.field = (fields as any).field;
+    }
+  }
   envelope.error = legacyError;
 
   return envelope;

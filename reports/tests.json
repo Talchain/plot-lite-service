@@ -3,14 +3,14 @@
     "total": 19,
     "ok": 17,
     "failed": 2,
-    "timestamp": "2025-11-28T22:53:24.945Z",
-    "durationMs": 370
+    "timestamp": "2025-11-29T22:58:26.101Z",
+    "durationMs": 402
   },
   "cases": [
     {
       "name": "backoff.basic.cjs",
       "ok": true,
-      "ms": 1
+      "ms": 0
     },
     {
       "name": "breaker.basic.cjs",
@@ -20,22 +20,22 @@
     {
       "name": "breaker.flags.cjs",
       "ok": true,
-      "ms": 36
+      "ms": 51
     },
     {
       "name": "breaker.retry.cjs",
       "ok": true,
-      "ms": 63
+      "ms": 65
     },
     {
       "name": "budget.stop.cjs",
       "ok": true,
-      "ms": 0
+      "ms": 1
     },
     {
       "name": "calc.basic.cjs",
       "ok": true,
-      "ms": 0
+      "ms": 1
     },
     {
       "name": "calc.errors.cjs",
@@ -46,12 +46,12 @@
       "name": "calc.validation.cjs",
       "ok": false,
       "error": "The expression evaluated to a falsy value:\n\n  assert.ok(String(record.steps[0].reason || '').includes('BAD_INPUT'))\n",
-      "ms": 4
+      "ms": 6
     },
     {
       "name": "fanout.concurrency.cjs",
       "ok": true,
-      "ms": 126
+      "ms": 127
     },
     {
       "name": "fanout.deadline.cjs",
@@ -71,7 +71,7 @@
     {
       "name": "map.basic.cjs",
       "ok": true,
-      "ms": 1
+      "ms": 0
     },
     {
       "name": "ratelimit.simple.cjs",
@@ -86,23 +86,23 @@
     {
       "name": "timeout.cap.cjs",
       "ok": true,
-      "ms": 5
+      "ms": 6
     },
     {
       "name": "timeout.flags.cjs",
       "ok": true,
-      "ms": 31
+      "ms": 37
     },
     {
       "name": "transform.basic.cjs",
       "ok": true,
-      "ms": 1
+      "ms": 0
     },
     {
       "name": "transform.validation.cjs",
       "ok": false,
       "error": "The expression evaluated to a falsy value:\n\n  assert.ok(String(record.steps[0].reason || '').includes('BAD_INPUT'))\n",
-      "ms": 0
+      "ms": 1
     }
   ]
 }

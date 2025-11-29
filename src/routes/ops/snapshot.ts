@@ -5,6 +5,7 @@
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { timingSafeEqual } from 'crypto';
+import { replyWithAppError } from '../../errors.js';
 import {
   getEngineP95Ms,
   getEngineP95MsRolling,
@@ -39,21 +40,36 @@ async function opsAuthGuard(req: FastifyRequest, reply: FastifyReply): Promise<b
           error: err instanceof Error ? err.message : String(err)
         }, 'Failed to set WWW-Authenticate header on 401 response');
       }
-      await reply.code(401).send({ error: { type: 'UNAUTHORIZED', message: 'Missing bearer token' } });
+      replyWithAppError(reply as any, {
+        type: 'BAD_INPUT',
+        statusCode: 401,
+        message: 'Missing bearer token',
+        fields: { code: 'UNAUTHORIZED' },
+      });
       return false;
     }
     
     const tok = hdr.slice('Bearer '.length).trim();
     if (!expected || tok.length !== expected.length) {
-      await reply.code(403).send({ error: { type: 'FORBIDDEN', message: 'Invalid token' } });
+      replyWithAppError(reply as any, {
+        type: 'BAD_INPUT',
+        statusCode: 403,
+        message: 'Invalid token',
+        fields: { code: 'FORBIDDEN' },
+      });
       return false;
     }
-    
+
     if (!timingSafeEqual(Buffer.from(tok), Buffer.from(expected))) {
-      await reply.code(403).send({ error: { type: 'FORBIDDEN', message: 'Invalid token' } });
+      replyWithAppError(reply as any, {
+        type: 'BAD_INPUT',
+        statusCode: 403,
+        message: 'Invalid token',
+        fields: { code: 'FORBIDDEN' },
+      });
       return false;
     }
-    
+
     return true;
   }
   
@@ -74,7 +90,12 @@ async function opsAuthGuard(req: FastifyRequest, reply: FastifyReply): Promise<b
         error: err instanceof Error ? err.message : String(err)
       }, 'Failed to set WWW-Authenticate header on 401 response');
     }
-    await reply.code(401).send({ error: { type: 'UNAUTHORIZED', message: 'OPS_KEY not configured' } });
+    replyWithAppError(reply as any, {
+      type: 'BAD_INPUT',
+      statusCode: 401,
+      message: 'OPS_KEY not configured',
+      fields: { code: 'UNAUTHORIZED' },
+    });
     return false;
   }
 
@@ -90,17 +111,32 @@ async function opsAuthGuard(req: FastifyRequest, reply: FastifyReply): Promise<b
         error: err instanceof Error ? err.message : String(err)
       }, 'Failed to set WWW-Authenticate header on 401 response');
     }
-    await reply.code(401).send({ error: { type: 'UNAUTHORIZED', message: 'Missing X-OPS-KEY header' } });
+    replyWithAppError(reply as any, {
+      type: 'BAD_INPUT',
+      statusCode: 401,
+      message: 'Missing X-OPS-KEY header',
+      fields: { code: 'UNAUTHORIZED' },
+    });
     return false;
   }
   
   if (opsKey.length !== expected.length) {
-    await reply.code(401).send({ error: { type: 'UNAUTHORIZED', message: 'Invalid X-OPS-KEY' } });
+    replyWithAppError(reply as any, {
+      type: 'BAD_INPUT',
+      statusCode: 401,
+      message: 'Invalid X-OPS-KEY',
+      fields: { code: 'UNAUTHORIZED' },
+    });
     return false;
   }
   
   if (!timingSafeEqual(Buffer.from(opsKey), Buffer.from(expected))) {
-    await reply.code(401).send({ error: { type: 'UNAUTHORIZED', message: 'Invalid X-OPS-KEY' } });
+    replyWithAppError(reply as any, {
+      type: 'BAD_INPUT',
+      statusCode: 401,
+      message: 'Invalid X-OPS-KEY',
+      fields: { code: 'UNAUTHORIZED' },
+    });
     return false;
   }
   

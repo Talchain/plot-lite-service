@@ -5,6 +5,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { createHash } from 'crypto';
 import { recordAuditEvent } from '../../governance/audit-ring.js';
+import { replyWithAppError } from '../../errors.js';
 
 interface InterveneRequest {
   graph: { nodes: any[]; edges: any[] };
@@ -21,7 +22,11 @@ export async function registerInterveneRoute(app: FastifyInstance) {
     
     // Validation
     if (!body.graph || !body.graph.nodes || !Array.isArray(body.graph.nodes)) {
-      return reply.code(400).send({ error: { type: 'BAD_INPUT', message: 'graph.nodes required' } });
+      return replyWithAppError(reply, {
+        type: 'BAD_INPUT',
+        statusCode: 400,
+        message: 'graph.nodes required',
+      });
     }
     
     // Normalize actions: support both actions[] and legacy do[]
@@ -33,12 +38,11 @@ export async function registerInterveneRoute(app: FastifyInstance) {
       })) : [];
     
     if (normalisedActions.length === 0) {
-      return reply.code(400).send({ 
-        error: { 
-          type: 'BAD_INPUT', 
-          message: 'actions[] (or legacy do[]) is required',
-          field: 'actions'
-        } 
+      return replyWithAppError(reply, {
+        type: 'BAD_INPUT',
+        statusCode: 400,
+        message: 'actions[] (or legacy do[]) is required',
+        fields: { field: 'actions' },
       });
     }
     
@@ -47,12 +51,11 @@ export async function registerInterveneRoute(app: FastifyInstance) {
     const invalidActions = normalisedActions.filter((a: any) => !nodeIds.has(a.node_id));
     
     if (invalidActions.length > 0) {
-      return reply.code(400).send({ 
-        error: { 
-          type: 'BAD_INPUT', 
-          message: `Invalid node_ids in actions: ${invalidActions.map((a: any) => a.node_id).join(', ')}`,
-          field: 'actions[].node_id'
-        } 
+      return replyWithAppError(reply, {
+        type: 'BAD_INPUT',
+        statusCode: 400,
+        message: `Invalid node_ids in actions: ${invalidActions.map((a: any) => a.node_id).join(', ')}`,
+        fields: { field: 'actions[].node_id' },
       });
     }
     
