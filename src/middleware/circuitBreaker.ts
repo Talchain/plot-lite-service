@@ -11,6 +11,7 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 import { SlidingWindow } from './cb/window.js';
 import { BoundedLRU } from '../lib/BoundedLRU.js';
 import { extractPrincipal, isPrincipalExtractionEnabled } from '../lib/extractPrincipal.js'; // PR-3
+import { replyWithAppError } from '../errors.js';
 
 type CircuitState = 'closed' | 'open' | 'half_open';
 type TransitionReason = 'threshold' | 'half_open_timeout' | 'probes_success'; // PR-2C.1
@@ -264,17 +265,11 @@ export async function circuitBreakerMiddleware(
       reply.header('X-RateLimit-Reason', 'circuit_open_global');
       // P0.2: Standardized error envelope with schema: 'error.v1'
       // P1.2: Include request_id for end-to-end tracing
-      await reply.code(503).send({
-        schema: 'error.v1',
-        code: 'BREAKER_OPEN',
+      await replyWithAppError(reply as any, {
+        type: 'BREAKER_OPEN',
+        statusCode: 503,
         message: 'Circuit breaker open (global)',
-        request_id: req.id,
-        retry_after_seconds: retryAfter,
-        error: {
-          type: 'BREAKER_OPEN',
-          message: 'Circuit breaker open (global)',
-          retry_after_seconds: retryAfter,
-        },
+        fields: { retry_after_seconds: retryAfter },
       });
       return;
     }
@@ -299,17 +294,11 @@ export async function circuitBreakerMiddleware(
       reply.header('X-RateLimit-Reason', 'circuit_open_principal');
       // P0.2: Standardized error envelope with schema: 'error.v1'
       // P1.2: Include request_id for end-to-end tracing
-      await reply.code(503).send({
-        schema: 'error.v1',
-        code: 'BREAKER_OPEN',
+      await replyWithAppError(reply as any, {
+        type: 'BREAKER_OPEN',
+        statusCode: 503,
         message: 'Circuit breaker open (principal)',
-        request_id: req.id,
-        retry_after_seconds: retryAfter,
-        error: {
-          type: 'BREAKER_OPEN',
-          message: 'Circuit breaker open (principal)',
-          retry_after_seconds: retryAfter,
-        },
+        fields: { retry_after_seconds: retryAfter },
       });
       return;
     }

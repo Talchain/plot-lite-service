@@ -7,6 +7,7 @@ import { isDemoMode } from '../../middleware/demo-mode.js';
 import { createQueryValidator } from '../../middleware/input-validation.js';
 import { incStreamRateLimited, incStreamDisconnect, incStreamWriteBackpressure, incSseOpen, incSseClosed, incSseTimeout } from '../../metrics.js';
 import { incSse429Count } from '../../metrics.js';
+import { replyWithAppError } from '../../errors.js';
 import { getSsePerIpMax, getSseGlobalMax } from '../../config/runtimeConfig.js';
 import { SSE_SLOT_MAX_MS } from '../../config/constants.js';
 
@@ -112,9 +113,12 @@ export async function registerStreamRoute(app: FastifyInstance) {
           try { reply.header('Retry-After', '1'); } catch {}
           try { reply.header('X-RateLimit-Reason', acq.ok === false ? acq.reason : 'per_ip'); } catch {}
           try { incSse429Count(); } catch {}
-          return reply
-            .code(429)
-            .send({ schema: 'error.v1', code: 'RATE_LIMITED', message: 'Too many streams', retry_after_s: retryAfterS });
+        return replyWithAppError(reply, {
+          type: 'RATE_LIMIT',
+          statusCode: 429,
+          message: 'Too many streams',
+          fields: { code: 'RATE_LIMITED', retry_after_s: retryAfterS },
+        });
         }
         // Ensure release on socket lifecycle (idempotent)
         let fallbackTimer: NodeJS.Timeout | null = null;

@@ -30,6 +30,7 @@ import {
   incSse429Count
 } from '../../metrics.js';
 import { getCircuitBreakerStats } from '../../middleware/circuitBreaker.js';
+import { replyWithAppError } from '../../errors.js';
 
 const Ajv = AjvModule.default || AjvModule;
 const ajv = new Ajv();
@@ -169,9 +170,12 @@ export async function registerStreamRouteEnhanced(app: FastifyInstance) {
           try { reply.header('Retry-After', '1'); } catch {}
           try { reply.header('X-RateLimit-Reason', acq.ok === false ? acq.reason : 'per_ip'); } catch {}
           try { incSse429Count(); } catch {}
-          return reply
-            .code(429)
-            .send({ schema: 'error.v1', code: 'RATE_LIMITED', message: 'Too many streams', retry_after_s: retryAfterS });
+          return replyWithAppError(reply, {
+            type: 'RATE_LIMIT',
+            statusCode: 429,
+            message: 'Too many streams',
+            fields: { code: 'RATE_LIMITED', retry_after_s: retryAfterS },
+          });
         }
 
         // Ensure release on socket lifecycle with single metric increment
@@ -242,11 +246,14 @@ export async function registerStreamRouteEnhanced(app: FastifyInstance) {
     
     // P1: Validate query with AJV
     if (!validateQuery(q)) {
-      return reply.code(400).send({
-        schema: 'error.v1',
-        code: 'INVALID_QUERY',
+      return replyWithAppError(reply, {
+        type: 'BAD_INPUT',
+        statusCode: 400,
         message: 'Invalid query parameters',
-        errors: validateQuery.errors
+        fields: {
+          code: 'INVALID_QUERY',
+          errors: validateQuery.errors,
+        },
       });
     }
 

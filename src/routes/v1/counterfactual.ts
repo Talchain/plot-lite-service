@@ -12,6 +12,7 @@ import { buildExplainDelta } from '../../trust/explain-delta.js';
 import { checkIdentifiability } from '../../trust/identifiability.js';
 import { enforceComputeBudget } from '../../governance/cost-estimator.js';
 import type { Graph } from '../../trust/types.js';
+import { replyWithAppError } from '../../errors.js';
 
 export interface CounterfactualRequest {
   graph: Graph;
@@ -69,12 +70,15 @@ export async function registerCounterfactualRoute(app: FastifyInstance) {
     });
 
     if (!identifiability.identifiable) {
-      return reply.code(400).send({
-        schema: 'error.v1',
-        code: 'BAD_INPUT',
+      // Use canonical OlumiErrorV1 envelope while preserving BAD_INPUT code and extra fields
+      return replyWithAppError(reply, {
+        type: 'BAD_INPUT',
+        statusCode: 400,
         message: identifiability.summary,
-        path: ['/graph'],
-        details: { reason: 'IDENTIFIABILITY' },
+        fields: {
+          path: ['/graph'],
+          details: { reason: 'IDENTIFIABILITY' },
+        },
       });
     }
 

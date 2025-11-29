@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { canonicalStringify, sha256Hex } from '../../util/canonical.js';
 import { normalizeGraph } from '../../util/normalize.js';
+import { replyWithAppError } from '../../errors.js';
 
 type Graph = { 
   version?: string;
@@ -535,7 +536,13 @@ export async function registerTemplatesRoutes(app: FastifyInstance) {
     const id = String(req.params?.id || '');
     const g = (graphs as any)[id];
     if (!g) {
-      return reply.code(404).send({ schema: 'error.v1', code: 'NOT_FOUND', message: `Template '${id}' not found` });
+      // Use canonical OlumiErrorV1 envelope while preserving code/message for callers
+      return replyWithAppError(reply, {
+        type: 'BAD_INPUT',
+        statusCode: 404,
+        fields: { code: 'NOT_FOUND' },
+        message: `Template '${id}' not found`,
+      });
     }
     // Strong ETag over canonical JSON
     const canonical = canonicalStringify(g);

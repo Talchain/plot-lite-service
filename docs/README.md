@@ -1,112 +1,104 @@
 # PLoT Engine Documentation
 
-Welcome to the PLoT Engine documentation. This directory contains all operational guides, metrics documentation, and historical reports.
+Welcome to the PLoT Engine documentation. This directory contains operational guides, technical specifications, and historical records.
 
 ---
 
 ## 📁 Directory Structure
 
+### Core Documentation (docs/ root)
+| File | Purpose |
+|------|---------|
+| [STATUS.md](./STATUS.md) | Current production state |
+| [PLATFORM_OVERVIEW.md](./PLATFORM_OVERVIEW.md) | Enterprise architecture overview |
+| [ALERT_RUNBOOK.md](./ALERT_RUNBOOK.md) | Operations runbook |
+| [RENDER_SETUP.md](./RENDER_SETUP.md) | Render deployment setup |
+| [engine.md](./engine.md) | Engine contracts & gating |
+| [errors.md](./errors.md) | Error codes reference |
+
 ### `/observability/` - Metrics & Monitoring
-- **[METRICS_CATALOG.md](./observability/METRICS_CATALOG.md)** - Complete catalog of all Prometheus metrics
-- **[PROMETHEUS_QUERIES.md](./observability/PROMETHEUS_QUERIES.md)** - Copy-paste ready PromQL queries
-- **[HOWTO_test-metrics-endpoint.md](./observability/HOWTO_test-metrics-endpoint.md)** - Testing guide for metrics
+- [METRICS_CATALOG.md](./observability/METRICS_CATALOG.md) - All Prometheus metrics
+- [PROMETHEUS_QUERIES.md](./observability/PROMETHEUS_QUERIES.md) - PromQL templates
+- [HOWTO_test-metrics-endpoint.md](./observability/HOWTO_test-metrics-endpoint.md) - Testing guide
 
-### `/runbooks/` - Operational Guides
-*Coming in P1/P2*:
-- P1_STREAMING_OPERATIONS.md - Enhanced streaming operations guide
-- P2_IDEMPOTENCY_OPERATIONS.md - Idempotency & resume operations
-- SECRET_ROTATION.md - HMAC secret rotation procedures
-- PROXY_SETTINGS.md - Trust proxy configuration
+### `/plot-lite-engine/` - Technical Documentation
+Numbered documentation series (00-80) covering architecture, roadmap, test plans, and performance.
 
-### `/reports/` - Historical Reports
-- **[COMPREHENSIVE_ASSESSMENT.md](./reports/COMPREHENSIVE_ASSESSMENT.md)** - Full system assessment
-- **[VALIDATION_METRIC_FIX_SUMMARY.md](./reports/VALIDATION_METRIC_FIX_SUMMARY.md)** - Validation metrics fix details
-- **[AUDIT_REPORT.md](./reports/AUDIT_REPORT.md)** - Security and code audit
-- **[RELEASE_NOTES_v2.1.md](./reports/RELEASE_NOTES_v2.1.md)** - v2.1 release notes
+### `/reports/` - Assessments & Release Notes
+- [AUDIT_REPORT.md](./reports/AUDIT_REPORT.md) - Security audit
+- [COMPREHENSIVE_ASSESSMENT.md](./reports/COMPREHENSIVE_ASSESSMENT.md) - System assessment
+- [RELEASE_NOTES_v2.1.md](./reports/RELEASE_NOTES_v2.1.md) - Release notes
+
+### `/collections/` - API Testing
+- [plot-lite.postman.json](./collections/plot-lite.postman.json) - Postman collection
+
+### `/schema/` - Contract Definitions
+- [report.v1.json](./schema/report.v1.json) - Report schema
 
 ### `/archive/` - Historical Documents
-Archived status reports, delivery summaries, and superseded documentation.
+- `/archive/root/` - Archived root-level status/progress reports (~142 files)
+- `/archive/` - Historical operational docs
 
 ---
 
 ## 🎯 Quick Links
 
-### Current Status
-- **[STATUS.md](./STATUS.md)** - Current production state with live verification
-
 ### For Operators
-- [Metrics Catalog](./observability/METRICS_CATALOG.md) - What metrics are available
-- [Prometheus Queries](./observability/PROMETHEUS_QUERIES.md) - How to query metrics
-- [How to Test Metrics](./observability/HOWTO_test-metrics-endpoint.md) - Testing procedures
+| Task | Document |
+|------|----------|
+| Check production status | [STATUS.md](./STATUS.md) |
+| Respond to alerts | [ALERT_RUNBOOK.md](./ALERT_RUNBOOK.md) |
+| Find a metric | [METRICS_CATALOG.md](./observability/METRICS_CATALOG.md) |
+| Query Prometheus | [PROMETHEUS_QUERIES.md](./observability/PROMETHEUS_QUERIES.md) |
 
 ### For Developers
-- [Contributing Guide](../CONTRIBUTING.md) - How to contribute
-- [Deployment Guide](../DEPLOYING.md) - How to deploy
-- [Release Guide](../RELEASING.md) - How to release
+| Task | Document |
+|------|----------|
+| Understand architecture | [PLATFORM_OVERVIEW.md](./PLATFORM_OVERVIEW.md) |
+| Contribute code | [CONTRIBUTING.md](../CONTRIBUTING.md) |
+| Deploy changes | [DEPLOYING.md](../DEPLOYING.md) |
+| Release version | [RELEASING.md](../RELEASING.md) |
+
+### For DevOps/Platform
+| Task | Document |
+|------|----------|
+| Platform overview | [PLATFORM_OVERVIEW.md](./PLATFORM_OVERVIEW.md) |
+| Integration points | See CEE/ISL/UI sections in PLATFORM_OVERVIEW |
+| Configuration vars | See Section 8 in PLATFORM_OVERVIEW |
 
 ---
 
 ## 📊 Production Verification
 
-Quick commands to verify production health:
-
 ```bash
-# 1. Health check
-curl -s https://plot-lite-service.onrender.com/v1/health | jq '.principal_extraction'
+# Health check
+curl -s https://plot-lite-service.onrender.com/v1/health | jq '.status'
 
-# 2. Metrics endpoint
+# Metrics endpoint
 curl -s https://plot-lite-service.onrender.com/metrics | head -20
 
-# 3. Validation metric
-curl -s https://plot-lite-service.onrender.com/metrics | \
-  grep 'plot_engine_validation_errors_total{route="/v1/run"'
+# Validation metric
+curl -s https://plot-lite-service.onrender.com/metrics | grep 'plot_engine_validation'
 ```
-
----
-
-## 🚀 Roadmap
-
-### P0.5 - Documentation Organization ✅
-- Organized docs structure
-- Clean root directory
-- Single source of truth (STATUS.md)
-
-### P1 - CI Green (In Progress)
-- Test helpers for consistency
-- All tests passing
-- No flaky/ignored tests
-
-### P2 - Streaming Canary (Planned)
-- Header-based canary rollout
-- Metrics proof (heartbeat, backpressure, circuit breaker)
-- Operator one-pager
 
 ---
 
 ## 📝 Documentation Standards
 
-When adding new documentation:
+| Type | Location |
+|------|----------|
+| Operations/runbooks | `/observability/` or root |
+| Technical specs | `/plot-lite-engine/` |
+| One-time assessments | `/reports/` |
+| API collections | `/collections/` |
+| Superseded docs | `/archive/` |
 
-1. **Runbooks**: Operational procedures go in `/runbooks/`
-2. **Metrics**: Metric definitions and queries in `/observability/`
-3. **Reports**: One-time assessments and summaries in `/reports/`
-4. **Archive**: Superseded docs in `/archive/`
-5. **Root**: Only essential guides (README, CONTRIBUTING, DEPLOYING, RELEASING)
-
----
-
-## 🔍 Finding Information
-
-| I want to... | Look here |
-|--------------|-----------|
-| Check current prod status | [STATUS.md](./STATUS.md) |
-| Find a specific metric | [METRICS_CATALOG.md](./observability/METRICS_CATALOG.md) |
-| Query metrics | [PROMETHEUS_QUERIES.md](./observability/PROMETHEUS_QUERIES.md) |
-| Test metrics locally | [HOWTO_test-metrics-endpoint.md](./observability/HOWTO_test-metrics-endpoint.md) |
-| Understand a past change | [/reports/](./reports/) |
-| Find old status docs | [/archive/](./archive/) |
+**Rules:**
+- Only essential guides in repository root
+- Archive status/progress docs after milestone completion
+- Keep STATUS.md as single source of truth for prod state
 
 ---
 
-**Last Updated**: 2025-10-20  
+**Last Updated**: 2025-11-28
 **Maintained By**: PLoT Engine Team

@@ -61,7 +61,11 @@ export function generateInsights(params: InsightsParams): Insights {
 
   // Build summary (≤200 chars)
   const confLabel = confidence_level.toLowerCase();
-  let summary = `Outcome likely to ${direction} by ${absDeltaPct}% (range: ${rangeLowPct}% to ${rangeHighPct}%) with ${confLabel} confidence.`;
+  const rangeText =
+    rangeLowPct === rangeHighPct
+      ? `${rangeLowPct}%`
+      : `${rangeLowPct}% to ${rangeHighPct}%`;
+  let summary = `Outcome likely to ${direction} by ${absDeltaPct}% (range: ${rangeText}) with ${confLabel} confidence.`;
 
   // Truncate if needed
   if (summary.length > 200) {

@@ -1,7 +1,0 @@
-tests/circuit-breaker.lru.test.ts
-tests/confidence.calibration.test.ts
-tests/extract-principal.integration.test.ts
-tests/report.contract.test.ts
-tests/run.scm-lite.integration.test.ts
-tests/scm-lite.disabled-warning.test.ts
-tests/selfcheck.parity.test.ts

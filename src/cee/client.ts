@@ -61,6 +61,19 @@ export interface CeeDecisionReviewPayloadV1 {
   scenario_kind?: string;
 }
 
+function isValidCeeDecisionReviewPayload(payload: any): payload is CeeDecisionReviewPayloadV1 {
+  if (!payload || typeof payload !== 'object') return false;
+  if ((payload as any).schema !== 'cee.decision-review.v1') return false;
+  if (typeof (payload as any).response_hash !== 'string') return false;
+  const seedType = typeof (payload as any).seed;
+  if (seedType !== 'number' && seedType !== 'string') return false;
+  if (typeof (payload as any).inference_mode !== 'string') return false;
+  const summary = (payload as any).graph_summary;
+  if (!summary || typeof summary !== 'object') return false;
+  if (typeof summary.nodes !== 'number' || typeof summary.edges !== 'number') return false;
+  return true;
+}
+
 export interface CeeReviewResult {
   review: CeeDecisionReviewPayloadV1 | null;
   trace: CeeTrace;
@@ -381,16 +394,20 @@ export async function callDecisionReviewFromEngineLegacy(opts: {
       requestId: reqId,
       logger,
     });
-
-    const degraded = !!ceeResult.ceeError;
-    const trace: CeeTrace = {
-      requestId: reqId,
-      degraded,
-      timestamp: new Date().toISOString(),
-    };
+ 
+    const hasReview = ceeResult.ceeReview !== null && ceeResult.ceeReview !== undefined;
+    const hasError = !!ceeResult.ceeError;
 
     let error: CeeError | undefined;
-    if (ceeResult.ceeError) {
+    if (!hasReview && !hasError) {
+      error = {
+        code: 'CEE_EMPTY_REVIEW',
+        message: undefined,
+        traceId: undefined,
+        retryable: false,
+        suggestedAction: 'retry',
+      };
+    } else if (ceeResult.ceeError) {
       const sa = ceeResult.ceeError.suggestedAction;
       const suggestedAction: CeeSuggestedAction =
         sa === 'retry' || sa === 'fix_input' || sa === 'fail' ? sa : 'retry';
@@ -403,8 +420,15 @@ export async function callDecisionReviewFromEngineLegacy(opts: {
       };
     }
 
+    const degraded = !!error;
+    const trace: CeeTrace = {
+      requestId: reqId,
+      degraded,
+      timestamp: new Date().toISOString(),
+    };
+
     return {
-      review: ceeResult.ceeReview,
+      review: hasReview ? ceeResult.ceeReview : null,
       trace,
       ...(error ? { error } : {}),
     };
@@ -587,6 +611,12 @@ export async function callDecisionReviewFromEngine(opts: {
       evidenceItems,
       briefContext,
     );
+    const hasReview = res.review !== null && res.review !== undefined;
+    const hasError = !!res.error;
+
+    if (!hasReview && !hasError) {
+      return degraded('CEE_EMPTY_REVIEW', 'retry');
+    }
 
     const trace = {
       ...(res.trace ?? {}),

@@ -4,6 +4,7 @@ import { FLAGS } from '../config/flags.js';
 import { getRateLimitRpm } from '../config/runtimeConfig.js';
 import { incJson429Count, incSse429Count } from '../metrics.js';
 import { clearInflight, principalFor } from './idempotency.js';
+import { replyWithAppError } from '../errors.js';
 
 
 interface State { count: number; pending: number; resetAt: number }
@@ -191,12 +192,9 @@ export function makeRateLimiter() {
       
       // P0.2: Standardized error envelope with schema: 'error.v1'
       // P1.2: Include request_id for tracing
-      return reply.code(429).send({
-        schema: 'error.v1',
-        code: 'RATE_LIMIT',
-        message: ERR_MSG.RATE_LIMIT_RPM,
-        request_id: req.id,
-        error: { type: 'RATE_LIMIT', message: ERR_MSG.RATE_LIMIT_RPM }
+      return replyWithAppError(reply as any, {
+        type: 'RATE_LIMIT',
+        statusCode: 429,
       });
 
     }

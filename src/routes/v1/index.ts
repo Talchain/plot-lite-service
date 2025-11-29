@@ -5,6 +5,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { timingSafeEqual } from 'crypto';
+import { replyWithAppError } from '../../errors.js';
 import { registerRunRoute } from './run.js';
 import { registerCounterfactualRoute } from './counterfactual.js';
 import { registerCritiqueRoute } from './critique.js';
@@ -40,26 +41,30 @@ async function v1AuthGuard(req: any, reply: any) {
   
   if (!hdr.startsWith('Bearer ')) {
     reply.header('WWW-Authenticate', 'Bearer');
-    return reply.code(401).send({ 
-      schema: 'error.v1',
-      code: 'UNAUTHORIZED', 
-      message: 'Missing bearer token' 
+    // Use canonical OlumiErrorV1 envelope while preserving schema/code/message
+    return replyWithAppError(reply, {
+      type: 'BAD_INPUT',
+      statusCode: 401,
+      fields: { code: 'UNAUTHORIZED' },
+      message: 'Missing bearer token',
     });
   }
   
   const tok = hdr.slice('Bearer '.length).trim();
   if (!expected || tok.length !== expected.length) {
-    return reply.code(403).send({ 
-      schema: 'error.v1',
-      code: 'FORBIDDEN', 
-      message: 'Invalid token' 
+    return replyWithAppError(reply, {
+      type: 'BAD_INPUT',
+      statusCode: 403,
+      fields: { code: 'FORBIDDEN' },
+      message: 'Invalid token',
     });
   }
   if (!timingSafeEqual(Buffer.from(tok), Buffer.from(expected))) {
-    return reply.code(403).send({ 
-      schema: 'error.v1',
-      code: 'FORBIDDEN', 
-      message: 'Invalid token' 
+    return replyWithAppError(reply, {
+      type: 'BAD_INPUT',
+      statusCode: 403,
+      fields: { code: 'FORBIDDEN' },
+      message: 'Invalid token',
     });
   }
 }
