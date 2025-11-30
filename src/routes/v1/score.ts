@@ -4,6 +4,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { createHash } from 'crypto';
 import { recordAuditEvent } from '../../governance/audit-ring.js';
+import { replyWithAppError } from '../../errors.js';
 
 interface ScoreRequest {
   graph: { nodes: any[]; edges: any[] };
@@ -22,15 +23,30 @@ export async function registerScoreRoute(app: FastifyInstance) {
     
     // Validation
     if (!body.graph || !body.graph.nodes || !Array.isArray(body.graph.nodes)) {
-      return reply.code(400).send({ error: { type: 'BAD_INPUT', message: 'graph.nodes required' } });
+      return replyWithAppError(reply, {
+        type: 'BAD_INPUT',
+        statusCode: 400,
+        message: 'graph.nodes required',
+        fields: { field: 'graph.nodes' },
+      });
     }
     
     if (!body.utilities || body.utilities.type !== 'linear') {
-      return reply.code(400).send({ error: { type: 'BAD_INPUT', message: 'utilities.type must be "linear"' } });
+      return replyWithAppError(reply, {
+        type: 'BAD_INPUT',
+        statusCode: 400,
+        message: 'utilities.type must be "linear"',
+        fields: { field: 'utilities.type' },
+      });
     }
     
     if (!body.utilities.weights || typeof body.utilities.weights !== 'object') {
-      return reply.code(400).send({ error: { type: 'BAD_INPUT', message: 'utilities.weights required' } });
+      return replyWithAppError(reply, {
+        type: 'BAD_INPUT',
+        statusCode: 400,
+        message: 'utilities.weights required',
+        fields: { field: 'utilities.weights' },
+      });
     }
     
     // Validate weights refer to existing nodes
@@ -39,11 +55,11 @@ export async function registerScoreRoute(app: FastifyInstance) {
     const invalidWeights = weightKeys.filter(k => !nodeIds.has(k));
     
     if (invalidWeights.length > 0) {
-      return reply.code(400).send({ 
-        error: { 
-          type: 'BAD_INPUT', 
-          message: `Invalid node_ids in weights: ${invalidWeights.join(', ')}` 
-        } 
+      return replyWithAppError(reply, { 
+        type: 'BAD_INPUT', 
+        statusCode: 400,
+        message: `Invalid node_ids in weights: ${invalidWeights.join(', ')}`,
+        fields: { field: 'utilities.weights' },
       });
     }
     

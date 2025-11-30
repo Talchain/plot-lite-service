@@ -4,6 +4,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { recordAuditEvent } from '../../governance/audit-ring.js';
 import { createHash } from 'crypto';
+import { replyWithAppError } from '../../errors.js';
 
 interface SensitivityRequest {
   graph: { nodes: any[]; edges: any[] };
@@ -20,17 +21,32 @@ export async function registerSensitivityRoute(app: FastifyInstance) {
     
     // Validation
     if (!body.graph || !body.graph.nodes || !Array.isArray(body.graph.nodes)) {
-      return reply.code(400).send({ error: { type: 'BAD_INPUT', message: 'graph.nodes required' } });
+      return replyWithAppError(reply, {
+        type: 'BAD_INPUT',
+        statusCode: 400,
+        message: 'graph.nodes required',
+        fields: { field: 'graph.nodes' },
+      });
     }
     
     const method = body.method || 'oat';
     if (method !== 'oat') {
-      return reply.code(400).send({ error: { type: 'BAD_INPUT', message: 'method must be "oat"' } });
+      return replyWithAppError(reply, {
+        type: 'BAD_INPUT',
+        statusCode: 400,
+        message: 'method must be "oat"',
+        fields: { field: 'method' },
+      });
     }
     
     const delta = body.delta ?? 0.1;
     if (delta <= 0 || delta > 1) {
-      return reply.code(400).send({ error: { type: 'BAD_INPUT', message: 'delta must be in (0, 1]' } });
+      return replyWithAppError(reply, {
+        type: 'BAD_INPUT',
+        statusCode: 400,
+        message: 'delta must be in (0, 1]',
+        fields: { field: 'delta' },
+      });
     }
     
     const seed = body.seed || 4242;
@@ -43,8 +59,11 @@ export async function registerSensitivityRoute(app: FastifyInstance) {
     const nodeIdSet = new Set(nodeIds);
     const invalidTargets = targets.filter(t => !nodeIdSet.has(t));
     if (invalidTargets.length > 0) {
-      return reply.code(400).send({
-        error: { type: 'BAD_INPUT', message: `Invalid target node_ids: ${invalidTargets.join(', ')}` }
+      return replyWithAppError(reply, {
+        type: 'BAD_INPUT',
+        statusCode: 400,
+        message: `Invalid target node_ids: ${invalidTargets.join(', ')}`,
+        fields: { field: 'targets' },
       });
     }
     

@@ -131,6 +131,7 @@ export async function registerV1Routes(app: FastifyInstance) {
   await registerValidateRoute(app);
   await registerCompareRoute(app);
   await registerInspectRoute(app);
+  await registerDiffRoute(app);
   await registerScoreRoute(app);
   await registerInterveneRoute(app);
   await registerEvidenceRoute(app);
@@ -180,6 +181,27 @@ export async function registerV1Routes(app: FastifyInstance) {
       engine_p95_ms: getEngineP95Ms(),
       engine_p95_ms_rolling: getEngineP95MsRolling(),
     } as any;
+    // Derive high-level health status from latency and rate-limit counters
+    try {
+      const reasons: string[] = [];
+      const budgetMs = Number(process.env.ENGINE_P95_BUDGET_MS || 600);
+      const rolling = typeof base.engine_p95_ms_rolling === 'number' ? base.engine_p95_ms_rolling : 0;
+      if (rolling > budgetMs && rolling > 0) {
+        reasons.push('engine_p95_ms_rolling_exceeded');
+      }
+      if ((base.json_429_count ?? 0) > 0 || (base.sse_429_count ?? 0) > 0) {
+        reasons.push('rate_limit_429');
+      }
+      base.slo_budget_ms = budgetMs;
+      if (reasons.length > 0) {
+        base.degraded = true;
+        base.health_status = 'degraded';
+        base.degraded_reasons = reasons;
+      } else {
+        base.degraded = false;
+        base.health_status = 'ok';
+      }
+    } catch {}
     // WP-P3: Circuit breaker stats (flag-gated)
     try {
       const { getCircuitBreakerStats } = await import('../../middleware/circuitBreaker.js');
@@ -249,3 +271,4 @@ import { registerRunBundleRoute } from './run-bundle.js';
 import { registerRunTimeslicesRoute } from './run-timeslices.js';
 import { registerAuditTestRoute } from '../test/audit.js';
 import { registerGovernanceRoute } from '../test/governance.js';
+import { registerDiffRoute } from './diff.js';

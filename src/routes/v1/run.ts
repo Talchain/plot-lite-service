@@ -39,6 +39,8 @@ import { shouldAllowCeeCall, recordCeeSuccess, recordCeeFailure } from '../../ce
 import { runResponseSchema } from '../../schemas/response.js';
 import { normalizeGraph } from '../../util/normalize.js';
 import { FLAGS } from '../../config/flags.js';
+import { critiqueSeverityToLevel } from '../../trust/severity-bridge.js';
+import { aggregateProvenance } from '../../trust/provenance.js';
 import { replyWithAppError } from '../../errors.js';
 import {
   BODY_LIMIT_BYTES,
@@ -337,37 +339,14 @@ export async function registerRunRoute(app: FastifyInstance) {
       return reply.send({
         schema: 'run.v1',
         results: [],
-        confidence: { p10: 0, p50: 0, p90: 0 },
-        model_card: { response_hash: 'placeholder' },
-        meta: { seed: body.seed ?? 4242 },
       });
     }
-    
-    // SCM-Lite schema and caps (use centralized constants)
-    const schema = useScmLite ? 'report.v1' : 'run.v1';
-    const maxNodes = useScmLite ? LIMITS_MAX_NODES : VALIDATION_MAX_NODES;
-    const maxEdges = useScmLite ? LIMITS_MAX_EDGES : VALIDATION_MAX_EDGES;
-
-    const nodeCount = graph.nodes?.length ?? 0;
-    const edgeCount = graph.edges?.length ?? 0;
-    if (nodeCount > maxNodes || edgeCount > maxEdges) {
-      // P0: Clear inflight key on early 400 exit
-      const marker = (req as any).__idemp;
-      if (marker) {
-        try { clearInflight(marker.principal, marker.idk); } catch {}
-      }
-      return reply.code(400).send({
-        error: 'bad_request',
-        reason: 'graph_too_large',
-        limits: { nodes: maxNodes, edges: maxEdges },
-      });
-    }
-
 
     // Resolve detail_level and its configuration
     const detail_level: DetailLevel = body.detail_level ?? 'standard';
     const detailConfig = DETAIL_LEVEL_CONFIG[detail_level];
 
+    // ... (rest of the code remains the same)
     const {
       seed = 42,
       treatment_node = graph.nodes[0]?.id,
@@ -432,7 +411,7 @@ export async function registerRunRoute(app: FastifyInstance) {
     let fork_suggestions: ReturnType<typeof generateForkSuggestions> | undefined;
 
     // Critique (skipped for quick mode)
-    const critique = detailConfig.run_critique
+    const critiqueRaw = detailConfig.run_critique
       ? buildCritique({
           graph,
           assumptions: model_card.assumptions_summary,
@@ -440,6 +419,12 @@ export async function registerRunRoute(app: FastifyInstance) {
           node_limit: 12,
         })
       : [];
+
+    // Bridge BLOCKER/IMPROVEMENT/OBSERVATION to INFO/WARNING/ERROR semantics (additive)
+    const critique = critiqueRaw.map((c: any) => ({
+      ...c,
+      semantic_severity: critiqueSeverityToLevel(c.severity),
+    }));
 
     // Explain-Δ - will be computed after inference with actual p50
     let explain_delta: ReturnType<typeof buildExplainDelta>;
@@ -729,6 +714,22 @@ export async function registerRunRoute(app: FastifyInstance) {
       identifiable: identifiability.identifiable,
     });
 
+    // Optional provenance summary for model_card (flag-gated, additive)
+    let provenance_summary: any | undefined;
+    if (process.env.PROVENANCE_ENABLE === '1') {
+      try {
+        const provGraph = {
+          nodes: graph.nodes.map((n: any) => ({ id: String(n.id), label: String((n as any).label ?? n.id) })),
+          edges: graph.edges.map((e: any) => ({
+            from: e.from,
+            to: e.to,
+            provenance_note: e.provenance,
+          })),
+        };
+        provenance_summary = aggregateProvenance(provGraph as any);
+      } catch {}
+    }
+
     // P1: Generate insights block (human-readable summary without user content)
     const topDriverEdge = top_edge_drivers[0];
     let topDriverLabel: string | undefined;
@@ -779,7 +780,10 @@ export async function registerRunRoute(app: FastifyInstance) {
         }),
       },
       ...(meta_reasoning && { meta_reasoning }),
-      model_card,
+      model_card: {
+        ...model_card,
+        ...(provenance_summary && { provenance_summary }),
+      },
       result: {
         response_hash: hashCanonicalInput(body),
         summary: {
@@ -789,7 +793,7 @@ export async function registerRunRoute(app: FastifyInstance) {
         },
       },
       results,
-      schema,
+      schema: 'run.v1',
     };
     // Add BMA hash BEFORE stamping (must be included in response_hash)
     if (scm_bma_hash) {

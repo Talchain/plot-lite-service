@@ -5,6 +5,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { createHash } from 'crypto';
 import { recordAuditEvent } from '../../governance/audit-ring.js';
+import { replyWithAppError } from '../../errors.js';
 
 interface SliceOverride {
   slice: string;
@@ -32,54 +33,49 @@ export async function registerRunTimeslicesRoute(app: FastifyInstance) {
     
     // Validation
     if (!body.graph || !body.graph.nodes || !Array.isArray(body.graph.nodes)) {
-      return reply.code(400).send({ 
-        error: { 
-          type: 'BAD_INPUT', 
-          message: 'graph.nodes required',
-          field: 'graph.nodes'
-        } 
+      return replyWithAppError(reply, { 
+        type: 'BAD_INPUT', 
+        statusCode: 400,
+        message: 'graph.nodes required',
+        fields: { field: 'graph.nodes' },
       });
     }
     
     if (!body.timeslices || !Array.isArray(body.timeslices) || body.timeslices.length === 0) {
-      return reply.code(400).send({ 
-        error: { 
-          type: 'BAD_INPUT', 
-          message: 'timeslices array required with at least one slice',
-          field: 'timeslices'
-        } 
+      return replyWithAppError(reply, { 
+        type: 'BAD_INPUT', 
+        statusCode: 400,
+        message: 'timeslices array required with at least one slice',
+        fields: { field: 'timeslices' },
       });
     }
     
     if (body.timeslices.length > MAX_TIMESLICES) {
-      return reply.code(400).send({ 
-        error: { 
-          type: 'BAD_INPUT', 
-          message: `Maximum ${MAX_TIMESLICES} timeslices allowed, got ${body.timeslices.length}`,
-          field: 'timeslices'
-        } 
+      return replyWithAppError(reply, { 
+        type: 'BAD_INPUT', 
+        statusCode: 400,
+        message: `Maximum ${MAX_TIMESLICES} timeslices allowed, got ${body.timeslices.length}`,
+        fields: { field: 'timeslices' },
       });
     }
     
     // Validate base graph limits
     if (body.graph.nodes.length > MAX_NODES) {
-      return reply.code(400).send({ 
-        error: { 
-          type: 'BAD_INPUT', 
-          message: `graph exceeds max ${MAX_NODES} nodes`,
-          field: 'graph.nodes'
-        } 
+      return replyWithAppError(reply, { 
+        type: 'BAD_INPUT', 
+        statusCode: 400,
+        message: `graph exceeds max ${MAX_NODES} nodes`,
+        fields: { field: 'graph.nodes' },
       });
     }
     
     const baseEdges = body.graph.edges || [];
     if (baseEdges.length > MAX_EDGES) {
-      return reply.code(400).send({ 
-        error: { 
-          type: 'BAD_INPUT', 
-          message: `graph exceeds max ${MAX_EDGES} edges`,
-          field: 'graph.edges'
-        } 
+      return replyWithAppError(reply, { 
+        type: 'BAD_INPUT', 
+        statusCode: 400,
+        message: `graph exceeds max ${MAX_EDGES} edges`,
+        fields: { field: 'graph.edges' },
       });
     }
     
@@ -88,12 +84,11 @@ export async function registerRunTimeslicesRoute(app: FastifyInstance) {
     const overrides = body.slice_overrides || [];
     for (const override of overrides) {
       if (!sliceSet.has(override.slice)) {
-        return reply.code(400).send({ 
-          error: { 
-            type: 'BAD_INPUT', 
-            message: `slice_override references unknown slice: ${override.slice}`,
-            field: 'slice_overrides[].slice'
-          } 
+        return replyWithAppError(reply, { 
+          type: 'BAD_INPUT', 
+          statusCode: 400,
+          message: `slice_override references unknown slice: ${override.slice}`,
+          fields: { field: 'slice_overrides[].slice' },
         });
       }
     }
@@ -106,12 +101,11 @@ export async function registerRunTimeslicesRoute(app: FastifyInstance) {
       
       if (!priorsValidation.valid) {
         const firstError = priorsValidation.errors[0];
-        return reply.code(400).send({
-          error: { 
-            type: 'BAD_INPUT', 
-            message: firstError.message,
-            field: firstError.field
-          }
+        return replyWithAppError(reply, {
+          type: 'BAD_INPUT', 
+          statusCode: 400,
+          message: firstError.message,
+          fields: { field: firstError.field },
         });
       }
     }
@@ -124,12 +118,11 @@ export async function registerRunTimeslicesRoute(app: FastifyInstance) {
 
       if (!evidenceValidation.valid) {
         const firstError = evidenceValidation.errors[0];
-        return reply.code(400).send({
-          error: {
-            type: 'BAD_INPUT',
-            message: firstError.message,
-            field: firstError.field
-          }
+        return replyWithAppError(reply, {
+          type: 'BAD_INPUT',
+          statusCode: 400,
+          message: firstError.message,
+          fields: { field: firstError.field },
         });
       }
     }

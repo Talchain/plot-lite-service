@@ -3,6 +3,7 @@
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { createHash } from 'crypto';
+import { replyWithAppError } from '../../errors.js';
 
 interface InspectRequest {
   graph: { nodes: any[]; edges: any[] };
@@ -15,7 +16,12 @@ export async function registerInspectRoute(app: FastifyInstance) {
     const body = req.body as InspectRequest;
 
     if (!body.graph || !body.graph.nodes) {
-      return reply.code(400).send({ error: { type: 'BAD_INPUT', message: 'graph required' } });
+      return replyWithAppError(reply, {
+        type: 'BAD_INPUT',
+        statusCode: 400,
+        message: 'graph required',
+        fields: { field: 'graph' },
+      });
     }
 
     const seed = body.seed || 4242;

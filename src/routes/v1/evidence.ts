@@ -2,6 +2,7 @@
  * POST /v1/evidence - Evidence & Priors
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { replyWithAppError } from '../../errors.js';
 
 interface EvidenceRequest {
   graph: { nodes: any[]; edges: any[] };
@@ -24,11 +25,21 @@ export async function registerEvidenceRoute(app: FastifyInstance) {
     
     // Validation
     if (!body.graph || !body.graph.nodes || !Array.isArray(body.graph.nodes)) {
-      return reply.code(400).send({ error: { type: 'BAD_INPUT', message: 'graph.nodes required' } });
+      return replyWithAppError(reply, {
+        type: 'BAD_INPUT',
+        statusCode: 400,
+        message: 'graph.nodes required',
+        fields: { field: 'graph.nodes' },
+      });
     }
     
     if (!body.priors || !Array.isArray(body.priors) || body.priors.length === 0) {
-      return reply.code(400).send({ error: { type: 'BAD_INPUT', message: 'priors array required with at least one prior' } });
+      return replyWithAppError(reply, {
+        type: 'BAD_INPUT',
+        statusCode: 400,
+        message: 'priors array required with at least one prior',
+        fields: { field: 'priors' },
+      });
     }
     
     // Validate priors refer to existing nodes
@@ -36,11 +47,11 @@ export async function registerEvidenceRoute(app: FastifyInstance) {
     const invalidPriors = body.priors.filter(p => !nodeIds.has(p.node_id));
     
     if (invalidPriors.length > 0) {
-      return reply.code(400).send({ 
-        error: { 
-          type: 'BAD_INPUT', 
-          message: `Invalid node_ids in priors: ${invalidPriors.map(p => p.node_id).join(', ')}` 
-        } 
+      return replyWithAppError(reply, {
+        type: 'BAD_INPUT',
+        statusCode: 400,
+        message: `Invalid node_ids in priors: ${invalidPriors.map(p => p.node_id).join(', ')}`,
+        fields: { field: 'priors[].node_id' },
       });
     }
     
