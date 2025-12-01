@@ -5,6 +5,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { createHash } from 'crypto';
 import { recordAuditEvent } from '../../governance/audit-ring.js';
+import { replyWithAppError } from '../../errors.js';
 
 interface GraphDelta {
   label: string;
@@ -31,54 +32,49 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
     
     // Validation
     if (!body.base_graph || !body.base_graph.nodes || !Array.isArray(body.base_graph.nodes)) {
-      return reply.code(400).send({ 
-        error: { 
-          type: 'BAD_INPUT', 
-          message: 'base_graph.nodes required',
-          field: 'base_graph.nodes'
-        } 
+      return replyWithAppError(reply, { 
+        type: 'BAD_INPUT', 
+        statusCode: 400,
+        message: 'base_graph.nodes required',
+        fields: { field: 'base_graph.nodes' },
       });
     }
     
     if (!body.deltas || !Array.isArray(body.deltas) || body.deltas.length === 0) {
-      return reply.code(400).send({ 
-        error: { 
-          type: 'BAD_INPUT', 
-          message: 'deltas array required with at least one scenario',
-          field: 'deltas'
-        } 
+      return replyWithAppError(reply, { 
+        type: 'BAD_INPUT', 
+        statusCode: 400,
+        message: 'deltas array required with at least one scenario',
+        fields: { field: 'deltas' },
       });
     }
     
     if (body.deltas.length > MAX_DELTAS) {
-      return reply.code(400).send({ 
-        error: { 
-          type: 'BAD_INPUT', 
-          message: `Maximum ${MAX_DELTAS} deltas allowed, got ${body.deltas.length}`,
-          field: 'deltas'
-        } 
+      return replyWithAppError(reply, { 
+        type: 'BAD_INPUT', 
+        statusCode: 400,
+        message: `Maximum ${MAX_DELTAS} deltas allowed, got ${body.deltas.length}`,
+        fields: { field: 'deltas' },
       });
     }
     
     // Validate base graph limits
     if (body.base_graph.nodes.length > MAX_NODES) {
-      return reply.code(400).send({ 
-        error: { 
-          type: 'BAD_INPUT', 
-          message: `base_graph exceeds max ${MAX_NODES} nodes`,
-          field: 'base_graph.nodes'
-        } 
+      return replyWithAppError(reply, { 
+        type: 'BAD_INPUT', 
+        statusCode: 400,
+        message: `base_graph exceeds max ${MAX_NODES} nodes`,
+        fields: { field: 'base_graph.nodes' },
       });
     }
     
     // Validate base_graph.edges is array if present
     if (body.base_graph.edges !== undefined && !Array.isArray(body.base_graph.edges)) {
-      return reply.code(400).send({ 
-        error: { 
-          type: 'BAD_INPUT', 
-          message: 'base_graph.edges must be an array',
-          field: 'base_graph.edges'
-        } 
+      return replyWithAppError(reply, { 
+        type: 'BAD_INPUT', 
+        statusCode: 400,
+        message: 'base_graph.edges must be an array',
+        fields: { field: 'base_graph.edges' },
       });
     }
     
@@ -90,12 +86,11 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
       
       if (!priorsValidation.valid) {
         const firstError = priorsValidation.errors[0];
-        return reply.code(400).send({
-          error: {
-            type: 'BAD_INPUT',
-            message: firstError.message,
-            field: firstError.field
-          }
+        return replyWithAppError(reply, {
+          type: 'BAD_INPUT',
+          statusCode: 400,
+          message: firstError.message,
+          fields: { field: firstError.field },
         });
       }
     }
@@ -108,24 +103,22 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
       
       if (!evidenceValidation.valid) {
         const firstError = evidenceValidation.errors[0];
-        return reply.code(400).send({
-          error: {
-            type: 'BAD_INPUT',
-            message: firstError.message,
-            field: firstError.field
-          }
+        return replyWithAppError(reply, {
+          type: 'BAD_INPUT',
+          statusCode: 400,
+          message: firstError.message,
+          fields: { field: firstError.field },
         });
       }
     }
     
     const baseEdges = body.base_graph.edges || [];
     if (baseEdges.length > MAX_EDGES) {
-      return reply.code(400).send({ 
-        error: { 
-          type: 'BAD_INPUT', 
-          message: `base_graph exceeds max ${MAX_EDGES} edges`,
-          field: 'base_graph.edges'
-        } 
+      return replyWithAppError(reply, { 
+        type: 'BAD_INPUT', 
+        statusCode: 400,
+        message: `base_graph exceeds max ${MAX_EDGES} edges`,
+        fields: { field: 'base_graph.edges' },
       });
     }
     
@@ -142,22 +135,20 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
       
       // Validate merged graph limits
       if (graph.nodes.length > MAX_NODES) {
-        return reply.code(400).send({ 
-          error: { 
-            type: 'BAD_INPUT', 
-            message: `Delta '${delta.label}' results in ${graph.nodes.length} nodes (max ${MAX_NODES})`,
-            field: `deltas[${i}]`
-          } 
+        return replyWithAppError(reply, { 
+          type: 'BAD_INPUT', 
+          statusCode: 400,
+          message: `Delta '${delta.label}' results in ${graph.nodes.length} nodes (max ${MAX_NODES})`,
+          fields: { field: `deltas[${i}]` },
         });
       }
       
       if (graph.edges.length > MAX_EDGES) {
-        return reply.code(400).send({ 
-          error: { 
-            type: 'BAD_INPUT', 
-            message: `Delta '${delta.label}' results in ${graph.edges.length} edges (max ${MAX_EDGES})`,
-            field: `deltas[${i}]`
-          } 
+        return replyWithAppError(reply, { 
+          type: 'BAD_INPUT', 
+          statusCode: 400,
+          message: `Delta '${delta.label}' results in ${graph.edges.length} edges (max ${MAX_EDGES})`,
+          fields: { field: `deltas[${i}]` },
         });
       }
       

@@ -1,7 +1,28 @@
 import { httpRequest, type HttpOptions } from './http.js';
 import { LimitsResponse, RunRequest, RunResponse, OversizeError } from './types.js';
+import {
+  classifyEvidenceFreshness,
+  summarizeEvidenceFreshness,
+  type EvidenceFreshness,
+  type EvidenceFreshnessBucket,
+  type EvidenceFreshnessSummary,
+  type EvidenceFreshnessThresholds,
+  type EvidenceSample,
+} from './evidence.js';
 
-export { LimitsResponse, RunRequest, RunResponse, OversizeError };
+export {
+  LimitsResponse,
+  RunRequest,
+  RunResponse,
+  OversizeError,
+  classifyEvidenceFreshness,
+  summarizeEvidenceFreshness,
+  type EvidenceFreshness,
+  type EvidenceFreshnessBucket,
+  type EvidenceFreshnessSummary,
+  type EvidenceFreshnessThresholds,
+  type EvidenceSample,
+};
 
 // Generate request ID (browser-safe)
 function genReqId(): string {

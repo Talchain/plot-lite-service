@@ -1,13 +1,17 @@
 /**
  * Provenance Hook - Pass through "where this came from" metadata
- * Accepts optional edge.provenance_note and aggregates into model_card.sources
+ * Accepts optional edge.provenance_note (whiteboard flows) or edge.provenance (engine GraphV1)
+ * and aggregates into stable source lists and counts.
  */
 
 export interface GraphEdgeWithProvenance {
   from: string;
   to: string;
   weight?: number;
+  // Whiteboard flows: explicit provenance_note field
   provenance_note?: string; // Optional: "Study XYZ 2023", "Expert estimate", etc.
+  // Engine GraphV1: reuse GraphEdge.provenance when present
+  provenance?: string;
 }
 
 export interface GraphWithProvenance {
@@ -19,13 +23,23 @@ export interface GraphWithProvenance {
  * Extract unique provenance sources from graph edges
  * Returns sorted list for determinism
  */
+// Treat these labels as assumptions rather than external evidence
+const ASSUMPTION_LABELS = new Set(['template', 'assumption']);
+
 export function extractProvenanceSources(graph: GraphWithProvenance): string[] {
   const sources = new Set<string>();
 
   for (const edge of graph.edges) {
-    if (edge.provenance_note && edge.provenance_note.trim().length > 0) {
-      sources.add(edge.provenance_note.trim());
-    }
+    const raw = edge.provenance_note ?? (edge as any).provenance;
+    if (typeof raw !== 'string') continue;
+
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+
+    // Skip assumption-only labels; we only want external evidence sources
+    if (ASSUMPTION_LABELS.has(trimmed.toLowerCase())) continue;
+
+    sources.add(trimmed);
   }
 
   // Sort for determinism
@@ -81,9 +95,16 @@ export function aggregateProvenance(graph: GraphWithProvenance): {
   edges_total: number;
 } {
   const sources = extractProvenanceSources(graph);
-  const edges_with_provenance = graph.edges.filter(e => 
-    e.provenance_note && e.provenance_note.trim().length > 0
-  ).length;
+
+  let edges_with_provenance = 0;
+  for (const edge of graph.edges) {
+    const raw = edge.provenance_note ?? (edge as any).provenance;
+    if (typeof raw !== 'string') continue;
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    if (ASSUMPTION_LABELS.has(trimmed.toLowerCase())) continue;
+    edges_with_provenance++;
+  }
 
   return {
     sources,

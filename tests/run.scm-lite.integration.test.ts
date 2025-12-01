@@ -75,7 +75,7 @@ describe('POST /v1/run with SCM-Lite enabled', () => {
     });
 
     expect(res.status).toBe(200);
-    expect(res.data.schema).toBe('report.v1');
+    expect(res.data.schema).toBe('run.v1');
     expect(res.data.model_card.bma_hash).toBeDefined();
     expect(typeof res.data.model_card.bma_hash).toBe('string');
   });

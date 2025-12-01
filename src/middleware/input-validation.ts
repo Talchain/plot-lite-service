@@ -59,6 +59,7 @@ let validateRun: any;
 let validateCounterfactual: any;
 let validateCritique: any;
 let validateDraft: any;
+let validateDiff: any;
 let validateStreamQuery: any;
 
 // Graph schema with OpenAPI bounds
@@ -197,6 +198,17 @@ const draftRequestSchema = {
   },
 };
 
+// /v1/diff request schema
+const diffRequestSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['before', 'after'],
+  properties: {
+    before: graphSchema,
+    after: graphSchema,
+  },
+};
+
 /**
  * Initialize validators (lazy loading)
  */
@@ -210,6 +222,7 @@ async function initValidators() {
   validateCounterfactual = ajv.compile(counterfactualRequestSchema);
   validateCritique = ajv.compile(critiqueRequestSchema);
   validateDraft = ajv.compile(draftRequestSchema);
+  validateDiff = ajv.compile(diffRequestSchema);
   // Stream query schema (strict keys, tolerant types): demo and latency_ms only
   const streamQuerySchema = {
     type: 'object',
@@ -362,35 +375,47 @@ export function createQueryValidator(route: 'stream') {
  * Rejects: source, target, data, position, type (in nodes/edges)
  */
 function checkUIFields(body: any): string | null {
-  if (!body?.graph) return null;
-  
-  const { nodes = [], edges = [] } = body.graph;
-  
-  // Check nodes for UI-only fields
-  for (let i = 0; i < nodes.length; i++) {
-    const node = nodes[i];
-    if (node.source !== undefined) return `graph.nodes[${i}].source`;
-    if (node.target !== undefined) return `graph.nodes[${i}].target`;
-    if (node.data !== undefined) return `graph.nodes[${i}].data`;
-    if (node.position !== undefined) return `graph.nodes[${i}].position`;
+  if (!body || typeof body !== 'object') return null;
+
+  const graphs: Array<{ graph: any; prefix: string }> = [];
+
+  if (body.graph) graphs.push({ graph: body.graph, prefix: 'graph' });
+  if (body.before) graphs.push({ graph: body.before, prefix: 'before' });
+  if (body.after) graphs.push({ graph: body.after, prefix: 'after' });
+
+  for (const { graph, prefix } of graphs) {
+    const { nodes = [], edges = [] } = graph || {};
+
+    // Check nodes for UI-only fields
+    for (let i = 0; i < nodes.length; i++) {
+      const node = nodes[i];
+      if (node && typeof node === 'object') {
+        if (node.source !== undefined) return `${prefix}.nodes[${i}].source`;
+        if (node.target !== undefined) return `${prefix}.nodes[${i}].target`;
+        if (node.data !== undefined) return `${prefix}.nodes[${i}].data`;
+        if (node.position !== undefined) return `${prefix}.nodes[${i}].position`;
+      }
+    }
+
+    // Check edges for UI-only fields
+    for (let i = 0; i < edges.length; i++) {
+      const edge = edges[i];
+      if (edge && typeof edge === 'object') {
+        if (edge.source !== undefined) return `${prefix}.edges[${i}].source`;
+        if (edge.target !== undefined) return `${prefix}.edges[${i}].target`;
+        if (edge.data !== undefined) return `${prefix}.edges[${i}].data`;
+        if (edge.position !== undefined) return `${prefix}.edges[${i}].position`;
+      }
+    }
   }
-  
-  // Check edges for UI-only fields
-  for (let i = 0; i < edges.length; i++) {
-    const edge = edges[i];
-    if (edge.source !== undefined) return `graph.edges[${i}].source`;
-    if (edge.target !== undefined) return `graph.edges[${i}].target`;
-    if (edge.data !== undefined) return `graph.edges[${i}].data`;
-    if (edge.position !== undefined) return `graph.edges[${i}].position`;
-  }
-  
+
   return null;
 }
 
 /**
  * Validation middleware factory
  */
-export function createValidator(route: 'run' | 'counterfactual' | 'critique' | 'draft') {
+export function createValidator(route: 'run' | 'counterfactual' | 'critique' | 'draft' | 'diff') {
   return async function validationHandler(req: FastifyRequest, reply: FastifyReply) {
     // Initialize validators on first use
     await initValidators();
@@ -415,6 +440,10 @@ export function createValidator(route: 'run' | 'counterfactual' | 'critique' | '
       case 'draft':
         validator = validateDraft;
         allowedKeys = new Set(['description','domain']);
+        break;
+      case 'diff':
+        validator = validateDiff;
+        allowedKeys = new Set(['before','after']);
         break;
     }
 

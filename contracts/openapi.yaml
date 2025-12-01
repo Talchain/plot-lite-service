@@ -1178,6 +1178,150 @@ paths:
                     code: "BAD_INPUT"
                     message: "graphs array must contain 2-5 items"
 
+  /v1/diff:
+    post:
+      summary: Compute structural diff between two graphs
+      description: |
+        Computes a structural diff between two decision graphs for comparison views.
+      operationId: diffGraphs
+      tags: [v1, inference]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [before, after]
+              properties:
+                before:
+                  $ref: '#/components/schemas/graph'
+                after:
+                  $ref: '#/components/schemas/graph'
+            example:
+              before:
+                nodes: [{ id: "A", label: "Before" }]
+                edges: []
+              after:
+                nodes:
+                  - { id: "A", label: "Before" }
+                  - { id: "B", label: "After" }
+                edges:
+                  - { from: "A", to: "B" }
+      responses:
+        '200':
+          description: Graph diff
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [schema, graphs, diff]
+                properties:
+                  schema:
+                    type: string
+                    enum: [diff.v1]
+                  graphs:
+                    type: object
+                    properties:
+                      before:
+                        type: object
+                        properties:
+                          nodes: { type: integer }
+                          edges: { type: integer }
+                      after:
+                        type: object
+                        properties:
+                          nodes: { type: integer }
+                          edges: { type: integer }
+                  diff:
+                    type: object
+                    properties:
+                      nodes_added:
+                        type: array
+                        items:
+                          type: object
+                          additionalProperties: true
+                      nodes_removed:
+                        type: array
+                        items:
+                          type: object
+                          additionalProperties: true
+                      nodes_modified:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            node:
+                              type: object
+                              additionalProperties: true
+                            changes:
+                              type: array
+                              items:
+                                type: object
+                                properties:
+                                  field: { type: string }
+                                  old_value: {}
+                                  new_value: {}
+                      edges_added:
+                        type: array
+                        items:
+                          type: object
+                          additionalProperties: true
+                      edges_removed:
+                        type: array
+                        items:
+                          type: object
+                          additionalProperties: true
+                      edges_modified:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            edge:
+                              type: object
+                              additionalProperties: true
+                            changes:
+                              type: array
+                              items:
+                                type: object
+                                properties:
+                                  field: { type: string }
+                                  old_value: {}
+                                  new_value: {}
+                      summary:
+                        type: object
+                        properties:
+                          total_changes: { type: integer }
+                          significant_changes: { type: integer }
+              example:
+                schema: diff.v1
+                graphs:
+                  before: { nodes: 1, edges: 0 }
+                  after: { nodes: 2, edges: 1 }
+                diff:
+                  nodes_added:
+                    - { id: "B", label: "After" }
+                  nodes_removed: []
+                  nodes_modified: []
+                  edges_added:
+                    - { from: "A", to: "B" }
+                  edges_removed: []
+                  edges_modified: []
+                  summary:
+                    total_changes: 2
+                    significant_changes: 0
+        '400':
+          description: Bad input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                bad_input:
+                  value:
+                    schema: error.v1
+                    code: BAD_INPUT
+                    message: 'Missing required field: before'
+
   /v1/inspect:
     post:
       summary: Inspect graph evaluation

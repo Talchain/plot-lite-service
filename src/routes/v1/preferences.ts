@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { replyWithAppError } from '../../errors.js';
 
 interface PreferencesRequest {
   pairs: Array<{ winner: string; loser: string; strength: number }>;
@@ -10,11 +11,21 @@ export async function registerPreferencesRoute(app: FastifyInstance) {
     const body = req.body as PreferencesRequest;
     
     if (!body.pairs || !Array.isArray(body.pairs) || body.pairs.length === 0) {
-      return reply.code(400).send({ error: { type: 'BAD_INPUT', message: 'pairs array required' } });
+      return replyWithAppError(reply, {
+        type: 'BAD_INPUT',
+        statusCode: 400,
+        message: 'pairs array required',
+        fields: { field: 'pairs' },
+      });
     }
     
     if (!body.prior || !body.prior.weights) {
-      return reply.code(400).send({ error: { type: 'BAD_INPUT', message: 'prior.weights required' } });
+      return replyWithAppError(reply, {
+        type: 'BAD_INPUT',
+        statusCode: 400,
+        message: 'prior.weights required',
+        fields: { field: 'prior.weights' },
+      });
     }
     
     // Simple Bradley-Terry update (stub)
