@@ -1147,16 +1147,56 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [schema, baseline, options, seed]
                 properties:
                   schema:
                     type: string
                     example: "compare.v1"
                   baseline:
                     type: string
+                    description: 'Label of the baseline option'
                   options:
                     type: array
+                    items:
+                      type: object
+                      required: [label, p10, p50, p90, top_drivers, delta]
+                      properties:
+                        label:
+                          type: string
+                        p10:
+                          type: number
+                        p50:
+                          type: number
+                        p90:
+                          type: number
+                        top_drivers:
+                          type: array
+                          items:
+                            type: object
+                            required: [node_id, node_label, sign, contribution]
+                            properties:
+                              node_id:
+                                type: string
+                              node_label:
+                                type: string
+                              sign:
+                                type: string
+                                enum: ['+', '-']
+                              contribution:
+                                type: integer
+                        delta:
+                          type: object
+                          properties:
+                            p10: { type: number }
+                            p50: { type: number }
+                            p90: { type: number }
+                        change_attribution:
+                          $ref: '#/components/schemas/changeAttribution'
+                          description: 'Attribution explaining why outcomes differ from baseline (not present on baseline option)'
                   seed:
                     type: integer
+                  model_card_subset:
+                    type: object
               example:
                 schema: "compare.v1"
                 baseline: "A"
@@ -1165,7 +1205,37 @@ paths:
                     p10: 0.44
                     p50: 1.12
                     p90: 2.12
+                    top_drivers:
+                      - node_id: "marketing"
+                        node_label: "Marketing Spend"
+                        sign: "+"
+                        contribution: 55
                     delta: {p10: 0, p50: 0, p90: 0}
+                  - label: "B"
+                    p10: 0.50
+                    p50: 1.25
+                    p90: 2.30
+                    top_drivers:
+                      - node_id: "marketing"
+                        node_label: "Marketing Spend"
+                        sign: "+"
+                        contribution: 60
+                    delta: {p10: 0.06, p50: 0.13, p90: 0.18}
+                    change_attribution:
+                      outcome_delta: 0.13
+                      primary_drivers:
+                        - change_type: "edge_weight_changed"
+                          description: "Changed Marketing Spend → Revenue weight (0.70 → 0.90)"
+                          contribution_to_delta: 0.10
+                          contribution_pct: 77
+                          before_value: 0.70
+                          after_value: 0.90
+                          affected_nodes:
+                            - id: "marketing"
+                              label: "Marketing Spend"
+                            - id: "revenue"
+                              label: "Revenue"
+                      summary: "77% of increase from changed Marketing Spend → Revenue weight (0.70 → 0.90)"
                 seed: 4242
         '400':
           description: Bad input
@@ -1535,6 +1605,14 @@ paths:
         Returns baseline, counterfactual, and delta with identifiability check.
       operationId: intervene
       tags: [v1, inference]
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: Optional key to replay the exact prior response within a TTL (scoped per principal)
+          schema:
+            type: string
+            maxLength: 200
       requestBody:
         required: true
         content:
@@ -1593,6 +1671,10 @@ paths:
       responses:
         '200':
           description: Intervention results
+          headers:
+            Idempotent-Replayed:
+              description: '1 if response is a replay from cache; 0 if computed fresh (when Idempotency-Key provided)'
+              schema: { type: string, enum: ['0','1'] }
           content:
             application/json:
               schema:
@@ -1688,6 +1770,18 @@ paths:
                     schema: "error.v1"
                     code: "BAD_INPUT"
                     message: "actions array required with at least one intervention"
+        '409':
+          description: Idempotency key reused with a different request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                mismatch:
+                  value:
+                    schema: error.v1
+                    code: IDEMPOTENCY_MISMATCH
+                    message: Idempotency-Key was reused with a different request body; use a new key.
 
   /v1/evidence:
     post:
@@ -2044,6 +2138,14 @@ paths:
       description: Select actions under budget to maximize utility with optional constraints
       operationId: optimise
       tags: [v1, optimisation]
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: Optional key to replay the exact prior response within a TTL (scoped per principal)
+          schema:
+            type: string
+            maxLength: 200
       requestBody:
         required: true
         content:
@@ -2120,6 +2222,10 @@ paths:
       responses:
         '200':
           description: Optimisation results
+          headers:
+            Idempotent-Replayed:
+              description: '1 if response is a replay from cache; 0 if computed fresh (when Idempotency-Key provided)'
+              schema: { type: string, enum: ['0','1'] }
           content:
             application/json:
               schema:
@@ -2161,6 +2267,18 @@ paths:
                     schema: "error.v1"
                     code: "INFEASIBLE"
                     message: "Constraints cannot be satisfied"
+        '409':
+          description: Idempotency key reused with a different request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                mismatch:
+                  value:
+                    schema: error.v1
+                    code: IDEMPOTENCY_MISMATCH
+                    message: Idempotency-Key was reused with a different request body; use a new key.
 
   /v1/preferences/fit:
     post:
@@ -2216,6 +2334,14 @@ paths:
       description: Evaluate multiple graph variations from a base graph with deltas
       operationId: runBundle
       tags: [v1, inference]
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: Optional key to replay the exact prior response within a TTL (scoped per principal)
+          schema:
+            type: string
+            maxLength: 200
       requestBody:
         required: true
         content:
@@ -2265,6 +2391,10 @@ paths:
       responses:
         '200':
           description: Bundle results
+          headers:
+            Idempotent-Replayed:
+              description: '1 if response is a replay from cache; 0 if computed fresh (when Idempotency-Key provided)'
+              schema: { type: string, enum: ['0','1'] }
           content:
             application/json:
               schema:
@@ -2299,6 +2429,18 @@ paths:
                     schema: "error.v1"
                     code: "BAD_INPUT"
                     message: "Delta label is required"
+        '409':
+          description: Idempotency key reused with a different request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                mismatch:
+                  value:
+                    schema: error.v1
+                    code: IDEMPOTENCY_MISMATCH
+                    message: Idempotency-Key was reused with a different request body; use a new key.
 
   /v1/run_timeslices:
     post:
@@ -2495,11 +2637,122 @@ components:
           required: [seed]
           properties:
             seed: { type: integer }
-    
+
     # ========================================
     # /v1 SCHEMAS
     # ========================================
-    
+
+    # Structured Insights with Node/Edge References (Phase 2A)
+    nodeReference:
+      type: object
+      description: 'Reference to a graph node for UI highlighting/navigation'
+      required: [node_id, node_label]
+      properties:
+        node_id:
+          type: string
+          description: 'Node identifier'
+        node_label:
+          type: string
+          description: 'Human-readable node label'
+
+    edgeReference:
+      type: object
+      description: 'Reference to a graph edge for UI highlighting/navigation'
+      required: [from_id, from_label, to_id, to_label]
+      properties:
+        from_id:
+          type: string
+          description: 'Source node identifier'
+        from_label:
+          type: string
+          description: 'Source node label'
+        to_id:
+          type: string
+          description: 'Target node identifier'
+        to_label:
+          type: string
+          description: 'Target node label'
+
+    structuredInsight:
+      type: object
+      description: 'Insight with optional node/edge references for UI interaction'
+      required: [text]
+      properties:
+        text:
+          type: string
+          description: 'Human-readable insight text'
+        node_references:
+          type: array
+          items:
+            $ref: '#/components/schemas/nodeReference'
+          description: 'Nodes referenced in this insight'
+        edge_references:
+          type: array
+          items:
+            $ref: '#/components/schemas/edgeReference'
+          description: 'Edges referenced in this insight'
+
+    # Change Attribution (Phase 2B)
+    affectedNode:
+      type: object
+      description: 'Node affected by a change'
+      required: [id, label]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+
+    changeDriver:
+      type: object
+      description: 'Individual driver of outcome change between scenarios'
+      required: [change_type, description, contribution_to_delta, contribution_pct, affected_nodes]
+      properties:
+        change_type:
+          type: string
+          enum: [edge_added, edge_removed, edge_weight_changed, node_value_changed, node_added, node_removed]
+          description: 'Type of structural change'
+        description:
+          type: string
+          description: 'Human-readable description of the change'
+        contribution_to_delta:
+          type: number
+          description: 'Estimated causal contribution to outcome delta'
+        contribution_pct:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: 'Percentage of total change attributed to this driver'
+        before_value:
+          type: number
+          description: 'Value before change (for modifications)'
+        after_value:
+          type: number
+          description: 'Value after change (for modifications)'
+        affected_nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/affectedNode'
+          description: 'Nodes involved in this change'
+
+    changeAttribution:
+      type: object
+      description: 'Attribution explaining why outcomes differ between scenarios'
+      required: [outcome_delta, primary_drivers, summary]
+      properties:
+        outcome_delta:
+          type: number
+          description: 'Net change in outcome between baseline and comparison'
+        primary_drivers:
+          type: array
+          maxItems: 5
+          items:
+            $ref: '#/components/schemas/changeDriver'
+          description: 'Top drivers of outcome change, sorted by absolute contribution'
+        summary:
+          type: string
+          description: 'Human-readable summary of the attribution'
+
     graph:
       type: object
       required: [nodes, edges]
@@ -2644,6 +2897,10 @@ components:
           type: array
           items: { type: string }
           description: 'ISL endpoints that were called (e.g., ["validation", "sensitivity"])'
+        evidence_freshness:
+          $ref: '#/components/schemas/evidenceFreshnessSummary'
+        provenance_summary:
+          $ref: '#/components/schemas/provenanceSummary'
 
     confidenceBadge:
       type: object
@@ -2668,6 +2925,63 @@ components:
         message: { type: string }
         suggested_action: { type: string }
         auto_fixable: { type: boolean }
+
+    evidenceFreshnessSummary:
+      type: object
+      description: 'Summary of evidence timestamp recency across all evidence items'
+      properties:
+        total:
+          type: integer
+          description: 'Total number of evidence items'
+        with_timestamp:
+          type: integer
+          description: 'Number of evidence items with a valid timestamp'
+        oldest_days:
+          type: integer
+          nullable: true
+          description: 'Maximum age in days among dated evidence items (null when none)'
+        newest_days:
+          type: integer
+          nullable: true
+          description: 'Minimum age in days among dated evidence items (null when none)'
+        buckets:
+          type: object
+          description: 'Counts per freshness bucket'
+          properties:
+            FRESH: { type: integer }
+            AGING: { type: integer }
+            STALE: { type: integer }
+            UNKNOWN: { type: integer }
+    
+    provenanceSummary:
+      type: object
+      description: 'Summary of graph provenance sources and coverage'
+      properties:
+        sources:
+          type: array
+          items: { type: string }
+        source_count:
+          type: integer
+        edges_with_provenance:
+          type: integer
+        edges_total:
+          type: integer
+        coverage_ratio:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: 'Proportion of edges with external evidence provenance'
+        confidence_level:
+          type: string
+          enum: [LOW, MEDIUM, HIGH, UNKNOWN]
+        confidence_score:
+          type: number
+          minimum: 0
+          maximum: 1
+        collected_at:
+          type: string
+          format: date-time
+          description: 'ISO 8601 timestamp when the provenance summary was computed'
     
     explainDelta:
       type: object
@@ -2810,7 +3124,7 @@ components:
         identifiability: { type: string }
         insights:
           type: object
-          description: 'P1: Human-readable summary without user content leakage'
+          description: 'P1: Human-readable summary with optional structured node references for UI interaction'
           properties:
             summary:
               type: string
@@ -2820,16 +3134,20 @@ components:
               type: array
               maxItems: 5
               items:
-                type: string
-                maxLength: 100
-              description: 'Key risks identified from model quality signals'
+                oneOf:
+                  - type: string
+                    maxLength: 100
+                  - $ref: '#/components/schemas/structuredInsight'
+              description: 'Key risks identified from model quality signals (string or structured)'
             next_steps:
               type: array
               maxItems: 3
               items:
-                type: string
-                maxLength: 150
-              description: 'Recommended actions for decision makers'
+                oneOf:
+                  - type: string
+                    maxLength: 150
+                  - $ref: '#/components/schemas/structuredInsight'
+              description: 'Recommended actions for decision makers (string or structured)'
         graph_quality:
           type: object
           description: 'P1: Graph quality score (0-1) with breakdown'
