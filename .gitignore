@@ -22,6 +22,10 @@ src/**/*.js
 src/**/*.js.map
 !src/scripts/**/*.js
 
+# MacOS Finder duplicates (files with " 2", " 3", etc.)
+*\ [0-9].*
+*\ [0-9][0-9].*
+
 # Reports and local artefacts (untracked)
 reports/*.json
 reports/warp/*
