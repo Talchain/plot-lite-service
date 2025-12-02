@@ -3,7 +3,11 @@
  * British English in user-facing strings
  */
 
+import type { EvidenceFreshnessSummary } from './evidence-freshness.js';
+
 export type ConfidenceLevel = 'LOW' | 'MEDIUM' | 'HIGH';
+
+export type ProvenanceConfidenceLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'UNKNOWN';
 
 export type DetailLevel = 'quick' | 'standard' | 'deep';
 
@@ -46,6 +50,19 @@ export interface ModelCard {
     K_requested?: number;
     K_converged?: boolean;
   };
+  evidence_freshness?: EvidenceFreshnessSummary;
+  provenance_summary?: ProvenanceSummary;
+}
+
+export interface ProvenanceSummary {
+  sources: string[];
+  source_count: number;
+  edges_with_provenance: number;
+  edges_total: number;
+  coverage_ratio: number; // 0-1 proportion of edges with external provenance
+  confidence_level: ProvenanceConfidenceLevel;
+  confidence_score: number; // 0-1 summary score for provenance quality
+  collected_at: string; // ISO 8601 timestamp when summary was computed
 }
 
 export interface ConfidenceBadge {
@@ -143,6 +160,7 @@ export interface GraphNode {
   id: string;
   label: string;
   type?: string;
+  value?: number;
 }
 
 export interface GraphEdge {
