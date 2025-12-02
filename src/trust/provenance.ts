@@ -4,6 +4,8 @@
  * and aggregates into stable source lists and counts.
  */
 
+import type { ProvenanceConfidenceLevel, ProvenanceSummary } from './types.js';
+
 export interface GraphEdgeWithProvenance {
   from: string;
   to: string;
@@ -66,10 +68,6 @@ export function formatSources(sources: string[]): string {
   return `${rest}, and ${last}`;
 }
 
-/**
- * Validate provenance notes (basic sanitization)
- * Returns cleaned note or null if invalid
- */
 export function validateProvenanceNote(note: string | undefined): string | null {
   if (!note) return null;
   
@@ -84,16 +82,78 @@ export function validateProvenanceNote(note: string | undefined): string | null 
   
   return cleaned;
 }
+/**
+ * Validate an ISO 8601 timestamp string.
+ *
+ * Accepts strings that Date.parse can interpret and rejects empty/invalid
+ * values. Intended for light-weight validation of provenance metadata.
+ */
+export function isValidIsoTimestamp(value: string | undefined | null): boolean {
+  if (!value) return false;
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  let date: Date;
+  try {
+    date = new Date(trimmed);
+  } catch {
+    return false;
+  }
+
+  if (Number.isNaN(date.getTime())) return false;
+
+  // Require canonical round-trip to avoid accepting loosely parsed dates
+  // such as invalid months that JS normalises.
+  try {
+    return date.toISOString() === trimmed;
+  } catch {
+    return false;
+  }
+}
+/**
+ * Classify provenance coverage into a confidence level and score.
+ *
+ * Heuristic inputs:
+ * - edgesWithProvenance / edgesTotal → coverage_ratio (0-1)
+ * - sourceCount → small bonus for diverse sources.
+ *
+ * Returns an uppercased confidence level and a 0-1 score rounded to 2 d.p.
+ */
+export function classifyProvenanceConfidence(
+  edgesWithProvenance: number,
+  edgesTotal: number,
+  sourceCount: number,
+): { level: ProvenanceConfidenceLevel; score: number } {
+  if (edgesTotal <= 0) {
+    return { level: 'UNKNOWN', score: 0 };
+  }
+
+  const coverage = Math.max(0, Math.min(1, edgesWithProvenance / edgesTotal));
+
+  // Simple heuristic: reward more distinct sources slightly
+  let score = coverage;
+  if (sourceCount >= 3) score += 0.15;
+  else if (sourceCount >= 1) score += 0.05;
+
+  score = Math.max(0, Math.min(1, score));
+
+  let level: ProvenanceConfidenceLevel;
+  if (edgesWithProvenance === 0) {
+    level = 'LOW';
+  } else if (score >= 0.75) {
+    level = 'HIGH';
+  } else if (score >= 0.4) {
+    level = 'MEDIUM';
+  } else {
+    level = 'LOW';
+  }
+
+  return { level, score: Number(score.toFixed(2)) };
+}
 
 /**
  * Aggregate provenance metadata for model card
  */
-export function aggregateProvenance(graph: GraphWithProvenance): {
-  sources: string[];
-  source_count: number;
-  edges_with_provenance: number;
-  edges_total: number;
-} {
+export function aggregateProvenance(graph: GraphWithProvenance): ProvenanceSummary {
   const sources = extractProvenanceSources(graph);
 
   let edges_with_provenance = 0;
@@ -106,10 +166,21 @@ export function aggregateProvenance(graph: GraphWithProvenance): {
     edges_with_provenance++;
   }
 
+  const edges_total = graph.edges.length;
+  const coverage_ratio = edges_total > 0 ? edges_with_provenance / edges_total : 0;
+
+  const { level, score } = classifyProvenanceConfidence(edges_with_provenance, edges_total, sources.length);
+
+  const collected_at = new Date().toISOString();
+
   return {
     sources,
     source_count: sources.length,
     edges_with_provenance,
-    edges_total: graph.edges.length,
+    edges_total,
+    coverage_ratio: Number(coverage_ratio.toFixed(2)),
+    confidence_level: level,
+    confidence_score: score,
+    collected_at,
   };
 }

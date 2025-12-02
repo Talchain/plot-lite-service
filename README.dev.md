@@ -98,6 +98,45 @@ curl http://localhost:3500/metrics
 
 ---
 
+## Trust Signals (CEE & Provenance)
+
+### CEE Severity Classification
+
+- CEE Decision Review is gated by `CEE_ORCHESTRATOR_ENABLE` and Idempotency-Key on `/v1/run`.
+- The CEE client normalises error codes into semantic severities:
+  - `error` – blocking issues (e.g. `LIMIT_EXCEEDED`, `CIRCULAR_DEPENDENCY`).
+  - `warning` – non-blocking issues worth review (e.g. `MISSING_EVIDENCE`, `LOW_CONFIDENCE`).
+  - `info` – suggestions and contextual nudges (e.g. `CONSIDER_CONFOUNDER`).
+- Helpers live in `src/cee/severity.ts` and are re-exported from `src/cee/index.ts`:
+  - `classifyCeeSeverity(code)` → `'error' | 'warning' | 'info'`.
+  - `isBlockingError(code)` → `true` for blocking issues.
+  - `describeSeverity(severity)` → human-readable description for UI/logging.
+- Unknown codes default to `warning` for safety.
+
+Run the standalone example:
+```bash
+npx tsx examples/cee-severity.ts
+```
+
+### Provenance Summary & Confidence
+
+- When `PROVENANCE_ENABLE=1`, `/v1/run` attaches `model_card.provenance_summary`.
+- Summary is derived from `src/trust/provenance.ts` and includes:
+  - `sources` / `source_count` – unique external provenance labels.
+  - `edges_with_provenance` / `edges_total` – coverage counts.
+  - `coverage_ratio` – proportion of edges with external evidence.
+  - `confidence_level` – `LOW | MEDIUM | HIGH | UNKNOWN`.
+  - `confidence_score` – 0–1 provenance quality score.
+  - `collected_at` – ISO 8601 timestamp.
+- Assumption-only labels (`template`, `assumption`) are treated as non-evidence and excluded from coverage.
+
+Inspect a provenance summary using the helper directly:
+```bash
+npx tsx examples/provenance-tracking.ts
+```
+
+---
+
 ## Environment Variables
 
 ### Core

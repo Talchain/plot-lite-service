@@ -10,6 +10,12 @@
 - **insights** - Human-readable summary, risks, and next_steps without user content leakage
 - **linearity_warning** - Now exposed in `/v1/run` response (was computed but hidden)
 
+### Added - CEE Severity & Provenance
+- **CEE severity classification** - `CeeSeverity` (`error` | `warning` | `info`) with helpers to classify codes, detect blocking errors, and describe severity for UI/logging.
+- **CEE error code tables** - Explicit `ERROR_CODES`, `WARNING_CODES`, and `INFO_CODES` sets with tests guarding overlap and coverage.
+- **Provenance summary on model_card** - Enriched `model_card.provenance_summary` with coverage ratio, confidence level/score, and timestamp while preserving existing fields.
+- **OpenAPI contract** - New `provenanceSummary` component wired into `modelCard`, documenting provenance coverage and confidence shape.
+
 ### Fixed
 - Linearity check now uses actual inference p50 (was using placeholder `baseline * 1.15`)
 - Confidence k_coverage now uses actual K_evaluated (was using requested K)
