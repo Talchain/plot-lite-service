@@ -5,7 +5,8 @@ export type ErrorType =
   | 'RETRYABLE'
   | 'INTERNAL'
   | 'RATE_LIMIT'
-  | 'BREAKER_OPEN';
+  | 'BREAKER_OPEN'
+  | 'IDEMPOTENCY_MISMATCH';
 
 export interface OlumiErrorV1 {
   code: string;
@@ -89,6 +90,7 @@ export function errorTypeToStatus(type: ErrorType): number {
     case 'TIMEOUT': return 504;
     case 'RETRYABLE': return 503;
     case 'RATE_LIMIT': return 429;
+    case 'IDEMPOTENCY_MISMATCH': return 409;
     case 'BREAKER_OPEN': return 503;
     case 'INTERNAL':
     default: return 500;

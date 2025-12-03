@@ -3,6 +3,7 @@ import { createHash } from 'crypto';
 import { validateConstraints, filterActionsByConstraints, isFeasible, type Constraints, type Action } from '../../engine/constraints.js';
 import { runKernel } from '../../scm-lite/kernel.js';
 import { adaptGraphToDAG } from '../../scm-lite/adapter.js';
+import { canonicalIdempotencyPreHandler, canonicalIdempotencyOnSend } from '../../middleware/idempotency-canonical.js';
 
 interface OptimiseRequest {
   graph: { nodes: any[]; edges: any[] };
@@ -51,7 +52,21 @@ async function evaluateUtility(graph: any, objective: any, seed: number): Promis
 }
 
 export async function registerOptimiseRoute(app: FastifyInstance) {
-  app.post('/v1/optimise', async (req: FastifyRequest, reply: FastifyReply) => {
+  app.post(
+    '/v1/optimise',
+    {
+      preHandler: [
+        async (req: FastifyRequest, reply: FastifyReply) => {
+          await canonicalIdempotencyPreHandler(req, reply, '/v1/optimise');
+        },
+      ],
+      onSend: [
+        async (req: FastifyRequest, reply: FastifyReply, payload: any) => {
+          return canonicalIdempotencyOnSend(req, reply, payload);
+        },
+      ],
+    },
+    async (req: FastifyRequest, reply: FastifyReply) => {
     const start = Date.now();
     const body = req.body as OptimiseRequest;
     if (!body.actions || typeof body.budget !== 'number') {

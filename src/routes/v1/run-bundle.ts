@@ -6,6 +6,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { createHash } from 'crypto';
 import { recordAuditEvent } from '../../governance/audit-ring.js';
 import { replyWithAppError } from '../../errors.js';
+import { canonicalIdempotencyPreHandler, canonicalIdempotencyOnSend } from '../../middleware/idempotency-canonical.js';
 
 interface GraphDelta {
   label: string;
@@ -26,7 +27,21 @@ const MAX_EDGES = 200;
 const MAX_DELTAS = 10;
 
 export async function registerRunBundleRoute(app: FastifyInstance) {
-  app.post('/v1/run_bundle', async (req: FastifyRequest, reply: FastifyReply) => {
+  app.post(
+    '/v1/run_bundle',
+    {
+      preHandler: [
+        async (req: FastifyRequest, reply: FastifyReply) => {
+          await canonicalIdempotencyPreHandler(req, reply, '/v1/run_bundle');
+        },
+      ],
+      onSend: [
+        async (req: FastifyRequest, reply: FastifyReply, payload: any) => {
+          return canonicalIdempotencyOnSend(req, reply, payload);
+        },
+      ],
+    },
+    async (req: FastifyRequest, reply: FastifyReply) => {
     const start = Date.now();
     const body = req.body as RunBundleRequest;
     
