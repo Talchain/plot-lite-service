@@ -16,6 +16,12 @@
 - **Provenance summary on model_card** - Enriched `model_card.provenance_summary` with coverage ratio, confidence level/score, and timestamp while preserving existing fields.
 - **OpenAPI contract** - New `provenanceSummary` component wired into `modelCard`, documenting provenance coverage and confidence shape.
 
+### Added - Evidence Freshness in Model Card
+- **Evidence freshness summary** - Optional `model_card.evidence_freshness` object on `/v1/run` responses when evidence is supplied.
+- **Bucketed age classification** - Evidence items are classified into `FRESH`, `AGING`, `STALE`, and `UNKNOWN` buckets based on timestamp age (0–90 days, 91–364 days, 365+ days, or missing/invalid).
+- **Coverage metrics** - Exposes `total`, `with_timestamp`, and bucket counts to show how much of the graph is backed by dated evidence.
+- **Age metrics** - Tracks `oldest_days` and `newest_days` to highlight when the oldest evidence may need review.
+
 ### Fixed
 - Linearity check now uses actual inference p50 (was using placeholder `baseline * 1.15`)
 - Confidence k_coverage now uses actual K_evaluated (was using requested K)

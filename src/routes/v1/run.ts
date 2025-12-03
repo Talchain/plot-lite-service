@@ -51,6 +51,7 @@ import {
 } from '../../config/constants.js';
 import { validateEffect, applyEffect } from '../../engine/effects.js';
 import { callDecisionReviewFromEngine } from '../../cee/client.js';
+import { summarizeEvidenceFreshnessFromEvidence } from '../../trust/evidence-freshness.js';
 
 
 export interface RunRequest {
@@ -730,6 +731,26 @@ export async function registerRunRoute(app: FastifyInstance) {
       } catch {}
     }
 
+    // Evidence freshness summary for model_card (additive; only when evidence supplied)
+    let evidence_freshness: ReturnType<typeof summarizeEvidenceFreshnessFromEvidence> | undefined;
+    if (body.evidence && body.evidence.length > 0) {
+      evidence_freshness = summarizeEvidenceFreshnessFromEvidence(
+        (body.evidence as any[]).map((e: any) => ({ timestamp: e.timestamp ?? null })),
+      );
+
+      // Add a critique warning when stale evidence (>=365 days) is present at standard/deep detail levels
+      if (detailConfig.run_critique && evidence_freshness.buckets.STALE > 0) {
+        try {
+          (critique as any[]).push({
+            code: 'STALE_EVIDENCE',
+            message: 'Some evidence is stale (>= 365 days old); consider refreshing key inputs.',
+            severity: 'IMPROVEMENT',
+            semantic_severity: 'WARNING',
+          });
+        } catch {}
+      }
+    }
+
     // P1: Generate insights block (human-readable summary without user content)
     const topDriverEdge = top_edge_drivers[0];
     let topDriverLabel: string | undefined;
@@ -783,6 +804,7 @@ export async function registerRunRoute(app: FastifyInstance) {
       model_card: {
         ...model_card,
         ...(provenance_summary && { provenance_summary }),
+        ...(evidence_freshness && { evidence_freshness }),
       },
       result: {
         response_hash: hashCanonicalInput(body),
