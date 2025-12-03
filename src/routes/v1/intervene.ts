@@ -6,6 +6,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { createHash } from 'crypto';
 import { recordAuditEvent } from '../../governance/audit-ring.js';
 import { replyWithAppError } from '../../errors.js';
+import { canonicalIdempotencyPreHandler, canonicalIdempotencyOnSend } from '../../middleware/idempotency-canonical.js';
 
 interface InterveneRequest {
   graph: { nodes: any[]; edges: any[] };
@@ -16,7 +17,21 @@ interface InterveneRequest {
 }
 
 export async function registerInterveneRoute(app: FastifyInstance) {
-  app.post('/v1/intervene', async (req: FastifyRequest, reply: FastifyReply) => {
+  app.post(
+    '/v1/intervene',
+    {
+      preHandler: [
+        async (req: FastifyRequest, reply: FastifyReply) => {
+          await canonicalIdempotencyPreHandler(req, reply, '/v1/intervene');
+        },
+      ],
+      onSend: [
+        async (req: FastifyRequest, reply: FastifyReply, payload: any) => {
+          return canonicalIdempotencyOnSend(req, reply, payload);
+        },
+      ],
+    },
+    async (req: FastifyRequest, reply: FastifyReply) => {
     const start = Date.now();
     const body = req.body as InterveneRequest;
     
