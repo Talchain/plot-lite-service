@@ -135,6 +135,51 @@ Inspect a provenance summary using the helper directly:
 npx tsx examples/provenance-tracking.ts
 ```
 
+### Evidence Freshness Tracking
+
+- When a `/v1/run` request includes an `evidence[]` array, the engine summarises evidence recency into `model_card.evidence_freshness`.
+- The summary shape (see `src/trust/evidence-freshness.ts`) is:
+
+```ts
+model_card: {
+  // ...
+  evidence_freshness?: {
+    total: number;              // total evidence items
+    with_timestamp: number;     // items with a valid timestamp
+    oldest_days: number | null; // age (days) of the oldest dated item
+    newest_days: number | null; // age (days) of the newest dated item
+    buckets: {
+      FRESH: number;   // 0–90 days old
+      AGING: number;   // 91–364 days old
+      STALE: number;   // 365+ days old
+      UNKNOWN: number; // missing or invalid timestamp
+    };
+  };
+}
+```
+
+- Buckets are computed from evidence `timestamp` fields (ISO 8601 strings). Invalid or missing timestamps are treated as `UNKNOWN`.
+- This summary is intended for **data quality transparency** rather than hard gating: UI clients can surface badges and warnings without re-implementing the logic.
+
+Example usage in a client:
+
+```ts
+const freshness = response.model_card?.evidence_freshness;
+if (freshness && freshness.total > 0) {
+  const freshRatio = freshness.buckets.FRESH / freshness.total;
+
+  if (freshRatio >= 0.7) {
+    showQualityBadge('High quality evidence', 'green');
+  }
+
+  if (freshness.oldest_days != null && freshness.oldest_days >= 365) {
+    showWarning('Some evidence may be stale – consider refreshing key inputs');
+  }
+}
+```
+
+In addition, the critique system may emit a `STALE_EVIDENCE` item (severity `IMPROVEMENT`, semantic severity `WARNING`) when stale evidence is present at standard detail level; this is intentionally skipped for `detail_level = 'quick'`.
+
 ---
 
 ## Environment Variables
