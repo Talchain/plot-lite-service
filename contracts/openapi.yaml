@@ -42,6 +42,14 @@ tags:
     description: Drafting and UX endpoints
   - name: legacy
     description: Legacy endpoints for backwards compatibility
+  - name: analysis
+    description: Analysis endpoints (sensitivity, robustness)
+  - name: batch
+    description: Batch operation endpoints
+  - name: optimisation
+    description: Optimization and action planning endpoints
+  - name: calibration
+    description: Preference calibration endpoints
 paths:
   /health:
     get:
@@ -211,7 +219,10 @@ paths:
       summary: Capability probe (method not allowed)
       operationId: runHeadV1
       tags: [v1, inference]
+      description: Returns 405 Method Not Allowed. Use POST for inference requests.
       responses:
+        '200':
+          description: Not applicable - HEAD is not supported on this endpoint
         '405':
           description: Method Not Allowed
           headers:
@@ -378,7 +389,7 @@ paths:
                 internal_error:
                   value:
                     schema: error.v1
-                    code: INTERNAL_ERROR
+                    code: INTERNAL
                     message: Failed to retrieve version information
   
   /v1/openapi.json:
@@ -386,6 +397,7 @@ paths:
       summary: OpenAPI specification (read-only)
       operationId: openapiServeV1
       tags: [v1, meta]
+      description: Serves the OpenAPI specification as JSON. Supports conditional requests via ETag.
       responses:
         '200':
           description: OK
@@ -433,10 +445,15 @@ paths:
       operationId: headRunV1
       tags: [v1, meta]
       description: |
-        Returns 204 with no body. Used by UI clients to verify endpoint availability.
+        Returns 405 Method Not Allowed with Allow header. Use POST for inference.
       responses:
-        '204':
-          description: No Content - endpoint is available
+        '200':
+          description: Not applicable - HEAD returns 405
+        '405':
+          description: Method Not Allowed
+          headers:
+            Allow:
+              schema: { type: string, example: 'POST, OPTIONS, HEAD' }
     post:
       summary: Execute probabilistic model
       operationId: runV1
@@ -779,6 +796,7 @@ paths:
   /v1/counterfactual:
     post:
       summary: Counterfactual analysis
+      operationId: counterfactual
       tags: [v1, inference]
       description: |
         Perform counterfactual intervention with trust signals.
@@ -1039,6 +1057,7 @@ paths:
       summary: List available templates
       operationId: templatesList
       tags: [v1, ergonomics]
+      description: Returns a list of available graph templates for quick-start scenarios.
       responses:
         '200':
           description: OK
@@ -1062,7 +1081,7 @@ paths:
                 internal_error:
                   value:
                     schema: error.v1
-                    code: INTERNAL_ERROR
+                    code: INTERNAL
                     message: Failed to load templates
 
   /v1/templates/{id}/graph:
@@ -1070,6 +1089,7 @@ paths:
       summary: Get canonical graph for a template
       operationId: templateGraph
       tags: [v1, ergonomics]
+      description: Returns the canonical graph definition for a given template ID.
       parameters:
         - in: path
           name: id
@@ -1121,12 +1141,7 @@ paths:
                     required: [graph, label]
                     properties:
                       graph:
-                        type: object
-                        properties:
-                          nodes:
-                            type: array
-                          edges:
-                            type: array
+                        $ref: '#/components/schemas/graph'
                       label:
                         type: string
             example:
@@ -1192,7 +1207,6 @@ paths:
                             p90: { type: number }
                         change_attribution:
                           $ref: '#/components/schemas/changeAttribution'
-                          description: 'Attribution explaining why outcomes differ from baseline (not present on baseline option)'
                   seed:
                     type: integer
                   model_card_subset:
@@ -1407,12 +1421,7 @@ paths:
               required: [graph]
               properties:
                 graph:
-                  type: object
-                  properties:
-                    nodes:
-                      type: array
-                    edges:
-                      type: array
+                  $ref: '#/components/schemas/graph'
                 seed:
                   type: integer
             example:
@@ -1489,6 +1498,13 @@ paths:
                             type: string
                     edges:
                       type: array
+                      items:
+                        type: object
+                        properties:
+                          from: { type: string }
+                          to: { type: string }
+                          label: { type: string }
+                          weight: { type: number }
                 seed:
                   type: integer
                   example: 4242
@@ -1562,6 +1578,12 @@ paths:
                           type: string
                   top_drivers:
                     type: array
+                    items:
+                      type: object
+                      properties:
+                        node_id: { type: string }
+                        contribution: { type: number }
+                        sign: { type: string, enum: ['+','-'] }
                   meta:
                     type: object
               example:
@@ -1587,7 +1609,6 @@ paths:
                     properties:
                       type:
                         type: string
-                        example: "BAD_INPUT"
                       message:
                         type: string
               examples:
@@ -1619,7 +1640,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [graph, do]
+              required: [graph]
               properties:
                 graph:
                   type: object
@@ -1637,6 +1658,13 @@ paths:
                             type: string
                     edges:
                       type: array
+                      items:
+                        type: object
+                        properties:
+                          from: { type: string }
+                          to: { type: string }
+                          label: { type: string }
+                          weight: { type: number }
                 seed:
                   type: integer
                   example: 4242
@@ -1816,6 +1844,13 @@ paths:
                             type: string
                     edges:
                       type: array
+                      items:
+                        type: object
+                        properties:
+                          from: { type: string }
+                          to: { type: string }
+                          label: { type: string }
+                          weight: { type: number }
                 seed:
                   type: integer
                   example: 4242
@@ -1880,6 +1915,13 @@ paths:
                             enum: [increase, decrease, none]
                   top_drivers:
                     type: array
+                    items:
+                      type: object
+                      properties:
+                        node_id: { type: string }
+                        contribution: { type: number }
+                        sign: { type: string, enum: ['+','-'] }
+                        source: { type: string }
                   meta:
                     type: object
                     properties:
@@ -2234,7 +2276,13 @@ paths:
                   schema: { type: string, example: "optimise.v1" }
                   selected: { type: array, items: { type: string } }
                   utility: { type: object }
-                  explanations: { type: array }
+                  explanations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        action_id: { type: string }
+                        marginal_gain: { type: number }
                   meta: { type: object }
         '400':
           description: Bad input or infeasible constraints
@@ -2569,7 +2617,7 @@ components:
           enum: [error.v1]
         code:
           type: string
-          enum: [BAD_INPUT, SCOPE_LIMIT, UNAUTHORIZED, FORBIDDEN, RATE_LIMITED, RATE_LIMIT, TIMEOUT, RETRYABLE, INTERNAL, BREAKER_OPEN, NOT_FOUND]
+          enum: [BAD_INPUT, SCOPE_LIMIT, UNAUTHORIZED, FORBIDDEN, RATE_LIMITED, RATE_LIMIT, TIMEOUT, RETRYABLE, INTERNAL, BREAKER_OPEN, NOT_FOUND, IDEMPOTENCY_MISMATCH]
         message:
           type: string
         retryable:
@@ -2594,23 +2642,6 @@ components:
         error:
           type: object
           additionalProperties: true
-    OlumiErrorV1:
-      allOf:
-        - $ref: '#/components/schemas/errorV1'
-    errorResponse:
-      type: object
-      required: [error]
-      properties:
-        error:
-          type: object
-          required: [type, message]
-          properties:
-            type: { type: string }
-            message: { type: string }
-            hint: { type: string }
-            fields: { type: object }
-            retryable: { type: boolean }
-            code: { type: string }
     sseEvent:
       type: object
       required: [event]
@@ -2637,6 +2668,20 @@ components:
           required: [seed]
           properties:
             seed: { type: integer }
+
+    templateList:
+      type: array
+      description: 'List of available templates'
+      items:
+        type: object
+        required: [id, label, summary, updated_at]
+        properties:
+          id: { type: string }
+          label: { type: string }
+          summary: { type: string }
+          updated_at:
+            type: string
+            format: date-time
 
     # ========================================
     # /v1 SCHEMAS
@@ -2801,16 +2846,6 @@ components:
                   params:
                     type: object
                     description: 'Effect-specific parameters'
-                examples:
-                  - kind: linear
-                  - kind: threshold
-                    params: {threshold: 0.6, low: 0.0, high: 1.0}
-                  - kind: piecewise_linear
-                    params:
-                      breakpoints:
-                        - {x: 0.0, y: 0.0}
-                        - {x: 0.5, y: 0.8}
-                        - {x: 1.0, y: 1.0}
         edges:
           type: array
           maxItems: 200
@@ -3105,7 +3140,7 @@ components:
     
     runResponse:
       type: object
-      required: [schema, graph, results, model_card, confidence]
+      required: [schema]
       properties:
         schema: { type: string, enum: [run.v1] }
         graph: { $ref: '#/components/schemas/graph' }
@@ -3525,34 +3560,3 @@ components:
         trace_id:
           type: string
           description: 'Optional client-provided trace identifier echoed from X-Trace-Id when TRACE_ID_PASSTHROUGH=1'
-  responses:
-    BadRequestOlumiError:
-      description: Bad input
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/OlumiErrorV1'
-    UnauthorizedOlumiError:
-      description: Unauthorized
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/OlumiErrorV1'
-    ForbiddenOlumiError:
-      description: Forbidden
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/OlumiErrorV1'
-    TooManyRequestsOlumiError:
-      description: Too many requests
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/OlumiErrorV1'
-    PayloadTooLargeOlumiError:
-      description: Payload too large
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/OlumiErrorV1'

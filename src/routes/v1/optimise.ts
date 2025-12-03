@@ -1,9 +1,10 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { createHash } from 'crypto';
 import { validateConstraints, filterActionsByConstraints, isFeasible, type Constraints, type Action } from '../../engine/constraints.js';
 import { runKernel } from '../../scm-lite/kernel.js';
 import { adaptGraphToDAG } from '../../scm-lite/adapter.js';
 import { canonicalIdempotencyPreHandler, canonicalIdempotencyOnSend } from '../../middleware/idempotency-canonical.js';
+import { BODY_LIMIT_BYTES } from '../../config/constants.js';
+import { replyWithAppError } from '../../errors.js';
 
 interface OptimiseRequest {
   graph: { nodes: any[]; edges: any[] };
@@ -65,23 +66,39 @@ export async function registerOptimiseRoute(app: FastifyInstance) {
           return canonicalIdempotencyOnSend(req, reply, payload);
         },
       ],
+      bodyLimit: BODY_LIMIT_BYTES,
     },
     async (req: FastifyRequest, reply: FastifyReply) => {
     const start = Date.now();
     const body = req.body as OptimiseRequest;
     if (!body.actions || typeof body.budget !== 'number') {
-      return reply.code(400).send({ error: { type: 'BAD_INPUT', message: 'actions and budget required' } });
+      return replyWithAppError(reply, {
+        type: 'BAD_INPUT',
+        statusCode: 400,
+        message: 'actions and budget required',
+        fields: { field: 'body' }
+      });
     }
     
     const seed = body.seed || 4242;
     const actionIds = new Set<string>();
     for (const action of body.actions) {
       if (actionIds.has(action.id)) {
-        return reply.code(400).send({ error: { type: 'BAD_INPUT', message: `Duplicate action id: ${action.id}` } });
+        return replyWithAppError(reply, {
+          type: 'BAD_INPUT',
+          statusCode: 400,
+          message: `Duplicate action id: ${action.id}`,
+          fields: { field: 'actions' }
+        });
       }
       actionIds.add(action.id);
       if (action.cost < 0) {
-        return reply.code(400).send({ error: { type: 'BAD_INPUT', message: 'Action costs must be >= 0' } });
+        return replyWithAppError(reply, {
+          type: 'BAD_INPUT',
+          statusCode: 400,
+          message: 'Action costs must be >= 0',
+          fields: { field: 'actions' }
+        });
       }
     }
     
@@ -93,12 +110,11 @@ export async function registerOptimiseRoute(app: FastifyInstance) {
       
       if (!priorsValidation.valid) {
         const firstError = priorsValidation.errors[0];
-        return reply.code(400).send({
-          error: {
-            type: 'BAD_INPUT',
-            message: firstError.message,
-            field: firstError.field
-          }
+        return replyWithAppError(reply, {
+          type: 'BAD_INPUT',
+          statusCode: 400,
+          message: firstError.message,
+          fields: { field: firstError.field }
         });
       }
     }
@@ -111,12 +127,11 @@ export async function registerOptimiseRoute(app: FastifyInstance) {
       
       if (!evidenceValidation.valid) {
         const firstError = evidenceValidation.errors[0];
-        return reply.code(400).send({
-          error: {
-            type: 'BAD_INPUT',
-            message: firstError.message,
-            field: firstError.field
-          }
+        return replyWithAppError(reply, {
+          type: 'BAD_INPUT',
+          statusCode: 400,
+          message: firstError.message,
+          fields: { field: firstError.field }
         });
       }
     }
@@ -171,7 +186,12 @@ export async function registerOptimiseRoute(app: FastifyInstance) {
     
     // Validate objective weights
     if (!body.objective.weights || Object.keys(body.objective.weights).length === 0) {
-      return reply.code(400).send({ error: { type: 'BAD_INPUT', message: 'objective.weights must specify at least one target node' } });
+      return replyWithAppError(reply, {
+        type: 'BAD_INPUT',
+        statusCode: 400,
+        message: 'objective.weights must specify at least one target node',
+        fields: { field: 'objective.weights' }
+      });
     }
     
     // Compute baseline utility (no actions) - sum across all targets

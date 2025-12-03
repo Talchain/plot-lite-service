@@ -61,7 +61,7 @@ export interface CeeDecisionReviewPayloadV1 {
   scenario_kind?: string;
 }
 
-function isValidCeeDecisionReviewPayload(payload: any): payload is CeeDecisionReviewPayloadV1 {
+function _isValidCeeDecisionReviewPayload(payload: any): payload is CeeDecisionReviewPayloadV1 {
   if (!payload || typeof payload !== 'object') return false;
   if ((payload as any).schema !== 'cee.decision-review.v1') return false;
   if (typeof (payload as any).response_hash !== 'string') return false;
@@ -522,6 +522,8 @@ export async function callDecisionReviewFromEngine(opts: {
     timeoutMs?: number;
   };
   evidence?: EngineEvidenceItem[];
+  /** Optional enhanced mode flag for richer review journeys. */
+  enhanced?: boolean;
 }): Promise<PortCeeReviewResult & { usedFixture: boolean }> {
   const requestId = String(opts.requestId || '');
   const timeoutMs = Number(opts.env.timeoutMs ?? 10_000);
@@ -601,7 +603,9 @@ export async function callDecisionReviewFromEngine(opts: {
 
   // 3) Real path via Assistants SDK orchestrator
   try {
-    const brief = 'Create a small decision graph from the run context.';
+    const brief = opts.enhanced
+      ? 'Create a small decision graph from the run context with enhanced assumptions and sensitivity insights.'
+      : 'Create a small decision graph from the run context.';
     const evidenceItems = mapEvidenceItems(opts.evidence);
     // Pass graph_summary as structural context (no user content exposed)
     const briefContext = opts.context.graph_summary;

@@ -14,7 +14,7 @@ import { checkLinearity, detectThresholdCrossings, generateForkSuggestions } fro
 import { checkIdentifiability } from '../../trust/identifiability.js';
 import { enforceComputeBudget } from '../../governance/cost-estimator.js';
 import { stampResponseHash, hashCanonicalInput } from '../../util/canonical-json.js';
-import type { Graph, DetailLevel } from '../../trust/types.js';
+import type { DetailLevel } from '../../trust/types.js';
 import { DETAIL_LEVEL_CONFIG } from '../../trust/types.js';
 import { getInferenceEngine, type InferenceMode } from '../../inference/index.js';
 import { computeSensitivitySimple, computeSensitivityAll } from '../../lib/sensitivity-simple.js';
@@ -334,6 +334,20 @@ export async function registerRunRoute(app: FastifyInstance) {
     
     // Test probe: harmless header for debugging
     reply.header('x-scm-lite', useScmLite ? '1' : '0');
+
+    // SCM-Lite graph size guard: enforce public graph limits when SCM-Lite is enabled
+    if (useScmLite) {
+      const nodeCount = graph.nodes.length;
+      const edgeCount = graph.edges.length;
+      if (nodeCount > LIMITS_MAX_NODES || edgeCount > LIMITS_MAX_EDGES) {
+        return replyWithAppError(reply, {
+          type: 'BAD_INPUT',
+          statusCode: 400,
+          message: `Graph too large for SCM-Lite mode: ${nodeCount} nodes, ${edgeCount} edges (limits: ${LIMITS_MAX_NODES} nodes, ${LIMITS_MAX_EDGES} edges).`,
+          fields: { field: 'graph', reason: 'graph_too_large' },
+        });
+      }
+    }
     
     // Early return placeholder when disabled in production
     if (usePlaceholder) {
@@ -699,6 +713,44 @@ export async function registerRunRoute(app: FastifyInstance) {
       }
     }
 
+    if (detailConfig.run_critique && isl_validation) {
+      try {
+        if (isl_validation.status === 'cannot_identify') {
+          (critique as any[]).push({
+            severity: 'BLOCKER',
+            message: 'ISL validation indicates the causal effect cannot be identified from the current graph.',
+            suggested_action: isl_validation.explanation?.summary ?? 'Review graph structure and ISL issues before relying on this estimate.',
+          });
+        } else if (isl_validation.status === 'uncertain') {
+          (critique as any[]).push({
+            severity: 'IMPROVEMENT',
+            message: 'ISL validation reports partial identifiability; results may rely on stronger assumptions.',
+            suggested_action: isl_validation.explanation?.summary,
+          });
+        }
+
+        if (isl_validation.issues && isl_validation.issues.length > 0) {
+          for (const issue of isl_validation.issues.slice(0, 3)) {
+            (critique as any[]).push({
+              severity: 'IMPROVEMENT',
+              message: issue.description,
+              suggested_action: issue.suggested_action,
+            });
+          }
+        }
+      } catch {}
+    }
+
+    if (detailConfig.run_critique && isl_sensitivity && isl_sensitivity.overall_robustness === 'fragile') {
+      try {
+        (critique as any[]).push({
+          severity: 'IMPROVEMENT',
+          message: 'ISL sensitivity analysis indicates fragile estimates; small input changes may materially shift outcomes.',
+          suggested_action: isl_sensitivity.recommendations[0],
+        });
+      } catch {}
+    }
+
     // P1: Compute graph quality score
     // Only count edges with external evidence (exclude 'template' and 'assumption' - aligned with evidence-analysis)
     const ASSUMPTION_PROVENANCES = ['template', 'assumption'];
@@ -903,6 +955,7 @@ export async function registerRunRoute(app: FastifyInstance) {
             timeoutMs: Number(process.env.CEE_TIMEOUT_MS ?? 10_000),
           },
           evidence: body.evidence,
+          enhanced: Boolean(isl_validation || isl_sensitivity),
         });
 
         // Determine status and code
