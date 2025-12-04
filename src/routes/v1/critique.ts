@@ -35,7 +35,7 @@ export async function registerCritiqueRoute(app: FastifyInstance) {
       },
       createValidator('critique'),
     ],
-  }, async (req: FastifyRequest, reply: FastifyReply) => {
+  }, async (req: FastifyRequest, _reply: FastifyReply) => {
     // (demo handled in preHandler)
 
     const body = (req as any).body as CritiqueRequest;

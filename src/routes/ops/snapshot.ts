@@ -21,8 +21,11 @@ import { getFixtureCacheStats } from '../../lib/fixtures-cache.js';
 
 /**
  * Auth gate for /ops/snapshot
+ *
+ * On failure, returns a Fastify reply produced by replyWithAppError so that
+ * the caller can short-circuit and avoid any double-send of headers.
  */
-async function opsAuthGuard(req: FastifyRequest, reply: FastifyReply): Promise<boolean> {
+async function opsAuthGuard(req: FastifyRequest, reply: FastifyReply): Promise<FastifyReply | void> {
   // If AUTH_ENABLED='1', use standard bearer auth
   if (process.env.AUTH_ENABLED === '1') {
     const hdr = String((req.headers?.authorization || req.headers?.Authorization || '') || '');
@@ -40,43 +43,40 @@ async function opsAuthGuard(req: FastifyRequest, reply: FastifyReply): Promise<b
           error: err instanceof Error ? err.message : String(err)
         }, 'Failed to set WWW-Authenticate header on 401 response');
       }
-      replyWithAppError(reply as any, {
+      return replyWithAppError(reply as any, {
         type: 'BAD_INPUT',
         statusCode: 401,
         message: 'Missing bearer token',
         fields: { code: 'UNAUTHORIZED' },
-      });
-      return false;
+      }) as any;
     }
-    
+
     const tok = hdr.slice('Bearer '.length).trim();
     if (!expected || tok.length !== expected.length) {
-      replyWithAppError(reply as any, {
+      return replyWithAppError(reply as any, {
         type: 'BAD_INPUT',
         statusCode: 403,
         message: 'Invalid token',
         fields: { code: 'FORBIDDEN' },
-      });
-      return false;
+      }) as any;
     }
 
     if (!timingSafeEqual(Buffer.from(tok), Buffer.from(expected))) {
-      replyWithAppError(reply as any, {
+      return replyWithAppError(reply as any, {
         type: 'BAD_INPUT',
         statusCode: 403,
         message: 'Invalid token',
         fields: { code: 'FORBIDDEN' },
-      });
-      return false;
+      }) as any;
     }
 
-    return true;
+    return;
   }
-  
+
   // Otherwise, require X-OPS-KEY header
   const opsKey = String((req.headers['x-ops-key'] || '') || '');
   const expected = String(process.env.OPS_KEY || '').trim();
-  
+
   if (!expected) {
     // Fail closed: no default OPS_KEY
     try {
@@ -90,13 +90,12 @@ async function opsAuthGuard(req: FastifyRequest, reply: FastifyReply): Promise<b
         error: err instanceof Error ? err.message : String(err)
       }, 'Failed to set WWW-Authenticate header on 401 response');
     }
-    replyWithAppError(reply as any, {
+    return replyWithAppError(reply as any, {
       type: 'BAD_INPUT',
       statusCode: 401,
       message: 'OPS_KEY not configured',
       fields: { code: 'UNAUTHORIZED' },
-    });
-    return false;
+    }) as any;
   }
 
   if (!opsKey) {
@@ -111,36 +110,33 @@ async function opsAuthGuard(req: FastifyRequest, reply: FastifyReply): Promise<b
         error: err instanceof Error ? err.message : String(err)
       }, 'Failed to set WWW-Authenticate header on 401 response');
     }
-    replyWithAppError(reply as any, {
+    return replyWithAppError(reply as any, {
       type: 'BAD_INPUT',
       statusCode: 401,
       message: 'Missing X-OPS-KEY header',
       fields: { code: 'UNAUTHORIZED' },
-    });
-    return false;
+    }) as any;
   }
-  
+
   if (opsKey.length !== expected.length) {
-    replyWithAppError(reply as any, {
+    return replyWithAppError(reply as any, {
       type: 'BAD_INPUT',
       statusCode: 401,
       message: 'Invalid X-OPS-KEY',
       fields: { code: 'UNAUTHORIZED' },
-    });
-    return false;
+    }) as any;
   }
-  
+
   if (!timingSafeEqual(Buffer.from(opsKey), Buffer.from(expected))) {
-    replyWithAppError(reply as any, {
+    return replyWithAppError(reply as any, {
       type: 'BAD_INPUT',
       statusCode: 401,
       message: 'Invalid X-OPS-KEY',
       fields: { code: 'UNAUTHORIZED' },
-    });
-    return false;
+    }) as any;
   }
-  
-  return true;
+
+  return;
 }
 
 /**
@@ -153,8 +149,8 @@ export async function registerOpsSnapshot(app: FastifyInstance) {
 
   app.get('/ops/snapshot', async (req, reply) => {
     // Auth gate
-    const authorized = await opsAuthGuard(req, reply);
-    if (!authorized) return; // Already sent error response
+    const authResult = await opsAuthGuard(req, reply);
+    if (authResult !== undefined) return authResult; // Error response already produced
 
     // Build snapshot payload
     const redactions: string[] = [

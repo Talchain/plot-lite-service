@@ -45,7 +45,7 @@ async function evaluateUtility(graph: any, objective: any, seed: number): Promis
       const res = await runKernel(dag, target, { seed });
       const p50 = res?.quantiles?.p50 ?? 0;
       total += p50 * (typeof weight === 'number' ? weight : 0);
-    } catch (err) {
+    } catch {
       // Log but continue with other targets
     }
   }

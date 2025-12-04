@@ -18,6 +18,8 @@ export function createCEEClient(_: { baseUrl: string; apiKey: string; timeoutMs?
         requestId: String(opts?.requestId || ''),
         degraded: true,
         timestamp: new Date().toISOString(),
+        source: 'cee-shim',
+        reason: 'SDK shim client active; real SDK not yet integrated',
       };
       const error: CeeError = { code: 'CEE_SDK_UNAVAILABLE', suggestedAction: 'retry' };
       return { review: null, trace, error };

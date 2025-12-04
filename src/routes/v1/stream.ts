@@ -59,13 +59,13 @@ export async function writeSse(reply: FastifyReply, id: number | string, ev: str
   }
   
   if (!ok) {
-    try { incStreamWriteBackpressure(); } catch {}
-    await new Promise<void>((resolve, reject) => {
+    try { incStreamWriteBackpressure(); } catch { /* ignore */ }
+    await new Promise<void>((resolve, _reject) => {
       const onDrain = () => { cleanup(); resolve(); };
-      const onError = (err: any) => { cleanup(); try { reply.log.error({ err }, 'sse drain write failed'); } catch {} resolve(); };
+      const onError = (err: any) => { cleanup(); try { reply.log.error({ err }, 'sse drain write failed'); } catch { /* ignore */ } resolve(); };
       const cleanup = () => {
-        try { reply.raw.off?.('drain', onDrain); } catch {}
-        try { reply.raw.off?.('error', onError); } catch {}
+        try { reply.raw.off?.('drain', onDrain); } catch { /* ignore */ }
+        try { reply.raw.off?.('error', onError); } catch { /* ignore */ }
       };
       try {
         reply.raw.once('drain', onDrain);
@@ -80,6 +80,18 @@ function safeEnd(reply: FastifyReply) {
   catch (err) { reply.log.warn({ err }, 'sse flush before end failed'); }
   try { reply.raw.end(); }
   catch (err) { reply.log.error({ err }, 'sse end failed'); }
+
+  // Mark inflight decrement as done to prevent double-decrement in onResponse hook
+  // (though onResponse shouldn't fire for hijacked responses, this is defensive)
+  (reply.raw as any).__inflightDecDone = true;
+
+  // Decrement inflight counter since hijacked responses skip onResponse hook
+  try {
+    const server = (reply as any).server;
+    if (server?.inflight?.dec) {
+      server.inflight.dec('endStream');
+    }
+  } catch { /* ignore */ }
 }
 
 function waitWithAbort(ms: number, req: FastifyRequest) {
@@ -103,16 +115,16 @@ export async function registerStreamRoute(app: FastifyInstance) {
         const reqId = (req as any).id || 'unknown';
         // Rate limit check (applies to demo short-circuit path too)
         const ip = getIp(req);
-        try { incSseOpen(); } catch {}
+        try { incSseOpen(); } catch { /* ignore */ }
         const acq = tryAcquire(ip);
         if (!('ok' in acq) || acq.ok === false) {
-          try { incStreamRateLimited(); } catch {}
+          try { incStreamRateLimited(); } catch { /* ignore */ }
           // Compute conservative backoff window from slot max ms
           const retryAfterS = Math.max(1, Math.ceil(Number(SSE_SLOT_MAX_MS) / 1000));
           // Back-compat: header remains '1' to keep existing tests green
-          try { reply.header('Retry-After', '1'); } catch {}
-          try { reply.header('X-RateLimit-Reason', acq.ok === false ? acq.reason : 'per_ip'); } catch {}
-          try { incSse429Count(); } catch {}
+          try { reply.header('Retry-After', '1'); } catch { /* ignore */ }
+          try { reply.header('X-RateLimit-Reason', acq.ok === false ? acq.reason : 'per_ip'); } catch { /* ignore */ }
+          try { incSse429Count(); } catch { /* ignore */ }
         return replyWithAppError(reply, {
           type: 'RATE_LIMIT',
           statusCode: 429,
@@ -124,24 +136,23 @@ export async function registerStreamRoute(app: FastifyInstance) {
         let fallbackTimer: NodeJS.Timeout | null = null;
         const releaseOnce = (() => {
           let done = false;
-          let timedOut = false;
           return (fromTimeout = false) => {
             if (done) return;
             done = true;
-            if (fromTimeout) { timedOut = true; try { incSseTimeout(); } catch {} }
-            else { try { incSseClosed(); } catch {} }
-            try { if (fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null; } } catch {}
+            if (fromTimeout) { try { incSseTimeout(); } catch { /* ignore */ } }
+            else { try { incSseClosed(); } catch { /* ignore */ } }
+            try { if (fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null; } } catch { /* ignore */ }
             try { release(ip); }
-            catch (err) { try { reply.log?.warn({ err, reqId }, 'sse limiter release failed'); } catch {} }
+            catch (err) { try { reply.log?.warn({ err, reqId }, 'sse limiter release failed'); } catch { /* ignore */ } }
           };
         })();
-        (req.raw as any).on('close', () => { try { incStreamDisconnect(); } catch {} releaseOnce(); });
-        (req.raw as any).on('error', () => { try { incStreamDisconnect(); } catch {} releaseOnce(); });
+        (req.raw as any).on('close', () => { try { incStreamDisconnect(); } catch { /* ignore */ } releaseOnce(); });
+        (req.raw as any).on('error', () => { try { incStreamDisconnect(); } catch { /* ignore */ } releaseOnce(); });
         // Fallback: force release after SSE_SLOT_MAX_MS if not already released
         try {
           fallbackTimer = setTimeout(() => { reply.log?.info({ reqId }, 'sse timeout'); releaseOnce(true); }, SSE_SLOT_MAX_MS);
           fallbackTimer.unref?.();
-        } catch {}
+        } catch { /* ignore */ }
 
         // Demo short-circuit: send a tiny deterministic stream quickly
         if (isDemoMode(req)) {
@@ -152,10 +163,10 @@ export async function registerStreamRoute(app: FastifyInstance) {
           reply.header('Access-Control-Allow-Origin', '*');
           reply.header('Connection', 'keep-alive');
           // Ensure JSON-only headers are not present on SSE
-          try { reply.removeHeader('X-Content-Type-Options'); } catch {}
-          try { reply.removeHeader('Referrer-Policy'); } catch {}
-          try { (reply.raw as any).removeHeader?.('X-Content-Type-Options'); } catch {}
-          try { (reply.raw as any).removeHeader?.('Referrer-Policy'); } catch {}
+          try { reply.removeHeader('X-Content-Type-Options'); } catch { /* ignore */ }
+          try { reply.removeHeader('Referrer-Policy'); } catch { /* ignore */ }
+          try { (reply.raw as any).removeHeader?.('X-Content-Type-Options'); } catch { /* ignore */ }
+          try { (reply.raw as any).removeHeader?.('Referrer-Policy'); } catch { /* ignore */ }
           reply.hijack();
           try {
             reply.raw.writeHead(200, {
@@ -192,10 +203,10 @@ export async function registerStreamRoute(app: FastifyInstance) {
     reply.header('Access-Control-Allow-Origin', '*');
     reply.header('Connection', 'keep-alive');
     // Ensure JSON-only headers are not present on SSE
-    try { reply.removeHeader('X-Content-Type-Options'); } catch {}
-    try { reply.removeHeader('Referrer-Policy'); } catch {}
-    try { (reply.raw as any).removeHeader?.('X-Content-Type-Options'); } catch {}
-    try { (reply.raw as any).removeHeader?.('Referrer-Policy'); } catch {}
+    try { reply.removeHeader('X-Content-Type-Options'); } catch { /* ignore */ }
+    try { reply.removeHeader('Referrer-Policy'); } catch { /* ignore */ }
+    try { (reply.raw as any).removeHeader?.('X-Content-Type-Options'); } catch { /* ignore */ }
+    try { (reply.raw as any).removeHeader?.('Referrer-Policy'); } catch { /* ignore */ }
     reply.hijack();
     try {
       reply.raw.writeHead(200, {

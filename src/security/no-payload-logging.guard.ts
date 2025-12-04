@@ -25,7 +25,7 @@ function containsForbidden(obj: any): boolean {
         }
       }
     }
-  } catch {}
+  } catch { /* ignore */ }
   return false;
 }
 

@@ -2,7 +2,7 @@
  * Audit Ring Buffer - Runtime-only audit surface
  * No payload bodies, only hashes + meta
  */
-import { createHash } from 'crypto';
+// Note: createHash reserved for future use (hash comparison)
 
 export interface AuditEntry {
   evt: string;

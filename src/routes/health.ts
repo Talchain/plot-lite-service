@@ -39,7 +39,7 @@ function getBuildId(): string {
       cachedBuildId = res.stdout.trim() || new Date().toISOString();
       return cachedBuildId;
     }
-  } catch {}
+  } catch { /* ignore */ }
 
   cachedBuildId = new Date().toISOString();
   return cachedBuildId;

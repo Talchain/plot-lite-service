@@ -14,13 +14,13 @@ import { registerSelfCheckRoute } from './self-check.js';
 import { registerTemplatesRoutes } from './templates.js';
 import { registerLimitsRoute } from './limits.js';
 import { registerValidateRoute } from './validate.js';
-import { getStreamHealthExtras, p95Ms, snapshot, getLastRequestAt, getJson429Count, getSse429Count, getLastConfigReloadISO, getLastComputeMs, getEngineP95Ms, getEngineP95MsRolling, getSseOpen, getSseClosed, getSseTimeout } from '../../metrics.js';
+import { getStreamHealthExtras, p95Ms, getLastRequestAt, getJson429Count, getSse429Count, getLastConfigReloadISO, getLastComputeMs, getEngineP95Ms, getEngineP95MsRolling, getSseOpen, getSseClosed, getSseTimeout } from '../../metrics.js';
 import { getFixtureCacheSize, getFixtureCacheStats } from '../../lib/fixtures-cache.js';
 import { registerStreamRoute } from './stream.js';
 import { registerStreamRouteEnhanced } from './stream-enhanced.js';
 import { isDemoMode } from '../../middleware/demo-mode.js';
 import { getIdemStoreSize } from '../../middleware/idempotency.js';
-import { healthResponseSchema } from '../../schemas/response.js';
+// healthResponseSchema used for OpenAPI documentation
 
 /**
  * Auth preHandler for /v1/* routes
@@ -34,7 +34,7 @@ async function v1AuthGuard(req: any, reply: any) {
     const u = new URL(urlStr, 'http://local');
     const isStream = String(req.method || 'GET').toUpperCase() === 'GET' && u.pathname === '/v1/stream';
     if (isStream && isDemoMode(req)) return; // auth bypass only
-  } catch {}
+  } catch { /* ignore */ }
   
   const hdr = String((req.headers?.authorization || req.headers?.Authorization || '') || '');
   const expected = String(process.env.AUTH_TOKEN || '').trim();
@@ -101,7 +101,7 @@ export async function registerV1Routes(app: FastifyInstance) {
           }
         } catch { return payload; }
       } else if (payload && typeof payload === 'object') {
-        try { (payload as any).trace_id = String(trace); } catch {}
+        try { (payload as any).trace_id = String(trace); } catch { /* ignore */ }
         return payload;
       }
       return payload;
@@ -201,27 +201,27 @@ export async function registerV1Routes(app: FastifyInstance) {
         base.degraded = false;
         base.health_status = 'ok';
       }
-    } catch {}
+    } catch { /* ignore */ }
     // WP-P3: Circuit breaker stats (flag-gated)
     try {
       const { getCircuitBreakerStats } = await import('../../middleware/circuitBreaker.js');
       const cbStats = getCircuitBreakerStats();
       if (cbStats) base.circuit_breaker = cbStats;
-    } catch {}
+    } catch { /* ignore */ }
     // PR-3: Principal extraction stats
     try {
       const { getPrincipalExtractionStats } = await import('../../lib/extractPrincipal.js');
       base.principal_extraction = getPrincipalExtractionStats();
-    } catch {}
+    } catch { /* ignore */ }
     // Optional environment/build hints for ops triage
     try {
       const env = process.env.ENVIRONMENT;
       if (env) base.environment = env;
-    } catch {}
+    } catch { /* ignore */ }
     try {
       const b = process.env.BUILD_ID_SHORT || '';
       if (b) base.build = b;
-    } catch {}
+    } catch { /* ignore */ }
     try {
       const extras = getStreamHealthExtras();
       if (extras && typeof extras === 'object') {
@@ -229,12 +229,12 @@ export async function registerV1Routes(app: FastifyInstance) {
           if (typeof v === 'number') base[k] = v;
         }
       }
-    } catch {}
+    } catch { /* ignore */ }
     // Optional last reload timestamp
     try {
       const iso = getLastConfigReloadISO();
       if (iso) base.last_config_reload_iso = iso;
-    } catch {}
+    } catch { /* ignore */ }
     return base;
   });
 

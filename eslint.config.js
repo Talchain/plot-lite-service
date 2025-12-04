@@ -10,7 +10,7 @@ export default [
       parserOptions: {
         ecmaVersion: 2022,
         sourceType: 'module',
-        project: './tsconfig.json',
+        project: './tsconfig.eslint.json',
       },
       globals: {
         console: 'readonly',
@@ -42,12 +42,14 @@ export default [
     },
   },
   {
-    // Test files: allow empty catch blocks
+    // Test files: relaxed rules for test code
     files: ['**/*.test.ts', '**/*.spec.ts', 'tests/**/*.ts', 'e2e/**/*.ts'],
     rules: {
       'no-empty': 'off',
+      'no-console': 'off', // Allow console in tests for debugging
       '@typescript-eslint/no-empty-function': 'off',
       '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-unused-vars': 'off', // Allow unused vars in tests
     },
   },
   {

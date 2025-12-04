@@ -165,7 +165,6 @@ export function filterActionsByConstraints(
 
   // Check for conflicting must/must_not
   if (constraints.must && constraints.must_not) {
-    const mustSet = new Set(constraints.must);
     const mustNotSet = new Set(constraints.must_not);
     const conflicts = constraints.must.filter(id => mustNotSet.has(id));
     if (conflicts.length > 0) {

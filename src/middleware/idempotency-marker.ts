@@ -24,7 +24,7 @@ export function makeIdempotencyMarker() {
         markInflight(principal, idk);
         (req as any).__idempotent_replay = false;
       }
-    } catch {}
+    } catch { /* ignore */ }
     done();
   };
 }

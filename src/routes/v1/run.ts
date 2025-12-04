@@ -16,7 +16,7 @@ import { enforceComputeBudget } from '../../governance/cost-estimator.js';
 import { stampResponseHash, hashCanonicalInput } from '../../util/canonical-json.js';
 import type { DetailLevel } from '../../trust/types.js';
 import { DETAIL_LEVEL_CONFIG } from '../../trust/types.js';
-import { getInferenceEngine, type InferenceMode } from '../../inference/index.js';
+import { getInferenceEngine } from '../../inference/index.js';
 import { computeSensitivitySimple, computeSensitivityAll } from '../../lib/sensitivity-simple.js';
 import { computeSensitivitySummary } from '../../trust/sensitivity-summary.js';
 import { computeGraphQuality } from '../../trust/graph-quality.js';
@@ -36,7 +36,7 @@ import {
 } from '../../metrics/registry.js';
 import { normalizeCeeCode, isFlagOn } from '../../cee/codes.js';
 import { shouldAllowCeeCall, recordCeeSuccess, recordCeeFailure } from '../../cee/circuit-breaker.js';
-import { runResponseSchema } from '../../schemas/response.js';
+// runResponseSchema used in OpenAPI documentation
 import { normalizeGraph } from '../../util/normalize.js';
 import { FLAGS } from '../../config/flags.js';
 import { critiqueSeverityToLevel } from '../../trust/severity-bridge.js';
@@ -45,11 +45,9 @@ import { replyWithAppError } from '../../errors.js';
 import {
   BODY_LIMIT_BYTES,
   LIMITS_MAX_NODES,
-  LIMITS_MAX_EDGES,
-  VALIDATION_MAX_NODES,
-  VALIDATION_MAX_EDGES
+  LIMITS_MAX_EDGES
 } from '../../config/constants.js';
-import { validateEffect, applyEffect } from '../../engine/effects.js';
+import { validateEffect } from '../../engine/effects.js';
 import { callDecisionReviewFromEngine } from '../../cee/client.js';
 import { summarizeEvidenceFreshnessFromEvidence } from '../../trust/evidence-freshness.js';
 
@@ -118,7 +116,7 @@ export async function registerRunRoute(app: FastifyInstance) {
             req.headers['x-request-id'] || req.headers['x-trace-id'] || ''
           ).trim();
           if (process.env.TRACE_ID_PASSTHROUGH === '1' || process.env.TRACE_MIN === '1' || clientTraceId) {
-            try { payload.trace_id = clientTraceId || randomUUID(); } catch {}
+            try { payload.trace_id = clientTraceId || randomUUID(); } catch { /* ignore */ }
           }
           return reply.code(200).type('application/json').send(payload);
         }
@@ -131,21 +129,21 @@ export async function registerRunRoute(app: FastifyInstance) {
       },
       // Idempotency replay (before validation)
       async (req: FastifyRequest, reply: FastifyReply) => {
-        try { if (Math.random() < 0.01) pruneExpired(); } catch {}
+        try { if (Math.random() < 0.01) pruneExpired(); } catch { /* ignore */ }
         const idk = String((req.headers as any)['idempotency-key'] || (req.headers as any)['Idempotency-Key'] || '').trim();
         if (!idk) return;
         const principal = principalFor(req);
         const hit = getCached(principal, idk);
         if (hit) {
           (req as any).__idempotent_replay = true;
-          try { reply.header('Idempotent-Replayed', '1'); } catch {}
+          try { reply.header('Idempotent-Replayed', '1'); } catch { /* ignore */ }
           return reply.code(hit.status).type('application/json').send(hit.body);
         }
         markInflight(principal, idk);
         // Mark for onSend storage
         (req as any).__idempotent_replay = false;
         (req as any).__idemp = { principal, idk };
-        try { reply.header('Idempotent-Replayed', '0'); } catch {}
+        try { reply.header('Idempotent-Replayed', '0'); } catch { /* ignore */ }
       },
       createValidator('run'),
     ],
@@ -168,7 +166,7 @@ export async function registerRunRoute(app: FastifyInstance) {
             const status = reply.statusCode || 200;
             if (status >= 200 && status < 300) {
               setCached(marker.principal, marker.idk, status, body);
-              try { reply.header('Idempotent-Replayed', '0'); } catch {}
+              try { reply.header('Idempotent-Replayed', '0'); } catch { /* ignore */ }
             }
           }
           return payload;
@@ -184,7 +182,7 @@ export async function registerRunRoute(app: FastifyInstance) {
     const body = (req as any).body as RunRequest;
     
     // Normalize targets: canonical targets field, fallback to legacy query.targets
-    const targets = body.targets ?? (body.query as any)?.targets ?? [];
+    const _targets = body.targets ?? (body.query as any)?.targets ?? [];
     
     // Normalize graph (map confidence|probability→belief, no default on ingress)
     const graph = normalizeGraph(body.graph, false);
@@ -329,7 +327,7 @@ export async function registerRunRoute(app: FastifyInstance) {
       return isProd && (flag === '1' || flag === 'true');
     }
     
-    const { enabled: useScmLite, source } = scmLiteEnabled(req);
+    const { enabled: useScmLite, source: _source } = scmLiteEnabled(req);
     const usePlaceholder = placeholderEnabled(useScmLite);
     
     // Test probe: harmless header for debugging
@@ -423,7 +421,7 @@ export async function registerRunRoute(app: FastifyInstance) {
     let linearity_warning: ReturnType<typeof checkLinearity>;
     let confidence: ReturnType<typeof calculateConfidence>;
     let threshold_crossings: ReturnType<typeof detectThresholdCrossings>;
-    let fork_suggestions: ReturnType<typeof generateForkSuggestions> | undefined;
+    let _fork_suggestions: ReturnType<typeof generateForkSuggestions> | undefined;
 
     // Critique (skipped for quick mode)
     const critiqueRaw = detailConfig.run_critique
@@ -533,8 +531,8 @@ export async function registerRunRoute(app: FastifyInstance) {
         thresholds: [99, 199, 299],
       });
 
-      // Fork suggestions if threshold crossed
-      fork_suggestions = threshold_crossings.length > 0
+      // Fork suggestions if threshold crossed (reserved for future use)
+      const _fork_suggestions = threshold_crossings.length > 0
         ? generateForkSuggestions({
             metric_name: 'outcome',
             current_value,
@@ -554,7 +552,7 @@ export async function registerRunRoute(app: FastifyInstance) {
 
       // Update confidence if SCM meta available
       if (inferenceResult.meta?.unique_graphs) {
-        const scmLevelMap: Record<string, number> = { low: 0.3, medium: 0.6, high: 0.9 };
+        // scmLevelMap reserved for future confidence calibration
         confidence = {
           level: 'MEDIUM' as any,
           reason: `${inferenceEngine.name} (K=${k_samples}, unique_graphs=${inferenceResult.meta.unique_graphs})`,
@@ -573,7 +571,7 @@ export async function registerRunRoute(app: FastifyInstance) {
         // P0: Clear inflight key on early 400 exit
         const marker = (req as any).__idemp;
         if (marker) {
-          try { clearInflight(marker.principal, marker.idk); } catch {}
+          try { clearInflight(marker.principal, marker.idk); } catch { /* ignore */ }
         }
         return replyWithAppError(reply, {
           type: 'BAD_INPUT',
@@ -709,7 +707,7 @@ export async function registerRunRoute(app: FastifyInstance) {
             error: err instanceof Error ? err.message : String(err),
             requestId: req.id,
           }, 'ISL enrichment failed; continuing without ISL');
-        } catch {}
+        } catch { /* ignore */ }
       }
     }
 
@@ -738,7 +736,7 @@ export async function registerRunRoute(app: FastifyInstance) {
             });
           }
         }
-      } catch {}
+      } catch { /* ignore */ }
     }
 
     if (detailConfig.run_critique && isl_sensitivity && isl_sensitivity.overall_robustness === 'fragile') {
@@ -748,7 +746,7 @@ export async function registerRunRoute(app: FastifyInstance) {
           message: 'ISL sensitivity analysis indicates fragile estimates; small input changes may materially shift outcomes.',
           suggested_action: isl_sensitivity.recommendations[0],
         });
-      } catch {}
+      } catch { /* ignore */ }
     }
 
     // P1: Compute graph quality score
@@ -780,7 +778,7 @@ export async function registerRunRoute(app: FastifyInstance) {
           })),
         };
         provenance_summary = aggregateProvenance(provGraph as any);
-      } catch {}
+      } catch { /* ignore */ }
     }
 
     // Evidence freshness summary for model_card (additive; only when evidence supplied)
@@ -799,7 +797,7 @@ export async function registerRunRoute(app: FastifyInstance) {
             severity: 'IMPROVEMENT',
             semantic_severity: 'WARNING',
           });
-        } catch {}
+        } catch { /* ignore */ }
       }
     }
 
@@ -1019,7 +1017,7 @@ export async function registerRunRoute(app: FastifyInstance) {
           ceeCode,
         ].join(':');
         reply.header('X-CEE-Debug', hdr);
-      } catch {}
+      } catch { /* ignore */ }
     }
 
     // Structured log
@@ -1032,7 +1030,7 @@ export async function registerRunRoute(app: FastifyInstance) {
         status: ceeStatus,
         code: ceeCode,
       }, 'CEE debug');
-    } catch {}
+    } catch { /* ignore */ }
 
     // Record compute time for observability
     const computeMs = performance.now() - computeStart;
@@ -1044,7 +1042,7 @@ export async function registerRunRoute(app: FastifyInstance) {
     try {
       const buildTag = process.env.BUILD_ID || process.env.GITHUB_SHA || 'dev';
       reply.header('X-Build-Tag', buildTag);
-    } catch {}
+    } catch { /* ignore */ }
     reply.header('X-Olumi-Backend', backend);
 
     return response;

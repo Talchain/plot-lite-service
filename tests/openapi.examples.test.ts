@@ -46,7 +46,7 @@ describe('openapi error examples for v1', () => {
     }
 
     // Log which routes were checked (for visibility in CI output)
-    // eslint-disable-next-line no-console
+     
     console.log('checked v1 routes for examples:', checked.join(','));
 
     expect(checked.length).toBe(v1Paths.length);

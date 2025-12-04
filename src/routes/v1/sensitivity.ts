@@ -73,7 +73,7 @@ export async function registerSensitivityRoute(app: FastifyInstance) {
     
     // One-at-a-time sensitivity analysis
     // For each target node, perturb by ±delta and compute effect
-    const drivers = targets.map((nodeId, idx) => {
+    const drivers = targets.map((nodeId, _idx) => {
       const node = body.graph.nodes.find((n: any) => n.id === nodeId);
       const baseValue = (node as any)?.value ?? 0.5;
       

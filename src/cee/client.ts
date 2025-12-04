@@ -3,7 +3,13 @@
 // For now we implement health probing and a fixture-based fallback example endpoint.
 
 import type { FastifyBaseLogger } from 'fastify';
-import type { CeeReviewResult as PortCeeReviewResult, CeeError as PortCeeError } from './types.js';
+import type {
+  CeeReviewResult as PortCeeReviewResult,
+  CeeError as PortCeeError,
+  CeeTrace,
+  CeeDecisionReviewPayloadV1,
+  CeeErrorSuggestedAction,
+} from './types.js';
 import { runDecisionReviewViaSdk, type EvidenceHelperItem } from './orchestrator.js';
 import { isFlagOn } from './codes.js';
 
@@ -25,41 +31,27 @@ export interface CeeErrorView {
   traceId?: string;
 }
 
+// P3: Typed CEE review structure for better type safety
+export interface CeeReviewView {
+  schema?: string;
+  response_hash?: string;
+  seed?: number | string;
+  inference_mode?: string;
+  graph_summary?: { nodes: number; edges: number };
+  scenario_kind?: string;
+  issues?: Array<{ code: string; message: string; severity?: string }>;
+  [key: string]: unknown;  // Allow additional CEE fields
+}
+
 export interface CeeDecisionReviewResult {
-  ceeReview: any | null;
-  ceeTrace: any | null;
+  ceeReview: CeeReviewView | null;
+  ceeTrace: CeeTrace | null;
   ceeError: CeeErrorView | null;
   usedFixture: boolean;
 }
 
-export type CeeErrorSuggestedAction = 'retry' | 'fix_input' | 'fail';
-
 // Backwards-compatible alias (internal usage only)
 export type CeeSuggestedAction = CeeErrorSuggestedAction;
-
-export interface CeeTrace {
-  requestId: string;
-  degraded: boolean;
-  timestamp: string;
-  featureVersion?: string;
-}
-
-export interface CeeError {
-  code?: string;
-  message?: string;
-  traceId?: string;
-  retryable?: boolean;
-  suggestedAction: CeeErrorSuggestedAction;
-}
-
-export interface CeeDecisionReviewPayloadV1 {
-  schema: 'cee.decision-review.v1';
-  response_hash: string;
-  seed: number | string;
-  inference_mode: string;
-  graph_summary: { nodes: number; edges: number };
-  scenario_kind?: string;
-}
 
 function _isValidCeeDecisionReviewPayload(payload: any): payload is CeeDecisionReviewPayloadV1 {
   if (!payload || typeof payload !== 'object') return false;
@@ -77,7 +69,7 @@ function _isValidCeeDecisionReviewPayload(payload: any): payload is CeeDecisionR
 export interface CeeReviewResult {
   review: CeeDecisionReviewPayloadV1 | null;
   trace: CeeTrace;
-  error?: CeeError | null;
+  error?: PortCeeError | null;
   usedFixture: boolean;
 }
 
@@ -192,7 +184,7 @@ async function fetchFixtureExample(baseUrl: string, timeoutMs: number, requestId
       ceeError: null,
       usedFixture: true,
     };
-  } catch (err: any) {
+  } catch {
     return {
       ceeReview: null,
       ceeTrace: {
@@ -217,7 +209,8 @@ export interface RunDecisionReviewOptions {
   logger?: FastifyBaseLogger;
 }
 
-const DEFAULT_TIMEOUT_MS = Number(process.env.CEE_TIMEOUT_MS || 2000);
+// P2: Aligned with orchestrator default (10s) - consistent across all CEE calls
+const DEFAULT_TIMEOUT_MS = Number(process.env.CEE_TIMEOUT_MS || 10_000);
 
 export async function runDecisionReview(opts: RunDecisionReviewOptions): Promise<CeeDecisionReviewResult> {
   const { context, requestId, logger } = opts;
@@ -376,7 +369,7 @@ export async function callDecisionReviewFromEngineLegacy(opts: {
 }): Promise<{
   review: unknown | null;
   trace: CeeTrace;
-  error?: CeeError;
+  error?: PortCeeError;
 }> {
   const { requestId, context, logger } = opts;
   const reqId = requestId && String(requestId).trim() ? String(requestId) : 'cee-unknown';
@@ -398,7 +391,7 @@ export async function callDecisionReviewFromEngineLegacy(opts: {
     const hasReview = ceeResult.ceeReview !== null && ceeResult.ceeReview !== undefined;
     const hasError = !!ceeResult.ceeError;
 
-    let error: CeeError | undefined;
+    let error: PortCeeError | undefined;
     if (!hasReview && !hasError) {
       error = {
         code: 'CEE_EMPTY_REVIEW',
@@ -425,6 +418,8 @@ export async function callDecisionReviewFromEngineLegacy(opts: {
       requestId: reqId,
       degraded,
       timestamp: new Date().toISOString(),
+      source: 'cee-adapter',
+      ...(error ? { reason: `CEE error: ${error.code}` } : {}),
     };
 
     return {
@@ -432,9 +427,10 @@ export async function callDecisionReviewFromEngineLegacy(opts: {
       trace,
       ...(error ? { error } : {}),
     };
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const errMsg = err instanceof Error ? err.message : String(err);
     logger?.warn?.(
-      { evt: 'cee_adapter_error', error: String(err?.message || err) },
+      { evt: 'cee_adapter_error', error: errMsg },
       'CEE adapter failed; returning degraded trace',
     );
     return {
@@ -443,6 +439,8 @@ export async function callDecisionReviewFromEngineLegacy(opts: {
         requestId: reqId,
         degraded: true,
         timestamp: new Date().toISOString(),
+        source: 'cee-adapter',
+        reason: `Adapter threw: ${errMsg}`,
       },
       error: {
         code: 'CEE_ADAPTER_ERROR',
@@ -532,12 +530,19 @@ export async function callDecisionReviewFromEngine(opts: {
     code: string,
     suggested: 'retry' | 'fix_input' | 'fail',
     usedFixture = false,
+    /** Optional degradation reason for observability */
+    reason?: string,
+    /** Optional HTTP status code when degraded due to upstream failure */
+    status?: number,
   ): PortCeeReviewResult & { usedFixture: boolean } => ({
     review: null,
     trace: {
       requestId,
       degraded: true,
       timestamp: new Date().toISOString(),
+      source: 'cee-client',
+      ...(reason ? { reason } : {}),
+      ...(status ? { status } : {}),
     },
     error: { code, suggestedAction: suggested } as PortCeeError,
     usedFixture,
@@ -546,13 +551,13 @@ export async function callDecisionReviewFromEngine(opts: {
   // Defense-in-depth: Caller (/v1/run) is expected to gate enable/config before calling.
   // These checks provide safety for direct callers that may skip upstream gating.
   if (!toBool(opts.env.enable)) {
-    return degraded('CEE_DISABLED', 'fix_input');
+    return degraded('CEE_DISABLED', 'fix_input', false, 'CEE feature disabled via environment');
   }
 
   const baseUrl = opts.env.baseUrl;
   const apiKey = opts.env.apiKey;
   if (!baseUrl || !apiKey) {
-    return degraded('CEE_CONFIG_MISSING', 'fix_input');
+    return degraded('CEE_CONFIG_MISSING', 'fix_input', false, 'Missing CEE_BASE_URL or CEE_API_KEY');
   }
 
   // 1) Health probe
@@ -589,6 +594,8 @@ export async function callDecisionReviewFromEngine(opts: {
             requestId,
             degraded: true,
             timestamp: new Date().toISOString(),
+            source: 'fixture',
+            reason: 'CEE health check failed; using fixture fallback',
           },
           error: { code: 'CEE_FALLBACK_FIXTURE', suggestedAction: 'retry' } as PortCeeError,
           usedFixture: true,
@@ -598,7 +605,7 @@ export async function callDecisionReviewFromEngine(opts: {
       // ignore fixture errors and fall through to degraded
     }
 
-    return degraded('CEE_UNAVAILABLE', 'retry');
+    return degraded('CEE_UNAVAILABLE', 'retry', false, 'CEE health check failed and fixture fallback unavailable');
   }
 
   // 3) Real path via Assistants SDK orchestrator
@@ -619,7 +626,7 @@ export async function callDecisionReviewFromEngine(opts: {
     const hasError = !!res.error;
 
     if (!hasReview && !hasError) {
-      return degraded('CEE_EMPTY_REVIEW', 'retry');
+      return degraded('CEE_EMPTY_REVIEW', 'retry', false, 'SDK returned neither review nor error');
     }
 
     const trace = {
@@ -627,6 +634,8 @@ export async function callDecisionReviewFromEngine(opts: {
       requestId,
       degraded: !!res.error,
       timestamp: new Date().toISOString(),
+      source: 'orchestrator',
+      ...(res.error ? { reason: `SDK error: ${res.error.code}` } : {}),
     };
 
     let error: PortCeeError | undefined;
@@ -645,7 +654,8 @@ export async function callDecisionReviewFromEngine(opts: {
       ...(error ? { error } : {}),
       usedFixture: false,
     };
-  } catch {
-    return degraded('CEE_CLIENT_ERROR', 'retry');
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return degraded('CEE_CLIENT_ERROR', 'retry', false, `SDK orchestrator threw: ${msg}`);
   }
 }

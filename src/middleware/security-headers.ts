@@ -8,9 +8,9 @@ export async function securityHeadersOnSend(req: FastifyRequest, reply: FastifyR
     const ct = String(reply.getHeader('Content-Type') || '').toLowerCase();
     // Never apply JSON-only headers to SSE; proactively remove if present
     if (ct.startsWith('text/event-stream')) {
-      try { reply.removeHeader('X-Content-Type-Options'); } catch {}
-      try { reply.removeHeader('Referrer-Policy'); } catch {}
-      try { reply.removeHeader('Cache-Control'); } catch {}
+      try { reply.removeHeader('X-Content-Type-Options'); } catch { /* ignore */ }
+      try { reply.removeHeader('Referrer-Policy'); } catch { /* ignore */ }
+      try { reply.removeHeader('Cache-Control'); } catch { /* ignore */ }
       return payload;
     }
     // Only apply to JSON responses

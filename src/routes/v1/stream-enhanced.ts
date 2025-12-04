@@ -7,10 +7,10 @@ import { randomUUID } from 'node:crypto';
 import AjvModule from 'ajv';
 import { isDemoMode } from '../../middleware/demo-mode.js';
 import { getSsePerIpMax, getSseGlobalMax } from '../../config/runtimeConfig.js';
-import { getSseHeartbeatMs, getSseMaxBufferedEvents, getSseBackpressureThreshold } from '../../config/sseConfig.js';
+import { getSseHeartbeatMs, getSseMaxBufferedEvents } from '../../config/sseConfig.js';
 import { SSE_SLOT_MAX_MS } from '../../config/constants.js';
 import { streamQuerySchema } from '../../schemas/stream.js';
-import { BoundedEventQueue, type QueuedEvent } from '../../lib/sse-queue.js';
+import { BoundedEventQueue } from '../../lib/sse-queue.js';
 import { HeartbeatManager } from '../../lib/sse-heartbeat.js';
 import {
   incStreamClientsOpen,
@@ -90,8 +90,8 @@ async function writeSseWithQueue(
         const onDrain = () => { cleanup(); resolve(); };
         const onError = () => { cleanup(); resolve(); };
         const cleanup = () => {
-          try { reply.raw.off?.('drain', onDrain); } catch {}
-          try { reply.raw.off?.('error', onError); } catch {}
+          try { reply.raw.off?.('drain', onDrain); } catch { /* ignore */ }
+          try { reply.raw.off?.('error', onError); } catch { /* ignore */ }
         };
         try {
           reply.raw.once('drain', onDrain);
@@ -107,6 +107,18 @@ function safeEnd(reply: FastifyReply) {
   catch (err) { reply.log.warn({ err }, 'sse flush before end failed'); }
   try { reply.raw.end(); }
   catch (err) { reply.log.error({ err }, 'sse end failed'); }
+
+  // Mark inflight decrement as done to prevent double-decrement in onResponse hook
+  // (though onResponse shouldn't fire for hijacked responses, this is defensive)
+  (reply.raw as any).__inflightDecDone = true;
+
+  // Decrement inflight counter since hijacked responses skip onResponse hook
+  try {
+    const server = (reply as any).server;
+    if (server?.inflight?.dec) {
+      server.inflight.dec('endStream');
+    }
+  } catch { /* ignore */ }
 }
 
 function waitWithAbort(ms: number, req: FastifyRequest) {
@@ -156,20 +168,26 @@ export async function registerStreamRouteEnhanced(app: FastifyInstance) {
           const doneEvent = { schema: 'stream.done.v1', reason: 'circuit_open' };
           reply.raw.write(`event: done\ndata: ${JSON.stringify(doneEvent)}\n\n`);
           reply.raw.end();
+          // Mark inflight decrement as done and decrement for hijacked response
+          (reply.raw as any).__inflightDecDone = true;
+          try {
+            const server = (reply as any).server;
+            if (server?.inflight?.dec) server.inflight.dec('endStream');
+          } catch { /* ignore */ }
           return reply;
         }
 
         // Rate limit check
         const ip = getIp(req);
-        try { incSseOpen(); } catch {}
+        try { incSseOpen(); } catch { /* ignore */ }
         const acq = tryAcquire(ip);
         if (!('ok' in acq) || acq.ok === false) {
-          try { incStreamRateLimited(); } catch {}
+          try { incStreamRateLimited(); } catch { /* ignore */ }
           const retryAfterS = Math.max(1, Math.ceil(Number(SSE_SLOT_MAX_MS) / 1000));
           // Back-compat: header remains '1' to keep existing tests green
-          try { reply.header('Retry-After', '1'); } catch {}
-          try { reply.header('X-RateLimit-Reason', acq.ok === false ? acq.reason : 'per_ip'); } catch {}
-          try { incSse429Count(); } catch {}
+          try { reply.header('Retry-After', '1'); } catch { /* ignore */ }
+          try { reply.header('X-RateLimit-Reason', acq.ok === false ? acq.reason : 'per_ip'); } catch { /* ignore */ }
+          try { incSse429Count(); } catch { /* ignore */ }
           return replyWithAppError(reply, {
             type: 'RATE_LIMIT',
             statusCode: 429,
@@ -182,20 +200,19 @@ export async function registerStreamRouteEnhanced(app: FastifyInstance) {
         let fallbackTimer: NodeJS.Timeout | null = null;
         const releaseOnce = (() => {
           let done = false;
-          let timedOut = false;
           return (fromTimeout = false) => {
             if (done) return;
             done = true;
             // Increment disconnect metric only once (inside guard to prevent double-counting
             // when both 'close' and 'error' events fire)
-            try { incStreamDisconnect(); } catch {}
-            if (fromTimeout) { timedOut = true; try { incSseTimeout(); } catch {} }
-            else { try { incSseClosed(); } catch {} }
-            try { if (fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null; } } catch {}
+            try { incStreamDisconnect(); } catch { /* ignore */ }
+            if (fromTimeout) { try { incSseTimeout(); } catch { /* ignore */ } }
+            else { try { incSseClosed(); } catch { /* ignore */ } }
+            try { if (fallbackTimer) { clearTimeout(fallbackTimer); fallbackTimer = null; } } catch { /* ignore */ }
             try { release(ip); }
-            catch (err) { try { reply.log?.warn({ err, reqId }, 'sse limiter release failed'); } catch {} }
+            catch (err) { try { reply.log?.warn({ err, reqId }, 'sse limiter release failed'); } catch { /* ignore */ } }
             // P1: Record stream duration
-            try { recordStreamDuration(Date.now() - startTime); } catch {}
+            try { recordStreamDuration(Date.now() - startTime); } catch { /* ignore */ }
           };
         })();
         (req.raw as any).on('close', () => { releaseOnce(); });
@@ -204,7 +221,7 @@ export async function registerStreamRouteEnhanced(app: FastifyInstance) {
         try {
           fallbackTimer = setTimeout(() => { reply.log?.info({ reqId }, 'sse timeout'); releaseOnce(true); }, SSE_SLOT_MAX_MS);
           fallbackTimer.unref?.();
-        } catch {}
+        } catch { /* ignore */ }
 
         // Demo short-circuit
         if (isDemoMode(req)) {
@@ -260,7 +277,7 @@ export async function registerStreamRouteEnhanced(app: FastifyInstance) {
     const traceId = process.env.TRACE_MIN === '1' ? randomUUID() : undefined;
     const latencyMs = q.latency_ms ?? 0;
     const heartbeatMs = q.heartbeat_ms ?? getSseHeartbeatMs();
-    const maxEvents = q.max_events ?? 100;
+    const _maxEvents = q.max_events ?? 100;
 
     // P1: Initialize bounded queue and heartbeat manager
     const queue = new BoundedEventQueue(getSseMaxBufferedEvents());

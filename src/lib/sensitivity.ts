@@ -22,7 +22,7 @@ export function computeSensitivity(
   optionId: string
 ): SensitivityResult {
   const K = draws.length;
-  const E = edges.length;
+  // E reserved for future edge count validation
   
   // Compute mean outcome
   const meanOutcome = draws.reduce((a, b) => a + b, 0) / K;

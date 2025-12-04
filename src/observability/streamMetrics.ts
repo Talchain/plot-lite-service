@@ -19,7 +19,7 @@ export function incStreamClientsClosed(): void {
   streamClientsOpen = Math.max(0, streamClientsOpen - 1);
 }
 
-export function incStreamBackpressureDrop(reason: 'overflow' | 'slow_client'): void {
+export function incStreamBackpressureDrop(_reason: 'overflow' | 'slow_client'): void {
   streamBackpressureDrops++;
 }
 

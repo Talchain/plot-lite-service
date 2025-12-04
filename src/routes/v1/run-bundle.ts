@@ -7,6 +7,7 @@ import { createHash } from 'crypto';
 import { recordAuditEvent } from '../../governance/audit-ring.js';
 import { replyWithAppError } from '../../errors.js';
 import { canonicalIdempotencyPreHandler, canonicalIdempotencyOnSend } from '../../middleware/idempotency-canonical.js';
+import { BODY_LIMIT_BYTES } from '../../config/constants.js';
 
 interface GraphDelta {
   label: string;
@@ -30,6 +31,20 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
   app.post(
     '/v1/run_bundle',
     {
+      onRequest: [
+        async (req: FastifyRequest, reply: FastifyReply) => {
+          const raw = String(req.headers['content-length'] || '').trim();
+          const len = raw ? Number(raw) : NaN;
+          if (Number.isFinite(len) && len > BODY_LIMIT_BYTES) {
+            return replyWithAppError(reply as any, {
+              type: 'BAD_INPUT',
+              statusCode: 413,
+              message: 'Request body too large',
+              fields: { code: 'PAYLOAD_TOO_LARGE' },
+            });
+          }
+        },
+      ],
       preHandler: [
         async (req: FastifyRequest, reply: FastifyReply) => {
           await canonicalIdempotencyPreHandler(req, reply, '/v1/run_bundle');
@@ -40,6 +55,7 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
           return canonicalIdempotencyOnSend(req, reply, payload);
         },
       ],
+      bodyLimit: BODY_LIMIT_BYTES,
     },
     async (req: FastifyRequest, reply: FastifyReply) => {
     const start = Date.now();
