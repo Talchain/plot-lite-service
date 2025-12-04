@@ -17,7 +17,7 @@
  * ```
  */
 
-import { ISLClient, getISLClientConfig, type ISLClientConfig } from './client.js';
+import { ISLClient, getISLClientConfig } from './client.js';
 import { ISLTimeoutError } from './errors.js';
 import {
   adaptValidationResponse,

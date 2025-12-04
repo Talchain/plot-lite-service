@@ -26,9 +26,8 @@ export function canonicalizeRemote(remote: string): string {
     if (trimmed.includes(':')) {
       return normalizeIPv6(trimmed);
     }
-  } catch (err) {
+  } catch {
     // Fallback to original on parse failure
-    console.debug(`[net] Failed to parse IPv6: ${trimmed}`);
   }
   
   return trimmed;

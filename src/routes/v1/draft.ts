@@ -42,7 +42,7 @@ export async function registerDraftRoute(app: FastifyInstance) {
       },
       createValidator('draft'),
     ],
-  }, async (req: FastifyRequest, reply: FastifyReply) => {
+  }, async (req: FastifyRequest, _reply: FastifyReply) => {
     const body = (req as any).body as DraftRequest;
 
     const { description, domain } = body;

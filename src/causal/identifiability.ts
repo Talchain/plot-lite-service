@@ -1,5 +1,5 @@
 import type { DAG, Query, VarId } from './types.js';
-import { computeParentsChildren, dSeparated, dSeparatedBackdoor, directedReachable, removeOutgoing } from './dsep.js';
+import { computeParentsChildren, dSeparated as _dSeparated, dSeparatedBackdoor, directedReachable, removeOutgoing as _removeOutgoing } from './dsep.js';
 
 export type IdentMethod = 'backdoor' | 'frontdoor' | 'truncated' | 'g-formula' | 'unidentifiable';
 

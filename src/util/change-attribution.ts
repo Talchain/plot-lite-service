@@ -10,7 +10,6 @@ import type { GraphDiffResult } from './graph-diff.js';
 import type {
   ChangeAttribution,
   ChangeDriver,
-  AffectedNode,
 } from '../types/change-attribution.js';
 import type { GraphNode } from '../trust/types.js';
 

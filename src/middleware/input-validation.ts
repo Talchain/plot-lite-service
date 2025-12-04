@@ -323,7 +323,7 @@ export function createQueryValidator(route: 'stream') {
     switch (route) {
       case 'stream': {
         // Demo short-circuit: bypass validation completely
-        try { if (isDemoMode(req)) return; } catch {}
+        try { if (isDemoMode(req)) return; } catch { /* ignore */ }
         // Fast path upper bound: latency_ms ≤ 10000
         try {
           const rawUrl = (req.raw?.url ?? (req as any).url ?? '').toString();
@@ -345,7 +345,7 @@ export function createQueryValidator(route: 'stream') {
               return reply.code(400).send(payload);
             }
           }
-        } catch {}
+        } catch { /* ignore */ }
         if (!validateStreamQuery(q)) {
           try {
             reply.log.warn({
@@ -416,7 +416,7 @@ function checkUIFields(body: any): string | null {
  * Validation middleware factory
  */
 export function createValidator(route: 'run' | 'counterfactual' | 'critique' | 'draft' | 'diff') {
-  return async function validationHandler(req: FastifyRequest, reply: FastifyReply) {
+  return async function validationHandler(req: FastifyRequest, _reply: FastifyReply) {
     // Initialize validators on first use
     await initValidators();
 

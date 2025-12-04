@@ -1,5 +1,6 @@
 /**
  * POST /v1/run_batch - Batch inference runs
+ * P2: Semaphore-controlled parallelization for better throughput
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { recordAuditEvent } from '../../governance/audit-ring.js';
@@ -19,6 +20,75 @@ interface BatchRequest {
 const MAX_BATCH_ITEMS = 10;
 const MAX_NODES_PER_ITEM = 50;
 const MAX_EDGES_PER_ITEM = 100;
+
+// P2: Concurrency control for batch processing
+// Clamp to safe range [1, MAX_BATCH_ITEMS] and warn on invalid/capped values
+const rawConcurrency = parseInt(process.env.BATCH_CONCURRENCY || '3', 10);
+const BATCH_CONCURRENCY = Math.max(1, Math.min(MAX_BATCH_ITEMS, Number.isNaN(rawConcurrency) ? 3 : rawConcurrency));
+
+if (process.env.BATCH_CONCURRENCY !== undefined) {
+  if (Number.isNaN(rawConcurrency)) {
+    console.warn(`[run-batch] Invalid BATCH_CONCURRENCY="${process.env.BATCH_CONCURRENCY}", using default 3`);
+  } else if (rawConcurrency !== BATCH_CONCURRENCY) {
+    console.warn(`[run-batch] BATCH_CONCURRENCY=${rawConcurrency} clamped to ${BATCH_CONCURRENCY} (valid range: 1-${MAX_BATCH_ITEMS})`);
+  }
+}
+
+/**
+ * Simple semaphore for controlling concurrent operations
+ */
+class Semaphore {
+  private permits: number;
+  private waiting: Array<() => void> = [];
+
+  constructor(permits: number) {
+    this.permits = permits;
+  }
+
+  async acquire(): Promise<void> {
+    if (this.permits > 0) {
+      this.permits--;
+      return;
+    }
+    return new Promise<void>((resolve) => {
+      this.waiting.push(resolve);
+    });
+  }
+
+  release(): void {
+    if (this.waiting.length > 0) {
+      const next = this.waiting.shift();
+      next?.();
+    } else {
+      this.permits++;
+    }
+  }
+}
+
+/**
+ * Process batch items with controlled concurrency
+ */
+async function processBatchWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  processor: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const semaphore = new Semaphore(concurrency);
+  const results: R[] = new Array(items.length);
+
+  await Promise.all(
+    items.map(async (item, index) => {
+      await semaphore.acquire();
+      try {
+        results[index] = await processor(item, index);
+      } finally {
+        semaphore.release();
+      }
+    })
+  );
+
+  return results;
+}
 
 export async function registerRunBatchRoute(app: FastifyInstance) {
   app.post('/v1/run_batch', async (req: FastifyRequest, reply: FastifyReply) => {
@@ -94,34 +164,39 @@ export async function registerRunBatchRoute(app: FastifyInstance) {
       }
     }
     
-    // Process each item deterministically
-    const results = body.items.map((item, idx) => {
-      const seed = item.seed ?? (4242 + idx);
-      const k_samples = item.k_samples ?? 1000;
-      
-      // Simplified inference (deterministic stub)
-      const baselineP50 = Math.round((seed / 10000 + 0.5) * 1000) / 1000;
-      const p10 = Math.round((baselineP50 - 0.2) * 1000) / 1000;
-      const p90 = Math.round((baselineP50 + 0.2) * 1000) / 1000;
-      
-      const modelCard = {
-        schema: 'report.v1',
-        seed,
-        k_samples,
-        nodes: item.graph.nodes.length,
-        edges: item.graph.edges.length
-      };
-      
-      const responseHash = createHash('sha256')
-        .update(JSON.stringify({ p10, p50: baselineP50, p90, modelCard }))
-        .digest('hex')
-        .slice(0, 16);
-      
-      return {
-        response_hash: responseHash,
-        model_card: modelCard
-      };
-    });
+    // P2: Process items with controlled concurrency for better throughput
+    const results = await processBatchWithConcurrency(
+      body.items,
+      BATCH_CONCURRENCY,
+      async (item, idx) => {
+        const seed = item.seed ?? (4242 + idx);
+        const k_samples = item.k_samples ?? 1000;
+
+        // Simplified inference (deterministic stub)
+        // In production, this would call the actual inference engine
+        const baselineP50 = Math.round((seed / 10000 + 0.5) * 1000) / 1000;
+        const p10 = Math.round((baselineP50 - 0.2) * 1000) / 1000;
+        const p90 = Math.round((baselineP50 + 0.2) * 1000) / 1000;
+
+        const modelCard = {
+          schema: 'report.v1',
+          seed,
+          k_samples,
+          nodes: item.graph.nodes.length,
+          edges: item.graph.edges.length
+        };
+
+        const responseHash = createHash('sha256')
+          .update(JSON.stringify({ p10, p50: baselineP50, p90, modelCard }))
+          .digest('hex')
+          .slice(0, 16);
+
+        return {
+          response_hash: responseHash,
+          model_card: modelCard
+        };
+      }
+    );
     
     const duration = Date.now() - start;
     req.log.info({

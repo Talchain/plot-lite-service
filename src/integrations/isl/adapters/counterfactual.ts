@@ -58,7 +58,7 @@ export function adaptCounterfactualResponse(isl: ISLCounterfactualResponse): PLo
  * @param reason - Why fallback is being used
  * @returns Fallback counterfactual result
  */
-export function createFallbackCounterfactual(reason: string): PLoTCounterfactualResult {
+export function createFallbackCounterfactual(_reason: string): PLoTCounterfactualResult {
   return {
     estimate: 0,
     confidence_interval: { p10: 0, p50: 0, p90: 0 },

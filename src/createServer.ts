@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
-import { readFileSync, existsSync } from 'fs';
+import { existsSync } from 'fs';
 import { resolve, join as joinPath } from 'path';
 import { createHash, timingSafeEqual, randomUUID } from 'crypto';
 import { promises as fsp } from 'node:fs';
@@ -31,7 +31,7 @@ import {
   getDraftP95History,
   getCurrentStreams,
   getLastHeartbeatMs,
-  setIdemCacheSize, setIdemPrincipals, setIdemEvictions,
+  setIdemCacheSize,
   replaySnapshot,
 } from './metrics.js';
 
@@ -83,7 +83,7 @@ export async function createServer(opts: ServerOpts = {}) {
     process.env.TEST_ROUTES === '1' ||
     process.env.NODE_ENV === 'test';
 
-  function recordDraftFlowsLatency(sampleMs: number): void {
+  function _recordDraftFlowsLatency(sampleMs: number): void {
     if (!Number.isFinite(sampleMs) || sampleMs < 0) return;
     draftFlowsP95Last5.push(sampleMs);
     if (draftFlowsP95Last5.length > 5) draftFlowsP95Last5.shift();
@@ -238,7 +238,7 @@ export async function createServer(opts: ServerOpts = {}) {
     try {
       const { enforceNoPayloadLogging } = await import('./security/no-payload-logging.guard.js');
       (app as any).log = enforceNoPayloadLogging(app.log as any);
-    } catch {}
+    } catch { /* ignore */ }
   }
 
   // Echo X-Request-Id back to client
@@ -325,7 +325,7 @@ export async function createServer(opts: ServerOpts = {}) {
         reply.header('ETag', etag);
         if (inm && inm === etag) return reply.code(304).send();
         return reply.code(200).send(json);
-      } catch (e) {
+      } catch {
         return replyWithAppError(reply, {
           type: 'INTERNAL',
           statusCode: 500,
@@ -333,7 +333,7 @@ export async function createServer(opts: ServerOpts = {}) {
         });
       }
     });
-  } catch {}
+  } catch { /* ignore */ }
 
   await app.register(helmet, {
     global: true,
@@ -426,11 +426,11 @@ export async function createServer(opts: ServerOpts = {}) {
   // Minimal structured access log without bodies
   app.addHook('onRequest', async (req) => {
     (req as any).startTime = process.hrtime.bigint();
-    try { noteLastRequestAt(); } catch {}
+    try { noteLastRequestAt(); } catch { /* ignore */ }
   });
   // Echo X-Request-ID on all responses
   app.addHook('onSend', async (req, reply, payload) => {
-    try { reply.header('X-Request-ID', String(req.id)); } catch {}
+    try { reply.header('X-Request-ID', String(req.id)); } catch { /* ignore */ }
     // HSTS only in production over TLS (proxied ok via X-Forwarded-Proto)
     try {
       if (process.env.NODE_ENV === 'production') {
@@ -438,7 +438,7 @@ export async function createServer(opts: ServerOpts = {}) {
         const proto = xf || String((req as any).protocol || '').toLowerCase();
         if (proto === 'https') reply.header('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
       }
-    } catch {}
+    } catch { /* ignore */ }
     return payload as any;
   });
   // JSON-only security headers (SSE exempt via content-type)
@@ -473,14 +473,14 @@ export async function createServer(opts: ServerOpts = {}) {
         
         // WP-P3: Track circuit breaker response (flag-gated)
         trackCircuitBreakerResponse(req, reply);
-      } catch {}
+      } catch { /* ignore */ }
     }
     // Update replay lastStatus/lastTs for /draft-flows responses
     if (route?.startsWith('/draft-flows')) {
       try {
         const status = reply.statusCode >= 200 && reply.statusCode < 300 ? 'ok' : 'fail';
         recordReplayStatus(status as 'ok' | 'fail');
-      } catch {}
+      } catch { /* ignore */ }
     }
     app.log.info({ reqId: req.id, route, statusCode: reply.statusCode, durationMs }, 'request completed');
   });
@@ -584,7 +584,7 @@ export async function createServer(opts: ServerOpts = {}) {
         const n = __rateLimitBucketCount(ip, method, path);
         return reply.code(200).send({ ip, method, path, count: n });
       });
-    } catch {}
+    } catch { /* ignore */ }
 
     app.get('/demo/stream', async (req: any, reply: any) => {
       const q: any = (req as any).query || {};
@@ -596,10 +596,10 @@ export async function createServer(opts: ServerOpts = {}) {
       reply.header('X-Accel-Buffering', 'no');
       reply.header('Access-Control-Allow-Origin', '*');
       reply.header('Connection', 'keep-alive');
-      try { reply.removeHeader('X-Content-Type-Options'); } catch {}
-      try { reply.removeHeader('Referrer-Policy'); } catch {}
-      try { (reply.raw as any).removeHeader?.('X-Content-Type-Options'); } catch {}
-      try { (reply.raw as any).removeHeader?.('Referrer-Policy'); } catch {}
+      try { reply.removeHeader('X-Content-Type-Options'); } catch { /* ignore */ }
+      try { reply.removeHeader('Referrer-Policy'); } catch { /* ignore */ }
+      try { (reply.raw as any).removeHeader?.('X-Content-Type-Options'); } catch { /* ignore */ }
+      try { (reply.raw as any).removeHeader?.('Referrer-Policy'); } catch { /* ignore */ }
 
       reply.hijack();
       try {
@@ -628,7 +628,7 @@ export async function createServer(opts: ServerOpts = {}) {
             (reply.raw as any).__inflightDecDone = true;
             inflight.dec('endStream');
           }
-        } catch {}
+        } catch { /* ignore */ }
         jsonStreamDone++;
         if (jsonCurrentStreams > 0) jsonCurrentStreams--;
       };
@@ -647,8 +647,8 @@ export async function createServer(opts: ServerOpts = {}) {
       write(2, 'done', { reason: 'complete' });
 
       finish();
-      try { (reply.raw as any).flush?.(); } catch {}
-      try { reply.raw.end(); } catch {}
+      try { (reply.raw as any).flush?.(); } catch { /* ignore */ }
+      try { reply.raw.end(); } catch { /* ignore */ }
       return;
     });
 
@@ -696,10 +696,10 @@ export async function createServer(opts: ServerOpts = {}) {
         reply.header('X-Accel-Buffering', 'no');
         reply.header('Access-Control-Allow-Origin', '*');
         reply.header('Connection', 'keep-alive');
-        try { reply.removeHeader('X-Content-Type-Options'); } catch {}
-        try { reply.removeHeader('Referrer-Policy'); } catch {}
-        try { (reply.raw as any).removeHeader?.('X-Content-Type-Options'); } catch {}
-        try { (reply.raw as any).removeHeader?.('Referrer-Policy'); } catch {}
+        try { reply.removeHeader('X-Content-Type-Options'); } catch { /* ignore */ }
+        try { reply.removeHeader('Referrer-Policy'); } catch { /* ignore */ }
+        try { (reply.raw as any).removeHeader?.('X-Content-Type-Options'); } catch { /* ignore */ }
+        try { (reply.raw as any).removeHeader?.('Referrer-Policy'); } catch { /* ignore */ }
 
         reply.hijack();
         try {
@@ -728,7 +728,7 @@ export async function createServer(opts: ServerOpts = {}) {
               (reply.raw as any).__inflightDecDone = true;
               inflight.dec('endStream');
             }
-          } catch {}
+          } catch { /* ignore */ }
           if (heartbeat) {
             clearInterval(heartbeat);
             heartbeat = null;
@@ -742,8 +742,8 @@ export async function createServer(opts: ServerOpts = {}) {
           else if (reason === 'limited') jsonStreamLimited++;
           else if (reason === 'retryable') jsonStreamRetryable++;
           if (jsonCurrentStreams > 0) jsonCurrentStreams--;
-          try { (reply.raw as any).flush?.(); } catch {}
-          try { reply.raw.end(); } catch {}
+          try { (reply.raw as any).flush?.(); } catch { /* ignore */ }
+          try { reply.raw.end(); } catch { /* ignore */ }
         };
 
         (req.raw as any).on('close', () => finish('abort'));
@@ -855,7 +855,7 @@ export async function createServer(opts: ServerOpts = {}) {
         try {
           const body: any = (req as any).body;
           if (body && typeof body.id === 'string') id = String(body.id);
-        } catch {}
+        } catch { /* ignore */ }
 
         if (!id) {
           const q: any = (req as any).query || {};
@@ -900,7 +900,7 @@ export async function createServer(opts: ServerOpts = {}) {
         const abs = joinPath(dir, f);
         const raw = await fsp.readFile(abs);
         let parsed: any;
-        try { parsed = JSON.parse(raw.toString('utf8')); } catch (e) { throw new Error(`Invalid JSON in ${abs}`); }
+        try { parsed = JSON.parse(raw.toString('utf8')); } catch { throw new Error(`Invalid JSON in ${abs}`); }
         if (parsed?.schema !== 'report.v1') throw new Error(`Missing schema in ${abs}`);
         if (parsed?.meta?.seed !== seed) throw new Error(`meta.seed mismatch in ${abs}`);
         const h = createHash('sha256').update(raw).digest('hex');
@@ -1066,7 +1066,7 @@ export async function createServer(opts: ServerOpts = {}) {
       const idem = (req as any).__idem as { key: string; bodyHash: string } | undefined;
       if (idem) {
         idemCache.set(getCacheKey(idem.key, idem.bodyHash), { bodyHash: idem.bodyHash, responseText: respText });
-        try { setIdemCacheSize(idemCache.getSize()); } catch {}
+        try { setIdemCacheSize(idemCache.getSize()); } catch { /* ignore */ }
       }
     }
 
@@ -1086,7 +1086,7 @@ export async function createServer(opts: ServerOpts = {}) {
           app.log.info({ reqId: req.id, route: '/critique', redacted: true }, 'blocked sensitive content');
           return reply.code(400).send(resp);
         }
-      } catch {}
+      } catch { /* ignore */ }
       if (containsSensitive(body)) {
         const { errorResponse } = await import('./errors.js');
         const resp = { ...errorResponse('BLOCKED_CONTENT', 'Sensitive token detected in request body; remove secrets and retry.', 'Remove secrets and retry.'), redacted: true };
@@ -1136,7 +1136,7 @@ export async function createServer(opts: ServerOpts = {}) {
         const respText = JSON.stringify(obj);
         reply.header('Content-Type', 'application/json');
         idemCache.set(getCacheKey(idem.key, idem.bodyHash), { bodyHash: idem.bodyHash, responseText: respText });
-        try { setIdemCacheSize(idemCache.getSize()); } catch {}
+        try { setIdemCacheSize(idemCache.getSize()); } catch { /* ignore */ }
         return reply.send(respText);
       }
     }
@@ -1154,7 +1154,6 @@ export async function createServer(opts: ServerOpts = {}) {
   if (opts.enableTestRoutes || process.env.TEST_ROUTES === '1') {
     app.post('/__test/force-error', async (req: any, reply) => {
       const t = (req.body?.type || req.query?.type || '').toString().toUpperCase();
-      const { errorResponse } = await import('./errors.js');
       if (t === 'TIMEOUT') return replyWithAppError(reply, { type: 'TIMEOUT', statusCode: 504, hint: 'Reduce processing time' });
       if (t === 'RETRYABLE') return replyWithAppError(reply, { type: 'RETRYABLE', statusCode: 503, hint: 'Please retry', retryable: true });
       if (t === 'INTERNAL') return replyWithAppError(reply, { type: 'INTERNAL', statusCode: 500, hint: 'See server logs' });
@@ -1165,16 +1164,15 @@ export async function createServer(opts: ServerOpts = {}) {
     app.get('/internal/replay-status', async (_req, reply) => {
       return reply.code(200).send(replaySnapshot());
     });
-    app.post('/internal/replay-report', async (req: any, reply) => {
+    app.post('/internal/replay-report', async (req: any, _reply) => {
       try {
         const b = req.body || {};
         if (b.refusal) recordReplayRefusal();
         if (b.retry) recordReplayRetry();
         if (b.status === 'ok' || b.status === 'fail') recordReplayStatus(b.status);
         return { ok: true };
-      } catch {
-        return { ok: false };
-      }
+      } catch { /* ignore */ }
+      return { ok: false };
     });
 
   }
@@ -1194,8 +1192,8 @@ export async function createServer(opts: ServerOpts = {}) {
       // Note: onRequest already incremented inflight
       // endStream must decrement since onResponse won't fire after hijack
 
-      try { streamStarted?.(); } catch {}
-      try { incCurrentStreams?.(); } catch {}
+      try { streamStarted?.(); } catch { /* ignore */ }
+      try { incCurrentStreams?.(); } catch { /* ignore */ }
 
       const q = (req as any).query || {};
       const forceLimit = String(process.env.STREAM_FORCE_LIMIT || '').toLowerCase() === '1';
@@ -1219,9 +1217,9 @@ export async function createServer(opts: ServerOpts = {}) {
         if (closed) return; // Idempotent: prevent double-decrement
         closed = true;
         if (hb) clearInterval(hb);
-        try { reply.raw.end(); } catch {}
-        try { fn?.(); } catch {}
-        try { decCurrentStreams?.(); } catch {}
+        try { reply.raw.end(); } catch { /* ignore */ }
+        try { fn?.(); } catch { /* ignore */ }
+        try { decCurrentStreams?.(); } catch { /* ignore */ }
         
         // Mark as decremented to prevent onResponse from also decrementing
         (reply.raw as any).__inflightDecDone = true;
@@ -1250,14 +1248,14 @@ export async function createServer(opts: ServerOpts = {}) {
           return;
         }
         writeComment(`ping ts=${Date.now()}`);
-        try { noteHeartbeat?.(); } catch {}
+        try { noteHeartbeat?.(); } catch { /* ignore */ }
       }, hbMs);
       hb.unref(); // Don't keep process alive
 
       // Forced limited hook for deterministic testing of backpressure mapping
       if (forceLimit) {
         writeSse('0', 'limited', { reason: 'backpressure' });
-        try { streamLimited?.(); } catch {}
+        try { streamLimited?.(); } catch { /* ignore */ }
         return endStream();
       }
 
@@ -1281,11 +1279,11 @@ export async function createServer(opts: ServerOpts = {}) {
         const needDrain = (reply.raw as any)?.writableNeedDrain === true;
         if (needDrain) {
           writeSse(String(i), 'limited', { reason: 'backpressure' });
-          try { streamLimited?.(); } catch {}
+          try { streamLimited?.(); } catch { /* ignore */ }
           return endStream();
         }
       }
-      try { streamDone?.(); } catch {}
+      try { streamDone?.(); } catch { /* ignore */ }
       return endStream();
     });
   }
@@ -1354,7 +1352,7 @@ export async function createServer(opts: ServerOpts = {}) {
         try {
           const { clearInflight, principalFor } = await import('./middleware/idempotency.js');
           clearInflight(principalFor(req), idk.trim());
-        } catch {}
+        } catch { /* ignore */ }
       }
       // Structured log for 413
       const bytes = req.headers['content-length'] ? Number(req.headers['content-length']) : 0;

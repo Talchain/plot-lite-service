@@ -200,10 +200,7 @@ export class ISLClient {
     } else if (level === 'warn') {
       console.warn(JSON.stringify(logEntry));
     } else {
-      // Only log info in non-test environment to reduce noise
-      if (process.env.NODE_ENV !== 'test') {
-        console.log(JSON.stringify(logEntry));
-      }
+      // Info-level logs suppressed to avoid noise (enable via ISL_DEBUG=1 if needed)
     }
   }
 }

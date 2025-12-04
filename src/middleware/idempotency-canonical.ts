@@ -67,7 +67,7 @@ export async function canonicalIdempotencyPreHandler(
   if (existing && existing.expiresAt > now && existing.bodyHash !== bodyHash) {
     try {
       clearInflight(principal, idk);
-    } catch {}
+    } catch { /* ignore */ }
 
     return replyWithAppError(reply as any, {
       type: 'IDEMPOTENCY_MISMATCH',
@@ -94,9 +94,9 @@ export async function canonicalIdempotencyPreHandler(
   if (cached) {
     incIdempotencyHits(route);
     (req as any).__idempotent_replay = true;
-    try { reply.header('Idempotent-Replayed', '1'); } catch {}
+    try { reply.header('Idempotent-Replayed', '1'); } catch { /* ignore */ }
     for (const [name, value] of Object.entries(cached.headers || {})) {
-      try { reply.header(name, value); } catch {}
+      try { reply.header(name, value); } catch { /* ignore */ }
     }
     reply.code(cached.statusCode);
     return reply.send(cached.body);
@@ -105,7 +105,7 @@ export async function canonicalIdempotencyPreHandler(
   incIdempotencyMisses(route);
   (req as any).__idempotent_replay = false;
   (req as any).__idem_v1 = { cacheKey, route, idempotencyKey: idk, principal } as IdempotencyContext;
-  try { reply.header('Idempotent-Replayed', '0'); } catch {}
+  try { reply.header('Idempotent-Replayed', '0'); } catch { /* ignore */ }
 }
 
 export async function canonicalIdempotencyOnSend(
@@ -118,7 +118,7 @@ export async function canonicalIdempotencyOnSend(
 
   try {
     clearInflight(ctx.principal, ctx.idempotencyKey);
-  } catch {}
+  } catch { /* ignore */ }
 
   let body: any = payload;
   if (typeof payload === 'string') {
@@ -138,7 +138,7 @@ export async function canonicalIdempotencyOnSend(
   try {
     const ct = reply.getHeader('Content-Type');
     if (ct) headers['content-type'] = String(ct);
-  } catch {}
+  } catch { /* ignore */ }
 
   const now = Date.now();
   const ttlMs = getIdempotencyTtlMs();
@@ -152,7 +152,7 @@ export async function canonicalIdempotencyOnSend(
   };
 
   IDEM_CACHE.set(ctx.cacheKey, cached);
-  try { reply.header('Idempotent-Replayed', '0'); } catch {}
+  try { reply.header('Idempotent-Replayed', '0'); } catch { /* ignore */ }
 
   return payload;
 }

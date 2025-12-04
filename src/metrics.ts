@@ -39,7 +39,7 @@ export function recordDurationMs(ms: number) {
   samples.push(ms);
   if (samples.length > MAX_SAMPLES) samples.shift();
   // Update last_request_at for /v1/health
-  try { lastRequestAtISO = new Date().toISOString(); } catch {}
+  try { lastRequestAtISO = new Date().toISOString(); } catch { /* ignore */ }
 }
 
 export function recordStatus(code: number) {

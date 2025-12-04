@@ -80,7 +80,7 @@ export async function registerEvidenceRoute(app: FastifyInstance) {
     const p90 = Math.round((adjustedP50 + 0.2) * 1000) / 1000;
     
     // Top drivers (nodes with priors)
-    const topDrivers = body.priors.slice(0, 3).map((p, idx) => {
+    const topDrivers = body.priors.slice(0, 3).map((p, _idx) => {
       return {
         node_id: p.node_id,
         contribution: Math.round(Math.abs(p.mean) * 100),

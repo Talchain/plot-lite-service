@@ -64,7 +64,7 @@ export async function registerScoreRoute(app: FastifyInstance) {
     }
     
     const seed = body.seed || 4242;
-    const riskAttitude = body.utilities.risk?.attitude || 'neutral';
+    const _riskAttitude = body.utilities.risk?.attitude || 'neutral';
     
     // Deterministic scoring computation
     // For each node with a weight, compute utility based on seed-derived values
@@ -100,8 +100,7 @@ export async function registerScoreRoute(app: FastifyInstance) {
     const topDrivers = Object.entries(body.utilities.weights)
       .sort(([, a], [, b]) => (b as number) - (a as number))
       .slice(0, 3)
-      .map(([nodeId, weight], idx) => {
-        const node = body.graph.nodes.find((n: any) => n.id === nodeId);
+      .map(([nodeId, weight]) => {
         return {
           node_id: nodeId,
           contribution: Math.round((weight as number) * 100),

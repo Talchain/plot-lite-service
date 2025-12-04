@@ -12,11 +12,11 @@ let streamResumeMiss = 0;
 let streamResumeExpired = 0;
 let streamResumeOverflow = 0;
 
-export function incIdempotencyHits(route: string): void {
+export function incIdempotencyHits(_route: string): void {
   idempotencyHits++;
 }
 
-export function incIdempotencyMisses(route: string): void {
+export function incIdempotencyMisses(_route: string): void {
   idempotencyMisses++;
 }
 

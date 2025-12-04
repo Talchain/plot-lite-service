@@ -221,13 +221,13 @@ paths:
       tags: [v1, inference]
       description: Returns 405 Method Not Allowed. Use POST for inference requests.
       responses:
-        '200':
-          description: Not applicable - HEAD is not supported on this endpoint
+        '204':
+          description: No Content - HEAD successful
         '405':
-          description: Method Not Allowed
+          description: Method Not Allowed - Use POST for this endpoint
           headers:
             Allow:
-              schema: { type: string, example: 'POST, OPTIONS, HEAD' }
+              schema: { type: string, example: 'POST, OPTIONS' }
 
   /v1/stream:
     get:
@@ -447,13 +447,13 @@ paths:
       description: |
         Returns 405 Method Not Allowed with Allow header. Use POST for inference.
       responses:
-        '200':
-          description: Not applicable - HEAD returns 405
+        '204':
+          description: No Content - HEAD successful
         '405':
-          description: Method Not Allowed
+          description: Method Not Allowed - Use POST for inference
           headers:
             Allow:
-              schema: { type: string, example: 'POST, OPTIONS, HEAD' }
+              schema: { type: string, example: 'POST, OPTIONS' }
     post:
       summary: Execute probabilistic model
       operationId: runV1

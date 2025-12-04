@@ -15,7 +15,7 @@ function getSchema() {
   return JSON.parse(readFileSync(p, 'utf8'));
 }
 
-export async function toSCM(graph: { nodes: Array<{ id: string }>; edges: Array<{ from: string; to: string }> }, params?: any): Promise<SCM> {
+export async function toSCM(graph: { nodes: Array<{ id: string }>; edges: Array<{ from: string; to: string }> }, _params?: any): Promise<SCM> {
   const dag: DAG = {
     nodes: graph.nodes.map(n => n.id),
     edges: graph.edges.map(e => [e.from, e.to]),

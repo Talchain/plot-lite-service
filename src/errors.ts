@@ -58,6 +58,12 @@ export function errorResponse(type: ErrorType, message: string, hint?: string, f
     degraded: (fields as any)?.degraded === true,
   };
 
+  // Back-compat: surface hint at top level for tests and callers that
+  // expect data.hint alongside code/field/message.
+  if (hint) {
+    (olumi as any).hint = hint;
+  }
+
   if (fields) {
     for (const [k, v] of Object.entries(fields)) {
       if (!(k in olumi)) {

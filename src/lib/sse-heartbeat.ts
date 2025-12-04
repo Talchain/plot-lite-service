@@ -23,7 +23,7 @@ export class HeartbeatManager {
       this.seq++;
       try {
         await onBeat();
-      } catch (err) {
+      } catch {
         // Silently ignore errors (client may have disconnected)
       }
     }, intervalMs);

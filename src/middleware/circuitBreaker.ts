@@ -48,14 +48,11 @@ const globalCircuit: CircuitStats = {
 
 // PR-2B: Per-principal circuits with BoundedLRU (memory-bounded, true LRU)
 const PRINCIPAL_MAX = parseInt(process.env.RL_CB_MAX_PRINCIPALS || '1000', 10);
-// PR-2C: Default TTL = Infinity to prevent spaced-burst bypass
-const PRINCIPAL_TTL = process.env.RL_CB_PRINCIPAL_TTL_MS 
+// Default TTL = 1 hour (sufficient to detect sustained abuse while allowing memory cleanup)
+const DEFAULT_PRINCIPAL_TTL_MS = 60 * 60 * 1000; // 1 hour
+const PRINCIPAL_TTL = process.env.RL_CB_PRINCIPAL_TTL_MS
   ? parseInt(process.env.RL_CB_PRINCIPAL_TTL_MS, 10)
-  : Infinity;
-
-if (PRINCIPAL_TTL !== Infinity) {
-  console.warn('[CB] RL_CB_PRINCIPAL_TTL_MS set to finite value. Time-spaced bursts may bypass circuit.');
-}
+  : DEFAULT_PRINCIPAL_TTL_MS;
 
 const principalCircuits = new BoundedLRU<CircuitStats>({
   maxSize: PRINCIPAL_MAX,

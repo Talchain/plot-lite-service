@@ -54,7 +54,7 @@ function pruneAndEnforceCapacity(now: number) {
 }
 
 // Periodic cleanup to prevent memory leak (runs every 10s for faster response); unref'd
-setInterval(() => { try { pruneAndEnforceCapacity(Date.now()); } catch {} }, 10000).unref();
+setInterval(() => { try { pruneAndEnforceCapacity(Date.now()); } catch { /* ignore */ } }, 10000).unref();
 export async function rateLimit(req: FastifyRequest, reply: FastifyReply) {
   // Opportunistic pruning (1% of requests to avoid overhead)
   if (Math.random() < 0.01) {
@@ -66,7 +66,7 @@ export async function rateLimit(req: FastifyRequest, reply: FastifyReply) {
   // Emergency brake: if key map exceeds 2× capacity, reject immediately
   const cap = bound();
   if (perKey.size > 2 * cap) {
-    try { incJson429Count(); } catch {}
+    try { incJson429Count(); } catch { /* ignore */ }
     reply.header('X-RateLimit-Reason', 'global');
     reply.header('Retry-After', '10');
     return reply.code(429).send({
@@ -119,7 +119,7 @@ export async function rateLimit(req: FastifyRequest, reply: FastifyReply) {
         }
       }
     }
-  } catch {}
+  } catch { /* ignore */ }
 
   let s = perKey.get(key);
   if (!s || s.windowMinute !== minute) {
@@ -136,7 +136,7 @@ export async function rateLimit(req: FastifyRequest, reply: FastifyReply) {
     reply.header('X-RateLimit-Reset', String(resetEpoch));
     reply.header('X-RateLimit-Reason', 'per_ip');
     record429(now);
-    try { incJson429Count(); } catch {}
+    try { incJson429Count(); } catch { /* ignore */ }
     return replyWithAppError(reply, { type: 'RATE_LIMIT', statusCode: 429, hint: `Please retry after ${retrySec} seconds` });
   }
   // set 2xx rate-limit headers for allowed request

@@ -85,7 +85,7 @@ export interface ForkInputs {
  * Generate fork suggestions for threshold crossings
  */
 export function generateForkSuggestions(inputs: ForkInputs): ForkSuggestion {
-  const { metric_name, current_value, threshold, direction } = inputs;
+  const { metric_name, current_value, threshold, direction: _direction } = inputs;
 
   const below_threshold = current_value < threshold;
   const above_threshold = current_value >= threshold;

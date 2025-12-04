@@ -7,6 +7,7 @@ import { createHash } from 'crypto';
 import { recordAuditEvent } from '../../governance/audit-ring.js';
 import { replyWithAppError } from '../../errors.js';
 import { canonicalIdempotencyPreHandler, canonicalIdempotencyOnSend } from '../../middleware/idempotency-canonical.js';
+import { BODY_LIMIT_BYTES } from '../../config/constants.js';
 
 interface InterveneRequest {
   graph: { nodes: any[]; edges: any[] };
@@ -30,6 +31,7 @@ export async function registerInterveneRoute(app: FastifyInstance) {
           return canonicalIdempotencyOnSend(req, reply, payload);
         },
       ],
+      bodyLimit: BODY_LIMIT_BYTES,
     },
     async (req: FastifyRequest, reply: FastifyReply) => {
     const start = Date.now();

@@ -10,8 +10,8 @@ export interface DeltaSummary {
 
 export function computeDeltaSummary(
   graph: any,
-  outcome: string,
-  baseValue: number
+  _outcome: string,
+  _baseValue: number
 ): DeltaSummary | null {
   if (process.env.WHATIF_DELTA_ENABLE !== '1') {
     return null;

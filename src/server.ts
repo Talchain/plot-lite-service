@@ -67,7 +67,7 @@ app.addHook('onResponse', async (req, reply) => {
       const { recordDurationMs, recordStatus } = await import('./metrics.js');
       recordDurationMs(durationMs);
       recordStatus(reply.statusCode);
-    } catch {}
+    } catch { /* ignore */ }
   }
   app.log.info({ reqId: req.id, route, statusCode: reply.statusCode, durationMs }, 'request completed');
 });
@@ -113,7 +113,7 @@ function getBuildId(): string {
       cachedBuildId = res.stdout.trim() || new Date().toISOString();
       return cachedBuildId;
     }
-  } catch {}
+  } catch { /* ignore */ }
 
   cachedBuildId = new Date().toISOString();
   return cachedBuildId;
@@ -177,21 +177,7 @@ app.post('/draft-flows', async (req, reply) => {
 
 app.post('/critique', async (req: any, reply) => {
   const body = req.body || {};
-  // Block obviously sensitive content (never echo raw)
-  function hasSensitive(obj: any): boolean {
-    if (!obj || typeof obj !== 'object') return false;
-    for (const [k, v] of Object.entries(obj)) {
-      const key = String(k).toLowerCase();
-      if (key.includes('password') || key.includes('api_key') || key.includes('apikey')) return true;
-      if (typeof v === 'string') {
-        const s = v.toLowerCase();
-        if (s.includes('password') || s.includes('api_key') || s.includes('apikey')) return true;
-      } else if (typeof v === 'object') {
-        if (hasSensitive(v)) return true;
-      }
-    }
-    return false;
-  }
+  // Block obviously sensitive content (using lib/sensitive.js)
   {
     const { containsSensitive } = await import('./lib/sensitive.js');
     if (containsSensitive(body)) {
@@ -269,7 +255,7 @@ app.get('/ready', async (_req, reply) => {
   return reply.code(ready ? 200 : 503).send({ ok: ready });
 });
 
-app.post('/internal/replay-status', async (req: any, reply) => {
+app.post('/internal/replay-status', async (req: any, _reply) => {
   const s = req.body?.status;
   const { setLastReplay } = await import('./metrics.js');
   if (s === 'ok' || s === 'drift') setLastReplay(s);
@@ -279,7 +265,7 @@ app.post('/internal/replay-status', async (req: any, reply) => {
 async function start() {
   try {
     // Warm validator for readiness
-    try { const { warmValidator } = await import('./validation.js'); await warmValidator(); } catch {}
+    try { const { warmValidator } = await import('./validation.js'); await warmValidator(); } catch { /* ignore */ }
     await app.listen({ port: PORT, host: HOST });
     ready = true;
     app.log.info({ port: PORT }, 'server started');

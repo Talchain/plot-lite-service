@@ -72,10 +72,16 @@ export function normaliseReport(report: unknown): unknown {
     normalised.meta = meta;
   }
   
-  // Remove response_hash from model_card to avoid circularity
+  // Remove response_hash from model_card to avoid circularity and
+  // strip volatile timestamps from provenance_summary
   if (normalised.model_card && typeof normalised.model_card === 'object') {
     const model_card = { ...(normalised.model_card as Record<string, unknown>) };
     delete model_card.response_hash;
+    if (model_card.provenance_summary && typeof model_card.provenance_summary === 'object') {
+      const prov = { ...(model_card.provenance_summary as Record<string, unknown>) };
+      delete (prov as any).collected_at;
+      model_card.provenance_summary = prov;
+    }
     normalised.model_card = model_card;
   }
   

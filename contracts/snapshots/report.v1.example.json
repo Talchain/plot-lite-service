@@ -14,6 +14,7 @@
     {
       "auto_fixable": false,
       "message": "Model structure appears sound. No issues detected.",
+      "semantic_severity": "INFO",
       "severity": "OBSERVATION"
     }
   ],
