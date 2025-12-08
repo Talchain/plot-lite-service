@@ -15,8 +15,9 @@ import { registerHealthRoutes } from './routes/health.js';
 import { noteLastRequestAt, recordDurationMs, recordStatus, recordDraftDurationMs, recordReplayStatus, recordReplayRefusal, recordReplayRetry, streamStarted, streamDone, streamLimited, incCurrentStreams, decCurrentStreams, noteHeartbeat, getStreamCounters, getDraftP95History, getCurrentStreams, getLastHeartbeatMs, setIdemCacheSize, replaySnapshot, } from './metrics.js';
 export async function createServer(opts = {}) {
     // P0: Validate HMAC secrets (fail-fast)
-    const { validateHMACSecrets } = await import('./config/secret-validation.js');
+    const { validateHMACSecrets, validateExternalServiceURLs } = await import('./config/secret-validation.js');
     validateHMACSecrets();
+    validateExternalServiceURLs();
     // Validate feature flags on boot
     const { validateFeatureFlags } = await import('./config/feature-flags.js');
     validateFeatureFlags();
@@ -50,7 +51,7 @@ export async function createServer(opts = {}) {
         process.env.DEBUG_FORCE_ERROR_ENABLE === '1' ||
         process.env.TEST_ROUTES === '1' ||
         process.env.NODE_ENV === 'test';
-    function recordDraftFlowsLatency(sampleMs) {
+    function _recordDraftFlowsLatency(sampleMs) {
         if (!Number.isFinite(sampleMs) || sampleMs < 0)
             return;
         draftFlowsP95Last5.push(sampleMs);
@@ -204,7 +205,7 @@ export async function createServer(opts = {}) {
             const { enforceNoPayloadLogging } = await import('./security/no-payload-logging.guard.js');
             app.log = enforceNoPayloadLogging(app.log);
         }
-        catch { }
+        catch { /* ignore */ }
     }
     // Echo X-Request-Id back to client
     app.addHook('onSend', async (request, reply) => {
@@ -289,7 +290,7 @@ export async function createServer(opts = {}) {
                     return reply.code(304).send();
                 return reply.code(200).send(json);
             }
-            catch (e) {
+            catch {
                 return replyWithAppError(reply, {
                     type: 'INTERNAL',
                     statusCode: 500,
@@ -298,7 +299,7 @@ export async function createServer(opts = {}) {
             }
         });
     }
-    catch { }
+    catch { /* ignore */ }
     await app.register(helmet, {
         global: true,
         // Do not set JSON-only headers globally; our securityHeadersOnSend handles JSON paths.
@@ -380,14 +381,14 @@ export async function createServer(opts = {}) {
         try {
             noteLastRequestAt();
         }
-        catch { }
+        catch { /* ignore */ }
     });
     // Echo X-Request-ID on all responses
     app.addHook('onSend', async (req, reply, payload) => {
         try {
             reply.header('X-Request-ID', String(req.id));
         }
-        catch { }
+        catch { /* ignore */ }
         // HSTS only in production over TLS (proxied ok via X-Forwarded-Proto)
         try {
             if (process.env.NODE_ENV === 'production') {
@@ -397,7 +398,7 @@ export async function createServer(opts = {}) {
                     reply.header('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
             }
         }
-        catch { }
+        catch { /* ignore */ }
         return payload;
     });
     // JSON-only security headers (SSE exempt via content-type)
@@ -433,7 +434,7 @@ export async function createServer(opts = {}) {
                 // WP-P3: Track circuit breaker response (flag-gated)
                 trackCircuitBreakerResponse(req, reply);
             }
-            catch { }
+            catch { /* ignore */ }
         }
         // Update replay lastStatus/lastTs for /draft-flows responses
         if (route?.startsWith('/draft-flows')) {
@@ -441,7 +442,7 @@ export async function createServer(opts = {}) {
                 const status = reply.statusCode >= 200 && reply.statusCode < 300 ? 'ok' : 'fail';
                 recordReplayStatus(status);
             }
-            catch { }
+            catch { /* ignore */ }
         }
         app.log.info({ reqId: req.id, route, statusCode: reply.statusCode, durationMs }, 'request completed');
     });
@@ -536,7 +537,7 @@ export async function createServer(opts = {}) {
                 return reply.code(200).send({ ip, method, path, count: n });
             });
         }
-        catch { }
+        catch { /* ignore */ }
         app.get('/demo/stream', async (req, reply) => {
             const q = req.query || {};
             const scenario = typeof q.scenario === 'string' ? q.scenario : 'demo';
@@ -549,19 +550,19 @@ export async function createServer(opts = {}) {
             try {
                 reply.removeHeader('X-Content-Type-Options');
             }
-            catch { }
+            catch { /* ignore */ }
             try {
                 reply.removeHeader('Referrer-Policy');
             }
-            catch { }
+            catch { /* ignore */ }
             try {
                 reply.raw.removeHeader?.('X-Content-Type-Options');
             }
-            catch { }
+            catch { /* ignore */ }
             try {
                 reply.raw.removeHeader?.('Referrer-Policy');
             }
-            catch { }
+            catch { /* ignore */ }
             reply.hijack();
             try {
                 reply.raw.writeHead(200, {
@@ -591,7 +592,7 @@ export async function createServer(opts = {}) {
                         inflight.dec('endStream');
                     }
                 }
-                catch { }
+                catch { /* ignore */ }
                 jsonStreamDone++;
                 if (jsonCurrentStreams > 0)
                     jsonCurrentStreams--;
@@ -610,11 +611,11 @@ export async function createServer(opts = {}) {
             try {
                 reply.raw.flush?.();
             }
-            catch { }
+            catch { /* ignore */ }
             try {
                 reply.raw.end();
             }
-            catch { }
+            catch { /* ignore */ }
             return;
         });
         const registerTestStreamRoute = (path) => {
@@ -662,19 +663,19 @@ export async function createServer(opts = {}) {
                 try {
                     reply.removeHeader('X-Content-Type-Options');
                 }
-                catch { }
+                catch { /* ignore */ }
                 try {
                     reply.removeHeader('Referrer-Policy');
                 }
-                catch { }
+                catch { /* ignore */ }
                 try {
                     reply.raw.removeHeader?.('X-Content-Type-Options');
                 }
-                catch { }
+                catch { /* ignore */ }
                 try {
                     reply.raw.removeHeader?.('Referrer-Policy');
                 }
-                catch { }
+                catch { /* ignore */ }
                 reply.hijack();
                 try {
                     reply.raw.writeHead(200, {
@@ -703,7 +704,7 @@ export async function createServer(opts = {}) {
                             inflight.dec('endStream');
                         }
                     }
-                    catch { }
+                    catch { /* ignore */ }
                     if (heartbeat) {
                         clearInterval(heartbeat);
                         heartbeat = null;
@@ -725,11 +726,11 @@ export async function createServer(opts = {}) {
                     try {
                         reply.raw.flush?.();
                     }
-                    catch { }
+                    catch { /* ignore */ }
                     try {
                         reply.raw.end();
                     }
-                    catch { }
+                    catch { /* ignore */ }
                 };
                 req.raw.on('close', () => finish('abort'));
                 req.raw.on('error', () => finish('abort'));
@@ -837,7 +838,7 @@ export async function createServer(opts = {}) {
                     if (body && typeof body.id === 'string')
                         id = String(body.id);
                 }
-                catch { }
+                catch { /* ignore */ }
                 if (!id) {
                     const q = req.query || {};
                     if (typeof q.id === 'string')
@@ -880,7 +881,7 @@ export async function createServer(opts = {}) {
                 try {
                     parsed = JSON.parse(raw.toString('utf8'));
                 }
-                catch (e) {
+                catch {
                     throw new Error(`Invalid JSON in ${abs}`);
                 }
                 if (parsed?.schema !== 'report.v1')
@@ -1068,7 +1069,7 @@ export async function createServer(opts = {}) {
                 try {
                     setIdemCacheSize(idemCache.getSize());
                 }
-                catch { }
+                catch { /* ignore */ }
             }
         }
         return reply.send(respText);
@@ -1087,7 +1088,7 @@ export async function createServer(opts = {}) {
                     return reply.code(400).send(resp);
                 }
             }
-            catch { }
+            catch { /* ignore */ }
             if (containsSensitive(body)) {
                 const { errorResponse } = await import('./errors.js');
                 const resp = { ...errorResponse('BLOCKED_CONTENT', 'Sensitive token detected in request body; remove secrets and retry.', 'Remove secrets and retry.'), redacted: true };
@@ -1154,7 +1155,7 @@ export async function createServer(opts = {}) {
                 try {
                     setIdemCacheSize(idemCache.getSize());
                 }
-                catch { }
+                catch { /* ignore */ }
                 return reply.send(respText);
             }
         }
@@ -1172,7 +1173,6 @@ export async function createServer(opts = {}) {
     if (opts.enableTestRoutes || process.env.TEST_ROUTES === '1') {
         app.post('/__test/force-error', async (req, reply) => {
             const t = (req.body?.type || req.query?.type || '').toString().toUpperCase();
-            const { errorResponse } = await import('./errors.js');
             if (t === 'TIMEOUT')
                 return replyWithAppError(reply, { type: 'TIMEOUT', statusCode: 504, hint: 'Reduce processing time' });
             if (t === 'RETRYABLE')
@@ -1185,7 +1185,7 @@ export async function createServer(opts = {}) {
         app.get('/internal/replay-status', async (_req, reply) => {
             return reply.code(200).send(replaySnapshot());
         });
-        app.post('/internal/replay-report', async (req, reply) => {
+        app.post('/internal/replay-report', async (req, _reply) => {
             try {
                 const b = req.body || {};
                 if (b.refusal)
@@ -1196,9 +1196,8 @@ export async function createServer(opts = {}) {
                     recordReplayStatus(b.status);
                 return { ok: true };
             }
-            catch {
-                return { ok: false };
-            }
+            catch { /* ignore */ }
+            return { ok: false };
         });
     }
     // --- Real SSE route (FEATURE_STREAM=1) ---
@@ -1217,11 +1216,11 @@ export async function createServer(opts = {}) {
             try {
                 streamStarted?.();
             }
-            catch { }
+            catch { /* ignore */ }
             try {
                 incCurrentStreams?.();
             }
-            catch { }
+            catch { /* ignore */ }
             const q = req.query || {};
             const forceLimit = String(process.env.STREAM_FORCE_LIMIT || '').toLowerCase() === '1';
             const sleepMs = Number(q.sleepMs || q.latency_ms || 0);
@@ -1251,15 +1250,15 @@ export async function createServer(opts = {}) {
                 try {
                     reply.raw.end();
                 }
-                catch { }
+                catch { /* ignore */ }
                 try {
                     fn?.();
                 }
-                catch { }
+                catch { /* ignore */ }
                 try {
                     decCurrentStreams?.();
                 }
-                catch { }
+                catch { /* ignore */ }
                 // Mark as decremented to prevent onResponse from also decrementing
                 reply.raw.__inflightDecDone = true;
                 // Decrement inflight (matches global onRequest increment)
@@ -1287,7 +1286,7 @@ export async function createServer(opts = {}) {
                 try {
                     noteHeartbeat?.();
                 }
-                catch { }
+                catch { /* ignore */ }
             }, hbMs);
             hb.unref(); // Don't keep process alive
             // Forced limited hook for deterministic testing of backpressure mapping
@@ -1296,7 +1295,7 @@ export async function createServer(opts = {}) {
                 try {
                     streamLimited?.();
                 }
-                catch { }
+                catch { /* ignore */ }
                 return endStream();
             }
             // Minimal sequence (hello -> token -> cost -> done) with optional latency
@@ -1322,14 +1321,14 @@ export async function createServer(opts = {}) {
                     try {
                         streamLimited?.();
                     }
-                    catch { }
+                    catch { /* ignore */ }
                     return endStream();
                 }
             }
             try {
                 streamDone?.();
             }
-            catch { }
+            catch { /* ignore */ }
             return endStream();
         });
     }
@@ -1395,7 +1394,7 @@ export async function createServer(opts = {}) {
                     const { clearInflight, principalFor } = await import('./middleware/idempotency.js');
                     clearInflight(principalFor(req), idk.trim());
                 }
-                catch { }
+                catch { /* ignore */ }
             }
             // Structured log for 413
             const bytes = req.headers['content-length'] ? Number(req.headers['content-length']) : 0;

@@ -53,7 +53,7 @@ function pruneAndEnforceCapacity(now) {
 setInterval(() => { try {
     pruneAndEnforceCapacity(Date.now());
 }
-catch { } }, 10000).unref();
+catch { /* ignore */ } }, 10000).unref();
 export async function rateLimit(req, reply) {
     // Opportunistic pruning (1% of requests to avoid overhead)
     if (Math.random() < 0.01) {
@@ -68,7 +68,7 @@ export async function rateLimit(req, reply) {
         try {
             incJson429Count();
         }
-        catch { }
+        catch { /* ignore */ }
         reply.header('X-RateLimit-Reason', 'global');
         reply.header('Retry-After', '10');
         return reply.code(429).send({
@@ -118,7 +118,7 @@ export async function rateLimit(req, reply) {
             }
         }
     }
-    catch { }
+    catch { /* ignore */ }
     let s = perKey.get(key);
     if (!s || s.windowMinute !== minute) {
         s = { count: 0, windowMinute: minute, resetAt: (minute + 1) * 60000 };
@@ -137,7 +137,7 @@ export async function rateLimit(req, reply) {
         try {
             incJson429Count();
         }
-        catch { }
+        catch { /* ignore */ }
         return replyWithAppError(reply, { type: 'RATE_LIMIT', statusCode: 429, hint: `Please retry after ${retrySec} seconds` });
     }
     // set 2xx rate-limit headers for allowed request

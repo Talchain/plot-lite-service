@@ -1,5 +1,13 @@
 export type CritiqueItem = { note: string; severity: 'BLOCKER' | 'IMPROVEMENT' | 'OBSERVATION'; fix_available?: boolean };
 
+/**
+ * Get node kind with backward compatibility fallback
+ * Prefers `kind` but falls back to `type` for legacy graphs
+ */
+function getNodeKind(node: any): string | undefined {
+  return node?.kind ?? node?.type;
+}
+
 export function critiqueFlow(flow: any): CritiqueItem[] {
   const items: CritiqueItem[] = [];
   const nodes: any[] = Array.isArray(flow?.nodes) ? flow.nodes : [];
@@ -9,7 +17,7 @@ export function critiqueFlow(flow: any): CritiqueItem[] {
 
   // 1) Missing baseline for any outcome node
   for (const n of nodes) {
-    if (n?.type === 'outcome' && (n.baseline === undefined || n.baseline === null)) {
+    if (getNodeKind(n) === 'outcome' && (n.baseline === undefined || n.baseline === null)) {
       const label = String(n.label || 'outcome');
       items.push({ note: `Missing baseline: ${label.toLowerCase()}`, severity: 'BLOCKER', fix_available: true });
     }
@@ -65,7 +73,7 @@ export function critiqueFlow(flow: any): CritiqueItem[] {
   }
 
   // 4) Competitor response missing heuristic
-  const hasDecisionPrice = nodes.some(n => String(n.label || '').toLowerCase().includes('price') && n.type === 'decision');
+  const hasDecisionPrice = nodes.some(n => String(n.label || '').toLowerCase().includes('price') && getNodeKind(n) === 'decision');
   const hasCompetitorNode = nodes.some(n => String(n.label || '').toLowerCase().includes('competitor'));
   if (hasDecisionPrice && !hasCompetitorNode) {
     items.push({ note: 'Consider competitor response', severity: 'IMPROVEMENT', fix_available: true });

@@ -33,3 +33,36 @@ export function validateHMACSecrets(): void {
     process.exit(1);
   }
 }
+
+/**
+ * P0: External Service URL Validation (Fail-Fast at Startup)
+ * Ensures CEE and ISL base URLs use HTTPS in production.
+ */
+export function validateExternalServiceURLs(): void {
+  const errors: string[] = [];
+  const isProduction = process.env.NODE_ENV === 'production';
+  const isTest = process.env.NODE_ENV === 'test' || process.env.VITEST === 'true';
+
+  if (!isProduction || isTest) {
+    return; // Only enforce in production
+  }
+
+  // CEE_BASE_URL validation
+  const ceeBaseUrl = process.env.CEE_BASE_URL || '';
+  if (ceeBaseUrl && !ceeBaseUrl.startsWith('https://')) {
+    errors.push(`CEE_BASE_URL must use HTTPS in production (got: ${ceeBaseUrl.substring(0, 30)}...)`);
+  }
+
+  // ISL_BASE_URL validation
+  const islBaseUrl = process.env.ISL_BASE_URL || '';
+  if (islBaseUrl && !islBaseUrl.startsWith('https://')) {
+    errors.push(`ISL_BASE_URL must use HTTPS in production (got: ${islBaseUrl.substring(0, 30)}...)`);
+  }
+
+  if (errors.length > 0) {
+    console.error('\n[FATAL] External Service URL Validation Failed:');
+    errors.forEach(e => console.error(`  ❌ ${e}`));
+    console.error('\nAll external service URLs must use HTTPS in production.\n');
+    process.exit(1);
+  }
+}

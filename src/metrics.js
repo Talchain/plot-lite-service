@@ -42,7 +42,7 @@ export function recordDurationMs(ms) {
     try {
         lastRequestAtISO = new Date().toISOString();
     }
-    catch { }
+    catch { /* ignore */ }
 }
 export function recordStatus(code) {
     if (code >= 200 && code < 300)

@@ -15,7 +15,8 @@
       "auto_fixable": false,
       "message": "Model structure appears sound. No issues detected.",
       "semantic_severity": "INFO",
-      "severity": "OBSERVATION"
+      "severity": "OBSERVATION",
+      "source": "engine"
     }
   ],
   "evidence_analysis": {
@@ -135,6 +136,7 @@
     "nodes": [
       {
         "id": "start",
+        "kind": "decision",
         "label": "Initial Assessment",
         "options": [
           "yes",
@@ -145,6 +147,7 @@
       },
       {
         "id": "process",
+        "kind": "decision",
         "label": "Processing Step",
         "options": [
           "approved",
@@ -156,23 +159,35 @@
       },
       {
         "id": "approved",
+        "kind": "outcome",
         "label": "Approved",
         "result": "success",
         "type": "outcome"
       },
       {
         "id": "rejected",
+        "kind": "outcome",
         "label": "Rejected",
         "result": "failure",
         "type": "outcome"
       },
       {
         "id": "review",
+        "kind": "outcome",
         "label": "Needs Review",
         "result": "pending",
         "type": "outcome"
       }
     ]
+  },
+  "graph_health": {
+    "issues": [
+      "uniform_weights",
+      "uniform_beliefs"
+    ],
+    "source": "engine",
+    "suggestion": "Vary edge weights and beliefs to reflect different influence strengths and certainties",
+    "variance_status": "limited"
   },
   "graph_quality": {
     "balance": 0.6,
@@ -200,6 +215,7 @@
   },
   "meta": {
     "inference_mode": "model_based",
+    "isl_degraded": false,
     "seed": 42,
     "version": "1.0.0"
   },

@@ -2413,6 +2413,18 @@ paths:
                         type: array
                         items: { type: object }
                 seed: { type: integer }
+                detail_level:
+                  type: string
+                  enum: [quick, standard, deep]
+                  default: standard
+                  description: 'Controls inference compute budget (quick=K16, standard=K32, deep=K64)'
+                baseline_value:
+                  type: number
+                  default: 100
+                  description: 'Base value for outcome calculations'
+                outcome_node:
+                  type: string
+                  description: 'Target node for inference (defaults to last node in first scenario)'
                 priors: { type: object }
                 evidence:
                   type: array
@@ -2436,6 +2448,7 @@ paths:
                     - label: "High Price"
                       nodes: [{ id: "price", value: 1.2 }]
                   seed: 4242
+                  detail_level: standard
       responses:
         '200':
           description: Bundle results
@@ -2447,26 +2460,59 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [schema, results, model_card, meta]
                 properties:
                   schema: { type: string, example: "run_bundle.v1" }
                   results:
                     type: array
                     items:
                       type: object
+                      required: [label, summary, model_card]
                       properties:
                         label: { type: string }
                         summary:
                           type: object
+                          required: [p10, p50, p90]
                           properties:
                             p10: { type: number }
                             p50: { type: number }
                             p90: { type: number }
-                        confidence: { type: number }
+                        model_card:
+                          type: object
+                          properties:
+                            seed: { type: integer, description: 'Per-scenario seed (base_seed + index + 1)' }
+                            nodes: { type: integer }
+                            edges: { type: integer }
+                            backend: { type: string, enum: [scm_lite, fallback] }
+                            detail_level: { type: string, enum: [quick, standard, deep] }
+                            K: { type: integer, description: 'Samples evaluated (if available)' }
+                            response_hash: { type: string, pattern: '^[0-9a-f]{16}$' }
+                            duplicate: { type: boolean, description: 'True if this result matches a prior scenario' }
+                            inference_error: { type: string, description: 'Error message if inference failed' }
                   model_card:
                     type: object
                     properties:
                       seed: { type: integer }
+                      detail_level: { type: string, enum: [quick, standard, deep] }
+                      backend: { type: string, example: "scm_lite" }
                       response_hash: { type: string }
+                  meta:
+                    type: object
+                    properties:
+                      seed: { type: integer }
+                      total_scenarios: { type: integer }
+                      unique_results: { type: integer }
+                      inference_mode:
+                        type: string
+                        enum: [model_based, mixed]
+                        description: "'model_based' if all scenarios used SCM-Lite; 'mixed' if any scenario used fallback"
+                      all_scenarios_succeeded:
+                        type: boolean
+                        description: "True if all scenarios used SCM-Lite inference; false if any used fallback"
+                      fallback_count:
+                        type: integer
+                        description: "Number of scenarios that used fallback (only present when > 0)"
+                      evidence_applied: { type: array, items: { type: object } }
         '400':
           description: Bad input
           content:
@@ -2823,8 +2869,8 @@ components:
               type: { type: string, maxLength: 50, deprecated: true }
               kind:
                 type: string
-                enum: [goal, decision, option, outcome]
-                description: 'Node type in decision graph'
+                enum: [goal, decision, option, outcome, risk, action]
+                description: 'Node classification aligned with CEE/ISL. See Platform Architecture Contract v1.3'
               prior:
                 type: number
                 minimum: 0
@@ -2960,6 +3006,10 @@ components:
         message: { type: string }
         suggested_action: { type: string }
         auto_fixable: { type: boolean }
+        source:
+          type: string
+          enum: [engine, isl, cee]
+          description: 'Source that generated this critique'
 
     evidenceFreshnessSummary:
       type: object
@@ -3209,6 +3259,28 @@ components:
               type: integer
             recommendation:
               type: string
+        graph_health:
+          type: object
+          description: 'Graph health assessment for variance potential - detects conditions that cause flat/collapsed analysis results'
+          properties:
+            variance_status:
+              type: string
+              enum: [limited, healthy, unknown]
+              description: 'Variance potential status'
+            issues:
+              type: array
+              items:
+                type: string
+                enum: [uniform_weights, uniform_beliefs, single_path]
+              description: 'Specific issues detected (only present if variance_status=limited)'
+            suggestion:
+              type: string
+              description: 'Actionable suggestion for improving the graph'
+            source:
+              type: string
+              enum: [engine, isl]
+              description: 'Source of the assessment'
+          required: [variance_status, source]
         sensitivity_summary:
           type: object
           description: 'P1: Sensitivity concentration analysis (standard/deep only)'

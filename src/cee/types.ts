@@ -128,6 +128,49 @@ export interface ConfidenceStatement {
 export type ModelImprovementPriority = 'high' | 'medium' | 'low';
 
 /**
+ * CEE weight suggestion for edges with problematic weights or beliefs.
+ * Generated when CEE detects issues with edge parameters.
+ *
+ * Weight-based reasons:
+ * - uniform_weights: All edges have same weight
+ * - weight_too_low: Weight below reasonable threshold
+ * - weight_too_high: Weight above reasonable threshold
+ *
+ * Belief-based reasons (v1.3.5+):
+ * - near_zero: Belief < 0.05 (very low probability)
+ * - near_one: Belief > 0.95 (near-certain probability)
+ * - uniform_distribution: All decision→option edges have equal belief
+ */
+export type WeightSuggestionReason =
+  | 'uniform_weights' | 'weight_too_low' | 'weight_too_high'
+  | 'near_zero' | 'near_one' | 'uniform_distribution';
+
+export interface WeightSuggestion {
+  /** Edge identifier in format "{from}->{to}" */
+  edge_id: string;
+  /** Source node ID */
+  from_node_id: string;
+  /** Target node ID */
+  to_node_id: string;
+  /** Current belief value on the edge */
+  current_belief?: number;
+  /** Current weight value on the edge */
+  current_weight: number;
+  /** Reason for the suggestion */
+  reason: WeightSuggestionReason;
+  /** Suggested weight value (undefined for uniform_weights or low confidence) */
+  suggested_weight?: number;
+  /** Suggested belief value for belief-based reasons (v1.3.5+) */
+  suggested_belief?: number;
+  /** Confidence in the suggestion (0-1). Suggestions only made when ≥0.7 */
+  confidence?: number;
+  /** Human-readable explanation of the issue and suggestion */
+  rationale?: string;
+  /** Whether CEE auto-applied this suggestion */
+  auto_applied?: boolean;
+}
+
+/**
  * Targeted improvement opportunity for the model or decision process.
  */
 export interface ModelImprovement {
@@ -155,6 +198,8 @@ export interface EnhancedCeeReview extends CeeReview {
   confidence_statements?: ConfidenceStatement[];
   model_improvements?: ModelImprovement[];
   graph_patches?: GraphPatchV1[];
+  /** Weight suggestions for edges with problematic values */
+  weight_suggestions?: WeightSuggestion[];
   /** Where these enhancements originated from. */
   enhancement_source?: 'isl' | 'engine' | 'mixed';
 }

@@ -99,6 +99,23 @@ export interface GraphQuality {
   recommendation?: string;
 }
 
+/**
+ * Graph health assessment for variance potential
+ * Detects conditions that cause flat/collapsed analysis results
+ */
+export type GraphHealthIssue = 'uniform_weights' | 'uniform_beliefs' | 'single_path';
+
+export interface GraphHealth {
+  /** Variance potential status */
+  variance_status: 'limited' | 'healthy' | 'unknown';
+  /** Specific issues detected (only present if variance_status='limited') */
+  issues?: GraphHealthIssue[];
+  /** Actionable suggestion for improving the graph */
+  suggestion?: string;
+  /** Source of the assessment */
+  source: 'engine' | 'isl';
+}
+
 export interface Insights {
   summary: string; // ≤200 chars
   risks: string[]; // max 5, each ≤100 chars
@@ -125,11 +142,16 @@ export interface ForkSuggestion {
 
 export type CritiqueSeverity = 'BLOCKER' | 'IMPROVEMENT' | 'OBSERVATION';
 
+/** Source of a critique item */
+export type CritiqueSource = 'engine' | 'isl' | 'cee';
+
 export interface CritiqueItem {
   severity: CritiqueSeverity;
   message: string;
   suggested_action?: string;
   auto_fixable?: boolean;
+  /** Source that generated this critique */
+  source?: CritiqueSource;
 }
 
 export interface ExplainDelta {
@@ -156,9 +178,20 @@ export interface TrustedResponse {
   insights?: Insights;
 }
 
+/**
+ * Node classification kind - aligned with CEE/ISL workstreams
+ * See Platform Architecture Contract v1.3 §4.2
+ */
+export type NodeKind = 'goal' | 'decision' | 'option' | 'outcome' | 'risk' | 'action';
+
+/** All valid node kind values for validation */
+export const VALID_NODE_KINDS: readonly NodeKind[] = ['goal', 'decision', 'option', 'outcome', 'risk', 'action'];
+
 export interface GraphNode {
   id: string;
   label: string;
+  kind?: NodeKind;
+  /** @deprecated Use `kind` instead. Maintained for backward compatibility. */
   type?: string;
   value?: number;
 }
