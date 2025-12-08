@@ -258,10 +258,11 @@ components:
       type: object
       properties:
         id: { type: string }
-        type: { type: string, enum: [goal, objective, decision, option, problem, action, outcome, opportunity, safety_limit] }
+        kind: { type: string, enum: [goal, decision, option, outcome, risk, action], description: 'Node classification aligned with CEE/ISL. See Platform Architecture Contract v1.3' }
+        type: { type: string, deprecated: true, description: 'Deprecated: use kind instead. Mapped to kind for backward compatibility.' }
         label: { type: string }
         baseline: { type: number }
-      required: [id, type, label]
+      required: [id, label]
     Edge:
       type: object
       properties:

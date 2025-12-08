@@ -37,7 +37,7 @@ import {
 import { normalizeCeeCode, isFlagOn } from '../../cee/codes.js';
 import { shouldAllowCeeCall, recordCeeSuccess, recordCeeFailure } from '../../cee/circuit-breaker.js';
 // runResponseSchema used in OpenAPI documentation
-import { normalizeGraph } from '../../util/normalize.js';
+import { normalizeGraphWithWarnings } from '../../util/normalize.js';
 import { FLAGS } from '../../config/flags.js';
 import { critiqueSeverityToLevel } from '../../trust/severity-bridge.js';
 import { aggregateProvenance } from '../../trust/provenance.js';
@@ -50,6 +50,7 @@ import {
 import { validateEffect } from '../../engine/effects.js';
 import { callDecisionReviewFromEngine } from '../../cee/client.js';
 import { summarizeEvidenceFreshnessFromEvidence } from '../../trust/evidence-freshness.js';
+import { buildGraphHealth } from '../../trust/variance-helper.js';
 
 
 export interface RunRequest {
@@ -184,8 +185,8 @@ export async function registerRunRoute(app: FastifyInstance) {
     // Normalize targets: canonical targets field, fallback to legacy query.targets
     const _targets = body.targets ?? (body.query as any)?.targets ?? [];
     
-    // Normalize graph (map confidence|probability→belief, no default on ingress)
-    const graph = normalizeGraph(body.graph, false);
+    // Normalize graph (map confidence|probability→belief, type→kind, no default on ingress)
+    const { graph, warnings: graphWarnings } = normalizeGraphWithWarnings(body.graph, false);
     
     // Validate priors if present
     if (body.priors) {
@@ -434,10 +435,22 @@ export async function registerRunRoute(app: FastifyInstance) {
       : [];
 
     // Bridge BLOCKER/IMPROVEMENT/OBSERVATION to INFO/WARNING/ERROR semantics (additive)
+    // Add source: 'engine' to indicate these are engine-generated critiques
     const critique = critiqueRaw.map((c: any) => ({
       ...c,
+      source: 'engine' as const,
       semantic_severity: critiqueSeverityToLevel(c.severity),
     }));
+
+    // Add graph normalization warnings (e.g., invalid node kind values) as OBSERVATION critiques
+    for (const warning of graphWarnings) {
+      critique.push({
+        severity: 'OBSERVATION',
+        semantic_severity: 'INFO',
+        message: warning,
+        source: 'engine' as const,
+      });
+    }
 
     // Explain-Δ - will be computed after inference with actual p50
     let explain_delta: ReturnType<typeof buildExplainDelta>;
@@ -716,12 +729,14 @@ export async function registerRunRoute(app: FastifyInstance) {
         if (isl_validation.status === 'cannot_identify') {
           (critique as any[]).push({
             severity: 'BLOCKER',
+            source: 'isl' as const,
             message: 'ISL validation indicates the causal effect cannot be identified from the current graph.',
             suggested_action: isl_validation.explanation?.summary ?? 'Review graph structure and ISL issues before relying on this estimate.',
           });
         } else if (isl_validation.status === 'uncertain') {
           (critique as any[]).push({
             severity: 'IMPROVEMENT',
+            source: 'isl' as const,
             message: 'ISL validation reports partial identifiability; results may rely on stronger assumptions.',
             suggested_action: isl_validation.explanation?.summary,
           });
@@ -731,6 +746,7 @@ export async function registerRunRoute(app: FastifyInstance) {
           for (const issue of isl_validation.issues.slice(0, 3)) {
             (critique as any[]).push({
               severity: 'IMPROVEMENT',
+              source: 'isl' as const,
               message: issue.description,
               suggested_action: issue.suggested_action,
             });
@@ -743,6 +759,7 @@ export async function registerRunRoute(app: FastifyInstance) {
       try {
         (critique as any[]).push({
           severity: 'IMPROVEMENT',
+          source: 'isl' as const,
           message: 'ISL sensitivity analysis indicates fragile estimates; small input changes may materially shift outcomes.',
           suggested_action: isl_sensitivity.recommendations[0],
         });
@@ -764,6 +781,9 @@ export async function registerRunRoute(app: FastifyInstance) {
       critique_issues: critique_blockers,
       identifiable: identifiability.identifiable,
     });
+
+    // Graph health assessment for variance potential (detects uniform weights/beliefs, single paths)
+    const graph_health = buildGraphHealth(graph, isl_sensitivity);
 
     // Optional provenance summary for model_card (flag-gated, additive)
     let provenance_summary: any | undefined;
@@ -793,6 +813,7 @@ export async function registerRunRoute(app: FastifyInstance) {
         try {
           (critique as any[]).push({
             code: 'STALE_EVIDENCE',
+            source: 'engine' as const,
             message: 'Some evidence is stale (>= 365 days old); consider refreshing key inputs.',
             severity: 'IMPROVEMENT',
             semantic_severity: 'WARNING',
@@ -832,6 +853,7 @@ export async function registerRunRoute(app: FastifyInstance) {
       },
       graph,
       graph_quality,
+      graph_health,
       identifiability: identifiability.summary,
       insights,
       linearity_warning,
@@ -846,6 +868,8 @@ export async function registerRunRoute(app: FastifyInstance) {
         commit: process.env.BUILD_ID || process.env.GITHUB_SHA || 'dev',
         version: '1.0.0',
         inference_mode,
+        // P0: Top-level degraded indicators for enterprise observability
+        isl_degraded: isl_validation?.source !== 'isl' && isl_validation !== undefined,
         ...(body.evidence && body.evidence.length > 0 && {
           evidence_applied: (await import('../../lib/validate-evidence.js')).sanitizeEvidence(body.evidence)
         }),
@@ -972,9 +996,56 @@ export async function registerRunRoute(app: FastifyInstance) {
         // Only attach CEE fields if they have actual data (not null)
         if (cee.review !== null) {
           (response as any).ceeReview = cee.review;
+
+          // Extract weight_suggestions from CEE review and add as critique items
+          const weightSuggestions = (cee.review as any)?.weight_suggestions;
+          if (Array.isArray(weightSuggestions) && weightSuggestions.length > 0) {
+            const weightCritiques = weightSuggestions.map((ws: any) => {
+              // Use CEE's rationale if available, otherwise generate fallback message
+              let message = ws.rationale;
+              if (!message) {
+                const reasonText = ws.reason === 'uniform_weights'
+                  ? 'has uniform weight (same as other edges)'
+                  : ws.reason === 'weight_too_low'
+                  ? 'has unusually low weight'
+                  : ws.reason === 'weight_too_high'
+                  ? 'has unusually high weight'
+                  : 'has problematic weight';
+                message = `Edge ${ws.from_node_id}→${ws.to_node_id} ${reasonText} (current: ${ws.current_weight})`;
+                if (ws.suggested_weight !== undefined) {
+                  message += `. Consider adjusting to ${ws.suggested_weight}`;
+                }
+              }
+              if (ws.auto_applied) {
+                message += ' (auto-applied by CEE)';
+              }
+
+              const critique: any = {
+                severity: 'IMPROVEMENT' as const,
+                semantic_severity: 'WARNING' as const,
+                message,
+                source: 'cee' as const,
+                edge_id: ws.edge_id,
+              };
+
+              // Only add suggested_action if we have a concrete suggestion
+              if (ws.suggested_weight !== undefined) {
+                critique.suggested_action = `Adjust weight to ${ws.suggested_weight}`;
+              }
+
+              return critique;
+            });
+
+            // Append to existing critique array
+            if (Array.isArray((response as any).critique)) {
+              (response as any).critique.push(...weightCritiques);
+            }
+          }
         }
         if (cee.trace) {
           (response as any).ceeTrace = cee.trace;
+          // P0: Add top-level CEE degraded indicator
+          (response as any).meta.cee_degraded = cee.trace.degraded ?? false;
         }
         if (cee.error) {
           (response as any).ceeError = cee.error;
@@ -984,6 +1055,8 @@ export async function registerRunRoute(app: FastifyInstance) {
         ceeCode = err?.code || 'client_error';
         recordCeeDegraded('/v1/run', normalizeCeeCode(ceeCode));
         recordCeeFailure(); // Circuit breaker: track failure
+        // P0: Mark CEE as degraded on error
+        (response as any).meta.cee_degraded = true;
 
         const errorMeta = {
           evt: 'cee_integration_error',

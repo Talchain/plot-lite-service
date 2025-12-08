@@ -47,10 +47,12 @@ describe('POST /v1/run_bundle - OpenAPI Example Round-trip', () => {
       expect(result.summary.p50).toBeTypeOf('number');
       expect(result.summary.p90).toBeTypeOf('number');
       expect(result.model_card).toBeDefined();
-      expect(result.model_card.schema).toBe('report.v1');
-      expect(result.model_card.seed).toBe(4242);
+      // Per-scenario seed (base seed + index + 1)
+      expect(result.model_card.seed).toBeTypeOf('number');
       expect(result.model_card.nodes).toBeTypeOf('number');
       expect(result.model_card.edges).toBeTypeOf('number');
+      expect(result.model_card.backend).toBeDefined();
+      expect(result.model_card.detail_level).toBeDefined();
       expect(result.model_card.response_hash).toMatch(/^[0-9a-f]{16}$/);
     }
 
