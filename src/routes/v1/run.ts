@@ -1004,16 +1004,38 @@ export async function registerRunRoute(app: FastifyInstance) {
               // Use CEE's rationale if available, otherwise generate fallback message
               let message = ws.rationale;
               if (!message) {
-                const reasonText = ws.reason === 'uniform_weights'
-                  ? 'has uniform weight (same as other edges)'
-                  : ws.reason === 'weight_too_low'
-                  ? 'has unusually low weight'
-                  : ws.reason === 'weight_too_high'
-                  ? 'has unusually high weight'
-                  : 'has problematic weight';
-                message = `Edge ${ws.from_node_id}→${ws.to_node_id} ${reasonText} (current: ${ws.current_weight})`;
+                // Build reason-specific message
+                switch (ws.reason) {
+                  // Weight-based reasons
+                  case 'uniform_weights':
+                    message = `Edge ${ws.from_node_id}→${ws.to_node_id} has uniform weight (same as other edges) (current: ${ws.current_weight})`;
+                    break;
+                  case 'weight_too_low':
+                    message = `Edge ${ws.from_node_id}→${ws.to_node_id} has unusually low weight (current: ${ws.current_weight})`;
+                    break;
+                  case 'weight_too_high':
+                    message = `Edge ${ws.from_node_id}→${ws.to_node_id} has unusually high weight (current: ${ws.current_weight})`;
+                    break;
+                  // Belief-based reasons (v1.3.5+)
+                  case 'near_zero':
+                    message = `Edge ${ws.from_node_id}→${ws.to_node_id} has very low probability (${ws.current_belief}). Consider if this outcome is truly unlikely.`;
+                    break;
+                  case 'near_one':
+                    message = `Edge ${ws.from_node_id}→${ws.to_node_id} has near-certain probability (${ws.current_belief}). Verify this confidence is justified.`;
+                    break;
+                  case 'uniform_distribution':
+                    message = `Decision branches have equal probability. Differentiate based on available evidence.`;
+                    break;
+                  default:
+                    message = `Edge ${ws.from_node_id}→${ws.to_node_id} has problematic configuration`;
+                }
+                // Add suggestion for weight-based reasons
                 if (ws.suggested_weight !== undefined) {
-                  message += `. Consider adjusting to ${ws.suggested_weight}`;
+                  message += `. Consider adjusting weight to ${ws.suggested_weight}`;
+                }
+                // Add suggestion for belief-based reasons
+                if (ws.suggested_belief !== undefined) {
+                  message += `. Consider adjusting belief to ${ws.suggested_belief}`;
                 }
               }
               if (ws.auto_applied) {
@@ -1031,6 +1053,8 @@ export async function registerRunRoute(app: FastifyInstance) {
               // Only add suggested_action if we have a concrete suggestion
               if (ws.suggested_weight !== undefined) {
                 critique.suggested_action = `Adjust weight to ${ws.suggested_weight}`;
+              } else if (ws.suggested_belief !== undefined) {
+                critique.suggested_action = `Adjust belief to ${ws.suggested_belief}`;
               }
 
               return critique;
