@@ -271,3 +271,141 @@ function generateSummary(drivers: ChangeDriver[], delta: number): string {
 
   return `${topDriver.contribution_pct}% of ${direction} from ${changeDesc}`;
 }
+
+/**
+ * Graph delta structure (from run_bundle)
+ */
+interface GraphDelta {
+  label: string;
+  nodes?: Array<{ id: string; value?: number; label?: string; [key: string]: any }>;
+  edges?: Array<{ from: string; to: string; weight?: number; [key: string]: any }>;
+}
+
+/**
+ * Build change attribution directly from a delta.
+ *
+ * More efficient than buildChangeAttribution when delta is already known,
+ * as it doesn't require computing a graph diff.
+ *
+ * @param baseGraph - The base graph before delta applied
+ * @param delta - The delta that was applied
+ * @param baselineOutcome - p50 outcome of baseline scenario
+ * @param optionOutcome - p50 outcome of this scenario
+ * @returns Change attribution with top drivers
+ */
+export function buildChangeAttributionFromDelta(
+  baseGraph: { nodes: Array<{ id: string; value?: number; label?: string }>; edges: Array<{ from: string; to: string; weight?: number }> },
+  delta: GraphDelta,
+  baselineOutcome: number,
+  optionOutcome: number
+): ChangeAttribution {
+  const drivers: ChangeDriver[] = [];
+  const outcomeDelta = optionOutcome - baselineOutcome;
+
+  // Process node value changes from delta
+  for (const deltaNode of delta.nodes || []) {
+    const baseNode = baseGraph.nodes.find((n) => n.id === deltaNode.id);
+
+    if (baseNode && deltaNode.value !== undefined) {
+      const baseValue = baseNode.value ?? 0;
+      if (deltaNode.value !== baseValue) {
+        const label = deltaNode.label || baseNode.label || deltaNode.id;
+        drivers.push({
+          change_type: 'node_value_changed',
+          description: `Changed ${label} value (${baseValue.toFixed(2)} → ${deltaNode.value.toFixed(2)})`,
+          contribution_to_delta: deltaNode.value - baseValue,
+          contribution_pct: 0, // Computed below
+          before_value: baseValue,
+          after_value: deltaNode.value,
+          affected_nodes: [{ id: deltaNode.id, label }],
+        });
+      }
+    } else if (!baseNode && deltaNode.value !== undefined) {
+      // New node added
+      const label = deltaNode.label || deltaNode.id;
+      drivers.push({
+        change_type: 'node_added',
+        description: `Added ${label} (value: ${deltaNode.value.toFixed(2)})`,
+        contribution_to_delta: deltaNode.value,
+        contribution_pct: 0,
+        after_value: deltaNode.value,
+        affected_nodes: [{ id: deltaNode.id, label }],
+      });
+    }
+  }
+
+  // Process edge changes from delta
+  for (const deltaEdge of delta.edges || []) {
+    const baseEdge = baseGraph.edges.find(
+      (e) => e.from === deltaEdge.from && e.to === deltaEdge.to
+    );
+
+    const fromNode = baseGraph.nodes.find((n) => n.id === deltaEdge.from);
+    const toNode = baseGraph.nodes.find((n) => n.id === deltaEdge.to);
+    const fromLabel = fromNode?.label || deltaEdge.from;
+    const toLabel = toNode?.label || deltaEdge.to;
+
+    if (!baseEdge) {
+      // Edge added
+      const weight = deltaEdge.weight ?? 1;
+      drivers.push({
+        change_type: 'edge_added',
+        description: `Added ${fromLabel} → ${toLabel} (weight: ${weight.toFixed(2)})`,
+        contribution_to_delta: weight,
+        contribution_pct: 0,
+        after_value: weight,
+        affected_nodes: [
+          { id: deltaEdge.from, label: fromLabel },
+          { id: deltaEdge.to, label: toLabel },
+        ],
+      });
+    } else if (deltaEdge.weight !== undefined && baseEdge.weight !== deltaEdge.weight) {
+      // Edge weight changed
+      const baseWeight = baseEdge.weight ?? 1;
+      drivers.push({
+        change_type: 'edge_weight_changed',
+        description: `Changed ${fromLabel} → ${toLabel} weight (${baseWeight.toFixed(2)} → ${deltaEdge.weight.toFixed(2)})`,
+        contribution_to_delta: deltaEdge.weight - baseWeight,
+        contribution_pct: 0,
+        before_value: baseWeight,
+        after_value: deltaEdge.weight,
+        affected_nodes: [
+          { id: deltaEdge.from, label: fromLabel },
+          { id: deltaEdge.to, label: toLabel },
+        ],
+      });
+    }
+  }
+
+  // Sort by absolute contribution (largest impact first)
+  drivers.sort(
+    (a, b) =>
+      Math.abs(b.contribution_to_delta) - Math.abs(a.contribution_to_delta)
+  );
+
+  // Calculate percentages based on absolute values
+  const totalAbsContribution = drivers.reduce(
+    (sum, d) => sum + Math.abs(d.contribution_to_delta),
+    0
+  );
+
+  for (const driver of drivers) {
+    if (totalAbsContribution > 0) {
+      driver.contribution_pct = Math.round(
+        (Math.abs(driver.contribution_to_delta) / totalAbsContribution) * 100
+      );
+    }
+  }
+
+  // Take top 5 drivers
+  const primary_drivers = drivers.slice(0, 5);
+
+  // Generate summary
+  const summary = generateSummary(primary_drivers, outcomeDelta);
+
+  return {
+    outcome_delta: Math.round(outcomeDelta * 1000) / 1000,
+    primary_drivers,
+    summary,
+  };
+}
