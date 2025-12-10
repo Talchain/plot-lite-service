@@ -2,6 +2,12 @@
  * POST /v1/run_bundle - Scenario bundle processing
  * Takes a base graph + labeled deltas for efficient multi-scenario evaluation
  * Uses real SCM-Lite inference for each scenario (not stubs)
+ *
+ * Enhanced with:
+ * - include_ranking: Rank options by outcome (default: true)
+ * - include_change_attribution: Explain why options differ from baseline
+ * - baseline_index: Which delta is the baseline for comparison
+ * - sort_by: Rank by p10, p50, or p90
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { createHash } from 'crypto';
@@ -13,11 +19,16 @@ import { getInferenceEngine } from '../../inference/index.js';
 import { normalizeGraph } from '../../util/normalize.js';
 import type { DetailLevel } from '../../trust/types.js';
 import { DETAIL_LEVEL_CONFIG } from '../../trust/types.js';
+import { computeRankingConfidence } from '../../trust/ranking-confidence.js';
+import { buildChangeAttributionFromDelta } from '../../util/change-attribution.js';
+import { getTopNodeSensitivity } from '../../trust/sensitivity-node.js';
+import { computeSensitivityAll } from '../../lib/sensitivity-simple.js';
+import type { RankingSortKey, RankingSummary } from './types/run-bundle.types.js';
 
 interface GraphDelta {
   label: string;
-  nodes?: Array<{ id: string; value?: number; [key: string]: any }>;
-  edges?: Array<{ from: string; to: string; [key: string]: any }>;
+  nodes?: Array<{ id: string; value?: number; label?: string; [key: string]: any }>;
+  edges?: Array<{ from: string; to: string; weight?: number; [key: string]: any }>;
 }
 
 interface RunBundleRequest {
@@ -29,6 +40,11 @@ interface RunBundleRequest {
   outcome_node?: string;
   priors?: Record<string, number | { mean: number; sd: number }>;
   evidence?: Array<{ node_id: string; source: string; note?: string; weight?: number }>;
+  // Enhanced parameters
+  include_ranking?: boolean;
+  include_change_attribution?: boolean;
+  baseline_index?: number;
+  sort_by?: RankingSortKey;
 }
 
 const MAX_NODES = 50;
@@ -332,11 +348,121 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
       // Add error info if inference failed
       if (!ir.success) {
         result.model_card.inference_error = ir.error;
+        result.error = {
+          code: 'INFERENCE_FAILED',
+          message: ir.error || 'Inference failed for this scenario',
+        };
       }
 
       return result;
     });
-    
+
+    // === ENHANCED FEATURES ===
+
+    // Parse enhancement options with defaults
+    const includeRanking = body.include_ranking !== false; // Default: true
+    const includeChangeAttribution = body.include_change_attribution === true; // Default: false
+    const baselineIndex = body.baseline_index ?? 0;
+    const sortBy: RankingSortKey = body.sort_by ?? 'p50';
+
+    // Validate baseline_index
+    if (baselineIndex < 0 || baselineIndex >= results.length) {
+      return replyWithAppError(reply, {
+        type: 'BAD_INPUT',
+        statusCode: 400,
+        message: `baseline_index ${baselineIndex} is out of range (0-${results.length - 1})`,
+        fields: { field: 'baseline_index' },
+      });
+    }
+
+    // Get baseline result for comparisons
+    const baselineResult = results[baselineIndex];
+    const baselineGraph = scenarios[baselineIndex]?.graph;
+
+    // Compute node-level sensitivity for each result
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
+      const scenario = scenarios[i];
+      if (!result.summary || !scenario) continue;
+
+      // Compute edge sensitivity and aggregate to node level
+      const edgeSensitivity = computeSensitivityAll(scenario.graph.edges, outcome_node);
+      result.sensitivity_by_node = getTopNodeSensitivity(edgeSensitivity, scenario.graph.nodes, 5);
+    }
+
+    // Compute change attribution for non-baseline scenarios
+    if (includeChangeAttribution && baselineResult?.summary && baselineGraph) {
+      for (let i = 0; i < results.length; i++) {
+        if (i === baselineIndex) continue; // Skip baseline
+
+        const result = results[i];
+        const delta = body.deltas[i];
+        if (!result.summary || !delta) continue;
+
+        const attribution = buildChangeAttributionFromDelta(
+          baselineGraph,
+          delta,
+          baselineResult.summary.p50,
+          result.summary.p50
+        );
+
+        result.delta_from_baseline = {
+          p10: Math.round((result.summary.p10 - baselineResult.summary.p10) * 1000) / 1000,
+          p50: Math.round((result.summary.p50 - baselineResult.summary.p50) * 1000) / 1000,
+          p90: Math.round((result.summary.p90 - baselineResult.summary.p90) * 1000) / 1000,
+          change_attribution: attribution,
+        };
+      }
+    }
+
+    // Compute rankings
+    let rankingSummary: RankingSummary | undefined;
+    if (includeRanking) {
+      // Filter to valid results and sort by selected metric (descending = best first)
+      const validResults = results.filter((r: any) => r.summary !== null);
+      const sortedResults = [...validResults].sort((a: any, b: any) => {
+        return b.summary[sortBy] - a.summary[sortBy];
+      });
+
+      // Assign ranks to all results
+      for (const result of results) {
+        if (result.summary === null) {
+          result.rank = null;
+          continue;
+        }
+        const sortedIndex = sortedResults.findIndex((r: any) => r.label === result.label);
+        result.rank = sortedIndex + 1;
+        result.success_probability = result.summary[sortBy];
+      }
+
+      // Build ranking summary
+      const winner = sortedResults[0];
+      const runnerUp = sortedResults[1];
+      const excludedLabels = results
+        .filter((r: any) => r.summary === null)
+        .map((r: any) => r.label);
+
+      const margin = winner && runnerUp
+        ? Math.round((winner.summary[sortBy] - runnerUp.summary[sortBy]) * 1000) / 1000
+        : null;
+
+      const marginPct = margin !== null && runnerUp
+        ? Math.round((margin / runnerUp.summary[sortBy]) * 10000) / 100
+        : null;
+
+      rankingSummary = {
+        winner: winner?.label ?? '',
+        winner_p50: winner?.summary?.p50 ?? 0,
+        margin,
+        margin_pct: marginPct,
+        ranking_confidence: computeRankingConfidence(sortedResults),
+        ranked_count: validResults.length,
+        excluded: excludedLabels,
+      };
+    }
+
+    // === END ENHANCED FEATURES ===
+
     const duration = Date.now() - start;
     req.log.info({ 
       evt: 'run_bundle', 
@@ -374,6 +500,7 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
     const response: any = {
       schema: 'run_bundle.v1',
       results,
+      ...(rankingSummary && { ranking_summary: rankingSummary }),
       model_card: {
         seed,
         detail_level,
@@ -387,6 +514,9 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
         inference_mode: allSucceeded ? 'model_based' : 'mixed',
         all_scenarios_succeeded: allSucceeded,
         ...(fallbackCount > 0 && { fallback_count: fallbackCount }),
+        // Enhanced meta fields
+        baseline_label: baselineResult?.label,
+        baseline_index: baselineIndex,
       },
     };
 
