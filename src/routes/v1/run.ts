@@ -51,6 +51,7 @@ import { validateEffect } from '../../engine/effects.js';
 import { callDecisionReviewFromEngine } from '../../cee/client.js';
 import { summarizeEvidenceFreshnessFromEvidence } from '../../trust/evidence-freshness.js';
 import { buildGraphHealth } from '../../trust/variance-helper.js';
+import { CRITIQUE_CODES } from '../../trust/critique-codes.js';
 
 
 export interface RunRequest {
@@ -99,7 +100,7 @@ export async function registerRunRoute(app: FastifyInstance) {
           constraints: { type: 'object' },
           priors: { type: 'object' },
           evidence: { type: 'array' },
-          detail_level: { type: 'string', enum: ['quick', 'standard', 'deep'] },
+          detail_level: { type: 'string' },  // Validated at runtime for user-friendly errors
         },
         additionalProperties: true,
       },
@@ -356,8 +357,17 @@ export async function registerRunRoute(app: FastifyInstance) {
       });
     }
 
-    // Resolve detail_level and its configuration
+    // Validate detail_level if provided (explicit runtime validation for user-friendly errors)
+    const VALID_DETAIL_LEVELS = ['quick', 'standard', 'deep'] as const;
     const detail_level: DetailLevel = body.detail_level ?? 'standard';
+    if (!VALID_DETAIL_LEVELS.includes(detail_level as any)) {
+      return replyWithAppError(reply, {
+        type: 'BAD_INPUT',
+        statusCode: 400,
+        message: `Invalid detail_level '${body.detail_level}'. Must be one of: quick, standard, deep`,
+        fields: { field: 'detail_level' },
+      });
+    }
     const detailConfig = DETAIL_LEVEL_CONFIG[detail_level];
 
     // ... (rest of the code remains the same)
@@ -445,6 +455,7 @@ export async function registerRunRoute(app: FastifyInstance) {
     // Add graph normalization warnings (e.g., invalid node kind values) as OBSERVATION critiques
     for (const warning of graphWarnings) {
       critique.push({
+        code: CRITIQUE_CODES.INVALID_NODE_KIND,
         severity: 'OBSERVATION',
         semantic_severity: 'INFO',
         message: warning,
@@ -728,14 +739,18 @@ export async function registerRunRoute(app: FastifyInstance) {
       try {
         if (isl_validation.status === 'cannot_identify') {
           (critique as any[]).push({
+            code: CRITIQUE_CODES.ISL_CANNOT_IDENTIFY,
             severity: 'BLOCKER',
+            semantic_severity: 'ERROR',
             source: 'isl' as const,
             message: 'ISL validation indicates the causal effect cannot be identified from the current graph.',
             suggested_action: isl_validation.explanation?.summary ?? 'Review graph structure and ISL issues before relying on this estimate.',
           });
         } else if (isl_validation.status === 'uncertain') {
           (critique as any[]).push({
+            code: CRITIQUE_CODES.ISL_UNCERTAIN,
             severity: 'IMPROVEMENT',
+            semantic_severity: 'WARNING',
             source: 'isl' as const,
             message: 'ISL validation reports partial identifiability; results may rely on stronger assumptions.',
             suggested_action: isl_validation.explanation?.summary,
@@ -745,7 +760,9 @@ export async function registerRunRoute(app: FastifyInstance) {
         if (isl_validation.issues && isl_validation.issues.length > 0) {
           for (const issue of isl_validation.issues.slice(0, 3)) {
             (critique as any[]).push({
+              code: CRITIQUE_CODES.ISL_ISSUE,
               severity: 'IMPROVEMENT',
+              semantic_severity: 'WARNING',
               source: 'isl' as const,
               message: issue.description,
               suggested_action: issue.suggested_action,
@@ -758,7 +775,9 @@ export async function registerRunRoute(app: FastifyInstance) {
     if (detailConfig.run_critique && isl_sensitivity && isl_sensitivity.overall_robustness === 'fragile') {
       try {
         (critique as any[]).push({
+          code: CRITIQUE_CODES.ISL_FRAGILE,
           severity: 'IMPROVEMENT',
+          semantic_severity: 'WARNING',
           source: 'isl' as const,
           message: 'ISL sensitivity analysis indicates fragile estimates; small input changes may materially shift outcomes.',
           suggested_action: isl_sensitivity.recommendations[0],
@@ -812,7 +831,7 @@ export async function registerRunRoute(app: FastifyInstance) {
       if (detailConfig.run_critique && evidence_freshness.buckets.STALE > 0) {
         try {
           (critique as any[]).push({
-            code: 'STALE_EVIDENCE',
+            code: CRITIQUE_CODES.EVIDENCE_STALE,
             source: 'engine' as const,
             message: 'Some evidence is stale (>= 365 days old); consider refreshing key inputs.',
             severity: 'IMPROVEMENT',
@@ -1042,7 +1061,18 @@ export async function registerRunRoute(app: FastifyInstance) {
                 message += ' (auto-applied by CEE)';
               }
 
+              // Map CEE reason to critique code
+              const ceeReasonToCode: Record<string, string> = {
+                'uniform_weights': CRITIQUE_CODES.CEE_UNIFORM_WEIGHTS,
+                'weight_too_low': CRITIQUE_CODES.CEE_WEIGHT_ISSUE,
+                'weight_too_high': CRITIQUE_CODES.CEE_WEIGHT_ISSUE,
+                'near_zero': CRITIQUE_CODES.CEE_BELIEF_ISSUE,
+                'near_one': CRITIQUE_CODES.CEE_BELIEF_ISSUE,
+                'uniform_distribution': CRITIQUE_CODES.CEE_BELIEF_ISSUE,
+              };
+
               const critique: any = {
+                code: ceeReasonToCode[ws.reason] ?? CRITIQUE_CODES.CEE_WEIGHT_ISSUE,
                 severity: 'IMPROVEMENT' as const,
                 semantic_severity: 'WARNING' as const,
                 message,

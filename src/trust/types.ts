@@ -146,12 +146,18 @@ export type CritiqueSeverity = 'BLOCKER' | 'IMPROVEMENT' | 'OBSERVATION';
 export type CritiqueSource = 'engine' | 'isl' | 'cee';
 
 export interface CritiqueItem {
+  /** Standardized code for filtering/analytics (optional for backwards compatibility) */
+  code?: string;
   severity: CritiqueSeverity;
+  /** Semantic severity for UI display */
+  semantic_severity?: 'ERROR' | 'WARNING' | 'INFO';
   message: string;
   suggested_action?: string;
   auto_fixable?: boolean;
   /** Source that generated this critique */
   source?: CritiqueSource;
+  /** Edge ID for edge-specific issues */
+  edge_id?: string;
 }
 
 export interface ExplainDelta {
@@ -187,6 +193,17 @@ export type NodeKind = 'goal' | 'decision' | 'option' | 'outcome' | 'risk' | 'ac
 /** All valid node kind values for validation */
 export const VALID_NODE_KINDS: readonly NodeKind[] = ['goal', 'decision', 'option', 'outcome', 'risk', 'action'];
 
+/**
+ * Edge type classification for inference semantics
+ * - functional: Direct causal relationship (goal → decision)
+ * - structural: Hierarchical/containment relationship (decision → option)
+ * - probabilistic: Stochastic outcome relationship (option → outcome)
+ */
+export type EdgeType = 'functional' | 'structural' | 'probabilistic';
+
+/** All valid edge type values for validation */
+export const VALID_EDGE_TYPES: readonly EdgeType[] = ['functional', 'structural', 'probabilistic'];
+
 export interface GraphNode {
   id: string;
   label: string;
@@ -203,6 +220,7 @@ export interface GraphEdge {
   weight?: number;
   belief?: number;      // 0-1, probability edge exists
   provenance?: string;  // Source attribution, max 100 chars
+  edge_type?: EdgeType; // Inferred from node kinds if not specified
 }
 
 export interface Graph {

@@ -30,7 +30,10 @@ import { getTopNodeSensitivity } from '../../trust/sensitivity-node.js';
 import { computeSensitivityAll } from '../../lib/sensitivity-simple.js';
 import { detectPrimaryOutcome, shouldSuggestUtilityMode } from '../../services/ranking/outcome-detector.js';
 import { validateUtilityLocal } from '../../services/ranking/utility-validator.js';
-import type { RankingSortKey, RankingSummary, RankingMode, UtilityFunction, UtilitySuggestion } from './types/run-bundle.types.js';
+import { inferEdgeTypes } from '../../services/ranking/edge-type-inference.js';
+import type { EdgeTypeWarning } from '../../services/ranking/edge-type-inference.js';
+import type { RankingSortKey, RankingSummary, RankingMode, UtilityFunction, UtilitySuggestion, ResponseWarning, EdgeTypeInferenceSummary } from './types/run-bundle.types.js';
+import { processWithConcurrency } from '../../util/semaphore.js';
 
 interface GraphDelta {
   label: string;
@@ -61,6 +64,19 @@ interface RunBundleRequest {
 const MAX_NODES = 50;
 const MAX_EDGES = 200;
 const MAX_DELTAS = 10;
+
+// P0: Concurrency control for scenario processing
+// Limits parallel inference to prevent CPU spikes under load
+const rawConcurrency = parseInt(process.env.RUN_BUNDLE_MAX_CONCURRENCY || '4', 10);
+const RUN_BUNDLE_CONCURRENCY = Math.max(1, Math.min(MAX_DELTAS, Number.isNaN(rawConcurrency) ? 4 : rawConcurrency));
+
+if (process.env.RUN_BUNDLE_MAX_CONCURRENCY !== undefined) {
+  if (Number.isNaN(rawConcurrency)) {
+    console.warn(`[run-bundle] Invalid RUN_BUNDLE_MAX_CONCURRENCY="${process.env.RUN_BUNDLE_MAX_CONCURRENCY}", using default 4`);
+  } else if (rawConcurrency !== RUN_BUNDLE_CONCURRENCY) {
+    console.warn(`[run-bundle] RUN_BUNDLE_MAX_CONCURRENCY=${rawConcurrency} clamped to ${RUN_BUNDLE_CONCURRENCY} (valid range: 1-${MAX_DELTAS})`);
+  }
+}
 
 export async function registerRunBundleRoute(app: FastifyInstance) {
   app.post(
@@ -213,6 +229,11 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
       scenarioSeed: number;
     }> = [];
 
+    // Phase 2: Track edge type inference warnings across all scenarios
+    let edgeTypeExplicitCount = 0;
+    let edgeTypeInferredCount = 0;
+    const edgeTypeWarnings: EdgeTypeWarning[] = [];
+
     for (let i = 0; i < body.deltas.length; i++) {
       const delta = body.deltas[i];
 
@@ -249,7 +270,21 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
       }
 
       // Normalize graph (map confidence|probability→belief)
-      const graph = normalizeGraph(rawGraph, false);
+      const normalizedGraph = normalizeGraph(rawGraph, false);
+
+      // Phase 2: Apply edge type inference
+      const edgeInference = inferEdgeTypes(normalizedGraph.nodes, normalizedGraph.edges);
+      const graph = {
+        nodes: normalizedGraph.nodes,
+        edges: edgeInference.edges,
+      };
+
+      // Track inference stats (only from first scenario to avoid duplicates)
+      if (i === 0) {
+        edgeTypeExplicitCount = edgeInference.explicit_count;
+        edgeTypeInferredCount = edgeInference.inferred_count;
+        edgeTypeWarnings.push(...edgeInference.warnings);
+      }
 
       // Deterministic seed per scenario: base seed + index + 1
       const scenarioSeed = seed + i + 1;
@@ -317,9 +352,12 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
     // Get inference engine
     const inferenceEngine = getInferenceEngine('model_based');
 
-    // Run inference on all scenarios in parallel
-    const inferenceResults = await Promise.all(
-      scenarios.map(async (scenario) => {
+    // Run inference on all scenarios with concurrency control
+    // P0: Limits parallel inference to RUN_BUNDLE_MAX_CONCURRENCY (default: 4) to prevent CPU spikes
+    const inferenceResults = await processWithConcurrency(
+      scenarios,
+      RUN_BUNDLE_CONCURRENCY,
+      async (scenario) => {
         try {
           const result = await inferenceEngine.run(scenario.graph, {
             seed: scenario.scenarioSeed,
@@ -349,7 +387,7 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
             error: err instanceof Error ? err.message : String(err),
           };
         }
-      })
+      }
     );
 
     // Build results from inference
@@ -570,6 +608,48 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
       }
     }
 
+    // Phase 2: Build response warnings from edge type inference
+    const responseWarnings: ResponseWarning[] = [];
+    if (edgeTypeInferredCount > 0) {
+      responseWarnings.push({
+        code: 'EDGE_TYPE_INFERRED',
+        message: `${edgeTypeInferredCount} edge(s) had types inferred from node kinds`,
+        affected_ids: edgeTypeWarnings.map((w) => w.edge_id),
+        severity: 'info',
+      });
+    }
+
+    // Phase 2: Build edge type inference summary
+    let edgeTypeInferenceSummary: EdgeTypeInferenceSummary | undefined;
+    if (edgeTypeExplicitCount > 0 || edgeTypeInferredCount > 0) {
+      edgeTypeInferenceSummary = {
+        explicit_count: edgeTypeExplicitCount,
+        inferred_count: edgeTypeInferredCount,
+        ...(edgeTypeInferredCount > 0 && {
+          inferred_edges: edgeTypeWarnings.map((w) => ({
+            edge_id: w.edge_id,
+            inferred_type: w.inferred_type,
+          })),
+        }),
+      };
+    }
+
+    // Log edge type inference for observability
+    if (edgeTypeInferredCount > 0) {
+      req.log.info({
+        evt: 'edge_type_inference',
+        id: req.id,
+        explicit_count: edgeTypeExplicitCount,
+        inferred_count: edgeTypeInferredCount,
+        inferred_edges: edgeTypeWarnings.map((w) => ({
+          edge_id: w.edge_id,
+          from_kind: scenarios[0]?.graph.nodes.find((n: any) => n.id === w.from)?.kind,
+          to_kind: scenarios[0]?.graph.nodes.find((n: any) => n.id === w.to)?.kind,
+          inferred_type: w.inferred_type,
+        })),
+      });
+    }
+
     const response: any = {
       schema: 'run_bundle.v1',
       results,
@@ -579,6 +659,9 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
       ...(includeRanking && outcome_node && { primary_outcome_used: outcome_node }),
       ...(includeRanking && primaryOutcomeDetected && { primary_outcome_detected: true }),
       ...(utilitySuggestion && { utility_suggestion: utilitySuggestion }),
+      // Phase 2: Edge type inference and warnings
+      ...(responseWarnings.length > 0 && { warnings: responseWarnings }),
+      ...(edgeTypeInferenceSummary && { edge_type_inference: edgeTypeInferenceSummary }),
       model_card: {
         seed,
         detail_level,

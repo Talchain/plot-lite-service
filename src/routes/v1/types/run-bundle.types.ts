@@ -3,9 +3,11 @@
  *
  * Extended request/response types for option ranking and change attribution.
  * Phase 1: Simple mode ranking without utility function requirement.
+ * Phase 2: Edge type inference and response warnings.
  */
 
 import type { ChangeAttribution } from '../../../types/change-attribution.js';
+import type { EdgeType } from '../../../trust/types.js';
 
 /**
  * Sort key for ranking options
@@ -59,6 +61,43 @@ export interface UtilitySuggestion {
   message: string;
   applicable: boolean;
   outcome_nodes: string[];
+}
+
+/**
+ * Warning code for response warnings
+ */
+export type ResponseWarningCode =
+  | 'EDGE_TYPE_INFERRED'
+  | 'PRIMARY_OUTCOME_INFERRED'
+  | 'BELIEF_DEFAULTED';
+
+/**
+ * Warning about inferred or defaulted values in the request
+ */
+export interface ResponseWarning {
+  /** Machine-readable warning code */
+  code: ResponseWarningCode;
+  /** Human-readable warning message */
+  message: string;
+  /** Affected entity IDs (edge IDs, node IDs, etc.) */
+  affected_ids?: string[];
+  /** Severity level */
+  severity: 'info' | 'warning';
+}
+
+/**
+ * Summary of edge type inference for observability
+ */
+export interface EdgeTypeInferenceSummary {
+  /** Count of edges with explicit types */
+  explicit_count: number;
+  /** Count of edges with inferred types */
+  inferred_count: number;
+  /** Inferred edge type details by edge */
+  inferred_edges?: Array<{
+    edge_id: string;
+    inferred_type: EdgeType;
+  }>;
 }
 
 /**
@@ -170,6 +209,10 @@ export interface EnhancedBundleResponse {
   primary_outcome_detected?: boolean;
   /** Suggestion to use utility mode (when applicable) */
   utility_suggestion?: UtilitySuggestion;
+  /** Response warnings for inferred/defaulted values (Phase 2) */
+  warnings?: ResponseWarning[];
+  /** Edge type inference summary for observability (Phase 2) */
+  edge_type_inference?: EdgeTypeInferenceSummary;
   model_card: {
     seed: number;
     detail_level: string;

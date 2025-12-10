@@ -128,8 +128,8 @@ const runRequestSchema = {
       minItems: 1,
       uniqueItems: true,
     },
-    // P1: Detail level for compute budget and feature enablement
-    detail_level: { type: 'string', enum: ['quick', 'standard', 'deep'] },
+    // P1: Detail level for compute budget and feature enablement (validated at runtime for user-friendly errors)
+    detail_level: { type: 'string' },
     // Legacy query.targets bridge (strict shape)
     query: {
       type: 'object',

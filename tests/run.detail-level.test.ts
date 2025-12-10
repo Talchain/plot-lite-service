@@ -67,13 +67,16 @@ describe('detail_level parameter', () => {
     expect(body.model_card.detail_level).toBe('standard');
   });
 
-  it('rejects invalid detail_level', async () => {
+  it('rejects invalid detail_level with user-friendly error', async () => {
     const response = await app.inject({
       method: 'POST',
       url: '/v1/run',
       payload: { graph: minimalGraph, detail_level: 'invalid' },
     });
     expect(response.statusCode).toBe(400);
+    const body = JSON.parse(response.payload);
+    expect(body.error.message).toContain('Invalid detail_level');
+    expect(body.error.message).toContain('quick, standard, deep');
   });
 
   it('quick mode skips critique', async () => {

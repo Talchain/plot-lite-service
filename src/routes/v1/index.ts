@@ -141,6 +141,15 @@ export async function registerV1Routes(app: FastifyInstance) {
   await registerPreferencesRoute(app);
   await registerRunBundleRoute(app);
   await registerRunTimeslicesRoute(app);
+  await registerKeyInsightRoute(app);
+  await registerElicitBeliefRoute(app);
+  await registerSuggestUtilityWeightsRoute(app);
+  await registerDominanceAnalysisRoute(app);
+  await registerParetoAnalysisRoute(app);
+  await registerMultiCriteriaAnalysisRoute(app);
+  await registerElicitRiskToleranceRoute(app);
+  await registerRiskAdjustRoute(app);
+  await registerThresholdsRoute(app);
   await registerAuditTestRoute(app);
   await registerGovernanceRoute(app);  
   // P1: Register enhanced stream route if enabled, otherwise use legacy
@@ -272,3 +281,12 @@ import { registerRunTimeslicesRoute } from './run-timeslices.js';
 import { registerAuditTestRoute } from '../test/audit.js';
 import { registerGovernanceRoute } from '../test/governance.js';
 import { registerDiffRoute } from './diff.js';
+import { registerKeyInsightRoute } from './key-insight.js';
+import { registerElicitBeliefRoute } from './elicit-belief.js';
+import { registerSuggestUtilityWeightsRoute } from './suggest-utility-weights.js';
+import { registerDominanceAnalysisRoute } from './analysis-dominance.js';
+import { registerParetoAnalysisRoute } from './analysis-pareto.js';
+import { registerMultiCriteriaAnalysisRoute } from './analysis-multi-criteria.js';
+import { registerElicitRiskToleranceRoute } from './elicit-risk-tolerance.js';
+import { registerRiskAdjustRoute } from './analysis-risk-adjust.js';
+import { registerThresholdsRoute } from './analysis-thresholds.js';
