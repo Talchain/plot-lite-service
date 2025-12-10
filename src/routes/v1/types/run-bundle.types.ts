@@ -2,6 +2,7 @@
  * Enhanced Run Bundle Types
  *
  * Extended request/response types for option ranking and change attribution.
+ * Phase 1: Simple mode ranking without utility function requirement.
  */
 
 import type { ChangeAttribution } from '../../../types/change-attribution.js';
@@ -10,6 +11,55 @@ import type { ChangeAttribution } from '../../../types/change-attribution.js';
  * Sort key for ranking options
  */
 export type RankingSortKey = 'p10' | 'p50' | 'p90';
+
+/**
+ * Ranking mode for option comparison
+ * - simple: Rank by primary outcome p50 (default, no utility required)
+ * - utility: Rank by expected utility (requires utility_function)
+ */
+export type RankingMode = 'simple' | 'utility';
+
+/**
+ * Risk attitude for utility calculations
+ */
+export type RiskAttitude = 'risk_averse' | 'risk_neutral' | 'risk_seeking';
+
+/**
+ * Utility function for multi-outcome ranking
+ */
+export interface UtilityFunction {
+  /** Weights per outcome node (must sum to 1.0) */
+  weights: Record<string, number>;
+  /** Risk attitude affects how uncertainty is valued */
+  risk_attitude?: RiskAttitude;
+}
+
+/**
+ * Validation issue for utility function
+ */
+export interface UtilityValidationIssue {
+  severity: 'error' | 'warning' | 'info';
+  code: string;
+  message: string;
+  field?: string;
+}
+
+/**
+ * Result of utility function validation
+ */
+export interface UtilityValidationResult {
+  valid: boolean;
+  issues: UtilityValidationIssue[];
+}
+
+/**
+ * Suggestion to use utility mode
+ */
+export interface UtilitySuggestion {
+  message: string;
+  applicable: boolean;
+  outcome_nodes: string[];
+}
 
 /**
  * Ranking confidence level based on distribution overlap
@@ -62,6 +112,8 @@ export interface RankingSummary {
   ranked_count: number;
   /** Labels of options excluded from ranking (due to errors) */
   excluded: string[];
+  /** True if winner dominates all others (p10, p50, p90 all better) */
+  winner_dominant?: boolean;
 }
 
 /**
@@ -110,6 +162,14 @@ export interface EnhancedBundleResponse {
   schema: 'run_bundle.v1';
   results: EnhancedBundleResult[];
   ranking_summary?: RankingSummary;
+  /** Ranking mode that was used */
+  ranking_mode_used?: RankingMode;
+  /** Primary outcome node used for ranking */
+  primary_outcome_used?: string;
+  /** True if primary outcome was auto-detected */
+  primary_outcome_detected?: boolean;
+  /** Suggestion to use utility mode (when applicable) */
+  utility_suggestion?: UtilitySuggestion;
   model_card: {
     seed: number;
     detail_level: string;

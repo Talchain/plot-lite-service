@@ -8,6 +8,11 @@
  * - include_change_attribution: Explain why options differ from baseline
  * - baseline_index: Which delta is the baseline for comparison
  * - sort_by: Rank by p10, p50, or p90
+ *
+ * Phase 1 Decision Support:
+ * - ranking_mode: 'simple' (default) or 'utility'
+ * - primary_outcome: Auto-detected or explicit
+ * - utility_function: Required when ranking_mode='utility'
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { createHash } from 'crypto';
@@ -19,11 +24,13 @@ import { getInferenceEngine } from '../../inference/index.js';
 import { normalizeGraph } from '../../util/normalize.js';
 import type { DetailLevel } from '../../trust/types.js';
 import { DETAIL_LEVEL_CONFIG } from '../../trust/types.js';
-import { computeRankingConfidence } from '../../trust/ranking-confidence.js';
+import { computeRankingConfidence, isWinnerDominant } from '../../trust/ranking-confidence.js';
 import { buildChangeAttributionFromDelta } from '../../util/change-attribution.js';
 import { getTopNodeSensitivity } from '../../trust/sensitivity-node.js';
 import { computeSensitivityAll } from '../../lib/sensitivity-simple.js';
-import type { RankingSortKey, RankingSummary } from './types/run-bundle.types.js';
+import { detectPrimaryOutcome, shouldSuggestUtilityMode } from '../../services/ranking/outcome-detector.js';
+import { validateUtilityLocal } from '../../services/ranking/utility-validator.js';
+import type { RankingSortKey, RankingSummary, RankingMode, UtilityFunction, UtilitySuggestion } from './types/run-bundle.types.js';
 
 interface GraphDelta {
   label: string;
@@ -45,6 +52,10 @@ interface RunBundleRequest {
   include_change_attribution?: boolean;
   baseline_index?: number;
   sort_by?: RankingSortKey;
+  // Phase 1: Decision Support Enhancement
+  ranking_mode?: RankingMode;
+  utility_function?: UtilityFunction;
+  primary_outcome?: string;
 }
 
 const MAX_NODES = 50;
@@ -251,9 +262,57 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
       });
     }
 
-    // Determine outcome node (defaults to last node in first scenario)
-    const outcome_node = body.outcome_node ??
-      scenarios[0]?.graph.nodes[scenarios[0].graph.nodes.length - 1]?.id;
+    // Phase 1: Determine ranking mode and validate utility function
+    const rankingMode: RankingMode = body.ranking_mode ?? 'simple';
+    let primaryOutcomeDetected = false;
+    let detectedOutcomeNodes: string[] = [];
+
+    // Validate utility function if utility mode requested
+    if (rankingMode === 'utility') {
+      if (!body.utility_function) {
+        return replyWithAppError(reply, {
+          type: 'BAD_INPUT',
+          statusCode: 400,
+          message: 'utility_function required when ranking_mode is "utility"',
+          fields: { field: 'utility_function' },
+        });
+      }
+
+      const utilityValidation = validateUtilityLocal(body.utility_function, body.base_graph.nodes);
+      if (!utilityValidation.valid) {
+        const firstError = utilityValidation.issues.find((i) => i.severity === 'error');
+        return replyWithAppError(reply, {
+          type: 'BAD_INPUT',
+          statusCode: 400,
+          message: firstError?.message ?? 'Invalid utility_function',
+          fields: { field: firstError?.field ?? 'utility_function' },
+        });
+      }
+    }
+
+    // Determine outcome node with enhanced detection
+    let outcome_node: string;
+    if (body.outcome_node) {
+      // Explicit outcome node provided
+      outcome_node = body.outcome_node;
+    } else if (body.primary_outcome) {
+      // Explicit primary outcome provided (Phase 1 parameter)
+      outcome_node = body.primary_outcome;
+    } else if (scenarios[0]) {
+      // Auto-detect primary outcome
+      const detection = detectPrimaryOutcome(scenarios[0].graph);
+      detectedOutcomeNodes = detection.outcome_nodes;
+
+      if (detection.detected && detection.node_id) {
+        outcome_node = detection.node_id;
+        primaryOutcomeDetected = true;
+      } else {
+        // Fallback to last node (backward compatibility)
+        outcome_node = scenarios[0].graph.nodes[scenarios[0].graph.nodes.length - 1]?.id;
+      }
+    } else {
+      outcome_node = '';
+    }
 
     // Get inference engine
     const inferenceEngine = getInferenceEngine('model_based');
@@ -458,6 +517,7 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
         ranking_confidence: computeRankingConfidence(sortedResults),
         ranked_count: validResults.length,
         excluded: excludedLabels,
+        winner_dominant: isWinnerDominant(sortedResults),
       };
     }
 
@@ -497,10 +557,28 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
     const fallbackCount = inferenceResults.filter((ir) => !ir.success).length;
     const allSucceeded = fallbackCount === 0;
 
+    // Phase 1: Build utility suggestion if applicable
+    let utilitySuggestion: UtilitySuggestion | undefined;
+    if (rankingMode === 'simple' && includeRanking) {
+      const suggestion = shouldSuggestUtilityMode(detectedOutcomeNodes);
+      if (suggestion.applicable) {
+        utilitySuggestion = {
+          message: suggestion.message,
+          applicable: true,
+          outcome_nodes: detectedOutcomeNodes,
+        };
+      }
+    }
+
     const response: any = {
       schema: 'run_bundle.v1',
       results,
       ...(rankingSummary && { ranking_summary: rankingSummary }),
+      // Phase 1: Decision support metadata
+      ...(includeRanking && { ranking_mode_used: rankingMode }),
+      ...(includeRanking && outcome_node && { primary_outcome_used: outcome_node }),
+      ...(includeRanking && primaryOutcomeDetected && { primary_outcome_detected: true }),
+      ...(utilitySuggestion && { utility_suggestion: utilitySuggestion }),
       model_card: {
         seed,
         detail_level,
