@@ -8,6 +8,7 @@ import type { Graph } from '../trust/types.js';
 import type { InferenceEngine, InferenceConfig, InferenceResult } from './types.js';
 import { runSCMLite } from '../scm-lite/adapter.js';
 import { applyPriorsToGraph } from './apply-priors.js';
+import { applyEdgeFunction } from '../engine/edge-functions.js';
 
 export class ModelBasedInference implements InferenceEngine {
   name = 'model_based';
@@ -80,15 +81,18 @@ export class ModelBasedInference implements InferenceEngine {
     }
     
     // Calculate weighted influence from parent nodes
+    // Apply non-linear edge functions when specified
     let totalInfluence = 0;
     let totalWeight = 0;
-    
+
     for (const edge of incomingEdges) {
       const parentNode = graph.nodes.find(n => n.id === edge.from);
       if (parentNode) {
         const parentValue = (parentNode as any).value ?? 0.5;
         const edgeWeight = edge.weight ?? 1.0;
-        totalInfluence += parentValue * edgeWeight;
+        // Apply non-linear edge function if specified
+        const transformedValue = applyEdgeFunction(parentValue, edge);
+        totalInfluence += transformedValue * edgeWeight;
         totalWeight += edgeWeight;
       }
     }

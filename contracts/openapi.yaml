@@ -50,6 +50,8 @@ tags:
     description: Optimization and action planning endpoints
   - name: calibration
     description: Preference calibration endpoints
+  - name: cee-proxy
+    description: CEE proxy endpoints for AI-assisted suggestions
 paths:
   /health:
     get:
@@ -2425,6 +2427,40 @@ paths:
                 outcome_node:
                   type: string
                   description: 'Target node for inference (defaults to last node in first scenario)'
+                include_ranking:
+                  type: boolean
+                  default: true
+                  description: 'Include ranking summary and per-result ranks (default: true)'
+                include_change_attribution:
+                  type: boolean
+                  default: true
+                  description: 'Include change attribution in delta_from_baseline (default: true)'
+                sort_by:
+                  type: string
+                  enum: [p10, p50, p90]
+                  default: p50
+                  description: 'Metric to use for ranking (default: p50)'
+                ranking_mode:
+                  type: string
+                  enum: [simple, utility]
+                  default: simple
+                  description: |
+                    Ranking mode for option comparison.
+                    - simple: Rank by primary outcome percentile (default)
+                    - utility: Multi-outcome ranking. Requires utility_function parameter with weights for each outcome node.
+                utility_function:
+                  type: object
+                  description: 'Utility function for multi-outcome ranking. Required when ranking_mode=utility.'
+                  properties:
+                    weights:
+                      type: object
+                      additionalProperties: { type: number }
+                      description: 'Weights per outcome node (must sum to 1.0)'
+                    risk_attitude:
+                      type: string
+                      enum: [risk_averse, risk_neutral, risk_seeking]
+                      default: risk_neutral
+                      description: 'Risk attitude affects how uncertainty is valued'
                 priors: { type: object }
                 evidence:
                   type: array
@@ -2477,6 +2513,43 @@ paths:
                             p10: { type: number }
                             p50: { type: number }
                             p90: { type: number }
+                        rank:
+                          type: integer
+                          description: 'Rank among all scenarios (1 = best). Present when include_ranking=true.'
+                        success_probability:
+                          type: number
+                          description: 'Alias for summary[sort_by] for convenience.'
+                        delta_from_baseline:
+                          type: object
+                          description: 'Difference from baseline scenario. Present when include_change_attribution=true.'
+                          properties:
+                            p10: { type: number, description: 'Difference in p10 from baseline' }
+                            p50: { type: number, description: 'Difference in p50 from baseline' }
+                            p90: { type: number, description: 'Difference in p90 from baseline' }
+                            change_attribution:
+                              type: object
+                              description: 'Causal attribution explaining the difference'
+                              properties:
+                                summary: { type: string, description: 'Human-readable summary of primary drivers' }
+                                primary_drivers:
+                                  type: array
+                                  items:
+                                    type: object
+                                    properties:
+                                      node_id: { type: string }
+                                      node_label: { type: string }
+                                      contribution_pct: { type: number }
+                                      direction: { type: string, enum: [increase, decrease, unchanged] }
+                        sensitivity_by_node:
+                          type: array
+                          description: 'Node-level sensitivity (top 5 nodes by contribution)'
+                          items:
+                            type: object
+                            properties:
+                              node_id: { type: string }
+                              node_label: { type: string }
+                              contribution_pct: { type: number }
+                              edge_count: { type: integer }
                         model_card:
                           type: object
                           properties:
@@ -2489,6 +2562,74 @@ paths:
                             response_hash: { type: string, pattern: '^[0-9a-f]{16}$' }
                             duplicate: { type: boolean, description: 'True if this result matches a prior scenario' }
                             inference_error: { type: string, description: 'Error message if inference failed' }
+                  ranking_summary:
+                    type: object
+                    description: 'Summary of ranking results. Present when include_ranking=true.'
+                    properties:
+                      winner: { type: string, description: 'Label of the winning option' }
+                      winner_p50: { type: number, description: 'p50 value of the winner' }
+                      margin: { type: number, nullable: true, description: 'Absolute difference between winner and runner-up' }
+                      margin_pct: { type: number, nullable: true, description: 'Margin as percentage of runner-up value' }
+                      ranking_confidence:
+                        type: string
+                        enum: [high, medium, low]
+                        description: 'Confidence based on distribution overlap'
+                      ranked_count: { type: integer, description: 'Number of options successfully ranked' }
+                      excluded:
+                        type: array
+                        items: { type: string }
+                        description: 'Labels of options excluded due to errors'
+                      winner_dominant:
+                        type: boolean
+                        description: 'True if winner dominates all others (p10, p50, p90 all better)'
+                  ranking_mode_used:
+                    type: string
+                    enum: [simple, utility]
+                    description: 'Ranking mode used. simple=rank by p50. utility=reserved for future utility-based ranking.'
+                  primary_outcome_used:
+                    type: string
+                    description: 'Node ID of the primary outcome used for ranking'
+                  primary_outcome_detected:
+                    type: boolean
+                    description: 'True if primary outcome was auto-detected (not specified in request)'
+                  utility_suggestion:
+                    type: object
+                    description: 'Suggestion to use utility mode when multiple outcome nodes detected'
+                    properties:
+                      message: { type: string }
+                      applicable: { type: boolean }
+                      outcome_nodes:
+                        type: array
+                        items: { type: string }
+                  warnings:
+                    type: array
+                    description: 'Warnings about inferred or defaulted values'
+                    items:
+                      type: object
+                      properties:
+                        code:
+                          type: string
+                          enum: [EDGE_TYPE_INFERRED, PRIMARY_OUTCOME_INFERRED, BELIEF_DEFAULTED]
+                        message: { type: string }
+                        affected_ids:
+                          type: array
+                          items: { type: string }
+                        severity:
+                          type: string
+                          enum: [info, warning]
+                  edge_type_inference:
+                    type: object
+                    description: 'Summary of edge type inference for observability'
+                    properties:
+                      explicit_count: { type: integer, description: 'Edges with explicit types' }
+                      inferred_count: { type: integer, description: 'Edges with inferred types' }
+                      inferred_edges:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            edge_id: { type: string }
+                            inferred_type: { type: string, enum: [functional, structural, probabilistic] }
                   model_card:
                     type: object
                     properties:
@@ -2512,6 +2653,12 @@ paths:
                       fallback_count:
                         type: integer
                         description: "Number of scenarios that used fallback (only present when > 0)"
+                      baseline_label:
+                        type: string
+                        description: "Label of the baseline scenario (first delta or 'Baseline')"
+                      baseline_index:
+                        type: integer
+                        description: "Index of the baseline scenario in results array"
                       evidence_applied: { type: array, items: { type: object } }
         '400':
           description: Bad input
@@ -2646,6 +2793,226 @@ paths:
                     schema: "error.v1"
                     code: "BAD_INPUT"
                     message: "Prior value must be between 0 and 1"
+
+  /v1/suggest/edge-function:
+    post:
+      operationId: suggestEdgeFunction
+      tags: [cee-proxy]
+      summary: Suggest edge function for a relationship
+      description: |
+        Suggests an appropriate edge function type (linear, diminishing_returns, threshold, s_curve)
+        for a given edge relationship. Proxies to CEE /assist/v1/suggest-edge-function when available,
+        with fallback to linear default.
+
+        **Use Cases:**
+        - Marketing spend → Revenue: suggests diminishing_returns (saturation at high spend)
+        - Regulatory compliance → Operation: suggests threshold (binary compliance gate)
+        - Market adoption → Sales: suggests s_curve (adoption lifecycle)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [edge_id, source_node, target_node]
+              properties:
+                edge_id:
+                  type: string
+                  description: 'Edge identifier (from->to)'
+                  example: "marketing_spend->revenue"
+                source_node:
+                  type: object
+                  required: [id]
+                  properties:
+                    id: { type: string }
+                    label: { type: string }
+                    kind: { type: string, enum: [goal, decision, option, outcome, risk, action] }
+                target_node:
+                  type: object
+                  required: [id]
+                  properties:
+                    id: { type: string }
+                    label: { type: string }
+                    kind: { type: string, enum: [goal, decision, option, outcome, risk, action] }
+                relationship_description:
+                  type: string
+                  description: 'Optional description of the relationship for better suggestions'
+                  example: "Higher marketing spend increases revenue but with diminishing effectiveness"
+                graph:
+                  type: object
+                  description: 'Optional graph context for node enrichment'
+                  properties:
+                    nodes:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          id: { type: string }
+                          label: { type: string }
+                          kind: { type: string }
+                    edges:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          from: { type: string }
+                          to: { type: string }
+            examples:
+              basic:
+                summary: Basic edge function suggestion
+                value:
+                  edge_id: "marketing_spend->revenue"
+                  source_node:
+                    id: "marketing_spend"
+                    label: "Marketing Spend"
+                  target_node:
+                    id: "revenue"
+                    label: "Revenue"
+                  relationship_description: "Marketing investment drives revenue growth"
+              with_graph:
+                summary: With graph context for enrichment
+                value:
+                  edge_id: "compliance->operations"
+                  source_node:
+                    id: "compliance"
+                  target_node:
+                    id: "operations"
+                  graph:
+                    nodes:
+                      - { id: "compliance", label: "Regulatory Compliance", kind: "action" }
+                      - { id: "operations", label: "Business Operations", kind: "outcome" }
+                    edges:
+                      - { from: "compliance", to: "operations" }
+      responses:
+        '200':
+          description: Edge function suggestion
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [schema, suggestion, edge_context, provenance]
+                properties:
+                  schema:
+                    type: string
+                    enum: [edge_function_suggestion.v1]
+                  suggestion:
+                    type: object
+                    required: [suggested_function, suggested_params, reasoning, confidence]
+                    properties:
+                      suggested_function:
+                        type: string
+                        enum: [linear, diminishing_returns, threshold, s_curve]
+                        description: 'Suggested edge function type'
+                      suggested_params:
+                        type: object
+                        description: 'Suggested parameters for the function'
+                        properties:
+                          k:
+                            type: number
+                            description: 'Rate parameter for diminishing_returns/s_curve'
+                          threshold:
+                            type: number
+                            description: 'Threshold value for threshold function'
+                          midpoint:
+                            type: number
+                            description: 'Midpoint for s_curve function'
+                          slope:
+                            type: number
+                            description: 'Slope for threshold function'
+                      reasoning:
+                        type: string
+                        description: 'Explanation for the suggestion'
+                      alternatives:
+                        type: array
+                        description: 'Alternative function suggestions'
+                        items:
+                          type: object
+                          properties:
+                            function_type: { type: string }
+                            params: { type: object }
+                            reasoning: { type: string }
+                      confidence:
+                        type: string
+                        enum: [high, medium, low]
+                  edge_context:
+                    type: object
+                    properties:
+                      edge_id: { type: string }
+                      source_node:
+                        type: object
+                        properties:
+                          id: { type: string }
+                          label: { type: string }
+                          kind: { type: string }
+                      target_node:
+                        type: object
+                        properties:
+                          id: { type: string }
+                          label: { type: string }
+                          kind: { type: string }
+                  provenance:
+                    type: string
+                    enum: [cee, plot_fallback]
+                    description: 'Source of the suggestion'
+                  cee_error:
+                    type: object
+                    description: 'Present if CEE call failed'
+                    properties:
+                      code: { type: string }
+                      message: { type: string }
+                      retryable: { type: boolean }
+              examples:
+                cee_success:
+                  summary: CEE suggestion (diminishing returns)
+                  value:
+                    schema: "edge_function_suggestion.v1"
+                    suggestion:
+                      suggested_function: "diminishing_returns"
+                      suggested_params:
+                        k: 0.5
+                      reasoning: "Marketing spend typically shows diminishing returns - initial investment yields high returns but effectiveness decreases as spend increases."
+                      alternatives:
+                        - function_type: "s_curve"
+                          params: { k: 1.0, midpoint: 50000 }
+                          reasoning: "If there's a threshold before marketing becomes effective, an S-curve may be more appropriate."
+                      confidence: "high"
+                    edge_context:
+                      edge_id: "marketing_spend->revenue"
+                      source_node:
+                        id: "marketing_spend"
+                        label: "Marketing Spend"
+                      target_node:
+                        id: "revenue"
+                        label: "Revenue"
+                    provenance: "cee"
+                fallback:
+                  summary: Fallback response (CEE unavailable)
+                  value:
+                    schema: "edge_function_suggestion.v1"
+                    suggestion:
+                      suggested_function: "linear"
+                      suggested_params: {}
+                      reasoning: "Default linear relationship (CEE unavailable)"
+                      confidence: "low"
+                    edge_context:
+                      edge_id: "A->B"
+                      source_node:
+                        id: "A"
+                        label: "A"
+                      target_node:
+                        id: "B"
+                        label: "B"
+                    provenance: "plot_fallback"
+                    cee_error:
+                      code: "CEE_TIMEOUT"
+                      message: "Request timed out after 10000ms"
+                      retryable: true
+        '400':
+          description: Bad input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
 
 
 components:
@@ -2912,6 +3279,34 @@ components:
                 type: string
                 maxLength: 100
                 description: 'Source attribution (e.g., "template", "assumption", "user")'
+              function_type:
+                type: string
+                enum: [linear, diminishing_returns, threshold, s_curve]
+                default: linear
+                description: |
+                  Non-linear transformation function applied to incoming edge values.
+                  - linear (default): y = x — direct pass-through
+                  - diminishing_returns: y = 1 - e^(-k*x) — saturates at high input values (e.g., marketing spend)
+                  - threshold: y = 0 if x < threshold, else slope*(x-threshold) — step function (e.g., regulatory triggers)
+                  - s_curve: y = 1/(1+e^(-k*(x-midpoint))) — logistic transition (e.g., adoption curves)
+              function_params:
+                type: object
+                description: 'Parameters for non-linear edge functions. Required parameters depend on function_type.'
+                properties:
+                  k:
+                    type: number
+                    minimum: 0
+                    exclusiveMinimum: true
+                    description: 'Rate parameter for diminishing_returns and s_curve (must be > 0, default: 1). Higher k = faster saturation/steeper transition.'
+                  threshold:
+                    type: number
+                    description: 'Threshold value for threshold function (default: 0). Values below this produce 0 output.'
+                  midpoint:
+                    type: number
+                    description: 'S-curve midpoint value (where output = 0.5). Required for s_curve function.'
+                  slope:
+                    type: number
+                    description: 'Post-threshold slope for threshold function (default: 1). Multiplies (x - threshold) above threshold.'
               confidence:
                 type: number
                 minimum: 0

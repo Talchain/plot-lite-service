@@ -150,6 +150,7 @@ export async function registerV1Routes(app: FastifyInstance) {
   await registerElicitRiskToleranceRoute(app);
   await registerRiskAdjustRoute(app);
   await registerThresholdsRoute(app);
+  await registerSuggestEdgeFunctionRoute(app);
   await registerAuditTestRoute(app);
   await registerGovernanceRoute(app);  
   // P1: Register enhanced stream route if enabled, otherwise use legacy
@@ -290,3 +291,4 @@ import { registerMultiCriteriaAnalysisRoute } from './analysis-multi-criteria.js
 import { registerElicitRiskToleranceRoute } from './elicit-risk-tolerance.js';
 import { registerRiskAdjustRoute } from './analysis-risk-adjust.js';
 import { registerThresholdsRoute } from './analysis-thresholds.js';
+import { registerSuggestEdgeFunctionRoute } from './suggest-edge-function.js';

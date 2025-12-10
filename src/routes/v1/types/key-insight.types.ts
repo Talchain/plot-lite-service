@@ -67,6 +67,17 @@ export interface CeeKeyInsight {
 }
 
 /**
+ * Warning for an inferred or unusual configuration
+ */
+export interface ResponseWarning {
+  code: 'EDGE_TYPE_INFERRED' | 'PRIMARY_OUTCOME_INFERRED' | 'BELIEF_DEFAULTED';
+  message: string;
+  severity: 'info' | 'warning';
+  /** Affected entity ID */
+  affected_id?: string;
+}
+
+/**
  * Response from /v1/assist/key-insight
  */
 export interface KeyInsightResponse {
@@ -87,6 +98,8 @@ export interface KeyInsightResponse {
     backend: string;
     response_hash: string;
   };
+  /** Warnings about inferred values or unusual configurations */
+  warnings?: ResponseWarning[];
   /** Error information if CEE call failed */
   cee_error?: {
     code: string;

@@ -298,5 +298,115 @@ describe('Key Insight Endpoint', () => {
 
       expect(body1.model_card.response_hash).toBe(body2.model_card.response_hash);
     });
+
+    it('includes edge type inference warnings when types are inferred', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/assist/key-insight',
+        payload: {
+          graph: {
+            nodes: [
+              { id: 'goal1', label: 'Goal', kind: 'goal' },
+              { id: 'dec1', label: 'Decision', kind: 'decision' },
+              { id: 'opt1', label: 'Option', kind: 'option' },
+              { id: 'out1', label: 'Outcome', kind: 'outcome', value: 100 },
+            ],
+            edges: [
+              { from: 'goal1', to: 'dec1' },  // functional inferred
+              { from: 'dec1', to: 'opt1' },   // structural inferred
+              { from: 'opt1', to: 'out1' },   // probabilistic inferred
+            ],
+          },
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.payload);
+
+      expect(body.warnings).toBeDefined();
+      expect(body.warnings.length).toBeGreaterThanOrEqual(3);
+
+      const edgeTypeWarnings = body.warnings.filter(
+        (w: any) => w.code === 'EDGE_TYPE_INFERRED'
+      );
+      expect(edgeTypeWarnings.length).toBe(3);
+      expect(edgeTypeWarnings[0].severity).toBe('info');
+    });
+
+    it('includes primary outcome inferred warning', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/assist/key-insight',
+        payload: {
+          graph: {
+            nodes: [
+              { id: 'a', label: 'A', kind: 'goal' },
+              { id: 'b', label: 'B', kind: 'outcome', value: 100 },
+            ],
+            edges: [{ from: 'a', to: 'b' }],
+          },
+          // No outcome_node specified - will be inferred
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.payload);
+
+      const outcomeWarnings = body.warnings?.filter(
+        (w: any) => w.code === 'PRIMARY_OUTCOME_INFERRED'
+      );
+      expect(outcomeWarnings?.length).toBe(1);
+    });
+
+    it('does not include edge type warnings when types are explicit', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/assist/key-insight',
+        payload: {
+          graph: {
+            nodes: [
+              { id: 'goal1', label: 'Goal', kind: 'goal' },
+              { id: 'dec1', label: 'Decision', kind: 'decision' },
+            ],
+            edges: [
+              { from: 'goal1', to: 'dec1', edge_type: 'functional' },  // Explicit
+            ],
+          },
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.payload);
+
+      const edgeTypeWarnings = body.warnings?.filter(
+        (w: any) => w.code === 'EDGE_TYPE_INFERRED'
+      ) ?? [];
+      expect(edgeTypeWarnings.length).toBe(0);
+    });
+
+    it('does not include outcome warning when outcome_node is provided', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/assist/key-insight',
+        payload: {
+          graph: {
+            nodes: [
+              { id: 'a', label: 'A', value: 100 },
+              { id: 'b', label: 'B', value: 50 },
+            ],
+            edges: [{ from: 'a', to: 'b' }],
+          },
+          outcome_node: 'b',  // Explicitly provided
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.payload);
+
+      const outcomeWarnings = body.warnings?.filter(
+        (w: any) => w.code === 'PRIMARY_OUTCOME_INFERRED'
+      ) ?? [];
+      expect(outcomeWarnings.length).toBe(0);
+    });
   });
 });

@@ -8,11 +8,24 @@ export interface Node {
   label?: string;
 }
 
+/** Edge function type for non-linear relationships */
+export type EdgeFunctionType = 'linear' | 'diminishing_returns' | 'threshold' | 's_curve';
+
+/** Parameters for non-linear edge functions */
+export interface EdgeFunctionParams {
+  k?: number;         // Rate parameter (diminishing, s_curve)
+  threshold?: number; // Threshold value
+  midpoint?: number;  // S-curve midpoint
+  slope?: number;     // Post-threshold slope
+}
+
 export interface Edge {
   from: string;
   to: string;
   belief?: number; // [0,1] edge existence probability; default 0.7
   weight?: number; // β coefficient; default 1.0
+  function_type?: EdgeFunctionType; // Non-linear function (default: linear)
+  function_params?: EdgeFunctionParams; // Function parameters
 }
 
 export interface DAG {
