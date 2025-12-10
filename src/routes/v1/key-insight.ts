@@ -25,6 +25,7 @@ import type {
   RankedAction,
   CeeKeyInsight,
   CeeKeyInsightRequestBody,
+  ResponseWarning,
 } from './types/key-insight.types.js';
 import type { RankingConfidence } from './types/run-bundle.types.js';
 import type { NodeKind } from '../../trust/types.js';
@@ -191,16 +192,57 @@ export async function registerKeyInsightRoute(app: FastifyInstance) {
         edges: edgeInference.edges,
       };
 
+      // Collect warnings for inferred edge types
+      const warnings: ResponseWarning[] = [];
+      for (const w of edgeInference.warnings) {
+        warnings.push({
+          code: 'EDGE_TYPE_INFERRED',
+          message: w.message,
+          severity: 'info',
+          affected_id: w.edge_id,
+        });
+      }
+
+      // Log inferred edges for observability
+      if (edgeInference.inferred_count > 0) {
+        req.log.info({
+          evt: 'edge_type_inference',
+          id: requestId,
+          inferred_count: edgeInference.inferred_count,
+          explicit_count: edgeInference.explicit_count,
+          edges: edgeInference.warnings.map((w) => ({
+            from: w.from,
+            to: w.to,
+            type: w.inferred_type,
+          })),
+        });
+      }
+
       // Detect primary outcome
       const seed = body.seed ?? 4242;
       let outcomeNode: string = body.outcome_node ?? '';
+      let outcomeInferred = false;
 
       if (!outcomeNode) {
         const detection = detectPrimaryOutcome(graph);
         if (detection.detected && detection.node_id) {
           outcomeNode = detection.node_id;
+          outcomeInferred = true;
+          warnings.push({
+            code: 'PRIMARY_OUTCOME_INFERRED',
+            message: `Primary outcome inferred as '${detection.node_id}' (${detection.strategy})`,
+            severity: 'info',
+            affected_id: detection.node_id,
+          });
         } else {
           outcomeNode = graph.nodes[graph.nodes.length - 1]?.id ?? '';
+          outcomeInferred = true;
+          warnings.push({
+            code: 'PRIMARY_OUTCOME_INFERRED',
+            message: `No outcome node detected; using last node '${outcomeNode}'`,
+            severity: 'warning',
+            affected_id: outcomeNode,
+          });
         }
       }
 
@@ -357,6 +399,7 @@ export async function registerKeyInsightRoute(app: FastifyInstance) {
           backend: 'scm_lite',
           response_hash: responseHash,
         },
+        ...(warnings.length > 0 && { warnings }),
         ...(ceeError && { cee_error: ceeError }),
       };
 

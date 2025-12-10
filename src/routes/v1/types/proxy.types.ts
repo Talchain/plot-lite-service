@@ -702,3 +702,81 @@ export interface ProxyRequestContext {
   plot_request_id: string;
   timestamp: string;
 }
+
+// ============================================================================
+// Edge Function Suggestion Types
+// ============================================================================
+
+import type { EdgeFunctionType, EdgeFunctionParams } from '../../../trust/types.js';
+
+/**
+ * Node context for edge function suggestion
+ */
+export interface EdgeNodeContext {
+  id: string;
+  label?: string;
+  kind?: NodeKind;
+}
+
+/**
+ * Request to /v1/suggest/edge-function
+ */
+export interface EdgeFunctionSuggestionRequest {
+  /** Edge identifier (from->to) */
+  edge_id: string;
+  /** Source node context */
+  source_node: EdgeNodeContext;
+  /** Target node context */
+  target_node: EdgeNodeContext;
+  /** Optional description of the relationship */
+  relationship_description?: string;
+  /** Optional graph context for node enrichment */
+  graph?: {
+    nodes: Array<{ id: string; label?: string; kind?: NodeKind; value?: number }>;
+    edges: Array<{ from: string; to: string; weight?: number; belief?: number }>;
+  };
+}
+
+/**
+ * Alternative function suggestion from CEE
+ */
+export interface AlternativeFunctionSuggestion {
+  function_type: EdgeFunctionType;
+  params: EdgeFunctionParams;
+  reasoning: string;
+}
+
+/**
+ * CEE edge function suggestion response
+ */
+export interface CeeEdgeFunctionSuggestionResponse {
+  /** Suggested function type */
+  suggested_function: EdgeFunctionType;
+  /** Suggested parameters for the function */
+  suggested_params: EdgeFunctionParams;
+  /** Reasoning for the suggestion */
+  reasoning: string;
+  /** Alternative suggestions if applicable */
+  alternatives?: AlternativeFunctionSuggestion[];
+  /** Confidence in the suggestion */
+  confidence: 'high' | 'medium' | 'low';
+}
+
+/**
+ * Response from /v1/suggest/edge-function
+ */
+export interface EdgeFunctionSuggestionResponse {
+  schema: 'edge_function_suggestion.v1';
+  /** CEE suggestion result */
+  suggestion: CeeEdgeFunctionSuggestionResponse;
+  /** Edge context used */
+  edge_context: {
+    edge_id: string;
+    source_node: EdgeNodeContext;
+    target_node: EdgeNodeContext;
+  };
+  /** Source of the response */
+  provenance: 'cee' | 'plot_fallback';
+  /** Error if CEE call failed */
+  cee_error?: ProxyError;
+}

@@ -5,6 +5,7 @@
 import { createHash } from 'node:crypto';
 import type { DAG, KernelConfig, KernelResult } from './types.js';
 import { XorShift128Plus } from './rng.js';
+import { applyEdgeFunction } from '../engine/edge-functions.js';
 
 const DEFAULT_CONFIG: Partial<KernelConfig> = {
   K: 256,
@@ -206,17 +207,20 @@ function sampleEdgeMask(dag: DAG, rng: XorShift128Plus, defaultBelief: number): 
 function forwardPass(dag: DAG, mask: Set<string>, topoOrder: string[], target: string): number {
   const values = new Map<string, number>();
   for (const id of topoOrder) values.set(id, 0);
-  
+
   for (const node of topoOrder) {
     const incoming = dag.edges.filter(e => e.to === node && mask.has(`${e.from}->${e.to}`));
     let sum = 0;
     for (const edge of incoming) {
+      const parentValue = values.get(edge.from) || 0;
       const weight = edge.weight ?? 1.0;
-      sum += (values.get(edge.from) || 0) * weight;
+      // Apply non-linear edge function if specified
+      const transformedValue = applyEdgeFunction(parentValue, edge);
+      sum += transformedValue * weight;
     }
     values.set(node, sum || 1); // baseline 1 if no incoming
   }
-  
+
   return values.get(target) || 0;
 }
 

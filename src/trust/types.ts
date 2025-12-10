@@ -204,6 +204,37 @@ export type EdgeType = 'functional' | 'structural' | 'probabilistic';
 /** All valid edge type values for validation */
 export const VALID_EDGE_TYPES: readonly EdgeType[] = ['functional', 'structural', 'probabilistic'];
 
+/**
+ * Edge function type for non-linear relationships
+ * - linear: y = x (default)
+ * - diminishing_returns: y = 1 - e^(-k*x) — saturates at high input values
+ * - threshold: y = 0 if x < t, else slope * (x - t) — step with optional slope
+ * - s_curve: y = 1 / (1 + e^(-k*(x - m))) — logistic/sigmoid transition
+ */
+export type EdgeFunctionType = 'linear' | 'diminishing_returns' | 'threshold' | 's_curve';
+
+/** All valid edge function type values for validation */
+export const VALID_EDGE_FUNCTION_TYPES: readonly EdgeFunctionType[] = [
+  'linear',
+  'diminishing_returns',
+  'threshold',
+  's_curve',
+];
+
+/**
+ * Parameters for non-linear edge functions
+ */
+export interface EdgeFunctionParams {
+  /** Rate parameter for diminishing_returns and s_curve (must be > 0) */
+  k?: number;
+  /** Threshold value for threshold function */
+  threshold?: number;
+  /** S-curve midpoint value */
+  midpoint?: number;
+  /** Post-threshold slope for threshold function (default: 1) */
+  slope?: number;
+}
+
 export interface GraphNode {
   id: string;
   label: string;
@@ -221,6 +252,10 @@ export interface GraphEdge {
   belief?: number;      // 0-1, probability edge exists
   provenance?: string;  // Source attribution, max 100 chars
   edge_type?: EdgeType; // Inferred from node kinds if not specified
+  /** Non-linear function type for edge relationship (default: linear) */
+  function_type?: EdgeFunctionType;
+  /** Parameters for non-linear edge functions */
+  function_params?: EdgeFunctionParams;
 }
 
 export interface Graph {
