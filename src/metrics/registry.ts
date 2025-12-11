@@ -422,7 +422,7 @@ export function observeMetaQuality(engine: string, score: number): void {
   metaQualityHistogram?.observe({ engine }, score);
 }
 
-export function recordMetaConfidence(engine: string, level: 'HIGH' | 'MEDIUM' | 'LOW'): void {
+export function recordMetaConfidence(engine: string, level: 'high' | 'medium' | 'low'): void {
   metaConfidenceCounter?.inc({ engine, level });
 }
 
@@ -439,7 +439,7 @@ export function recordMetaConvergence(engine: string, status: 'converged' | 'mar
  */
 export function recordMetaReasoningMetrics(
   engine: string,
-  quality: { overall_score: number; confidence_level: 'HIGH' | 'MEDIUM' | 'LOW' },
+  quality: { overall_score: number; confidence_level: 'high' | 'medium' | 'low' },
   reliability: { estimate_stability: 'stable' | 'moderate' | 'volatile'; convergence_status: 'converged' | 'marginal' | 'not_converged' }
 ): void {
   observeMetaQuality(engine, quality.overall_score);

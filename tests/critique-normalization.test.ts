@@ -76,13 +76,13 @@ describe('Critique Normalization', () => {
     const report = {
       schema: 'run.v1',
       critique: { '0': { severity: 'HIGH', message: 'test' } },
-      confidence: { level: 'HIGH', score: 0.9 },
+      confidence: { level: 'high', score: 0.9 },
       meta: { seed: 42 },
     };
     const normalized = normaliseReport(report) as any;
-    
+
     expect(normalized.schema).toBe('run.v1');
-    expect(normalized.confidence).toEqual({ level: 'HIGH', score: 0.9 });
+    expect(normalized.confidence).toEqual({ level: 'high', score: 0.9 });
     expect(normalized.meta).toEqual({ seed: 42 });
     expect(Array.isArray(normalized.critique)).toBe(true);
   });

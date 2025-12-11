@@ -17,7 +17,7 @@ function baseDoc() {
       flags_on: ['DEMO_MODE'],
       determinism_note: 'stable'
     },
-    confidence: { level: 'HIGH', reason: 'DEMO', score: 0.99, factors: {} }
+    confidence: { level: 'high', reason: 'DEMO', score: 0.99, factors: {} }
   } as any;
 }
 

@@ -116,7 +116,7 @@ export function isValidIsoTimestamp(value: string | undefined | null): boolean {
  * - edgesWithProvenance / edgesTotal → coverage_ratio (0-1)
  * - sourceCount → small bonus for diverse sources.
  *
- * Returns an uppercased confidence level and a 0-1 score rounded to 2 d.p.
+ * Returns a lowercase confidence level and a 0-1 score rounded to 2 d.p.
  */
 export function classifyProvenanceConfidence(
   edgesWithProvenance: number,
@@ -124,7 +124,7 @@ export function classifyProvenanceConfidence(
   sourceCount: number,
 ): { level: ProvenanceConfidenceLevel; score: number } {
   if (edgesTotal <= 0) {
-    return { level: 'UNKNOWN', score: 0 };
+    return { level: 'unknown', score: 0 };
   }
 
   const coverage = Math.max(0, Math.min(1, edgesWithProvenance / edgesTotal));
@@ -138,13 +138,13 @@ export function classifyProvenanceConfidence(
 
   let level: ProvenanceConfidenceLevel;
   if (edgesWithProvenance === 0) {
-    level = 'LOW';
+    level = 'low';
   } else if (score >= 0.75) {
-    level = 'HIGH';
+    level = 'high';
   } else if (score >= 0.4) {
-    level = 'MEDIUM';
+    level = 'medium';
   } else {
-    level = 'LOW';
+    level = 'low';
   }
 
   return { level, score: Number(score.toFixed(2)) };

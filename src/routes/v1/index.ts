@@ -151,6 +151,14 @@ export async function registerV1Routes(app: FastifyInstance) {
   await registerRiskAdjustRoute(app);
   await registerThresholdsRoute(app);
   await registerSuggestEdgeFunctionRoute(app);
+  // Phase 4: Sequential graph support
+  await registerConditionalRecommendRoute(app);
+  await registerSequentialAnalysisRoute(app);
+  await registerPolicyTreeRoute(app);
+  await registerGenerateRecommendationRoute(app);
+  await registerNarrateConditionsRoute(app);
+  await registerExplainPolicyRoute(app);
+  await registerAnalysisOptimiseRoute(app);
   await registerAuditTestRoute(app);
   await registerGovernanceRoute(app);  
   // P1: Register enhanced stream route if enabled, otherwise use legacy
@@ -292,3 +300,11 @@ import { registerElicitRiskToleranceRoute } from './elicit-risk-tolerance.js';
 import { registerRiskAdjustRoute } from './analysis-risk-adjust.js';
 import { registerThresholdsRoute } from './analysis-thresholds.js';
 import { registerSuggestEdgeFunctionRoute } from './suggest-edge-function.js';
+// Phase 4: Sequential graph support
+import { registerConditionalRecommendRoute } from './analysis-conditional-recommend.js';
+import { registerSequentialAnalysisRoute } from './analysis-sequential.js';
+import { registerPolicyTreeRoute } from './analysis-policy-tree.js';
+import { registerGenerateRecommendationRoute } from './recommend-generate.js';
+import { registerNarrateConditionsRoute } from './narrate-conditions.js';
+import { registerExplainPolicyRoute } from './explain-policy.js';
+import { registerAnalysisOptimiseRoute } from './analysis-optimise.js';

@@ -578,7 +578,7 @@ export async function registerRunRoute(app: FastifyInstance) {
       if (inferenceResult.meta?.unique_graphs) {
         // scmLevelMap reserved for future confidence calibration
         confidence = {
-          level: 'MEDIUM' as any,
+          level: 'medium',
           reason: `${inferenceEngine.name} (K=${k_samples}, unique_graphs=${inferenceResult.meta.unique_graphs})`,
           score: 0.6,
           factors: {

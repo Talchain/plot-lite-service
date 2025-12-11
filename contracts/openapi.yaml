@@ -2330,6 +2330,295 @@ paths:
                     code: IDEMPOTENCY_MISMATCH
                     message: Idempotency-Key was reused with a different request body; use a new key.
 
+  /v1/analysis/optimise:
+    post:
+      summary: Continuous Variable Optimisation
+      description: |
+        Optimise continuous decision variables using grid search with optional gradient refinement.
+        Proxies to ISL /api/v1/analysis/optimise when ISL_ENABLE=1, otherwise uses local fallback.
+
+        Different from /v1/optimise which handles discrete action selection under budget constraints.
+        This endpoint optimises a single continuous decision variable within a search range.
+      operationId: analysisOptimise
+      tags: [v1, optimisation, analysis]
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: Optional key to replay the exact prior response within a TTL (scoped per principal)
+          schema:
+            type: string
+            maxLength: 200
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision_variable, search_range, objective_node, graph]
+              properties:
+                decision_variable:
+                  type: string
+                  description: Node ID of the decision variable to optimise
+                search_range:
+                  type: array
+                  items:
+                    type: number
+                  minItems: 2
+                  maxItems: 2
+                  description: "[min, max] range to search for optimal value"
+                objective_node:
+                  type: string
+                  description: Node ID of the objective to optimise
+                objective_direction:
+                  type: string
+                  enum: [maximise, minimise]
+                  default: maximise
+                  description: Direction to optimise the objective
+                constraints:
+                  type: array
+                  maxItems: 20
+                  items:
+                    type: object
+                    required: [node_id, operator, value]
+                    properties:
+                      node_id:
+                        type: string
+                        description: Node ID to constrain
+                      operator:
+                        type: string
+                        enum: ["<=", ">=", "=="]
+                        description: Constraint operator
+                      value:
+                        type: number
+                        description: Constraint value
+                graph:
+                  $ref: '#/components/schemas/graph'
+                grid_points:
+                  type: integer
+                  minimum: 2
+                  maximum: 100
+                  default: 20
+                  description: Number of points for grid search
+                refine:
+                  type: boolean
+                  default: false
+                  description: Whether to apply gradient refinement after grid search
+                confidence_level:
+                  type: number
+                  minimum: 0.5
+                  maximum: 0.99
+                  description: Confidence level for interval estimation (e.g., 0.95 for 95%)
+            example:
+              decision_variable: "price"
+              search_range: [50, 150]
+              objective_node: "revenue"
+              objective_direction: "maximise"
+              constraints:
+                - node_id: "demand"
+                  operator: ">="
+                  value: 100
+              graph:
+                nodes:
+                  - id: "price"
+                    label: "Price"
+                    type: "decision"
+                  - id: "demand"
+                    label: "Demand"
+                    type: "outcome"
+                  - id: "revenue"
+                    label: "Revenue"
+                    type: "outcome"
+                edges:
+                  - from: "price"
+                    to: "demand"
+                    weight: -0.5
+                  - from: "price"
+                    to: "revenue"
+                    weight: 1.0
+                  - from: "demand"
+                    to: "revenue"
+                    weight: 0.8
+              grid_points: 20
+              refine: true
+              confidence_level: 0.95
+      responses:
+        '200':
+          description: Optimisation results
+          headers:
+            Idempotent-Replayed:
+              description: '1 if response is a replay from cache; 0 if computed fresh (when Idempotency-Key provided)'
+              schema: { type: string, enum: ['0','1'] }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [schema, result, provenance]
+                properties:
+                  schema:
+                    type: string
+                    example: "continuous_optimise.v1"
+                  result:
+                    type: object
+                    required: [optimal_value, optimal_objective, confidence_interval, sensitivity, search_results, constraints_satisfied]
+                    properties:
+                      optimal_value:
+                        type: number
+                        description: Optimal value for the decision variable
+                      optimal_objective:
+                        type: number
+                        description: Objective value at optimal point
+                      confidence_interval:
+                        type: array
+                        items:
+                          type: number
+                        minItems: 2
+                        maxItems: 2
+                        description: "[low, high] confidence interval for optimal value"
+                      sensitivity:
+                        type: object
+                        description: Sensitivity analysis at optimal point
+                        properties:
+                          gradient_at_optimum:
+                            type: number
+                            description: Gradient of objective at optimal point
+                          second_derivative:
+                            type: number
+                            description: Second derivative (curvature) at optimal point
+                          robustness:
+                            type: string
+                            enum: [high, medium, low]
+                            description: Robustness classification based on curvature
+                      search_results:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            value:
+                              type: number
+                              description: Decision variable value
+                            objective:
+                              type: number
+                              description: Objective value at this point
+                        description: Grid search results for visualisation
+                      constraints_satisfied:
+                        type: boolean
+                        description: Whether all constraints are satisfied at optimal
+                      active_constraints:
+                        type: array
+                        items:
+                          type: string
+                        description: List of constraint node IDs that are active at optimal
+                      warnings:
+                        type: array
+                        items:
+                          type: string
+                        description: Any warnings about the optimisation
+                  provenance:
+                    type: string
+                    enum: [isl, plot_fallback]
+                    description: Whether result came from ISL or local fallback
+                  model_card:
+                    type: object
+                    description: Model card with optimisation parameters
+                    properties:
+                      decision_variable:
+                        type: string
+                      objective_node:
+                        type: string
+                      objective_direction:
+                        type: string
+                      search_range:
+                        type: array
+                        items:
+                          type: number
+                      grid_points:
+                        type: integer
+                      refine:
+                        type: boolean
+                      nodes:
+                        type: integer
+                      edges:
+                        type: integer
+                  isl_error:
+                    type: object
+                    description: ISL error details if ISL call failed
+                    properties:
+                      code:
+                        type: string
+                      message:
+                        type: string
+                      retryable:
+                        type: boolean
+              example:
+                schema: "continuous_optimise.v1"
+                result:
+                  optimal_value: 87.5
+                  optimal_objective: 12500
+                  confidence_interval: [82.5, 92.5]
+                  sensitivity:
+                    gradient_at_optimum: 0.02
+                    second_derivative: -1.5
+                    robustness: "medium"
+                  search_results:
+                    - value: 50
+                      objective: 8000
+                    - value: 75
+                      objective: 11000
+                    - value: 87.5
+                      objective: 12500
+                    - value: 100
+                      objective: 12000
+                    - value: 150
+                      objective: 9000
+                  constraints_satisfied: true
+                  active_constraints: []
+                  warnings: []
+                provenance: "isl"
+                model_card:
+                  decision_variable: "price"
+                  objective_node: "revenue"
+                  objective_direction: "maximise"
+                  search_range: [50, 150]
+                  grid_points: 20
+                  refine: true
+                  nodes: 3
+                  edges: 3
+        '400':
+          description: Bad input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                missing_field:
+                  value:
+                    schema: "error.v1"
+                    code: "BAD_INPUT"
+                    message: "decision_variable required"
+                invalid_range:
+                  value:
+                    schema: "error.v1"
+                    code: "BAD_INPUT"
+                    message: "search_range must be [min, max] where min < max"
+                node_not_found:
+                  value:
+                    schema: "error.v1"
+                    code: "BAD_INPUT"
+                    message: "decision_variable 'price' not found in graph"
+        '409':
+          description: Idempotency key reused with a different request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                mismatch:
+                  value:
+                    schema: error.v1
+                    code: IDEMPOTENCY_MISMATCH
+                    message: Idempotency-Key was reused with a different request body; use a new key.
+
   /v1/preferences/fit:
     post:
       summary: Preferences & Calibration
@@ -2826,14 +3115,14 @@ paths:
                   properties:
                     id: { type: string }
                     label: { type: string }
-                    kind: { type: string, enum: [goal, decision, option, outcome, risk, action] }
+                    kind: { type: string, enum: [goal, decision, option, outcome, risk, action, factor] }
                 target_node:
                   type: object
                   required: [id]
                   properties:
                     id: { type: string }
                     label: { type: string }
-                    kind: { type: string, enum: [goal, decision, option, outcome, risk, action] }
+                    kind: { type: string, enum: [goal, decision, option, outcome, risk, action, factor] }
                 relationship_description:
                   type: string
                   description: 'Optional description of the relationship for better suggestions'
@@ -3236,7 +3525,7 @@ components:
               type: { type: string, maxLength: 50, deprecated: true }
               kind:
                 type: string
-                enum: [goal, decision, option, outcome, risk, action]
+                enum: [goal, decision, option, outcome, risk, action, factor]
                 description: 'Node classification aligned with CEE/ISL. See Platform Architecture Contract v1.3'
               prior:
                 type: number
@@ -3259,6 +3548,23 @@ components:
                   params:
                     type: object
                     description: 'Effect-specific parameters'
+              # Phase 4: Sequential/multi-stage support
+              stage:
+                type: integer
+                minimum: 0
+                description: '0-indexed stage number for multi-stage decisions'
+              stage_label:
+                type: string
+                maxLength: 100
+                description: 'Human-readable stage label (e.g., "Launch Decision", "Pricing Decision")'
+              resolves_at:
+                type: string
+                maxLength: 100
+                description: 'ISO 8601 timestamp or relative time when uncertainty resolves'
+              decision_timing:
+                type: string
+                maxLength: 100
+                description: 'ISO 8601 timestamp or relative time when decision must be made'
         edges:
           type: array
           maxItems: 200
@@ -3339,7 +3645,48 @@ components:
                 properties:
                   x: { type: number }
                   y: { type: number }
-    
+        # Phase 4: Sequential/multi-stage decision graph metadata
+        sequential_metadata:
+          type: object
+          description: 'Metadata for sequential/multi-stage decision graphs'
+          properties:
+            is_sequential:
+              type: boolean
+              description: 'Whether this graph represents a sequential decision problem'
+            stages:
+              type: array
+              description: 'Ordered list of stage definitions'
+              items:
+                type: object
+                required: [index, label, decisions, resolved_uncertainties]
+                properties:
+                  index:
+                    type: integer
+                    minimum: 0
+                    description: '0-indexed stage number'
+                  label:
+                    type: string
+                    maxLength: 100
+                    description: 'Human-readable stage name'
+                  time_horizon:
+                    type: string
+                    maxLength: 50
+                    description: 'Optional time horizon description (e.g., "Q1 2025", "+6 months")'
+                  decisions:
+                    type: array
+                    items: { type: string }
+                    description: 'Node IDs of decisions to be made at this stage'
+                  resolved_uncertainties:
+                    type: array
+                    items: { type: string }
+                    description: 'Node IDs of uncertainties that resolve at this stage'
+            default_discount_factor:
+              type: number
+              minimum: 0
+              maximum: 1
+              default: 1.0
+              description: 'Default discount factor for future outcomes (0-1)'
+
     modelCard:
       type: object
       required: [seed, assumptions_summary, compute_budget, flags_on, determinism_note, response_hash]
@@ -3382,7 +3729,7 @@ components:
       type: object
       required: [level, reason, score, factors]
       properties:
-        level: { type: string, enum: [LOW, MEDIUM, HIGH] }
+        level: { type: string, enum: [low, medium, high] }
         reason: { type: string }
         score: { type: number, minimum: 0, maximum: 1 }
         factors:
@@ -3453,7 +3800,7 @@ components:
           description: 'Proportion of edges with external evidence provenance'
         confidence_level:
           type: string
-          enum: [LOW, MEDIUM, HIGH, UNKNOWN]
+          enum: [low, medium, high, unknown]
         confidence_score:
           type: number
           minimum: 0
@@ -3544,7 +3891,7 @@ components:
             - model_of_inference: Meta-reasoning engine that wraps model_based inference.
               Provides additional quality assessment metadata including:
               * quality_assessment.overall_score (0-1): Overall inference quality
-              * quality_assessment.confidence_level (HIGH/MEDIUM/LOW): Result confidence
+              * quality_assessment.confidence_level (high/medium/low): Result confidence
               * quality_assessment.identifiable: Whether causal effect is identifiable
               * quality_assessment.in_linear_range: Whether estimates are in linear range
               * reliability.estimate_stability (stable/moderate/volatile)
@@ -3725,7 +4072,7 @@ components:
                   description: 'Weighted quality score (0=poor, 1=excellent)'
                 confidence_level:
                   type: string
-                  enum: [HIGH, MEDIUM, LOW]
+                  enum: [high, medium, low]
                   description: 'Categorical confidence in the results'
                 identifiable:
                   type: boolean
