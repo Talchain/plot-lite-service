@@ -174,6 +174,45 @@ function generateFallbackRiskProfile(): CeeRiskToleranceResponse {
   };
 }
 
+/**
+ * Generate risk profile from preset
+ */
+function generatePresetRiskProfile(
+  preset: 'risk_averse' | 'neutral' | 'risk_seeking'
+): CeeRiskToleranceResponse {
+  const profiles: Record<
+    'risk_averse' | 'neutral' | 'risk_seeking',
+    CeeRiskToleranceResponse
+  > = {
+    risk_averse: {
+      risk_profile: {
+        risk_attitude: 'risk_averse',
+        risk_coefficient: -0.5,
+        confidence: 'high',
+        rationale: 'Risk-averse preset: prioritizes downside protection and certainty over potential upside.',
+      },
+    },
+    neutral: {
+      risk_profile: {
+        risk_attitude: 'risk_neutral',
+        risk_coefficient: 0,
+        confidence: 'high',
+        rationale: 'Risk-neutral preset: evaluates options based on expected value without risk adjustment.',
+      },
+    },
+    risk_seeking: {
+      risk_profile: {
+        risk_attitude: 'risk_seeking',
+        risk_coefficient: 0.5,
+        confidence: 'high',
+        rationale: 'Risk-seeking preset: willing to accept higher variance for potential upside.',
+      },
+    },
+  };
+
+  return profiles[preset];
+}
+
 export async function registerElicitRiskToleranceRoute(app: FastifyInstance) {
   app.post(
     '/v1/elicit/risk-tolerance',
@@ -182,12 +221,42 @@ export async function registerElicitRiskToleranceRoute(app: FastifyInstance) {
       const body = req.body as RiskToleranceRequest;
       const requestId = String(req.id);
 
-      // Validate mode
+      // Handle preset mode (quick risk profile selection)
+      if (body.preset) {
+        const validPresets = ['risk_averse', 'neutral', 'risk_seeking'] as const;
+        if (!validPresets.includes(body.preset as any)) {
+          return replyWithAppError(reply, {
+            type: 'BAD_INPUT',
+            statusCode: 400,
+            message: "preset must be 'risk_averse', 'neutral', or 'risk_seeking'",
+            fields: { field: 'preset' },
+          });
+        }
+
+        const elicitation = generatePresetRiskProfile(body.preset as 'risk_averse' | 'neutral' | 'risk_seeking');
+
+        req.log.info({
+          evt: 'elicit_risk_tolerance_preset',
+          id: requestId,
+          preset: body.preset,
+        });
+
+        const response: RiskToleranceResponse = {
+          schema: 'risk_tolerance.v1',
+          mode: 'preset',
+          elicitation,
+          provenance: 'plot_fallback',
+        };
+
+        return reply.code(200).send(response);
+      }
+
+      // Validate mode (required if no preset)
       if (!body.mode || !['get_questions', 'process_responses'].includes(body.mode)) {
         return replyWithAppError(reply, {
           type: 'BAD_INPUT',
           statusCode: 400,
-          message: "mode must be 'get_questions' or 'process_responses'",
+          message: "mode must be 'get_questions' or 'process_responses', or provide a preset",
           fields: { field: 'mode' },
         });
       }

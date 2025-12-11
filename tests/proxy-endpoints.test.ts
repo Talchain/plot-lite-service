@@ -1090,6 +1090,75 @@ describe('CEE/ISL Proxy Endpoints', () => {
       expect(body.elicitation.risk_profile.confidence).toBe('low'); // Fallback
       expect(body.provenance).toBe('plot_fallback');
     });
+
+    it('returns risk_averse profile when preset is risk_averse', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/elicit/risk-tolerance',
+        payload: { preset: 'risk_averse' },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.payload);
+
+      expect(body.schema).toBe('risk_tolerance.v1');
+      expect(body.mode).toBe('preset');
+      expect(body.elicitation.risk_profile).toBeDefined();
+      expect(body.elicitation.risk_profile.risk_attitude).toBe('risk_averse');
+      expect(body.elicitation.risk_profile.risk_coefficient).toBeLessThan(0);
+      expect(body.elicitation.risk_profile.confidence).toBe('high');
+      expect(body.provenance).toBe('plot_fallback');
+    });
+
+    it('returns neutral profile when preset is neutral', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/elicit/risk-tolerance',
+        payload: { preset: 'neutral' },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.payload);
+
+      expect(body.schema).toBe('risk_tolerance.v1');
+      expect(body.mode).toBe('preset');
+      expect(body.elicitation.risk_profile).toBeDefined();
+      expect(body.elicitation.risk_profile.risk_attitude).toBe('risk_neutral');
+      expect(body.elicitation.risk_profile.risk_coefficient).toBe(0);
+      expect(body.elicitation.risk_profile.confidence).toBe('high');
+      expect(body.provenance).toBe('plot_fallback');
+    });
+
+    it('returns risk_seeking profile when preset is risk_seeking', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/elicit/risk-tolerance',
+        payload: { preset: 'risk_seeking' },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.payload);
+
+      expect(body.schema).toBe('risk_tolerance.v1');
+      expect(body.mode).toBe('preset');
+      expect(body.elicitation.risk_profile).toBeDefined();
+      expect(body.elicitation.risk_profile.risk_attitude).toBe('risk_seeking');
+      expect(body.elicitation.risk_profile.risk_coefficient).toBeGreaterThan(0);
+      expect(body.elicitation.risk_profile.confidence).toBe('high');
+      expect(body.provenance).toBe('plot_fallback');
+    });
+
+    it('returns 400 for invalid preset value', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/elicit/risk-tolerance',
+        payload: { preset: 'invalid_preset' },
+      });
+
+      expect(response.statusCode).toBe(400);
+      const body = JSON.parse(response.payload);
+      expect(body.error.message).toContain('preset');
+    });
   });
 
   // ============================================================================

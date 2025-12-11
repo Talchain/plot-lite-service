@@ -441,8 +441,10 @@ export interface MultiCriteriaResponse {
  * Request to /v1/elicit/risk-tolerance
  */
 export interface RiskToleranceRequest {
-  /** Mode of operation */
-  mode: 'get_questions' | 'process_responses';
+  /** Mode of operation - required unless preset is provided */
+  mode?: 'get_questions' | 'process_responses';
+  /** Quick preset risk profile (alternative to questions flow) */
+  preset?: 'risk_averse' | 'neutral' | 'risk_seeking';
   /** Context for risk assessment */
   context?: 'product' | 'business';
   /** User responses when mode is 'process_responses' */
@@ -496,7 +498,7 @@ export interface CeeRiskToleranceResponse {
  */
 export interface RiskToleranceResponse {
   schema: 'risk_tolerance.v1';
-  mode: 'get_questions' | 'process_responses';
+  mode: 'get_questions' | 'process_responses' | 'preset';
   elicitation: CeeRiskToleranceResponse;
   provenance: 'cee' | 'plot_fallback';
   cee_error?: ProxyError;
