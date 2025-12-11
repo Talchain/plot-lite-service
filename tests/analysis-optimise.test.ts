@@ -7,6 +7,11 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import Fastify, { FastifyInstance } from 'fastify';
 import { registerAnalysisOptimiseRoute } from '../src/routes/v1/analysis-optimise.js';
+import {
+  resetIslCircuitBreaker,
+  recordIslFailure,
+  getIslCircuitBreakerStats,
+} from '../src/integrations/isl-circuit-breaker.js';
 
 describe('POST /v1/analysis/optimise', () => {
   let app: FastifyInstance;
@@ -24,6 +29,7 @@ describe('POST /v1/analysis/optimise', () => {
   beforeEach(() => {
     delete process.env.ISL_OPTIMISE_ENABLE;
     delete process.env.ISL_ENABLE;
+    resetIslCircuitBreaker();
   });
 
   describe('validation', () => {
@@ -531,6 +537,107 @@ describe('POST /v1/analysis/optimise', () => {
       expect(res.statusCode).toBe(200);
       const body = JSON.parse(res.payload);
       expect(body.model_card.edges).toBe(1);
+    });
+  });
+
+  describe('circuit breaker integration', () => {
+    it('uses fallback when circuit breaker is open', async () => {
+      process.env.ISL_OPTIMISE_ENABLE = '1';
+      process.env.ISL_BASE_URL = 'http://localhost:9999';
+      process.env.ISL_API_KEY = 'test-key';
+
+      // Open the circuit breaker by recording failures
+      recordIslFailure();
+      recordIslFailure();
+      recordIslFailure();
+      expect(getIslCircuitBreakerStats().state).toBe('open');
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/analysis/optimise',
+        payload: {
+          decision_variable: 'price',
+          search_range: [50, 150],
+          objective_node: 'revenue',
+          graph: {
+            nodes: [
+              { id: 'price', label: 'Price' },
+              { id: 'revenue', label: 'Revenue' },
+            ],
+            edges: [],
+          },
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.payload);
+      expect(body.provenance).toBe('plot_fallback');
+      expect(body.isl_error).toBeDefined();
+      expect(body.isl_error.code).toBe('ISL_CIRCUIT_BREAKER_OPEN');
+      expect(body.isl_error.retryable).toBe(true);
+
+      delete process.env.ISL_BASE_URL;
+      delete process.env.ISL_API_KEY;
+    });
+
+    it('uses fallback normally when ISL disabled (no circuit breaker error)', async () => {
+      // Circuit breaker open but ISL disabled
+      recordIslFailure();
+      recordIslFailure();
+      recordIslFailure();
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/analysis/optimise',
+        payload: {
+          decision_variable: 'price',
+          search_range: [50, 150],
+          objective_node: 'revenue',
+          graph: {
+            nodes: [
+              { id: 'price', label: 'Price' },
+              { id: 'revenue', label: 'Revenue' },
+            ],
+            edges: [],
+          },
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.payload);
+      expect(body.provenance).toBe('plot_fallback');
+      // No ISL error when ISL is disabled
+      expect(body.isl_error).toBeUndefined();
+    });
+
+    it('circuit breaker does not block when in closed state', async () => {
+      process.env.ISL_OPTIMISE_ENABLE = '1';
+      // No ISL_BASE_URL - config missing
+
+      // Circuit is closed (no failures recorded)
+      expect(getIslCircuitBreakerStats().state).toBe('closed');
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/analysis/optimise',
+        payload: {
+          decision_variable: 'price',
+          search_range: [50, 150],
+          objective_node: 'revenue',
+          graph: {
+            nodes: [
+              { id: 'price', label: 'Price' },
+              { id: 'revenue', label: 'Revenue' },
+            ],
+            edges: [],
+          },
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.payload);
+      // Should show ISL_CONFIG_MISSING, not circuit breaker error
+      expect(body.isl_error.code).toBe('ISL_CONFIG_MISSING');
     });
   });
 });

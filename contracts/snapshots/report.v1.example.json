@@ -233,7 +233,6 @@
     "detail_level": "standard",
     "determinism_note": "Deterministic: Same seed (42) guarantees identical output",
     "flags_on": [
-      "RATE_LIMIT_ENABLED",
       "TEST_ROUTES"
     ],
     "parameters": {

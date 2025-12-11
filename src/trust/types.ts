@@ -312,9 +312,44 @@ export interface SequentialMetadata {
   default_discount_factor?: number;
 }
 
+/**
+ * Weight schema version for edge weight interpretation
+ * - v1: Legacy bounded weights [-1, +1]
+ * - v2: Extended bounded weights [-3, +3] (default)
+ * - v3: Unbounded weights (-∞, +∞)
+ */
+export type WeightSchemaVersion = 'v1' | 'v2' | 'v3';
+
+/**
+ * Correlation group for jointly sampled factor nodes
+ *
+ * ISL integration: Defines groups of factor nodes whose values should be
+ * sampled together using a correlation matrix.
+ *
+ * Phase 3: Model Enhancements - Consume ISL Correlation Groups
+ */
+export interface CorrelationGroup {
+  /** Unique identifier for the correlation group */
+  group_id: string;
+  /** Node IDs of factors in this correlation group */
+  node_ids: string[];
+  /**
+   * Correlation matrix (row-major, symmetric, positive semi-definite)
+   * Size: n × n where n = node_ids.length
+   * Diagonal elements should be 1.0
+   */
+  correlation_matrix: number[][];
+  /** Optional label for display */
+  label?: string;
+}
+
 export interface Graph {
   nodes: GraphNode[];
   edges: GraphEdge[];
   /** Metadata for sequential/multi-stage decision graphs (Phase 4) */
   sequential_metadata?: SequentialMetadata;
+  /** Weight schema version for edge weight interpretation (Phase 2, Task 2.1) */
+  weight_schema_version?: WeightSchemaVersion;
+  /** Correlation groups for jointly sampling factor nodes (Phase 3, ISL integration) */
+  correlation_groups?: CorrelationGroup[];
 }

@@ -21,6 +21,11 @@ import type {
   IslSequentialAnalysisResponse,
   StageOptimalDecision,
 } from './types/proxy.types.js';
+import {
+  shouldAllowIslCall,
+  recordIslSuccess,
+  recordIslFailure,
+} from '../../integrations/isl-circuit-breaker.js';
 
 const MAX_NODES = 50;
 const MAX_EDGES = 200;
@@ -204,6 +209,18 @@ export async function registerSequentialAnalysisRoute(app: FastifyInstance) {
       const start = Date.now();
       const body = req.body as SequentialAnalysisRequest;
       const requestId = String(req.id);
+
+      // Check feature flag - ENABLE_SEQUENTIAL_ANALYSIS
+      const featureEnabled = isFlagOn(process.env.ENABLE_SEQUENTIAL_ANALYSIS);
+      if (!featureEnabled) {
+        return replyWithAppError(reply, {
+          type: 'BAD_INPUT',
+          statusCode: 501,
+          message:
+            'Sequential analysis is not enabled. Set ENABLE_SEQUENTIAL_ANALYSIS=1 to enable.',
+          fields: { feature: 'sequential_analysis' },
+        });
+      }
 
       // Validate graph
       if (!body.graph || !body.graph.nodes || !Array.isArray(body.graph.nodes)) {
@@ -390,26 +407,45 @@ export async function registerSequentialAnalysisRoute(app: FastifyInstance) {
       );
 
       if (islEnabled && stageResults.length > 0) {
-        req.log.info({
-          evt: 'sequential_isl_call',
-          id: requestId,
-          stage_count: stageResults.length,
-        });
+        // Check circuit breaker before ISL call
+        const cbCheck = shouldAllowIslCall();
+        if (!cbCheck.allowed) {
+          req.log.info({
+            evt: 'sequential_circuit_breaker',
+            id: requestId,
+            reason: cbCheck.reason,
+          });
+          islError = {
+            code: 'ISL_CIRCUIT_BREAKER_OPEN',
+            message: cbCheck.reason || 'ISL circuit breaker is open',
+            retryable: true,
+          };
+        } else {
+          req.log.info({
+            evt: 'sequential_isl_call',
+            id: requestId,
+            stage_count: stageResults.length,
+          });
 
-        const islResult = await callIslSequential(
-          {
-            plot_request_id: requestId,
-            stage_results: stageResults,
-            discount_factor: discountFactor,
-          },
-          req.log
-        );
+          const islResult = await callIslSequential(
+            {
+              plot_request_id: requestId,
+              stage_results: stageResults,
+              discount_factor: discountFactor,
+            },
+            req.log
+          );
 
-        analysis = islResult.analysis;
-        islError = islResult.error;
+          analysis = islResult.analysis;
+          islError = islResult.error;
 
-        if (analysis) {
-          provenance = 'isl';
+          // Record result with circuit breaker
+          if (analysis) {
+            recordIslSuccess();
+            provenance = 'isl';
+          } else if (islError?.retryable) {
+            recordIslFailure();
+          }
         }
       }
 

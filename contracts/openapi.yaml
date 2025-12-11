@@ -148,6 +148,63 @@ paths:
                         type: integer
                         description: 'Hint for clients about expected latency (helps with proxy timeout config)'
                         example: 25000
+                      weight_schema:
+                        type: object
+                        description: 'Weight schema versioning (Phase 2, Task 2.1)'
+                        properties:
+                          default_version:
+                            type: string
+                            enum: [v1, v2, v3]
+                            description: 'Default weight schema version'
+                          supported_versions:
+                            type: array
+                            items: { type: string, enum: [v1, v2, v3] }
+                            description: 'Supported weight schema versions'
+                          schemas:
+                            type: object
+                            description: 'Schema definitions by version'
+                            additionalProperties:
+                              type: object
+                              properties:
+                                version: { type: string }
+                                min_bound: { type: number, nullable: true }
+                                max_bound: { type: number, nullable: true }
+                                description: { type: string }
+                                ui_default: { type: boolean }
+                      belief_spread:
+                        type: object
+                        description: 'Belief→spread mapping documentation (Phase 2, Task 2.2)'
+                        properties:
+                          current_version:
+                            type: string
+                            enum: [v1, v2]
+                            description: 'Current formula version'
+                          formula:
+                            type: object
+                            description: 'Formula specification'
+                            properties:
+                              version: { type: string }
+                              description: { type: string }
+                              formula: { type: string }
+                              default_belief: { type: number }
+                              parameters: { type: object }
+                              effective_from: { type: string }
+                              deprecated_from: { type: string, nullable: true }
+                          visualisation_data:
+                            type: array
+                            description: 'Data points for UI visualisation of belief→spread curve'
+                            items:
+                              type: object
+                              properties:
+                                belief: { type: number, description: 'Belief level [0, 1]' }
+                                spread: { type: number, description: 'Expected spread' }
+                                spread_p10: { type: number }
+                                spread_p90: { type: number }
+                                inclusion_probability: { type: number }
+                                variance_contribution: { type: number }
+                          supported_versions:
+                            type: array
+                            items: { type: string, enum: [v1, v2] }
   /draft-flows:
     get:
       summary: Deterministic report for a template+seed
@@ -2839,6 +2896,27 @@ paths:
                               node_label: { type: string }
                               contribution_pct: { type: number }
                               edge_count: { type: integer }
+                        delta_vs_baseline:
+                          type: object
+                          description: 'Delta vs identified baseline option (Task 1.7)'
+                          properties:
+                            p10: { type: number, description: 'Difference in p10 from baseline' }
+                            p50: { type: number, description: 'Difference in p50 from baseline' }
+                            p90: { type: number, description: 'Difference in p90 from baseline' }
+                        constraint_violations:
+                          type: array
+                          description: 'Constraint violations for this option (Task 1.3)'
+                          items:
+                            type: object
+                            properties:
+                              option_id: { type: string, description: 'Option ID that violates the constraint' }
+                              constraint_id: { type: string, description: 'Constraint identifier' }
+                              constraint_label: { type: string, description: 'Human-readable constraint label' }
+                              actual_value: { type: number, description: 'Actual value that violated the constraint' }
+                              threshold: { type: number, description: 'Threshold value from the constraint' }
+                        infeasible:
+                          type: boolean
+                          description: 'Is this option infeasible due to constraint violations? (Task 1.3)'
                         model_card:
                           type: object
                           properties:
@@ -2919,6 +2997,57 @@ paths:
                           properties:
                             edge_id: { type: string }
                             inferred_type: { type: string, enum: [functional, structural, probabilistic] }
+                  constraint_status:
+                    type: object
+                    description: 'Constraint status with violations and active constraints (Task 1.3)'
+                    required: [violations, active_constraints]
+                    properties:
+                      violations:
+                        type: array
+                        description: 'List of constraint violations by option'
+                        items:
+                          type: object
+                          required: [option_id, constraint_id, constraint_label, actual_value, threshold]
+                          properties:
+                            option_id: { type: string, description: 'Option/scenario ID that violates the constraint' }
+                            constraint_id: { type: string, description: 'Constraint identifier' }
+                            constraint_label: { type: string, description: 'Human-readable constraint label' }
+                            actual_value: { type: number, description: 'Actual value that violated the constraint' }
+                            threshold: { type: number, description: 'Threshold value from the constraint' }
+                      active_constraints:
+                        type: array
+                        description: 'List of constraints that are active (at boundary)'
+                        items:
+                          type: object
+                          required: [constraint_id, constraint_label, binding_option]
+                          properties:
+                            constraint_id: { type: string, description: 'Constraint identifier' }
+                            constraint_label: { type: string, description: 'Human-readable constraint label' }
+                            binding_option: { type: string, description: 'Option/scenario where this constraint is binding' }
+                  coherence_warnings:
+                    type: array
+                    description: 'Coherence warnings about inference results (Task 1.6)'
+                    items:
+                      type: object
+                      required: [code, message, severity]
+                      properties:
+                        code:
+                          type: string
+                          enum: [TOP_OPTION_NEGATIVE, CLOSE_RACE, ALL_OPTIONS_NEGATIVE, BASELINE_BEATS_ALL, HIGH_UNCERTAINTY, CONTRADICTORY_DIRECTION]
+                          description: 'Machine-readable warning code'
+                        message: { type: string, description: 'Human-readable warning message' }
+                        severity:
+                          type: string
+                          enum: [info, warning, error]
+                          description: 'Severity of the warning'
+                        context:
+                          type: object
+                          description: 'Additional context data'
+                          additionalProperties: true
+                  baseline_option_id:
+                    type: string
+                    nullable: true
+                    description: 'Identified baseline option ID (Task 1.7). Null if not determinable.'
                   model_card:
                     type: object
                     properties:
@@ -3302,6 +3431,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/errorV1'
+              examples:
+                missing_edge_id:
+                  summary: Missing required edge_id
+                  value:
+                    schema: "error.v1"
+                    code: "BAD_INPUT"
+                    message: "edge_id is required"
 
 
 components:

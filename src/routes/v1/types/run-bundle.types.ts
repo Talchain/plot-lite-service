@@ -4,10 +4,19 @@
  * Extended request/response types for option ranking and change attribution.
  * Phase 1: Simple mode ranking without utility function requirement.
  * Phase 2: Edge type inference and response warnings.
+ * Phase 1 Critical Fixes: Constraint status, coherence warnings, baseline identification.
  */
 
 import type { ChangeAttribution } from '../../../types/change-attribution.js';
 import type { EdgeType } from '../../../trust/types.js';
+import type {
+  ConstraintStatus,
+  CoherenceWarning,
+  ConstraintViolation,
+} from '../../../trust/result-coherence.js';
+
+// Re-export for convenience
+export type { ConstraintStatus, CoherenceWarning, ConstraintViolation };
 
 /**
  * Sort key for ranking options
@@ -156,6 +165,18 @@ export interface RankingSummary {
 }
 
 /**
+ * Delta from baseline including vs baseline comparison
+ */
+export interface DeltaVsBaseline {
+  /** Difference in p10 from baseline */
+  p10: number;
+  /** Difference in p50 from baseline */
+  p50: number;
+  /** Difference in p90 from baseline */
+  p90: number;
+}
+
+/**
  * Enhanced result for a single scenario
  */
 export interface EnhancedBundleResult {
@@ -173,8 +194,14 @@ export interface EnhancedBundleResult {
   success_probability?: number;
   /** Difference from baseline scenario */
   delta_from_baseline?: DeltaFromBaseline;
+  /** Delta vs identified baseline option (Task 1.7) */
+  delta_vs_baseline?: DeltaVsBaseline;
   /** Node-level sensitivity (top 5 nodes) */
   sensitivity_by_node?: NodeSensitivity[];
+  /** Constraint violations for this option (Task 1.3) */
+  constraint_violations?: ConstraintViolation[];
+  /** Is this option infeasible due to constraint violations? (Task 1.3) */
+  infeasible?: boolean;
   /** Model metadata */
   model_card: {
     seed: number;
@@ -213,6 +240,12 @@ export interface EnhancedBundleResponse {
   warnings?: ResponseWarning[];
   /** Edge type inference summary for observability (Phase 2) */
   edge_type_inference?: EdgeTypeInferenceSummary;
+  /** Constraint status with violations and active constraints (Task 1.3) */
+  constraint_status?: ConstraintStatus;
+  /** Coherence warnings about inference results (Task 1.6) */
+  coherence_warnings?: CoherenceWarning[];
+  /** Identified baseline option ID (Task 1.7) */
+  baseline_option_id?: string | null;
   model_card: {
     seed: number;
     detail_level: string;

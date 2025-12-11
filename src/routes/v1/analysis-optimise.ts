@@ -21,6 +21,11 @@ import type {
   OptimiseConstraint,
   ProxyError,
 } from './types/proxy.types.js';
+import {
+  shouldAllowIslCall,
+  recordIslSuccess,
+  recordIslFailure,
+} from '../../integrations/isl-circuit-breaker.js';
 
 const MAX_NODES = 50;
 const MAX_EDGES = 200;
@@ -322,37 +327,56 @@ export async function registerAnalysisOptimiseRoute(app: FastifyInstance) {
       );
 
       if (islEnabled) {
-        req.log.info({
-          evt: 'analysis_optimise_isl_call',
-          id: requestId,
-          decision_variable: body.decision_variable,
-          objective_node: body.objective_node,
-          objective_direction: objectiveDirection,
-          grid_points: gridPoints,
-          refine,
-        });
-
-        const islResult = await callIslOptimise(
-          {
-            plot_request_id: requestId,
+        // Check circuit breaker before ISL call
+        const cbCheck = shouldAllowIslCall();
+        if (!cbCheck.allowed) {
+          req.log.info({
+            evt: 'analysis_optimise_circuit_breaker',
+            id: requestId,
+            reason: cbCheck.reason,
+          });
+          islError = {
+            code: 'ISL_CIRCUIT_BREAKER_OPEN',
+            message: cbCheck.reason || 'ISL circuit breaker is open',
+            retryable: true,
+          };
+        } else {
+          req.log.info({
+            evt: 'analysis_optimise_isl_call',
+            id: requestId,
             decision_variable: body.decision_variable,
-            search_range: body.search_range,
             objective_node: body.objective_node,
             objective_direction: objectiveDirection,
-            constraints: body.constraints,
-            graph,
             grid_points: gridPoints,
             refine,
-            confidence_level: confidenceLevel,
-          },
-          req.log
-        );
+          });
 
-        result = islResult.result;
-        islError = islResult.error;
+          const islResult = await callIslOptimise(
+            {
+              plot_request_id: requestId,
+              decision_variable: body.decision_variable,
+              search_range: body.search_range,
+              objective_node: body.objective_node,
+              objective_direction: objectiveDirection,
+              constraints: body.constraints,
+              graph,
+              grid_points: gridPoints,
+              refine,
+              confidence_level: confidenceLevel,
+            },
+            req.log
+          );
 
-        if (result) {
-          provenance = 'isl';
+          result = islResult.result;
+          islError = islResult.error;
+
+          // Record result with circuit breaker
+          if (result) {
+            recordIslSuccess();
+            provenance = 'isl';
+          } else if (islError?.retryable) {
+            recordIslFailure();
+          }
         }
       }
 

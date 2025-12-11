@@ -115,6 +115,8 @@ describe('POST /v1/analysis/sequential', () => {
   });
 
   beforeEach(() => {
+    // Enable the feature flag for tests
+    process.env.ENABLE_SEQUENTIAL_ANALYSIS = '1';
     delete process.env.ISL_SEQUENTIAL_ENABLE;
     delete process.env.ISL_ENABLE;
   });

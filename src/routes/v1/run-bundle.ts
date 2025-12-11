@@ -32,8 +32,19 @@ import { detectPrimaryOutcome, shouldSuggestUtilityMode } from '../../services/r
 import { validateUtilityLocal } from '../../services/ranking/utility-validator.js';
 import { inferEdgeTypes } from '../../services/ranking/edge-type-inference.js';
 import type { EdgeTypeWarning } from '../../services/ranking/edge-type-inference.js';
-import type { RankingSortKey, RankingSummary, RankingMode, UtilityFunction, UtilitySuggestion, ResponseWarning, EdgeTypeInferenceSummary } from './types/run-bundle.types.js';
+import type { RankingSortKey, RankingSummary, RankingMode, UtilityFunction, UtilitySuggestion, ResponseWarning, EdgeTypeInferenceSummary, ConstraintStatus, CoherenceWarning } from './types/run-bundle.types.js';
 import { processWithConcurrency } from '../../util/semaphore.js';
+import {
+  detectBaselineOption,
+  computeDeltasVsBaseline,
+  validateCoherence,
+  emptyConstraintStatus,
+  type RankableResult,
+} from '../../trust/result-coherence.js';
+import {
+  analyzeEdgeFunctionSensitivity,
+  shouldAnalyzeEdgeFunctionSensitivity,
+} from '../../engine/edge-function-sensitivity.js';
 
 interface GraphDelta {
   label: string;
@@ -559,7 +570,61 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
       };
     }
 
-    // === END ENHANCED FEATURES ===
+    // === PHASE 1 CRITICAL FIXES ===
+
+    // Task 1.7: Baseline identification
+    const baselineOptionId = detectBaselineOption(
+      results as RankableResult[],
+      body.deltas,
+      baselineIndex
+    );
+
+    // Task 1.7: Compute delta_vs_baseline for each result
+    if (baselineOptionId) {
+      const deltasVsBaseline = computeDeltasVsBaseline(results as RankableResult[], baselineOptionId);
+      for (const result of results) {
+        const delta = deltasVsBaseline.get(result.label);
+        if (delta) {
+          result.delta_vs_baseline = delta;
+        }
+      }
+    }
+
+    // Task 1.3: Constraint status (currently using empty status - constraints evaluated at validation stage)
+    // Future: integrate with node-level constraint tracking during inference
+    const constraintStatus: ConstraintStatus = emptyConstraintStatus();
+
+    // Task 1.6: Result coherence validation
+    const coherenceWarnings: CoherenceWarning[] = validateCoherence(
+      results as RankableResult[],
+      baselineOptionId,
+      {
+        close_race_threshold: 0.02, // 2% margin
+        high_uncertainty_threshold: 0.5, // 50% spread/p50 ratio
+        baseline_value: body.baseline_value ?? 0,
+      }
+    );
+
+    // === END PHASE 1 CRITICAL FIXES ===
+
+    // Phase 3: Task 4.3 - Edge function sensitivity analysis
+    // Test if results are sensitive to edge function type choices
+    if (scenarios.length > 0 && outcome_node && shouldAnalyzeEdgeFunctionSensitivity(scenarios[0].graph)) {
+      const topResult = results.find((r: any) => r.rank === 1);
+      if (topResult?.summary?.p50) {
+        const sensitivityResult = analyzeEdgeFunctionSensitivity(
+          scenarios[0].graph,
+          outcome_node,
+          topResult.summary.p50,
+          {
+            top_n_edges: 3,
+            significance_threshold: 0.05,
+          }
+        );
+        // Add edge function sensitivity warnings to coherence warnings
+        coherenceWarnings.push(...sensitivityResult.warnings);
+      }
+    }
 
     const duration = Date.now() - start;
     req.log.info({ 
@@ -662,6 +727,10 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
       // Phase 2: Edge type inference and warnings
       ...(responseWarnings.length > 0 && { warnings: responseWarnings }),
       ...(edgeTypeInferenceSummary && { edge_type_inference: edgeTypeInferenceSummary }),
+      // Phase 1 Critical Fixes: Constraint status, coherence warnings, baseline identification
+      constraint_status: constraintStatus,
+      ...(coherenceWarnings.length > 0 && { coherence_warnings: coherenceWarnings }),
+      baseline_option_id: baselineOptionId,
       model_card: {
         seed,
         detail_level,

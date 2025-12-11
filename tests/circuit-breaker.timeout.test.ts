@@ -42,11 +42,12 @@ describe('PR-2C: Half-Open Timeout', () => {
     expect(data.circuit_breaker.global.state_duration_ms).toBeGreaterThanOrEqual(0);
   });
 
-  it('principal TTL defaults to Infinity', async () => {
+  it('principal TTL defaults to 1 hour', async () => {
     const res = await app.inject({ method: 'GET', url: '/v1/health' });
     const data = JSON.parse(res.body);
-    
+
     expect(data.circuit_breaker.principals).toBeDefined();
-    expect([Infinity, null]).toContain(data.circuit_breaker.principals.ttl_ms);
+    // Default TTL = 1 hour (3600000ms) for memory cleanup while detecting sustained abuse
+    expect(data.circuit_breaker.principals.ttl_ms).toBe(60 * 60 * 1000);
   });
 });
