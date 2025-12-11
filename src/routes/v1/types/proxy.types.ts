@@ -707,7 +707,7 @@ export interface ProxyRequestContext {
 // Edge Function Suggestion Types
 // ============================================================================
 
-import type { EdgeFunctionType, EdgeFunctionParams } from '../../../trust/types.js';
+import type { EdgeFunctionType, EdgeFunctionParams, StageDefinition, SequentialMetadata } from '../../../trust/types.js';
 
 /**
  * Node context for edge function suggestion
@@ -775,6 +775,515 @@ export interface EdgeFunctionSuggestionResponse {
     source_node: EdgeNodeContext;
     target_node: EdgeNodeContext;
   };
+  /** Source of the response */
+  provenance: 'cee' | 'plot_fallback';
+  /** Error if CEE call failed */
+  cee_error?: ProxyError;
+}
+
+// ============================================================================
+// Phase 4: Sequential Analysis Types (ISL Proxy)
+// ============================================================================
+
+/**
+ * Condition for conditional recommendation
+ */
+export interface RecommendationCondition {
+  /** Node ID the condition applies to */
+  node_id: string;
+  /** Condition operator */
+  operator: 'eq' | 'gt' | 'lt' | 'gte' | 'lte' | 'in' | 'not_in';
+  /** Value(s) for the condition */
+  value: number | string | number[] | string[];
+}
+
+/**
+ * Request to /v1/analysis/conditional-recommend
+ */
+export interface ConditionalRecommendRequest {
+  /** Graph with options to analyze */
+  graph: {
+    nodes: Array<{ id: string; label?: string; kind?: NodeKind; value?: number; stage?: number }>;
+    edges: Array<{ from: string; to: string; weight?: number; belief?: number }>;
+    sequential_metadata?: SequentialMetadata;
+  };
+  /** Conditions to apply before recommendation */
+  conditions: RecommendationCondition[];
+  /** Optional seed */
+  seed?: number;
+  /** Optional outcome node */
+  outcome_node?: string;
+}
+
+/**
+ * ISL conditional recommendation response
+ */
+export interface IslConditionalRecommendResponse {
+  /** Recommended option given conditions */
+  recommendation: string;
+  /** Recommendation label */
+  recommendation_label: string;
+  /** Expected score given conditions */
+  expected_score: number;
+  /** Distribution given conditions */
+  conditional_distribution: {
+    p10: number;
+    p50: number;
+    p90: number;
+  };
+  /** Confidence in recommendation */
+  confidence: 'high' | 'medium' | 'low';
+  /** Alternative recommendations */
+  alternatives: Array<{
+    option_id: string;
+    label: string;
+    score: number;
+    trade_off: string;
+  }>;
+  /** Conditions that were applied */
+  conditions_applied: RecommendationCondition[];
+}
+
+/**
+ * Response from /v1/analysis/conditional-recommend
+ */
+export interface ConditionalRecommendResponse {
+  schema: 'conditional_recommend.v1';
+  /** ISL recommendation result */
+  recommendation: IslConditionalRecommendResponse | null;
+  /** Source of the response */
+  provenance: 'isl' | 'plot_fallback';
+  /** Model metadata */
+  model_card: {
+    seed: number;
+    nodes: number;
+    edges: number;
+    conditions_count: number;
+  };
+  /** Error if ISL call failed */
+  isl_error?: ProxyError;
+}
+
+/**
+ * Request to /v1/analysis/sequential
+ */
+export interface SequentialAnalysisRequest {
+  /** Graph with sequential structure */
+  graph: {
+    nodes: Array<{ id: string; label?: string; kind?: NodeKind; value?: number; stage?: number; stage_label?: string }>;
+    edges: Array<{ from: string; to: string; weight?: number; belief?: number }>;
+    sequential_metadata?: SequentialMetadata;
+  };
+  /** Optional seed */
+  seed?: number;
+  /** Optional outcome node */
+  outcome_node?: string;
+  /** Discount factor for future stages (0-1, default: 1.0) */
+  discount_factor?: number;
+}
+
+/**
+ * Stage-optimal decision in sequential analysis
+ */
+export interface StageOptimalDecision {
+  /** Stage index */
+  stage: number;
+  /** Stage label */
+  stage_label: string;
+  /** Optimal decision node ID */
+  decision_id: string;
+  /** Optimal option node ID */
+  optimal_option_id: string;
+  /** Optimal option label */
+  optimal_option_label: string;
+  /** Expected value at this stage */
+  expected_value: number;
+  /** Confidence in this decision */
+  confidence: 'high' | 'medium' | 'low';
+  /** Conditions under which this is optimal */
+  conditions?: RecommendationCondition[];
+}
+
+/**
+ * ISL sequential analysis response
+ */
+export interface IslSequentialAnalysisResponse {
+  /** Optimal decisions per stage */
+  stage_decisions: StageOptimalDecision[];
+  /** Overall expected value (discounted) */
+  overall_expected_value: number;
+  /** Overall confidence */
+  overall_confidence: 'high' | 'medium' | 'low';
+  /** Value of waiting (option value) */
+  value_of_information?: number;
+  /** Summary of the sequential strategy */
+  strategy_summary: string;
+  /** Key uncertainties to resolve */
+  key_uncertainties: string[];
+}
+
+/**
+ * Response from /v1/analysis/sequential
+ */
+export interface SequentialAnalysisResponse {
+  schema: 'sequential_analysis.v1';
+  /** ISL sequential analysis result */
+  analysis: IslSequentialAnalysisResponse | null;
+  /** Validation result */
+  validation: {
+    valid: boolean;
+    stage_count: number;
+    issues: Array<{ code: string; message: string; severity: 'error' | 'warning' }>;
+  };
+  /** Source of the response */
+  provenance: 'isl' | 'plot_fallback';
+  /** Model metadata */
+  model_card: {
+    seed: number;
+    nodes: number;
+    edges: number;
+    stages: number;
+    discount_factor: number;
+  };
+  /** Error if ISL call failed */
+  isl_error?: ProxyError;
+}
+
+/**
+ * Request to /v1/analysis/policy-tree
+ */
+export interface PolicyTreeRequest {
+  /** Graph with sequential structure */
+  graph: {
+    nodes: Array<{ id: string; label?: string; kind?: NodeKind; value?: number; stage?: number }>;
+    edges: Array<{ from: string; to: string; weight?: number; belief?: number }>;
+    sequential_metadata?: SequentialMetadata;
+  };
+  /** Optional seed */
+  seed?: number;
+  /** Optional outcome node */
+  outcome_node?: string;
+  /** Maximum tree depth (default: 10) */
+  max_depth?: number;
+}
+
+/**
+ * Policy tree node
+ */
+export interface PolicyTreeNode {
+  /** Unique node identifier */
+  id: string;
+  /** Node type */
+  type: 'decision' | 'chance' | 'outcome';
+  /** Node label */
+  label: string;
+  /** Stage index */
+  stage: number;
+  /** Decision/option to take at this node (for decision nodes) */
+  action?: string;
+  /** Probability of reaching this node (for chance nodes) */
+  probability?: number;
+  /** Expected value at this node */
+  expected_value: number;
+  /** Child node IDs */
+  children: string[];
+}
+
+/**
+ * ISL policy tree response
+ */
+export interface IslPolicyTreeResponse {
+  /** Root node ID */
+  root_id: string;
+  /** All nodes in the tree */
+  nodes: PolicyTreeNode[];
+  /** Total tree depth */
+  depth: number;
+  /** Number of terminal nodes */
+  terminal_count: number;
+  /** Summary of optimal policy */
+  policy_summary: string;
+}
+
+/**
+ * Response from /v1/analysis/policy-tree
+ */
+export interface PolicyTreeResponse {
+  schema: 'policy_tree.v1';
+  /** ISL policy tree result */
+  tree: IslPolicyTreeResponse | null;
+  /** Source of the response */
+  provenance: 'isl' | 'plot_fallback';
+  /** Model metadata */
+  model_card: {
+    seed: number;
+    nodes: number;
+    edges: number;
+    stages: number;
+    max_depth: number;
+  };
+  /** Error if ISL call failed */
+  isl_error?: ProxyError;
+}
+
+// ============================================================================
+// Phase 4: CEE Narrative Types (CEE Proxy)
+// ============================================================================
+
+/**
+ * Request to /v1/recommend/generate
+ */
+export interface GenerateRecommendationRequest {
+  /** Graph context */
+  graph: {
+    nodes: Array<{ id: string; label?: string; kind?: NodeKind; value?: number; stage?: number }>;
+    edges: Array<{ from: string; to: string; weight?: number; belief?: number }>;
+    sequential_metadata?: SequentialMetadata;
+  };
+  /** Analysis results to base recommendation on */
+  analysis_results: {
+    winner?: string;
+    winner_label?: string;
+    winner_p50?: number;
+    margin?: number;
+    ranking_confidence?: 'high' | 'medium' | 'low';
+    alternatives?: Array<{ label: string; p50: number }>;
+  };
+  /** Optional context for the recommendation */
+  context?: {
+    question?: string;
+    domain?: string;
+    user_role?: string;
+  };
+}
+
+/**
+ * CEE generated recommendation
+ */
+export interface CeeGeneratedRecommendation {
+  /** Main recommendation text */
+  recommendation: string;
+  /** Confidence level */
+  confidence: 'high' | 'medium' | 'low';
+  /** Key supporting points */
+  supporting_points: string[];
+  /** Key risks or caveats */
+  risks: string[];
+  /** Suggested next steps */
+  next_steps: string[];
+}
+
+/**
+ * Response from /v1/recommend/generate
+ */
+export interface GenerateRecommendationResponse {
+  schema: 'generate_recommendation.v1';
+  /** CEE generated recommendation */
+  recommendation: CeeGeneratedRecommendation | null;
+  /** Source of the response */
+  provenance: 'cee' | 'plot_fallback';
+  /** Error if CEE call failed */
+  cee_error?: ProxyError;
+}
+
+/**
+ * Request to /v1/narrate/conditions
+ */
+export interface NarrateConditionsRequest {
+  /** Conditions to narrate */
+  conditions: RecommendationCondition[];
+  /** Graph context for node labels */
+  graph: {
+    nodes: Array<{ id: string; label?: string; kind?: NodeKind; value?: number }>;
+    edges: Array<{ from: string; to: string }>;
+  };
+  /** Optional context */
+  context?: {
+    domain?: string;
+    audience?: 'technical' | 'business' | 'general';
+  };
+}
+
+/**
+ * CEE narrated conditions
+ */
+export interface CeeNarratedConditions {
+  /** Human-readable narrative */
+  narrative: string;
+  /** Per-condition explanations */
+  condition_explanations: Array<{
+    condition_index: number;
+    explanation: string;
+  }>;
+  /** Overall interpretation */
+  interpretation: string;
+}
+
+/**
+ * Response from /v1/narrate/conditions
+ */
+export interface NarrateConditionsResponse {
+  schema: 'narrate_conditions.v1';
+  /** CEE narrated conditions */
+  narration: CeeNarratedConditions | null;
+  /** Conditions that were narrated */
+  conditions_count: number;
+  /** Source of the response */
+  provenance: 'cee' | 'plot_fallback';
+  /** Error if CEE call failed */
+  cee_error?: ProxyError;
+}
+
+// ============================================================================
+// Continuous Optimisation Types (ISL Proxy)
+// ============================================================================
+
+/**
+ * Constraint for continuous optimisation
+ */
+export interface OptimiseConstraint {
+  /** Node ID the constraint applies to */
+  node_id: string;
+  /** Constraint type */
+  type: 'min' | 'max' | 'eq' | 'range';
+  /** Value(s) for the constraint */
+  value: number | [number, number];
+  /** Whether this is a hard or soft constraint */
+  hard?: boolean;
+}
+
+/**
+ * Request to /v1/analysis/optimise - Continuous variable optimisation
+ */
+export interface ContinuousOptimiseRequest {
+  /** Node ID to optimise (decision variable) */
+  decision_variable: string;
+  /** Min/max search bounds [min, max] */
+  search_range: [number, number];
+  /** Node ID to maximise/minimise (objective) */
+  objective_node: string;
+  /** Optimisation direction (default: maximise) */
+  objective_direction?: 'maximise' | 'minimise';
+  /** Optional constraints to respect */
+  constraints?: OptimiseConstraint[];
+  /** Decision graph */
+  graph: {
+    nodes: Array<{ id: string; label?: string; kind?: NodeKind; value?: number }>;
+    edges: Array<{ from: string; to: string; weight?: number; belief?: number }>;
+  };
+  /** Search resolution (number of grid points, default: 20) */
+  grid_points?: number;
+  /** Whether to use gradient refinement after grid search */
+  refine?: boolean;
+  /** Confidence interval level (default: 0.95) */
+  confidence_level?: number;
+}
+
+/**
+ * ISL continuous optimisation response
+ */
+export interface IslContinuousOptimiseResponse {
+  /** Best value found for the decision variable */
+  optimal_value: number;
+  /** Objective function value at the optimum */
+  optimal_objective: number;
+  /** Confidence interval for optimal value [lower, upper] */
+  confidence_interval: [number, number];
+  /** Robustness/sensitivity analysis */
+  sensitivity: {
+    /** Gradient at optimum (should be ~0) */
+    gradient_at_optimum: number;
+    /** Second derivative (curvature at optimum) */
+    second_derivative: number;
+    /** Robustness classification */
+    robustness: 'high' | 'medium' | 'low';
+  };
+  /** All evaluated points during search */
+  search_results: Array<{
+    value: number;
+    objective: number;
+  }>;
+  /** Whether all constraints are satisfied */
+  constraints_satisfied: boolean;
+  /** Constraints that are binding at the optimum */
+  active_constraints: string[];
+  /** Warnings or notes about the optimisation */
+  warnings?: string[];
+}
+
+/**
+ * Response from /v1/analysis/optimise
+ */
+export interface ContinuousOptimiseResponse {
+  schema: 'continuous_optimise.v1';
+  /** ISL optimisation result */
+  result: IslContinuousOptimiseResponse | null;
+  /** Source of the response */
+  provenance: 'isl' | 'plot_fallback';
+  /** Model metadata */
+  model_card: {
+    decision_variable: string;
+    objective_node: string;
+    objective_direction: string;
+    search_range: [number, number];
+    grid_points: number;
+    refine: boolean;
+    nodes: number;
+    edges: number;
+  };
+  /** Error if ISL call failed */
+  isl_error?: ProxyError;
+}
+
+/**
+ * Request to /v1/explain/policy
+ */
+export interface ExplainPolicyRequest {
+  /** Policy tree to explain */
+  policy_tree: IslPolicyTreeResponse;
+  /** Graph context */
+  graph: {
+    nodes: Array<{ id: string; label?: string; kind?: NodeKind; value?: number; stage?: number }>;
+    edges: Array<{ from: string; to: string; weight?: number; belief?: number }>;
+    sequential_metadata?: SequentialMetadata;
+  };
+  /** Optional context */
+  context?: {
+    domain?: string;
+    audience?: 'technical' | 'business' | 'general';
+    focus?: 'overview' | 'detailed' | 'risks';
+  };
+}
+
+/**
+ * CEE policy explanation
+ */
+export interface CeePolicyExplanation {
+  /** Executive summary */
+  summary: string;
+  /** Stage-by-stage explanation */
+  stage_explanations: Array<{
+    stage: number;
+    stage_label: string;
+    explanation: string;
+    key_decision: string;
+    rationale: string;
+  }>;
+  /** Key risks in the policy */
+  risks: string[];
+  /** Key assumptions */
+  assumptions: string[];
+  /** Alternative strategies considered */
+  alternatives_considered?: string[];
+}
+
+/**
+ * Response from /v1/explain/policy
+ */
+export interface ExplainPolicyResponse {
+  schema: 'explain_policy.v1';
+  /** CEE policy explanation */
+  explanation: CeePolicyExplanation | null;
   /** Source of the response */
   provenance: 'cee' | 'plot_fallback';
   /** Error if CEE call failed */

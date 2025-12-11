@@ -49,7 +49,7 @@ describe('Inference modes', () => {
     expect(data.meta_reasoning.quality_assessment).toBeDefined();
     expect(data.meta_reasoning.quality_assessment.overall_score).toBeGreaterThanOrEqual(0);
     expect(data.meta_reasoning.quality_assessment.overall_score).toBeLessThanOrEqual(1);
-    expect(['HIGH', 'MEDIUM', 'LOW']).toContain(data.meta_reasoning.quality_assessment.confidence_level);
+    expect(['high', 'medium', 'low']).toContain(data.meta_reasoning.quality_assessment.confidence_level);
     expect(typeof data.meta_reasoning.quality_assessment.identifiable).toBe('boolean');
     expect(typeof data.meta_reasoning.quality_assessment.in_linear_range).toBe('boolean');
     expect(typeof data.meta_reasoning.quality_assessment.graph_quality).toBe('number');

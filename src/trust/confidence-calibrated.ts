@@ -12,7 +12,7 @@ export interface CalibrationInput {
 }
 
 export interface CalibrationResult {
-  level: 'HIGH' | 'MEDIUM' | 'LOW';
+  level: 'high' | 'medium' | 'low';
   score: number;
   factors: {
     calibration: number;
@@ -28,13 +28,13 @@ export function calculateCalibratedConfidence(input: CalibrationInput): Calibrat
   const linearity = input.linearity_distance;
 
   // Determine level by thresholds
-  let level: 'HIGH' | 'MEDIUM' | 'LOW';
+  let level: 'high' | 'medium' | 'low';
   if (calibration >= 0.6 && identifiability >= 0.8 && linearity <= 0.2) {
-    level = 'HIGH';
+    level = 'high';
   } else if (calibration >= 0.3 && identifiability >= 0.5) {
-    level = 'MEDIUM';
+    level = 'medium';
   } else {
-    level = 'LOW';
+    level = 'low';
   }
 
   const factors: CalibrationResult['factors'] = {
@@ -84,9 +84,9 @@ export interface ConfidenceComparison {
  * Level hierarchy for comparison
  */
 const LEVEL_ORDER: Record<string, number> = {
-  LOW: 0,
-  MEDIUM: 1,
-  HIGH: 2,
+  low: 0,
+  medium: 1,
+  high: 2,
 };
 
 /**

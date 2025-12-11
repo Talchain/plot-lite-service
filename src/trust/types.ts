@@ -5,9 +5,16 @@
 
 import type { EvidenceFreshnessSummary } from './evidence-freshness.js';
 
-export type ConfidenceLevel = 'LOW' | 'MEDIUM' | 'HIGH';
+/**
+ * Confidence level classification (lowercase for cross-workstream alignment)
+ * Matches ISL/CEE conventions: high | medium | low
+ */
+export type ConfidenceLevel = 'low' | 'medium' | 'high';
 
-export type ProvenanceConfidenceLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'UNKNOWN';
+/**
+ * Provenance confidence level with unknown fallback
+ */
+export type ProvenanceConfidenceLevel = 'low' | 'medium' | 'high' | 'unknown';
 
 export type DetailLevel = 'quick' | 'standard' | 'deep';
 
@@ -186,12 +193,20 @@ export interface TrustedResponse {
 
 /**
  * Node classification kind - aligned with CEE/ISL workstreams
- * See Platform Architecture Contract v1.3 §4.2
+ * See Platform Architecture Contract v1.4 §4.2
+ *
+ * - goal: Strategic objective being pursued
+ * - decision: Choice point under decision-maker's control
+ * - option: Alternative within a decision
+ * - outcome: Result or consequence node
+ * - risk: Potential negative outcome or hazard
+ * - action: Executable step within an option
+ * - factor: External uncertainty or chance node (not controllable)
  */
-export type NodeKind = 'goal' | 'decision' | 'option' | 'outcome' | 'risk' | 'action';
+export type NodeKind = 'goal' | 'decision' | 'option' | 'outcome' | 'risk' | 'action' | 'factor';
 
 /** All valid node kind values for validation */
-export const VALID_NODE_KINDS: readonly NodeKind[] = ['goal', 'decision', 'option', 'outcome', 'risk', 'action'];
+export const VALID_NODE_KINDS: readonly NodeKind[] = ['goal', 'decision', 'option', 'outcome', 'risk', 'action', 'factor'];
 
 /**
  * Edge type classification for inference semantics
@@ -242,6 +257,16 @@ export interface GraphNode {
   /** @deprecated Use `kind` instead. Maintained for backward compatibility. */
   type?: string;
   value?: number;
+
+  // Sequential/multi-stage support (Phase 4)
+  /** 0-indexed stage number for multi-stage decisions */
+  stage?: number;
+  /** Human-readable stage label (e.g., "Launch Decision", "Pricing Decision") */
+  stage_label?: string;
+  /** ISO 8601 timestamp or relative time when uncertainty resolves */
+  resolves_at?: string;
+  /** ISO 8601 timestamp or relative time when decision must be made */
+  decision_timing?: string;
 }
 
 export interface GraphEdge {
@@ -258,7 +283,38 @@ export interface GraphEdge {
   function_params?: EdgeFunctionParams;
 }
 
+/**
+ * Stage definition for multi-stage/sequential decisions
+ * Describes a single temporal stage in a decision sequence
+ */
+export interface StageDefinition {
+  /** 0-indexed stage number */
+  index: number;
+  /** Human-readable stage name */
+  label: string;
+  /** Optional time horizon description (e.g., "Q1 2025", "+6 months") */
+  time_horizon?: string;
+  /** Node IDs of decisions to be made at this stage */
+  decisions: string[];
+  /** Node IDs of uncertainties that resolve at this stage */
+  resolved_uncertainties: string[];
+}
+
+/**
+ * Sequential metadata for multi-stage decision graphs
+ */
+export interface SequentialMetadata {
+  /** Whether this graph represents a sequential decision problem */
+  is_sequential: boolean;
+  /** Ordered list of stage definitions */
+  stages: StageDefinition[];
+  /** Default discount factor for future outcomes (0-1, default: 1.0) */
+  default_discount_factor?: number;
+}
+
 export interface Graph {
   nodes: GraphNode[];
   edges: GraphEdge[];
+  /** Metadata for sequential/multi-stage decision graphs (Phase 4) */
+  sequential_metadata?: SequentialMetadata;
 }

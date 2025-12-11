@@ -108,7 +108,7 @@ describe('v1 Routes - PLoT Engine v1', () => {
       expect(data.model_card.determinism_note).toContain('Deterministic');
       
       expect(data.confidence).toBeDefined();
-      expect(data.confidence.level).toMatch(/^(LOW|MEDIUM|HIGH)$/);
+      expect(data.confidence.level).toMatch(/^(low|medium|high)$/);
       expect(data.confidence.reason).toBeDefined();
       expect(data.confidence.score).toBeGreaterThanOrEqual(0);
       expect(data.confidence.score).toBeLessThanOrEqual(1);

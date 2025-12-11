@@ -54,6 +54,22 @@ describe('Edge Type Inference', () => {
       expect(inferEdgeType('option', 'goal')).toBe('probabilistic');
       expect(inferEdgeType('risk', 'decision')).toBe('probabilistic');
     });
+
+    it('infers probabilistic for factor -> outcome', () => {
+      expect(inferEdgeType('factor', 'outcome')).toBe('probabilistic');
+    });
+
+    it('infers probabilistic for factor -> any node', () => {
+      expect(inferEdgeType('factor', 'decision')).toBe('probabilistic');
+      expect(inferEdgeType('factor', 'option')).toBe('probabilistic');
+      expect(inferEdgeType('factor', 'risk')).toBe('probabilistic');
+    });
+
+    it('infers probabilistic for any node -> factor', () => {
+      expect(inferEdgeType('decision', 'factor')).toBe('probabilistic');
+      expect(inferEdgeType('option', 'factor')).toBe('probabilistic');
+      expect(inferEdgeType('action', 'factor')).toBe('probabilistic');
+    });
   });
 
   describe('inferEdgeTypes', () => {
@@ -183,6 +199,48 @@ describe('Edge Type Inference', () => {
         edge_type: 'functional',
       });
     });
+
+    it('handles source/target format edges in warnings', () => {
+      const nodes: GraphNode[] = [
+        { id: 'nodeA', label: 'Node A', kind: 'option' },
+        { id: 'nodeB', label: 'Node B', kind: 'outcome' },
+      ];
+      // Edge uses source/target format instead of from/to
+      const edges = [
+        { source: 'nodeA', target: 'nodeB' },
+      ] as unknown as GraphEdge[];
+
+      const result = inferEdgeTypes(nodes, edges);
+
+      // Warnings should show actual node IDs, not undefined
+      expect(result.warnings[0].from).toBe('nodeA');
+      expect(result.warnings[0].to).toBe('nodeB');
+      expect(result.warnings[0].edge_id).toBe('nodeA->nodeB');
+      expect(result.warnings[0].message).toBe(
+        "Edge nodeA->nodeB type inferred as 'probabilistic' from node kinds"
+      );
+      // Should NOT contain undefined
+      expect(result.warnings[0].message).not.toContain('undefined');
+      expect(result.warnings[0].edge_id).not.toContain('undefined');
+    });
+
+    it('falls back to unknown for edges with neither format', () => {
+      const nodes: GraphNode[] = [
+        { id: 'a', label: 'A', kind: 'goal' },
+      ];
+      // Edge has neither from/to nor source/target
+      const edges = [
+        { weight: 0.5 },
+      ] as unknown as GraphEdge[];
+
+      const result = inferEdgeTypes(nodes, edges);
+
+      // Should show 'unknown' instead of undefined
+      expect(result.warnings[0].from).toBe('unknown');
+      expect(result.warnings[0].to).toBe('unknown');
+      expect(result.warnings[0].edge_id).toBe('unknown->unknown');
+      expect(result.warnings[0].message).not.toContain('undefined');
+    });
   });
 
   describe('isTypicalEdgeType', () => {
@@ -217,6 +275,10 @@ describe('Edge Type Inference', () => {
       { from: 'action', to: 'outcome', expected: 'probabilistic' },
       { from: 'action', to: 'risk', expected: 'probabilistic' },
       { from: 'risk', to: 'outcome', expected: 'probabilistic' },
+      // Factor nodes (external uncertainties) - always probabilistic
+      { from: 'factor', to: 'outcome', expected: 'probabilistic' },
+      { from: 'factor', to: 'decision', expected: 'probabilistic' },
+      { from: 'option', to: 'factor', expected: 'probabilistic' },
       // Defaults
       { from: undefined, to: undefined, expected: 'probabilistic' },
       { from: 'outcome', to: 'goal', expected: 'probabilistic' },

@@ -15,10 +15,29 @@
  * | action    | outcome   | probabilistic     |
  * | action    | risk      | probabilistic     |
  * | risk      | outcome   | probabilistic     |
+ * | factor    | outcome   | probabilistic     |
+ * | factor    | *         | probabilistic     |
+ * | *         | factor    | probabilistic     |
  * | (other)   | (other)   | probabilistic     |
  */
 
 import type { NodeKind, EdgeType, GraphNode, GraphEdge } from '../../trust/types.js';
+
+/**
+ * Extract source node ID from edge, handling both from/to and source/target formats.
+ * This ensures warnings display actual node IDs regardless of input format.
+ */
+function getEdgeFrom(edge: GraphEdge): string {
+  return edge.from ?? (edge as any).source ?? 'unknown';
+}
+
+/**
+ * Extract target node ID from edge, handling both from/to and source/target formats.
+ * This ensures warnings display actual node IDs regardless of input format.
+ */
+function getEdgeTo(edge: GraphEdge): string {
+  return edge.to ?? (edge as any).target ?? 'unknown';
+}
 
 /**
  * Warning for an inferred edge type
@@ -82,6 +101,11 @@ export function inferEdgeType(
     return 'probabilistic';
   }
 
+  // Factor nodes: external uncertainties are always probabilistic
+  if (fromKind === 'factor' || toKind === 'factor') {
+    return 'probabilistic';
+  }
+
   // Default: probabilistic (most common for inference)
   return 'probabilistic';
 }
@@ -114,18 +138,22 @@ export function inferEdgeTypes(
       return edge;
     }
 
+    // Get edge endpoints (handles both from/to and source/target formats)
+    const fromId = getEdgeFrom(edge);
+    const toId = getEdgeTo(edge);
+
     // Infer from node kinds
-    const fromNode = nodeMap.get(edge.from);
-    const toNode = nodeMap.get(edge.to);
+    const fromNode = nodeMap.get(fromId);
+    const toNode = nodeMap.get(toId);
     const inferredType = inferEdgeType(fromNode?.kind, toNode?.kind);
 
     inferredCount++;
     warnings.push({
       code: 'EDGE_TYPE_INFERRED',
-      message: `Edge ${edge.from}->${edge.to} type inferred as '${inferredType}' from node kinds`,
-      edge_id: `${edge.from}->${edge.to}`,
-      from: edge.from,
-      to: edge.to,
+      message: `Edge ${fromId}->${toId} type inferred as '${inferredType}' from node kinds`,
+      edge_id: `${fromId}->${toId}`,
+      from: fromId,
+      to: toId,
       inferred_type: inferredType,
       severity: 'info',
     });

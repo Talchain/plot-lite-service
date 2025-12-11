@@ -43,23 +43,23 @@ describe('Meta-Reasoning Quality Metrics', () => {
   });
 
   describe('recordMetaConfidence', () => {
-    it('records HIGH confidence level', () => {
-      recordMetaConfidence('model_of_inference', 'HIGH');
+    it('records high confidence level', () => {
+      recordMetaConfidence('model_of_inference', 'high');
       const output = renderHistograms();
       expect(output).toContain('plot_engine_meta_confidence_total');
-      expect(output).toContain('level="HIGH"');
+      expect(output).toContain('level="high"');
     });
 
-    it('records MEDIUM confidence level', () => {
-      recordMetaConfidence('model_of_inference', 'MEDIUM');
+    it('records medium confidence level', () => {
+      recordMetaConfidence('model_of_inference', 'medium');
       const output = renderHistograms();
-      expect(output).toContain('level="MEDIUM"');
+      expect(output).toContain('level="medium"');
     });
 
-    it('records LOW confidence level', () => {
-      recordMetaConfidence('model_of_inference', 'LOW');
+    it('records low confidence level', () => {
+      recordMetaConfidence('model_of_inference', 'low');
       const output = renderHistograms();
-      expect(output).toContain('level="LOW"');
+      expect(output).toContain('level="low"');
     });
   });
 
@@ -109,7 +109,7 @@ describe('Meta-Reasoning Quality Metrics', () => {
     it('records all metrics from quality and reliability objects', () => {
       recordMetaReasoningMetrics(
         'model_of_inference',
-        { overall_score: 0.75, confidence_level: 'MEDIUM' },
+        { overall_score: 0.75, confidence_level: 'medium' },
         { estimate_stability: 'moderate', convergence_status: 'converged' }
       );
 
@@ -123,19 +123,19 @@ describe('Meta-Reasoning Quality Metrics', () => {
     it('records multiple invocations cumulatively', () => {
       recordMetaReasoningMetrics(
         'model_of_inference',
-        { overall_score: 0.9, confidence_level: 'HIGH' },
+        { overall_score: 0.9, confidence_level: 'high' },
         { estimate_stability: 'stable', convergence_status: 'converged' }
       );
       recordMetaReasoningMetrics(
         'model_of_inference',
-        { overall_score: 0.5, confidence_level: 'LOW' },
+        { overall_score: 0.5, confidence_level: 'low' },
         { estimate_stability: 'volatile', convergence_status: 'not_converged' }
       );
 
       const output = renderHistograms();
-      // Should have recorded both HIGH and LOW
-      expect(output).toContain('level="HIGH"');
-      expect(output).toContain('level="LOW"');
+      // Should have recorded both high and low
+      expect(output).toContain('level="high"');
+      expect(output).toContain('level="low"');
     });
   });
 
@@ -143,7 +143,7 @@ describe('Meta-Reasoning Quality Metrics', () => {
     it('clears all meta-reasoning metrics', () => {
       recordMetaReasoningMetrics(
         'model_of_inference',
-        { overall_score: 0.85, confidence_level: 'HIGH' },
+        { overall_score: 0.85, confidence_level: 'high' },
         { estimate_stability: 'stable', convergence_status: 'converged' }
       );
 
@@ -152,7 +152,7 @@ describe('Meta-Reasoning Quality Metrics', () => {
 
       // After reset, counters should show zero (empty) state
       // Histogram lines with data should not appear
-      expect(output).not.toContain('level="HIGH"');
+      expect(output).not.toContain('level="high"');
     });
   });
 });

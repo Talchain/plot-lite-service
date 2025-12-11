@@ -26,7 +26,7 @@ describe('Confidence calibration with deterministic thresholds', () => {
         k_samples: 1000,
       });
 
-      expect(result.level).toBe('HIGH');
+      expect(result.level).toBe('high');
       expect(result.factors.calibration).toBe(0.65);      // mask_diversity mapped to calibration
       expect(result.factors.identifiability).toBe(0.85);  // path_stability mapped to identifiability
       expect(result.factors.linearity_distance).toBe(0.15);
@@ -40,7 +40,7 @@ describe('Confidence calibration with deterministic thresholds', () => {
         linearity_distance: 0.2,   // exactly 0.2
       });
 
-      expect(result.level).toBe('HIGH');
+      expect(result.level).toBe('high');
     });
 
     it('produces stable factors across multiple calls', () => {
@@ -61,7 +61,7 @@ describe('Confidence calibration with deterministic thresholds', () => {
       const identifiabilities = results.map(r => r.factors.identifiability);
 
       expect(new Set(levels).size).toBe(1);
-      expect(levels[0]).toBe('HIGH');
+      expect(levels[0]).toBe('high');
       expect(new Set(calibrations).size).toBe(1);
       expect(new Set(identifiabilities).size).toBe(1);
     });
@@ -76,7 +76,7 @@ describe('Confidence calibration with deterministic thresholds', () => {
         linearity_distance: 0.35,  // > 0.2 (fails HIGH)
       });
 
-      expect(result.level).toBe('MEDIUM');
+      expect(result.level).toBe('medium');
       expect(result.factors.calibration).toBe(0.45);
       expect(result.factors.identifiability).toBe(0.65);
     });
@@ -89,7 +89,7 @@ describe('Confidence calibration with deterministic thresholds', () => {
         linearity_distance: 0.5,
       });
 
-      expect(result.level).toBe('MEDIUM');
+      expect(result.level).toBe('medium');
     });
 
     it('assigns MEDIUM when one HIGH threshold fails', () => {
@@ -101,7 +101,7 @@ describe('Confidence calibration with deterministic thresholds', () => {
         linearity_distance: 0.5,   // > 0.2 ✗ (fails HIGH)
       });
 
-      expect(result.level).toBe('MEDIUM');
+      expect(result.level).toBe('medium');
     });
 
     it('produces stable factors across multiple calls', () => {
@@ -118,7 +118,7 @@ describe('Confidence calibration with deterministic thresholds', () => {
 
       const levels = results.map(r => r.level);
       expect(new Set(levels).size).toBe(1);
-      expect(levels[0]).toBe('MEDIUM');
+      expect(levels[0]).toBe('medium');
     });
   });
 
@@ -131,7 +131,7 @@ describe('Confidence calibration with deterministic thresholds', () => {
         linearity_distance: 0.6,
       });
 
-      expect(result.level).toBe('LOW');
+      expect(result.level).toBe('low');
       expect(result.factors.calibration).toBe(0.2);
       expect(result.factors.identifiability).toBe(0.4);
     });
@@ -144,7 +144,7 @@ describe('Confidence calibration with deterministic thresholds', () => {
         linearity_distance: 0.1,
       });
 
-      expect(result.level).toBe('LOW');
+      expect(result.level).toBe('low');
     });
 
     it('assigns LOW when stability too low', () => {
@@ -155,7 +155,7 @@ describe('Confidence calibration with deterministic thresholds', () => {
         linearity_distance: 0.1,
       });
 
-      expect(result.level).toBe('LOW');
+      expect(result.level).toBe('low');
     });
 
     it('produces stable factors across multiple calls', () => {
@@ -172,7 +172,7 @@ describe('Confidence calibration with deterministic thresholds', () => {
 
       const levels = results.map(r => r.level);
       expect(new Set(levels).size).toBe(1);
-      expect(levels[0]).toBe('LOW');
+      expect(levels[0]).toBe('low');
     });
   });
 
@@ -226,7 +226,7 @@ describe('Confidence calibration with deterministic thresholds', () => {
         linearity_distance: 0.3,
       });
 
-      expect(['HIGH', 'MEDIUM', 'LOW']).toContain(result.level);
+      expect(['high', 'medium', 'low']).toContain(result.level);
     });
   });
 

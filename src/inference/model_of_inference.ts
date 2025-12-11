@@ -23,7 +23,7 @@ export interface MetaReasoningResult extends InferenceResult {
   meta_reasoning: {
     quality_assessment: {
       overall_score: number; // 0-1
-      confidence_level: 'HIGH' | 'MEDIUM' | 'LOW';
+      confidence_level: 'high' | 'medium' | 'low';
       identifiable: boolean;
       in_linear_range: boolean;
       graph_quality: number;

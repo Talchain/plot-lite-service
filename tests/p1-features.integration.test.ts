@@ -316,7 +316,7 @@ describe('P1 Features Integration', () => {
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.payload);
 
-      expect(['HIGH', 'MEDIUM', 'LOW']).toContain(body.confidence.level);
+      expect(['high', 'medium', 'low']).toContain(body.confidence.level);
       expect(typeof body.confidence.score).toBe('number');
       expect(body.confidence.score).toBeGreaterThanOrEqual(0);
       expect(body.confidence.score).toBeLessThanOrEqual(1);

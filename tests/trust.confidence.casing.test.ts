@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { calculateConfidence } from '../src/trust/confidence.js';
 
 describe('Confidence Level Casing Invariant', () => {
-  it('emits UPPERCASE confidence.level only', () => {
+  it('emits lowercase confidence.level only', () => {
     // Deterministic, seeded inputs
     const out = calculateConfidence({
       graph: {
@@ -18,15 +18,15 @@ describe('Confidence Level Casing Invariant', () => {
       calibrated: false,
     });
 
-    // Must be one of UPPERCASE values
-    expect(['HIGH', 'MEDIUM', 'LOW']).toContain(out.level);
-    
-    // Must be equal to its uppercase version (i.e., already uppercase)
-    expect(out.level).toBe(out.level.toUpperCase());
+    // Must be one of lowercase values
+    expect(['high', 'medium', 'low']).toContain(out.level);
+
+    // Must be equal to its lowercase version (i.e., already lowercase)
+    expect(out.level).toBe(out.level.toLowerCase());
   });
 
   it('covers all confidence levels with varied inputs', () => {
-    // Test HIGH confidence
+    // Test high confidence
     const high = calculateConfidence({
       graph: {
         nodes: Array.from({ length: 5 }, (_, i) => ({ id: `node${i}`, type: 'decision' })),
@@ -37,10 +37,10 @@ describe('Confidence Level Casing Invariant', () => {
       k_samples: 5000,
       calibrated: true,
     });
-    expect(high.level).toBe('HIGH');
-    expect(high.level).toBe(high.level.toUpperCase());
+    expect(high.level).toBe('high');
+    expect(high.level).toBe(high.level.toLowerCase());
 
-    // Test MEDIUM confidence
+    // Test medium confidence
     const medium = calculateConfidence({
       graph: {
         nodes: [{ id: 'a', type: 'decision' }, { id: 'b', type: 'outcome' }],
@@ -51,10 +51,10 @@ describe('Confidence Level Casing Invariant', () => {
       k_samples: 1000,
       calibrated: false,
     });
-    expect(['HIGH', 'MEDIUM']).toContain(medium.level);
-    expect(medium.level).toBe(medium.level.toUpperCase());
+    expect(['high', 'medium']).toContain(medium.level);
+    expect(medium.level).toBe(medium.level.toLowerCase());
 
-    // Test LOW confidence
+    // Test low confidence
     const low = calculateConfidence({
       graph: {
         nodes: [{ id: 'x', type: 'decision' }],
@@ -65,7 +65,7 @@ describe('Confidence Level Casing Invariant', () => {
       k_samples: 100,
       calibrated: false,
     });
-    expect(low.level).toBe('LOW');
-    expect(low.level).toBe(low.level.toUpperCase());
+    expect(low.level).toBe('low');
+    expect(low.level).toBe(low.level.toLowerCase());
   });
 });
