@@ -1,7 +1,11 @@
 /**
  * Model-Based Inference Engine
- * 
+ *
  * Standard probabilistic inference using SCM-Lite or fallback simulation.
+ *
+ * Supports Pearl's do-operator for intervention semantics:
+ * - interventional mode (default): P(Y | do(X)) - cutting incoming edges
+ * - observational mode: P(Y | X) - conditioning on observed values
  */
 
 import type { Graph } from '../trust/types.js';
@@ -14,7 +18,17 @@ export class ModelBasedInference implements InferenceEngine {
   name = 'model_based';
 
   run(graph: Graph, config: InferenceConfig): InferenceResult {
-    const { seed, k_samples, outcome_node, baseline_value, priors, adaptiveK, convergenceThreshold } = config;
+    const {
+      seed,
+      k_samples,
+      outcome_node,
+      baseline_value,
+      priors,
+      adaptiveK,
+      convergenceThreshold,
+      interventions,
+      mode,
+    } = config;
 
     // Apply priors to graph if provided
     const workingGraph = priors ? applyPriorsToGraph(graph, priors, seed) : graph;
@@ -30,6 +44,9 @@ export class ModelBasedInference implements InferenceEngine {
         // Adaptive K early-stopping
         adaptiveK,
         convergenceThreshold,
+        // Intervention semantics (do-operator)
+        interventions,
+        mode,
       };
 
       const scmResult = runSCMLite(workingGraph, outcome_node, scmConfig);
@@ -45,6 +62,9 @@ export class ModelBasedInference implements InferenceEngine {
           K_evaluated: scmResult.meta.K_evaluated,
           K_requested: scmResult.meta.K_requested,
           K_converged: scmResult.meta.K_converged,
+          // Intervention semantics
+          inference_mode: scmResult.meta.inference_mode,
+          intervention_count: scmResult.meta.intervention_count,
         },
       };
     }

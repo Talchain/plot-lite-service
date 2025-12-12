@@ -78,7 +78,8 @@ export interface UtilitySuggestion {
 export type ResponseWarningCode =
   | 'EDGE_TYPE_INFERRED'
   | 'PRIMARY_OUTCOME_INFERRED'
-  | 'BELIEF_DEFAULTED';
+  | 'BELIEF_DEFAULTED'
+  | 'UTILITY_MODE_EXPERIMENTAL';
 
 /**
  * Warning about inferred or defaulted values in the request

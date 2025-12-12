@@ -312,6 +312,7 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
     const rankingMode: RankingMode = body.ranking_mode ?? 'simple';
     let primaryOutcomeDetected = false;
     let detectedOutcomeNodes: string[] = [];
+    let utilityModeExperimental = false;
 
     // Validate utility function if utility mode requested
     if (rankingMode === 'utility') {
@@ -334,6 +335,10 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
           fields: { field: firstError?.field ?? 'utility_function' },
         });
       }
+
+      // P0: Mark utility mode as experimental - ranking currently falls back to sort_by
+      // Full utility-based ranking (weighted multi-outcome aggregation) is not yet implemented
+      utilityModeExperimental = true;
     }
 
     // Determine outcome node with enhanced detection
@@ -675,6 +680,16 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
 
     // Phase 2: Build response warnings from edge type inference
     const responseWarnings: ResponseWarning[] = [];
+
+    // P0: Add experimental utility mode warning
+    if (utilityModeExperimental) {
+      responseWarnings.push({
+        code: 'UTILITY_MODE_EXPERIMENTAL',
+        message: 'ranking_mode="utility" is experimental; ranking uses sort_by fallback (weighted multi-outcome aggregation not yet implemented)',
+        severity: 'warning',
+      });
+    }
+
     if (edgeTypeInferredCount > 0) {
       responseWarnings.push({
         code: 'EDGE_TYPE_INFERRED',

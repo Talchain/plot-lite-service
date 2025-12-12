@@ -159,6 +159,8 @@ export async function registerV1Routes(app: FastifyInstance) {
   await registerNarrateConditionsRoute(app);
   await registerExplainPolicyRoute(app);
   await registerAnalysisOptimiseRoute(app);
+  // Brief 8: Sampling Engine & Caching (ISL robustness analysis)
+  await registerSimulateBatchRoute(app);
   await registerAuditTestRoute(app);
   await registerGovernanceRoute(app);  
   // P1: Register enhanced stream route if enabled, otherwise use legacy
@@ -308,3 +310,5 @@ import { registerGenerateRecommendationRoute } from './recommend-generate.js';
 import { registerNarrateConditionsRoute } from './narrate-conditions.js';
 import { registerExplainPolicyRoute } from './explain-policy.js';
 import { registerAnalysisOptimiseRoute } from './analysis-optimise.js';
+// Brief 8: Sampling Engine & Caching
+import { registerSimulateBatchRoute } from './simulate-batch.js';

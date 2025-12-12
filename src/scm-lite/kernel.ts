@@ -1,22 +1,45 @@
 /**
  * SCM-Lite Kernel
  * Deterministic structural causal approximation with edge masking
+ *
+ * Supports Pearl's do-operator for intervention semantics:
+ * - Interventional mode (default): P(Y | do(X)) - cuts incoming edges to intervention targets
+ * - Observational mode: P(Y | X) - conditions on observed values
+ *
+ * When evaluating options/decisions, use interventional semantics to model
+ * "what happens when we actively choose this option" rather than
+ * "what we learn when we observe this option was chosen".
+ *
+ * EdgeV2 Dual Beliefs Support:
+ * - belief_exists: Edge inclusion probability (Bernoulli)
+ * - belief_strength: Weight variance (higher = tighter distribution around weight)
  */
 import { createHash } from 'node:crypto';
-import type { DAG, KernelConfig, KernelResult } from './types.js';
+import type { DAG, KernelConfig, KernelResult, Intervention, Edge } from './types.js';
 import { XorShift128Plus } from './rng.js';
 import { applyEdgeFunction } from '../engine/edge-functions.js';
+import { FLAGS } from '../config/flags.js';
+
+/** Default values for EdgeV2 dual beliefs */
+const EDGE_V2_DEFAULTS = {
+  BELIEF_EXISTS: 1.0,
+  BELIEF_STRENGTH: 0.8,
+  WEIGHT_VARIANCE_SCALE: 0.5,
+};
 
 const DEFAULT_CONFIG: Partial<KernelConfig> = {
   K: 256,
   maxNodes: 50,
   maxEdges: 200,
   beliefDefault: 0.7,
+  beliefStrengthDefault: 0.8, // Default belief_strength for EdgeV2
   // Adaptive K defaults
   adaptiveK: false,
   convergenceThreshold: 0.01, // 1% default
   kStep: 8,
   kMin: 16,
+  // Intervention defaults
+  mode: 'interventional', // Default to do-operator semantics for option evaluation
 };
 
 export function runKernel(dag: DAG, target: string, config: Partial<KernelConfig>): KernelResult {
@@ -47,6 +70,15 @@ export function runKernel(dag: DAG, target: string, config: Partial<KernelConfig
   // Topological order
   const topoOrder = topologicalSort(dag, nodeIds);
   
+  // Build intervention map for do-operator semantics
+  // Only apply in interventional mode (default)
+  const interventionMap = new Map<string, number>();
+  if (cfg.mode !== 'observational' && cfg.interventions) {
+    for (const iv of cfg.interventions) {
+      interventionMap.set(iv.node_id, iv.value);
+    }
+  }
+
   // Sample K edge masks with optional adaptive early-stopping
   const rng = new XorShift128Plus(cfg.seed);
   const samples: number[] = [];
@@ -60,8 +92,8 @@ export function runKernel(dag: DAG, target: string, config: Partial<KernelConfig
   let prevP50Int: number | null = null;
 
   for (let k = 0; k < cfg.K; k++) {
-    const mask = sampleEdgeMask(dag, rng, cfg.beliefDefault);
-    const value = forwardPass(dag, mask, topoOrder, target);
+    const { mask, sampledWeights } = sampleEdgeMask(dag, rng, cfg);
+    const value = forwardPass(dag, mask, sampledWeights, topoOrder, target, interventionMap);
     samples.push(value);
     graphHashes.add(hashMask(mask));
 
@@ -119,6 +151,12 @@ export function runKernel(dag: DAG, target: string, config: Partial<KernelConfig
   if (cfg.adaptiveK) {
     meta.K_requested = K_requested;
     meta.K_converged = K_converged;
+  }
+
+  // Include intervention semantics in meta
+  if (cfg.interventions && cfg.interventions.length > 0) {
+    meta.inference_mode = cfg.mode ?? 'interventional';
+    meta.intervention_count = interventionMap.size;
   }
 
   return {
@@ -193,27 +231,159 @@ function topologicalSort(dag: DAG, nodeIds: string[]): string[] {
   return result;
 }
 
-function sampleEdgeMask(dag: DAG, rng: XorShift128Plus, defaultBelief: number): Set<string> {
-  const mask = new Set<string>();
-  for (const edge of dag.edges) {
-    const belief = edge.belief ?? defaultBelief;
-    if (rng.next() < belief) {
-      mask.add(`${edge.from}->${edge.to}`);
-    }
+/**
+ * Get effective belief_exists value for an edge.
+ * Supports both EdgeV1 (single belief) and EdgeV2 (dual beliefs).
+ */
+function getBeliefExists(edge: Edge, defaultBelief: number): number {
+  // EdgeV2: use belief_exists directly
+  if (edge.belief_exists !== undefined) {
+    return Math.max(0, Math.min(1, edge.belief_exists));
   }
-  return mask;
+  // EdgeV1: use legacy belief field
+  if (edge.belief !== undefined) {
+    return Math.max(0, Math.min(1, edge.belief));
+  }
+  // Default
+  return defaultBelief;
 }
 
-function forwardPass(dag: DAG, mask: Set<string>, topoOrder: string[], target: string): number {
+/**
+ * Get effective belief_strength value for an edge.
+ * Supports both EdgeV1 (single belief) and EdgeV2 (dual beliefs).
+ */
+function getBeliefStrength(edge: Edge, defaultBeliefStrength: number): number {
+  // EdgeV2: use belief_strength directly
+  if (edge.belief_strength !== undefined) {
+    return Math.max(0, Math.min(1, edge.belief_strength));
+  }
+  // EdgeV1: use legacy belief field as strength proxy
+  if (edge.belief !== undefined) {
+    return Math.max(0, Math.min(1, edge.belief));
+  }
+  // Default
+  return defaultBeliefStrength;
+}
+
+/**
+ * Sample weight with variance based on belief_strength.
+ *
+ * When belief_strength is high (close to 1), weight is returned as-is.
+ * When belief_strength is low, weight varies around its center.
+ *
+ * @param baseWeight - The base weight value
+ * @param beliefStrength - Confidence in weight precision (0-1)
+ * @param random - Random value [0, 1) for sampling
+ * @returns Sampled weight value
+ */
+function sampleWeightWithVariance(
+  baseWeight: number,
+  beliefStrength: number,
+  random: number
+): number {
+  const variance = EDGE_V2_DEFAULTS.WEIGHT_VARIANCE_SCALE * (1 - beliefStrength);
+
+  if (variance <= 0) {
+    return baseWeight;
+  }
+
+  // Simple symmetric adjustment using uniform random
+  const adjustment = (random - 0.5) * 2 * Math.sqrt(variance * 3);
+  return baseWeight + adjustment * Math.abs(baseWeight || 1);
+}
+
+/**
+ * Sample edge mask and weights for a single Monte Carlo iteration.
+ *
+ * EdgeV1 behaviour (legacy): Uses single belief for edge inclusion
+ * EdgeV2 behaviour (dual beliefs): Uses belief_exists for inclusion, belief_strength for weight variance
+ *
+ * @param dag - The DAG
+ * @param rng - Random number generator
+ * @param cfg - Kernel configuration
+ * @returns Object with mask (active edges) and sampledWeights (edge→weight)
+ */
+function sampleEdgeMask(
+  dag: DAG,
+  rng: XorShift128Plus,
+  cfg: KernelConfig
+): { mask: Set<string>; sampledWeights: Map<string, number> } {
+  const mask = new Set<string>();
+  const sampledWeights = new Map<string, number>();
+  const useDualBeliefs = FLAGS.ENABLE_DUAL_BELIEFS;
+
+  for (const edge of dag.edges) {
+    const edgeKey = `${edge.from}->${edge.to}`;
+    const beliefExists = getBeliefExists(edge, cfg.beliefDefault);
+
+    // Step 1: Edge inclusion (Bernoulli with probability belief_exists)
+    if (rng.next() < beliefExists) {
+      mask.add(edgeKey);
+
+      // Step 2: Weight sampling (only when dual beliefs enabled)
+      if (useDualBeliefs) {
+        const baseWeight = edge.weight ?? 1.0;
+        const beliefStrength = getBeliefStrength(edge, cfg.beliefStrengthDefault ?? EDGE_V2_DEFAULTS.BELIEF_STRENGTH);
+        const weightRandom = rng.next();
+        const sampledWeight = sampleWeightWithVariance(baseWeight, beliefStrength, weightRandom);
+        sampledWeights.set(edgeKey, sampledWeight);
+      } else {
+        // EdgeV1: use base weight directly
+        sampledWeights.set(edgeKey, edge.weight ?? 1.0);
+      }
+    }
+  }
+
+  return { mask, sampledWeights };
+}
+
+/**
+ * Forward pass through the DAG with intervention support
+ *
+ * When a node is in the interventionMap:
+ * - Its value is set directly to the intervention value
+ * - All incoming edges are ignored (do-operator cuts parent influences)
+ * - Downstream effects propagate normally
+ *
+ * This implements Pearl's do(X=x) semantics:
+ * Original: X = f(Parents(X), U_x)
+ * Intervention: X = x (constant, parents ignored)
+ *
+ * @param dag - The directed acyclic graph
+ * @param mask - Set of active edges for this sample
+ * @param sampledWeights - Map of edge key to sampled weight (from dual beliefs)
+ * @param topoOrder - Nodes in topological order
+ * @param target - Target node to compute value for
+ * @param interventionMap - Map of node_id → intervention value (optional)
+ * @returns Computed value of target node
+ */
+function forwardPass(
+  dag: DAG,
+  mask: Set<string>,
+  sampledWeights: Map<string, number>,
+  topoOrder: string[],
+  target: string,
+  interventionMap?: Map<string, number>
+): number {
   const values = new Map<string, number>();
   for (const id of topoOrder) values.set(id, 0);
 
   for (const node of topoOrder) {
+    // Check if this node is intervened upon (do-operator)
+    // Intervention cuts all incoming edges and sets value directly
+    if (interventionMap?.has(node)) {
+      values.set(node, interventionMap.get(node)!);
+      continue; // Skip natural evaluation - this is the key do-operator behavior
+    }
+
+    // Natural evaluation: compute from parents
     const incoming = dag.edges.filter(e => e.to === node && mask.has(`${e.from}->${e.to}`));
     let sum = 0;
     for (const edge of incoming) {
+      const edgeKey = `${edge.from}->${edge.to}`;
       const parentValue = values.get(edge.from) || 0;
-      const weight = edge.weight ?? 1.0;
+      // Use sampled weight from dual beliefs (already accounts for belief_strength variance)
+      const weight = sampledWeights.get(edgeKey) ?? edge.weight ?? 1.0;
       // Apply non-linear edge function if specified
       const transformedValue = applyEdgeFunction(parentValue, edge);
       sum += transformedValue * weight;

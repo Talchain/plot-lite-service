@@ -220,13 +220,22 @@ export type EdgeType = 'functional' | 'structural' | 'probabilistic';
 export const VALID_EDGE_TYPES: readonly EdgeType[] = ['functional', 'structural', 'probabilistic'];
 
 /**
- * Edge function type for non-linear relationships
+ * Edge function type for non-linear relationships (FunctionalForm)
+ *
+ * EdgeV1 types:
  * - linear: y = x (default)
  * - diminishing_returns: y = 1 - e^(-k*x) — saturates at high input values
  * - threshold: y = 0 if x < t, else slope * (x - t) — step with optional slope
  * - s_curve: y = 1 / (1 + e^(-k*(x - m))) — logistic/sigmoid transition
+ *
+ * EdgeV2 additions (flag-gated):
+ * - noisy_or: P(Y=1) = 1 - ∏(1 - w_i * X_i) — for binary nodes with multiple binary parents
+ * - logistic: P(Y=1) = 1 / (1 + e^(-k*(X - threshold))) — continuous→binary transitions
  */
-export type EdgeFunctionType = 'linear' | 'diminishing_returns' | 'threshold' | 's_curve';
+export type EdgeFunctionType = 'linear' | 'diminishing_returns' | 'threshold' | 's_curve' | 'noisy_or' | 'logistic';
+
+/** Alias for EdgeFunctionType - used in EdgeV2 schema */
+export type FunctionalForm = EdgeFunctionType;
 
 /** All valid edge function type values for validation */
 export const VALID_EDGE_FUNCTION_TYPES: readonly EdgeFunctionType[] = [
@@ -234,20 +243,82 @@ export const VALID_EDGE_FUNCTION_TYPES: readonly EdgeFunctionType[] = [
   'diminishing_returns',
   'threshold',
   's_curve',
+  'noisy_or',
+  'logistic',
 ];
 
 /**
  * Parameters for non-linear edge functions
  */
 export interface EdgeFunctionParams {
-  /** Rate parameter for diminishing_returns and s_curve (must be > 0) */
+  /** Rate parameter for diminishing_returns, s_curve, and logistic (must be > 0) */
   k?: number;
-  /** Threshold value for threshold function */
+  /** Threshold value for threshold and logistic functions */
   threshold?: number;
   /** S-curve midpoint value */
   midpoint?: number;
   /** Post-threshold slope for threshold function (default: 1) */
   slope?: number;
+}
+
+/**
+ * Provenance tag for edge source attribution
+ * Used in EdgeV2 to track origin of edges
+ */
+export type ProvenanceTag =
+  | 'template'      // From graph template
+  | 'user'          // User-created
+  | 'cee'           // CEE-suggested
+  | 'isl'           // ISL-inferred
+  | 'assumption'    // Assumed relationship
+  | 'expert'        // Domain expert input
+  | 'data'          // Data-derived
+  | string;         // Custom provenance
+
+/**
+ * Edge schema version for migration tracking
+ * - v1: Legacy single belief (EdgeV1)
+ * - v2: Dual beliefs (EdgeV2) with belief_exists + belief_strength
+ */
+export type EdgeSchemaVersion = 'v1' | 'v2';
+
+/**
+ * EdgeV2 Schema - Enhanced edge with dual beliefs and functional forms
+ *
+ * Key differences from EdgeV1:
+ * - belief_exists: Confidence that the edge exists at all (0-1)
+ * - belief_strength: Confidence in weight precision (0-1)
+ * - functional_form: How effect propagates (defaults to 'linear')
+ * - provenance: Origin of this edge
+ *
+ * Sampling behaviour:
+ * 1. Edge inclusion: Include with probability belief_exists (Bernoulli)
+ * 2. Weight variation: If included, sample weight from distribution centered
+ *    on weight with variance inversely proportional to belief_strength
+ */
+export interface EdgeV2 {
+  /** Unique edge identifier (optional, generated if not provided) */
+  id?: string;
+  /** Source node ID */
+  source: string;
+  /** Target node ID */
+  target: string;
+  /** Causal strength coefficient (current: [-1,1], future: [-3,3]) */
+  weight: number;
+  /** Confidence that this edge exists at all (0-1) */
+  belief_exists: number;
+  /** Confidence in weight precision (0-1) */
+  belief_strength: number;
+  /** How effect propagates through this edge */
+  functional_form: FunctionalForm;
+  /** Origin of this edge for attribution */
+  provenance: ProvenanceTag;
+  /** Optional label for display */
+  label?: string;
+  /** Edge type classification */
+  edge_type?: EdgeType;
+  /** Parameters for non-linear edge functions */
+  function_params?: EdgeFunctionParams;
 }
 
 export interface GraphNode {
@@ -269,23 +340,62 @@ export interface GraphNode {
   decision_timing?: string;
 }
 
+/**
+ * GraphEdge - Unified edge interface supporting both EdgeV1 and EdgeV2 schemas
+ *
+ * EdgeV1 (legacy): Uses single 'belief' field
+ * EdgeV2 (dual beliefs): Uses 'belief_exists' + 'belief_strength'
+ *
+ * Migration: When EdgeV2 fields are absent, they are derived from EdgeV1:
+ * - belief_exists = belief (or 1.0 if missing)
+ * - belief_strength = belief (or 0.8 if missing)
+ * - functional_form = function_type (or 'linear' if missing)
+ */
 export interface GraphEdge {
+  /** Unique edge identifier (optional) */
+  id?: string;
+  /** Source node ID (EdgeV1 naming) */
   from: string;
+  /** Target node ID (EdgeV1 naming) */
   to: string;
+  /** Optional label for display */
   label?: string;
+  /** Causal strength coefficient */
   weight?: number;
-  belief?: number;      // 0-1, probability edge exists
-  provenance?: string;  // Source attribution, max 100 chars
-  edge_type?: EdgeType; // Inferred from node kinds if not specified
-  /** Non-linear function type for edge relationship (default: linear) */
+
+  // EdgeV1 fields (legacy, maintained for backward compatibility)
+  /** @deprecated Use belief_exists instead. Edge existence probability (0-1) */
+  belief?: number;
+  /** Source attribution, max 100 chars */
+  provenance?: string;
+  /** Edge type classification */
+  edge_type?: EdgeType;
+  /** @deprecated Use functional_form instead. Non-linear function type */
   function_type?: EdgeFunctionType;
   /** Parameters for non-linear edge functions */
   function_params?: EdgeFunctionParams;
+
+  // EdgeV2 fields (dual beliefs)
+  /** Confidence that this edge exists at all (0-1). EdgeV2 schema. */
+  belief_exists?: number;
+  /** Confidence in weight precision (0-1). EdgeV2 schema. */
+  belief_strength?: number;
+  /** How effect propagates through this edge. EdgeV2 schema. */
+  functional_form?: FunctionalForm;
 }
 
 /**
  * Stage definition for multi-stage/sequential decisions
  * Describes a single temporal stage in a decision sequence
+ *
+ * P1: Scope and Usage
+ * - Each stage represents a distinct time point in a multi-stage decision
+ * - Nodes assigned to a stage via stage/stage_label fields must have decisions[] or resolved_uncertainties[]
+ * - Stages must be ordered (index 0 = earliest, index n-1 = final)
+ * - All decisions in a stage must be made before moving to the next stage
+ * - Uncertainties resolve after their stage's decisions are made
+ *
+ * Example timeline: Launch Decision (stage 0) → Market Response (stage 1) → Scale Decision (stage 2)
  */
 export interface StageDefinition {
   /** 0-indexed stage number */
@@ -301,7 +411,23 @@ export interface StageDefinition {
 }
 
 /**
- * Sequential metadata for multi-stage decision graphs
+ * Sequential metadata for multi-stage decision graphs (Phase 4)
+ *
+ * P1: Scope and Contract
+ * - When is_sequential=true, the graph represents a temporal decision problem
+ * - stages[] must be non-empty and ordered by index
+ * - All stage-assigned nodes must exist in the graph
+ * - Discount factor applies to outcomes at later stages (default 1.0 = no discounting)
+ *
+ * Inference behaviour:
+ * - Stage 0 decisions are evaluated first (current state)
+ * - Later stages are conditional on earlier decisions
+ * - Expected value calculations use default_discount_factor^stage for future outcomes
+ *
+ * Validation:
+ * - Missing stage definitions → falls back to single-stage (non-sequential) inference
+ * - Invalid stage indices → warning logged, treated as non-sequential
+ * - Empty stages[] with is_sequential=true → validation error
  */
 export interface SequentialMetadata {
   /** Whether this graph represents a sequential decision problem */
@@ -350,6 +476,8 @@ export interface Graph {
   sequential_metadata?: SequentialMetadata;
   /** Weight schema version for edge weight interpretation (Phase 2, Task 2.1) */
   weight_schema_version?: WeightSchemaVersion;
+  /** Edge schema version for dual beliefs (Phase 1, EdgeV2) */
+  edge_schema_version?: EdgeSchemaVersion;
   /** Correlation groups for jointly sampling factor nodes (Phase 3, ISL integration) */
   correlation_groups?: CorrelationGroup[];
 }

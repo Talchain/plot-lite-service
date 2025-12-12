@@ -242,7 +242,7 @@ describe('POST /v1/run_bundle - Contract Tests', () => {
       // warnings array should exist if inference happened
       if (body.warnings && body.warnings.length > 0) {
         for (const warning of body.warnings) {
-          expect(warning.code).toMatch(/^(EDGE_TYPE_INFERRED|PRIMARY_OUTCOME_INFERRED|BELIEF_DEFAULTED)$/);
+          expect(warning.code).toMatch(/^(EDGE_TYPE_INFERRED|PRIMARY_OUTCOME_INFERRED|BELIEF_DEFAULTED|UTILITY_MODE_EXPERIMENTAL)$/);
           expect(typeof warning.message).toBe('string');
           expect(warning.severity).toMatch(/^(info|warning)$/);
         }
@@ -343,6 +343,210 @@ describe('POST /v1/run_bundle - Contract Tests', () => {
 
       expect(body.ranking_summary).toBeDefined();
       expect(body.ranking_mode_used).toBe('simple');
+    });
+
+    it('returns UTILITY_MODE_EXPERIMENTAL warning when utility mode is used', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/run_bundle',
+        payload: {
+          base_graph: {
+            nodes: [
+              { id: 'A', label: 'Driver', value: 0.5 },
+              { id: 'B', label: 'Outcome', kind: 'outcome' },
+            ],
+            edges: [{ from: 'A', to: 'B' }],
+          },
+          deltas: [
+            { label: 'Low', nodes: [{ id: 'A', value: 0.3 }] },
+            { label: 'High', nodes: [{ id: 'A', value: 0.9 }] },
+          ],
+          seed: 4242,
+          ranking_mode: 'utility',
+          utility_function: {
+            weights: { B: 1.0 },
+          },
+          include_ranking: true,
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.payload);
+
+      // Should return a warning that utility mode is experimental
+      expect(body.warnings).toBeDefined();
+      expect(Array.isArray(body.warnings)).toBe(true);
+      const utilityWarning = body.warnings.find(
+        (w: any) => w.code === 'UTILITY_MODE_EXPERIMENTAL'
+      );
+      expect(utilityWarning).toBeDefined();
+      expect(utilityWarning.severity).toBe('warning');
+      expect(utilityWarning.message).toContain('experimental');
+    });
+  });
+
+  describe('degraded modes visibility', () => {
+    it('returns meta.inference_mode and all_scenarios_succeeded', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/run_bundle',
+        payload: {
+          base_graph: {
+            nodes: [
+              { id: 'A', label: 'Driver', value: 0.5 },
+              { id: 'B', label: 'Outcome' },
+            ],
+            edges: [{ from: 'A', to: 'B' }],
+          },
+          deltas: [
+            { label: 'Test', nodes: [] },
+          ],
+          seed: 4242,
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.payload);
+
+      // Degraded mode visibility fields
+      expect(body.meta).toBeDefined();
+      expect(body.meta.inference_mode).toMatch(/^(model_based|mixed)$/);
+      expect(typeof body.meta.all_scenarios_succeeded).toBe('boolean');
+      expect(body.meta.total_scenarios).toBeGreaterThan(0);
+    });
+
+    it('includes fallback_count when scenarios fail', async () => {
+      // Note: This test verifies the field structure exists
+      // Actual fallback scenarios would require mocking inference failures
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/run_bundle',
+        payload: {
+          base_graph: {
+            nodes: [
+              { id: 'A', label: 'Driver', value: 0.5 },
+              { id: 'B', label: 'Outcome' },
+            ],
+            edges: [{ from: 'A', to: 'B' }],
+          },
+          deltas: [
+            { label: 'Test', nodes: [] },
+          ],
+          seed: 4242,
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.payload);
+
+      // When all succeed, fallback_count should not be present (or be 0)
+      if (body.meta.all_scenarios_succeeded) {
+        expect(body.meta.fallback_count).toBeUndefined();
+      } else {
+        expect(typeof body.meta.fallback_count).toBe('number');
+        expect(body.meta.fallback_count).toBeGreaterThan(0);
+      }
+    });
+  });
+
+  describe('constraint_status field', () => {
+    it('returns constraint_status in response', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/run_bundle',
+        payload: {
+          base_graph: {
+            nodes: [
+              { id: 'A', label: 'Driver', value: 0.5 },
+              { id: 'B', label: 'Outcome' },
+            ],
+            edges: [{ from: 'A', to: 'B' }],
+          },
+          deltas: [
+            { label: 'Test', nodes: [] },
+          ],
+          seed: 4242,
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.payload);
+
+      // constraint_status should always be present with violations and active_constraints arrays
+      expect(body.constraint_status).toBeDefined();
+      expect(Array.isArray(body.constraint_status.violations)).toBe(true);
+      expect(Array.isArray(body.constraint_status.active_constraints)).toBe(true);
+    });
+  });
+
+  describe('coherence_warnings field', () => {
+    it('returns coherence_warnings array when applicable', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/run_bundle',
+        payload: {
+          base_graph: {
+            nodes: [
+              { id: 'A', label: 'Driver', value: 0.5 },
+              { id: 'B', label: 'Outcome', kind: 'outcome' },
+            ],
+            edges: [{ from: 'A', to: 'B', weight: 0.8 }],
+          },
+          deltas: [
+            { label: 'Similar1', nodes: [{ id: 'A', value: 0.5 }] },
+            { label: 'Similar2', nodes: [{ id: 'A', value: 0.51 }] },
+          ],
+          seed: 4242,
+          include_ranking: true,
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.payload);
+
+      // coherence_warnings should be an array if present
+      if (body.coherence_warnings) {
+        expect(Array.isArray(body.coherence_warnings)).toBe(true);
+        for (const warning of body.coherence_warnings) {
+          expect(warning.code).toBeDefined();
+          expect(warning.message).toBeDefined();
+          expect(warning.severity).toMatch(/^(info|warning|error)$/);
+        }
+      }
+    });
+  });
+
+  describe('baseline_option_id field', () => {
+    it('returns baseline_option_id in response', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/run_bundle',
+        payload: {
+          base_graph: {
+            nodes: [
+              { id: 'A', label: 'Driver', value: 0.5 },
+              { id: 'B', label: 'Outcome' },
+            ],
+            edges: [{ from: 'A', to: 'B' }],
+          },
+          deltas: [
+            { label: 'Baseline', nodes: [] },
+            { label: 'Modified', nodes: [{ id: 'A', value: 0.9 }] },
+          ],
+          seed: 4242,
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.payload);
+
+      // baseline_option_id should be present
+      expect('baseline_option_id' in body).toBe(true);
+      // Can be string or null
+      expect(
+        typeof body.baseline_option_id === 'string' ||
+        body.baseline_option_id === null
+      ).toBe(true);
     });
   });
 });
