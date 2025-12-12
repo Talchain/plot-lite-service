@@ -123,9 +123,15 @@ export function runKernel(dag: DAG, target: string, config: Partial<KernelConfig
   // Compute quantiles on final samples
   samples.sort((a, b) => a - b);
   const K_evaluated = samples.length;
-  const p10 = samples[Math.floor(K_evaluated * 0.1)];
-  const p50 = samples[Math.floor(K_evaluated * 0.5)];
-  const p90 = samples[Math.floor(K_evaluated * 0.9)];
+
+  // Epistemic humility cap - probabilistic models should never claim certainty
+  // Only cap values that would display as "100%" (near 1.0), not magnitude outputs
+  const MAX_PROBABILITY = 0.99;
+  const capNearOne = (v: number) => (v >= 0.995 && v <= 1.005) ? MAX_PROBABILITY : v;
+
+  const p10 = capNearOne(samples[Math.floor(K_evaluated * 0.1)]);
+  const p50 = capNearOne(samples[Math.floor(K_evaluated * 0.5)]);
+  const p90 = capNearOne(samples[Math.floor(K_evaluated * 0.9)]);
   
   // Confidence heuristic
   const uniqueGraphs = graphHashes.size;

@@ -378,7 +378,8 @@ describe('Intervention Semantics (do-operator)', () => {
 
       // B=0 -> C would be 0*3=0, but kernel uses baseline 1 when sum is 0
       // This is a design choice to prevent propagation of zeros
-      expect(result.quantiles.p50).toBe(1);
+      // The baseline 1 is then capped to 0.99 (Brief 34: epistemic humility cap)
+      expect(result.quantiles.p50).toBe(0.99);
     });
 
     it('should handle negative intervention value', () => {

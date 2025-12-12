@@ -72,3 +72,63 @@ describe('SCM-Lite Kernel: Golden Fixtures', () => {
     expect(() => runKernel(dag, 'N0', { seed: 1, maxNodes: 12 })).toThrow('exceeds max nodes');
   });
 });
+
+describe('SCM-Lite Kernel: Probability Cap (Brief 34)', () => {
+  it('caps values near 1.0 at 0.99 (100% display issue)', () => {
+    // Graph with 2 parents each contributing weight 0.5
+    // Result: 2 * 1.0 * 0.5 = 1.0, which gets capped to 0.99
+    const dag: DAG = {
+      nodes: [{ id: 'A' }, { id: 'B' }, { id: 'outcome' }],
+      edges: [
+        { from: 'A', to: 'outcome', belief: 1.0, weight: 0.5 },
+        { from: 'B', to: 'outcome', belief: 1.0, weight: 0.5 },
+      ],
+    };
+
+    const result = runKernel(dag, 'outcome', { seed: 42, K: 256 });
+
+    // Value would be 1.0 but gets capped to 0.99
+    expect(result.quantiles.p50).toBe(0.99);
+    expect(result.quantiles.p90).toBe(0.99);
+  });
+
+  it('does NOT cap magnitude values (values far from 1.0)', () => {
+    // Graph with 4 parents each contributing weight 0.5
+    // Result: 4 * 1.0 * 0.5 = 2.0, which should NOT be capped
+    const dag: DAG = {
+      nodes: [
+        { id: 'P1' }, { id: 'P2' }, { id: 'P3' }, { id: 'P4' },
+        { id: 'outcome' }
+      ],
+      edges: [
+        { from: 'P1', to: 'outcome', belief: 1.0, weight: 0.5 },
+        { from: 'P2', to: 'outcome', belief: 1.0, weight: 0.5 },
+        { from: 'P3', to: 'outcome', belief: 1.0, weight: 0.5 },
+        { from: 'P4', to: 'outcome', belief: 1.0, weight: 0.5 },
+      ],
+    };
+
+    const result = runKernel(dag, 'outcome', { seed: 42, K: 256 });
+
+    // Value is 2.0, which is NOT capped (it's a magnitude, not probability)
+    expect(result.quantiles.p50).toBe(2);
+    expect(result.quantiles.p90).toBe(2);
+  });
+
+  it('caps exactly 1.0 chain to 0.99', () => {
+    // Simple chain A->B with belief=1.0 and weight=1.0
+    // Root A gets value=1, B gets 1*1=1, which gets capped to 0.99
+    const dag: DAG = {
+      nodes: [{ id: 'A' }, { id: 'B' }],
+      edges: [
+        { from: 'A', to: 'B', belief: 1.0, weight: 1.0 },
+      ],
+    };
+
+    const result = runKernel(dag, 'B', { seed: 42, K: 256 });
+
+    // Value would be 1.0 but gets capped exactly at 0.99
+    expect(result.quantiles.p50).toBe(0.99);
+    expect(result.quantiles.p90).toBe(0.99);
+  });
+});
