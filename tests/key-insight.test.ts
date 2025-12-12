@@ -408,5 +408,87 @@ describe('Key Insight Endpoint', () => {
       ) ?? [];
       expect(outcomeWarnings.length).toBe(0);
     });
+
+    it('includes outcome_quality on ranked actions with positive outcomes', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/assist/key-insight',
+        payload: {
+          graph: {
+            nodes: [
+              { id: 'opt1', label: 'Option A', kind: 'option' },
+              { id: 'opt2', label: 'Option B', kind: 'option' },
+              { id: 'out1', label: 'Outcome', kind: 'outcome', value: 100 },
+            ],
+            edges: [
+              { from: 'opt1', to: 'out1', weight: 0.7 },
+              { from: 'opt2', to: 'out1', weight: 0.3 },
+            ],
+          },
+          seed: 42,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.payload);
+
+      // All ranked actions should have outcome_quality
+      for (const action of body.ranked_actions) {
+        expect(action.outcome_quality).toBeDefined();
+        expect(['positive', 'negative', 'neutral']).toContain(action.outcome_quality);
+      }
+
+      // With positive outcome value, expect positive outcome_quality
+      expect(body.ranked_actions[0].outcome_quality).toBe('positive');
+    });
+
+    it('includes outcome_quality on single ranked action (no options)', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/assist/key-insight',
+        payload: {
+          graph: {
+            nodes: [
+              { id: 'a', label: 'A', value: 100 },
+              { id: 'b', label: 'B', value: 50 },
+            ],
+            edges: [{ from: 'a', to: 'b', weight: 0.5 }],
+          },
+          seed: 42,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.payload);
+
+      expect(body.ranked_actions.length).toBe(1);
+      expect(body.ranked_actions[0].outcome_quality).toBeDefined();
+      expect(['positive', 'negative', 'neutral']).toContain(body.ranked_actions[0].outcome_quality);
+    });
+
+    it('sets outcome_quality to negative for negative expected outcomes', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/assist/key-insight',
+        payload: {
+          graph: {
+            nodes: [
+              { id: 'opt1', label: 'Risky Option', kind: 'option' },
+              { id: 'out1', label: 'Loss', kind: 'outcome', value: -50 },
+            ],
+            edges: [
+              { from: 'opt1', to: 'out1', weight: 0.8 },
+            ],
+          },
+          seed: 42,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.payload);
+
+      // With negative outcome value, expect negative outcome_quality
+      expect(body.ranked_actions[0].outcome_quality).toBe('negative');
+    });
   });
 });

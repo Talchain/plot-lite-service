@@ -288,10 +288,12 @@ export async function registerKeyInsightRoute(app: FastifyInstance) {
           // Simulate distribution around the inference result
           const p50 = inferenceResult.most_likely.outcome;
           const variation = 0.1 * (i + 1); // Vary by option index
+          const expectedOutcome = Math.round(p50 * (1 - variation * 0.1) * 1000) / 1000;
           rankedActions.push({
             label: node.label || node.id,
             rank: i + 1,
-            expected_outcome: Math.round(p50 * (1 - variation * 0.1) * 1000) / 1000,
+            expected_outcome: expectedOutcome,
+            outcome_quality: expectedOutcome < 0 ? 'negative' : 'positive',
             distribution: {
               p10: Math.round(inferenceResult.conservative.outcome * (1 - variation) * 1000) / 1000,
               p50: Math.round(p50 * (1 - variation * 0.1) * 1000) / 1000,
@@ -302,10 +304,12 @@ export async function registerKeyInsightRoute(app: FastifyInstance) {
         }
       } else {
         // Single overall result
+        const expectedOutcome = Math.round(inferenceResult.most_likely.outcome * 1000) / 1000;
         rankedActions.push({
           label: 'Overall',
           rank: 1,
-          expected_outcome: Math.round(inferenceResult.most_likely.outcome * 1000) / 1000,
+          expected_outcome: expectedOutcome,
+          outcome_quality: expectedOutcome < 0 ? 'negative' : 'positive',
           distribution: {
             p10: Math.round(inferenceResult.conservative.outcome * 1000) / 1000,
             p50: Math.round(inferenceResult.most_likely.outcome * 1000) / 1000,

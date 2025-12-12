@@ -18,6 +18,8 @@ export interface RankedAction {
   rank: number;
   /** Expected outcome p50 value */
   expected_outcome: number;
+  /** Outcome quality indicator for CEE insight generation */
+  outcome_quality: 'negative' | 'positive' | 'neutral';
   /** Distribution bounds */
   distribution: {
     p10: number;
