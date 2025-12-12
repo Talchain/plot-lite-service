@@ -247,8 +247,8 @@ export interface EnhancedBundleResponse {
   coherence_warnings?: CoherenceWarning[];
   /** Edge function sensitivity warnings (Phase 3, Task 4.3) - separate from coherence for schema clarity */
   edge_function_warnings?: CoherenceWarning[];
-  /** Identified baseline option ID (Task 1.7) */
-  baseline_option_id?: string | null;
+  /** Identified baseline option label (Task 1.7). Uses scenario label for clarity. */
+  baseline_label?: string | null;
   model_card: {
     seed: number;
     detail_level: string;

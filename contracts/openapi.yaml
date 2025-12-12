@@ -2779,8 +2779,8 @@ paths:
                   description: 'Include ranking summary and per-result ranks (default: true)'
                 include_change_attribution:
                   type: boolean
-                  default: true
-                  description: 'Include change attribution in delta_from_baseline (default: true)'
+                  default: false
+                  description: 'Include change attribution in delta_from_baseline (default: false)'
                 sort_by:
                   type: string
                   enum: [p10, p50, p90]
@@ -2976,7 +2976,7 @@ paths:
                       properties:
                         code:
                           type: string
-                          enum: [EDGE_TYPE_INFERRED, PRIMARY_OUTCOME_INFERRED, BELIEF_DEFAULTED]
+                          enum: [EDGE_TYPE_INFERRED, PRIMARY_OUTCOME_INFERRED, BELIEF_DEFAULTED, UTILITY_MODE_EXPERIMENTAL]
                         message: { type: string }
                         affected_ids:
                           type: array
@@ -2999,8 +2999,7 @@ paths:
                             inferred_type: { type: string, enum: [functional, structural, probabilistic] }
                   constraint_status:
                     type: object
-                    description: 'Constraint status with violations and active constraints (Task 1.3)'
-                    required: [violations, active_constraints]
+                    description: 'Optional. Constraint status with violations and active constraints (Task 1.3). Only present when constraints are defined in the graph.'
                     properties:
                       violations:
                         type: array
@@ -3044,10 +3043,30 @@ paths:
                           type: object
                           description: 'Additional context data'
                           additionalProperties: true
-                  baseline_option_id:
+                  edge_function_warnings:
+                    type: array
+                    description: 'Edge function sensitivity warnings (Phase 3, Task 4.3). Separate from coherence_warnings for schema clarity.'
+                    items:
+                      type: object
+                      required: [code, message, severity]
+                      properties:
+                        code:
+                          type: string
+                          enum: [EDGE_FUNCTION_SENSITIVITY_HIGH, EDGE_FUNCTION_PARAM_OUT_OF_RANGE, MIXED_COMBINATION_COMPLEX]
+                          description: 'Machine-readable warning code for edge function issues'
+                        message: { type: string, description: 'Human-readable warning message' }
+                        severity:
+                          type: string
+                          enum: [info, warning, error]
+                          description: 'Severity of the warning'
+                        context:
+                          type: object
+                          description: 'Additional context data (e.g., affected edge IDs)'
+                          additionalProperties: true
+                  baseline_label:
                     type: string
                     nullable: true
-                    description: 'Identified baseline option ID (Task 1.7). Null if not determinable.'
+                    description: 'Identified baseline option label (Task 1.7). Uses scenario label (not ID) for clarity. Null if no baseline determinable.'
                   model_card:
                     type: object
                     properties:
@@ -3723,14 +3742,18 @@ components:
                 description: 'Source attribution (e.g., "template", "assumption", "user")'
               function_type:
                 type: string
-                enum: [linear, diminishing_returns, threshold, s_curve]
+                enum: [linear, diminishing_returns, threshold, s_curve, noisy_or, noisy_and_not, logistic, mixed]
                 default: linear
                 description: |
-                  Non-linear transformation function applied to incoming edge values.
-                  - linear (default): y = x — direct pass-through
-                  - diminishing_returns: y = 1 - e^(-k*x) — saturates at high input values (e.g., marketing spend)
-                  - threshold: y = 0 if x < threshold, else slope*(x-threshold) — step function (e.g., regulatory triggers)
-                  - s_curve: y = 1/(1+e^(-k*(x-midpoint))) — logistic transition (e.g., adoption curves)
+                  Edge function type for value transformation.
+                  - linear: Direct proportional effect (default)
+                  - diminishing_returns: Effect decreases as value increases
+                  - threshold: Step function at specified point
+                  - s_curve: Sigmoid transition
+                  - noisy_or: Probabilistic OR for generative causes (Phase 3). Requires weight in [0,1].
+                  - noisy_and_not: Probabilistic AND-NOT for preventative causes (Brief 17). Requires base_rate param.
+                  - logistic: Logistic combination for continuous→binary (k parameter controls steepness)
+                  - mixed: Combination of generative and preventative causes (Brief 22). Requires ENABLE_MIXED_COMBINATION flag.
               function_params:
                 type: object
                 description: 'Parameters for non-linear edge functions. Required parameters depend on function_type.'
@@ -3784,7 +3807,13 @@ components:
         # Phase 4: Sequential/multi-stage decision graph metadata
         sequential_metadata:
           type: object
-          description: 'Metadata for sequential/multi-stage decision graphs'
+          description: |
+            Metadata for sequential/multi-stage decision graphs (Phase 4).
+            Scope: Graph structure annotation only. Does not alter inference behavior in PLoT-lite.
+            For actual sequential inference with rollback/backward induction, use ISL /v1/analysis/sequential endpoint.
+            Validation:
+            - Missing stages → falls back to single-stage (non-sequential) inference
+            - Empty stages[] with is_sequential=true → validation error
           properties:
             is_sequential:
               type: boolean

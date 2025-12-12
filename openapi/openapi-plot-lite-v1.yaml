@@ -283,8 +283,8 @@ components:
           description: 'Edge semantic type for inference routing'
         function_type:
           type: string
-          enum: [linear, diminishing_returns, threshold, s_curve, noisy_or, noisy_and_not, logistic]
-          description: 'Edge function type for value transformation'
+          enum: [linear, diminishing_returns, threshold, s_curve, noisy_or, noisy_and_not, logistic, mixed]
+          description: 'Edge function type for value transformation. mixed combines generative (noisy_or) and preventative (noisy_and_not) causes.'
         function_params:
           type: object
           description: 'Parameters for edge function'

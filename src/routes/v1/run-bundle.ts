@@ -231,6 +231,19 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
     }
     const detailConfig = DETAIL_LEVEL_CONFIG[detail_level];
 
+    // Validate unique scenario labels (P1-5: Contract requirement for clarity)
+    const labels = body.deltas.map((d: { label?: string }) => d.label).filter((l): l is string => Boolean(l));
+    const labelSet = new Set(labels);
+    if (labelSet.size !== labels.length) {
+      const duplicates = labels.filter((label, i) => labels.indexOf(label) !== i);
+      return replyWithAppError(reply, {
+        type: 'BAD_INPUT',
+        statusCode: 400,
+        message: `Duplicate scenario labels detected: ${[...new Set(duplicates)].join(', ')}. All scenario labels must be unique.`,
+        fields: { field: 'deltas[].label' },
+      });
+    }
+
     // Pre-validate all graphs and build scenario list
     const scenarios: Array<{
       index: number;
@@ -747,8 +760,8 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
       ...(coherenceWarnings.length > 0 && { coherence_warnings: coherenceWarnings }),
       // Phase 3: Edge function sensitivity warnings (separate from coherence for schema clarity)
       ...(edgeFunctionWarnings.length > 0 && { edge_function_warnings: edgeFunctionWarnings }),
-      // baseline_option_id derived from baseline_index (single source of truth)
-      baseline_option_id: baselineResult?.label ?? null,
+      // baseline_label derived from baseline_index (single source of truth)
+      baseline_label: baselineResult?.label ?? null,
       model_card: {
         seed,
         detail_level,

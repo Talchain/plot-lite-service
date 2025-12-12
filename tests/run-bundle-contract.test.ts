@@ -586,8 +586,8 @@ describe('POST /v1/run_bundle - Contract Tests', () => {
     });
   });
 
-  describe('baseline_option_id field', () => {
-    it('returns baseline_option_id in response', async () => {
+  describe('baseline_label field', () => {
+    it('returns baseline_label in response', async () => {
       const res = await app.inject({
         method: 'POST',
         url: '/v1/run_bundle',
@@ -610,13 +610,68 @@ describe('POST /v1/run_bundle - Contract Tests', () => {
       expect(res.statusCode).toBe(200);
       const body = JSON.parse(res.payload);
 
-      // baseline_option_id should be present
-      expect('baseline_option_id' in body).toBe(true);
+      // baseline_label should be present (uses scenario label, not ID)
+      expect('baseline_label' in body).toBe(true);
       // Can be string or null
       expect(
-        typeof body.baseline_option_id === 'string' ||
-        body.baseline_option_id === null
+        typeof body.baseline_label === 'string' ||
+        body.baseline_label === null
       ).toBe(true);
+    });
+  });
+
+  describe('unique scenario labels validation (P1-5)', () => {
+    it('rejects duplicate scenario labels', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/run_bundle',
+        payload: {
+          base_graph: {
+            nodes: [
+              { id: 'A', label: 'Driver', value: 0.5 },
+              { id: 'B', label: 'Outcome' },
+            ],
+            edges: [{ from: 'A', to: 'B' }],
+          },
+          deltas: [
+            { label: 'Option A', nodes: [] },
+            { label: 'Option A', nodes: [{ id: 'A', value: 0.9 }] },  // Duplicate!
+          ],
+          seed: 4242,
+        },
+      });
+
+      expect(res.statusCode).toBe(400);
+      const body = JSON.parse(res.payload);
+      expect(body.code).toBe('BAD_INPUT');
+      expect(body.message).toContain('Duplicate scenario labels');
+      expect(body.message).toContain('Option A');
+    });
+
+    it('accepts unique scenario labels', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/run_bundle',
+        payload: {
+          base_graph: {
+            nodes: [
+              { id: 'A', label: 'Driver', value: 0.5 },
+              { id: 'B', label: 'Outcome' },
+            ],
+            edges: [{ from: 'A', to: 'B' }],
+          },
+          deltas: [
+            { label: 'Option A', nodes: [] },
+            { label: 'Option B', nodes: [{ id: 'A', value: 0.9 }] },
+            { label: 'Option C', nodes: [{ id: 'A', value: 0.7 }] },
+          ],
+          seed: 4242,
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.payload);
+      expect(body.results).toHaveLength(3);
     });
   });
 });
