@@ -35,7 +35,6 @@ import type { EdgeTypeWarning } from '../../services/ranking/edge-type-inference
 import type { RankingSortKey, RankingSummary, RankingMode, UtilityFunction, UtilitySuggestion, ResponseWarning, EdgeTypeInferenceSummary, ConstraintStatus, CoherenceWarning } from './types/run-bundle.types.js';
 import { processWithConcurrency } from '../../util/semaphore.js';
 import {
-  detectBaselineOption,
   computeDeltasVsBaseline,
   validateCoherence,
   emptyConstraintStatus,
@@ -473,8 +472,9 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
     // === ENHANCED FEATURES ===
 
     // Parse enhancement options with defaults
-    const includeRanking = body.include_ranking !== false; // Default: true
-    const includeChangeAttribution = body.include_change_attribution === true; // Default: false
+    // IMPORTANT: These defaults are part of the API contract
+    const includeRanking = body.include_ranking !== false; // Default: true (opt-out)
+    const includeChangeAttribution = body.include_change_attribution === true; // Default: false (opt-in, computational cost)
     const baselineIndex = body.baseline_index ?? 0;
     const sortBy: RankingSortKey = body.sort_by ?? 'p50';
 
@@ -578,15 +578,13 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
     // === PHASE 1 CRITICAL FIXES ===
 
     // Task 1.7: Baseline identification
-    const baselineOptionId = detectBaselineOption(
-      results as RankableResult[],
-      body.deltas,
-      baselineIndex
-    );
+    // Single source of truth: baseline_index (explicit from request, defaults to 0)
+    // baselineResult is already computed above at line ~492
+    const baselineLabel = baselineResult?.label ?? null;
 
     // Task 1.7: Compute delta_vs_baseline for each result
-    if (baselineOptionId) {
-      const deltasVsBaseline = computeDeltasVsBaseline(results as RankableResult[], baselineOptionId);
+    if (baselineLabel) {
+      const deltasVsBaseline = computeDeltasVsBaseline(results as RankableResult[], baselineLabel);
       for (const result of results) {
         const delta = deltasVsBaseline.get(result.label);
         if (delta) {
@@ -602,7 +600,7 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
     // Task 1.6: Result coherence validation
     const coherenceWarnings: CoherenceWarning[] = validateCoherence(
       results as RankableResult[],
-      baselineOptionId,
+      baselineLabel,
       {
         close_race_threshold: 0.02, // 2% margin
         high_uncertainty_threshold: 0.5, // 50% spread/p50 ratio
@@ -614,6 +612,8 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
 
     // Phase 3: Task 4.3 - Edge function sensitivity analysis
     // Test if results are sensitive to edge function type choices
+    // Note: These warnings are returned in a separate field for schema clarity
+    const edgeFunctionWarnings: CoherenceWarning[] = [];
     if (scenarios.length > 0 && outcome_node && shouldAnalyzeEdgeFunctionSensitivity(scenarios[0].graph)) {
       const topResult = results.find((r: any) => r.rank === 1);
       if (topResult?.summary?.p50) {
@@ -626,8 +626,8 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
             significance_threshold: 0.05,
           }
         );
-        // Add edge function sensitivity warnings to coherence warnings
-        coherenceWarnings.push(...sensitivityResult.warnings);
+        // Store edge function warnings separately for cleaner client consumption
+        edgeFunctionWarnings.push(...sensitivityResult.warnings);
       }
     }
 
@@ -742,10 +742,13 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
       // Phase 2: Edge type inference and warnings
       ...(responseWarnings.length > 0 && { warnings: responseWarnings }),
       ...(edgeTypeInferenceSummary && { edge_type_inference: edgeTypeInferenceSummary }),
-      // Phase 1 Critical Fixes: Constraint status, coherence warnings, baseline identification
-      constraint_status: constraintStatus,
+      // Phase 1 Critical Fixes: Constraint status (omit when empty), coherence warnings, baseline identification
+      ...((constraintStatus.violations.length > 0 || constraintStatus.active_constraints.length > 0) && { constraint_status: constraintStatus }),
       ...(coherenceWarnings.length > 0 && { coherence_warnings: coherenceWarnings }),
-      baseline_option_id: baselineOptionId,
+      // Phase 3: Edge function sensitivity warnings (separate from coherence for schema clarity)
+      ...(edgeFunctionWarnings.length > 0 && { edge_function_warnings: edgeFunctionWarnings }),
+      // baseline_option_id derived from baseline_index (single source of truth)
+      baseline_option_id: baselineResult?.label ?? null,
       model_card: {
         seed,
         detail_level,

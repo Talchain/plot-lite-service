@@ -435,16 +435,21 @@ export interface StageDefinition {
 /**
  * Sequential metadata for multi-stage decision graphs (Phase 4)
  *
- * P1: Scope and Contract
+ * IMPORTANT: This metadata is consumed by sequential analysis endpoints
+ * (/v1/analysis/sequential, /v1/analysis/policy-tree). Standard inference
+ * endpoints (/v1/run, /v1/run_bundle) currently ignore sequential metadata
+ * and process all stages as a single atemporal graph.
+ *
+ * Contract:
  * - When is_sequential=true, the graph represents a temporal decision problem
  * - stages[] must be non-empty and ordered by index
  * - All stage-assigned nodes must exist in the graph
  * - Discount factor applies to outcomes at later stages (default 1.0 = no discounting)
  *
- * Inference behaviour:
- * - Stage 0 decisions are evaluated first (current state)
- * - Later stages are conditional on earlier decisions
- * - Expected value calculations use default_discount_factor^stage for future outcomes
+ * Future inference behaviour (not yet implemented in /v1/run):
+ * - Stage 0 decisions would be evaluated first (current state)
+ * - Later stages would be conditional on earlier decisions
+ * - Expected value calculations would use default_discount_factor^stage
  *
  * Validation:
  * - Missing stage definitions → falls back to single-stage (non-sequential) inference

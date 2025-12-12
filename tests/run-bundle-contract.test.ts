@@ -450,7 +450,7 @@ describe('POST /v1/run_bundle - Contract Tests', () => {
   });
 
   describe('constraint_status field', () => {
-    it('returns constraint_status in response', async () => {
+    it('omits constraint_status when no violations or active constraints', async () => {
       const res = await app.inject({
         method: 'POST',
         url: '/v1/run_bundle',
@@ -472,10 +472,40 @@ describe('POST /v1/run_bundle - Contract Tests', () => {
       expect(res.statusCode).toBe(200);
       const body = JSON.parse(res.payload);
 
-      // constraint_status should always be present with violations and active_constraints arrays
-      expect(body.constraint_status).toBeDefined();
-      expect(Array.isArray(body.constraint_status.violations)).toBe(true);
-      expect(Array.isArray(body.constraint_status.active_constraints)).toBe(true);
+      // constraint_status should be omitted when empty (no violations or active constraints)
+      // This reduces response payload size and avoids suggesting the field is meaningful when empty
+      expect(body.constraint_status).toBeUndefined();
+    });
+
+    it('returns constraint_status with proper shape when violations exist', async () => {
+      // Note: This test documents the expected structure when constraints are evaluated
+      // Currently constraint evaluation is a placeholder; this test validates the type contract
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/run_bundle',
+        payload: {
+          base_graph: {
+            nodes: [
+              { id: 'A', label: 'Driver', value: 0.5 },
+              { id: 'B', label: 'Outcome' },
+            ],
+            edges: [{ from: 'A', to: 'B' }],
+          },
+          deltas: [
+            { label: 'Test', nodes: [] },
+          ],
+          seed: 4242,
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.payload);
+
+      // If constraint_status is present, it must have the correct shape
+      if (body.constraint_status) {
+        expect(Array.isArray(body.constraint_status.violations)).toBe(true);
+        expect(Array.isArray(body.constraint_status.active_constraints)).toBe(true);
+      }
     });
   });
 
@@ -511,6 +541,46 @@ describe('POST /v1/run_bundle - Contract Tests', () => {
           expect(warning.code).toBeDefined();
           expect(warning.message).toBeDefined();
           expect(warning.severity).toMatch(/^(info|warning|error)$/);
+        }
+      }
+    });
+  });
+
+  describe('edge_function_warnings field', () => {
+    it('returns edge_function_warnings array with correct schema when present', async () => {
+      // Edge function warnings should be in a separate field for schema clarity
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/run_bundle',
+        payload: {
+          base_graph: {
+            nodes: [
+              { id: 'A', label: 'Driver', value: 0.5 },
+              { id: 'B', label: 'Outcome', kind: 'outcome' },
+            ],
+            edges: [{ from: 'A', to: 'B', weight: 0.8, function_type: 'diminishing_returns' }],
+          },
+          deltas: [
+            { label: 'Test1', nodes: [{ id: 'A', value: 0.3 }] },
+            { label: 'Test2', nodes: [{ id: 'A', value: 0.9 }] },
+          ],
+          seed: 4242,
+          include_ranking: true,
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.payload);
+
+      // If edge_function_warnings is present, validate the shape
+      if (body.edge_function_warnings) {
+        expect(Array.isArray(body.edge_function_warnings)).toBe(true);
+        for (const warning of body.edge_function_warnings) {
+          expect(warning.code).toBe('EDGE_FUNCTION_SENSITIVE');
+          expect(warning.message).toBeDefined();
+          expect(warning.severity).toMatch(/^(info|warning|error)$/);
+          expect(warning.context).toBeDefined();
+          expect(warning.context.edge_id).toBeDefined();
         }
       }
     });

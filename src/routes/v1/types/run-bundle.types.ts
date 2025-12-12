@@ -245,6 +245,8 @@ export interface EnhancedBundleResponse {
   constraint_status?: ConstraintStatus;
   /** Coherence warnings about inference results (Task 1.6) */
   coherence_warnings?: CoherenceWarning[];
+  /** Edge function sensitivity warnings (Phase 3, Task 4.3) - separate from coherence for schema clarity */
+  edge_function_warnings?: CoherenceWarning[];
   /** Identified baseline option ID (Task 1.7) */
   baseline_option_id?: string | null;
   model_card: {
