@@ -11,8 +11,13 @@
  * - s_curve: y = 1 / (1 + e^(-k*(x - m))) — logistic/sigmoid transition
  *
  * EdgeV2 Additions (flag-gated):
- * - noisy_or: P(Y=1) = 1 - ∏(1 - w_i * X_i) — for binary nodes with multiple binary parents
+ * - noisy_or: P(Y=1) = 1 - (1-leak) * ∏(1 - w_i * X_i) — generative causes with leak
+ * - noisy_and_not: P(Y=1) = base_rate * ∏(1 - w_i * X_i) — preventative causes
  * - logistic: P(Y=1) = 1 / (1 + e^(-k*(X - threshold))) — continuous→binary transitions
+ *
+ * Brief 17: SCM Enhancements
+ * - noisy_or now supports leak parameter (default 0.01) for background probability
+ * - noisy_and_not models preventative causes where active parents reduce probability
  */
 
 import type { GraphEdge, EdgeFunctionType, EdgeFunctionParams, FunctionalForm } from '../trust/types.js';
@@ -115,7 +120,47 @@ export function validateEdgeFunctionParams(
           edge_id: edgeId,
         };
       }
-      // No additional parameters required for noisy_or
+      // Validate leak parameter if provided (optional, default 0.01)
+      if (params.leak !== undefined) {
+        if (params.leak < 0 || params.leak > 1) {
+          return {
+            code: 'INVALID_FUNCTION_PARAMS',
+            field: 'function_params.leak',
+            message: `leak must be in range [0, 1] (got ${params.leak})`,
+            edge_id: edgeId,
+          };
+        }
+      }
+      // Validation of binary nodes happens at graph level
+      return null;
+
+    case 'noisy_and_not':
+      // Noisy-AND-NOT requires flag to be enabled
+      if (!FLAGS.ENABLE_NOISY_AND_NOT) {
+        return {
+          code: 'INVALID_FUNCTION_PARAMS',
+          field: 'function_type',
+          message: `noisy_and_not is disabled. Set ENABLE_NOISY_AND_NOT=true to enable.`,
+          edge_id: edgeId,
+        };
+      }
+      // base_rate is required for noisy_and_not
+      if (params.base_rate === undefined) {
+        return {
+          code: 'INVALID_FUNCTION_PARAMS',
+          field: 'function_params.base_rate',
+          message: `noisy_and_not requires base_rate parameter`,
+          edge_id: edgeId,
+        };
+      }
+      if (params.base_rate < 0 || params.base_rate > 1) {
+        return {
+          code: 'INVALID_FUNCTION_PARAMS',
+          field: 'function_params.base_rate',
+          message: `base_rate must be in range [0, 1] (got ${params.base_rate})`,
+          edge_id: edgeId,
+        };
+      }
       // Validation of binary nodes happens at graph level
       return null;
 
@@ -275,6 +320,42 @@ function applyLogistic(x: number, k: number, threshold: number): number {
 }
 
 /**
+ * Apply Noisy-AND-NOT function for a single parent contribution.
+ *
+ * Noisy-AND-NOT models PREVENTATIVE causes where active parents REDUCE probability.
+ * Formula: P(Y=1 | parents) = base_rate * ∏(1 - w_i * X_i)
+ *
+ * Use cases:
+ * - "Safety training reduces accident probability"
+ * - "Competitor entry reduces market share"
+ * - "Hedging reduces downside risk"
+ *
+ * This function computes a single term: 1 - w * x
+ * which represents the "preventative power" of one parent.
+ *
+ * The full Noisy-AND-NOT multiplies all these terms with base_rate
+ * (done at the node aggregation level via aggregateNoisyAndNot).
+ *
+ * @param x - Parent state (typically 0 or 1 for binary nodes)
+ * @param weight - Edge weight interpreted as preventative power (0-1)
+ * @returns Contribution factor (1 when parent=0, 1-weight when parent=1)
+ */
+function applyNoisyAndNot(x: number, weight: number): number {
+  // For binary inputs (0 or 1), the standard formula applies
+  // For continuous inputs, we treat x as probability P(parent=1)
+
+  // Clamp x to [0, 1] for probability interpretation
+  const probX = Math.max(0, Math.min(1, x));
+  // Clamp weight to [0, 1] for preventative power interpretation
+  const preventativePower = Math.max(0, Math.min(1, weight));
+
+  // Return the "prevention factor" for this parent
+  // When parent is inactive (x=0): factor = 1 (no prevention)
+  // When parent is active (x=1): factor = 1 - weight (reduces probability)
+  return 1 - preventativePower * probX;
+}
+
+/**
  * Apply edge function to transform a value based on the edge's function configuration.
  *
  * This is a pure function - deterministic and side-effect free.
@@ -314,6 +395,12 @@ export function applyEdgeFunction(value: number, edge: GraphEdge): number {
       // Noisy-OR uses weight as causal power
       const weight = edge.weight ?? 1;
       return applyNoisyOr(value, weight);
+    }
+
+    case 'noisy_and_not': {
+      // Noisy-AND-NOT uses weight as preventative power
+      const weight = edge.weight ?? 1;
+      return applyNoisyAndNot(value, weight);
     }
 
     case 'logistic': {
@@ -369,17 +456,30 @@ export function validateGraphEdgeFunctions(
 /**
  * Aggregate multiple Noisy-OR contributions into final probability.
  *
- * Noisy-OR: P(Y=1 | parents) = 1 - ∏(1 - activation_i)
+ * Noisy-OR with leak: P(Y=1 | parents) = 1 - (1 - leak) * ∏(1 - activation_i)
  *
  * Each activation_i is the result of applyNoisyOr(parent_value, edge_weight)
  * representing the probability that parent_i causes Y=1.
  *
+ * The leak parameter (default 0.01) represents background probability that Y=1
+ * even when all parents are inactive (0). This aligns with Pearl's SCM framework.
+ *
+ * Behaviour:
+ * - leak = 0: Pure Noisy-OR (backward compatible)
+ * - leak = 0.01: 1% background probability (sensible default)
+ * - leak = 0.1: 10% background probability (high leak)
+ *
  * @param activations - Array of individual parent activation probabilities
+ * @param leak - Background probability Y=1 when all parents are 0 (default: 0.01)
  * @returns Combined probability P(Y=1)
  */
-export function aggregateNoisyOr(activations: number[]): number {
+export function aggregateNoisyOr(activations: number[], leak: number = 0.01): number {
+  // Clamp leak to [0, 1]
+  const clampedLeak = Math.max(0, Math.min(1, leak));
+
   if (activations.length === 0) {
-    return 0; // No parents → P(Y=1) = 0
+    // No parents → P(Y=1) = leak (background probability)
+    return clampedLeak;
   }
 
   // Compute product of (1 - activation_i)
@@ -391,8 +491,46 @@ export function aggregateNoisyOr(activations: number[]): number {
     productNotActivated *= (1 - clampedActivation);
   }
 
-  // P(Y=1) = 1 - P(Y not activated by any parent)
-  return 1 - productNotActivated;
+  // P(Y=1) = 1 - (1 - leak) * P(Y not activated by any parent)
+  return 1 - (1 - clampedLeak) * productNotActivated;
+}
+
+/**
+ * Aggregate multiple Noisy-AND-NOT contributions into final probability.
+ *
+ * Noisy-AND-NOT: P(Y=1 | parents) = base_rate * ∏(1 - w_i * X_i)
+ *
+ * Each factor_i is the result of applyNoisyAndNot(parent_value, edge_weight)
+ * representing the "survival probability" after parent_i's preventative effect.
+ *
+ * Use cases for preventative causes:
+ * - "Safety training (w=0.5) reduces accident probability (base_rate=0.3)"
+ * - "Competitor entry (w=0.7) reduces market share (base_rate=0.8)"
+ * - "Hedging (w=0.9) reduces downside risk (base_rate=0.4)"
+ *
+ * @param factors - Array of individual prevention factors from applyNoisyAndNot
+ * @param baseRate - Probability Y=1 when no preventative parents are active (required)
+ * @returns Combined probability P(Y=1)
+ */
+export function aggregateNoisyAndNot(factors: number[], baseRate: number): number {
+  // Clamp baseRate to [0, 1]
+  const clampedBaseRate = Math.max(0, Math.min(1, baseRate));
+
+  if (factors.length === 0) {
+    // No preventative parents → P(Y=1) = base_rate
+    return clampedBaseRate;
+  }
+
+  // Compute product of all prevention factors
+  let productFactors = 1;
+  for (const factor of factors) {
+    // Clamp factor to [0, 1]
+    const clampedFactor = Math.max(0, Math.min(1, factor));
+    productFactors *= clampedFactor;
+  }
+
+  // P(Y=1) = base_rate * product_of_factors
+  return clampedBaseRate * productFactors;
 }
 
 /**
@@ -429,7 +567,8 @@ export function isNodeBinary(node: { kind?: string; value?: number }): boolean {
 /**
  * Validate node constraints for functional forms.
  *
- * - noisy_or: All connected nodes must be binary
+ * - noisy_or: All connected nodes must be binary (generative causes)
+ * - noisy_and_not: All connected nodes must be binary (preventative causes)
  * - logistic: Target must be binary (or will become binary after transform)
  *
  * @param edges - Edges to validate
@@ -446,16 +585,17 @@ export function validateNodeConstraints(
     const functionType = getFunctionalForm(edge);
     const edgeId = edge.id ?? `${edge.from}->${edge.to}`;
 
-    if (functionType === 'noisy_or') {
-      // All connected nodes must be binary for noisy_or
+    if (functionType === 'noisy_or' || functionType === 'noisy_and_not') {
+      // All connected nodes must be binary for noisy_or and noisy_and_not
       const sourceNode = nodeMap.get(edge.from);
       const targetNode = nodeMap.get(edge.to);
+      const funcName = functionType === 'noisy_or' ? 'noisy_or' : 'noisy_and_not';
 
       if (sourceNode && !isNodeBinary(sourceNode)) {
         errors.push({
           code: 'INVALID_NODE_CONSTRAINT',
           edge_id: edgeId,
-          message: `noisy_or requires binary source node, but '${edge.from}' is not binary`,
+          message: `${funcName} requires binary source node, but '${edge.from}' is not binary`,
           constraint: 'binary_parent',
         });
       }
@@ -464,7 +604,7 @@ export function validateNodeConstraints(
         errors.push({
           code: 'INVALID_NODE_CONSTRAINT',
           edge_id: edgeId,
-          message: `noisy_or requires binary target node, but '${edge.to}' is not binary`,
+          message: `${funcName} requires binary target node, but '${edge.to}' is not binary`,
           constraint: 'binary_target',
         });
       }

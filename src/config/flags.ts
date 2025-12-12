@@ -38,6 +38,10 @@ export const FLAGS = {
   get ENABLE_LOGISTIC() {
     return process.env.ENABLE_LOGISTIC === '1' || process.env.ENABLE_LOGISTIC === 'true';
   },
+  /** Enable Noisy-AND-NOT functional form for preventative causes (Brief 17) */
+  get ENABLE_NOISY_AND_NOT() {
+    return process.env.ENABLE_NOISY_AND_NOT === '1' || process.env.ENABLE_NOISY_AND_NOT === 'true';
+  },
   // Brief 8: Sampling Engine & Caching flags
   /** Enable trace caching for simulation results */
   get ENABLE_TRACE_CACHING() {

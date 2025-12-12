@@ -229,10 +229,18 @@ export const VALID_EDGE_TYPES: readonly EdgeType[] = ['functional', 'structural'
  * - s_curve: y = 1 / (1 + e^(-k*(x - m))) — logistic/sigmoid transition
  *
  * EdgeV2 additions (flag-gated):
- * - noisy_or: P(Y=1) = 1 - ∏(1 - w_i * X_i) — for binary nodes with multiple binary parents
+ * - noisy_or: P(Y=1) = 1 - (1-leak) * ∏(1 - w_i * X_i) — generative causes with leak parameter
+ * - noisy_and_not: P(Y=1) = base_rate * ∏(1 - w_i * X_i) — preventative causes
  * - logistic: P(Y=1) = 1 / (1 + e^(-k*(X - threshold))) — continuous→binary transitions
+ *
+ * Use cases:
+ * - noisy_or: Generative causes where multiple parents can independently cause the effect
+ *   Example: "Marketing OR word-of-mouth OR price drop → Purchase"
+ * - noisy_and_not: Preventative causes where active parents REDUCE probability
+ *   Example: "Safety training reduces accident probability"
+ *   Example: "Competitor entry reduces market share"
  */
-export type EdgeFunctionType = 'linear' | 'diminishing_returns' | 'threshold' | 's_curve' | 'noisy_or' | 'logistic';
+export type EdgeFunctionType = 'linear' | 'diminishing_returns' | 'threshold' | 's_curve' | 'noisy_or' | 'noisy_and_not' | 'logistic';
 
 /** Alias for EdgeFunctionType - used in EdgeV2 schema */
 export type FunctionalForm = EdgeFunctionType;
@@ -244,6 +252,7 @@ export const VALID_EDGE_FUNCTION_TYPES: readonly EdgeFunctionType[] = [
   'threshold',
   's_curve',
   'noisy_or',
+  'noisy_and_not',
   'logistic',
 ];
 
@@ -259,6 +268,19 @@ export interface EdgeFunctionParams {
   midpoint?: number;
   /** Post-threshold slope for threshold function (default: 1) */
   slope?: number;
+  /**
+   * Leak parameter for noisy_or: background probability Y=1 even when all parents are 0.
+   * Range: 0-1, default: 0.01
+   * When leak=0, pure Noisy-OR behaviour (backward compatible).
+   * When leak=0.01, 1% background probability (sensible default).
+   */
+  leak?: number;
+  /**
+   * Base rate for noisy_and_not: probability Y=1 when no preventative parents are active.
+   * Range: 0-1, required for noisy_and_not.
+   * Each active parent with weight w_i reduces probability: P(Y=1) = base_rate * ∏(1 - w_i * X_i)
+   */
+  base_rate?: number;
 }
 
 /**
