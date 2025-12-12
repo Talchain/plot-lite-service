@@ -105,8 +105,12 @@ export const WEIGHT_SCHEMAS: Record<WeightSchemaVersion, WeightSchemaMetadata> =
 
 /**
  * Default weight schema version for new graphs
+ *
+ * Brief 21: Changed from 'v2' to 'v1' because probability-semantic functional forms
+ * (noisy_or, noisy_and_not) require weights in [0, 1]. Powers > 1 break probability
+ * semantics because 1 - w*x can become negative when w > 1 and x = 1.
  */
-export const DEFAULT_WEIGHT_SCHEMA: WeightSchemaVersion = 'v2';
+export const DEFAULT_WEIGHT_SCHEMA: WeightSchemaVersion = 'v1';
 
 /**
  * Internal processing schema (always unbounded)
@@ -317,6 +321,35 @@ export function detectWeightSchema(weights: number[]): WeightSchemaVersion {
 // ============================================================================
 
 /**
+ * Weight Semantics Documentation (Brief 21)
+ *
+ * For probability-semantic functional forms (noisy_or, noisy_and_not), weights
+ * have special meaning:
+ *
+ * ## Noisy-OR Weights (Causal Power)
+ * - Range: [0, 1]
+ * - Meaning: P(Y=1 | parent_i=1, other parents=0) = weight_i
+ * - Weight = 0: Parent has no causal influence
+ * - Weight = 1: Parent deterministically causes Y=1
+ * - Example: weight=0.7 means "70% chance this parent causes Y"
+ *
+ * ## Noisy-AND-NOT Weights (Preventative Power)
+ * - Range: [0, 1]
+ * - Meaning: P(Y survives | parent_i=1) = 1 - weight_i
+ * - Weight = 0: Parent has no preventative effect
+ * - Weight = 1: Parent completely prevents Y=1
+ * - Example: weight=0.8 means "80% reduction in probability when parent active"
+ *
+ * ## Why [0, 1] is Required
+ * The formulas 1 - w*x can produce invalid probabilities (negative values)
+ * when w > 1 and x = 1. This breaks the probability semantics of the model.
+ *
+ * ## Linear Weights
+ * For linear edges, weights can be in any range [-3, +3] or unbounded.
+ * Linear weights represent multiplicative strength factors, not probabilities.
+ */
+
+/**
  * Migration path documentation
  */
 export const WEIGHT_MIGRATION_GUIDE = {
@@ -426,5 +459,143 @@ export function getMigrationPath(
     warning: path.reversible
       ? undefined
       : 'This migration may lose information due to clamping.',
+  };
+}
+
+// ============================================================================
+// Probability-Semantic Weight Migration (Brief 21)
+// ============================================================================
+
+/**
+ * Result of migrating a weight to probability range [0, 1]
+ */
+export interface ProbabilityWeightResult {
+  /** Migrated weight in [0, 1] */
+  weight: number;
+  /** Original weight value */
+  original: number;
+  /** Whether the weight was modified */
+  modified: boolean;
+  /** Whether the weight was clamped (information lost) */
+  clamped: boolean;
+  /** Human-readable description of the transformation */
+  description: string;
+  /** Warning if applicable */
+  warning?: string;
+}
+
+/**
+ * Migrate a weight to probability range [0, 1] for use with Noisy-OR/AND-NOT.
+ *
+ * Brief 21: Powers > 1 break probability semantics because 1 - w*x can become
+ * negative when w > 1 and x = 1. This function safely converts weights to [0, 1].
+ *
+ * Conversion semantics:
+ * - Weights in [0, 1]: Used as-is (no conversion)
+ * - Weights in (1, 3]: Scaled down: w' = w / 3 (v2 → probability)
+ * - Weights > 3: Clamped to 1 with warning
+ * - Negative weights: For Noisy-OR (generative), take absolute value
+ *                     For Noisy-AND-NOT (preventative), take absolute value
+ *
+ * @param weight - Original weight value
+ * @param sourceSchema - Source schema version (default: auto-detect)
+ * @returns Probability weight result with metadata
+ */
+export function migrateWeightToProbability(
+  weight: number,
+  sourceSchema?: WeightSchemaVersion
+): ProbabilityWeightResult {
+  // Auto-detect source schema if not specified
+  const detectedSchema = sourceSchema ?? detectWeightSchema([weight]);
+  const absWeight = Math.abs(weight);
+
+  // Case 1: Already in [0, 1]
+  if (absWeight >= 0 && absWeight <= 1) {
+    return {
+      weight: absWeight,
+      original: weight,
+      modified: weight < 0,
+      clamped: false,
+      description: weight < 0
+        ? `Negative weight ${weight} converted to absolute value ${absWeight}`
+        : `Weight ${weight} already in probability range [0, 1]`,
+    };
+  }
+
+  // Case 2: In v2 range (1, 3] - scale proportionally
+  if (absWeight > 1 && absWeight <= 3) {
+    // Scale from [0, 3] to [0, 1]
+    const scaledWeight = absWeight / 3;
+    return {
+      weight: scaledWeight,
+      original: weight,
+      modified: true,
+      clamped: false,
+      description: `Weight ${weight} (${detectedSchema} schema) scaled to probability ${scaledWeight.toFixed(3)}`,
+    };
+  }
+
+  // Case 3: Outside [0, 3] - clamp with warning
+  return {
+    weight: 1,
+    original: weight,
+    modified: true,
+    clamped: true,
+    description: `Weight ${weight} clamped to 1 (maximum probability)`,
+    warning: `Weight ${weight} exceeds maximum causal/preventative power. Information lost.`,
+  };
+}
+
+/**
+ * Migrate all edges with probability-semantic functional forms (noisy_or, noisy_and_not)
+ * to use weights in [0, 1] range.
+ *
+ * @param edges - Array of edges to migrate
+ * @returns Migrated edges with summary
+ */
+export function migrateEdgesToProbabilityWeights(
+  edges: Array<{ from: string; to: string; weight?: number; function_type?: string; functional_form?: string; [key: string]: any }>
+): {
+  edges: Array<{ from: string; to: string; weight?: number; function_type?: string; functional_form?: string; [key: string]: any }>;
+  migrated_count: number;
+  clamped_count: number;
+  warnings: string[];
+} {
+  const warnings: string[] = [];
+  let migratedCount = 0;
+  let clampedCount = 0;
+
+  const migratedEdges = edges.map((edge) => {
+    // Only migrate edges with probability-semantic forms
+    const functionType = edge.functional_form ?? edge.function_type;
+    if (functionType !== 'noisy_or' && functionType !== 'noisy_and_not') {
+      return edge;
+    }
+
+    // Skip if no weight or already in range
+    if (edge.weight === undefined || (edge.weight >= 0 && edge.weight <= 1)) {
+      return edge;
+    }
+
+    const result = migrateWeightToProbability(edge.weight);
+    if (result.modified) {
+      migratedCount++;
+    }
+    if (result.clamped) {
+      clampedCount++;
+      warnings.push(`Edge ${edge.from}->${edge.to}: ${result.warning}`);
+    }
+
+    return {
+      ...edge,
+      weight: result.weight,
+    };
+  });
+
+  return {
+    edges: migratedEdges,
+    migrated_count: migratedCount,
+    clamped_count: clampedCount,
+    warnings,
   };
 }

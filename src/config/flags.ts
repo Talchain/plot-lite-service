@@ -42,6 +42,10 @@ export const FLAGS = {
   get ENABLE_NOISY_AND_NOT() {
     return process.env.ENABLE_NOISY_AND_NOT === '1' || process.env.ENABLE_NOISY_AND_NOT === 'true';
   },
+  /** Enable mixed cause combination for nodes with both generative and preventative parents (Brief 22) */
+  get ENABLE_MIXED_COMBINATION() {
+    return process.env.ENABLE_MIXED_COMBINATION === '1' || process.env.ENABLE_MIXED_COMBINATION === 'true';
+  },
   // Brief 8: Sampling Engine & Caching flags
   /** Enable trace caching for simulation results */
   get ENABLE_TRACE_CACHING() {

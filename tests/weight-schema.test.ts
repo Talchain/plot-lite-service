@@ -43,8 +43,9 @@ describe('Weight Schema Definitions', () => {
     expect(v3.ui_default).toBe(false);
   });
 
-  it('default schema is v2', () => {
-    expect(DEFAULT_WEIGHT_SCHEMA).toBe('v2');
+  it('default schema is v1 (Brief 21: probability semantics)', () => {
+    // Brief 21: Changed from v2 to v1 because noisy_or/noisy_and_not require [0,1] weights
+    expect(DEFAULT_WEIGHT_SCHEMA).toBe('v1');
   });
 
   it('internal schema is v3 (unbounded)', () => {

@@ -120,6 +120,16 @@ export function validateEdgeFunctionParams(
           edge_id: edgeId,
         };
       }
+      // Brief 21: Validate weight in [0, 1] for probability semantics
+      // Powers > 1 break Noisy-OR because 1 - w*x can become negative when w > 1 and x = 1
+      if (edge.weight !== undefined && (edge.weight < 0 || edge.weight > 1)) {
+        return {
+          code: 'INVALID_FUNCTION_PARAMS',
+          field: 'weight',
+          message: `noisy_or requires weight in [0, 1] (causal power). Got ${edge.weight}. Use migrateWeightToProbability() to convert.`,
+          edge_id: edgeId,
+        };
+      }
       // Validate leak parameter if provided (optional, default 0.01)
       if (params.leak !== undefined) {
         if (params.leak < 0 || params.leak > 1) {
@@ -141,6 +151,16 @@ export function validateEdgeFunctionParams(
           code: 'INVALID_FUNCTION_PARAMS',
           field: 'function_type',
           message: `noisy_and_not is disabled. Set ENABLE_NOISY_AND_NOT=true to enable.`,
+          edge_id: edgeId,
+        };
+      }
+      // Brief 21: Validate weight in [0, 1] for probability semantics
+      // Powers > 1 break Noisy-AND-NOT because 1 - w*x can become negative when w > 1 and x = 1
+      if (edge.weight !== undefined && (edge.weight < 0 || edge.weight > 1)) {
+        return {
+          code: 'INVALID_FUNCTION_PARAMS',
+          field: 'weight',
+          message: `noisy_and_not requires weight in [0, 1] (preventative power). Got ${edge.weight}. Use migrateWeightToProbability() to convert.`,
           edge_id: edgeId,
         };
       }
@@ -195,6 +215,49 @@ export function validateEdgeFunctionParams(
           code: 'INVALID_FUNCTION_PARAMS',
           field: 'function_params.threshold',
           message: `logistic requires threshold parameter`,
+          edge_id: edgeId,
+        };
+      }
+      return null;
+
+    case 'mixed':
+      // Mixed combination requires flag to be enabled
+      if (!FLAGS.ENABLE_MIXED_COMBINATION) {
+        return {
+          code: 'INVALID_FUNCTION_PARAMS',
+          field: 'function_type',
+          message: `mixed is disabled. Set ENABLE_MIXED_COMBINATION=true to enable.`,
+          edge_id: edgeId,
+        };
+      }
+      // Validate base_rate if provided
+      if (params.base_rate !== undefined) {
+        if (params.base_rate < 0 || params.base_rate > 1) {
+          return {
+            code: 'INVALID_FUNCTION_PARAMS',
+            field: 'function_params.base_rate',
+            message: `base_rate must be in range [0, 1] (got ${params.base_rate})`,
+            edge_id: edgeId,
+          };
+        }
+      }
+      // Validate leak if provided
+      if (params.leak !== undefined) {
+        if (params.leak < 0 || params.leak > 1) {
+          return {
+            code: 'INVALID_FUNCTION_PARAMS',
+            field: 'function_params.leak',
+            message: `leak must be in range [0, 1] (got ${params.leak})`,
+            edge_id: edgeId,
+          };
+        }
+      }
+      // Validate logistic_k if provided
+      if (params.logistic_k !== undefined && params.logistic_k <= 0) {
+        return {
+          code: 'INVALID_FUNCTION_PARAMS',
+          field: 'function_params.logistic_k',
+          message: `logistic_k must be > 0 (got ${params.logistic_k})`,
           edge_id: edgeId,
         };
       }
@@ -562,6 +625,205 @@ export function isNodeBinary(node: { kind?: string; value?: number }): boolean {
 
   // Default to not binary (continuous assumed)
   return false;
+}
+
+/**
+ * Mixed Cause Combination (Brief 22)
+ *
+ * Handles nodes with both generative (positive weight) and preventative (negative weight) parents.
+ *
+ * Formula: P(Y=1) = base_rate × ∏(1 - |w_neg| × X_neg) × [1 - (1-leak) × ∏(1 - w_pos × X_pos)]
+ *
+ * This is Noisy-OR wrapped in Noisy-AND-NOT:
+ * - Noisy-OR: handles generative causes (positive weights)
+ * - Noisy-AND-NOT: handles preventative causes (negative weights → take absolute value)
+ *
+ * Parent Classification:
+ * - Positive weight → generative cause (contributes via Noisy-OR)
+ * - Negative weight → preventative cause (contributes via Noisy-AND-NOT, |weight| used)
+ * - Weight = 0 → no contribution
+ */
+
+/**
+ * Classify a parent as generative or preventative based on weight sign
+ */
+export type ParentClassification = 'generative' | 'preventative' | 'neutral';
+
+/**
+ * Classify parent based on edge weight
+ *
+ * @param weight - Edge weight
+ * @returns Classification: generative (positive), preventative (negative), or neutral (zero)
+ */
+export function classifyParent(weight: number): ParentClassification {
+  if (weight > 0) return 'generative';
+  if (weight < 0) return 'preventative';
+  return 'neutral';
+}
+
+/**
+ * Result of parent classification for a node
+ */
+export interface ClassifiedParents {
+  /** Generative parents (positive weights) */
+  generative: Array<{ parentId: string; weight: number; value: number }>;
+  /** Preventative parents (negative weights) */
+  preventative: Array<{ parentId: string; weight: number; value: number }>;
+  /** Neutral parents (zero weights) */
+  neutral: Array<{ parentId: string; weight: number; value: number }>;
+}
+
+/**
+ * Classify all parents of a node by weight sign
+ *
+ * @param parents - Array of parent info with weights and values
+ * @returns Classified parents grouped by type
+ */
+export function classifyAllParents(
+  parents: Array<{ parentId: string; weight: number; value: number }>
+): ClassifiedParents {
+  const result: ClassifiedParents = {
+    generative: [],
+    preventative: [],
+    neutral: [],
+  };
+
+  for (const parent of parents) {
+    const classification = classifyParent(parent.weight);
+    result[classification].push(parent);
+  }
+
+  return result;
+}
+
+/**
+ * Configuration for mixed combination
+ */
+export interface MixedCombinationConfig {
+  /** Base rate for preventative component (default: 1.0 - no base prevention) */
+  base_rate?: number;
+  /** Leak for generative component (default: 0.01) */
+  leak?: number;
+  /** Alternative combination mode */
+  mode?: 'nested' | 'logistic';
+  /** Logistic steepness (for logistic mode) */
+  logistic_k?: number;
+}
+
+/**
+ * Aggregate mixed causes (generative and preventative) into final probability.
+ *
+ * Brief 22: Nested combination formula:
+ * P(Y=1) = base_rate × ∏(1 - |w_neg| × X_neg) × [1 - (1-leak) × ∏(1 - w_pos × X_pos)]
+ *
+ * This is evaluated as:
+ * 1. Compute Noisy-OR for generative parents: P_gen = aggregateNoisyOr(generative_activations, leak)
+ * 2. Compute Noisy-AND-NOT factor: factor_prev = ∏(1 - |w_neg| × X_neg)
+ * 3. Combine: P(Y=1) = base_rate × factor_prev × P_gen
+ *
+ * @param classifiedParents - Parents classified by weight sign
+ * @param config - Configuration for combination
+ * @returns Final probability P(Y=1)
+ */
+export function aggregateMixedCauses(
+  classifiedParents: ClassifiedParents,
+  config: MixedCombinationConfig = {}
+): number {
+  const { base_rate = 1.0, leak = 0.01, mode = 'nested' } = config;
+
+  // Clamp config values
+  const clampedBaseRate = Math.max(0, Math.min(1, base_rate));
+  const clampedLeak = Math.max(0, Math.min(1, leak));
+
+  if (mode === 'logistic') {
+    // Alternative logistic combination (Brief 22 Task 4)
+    return aggregateMixedCausesLogistic(classifiedParents, config);
+  }
+
+  // Default: nested combination (Noisy-OR wrapped in Noisy-AND-NOT)
+
+  // Step 1: Compute generative activations for Noisy-OR
+  const generativeActivations: number[] = classifiedParents.generative.map((p) => {
+    const clampedWeight = Math.max(0, Math.min(1, p.weight));
+    const clampedValue = Math.max(0, Math.min(1, p.value));
+    return clampedWeight * clampedValue;
+  });
+
+  // Step 2: Compute Noisy-OR probability for generative causes
+  const pGenerative = aggregateNoisyOr(generativeActivations, clampedLeak);
+
+  // Step 3: Compute preventative factors for Noisy-AND-NOT
+  // Note: preventative weights are negative, so we use absolute value
+  const preventativeFactors: number[] = classifiedParents.preventative.map((p) => {
+    const clampedWeight = Math.max(0, Math.min(1, Math.abs(p.weight)));
+    const clampedValue = Math.max(0, Math.min(1, p.value));
+    return 1 - clampedWeight * clampedValue;
+  });
+
+  // Step 4: Compute product of preventative factors
+  let preventativeFactor = 1;
+  for (const factor of preventativeFactors) {
+    preventativeFactor *= factor;
+  }
+
+  // Step 5: Combine with nested formula
+  // P(Y=1) = base_rate × preventative_factor × P_generative
+  return clampedBaseRate * preventativeFactor * pGenerative;
+}
+
+/**
+ * Alternative logistic combination for mixed causes.
+ *
+ * Brief 22 Task 4: Instead of nested Noisy-OR/AND-NOT, use logistic function
+ * on the weighted sum of all parent contributions.
+ *
+ * Formula: P(Y=1) = 1 / (1 + exp(-k × (sum_generative - sum_preventative + bias)))
+ *
+ * @param classifiedParents - Parents classified by weight sign
+ * @param config - Configuration including logistic_k
+ * @returns Final probability P(Y=1)
+ */
+export function aggregateMixedCausesLogistic(
+  classifiedParents: ClassifiedParents,
+  config: MixedCombinationConfig = {}
+): number {
+  const { logistic_k = 4, base_rate = 0.5 } = config;
+
+  // Compute weighted sum of generative contributions
+  let sumGenerative = 0;
+  for (const p of classifiedParents.generative) {
+    const clampedWeight = Math.max(0, Math.min(1, p.weight));
+    const clampedValue = Math.max(0, Math.min(1, p.value));
+    sumGenerative += clampedWeight * clampedValue;
+  }
+
+  // Compute weighted sum of preventative contributions (absolute value)
+  let sumPreventative = 0;
+  for (const p of classifiedParents.preventative) {
+    const clampedWeight = Math.max(0, Math.min(1, Math.abs(p.weight)));
+    const clampedValue = Math.max(0, Math.min(1, p.value));
+    sumPreventative += clampedWeight * clampedValue;
+  }
+
+  // Compute bias from base_rate: logit(base_rate) = log(base_rate / (1 - base_rate))
+  let bias = 0;
+  if (base_rate > 0 && base_rate < 1) {
+    bias = Math.log(base_rate / (1 - base_rate));
+  } else if (base_rate >= 1) {
+    bias = 10; // Large positive bias
+  } else {
+    bias = -10; // Large negative bias
+  }
+
+  // Logistic transformation
+  const linearSum = sumGenerative - sumPreventative + bias / logistic_k;
+  const exponent = -logistic_k * linearSum;
+
+  // Prevent overflow
+  if (exponent > 700) return 0;
+  if (exponent < -700) return 1;
+
+  return 1 / (1 + Math.exp(exponent));
 }
 
 /**

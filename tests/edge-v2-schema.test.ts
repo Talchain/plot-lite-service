@@ -13,6 +13,10 @@ import {
   aggregateNoisyAndNot,
   isNodeBinary,
   validateNodeConstraints,
+  classifyParent,
+  classifyAllParents,
+  aggregateMixedCauses,
+  aggregateMixedCausesLogistic,
 } from '../src/engine/edge-functions.js';
 import {
   migrateEdgeToV2,
@@ -22,6 +26,11 @@ import {
   getFunctionalForm,
   sampleWeightWithVariance,
 } from '../src/engine/edge-migration.js';
+import {
+  DEFAULT_WEIGHT_SCHEMA,
+  migrateWeightToProbability,
+  migrateEdgesToProbabilityWeights,
+} from '../src/engine/weight-schema.js';
 import { FLAGS } from '../src/config/flags.js';
 import type { GraphEdge } from '../src/trust/types.js';
 
@@ -959,6 +968,571 @@ describe('Noisy-AND-NOT Functional Form (Brief 17)', () => {
       // P(loss | hedging=1) = 0.4 * (1 - 0.9 * 1) = 0.4 * 0.1 = 0.04
       const factors = [0.1]; // Factor from hedge with weight=0.9
       expect(aggregateNoisyAndNot(factors, 0.4)).toBeCloseTo(0.04);
+    });
+  });
+});
+
+/**
+ * Brief 21: Weight Range Normalisation Tests
+ *
+ * Powers > 1 break probability semantics in Noisy-OR/AND-NOT because
+ * 1 - w*x can become negative when w > 1 and x = 1.
+ */
+describe('Weight Range Normalisation (Brief 21)', () => {
+  describe('default weight schema', () => {
+    it('default weight schema is v1 ([-1, +1])', () => {
+      expect(DEFAULT_WEIGHT_SCHEMA).toBe('v1');
+    });
+  });
+
+  describe('noisy_or weight validation', () => {
+    beforeEach(() => {
+      vi.stubEnv('ENABLE_NOISY_OR', '1');
+    });
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it('accepts weight in [0, 1]', () => {
+      const edge: GraphEdge = {
+        from: 'A',
+        to: 'B',
+        weight: 0.8,
+        functional_form: 'noisy_or',
+      };
+      expect(validateEdgeFunctionParams(edge)).toBeNull();
+    });
+
+    it('accepts weight = 0', () => {
+      const edge: GraphEdge = {
+        from: 'A',
+        to: 'B',
+        weight: 0,
+        functional_form: 'noisy_or',
+      };
+      expect(validateEdgeFunctionParams(edge)).toBeNull();
+    });
+
+    it('accepts weight = 1', () => {
+      const edge: GraphEdge = {
+        from: 'A',
+        to: 'B',
+        weight: 1,
+        functional_form: 'noisy_or',
+      };
+      expect(validateEdgeFunctionParams(edge)).toBeNull();
+    });
+
+    it('rejects negative weight', () => {
+      const edge: GraphEdge = {
+        from: 'A',
+        to: 'B',
+        weight: -0.5,
+        functional_form: 'noisy_or',
+      };
+      const error = validateEdgeFunctionParams(edge);
+      expect(error).not.toBeNull();
+      expect(error?.field).toBe('weight');
+      expect(error?.message).toContain('noisy_or requires weight in [0, 1]');
+      expect(error?.message).toContain('migrateWeightToProbability()');
+    });
+
+    it('rejects weight > 1', () => {
+      const edge: GraphEdge = {
+        from: 'A',
+        to: 'B',
+        weight: 2.5,
+        functional_form: 'noisy_or',
+      };
+      const error = validateEdgeFunctionParams(edge);
+      expect(error).not.toBeNull();
+      expect(error?.message).toContain('noisy_or requires weight in [0, 1]');
+    });
+
+    it('allows undefined weight (defaults to 1)', () => {
+      const edge: GraphEdge = {
+        from: 'A',
+        to: 'B',
+        functional_form: 'noisy_or',
+      };
+      expect(validateEdgeFunctionParams(edge)).toBeNull();
+    });
+  });
+
+  describe('noisy_and_not weight validation', () => {
+    beforeEach(() => {
+      vi.stubEnv('ENABLE_NOISY_AND_NOT', '1');
+    });
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it('accepts weight in [0, 1]', () => {
+      const edge: GraphEdge = {
+        from: 'A',
+        to: 'B',
+        weight: 0.7,
+        functional_form: 'noisy_and_not',
+        function_params: { base_rate: 0.5 },
+      };
+      expect(validateEdgeFunctionParams(edge)).toBeNull();
+    });
+
+    it('rejects negative weight', () => {
+      const edge: GraphEdge = {
+        from: 'A',
+        to: 'B',
+        weight: -0.3,
+        functional_form: 'noisy_and_not',
+        function_params: { base_rate: 0.5 },
+      };
+      const error = validateEdgeFunctionParams(edge);
+      expect(error).not.toBeNull();
+      expect(error?.field).toBe('weight');
+      expect(error?.message).toContain('noisy_and_not requires weight in [0, 1]');
+    });
+
+    it('rejects weight > 1', () => {
+      const edge: GraphEdge = {
+        from: 'A',
+        to: 'B',
+        weight: 1.5,
+        functional_form: 'noisy_and_not',
+        function_params: { base_rate: 0.5 },
+      };
+      const error = validateEdgeFunctionParams(edge);
+      expect(error).not.toBeNull();
+      expect(error?.message).toContain('noisy_and_not requires weight in [0, 1]');
+    });
+  });
+
+  describe('migrateWeightToProbability', () => {
+    it('keeps weights in [0, 1] unchanged', () => {
+      const result = migrateWeightToProbability(0.5);
+      expect(result.weight).toBe(0.5);
+      expect(result.modified).toBe(false);
+      expect(result.clamped).toBe(false);
+    });
+
+    it('converts negative weight to absolute value', () => {
+      const result = migrateWeightToProbability(-0.7);
+      expect(result.weight).toBe(0.7);
+      expect(result.modified).toBe(true);
+      expect(result.clamped).toBe(false);
+    });
+
+    it('scales v2 weight (1, 3] proportionally', () => {
+      // weight = 1.5 should become 1.5/3 = 0.5
+      const result = migrateWeightToProbability(1.5);
+      expect(result.weight).toBeCloseTo(0.5);
+      expect(result.modified).toBe(true);
+      expect(result.clamped).toBe(false);
+    });
+
+    it('scales weight = 3 to probability 1', () => {
+      const result = migrateWeightToProbability(3);
+      expect(result.weight).toBeCloseTo(1);
+      expect(result.modified).toBe(true);
+    });
+
+    it('clamps weight > 3 with warning', () => {
+      const result = migrateWeightToProbability(5);
+      expect(result.weight).toBe(1);
+      expect(result.modified).toBe(true);
+      expect(result.clamped).toBe(true);
+      expect(result.warning).toContain('exceeds maximum');
+    });
+
+    it('handles boundary cases', () => {
+      expect(migrateWeightToProbability(0).weight).toBe(0);
+      expect(migrateWeightToProbability(1).weight).toBe(1);
+      expect(migrateWeightToProbability(1.001).weight).toBeCloseTo(0.3337, 3);
+    });
+  });
+
+  describe('migrateEdgesToProbabilityWeights', () => {
+    it('migrates noisy_or edges with out-of-range weights', () => {
+      const edges = [
+        { from: 'A', to: 'B', weight: 2.0, functional_form: 'noisy_or' },
+        { from: 'B', to: 'C', weight: 0.5, functional_form: 'noisy_or' },
+      ];
+
+      const result = migrateEdgesToProbabilityWeights(edges);
+
+      expect(result.migrated_count).toBe(1);
+      expect(result.edges[0].weight).toBeCloseTo(0.667, 2); // 2/3
+      expect(result.edges[1].weight).toBe(0.5); // unchanged
+    });
+
+    it('migrates noisy_and_not edges with out-of-range weights', () => {
+      const edges = [
+        { from: 'A', to: 'B', weight: 1.5, functional_form: 'noisy_and_not', function_params: { base_rate: 0.5 } },
+      ];
+
+      const result = migrateEdgesToProbabilityWeights(edges);
+
+      expect(result.migrated_count).toBe(1);
+      expect(result.edges[0].weight).toBeCloseTo(0.5, 2); // 1.5/3
+    });
+
+    it('does not migrate linear edges', () => {
+      const edges = [
+        { from: 'A', to: 'B', weight: 2.0, functional_form: 'linear' },
+        { from: 'B', to: 'C', weight: 3.0 }, // no function_type = linear
+      ];
+
+      const result = migrateEdgesToProbabilityWeights(edges);
+
+      expect(result.migrated_count).toBe(0);
+      expect(result.edges[0].weight).toBe(2.0);
+      expect(result.edges[1].weight).toBe(3.0);
+    });
+
+    it('reports clamped weights in warnings', () => {
+      const edges = [
+        { from: 'A', to: 'B', weight: 5.0, functional_form: 'noisy_or' },
+      ];
+
+      const result = migrateEdgesToProbabilityWeights(edges);
+
+      expect(result.clamped_count).toBe(1);
+      expect(result.warnings.length).toBe(1);
+      expect(result.warnings[0]).toContain('A->B');
+    });
+
+    it('handles mixed edge types', () => {
+      const edges = [
+        { from: 'A', to: 'B', weight: 2.0, functional_form: 'noisy_or' },
+        { from: 'B', to: 'C', weight: 2.0, functional_form: 'linear' },
+        { from: 'C', to: 'D', weight: 2.0, functional_form: 'noisy_and_not', function_params: { base_rate: 0.5 } },
+        { from: 'D', to: 'E', weight: 0.5, functional_form: 'noisy_or' }, // already in range
+      ];
+
+      const result = migrateEdgesToProbabilityWeights(edges);
+
+      expect(result.migrated_count).toBe(2); // A->B and C->D
+      expect(result.edges[0].weight).toBeCloseTo(0.667, 2);
+      expect(result.edges[1].weight).toBe(2.0); // linear unchanged
+      expect(result.edges[2].weight).toBeCloseTo(0.667, 2);
+      expect(result.edges[3].weight).toBe(0.5); // already in range
+    });
+  });
+});
+
+/**
+ * Brief 22: Mixed Cause Combination Tests
+ *
+ * Tests for nodes with both generative (positive weight) and preventative (negative weight) parents.
+ */
+describe('Mixed Cause Combination (Brief 22)', () => {
+  describe('classifyParent', () => {
+    it('classifies positive weight as generative', () => {
+      expect(classifyParent(0.5)).toBe('generative');
+      expect(classifyParent(0.01)).toBe('generative');
+      expect(classifyParent(1.0)).toBe('generative');
+    });
+
+    it('classifies negative weight as preventative', () => {
+      expect(classifyParent(-0.5)).toBe('preventative');
+      expect(classifyParent(-0.01)).toBe('preventative');
+      expect(classifyParent(-1.0)).toBe('preventative');
+    });
+
+    it('classifies zero weight as neutral', () => {
+      expect(classifyParent(0)).toBe('neutral');
+    });
+  });
+
+  describe('classifyAllParents', () => {
+    it('groups parents by weight sign', () => {
+      const parents = [
+        { parentId: 'A', weight: 0.8, value: 1 },
+        { parentId: 'B', weight: -0.6, value: 1 },
+        { parentId: 'C', weight: 0.3, value: 0.5 },
+        { parentId: 'D', weight: 0, value: 1 },
+        { parentId: 'E', weight: -0.4, value: 0 },
+      ];
+
+      const result = classifyAllParents(parents);
+
+      expect(result.generative).toHaveLength(2);
+      expect(result.preventative).toHaveLength(2);
+      expect(result.neutral).toHaveLength(1);
+      expect(result.generative.map((p) => p.parentId)).toEqual(['A', 'C']);
+      expect(result.preventative.map((p) => p.parentId)).toEqual(['B', 'E']);
+      expect(result.neutral.map((p) => p.parentId)).toEqual(['D']);
+    });
+
+    it('handles empty parents', () => {
+      const result = classifyAllParents([]);
+      expect(result.generative).toHaveLength(0);
+      expect(result.preventative).toHaveLength(0);
+      expect(result.neutral).toHaveLength(0);
+    });
+  });
+
+  describe('aggregateMixedCauses (nested mode)', () => {
+    it('returns leak when no parents are active', () => {
+      const classified = {
+        generative: [],
+        preventative: [],
+        neutral: [],
+      };
+      // With no parents, only leak contributes
+      expect(aggregateMixedCauses(classified, { leak: 0.01 })).toBeCloseTo(0.01);
+    });
+
+    it('behaves like Noisy-OR with only generative parents', () => {
+      const classified = {
+        generative: [
+          { parentId: 'A', weight: 0.8, value: 1 },
+          { parentId: 'B', weight: 0.5, value: 1 },
+        ],
+        preventative: [],
+        neutral: [],
+      };
+      // P = 1 - (1-0.01) * (1-0.8) * (1-0.5) = 1 - 0.99 * 0.2 * 0.5 = 1 - 0.099 = 0.901
+      expect(aggregateMixedCauses(classified, { leak: 0.01 })).toBeCloseTo(0.901);
+    });
+
+    it('behaves like Noisy-AND-NOT with only preventative parents', () => {
+      const classified = {
+        generative: [],
+        preventative: [
+          { parentId: 'A', weight: -0.5, value: 1 }, // |weight| = 0.5
+          { parentId: 'B', weight: -0.3, value: 1 }, // |weight| = 0.3
+        ],
+        neutral: [],
+      };
+      // base_rate=0.8, leak=0.01
+      // preventative factor = (1-0.5) * (1-0.3) = 0.5 * 0.7 = 0.35
+      // generative P = 0.01 (leak only, no generative parents)
+      // Combined: 0.8 * 0.35 * 0.01 = 0.0028
+      expect(aggregateMixedCauses(classified, { base_rate: 0.8, leak: 0.01 })).toBeCloseTo(0.0028);
+    });
+
+    it('combines generative and preventative parents', () => {
+      const classified = {
+        generative: [
+          { parentId: 'A', weight: 0.8, value: 1 }, // High causal power
+        ],
+        preventative: [
+          { parentId: 'B', weight: -0.5, value: 1 }, // 50% prevention
+        ],
+        neutral: [],
+      };
+      // generative P = 1 - (1-0.01) * (1-0.8) = 1 - 0.99 * 0.2 = 0.802
+      // preventative factor = (1-0.5) = 0.5
+      // Combined: 1.0 * 0.5 * 0.802 = 0.401
+      expect(aggregateMixedCauses(classified, { base_rate: 1.0, leak: 0.01 })).toBeCloseTo(0.401);
+    });
+
+    it('handles inactive parents correctly', () => {
+      const classified = {
+        generative: [
+          { parentId: 'A', weight: 0.8, value: 0 }, // Inactive
+        ],
+        preventative: [
+          { parentId: 'B', weight: -0.5, value: 0 }, // Inactive
+        ],
+        neutral: [],
+      };
+      // With all parents inactive, only leak contributes
+      // generative P = 0.01 (leak only since activation = 0.8 * 0 = 0)
+      // preventative factor = 1 (no prevention since value = 0)
+      // Combined: 1.0 * 1 * 0.01 = 0.01
+      expect(aggregateMixedCauses(classified, { base_rate: 1.0, leak: 0.01 })).toBeCloseTo(0.01);
+    });
+  });
+
+  describe('aggregateMixedCausesLogistic', () => {
+    it('returns 0.5 when generative and preventative balance out', () => {
+      const classified = {
+        generative: [
+          { parentId: 'A', weight: 0.5, value: 1 },
+        ],
+        preventative: [
+          { parentId: 'B', weight: -0.5, value: 1 },
+        ],
+        neutral: [],
+      };
+      // sum_gen = 0.5, sum_prev = 0.5
+      // With bias = 0 (base_rate=0.5), linear sum = 0.5 - 0.5 + 0 = 0
+      // P = 1 / (1 + exp(0)) = 0.5
+      expect(aggregateMixedCausesLogistic(classified, { base_rate: 0.5 })).toBeCloseTo(0.5, 1);
+    });
+
+    it('returns high probability with generative dominance', () => {
+      const classified = {
+        generative: [
+          { parentId: 'A', weight: 0.8, value: 1 },
+        ],
+        preventative: [],
+        neutral: [],
+      };
+      // sum_gen = 0.8, sum_prev = 0
+      // P > 0.5
+      const result = aggregateMixedCausesLogistic(classified, { base_rate: 0.5, logistic_k: 4 });
+      expect(result).toBeGreaterThan(0.5);
+      expect(result).toBeGreaterThan(0.8); // Should be close to 1
+    });
+
+    it('returns low probability with preventative dominance', () => {
+      const classified = {
+        generative: [],
+        preventative: [
+          { parentId: 'A', weight: -0.8, value: 1 },
+        ],
+        neutral: [],
+      };
+      // sum_gen = 0, sum_prev = 0.8
+      // P < 0.5
+      const result = aggregateMixedCausesLogistic(classified, { base_rate: 0.5, logistic_k: 4 });
+      expect(result).toBeLessThan(0.5);
+      expect(result).toBeLessThan(0.2); // Should be close to 0
+    });
+
+    it('respects base_rate bias', () => {
+      const classified = {
+        generative: [],
+        preventative: [],
+        neutral: [],
+      };
+      // With no parents, P = base_rate
+      expect(aggregateMixedCausesLogistic(classified, { base_rate: 0.8 })).toBeCloseTo(0.8, 1);
+      expect(aggregateMixedCausesLogistic(classified, { base_rate: 0.2 })).toBeCloseTo(0.2, 1);
+    });
+  });
+
+  describe('mixed functional form validation', () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it('returns error when flag is disabled', () => {
+      vi.stubEnv('ENABLE_MIXED_COMBINATION', '0');
+      const edge: GraphEdge = {
+        from: 'A',
+        to: 'B',
+        functional_form: 'mixed',
+      };
+      const error = validateEdgeFunctionParams(edge);
+      expect(error).not.toBeNull();
+      expect(error?.message).toContain('mixed is disabled');
+    });
+
+    it('accepts valid mixed configuration', () => {
+      vi.stubEnv('ENABLE_MIXED_COMBINATION', '1');
+      const edge: GraphEdge = {
+        from: 'A',
+        to: 'B',
+        functional_form: 'mixed',
+        function_params: {
+          base_rate: 0.5,
+          leak: 0.01,
+          combination_mode: 'nested',
+        },
+      };
+      expect(validateEdgeFunctionParams(edge)).toBeNull();
+    });
+
+    it('rejects invalid base_rate', () => {
+      vi.stubEnv('ENABLE_MIXED_COMBINATION', '1');
+      const edge: GraphEdge = {
+        from: 'A',
+        to: 'B',
+        functional_form: 'mixed',
+        function_params: { base_rate: 1.5 },
+      };
+      const error = validateEdgeFunctionParams(edge);
+      expect(error).not.toBeNull();
+      expect(error?.message).toContain('base_rate must be in range [0, 1]');
+    });
+
+    it('rejects invalid leak', () => {
+      vi.stubEnv('ENABLE_MIXED_COMBINATION', '1');
+      const edge: GraphEdge = {
+        from: 'A',
+        to: 'B',
+        functional_form: 'mixed',
+        function_params: { leak: -0.1 },
+      };
+      const error = validateEdgeFunctionParams(edge);
+      expect(error).not.toBeNull();
+      expect(error?.message).toContain('leak must be in range [0, 1]');
+    });
+
+    it('rejects invalid logistic_k', () => {
+      vi.stubEnv('ENABLE_MIXED_COMBINATION', '1');
+      const edge: GraphEdge = {
+        from: 'A',
+        to: 'B',
+        functional_form: 'mixed',
+        function_params: { logistic_k: 0 },
+      };
+      const error = validateEdgeFunctionParams(edge);
+      expect(error).not.toBeNull();
+      expect(error?.message).toContain('logistic_k must be > 0');
+    });
+  });
+
+  describe('ENABLE_MIXED_COMBINATION flag', () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it('flag is read correctly', () => {
+      vi.stubEnv('ENABLE_MIXED_COMBINATION', '1');
+      expect(FLAGS.ENABLE_MIXED_COMBINATION).toBe(true);
+
+      vi.stubEnv('ENABLE_MIXED_COMBINATION', '0');
+      expect(FLAGS.ENABLE_MIXED_COMBINATION).toBe(false);
+
+      vi.stubEnv('ENABLE_MIXED_COMBINATION', 'true');
+      expect(FLAGS.ENABLE_MIXED_COMBINATION).toBe(true);
+    });
+  });
+
+  describe('real-world mixed cause scenarios', () => {
+    it('models marketing vs competitor pressure', () => {
+      // Marketing increases sales (generative), competitor actions reduce sales (preventative)
+      const classified = {
+        generative: [
+          { parentId: 'marketing', weight: 0.6, value: 1 },
+          { parentId: 'product_quality', weight: 0.5, value: 1 },
+        ],
+        preventative: [
+          { parentId: 'competitor_price_cut', weight: -0.4, value: 1 },
+          { parentId: 'economic_downturn', weight: -0.3, value: 0.5 },
+        ],
+        neutral: [],
+      };
+
+      const result = aggregateMixedCauses(classified, { base_rate: 0.8, leak: 0.01 });
+      // Generative: 1 - 0.99 * 0.4 * 0.5 = 0.802
+      // Preventative: (1-0.4) * (1-0.3*0.5) = 0.6 * 0.85 = 0.51
+      // Combined: 0.8 * 0.51 * 0.802 ≈ 0.327
+      expect(result).toBeGreaterThan(0.2);
+      expect(result).toBeLessThan(0.5);
+    });
+
+    it('models drug effectiveness vs side effects', () => {
+      // Drug treats disease (generative), side effects reduce effectiveness (preventative)
+      const classified = {
+        generative: [
+          { parentId: 'drug_dose', weight: 0.9, value: 1 },
+        ],
+        preventative: [
+          { parentId: 'side_effect_severity', weight: -0.3, value: 0.8 },
+        ],
+        neutral: [],
+      };
+
+      const result = aggregateMixedCauses(classified, { base_rate: 1.0, leak: 0.01 });
+      expect(result).toBeGreaterThan(0.5);
+      expect(result).toBeLessThan(0.9);
     });
   });
 });

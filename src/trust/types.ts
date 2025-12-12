@@ -240,7 +240,7 @@ export const VALID_EDGE_TYPES: readonly EdgeType[] = ['functional', 'structural'
  *   Example: "Safety training reduces accident probability"
  *   Example: "Competitor entry reduces market share"
  */
-export type EdgeFunctionType = 'linear' | 'diminishing_returns' | 'threshold' | 's_curve' | 'noisy_or' | 'noisy_and_not' | 'logistic';
+export type EdgeFunctionType = 'linear' | 'diminishing_returns' | 'threshold' | 's_curve' | 'noisy_or' | 'noisy_and_not' | 'logistic' | 'mixed';
 
 /** Alias for EdgeFunctionType - used in EdgeV2 schema */
 export type FunctionalForm = EdgeFunctionType;
@@ -254,6 +254,7 @@ export const VALID_EDGE_FUNCTION_TYPES: readonly EdgeFunctionType[] = [
   'noisy_or',
   'noisy_and_not',
   'logistic',
+  'mixed',
 ];
 
 /**
@@ -281,6 +282,17 @@ export interface EdgeFunctionParams {
    * Each active parent with weight w_i reduces probability: P(Y=1) = base_rate * ∏(1 - w_i * X_i)
    */
   base_rate?: number;
+  /**
+   * Combination mode for mixed functional form (Brief 22).
+   * - 'nested': Noisy-OR wrapped in Noisy-AND-NOT (default)
+   * - 'logistic': Logistic combination of all parent contributions
+   */
+  combination_mode?: 'nested' | 'logistic';
+  /**
+   * Logistic steepness for mixed combination (logistic mode only).
+   * Controls transition sharpness. Default: 4
+   */
+  logistic_k?: number;
 }
 
 /**
