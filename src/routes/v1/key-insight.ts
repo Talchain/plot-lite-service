@@ -26,6 +26,8 @@ import type {
   CeeKeyInsight,
   CeeKeyInsightRequestBody,
   ResponseWarning,
+  Goal,
+  GoalType,
 } from './types/key-insight.types.js';
 import type { RankingConfidence } from './types/run-bundle.types.js';
 import type { NodeKind } from '../../trust/types.js';
@@ -35,6 +37,138 @@ const MAX_NODES = 50;
 const MAX_EDGES = 200;
 const DEFAULT_K_SAMPLES = 32;
 const CEE_TIMEOUT_MS = Number(process.env.CEE_TIMEOUT_MS || 10_000);
+
+/**
+ * Patterns for classifying goal types
+ */
+const CONTINUOUS_PATTERNS = [
+  /reach\s+[\$£€]?\d/i,           // "Reach $20k", "Reach £20k"
+  /increase.*to\s+\d/i,           // "Increase to 100"
+  /reduce.*to\s+\d/i,             // "Reduce to 5%"
+  /grow.*to\s+\d/i,               // "Grow to $1M"
+  /achieve\s+\d/i,                // "Achieve 90%"
+  /hit\s+[\$£€]?\d/i,             // "Hit $50k"
+  /target[:\s]+[\$£€]?\d/i,       // "Target: $100k"
+  /\d+[%kKmM]\s*(mrr|arr|revenue|growth|churn|retention)/i,  // "20k MRR"
+  /(mrr|arr|revenue|growth|churn|retention).*\d+[%kKmM]/i,   // "MRR of 20k"
+  /under\s+\d/i,                  // "Keep under 5%"
+  /below\s+\d/i,                  // "Stay below 10%"
+  /above\s+\d/i,                  // "Maintain above 80%"
+  /at\s+least\s+\d/i,             // "At least 50"
+];
+
+const BINARY_PATTERNS = [
+  /^launch\b/i,                   // "Launch product"
+  /^get\s+.*approval/i,           // "Get board approval"
+  /^secure\b/i,                   // "Secure funding"
+  /^complete\b/i,                 // "Complete project"
+  /^finish\b/i,                   // "Finish migration"
+  /^deliver\b/i,                  // "Deliver MVP"
+  /^ship\b/i,                     // "Ship feature"
+  /^close\b/i,                    // "Close deal"
+  /^win\b/i,                      // "Win contract"
+  /^hire\b/i,                     // "Hire team lead"
+  /successfully$/i,               // "Launch successfully"
+  /\?$/,                          // Questions are binary (yes/no)
+];
+
+const COMPOUND_INDICATORS = [
+  /\s+and\s+/i,                   // "Reach 20k and keep churn under 4%"
+  /\s+\+\s+/,                     // "Goal A + Goal B"
+  /\s+while\s+/i,                 // "Grow revenue while reducing costs"
+  /\s+with\s+.*\d/i,              // "Launch with 90% satisfaction"
+];
+
+/**
+ * Classify a goal's type based on its label text
+ */
+export function classifyGoalType(label: string): GoalType {
+  const text = label.trim();
+
+  // Check for compound indicators first
+  for (const pattern of COMPOUND_INDICATORS) {
+    if (pattern.test(text)) {
+      return 'compound';
+    }
+  }
+
+  // Check for continuous patterns (measurable targets)
+  for (const pattern of CONTINUOUS_PATTERNS) {
+    if (pattern.test(text)) {
+      return 'continuous';
+    }
+  }
+
+  // Check for binary patterns (yes/no outcomes)
+  for (const pattern of BINARY_PATTERNS) {
+    if (pattern.test(text)) {
+      return 'binary';
+    }
+  }
+
+  // Default to continuous for goals with numbers, binary otherwise
+  if (/\d/.test(text)) {
+    return 'continuous';
+  }
+
+  return 'binary';
+}
+
+/**
+ * Extract goal nodes from a graph and determine the primary goal
+ *
+ * Primary goal selection priority:
+ * 1. First goal with highest weighted edge to a decision node
+ * 2. First goal in topological order (earliest in node list)
+ */
+export function extractGoals(
+  nodes: Array<{ id: string; label?: string; kind?: string }>,
+  edges: Array<{ from: string; to: string; weight?: number }>
+): { goals: Goal[]; primaryGoalId: string | null } {
+  // Find all goal nodes
+  const goalNodes = nodes.filter(n => n.kind === 'goal');
+
+  if (goalNodes.length === 0) {
+    return { goals: [], primaryGoalId: null };
+  }
+
+  // Find decision nodes for primary goal selection
+  const decisionNodeIds = new Set(
+    nodes.filter(n => n.kind === 'decision').map(n => n.id)
+  );
+
+  // Calculate goal weights based on connections to decisions
+  const goalWeights = new Map<string, number>();
+  for (const goal of goalNodes) {
+    let weight = 0;
+    for (const edge of edges) {
+      if (edge.from === goal.id && decisionNodeIds.has(edge.to)) {
+        weight += edge.weight ?? 1;
+      }
+    }
+    goalWeights.set(goal.id, weight);
+  }
+
+  // Sort goals: highest weight first, then by original order
+  const sortedGoals = [...goalNodes].sort((a, b) => {
+    const weightA = goalWeights.get(a.id) ?? 0;
+    const weightB = goalWeights.get(b.id) ?? 0;
+    if (weightB !== weightA) return weightB - weightA;
+    return nodes.indexOf(a) - nodes.indexOf(b);
+  });
+
+  const primaryGoalId = sortedGoals[0]?.id ?? null;
+
+  // Build Goal objects
+  const goals: Goal[] = sortedGoals.map(node => ({
+    id: node.id,
+    text: node.label || node.id,
+    type: classifyGoalType(node.label || node.id),
+    is_primary: node.id === primaryGoalId,
+  }));
+
+  return { goals, primaryGoalId };
+}
 
 /**
  * Call CEE /assist/v1/key-insight endpoint
@@ -331,7 +465,11 @@ export async function registerKeyInsightRoute(app: FastifyInstance) {
           .filter((k: string | undefined): k is string => !!k && VALID_NODE_KINDS.includes(k as NodeKind))
       )] as NodeKind[];
 
-      // Build CEE request body
+      // Extract goals from graph
+      const { goals, primaryGoalId } = extractGoals(graph.nodes, graph.edges);
+      const primaryGoal = goals.find(g => g.is_primary);
+
+      // Build CEE request body with goal context
       const ceeRequestBody: CeeKeyInsightRequestBody = {
         plot_request_id: requestId,
         graph_summary: {
@@ -342,6 +480,15 @@ export async function registerKeyInsightRoute(app: FastifyInstance) {
         ranked_actions: rankedActions,
         ranking_confidence: rankingConfidence,
         ...(body.context && { context: body.context }),
+        // Goal context (null if no goal nodes in graph)
+        goal_text: primaryGoal?.text ?? null,
+        goal_type: primaryGoal?.type ?? null,
+        goal_id: primaryGoal?.id ?? null,
+        // Multiple goals support (only when there are multiple goals with a valid primary)
+        ...(goals.length > 1 && primaryGoalId && {
+          goals,
+          primary_goal_id: primaryGoalId,
+        }),
       };
 
       // Call CEE if enabled
@@ -386,6 +533,9 @@ export async function registerKeyInsightRoute(app: FastifyInstance) {
         nodes: graph.nodes.length,
         edges: graph.edges.length,
         ranked_count: rankedActions.length,
+        goal_count: goals.length,
+        primary_goal_id: primaryGoalId,
+        primary_goal_type: primaryGoal?.type ?? null,
         provenance,
         duration_ms: duration,
       });

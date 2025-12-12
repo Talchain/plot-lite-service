@@ -9,6 +9,25 @@ import type { GraphNode, GraphEdge, NodeKind } from '../../../trust/types.js';
 import type { RankingConfidence } from './run-bundle.types.js';
 
 /**
+ * Goal type classification for CEE insight generation
+ */
+export type GoalType = 'binary' | 'continuous' | 'compound';
+
+/**
+ * Goal context for CEE key insight requests
+ */
+export interface Goal {
+  /** Goal node ID */
+  id: string;
+  /** Goal text/label */
+  text: string;
+  /** Goal type classification */
+  type: GoalType;
+  /** Whether this is the primary goal */
+  is_primary: boolean;
+}
+
+/**
  * Ranked action result from PLoT inference
  */
 export interface RankedAction {
@@ -131,4 +150,14 @@ export interface CeeKeyInsightRequestBody {
     question?: string;
     notes?: string;
   };
+  /** Primary goal text (null if no goal node in graph) */
+  goal_text: string | null;
+  /** Primary goal type classification */
+  goal_type: GoalType | null;
+  /** Primary goal node ID */
+  goal_id: string | null;
+  /** All goals when multiple goal nodes exist */
+  goals?: Goal[];
+  /** ID of the primary goal when multiple goals exist */
+  primary_goal_id?: string;
 }
