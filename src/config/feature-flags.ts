@@ -4,27 +4,44 @@
  */
 
 export const KNOWN_FEATURE_FLAGS = [
+  // Core inference
   'SCM_LITE_ENABLE',
-  'IDENT_TAG_ENABLE',
-  'PROVENANCE_ENABLE',
+  'PROD_SCM_LITE_PLACEHOLDER',
   'ADAPTIVE_K_ENABLE',
   'CONFIDENCE_CALIBRATED',
+  'IDENT_TAG_ENABLE',
+  'PROVENANCE_ENABLE',
+  // EdgeV2 / Brief 17-22 feature flags
+  'ENABLE_DUAL_BELIEFS',
+  'ENABLE_NOISY_OR',
+  'ENABLE_LOGISTIC',
+  'ENABLE_NOISY_AND_NOT',
+  'ENABLE_MIXED_COMBINATION',
+  // Brief 8: Sampling engine
+  'ENABLE_TRACE_CACHING',
+  'ENABLE_STRATIFIED_SAMPLING',
+  'ENABLE_IMPORTANCE_SAMPLING',
+  // Rate limiting & circuit breaker
+  'RATE_LIMIT_ENABLED',
+  'TOKEN_RL_ENABLE',
+  'RL_CB_ENABLE',
+  // Observability
   'PROMETHEUS_METRICS',
   'PROMETHEUS_ENABLE',
   'OPS_SNAPSHOT_ENABLE',
-  'TOKEN_RL_ENABLE',
-  'WHATIF_DELTA_ENABLE',
-  'RL_CB_ENABLE',
-  'STREAM_PARITY_ENABLE',
-  'FEATURE_STREAM',
-  'AUTH_ENABLED',
-  'RATE_LIMIT_ENABLED',
-  'TEST_ROUTES',
   'METRICS',
+  // Auth & security
+  'AUTH_ENABLED',
+  'TEST_ROUTES',
+  // Development
   'CORS_DEV',
   'OPENAPI_DEV',
   'COMPARE_VIEW_ENABLE',
   'INSPECTOR_DEBUG_ENABLE',
+  // Streaming
+  'FEATURE_STREAM',
+  'STREAM_PARITY_ENABLE',
+  'WHATIF_DELTA_ENABLE',
 ] as const;
 
 export function validateFeatureFlags(logger?: any): void {

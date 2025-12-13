@@ -252,12 +252,13 @@ export async function registerRunRoute(app: FastifyInstance) {
     
     // Validate constraints if present
     if (body.constraints) {
-      const nodeIds = new Set(graph.nodes.map((n: any) => n.id));
-      
+      // P1 fix: O(1) node lookup instead of O(n) per constraint
+      const nodeMap = new Map(graph.nodes.map((n: any) => [n.id, n]));
+
       // Validate bounds
       if (body.constraints.bounds) {
         for (const [nodeId, bounds] of Object.entries(body.constraints.bounds)) {
-          if (!nodeIds.has(nodeId)) {
+          if (!nodeMap.has(nodeId)) {
             req.log.info({ evt: 'constraints_violation', id: req.id, route: '/v1/run', reason: 'invalid_node_in_bounds', node: nodeId });
             return replyWithAppError(reply, {
               type: 'BAD_INPUT',
@@ -265,9 +266,9 @@ export async function registerRunRoute(app: FastifyInstance) {
               message: `Bounds constraint references non-existent node: ${nodeId}`,
             });
           }
-          
+
           // Check if any node values violate bounds (simplified check for now)
-          const node = graph.nodes.find((n: any) => n.id === nodeId);
+          const node = nodeMap.get(nodeId);
           if (node && typeof (node as any).value === 'number') {
             const val = (node as any).value;
             const b = bounds as any;
@@ -293,9 +294,10 @@ export async function registerRunRoute(app: FastifyInstance) {
       
       // Validate structure (forbid edges)
       if (body.constraints.structure?.forbid_edges) {
+        // P1 fix: O(E) edge set build + O(1) lookups instead of O(forbid × edges)
+        const edgeKeys = new Set(graph.edges.map((e: any) => `${e.from}→${e.to}`));
         for (const [from, to] of body.constraints.structure.forbid_edges) {
-          const forbiddenEdge = graph.edges.find((e: any) => e.from === from && e.to === to);
-          if (forbiddenEdge) {
+          if (edgeKeys.has(`${from}→${to}`)) {
             req.log.info({ evt: 'constraints_violation', id: req.id, route: '/v1/run', reason: 'forbidden_edge', from, to });
             return replyWithAppError(reply, {
               type: 'BAD_INPUT',
