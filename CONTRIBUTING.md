@@ -1,4 +1,65 @@
-# Contributing
+# Contributing to PLoT Engine
+
+Thank you for contributing to PLoT Engine. This guide helps you get started.
+
+## Quick Start
+
+```bash
+nvm use                          # Node 20 LTS
+npm ci --no-fund --no-audit      # Install dependencies
+npm run build && npm test        # Verify setup
+```
+
+## Development Workflow
+
+### 1. Create a Branch
+
+```bash
+git checkout -b feat/your-feature    # Features
+git checkout -b fix/issue-description # Bug fixes
+```
+
+### 2. Make Changes
+
+- Follow existing code patterns and TypeScript conventions
+- Add tests for new functionality
+- Update documentation if needed
+
+### 3. Commit
+
+We use [Conventional Commits](https://www.conventionalcommits.org/):
+
+```
+feat: add new inference mode
+fix: correct quantile calculation
+docs: update API reference
+refactor: simplify constraint validation
+```
+
+**Types**: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `perf`
+
+### 4. Create Pull Request
+
+- Target the `staging` branch for features
+- Include a clear description of changes
+- Reference any related issues
+
+## Code Style
+
+- Use strict TypeScript (avoid `any` where possible)
+- Prefer `const` over `let`
+- Use `Map`/`Set` for O(1) lookups instead of `.find()`
+- Add JSDoc for public functions
+- See [TEST_NAMING.md](docs/TEST_NAMING.md) for test conventions
+
+## Pull Request Checklist
+
+- [ ] Tests pass (`npm test`)
+- [ ] Build succeeds (`npm run build`)
+- [ ] OpenAPI spec updated if API changed
+- [ ] Documentation updated if behavior changed
+
+---
 
 ## Testing
 
