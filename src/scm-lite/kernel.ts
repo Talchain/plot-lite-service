@@ -416,8 +416,10 @@ function countPaths(dag: DAG, target: string): number {
   const adj = new Map<string, string[]>();
   for (const node of dag.nodes) adj.set(node.id, []);
   for (const edge of dag.edges) adj.get(edge.from)?.push(edge.to);
-  
-  const roots = dag.nodes.filter(n => !dag.edges.some(e => e.to === n.id));
+
+  // P0 fix: O(E) root finding instead of O(V×E)
+  const hasIncoming = new Set(dag.edges.map(e => e.to));
+  const roots = dag.nodes.filter(n => !hasIncoming.has(n.id));
   let paths = 0;
   
   const dfs = (node: string, visited: Set<string>) => {
