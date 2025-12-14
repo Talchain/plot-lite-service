@@ -21,6 +21,8 @@ export const KNOWN_FEATURE_FLAGS = [
   'ENABLE_TRACE_CACHING',
   'ENABLE_STRATIFIED_SAMPLING',
   'ENABLE_IMPORTANCE_SAMPLING',
+  // Brief A: Per-option goal probabilities
+  'ENABLE_OPTION_PROBABILITIES',
   // Rate limiting & circuit breaker
   'RATE_LIMIT_ENABLED',
   'TOKEN_RL_ENABLE',

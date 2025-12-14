@@ -449,3 +449,89 @@ function mapConfidence(diversity: number, signStability: number, paths: number):
   if (score >= 0.4) return 'medium';
   return 'low';
 }
+
+/**
+ * Compute P(target ≥ threshold | do(interventions))
+ *
+ * Runs Monte Carlo sampling and counts how many samples exceed the threshold.
+ * Used for computing per-option goal probabilities (Brief A).
+ *
+ * @param dag - The directed acyclic graph
+ * @param target - Target node to evaluate
+ * @param threshold - Value to consider "achieved"
+ * @param config - Kernel configuration (including interventions for do-operator)
+ * @returns Probability and confidence metrics
+ */
+export interface ThresholdProbabilityResult {
+  probability: number;      // P(target ≥ threshold)
+  confidence: number;       // 1 - 2*SE (binomial standard error)
+  samples_above: number;    // Count of samples exceeding threshold
+  total_samples: number;    // Total samples evaluated
+}
+
+export function computeThresholdProbability(
+  dag: DAG,
+  target: string,
+  threshold: number,
+  config: Partial<KernelConfig>
+): ThresholdProbabilityResult {
+  const cfg = { ...DEFAULT_CONFIG, ...config } as KernelConfig;
+
+  // Validate scope guardrails
+  if (dag.nodes.length > cfg.maxNodes) {
+    throw new Error(`Graph exceeds max nodes: ${dag.nodes.length} > ${cfg.maxNodes}`);
+  }
+  if (dag.edges.length > cfg.maxEdges) {
+    throw new Error(`Graph exceeds max edges: ${dag.edges.length} > ${cfg.maxEdges}`);
+  }
+  if (hasCycle(dag)) {
+    throw new Error('Graph contains cycle');
+  }
+
+  // Stable sort nodes by id
+  const nodes = [...dag.nodes].sort((a, b) => a.id.localeCompare(b.id));
+  const nodeIds = nodes.map(n => n.id);
+
+  if (!nodeIds.includes(target)) {
+    throw new Error(`Target node ${target} not in graph`);
+  }
+
+  // Topological order
+  const topoOrder = topologicalSort(dag, nodeIds);
+
+  // Build intervention map for do-operator semantics
+  const interventionMap = new Map<string, number>();
+  if (cfg.mode !== 'observational' && cfg.interventions) {
+    for (const iv of cfg.interventions) {
+      interventionMap.set(iv.node_id, iv.value);
+    }
+  }
+
+  // Sample and count threshold crossings
+  const rng = new XorShift128Plus(cfg.seed);
+  let samplesAbove = 0;
+  const K = cfg.K;
+
+  for (let k = 0; k < K; k++) {
+    const { mask, sampledWeights } = sampleEdgeMask(dag, rng, cfg);
+    const value = forwardPass(dag, mask, sampledWeights, topoOrder, target, interventionMap);
+    if (value >= threshold) {
+      samplesAbove++;
+    }
+  }
+
+  const probability = samplesAbove / K;
+
+  // Confidence based on binomial standard error
+  // SE = sqrt(p * (1-p) / n)
+  // Confidence = 1 - 2*SE (rough 95% CI width proxy)
+  const se = Math.sqrt((probability * (1 - probability)) / K);
+  const confidence = Math.max(0, Math.min(1, 1 - 2 * se));
+
+  return {
+    probability,
+    confidence,
+    samples_above: samplesAbove,
+    total_samples: K,
+  };
+}

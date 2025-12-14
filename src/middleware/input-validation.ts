@@ -130,6 +130,9 @@ const runRequestSchema = {
     },
     // P1: Detail level for compute budget and feature enablement (validated at runtime for user-friendly errors)
     detail_level: { type: 'string' },
+    // Brief A: Per-option goal probabilities
+    goal_node: { type: 'string', maxLength: 100 },
+    goal_threshold: { type: 'number', minimum: -1000000, maximum: 1000000 },
     // Legacy query.targets bridge (strict shape)
     query: {
       type: 'object',
@@ -427,7 +430,7 @@ export function createValidator(route: 'run' | 'counterfactual' | 'critique' | '
     switch (route) {
       case 'run':
         validator = validateRun;
-        allowedKeys = new Set(['graph','seed','k_samples','treatment_node','outcome_node','baseline_value','inputs','query','constraints','inference_mode','include_debug','priors','evidence','targets','detail_level']);
+        allowedKeys = new Set(['graph','seed','k_samples','treatment_node','outcome_node','baseline_value','inputs','query','constraints','inference_mode','include_debug','priors','evidence','targets','detail_level','goal_node','goal_threshold']);
         break;
       case 'counterfactual':
         validator = validateCounterfactual;

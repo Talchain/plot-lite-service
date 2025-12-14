@@ -59,4 +59,8 @@ export const FLAGS = {
   get ENABLE_IMPORTANCE_SAMPLING() {
     return process.env.ENABLE_IMPORTANCE_SAMPLING === '1' || process.env.ENABLE_IMPORTANCE_SAMPLING === 'true';
   },
+  /** Enable per-option goal probabilities in results (Brief A) */
+  get ENABLE_OPTION_PROBABILITIES() {
+    return process.env.ENABLE_OPTION_PROBABILITIES === '1' || process.env.ENABLE_OPTION_PROBABILITIES === 'true';
+  },
 } as const;

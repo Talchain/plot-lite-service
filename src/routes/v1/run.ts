@@ -52,6 +52,7 @@ import { callDecisionReviewFromEngine } from '../../cee/client.js';
 import { summarizeEvidenceFreshnessFromEvidence } from '../../trust/evidence-freshness.js';
 import { buildGraphHealth } from '../../trust/variance-helper.js';
 import { CRITIQUE_CODES } from '../../trust/critique-codes.js';
+import { computeOptionProbabilities, detectGoalNode, detectGoalThreshold } from '../../trust/option-probabilities.js';
 
 
 export interface RunRequest {
@@ -69,6 +70,10 @@ export interface RunRequest {
   evidence?: Array<{ node_id: string; source: string; note?: string; weight?: number }>;
   targets?: string[];
   detail_level?: 'quick' | 'standard' | 'deep';
+  /** Goal node ID for per-option probability computation (Brief A) */
+  goal_node?: string;
+  /** Threshold for goal achievement (Brief A) */
+  goal_threshold?: number;
 }
 
 export async function registerRunRoute(app: FastifyInstance) {
@@ -101,6 +106,8 @@ export async function registerRunRoute(app: FastifyInstance) {
           priors: { type: 'object' },
           evidence: { type: 'array' },
           detail_level: { type: 'string' },  // Validated at runtime for user-friendly errors
+          goal_node: { type: 'string' },     // Brief A: Goal node for option probability
+          goal_threshold: { type: 'number' }, // Brief A: Threshold for goal achievement
         },
         additionalProperties: true,
       },
@@ -864,6 +871,27 @@ export async function registerRunRoute(app: FastifyInstance) {
       top_driver_label: topDriverLabel,
     });
 
+    // Brief A: Per-option goal probabilities (flag-gated)
+    // Computes P(goal achieved | option) for each option node
+    let option_probabilities: Record<string, { goal_probability: number; confidence: number }> | undefined;
+    if (FLAGS.ENABLE_OPTION_PROBABILITIES && detail_level !== 'quick') {
+      const goalNode = detectGoalNode(graph as any, body.goal_node);
+      if (goalNode) {
+        const goalThreshold = detectGoalThreshold(graph as any, goalNode, body.goal_threshold, baseline_value);
+        option_probabilities = computeOptionProbabilities({
+          graph: graph as any,
+          goal_node: goalNode,
+          goal_threshold: goalThreshold,
+          seed,
+          k_samples: K_evaluated ?? budget.k,
+        });
+        // Only include if options were found
+        if (Object.keys(option_probabilities).length === 0) {
+          option_probabilities = undefined;
+        }
+      }
+    }
+
     const base: any = {
       confidence,
       critique,
@@ -882,6 +910,7 @@ export async function registerRunRoute(app: FastifyInstance) {
       ...(evidence_analysis && { evidence_analysis }),
       ...(sensitivity_full && { sensitivity_full }),
       ...(confidence_comparison && { confidence_comparison }),
+      ...(option_probabilities && { option_probabilities }),
       ...(isl_validation && { isl_validation }),
       ...(isl_sensitivity && { isl_sensitivity }),
       meta: {
