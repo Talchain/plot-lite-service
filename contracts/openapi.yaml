@@ -3063,10 +3063,7 @@ paths:
                           type: object
                           description: 'Additional context data (e.g., affected edge IDs)'
                           additionalProperties: true
-                  baseline_label:
-                    type: string
-                    nullable: true
-                    description: 'Identified baseline option label (Task 1.7). Uses scenario label (not ID) for clarity. Null if no baseline determinable.'
+                  # baseline_label moved to meta (single source of truth)
                   model_card:
                     type: object
                     properties:
@@ -3772,6 +3769,25 @@ components:
                   slope:
                     type: number
                     description: 'Post-threshold slope for threshold function (default: 1). Multiplies (x - threshold) above threshold.'
+                  leak:
+                    type: number
+                    minimum: 0
+                    maximum: 1
+                    description: 'Background probability for noisy_or function (default: 0.01). P(Y=1) when all parents are 0.'
+                  base_rate:
+                    type: number
+                    minimum: 0
+                    maximum: 1
+                    description: 'Base rate for noisy_and_not function. Required for noisy_and_not. P(Y=1) when all preventative causes are absent.'
+                  logistic_k:
+                    type: number
+                    minimum: 0
+                    exclusiveMinimum: true
+                    description: 'Steepness parameter for logistic function (default: 1). Higher k = sharper transition.'
+                  combination_mode:
+                    type: string
+                    enum: [nested, logistic]
+                    description: 'Mode for mixed function_type (default: nested). nested = Noisy-OR wrapped in Noisy-AND-NOT; logistic = logistic combination.'
               confidence:
                 type: number
                 minimum: 0

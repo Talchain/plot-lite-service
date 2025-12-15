@@ -610,12 +610,13 @@ describe('POST /v1/run_bundle - Contract Tests', () => {
       expect(res.statusCode).toBe(200);
       const body = JSON.parse(res.payload);
 
-      // baseline_label should be present (uses scenario label, not ID)
-      expect('baseline_label' in body).toBe(true);
-      // Can be string or null
+      // baseline_label should be in meta (single source of truth)
+      expect(body.meta).toBeDefined();
+      expect('baseline_label' in body.meta).toBe(true);
+      // Can be string or undefined
       expect(
-        typeof body.baseline_label === 'string' ||
-        body.baseline_label === null
+        typeof body.meta.baseline_label === 'string' ||
+        body.meta.baseline_label === undefined
       ).toBe(true);
     });
   });

@@ -544,15 +544,16 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
     // Compute rankings
     let rankingSummary: RankingSummary | undefined;
     if (includeRanking) {
-      // Filter to valid results and sort by selected metric (descending = best first)
-      const validResults = results.filter((r: any) => r.summary !== null);
+      // Filter to valid results: must have summary AND no inference error
+      // Errored scenarios get fallback summaries but should not win rankings
+      const validResults = results.filter((r: any) => r.summary !== null && !r.error);
       const sortedResults = [...validResults].sort((a: any, b: any) => {
         return b.summary[sortBy] - a.summary[sortBy];
       });
 
-      // Assign ranks to all results
+      // Assign ranks to all results (errored scenarios get rank but can't win)
       for (const result of results) {
-        if (result.summary === null) {
+        if (result.summary === null || result.error) {
           result.rank = null;
           continue;
         }
@@ -564,8 +565,9 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
       // Build ranking summary
       const winner = sortedResults[0];
       const runnerUp = sortedResults[1];
+      // Exclude scenarios with no summary OR with inference errors
       const excludedLabels = results
-        .filter((r: any) => r.summary === null)
+        .filter((r: any) => r.summary === null || r.error)
         .map((r: any) => r.label);
 
       const margin = winner && runnerUp
@@ -760,8 +762,7 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
       ...(coherenceWarnings.length > 0 && { coherence_warnings: coherenceWarnings }),
       // Phase 3: Edge function sensitivity warnings (separate from coherence for schema clarity)
       ...(edgeFunctionWarnings.length > 0 && { edge_function_warnings: edgeFunctionWarnings }),
-      // baseline_label derived from baseline_index (single source of truth)
-      baseline_label: baselineResult?.label ?? null,
+      // baseline_label in meta only (single source of truth)
       model_card: {
         seed,
         detail_level,
