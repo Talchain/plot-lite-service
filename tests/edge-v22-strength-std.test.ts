@@ -337,4 +337,40 @@ describe('Edge sampling distribution with strength_std', () => {
     // With 50% edge existence, we should see multiple unique graphs
     expect(result.meta.unique_graphs).toBeGreaterThan(1);
   });
+
+  it('legacy edges (belief_strength only) now use Normal sampling', () => {
+    // This test verifies the fix for sampling consistency
+    // Legacy edges should use Normal(weight, derived_std) not uniform-based sampling
+    const dag: DAG = {
+      nodes: [{ id: 'A' }, { id: 'B' }],
+      edges: [
+        {
+          from: 'A',
+          to: 'B',
+          weight: 0.5,
+          belief_exists: 1.0,
+          belief_strength: 0.8, // No strength_std - uses legacy path
+        },
+      ],
+    };
+
+    // Collect p50 values from multiple runs
+    const p50Values: number[] = [];
+    for (let seed = 0; seed < 100; seed++) {
+      const result = runKernel(dag, 'B', { seed, K: 64 });
+      p50Values.push(result.quantiles.p50);
+    }
+
+    // Mean should be close to weight (0.5)
+    const mean = p50Values.reduce((a, b) => a + b, 0) / p50Values.length;
+    expect(mean).toBeCloseTo(0.5, 1);
+
+    // Derived std: cv = 0.3 * (1 - 0.8) + 0.1 = 0.16, std = 0.16 * 0.5 = 0.08
+    // Variance in p50 should reflect Normal distribution (not uniform)
+    const variance = p50Values.reduce((sum, v) => sum + (v - mean) ** 2, 0) / p50Values.length;
+    const sampleStd = Math.sqrt(variance);
+    // With proper Normal sampling, we expect std in p50 < 0.15 (not too wide, not deterministic)
+    expect(sampleStd).toBeLessThan(0.15);
+    expect(sampleStd).toBeGreaterThan(0.01); // Should have some variance
+  });
 });

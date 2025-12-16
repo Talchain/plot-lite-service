@@ -403,19 +403,11 @@ function sampleEdgeMask(
       if (useDualBeliefs) {
         const baseWeight = edge.weight ?? 1.0;
 
-        // v2.2: Use explicit strength_std with Box-Muller Normal sampling
-        // Falls back to belief_strength derivation if strength_std not provided
-        if (edge.strength_std !== undefined && edge.strength_std > 0) {
-          // Direct Normal sampling: N(weight, strength_std)
-          const sampledWeight = sampleNormal(baseWeight, edge.strength_std, rng);
-          sampledWeights.set(edgeKey, sampledWeight);
-        } else {
-          // Legacy: Derive variance from belief_strength
-          const beliefStrength = getBeliefStrength(edge, cfg.beliefStrengthDefault ?? EDGE_V2_DEFAULTS.BELIEF_STRENGTH);
-          const weightRandom = rng.next();
-          const sampledWeight = sampleWeightWithVariance(baseWeight, beliefStrength, weightRandom);
-          sampledWeights.set(edgeKey, sampledWeight);
-        }
+        // v2.2: All edges use Normal sampling N(weight, std)
+        // getEdgeStd handles priority: strength_std > belief_strength > default
+        const std = getEdgeStd(edge, cfg.beliefStrengthDefault ?? EDGE_V2_DEFAULTS.BELIEF_STRENGTH);
+        const sampledWeight = sampleNormal(baseWeight, std, rng);
+        sampledWeights.set(edgeKey, sampledWeight);
       } else {
         // EdgeV1: use base weight directly
         sampledWeights.set(edgeKey, edge.weight ?? 1.0);

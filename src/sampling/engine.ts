@@ -27,7 +27,7 @@ import { getTraceCache } from './trace-cache.js';
 import { XorShift128Plus } from '../scm-lite/rng.js';
 import { applyEdgeFunction } from '../engine/edge-functions.js';
 import { FLAGS } from '../config/flags.js';
-import { getBeliefExists, getBeliefStrength, sampleWeightWithVariance } from '../engine/edge-migration.js';
+import { getBeliefExists, getEdgeStd, sampleNormal } from '../engine/edge-migration.js';
 import type { Intervention, InferenceMode } from '../scm-lite/types.js';
 
 import type { FunctionalForm, EdgeFunctionType } from '../trust/types.js';
@@ -137,10 +137,10 @@ function sampleEdges(
       const baseWeight = edge.weight ?? DEFAULTS.WEIGHT_DEFAULT;
 
       if (useDualBeliefs) {
-        // Sample weight with variance based on belief_strength
-        const beliefStrength = getBeliefStrength(edge);
-        const weightRandom = rng.next();
-        weights[edgeKey] = sampleWeightWithVariance(baseWeight, beliefStrength, weightRandom);
+        // v2.2: All edges use Normal sampling N(weight, std)
+        // getEdgeStd handles priority: strength_std > belief_strength > default
+        const std = getEdgeStd(edge);
+        weights[edgeKey] = sampleNormal(baseWeight, std, rng);
       } else {
         weights[edgeKey] = baseWeight;
       }

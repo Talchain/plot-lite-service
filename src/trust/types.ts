@@ -343,6 +343,13 @@ export interface EdgeV2 {
   belief_exists: number;
   /** Confidence in weight precision (0-1) */
   belief_strength: number;
+  /**
+   * Standard deviation of effect magnitude (EdgeV2.2).
+   * If provided, used directly for Normal sampling: N(weight, strength_std).
+   * If absent, derived from belief_strength for backward compatibility.
+   * Must be > 0.
+   */
+  strength_std?: number;
   /** How effect propagates through this edge */
   functional_form: FunctionalForm;
   /** Origin of this edge for attribution */

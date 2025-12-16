@@ -121,6 +121,7 @@ export function migrateEdgeToV2(edge: GraphEdge): EdgeV2 {
     weight: getWeight(edge),
     belief_exists: getBeliefExists(edge),
     belief_strength: getBeliefStrength(edge),
+    strength_std: edge.strength_std, // Preserve EdgeV2.2 explicit std
     functional_form: getFunctionalForm(edge),
     provenance: getProvenance(edge),
     label: edge.label,
@@ -157,6 +158,7 @@ export function edgeV2ToGraphEdge(edge: EdgeV2): GraphEdge {
     // EdgeV2 fields
     belief_exists: edge.belief_exists,
     belief_strength: edge.belief_strength,
+    strength_std: edge.strength_std, // Preserve EdgeV2.2 explicit std
     functional_form: edge.functional_form,
     // Also set function_type for backward compatibility
     function_type: edge.functional_form,
@@ -278,6 +280,35 @@ export function getEdgeStd(edge: GraphEdge): number {
   // Default fallback: 10% of |weight|, minimum 0.05
   const weight = edge.weight ?? 1.0;
   return Math.max(EDGE_V2_DEFAULTS.MIN_STD, Math.abs(weight) * EDGE_V2_DEFAULTS.DEFAULT_STD_RATIO);
+}
+
+/**
+ * Interface for random number generators (compatible with XorShift128Plus)
+ */
+interface RandomGenerator {
+  next(): number;
+}
+
+/**
+ * Sample from Normal distribution using Box-Muller transform.
+ *
+ * @param mean - Mean of the distribution
+ * @param std - Standard deviation (must be > 0)
+ * @param rng - Random number generator with next() method
+ * @returns Sampled value from N(mean, std)
+ */
+export function sampleNormal(mean: number, std: number, rng: RandomGenerator): number {
+  // Box-Muller transform
+  let u1 = rng.next();
+  const u2 = rng.next();
+
+  // Avoid log(0)
+  while (u1 === 0) {
+    u1 = rng.next();
+  }
+
+  const z0 = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+  return mean + z0 * std;
 }
 
 /**
