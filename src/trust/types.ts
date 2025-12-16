@@ -412,10 +412,22 @@ export interface GraphEdge {
   // EdgeV2 fields (dual beliefs)
   /** Confidence that this edge exists at all (0-1). EdgeV2 schema. */
   belief_exists?: number;
-  /** Confidence in weight precision (0-1). EdgeV2 schema. */
+  /**
+   * @deprecated Use strength_std instead.
+   * Confidence in weight precision (0-1). EdgeV2 schema.
+   */
   belief_strength?: number;
   /** How effect propagates through this edge. EdgeV2 schema. */
   functional_form?: FunctionalForm;
+
+  // EdgeV2.2 fields (explicit parametric uncertainty)
+  /**
+   * Standard deviation of effect magnitude.
+   * If provided, used directly for Normal sampling: N(weight, strength_std).
+   * If absent, derived from belief_strength for backward compatibility.
+   * Must be > 0.
+   */
+  strength_std?: number;
 }
 
 /**

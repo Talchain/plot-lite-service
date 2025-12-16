@@ -27,6 +27,7 @@ export interface EdgeFunctionParams {
  *
  * EdgeV1 (legacy): Uses single 'belief' field
  * EdgeV2 (dual beliefs): Uses 'belief_exists' + 'belief_strength'
+ * EdgeV2.2: Adds explicit 'strength_std' for parametric uncertainty
  */
 export interface Edge {
   /** Optional edge identifier */
@@ -35,7 +36,12 @@ export interface Edge {
   to: string;
   /** @deprecated Use belief_exists. Edge existence probability [0,1]; default 0.7 */
   belief?: number;
-  /** β coefficient; default 1.0 */
+  /**
+   * Effect magnitude (signed).
+   * - Positive: increasing parent increases child
+   * - Negative: increasing parent decreases child
+   * Default: 1.0
+   */
   weight?: number;
   /** @deprecated Use functional_form. Non-linear function (default: linear) */
   function_type?: EdgeFunctionType;
@@ -47,8 +53,21 @@ export interface Edge {
   // EdgeV2 dual beliefs
   /** Confidence that this edge exists at all (0-1). EdgeV2 schema. */
   belief_exists?: number;
-  /** Confidence in weight precision (0-1). EdgeV2 schema. */
+  /**
+   * @deprecated Use strength_std instead.
+   * Confidence in weight precision (0-1). EdgeV2 schema.
+   * Higher = less variance around weight value.
+   */
   belief_strength?: number;
+
+  // EdgeV2.2 explicit parametric uncertainty
+  /**
+   * Standard deviation of effect magnitude.
+   * If provided, used directly for Normal sampling: N(weight, strength_std).
+   * If absent, derived from belief_strength for backward compatibility.
+   * Must be > 0.
+   */
+  strength_std?: number;
 }
 
 export interface DAG {

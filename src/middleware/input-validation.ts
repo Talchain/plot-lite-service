@@ -95,6 +95,8 @@ const graphSchema = {
           weight: { type: 'number', minimum: -1000000, maximum: 1000000 },
           belief: { type: 'number', minimum: 0, maximum: 1 },
           provenance: { type: 'string', maxLength: 100 },
+          // EdgeV2.2: Explicit parametric uncertainty (must be > 0)
+          strength_std: { type: 'number', exclusiveMinimum: 0 },
         },
       },
     },

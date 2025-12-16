@@ -3788,6 +3788,14 @@ components:
                     type: string
                     enum: [nested, logistic]
                     description: 'Mode for mixed function_type (default: nested). nested = Noisy-OR wrapped in Noisy-AND-NOT; logistic = logistic combination.'
+              strength_std:
+                type: number
+                exclusiveMinimum: 0
+                description: |
+                  Standard deviation of effect magnitude (EdgeV2.2).
+                  If provided, used directly for Normal sampling: N(weight, strength_std).
+                  If absent, derived from belief_strength for backward compatibility.
+                  Must be > 0.
               confidence:
                 type: number
                 minimum: 0

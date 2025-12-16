@@ -27,6 +27,10 @@ export const EDGE_V2_DEFAULTS = {
   PROVENANCE: 'template' as ProvenanceTag,
   /** Default weight when not specified */
   WEIGHT: 1.0,
+  /** Default std as percentage of |weight| when neither strength_std nor belief_strength provided */
+  DEFAULT_STD_RATIO: 0.1,
+  /** Minimum std to ensure non-zero variance */
+  MIN_STD: 0.05,
 };
 
 /**
@@ -229,4 +233,67 @@ export function sampleEdgeWeight(
 
   // Step 2: Weight sampling with variance based on belief_strength
   return sampleWeightWithVariance(baseWeight, beliefStrength, weightRandom);
+}
+
+/**
+ * Derive standard deviation from legacy beliefStrength field.
+ *
+ * beliefStrength represents confidence in the effect magnitude.
+ * High beliefStrength → low variance, low beliefStrength → high variance.
+ *
+ * @param weight - The base weight value
+ * @param beliefStrength - Confidence in weight precision [0,1]
+ * @returns Derived standard deviation
+ */
+function deriveStdFromBeliefStrength(weight: number, beliefStrength: number): number {
+  // Coefficient of variation inversely proportional to belief strength
+  // cv ranges from 0.1 (high confidence) to 0.4 (low confidence)
+  const cv = 0.3 * (1 - beliefStrength) + 0.1;
+  return Math.max(EDGE_V2_DEFAULTS.MIN_STD, cv * Math.abs(weight));
+}
+
+/**
+ * Get the standard deviation for edge strength sampling.
+ *
+ * Priority:
+ * 1. Use explicit strength_std if provided (v2.2)
+ * 2. Derive from belief_strength (legacy) if provided
+ * 3. Use default (10% of |weight|, minimum 0.05)
+ *
+ * @param edge - The edge to get std for
+ * @returns Standard deviation for Normal sampling
+ */
+export function getEdgeStd(edge: GraphEdge): number {
+  // v2.2: Prefer explicit strength_std
+  if (edge.strength_std !== undefined && edge.strength_std > 0) {
+    return edge.strength_std;
+  }
+
+  // Legacy: Derive from belief_strength
+  const beliefStrength = getBeliefStrength(edge);
+  if (edge.belief_strength !== undefined || edge.belief !== undefined) {
+    return deriveStdFromBeliefStrength(edge.weight ?? 1.0, beliefStrength);
+  }
+
+  // Default fallback: 10% of |weight|, minimum 0.05
+  const weight = edge.weight ?? 1.0;
+  return Math.max(EDGE_V2_DEFAULTS.MIN_STD, Math.abs(weight) * EDGE_V2_DEFAULTS.DEFAULT_STD_RATIO);
+}
+
+/**
+ * Validate edge strength_std field.
+ *
+ * @param edge - Edge to validate
+ * @returns Error message if invalid, null if valid
+ */
+export function validateStrengthStd(edge: GraphEdge): string | null {
+  if (edge.strength_std !== undefined) {
+    if (typeof edge.strength_std !== 'number' || !Number.isFinite(edge.strength_std)) {
+      return `Edge ${edge.from}->${edge.to}: strength_std must be a finite number`;
+    }
+    if (edge.strength_std <= 0) {
+      return `Edge ${edge.from}->${edge.to}: strength_std must be > 0, got ${edge.strength_std}`;
+    }
+  }
+  return null;
 }

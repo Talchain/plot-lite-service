@@ -25,6 +25,10 @@ const EDGE_V2_DEFAULTS = {
   BELIEF_EXISTS: 1.0,
   BELIEF_STRENGTH: 0.8,
   WEIGHT_VARIANCE_SCALE: 0.5,
+  /** Default std as percentage of |weight| when neither strength_std nor belief_strength provided */
+  DEFAULT_STD_RATIO: 0.1,
+  /** Minimum std to ensure non-zero variance */
+  MIN_STD: 0.05,
 };
 
 const DEFAULT_CONFIG: Partial<KernelConfig> = {
@@ -272,6 +276,74 @@ function getBeliefStrength(edge: Edge, defaultBeliefStrength: number): number {
 }
 
 /**
+ * Derive standard deviation from legacy beliefStrength field.
+ *
+ * beliefStrength represents confidence in the effect magnitude.
+ * High beliefStrength → low variance, low beliefStrength → high variance.
+ *
+ * @param weight - The base weight value
+ * @param beliefStrength - Confidence in weight precision [0,1]
+ * @returns Derived standard deviation
+ */
+function deriveStdFromBeliefStrength(weight: number, beliefStrength: number): number {
+  // Coefficient of variation inversely proportional to belief strength
+  // cv ranges from 0.1 (high confidence) to 0.4 (low confidence)
+  const cv = 0.3 * (1 - beliefStrength) + 0.1;
+  return Math.max(EDGE_V2_DEFAULTS.MIN_STD, cv * Math.abs(weight));
+}
+
+/**
+ * Get the standard deviation for edge strength sampling.
+ *
+ * Priority:
+ * 1. Use explicit strength_std if provided (v2.2)
+ * 2. Derive from belief_strength (legacy) if provided
+ * 3. Use default (10% of |weight|, minimum 0.05)
+ *
+ * @param edge - The edge to get std for
+ * @param defaultBeliefStrength - Default belief_strength if not specified
+ * @returns Standard deviation for Normal sampling
+ */
+export function getEdgeStd(edge: Edge, defaultBeliefStrength: number = EDGE_V2_DEFAULTS.BELIEF_STRENGTH): number {
+  // v2.2: Prefer explicit strength_std
+  if (edge.strength_std !== undefined && edge.strength_std > 0) {
+    return edge.strength_std;
+  }
+
+  // Legacy: Derive from belief_strength
+  const beliefStrength = getBeliefStrength(edge, defaultBeliefStrength);
+  if (edge.belief_strength !== undefined || edge.belief !== undefined) {
+    return deriveStdFromBeliefStrength(edge.weight ?? 1.0, beliefStrength);
+  }
+
+  // Default fallback: 10% of |weight|, minimum 0.05
+  const weight = edge.weight ?? 1.0;
+  return Math.max(EDGE_V2_DEFAULTS.MIN_STD, Math.abs(weight) * EDGE_V2_DEFAULTS.DEFAULT_STD_RATIO);
+}
+
+/**
+ * Sample from Normal distribution using Box-Muller transform.
+ *
+ * @param mean - Mean of the distribution
+ * @param std - Standard deviation (must be > 0)
+ * @param rng - Seeded random number generator
+ * @returns Sampled value from N(mean, std)
+ */
+function sampleNormal(mean: number, std: number, rng: XorShift128Plus): number {
+  // Box-Muller transform
+  let u1 = rng.next();
+  const u2 = rng.next();
+
+  // Avoid log(0)
+  while (u1 === 0) {
+    u1 = rng.next();
+  }
+
+  const z0 = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+  return mean + z0 * std;
+}
+
+/**
  * Sample weight with variance based on belief_strength.
  *
  * When belief_strength is high (close to 1), weight is returned as-is.
@@ -303,6 +375,7 @@ function sampleWeightWithVariance(
  *
  * EdgeV1 behaviour (legacy): Uses single belief for edge inclusion
  * EdgeV2 behaviour (dual beliefs): Uses belief_exists for inclusion, belief_strength for weight variance
+ * EdgeV2.2 behaviour: Uses strength_std for explicit parametric uncertainty (Normal sampling)
  *
  * @param dag - The DAG
  * @param rng - Random number generator
@@ -329,10 +402,20 @@ function sampleEdgeMask(
       // Step 2: Weight sampling (only when dual beliefs enabled)
       if (useDualBeliefs) {
         const baseWeight = edge.weight ?? 1.0;
-        const beliefStrength = getBeliefStrength(edge, cfg.beliefStrengthDefault ?? EDGE_V2_DEFAULTS.BELIEF_STRENGTH);
-        const weightRandom = rng.next();
-        const sampledWeight = sampleWeightWithVariance(baseWeight, beliefStrength, weightRandom);
-        sampledWeights.set(edgeKey, sampledWeight);
+
+        // v2.2: Use explicit strength_std with Box-Muller Normal sampling
+        // Falls back to belief_strength derivation if strength_std not provided
+        if (edge.strength_std !== undefined && edge.strength_std > 0) {
+          // Direct Normal sampling: N(weight, strength_std)
+          const sampledWeight = sampleNormal(baseWeight, edge.strength_std, rng);
+          sampledWeights.set(edgeKey, sampledWeight);
+        } else {
+          // Legacy: Derive variance from belief_strength
+          const beliefStrength = getBeliefStrength(edge, cfg.beliefStrengthDefault ?? EDGE_V2_DEFAULTS.BELIEF_STRENGTH);
+          const weightRandom = rng.next();
+          const sampledWeight = sampleWeightWithVariance(baseWeight, beliefStrength, weightRandom);
+          sampledWeights.set(edgeKey, sampledWeight);
+        }
       } else {
         // EdgeV1: use base weight directly
         sampledWeights.set(edgeKey, edge.weight ?? 1.0);
