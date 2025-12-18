@@ -14,6 +14,7 @@ import { replyWithAppError } from '../../errors.js';
 import { normalizeGraph } from '../../util/normalize.js';
 import { inferEdgeTypes } from '../../services/ranking/edge-type-inference.js';
 import { isFlagOn } from '../../cee/codes.js';
+import { islService } from '../../integrations/isl/index.js';
 import type {
   ContinuousOptimiseRequest,
   ContinuousOptimiseResponse,
@@ -32,102 +33,6 @@ const MAX_EDGES = 200;
 const MAX_GRID_POINTS = 100;
 const MAX_CONSTRAINTS = 20;
 const DEFAULT_GRID_POINTS = 20;
-const ISL_TIMEOUT_MS = Number(process.env.ISL_TIMEOUT_MS || 15_000);
-
-/**
- * Call ISL /api/v1/analysis/optimise endpoint
- */
-async function callIslOptimise(
-  body: {
-    plot_request_id: string;
-    decision_variable: string;
-    search_range: [number, number];
-    objective_node: string;
-    objective_direction: 'maximise' | 'minimise';
-    constraints?: OptimiseConstraint[];
-    graph: any;
-    grid_points: number;
-    refine: boolean;
-    confidence_level?: number;
-  },
-  logger?: any
-): Promise<{
-  result: IslContinuousOptimiseResponse | null;
-  error?: ProxyError;
-}> {
-  const baseUrl = process.env.ISL_BASE_URL?.trim();
-  const apiKey = process.env.ISL_API_KEY?.trim();
-
-  if (!baseUrl || !apiKey) {
-    return {
-      result: null,
-      error: {
-        code: 'ISL_CONFIG_MISSING',
-        message: 'ISL_BASE_URL or ISL_API_KEY not configured',
-        retryable: false,
-      },
-    };
-  }
-
-  const url = `${baseUrl.replace(/\/$/, '')}/api/v1/analysis/optimise`;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), ISL_TIMEOUT_MS);
-
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-        'X-Request-Id': body.plot_request_id,
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!res.ok) {
-      logger?.warn({
-        evt: 'isl_optimise_error',
-        status: res.status,
-        plot_request_id: body.plot_request_id,
-      });
-
-      return {
-        result: null,
-        error: {
-          code: `ISL_HTTP_${res.status}`,
-          message: `ISL returned status ${res.status}`,
-          retryable: res.status >= 500,
-        },
-      };
-    }
-
-    const data = await res.json();
-    return { result: data as IslContinuousOptimiseResponse };
-  } catch (err: any) {
-    clearTimeout(timeoutId);
-
-    const isTimeout = err.name === 'AbortError';
-    logger?.warn({
-      evt: 'isl_optimise_fetch_error',
-      error: err.message,
-      timeout: isTimeout,
-      plot_request_id: body.plot_request_id,
-    });
-
-    return {
-      result: null,
-      error: {
-        code: isTimeout ? 'ISL_TIMEOUT' : 'ISL_FETCH_ERROR',
-        message: err.message || 'Failed to fetch from ISL',
-        retryable: true,
-      },
-    };
-  }
-}
 
 /**
  * Compute local optimisation fallback using simple grid search
@@ -351,7 +256,8 @@ export async function registerAnalysisOptimiseRoute(app: FastifyInstance) {
             refine,
           });
 
-          const islResult = await callIslOptimise(
+          const islResult = await islService.callAnalysisEndpoint<IslContinuousOptimiseResponse>(
+            '/api/v1/analysis/optimise',
             {
               plot_request_id: requestId,
               decision_variable: body.decision_variable,
@@ -364,10 +270,10 @@ export async function registerAnalysisOptimiseRoute(app: FastifyInstance) {
               refine,
               confidence_level: confidenceLevel,
             },
-            req.log
+            requestId
           );
 
-          result = islResult.result;
+          result = islResult.data;
           islError = islResult.error;
 
           // Record result with circuit breaker

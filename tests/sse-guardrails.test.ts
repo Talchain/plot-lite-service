@@ -1,5 +1,15 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createServer } from '../src/createServer.js';
+
+const prevDemoMode = process.env.DEMO_MODE_ENABLED;
+
+beforeAll(() => {
+  process.env.DEMO_MODE_ENABLED = '1';
+});
+
+afterAll(() => {
+  if (prevDemoMode === undefined) delete process.env.DEMO_MODE_ENABLED; else process.env.DEMO_MODE_ENABLED = prevDemoMode;
+});
 
 describe('SSE Guardrails (C3)', () => {
   it('health exposes sse counters', async () => {

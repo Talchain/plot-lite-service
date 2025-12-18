@@ -199,7 +199,7 @@ PLoT /v1/run (after SCM-Lite Monte Carlo)
 | `src/integrations/isl/index.ts` | Service wrapper |
 | `src/integrations/isl/errors.ts` | Custom error classes |
 | `src/integrations/isl/adapters/` | Response transformers |
-| `tests/isl-client.test.ts` | Comprehensive tests |
+| `tests/isl-circuit-breaker.test.ts` | Circuit breaker tests |
 
 ---
 
@@ -386,7 +386,8 @@ Exposed at `/metrics` (requires `PROMETHEUS_ENABLE=1`):
 
 ### ISL Workstream
 - `src/integrations/isl/` – Implementation
-- `tests/isl-client.test.ts` – Client tests
+- `tests/isl-circuit-breaker.test.ts` – Circuit breaker tests
+- `tests/run.isl-critique.integration.test.ts` – ISL integration tests
 - `ARCHITECTURE.md` (ISL section) – Timeout budgets
 
 ### UI Workstream

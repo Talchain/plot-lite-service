@@ -12,6 +12,7 @@ describe('P1: Stream Integration Tests', () => {
     process.env.SSE_HEARTBEAT_MS = '1000'; // 1s for faster tests
     process.env.PROMETHEUS_ENABLE = '1';
     process.env.PRINCIPAL_HMAC_SECRET_ACTIVE = 'a'.repeat(64);
+    process.env.DEMO_MODE_ENABLED = '1';
     app = await createServer();
     await app.listen({ port: 0 }); // Listen on random available port
   });

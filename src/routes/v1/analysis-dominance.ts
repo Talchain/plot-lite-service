@@ -15,6 +15,7 @@ import { detectPrimaryOutcome } from '../../services/ranking/outcome-detector.js
 import { inferEdgeTypes } from '../../services/ranking/edge-type-inference.js';
 import { isWinnerDominant } from '../../trust/ranking-confidence.js';
 import { isFlagOn } from '../../cee/codes.js';
+import { islService } from '../../integrations/isl/index.js';
 import type {
   DominanceAnalysisRequest,
   DominanceAnalysisResponse,
@@ -26,91 +27,6 @@ import type {
 const MAX_NODES = 50;
 const MAX_EDGES = 200;
 const DEFAULT_K_SAMPLES = 32;
-const ISL_TIMEOUT_MS = Number(process.env.ISL_TIMEOUT_MS || 10_000);
-
-/**
- * Call ISL /api/v1/analysis/dominance endpoint
- */
-async function callIslDominance(
-  body: {
-    plot_request_id: string;
-    options: OptionResult[];
-  },
-  logger?: any
-): Promise<{ analysis: IslDominanceResponse | null; error?: { code: string; message: string; retryable: boolean } }> {
-  const baseUrl = process.env.ISL_BASE_URL?.trim();
-  const apiKey = process.env.ISL_API_KEY?.trim();
-
-  if (!baseUrl || !apiKey) {
-    return {
-      analysis: null,
-      error: {
-        code: 'ISL_CONFIG_MISSING',
-        message: 'ISL_BASE_URL or ISL_API_KEY not configured',
-        retryable: false,
-      },
-    };
-  }
-
-  const url = `${baseUrl.replace(/\/$/, '')}/api/v1/analysis/dominance`;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), ISL_TIMEOUT_MS);
-
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-        'X-Request-Id': body.plot_request_id,
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!res.ok) {
-      logger?.warn({
-        evt: 'isl_dominance_error',
-        status: res.status,
-        plot_request_id: body.plot_request_id,
-      });
-
-      return {
-        analysis: null,
-        error: {
-          code: `ISL_HTTP_${res.status}`,
-          message: `ISL returned status ${res.status}`,
-          retryable: res.status >= 500,
-        },
-      };
-    }
-
-    const data = await res.json();
-    return { analysis: data as IslDominanceResponse };
-  } catch (err: any) {
-    clearTimeout(timeoutId);
-
-    const isTimeout = err.name === 'AbortError';
-    logger?.warn({
-      evt: 'isl_dominance_fetch_error',
-      error: err.message,
-      timeout: isTimeout,
-      plot_request_id: body.plot_request_id,
-    });
-
-    return {
-      analysis: null,
-      error: {
-        code: isTimeout ? 'ISL_TIMEOUT' : 'ISL_FETCH_ERROR',
-        message: err.message || 'Failed to fetch from ISL',
-        retryable: true,
-      },
-    };
-  }
-}
 
 /**
  * Compute local dominance analysis when ISL is unavailable
@@ -312,15 +228,13 @@ export async function registerDominanceAnalysisRoute(app: FastifyInstance) {
           option_count: optionResults.length,
         });
 
-        const islResult = await callIslDominance(
-          {
-            plot_request_id: requestId,
-            options: optionResults,
-          },
-          req.log
+        const islResult = await islService.callAnalysisEndpoint<IslDominanceResponse>(
+          '/api/v1/analysis/dominance',
+          { plot_request_id: requestId, options: optionResults },
+          requestId
         );
 
-        analysis = islResult.analysis;
+        analysis = islResult.data;
         islError = islResult.error;
 
         if (analysis) {

@@ -14,6 +14,7 @@ import { normalizeGraph } from '../../util/normalize.js';
 import { detectPrimaryOutcome } from '../../services/ranking/outcome-detector.js';
 import { inferEdgeTypes } from '../../services/ranking/edge-type-inference.js';
 import { isFlagOn } from '../../cee/codes.js';
+import { islService } from '../../integrations/isl/index.js';
 import type {
   ThresholdRequest,
   ThresholdResponse,
@@ -29,98 +30,6 @@ const MAX_EDGES = 200;
 const MAX_SWEEPS = 5;
 const MAX_VALUES_PER_SWEEP = 20;
 const DEFAULT_K_SAMPLES = 16; // Lower samples for sweep efficiency
-const ISL_TIMEOUT_MS = Number(process.env.ISL_TIMEOUT_MS || 15_000); // Longer for sweep analysis
-
-/**
- * Call ISL /api/v1/analysis/thresholds endpoint
- */
-async function callIslThresholds(
-  body: {
-    plot_request_id: string;
-    sweep_results: SweepResult[];
-  },
-  logger?: any
-): Promise<{ analysis: IslThresholdResponse | null; error?: ProxyError; durationMs?: number }> {
-  const baseUrl = process.env.ISL_BASE_URL?.trim();
-  const apiKey = process.env.ISL_API_KEY?.trim();
-
-  if (!baseUrl || !apiKey) {
-    return {
-      analysis: null,
-      error: {
-        code: 'ISL_CONFIG_MISSING',
-        message: 'ISL_BASE_URL or ISL_API_KEY not configured',
-        retryable: false,
-      },
-    };
-  }
-
-  const url = `${baseUrl.replace(/\/$/, '')}/api/v1/analysis/thresholds`;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), ISL_TIMEOUT_MS);
-  const startTime = Date.now();
-
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-        'X-Request-Id': body.plot_request_id,
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-    const durationMs = Date.now() - startTime;
-
-    if (!res.ok) {
-      logger?.warn({
-        evt: 'isl_thresholds_error',
-        status: res.status,
-        plot_request_id: body.plot_request_id,
-        duration_ms: durationMs,
-      });
-
-      return {
-        analysis: null,
-        error: {
-          code: `ISL_HTTP_${res.status}`,
-          message: `ISL returned status ${res.status}`,
-          retryable: res.status >= 500,
-        },
-        durationMs,
-      };
-    }
-
-    const data = await res.json();
-    return { analysis: data as IslThresholdResponse, durationMs };
-  } catch (err: any) {
-    clearTimeout(timeoutId);
-    const durationMs = Date.now() - startTime;
-
-    const isTimeout = err.name === 'AbortError';
-    logger?.warn({
-      evt: 'isl_thresholds_fetch_error',
-      error: err.message,
-      timeout: isTimeout,
-      plot_request_id: body.plot_request_id,
-      duration_ms: durationMs,
-    });
-
-    return {
-      analysis: null,
-      error: {
-        code: isTimeout ? 'ISL_TIMEOUT' : 'ISL_FETCH_ERROR',
-        message: err.message || 'Failed to fetch from ISL',
-        retryable: true,
-      },
-      durationMs,
-    };
-  }
-}
 
 /**
  * Detect threshold crossings in sweep results
@@ -440,17 +349,15 @@ export async function registerThresholdsRoute(app: FastifyInstance) {
           total_evaluations: totalEvaluations,
         });
 
-        const islResult = await callIslThresholds(
-          {
-            plot_request_id: requestId,
-            sweep_results: sweepResults,
-          },
-          req.log
+        const islResult = await islService.callAnalysisEndpoint<IslThresholdResponse>(
+          '/api/v1/analysis/thresholds',
+          { plot_request_id: requestId, sweep_results: sweepResults },
+          requestId
         );
 
-        analysis = islResult.analysis;
+        analysis = islResult.data;
         islError = islResult.error;
-        islMs = islResult.durationMs;
+        islMs = islResult.latency_ms;
 
         if (analysis) {
           provenance = 'isl';

@@ -1,5 +1,6 @@
 node_modules
 dist
+dist-tools
 .DS_Store
 coverage
 npm-debug.log*

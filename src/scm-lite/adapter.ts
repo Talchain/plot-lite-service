@@ -48,11 +48,19 @@ export interface AdaptedResults {
 }
 
 export function adaptGraphToDAG(graph: Graph, beliefDefault: number = 0.7): DAG {
-  const nodes = graph.nodes.map(n => ({ id: n.id, label: n.label }));
+  const nodes = graph.nodes.map(n => ({
+    id: n.id,
+    label: n.label,
+    // Preserve kind for factor value initialization
+    kind: n.kind,
+    // Preserve observed_state for root factor nodes
+    observed_state: n.observed_state,
+  }));
   const edges = graph.edges.map(e => ({
     from: e.from,
     to: e.to,
-    belief: beliefDefault, // Use default since Graph doesn't have belief field
+    // Use edge's belief if defined, otherwise fall back to default
+    belief: e.belief ?? e.belief_exists ?? beliefDefault,
     weight: e.weight,
   }));
   return { nodes, edges };

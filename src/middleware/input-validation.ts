@@ -74,10 +74,23 @@ const graphSchema = {
       items: {
         type: 'object',
         required: ['id', 'label'],
+        additionalProperties: true,  // Allow extra fields (value, stage, resolves_at, etc.)
         properties: {
           id: { type: 'string', maxLength: 100 },
           label: { type: 'string', maxLength: 200 },
           type: { type: 'string', maxLength: 50 },
+          // Decision Model Schema v2.2: Node classification
+          kind: { type: 'string', maxLength: 50 },
+          // Decision Model Schema v2.2: Observed state for factor nodes
+          observed_state: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              value: { type: 'number' },
+              baseline: { type: 'number' },
+              unit: { type: 'string', maxLength: 50 },
+            },
+          },
         },
       },
     },

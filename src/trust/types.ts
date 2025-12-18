@@ -37,6 +37,118 @@ export const DETAIL_LEVEL_CONFIG: Record<DetailLevel, DetailLevelConfig> = {
   deep: { k_samples: 64, run_critique: true, run_sensitivity: true, run_cee: true },
 };
 
+/**
+ * ISL Enrichment Response Schema (Phase 1A)
+ *
+ * Provides structured access to ISL validation and sensitivity analysis results.
+ * The enrichment object is present when ISL is enabled and detail_level != 'quick'.
+ *
+ * detail_level contract:
+ * - 'quick': No ISL calls. enrichment is undefined.
+ * - 'standard': Calls ISL causal validation. enrichment.causal_validation present.
+ * - 'deep': Calls ISL validation + sensitivity. Both fields present.
+ */
+
+/**
+ * Causal validation result from ISL
+ * Answers: "Can we identify the causal effect?"
+ */
+export interface CausalValidationEnrichment {
+  /** Identifiability status */
+  identifiable: boolean;
+  /** Confidence in the validation result */
+  confidence: 'high' | 'medium' | 'low';
+  /** Valid adjustment sets for backdoor criterion */
+  adjustment_sets?: string[][];
+  /** Minimal sufficient adjustment set */
+  minimal_set?: string[];
+  /** Detected confounders in the graph */
+  confounders?: string[];
+  /** Potential instrumental variables */
+  instruments?: string[];
+  /** Warnings or issues affecting identifiability */
+  warnings?: string[];
+  /** Human-readable explanation */
+  explanation?: {
+    summary: string;
+    reasoning: string;
+  };
+}
+
+/**
+ * Sensitivity analysis result from ISL
+ * Answers: "How robust is the estimate to edge uncertainty?"
+ */
+export interface SensitivityAnalysisEnrichment {
+  /** Overall model robustness assessment */
+  overall_robustness: 'robust' | 'moderate' | 'fragile';
+  /** Edges sorted by sensitivity (most sensitive first) */
+  edges: Array<{
+    edge_id: string;
+    from: string;
+    to: string;
+    /** Combined sensitivity score [0-1] */
+    sensitivity_score: number;
+    /** Sensitivity to edge existence probability */
+    existence_sensitivity?: number;
+    /** Sensitivity to edge weight magnitude */
+    magnitude_sensitivity?: number;
+    /** Impact direction on outcome */
+    impact_direction?: 'positive' | 'negative';
+  }>;
+  /** Node IDs that are top drivers of outcome variance */
+  top_drivers?: string[];
+  /** Edge IDs that, if changed, would significantly alter results */
+  fragile_edges?: string[];
+  /** Actionable recommendations */
+  recommendations?: string[];
+}
+
+/**
+ * Metadata about ISL enrichment processing
+ */
+export interface EnrichmentMetadata {
+  /** Whether ISL service was enabled for this request */
+  isl_enabled: boolean;
+  /** Detail level used for this request */
+  detail_level: DetailLevel;
+  /** Total ISL call latency in milliseconds (validation + sensitivity) */
+  isl_latency_ms?: number;
+  /** Whether ISL returned fallback results due to error/timeout */
+  isl_degraded?: boolean;
+  /** ISL endpoints that were called */
+  endpoints_called?: string[];
+}
+
+/**
+ * Enrichment wrapper for ISL analysis results
+ *
+ * This provides a structured, typed interface for UI consumers to access
+ * ISL enrichment data without parsing the legacy isl_* fields.
+ *
+ * @example
+ * ```typescript
+ * const response = await fetch('/v1/run', { ... });
+ * const data = await response.json();
+ *
+ * if (data.enrichment?.causal_validation?.identifiable) {
+ *   // Causal effect is identifiable
+ * }
+ *
+ * if (data.enrichment?.sensitivity_analysis?.overall_robustness === 'fragile') {
+ *   // Model is fragile, show warning
+ * }
+ * ```
+ */
+export interface RunResponseEnrichment {
+  /** Causal validation results (present for standard and deep) */
+  causal_validation?: CausalValidationEnrichment;
+  /** Sensitivity analysis results (present only for deep) */
+  sensitivity_analysis?: SensitivityAnalysisEnrichment;
+  /** Metadata about enrichment processing */
+  metadata: EnrichmentMetadata;
+}
+
 export interface ModelCard {
   seed: number;
   assumptions_summary: string[];
@@ -362,13 +474,37 @@ export interface EdgeV2 {
   function_params?: EdgeFunctionParams;
 }
 
+/**
+ * Observed state for factor nodes (Decision Model Schema v2.2)
+ *
+ * Contains the user-entered value for quantitative factors.
+ * Only used for factor nodes that are root nodes (no incoming edges).
+ */
+export interface ObservedState {
+  /** Current value (e.g., 59 for price) */
+  value: number;
+  /** Reference/baseline value for comparison (e.g., 49) */
+  baseline?: number;
+  /** Display unit (e.g., "£", "%", "users") */
+  unit?: string;
+}
+
 export interface GraphNode {
   id: string;
   label: string;
   kind?: NodeKind;
   /** @deprecated Use `kind` instead. Maintained for backward compatibility. */
   type?: string;
+  /** @deprecated Use `observed_state.value` for factor nodes. Legacy value field. */
   value?: number;
+
+  /**
+   * Observed state for factor nodes (Decision Model Schema v2.2)
+   *
+   * When present on a root factor node (kind='factor', no incoming edges),
+   * the kernel uses observed_state.value as the initial node value.
+   */
+  observed_state?: ObservedState;
 
   // Sequential/multi-stage support (Phase 4)
   /** 0-indexed stage number for multi-stage decisions */

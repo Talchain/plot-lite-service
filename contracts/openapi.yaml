@@ -3717,6 +3717,28 @@ components:
                 type: string
                 maxLength: 100
                 description: 'ISO 8601 timestamp or relative time when decision must be made'
+              observed_state:
+                type: object
+                nullable: true
+                description: 'Observed state for factor nodes. Only used for root factor nodes (no incoming edges in graph).'
+                properties:
+                  value:
+                    type: number
+                    description: 'The observed/current value of this factor'
+                  baseline:
+                    type: number
+                    nullable: true
+                    description: 'The baseline/previous value for comparison'
+                  unit:
+                    type: string
+                    nullable: true
+                    maxLength: 50
+                    description: 'Unit of measurement (e.g., "£", "%", "users")'
+                  source:
+                    type: string
+                    nullable: true
+                    maxLength: 100
+                    description: 'Source of the value (e.g., "brief_extraction", "user_input")'
         edges:
           type: array
           maxItems: 200
@@ -4374,6 +4396,124 @@ components:
           $ref: '#/components/schemas/islValidationResult'
         isl_sensitivity:
           $ref: '#/components/schemas/islSensitivityResult'
+        enrichment:
+          type: object
+          nullable: true
+          description: 'ISL enrichment data (present when detail_level != quick)'
+          properties:
+            causal_validation:
+              type: object
+              nullable: true
+              description: 'Causal validation enrichment from ISL'
+              properties:
+                identifiable:
+                  type: boolean
+                  description: 'Whether causal effect is identifiable'
+                confidence:
+                  type: string
+                  enum: [high, medium, low]
+                  description: 'Confidence level of validation'
+                adjustment_sets:
+                  type: array
+                  items:
+                    type: array
+                    items:
+                      type: string
+                  description: 'Valid adjustment sets for backdoor criterion'
+                minimal_set:
+                  type: array
+                  items:
+                    type: string
+                  description: 'Minimal sufficient adjustment set'
+                confounders:
+                  type: array
+                  items:
+                    type: string
+                  description: 'Identified confounders'
+                instruments:
+                  type: array
+                  items:
+                    type: string
+                  description: 'Potential instrumental variables'
+                warnings:
+                  type: array
+                  items:
+                    type: string
+                  description: 'Validation warnings'
+                explanation:
+                  type: object
+                  properties:
+                    summary:
+                      type: string
+                    reasoning:
+                      type: string
+            sensitivity_analysis:
+              type: object
+              nullable: true
+              description: 'Sensitivity analysis enrichment from ISL'
+              properties:
+                overall_robustness:
+                  type: string
+                  enum: [robust, moderate, fragile]
+                  description: 'Overall robustness assessment'
+                edges:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      edge_id:
+                        type: string
+                      from:
+                        type: string
+                      to:
+                        type: string
+                      sensitivity_score:
+                        type: number
+                      existence_sensitivity:
+                        type: number
+                      magnitude_sensitivity:
+                        type: number
+                      impact_direction:
+                        type: string
+                        enum: [positive, negative]
+                top_drivers:
+                  type: array
+                  items:
+                    type: string
+                  description: 'Top sensitivity drivers'
+                fragile_edges:
+                  type: array
+                  items:
+                    type: string
+                  description: 'Edges that are most fragile'
+                recommendations:
+                  type: array
+                  items:
+                    type: string
+                  description: 'Recommendations for improving robustness'
+            metadata:
+              type: object
+              required: [isl_enabled, detail_level]
+              description: 'Enrichment metadata'
+              properties:
+                isl_enabled:
+                  type: boolean
+                  description: 'Whether ISL was enabled for this request'
+                detail_level:
+                  type: string
+                  enum: [quick, standard, deep]
+                  description: 'Detail level used for the request'
+                isl_latency_ms:
+                  type: number
+                  description: 'ISL call latency in milliseconds'
+                isl_degraded:
+                  type: boolean
+                  description: 'Whether ISL call degraded gracefully'
+                endpoints_called:
+                  type: array
+                  items:
+                    type: string
+                  description: 'List of ISL endpoints called'
 
     islValidationResult:
       type: object

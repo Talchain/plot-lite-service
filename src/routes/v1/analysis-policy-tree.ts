@@ -15,6 +15,7 @@ import { detectPrimaryOutcome } from '../../services/ranking/outcome-detector.js
 import { inferEdgeTypes } from '../../services/ranking/edge-type-inference.js';
 import { validateSequentialGraph, getMaxStage } from '../../util/sequential-validation.js';
 import { isFlagOn } from '../../cee/codes.js';
+import { islService } from '../../integrations/isl/index.js';
 import type {
   PolicyTreeRequest,
   PolicyTreeResponse,
@@ -27,96 +28,6 @@ const MAX_EDGES = 200;
 const MAX_STAGES = 10;
 const DEFAULT_MAX_DEPTH = 10;
 const DEFAULT_K_SAMPLES = 32;
-const ISL_TIMEOUT_MS = Number(process.env.ISL_TIMEOUT_MS || 30_000);
-
-/**
- * Call ISL /api/v1/analysis/policy-tree endpoint
- */
-async function callIslPolicyTree(
-  body: {
-    plot_request_id: string;
-    tree_nodes: PolicyTreeNode[];
-    root_id: string;
-    max_depth: number;
-  },
-  logger?: any
-): Promise<{
-  tree: IslPolicyTreeResponse | null;
-  error?: { code: string; message: string; retryable: boolean };
-}> {
-  const baseUrl = process.env.ISL_BASE_URL?.trim();
-  const apiKey = process.env.ISL_API_KEY?.trim();
-
-  if (!baseUrl || !apiKey) {
-    return {
-      tree: null,
-      error: {
-        code: 'ISL_CONFIG_MISSING',
-        message: 'ISL_BASE_URL or ISL_API_KEY not configured',
-        retryable: false,
-      },
-    };
-  }
-
-  const url = `${baseUrl.replace(/\/$/, '')}/api/v1/analysis/policy-tree`;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), ISL_TIMEOUT_MS);
-
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-        'X-Request-Id': body.plot_request_id,
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!res.ok) {
-      logger?.warn({
-        evt: 'isl_policy_tree_error',
-        status: res.status,
-        plot_request_id: body.plot_request_id,
-      });
-
-      return {
-        tree: null,
-        error: {
-          code: `ISL_HTTP_${res.status}`,
-          message: `ISL returned status ${res.status}`,
-          retryable: res.status >= 500,
-        },
-      };
-    }
-
-    const data = await res.json();
-    return { tree: data as IslPolicyTreeResponse };
-  } catch (err: any) {
-    clearTimeout(timeoutId);
-
-    const isTimeout = err.name === 'AbortError';
-    logger?.warn({
-      evt: 'isl_policy_tree_fetch_error',
-      error: err.message,
-      timeout: isTimeout,
-      plot_request_id: body.plot_request_id,
-    });
-
-    return {
-      tree: null,
-      error: {
-        code: isTimeout ? 'ISL_TIMEOUT' : 'ISL_FETCH_ERROR',
-        message: err.message || 'Failed to fetch from ISL',
-        retryable: true,
-      },
-    };
-  }
-}
 
 /**
  * Build policy tree from graph structure
@@ -411,17 +322,18 @@ export async function registerPolicyTreeRoute(app: FastifyInstance) {
           depth: treeDepth,
         });
 
-        const islResult = await callIslPolicyTree(
+        const islResult = await islService.callAnalysisEndpoint<IslPolicyTreeResponse>(
+          '/api/v1/analysis/policy-tree',
           {
             plot_request_id: requestId,
             tree_nodes: treeNodes,
             root_id: rootId,
             max_depth: maxDepth,
           },
-          req.log
+          requestId
         );
 
-        tree = islResult.tree;
+        tree = islResult.data;
         islError = islResult.error;
 
         if (tree) {

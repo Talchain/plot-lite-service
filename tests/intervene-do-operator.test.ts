@@ -324,4 +324,119 @@ describe('POST /v1/intervene - do-operator', () => {
     expect(data.explain.top_drivers[0]).toHaveProperty('sign');
     expect(data.explain.top_drivers[1].sign).toBe('-'); // Y has negative value
   });
+
+  /**
+   * KERNEL CORRECTNESS TEST
+   * Verifies that the intervene endpoint uses the actual SCM kernel, not placeholder arithmetic.
+   *
+   * Graph: A -> B -> C with deterministic edges (belief=1.0)
+   * A=1 (baseline) -> B=1*2=2 -> C=2*3=6
+   * do(A=10) -> B=10*2=20 -> C=20*3=60
+   *
+   * Delta should be: counterfactual(60) - baseline(6) = 54
+   */
+  it('kernel correctness: intervention produces correct mathematical result', async () => {
+    const payload = {
+      graph: {
+        nodes: [
+          { id: 'A', label: 'Cause' },
+          { id: 'B', label: 'Mediator' },
+          { id: 'C', label: 'Effect', kind: 'goal' }
+        ],
+        edges: [
+          { from: 'A', to: 'B', weight: 2, belief: 1.0 },
+          { from: 'B', to: 'C', weight: 3, belief: 1.0 }
+        ]
+      },
+      actions: [{ node_id: 'A', value: 10 }],
+      seed: 42,
+      k_samples: 64
+    };
+
+    const res = await fetch(`${server.baseUrl}/v1/intervene`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    // With do(A=10) and deterministic edges (belief=1.0):
+    // B = 10 * 2 = 20
+    // C = 20 * 3 = 60
+    expect(data.counterfactual.summary.p50).toBe(60);
+
+    // Verify delta is computed correctly
+    const expectedDelta = data.counterfactual.summary.p50 - data.baseline.summary.p50;
+    expect(data.delta.p50).toBeCloseTo(expectedDelta, 2);
+
+    // Verify the endpoint uses kernel (includes bma_hash)
+    expect(data.model_card.bma_hash).toBeDefined();
+    expect(data.model_card.k_evaluated).toBeGreaterThan(0);
+  });
+
+  /**
+   * TARGET AUTO-DETECTION TEST
+   * Verifies that the target node is correctly auto-detected when not specified.
+   */
+  it('auto-detects goal node as target', async () => {
+    const payload = {
+      graph: {
+        nodes: [
+          { id: 'X', label: 'Treatment' },
+          { id: 'Y', label: 'Outcome', kind: 'goal' }
+        ],
+        edges: [{ from: 'X', to: 'Y', weight: 2, belief: 1.0 }]
+      },
+      actions: [{ node_id: 'X', value: 5 }],
+      seed: 42
+    };
+
+    const res = await fetch(`${server.baseUrl}/v1/intervene`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.target).toBe('Y'); // Auto-detected goal node
+    // With do(X=5): Y = 5 * 2 = 10
+    expect(data.counterfactual.summary.p50).toBe(10);
+  });
+
+  /**
+   * EXPLICIT TARGET TEST
+   * Verifies that an explicit target parameter overrides auto-detection.
+   */
+  it('uses explicit target parameter when provided', async () => {
+    const payload = {
+      graph: {
+        nodes: [
+          { id: 'A', label: 'A' },
+          { id: 'B', label: 'B' },
+          { id: 'C', label: 'C', kind: 'goal' }
+        ],
+        edges: [
+          { from: 'A', to: 'B', weight: 2, belief: 1.0 },
+          { from: 'A', to: 'C', weight: 3, belief: 1.0 }
+        ]
+      },
+      target: 'B', // Override auto-detection
+      actions: [{ node_id: 'A', value: 5 }],
+      seed: 42
+    };
+
+    const res = await fetch(`${server.baseUrl}/v1/intervene`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.target).toBe('B'); // Uses explicit target, not goal node C
+    // With do(A=5) and target B: B = 5 * 2 = 10
+    expect(data.counterfactual.summary.p50).toBe(10);
+  });
 });

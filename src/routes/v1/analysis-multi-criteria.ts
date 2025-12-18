@@ -13,6 +13,7 @@ import { getInferenceEngine } from '../../inference/index.js';
 import { normalizeGraph } from '../../util/normalize.js';
 import { inferEdgeTypes } from '../../services/ranking/edge-type-inference.js';
 import { isFlagOn } from '../../cee/codes.js';
+import { islService } from '../../integrations/isl/index.js';
 import type {
   MultiCriteriaRequest,
   MultiCriteriaResponse,
@@ -27,101 +28,6 @@ const MAX_NODES = 50;
 const MAX_EDGES = 200;
 const MAX_CRITERIA = 10;
 const DEFAULT_K_SAMPLES = 32;
-const ISL_TIMEOUT_MS = Number(process.env.ISL_TIMEOUT_MS || 15_000); // Longer for multi-criteria
-
-/**
- * Call ISL /api/v1/aggregation/multi-criteria endpoint
- */
-async function callIslMultiCriteria(
-  body: {
-    plot_request_id: string;
-    criterion_results: CriterionResult[];
-    criteria_weights: Record<string, number>;
-    aggregation_method: string;
-    percentile: string;
-  },
-  logger?: any
-): Promise<{ aggregation: IslMultiCriteriaResponse | null; error?: ProxyError; durationMs?: number }> {
-  const baseUrl = process.env.ISL_BASE_URL?.trim();
-  const apiKey = process.env.ISL_API_KEY?.trim();
-
-  if (!baseUrl || !apiKey) {
-    return {
-      aggregation: null,
-      error: {
-        code: 'ISL_CONFIG_MISSING',
-        message: 'ISL_BASE_URL or ISL_API_KEY not configured',
-        retryable: false,
-      },
-    };
-  }
-
-  const url = `${baseUrl.replace(/\/$/, '')}/api/v1/aggregation/multi-criteria`;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), ISL_TIMEOUT_MS);
-  const startTime = Date.now();
-
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-        'X-Request-Id': body.plot_request_id,
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-    const durationMs = Date.now() - startTime;
-
-    if (!res.ok) {
-      logger?.warn({
-        evt: 'isl_multi_criteria_error',
-        status: res.status,
-        plot_request_id: body.plot_request_id,
-        duration_ms: durationMs,
-      });
-
-      return {
-        aggregation: null,
-        error: {
-          code: `ISL_HTTP_${res.status}`,
-          message: `ISL returned status ${res.status}`,
-          retryable: res.status >= 500,
-        },
-        durationMs,
-      };
-    }
-
-    const data = await res.json();
-    return { aggregation: data as IslMultiCriteriaResponse, durationMs };
-  } catch (err: any) {
-    clearTimeout(timeoutId);
-    const durationMs = Date.now() - startTime;
-
-    const isTimeout = err.name === 'AbortError';
-    logger?.warn({
-      evt: 'isl_multi_criteria_fetch_error',
-      error: err.message,
-      timeout: isTimeout,
-      plot_request_id: body.plot_request_id,
-      duration_ms: durationMs,
-    });
-
-    return {
-      aggregation: null,
-      error: {
-        code: isTimeout ? 'ISL_TIMEOUT' : 'ISL_FETCH_ERROR',
-        message: err.message || 'Failed to fetch from ISL',
-        retryable: true,
-      },
-      durationMs,
-    };
-  }
-}
 
 /**
  * Compute local weighted aggregation when ISL is unavailable
@@ -464,7 +370,8 @@ export async function registerMultiCriteriaAnalysisRoute(app: FastifyInstance) {
           options_count: optionNodes.length,
         });
 
-        const islResult = await callIslMultiCriteria(
+        const islResult = await islService.callAnalysisEndpoint<IslMultiCriteriaResponse>(
+          '/api/v1/aggregation/multi-criteria',
           {
             plot_request_id: requestId,
             criterion_results: criterionResults,
@@ -472,12 +379,12 @@ export async function registerMultiCriteriaAnalysisRoute(app: FastifyInstance) {
             aggregation_method: aggregationMethod,
             percentile,
           },
-          req.log
+          requestId
         );
 
-        aggregation = islResult.aggregation;
+        aggregation = islResult.data;
         islError = islResult.error;
-        islMs = islResult.durationMs;
+        islMs = islResult.latency_ms;
 
         if (aggregation) {
           provenance = 'isl';

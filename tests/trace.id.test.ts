@@ -8,6 +8,7 @@ let port = 0;
 const prevAuth = process.env.AUTH_ENABLED;
 const prevTestRoutes = process.env.TEST_ROUTES;
 const prevTrace = process.env.TRACE_MIN;
+const prevDemoMode = process.env.DEMO_MODE_ENABLED;
 
 async function postRunDemo(): Promise<any> {
   const url = `http://127.0.0.1:${port}/v1/run?demo=1`;
@@ -41,6 +42,7 @@ async function readHelloTrace(): Promise<string | undefined> {
 beforeAll(async () => {
   process.env.AUTH_ENABLED = '0';
   process.env.TEST_ROUTES = '1';
+  process.env.DEMO_MODE_ENABLED = '1';
   app = await createServer({ enableTestRoutes: true });
   await app.listen({ port: 0, host: '127.0.0.1' });
   const addr = app.server.address();
@@ -52,6 +54,7 @@ afterAll(async () => {
   if (prevAuth === undefined) delete process.env.AUTH_ENABLED; else process.env.AUTH_ENABLED = prevAuth;
   if (prevTestRoutes === undefined) delete process.env.TEST_ROUTES; else process.env.TEST_ROUTES = prevTestRoutes;
   if (prevTrace === undefined) delete process.env.TRACE_MIN; else process.env.TRACE_MIN = prevTrace;
+  if (prevDemoMode === undefined) delete process.env.DEMO_MODE_ENABLED; else process.env.DEMO_MODE_ENABLED = prevDemoMode;
 });
 
 describe('Trace ID (TRACE_MIN)', () => {

@@ -3,12 +3,13 @@ import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
 import { existsSync } from 'fs';
 import { resolve, join as joinPath } from 'path';
-import { createHash, timingSafeEqual, randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { promises as fsp } from 'node:fs';
 import { makeRateLimiter } from './middleware/rate-limit.js';
 import { refreshFromEnv } from './config/runtimeConfig.js';
 import { securityHeadersOnSend } from './middleware/security-headers.js';
 import { replyWithAppError } from './errors.js';
+import { authGuard } from './middleware/auth-guard.js';
 import { sanitizeUrl } from './lib/log-sanitizer.js';
 import inflightPlugin from './plugins/inflight.js';
 import type {} from './types/fastify.js';
@@ -151,49 +152,7 @@ export async function createServer(opts: ServerOpts = {}) {
     }
     return null;
   }
-  // Minimal auth helper (flag-gated)
-  async function checkAuth(req: any, reply: any): Promise<boolean> {
-    if (process.env.AUTH_ENABLED !== '1') return true;
-    const hdr = String((req.headers?.authorization || req.headers?.Authorization || '') || '');
-    const expected = String(process.env.AUTH_TOKEN || '').trim();
-    if (!hdr.startsWith('Bearer ')) {
-      try {
-        reply.header('WWW-Authenticate', 'Bearer');
-      } catch (err) {
-        req.log?.error?.({
-          evt: 'auth_header_failed',
-          reqId: req.id,
-          header: 'WWW-Authenticate',
-          error: err instanceof Error ? err.message : String(err)
-        }, 'Failed to set WWW-Authenticate header on 401 response');
-      }
-      // Use standardized error envelope (error.v1) for missing auth
-      return replyWithAppError(reply, {
-        type: 'BAD_INPUT',
-        statusCode: 401,
-        message: 'Missing bearer token',
-        fields: { code: 'UNAUTHORIZED' },
-      }) as any;
-    }
-    const tok = hdr.slice('Bearer '.length).trim();
-    if (!expected || tok.length !== expected.length) {
-      return replyWithAppError(reply, {
-        type: 'BAD_INPUT',
-        statusCode: 403,
-        message: 'Invalid token',
-        fields: { code: 'FORBIDDEN' },
-      }) as any;
-    }
-    if (!timingSafeEqual(Buffer.from(tok), Buffer.from(expected))) {
-      return replyWithAppError(reply, {
-        type: 'BAD_INPUT',
-        statusCode: 403,
-        message: 'Invalid token',
-        fields: { code: 'FORBIDDEN' },
-      }) as any;
-    }
-    return true;
-  }
+  // Auth helper - uses consolidated middleware from auth-guard.ts
   // Refresh runtime tunables from current env at server creation
   try {
     refreshFromEnv();
@@ -657,32 +616,10 @@ export async function createServer(opts: ServerOpts = {}) {
       app.get(path, async (req: any, reply: any) => {
         const headers: any = (req as any).headers || {};
         const q: any = (req as any).query || {};
+        // Auth check for /stream route using consolidated auth guard
         const authRequired = process.env.AUTH_ENABLED === '1' && process.env.FEATURE_STREAM === '1' && path === '/stream';
         if (authRequired) {
-          const bearer = String(headers.authorization || headers.Authorization || '');
-          const expected = String(process.env.AUTH_TOKEN || '').trim();
-          if (!bearer.startsWith('Bearer ')) {
-            reply.header('WWW-Authenticate', 'Bearer');
-            reply.header('Content-Type', 'application/json; charset=utf-8');
-            return replyWithAppError(reply, {
-              type: 'BAD_INPUT',
-              statusCode: 401,
-              message: 'Missing bearer token',
-              fields: { code: 'UNAUTHORIZED' },
-            });
-          }
-          const token = bearer.slice('Bearer '.length).trim();
-          const sameLength = !!expected && token.length === expected.length;
-          const matches = sameLength && timingSafeEqual(Buffer.from(token), Buffer.from(expected));
-          if (!sameLength || !matches) {
-            reply.header('Content-Type', 'application/json; charset=utf-8');
-            return replyWithAppError(reply, {
-              type: 'BAD_INPUT',
-              statusCode: 403,
-              message: 'Invalid token',
-              fields: { code: 'FORBIDDEN' },
-            });
-          }
+          if (!(await authGuard(req, reply))) return;
         }
 
         const streamId = typeof q.id === 'string' && q.id ? q.id : 'default';
@@ -914,7 +851,7 @@ export async function createServer(opts: ServerOpts = {}) {
   fixturesReady = true;
 
   app.get('/draft-flows', async (req, reply) => {
-    if (!(await checkAuth(req, reply))) return;
+    if (!(await authGuard(req, reply))) return;
     const q = (req as any).query || {};
     const fields: Record<string, any> = {};
     const template = typeof q.template === 'string' ? q.template : '';
@@ -995,7 +932,7 @@ export async function createServer(opts: ServerOpts = {}) {
   }
 
   app.post('/draft-flows', async (req, reply) => {
-    if (!(await checkAuth(req, reply))) return;
+    if (!(await authGuard(req, reply))) return;
     const body: any = (req as any).body || {};
     // Test error header
     {
@@ -1182,7 +1119,7 @@ export async function createServer(opts: ServerOpts = {}) {
   if (process.env.FEATURE_STREAM === '1') {
     app.get('/stream', async (req: any, reply: any) => {
       // Auth gate (minimal)
-      if (!(await checkAuth(req, reply))) return;
+      if (!(await authGuard(req, reply))) return;
 
       // SSE headers
       reply.header('Content-Type', 'text/event-stream');

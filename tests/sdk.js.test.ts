@@ -7,10 +7,12 @@ let app: FastifyInstance;
 let port = 0;
 const prevAuth = process.env.AUTH_ENABLED;
 const prevTestRoutes = process.env.TEST_ROUTES;
+const prevDemoMode = process.env.DEMO_MODE_ENABLED;
 
 beforeAll(async () => {
   process.env.AUTH_ENABLED = '0';
   process.env.TEST_ROUTES = '1';
+  process.env.DEMO_MODE_ENABLED = '1';
   app = await createServer({ enableTestRoutes: true });
   await app.listen({ port: 0, host: '127.0.0.1' });
   const addr = app.server.address();
@@ -21,6 +23,7 @@ afterAll(async () => {
   await app.close();
   if (prevAuth === undefined) delete process.env.AUTH_ENABLED; else process.env.AUTH_ENABLED = prevAuth;
   if (prevTestRoutes === undefined) delete process.env.TEST_ROUTES; else process.env.TEST_ROUTES = prevTestRoutes;
+  if (prevDemoMode === undefined) delete process.env.DEMO_MODE_ENABLED; else process.env.DEMO_MODE_ENABLED = prevDemoMode;
 });
 
 async function runDemo() {

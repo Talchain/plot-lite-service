@@ -14,7 +14,12 @@ import { checkLinearity, detectThresholdCrossings, generateForkSuggestions } fro
 import { checkIdentifiability } from '../../trust/identifiability.js';
 import { enforceComputeBudget } from '../../governance/cost-estimator.js';
 import { stampResponseHash, hashCanonicalInput } from '../../util/canonical-json.js';
-import type { DetailLevel } from '../../trust/types.js';
+import type {
+  DetailLevel,
+  RunResponseEnrichment,
+  CausalValidationEnrichment,
+  SensitivityAnalysisEnrichment,
+} from '../../trust/types.js';
 import { DETAIL_LEVEL_CONFIG } from '../../trust/types.js';
 import { getInferenceEngine } from '../../inference/index.js';
 import { computeSensitivitySimple, computeSensitivityAll } from '../../lib/sensitivity-simple.js';
@@ -54,6 +59,120 @@ import { buildGraphHealth } from '../../trust/variance-helper.js';
 import { CRITIQUE_CODES } from '../../trust/critique-codes.js';
 import { computeOptionProbabilities, detectGoalNode, detectGoalThreshold } from '../../trust/option-probabilities.js';
 
+/**
+ * Transform ISL validation result to enrichment schema
+ */
+function transformValidationToEnrichment(
+  validation: PLoTValidationResult | undefined
+): CausalValidationEnrichment | undefined {
+  if (!validation) return undefined;
+
+  // Extract confounders from issues if present
+  const confounders: string[] = [];
+  const warnings: string[] = [];
+  if (validation.issues) {
+    for (const issue of validation.issues) {
+      if (issue.type === 'confounder' || issue.type === 'unobserved_confounder') {
+        confounders.push(...issue.affected_nodes);
+      }
+      warnings.push(issue.description);
+    }
+  }
+
+  return {
+    identifiable: validation.status === 'identifiable',
+    confidence: validation.confidence,
+    adjustment_sets: validation.adjustment_sets,
+    minimal_set: validation.minimal_set,
+    confounders: confounders.length > 0 ? confounders : undefined,
+    warnings: warnings.length > 0 ? warnings : undefined,
+    explanation: validation.explanation,
+  };
+}
+
+/**
+ * Transform ISL sensitivity result to enrichment schema
+ */
+function transformSensitivityToEnrichment(
+  sensitivity: PLoTSensitivityResult | undefined,
+  graph: { nodes: any[]; edges: any[] }
+): SensitivityAnalysisEnrichment | undefined {
+  if (!sensitivity) return undefined;
+
+  // Build edge list from sensitive parameters
+  const edges: SensitivityAnalysisEnrichment['edges'] = sensitivity.sensitive_parameters.map((param, idx) => {
+    // Try to find the corresponding edge in the graph
+    const edge = graph.edges.find((e: any) =>
+      param.parameter === `${e.from}->${e.to}` ||
+      param.parameter === e.from ||
+      param.parameter === e.to
+    );
+
+    return {
+      edge_id: edge?.id || param.parameter,
+      from: edge?.from || param.parameter.split('->')[0] || param.parameter,
+      to: edge?.to || param.parameter.split('->')[1] || param.parameter,
+      sensitivity_score: param.sensitivity,
+      impact_direction: param.impact_direction,
+    };
+  });
+
+  // Extract top drivers (nodes with highest sensitivity)
+  const topDrivers = sensitivity.sensitive_parameters
+    .slice(0, 3)
+    .map(p => p.parameter);
+
+  // Identify fragile edges (sensitivity > 0.7)
+  const fragileEdges = edges
+    .filter(e => e.sensitivity_score > 0.7)
+    .map(e => e.edge_id);
+
+  return {
+    overall_robustness: sensitivity.overall_robustness,
+    edges,
+    top_drivers: topDrivers.length > 0 ? topDrivers : undefined,
+    fragile_edges: fragileEdges.length > 0 ? fragileEdges : undefined,
+    recommendations: sensitivity.recommendations.length > 0 ? sensitivity.recommendations : undefined,
+  };
+}
+
+/**
+ * Build enrichment object from ISL results
+ */
+function buildEnrichment(
+  islService: { isEnabled(): boolean },
+  detail_level: DetailLevel,
+  isl_validation: PLoTValidationResult | undefined,
+  isl_sensitivity: PLoTSensitivityResult | undefined,
+  isl_latency_ms: number | undefined,
+  graph: { nodes: any[]; edges: any[] }
+): RunResponseEnrichment | undefined {
+  // No enrichment for quick mode or when ISL is disabled
+  if (detail_level === 'quick') {
+    return undefined;
+  }
+
+  const isl_enabled = islService.isEnabled();
+  const isl_degraded = (isl_validation?.source !== 'isl' && isl_validation !== undefined) ||
+                       (isl_sensitivity?.source !== 'isl' && isl_sensitivity !== undefined);
+
+  // Build endpoints called list
+  const endpoints_called: string[] = [];
+  if (isl_validation?.source === 'isl') endpoints_called.push('causal/validate');
+  if (isl_sensitivity?.source === 'isl') endpoints_called.push('causal/sensitivity/detailed');
+
+  return {
+    causal_validation: transformValidationToEnrichment(isl_validation),
+    sensitivity_analysis: transformSensitivityToEnrichment(isl_sensitivity, graph),
+    metadata: {
+      isl_enabled,
+      detail_level,
+      isl_latency_ms,
+      isl_degraded: isl_degraded || undefined,
+      endpoints_called: endpoints_called.length > 0 ? endpoints_called : undefined,
+    },
+  };
+}
 
 export interface RunRequest {
   graph: { nodes: any[]; edges: any[] };
@@ -366,7 +485,26 @@ export async function registerRunRoute(app: FastifyInstance) {
       });
     }
 
-    // Validate detail_level if provided (explicit runtime validation for user-friendly errors)
+    /**
+     * detail_level Contract (Phase 1A)
+     *
+     * Controls ISL enrichment and compute budget:
+     *
+     * - 'quick': No ISL calls. Fastest response. K=16 samples.
+     *   Guaranteed fields: results, model_card, confidence, result.summary
+     *   enrichment: undefined
+     *
+     * - 'standard' (default): Calls ISL causal validation. Medium latency. K=32 samples.
+     *   Guaranteed fields: [quick fields] + enrichment.causal_validation
+     *   enrichment.metadata.detail_level = 'standard'
+     *
+     * - 'deep': Calls ISL validation + sensitivity. Highest latency. K=64 samples.
+     *   Guaranteed fields: [standard fields] + enrichment.sensitivity_analysis
+     *   enrichment.metadata.detail_level = 'deep'
+     *
+     * When ISL is disabled (ISL_ENABLE=0), enrichment is still present for
+     * standard/deep modes with metadata.isl_enabled=false.
+     */
     const VALID_DETAIL_LEVELS = ['quick', 'standard', 'deep'] as const;
     const detail_level: DetailLevel = body.detail_level ?? 'standard';
     if (!VALID_DETAIL_LEVELS.includes(detail_level as any)) {
@@ -379,7 +517,6 @@ export async function registerRunRoute(app: FastifyInstance) {
     }
     const detailConfig = DETAIL_LEVEL_CONFIG[detail_level];
 
-    // ... (rest of the code remains the same)
     const {
       seed = 42,
       treatment_node = graph.nodes[0]?.id,
@@ -714,8 +851,10 @@ export async function registerRunRoute(app: FastifyInstance) {
     let isl_validation: PLoTValidationResult | undefined;
     let isl_sensitivity: PLoTSensitivityResult | undefined;
     const islService = getISLService();
+    let isl_latency_ms: number | undefined;
 
     if (islService.isEnabled() && detail_level !== 'quick') {
+      const islStartTime = Date.now();
       try {
         // Run ISL calls in parallel for efficiency
         const [validationResult, sensitivityResult] = await Promise.allSettled([
@@ -742,6 +881,7 @@ export async function registerRunRoute(app: FastifyInstance) {
           }, 'ISL enrichment failed; continuing without ISL');
         } catch { /* ignore */ }
       }
+      isl_latency_ms = Date.now() - islStartTime;
     }
 
     if (detailConfig.run_critique && isl_validation) {
@@ -913,6 +1053,8 @@ export async function registerRunRoute(app: FastifyInstance) {
       ...(option_probabilities && { option_probabilities }),
       ...(isl_validation && { isl_validation }),
       ...(isl_sensitivity && { isl_sensitivity }),
+      // Phase 1A: Structured enrichment object for UI consumers
+      enrichment: buildEnrichment(islService, detail_level, isl_validation, isl_sensitivity, isl_latency_ms, graph),
       meta: {
         seed,
         commit: process.env.BUILD_ID || process.env.GITHUB_SHA || 'dev',

@@ -376,10 +376,10 @@ describe('Intervention Semantics (do-operator)', () => {
         mode: 'interventional',
       });
 
-      // B=0 -> C would be 0*3=0, but kernel uses baseline 1 when sum is 0
-      // This is a design choice to prevent propagation of zeros
-      // The baseline 1 is then capped to 0.99 (Brief 34: epistemic humility cap)
-      expect(result.quantiles.p50).toBe(0.99);
+      // B=0 -> C = 0*3 = 0
+      // Zero propagates correctly through edges (this is mathematically correct)
+      // Baseline 1 only applies to true root nodes with no active incoming edges
+      expect(result.quantiles.p50).toBe(0);
     });
 
     it('should handle negative intervention value', () => {
@@ -392,6 +392,34 @@ describe('Intervention Semantics (do-operator)', () => {
 
       // B=-5 -> C=-5*3=-15
       expect(result.quantiles.p50).toBe(-15);
+    });
+
+    /**
+     * REGRESSION TEST: sum=0 with active incoming edges
+     *
+     * Bug fixed: kernel.ts used `sum || 1` which incorrectly returned 1
+     * when sum=0 but there were active incoming edges.
+     *
+     * Fix: Changed to `hasActiveIncoming ? sum : 1` so baseline 1 only
+     * applies to true root nodes with no active incoming edges.
+     *
+     * Mathematical expectation: If A=0 and A->B has weight 2, then B=0*2=0
+     * The zero should propagate, not be replaced with baseline 1.
+     */
+    it('regression: sum=0 should propagate when active edges exist (not fallback to baseline 1)', () => {
+      // Graph: A -> B -> C with high-confidence edges (belief=1)
+      // Intervene A=0, expect zero to propagate through chain
+      const result = runKernel(simpleChainDag, 'C', {
+        seed: 42,
+        K: 64,
+        interventions: [{ node_id: 'A', value: 0 }],
+        mode: 'interventional',
+      });
+
+      // A=0 -> B=0*2=0 -> C=0*3=0
+      // Before fix: sum || 1 would give B=1, C=3 (WRONG)
+      // After fix: sum=0 propagates correctly (CORRECT)
+      expect(result.quantiles.p50).toBe(0);
     });
 
     it('should handle intervention on non-existent node gracefully', () => {

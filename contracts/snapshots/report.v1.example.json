@@ -19,6 +19,12 @@
       "source": "engine"
     }
   ],
+  "enrichment": {
+    "metadata": {
+      "detail_level": "standard",
+      "isl_enabled": false
+    }
+  },
   "evidence_analysis": {
     "assumption_edges": [
       "process::approved::2",

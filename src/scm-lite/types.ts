@@ -3,13 +3,32 @@
  * Structural Causal Model approximation with edge masking
  */
 
+/**
+ * Observed state for factor nodes (Decision Model Schema v2.2)
+ */
+export interface ObservedState {
+  /** Current value (e.g., 59 for price) */
+  value: number;
+  /** Reference/baseline value for comparison */
+  baseline?: number;
+  /** Display unit (e.g., "£", "%") */
+  unit?: string;
+}
+
 export interface Node {
   id: string;
   label?: string;
+  /** Node classification for inference semantics */
+  kind?: string;
+  /**
+   * Observed state for factor nodes.
+   * Only used when kind='factor' and node has no incoming edges.
+   */
+  observed_state?: ObservedState;
 }
 
 /** Edge function type for non-linear relationships (includes EdgeV2 additions) */
-export type EdgeFunctionType = 'linear' | 'diminishing_returns' | 'threshold' | 's_curve' | 'noisy_or' | 'logistic';
+export type EdgeFunctionType = 'linear' | 'diminishing_returns' | 'threshold' | 's_curve' | 'noisy_or' | 'noisy_and_not' | 'logistic' | 'mixed';
 
 /** Alias for EdgeFunctionType - used in EdgeV2 schema */
 export type FunctionalForm = EdgeFunctionType;

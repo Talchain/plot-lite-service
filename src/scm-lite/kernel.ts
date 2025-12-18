@@ -15,7 +15,7 @@
  * - belief_strength: Weight variance (higher = tighter distribution around weight)
  */
 import { createHash } from 'node:crypto';
-import type { DAG, KernelConfig, KernelResult, Intervention, Edge } from './types.js';
+import type { DAG, KernelConfig, KernelResult, Edge, Node } from './types.js';
 import { XorShift128Plus } from './rng.js';
 import { applyEdgeFunction } from '../engine/edge-functions.js';
 import { FLAGS } from '../config/flags.js';
@@ -24,7 +24,6 @@ import { FLAGS } from '../config/flags.js';
 const EDGE_V2_DEFAULTS = {
   BELIEF_EXISTS: 1.0,
   BELIEF_STRENGTH: 0.8,
-  WEIGHT_VARIANCE_SCALE: 0.5,
   /** Default std as percentage of |weight| when neither strength_std nor belief_strength provided */
   DEFAULT_STD_RATIO: 0.1,
   /** Minimum std to ensure non-zero variance */
@@ -95,9 +94,16 @@ export function runKernel(dag: DAG, target: string, config: Partial<KernelConfig
   let K_converged = false;
   let prevP50Int: number | null = null;
 
+  // Precompute incoming edge index once for O(1) lookup in forwardPass
+  // This reduces complexity from O(K*N*E) to O(K*N)
+  const incomingEdgeIndex = buildIncomingEdgeIndex(dag);
+
+  // Build node map for factor value initialization
+  const nodeMap = buildNodeMap(dag);
+
   for (let k = 0; k < cfg.K; k++) {
     const { mask, sampledWeights } = sampleEdgeMask(dag, rng, cfg);
-    const value = forwardPass(dag, mask, sampledWeights, topoOrder, target, interventionMap);
+    const value = forwardPass(incomingEdgeIndex, nodeMap, mask, sampledWeights, topoOrder, target, interventionMap);
     samples.push(value);
     graphHashes.add(hashMask(mask));
 
@@ -344,33 +350,6 @@ function sampleNormal(mean: number, std: number, rng: XorShift128Plus): number {
 }
 
 /**
- * Sample weight with variance based on belief_strength.
- *
- * When belief_strength is high (close to 1), weight is returned as-is.
- * When belief_strength is low, weight varies around its center.
- *
- * @param baseWeight - The base weight value
- * @param beliefStrength - Confidence in weight precision (0-1)
- * @param random - Random value [0, 1) for sampling
- * @returns Sampled weight value
- */
-function sampleWeightWithVariance(
-  baseWeight: number,
-  beliefStrength: number,
-  random: number
-): number {
-  const variance = EDGE_V2_DEFAULTS.WEIGHT_VARIANCE_SCALE * (1 - beliefStrength);
-
-  if (variance <= 0) {
-    return baseWeight;
-  }
-
-  // Simple symmetric adjustment using uniform random
-  const adjustment = (random - 0.5) * 2 * Math.sqrt(variance * 3);
-  return baseWeight + adjustment * Math.abs(baseWeight || 1);
-}
-
-/**
  * Sample edge mask and weights for a single Monte Carlo iteration.
  *
  * EdgeV1 behaviour (legacy): Uses single belief for edge inclusion
@@ -419,6 +398,42 @@ function sampleEdgeMask(
 }
 
 /**
+ * Build an index of incoming edges for each node.
+ * This allows O(1) lookup instead of O(E) filtering per node.
+ *
+ * @param dag - The directed acyclic graph
+ * @returns Map from node ID to array of incoming edges
+ */
+function buildIncomingEdgeIndex(dag: DAG): Map<string, Edge[]> {
+  const index = new Map<string, Edge[]>();
+  // Initialize empty arrays for all nodes
+  for (const node of dag.nodes) {
+    index.set(node.id, []);
+  }
+  // Populate with edges
+  for (const edge of dag.edges) {
+    const incoming = index.get(edge.to);
+    if (incoming) {
+      incoming.push(edge);
+    }
+  }
+  return index;
+}
+
+/**
+ * Build a lookup map from node ID to node data
+ *
+ * Used for factor value initialization - root factor nodes use observed_state.value.
+ */
+function buildNodeMap(dag: DAG): Map<string, Node> {
+  const map = new Map<string, Node>();
+  for (const node of dag.nodes) {
+    map.set(node.id, node);
+  }
+  return map;
+}
+
+/**
  * Forward pass through the DAG with intervention support
  *
  * When a node is in the interventionMap:
@@ -430,7 +445,13 @@ function sampleEdgeMask(
  * Original: X = f(Parents(X), U_x)
  * Intervention: X = x (constant, parents ignored)
  *
- * @param dag - The directed acyclic graph
+ * Factor value initialization (Phase 1B):
+ * Structural root factor nodes (kind='factor', no incoming edges in graph) use
+ * observed_state.value if present, otherwise default to baseline 1.0 (capped to 0.99
+ * for numerical stability).
+ *
+ * @param incomingEdgeIndex - Precomputed index of incoming edges per node
+ * @param nodeMap - Map from node ID to node data for factor value lookup
  * @param mask - Set of active edges for this sample
  * @param sampledWeights - Map of edge key to sampled weight (from dual beliefs)
  * @param topoOrder - Nodes in topological order
@@ -439,7 +460,8 @@ function sampleEdgeMask(
  * @returns Computed value of target node
  */
 function forwardPass(
-  dag: DAG,
+  incomingEdgeIndex: Map<string, Edge[]>,
+  nodeMap: Map<string, Node>,
   mask: Set<string>,
   sampledWeights: Map<string, number>,
   topoOrder: string[],
@@ -449,19 +471,24 @@ function forwardPass(
   const values = new Map<string, number>();
   for (const id of topoOrder) values.set(id, 0);
 
-  for (const node of topoOrder) {
+  for (const nodeId of topoOrder) {
     // Check if this node is intervened upon (do-operator)
     // Intervention cuts all incoming edges and sets value directly
-    if (interventionMap?.has(node)) {
-      values.set(node, interventionMap.get(node)!);
+    if (interventionMap?.has(nodeId)) {
+      values.set(nodeId, interventionMap.get(nodeId)!);
       continue; // Skip natural evaluation - this is the key do-operator behavior
     }
 
-    // Natural evaluation: compute from parents
-    const incoming = dag.edges.filter(e => e.to === node && mask.has(`${e.from}->${e.to}`));
+    // Natural evaluation: compute from parents using precomputed index
+    // O(1) lookup instead of O(E) filter per node
+    const allIncoming = incomingEdgeIndex.get(nodeId) || [];
     let sum = 0;
-    for (const edge of incoming) {
+    let hasActiveIncoming = false;
+    for (const edge of allIncoming) {
       const edgeKey = `${edge.from}->${edge.to}`;
+      // Skip edges not in the sampled mask
+      if (!mask.has(edgeKey)) continue;
+      hasActiveIncoming = true;
       const parentValue = values.get(edge.from) || 0;
       // Use sampled weight from dual beliefs (already accounts for belief_strength variance)
       const weight = sampledWeights.get(edgeKey) ?? edge.weight ?? 1.0;
@@ -469,7 +496,27 @@ function forwardPass(
       const transformedValue = applyEdgeFunction(parentValue, edge);
       sum += transformedValue * weight;
     }
-    values.set(node, sum || 1); // baseline 1 if no incoming
+
+    if (hasActiveIncoming) {
+      // Node with active incoming edges: compute value from incoming edges
+      values.set(nodeId, sum);
+    } else {
+      // No active incoming edges in this sample
+      // Phase 1B: Check for structural root factor node with observed_state.value
+      // Structural root = no incoming edges in the graph at all
+      const isStructuralRoot = allIncoming.length === 0;
+      const node = nodeMap.get(nodeId);
+
+      if (isStructuralRoot && node?.kind === 'factor' && node.observed_state?.value !== undefined) {
+        // Structural root factor node with observed_state.value - use it
+        // This only triggers for true structural roots (no incoming edges at all)
+        values.set(nodeId, node.observed_state.value);
+      } else {
+        // Default baseline for all other nodes without active incoming edges
+        // (includes both structural roots and nodes with masked-out edges)
+        values.set(nodeId, 1);
+      }
+    }
   }
 
   return values.get(target) || 0;
@@ -587,9 +634,15 @@ export function computeThresholdProbability(
   let samplesAbove = 0;
   const K = cfg.K;
 
+  // Precompute incoming edge index once for O(1) lookup in forwardPass
+  const incomingEdgeIndex = buildIncomingEdgeIndex(dag);
+
+  // Build node map for factor value initialization
+  const nodeMap = buildNodeMap(dag);
+
   for (let k = 0; k < K; k++) {
     const { mask, sampledWeights } = sampleEdgeMask(dag, rng, cfg);
-    const value = forwardPass(dag, mask, sampledWeights, topoOrder, target, interventionMap);
+    const value = forwardPass(incomingEdgeIndex, nodeMap, mask, sampledWeights, topoOrder, target, interventionMap);
     if (value >= threshold) {
       samplesAbove++;
     }

@@ -15,6 +15,7 @@ import { detectPrimaryOutcome } from '../../services/ranking/outcome-detector.js
 import { inferEdgeTypes } from '../../services/ranking/edge-type-inference.js';
 import { validateSequentialGraph, getMaxStage } from '../../util/sequential-validation.js';
 import { isFlagOn } from '../../cee/codes.js';
+import { islService } from '../../integrations/isl/index.js';
 import type {
   SequentialAnalysisRequest,
   SequentialAnalysisResponse,
@@ -31,104 +32,6 @@ const MAX_NODES = 50;
 const MAX_EDGES = 200;
 const MAX_STAGES = 10;
 const DEFAULT_K_SAMPLES = 32;
-const ISL_TIMEOUT_MS = Number(process.env.ISL_TIMEOUT_MS || 20_000);
-
-/**
- * Call ISL /api/v1/analysis/sequential endpoint
- */
-async function callIslSequential(
-  body: {
-    plot_request_id: string;
-    stage_results: Array<{
-      stage: number;
-      stage_label: string;
-      options: Array<{
-        option_id: string;
-        label: string;
-        score: number;
-        distribution: { p10: number; p50: number; p90: number };
-      }>;
-    }>;
-    discount_factor: number;
-  },
-  logger?: any
-): Promise<{
-  analysis: IslSequentialAnalysisResponse | null;
-  error?: { code: string; message: string; retryable: boolean };
-}> {
-  const baseUrl = process.env.ISL_BASE_URL?.trim();
-  const apiKey = process.env.ISL_API_KEY?.trim();
-
-  if (!baseUrl || !apiKey) {
-    return {
-      analysis: null,
-      error: {
-        code: 'ISL_CONFIG_MISSING',
-        message: 'ISL_BASE_URL or ISL_API_KEY not configured',
-        retryable: false,
-      },
-    };
-  }
-
-  const url = `${baseUrl.replace(/\/$/, '')}/api/v1/analysis/sequential`;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), ISL_TIMEOUT_MS);
-
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-        'X-Request-Id': body.plot_request_id,
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!res.ok) {
-      logger?.warn({
-        evt: 'isl_sequential_error',
-        status: res.status,
-        plot_request_id: body.plot_request_id,
-      });
-
-      return {
-        analysis: null,
-        error: {
-          code: `ISL_HTTP_${res.status}`,
-          message: `ISL returned status ${res.status}`,
-          retryable: res.status >= 500,
-        },
-      };
-    }
-
-    const data = await res.json();
-    return { analysis: data as IslSequentialAnalysisResponse };
-  } catch (err: any) {
-    clearTimeout(timeoutId);
-
-    const isTimeout = err.name === 'AbortError';
-    logger?.warn({
-      evt: 'isl_sequential_fetch_error',
-      error: err.message,
-      timeout: isTimeout,
-      plot_request_id: body.plot_request_id,
-    });
-
-    return {
-      analysis: null,
-      error: {
-        code: isTimeout ? 'ISL_TIMEOUT' : 'ISL_FETCH_ERROR',
-        message: err.message || 'Failed to fetch from ISL',
-        retryable: true,
-      },
-    };
-  }
-}
 
 /**
  * Compute local sequential analysis when ISL is unavailable
@@ -427,16 +330,17 @@ export async function registerSequentialAnalysisRoute(app: FastifyInstance) {
             stage_count: stageResults.length,
           });
 
-          const islResult = await callIslSequential(
+          const islResult = await islService.callAnalysisEndpoint<IslSequentialAnalysisResponse>(
+            '/api/v1/analysis/sequential',
             {
               plot_request_id: requestId,
               stage_results: stageResults,
               discount_factor: discountFactor,
             },
-            req.log
+            requestId
           );
 
-          analysis = islResult.analysis;
+          analysis = islResult.data;
           islError = islResult.error;
 
           // Record result with circuit breaker

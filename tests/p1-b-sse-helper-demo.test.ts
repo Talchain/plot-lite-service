@@ -30,6 +30,7 @@ describe('P1-B: SSE Helper Functions', () => {
         PORT,
         TEST_ROUTES: '0',
         RATE_LIMIT_ENABLED: '0',
+        DEMO_MODE_ENABLED: '1',
       },
       stdio: 'ignore'
     });

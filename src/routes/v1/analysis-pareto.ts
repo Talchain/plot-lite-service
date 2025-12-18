@@ -14,6 +14,7 @@ import { normalizeGraph } from '../../util/normalize.js';
 import { detectPrimaryOutcome } from '../../services/ranking/outcome-detector.js';
 import { inferEdgeTypes } from '../../services/ranking/edge-type-inference.js';
 import { isFlagOn } from '../../cee/codes.js';
+import { islService } from '../../integrations/isl/index.js';
 import type {
   ParetoAnalysisRequest,
   ParetoAnalysisResponse,
@@ -25,91 +26,6 @@ import type {
 const MAX_NODES = 50;
 const MAX_EDGES = 200;
 const DEFAULT_K_SAMPLES = 32;
-const ISL_TIMEOUT_MS = Number(process.env.ISL_TIMEOUT_MS || 10_000);
-
-/**
- * Call ISL /api/v1/analysis/pareto endpoint
- */
-async function callIslPareto(
-  body: {
-    plot_request_id: string;
-    options: OptionResult[];
-  },
-  logger?: any
-): Promise<{ analysis: IslParetoResponse | null; error?: ProxyError }> {
-  const baseUrl = process.env.ISL_BASE_URL?.trim();
-  const apiKey = process.env.ISL_API_KEY?.trim();
-
-  if (!baseUrl || !apiKey) {
-    return {
-      analysis: null,
-      error: {
-        code: 'ISL_CONFIG_MISSING',
-        message: 'ISL_BASE_URL or ISL_API_KEY not configured',
-        retryable: false,
-      },
-    };
-  }
-
-  const url = `${baseUrl.replace(/\/$/, '')}/api/v1/analysis/pareto`;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), ISL_TIMEOUT_MS);
-
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-        'X-Request-Id': body.plot_request_id,
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!res.ok) {
-      logger?.warn({
-        evt: 'isl_pareto_error',
-        status: res.status,
-        plot_request_id: body.plot_request_id,
-      });
-
-      return {
-        analysis: null,
-        error: {
-          code: `ISL_HTTP_${res.status}`,
-          message: `ISL returned status ${res.status}`,
-          retryable: res.status >= 500,
-        },
-      };
-    }
-
-    const data = await res.json();
-    return { analysis: data as IslParetoResponse };
-  } catch (err: any) {
-    clearTimeout(timeoutId);
-
-    const isTimeout = err.name === 'AbortError';
-    logger?.warn({
-      evt: 'isl_pareto_fetch_error',
-      error: err.message,
-      timeout: isTimeout,
-      plot_request_id: body.plot_request_id,
-    });
-
-    return {
-      analysis: null,
-      error: {
-        code: isTimeout ? 'ISL_TIMEOUT' : 'ISL_FETCH_ERROR',
-        message: err.message || 'Failed to fetch from ISL',
-        retryable: true,
-      },
-    };
-  }
-}
 
 /**
  * Compute local Pareto frontier when ISL is unavailable.
@@ -334,17 +250,14 @@ export async function registerParetoAnalysisRoute(app: FastifyInstance) {
           option_count: optionResults.length,
         });
 
-        const islStart = Date.now();
-        const islResult = await callIslPareto(
-          {
-            plot_request_id: requestId,
-            options: optionResults,
-          },
-          req.log
+        const islResult = await islService.callAnalysisEndpoint<IslParetoResponse>(
+          '/api/v1/analysis/pareto',
+          { plot_request_id: requestId, options: optionResults },
+          requestId
         );
-        islMs = Date.now() - islStart;
+        islMs = islResult.latency_ms;
 
-        analysis = islResult.analysis;
+        analysis = islResult.data;
         islError = islResult.error;
 
         if (analysis) {

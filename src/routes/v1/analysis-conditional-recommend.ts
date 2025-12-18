@@ -14,6 +14,7 @@ import { normalizeGraph } from '../../util/normalize.js';
 import { detectPrimaryOutcome } from '../../services/ranking/outcome-detector.js';
 import { inferEdgeTypes } from '../../services/ranking/edge-type-inference.js';
 import { isFlagOn } from '../../cee/codes.js';
+import { islService } from '../../integrations/isl/index.js';
 import { validateSequentialGraph, isSequentialGraph } from '../../util/sequential-validation.js';
 import type {
   ConditionalRecommendRequest,
@@ -26,100 +27,6 @@ const MAX_NODES = 50;
 const MAX_EDGES = 200;
 const MAX_CONDITIONS = 20;
 const DEFAULT_K_SAMPLES = 32;
-const ISL_TIMEOUT_MS = Number(process.env.ISL_TIMEOUT_MS || 15_000);
-
-/**
- * Call ISL /api/v1/analysis/conditional-recommend endpoint
- */
-async function callIslConditionalRecommend(
-  body: {
-    plot_request_id: string;
-    options: Array<{
-      option_id: string;
-      label: string;
-      score: number;
-      distribution: { p10: number; p50: number; p90: number };
-    }>;
-    conditions: RecommendationCondition[];
-  },
-  logger?: any
-): Promise<{
-  recommendation: IslConditionalRecommendResponse | null;
-  error?: { code: string; message: string; retryable: boolean };
-}> {
-  const baseUrl = process.env.ISL_BASE_URL?.trim();
-  const apiKey = process.env.ISL_API_KEY?.trim();
-
-  if (!baseUrl || !apiKey) {
-    return {
-      recommendation: null,
-      error: {
-        code: 'ISL_CONFIG_MISSING',
-        message: 'ISL_BASE_URL or ISL_API_KEY not configured',
-        retryable: false,
-      },
-    };
-  }
-
-  const url = `${baseUrl.replace(/\/$/, '')}/api/v1/analysis/conditional-recommend`;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), ISL_TIMEOUT_MS);
-
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-        'X-Request-Id': body.plot_request_id,
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!res.ok) {
-      logger?.warn({
-        evt: 'isl_conditional_recommend_error',
-        status: res.status,
-        plot_request_id: body.plot_request_id,
-      });
-
-      return {
-        recommendation: null,
-        error: {
-          code: `ISL_HTTP_${res.status}`,
-          message: `ISL returned status ${res.status}`,
-          retryable: res.status >= 500,
-        },
-      };
-    }
-
-    const data = await res.json();
-    return { recommendation: data as IslConditionalRecommendResponse };
-  } catch (err: any) {
-    clearTimeout(timeoutId);
-
-    const isTimeout = err.name === 'AbortError';
-    logger?.warn({
-      evt: 'isl_conditional_recommend_fetch_error',
-      error: err.message,
-      timeout: isTimeout,
-      plot_request_id: body.plot_request_id,
-    });
-
-    return {
-      recommendation: null,
-      error: {
-        code: isTimeout ? 'ISL_TIMEOUT' : 'ISL_FETCH_ERROR',
-        message: err.message || 'Failed to fetch from ISL',
-        retryable: true,
-      },
-    };
-  }
-}
 
 /**
  * Compute local conditional recommendation when ISL is unavailable
@@ -356,16 +263,17 @@ export async function registerConditionalRecommendRoute(app: FastifyInstance) {
           condition_count: body.conditions.length,
         });
 
-        const islResult = await callIslConditionalRecommend(
+        const islResult = await islService.callAnalysisEndpoint<IslConditionalRecommendResponse>(
+          '/api/v1/analysis/conditional-recommend',
           {
             plot_request_id: requestId,
             options: optionResults,
             conditions: body.conditions,
           },
-          req.log
+          requestId
         );
 
-        recommendation = islResult.recommendation;
+        recommendation = islResult.data;
         islError = islResult.error;
 
         if (recommendation) {

@@ -298,6 +298,7 @@ describe('POST /v1/analysis/sequential', () => {
     });
 
     it('includes isl_error when ISL configured but unavailable', async () => {
+      process.env.ISL_ENABLE = '1'; // Enable ISL globally
       process.env.ISL_SEQUENTIAL_ENABLE = '1';
       process.env.ISL_BASE_URL = 'http://localhost:9999';
       process.env.ISL_API_KEY = 'test-key';
@@ -349,7 +350,7 @@ describe('POST /v1/analysis/sequential', () => {
       expect(res.statusCode).toBe(200);
       const body = JSON.parse(res.payload);
       expect(body.isl_error).toBeDefined();
-      expect(body.isl_error.code).toBe('ISL_CONFIG_MISSING');
+      expect(body.isl_error.code).toBe('ISL_NOT_ENABLED');
     });
   });
 
@@ -440,8 +441,8 @@ describe('POST /v1/analysis/sequential', () => {
 
       expect(res.statusCode).toBe(200);
       const body = JSON.parse(res.payload);
-      // Should show ISL_CONFIG_MISSING (config missing), not circuit breaker
-      expect(body.isl_error.code).toBe('ISL_CONFIG_MISSING');
+      // Should show ISL_NOT_ENABLED (config missing), not circuit breaker
+      expect(body.isl_error.code).toBe('ISL_NOT_ENABLED');
     });
   });
 

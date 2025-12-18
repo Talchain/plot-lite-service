@@ -425,6 +425,7 @@ describe('POST /v1/analysis/optimise', () => {
 
   describe('ISL integration', () => {
     it('includes isl_error when ISL configured but unavailable', async () => {
+      process.env.ISL_ENABLE = '1'; // Enable ISL globally
       process.env.ISL_OPTIMISE_ENABLE = '1';
       process.env.ISL_BASE_URL = 'http://localhost:9999'; // unavailable
       process.env.ISL_API_KEY = 'test-key';
@@ -482,7 +483,7 @@ describe('POST /v1/analysis/optimise', () => {
       const body = JSON.parse(res.payload);
       expect(body.provenance).toBe('plot_fallback');
       expect(body.isl_error).toBeDefined();
-      expect(body.isl_error.code).toBe('ISL_CONFIG_MISSING');
+      expect(body.isl_error.code).toBe('ISL_NOT_ENABLED');
       expect(body.isl_error.retryable).toBe(false);
     });
 
@@ -636,8 +637,8 @@ describe('POST /v1/analysis/optimise', () => {
 
       expect(res.statusCode).toBe(200);
       const body = JSON.parse(res.payload);
-      // Should show ISL_CONFIG_MISSING, not circuit breaker error
-      expect(body.isl_error.code).toBe('ISL_CONFIG_MISSING');
+      // Should show ISL_NOT_ENABLED, not circuit breaker error
+      expect(body.isl_error.code).toBe('ISL_NOT_ENABLED');
     });
   });
 });

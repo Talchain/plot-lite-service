@@ -18,7 +18,7 @@
  */
 
 import { ISLClient, getISLClientConfig } from './client.js';
-import { ISLTimeoutError } from './errors.js';
+import { ISLTimeoutError, ISLNetworkError, isRetryableError } from './errors.js';
 import {
   adaptValidationResponse,
   createFallbackValidation,
@@ -51,6 +51,23 @@ import type {
 import type { Graph } from '../../trust/types.js';
 
 /**
+ * Result from generic analysis endpoint calls
+ * Used by /v1/analysis/* routes that call ISL /api/v1/analysis/* endpoints
+ */
+export interface ISLAnalysisResult<T> {
+  /** Parsed response data, or null if request failed */
+  data: T | null;
+  /** Error information if request failed */
+  error?: {
+    code: string;
+    message: string;
+    retryable: boolean;
+  };
+  /** Request latency in milliseconds */
+  latency_ms: number;
+}
+
+/**
  * ISL Service interface
  */
 export interface ISLService {
@@ -79,6 +96,36 @@ export interface ISLService {
     target: string,
     requestId: string
   ): Promise<PLoTCounterfactualResult>;
+  /**
+   * Generic analysis endpoint call for /api/v1/analysis/* routes
+   *
+   * Uses consistent auth (X-API-Key), timeout, and retry logic.
+   * Analysis routes should use this instead of direct fetch() calls.
+   *
+   * @param endpoint - ISL endpoint path (e.g., '/api/v1/analysis/pareto')
+   * @param body - Request body
+   * @param requestId - Request ID for tracing
+   * @returns Result with data or error
+   *
+   * @example
+   * ```typescript
+   * const result = await islService.callAnalysisEndpoint<ParetoResponse>(
+   *   '/api/v1/analysis/pareto',
+   *   { options: [...] },
+   *   requestId
+   * );
+   * if (result.data) {
+   *   // Use ISL result
+   * } else {
+   *   // Fall back to local computation
+   * }
+   * ```
+   */
+  callAnalysisEndpoint<T>(
+    endpoint: string,
+    body: unknown,
+    requestId: string
+  ): Promise<ISLAnalysisResult<T>>;
 }
 
 /**
@@ -204,6 +251,71 @@ export function createISLService(): ISLService {
         return createFallbackCounterfactual((error as Error).message);
       }
     },
+
+    async callAnalysisEndpoint<T>(
+      endpoint: string,
+      body: unknown,
+      requestId: string
+    ): Promise<ISLAnalysisResult<T>> {
+      const startMs = Date.now();
+
+      // Check config dynamically (for test compatibility and runtime config changes)
+      const currentEnabled = process.env.ISL_ENABLE === '1';
+      const currentConfig = getISLClientConfig();
+      const fullyEnabled = currentEnabled && currentConfig.baseUrl.length > 0 && currentConfig.apiKey.length > 0;
+
+      if (!fullyEnabled) {
+        return {
+          data: null,
+          error: {
+            code: 'ISL_NOT_ENABLED',
+            message: 'ISL service is not enabled',
+            retryable: false,
+          },
+          latency_ms: Date.now() - startMs,
+        };
+      }
+
+      // Create client with current config (handles dynamic env var changes)
+      const currentClient = new ISLClient(currentConfig);
+
+      try {
+        const response = await currentClient.request<T>({
+          endpoint,
+          body,
+          requestId,
+        });
+
+        return {
+          data: response,
+          latency_ms: Date.now() - startMs,
+        };
+      } catch (error) {
+        const err = error as Error;
+        const isTimeout = err instanceof ISLTimeoutError;
+        const isNetwork = err instanceof ISLNetworkError;
+
+        logError(`isl_analysis_failed:${endpoint}`, error, requestId);
+
+        // Determine error code based on error type
+        let code = 'ISL_ERROR';
+        if (isTimeout) {
+          code = 'ISL_TIMEOUT';
+        } else if (isNetwork) {
+          code = 'ISL_NETWORK_ERROR';
+        }
+
+        return {
+          data: null,
+          error: {
+            code,
+            message: err.message || 'ISL analysis request failed',
+            retryable: isRetryableError(error),
+          },
+          latency_ms: Date.now() - startMs,
+        };
+      }
+    },
   };
 }
 
@@ -265,6 +377,8 @@ export type {
   ISLSensitivityResponse,
   ISLCounterfactualResponse,
 } from './types/index.js';
+
+// Note: ISLAnalysisResult is already exported via interface definition above
 
 export { ISLClient, type ISLClientConfig } from './client.js';
 export { ISLHttpError } from './errors.js';

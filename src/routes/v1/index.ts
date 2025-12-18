@@ -4,8 +4,6 @@
  */
 
 import type { FastifyInstance } from 'fastify';
-import { timingSafeEqual } from 'crypto';
-import { replyWithAppError } from '../../errors.js';
 import { registerRunRoute } from './run.js';
 import { registerCounterfactualRoute } from './counterfactual.js';
 import { registerCritiqueRoute } from './critique.js';
@@ -18,66 +16,21 @@ import { getStreamHealthExtras, p95Ms, getLastRequestAt, getJson429Count, getSse
 import { getFixtureCacheSize, getFixtureCacheStats } from '../../lib/fixtures-cache.js';
 import { registerStreamRoute } from './stream.js';
 import { registerStreamRouteEnhanced } from './stream-enhanced.js';
-import { isDemoMode } from '../../middleware/demo-mode.js';
 import { getIdemStoreSize } from '../../middleware/idempotency.js';
+import { authGuard } from '../../middleware/auth-guard.js';
 // healthResponseSchema used for OpenAPI documentation
-
-/**
- * Auth preHandler for /v1/* routes
- * Guards all v1 endpoints when AUTH_ENABLED=1
- */
-async function v1AuthGuard(req: any, reply: any) {
-  if (process.env.AUTH_ENABLED !== '1') return;
-  // Demo bypass ONLY for GET /v1/stream when isDemoMode(req) is true
-  try {
-    const urlStr = String(req.url || '/');
-    const u = new URL(urlStr, 'http://local');
-    const isStream = String(req.method || 'GET').toUpperCase() === 'GET' && u.pathname === '/v1/stream';
-    if (isStream && isDemoMode(req)) return; // auth bypass only
-  } catch { /* ignore */ }
-  
-  const hdr = String((req.headers?.authorization || req.headers?.Authorization || '') || '');
-  const expected = String(process.env.AUTH_TOKEN || '').trim();
-  
-  if (!hdr.startsWith('Bearer ')) {
-    reply.header('WWW-Authenticate', 'Bearer');
-    // Use canonical OlumiErrorV1 envelope while preserving schema/code/message
-    return replyWithAppError(reply, {
-      type: 'BAD_INPUT',
-      statusCode: 401,
-      fields: { code: 'UNAUTHORIZED' },
-      message: 'Missing bearer token',
-    });
-  }
-  
-  const tok = hdr.slice('Bearer '.length).trim();
-  if (!expected || tok.length !== expected.length) {
-    return replyWithAppError(reply, {
-      type: 'BAD_INPUT',
-      statusCode: 403,
-      fields: { code: 'FORBIDDEN' },
-      message: 'Invalid token',
-    });
-  }
-  if (!timingSafeEqual(Buffer.from(tok), Buffer.from(expected))) {
-    return replyWithAppError(reply, {
-      type: 'BAD_INPUT',
-      statusCode: 403,
-      fields: { code: 'FORBIDDEN' },
-      message: 'Invalid token',
-    });
-  }
-}
 
 /**
  * Register all /v1 routes
  */
 export async function registerV1Routes(app: FastifyInstance) {
-  // Add auth guard hook for all /v1/* routes
+  // Add consolidated auth guard hook for all /v1/* routes
   app.addHook('preHandler', async (req, reply) => {
     // Only apply to /v1/* routes
     if (req.url?.startsWith('/v1/')) {
-      await v1AuthGuard(req, reply);
+      // Allow demo bypass only for GET /v1/stream
+      const isStreamRoute = req.method === 'GET' && req.url.startsWith('/v1/stream');
+      await authGuard(req, reply, { allowDemoBypass: isStreamRoute });
     }
   });
 
