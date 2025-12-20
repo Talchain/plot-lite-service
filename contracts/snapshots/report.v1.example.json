@@ -19,6 +19,47 @@
       "source": "engine"
     }
   ],
+  "discrimination": {
+    "metric": "quantile_spread",
+    "status": "ok",
+    "threshold": 0.05,
+    "value": 0.1
+  },
+  "drivers_payload": {
+    "drivers": [
+      {
+        "id": "process::approved::2",
+        "kind": "edge",
+        "label": "process → approved",
+        "sensitivity_score": 0
+      },
+      {
+        "id": "process::rejected::3",
+        "kind": "edge",
+        "label": "process → rejected",
+        "sensitivity_score": 0
+      },
+      {
+        "id": "process::review::4",
+        "kind": "edge",
+        "label": "process → review",
+        "sensitivity_score": 0
+      }
+    ],
+    "informative": false,
+    "remediation_actions": [
+      {
+        "code": "refine_edge_weights",
+        "label": "Adjust edge weights to reflect different strengths"
+      },
+      {
+        "code": "add_evidence",
+        "label": "Add evidence to differentiate edge impacts"
+      }
+    ],
+    "status": "low_discrimination",
+    "status_reason": "Edge sensitivities are similar - outcomes may not differentiate well between options"
+  },
   "enrichment": {
     "metadata": {
       "detail_level": "standard",
@@ -84,6 +125,7 @@
         "provenance": "template",
         "rank": 1,
         "score": 0,
+        "sensitivity": 0,
         "to": "approved",
         "weight": 0
       },
@@ -95,6 +137,7 @@
         "provenance": "template",
         "rank": 2,
         "score": 0,
+        "sensitivity": 0,
         "to": "rejected",
         "weight": 0
       },
@@ -106,6 +149,7 @@
         "provenance": "template",
         "rank": 3,
         "score": 0,
+        "sensitivity": 0,
         "to": "review",
         "weight": 0
       }

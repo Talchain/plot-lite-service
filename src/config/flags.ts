@@ -63,4 +63,11 @@ export const FLAGS = {
   get ENABLE_OPTION_PROBABILITIES() {
     return process.env.ENABLE_OPTION_PROBABILITIES === '1' || process.env.ENABLE_OPTION_PROBABILITIES === 'true';
   },
+  // CEE Integration flags (M1 CEE Orchestrator)
+  /** Enable CEE orchestrator integration for decision review */
+  get CEE_ORCHESTRATOR_ENABLED() {
+    // Support both spellings: CEE_ORCHESTRATOR_ENABLE and CEE_ORCHESTRATOR_ENABLED
+    const raw = process.env.CEE_ORCHESTRATOR_ENABLE ?? process.env.CEE_ORCHESTRATOR_ENABLED;
+    return raw === '1' || raw === 'true';
+  },
 } as const;

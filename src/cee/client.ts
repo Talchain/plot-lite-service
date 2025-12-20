@@ -2,6 +2,7 @@
 // NOTE: Real CEE Decision Review POST endpoint is not yet specified.
 // For now we implement health probing and a fixture-based fallback example endpoint.
 
+import { randomUUID } from 'node:crypto';
 import type { FastifyBaseLogger } from 'fastify';
 import type {
   CeeReviewResult as PortCeeReviewResult,
@@ -12,6 +13,19 @@ import type {
 } from './types.js';
 import { runDecisionReviewViaSdk, type EvidenceHelperItem } from './orchestrator.js';
 import { isFlagOn } from './codes.js';
+
+/**
+ * Sanitize request ID per M1 CEE Orchestrator spec v1.1
+ * Pattern: ^[A-Za-z0-9._-]+$ (max 64 chars)
+ * Falls back to UUID if invalid
+ */
+const SAFE_REQUEST_ID_PATTERN = /^[A-Za-z0-9._-]+$/;
+export function sanitizeRequestId(id: string | undefined | null): string {
+  if (id && id.length <= 64 && SAFE_REQUEST_ID_PATTERN.test(id)) {
+    return id;
+  }
+  return randomUUID();
+}
 
 export interface CeeRunContext {
   // Minimal, non-sensitive context about the run
@@ -209,8 +223,8 @@ export interface RunDecisionReviewOptions {
   logger?: FastifyBaseLogger;
 }
 
-// P2: Aligned with orchestrator default (10s) - consistent across all CEE calls
-const DEFAULT_TIMEOUT_MS = Number(process.env.CEE_TIMEOUT_MS || 10_000);
+// M1 CEE Orchestrator spec v1.1: 6s timeout for orchestration guard
+const DEFAULT_TIMEOUT_MS = Number(process.env.CEE_TIMEOUT_MS || 6_000);
 
 export async function runDecisionReview(opts: RunDecisionReviewOptions): Promise<CeeDecisionReviewResult> {
   const { context, requestId, logger } = opts;
@@ -523,8 +537,10 @@ export async function callDecisionReviewFromEngine(opts: {
   /** Optional enhanced mode flag for richer review journeys. */
   enhanced?: boolean;
 }): Promise<PortCeeReviewResult & { usedFixture: boolean }> {
-  const requestId = String(opts.requestId || '');
-  const timeoutMs = Number(opts.env.timeoutMs ?? 10_000);
+  // M1 CEE Orchestrator spec v1.1: Sanitize request ID and use 6s timeout
+  const plotRequestId = opts.requestId || '';
+  const requestId = sanitizeRequestId(plotRequestId);
+  const timeoutMs = Number(opts.env.timeoutMs ?? 6_000);
 
   const degraded = (
     code: string,
@@ -534,6 +550,8 @@ export async function callDecisionReviewFromEngine(opts: {
     reason?: string,
     /** Optional HTTP status code when degraded due to upstream failure */
     status?: number,
+    /** Latency in ms if available */
+    latencyMs?: number,
   ): PortCeeReviewResult & { usedFixture: boolean } => ({
     review: null,
     trace: {
@@ -541,6 +559,12 @@ export async function callDecisionReviewFromEngine(opts: {
       degraded: true,
       timestamp: new Date().toISOString(),
       source: 'cee-client',
+      // M1 CEE Orchestrator spec v1.1: Three-ID tracing
+      plot_request_id: plotRequestId || undefined,
+      cee_sent_request_id: requestId,
+      cee_returned_request_id: null,
+      latency_ms: latencyMs ?? null,
+      id_mismatch: false, // No response, so no mismatch possible
       ...(reason ? { reason } : {}),
       ...(status ? { status } : {}),
     },
@@ -609,6 +633,7 @@ export async function callDecisionReviewFromEngine(opts: {
   }
 
   // 3) Real path via Assistants SDK orchestrator
+  const orchestratorStart = Date.now();
   try {
     const brief = opts.enhanced
       ? 'Create a small decision graph from the run context with enhanced assumptions and sensitivity insights.'
@@ -616,25 +641,38 @@ export async function callDecisionReviewFromEngine(opts: {
     const evidenceItems = mapEvidenceItems(opts.evidence);
     // Pass graph_summary as structural context (no user content exposed)
     const briefContext = opts.context.graph_summary;
+    // M1 CEE Orchestrator spec v1.1: Pass request ID for three-ID tracing
     const res = await runDecisionReviewViaSdk(
       { baseUrl, apiKey, timeoutMs },
       brief,
       evidenceItems,
       briefContext,
+      requestId, // Pass sanitized request ID
     );
+    const orchestratorLatency = Date.now() - orchestratorStart;
     const hasReview = res.review !== null && res.review !== undefined;
     const hasError = !!res.error;
 
     if (!hasReview && !hasError) {
-      return degraded('CEE_EMPTY_REVIEW', 'retry', false, 'SDK returned neither review nor error');
+      return degraded('CEE_EMPTY_REVIEW', 'retry', false, 'SDK returned neither review nor error', undefined, orchestratorLatency);
     }
 
+    // M1 CEE Orchestrator spec v1.1: Build trace with three-ID tracking
+    const ceeReturnedId = res.trace?.cee_returned_request_id ?? null;
+    const idMismatch = requestId !== ceeReturnedId && ceeReturnedId !== null;
     const trace = {
       ...(res.trace ?? {}),
       requestId,
       degraded: !!res.error,
       timestamp: new Date().toISOString(),
       source: 'orchestrator',
+      // Three-ID tracing
+      plot_request_id: plotRequestId || undefined,
+      cee_sent_request_id: requestId,
+      cee_returned_request_id: ceeReturnedId,
+      latency_ms: res.trace?.latency_ms ?? orchestratorLatency,
+      model: res.trace?.model,
+      id_mismatch: idMismatch,
       ...(res.error ? { reason: `SDK error: ${res.error.code}` } : {}),
     };
 
@@ -655,7 +693,8 @@ export async function callDecisionReviewFromEngine(opts: {
       usedFixture: false,
     };
   } catch (err: unknown) {
+    const orchestratorLatency = Date.now() - orchestratorStart;
     const msg = err instanceof Error ? err.message : String(err);
-    return degraded('CEE_CLIENT_ERROR', 'retry', false, `SDK orchestrator threw: ${msg}`);
+    return degraded('CEE_CLIENT_ERROR', 'retry', false, `SDK orchestrator threw: ${msg}`, undefined, orchestratorLatency);
   }
 }

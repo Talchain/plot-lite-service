@@ -4,6 +4,14 @@ import {
   buildCeeErrorView,
   type CeeDecisionReviewPayloadV1,
 } from '@olumi/assistants-sdk';
+import type {
+  CeeTrace,
+  CeeReviewRequest,
+  CeeReviewResponse,
+  CeeErrorNormalized,
+} from './types.js';
+import { sanitizeRequestId } from './client.js';
+import { shouldAllowCeeCall, recordCeeSuccess, recordCeeFailure } from './circuit-breaker.js';
 
 export type OrchestratorEnv = {
   baseUrl?: string;
@@ -13,7 +21,17 @@ export type OrchestratorEnv = {
 
 export type OrchestratorResult = {
   review: CeeDecisionReviewPayloadV1 | null;
-  trace: { requestId?: string; degraded?: boolean; timestamp?: string } | null;
+  trace: {
+    requestId?: string;
+    degraded?: boolean;
+    timestamp?: string;
+    // M1 CEE Orchestrator spec v1.1: Three-ID tracing + latency
+    cee_sent_request_id?: string | null;
+    cee_returned_request_id?: string | null;
+    latency_ms?: number | null;
+    model?: string;
+    id_mismatch?: boolean;
+  } | null;
   error?: { code?: string; retryable: boolean; suggestedAction: 'retry' | 'fix_input' | 'fail'; traceId?: string };
 };
 
@@ -55,11 +73,16 @@ export async function runDecisionReviewViaSdk(
   brief: string,
   evidenceItems?: EvidenceHelperItem[],
   briefContext?: BriefContext,
+  /** Original request ID from caller for three-ID tracing */
+  callerRequestId?: string,
 ): Promise<OrchestratorResult> {
+  // M1 CEE Orchestrator spec v1.1: Track timing
+  const startTime = Date.now();
+
   const client = createCEEClient({
     apiKey: String(env.apiKey ?? ''),
     baseUrl: env.baseUrl,
-    timeout: Number(env.timeoutMs ?? 10_000),
+    timeout: Number(env.timeoutMs ?? 6_000), // Aligned with spec v1.1
   });
 
   try {
@@ -82,25 +105,252 @@ export async function runDecisionReviewViaSdk(
 
     const review = buildCeeDecisionReviewPayload({ draft, options, evidence, bias });
 
+    // M1 CEE Orchestrator spec v1.1: Calculate latency and extract IDs
+    const latencyMs = Date.now() - startTime;
+    const ceeReturnedRequestId = (draft as any)?.trace?.request_id ?? (draft as any)?.trace?.requestId ?? null;
+    const model = (draft as any)?.model ?? (draft as any)?.meta?.model ?? undefined;
+
+    // M1 CEE Orchestrator spec v1.1: Detect ID mismatch
+    const idMismatch = callerRequestId !== ceeReturnedRequestId && ceeReturnedRequestId !== null;
+
     return {
       review,
       trace: {
-        requestId: (draft as any)?.trace?.request_id ?? (draft as any)?.trace?.requestId,
+        requestId: ceeReturnedRequestId ?? callerRequestId,
         degraded: false,
         timestamp: new Date().toISOString(),
+        cee_sent_request_id: callerRequestId ?? null,
+        cee_returned_request_id: ceeReturnedRequestId,
+        latency_ms: latencyMs,
+        model,
+        id_mismatch: idMismatch,
       },
     };
   } catch (err: any) {
+    const latencyMs = Date.now() - startTime;
     const view = buildCeeErrorView(err);
     return {
       review: null,
-      trace: { degraded: true, timestamp: new Date().toISOString() },
+      trace: {
+        degraded: true,
+        timestamp: new Date().toISOString(),
+        cee_sent_request_id: callerRequestId ?? null,
+        cee_returned_request_id: null,
+        latency_ms: latencyMs,
+      },
       error: {
         code: view.code,
         retryable: view.retryable,
         suggestedAction: view.suggestedAction,
         traceId: view.traceId,
       },
+    };
+  }
+}
+
+// =============================================================================
+// M1 CEE Orchestrator - Unified review() Integration (SDK v1.12.0+)
+// =============================================================================
+
+/**
+ * Result type for M1 CEE orchestration
+ */
+export interface CeeOrchestrationResult {
+  ceeReview: CeeReviewResponse | null;
+  ceeTrace: CeeTrace;
+  ceeError: CeeErrorNormalized | null;
+}
+
+/**
+ * Check if SDK supports review() method (v1.12.0+)
+ * This will be updated when SDK v1.12.0 is published
+ */
+function sdkSupportsReview(client: ReturnType<typeof createCEEClient>): boolean {
+  // TODO: Update when SDK v1.12.0 is published
+  // return typeof (client as any).review === 'function';
+  return false; // Currently SDK v1.11.1 does not have review()
+}
+
+/**
+ * Normalize error to include both retriable (canonical) and retryable (alias)
+ */
+function normalizeError(error: unknown): CeeErrorNormalized {
+  if (error && typeof error === 'object') {
+    const err = error as any;
+    // Handle SDK CeeClientError or similar
+    const retriable = err.retriable ?? err.retryable ?? true;
+    return {
+      code: err.code ?? 'CEE_UNKNOWN_ERROR',
+      message: err.message ?? String(error),
+      retriable,
+      retryable: retriable, // Alias for UI tolerance
+    };
+  }
+  return {
+    code: 'CEE_UNKNOWN_ERROR',
+    message: String(error),
+    retriable: true,
+    retryable: true,
+  };
+}
+
+/**
+ * M1 CEE Orchestrator - Unified review() call
+ *
+ * This is the new entry point for CEE integration. It:
+ * 1. Uses CeeClient.review() when SDK v1.12.0+ is available
+ * 2. Falls back to compose pattern (draftGraph + options + bias + evidence) until then
+ * 3. Wraps calls with circuit breaker
+ * 4. Handles three-ID tracing per spec v1.1
+ *
+ * @param env - CEE environment config (baseUrl, apiKey, timeoutMs)
+ * @param request - CeeReviewRequest with scenario_id, graph_snapshot, inference_results
+ * @param plotRequestId - Original request ID from PLoT client
+ */
+export async function orchestrateCeeReview(
+  env: OrchestratorEnv,
+  request: CeeReviewRequest,
+  plotRequestId: string,
+): Promise<CeeOrchestrationResult> {
+  const startTime = Date.now();
+
+  // Sanitize request ID per M1 spec
+  const sanitisedId = sanitizeRequestId(plotRequestId);
+  const wasSanitised = sanitisedId !== plotRequestId;
+
+  // Check circuit breaker
+  if (!shouldAllowCeeCall()) {
+    return {
+      ceeReview: null,
+      ceeTrace: {
+        requestId: sanitisedId,
+        degraded: true,
+        timestamp: new Date().toISOString(),
+        source: 'orchestrator',
+        reason: 'Circuit breaker open',
+        plot_request_id: plotRequestId,
+        cee_sent_request_id: null, // Never sent
+        cee_returned_request_id: null,
+        latency_ms: 0,
+        id_mismatch: false,
+      },
+      ceeError: {
+        code: 'CEE_CIRCUIT_OPEN',
+        message: 'Circuit breaker is open, CEE calls are temporarily blocked',
+        retriable: true,
+        retryable: true,
+      },
+    };
+  }
+
+  const client = createCEEClient({
+    apiKey: String(env.apiKey ?? ''),
+    baseUrl: env.baseUrl,
+    timeout: Number(env.timeoutMs ?? 6_000),
+  });
+
+  try {
+    let ceeReview: CeeReviewResponse | null = null;
+    let ceeReturnedId: string | null = null;
+    let model: string | undefined;
+    let sdkLatencyMs: number | undefined;
+
+    if (sdkSupportsReview(client)) {
+      // M1 Path: Use unified review() method (SDK v1.12.0+)
+      // TODO: Uncomment when SDK v1.12.0 is available
+      // const response = await (client as any).review(request, {
+      //   headers: { 'X-Request-Id': sanitisedId },
+      //   timeout: Number(env.timeoutMs ?? 6_000),
+      // });
+      // ceeReview = response.review ?? response;
+      // ceeReturnedId = response.trace?.request_id ?? null;
+      // model = response.trace?.model;
+      // sdkLatencyMs = response.trace?.latency_ms;
+    } else {
+      // Fallback: Use compose pattern (SDK v1.11.x)
+      const brief = 'Decision review for inference results';
+      // Derive counts from arrays for compose pattern (expects {nodes: number, edges: number})
+      const briefContext = {
+        nodes: request.graph_snapshot.nodes?.length ?? 0,
+        edges: request.graph_snapshot.edges?.length ?? 0,
+      };
+      const result = await runDecisionReviewViaSdk(
+        env,
+        brief,
+        undefined, // No evidence items in M1 path
+        briefContext,
+        sanitisedId,
+      );
+
+      if (result.error) {
+        throw new Error(result.error.code ?? 'CEE_SDK_ERROR');
+      }
+
+      // Convert compose result to M1 response shape
+      ceeReview = result.review ? {
+        intent: request.intent,
+        analysis_state: 'ran',
+        readiness: {
+          level: 'ready',
+          headline: 'Analysis complete',
+          factors: [],
+        },
+        blocks: [],
+        trace: {
+          request_id: result.trace?.cee_returned_request_id ?? undefined,
+          latency_ms: result.trace?.latency_ms ?? undefined,
+          model: result.trace?.model,
+        },
+      } : null;
+
+      ceeReturnedId = result.trace?.cee_returned_request_id ?? null;
+      model = result.trace?.model;
+      sdkLatencyMs = result.trace?.latency_ms ?? undefined;
+    }
+
+    const latencyMs = sdkLatencyMs ?? (Date.now() - startTime);
+    const idMismatch = ceeReturnedId != null && sanitisedId !== ceeReturnedId;
+
+    // Record success for circuit breaker
+    recordCeeSuccess();
+
+    return {
+      ceeReview,
+      ceeTrace: {
+        requestId: ceeReturnedId ?? sanitisedId,
+        degraded: false,
+        timestamp: new Date().toISOString(),
+        source: 'orchestrator',
+        plot_request_id: plotRequestId,
+        cee_sent_request_id: sanitisedId,
+        cee_returned_request_id: ceeReturnedId,
+        latency_ms: latencyMs,
+        model,
+        id_mismatch: idMismatch,
+      },
+      ceeError: null,
+    };
+  } catch (error) {
+    const latencyMs = Date.now() - startTime;
+
+    // Record failure for circuit breaker
+    recordCeeFailure();
+
+    return {
+      ceeReview: null,
+      ceeTrace: {
+        requestId: sanitisedId,
+        degraded: true,
+        timestamp: new Date().toISOString(),
+        source: 'orchestrator',
+        reason: error instanceof Error ? error.message : String(error),
+        plot_request_id: plotRequestId,
+        cee_sent_request_id: sanitisedId,
+        cee_returned_request_id: null,
+        latency_ms: latencyMs,
+        id_mismatch: false, // No returned ID, so no mismatch
+      },
+      ceeError: normalizeError(error),
     };
   }
 }

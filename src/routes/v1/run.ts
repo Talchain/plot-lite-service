@@ -53,11 +53,13 @@ import {
   LIMITS_MAX_EDGES
 } from '../../config/constants.js';
 import { validateEffect } from '../../engine/effects.js';
-import { callDecisionReviewFromEngine } from '../../cee/client.js';
+import { orchestrateCeeReview, type OrchestratorEnv } from '../../cee/orchestrator.js';
+import type { CeeReviewRequest } from '../../cee/types.js';
 import { summarizeEvidenceFreshnessFromEvidence } from '../../trust/evidence-freshness.js';
 import { buildGraphHealth } from '../../trust/variance-helper.js';
 import { CRITIQUE_CODES } from '../../trust/critique-codes.js';
 import { computeOptionProbabilities, detectGoalNode, detectGoalThreshold } from '../../trust/option-probabilities.js';
+import { buildDriversPayload, buildDiscriminationSignal, applyDiscriminationToDrivers } from '../../trust/drivers-builder.js';
 
 /**
  * Transform ISL validation result to enrichment schema
@@ -481,7 +483,17 @@ export async function registerRunRoute(app: FastifyInstance) {
     if (usePlaceholder) {
       return reply.send({
         schema: 'run.v1',
+        request_id: req.id,
         results: [],
+        model_card: {
+          seed: 0,
+          assumptions_summary: ['Placeholder mode - SCM-Lite disabled in production'],
+          backend: 'placeholder',
+        },
+        meta: {
+          placeholder: true,
+          reason: 'SCM_LITE disabled in production with PROD_SCM_LITE_PLACEHOLDER=1',
+        },
       });
     }
 
@@ -1032,10 +1044,29 @@ export async function registerRunRoute(app: FastifyInstance) {
       }
     }
 
+    // P0: Build DriversPayload with explicit status handling
+    // Ensures drivers are never silently empty after a successful run
+    const driversPayloadRaw = buildDriversPayload(top_edge_drivers, true);
+
+    // P0: Build DiscriminationSignal from outcome bands
+    const discrimination = buildDiscriminationSignal(
+      results.conservative.outcome,
+      results.most_likely.outcome,
+      results.optimistic.outcome,
+      baseline_value
+    );
+
+    // Apply discrimination status to drivers (may downgrade 'ok' to 'low_discrimination')
+    const drivers_payload = applyDiscriminationToDrivers(driversPayloadRaw, discrimination);
+
     const base: any = {
       confidence,
       critique,
       ...(debug && { debug }),
+      // P0: Discrimination signal for low-variance outcomes
+      discrimination,
+      // P0: Structured drivers payload with explicit status handling
+      drivers_payload,
       explain_delta: {
         ...explain_delta,
         top_edge_drivers,
@@ -1102,8 +1133,12 @@ export async function registerRunRoute(app: FastifyInstance) {
 
     // Stamp response hash (handles circularity correctly)
     const stamped = stampResponseHash(base);
-    // trace_id: use client-provided X-Request-Id/X-Trace-Id or generate new
-    // Always enabled when TRACE_ID_PASSTHROUGH=1 or TRACE_MIN=1
+
+    // P0: request_id ALWAYS present in response body (matches X-Request-Id header)
+    // Uses Fastify's req.id which is either client-provided or auto-generated
+    stamped.request_id = req.id;
+
+    // Legacy trace_id: kept for backward compatibility, only when flags are set
     const clientTraceId = String(
       req.headers['x-request-id'] || req.headers['x-trace-id'] || ''
     ).trim();
@@ -1151,46 +1186,63 @@ export async function registerRunRoute(app: FastifyInstance) {
       // Attempt CEE call
       recordCeeAttempted('/v1/run');
       try {
-        const cee = await callDecisionReviewFromEngine({
-          requestId: String(req.id),
-          context: {
-            response_hash: response.result?.response_hash,
-            seed,
-            inference_mode,
-            graph_summary: {
-              nodes: graph.nodes?.length ?? 0,
-              edges: graph.edges?.length ?? 0,
-            },
-          },
-          env: {
-            enable: ceeEnabled,
-            baseUrl,
-            apiKey,
-            timeoutMs: Number(process.env.CEE_TIMEOUT_MS ?? 10_000),
-          },
-          evidence: body.evidence,
-          enhanced: Boolean(isl_validation || isl_sensitivity),
-        });
+        // Build CEE environment and request per M1 CEE Orchestrator spec
+        const ceeEnv: OrchestratorEnv = {
+          baseUrl,
+          apiKey,
+          timeoutMs: Number(process.env.CEE_TIMEOUT_MS ?? 6_000),
+        };
 
-        // Determine status and code
-        if (cee.error) {
+        // Build top_edge_drivers from ISL sensitivity if available
+        const topEdgeDrivers = isl_sensitivity?.sensitive_parameters?.slice(0, 5).map((p: any) => ({
+          id: p.parameter_id ?? p.edge_id ?? '',
+          sensitivity: p.sensitivity,
+        }));
+
+        const ceeRequest: CeeReviewRequest = {
+          // Prefer body.scenario_id, fallback to response_hash (never random UUID)
+          scenario_id: (body as any).scenario_id ?? response.result?.response_hash ?? '',
+          // Send actual graph arrays, not counts
+          graph_snapshot: {
+            nodes: graph.nodes ?? [],
+            edges: graph.edges ?? [],
+          },
+          // Must be '2.2' per CEE contract
+          graph_schema_version: '2.2',
+          // Ensure quantiles object is always present with defaults
+          inference_results: {
+            quantiles: {
+              p10: results.conservative?.outcome ?? 0,
+              p50: results.most_likely?.outcome ?? 0,
+              p90: results.optimistic?.outcome ?? 0,
+            },
+            top_edge_drivers: topEdgeDrivers,
+            // ranked_actions not available in current response shape
+          },
+          // Must be 'selection' | 'prediction' | 'validation'
+          intent: ((body as any).intent as 'selection' | 'prediction' | 'validation') ?? 'selection',
+          market_context: (body as any).market_context,
+        };
+
+        const cee = await orchestrateCeeReview(ceeEnv, ceeRequest, String(req.id));
+
+        // Determine status and code (circuit breaker is handled internally by orchestrator)
+        if (cee.ceeError) {
           ceeStatus = 'degraded';
-          ceeCode = cee.error.code || 'unknown';
+          ceeCode = cee.ceeError.code || 'unknown';
           recordCeeDegraded('/v1/run', normalizeCeeCode(ceeCode));
-          recordCeeFailure(); // Circuit breaker: track failure
         } else {
           ceeStatus = 'ok';
           ceeCode = '';
           recordCeeOk('/v1/run');
-          recordCeeSuccess(); // Circuit breaker: reset on success
         }
 
         // Only attach CEE fields if they have actual data (not null)
-        if (cee.review !== null) {
-          (response as any).ceeReview = cee.review;
+        if (cee.ceeReview !== null) {
+          (response as any).ceeReview = cee.ceeReview;
 
           // Extract weight_suggestions from CEE review and add as critique items
-          const weightSuggestions = (cee.review as any)?.weight_suggestions;
+          const weightSuggestions = (cee.ceeReview as any)?.weight_suggestions;
           if (Array.isArray(weightSuggestions) && weightSuggestions.length > 0) {
             const weightCritiques = weightSuggestions.map((ws: any) => {
               // Use CEE's rationale if available, otherwise generate fallback message
@@ -1269,19 +1321,19 @@ export async function registerRunRoute(app: FastifyInstance) {
             }
           }
         }
-        if (cee.trace) {
-          (response as any).ceeTrace = cee.trace;
+        if (cee.ceeTrace) {
+          (response as any).ceeTrace = cee.ceeTrace;
           // P0: Add top-level CEE degraded indicator
-          (response as any).meta.cee_degraded = cee.trace.degraded ?? false;
+          (response as any).meta.cee_degraded = cee.ceeTrace.degraded ?? false;
         }
-        if (cee.error) {
-          (response as any).ceeError = cee.error;
+        if (cee.ceeError) {
+          (response as any).ceeError = cee.ceeError;
         }
       } catch (err: any) {
         ceeStatus = 'error';
         ceeCode = err?.code || 'client_error';
         recordCeeDegraded('/v1/run', normalizeCeeCode(ceeCode));
-        recordCeeFailure(); // Circuit breaker: track failure
+        // Note: Circuit breaker is handled internally by orchestrateCeeReview()
         // P0: Mark CEE as degraded on error
         (response as any).meta.cee_degraded = true;
 

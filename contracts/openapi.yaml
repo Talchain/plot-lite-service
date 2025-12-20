@@ -4143,9 +4143,12 @@ components:
     
     runResponse:
       type: object
-      required: [schema]
+      required: [schema, request_id]
       properties:
         schema: { type: string, enum: [run.v1] }
+        request_id:
+          type: string
+          description: 'Request identifier - echoed from X-Request-Id header or auto-generated UUID. Can be any string (UUID when auto-generated)'
         graph: { $ref: '#/components/schemas/graph' }
         results: { type: object }
         model_card: { $ref: '#/components/schemas/modelCard' }
@@ -4514,6 +4517,108 @@ components:
                   items:
                     type: string
                   description: 'List of ISL endpoints called'
+        discrimination:
+          $ref: '#/components/schemas/discriminationSignal'
+        drivers_payload:
+          $ref: '#/components/schemas/driversPayload'
+
+    discriminationSignal:
+      type: object
+      description: 'Low-variance/flat outcome detection signal - helps identify when outcomes are too similar to discriminate between options'
+      required: [status, metric, value, threshold]
+      properties:
+        status:
+          type: string
+          enum: [ok, low_discrimination]
+          description: 'Whether outcomes discriminate meaningfully between options'
+        metric:
+          type: string
+          enum: [quantile_spread, expected_value_delta, hhi_concentration]
+          description: 'Metric used for discrimination detection'
+        value:
+          type: number
+          minimum: 0
+          description: 'Computed metric value (e.g., normalized spread). Values < threshold indicate low discrimination'
+        threshold:
+          type: number
+          minimum: 0
+          description: 'Threshold used for comparison (default: 0.05 for quantile_spread)'
+        affected_option_ids:
+          type: array
+          items:
+            type: string
+          description: 'Option IDs affected by low discrimination (when applicable)'
+        remediation_actions:
+          type: array
+          description: 'Actionable steps to improve discrimination'
+          items:
+            type: object
+            required: [code, label]
+            properties:
+              code:
+                type: string
+                description: 'Machine-readable action code'
+              label:
+                type: string
+                description: 'Human-readable action description'
+
+    driversPayload:
+      type: object
+      description: 'Structured payload for key drivers with explicit status handling - never silently empty after a successful run'
+      required: [status, informative]
+      properties:
+        status:
+          type: string
+          enum: [ok, cannot_compute, requires_run, low_discrimination]
+          description: |
+            Status of the drivers computation:
+            - ok: Drivers computed successfully
+            - cannot_compute: Unable to compute drivers (e.g., graph structure issue)
+            - requires_run: Drivers require a full /v1/run call first
+            - low_discrimination: Drivers computed but outcomes are too similar to be meaningful
+        status_reason:
+          type: string
+          description: 'Human-readable explanation of the status'
+        remediation_actions:
+          type: array
+          description: 'Actionable steps to resolve non-ok status'
+          items:
+            type: object
+            required: [code, label]
+            properties:
+              code:
+                type: string
+                description: 'Machine-readable action code'
+              label:
+                type: string
+                description: 'Human-readable action description'
+        drivers:
+          type: array
+          description: 'List of key drivers (present when status is ok or low_discrimination)'
+          items:
+            type: object
+            required: [id, kind]
+            properties:
+              id:
+                type: string
+                description: 'Driver identifier (edge_id format: from::to::index)'
+              kind:
+                type: string
+                enum: [edge, node]
+                description: 'Type of driver'
+              label:
+                type: string
+                description: 'Human-readable label'
+              sensitivity_score:
+                type: number
+                minimum: 0
+                description: 'Sensitivity/impact score (0-1, typically)'
+              details:
+                type: string
+                description: 'Optional short explanation (e.g., provenance)'
+        informative:
+          type: boolean
+          description: 'False when drivers exist but are not meaningfully informative (e.g., due to low discrimination)'
 
     islValidationResult:
       type: object
