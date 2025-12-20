@@ -129,6 +129,33 @@ export async function runDecisionReviewViaSdk(
   } catch (err: any) {
     const latencyMs = Date.now() - startTime;
     const view = buildCeeErrorView(err);
+
+    // Defensive: SDK's buildCeeErrorView may return undefined code
+    // Derive meaningful code from error if SDK doesn't provide one
+    let errorCode = view.code;
+    if (!errorCode || errorCode === 'undefined') {
+      // Try to extract from error object
+      if (err?.code) {
+        errorCode = String(err.code);
+      } else if (err?.name === 'AbortError' || err?.message?.includes('timeout')) {
+        errorCode = 'CEE_TIMEOUT';
+      } else if (err?.name) {
+        errorCode = `CEE_${err.name.toUpperCase()}`;
+      } else {
+        errorCode = 'CEE_SDK_ERROR';
+      }
+    }
+
+    // Log diagnostic info for debugging SDK errors
+    console.error('[CEE_SDK_ERROR]', JSON.stringify({
+      original_code: view.code,
+      derived_code: errorCode,
+      error_name: err?.name,
+      error_message: err?.message?.slice(0, 200),
+      error_type: typeof err,
+      latency_ms: latencyMs,
+    }));
+
     return {
       review: null,
       trace: {
@@ -139,9 +166,9 @@ export async function runDecisionReviewViaSdk(
         latency_ms: latencyMs,
       },
       error: {
-        code: view.code,
-        retryable: view.retryable,
-        suggestedAction: view.suggestedAction,
+        code: errorCode,
+        retryable: view.retryable ?? true,
+        suggestedAction: view.suggestedAction ?? 'retry',
         traceId: view.traceId,
       },
     };

@@ -673,16 +673,16 @@ export async function callDecisionReviewFromEngine(opts: {
       latency_ms: res.trace?.latency_ms ?? orchestratorLatency,
       model: res.trace?.model,
       id_mismatch: idMismatch,
-      ...(res.error ? { reason: `SDK error: ${res.error.code}` } : {}),
+      ...(res.error ? { reason: `SDK error: ${res.error.code || 'CEE_SDK_ERROR'}` } : {}),
     };
 
     let error: PortCeeError | undefined;
     if (res.error) {
       error = {
-        code: res.error.code,
-        retryable: res.error.retryable,
+        code: res.error.code || 'CEE_SDK_ERROR',
+        retryable: res.error.retryable ?? true,
         traceId: res.error.traceId,
-        suggestedAction: res.error.suggestedAction,
+        suggestedAction: res.error.suggestedAction ?? 'retry',
       };
     }
 
