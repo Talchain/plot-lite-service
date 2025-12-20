@@ -1199,6 +1199,25 @@ export async function registerRunRoute(app: FastifyInstance) {
           sensitivity: p.sensitivity,
         }));
 
+        // Build ISL robustness payload for CEE synthesis (optional)
+        // Only include if we have real ISL data (not fallback)
+        const islRobustness = (isl_sensitivity?.source === 'isl' || isl_validation?.source === 'isl') ? {
+          overall_robustness: isl_sensitivity?.overall_robustness ?? 'moderate',
+          validation_status: isl_validation?.status,
+          validation_confidence: isl_validation?.confidence,
+          sensitive_parameters: isl_sensitivity?.sensitive_parameters?.slice(0, 5).map((p: any) => ({
+            parameter: p.parameter ?? p.parameter_id ?? '',
+            sensitivity: p.sensitivity,
+            impact_direction: p.impact_direction ?? 'positive',
+          })),
+          recommendations: isl_sensitivity?.recommendations?.slice(0, 3),
+          issues: isl_validation?.issues?.slice(0, 3).map((i: any) => ({
+            type: i.type,
+            description: i.description,
+            suggested_action: i.suggested_action,
+          })),
+        } : undefined;
+
         const ceeRequest: CeeReviewRequest = {
           // Prefer body.scenario_id, fallback to response_hash (never random UUID)
           scenario_id: (body as any).scenario_id ?? response.result?.response_hash ?? '',
@@ -1222,6 +1241,8 @@ export async function registerRunRoute(app: FastifyInstance) {
           // Must be 'selection' | 'prediction' | 'validation'
           intent: ((body as any).intent as 'selection' | 'prediction' | 'validation') ?? 'selection',
           market_context: (body as any).market_context,
+          // ISL robustness for CEE synthesis (optional)
+          isl_robustness: islRobustness as any,
         };
 
         const cee = await orchestrateCeeReview(ceeEnv, ceeRequest, String(req.id));

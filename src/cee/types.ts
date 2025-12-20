@@ -245,6 +245,32 @@ export interface CeeReviewRequest {
   intent: 'selection' | 'prediction' | 'validation';
   /** Market context metadata */
   market_context?: Record<string, unknown>;
+  /**
+   * ISL robustness output (optional)
+   * When provided, CEE synthesizes this into ceeReview.blocks
+   */
+  isl_robustness?: {
+    /** Overall model robustness from ISL sensitivity analysis */
+    overall_robustness: 'robust' | 'moderate' | 'fragile';
+    /** Identifiability status from ISL validation */
+    validation_status?: 'identifiable' | 'uncertain' | 'cannot_identify';
+    /** Confidence in the validation */
+    validation_confidence?: 'high' | 'medium' | 'low';
+    /** Top sensitive parameters (max 5) */
+    sensitive_parameters?: Array<{
+      parameter: string;
+      sensitivity: number;
+      impact_direction: 'positive' | 'negative';
+    }>;
+    /** Actionable recommendations from ISL */
+    recommendations?: string[];
+    /** ISL-detected issues (max 3) */
+    issues?: Array<{
+      type: string;
+      description: string;
+      suggested_action?: string;
+    }>;
+  };
 }
 
 /**

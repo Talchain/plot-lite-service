@@ -8,6 +8,7 @@ import type {
   CeeTrace,
   CeeReviewRequest,
   CeeReviewResponse,
+  CeeReviewBlock,
   CeeErrorNormalized,
 } from './types.js';
 import { sanitizeRequestId } from './client.js';
@@ -330,6 +331,48 @@ export async function orchestrateCeeReview(
         throw new Error(result.error.code ?? 'CEE_SDK_ERROR');
       }
 
+      // Synthesize ISL robustness into blocks (determinism-safe, additive)
+      const islBlocks: CeeReviewBlock[] = [];
+      if (request.isl_robustness) {
+        const isl = request.isl_robustness;
+
+        // Block 1: Overall robustness assessment
+        const robustnessStatus = isl.overall_robustness === 'robust' ? 'ok' :
+                                  isl.overall_robustness === 'moderate' ? 'warning' : 'error';
+        islBlocks.push({
+          id: 'isl_robustness',
+          status: robustnessStatus,
+          headline: `Model robustness: ${isl.overall_robustness}`,
+          details: isl.recommendations?.[0],
+          factors: isl.recommendations?.slice(0, 3),
+        });
+
+        // Block 2: Validation status (if available)
+        if (isl.validation_status) {
+          const validationStatus = isl.validation_status === 'identifiable' ? 'ok' :
+                                    isl.validation_status === 'uncertain' ? 'warning' : 'error';
+          islBlocks.push({
+            id: 'isl_validation',
+            status: validationStatus,
+            headline: `Causal identifiability: ${isl.validation_status}`,
+            details: isl.validation_confidence ? `Confidence: ${isl.validation_confidence}` : undefined,
+            factors: isl.issues?.map(i => i.description).slice(0, 3),
+          });
+        }
+
+        // Block 3: Sensitive parameters (if available and fragile/moderate)
+        if (isl.sensitive_parameters && isl.sensitive_parameters.length > 0 && isl.overall_robustness !== 'robust') {
+          const topParams = isl.sensitive_parameters.slice(0, 3);
+          islBlocks.push({
+            id: 'isl_sensitivity',
+            status: 'warning',
+            headline: 'Key sensitivity drivers',
+            details: `Top ${topParams.length} parameters with highest impact`,
+            factors: topParams.map(p => `${p.parameter}: ${(p.sensitivity * 100).toFixed(0)}% (${p.impact_direction})`),
+          });
+        }
+      }
+
       // Convert compose result to M1 response shape
       ceeReview = result.review ? {
         intent: request.intent,
@@ -339,7 +382,7 @@ export async function orchestrateCeeReview(
           headline: 'Analysis complete',
           factors: [],
         },
-        blocks: [],
+        blocks: islBlocks, // Include synthesized ISL blocks
         trace: {
           request_id: result.trace?.cee_returned_request_id ?? undefined,
           latency_ms: result.trace?.latency_ms ?? undefined,
