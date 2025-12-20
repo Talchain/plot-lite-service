@@ -173,24 +173,41 @@ function sdkSupportsReview(client: ReturnType<typeof createCEEClient>): boolean 
 
 /**
  * Normalize error to include both retriable (canonical) and retryable (alias)
+ * IMPORTANT: Never produce "undefined" - always provide meaningful error info
  */
 function normalizeError(error: unknown): CeeErrorNormalized {
+  // Build message - never let it be undefined or empty
+  let message: string;
+  if (error instanceof Error) {
+    message = error.message || error.name || 'Error (no message)';
+  } else if (typeof error === 'string') {
+    message = error || 'Empty string error';
+  } else if (error && typeof error === 'object') {
+    const err = error as any;
+    message = err.message || err.error || JSON.stringify(error) || 'Object error (no message)';
+  } else {
+    message = String(error) || 'Unknown error';
+  }
+
+  // Extract code - prefer explicit code, fall back to error name
+  let code = 'CEE_UNKNOWN_ERROR';
   if (error && typeof error === 'object') {
     const err = error as any;
-    // Handle SDK CeeClientError or similar
-    const retriable = err.retriable ?? err.retryable ?? true;
-    return {
-      code: err.code ?? 'CEE_UNKNOWN_ERROR',
-      message: err.message ?? String(error),
-      retriable,
-      retryable: retriable, // Alias for UI tolerance
-    };
+    code = err.code || err.errorCode || (error instanceof Error ? error.name : 'CEE_UNKNOWN_ERROR');
   }
+
+  // Extract retriable flag
+  let retriable = true;
+  if (error && typeof error === 'object') {
+    const err = error as any;
+    retriable = err.retriable ?? err.retryable ?? true;
+  }
+
   return {
-    code: 'CEE_UNKNOWN_ERROR',
-    message: String(error),
-    retriable: true,
-    retryable: true,
+    code,
+    message,
+    retriable,
+    retryable: retriable, // Alias for UI tolerance
   };
 }
 
@@ -336,6 +353,32 @@ export async function orchestrateCeeReview(
     // Record failure for circuit breaker
     recordCeeFailure();
 
+    // Diagnostic logging - help debug CEE failures
+    const diagInfo = {
+      typeof_error: typeof error,
+      is_error_instance: error instanceof Error,
+      error_keys: error && typeof error === 'object' ? Object.keys(error as object) : [],
+      error_string: String(error),
+      error_message: error instanceof Error ? error.message : (error as any)?.message,
+      error_code: (error as any)?.code,
+      cee_base_url_host: env.baseUrl ? new URL(env.baseUrl).host : 'not_set',
+      has_api_key: Boolean(env.apiKey && env.apiKey.length > 0),
+      plot_request_id: plotRequestId,
+      latency_ms: latencyMs,
+    };
+    // Log to stderr for visibility in Render logs
+    console.error('[CEE_ORCHESTRATOR_ERROR]', JSON.stringify(diagInfo));
+
+    // Build reason - never undefined
+    let reason: string;
+    if (error instanceof Error) {
+      reason = error.message || error.name || 'Error (no message)';
+    } else if (typeof error === 'string') {
+      reason = error || 'Empty string error';
+    } else {
+      reason = String(error) || 'Unknown error';
+    }
+
     return {
       ceeReview: null,
       ceeTrace: {
@@ -343,7 +386,7 @@ export async function orchestrateCeeReview(
         degraded: true,
         timestamp: new Date().toISOString(),
         source: 'orchestrator',
-        reason: error instanceof Error ? error.message : String(error),
+        reason,
         plot_request_id: plotRequestId,
         cee_sent_request_id: sanitisedId,
         cee_returned_request_id: null,
