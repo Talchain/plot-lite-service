@@ -6,7 +6,7 @@
       "k_coverage": 0.3,
       "linearity_distance": 1
     },
-    "level": "high",
+    "level": "HIGH",
     "reason": "Strong identifiability, 5 nodes well-connected, within linear range, k=32",
     "score": 0.75
   },
@@ -28,19 +28,25 @@
   "drivers_payload": {
     "drivers": [
       {
+        "direction": "positive",
         "id": "process::approved::2",
+        "impact": 0,
         "kind": "edge",
         "label": "process → approved",
         "sensitivity_score": 0
       },
       {
+        "direction": "positive",
         "id": "process::rejected::3",
+        "impact": 0,
         "kind": "edge",
         "label": "process → rejected",
         "sensitivity_score": 0
       },
       {
+        "direction": "positive",
         "id": "process::review::4",
+        "impact": 0,
         "kind": "edge",
         "label": "process → review",
         "sensitivity_score": 0

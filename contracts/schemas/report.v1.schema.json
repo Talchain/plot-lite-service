@@ -87,8 +87,8 @@
         },
         "level": {
           "type": "string",
-          "enum": ["high", "medium", "low"],
-          "description": "Confidence level (lowercase)"
+          "enum": ["HIGH", "MEDIUM", "LOW"],
+          "description": "Confidence level (uppercase)"
         },
         "factors": {
           "type": "object",

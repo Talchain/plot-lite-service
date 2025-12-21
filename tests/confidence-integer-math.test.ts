@@ -17,7 +17,7 @@ describe('Confidence Integer Math (determinism)', () => {
       k_samples: 1000,
       calibrated: false,
     });
-    expect(result.level).toBe('high');
+    expect(result.level).toBe('HIGH');
     expect(result.score).toBeGreaterThanOrEqual(0.75);
   });
 
@@ -31,7 +31,7 @@ describe('Confidence Integer Math (determinism)', () => {
       k_samples: 500,
       calibrated: false,
     });
-    expect(result.level).toBe('low'); // 480 < 500
+    expect(result.level).toBe('LOW'); // 480 < 500
   });
 
   it('deterministic: same inputs produce same output', () => {
@@ -65,7 +65,7 @@ describe('Confidence Integer Math (determinism)', () => {
     const r2 = calculateConfidence({ ...base, k_samples: 999 });
     
     // Both should be HIGH (only k_coverage changes slightly)
-    expect(r1.level).toBe('high');
-    expect(r2.level).toBe('high');
+    expect(r1.level).toBe('HIGH');
+    expect(r2.level).toBe('HIGH');
   });
 });

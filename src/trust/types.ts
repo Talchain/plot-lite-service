@@ -6,10 +6,10 @@
 import type { EvidenceFreshnessSummary } from './evidence-freshness.js';
 
 /**
- * Confidence level classification (lowercase for cross-workstream alignment)
- * Matches ISL/CEE conventions: high | medium | low
+ * Confidence level classification (uppercase for UI contract alignment)
+ * Values: HIGH | MEDIUM | LOW
  */
-export type ConfidenceLevel = 'low' | 'medium' | 'high';
+export type ConfidenceLevel = 'LOW' | 'MEDIUM' | 'HIGH';
 
 /**
  * Provenance confidence level with unknown fallback

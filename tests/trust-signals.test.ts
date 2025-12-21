@@ -29,7 +29,7 @@ describe('Trust Signals - Unit Tests', () => {
         calibrated: false,
       });
 
-      expect(confidence.level).toBe('high');
+      expect(confidence.level).toBe('HIGH');
       expect(confidence.score).toBeGreaterThan(0.7);
       expect(confidence.reason).toBeDefined();
       expect(confidence.factors.identifiability).toBe(1.0);
@@ -48,7 +48,7 @@ describe('Trust Signals - Unit Tests', () => {
         k_samples: 100,
       });
 
-      expect(confidence.level).toBe('low');
+      expect(confidence.level).toBe('LOW');
       expect(confidence.score).toBeLessThan(0.5);
       expect(confidence.reason).toContain('Low confidence');
     });
@@ -61,7 +61,7 @@ describe('Trust Signals - Unit Tests', () => {
         k_samples: 500,
       });
 
-      expect(confidence.level).toBe('medium');
+      expect(confidence.level).toBe('MEDIUM');
       expect(confidence.score).toBeGreaterThanOrEqual(0.5);
       expect(confidence.score).toBeLessThan(0.75);
     });

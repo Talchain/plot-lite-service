@@ -28,7 +28,7 @@ export interface InsightsParams {
   p50: number;
   p90: number;
   baseline: number;
-  confidence_level: 'high' | 'medium' | 'low';
+  confidence_level: 'HIGH' | 'MEDIUM' | 'LOW';
   critique_blockers: number;
   critique_warnings: number;
   evidence_coverage: number;
@@ -85,10 +85,10 @@ function computeMetrics(params: InsightsParams): InsightMetrics {
  */
 function buildSummary(
   metrics: InsightMetrics,
-  confidence_level: 'high' | 'medium' | 'low'
+  confidence_level: 'HIGH' | 'MEDIUM' | 'LOW'
 ): string {
   const { direction, absDeltaPct, rangeLowPct, rangeHighPct } = metrics;
-  const confLabel = confidence_level;
+  const confLabel = confidence_level.toLowerCase();
   const rangeText =
     rangeLowPct === rangeHighPct
       ? `${rangeLowPct}%`
@@ -143,7 +143,7 @@ function buildRisks(
     );
   }
 
-  if (confidence_level === 'low') {
+  if (confidence_level === 'LOW') {
     risks.push(truncate('Low confidence indicates high uncertainty', 100));
   }
 
@@ -195,7 +195,7 @@ function buildNextSteps(params: InsightsParams): string[] {
     );
   }
 
-  if (confidence_level === 'medium' && next_steps.length < 3) {
+  if (confidence_level === 'MEDIUM' && next_steps.length < 3) {
     next_steps.push(
       truncate('Review warnings to increase confidence level', 150)
     );
@@ -284,7 +284,7 @@ function buildStructuredNextSteps(
     );
   }
 
-  if (confidence_level === 'medium' && next_steps.length < 3) {
+  if (confidence_level === 'MEDIUM' && next_steps.length < 3) {
     next_steps.push(
       truncate('Review warnings to increase confidence level', 150)
     );

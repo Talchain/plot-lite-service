@@ -28,11 +28,16 @@ const QUANTILE_SPREAD_THRESHOLD = 0.05;
  * Transform SensitivityEdge to DriverItem
  */
 function edgeToDriverItem(edge: SensitivityEdge): DriverItem {
+  const sensitivityScore = edge.sensitivity ?? edge.score;
   return {
+    // Required fields (UI contract)
     id: edge.edge_id,
+    impact: sensitivityScore,
+    direction: edge.weight >= 0 ? 'positive' : 'negative',
+    // Optional extras (backward compatibility)
     kind: 'edge',
     label: `${edge.from} → ${edge.to}`,
-    sensitivity_score: edge.sensitivity ?? edge.score,
+    sensitivity_score: sensitivityScore,
     details: edge.provenance !== 'template' ? edge.provenance : undefined,
   };
 }

@@ -83,11 +83,11 @@ export function validateEnv(): void {
     }
   }
 
-  // P1.4: Timeout configuration validation
+  // P1.4: Timeout configuration validation (60s allowed for staging integration testing)
   if (process.env.CEE_TIMEOUT_MS) {
     const timeout = Number(process.env.CEE_TIMEOUT_MS);
-    if (isNaN(timeout) || timeout < 500 || timeout > 30000) {
-      errors.push(`Invalid CEE_TIMEOUT_MS: ${process.env.CEE_TIMEOUT_MS} (must be 500-30000)`);
+    if (isNaN(timeout) || timeout < 500 || timeout > 120000) {
+      errors.push(`Invalid CEE_TIMEOUT_MS: ${process.env.CEE_TIMEOUT_MS} (must be 500-120000)`);
     }
   }
   if (process.env.ISL_TIMEOUT_MS) {

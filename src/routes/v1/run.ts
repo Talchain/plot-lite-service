@@ -736,7 +736,7 @@ export async function registerRunRoute(app: FastifyInstance) {
       if (inferenceResult.meta?.unique_graphs) {
         // scmLevelMap reserved for future confidence calibration
         confidence = {
-          level: 'medium',
+          level: 'MEDIUM',
           reason: `${inferenceEngine.name} (K=${k_samples}, unique_graphs=${inferenceResult.meta.unique_graphs})`,
           score: 0.6,
           factors: {
@@ -1190,28 +1190,32 @@ export async function registerRunRoute(app: FastifyInstance) {
         const ceeEnv: OrchestratorEnv = {
           baseUrl,
           apiKey,
-          timeoutMs: Number(process.env.CEE_TIMEOUT_MS ?? 6_000),
+          timeoutMs: Number(process.env.CEE_TIMEOUT_MS ?? 60_000),
         };
 
         // Build top_edge_drivers from ISL sensitivity if available
-        const topEdgeDrivers = isl_sensitivity?.sensitive_parameters?.slice(0, 5).map((p: any) => ({
-          id: p.parameter_id ?? p.edge_id ?? '',
+        // Use p.parameter as primary ID (matches ISL output format)
+        const topEdgeDrivers = isl_sensitivity?.sensitive_parameters?.slice(0, 5)?.map((p: any) => ({
+          id: p.parameter ?? p.parameter_id ?? p.edge_id ?? '',
           sensitivity: p.sensitivity,
         }));
 
         // Build ISL robustness payload for CEE synthesis (optional)
-        // Only include if we have real ISL data (not fallback)
-        const islRobustness = (isl_sensitivity?.source === 'isl' || isl_validation?.source === 'isl') ? {
-          overall_robustness: isl_sensitivity?.overall_robustness ?? 'moderate',
+        // Only include if we have real ISL data with overall_robustness
+        // Guard against partial payloads: require overall_robustness to be present
+        const hasRealIslData = (isl_sensitivity?.source === 'isl' || isl_validation?.source === 'isl');
+        const hasRobustness = isl_sensitivity?.overall_robustness !== undefined;
+        const islRobustness = (hasRealIslData && hasRobustness) ? {
+          overall_robustness: isl_sensitivity!.overall_robustness,
           validation_status: isl_validation?.status,
           validation_confidence: isl_validation?.confidence,
-          sensitive_parameters: isl_sensitivity?.sensitive_parameters?.slice(0, 5).map((p: any) => ({
+          sensitive_parameters: isl_sensitivity?.sensitive_parameters?.slice(0, 5)?.map((p: any) => ({
             parameter: p.parameter ?? p.parameter_id ?? '',
             sensitivity: p.sensitivity,
             impact_direction: p.impact_direction ?? 'positive',
           })),
           recommendations: isl_sensitivity?.recommendations?.slice(0, 3),
-          issues: isl_validation?.issues?.slice(0, 3).map((i: any) => ({
+          issues: isl_validation?.issues?.slice(0, 3)?.map((i: any) => ({
             type: i.type,
             description: i.description,
             suggested_action: i.suggested_action,

@@ -99,7 +99,7 @@ describe('Report Contract (report.v1)', () => {
     
     // Check confidence structure
     expect(typeof report.confidence.score).toBe('number');
-    expect(['high', 'medium', 'low']).toContain(report.confidence.level);
+    expect(['HIGH', 'MEDIUM', 'LOW']).toContain(report.confidence.level);
     expect(report.confidence.factors).toBeDefined();
   });
 

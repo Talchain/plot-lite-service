@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { calculateConfidence } from '../src/trust/confidence.js';
 
 describe('Confidence Level Casing Invariant', () => {
-  it('emits lowercase confidence.level only', () => {
+  it('emits uppercase confidence.level only', () => {
     // Deterministic, seeded inputs
     const out = calculateConfidence({
       graph: {
@@ -18,11 +18,11 @@ describe('Confidence Level Casing Invariant', () => {
       calibrated: false,
     });
 
-    // Must be one of lowercase values
-    expect(['high', 'medium', 'low']).toContain(out.level);
+    // Must be one of uppercase values (UI contract)
+    expect(['HIGH', 'MEDIUM', 'LOW']).toContain(out.level);
 
-    // Must be equal to its lowercase version (i.e., already lowercase)
-    expect(out.level).toBe(out.level.toLowerCase());
+    // Must be equal to its uppercase version (i.e., already uppercase)
+    expect(out.level).toBe(out.level.toUpperCase());
   });
 
   it('covers all confidence levels with varied inputs', () => {
@@ -37,8 +37,8 @@ describe('Confidence Level Casing Invariant', () => {
       k_samples: 5000,
       calibrated: true,
     });
-    expect(high.level).toBe('high');
-    expect(high.level).toBe(high.level.toLowerCase());
+    expect(high.level).toBe('HIGH');
+    expect(high.level).toBe(high.level.toUpperCase());
 
     // Test medium confidence
     const medium = calculateConfidence({
@@ -51,8 +51,8 @@ describe('Confidence Level Casing Invariant', () => {
       k_samples: 1000,
       calibrated: false,
     });
-    expect(['high', 'medium']).toContain(medium.level);
-    expect(medium.level).toBe(medium.level.toLowerCase());
+    expect(['HIGH', 'MEDIUM']).toContain(medium.level);
+    expect(medium.level).toBe(medium.level.toUpperCase());
 
     // Test low confidence
     const low = calculateConfidence({
@@ -65,7 +65,7 @@ describe('Confidence Level Casing Invariant', () => {
       k_samples: 100,
       calibrated: false,
     });
-    expect(low.level).toBe('low');
-    expect(low.level).toBe(low.level.toLowerCase());
+    expect(low.level).toBe('LOW');
+    expect(low.level).toBe(low.level.toUpperCase());
   });
 });

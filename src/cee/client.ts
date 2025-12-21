@@ -223,8 +223,8 @@ export interface RunDecisionReviewOptions {
   logger?: FastifyBaseLogger;
 }
 
-// M1 CEE Orchestrator spec v1.1: 6s timeout for orchestration guard
-const DEFAULT_TIMEOUT_MS = Number(process.env.CEE_TIMEOUT_MS || 6_000);
+// CEE timeout: 60s for staging integration testing (tighten for production later)
+const DEFAULT_TIMEOUT_MS = Number(process.env.CEE_TIMEOUT_MS || 60_000);
 
 export async function runDecisionReview(opts: RunDecisionReviewOptions): Promise<CeeDecisionReviewResult> {
   const { context, requestId, logger } = opts;
@@ -540,7 +540,7 @@ export async function callDecisionReviewFromEngine(opts: {
   // M1 CEE Orchestrator spec v1.1: Sanitize request ID and use 6s timeout
   const plotRequestId = opts.requestId || '';
   const requestId = sanitizeRequestId(plotRequestId);
-  const timeoutMs = Number(opts.env.timeoutMs ?? 6_000);
+  const timeoutMs = Number(opts.env.timeoutMs ?? 60_000);
 
   const degraded = (
     code: string,

@@ -1,5 +1,5 @@
 /**
- * Confidence Badge - low / medium / high with reason
+ * Confidence Badge - LOW / MEDIUM / HIGH with reason
  */
 
 import type { ConfidenceBadge, ConfidenceLevel, Graph } from './types.js';
@@ -62,7 +62,7 @@ export function calculateConfidence(inputs: ConfidenceInputs): ConfidenceBadge {
   let reason: string;
 
   if (overall_raw >= 750) {
-    level = 'high';
+    level = 'HIGH';
     reason = buildReason({
       identifiable,
       node_count,
@@ -72,7 +72,7 @@ export function calculateConfidence(inputs: ConfidenceInputs): ConfidenceBadge {
       positive: true,
     });
   } else if (overall_raw >= 500) {
-    level = 'medium';
+    level = 'MEDIUM';
     reason = buildReason({
       identifiable,
       node_count,
@@ -82,7 +82,7 @@ export function calculateConfidence(inputs: ConfidenceInputs): ConfidenceBadge {
       positive: null,
     });
   } else {
-    level = 'low';
+    level = 'LOW';
     reason = buildReason({
       identifiable,
       node_count,
@@ -93,8 +93,8 @@ export function calculateConfidence(inputs: ConfidenceInputs): ConfidenceBadge {
     });
   }
 
-  // Invariant: level must be lowercase only
-  if (!['high', 'medium', 'low'].includes(level)) {
+  // Invariant: level must be uppercase only
+  if (!['HIGH', 'MEDIUM', 'LOW'].includes(level)) {
     throw new Error(`Invalid confidence.level: ${level}`);
   }
 

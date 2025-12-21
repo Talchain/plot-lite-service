@@ -83,7 +83,7 @@ export async function runDecisionReviewViaSdk(
   const client = createCEEClient({
     apiKey: String(env.apiKey ?? ''),
     baseUrl: env.baseUrl,
-    timeout: Number(env.timeoutMs ?? 6_000), // Aligned with spec v1.1
+    timeout: Number(env.timeoutMs ?? 60_000), // 60s for staging integration testing
   });
 
   try {
@@ -291,7 +291,7 @@ export async function orchestrateCeeReview(
   const client = createCEEClient({
     apiKey: String(env.apiKey ?? ''),
     baseUrl: env.baseUrl,
-    timeout: Number(env.timeoutMs ?? 6_000),
+    timeout: Number(env.timeoutMs ?? 60_000),
   });
 
   try {
@@ -331,49 +331,7 @@ export async function orchestrateCeeReview(
         throw new Error(result.error.code ?? 'CEE_SDK_ERROR');
       }
 
-      // Synthesize ISL robustness into blocks (determinism-safe, additive)
-      const islBlocks: CeeReviewBlock[] = [];
-      if (request.isl_robustness) {
-        const isl = request.isl_robustness;
-
-        // Block 1: Overall robustness assessment
-        const robustnessStatus = isl.overall_robustness === 'robust' ? 'ok' :
-                                  isl.overall_robustness === 'moderate' ? 'warning' : 'error';
-        islBlocks.push({
-          id: 'isl_robustness',
-          status: robustnessStatus,
-          headline: `Model robustness: ${isl.overall_robustness}`,
-          details: isl.recommendations?.[0],
-          factors: isl.recommendations?.slice(0, 3),
-        });
-
-        // Block 2: Validation status (if available)
-        if (isl.validation_status) {
-          const validationStatus = isl.validation_status === 'identifiable' ? 'ok' :
-                                    isl.validation_status === 'uncertain' ? 'warning' : 'error';
-          islBlocks.push({
-            id: 'isl_validation',
-            status: validationStatus,
-            headline: `Causal identifiability: ${isl.validation_status}`,
-            details: isl.validation_confidence ? `Confidence: ${isl.validation_confidence}` : undefined,
-            factors: isl.issues?.map(i => i.description).slice(0, 3),
-          });
-        }
-
-        // Block 3: Sensitive parameters (if available and fragile/moderate)
-        if (isl.sensitive_parameters && isl.sensitive_parameters.length > 0 && isl.overall_robustness !== 'robust') {
-          const topParams = isl.sensitive_parameters.slice(0, 3);
-          islBlocks.push({
-            id: 'isl_sensitivity',
-            status: 'warning',
-            headline: 'Key sensitivity drivers',
-            details: `Top ${topParams.length} parameters with highest impact`,
-            factors: topParams.map(p => `${p.parameter}: ${(p.sensitivity * 100).toFixed(0)}% (${p.impact_direction})`),
-          });
-        }
-      }
-
-      // Convert compose result to M1 response shape
+      // Convert compose result to M1 response shape (blocks added below)
       ceeReview = result.review ? {
         intent: request.intent,
         analysis_state: 'ran',
@@ -382,7 +340,7 @@ export async function orchestrateCeeReview(
           headline: 'Analysis complete',
           factors: [],
         },
-        blocks: islBlocks, // Include synthesized ISL blocks
+        blocks: [], // Will be populated with ISL blocks below
         trace: {
           request_id: result.trace?.cee_returned_request_id ?? undefined,
           latency_ms: result.trace?.latency_ms ?? undefined,
@@ -393,6 +351,65 @@ export async function orchestrateCeeReview(
       ceeReturnedId = result.trace?.cee_returned_request_id ?? null;
       model = result.trace?.model;
       sdkLatencyMs = result.trace?.latency_ms ?? undefined;
+    }
+
+    // ISL block synthesis - hoisted outside if/else so both paths include blocks
+    // This runs for both SDK review() path and compose pattern fallback
+    // CEE returns single "robustness" block - consolidate all ISL signals into one
+    if (ceeReview && request.isl_robustness) {
+      const isl = request.isl_robustness;
+
+      // Determine overall status from robustness + validation
+      const robustnessStatus = isl.overall_robustness === 'robust' ? 'ok' :
+                                isl.overall_robustness === 'moderate' ? 'warning' : 'error';
+      const validationStatus = isl.validation_status === 'identifiable' ? 'ok' :
+                                isl.validation_status === 'uncertain' ? 'warning' :
+                                isl.validation_status === 'cannot_identify' ? 'error' : null;
+
+      // Use worst status between robustness and validation
+      let finalStatus: 'ok' | 'warning' | 'error' = robustnessStatus;
+      if (validationStatus === 'error' || robustnessStatus === 'error') {
+        finalStatus = 'error';
+      } else if (validationStatus === 'warning' || robustnessStatus === 'warning') {
+        finalStatus = 'warning';
+      }
+
+      // Build consolidated factors array
+      const factors: string[] = [];
+
+      // Add validation info if available
+      if (isl.validation_status) {
+        const confStr = isl.validation_confidence ? ` (${isl.validation_confidence} confidence)` : '';
+        factors.push(`Identifiability: ${isl.validation_status}${confStr}`);
+      }
+
+      // Add top sensitive parameters (max 3)
+      if (isl.sensitive_parameters && isl.sensitive_parameters.length > 0 && isl.overall_robustness !== 'robust') {
+        const topParams = isl.sensitive_parameters.slice(0, 3);
+        factors.push(...topParams.map(p => `${p.parameter}: ${(p.sensitivity * 100).toFixed(0)}% sensitivity (${p.impact_direction})`));
+      }
+
+      // Add recommendations
+      if (isl.recommendations && isl.recommendations.length > 0) {
+        factors.push(...isl.recommendations.slice(0, 2));
+      }
+
+      // Add source provenance
+      factors.push('Source: ISL');
+
+      // Single consolidated robustness block
+      const robustnessBlock: CeeReviewBlock = {
+        id: 'robustness',
+        status: finalStatus,
+        headline: `Model robustness: ${isl.overall_robustness}`,
+        details: isl.validation_status
+          ? `Identifiability: ${isl.validation_status}`
+          : undefined,
+        factors: factors.length > 0 ? factors : undefined,
+      };
+
+      // Merge with any existing blocks from SDK review()
+      ceeReview.blocks = [...(ceeReview.blocks ?? []), robustnessBlock];
     }
 
     const latencyMs = sdkLatencyMs ?? (Date.now() - startTime);

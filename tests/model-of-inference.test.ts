@@ -42,7 +42,7 @@ describe('Model-of-Inference Engine', () => {
     expect(result.meta_reasoning.quality_assessment).toBeDefined();
     expect(result.meta_reasoning.quality_assessment.overall_score).toBeGreaterThanOrEqual(0);
     expect(result.meta_reasoning.quality_assessment.overall_score).toBeLessThanOrEqual(1);
-    expect(['high', 'medium', 'low']).toContain(result.meta_reasoning.quality_assessment.confidence_level);
+    expect(['HIGH', 'MEDIUM', 'LOW']).toContain(result.meta_reasoning.quality_assessment.confidence_level);
     expect(typeof result.meta_reasoning.quality_assessment.identifiable).toBe('boolean');
     expect(typeof result.meta_reasoning.quality_assessment.in_linear_range).toBe('boolean');
     expect(typeof result.meta_reasoning.quality_assessment.graph_quality).toBe('number');

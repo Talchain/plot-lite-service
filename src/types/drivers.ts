@@ -20,11 +20,16 @@ export type DriversStatus = 'ok' | 'cannot_compute' | 'requires_run' | 'low_disc
 export interface DriverItem {
   /** Stable identifier (edge_id for edges, node_id for nodes) */
   id: string;
+  /** Impact magnitude (0-1, derived from sensitivity analysis) */
+  impact: number;
+  /** Direction of influence on outcome */
+  direction: 'positive' | 'negative';
+  // --- Optional extras (backward compatibility) ---
   /** Type of driver */
-  kind: 'edge' | 'node';
+  kind?: 'edge' | 'node';
   /** UI-ready label */
-  label: string;
-  /** Sensitivity score (0-1 typically) */
+  label?: string;
+  /** Sensitivity score (0-1 typically) - alias for impact */
   sensitivity_score?: number;
   /** Optional short explanation */
   details?: string;
