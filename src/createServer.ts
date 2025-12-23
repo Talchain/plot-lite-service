@@ -317,7 +317,7 @@ export async function createServer(opts: ServerOpts = {}) {
     await app.register(cors, {
       origin: origins,
       methods: ['GET', 'POST', 'OPTIONS', 'HEAD'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key', 'X-SCM-Lite', 'x-olumi-payload-hash', 'X-Request-Id'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key', 'X-SCM-Lite', 'x-olumi-payload-hash', 'x-olumi-downstream-calls', 'X-Request-Id'],
       exposedHeaders: [
         'Retry-After',
         'X-RateLimit-Limit',
@@ -432,9 +432,9 @@ export async function createServer(opts: ServerOpts = {}) {
         timestamp: new Date().toISOString(),
         request_id: req.id,
         service: 'plot',
-        endpoint: route,
+        route,
         method: req.method,
-        payload_hash: (req as any).__olumi_payload_hash || null,
+        x_olumi_payload_hash: (req as any).__olumi_payload_hash || null,
       }, 'boundary.request');
     } catch { /* ignore */ }
   });
@@ -463,10 +463,14 @@ export async function createServer(opts: ServerOpts = {}) {
         let bodyObj: unknown = null;
         if (typeof payload === 'string') {
           try { bodyObj = JSON.parse(payload); } catch { /* ignore */ }
-        } else if (typeof payload === 'object') {
+        } else if (Buffer.isBuffer(payload)) {
+          // Handle Buffer payloads - convert to string then parse
+          try { bodyObj = JSON.parse(payload.toString('utf8')); } catch { /* ignore */ }
+        } else if (typeof payload === 'object' && payload !== null) {
+          // Plain object - use directly (but not Buffer or other special types)
           bodyObj = payload;
         }
-        if (bodyObj && typeof bodyObj === 'object') {
+        if (bodyObj && typeof bodyObj === 'object' && !Buffer.isBuffer(bodyObj)) {
           const responseHash = computeOlumiHash(bodyObj);
           reply.header('x-olumi-response-hash', responseHash);
           (req as any).__olumi_response_hash = responseHash;
@@ -545,11 +549,11 @@ export async function createServer(opts: ServerOpts = {}) {
         timestamp: new Date().toISOString(),
         request_id: req.id,
         service: 'plot',
-        endpoint: route,
+        route,
         method: req.method,
-        status: reply.statusCode,
-        elapsed_ms: durationMs,
-        response_hash: (req as any).__olumi_response_hash || null,
+        status_code: reply.statusCode,
+        duration_ms: durationMs,
+        x_olumi_response_hash: (req as any).__olumi_response_hash || null,
         downstream: downstreamCalls.length > 0 ? downstreamCalls : null,
       }, 'boundary.response');
       // Clean up downstream tracking for this request

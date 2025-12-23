@@ -315,3 +315,95 @@ describe('headers on error responses', () => {
     }
   });
 });
+
+describe('CORS headers configuration', () => {
+  it('includes x-olumi-downstream-calls in Access-Control-Allow-Headers', async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/v1/run`, {
+      method: 'OPTIONS',
+      headers: {
+        'Origin': 'http://localhost:5173',
+        'Access-Control-Request-Method': 'POST',
+        'Access-Control-Request-Headers': 'content-type,x-olumi-downstream-calls',
+      },
+    });
+    expect([200, 204]).toContain(res.status);
+    const allowedHeaders = res.headers.get('Access-Control-Allow-Headers')?.toLowerCase() || '';
+    expect(allowedHeaders).toContain('x-olumi-downstream-calls');
+  });
+
+  it('includes x-olumi-response-hash in Access-Control-Expose-Headers', async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/health`, {
+      headers: {
+        'Origin': 'http://localhost:5173',
+      },
+    });
+    expect(res.status).toBe(200);
+    const exposedHeaders = res.headers.get('Access-Control-Expose-Headers')?.toLowerCase() || '';
+    expect(exposedHeaders).toContain('x-olumi-response-hash');
+  });
+
+  it('includes x-olumi-downstream-calls in Access-Control-Expose-Headers', async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/health`, {
+      headers: {
+        'Origin': 'http://localhost:5173',
+      },
+    });
+    expect(res.status).toBe(200);
+    const exposedHeaders = res.headers.get('Access-Control-Expose-Headers')?.toLowerCase() || '';
+    expect(exposedHeaders).toContain('x-olumi-downstream-calls');
+  });
+
+  it('includes x-olumi-service in Access-Control-Expose-Headers', async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/health`, {
+      headers: {
+        'Origin': 'http://localhost:5173',
+      },
+    });
+    expect(res.status).toBe(200);
+    const exposedHeaders = res.headers.get('Access-Control-Expose-Headers')?.toLowerCase() || '';
+    expect(exposedHeaders).toContain('x-olumi-service');
+  });
+});
+
+describe('x-olumi-downstream-calls header', () => {
+  it('does not include x-olumi-downstream-calls when no downstream calls made', async () => {
+    // Health endpoint makes no downstream calls
+    const res = await fetch(`http://127.0.0.1:${port}/health`);
+    expect(res.status).toBe(200);
+    // Should NOT have downstream calls header when no calls were made
+    const downstreamHeader = res.headers.get('x-olumi-downstream-calls');
+    expect(downstreamHeader).toBeNull();
+  });
+});
+
+describe('Buffer response hash handling', () => {
+  it('computes response hash correctly for health endpoint', async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/health`);
+    expect(res.status).toBe(200);
+    const responseHash = res.headers.get('x-olumi-response-hash');
+    const body = await res.json();
+    const computedHash = computeOlumiHash(body);
+    // Response hash should match computed hash (regardless of internal Buffer handling)
+    expect(responseHash).toBe(computedHash);
+  });
+
+  it('computes response hash correctly for version endpoint', async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/version`);
+    expect(res.status).toBe(200);
+    const responseHash = res.headers.get('x-olumi-response-hash');
+    const body = await res.json();
+    const computedHash = computeOlumiHash(body);
+    expect(responseHash).toBe(computedHash);
+  });
+
+  it('computes response hash correctly for error responses', async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/nonexistent-path`);
+    expect(res.status).toBe(404);
+    const responseHash = res.headers.get('x-olumi-response-hash');
+    if (responseHash) {
+      const body = await res.json();
+      const computedHash = computeOlumiHash(body);
+      expect(responseHash).toBe(computedHash);
+    }
+  });
+});
