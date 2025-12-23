@@ -14,6 +14,7 @@ import { sanitizeUrl } from './lib/log-sanitizer.js';
 import inflightPlugin from './plugins/inflight.js';
 import type {} from './types/fastify.js';
 import { registerHealthRoutes } from './routes/health.js';
+import { computeOlumiHash } from './util/canonical.js';
 import {
   noteLastRequestAt,
   recordDurationMs,
@@ -315,7 +316,7 @@ export async function createServer(opts: ServerOpts = {}) {
     await app.register(cors, {
       origin: origins,
       methods: ['GET', 'POST', 'OPTIONS', 'HEAD'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key', 'X-SCM-Lite'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key', 'X-SCM-Lite', 'x-olumi-payload-hash', 'X-Request-Id'],
       exposedHeaders: [
         'Retry-After',
         'X-RateLimit-Limit',
@@ -326,6 +327,9 @@ export async function createServer(opts: ServerOpts = {}) {
         'X-Olumi-Backend',
         'X-CEE-Debug',
         'X-Build-Tag',
+        'x-olumi-service-build',
+        'x-olumi-service',
+        'x-olumi-response-hash',
         'X-Request-Id',
       ],
       credentials: false,
@@ -387,10 +391,84 @@ export async function createServer(opts: ServerOpts = {}) {
   app.addHook('onRequest', async (req) => {
     (req as any).startTime = process.hrtime.bigint();
     try { noteLastRequestAt(); } catch { /* ignore */ }
+
+    // P1: Capture and validate x-olumi-payload-hash header from client (if provided)
+    // Expected format: 12-character lowercase hex string
+    const incomingPayloadHash = (req.headers as any)['x-olumi-payload-hash'] || '';
+    if (incomingPayloadHash) {
+      const trimmed = String(incomingPayloadHash).trim().toLowerCase();
+      // Only accept valid 12-char hex format to prevent telemetry pollution
+      if (/^[0-9a-f]{12}$/.test(trimmed)) {
+        (req as any).__olumi_payload_hash = trimmed;
+      } else {
+        // Log malformed header but don't store it
+        try {
+          req.log.warn({
+            evt: 'olumi_payload_hash_invalid',
+            request_id: req.id,
+            received: trimmed.slice(0, 20), // Truncate for safety
+          }, 'Invalid x-olumi-payload-hash format (expected 12 hex chars)');
+        } catch { /* ignore */ }
+      }
+    }
+
+    // P1: boundary.request logging
+    const route = (() => {
+      try {
+        const url = new URL(req.url, 'http://local');
+        return url.pathname;
+      } catch {
+        return String(req.url || '').split('?')[0].split('#')[0];
+      }
+    })();
+    try {
+      req.log.info({
+        event: 'boundary.request',
+        timestamp: new Date().toISOString(),
+        request_id: req.id,
+        service: 'plot',
+        endpoint: route,
+        method: req.method,
+        payload_hash: (req as any).__olumi_payload_hash || null,
+      }, 'boundary.request');
+    } catch { /* ignore */ }
   });
-  // Echo X-Request-ID on all responses
+  // Echo X-Request-ID on all responses and add Olumi observability headers
   app.addHook('onSend', async (req, reply, payload) => {
     try { reply.header('X-Request-ID', String(req.id)); } catch { /* ignore */ }
+
+    // P1: Add x-olumi-service header (all responses)
+    try { reply.header('x-olumi-service', 'plot'); } catch { /* ignore */ }
+
+    // P1: Add x-olumi-service-build header (replaces X-Build-Tag, keep both during transition)
+    try {
+      const buildTag = process.env.BUILD_ID || process.env.GITHUB_SHA || 'dev';
+      reply.header('x-olumi-service-build', buildTag);
+      reply.header('X-Build-Tag', buildTag); // Keep for backward compatibility
+    } catch { /* ignore */ }
+
+    // P1: Add x-olumi-response-hash header for JSON responses (lowercase for HTTP/2 compliance)
+    // LIMITATION: This only works for buffered JSON responses where Fastify provides the full
+    // payload in onSend. For streamed responses (SSE, reply.raw usage, custom serializers returning
+    // streams), payload is falsy and the hash header will not be set. This is acceptable for now
+    // since our primary use case is buffered JSON API responses.
+    try {
+      const ct = String(reply.getHeader('Content-Type') || '');
+      if (ct.includes('application/json') && payload) {
+        let bodyObj: unknown = null;
+        if (typeof payload === 'string') {
+          try { bodyObj = JSON.parse(payload); } catch { /* ignore */ }
+        } else if (typeof payload === 'object') {
+          bodyObj = payload;
+        }
+        if (bodyObj && typeof bodyObj === 'object') {
+          const responseHash = computeOlumiHash(bodyObj);
+          reply.header('x-olumi-response-hash', responseHash);
+          (req as any).__olumi_response_hash = responseHash;
+        }
+      }
+    } catch { /* ignore */ }
+
     // HSTS only in production over TLS (proxied ok via X-Forwarded-Proto)
     try {
       if (process.env.NODE_ENV === 'production') {
@@ -443,6 +521,21 @@ export async function createServer(opts: ServerOpts = {}) {
       } catch { /* ignore */ }
     }
     app.log.info({ reqId: req.id, route, statusCode: reply.statusCode, durationMs }, 'request completed');
+
+    // P1: boundary.response logging (canonical schema)
+    try {
+      req.log.info({
+        event: 'boundary.response',
+        timestamp: new Date().toISOString(),
+        request_id: req.id,
+        service: 'plot',
+        endpoint: route,
+        method: req.method,
+        status: reply.statusCode,
+        elapsed_ms: durationMs,
+        response_hash: (req as any).__olumi_response_hash || null,
+      }, 'boundary.response');
+    } catch { /* ignore */ }
   });
 
   // Load fixtures and pre-serialise for legacy POST /draft-flows (C5: cached)

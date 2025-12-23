@@ -9,6 +9,7 @@
  */
 
 import { ISLHttpError, ISLTimeoutError, ISLNetworkError, isRetryableError } from './errors.js';
+import { computeOlumiHash } from '../../util/canonical.js';
 
 /**
  * ISL client configuration
@@ -71,12 +72,15 @@ export class ISLClient {
 
         const startTime = Date.now();
 
+        // P1: Compute payload hash for x-olumi-payload-hash header
+        const payloadHash = computeOlumiHash(body);
         const response = await fetch(url, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'X-API-Key': this.config.apiKey,
             'X-Request-Id': requestId,
+            'x-olumi-payload-hash': payloadHash,
           },
           body: JSON.stringify(body),
           signal: controller.signal,

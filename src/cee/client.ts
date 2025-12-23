@@ -13,6 +13,7 @@ import type {
 } from './types.js';
 import { runDecisionReviewViaSdk, type EvidenceHelperItem } from './orchestrator.js';
 import { isFlagOn } from './codes.js';
+import { computeOlumiHash } from '../util/canonical.js';
 
 /**
  * Sanitize request ID per M1 CEE Orchestrator spec v1.1
@@ -297,6 +298,8 @@ async function postDecisionReview(
   };
 
   try {
+    // P1: Compute payload hash for x-olumi-payload-hash header
+    const payloadHash = computeOlumiHash(payload);
     const res = await fetchWithTimeout(url, {
       timeoutMs,
       method: 'POST',
@@ -305,6 +308,7 @@ async function postDecisionReview(
         'Accept': 'application/json',
         'Authorization': `Bearer ${apiKey}`,
         'X-Request-Id': requestId,
+        'x-olumi-payload-hash': payloadHash,
       },
       body: JSON.stringify(payload),
     });
