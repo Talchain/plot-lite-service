@@ -126,6 +126,11 @@ export async function authGuard(
  */
 export function createAuthPreHandler(options: AuthGuardOptions = {}) {
   return async (req: FastifyRequest, reply: FastifyReply) => {
-    await authGuard(req, reply, options);
+    const authorized = await authGuard(req, reply, options);
+    // P1 fix: Return early if auth failed (response already sent)
+    // This prevents route handler from executing after auth rejection
+    if (!authorized) {
+      return reply;
+    }
   };
 }

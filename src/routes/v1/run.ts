@@ -60,6 +60,7 @@ import { buildGraphHealth } from '../../trust/variance-helper.js';
 import { CRITIQUE_CODES } from '../../trust/critique-codes.js';
 import { computeOptionProbabilities, detectGoalNode, detectGoalThreshold } from '../../trust/option-probabilities.js';
 import { buildDriversPayload, buildDiscriminationSignal, applyDiscriminationToDrivers } from '../../trust/drivers-builder.js';
+import { canonicalIdempotencyPreHandler, canonicalIdempotencyOnSend } from '../../middleware/idempotency-canonical.js';
 
 /**
  * Transform ISL validation result to enrichment schema
@@ -199,8 +200,7 @@ export interface RunRequest {
 
 export async function registerRunRoute(app: FastifyInstance) {
   const { createValidator } = await import('../../middleware/input-validation.js');
-  const { principalFor, getCached, setCached, pruneExpired, markInflight, clearInflight } = await import('../../middleware/idempotency.js');
-  
+
   // HEAD /v1/run for UI probe - returns 405 with Allow header
   // UI expects non-404 to indicate route exists (200/401/403/405 all valid)
   app.head('/v1/run', async (_req, reply) => {
@@ -257,52 +257,15 @@ export async function registerRunRoute(app: FastifyInstance) {
           throw err;  // Let global error handler format it
         }
       },
-      // Idempotency replay (before validation)
+      // P2: Migrate to canonical idempotency handlers (unified with run-bundle, optimise, intervene)
       async (req: FastifyRequest, reply: FastifyReply) => {
-        try { if (Math.random() < 0.01) pruneExpired(); } catch { /* ignore */ }
-        const idk = String((req.headers as any)['idempotency-key'] || (req.headers as any)['Idempotency-Key'] || '').trim();
-        if (!idk) return;
-        const principal = principalFor(req);
-        const hit = getCached(principal, idk);
-        if (hit) {
-          (req as any).__idempotent_replay = true;
-          try { reply.header('Idempotent-Replayed', '1'); } catch { /* ignore */ }
-          return reply.code(hit.status).type('application/json').send(hit.body);
-        }
-        markInflight(principal, idk);
-        // Mark for onSend storage
-        (req as any).__idempotent_replay = false;
-        (req as any).__idemp = { principal, idk };
-        try { reply.header('Idempotent-Replayed', '0'); } catch { /* ignore */ }
+        return canonicalIdempotencyPreHandler(req, reply, '/v1/run');
       },
       createValidator('run'),
     ],
     onSend: [
       async (req: FastifyRequest, reply: FastifyReply, payload: any) => {
-        try {
-          const marker = (req as any).__idemp;
-          if (!marker) return payload;
-          // Only store JSON bodies
-          let body: any = payload;
-          if (typeof payload === 'string') {
-            try { body = JSON.parse(payload); } catch { body = null; }
-          }
-          // P0: Always clear inflight (even for non-2xx)
-          const { clearInflight } = await import('../../middleware/idempotency.js');
-          clearInflight(marker.principal, marker.idk);
-          
-          // Only cache 2xx responses
-          if (body && typeof body === 'object') {
-            const status = reply.statusCode || 200;
-            if (status >= 200 && status < 300) {
-              setCached(marker.principal, marker.idk, status, body);
-              try { reply.header('Idempotent-Replayed', '0'); } catch { /* ignore */ }
-            }
-          }
-          return payload;
-        } catch {
-          return payload;
-        }
+        return canonicalIdempotencyOnSend(req, reply, payload);
       },
     ],
   }, async (req: FastifyRequest, reply: FastifyReply) => {
@@ -750,11 +713,7 @@ export async function registerRunRoute(app: FastifyInstance) {
     } catch (err: any) {
       const msg = String(err?.message || '');
       if (msg.includes('exceeds max nodes') || msg.includes('exceeds max edges')) {
-        // P0: Clear inflight key on early 400 exit
-        const marker = (req as any).__idemp;
-        if (marker) {
-          try { clearInflight(marker.principal, marker.idk); } catch { /* ignore */ }
-        }
+        // Inflight cleared by canonicalIdempotencyOnSend (runs on all responses including 400s)
         return replyWithAppError(reply, {
           type: 'BAD_INPUT',
           statusCode: 400,

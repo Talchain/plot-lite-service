@@ -30,7 +30,11 @@ export async function registerV1Routes(app: FastifyInstance) {
     if (req.url?.startsWith('/v1/')) {
       // Allow demo bypass only for GET /v1/stream
       const isStreamRoute = req.method === 'GET' && req.url.startsWith('/v1/stream');
-      await authGuard(req, reply, { allowDemoBypass: isStreamRoute });
+      const authorized = await authGuard(req, reply, { allowDemoBypass: isStreamRoute });
+      // P1 fix: Return early if auth failed (response already sent)
+      if (!authorized) {
+        return reply;
+      }
     }
   });
 

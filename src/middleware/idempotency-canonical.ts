@@ -19,8 +19,25 @@ interface MismatchEntry {
 }
 
 const IDEM_CACHE = new IdempotencyCache(getIdempotencyMaxEntries(), getIdempotencyTtlMs(), getIdempotencyEnable());
-
 const mismatchMap = new Map<string, MismatchEntry>();
+
+/** Get current cache size (for testing) */
+export function __canonicalIdemSize(): number {
+  return IDEM_CACHE.getStats().size;
+}
+
+/**
+ * Check if a key might be cached (for early replay detection before body parsing).
+ * This only checks the mismatch map which tracks keys we've seen.
+ * Used by idempotency-marker to set __idempotent_replay flag early.
+ */
+export function isCanonicalKeyKnown(route: string, principal: string, idempotencyKey: string): boolean {
+  if (!getIdempotencyEnable()) return false;
+  const mismatchKey = `${route}|${principal}|${idempotencyKey}`;
+  const entry = mismatchMap.get(mismatchKey);
+  if (!entry) return false;
+  return entry.expiresAt > Date.now();
+}
 let lastCleanup = 0;
 
 function cleanupMismatchMap(now: number, ttlMs: number): void {

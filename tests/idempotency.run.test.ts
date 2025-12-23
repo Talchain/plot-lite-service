@@ -41,7 +41,7 @@ const body = {
 
 describe('Idempotency-Key for POST /v1/run', () => {
   it('replays identical response for same key within TTL', async () => {
-    const { port, child } = await startServer({ AUTH_ENABLED: '0' });
+    const { port, child } = await startServer({ AUTH_ENABLED: '0', IDEMPOTENCY_ENABLE: '1' });
     const BASE = `http://127.0.0.1:${port}`;
     const headers: any = { 'Content-Type': 'application/json', 'Idempotency-Key': 'k1' };
 
@@ -60,7 +60,7 @@ describe('Idempotency-Key for POST /v1/run', () => {
   });
 
   it('does not reuse across principals (different Authorization)', async () => {
-    const { port, child } = await startServer({ AUTH_ENABLED: '1', AUTH_TOKEN: 'tok' });
+    const { port, child } = await startServer({ AUTH_ENABLED: '1', AUTH_TOKEN: 'tok', IDEMPOTENCY_ENABLE: '1' });
     const BASE = `http://127.0.0.1:${port}`;
     const headers1: any = { 'Content-Type': 'application/json', 'Idempotency-Key': 'kX', 'Authorization': 'Bearer tok' };
     const headers2: any = { 'Content-Type': 'application/json', 'Idempotency-Key': 'kX', 'Authorization': 'Bearer wrong' };

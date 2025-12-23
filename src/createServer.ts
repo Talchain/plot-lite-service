@@ -15,6 +15,7 @@ import inflightPlugin from './plugins/inflight.js';
 import type {} from './types/fastify.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { computeOlumiHash } from './util/canonical.js';
+import { initDownstreamTracking, clearDownstreamTracking, formatDownstreamHeader, getDownstreamCallsForLog } from './util/downstream-tracker.js';
 import {
   noteLastRequestAt,
   recordDurationMs,
@@ -330,6 +331,7 @@ export async function createServer(opts: ServerOpts = {}) {
         'x-olumi-service-build',
         'x-olumi-service',
         'x-olumi-response-hash',
+        'x-olumi-downstream-calls',
         'X-Request-Id',
       ],
       credentials: false,
@@ -391,6 +393,9 @@ export async function createServer(opts: ServerOpts = {}) {
   app.addHook('onRequest', async (req) => {
     (req as any).startTime = process.hrtime.bigint();
     try { noteLastRequestAt(); } catch { /* ignore */ }
+
+    // P1: Initialize downstream call tracking for this request
+    try { initDownstreamTracking(String(req.id)); } catch { /* ignore */ }
 
     // P1: Capture and validate x-olumi-payload-hash header from client (if provided)
     // Expected format: 12-character lowercase hex string
@@ -469,6 +474,15 @@ export async function createServer(opts: ServerOpts = {}) {
       }
     } catch { /* ignore */ }
 
+    // P1: Add x-olumi-downstream-calls header (if any downstream calls were made)
+    // Format: service:status:elapsedMs:payloadHash:responseHash;...
+    try {
+      const downstreamHeader = formatDownstreamHeader(String(req.id));
+      if (downstreamHeader) {
+        reply.header('x-olumi-downstream-calls', downstreamHeader);
+      }
+    } catch { /* ignore */ }
+
     // HSTS only in production over TLS (proxied ok via X-Forwarded-Proto)
     try {
       if (process.env.NODE_ENV === 'production') {
@@ -524,6 +538,8 @@ export async function createServer(opts: ServerOpts = {}) {
 
     // P1: boundary.response logging (canonical schema)
     try {
+      const requestId = String(req.id);
+      const downstreamCalls = getDownstreamCallsForLog(requestId);
       req.log.info({
         event: 'boundary.response',
         timestamp: new Date().toISOString(),
@@ -534,7 +550,10 @@ export async function createServer(opts: ServerOpts = {}) {
         status: reply.statusCode,
         elapsed_ms: durationMs,
         response_hash: (req as any).__olumi_response_hash || null,
+        downstream: downstreamCalls.length > 0 ? downstreamCalls : null,
       }, 'boundary.response');
+      // Clean up downstream tracking for this request
+      clearDownstreamTracking(requestId);
     } catch { /* ignore */ }
   });
 

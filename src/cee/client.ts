@@ -14,6 +14,7 @@ import type {
 import { runDecisionReviewViaSdk, type EvidenceHelperItem } from './orchestrator.js';
 import { isFlagOn } from './codes.js';
 import { computeOlumiHash } from '../util/canonical.js';
+import { recordDownstreamCall } from '../util/downstream-tracker.js';
 
 /**
  * Sanitize request ID per M1 CEE Orchestrator spec v1.1
@@ -149,6 +150,15 @@ async function fetchFixtureExample(baseUrl: string, timeoutMs: number, requestId
     logger?.info({ evt: 'cee_fixture_fetch', status: res.status, duration_ms: durationMs }, 'CEE fixture fetch');
 
     if (!res.ok) {
+      // Record failed fixture fetch
+      recordDownstreamCall({
+        service: 'cee',
+        endpoint: '/assist/v1/decision-review/example',
+        status: res.status,
+        elapsedMs: durationMs,
+        payloadHash: '-', // GET request, no payload
+        requestId,
+      });
       return {
         ceeReview: null,
         ceeTrace: {
@@ -171,6 +181,15 @@ async function fetchFixtureExample(baseUrl: string, timeoutMs: number, requestId
     try {
       payload = await res.json();
     } catch {
+      // Record fixture fetch with parse error
+      recordDownstreamCall({
+        service: 'cee',
+        endpoint: '/assist/v1/decision-review/example',
+        status: res.status,
+        elapsedMs: durationMs,
+        payloadHash: '-',
+        requestId,
+      });
       return {
         ceeReview: null,
         ceeTrace: {
@@ -188,6 +207,18 @@ async function fetchFixtureExample(baseUrl: string, timeoutMs: number, requestId
       };
     }
 
+    // Record successful fixture fetch with response hash
+    const responseHash = computeOlumiHash(payload);
+    recordDownstreamCall({
+      service: 'cee',
+      endpoint: '/assist/v1/decision-review/example',
+      status: res.status,
+      elapsedMs: durationMs,
+      payloadHash: '-',
+      responseHash,
+      requestId,
+    });
+
     return {
       ceeReview: payload ?? null,
       ceeTrace: {
@@ -200,6 +231,16 @@ async function fetchFixtureExample(baseUrl: string, timeoutMs: number, requestId
       usedFixture: true,
     };
   } catch {
+    const durationMs = Date.now() - started;
+    // Record fixture fetch network error
+    recordDownstreamCall({
+      service: 'cee',
+      endpoint: '/assist/v1/decision-review/example',
+      status: 0,
+      elapsedMs: durationMs,
+      payloadHash: '-',
+      requestId,
+    });
     return {
       ceeReview: null,
       ceeTrace: {
@@ -297,9 +338,10 @@ async function postDecisionReview(
     scenario_kind: context.scenario_kind,
   };
 
+  // P1: Compute payload hash for x-olumi-payload-hash header (outside try for catch access)
+  const payloadHash = computeOlumiHash(payload);
+
   try {
-    // P1: Compute payload hash for x-olumi-payload-hash header
-    const payloadHash = computeOlumiHash(payload);
     const res = await fetchWithTimeout(url, {
       timeoutMs,
       method: 'POST',
@@ -320,6 +362,15 @@ async function postDecisionReview(
     );
 
     if (!res.ok) {
+      // Record failed downstream call
+      recordDownstreamCall({
+        service: 'cee',
+        endpoint: '/assist/v1/decision-review',
+        status: res.status,
+        elapsedMs: durationMs,
+        payloadHash,
+        requestId,
+      });
       // Non-2xx response - fallback to fixture
       logger?.warn(
         { evt: 'cee_decision_review_error', status: res.status, duration_ms: durationMs },
@@ -332,6 +383,15 @@ async function postDecisionReview(
     try {
       responsePayload = await res.json();
     } catch {
+      // Record downstream call with parse error
+      recordDownstreamCall({
+        service: 'cee',
+        endpoint: '/assist/v1/decision-review',
+        status: res.status,
+        elapsedMs: durationMs,
+        payloadHash,
+        requestId,
+      });
       logger?.warn({ evt: 'cee_decision_review_parse_error' }, 'Failed to parse CEE response');
       return {
         ceeReview: null,
@@ -350,6 +410,18 @@ async function postDecisionReview(
       };
     }
 
+    // Record successful downstream call with response hash
+    const responseHash = computeOlumiHash(responsePayload);
+    recordDownstreamCall({
+      service: 'cee',
+      endpoint: '/assist/v1/decision-review',
+      status: res.status,
+      elapsedMs: durationMs,
+      payloadHash,
+      responseHash,
+      requestId,
+    });
+
     return {
       ceeReview: responsePayload ?? null,
       ceeTrace: {
@@ -363,6 +435,15 @@ async function postDecisionReview(
     };
   } catch (err: any) {
     const durationMs = Date.now() - started;
+    // Record timeout/network error downstream call
+    recordDownstreamCall({
+      service: 'cee',
+      endpoint: '/assist/v1/decision-review',
+      status: 0, // 0 indicates network/timeout error
+      elapsedMs: durationMs,
+      payloadHash,
+      requestId,
+    });
     logger?.warn(
       { evt: 'cee_decision_review_fetch_error', error: String(err?.message || err), duration_ms: durationMs },
       'CEE decision review fetch failed; falling back to fixture'
