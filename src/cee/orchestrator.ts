@@ -11,7 +11,13 @@ import type {
   CeeReviewBlock,
   CeeErrorNormalized,
 } from './types.js';
-import { sanitizeRequestId } from './client.js';
+import {
+  sanitizeRequestId,
+  draftGraphV2,
+  optionsV2,
+  biasCheckV2,
+  type CEESchemaV2Config,
+} from './client.js';
 import { shouldAllowCeeCall, recordCeeSuccess, recordCeeFailure } from './circuit-breaker.js';
 
 export type OrchestratorEnv = {
@@ -177,6 +183,129 @@ export async function runDecisionReviewViaSdk(
 }
 
 // =============================================================================
+// CEE Schema V2 Direct HTTP Path
+// =============================================================================
+// Uses direct HTTP calls with ?schema=v2 query parameter to get v2 format
+// which includes effect_direction, strength_std, and observed_state fields.
+// This bypasses the SDK which doesn't support schema parameters.
+
+/**
+ * Feature flag to enable CEE schema v2 mode
+ * Set CEE_SCHEMA_V2=1 to use direct HTTP calls with ?schema=v2
+ */
+function isCeeSchemaV2Enabled(): boolean {
+  return process.env.CEE_SCHEMA_V2 === '1' || process.env.CEE_SCHEMA_V2 === 'true';
+}
+
+/**
+ * Run decision review via direct HTTP with schema v2
+ *
+ * Uses ?schema=v2 query parameter to get v2 format response including:
+ * - effect_direction on edges
+ * - strength_std on edges
+ * - observed_state on nodes
+ *
+ * Falls back to SDK path if v2 calls fail.
+ */
+export async function runDecisionReviewViaV2Http(
+  env: OrchestratorEnv,
+  brief: string,
+  briefContext?: BriefContext,
+  callerRequestId?: string,
+): Promise<OrchestratorResult> {
+  const startTime = Date.now();
+
+  if (!env.baseUrl || !env.apiKey) {
+    return {
+      review: null,
+      trace: {
+        degraded: true,
+        timestamp: new Date().toISOString(),
+        cee_sent_request_id: callerRequestId ?? null,
+        cee_returned_request_id: null,
+        latency_ms: 0,
+      },
+      error: {
+        code: 'CEE_CONFIG_MISSING',
+        retryable: false,
+        suggestedAction: 'fix_input',
+      },
+    };
+  }
+
+  const v2Config: CEESchemaV2Config = {
+    baseUrl: env.baseUrl,
+    apiKey: env.apiKey,
+    timeoutMs: env.timeoutMs ?? 60_000,
+  };
+
+  const requestId = callerRequestId ?? `cee-v2-${Date.now()}`;
+
+  try {
+    // 1) Draft graph with v2 format
+    const draftBrief = buildCeeBrief(brief, briefContext);
+    const draftResult = await draftGraphV2(v2Config, draftBrief, requestId);
+    const draft = draftResult.data;
+
+    // Verify v2 format - log first edge for debugging
+    const firstEdge = draft?.graph?.edges?.[0];
+    if (firstEdge) {
+      console.log(`[CEE_V2_VERIFY] draft-graph edge: effect_direction=${firstEdge.effect_direction} strength_std=${firstEdge.strength_std}`);
+    }
+
+    // 2) Options with v2 format
+    const archetype = draft?.archetype ?? null;
+    const optionsResult = await optionsV2(v2Config, draft.graph, archetype, requestId);
+    const options = optionsResult.data;
+
+    // 3) Bias check with v2 format
+    const biasResult = await biasCheckV2(v2Config, draft.graph, archetype, requestId);
+    const bias = biasResult.data;
+
+    // Build review payload (SDK helper still works with v2 data)
+    const review = buildCeeDecisionReviewPayload({ draft, options, evidence: undefined, bias });
+
+    const latencyMs = Date.now() - startTime;
+    const ceeReturnedRequestId = draft?.trace?.request_id ?? draft?.trace?.requestId ?? null;
+    const model = draft?.model ?? draft?.meta?.model ?? undefined;
+    const idMismatch = callerRequestId !== ceeReturnedRequestId && ceeReturnedRequestId !== null;
+
+    return {
+      review,
+      trace: {
+        requestId: ceeReturnedRequestId ?? callerRequestId,
+        degraded: false,
+        timestamp: new Date().toISOString(),
+        cee_sent_request_id: callerRequestId ?? null,
+        cee_returned_request_id: ceeReturnedRequestId,
+        latency_ms: latencyMs,
+        model,
+        id_mismatch: idMismatch,
+      },
+    };
+  } catch (err: any) {
+    const latencyMs = Date.now() - startTime;
+    console.error('[CEE_V2] Failed, will degrade:', err?.message);
+
+    return {
+      review: null,
+      trace: {
+        degraded: true,
+        timestamp: new Date().toISOString(),
+        cee_sent_request_id: callerRequestId ?? null,
+        cee_returned_request_id: null,
+        latency_ms: latencyMs,
+      },
+      error: {
+        code: 'CEE_V2_ERROR',
+        retryable: true,
+        suggestedAction: 'retry',
+      },
+    };
+  }
+}
+
+// =============================================================================
 // M1 CEE Orchestrator - Unified review() Integration (SDK v1.12.0+)
 // =============================================================================
 
@@ -311,8 +440,48 @@ export async function orchestrateCeeReview(
       // ceeReturnedId = response.trace?.request_id ?? null;
       // model = response.trace?.model;
       // sdkLatencyMs = response.trace?.latency_ms;
+    } else if (isCeeSchemaV2Enabled()) {
+      // V2 Path: Use direct HTTP with ?schema=v2 for v2 format responses
+      // This path returns effect_direction, strength_std, observed_state fields
+      console.log('[CEE_ORCHESTRATOR] Using schema v2 HTTP path');
+      const brief = 'Decision review for inference results';
+      const briefContext = {
+        nodes: request.graph_snapshot.nodes?.length ?? 0,
+        edges: request.graph_snapshot.edges?.length ?? 0,
+      };
+      const result = await runDecisionReviewViaV2Http(
+        env,
+        brief,
+        briefContext,
+        sanitisedId,
+      );
+
+      if (result.error) {
+        throw new Error(result.error.code ?? 'CEE_V2_ERROR');
+      }
+
+      // Convert compose result to M1 response shape
+      ceeReview = result.review ? {
+        intent: request.intent,
+        analysis_state: 'ran',
+        readiness: {
+          level: 'ready',
+          headline: 'Analysis complete (v2)',
+          factors: [],
+        },
+        blocks: [],
+        trace: {
+          request_id: result.trace?.cee_returned_request_id ?? undefined,
+          latency_ms: result.trace?.latency_ms ?? undefined,
+          model: result.trace?.model,
+        },
+      } : null;
+
+      ceeReturnedId = result.trace?.cee_returned_request_id ?? null;
+      model = result.trace?.model;
+      sdkLatencyMs = result.trace?.latency_ms ?? undefined;
     } else {
-      // Fallback: Use compose pattern (SDK v1.11.x)
+      // Fallback: Use compose pattern via SDK (SDK v1.11.x)
       const brief = 'Decision review for inference results';
       // Derive counts from arrays for compose pattern (expects {nodes: number, edges: number})
       const briefContext = {

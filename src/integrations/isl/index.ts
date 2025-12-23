@@ -31,22 +31,30 @@ import {
   adaptCounterfactualResponse,
   createFallbackCounterfactual,
 } from './adapters/counterfactual.js';
+import {
+  adaptFactorSensitivityResponse,
+  createFallbackFactorSensitivity,
+} from './adapters/factor-sensitivity.js';
 // P1.1: ISL metrics
 import {
   recordIslValidation,
   recordIslSensitivity,
+  recordIslFactorSensitivity,
   observeIslLatency,
 } from '../../metrics/registry.js';
 import type {
   ISLValidationResponse,
   ISLSensitivityResponse,
   ISLCounterfactualResponse,
+  ISLFactorSensitivityResponse,
+  ISLParameterUncertainty,
   ISLDAGStructure,
 } from './types/isl-types.js';
 import type {
   PLoTValidationResult,
   PLoTSensitivityResult,
   PLoTCounterfactualResult,
+  PLoTFactorSensitivityResult,
 } from './types/plot-types.js';
 import type { Graph } from '../../trust/types.js';
 
@@ -96,6 +104,26 @@ export interface ISLService {
     target: string,
     requestId: string
   ): Promise<PLoTCounterfactualResult>;
+  /**
+   * Analyse factor sensitivity via /api/v1/robustness/analyze/v2
+   *
+   * Returns sensitivity scores for factor nodes showing how outcome
+   * is affected by changes in factor values.
+   *
+   * @param graph - Graph with factor nodes containing observed_state
+   * @param parameterUncertainties - Uncertainty specs for factors
+   * @param goalNodeId - Target goal node ID
+   * @param options - Option nodes for analysis
+   * @param requestId - Request ID for tracing
+   * @returns Factor sensitivity result
+   */
+  analyseFactorSensitivity(
+    graph: Graph,
+    parameterUncertainties: ISLParameterUncertainty[],
+    goalNodeId: string,
+    options: Array<{ id: string; label?: string; interventions?: Record<string, number> }>,
+    requestId: string
+  ): Promise<PLoTFactorSensitivityResult>;
   /**
    * Generic analysis endpoint call for /api/v1/analysis/* routes
    *
@@ -252,6 +280,76 @@ export function createISLService(): ISLService {
       }
     },
 
+    async analyseFactorSensitivity(
+      graph: Graph,
+      parameterUncertainties: ISLParameterUncertainty[],
+      goalNodeId: string,
+      options: Array<{ id: string; label?: string; interventions?: Record<string, number> }>,
+      requestId: string
+    ): Promise<PLoTFactorSensitivityResult> {
+      if (!this.isEnabled()) {
+        recordIslFactorSensitivity('fallback', 'ok');
+        return createFallbackFactorSensitivity('ISL not enabled');
+      }
+
+      // Skip if no parameter uncertainties provided
+      if (!parameterUncertainties || parameterUncertainties.length === 0) {
+        recordIslFactorSensitivity('fallback', 'ok');
+        return createFallbackFactorSensitivity('No parameter uncertainties provided');
+      }
+
+      const startMs = Date.now();
+      try {
+        // Build ISL request payload
+        const requestPayload = {
+          request_id: requestId,
+          graph: {
+            nodes: graph.nodes.map((n) => ({
+              id: n.id,
+              kind: n.kind,
+              label: n.label,
+              observed_state: n.observed_state,
+            })),
+            edges: graph.edges.map((e) => ({
+              from: e.from,
+              to: e.to,
+              weight: e.weight,
+              belief_exists: e.belief_exists ?? e.belief,
+              belief_strength: e.belief_strength,
+            })),
+          },
+          options: options.map((o) => ({
+            id: o.id,
+            label: o.label,
+            interventions: o.interventions,
+          })),
+          goal_node_id: goalNodeId,
+          analysis_types: ['sensitivity', 'robustness'] as const,
+          parameter_uncertainties: parameterUncertainties,
+        };
+
+        const response = await client.request<ISLFactorSensitivityResponse>({
+          endpoint: '/api/v1/robustness/analyze/v2',
+          body: requestPayload,
+          requestId,
+        });
+
+        const durationMs = Date.now() - startMs;
+        recordIslFactorSensitivity('isl', 'ok');
+        observeIslLatency('factor_sensitivity', 'ok', durationMs);
+
+        return adaptFactorSensitivityResponse(response, durationMs);
+      } catch (error) {
+        const durationMs = Date.now() - startMs;
+        const result = error instanceof ISLTimeoutError ? 'timeout' : 'error';
+        recordIslFactorSensitivity('isl', result);
+        observeIslLatency('factor_sensitivity', 'error', durationMs);
+
+        logError('isl_factor_sensitivity_failed', error, requestId);
+        return createFallbackFactorSensitivity((error as Error).message);
+      }
+    },
+
     async callAnalysisEndpoint<T>(
       endpoint: string,
       body: unknown,
@@ -373,9 +471,14 @@ export type {
   PLoTValidationResult,
   PLoTSensitivityResult,
   PLoTCounterfactualResult,
+  PLoTFactorSensitivityResult,
+  FactorSensitivityEntry,
+  VOIEntry,
   ISLValidationResponse,
   ISLSensitivityResponse,
   ISLCounterfactualResponse,
+  ISLFactorSensitivityResponse,
+  ISLParameterUncertainty,
 } from './types/index.js';
 
 // Note: ISLAnalysisResult is already exported via interface definition above

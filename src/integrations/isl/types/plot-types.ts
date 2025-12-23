@@ -88,3 +88,45 @@ export interface DecisionReadiness {
   warnings: string[];
   passed: string[];
 }
+
+/**
+ * Individual factor sensitivity entry
+ */
+export interface FactorSensitivityEntry {
+  /** Factor node ID */
+  factor_id: string;
+  /** Sensitivity score (elasticity) */
+  sensitivity_score: number;
+  /** Direction of impact on outcome */
+  direction: 'positive' | 'negative' | 'mixed';
+}
+
+/**
+ * Individual value of information entry
+ */
+export interface VOIEntry {
+  /** Factor node ID */
+  factor_id: string;
+  /** Value of information score */
+  voi: number;
+  /** Optional interpretation */
+  interpretation?: string;
+}
+
+/**
+ * PLoT factor sensitivity result (transformed from ISL /robustness/analyze/v2)
+ */
+export interface PLoTFactorSensitivityResult {
+  /** Factor-level sensitivity scores */
+  factors: FactorSensitivityEntry[];
+  /** Value of information for each factor */
+  value_of_information: VOIEntry[];
+  /** Overall robustness assessment from factor analysis */
+  robustness_label: 'robust' | 'moderate' | 'fragile';
+  /** Robustness score (0-1) */
+  robustness_score: number;
+  /** ISL latency in milliseconds */
+  latency_ms: number;
+  /** Source of the result */
+  source: 'isl' | 'unavailable';
+}

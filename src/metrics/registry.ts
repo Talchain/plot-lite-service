@@ -211,6 +211,7 @@ let ceeDegradedCounter: CounterMetric | null = null;
 // P1.1: ISL integration metrics
 let islValidationCounter: CounterMetric | null = null;
 let islSensitivityCounter: CounterMetric | null = null;
+let islFactorSensitivityCounter: CounterMetric | null = null;
 let islLatencyHistogram: HistogramMetric | null = null;
 
 // Meta-reasoning quality metrics
@@ -218,6 +219,9 @@ let metaQualityHistogram: HistogramMetric | null = null;
 let metaConfidenceCounter: CounterMetric | null = null;
 let metaStabilityCounter: CounterMetric | null = null;
 let metaConvergenceCounter: CounterMetric | null = null;
+
+// P1: Observability header validation metrics
+let payloadHashInvalidCounter: CounterMetric | null = null;
 
 export function initializeHistograms(): void {
   if (process.env.PROMETHEUS_ENABLE !== '1') {
@@ -299,6 +303,12 @@ export function initializeHistograms(): void {
     ['backend', 'result'] // backend: isl|fallback, result: ok|error|timeout
   );
 
+  islFactorSensitivityCounter = new CounterMetric(
+    'plot_engine_isl_factor_sensitivity_total',
+    'Total number of ISL factor sensitivity calls',
+    ['backend', 'result'] // backend: isl|fallback, result: ok|error|timeout
+  );
+
   islLatencyHistogram = new HistogramMetric(
     'plot_engine_isl_latency_seconds',
     'ISL request latency in seconds',
@@ -328,6 +338,13 @@ export function initializeHistograms(): void {
     'plot_engine_meta_convergence_total',
     'Count of inference results by convergence status',
     ['engine', 'status'] // status: converged|marginal|not_converged
+  );
+
+  // P1: Observability header validation metrics
+  payloadHashInvalidCounter = new CounterMetric(
+    'plot_engine_payload_hash_invalid_total',
+    'Total number of requests with malformed x-olumi-payload-hash header',
+    [] // No labels - just count occurrences
   );
 }
 
@@ -413,7 +430,11 @@ export function recordIslSensitivity(backend: 'isl' | 'fallback', result: 'ok' |
   islSensitivityCounter?.inc({ backend, result });
 }
 
-export function observeIslLatency(operation: 'validation' | 'sensitivity', result: 'ok' | 'error', durationMs: number): void {
+export function recordIslFactorSensitivity(backend: 'isl' | 'fallback', result: 'ok' | 'error' | 'timeout'): void {
+  islFactorSensitivityCounter?.inc({ backend, result });
+}
+
+export function observeIslLatency(operation: 'validation' | 'sensitivity' | 'factor_sensitivity', result: 'ok' | 'error', durationMs: number): void {
   islLatencyHistogram?.observe({ operation, result }, durationMs / 1000);
 }
 
@@ -432,6 +453,11 @@ export function recordMetaStability(engine: string, stability: 'stable' | 'moder
 
 export function recordMetaConvergence(engine: string, status: 'converged' | 'marginal' | 'not_converged'): void {
   metaConvergenceCounter?.inc({ engine, status });
+}
+
+// P1: Record malformed payload hash header
+export function recordPayloadHashInvalid(): void {
+  payloadHashInvalidCounter?.inc();
 }
 
 /**
@@ -502,6 +528,10 @@ export function renderHistograms(): string {
     lines.push(islSensitivityCounter.render());
   }
 
+  if (islFactorSensitivityCounter) {
+    lines.push(islFactorSensitivityCounter.render());
+  }
+
   if (islLatencyHistogram) {
     lines.push(islLatencyHistogram.render());
   }
@@ -523,6 +553,11 @@ export function renderHistograms(): string {
     lines.push(metaConvergenceCounter.render());
   }
 
+  // P1: Observability header validation metrics
+  if (payloadHashInvalidCounter) {
+    lines.push(payloadHashInvalidCounter.render());
+  }
+
   return lines.join('\n');
 }
 
@@ -540,10 +575,13 @@ export function resetHistograms(): void {
   // P1.1: Reset ISL metrics
   islValidationCounter?.reset();
   islSensitivityCounter?.reset();
+  islFactorSensitivityCounter?.reset();
   islLatencyHistogram?.reset();
   // Meta-reasoning quality metrics
   metaQualityHistogram?.reset();
   metaConfidenceCounter?.reset();
   metaStabilityCounter?.reset();
   metaConvergenceCounter?.reset();
+  // P1: Observability header validation metrics
+  payloadHashInvalidCounter?.reset();
 }

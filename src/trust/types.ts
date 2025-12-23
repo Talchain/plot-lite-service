@@ -76,6 +76,32 @@ export interface CausalValidationEnrichment {
 }
 
 /**
+ * Factor sensitivity entry for enrichment
+ * Measures sensitivity of outcome to factor node value changes
+ */
+export interface FactorSensitivityEnrichment {
+  /** Factor node ID */
+  factor_id: string;
+  /** Sensitivity/elasticity score */
+  sensitivity_score: number;
+  /** Direction of impact on outcome */
+  direction: 'positive' | 'negative' | 'mixed';
+}
+
+/**
+ * Value of information entry for enrichment
+ * Measures potential value of reducing uncertainty in a factor
+ */
+export interface VOIEnrichment {
+  /** Factor node ID */
+  factor_id: string;
+  /** Value of information score */
+  voi: number;
+  /** Optional interpretation text */
+  interpretation?: string;
+}
+
+/**
  * Sensitivity analysis result from ISL
  * Answers: "How robust is the estimate to edge uncertainty?"
  */
@@ -96,6 +122,10 @@ export interface SensitivityAnalysisEnrichment {
     /** Impact direction on outcome */
     impact_direction?: 'positive' | 'negative';
   }>;
+  /** Factor-level sensitivity (from /robustness/analyze/v2) */
+  factors?: FactorSensitivityEnrichment[];
+  /** Value of information for factors */
+  value_of_information?: VOIEnrichment[];
   /** Node IDs that are top drivers of outcome variance */
   top_drivers?: string[];
   /** Edge IDs that, if changed, would significantly alter results */
@@ -118,6 +148,12 @@ export interface EnrichmentMetadata {
   isl_degraded?: boolean;
   /** ISL endpoints that were called */
   endpoints_called?: string[];
+  /** Factor sensitivity availability status */
+  factor_sensitivity_status?: 'available' | 'unavailable' | 'skipped';
+  /** Number of factor sensitivity entries returned */
+  factor_sensitivity_count?: number;
+  /** Factor sensitivity ISL call latency in milliseconds */
+  isl_factor_latency_ms?: number;
 }
 
 /**

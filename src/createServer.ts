@@ -16,6 +16,7 @@ import type {} from './types/fastify.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { computeOlumiHash } from './util/canonical.js';
 import { initDownstreamTracking, clearDownstreamTracking, formatDownstreamHeader, getDownstreamCallsForLog } from './util/downstream-tracker.js';
+import { recordPayloadHashInvalid } from './metrics/registry.js';
 import {
   noteLastRequestAt,
   recordDurationMs,
@@ -413,6 +414,8 @@ export async function createServer(opts: ServerOpts = {}) {
             request_id: req.id,
             received: trimmed.slice(0, 20), // Truncate for safety
           }, 'Invalid x-olumi-payload-hash format (expected 12 hex chars)');
+          // P1: Emit metric for invalid payload hash (helps detect abuse or SDK bugs)
+          recordPayloadHashInvalid();
         } catch { /* ignore */ }
       }
     }

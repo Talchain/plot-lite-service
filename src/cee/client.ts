@@ -120,6 +120,163 @@ async function fetchWithTimeout(url: string, opts: FetchOptions): Promise<Respon
   }
 }
 
+// =============================================================================
+// CEE Schema V2 HTTP Client
+// =============================================================================
+// Direct HTTP calls with ?schema=v2 query parameter for endpoints that need
+// v2 format (effect_direction, strength_std, observed_state fields).
+// Bypasses SDK which doesn't support schema parameter.
+
+export interface CEESchemaV2Config {
+  baseUrl: string;
+  apiKey: string;
+  timeoutMs?: number;
+}
+
+export interface CEESchemaV2Response<T> {
+  data: T;
+  schema_version?: string;
+  latency_ms: number;
+}
+
+/**
+ * Call CEE endpoint with ?schema=v2 query parameter
+ *
+ * This bypasses the SDK to request v2 format which includes:
+ * - effect_direction on edges (for signed weights)
+ * - strength_std on edges (for parametric uncertainty)
+ * - observed_state on nodes (for factor values)
+ *
+ * @param config - CEE connection config
+ * @param path - Endpoint path (e.g., '/assist/v1/draft-graph')
+ * @param payload - Request body
+ * @param requestId - Request ID for tracing
+ * @returns Response with v2 format data
+ */
+export async function callCEEWithSchemaV2<T>(
+  config: CEESchemaV2Config,
+  path: string,
+  payload: unknown,
+  requestId: string
+): Promise<CEESchemaV2Response<T>> {
+  const baseUrl = config.baseUrl.replace(/\/$/, '');
+  const url = `${baseUrl}${path}?schema=v2`;
+  const timeoutMs = config.timeoutMs ?? 30000;
+  const startMs = Date.now();
+
+  try {
+    const response = await fetchWithTimeout(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-Olumi-Assist-Key': config.apiKey,
+        'X-Request-Id': requestId,
+      },
+      body: JSON.stringify(payload),
+      timeoutMs,
+    });
+
+    const latencyMs = Date.now() - startMs;
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => 'Unknown error');
+      throw new Error(`CEE ${path} failed: HTTP ${response.status} - ${errorText}`);
+    }
+
+    // Capture X-CEE-API-Version header
+    const ceeApiVersion = response.headers.get('X-CEE-API-Version');
+
+    const data = await response.json() as T & { schema_version?: string; graph?: { edges?: Array<{ effect_direction?: string; strength_std?: number }> } };
+    const schemaVersion = (data as any)?.schema_version;
+
+    // V2 verification logging per acceptance criteria
+    const edges = (data as any)?.graph?.edges ?? [];
+    const edgeCount = edges.length;
+    const hasEffectDirection = edgeCount > 0 && edges.every((e: any) => e.effect_direction !== undefined);
+    const hasStrengthStd = edgeCount > 0 && edges.every((e: any) => typeof e.strength_std === 'number' && e.strength_std > 0);
+
+    console.log('[CEE_V2_RESPONSE]', JSON.stringify({
+      path,
+      cee_api_version: ceeApiVersion,
+      schema_version: schemaVersion,
+      edge_count: edgeCount,
+      has_effect_direction: hasEffectDirection,
+      has_strength_std: hasStrengthStd,
+      latency_ms: latencyMs,
+    }));
+
+    // Warn if v2 format fields are missing
+    if (!schemaVersion) {
+      console.warn(`[CEE_V2] ${path} missing schema_version in response - may not be v2 format`);
+    }
+    if (edgeCount > 0 && !hasEffectDirection) {
+      console.warn(`[CEE_V2] ${path} edges missing effect_direction - v2 format may not be enabled`);
+    }
+
+    return {
+      data,
+      schema_version: schemaVersion,
+      latency_ms: latencyMs,
+    };
+  } catch (error) {
+    const latencyMs = Date.now() - startMs;
+    console.error(`[CEE_V2] ${path} failed after ${latencyMs}ms:`, error instanceof Error ? error.message : error);
+    throw error;
+  }
+}
+
+/**
+ * Draft graph with schema v2 format
+ * Returns graph with effect_direction, strength_std on edges
+ */
+export async function draftGraphV2(
+  config: CEESchemaV2Config,
+  brief: string,
+  requestId: string
+): Promise<CEESchemaV2Response<any>> {
+  return callCEEWithSchemaV2(
+    config,
+    '/assist/v1/draft-graph',
+    { brief, config: { streaming: false } },
+    requestId
+  );
+}
+
+/**
+ * Get options with schema v2 format
+ */
+export async function optionsV2(
+  config: CEESchemaV2Config,
+  graph: unknown,
+  archetype: string | null,
+  requestId: string
+): Promise<CEESchemaV2Response<any>> {
+  return callCEEWithSchemaV2(
+    config,
+    '/assist/v1/options',
+    { graph, archetype },
+    requestId
+  );
+}
+
+/**
+ * Bias check with schema v2 format
+ */
+export async function biasCheckV2(
+  config: CEESchemaV2Config,
+  graph: unknown,
+  archetype: string | null,
+  requestId: string
+): Promise<CEESchemaV2Response<any>> {
+  return callCEEWithSchemaV2(
+    config,
+    '/assist/v1/bias-check',
+    { graph, archetype },
+    requestId
+  );
+}
+
 async function probeHealth(baseUrl: string, timeoutMs: number, logger?: FastifyBaseLogger): Promise<boolean> {
   const url = `${baseUrl.replace(/\/$/, '')}/healthz`;
   const started = Date.now();

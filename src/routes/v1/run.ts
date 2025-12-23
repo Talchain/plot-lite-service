@@ -19,6 +19,8 @@ import type {
   RunResponseEnrichment,
   CausalValidationEnrichment,
   SensitivityAnalysisEnrichment,
+  FactorSensitivityEnrichment,
+  VOIEnrichment,
 } from '../../trust/types.js';
 import { DETAIL_LEVEL_CONFIG } from '../../trust/types.js';
 import { getInferenceEngine } from '../../inference/index.js';
@@ -29,7 +31,7 @@ import { generateInsights } from '../../trust/insights.js';
 import { analyseEvidence } from '../../trust/evidence-analysis.js';
 import { computeFullSensitivity } from '../../trust/sensitivity-full.js';
 import { calculateCalibratedConfidence, compareConfidence } from '../../trust/confidence-calibrated.js';
-import { getISLService, type PLoTValidationResult, type PLoTSensitivityResult } from '../../integrations/isl/index.js';
+import { getISLService, type PLoTValidationResult, type PLoTSensitivityResult, type PLoTFactorSensitivityResult, type ISLParameterUncertainty } from '../../integrations/isl/index.js';
 import { recordEngineComputeMs } from '../../metrics.js';
 import {
   recordCeeAttempted,
@@ -140,6 +142,41 @@ function transformSensitivityToEnrichment(
 }
 
 /**
+ * Extract parameter uncertainties from graph factor nodes
+ * Used for ISL /robustness/analyze/v2 factor sensitivity call
+ */
+function extractParameterUncertainties(graph: { nodes: any[]; edges: any[] }): ISLParameterUncertainty[] {
+  return graph.nodes
+    .filter((n: any) => n.kind === 'factor' && n.observed_state?.value !== undefined)
+    .map((n: any) => ({
+      node_id: n.id,
+      distribution: 'normal' as const,
+      mean: n.observed_state.value,
+      // Default uncertainty: ±20% of value, minimum 0.1
+      std: Math.max(Math.abs(n.observed_state.value) * 0.2, 0.1),
+    }));
+}
+
+/**
+ * Check if graph has factor nodes with observed_state values
+ */
+function hasParameterUncertainties(graph: { nodes: any[]; edges: any[] }): boolean {
+  return graph.nodes.some((n: any) => n.kind === 'factor' && n.observed_state?.value !== undefined);
+}
+
+/**
+ * Extract option nodes from graph
+ */
+function extractOptionNodes(graph: { nodes: any[]; edges: any[] }): Array<{ id: string; label?: string }> {
+  return graph.nodes
+    .filter((n: any) => n.kind === 'option')
+    .map((n: any) => ({
+      id: n.id,
+      label: n.label,
+    }));
+}
+
+/**
  * Build enrichment object from ISL results
  */
 function buildEnrichment(
@@ -147,6 +184,7 @@ function buildEnrichment(
   detail_level: DetailLevel,
   isl_validation: PLoTValidationResult | undefined,
   isl_sensitivity: PLoTSensitivityResult | undefined,
+  isl_factor_sensitivity: PLoTFactorSensitivityResult | undefined,
   isl_latency_ms: number | undefined,
   graph: { nodes: any[]; edges: any[] }
 ): RunResponseEnrichment | undefined {
@@ -163,16 +201,50 @@ function buildEnrichment(
   const endpoints_called: string[] = [];
   if (isl_validation?.source === 'isl') endpoints_called.push('causal/validate');
   if (isl_sensitivity?.source === 'isl') endpoints_called.push('causal/sensitivity/detailed');
+  if (isl_factor_sensitivity?.source === 'isl') endpoints_called.push('robustness/analyze/v2');
+
+  // Build base sensitivity analysis enrichment
+  const sensitivity_analysis = transformSensitivityToEnrichment(isl_sensitivity, graph);
+
+  // Add factor sensitivity to sensitivity_analysis if available
+  if (sensitivity_analysis && isl_factor_sensitivity?.source === 'isl' && isl_factor_sensitivity.factors.length > 0) {
+    sensitivity_analysis.factors = isl_factor_sensitivity.factors.map((f) => ({
+      factor_id: f.factor_id,
+      sensitivity_score: f.sensitivity_score,
+      direction: f.direction,
+    }));
+    sensitivity_analysis.value_of_information = isl_factor_sensitivity.value_of_information.map((v) => ({
+      factor_id: v.factor_id,
+      voi: v.voi,
+    }));
+  }
+
+  // Determine factor sensitivity status
+  let factor_sensitivity_status: 'available' | 'unavailable' | 'skipped' | undefined;
+  let factor_sensitivity_count: number | undefined;
+  if (detail_level === 'deep') {
+    if (isl_factor_sensitivity?.source === 'isl') {
+      factor_sensitivity_status = 'available';
+      factor_sensitivity_count = isl_factor_sensitivity.factors.length;
+    } else if (isl_factor_sensitivity?.source === 'unavailable') {
+      factor_sensitivity_status = 'unavailable';
+    } else if (!hasParameterUncertainties(graph)) {
+      factor_sensitivity_status = 'skipped';
+    }
+  }
 
   return {
     causal_validation: transformValidationToEnrichment(isl_validation),
-    sensitivity_analysis: transformSensitivityToEnrichment(isl_sensitivity, graph),
+    sensitivity_analysis,
     metadata: {
       isl_enabled,
       detail_level,
       isl_latency_ms,
       isl_degraded: isl_degraded || undefined,
       endpoints_called: endpoints_called.length > 0 ? endpoints_called : undefined,
+      factor_sensitivity_status,
+      factor_sensitivity_count,
+      isl_factor_latency_ms: isl_factor_sensitivity?.latency_ms,
     },
   };
 }
@@ -821,17 +893,32 @@ export async function registerRunRoute(app: FastifyInstance) {
     // ISL calls are non-blocking and use graceful fallback on failure
     let isl_validation: PLoTValidationResult | undefined;
     let isl_sensitivity: PLoTSensitivityResult | undefined;
+    let isl_factor_sensitivity: PLoTFactorSensitivityResult | undefined;
     const islService = getISLService();
     let isl_latency_ms: number | undefined;
 
     if (islService.isEnabled() && detail_level !== 'quick') {
       const islStartTime = Date.now();
       try {
+        // Extract parameter uncertainties for factor sensitivity analysis
+        const parameterUncertainties = extractParameterUncertainties(graph);
+        const optionNodes = extractOptionNodes(graph);
+
         // Run ISL calls in parallel for efficiency
-        const [validationResult, sensitivityResult] = await Promise.allSettled([
+        // Note: sensitivity runs for all non-quick levels (standard + deep) since UI depends on robustness data
+        const [validationResult, sensitivityResult, factorSensitivityResult] = await Promise.allSettled([
           islService.validateCausal(graph, treatment_node, outcome_node, String(req.id)),
-          detail_level === 'deep'
-            ? islService.analyseSensitivity(graph, treatment_node, outcome_node, String(req.id))
+          // Sensitivity analysis: run for both standard and deep (all non-quick levels)
+          islService.analyseSensitivity(graph, treatment_node, outcome_node, String(req.id)),
+          // Factor sensitivity: only call for deep mode when we have factor nodes with values
+          detail_level === 'deep' && parameterUncertainties.length > 0
+            ? islService.analyseFactorSensitivity(
+                graph,
+                parameterUncertainties,
+                outcome_node,
+                optionNodes,
+                String(req.id)
+              )
             : Promise.resolve(undefined),
         ]);
 
@@ -841,6 +928,10 @@ export async function registerRunRoute(app: FastifyInstance) {
 
         if (sensitivityResult.status === 'fulfilled' && sensitivityResult.value) {
           isl_sensitivity = sensitivityResult.value;
+        }
+
+        if (factorSensitivityResult.status === 'fulfilled' && factorSensitivityResult.value) {
+          isl_factor_sensitivity = factorSensitivityResult.value;
         }
       } catch (err) {
         // Log but don't fail the request - ISL errors are non-fatal
@@ -1043,8 +1134,9 @@ export async function registerRunRoute(app: FastifyInstance) {
       ...(option_probabilities && { option_probabilities }),
       ...(isl_validation && { isl_validation }),
       ...(isl_sensitivity && { isl_sensitivity }),
+      ...(isl_factor_sensitivity && { isl_factor_sensitivity }),
       // Phase 1A: Structured enrichment object for UI consumers
-      enrichment: buildEnrichment(islService, detail_level, isl_validation, isl_sensitivity, isl_latency_ms, graph),
+      enrichment: buildEnrichment(islService, detail_level, isl_validation, isl_sensitivity, isl_factor_sensitivity, isl_latency_ms, graph),
       meta: {
         seed,
         commit: process.env.BUILD_ID || process.env.GITHUB_SHA || 'dev',
