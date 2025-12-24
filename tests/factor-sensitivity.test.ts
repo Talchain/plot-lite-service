@@ -172,7 +172,8 @@ describe('POST /v1/run factor sensitivity enrichment', () => {
     expect(res.data.enrichment.metadata.detail_level).toBe('deep');
 
     // Factor sensitivity should be skipped because no factor nodes with values
-    expect(res.data.enrichment.metadata.factor_sensitivity_status).toBe('skipped');
+    // Note: Using new granular status 'skipped_no_factor_values' instead of legacy 'skipped'
+    expect(res.data.enrichment.metadata.factor_sensitivity_status).toBe('skipped_no_factor_values');
   });
 
   /**

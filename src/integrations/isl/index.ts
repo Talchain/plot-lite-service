@@ -35,11 +35,21 @@ import {
   adaptFactorSensitivityResponse,
   createFallbackFactorSensitivity,
 } from './adapters/factor-sensitivity.js';
+import {
+  adaptRobustnessAnalysisResponse,
+  createFallbackRobustnessAnalysis,
+} from './adapters/robustness-analysis.js';
+import {
+  validateBeforeISL,
+  buildParameterUncertainties,
+  logPreflightResult,
+} from './preflight.js';
 // P1.1: ISL metrics
 import {
   recordIslValidation,
   recordIslSensitivity,
   recordIslFactorSensitivity,
+  recordIslRobustnessAnalysis,
   observeIslLatency,
 } from '../../metrics/registry.js';
 import type {
@@ -47,6 +57,7 @@ import type {
   ISLSensitivityResponse,
   ISLCounterfactualResponse,
   ISLFactorSensitivityResponse,
+  ISLRobustnessAnalyzeV2Response,
   ISLParameterUncertainty,
   ISLDAGStructure,
 } from './types/isl-types.js';
@@ -55,6 +66,8 @@ import type {
   PLoTSensitivityResult,
   PLoTCounterfactualResult,
   PLoTFactorSensitivityResult,
+  PLoTRobustnessAnalysisResult,
+  ISLPreflightResult,
 } from './types/plot-types.js';
 import type { Graph } from '../../trust/types.js';
 
@@ -116,6 +129,7 @@ export interface ISLService {
    * @param options - Option nodes for analysis
    * @param requestId - Request ID for tracing
    * @returns Factor sensitivity result
+   * @deprecated Use analyseRobustness for combined edge + factor sensitivity
    */
   analyseFactorSensitivity(
     graph: Graph,
@@ -124,6 +138,29 @@ export interface ISLService {
     options: Array<{ id: string; label?: string; interventions?: Record<string, number> }>,
     requestId: string
   ): Promise<PLoTFactorSensitivityResult>;
+  /**
+   * Analyse robustness via /api/v1/robustness/analyze/v2
+   *
+   * Returns BOTH edge and factor sensitivity in a single call.
+   * Uses pre-flight validation to determine what analyses are possible.
+   *
+   * analysis_types: ['comparison', 'sensitivity', 'robustness']
+   * - 'sensitivity' returns edge sensitivity (existence + magnitude)
+   * - 'robustness' returns overall robustness assessment
+   * - 'comparison' returns option comparison results
+   *
+   * @param graph - Graph with edges and factor nodes
+   * @param goalNodeId - Target goal node ID
+   * @param options - Option nodes for analysis
+   * @param requestId - Request ID for tracing
+   * @returns Combined robustness analysis result
+   */
+  analyseRobustness(
+    graph: Graph,
+    goalNodeId: string,
+    options: Array<{ id: string; label?: string; interventions?: Record<string, number> }>,
+    requestId: string
+  ): Promise<PLoTRobustnessAnalysisResult>;
   /**
    * Generic analysis endpoint call for /api/v1/analysis/* routes
    *
@@ -350,6 +387,188 @@ export function createISLService(): ISLService {
       }
     },
 
+    async analyseRobustness(
+      graph: Graph,
+      goalNodeId: string,
+      options: Array<{ id: string; label?: string; interventions?: Record<string, number> }>,
+      requestId: string
+    ): Promise<PLoTRobustnessAnalysisResult> {
+      // Run pre-flight validation
+      const parameterUncertainties = buildParameterUncertainties(graph);
+      const preflight = validateBeforeISL(graph, parameterUncertainties);
+
+      // Log pre-flight result for observability
+      logPreflightResult(preflight, requestId);
+
+      // If no analysis is possible, return fallback
+      if (!preflight.canCallISL) {
+        recordIslRobustnessAnalysis(
+          'fallback',
+          'ok',
+          preflight.edge_sensitivity_status,
+          preflight.factor_sensitivity_status
+        );
+        return createFallbackRobustnessAnalysis(
+          preflight.skipReasons.join('; '),
+          preflight.edge_sensitivity_status === 'available' ? 'failed' : preflight.edge_sensitivity_status,
+          preflight.factor_sensitivity_status === 'available' ? 'failed' : preflight.factor_sensitivity_status
+        );
+      }
+
+      if (!this.isEnabled()) {
+        recordIslRobustnessAnalysis(
+          'fallback',
+          'ok',
+          preflight.edge_sensitivity_status,
+          preflight.factor_sensitivity_status
+        );
+        return createFallbackRobustnessAnalysis(
+          'ISL not enabled',
+          preflight.edge_sensitivity_status === 'available' ? 'failed' : preflight.edge_sensitivity_status,
+          preflight.factor_sensitivity_status === 'available' ? 'failed' : preflight.factor_sensitivity_status
+        );
+      }
+
+      const startMs = Date.now();
+      try {
+        // === Diagnostic Log Point 2: Before ISL Call ===
+        const islRequestLog = {
+          level: 'info',
+          time: Date.now(),
+          event: 'isl_robustness_request',
+          request_id: requestId,
+          goal_node_id: goalNodeId,
+          options_count: options.length,
+          edges_total: graph.edges.length,
+          edges_with_uncertainty: graph.edges.filter(
+            (e) => (e.belief_exists ?? e.belief ?? 1) < 1 || e.strength_std !== undefined || e.belief_strength !== undefined
+          ).length,
+          parameter_uncertainties_count: parameterUncertainties.length,
+          preflight_edge_status: preflight.edge_sensitivity_status,
+          preflight_factor_status: preflight.factor_sensitivity_status,
+          analysis_types: ['comparison', 'sensitivity', 'robustness'],
+        };
+        console.log(JSON.stringify(islRequestLog));
+
+        // Build ISL request payload with all three analysis types
+        const requestPayload = {
+          request_id: requestId,
+          graph: {
+            nodes: graph.nodes.map((n) => ({
+              id: n.id,
+              kind: n.kind,
+              label: n.label,
+              observed_state: n.observed_state,
+            })),
+            edges: graph.edges.map((e) => ({
+              from: e.from,
+              to: e.to,
+              weight: e.weight,
+              // Map to ISL edge format
+              exists_probability: e.belief_exists ?? e.belief ?? 1.0,
+              strength: e.strength_std !== undefined
+                ? { mean: e.weight ?? 0, std: e.strength_std }
+                : e.belief_strength !== undefined
+                  ? { mean: e.weight ?? 0, std: (1 - e.belief_strength) * 0.5 }
+                  : undefined,
+            })),
+          },
+          options: options.map((o) => ({
+            id: o.id,
+            label: o.label,
+            interventions: o.interventions,
+          })),
+          goal_node_id: goalNodeId,
+          // Include all three analysis types
+          analysis_types: ['comparison', 'sensitivity', 'robustness'] as const,
+          // Include parameter uncertainties for factor sensitivity
+          parameter_uncertainties: parameterUncertainties.length > 0 ? parameterUncertainties : undefined,
+        };
+
+        const response = await client.request<ISLRobustnessAnalyzeV2Response>({
+          endpoint: '/api/v1/robustness/analyze/v2',
+          body: requestPayload,
+          requestId,
+        });
+
+        const durationMs = Date.now() - startMs;
+
+        // Determine actual status based on what ISL returned
+        const actualEdgeStatus: PLoTRobustnessAnalysisResult['edge_sensitivity_status'] =
+          response.sensitivity && response.sensitivity.length > 0
+            ? 'available'
+            : preflight.edge_sensitivity_status === 'available'
+              ? 'failed'
+              : preflight.edge_sensitivity_status;
+
+        const actualFactorStatus: PLoTRobustnessAnalysisResult['factor_sensitivity_status'] =
+          response.factor_sensitivity && response.factor_sensitivity.length > 0
+            ? 'available'
+            : preflight.factor_sensitivity_status === 'available'
+              ? 'failed'
+              : preflight.factor_sensitivity_status;
+
+        // Record metrics
+        recordIslRobustnessAnalysis('isl', 'ok', actualEdgeStatus, actualFactorStatus);
+        observeIslLatency('robustness_analysis', 'ok', durationMs);
+
+        // === Diagnostic Log Point 3a: ISL Response Success ===
+        const islResponseLog = {
+          level: 'info',
+          time: Date.now(),
+          event: 'isl_robustness_response',
+          request_id: requestId,
+          success: true,
+          latency_ms: durationMs,
+          edge_sensitivity_count: response.sensitivity?.length ?? 0,
+          factor_sensitivity_count: response.factor_sensitivity?.length ?? 0,
+          edge_status: actualEdgeStatus,
+          factor_status: actualFactorStatus,
+          robustness_label: response.robustness?.label ?? 'unknown',
+          robustness_score: response.robustness?.score,
+          option_comparison_count: response.results?.length ?? 0,
+          has_voi: response.factor_sensitivity?.some((f) => f.value_of_information > 0) ?? false,
+        };
+        console.log(JSON.stringify(islResponseLog));
+
+        return adaptRobustnessAnalysisResponse(response, durationMs, actualEdgeStatus, actualFactorStatus);
+      } catch (error) {
+        const durationMs = Date.now() - startMs;
+        const result = error instanceof ISLTimeoutError ? 'timeout' : 'error';
+
+        recordIslRobustnessAnalysis(
+          'isl',
+          result,
+          preflight.edge_sensitivity_status,
+          preflight.factor_sensitivity_status
+        );
+        observeIslLatency('robustness_analysis', 'error', durationMs);
+
+        // === Diagnostic Log Point 3b: ISL Response Error ===
+        const islErrorLog = {
+          level: 'error',
+          time: Date.now(),
+          event: 'isl_robustness_response',
+          request_id: requestId,
+          success: false,
+          latency_ms: durationMs,
+          error_type: result,
+          error_message: (error as Error).message,
+          preflight_edge_status: preflight.edge_sensitivity_status,
+          preflight_factor_status: preflight.factor_sensitivity_status,
+        };
+        console.log(JSON.stringify(islErrorLog));
+
+        logError('isl_robustness_analysis_failed', error, requestId);
+
+        return createFallbackRobustnessAnalysis(
+          (error as Error).message,
+          preflight.edge_sensitivity_status === 'available' ? 'failed' : preflight.edge_sensitivity_status,
+          preflight.factor_sensitivity_status === 'available' ? 'failed' : preflight.factor_sensitivity_status
+        );
+      }
+    },
+
     async callAnalysisEndpoint<T>(
       endpoint: string,
       body: unknown,
@@ -472,14 +691,21 @@ export type {
   PLoTSensitivityResult,
   PLoTCounterfactualResult,
   PLoTFactorSensitivityResult,
+  PLoTRobustnessAnalysisResult,
   FactorSensitivityEntry,
   VOIEntry,
+  EdgeSensitivityEntry,
+  ISLPreflightResult,
   ISLValidationResponse,
   ISLSensitivityResponse,
   ISLCounterfactualResponse,
   ISLFactorSensitivityResponse,
+  ISLRobustnessAnalyzeV2Response,
   ISLParameterUncertainty,
 } from './types/index.js';
+
+// Re-export preflight utilities
+export { validateBeforeISL, buildParameterUncertainties } from './preflight.js';
 
 // Note: ISLAnalysisResult is already exported via interface definition above
 

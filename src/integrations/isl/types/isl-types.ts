@@ -124,14 +124,18 @@ export interface ISLParameterUncertainty {
 }
 
 /**
- * ISL factor sensitivity request for /api/v1/robustness/analyze/v2
+ * ISL robustness analysis request for /api/v1/robustness/analyze/v2
+ *
+ * When analysis_types includes 'sensitivity', returns edge sensitivity data.
+ * When analysis_types includes 'comparison', returns option comparison results.
+ * When analysis_types includes 'robustness', returns overall robustness assessment.
  */
-export interface ISLFactorSensitivityRequest {
+export interface ISLRobustnessAnalyzeV2Request {
   request_id: string;
   graph: {
     nodes: Array<{
       id: string;
-      kind?: string;
+      kind?: 'decision' | 'option' | 'factor' | 'outcome' | 'goal';
       label?: string;
       observed_state?: {
         value?: number;
@@ -142,6 +146,14 @@ export interface ISLFactorSensitivityRequest {
     edges: Array<{
       from: string;
       to: string;
+      /** Probability that this edge exists (0-1) */
+      exists_probability?: number;
+      /** Edge strength with uncertainty */
+      strength?: {
+        mean: number;
+        std: number;
+      };
+      // Legacy fields for backwards compatibility
       weight?: number;
       belief_exists?: number;
       belief_strength?: number;
@@ -154,9 +166,14 @@ export interface ISLFactorSensitivityRequest {
   }>;
   goal_node_id: string;
   n_samples?: number;
-  analysis_types: Array<'sensitivity' | 'robustness'>;
-  parameter_uncertainties: ISLParameterUncertainty[];
+  /** Analysis types to run - 'sensitivity' returns edge sensitivity data */
+  analysis_types: Array<'comparison' | 'sensitivity' | 'robustness'>;
+  /** Optional parameter uncertainties for factor sensitivity */
+  parameter_uncertainties?: ISLParameterUncertainty[];
 }
+
+/** @deprecated Use ISLRobustnessAnalyzeV2Request instead */
+export type ISLFactorSensitivityRequest = ISLRobustnessAnalyzeV2Request;
 
 /**
  * Factor sensitivity item from ISL /api/v1/robustness/analyze/v2 response
@@ -173,8 +190,82 @@ export interface ISLFactorSensitivityItem {
 }
 
 /**
- * ISL factor sensitivity response from /api/v1/robustness/analyze/v2
+ * Edge sensitivity item from ISL /api/v1/robustness/analyze/v2 response
+ * Returned when analysis_types includes 'sensitivity'
  */
+export interface ISLEdgeSensitivityItem {
+  /** Source node ID */
+  edge_from: string;
+  /** Target node ID */
+  edge_to: string;
+  /** Type of sensitivity: whether edge exists vs magnitude of effect */
+  sensitivity_type: 'existence' | 'magnitude';
+  /** Elasticity score - how much outcome changes per unit change */
+  elasticity: number;
+  /** Rank by importance (1 = most important) */
+  importance_rank: number;
+  /** Human-readable interpretation - USE THIS for direction, not elasticity sign */
+  interpretation: string;
+}
+
+/**
+ * Option comparison result from ISL /api/v1/robustness/analyze/v2 response
+ * Returned when analysis_types includes 'comparison'
+ */
+export interface ISLOptionComparisonResult {
+  option_id: string;
+  expected_outcome: number;
+  confidence_interval: [number, number];
+}
+
+/**
+ * ISL robustness analysis response from /api/v1/robustness/analyze/v2
+ *
+ * Full response schema when all analysis_types are requested.
+ */
+export interface ISLRobustnessAnalyzeV2Response {
+  /** Request ID echo */
+  request_id?: string;
+
+  /** Edge sensitivity (when 'sensitivity' in analysis_types) */
+  sensitivity?: ISLEdgeSensitivityItem[];
+
+  /** Factor-level sensitivity scores */
+  factor_sensitivity?: ISLFactorSensitivityItem[];
+
+  /** Overall robustness assessment (when 'robustness' in analysis_types) */
+  robustness?: {
+    /** Robustness score (0-1) */
+    score: number;
+    /** Human-readable label */
+    label: 'robust' | 'moderate' | 'fragile';
+    /** Edges identified as fragile (sensitive to changes) */
+    fragile_edges?: string[];
+    /** Edges identified as robust */
+    robust_edges?: string[];
+    /** Explanation of robustness assessment */
+    explanation: string;
+  };
+
+  /** Option comparison results (when 'comparison' in analysis_types) */
+  results?: ISLOptionComparisonResult[];
+
+  /** Recommended option ID */
+  recommended_option_id?: string;
+
+  /** Confidence in the recommendation */
+  recommendation_confidence?: number;
+
+  /** Analysis metadata */
+  metadata?: {
+    /** Number of samples used */
+    n_samples?: number;
+    /** Analysis duration in milliseconds */
+    duration_ms?: number;
+  };
+}
+
+/** @deprecated Use ISLRobustnessAnalyzeV2Response instead */
 export interface ISLFactorSensitivityResponse {
   /** Factor-level sensitivity scores */
   factor_sensitivity: ISLFactorSensitivityItem[];

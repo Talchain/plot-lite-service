@@ -60,6 +60,45 @@ const fakeISLService = {
       source: 'isl',
     };
   },
+  async analyseRobustness(_graph: any, _goalNodeId: string, _options: any[], _requestId: string) {
+    if (process.env.TEST_ISL_MODE === 'error') {
+      throw new Error('simulated ISL robustness error');
+    }
+
+    return {
+      edges: [
+        {
+          edge_id: 'A::B',
+          from: 'A',
+          to: 'B',
+          elasticity: 0.9,
+          interpretation: 'Increasing this edge increases outcome',
+        },
+      ],
+      edges_provenance: 'isl:/api/v1/robustness/analyze/v2' as const,
+      edge_sensitivity_status: 'available' as const,
+      factors: [],
+      value_of_information: [],
+      factors_provenance: 'unavailable' as const,
+      factor_sensitivity_status: 'skipped_no_factor_values' as const,
+      overall_robustness: 'fragile' as const,
+      robustness_score: 0.3,
+      fragile_edges: ['A::B'],
+      robust_edges: [],
+      latency_ms: 100,
+      source: 'isl' as const,
+    };
+  },
+  async analyseFactorSensitivity(_graph: any, _parameterUncertainties: any[], _goalNodeId: string, _options: any[], _requestId: string) {
+    return {
+      factors: [],
+      value_of_information: [],
+      robustness_label: 'moderate' as const,
+      robustness_score: 0.5,
+      latency_ms: 0,
+      source: 'unavailable' as const,
+    };
+  },
   // Not used by /v1/run in these tests
   async computeCounterfactual(): Promise<never> {
     throw new Error('computeCounterfactual should not be called in ISL critique tests');

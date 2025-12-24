@@ -114,7 +114,88 @@ export interface VOIEntry {
 }
 
 /**
+ * Individual edge sensitivity entry
+ * From ISL /api/v1/robustness/analyze/v2 with 'sensitivity' in analysis_types
+ */
+export interface EdgeSensitivityEntry {
+  /** Edge ID in format "from::to" */
+  edge_id: string;
+  /** Source node ID */
+  from: string;
+  /** Target node ID */
+  to: string;
+  /** Elasticity score */
+  elasticity: number;
+  /** Type of sensitivity */
+  sensitivity_type?: 'existence' | 'magnitude';
+  /** Rank by importance (1 = most important) */
+  importance_rank?: number;
+  /** Human-readable interpretation - USE THIS for direction */
+  interpretation: string;
+}
+
+/**
+ * Pre-flight validation result for ISL calls
+ */
+export interface ISLPreflightResult {
+  /** Whether ISL can be called at all */
+  canCallISL: boolean;
+  /** Status of edge sensitivity analysis */
+  edge_sensitivity_status: 'available' | 'skipped_no_edges' | 'skipped_missing_uncertainty';
+  /** Status of factor sensitivity analysis */
+  factor_sensitivity_status: 'available' | 'skipped_no_factor_values' | 'skipped_no_parameter_uncertainties';
+  /** Reasons for skipping analyses */
+  skipReasons: string[];
+}
+
+/**
+ * PLoT robustness analysis result (transformed from ISL /robustness/analyze/v2)
+ *
+ * Contains both edge and factor sensitivity when available.
+ */
+export interface PLoTRobustnessAnalysisResult {
+  // ============ Edge Sensitivity ============
+  /** Combined edge sensitivity (highest impact from existence or magnitude) */
+  edges: EdgeSensitivityEntry[];
+  /** Edge existence sensitivity separately */
+  edges_existence?: EdgeSensitivityEntry[];
+  /** Edge magnitude sensitivity separately */
+  edges_magnitude?: EdgeSensitivityEntry[];
+  /** Provenance for edge sensitivity */
+  edges_provenance: 'isl:/api/v1/robustness/analyze/v2' | 'plot:computeSensitivityAll';
+  /** Edge sensitivity status */
+  edge_sensitivity_status: 'available' | 'fallback_local_heuristic' | 'skipped_no_edges' | 'skipped_missing_uncertainty' | 'failed';
+
+  // ============ Factor Sensitivity ============
+  /** Factor-level sensitivity scores */
+  factors: FactorSensitivityEntry[];
+  /** Value of information for each factor */
+  value_of_information: VOIEntry[];
+  /** Provenance for factor sensitivity */
+  factors_provenance: 'isl:/api/v1/robustness/analyze/v2' | 'unavailable';
+  /** Factor sensitivity status */
+  factor_sensitivity_status: 'available' | 'skipped_no_factor_values' | 'skipped_no_parameter_uncertainties' | 'failed';
+
+  // ============ Robustness ============
+  /** Overall robustness assessment */
+  overall_robustness: 'robust' | 'moderate' | 'fragile';
+  /** Robustness score (0-1) */
+  robustness_score: number;
+  /** Edges identified as fragile */
+  fragile_edges: string[];
+  /** Edges identified as robust */
+  robust_edges: string[];
+
+  // ============ Metadata ============
+  /** ISL latency in milliseconds */
+  latency_ms: number;
+  /** Source of the result */
+  source: 'isl' | 'unavailable';
+}
+
+/**
  * PLoT factor sensitivity result (transformed from ISL /robustness/analyze/v2)
+ * @deprecated Use PLoTRobustnessAnalysisResult for full edge + factor sensitivity
  */
 export interface PLoTFactorSensitivityResult {
   /** Factor-level sensitivity scores */

@@ -97,6 +97,7 @@ function transformValidationToEnrichment(
 
 /**
  * Transform ISL sensitivity result to enrichment schema
+ * @deprecated Use transformRobustnessToEnrichment for combined edge + factor sensitivity
  */
 function transformSensitivityToEnrichment(
   sensitivity: PLoTSensitivityResult | undefined,
@@ -104,7 +105,7 @@ function transformSensitivityToEnrichment(
 ): SensitivityAnalysisEnrichment | undefined {
   if (!sensitivity) return undefined;
 
-  // Build edge list from sensitive parameters
+  // Build edge list from sensitive parameters - map to new EdgeSensitivityEnrichment format
   const edges: SensitivityAnalysisEnrichment['edges'] = sensitivity.sensitive_parameters.map((param, idx) => {
     // Try to find the corresponding edge in the graph
     const edge = graph.edges.find((e: any) =>
@@ -113,12 +114,15 @@ function transformSensitivityToEnrichment(
       param.parameter === e.to
     );
 
+    const fromNode = edge?.from || param.parameter.split('->')[0] || param.parameter;
+    const toNode = edge?.to || param.parameter.split('->')[1] || param.parameter;
+
     return {
-      edge_id: edge?.id || param.parameter,
-      from: edge?.from || param.parameter.split('->')[0] || param.parameter,
-      to: edge?.to || param.parameter.split('->')[1] || param.parameter,
-      sensitivity_score: param.sensitivity,
-      impact_direction: param.impact_direction,
+      edge_id: edge?.id || `${fromNode}::${toNode}`,
+      from: fromNode,
+      to: toNode,
+      elasticity: param.sensitivity,
+      interpretation: `${param.impact_direction === 'positive' ? 'Increasing' : 'Decreasing'} this edge ${param.impact_direction === 'positive' ? 'increases' : 'decreases'} outcome`,
     };
   });
 
@@ -127,14 +131,16 @@ function transformSensitivityToEnrichment(
     .slice(0, 3)
     .map(p => p.parameter);
 
-  // Identify fragile edges (sensitivity > 0.7)
+  // Identify fragile edges (elasticity > 0.7)
   const fragileEdges = edges
-    .filter(e => e.sensitivity_score > 0.7)
+    .filter(e => Math.abs(e.elasticity) > 0.7)
     .map(e => e.edge_id);
 
   return {
     overall_robustness: sensitivity.overall_robustness,
     edges,
+    edges_provenance: 'plot:computeSensitivityAll',
+    edge_sensitivity_status: 'fallback_local_heuristic',
     top_drivers: topDrivers.length > 0 ? topDrivers : undefined,
     fragile_edges: fragileEdges.length > 0 ? fragileEdges : undefined,
     recommendations: sensitivity.recommendations.length > 0 ? sensitivity.recommendations : undefined,
@@ -219,17 +225,18 @@ function buildEnrichment(
     }));
   }
 
-  // Determine factor sensitivity status
-  let factor_sensitivity_status: 'available' | 'unavailable' | 'skipped' | undefined;
+  // Determine factor sensitivity status - using new granular status values
+  let factor_sensitivity_status: 'available' | 'skipped_no_factor_values' | 'skipped_no_parameter_uncertainties' | 'failed' | undefined;
   let factor_sensitivity_count: number | undefined;
   if (detail_level === 'deep') {
     if (isl_factor_sensitivity?.source === 'isl') {
       factor_sensitivity_status = 'available';
       factor_sensitivity_count = isl_factor_sensitivity.factors.length;
     } else if (isl_factor_sensitivity?.source === 'unavailable') {
-      factor_sensitivity_status = 'unavailable';
+      // Map old 'unavailable' to new granular status
+      factor_sensitivity_status = hasParameterUncertainties(graph) ? 'failed' : 'skipped_no_factor_values';
     } else if (!hasParameterUncertainties(graph)) {
-      factor_sensitivity_status = 'skipped';
+      factor_sensitivity_status = 'skipped_no_factor_values';
     }
   }
 
@@ -345,6 +352,49 @@ export async function registerRunRoute(app: FastifyInstance) {
     const computeStart = performance.now();
 
     const body = (req as any).body as RunRequest;
+
+    // === Diagnostic Log Point 1: Run Request Entry ===
+    // Captures what the UI sends before any transformation
+    try {
+      const rawGraph = body.graph ?? { nodes: [], edges: [] };
+      const graphSummary = {
+        node_count: rawGraph.nodes?.length ?? 0,
+        edge_count: rawGraph.edges?.length ?? 0,
+        node_kinds: Object.fromEntries(
+          Object.entries(
+            (rawGraph.nodes ?? []).reduce((acc: Record<string, number>, n: any) => {
+              const kind = n.kind ?? 'unknown';
+              acc[kind] = (acc[kind] ?? 0) + 1;
+              return acc;
+            }, {})
+          )
+        ),
+        edges_with_belief_exists_lt_1: (rawGraph.edges ?? []).filter(
+          (e: any) => (e.belief_exists ?? e.belief ?? 1) < 1
+        ).length,
+        edges_with_strength_std: (rawGraph.edges ?? []).filter(
+          (e: any) => e.strength_std !== undefined
+        ).length,
+        factors_with_observed_state: (rawGraph.nodes ?? []).filter(
+          (n: any) => n.kind === 'factor' && n.observed_state?.value !== undefined
+        ).length,
+      };
+
+      const entryLog = {
+        level: 'info',
+        time: Date.now(),
+        event: 'plot_run_request_received',
+        request_id: String(req.id),
+        outcome_node: body.outcome_node,
+        goal_node: body.goal_node,
+        options_received: (rawGraph.nodes ?? [])
+          .filter((n: any) => n.kind === 'option')
+          .map((n: any) => n.id),
+        graph_summary: graphSummary,
+        detail_level: body.detail_level ?? 'standard',
+      };
+      console.log(JSON.stringify(entryLog));
+    } catch { /* ignore logging errors */ }
     
     // Normalize targets: canonical targets field, fallback to legacy query.targets
     const _targets = body.targets ?? (body.query as any)?.targets ?? [];
@@ -905,33 +955,53 @@ export async function registerRunRoute(app: FastifyInstance) {
         const optionNodes = extractOptionNodes(graph);
 
         // Run ISL calls in parallel for efficiency
-        // Note: sensitivity runs for all non-quick levels (standard + deep) since UI depends on robustness data
-        const [validationResult, sensitivityResult, factorSensitivityResult] = await Promise.allSettled([
+        // Note: Using analyseRobustness for combined edge + factor sensitivity (replaces old analyseSensitivity)
+        // The old /api/v1/causal/sensitivity/detailed endpoint is disabled in favor of /api/v1/robustness/analyze/v2
+        const [validationResult, robustnessResult] = await Promise.allSettled([
           islService.validateCausal(graph, treatment_node, outcome_node, String(req.id)),
-          // Sensitivity analysis: run for both standard and deep (all non-quick levels)
-          islService.analyseSensitivity(graph, treatment_node, outcome_node, String(req.id)),
-          // Factor sensitivity: only call for deep mode when we have factor nodes with values
-          detail_level === 'deep' && parameterUncertainties.length > 0
-            ? islService.analyseFactorSensitivity(
-                graph,
-                parameterUncertainties,
-                outcome_node,
-                optionNodes,
-                String(req.id)
-              )
-            : Promise.resolve(undefined),
+          // Combined edge + factor sensitivity via /api/v1/robustness/analyze/v2
+          // This replaces both analyseSensitivity and analyseFactorSensitivity calls
+          islService.analyseRobustness(
+            graph,
+            outcome_node,
+            optionNodes,
+            String(req.id)
+          ),
         ]);
 
         if (validationResult.status === 'fulfilled' && validationResult.value) {
           isl_validation = validationResult.value;
         }
 
-        if (sensitivityResult.status === 'fulfilled' && sensitivityResult.value) {
-          isl_sensitivity = sensitivityResult.value;
-        }
+        // Handle robustness analysis result - maps to both sensitivity and factor sensitivity
+        if (robustnessResult.status === 'fulfilled' && robustnessResult.value) {
+          const robustness = robustnessResult.value;
 
-        if (factorSensitivityResult.status === 'fulfilled' && factorSensitivityResult.value) {
-          isl_factor_sensitivity = factorSensitivityResult.value;
+          // Map to legacy isl_sensitivity format for backward compatibility
+          if (robustness.edges.length > 0) {
+            isl_sensitivity = {
+              overall_robustness: robustness.overall_robustness,
+              sensitive_parameters: robustness.edges.map((e) => ({
+                parameter: e.edge_id,
+                sensitivity: e.elasticity,
+                impact_direction: e.interpretation.toLowerCase().includes('positive') ? 'positive' as const : 'negative' as const,
+              })),
+              recommendations: [],
+              source: robustness.source === 'isl' ? 'isl' : 'engine_fallback',
+            };
+          }
+
+          // Map to legacy isl_factor_sensitivity format for backward compatibility
+          if (robustness.factors.length > 0) {
+            isl_factor_sensitivity = {
+              factors: robustness.factors,
+              value_of_information: robustness.value_of_information,
+              robustness_label: robustness.overall_robustness,
+              robustness_score: robustness.robustness_score,
+              latency_ms: robustness.latency_ms,
+              source: robustness.source === 'isl' ? 'isl' : 'unavailable',
+            };
+          }
         }
       } catch (err) {
         // Log but don't fail the request - ISL errors are non-fatal
@@ -995,6 +1065,29 @@ export async function registerRunRoute(app: FastifyInstance) {
         });
       } catch { /* ignore */ }
     }
+
+    // === Diagnostic Log Point 4: Critique Generation ===
+    // Logs what critiques were generated including BLOCKER triggers
+    try {
+      const blockerCritiques = (critique as any[]).filter((c: any) => c.severity === 'BLOCKER');
+      const critiqueLog = {
+        level: 'info',
+        time: Date.now(),
+        event: 'plot_critique_generated',
+        request_id: String(req.id),
+        total_critiques: critique.length,
+        blocker_count: blockerCritiques.length,
+        has_blocker: blockerCritiques.length > 0,
+        blocker_codes: blockerCritiques.map((c: any) => c.code),
+        blocker_sources: blockerCritiques.map((c: any) => c.source),
+        improvement_count: (critique as any[]).filter((c: any) => c.severity === 'IMPROVEMENT').length,
+        observation_count: (critique as any[]).filter((c: any) => c.severity === 'OBSERVATION').length,
+        isl_validation_status: isl_validation?.status,
+        isl_sensitivity_robustness: isl_sensitivity?.overall_robustness,
+        identifiable: identifiability.identifiable,
+      };
+      console.log(JSON.stringify(critiqueLog));
+    } catch { /* ignore logging errors */ }
 
     // P1: Compute graph quality score
     // Only count edges with external evidence (exclude 'template' and 'assumption' - aligned with evidence-analysis)

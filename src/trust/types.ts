@@ -102,34 +102,60 @@ export interface VOIEnrichment {
 }
 
 /**
+ * Edge sensitivity entry for enrichment response
+ */
+export interface EdgeSensitivityEnrichment {
+  /** Edge ID in format "from::to" */
+  edge_id: string;
+  /** Source node ID */
+  from: string;
+  /** Target node ID */
+  to: string;
+  /** Elasticity score - how much outcome changes per unit change */
+  elasticity: number;
+  /** Type of sensitivity: 'existence' or 'magnitude' */
+  sensitivity_type?: 'existence' | 'magnitude';
+  /** Rank by importance (1 = most important) */
+  importance_rank?: number;
+  /** Human-readable interpretation - contains direction info */
+  interpretation: string;
+}
+
+/**
  * Sensitivity analysis result from ISL
  * Answers: "How robust is the estimate to edge uncertainty?"
+ *
+ * Updated to use /api/v1/robustness/analyze/v2 with analysis_types: ['comparison', 'sensitivity', 'robustness']
  */
 export interface SensitivityAnalysisEnrichment {
   /** Overall model robustness assessment */
   overall_robustness: 'robust' | 'moderate' | 'fragile';
-  /** Edges sorted by sensitivity (most sensitive first) */
-  edges: Array<{
-    edge_id: string;
-    from: string;
-    to: string;
-    /** Combined sensitivity score [0-1] */
-    sensitivity_score: number;
-    /** Sensitivity to edge existence probability */
-    existence_sensitivity?: number;
-    /** Sensitivity to edge weight magnitude */
-    magnitude_sensitivity?: number;
-    /** Impact direction on outcome */
-    impact_direction?: 'positive' | 'negative';
-  }>;
+  /** Robustness score (0-1) */
+  robustness_score?: number;
+  /** Combined edges sorted by sensitivity (highest elasticity from existence or magnitude) */
+  edges: EdgeSensitivityEnrichment[];
+  /** Edge existence sensitivity (how much outcome changes if edge removed) */
+  edges_existence?: EdgeSensitivityEnrichment[];
+  /** Edge magnitude sensitivity (how much outcome changes with edge weight changes) */
+  edges_magnitude?: EdgeSensitivityEnrichment[];
+  /** Provenance for edge sensitivity */
+  edges_provenance?: 'isl:/api/v1/robustness/analyze/v2' | 'plot:computeSensitivityAll';
+  /** Edge sensitivity status */
+  edge_sensitivity_status?: 'available' | 'fallback_local_heuristic' | 'skipped_no_edges' | 'skipped_missing_uncertainty' | 'failed';
   /** Factor-level sensitivity (from /robustness/analyze/v2) */
   factors?: FactorSensitivityEnrichment[];
   /** Value of information for factors */
   value_of_information?: VOIEnrichment[];
-  /** Node IDs that are top drivers of outcome variance */
-  top_drivers?: string[];
+  /** Factor sensitivity provenance */
+  factors_provenance?: 'isl:/api/v1/robustness/analyze/v2' | 'unavailable';
+  /** Factor sensitivity status */
+  factor_sensitivity_status?: 'available' | 'skipped_no_factor_values' | 'skipped_no_parameter_uncertainties' | 'failed';
   /** Edge IDs that, if changed, would significantly alter results */
   fragile_edges?: string[];
+  /** Edge IDs that are robust to changes */
+  robust_edges?: string[];
+  /** Node IDs that are top drivers of outcome variance */
+  top_drivers?: string[];
   /** Actionable recommendations */
   recommendations?: string[];
 }
@@ -148,11 +174,17 @@ export interface EnrichmentMetadata {
   isl_degraded?: boolean;
   /** ISL endpoints that were called */
   endpoints_called?: string[];
+  /** Edge sensitivity availability status */
+  edge_sensitivity_status?: 'available' | 'fallback_local_heuristic' | 'skipped_no_edges' | 'skipped_missing_uncertainty' | 'failed';
+  /** Number of edge sensitivity entries returned */
+  edge_sensitivity_count?: number;
   /** Factor sensitivity availability status */
-  factor_sensitivity_status?: 'available' | 'unavailable' | 'skipped';
+  factor_sensitivity_status?: 'available' | 'skipped_no_factor_values' | 'skipped_no_parameter_uncertainties' | 'failed';
   /** Number of factor sensitivity entries returned */
   factor_sensitivity_count?: number;
-  /** Factor sensitivity ISL call latency in milliseconds */
+  /** Robustness analysis ISL call latency in milliseconds */
+  isl_robustness_latency_ms?: number;
+  /** @deprecated Use isl_robustness_latency_ms instead */
   isl_factor_latency_ms?: number;
 }
 

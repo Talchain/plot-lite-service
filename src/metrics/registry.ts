@@ -212,6 +212,7 @@ let ceeDegradedCounter: CounterMetric | null = null;
 let islValidationCounter: CounterMetric | null = null;
 let islSensitivityCounter: CounterMetric | null = null;
 let islFactorSensitivityCounter: CounterMetric | null = null;
+let islRobustnessAnalysisCounter: CounterMetric | null = null;
 let islLatencyHistogram: HistogramMetric | null = null;
 
 // Meta-reasoning quality metrics
@@ -307,6 +308,12 @@ export function initializeHistograms(): void {
     'plot_engine_isl_factor_sensitivity_total',
     'Total number of ISL factor sensitivity calls',
     ['backend', 'result'] // backend: isl|fallback, result: ok|error|timeout
+  );
+
+  islRobustnessAnalysisCounter = new CounterMetric(
+    'plot_engine_isl_robustness_analysis_total',
+    'Total number of ISL robustness analysis calls (edge + factor sensitivity)',
+    ['backend', 'result', 'edge_status', 'factor_status']
   );
 
   islLatencyHistogram = new HistogramMetric(
@@ -434,7 +441,16 @@ export function recordIslFactorSensitivity(backend: 'isl' | 'fallback', result: 
   islFactorSensitivityCounter?.inc({ backend, result });
 }
 
-export function observeIslLatency(operation: 'validation' | 'sensitivity' | 'factor_sensitivity', result: 'ok' | 'error', durationMs: number): void {
+export function recordIslRobustnessAnalysis(
+  backend: 'isl' | 'fallback',
+  result: 'ok' | 'error' | 'timeout',
+  edgeStatus: string,
+  factorStatus: string
+): void {
+  islRobustnessAnalysisCounter?.inc({ backend, result, edge_status: edgeStatus, factor_status: factorStatus });
+}
+
+export function observeIslLatency(operation: 'validation' | 'sensitivity' | 'factor_sensitivity' | 'robustness_analysis', result: 'ok' | 'error', durationMs: number): void {
   islLatencyHistogram?.observe({ operation, result }, durationMs / 1000);
 }
 
@@ -532,6 +548,10 @@ export function renderHistograms(): string {
     lines.push(islFactorSensitivityCounter.render());
   }
 
+  if (islRobustnessAnalysisCounter) {
+    lines.push(islRobustnessAnalysisCounter.render());
+  }
+
   if (islLatencyHistogram) {
     lines.push(islLatencyHistogram.render());
   }
@@ -576,6 +596,7 @@ export function resetHistograms(): void {
   islValidationCounter?.reset();
   islSensitivityCounter?.reset();
   islFactorSensitivityCounter?.reset();
+  islRobustnessAnalysisCounter?.reset();
   islLatencyHistogram?.reset();
   // Meta-reasoning quality metrics
   metaQualityHistogram?.reset();
