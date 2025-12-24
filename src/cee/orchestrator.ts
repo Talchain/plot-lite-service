@@ -38,6 +38,7 @@ export type OrchestratorResult = {
     latency_ms?: number | null;
     model?: string;
     id_mismatch?: boolean;
+    reason?: string; // Error reason for debugging degraded responses
   } | null;
   error?: { code?: string; retryable: boolean; suggestedAction: 'retry' | 'fix_input' | 'fail'; traceId?: string };
 };
@@ -241,6 +242,14 @@ export async function runDecisionReviewViaV2Http(
 
   const requestId = callerRequestId ?? `cee-v2-${Date.now()}`;
 
+  // Log v2 path entry for debugging
+  console.log('[CEE_V2_START]', JSON.stringify({
+    base_url: env.baseUrl,
+    timeout_ms: v2Config.timeoutMs,
+    request_id: requestId,
+    draft_graph_url: `${env.baseUrl}/assist/v1/draft-graph?schema=v2`,
+  }));
+
   try {
     // 1) Draft graph with v2 format
     const draftBrief = buildCeeBrief(brief, briefContext);
@@ -285,7 +294,34 @@ export async function runDecisionReviewViaV2Http(
     };
   } catch (err: any) {
     const latencyMs = Date.now() - startTime;
-    console.error('[CEE_V2] Failed, will degrade:', err?.message);
+
+    // Detailed diagnostic logging for v2 failures
+    const errorMessage = err?.message || String(err);
+    const isTimeout = errorMessage.includes('timeout') || errorMessage.includes('AbortError') || err?.name === 'AbortError';
+    const isNetworkError = errorMessage.includes('fetch failed') || errorMessage.includes('ECONNREFUSED') || errorMessage.includes('ENOTFOUND');
+
+    console.error('[CEE_V2_FAILURE]', JSON.stringify({
+      error_message: errorMessage.slice(0, 500),
+      error_name: err?.name,
+      is_timeout: isTimeout,
+      is_network_error: isNetworkError,
+      latency_ms: latencyMs,
+      base_url: v2Config.baseUrl,
+      timeout_config_ms: v2Config.timeoutMs,
+      request_id: requestId,
+    }));
+
+    // Derive more specific error code
+    let errorCode = 'CEE_V2_ERROR';
+    if (isTimeout) {
+      errorCode = 'CEE_V2_TIMEOUT';
+    } else if (isNetworkError) {
+      errorCode = 'CEE_V2_NETWORK_ERROR';
+    } else if (errorMessage.includes('HTTP 4')) {
+      errorCode = 'CEE_V2_CLIENT_ERROR';
+    } else if (errorMessage.includes('HTTP 5')) {
+      errorCode = 'CEE_V2_SERVER_ERROR';
+    }
 
     return {
       review: null,
@@ -295,11 +331,12 @@ export async function runDecisionReviewViaV2Http(
         cee_sent_request_id: callerRequestId ?? null,
         cee_returned_request_id: null,
         latency_ms: latencyMs,
+        reason: errorMessage.slice(0, 200), // Include actual error for debugging
       },
       error: {
-        code: 'CEE_V2_ERROR',
-        retryable: true,
-        suggestedAction: 'retry',
+        code: errorCode,
+        retryable: !isNetworkError, // Don't retry network errors
+        suggestedAction: isTimeout ? 'retry' : 'fix_input',
       },
     };
   }
