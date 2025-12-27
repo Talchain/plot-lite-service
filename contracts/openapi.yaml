@@ -28,6 +28,8 @@ servers:
 tags:
   - name: v1
     description: v1 API group
+  - name: v2
+    description: v2 API group - Option comparison with explicit interventions
   - name: stream
     description: Streaming endpoints
   - name: health
@@ -3455,6 +3457,170 @@ paths:
                     code: "BAD_INPUT"
                     message: "edge_id is required"
 
+  # =============================================================================
+  # V2 API - Option Comparison Mode
+  # =============================================================================
+
+  /v2/run:
+    head:
+      summary: Probe V2 run endpoint availability
+      operationId: headRunV2
+      tags: [v2, meta]
+      description: |
+        Returns 405 Method Not Allowed with Allow header. Use POST for option comparison.
+      responses:
+        '405':
+          description: Method Not Allowed - Use POST for option comparison
+          headers:
+            Allow:
+              schema: { type: string, example: 'POST, OPTIONS, HEAD' }
+    post:
+      summary: Execute option comparison with explicit interventions
+      operationId: runV2
+      tags: [v2, inference]
+      description: |
+        V2 endpoint with canonical option-comparison model:
+        - Options are intervention bundles (not graph nodes)
+        - Strict preflight validation with BLOCKER critiques
+        - No intervention synthesis - requires explicit interventions
+        - Option nodes filtered from graph before analysis
+
+        **Required Fields**:
+        - `graph`: Causal graph with nodes and edges
+        - `options`: Array of intervention bundles (min 1)
+        - `goal_node_id`: Target node for outcome measurement
+
+        **Response Status Fields**:
+        - `option_comparison_status`: 'available' | 'unavailable'
+        - `robustness_status`: 'available' | 'unavailable'
+        - `drivers_status`: 'available' | 'unavailable'
+
+        **Preflight Validation**:
+        All validation failures return BLOCKER critiques. Analysis only proceeds
+        if preflight passes. Blocker codes include:
+        - MISSING_GOAL_NODE
+        - NO_OPTIONS
+        - EMPTY_INTERVENTIONS
+        - INVALID_INTERVENTION_TARGET
+        - INVALID_INTERVENTION_VALUE
+        - NO_PATH_TO_GOAL
+        - IDENTICAL_OPTIONS
+        - GRAPH_CYCLE_DETECTED
+        - GRAPH_TOO_LARGE (max 50 nodes, 100 edges)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/runRequestV3'
+            examples:
+              basic_comparison:
+                summary: Compare two intervention options
+                value:
+                  graph:
+                    nodes:
+                      - id: "budget"
+                        label: "Marketing Budget"
+                        kind: "factor"
+                      - id: "awareness"
+                        label: "Brand Awareness"
+                        kind: "factor"
+                      - id: "revenue"
+                        label: "Revenue"
+                        kind: "outcome"
+                    edges:
+                      - from: "budget"
+                        to: "awareness"
+                        exists_probability: 0.9
+                        strength: { mean: 0.7, std: 0.1 }
+                      - from: "awareness"
+                        to: "revenue"
+                        exists_probability: 0.95
+                        strength: { mean: 0.6, std: 0.15 }
+                  options:
+                    - id: "opt1"
+                      label: "Increase Budget"
+                      interventions:
+                        budget: { value: 100000 }
+                    - id: "opt2"
+                      label: "Double Budget"
+                      interventions:
+                        budget: { value: 200000 }
+                  goal_node_id: "revenue"
+                  seed: 42
+                  n_samples: 1000
+      responses:
+        '200':
+          description: OK - Analysis complete (may be available or unavailable)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/runResponseV3'
+              examples:
+                available:
+                  summary: Analysis available
+                  value:
+                    request_schema_version: "v3"
+                    endpoint_version: "v2/run"
+                    preflight_version: "2025-12-26"
+                    request_id: "req-abc123"
+                    option_comparison_status: "available"
+                    robustness_status: "available"
+                    drivers_status: "available"
+                    critiques: []
+                    option_comparison:
+                      - option_id: "opt1"
+                        option_label: "Increase Budget"
+                        expected_outcome: 150000
+                        confidence_interval: [120000, 180000]
+                        probability_of_goal: 0.72
+                      - option_id: "opt2"
+                        option_label: "Double Budget"
+                        expected_outcome: 220000
+                        confidence_interval: [180000, 260000]
+                        probability_of_goal: 0.85
+                    meta:
+                      seed: 42
+                      n_samples: 1000
+                      detail_level: "standard"
+                      latency_ms: 245
+                preflight_failed:
+                  summary: Preflight validation failed
+                  value:
+                    request_schema_version: "v3"
+                    endpoint_version: "v2/run"
+                    preflight_version: "2025-12-26"
+                    request_id: "req-xyz789"
+                    option_comparison_status: "unavailable"
+                    robustness_status: "unavailable"
+                    drivers_status: "unavailable"
+                    unavailable_reason: "preflight_validation_failed"
+                    critiques:
+                      - id: "crit-001"
+                        code: "NO_PATH_TO_GOAL"
+                        severity: "blocker"
+                        message: "Option 'Increase Budget' has no causal effect on the goal."
+                        source: "validation"
+                        affected_option_ids: ["opt1"]
+                        blocks_analysis: true
+                    meta:
+                      seed: 42
+                      n_samples: 1000
+                      detail_level: "standard"
+                      latency_ms: 15
+        '400':
+          description: Bad Request - Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                missing_required:
+                  value:
+                    schema: error.v1
+                    code: BAD_INPUT
+                    message: "body must have required property 'goal_node_id'"
+
 
 components:
   schemas:
@@ -4782,7 +4948,277 @@ components:
         trace_id:
           type: string
           description: 'Optional client-provided trace identifier echoed from X-Trace-Id when TRACE_ID_PASSTHROUGH=1'
-    
+
+    # =========================================================================
+    # V3 Schemas - /v2/run Option Comparison Mode
+    # =========================================================================
+
+    runRequestV3:
+      type: object
+      required: [graph, options, goal_node_id]
+      description: V2 run request with explicit intervention bundles
+      properties:
+        graph:
+          type: object
+          required: [nodes, edges]
+          properties:
+            nodes:
+              type: array
+              items:
+                $ref: '#/components/schemas/nodeV3'
+            edges:
+              type: array
+              items:
+                $ref: '#/components/schemas/edgeV3'
+        options:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/optionV3'
+        goal_node_id:
+          type: string
+          minLength: 1
+          description: Target node for outcome measurement
+        seed:
+          type: number
+          description: Random seed for determinism (default 42)
+        n_samples:
+          type: number
+          minimum: 100
+          maximum: 10000
+          description: Number of samples for Monte Carlo (default 1000)
+        detail_level:
+          type: string
+          enum: [quick, standard, deep]
+          description: Analysis detail level
+        request_id:
+          type: string
+          description: Optional client-provided request ID
+        idempotency_key:
+          type: string
+          description: Optional idempotency key for replay
+
+    nodeV3:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+          pattern: '^[a-z0-9_:-]+$'
+        label:
+          type: string
+        kind:
+          type: string
+          enum: [factor, outcome, option, decision, intermediate]
+        observed_state:
+          type: object
+          properties:
+            value:
+              type: number
+            baseline:
+              type: number
+            unit:
+              type: string
+
+    edgeV3:
+      type: object
+      required: [from, to]
+      properties:
+        from:
+          type: string
+        to:
+          type: string
+        exists_probability:
+          type: number
+          minimum: 0
+          maximum: 1
+          default: 1
+        strength:
+          type: object
+          properties:
+            mean:
+              type: number
+            std:
+              type: number
+              minimum: 0
+
+    optionV3:
+      type: object
+      required: [id, label, interventions]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        interventions:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/interventionValueV3'
+
+    interventionValueV3:
+      type: object
+      required: [value]
+      properties:
+        value:
+          type: number
+          description: Intervention value (must be finite)
+        uncertainty:
+          type: object
+          description: Optional uncertainty specification
+          properties:
+            distribution:
+              type: string
+              enum: [normal, uniform]
+            std:
+              type: number
+            min:
+              type: number
+            max:
+              type: number
+
+    runResponseV3:
+      type: object
+      required: [request_schema_version, endpoint_version, preflight_version, request_id, option_comparison_status, robustness_status, drivers_status, critiques, meta]
+      properties:
+        request_schema_version:
+          type: string
+          enum: ['v3']
+        endpoint_version:
+          type: string
+          enum: ['v2/run']
+        preflight_version:
+          type: string
+          description: Date-based version of preflight validation
+        request_id:
+          type: string
+        option_comparison_status:
+          type: string
+          enum: [available, unavailable]
+        robustness_status:
+          type: string
+          enum: [available, unavailable]
+        drivers_status:
+          type: string
+          enum: [available, unavailable]
+        unavailable_reason:
+          type: string
+          description: Reason when any status is unavailable
+        critiques:
+          type: array
+          items:
+            $ref: '#/components/schemas/critiqueV3'
+        option_comparison:
+          type: array
+          items:
+            type: object
+            properties:
+              option_id:
+                type: string
+              option_label:
+                type: string
+              expected_outcome:
+                type: number
+              confidence_interval:
+                type: array
+                items:
+                  type: number
+              probability_of_goal:
+                type: number
+        edge_sensitivity:
+          type: array
+          items:
+            type: object
+            properties:
+              edge_id:
+                type: string
+              from:
+                type: string
+              to:
+                type: string
+              sensitivity_type:
+                type: string
+              elasticity:
+                type: number
+              importance_rank:
+                type: integer
+              interpretation:
+                type: string
+        factor_sensitivity:
+          type: array
+          items:
+            type: object
+            properties:
+              factor_id:
+                type: string
+              sensitivity_score:
+                type: number
+              value_of_information:
+                type: number
+              direction:
+                type: string
+        robustness:
+          type: object
+          properties:
+            score:
+              type: number
+            label:
+              type: string
+            fragile_edges:
+              type: array
+              items:
+                type: string
+            robust_edges:
+              type: array
+              items:
+                type: string
+            explanation:
+              type: string
+        meta:
+          type: object
+          properties:
+            seed:
+              type: number
+            n_samples:
+              type: number
+            detail_level:
+              type: string
+            latency_ms:
+              type: number
+            normalization_ms:
+              type: number
+            validation_ms:
+              type: number
+            isl_ms:
+              type: number
+
+    critiqueV3:
+      type: object
+      required: [id, code, severity, message, source, blocks_analysis]
+      properties:
+        id:
+          type: string
+        code:
+          type: string
+          description: Blocker code (e.g., MISSING_GOAL_NODE, NO_PATH_TO_GOAL)
+        severity:
+          type: string
+          enum: [info, warning, error, blocker]
+        message:
+          type: string
+        source:
+          type: string
+          enum: [validation, isl]
+        affected_option_ids:
+          type: array
+          items:
+            type: string
+        affected_node_ids:
+          type: array
+          items:
+            type: string
+        blocks_analysis:
+          type: boolean
+
     draftResponse:
       type: object
       required: [schema, description, boards, model_card]

@@ -1488,6 +1488,10 @@ export async function createServer(opts: ServerOpts = {}) {
   const { registerV1Routes } = await import('./routes/v1/index.js');
   await registerV1Routes(app);
 
+  // Register /v2 routes (Option Comparison Mode - canonical model)
+  const { registerV2Routes } = await import('./routes/v2/index.js');
+  await registerV2Routes(app);
+
   // Prometheus /metrics (C4, flag-gated)
   const { registerPrometheusMetrics } = await import('./plugins/metrics.js');
   await registerPrometheusMetrics(app);

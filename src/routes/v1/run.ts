@@ -1257,6 +1257,11 @@ export async function registerRunRoute(app: FastifyInstance) {
       },
       results,
       schema: 'run.v1',
+      // V2 Alignment: Status flags for UI gating
+      // V1 uses option nodes as graph nodes, not intervention bundles
+      option_comparison_status: 'unavailable_legacy_contract' as const,
+      robustness_status: isl_sensitivity?.source === 'isl' ? 'available' as const : 'unavailable' as const,
+      drivers_status: drivers_payload.status === 'ok' ? 'available' as const : 'unavailable' as const,
     };
     // Add BMA hash BEFORE stamping (must be included in response_hash)
     if (scm_bma_hash) {
