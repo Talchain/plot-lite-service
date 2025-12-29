@@ -46,12 +46,19 @@ describe('Preflight Validation', () => {
     },
   ];
 
-  describe('MISSING_GOAL_NODE', () => {
-    it('fails when goal node does not exist', () => {
-      const result = runPreflightValidation(validGraph, validOptions, 'nonexistent-goal', defaultStats);
+  describe('Goal Node Validation', () => {
+    it('fails with MISSING_GOAL_NODE when goal_node_id is empty', () => {
+      const result = runPreflightValidation(validGraph, validOptions, '', defaultStats);
 
       expect(result.passed).toBe(false);
       expect(result.blockers.some(b => b.code === 'MISSING_GOAL_NODE')).toBe(true);
+    });
+
+    it('fails with GOAL_NODE_NOT_IN_GRAPH when goal node does not exist', () => {
+      const result = runPreflightValidation(validGraph, validOptions, 'nonexistent-goal', defaultStats);
+
+      expect(result.passed).toBe(false);
+      expect(result.blockers.some(b => b.code === 'GOAL_NODE_NOT_IN_GRAPH')).toBe(true);
     });
 
     it('passes when goal node exists', () => {

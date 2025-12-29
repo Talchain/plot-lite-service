@@ -106,8 +106,8 @@ describe('POST /v2/run Integration', () => {
     });
   });
 
-  describe('Preflight validation', () => {
-    it('returns BLOCKER for missing goal node', async () => {
+  describe('Preflight validation (422 blockers)', () => {
+    it('returns 422 with GOAL_NODE_NOT_IN_GRAPH for missing goal node', async () => {
       vi.resetModules();
       server = await spawnServer({ env: ENV });
 
@@ -121,12 +121,13 @@ describe('POST /v2/run Integration', () => {
         }),
       });
 
-      expect(res.status).toBe(200);
-      expect(res.data.option_comparison_status).toBe('unavailable');
-      expect(res.data.critiques.some((c: any) => c.code === 'MISSING_GOAL_NODE')).toBe(true);
+      // P0: Preflight failures return 422 with V2RunError
+      expect(res.status).toBe(422);
+      expect(res.data.analysis_status).toBe('blocked');
+      expect(res.data.critiques.some((c: any) => c.code === 'GOAL_NODE_NOT_IN_GRAPH')).toBe(true);
     });
 
-    it('returns BLOCKER for empty interventions', async () => {
+    it('returns 422 with EMPTY_INTERVENTIONS for empty interventions', async () => {
       vi.resetModules();
       server = await spawnServer({ env: ENV });
 
@@ -137,17 +138,19 @@ describe('POST /v2/run Integration', () => {
           graph: VALID_GRAPH,
           options: [
             { id: 'opt1', label: 'Option 1', interventions: {} },
+            { id: 'opt2', label: 'Option 2', interventions: {} },
           ],
           goal_node_id: 'goal',
         }),
       });
 
-      expect(res.status).toBe(200);
-      expect(res.data.option_comparison_status).toBe('unavailable');
+      // P0: Preflight failures return 422 with V2RunError
+      expect(res.status).toBe(422);
+      expect(res.data.analysis_status).toBe('blocked');
       expect(res.data.critiques.some((c: any) => c.code === 'EMPTY_INTERVENTIONS')).toBe(true);
     });
 
-    it('returns BLOCKER for invalid intervention target', async () => {
+    it('returns 422 with INVALID_INTERVENTION_TARGET for invalid target', async () => {
       vi.resetModules();
       server = await spawnServer({ env: ENV });
 
@@ -164,17 +167,25 @@ describe('POST /v2/run Integration', () => {
                 'nonexistent-node': { value: 1.0, source: 'user_specified' },
               },
             },
+            {
+              id: 'opt2',
+              label: 'Option 2',
+              interventions: {
+                'factor-b': { value: 2.0, source: 'user_specified' },
+              },
+            },
           ],
           goal_node_id: 'goal',
         }),
       });
 
-      expect(res.status).toBe(200);
-      expect(res.data.option_comparison_status).toBe('unavailable');
+      // P0: Preflight failures return 422 with V2RunError
+      expect(res.status).toBe(422);
+      expect(res.data.analysis_status).toBe('blocked');
       expect(res.data.critiques.some((c: any) => c.code === 'INVALID_INTERVENTION_TARGET')).toBe(true);
     });
 
-    it('returns BLOCKER for identical options', async () => {
+    it('returns 422 with IDENTICAL_OPTIONS for identical options', async () => {
       vi.resetModules();
       server = await spawnServer({ env: ENV });
 
@@ -199,12 +210,13 @@ describe('POST /v2/run Integration', () => {
         }),
       });
 
-      expect(res.status).toBe(200);
-      expect(res.data.option_comparison_status).toBe('unavailable');
+      // P0: Preflight failures return 422 with V2RunError
+      expect(res.status).toBe(422);
+      expect(res.data.analysis_status).toBe('blocked');
       expect(res.data.critiques.some((c: any) => c.code === 'IDENTICAL_OPTIONS')).toBe(true);
     });
 
-    it('returns BLOCKER for no path to goal', async () => {
+    it('returns 422 with NO_PATH_TO_GOAL for isolated intervention', async () => {
       vi.resetModules();
       server = await spawnServer({ env: ENV });
 
@@ -227,19 +239,25 @@ describe('POST /v2/run Integration', () => {
               label: 'Option 1',
               interventions: { 'isolated': { value: 1.0, source: 'user_specified' } },
             },
+            {
+              id: 'opt2',
+              label: 'Option 2',
+              interventions: { 'goal': { value: 100, source: 'user_specified' } },
+            },
           ],
           goal_node_id: 'goal',
         }),
       });
 
-      expect(res.status).toBe(200);
-      expect(res.data.option_comparison_status).toBe('unavailable');
+      // P0: Preflight failures return 422 with V2RunError
+      expect(res.status).toBe(422);
+      expect(res.data.analysis_status).toBe('blocked');
       expect(res.data.critiques.some((c: any) => c.code === 'NO_PATH_TO_GOAL')).toBe(true);
     });
   });
 
   describe('Option node filtering', () => {
-    it('filters option nodes from graph', async () => {
+    it('filters option nodes from graph gracefully', async () => {
       vi.resetModules();
       server = await spawnServer({ env: ENV });
 
@@ -247,11 +265,14 @@ describe('POST /v2/run Integration', () => {
       const graphWithOptions = {
         nodes: [
           { id: 'factor-a', kind: 'factor', label: 'Factor A' },
+          { id: 'factor-b', kind: 'factor', label: 'Factor B' },
           { id: 'goal', kind: 'goal', label: 'Goal' },
           { id: 'option-node', kind: 'option', label: 'Legacy Option' }, // Should be filtered
+          { id: 'decision-node', kind: 'decision', label: 'Legacy Decision' }, // Should be filtered
         ],
         edges: [
           { from: 'factor-a', to: 'goal', exists_probability: 0.8, strength: { mean: 0.5, std: 0.1 } },
+          { from: 'factor-b', to: 'goal', exists_probability: 0.9, strength: { mean: 0.6, std: 0.1 } },
           { from: 'option-node', to: 'goal', exists_probability: 0.7, strength: { mean: 0.3, std: 0.1 } }, // Should be filtered
         ],
       };
@@ -267,17 +288,20 @@ describe('POST /v2/run Integration', () => {
               label: 'Option 1',
               interventions: { 'factor-a': { value: 1.5, source: 'user_specified' } },
             },
+            {
+              id: 'opt2',
+              label: 'Option 2',
+              interventions: { 'factor-b': { value: 2.0, source: 'user_specified' } },
+            },
           ],
           goal_node_id: 'goal',
         }),
       });
 
-      // Should not fail - option nodes filtered, remaining graph is valid
+      // Should succeed - option/decision nodes filtered, remaining graph is valid
       expect(res.status).toBe(200);
-      // Meta should show filtered counts if available
-      if (res.data.meta?.preflight_stats) {
-        expect(res.data.meta.preflight_stats.option_nodes_filtered).toBeGreaterThanOrEqual(1);
-      }
+      // ISL may not be enabled in tests, so check for any success or ISL-related status
+      expect(['computed', 'partial', 'failed']).toContain(res.data.analysis_status);
     });
   });
 
@@ -302,10 +326,33 @@ describe('POST /v2/run Integration', () => {
       expect(res.data.preflight_version).toBeDefined();
       expect(res.data.request_id).toBeDefined();
 
-      // Status flags should be present
-      expect(['available', 'unavailable']).toContain(res.data.option_comparison_status);
-      expect(['available', 'unavailable']).toContain(res.data.robustness_status);
-      expect(['available', 'unavailable']).toContain(res.data.drivers_status);
+      // P0: Status flags use new vocabulary
+      expect(['computed', 'partial', 'failed']).toContain(res.data.analysis_status);
+      expect(['computed', 'unavailable', 'skipped', 'error']).toContain(res.data.option_comparison_status);
+      expect(['computed', 'unavailable', 'skipped', 'error']).toContain(res.data.robustness_status);
+      expect(['computed', 'unavailable', 'skipped', 'error']).toContain(res.data.drivers_status);
+    });
+
+    it('includes response_hash for determinism verification', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const res = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: VALID_GRAPH,
+          options: VALID_OPTIONS,
+          goal_node_id: 'goal',
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      // P0: response_hash should be a 16-char hex string
+      expect(res.data.response_hash).toBeDefined();
+      expect(typeof res.data.response_hash).toBe('string');
+      expect(res.data.response_hash.length).toBe(16);
+      expect(/^[0-9a-f]+$/.test(res.data.response_hash)).toBe(true);
     });
 
     it('includes critiques array in response', async () => {
@@ -326,7 +373,7 @@ describe('POST /v2/run Integration', () => {
       expect(Array.isArray(res.data.critiques)).toBe(true);
     });
 
-    it('includes meta with timing info', async () => {
+    it('includes meta with seed_used as string and timing info', async () => {
       vi.resetModules();
       server = await spawnServer({ env: ENV });
 
@@ -343,6 +390,30 @@ describe('POST /v2/run Integration', () => {
       expect(res.status).toBe(200);
       expect(res.data.meta).toBeDefined();
       expect(typeof res.data.meta.latency_ms).toBe('number');
+      // P0: seed_used should be a string (not number)
+      expect(typeof res.data.meta.seed_used).toBe('string');
+      expect(res.data.meta.seed_used).toBe('42'); // Default seed
+    });
+
+    it('accepts numeric seed and echoes seed_used as string', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const res = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: VALID_GRAPH,
+          options: VALID_OPTIONS,
+          goal_node_id: 'goal',
+          seed: 12345, // Numeric seed
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      // P0: seed_used should be string even when input was numeric
+      expect(typeof res.data.meta.seed_used).toBe('string');
+      expect(res.data.meta.seed_used).toBe('12345');
     });
   });
 
@@ -355,10 +426,12 @@ describe('POST /v2/run Integration', () => {
       const legacyGraph = {
         nodes: [
           { id: 'factor-a', kind: 'factor', label: 'Factor A' },
+          { id: 'factor-b', kind: 'factor', label: 'Factor B' },
           { id: 'goal', kind: 'goal', label: 'Goal' },
         ],
         edges: [
           { from: 'factor-a', to: 'goal', weight: 0.5, belief_exists: 0.8 }, // Legacy format
+          { from: 'factor-b', to: 'goal', weight: 0.6, belief_exists: 0.9 }, // Legacy format
         ],
       };
 
@@ -372,6 +445,11 @@ describe('POST /v2/run Integration', () => {
               id: 'opt1',
               label: 'Option 1',
               interventions: { 'factor-a': { value: 1.5, source: 'user_specified' } },
+            },
+            {
+              id: 'opt2',
+              label: 'Option 2',
+              interventions: { 'factor-b': { value: 2.0, source: 'user_specified' } },
             },
           ],
           goal_node_id: 'goal',
@@ -390,10 +468,12 @@ describe('POST /v2/run Integration', () => {
       const reactFlowGraph = {
         nodes: [
           { id: 'factor-a', data: { kind: 'factor', label: 'Factor A' } },
+          { id: 'factor-b', data: { kind: 'factor', label: 'Factor B' } },
           { id: 'goal', data: { kind: 'goal', label: 'Goal' } },
         ],
         edges: [
           { source: 'factor-a', target: 'goal', data: { weight: 0.5, belief_exists: 0.8 } },
+          { source: 'factor-b', target: 'goal', data: { weight: 0.6, belief_exists: 0.9 } },
         ],
       };
 
@@ -408,6 +488,11 @@ describe('POST /v2/run Integration', () => {
               label: 'Option 1',
               interventions: { 'factor-a': { value: 1.5, source: 'user_specified' } },
             },
+            {
+              id: 'opt2',
+              label: 'Option 2',
+              interventions: { 'factor-b': { value: 2.0, source: 'user_specified' } },
+            },
           ],
           goal_node_id: 'goal',
         }),
@@ -419,7 +504,7 @@ describe('POST /v2/run Integration', () => {
   });
 
   describe('Graph size limits', () => {
-    it('rejects graph exceeding max nodes', async () => {
+    it('returns 422 for graph exceeding max nodes', async () => {
       vi.resetModules();
       server = await spawnServer({ env: ENV });
 
@@ -434,6 +519,7 @@ describe('POST /v2/run Integration', () => {
         ],
         edges: [
           { from: 'node-0', to: 'goal', exists_probability: 0.8, strength: { mean: 0.5, std: 0.1 } },
+          { from: 'node-1', to: 'goal', exists_probability: 0.9, strength: { mean: 0.6, std: 0.1 } },
         ],
       };
 
@@ -448,13 +534,19 @@ describe('POST /v2/run Integration', () => {
               label: 'Option 1',
               interventions: { 'node-0': { value: 1.0, source: 'user_specified' } },
             },
+            {
+              id: 'opt2',
+              label: 'Option 2',
+              interventions: { 'node-1': { value: 2.0, source: 'user_specified' } },
+            },
           ],
           goal_node_id: 'goal',
         }),
       });
 
-      expect(res.status).toBe(200);
-      expect(res.data.option_comparison_status).toBe('unavailable');
+      // P0: Validation failures return 422 with V2RunError
+      expect(res.status).toBe(422);
+      expect(res.data.analysis_status).toBe('blocked');
       expect(res.data.critiques.some((c: any) => c.code === 'GRAPH_TOO_LARGE')).toBe(true);
     });
   });

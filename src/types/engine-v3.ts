@@ -210,7 +210,7 @@ export interface RunRequestV3 {
 
   /**
    * Decision paths to compare.
-   * REQUIRED for option comparison mode.
+   * REQUIRED for option comparison mode (minimum 2 options).
    * Each option must have non-empty interventions.
    */
   options: OptionV3[];
@@ -221,8 +221,12 @@ export interface RunRequestV3 {
    */
   goal_node_id: string;
 
-  /** Random seed for reproducibility */
-  seed?: number;
+  /**
+   * Random seed for reproducibility.
+   * Accept string (canonical) or number (legacy).
+   * Normalized to string internally.
+   */
+  seed?: string | number;
 
   /** Number of Monte Carlo samples (default: 1000) */
   n_samples?: number;
@@ -256,6 +260,8 @@ export type CritiqueSourceV3 = 'validation' | 'engine' | 'cee' | 'isl';
  */
 export type BlockerCode =
   | 'MISSING_GOAL_NODE'
+  | 'GOAL_NODE_NOT_IN_GRAPH'  // Canonical code for goal node validation
+  | 'GOAL_NODE_NOT_CAUSAL'    // Goal is a non-causal node (option/decision)
   | 'NO_OPTIONS'
   | 'EMPTY_INTERVENTIONS'
   | 'INVALID_INTERVENTION_TARGET'
@@ -297,13 +303,39 @@ export interface CritiqueV3 {
 // -----------------------------------------------------------------------------
 
 /**
- * Analysis status for each result type.
+ * Top-level analysis status.
+ * NOT UI vocabulary - specific to overall request outcome.
+ */
+export type TopLevelAnalysisStatus = 'computed' | 'partial' | 'failed' | 'blocked';
+
+/**
+ * Per-feature analysis status.
+ * UI vocabulary ONLY - used for option_comparison_status, robustness_status, drivers_status.
+ */
+export type PerFeatureStatus = 'computed' | 'unavailable' | 'skipped' | 'error';
+
+/**
+ * Legacy analysis status (V1 compatibility).
+ * @deprecated Use PerFeatureStatus for V2 responses.
  */
 export type AnalysisStatus =
   | 'available'
   | 'unavailable'
   | 'unavailable_legacy_contract'
   | 'failed';
+
+/**
+ * V2 Run Error response - returned on HTTP 422.
+ * NOT wrapped in error.v1 envelope (documented PoC exception).
+ */
+export interface V2RunError {
+  /** Always 'blocked' for 422 responses */
+  analysis_status: 'blocked';
+  /** Reason for blocking */
+  status_reason: string;
+  /** Structured critiques explaining the block */
+  critiques: CritiqueV3[];
+}
 
 /**
  * V2 Run Response with explicit status flags.
@@ -319,34 +351,70 @@ export interface RunResponseV3 {
   /** Request ID echo */
   request_id?: string;
 
-  /** Option comparison status */
-  option_comparison_status: AnalysisStatus;
-  /** Robustness analysis status */
-  robustness_status: AnalysisStatus;
-  /** Drivers analysis status */
-  drivers_status: AnalysisStatus;
+  /**
+   * Top-level analysis status.
+   * NOT UI vocabulary - specific to overall request outcome.
+   * - 'computed': All requested analyses completed successfully
+   * - 'partial': Some analyses completed, others failed/unavailable
+   * - 'failed': Analysis failed (e.g., ISL error, all samples NaN)
+   */
+  analysis_status: TopLevelAnalysisStatus;
 
-  /** Reason for unavailable status (if applicable) */
-  unavailable_reason?: string;
+  /**
+   * Reason for status (if not 'computed').
+   */
+  status_reason?: string;
+
+  /**
+   * Option comparison status.
+   * UI vocabulary: computed | unavailable | skipped | error
+   */
+  option_comparison_status: PerFeatureStatus;
+
+  /**
+   * Robustness analysis status.
+   * UI vocabulary: computed | unavailable | skipped | error
+   */
+  robustness_status: PerFeatureStatus;
+
+  /**
+   * Drivers analysis status.
+   * UI vocabulary: computed | unavailable | skipped | error
+   */
+  drivers_status: PerFeatureStatus;
+
+  /**
+   * ISL status echoed for debugging.
+   */
+  isl_analysis_status?: string;
+
+  /**
+   * ISL status reason echoed for debugging.
+   */
+  isl_status_reason?: string;
 
   /** All critiques (blockers and non-blockers) */
   critiques: CritiqueV3[];
 
-  /** Option comparison results (if available) */
+  /** Option comparison results (if status is 'computed') */
   option_comparison?: OptionComparisonResultV3[];
 
-  /** Edge sensitivity results (if available) */
+  /** Edge sensitivity results (if drivers_status is 'computed') */
   edge_sensitivity?: EdgeSensitivityResultV3[];
 
   /** Factor sensitivity results (if available) */
   factor_sensitivity?: FactorSensitivityResultV3[];
 
-  /** Overall robustness assessment (if available) */
+  /** Overall robustness assessment (if robustness_status is 'computed') */
   robustness?: RobustnessAssessmentV3;
+
+  /** Determinism hash of canonical request (semantic fields only) */
+  response_hash?: string;
 
   /** Processing metadata */
   meta: {
-    seed: number;
+    /** Seed used (always echoed as string) */
+    seed_used: string;
     n_samples: number;
     detail_level: string;
     latency_ms: number;
@@ -450,3 +518,15 @@ export const MAX_EDGES = 100;
 
 /** Preflight version (date-based) */
 export const PREFLIGHT_VERSION = '2025-12-26';
+
+/** Default seed (string format) */
+export const DEFAULT_SEED = '42';
+
+/**
+ * Non-causal node kinds to filter before ISL translation.
+ * Use exclusion-based filtering to avoid dropping new causal kinds.
+ */
+export const NON_CAUSAL_NODE_KINDS = ['option', 'decision'] as const;
+
+/** Minimum std for edge strength (to avoid division by zero) */
+export const MIN_STRENGTH_STD = 1e-6;

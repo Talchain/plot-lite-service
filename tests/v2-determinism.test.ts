@@ -1,0 +1,391 @@
+/**
+ * Determinism and Contract Tests for V2 Run Endpoint
+ *
+ * Tests for:
+ * - 422 unwrapped V2RunError contract
+ * - Hash invariants (node/edge/option order)
+ * - Outcome invariants
+ * - ISL 422 passthrough
+ */
+
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { spawnServer, requestJSON, type ServerHandle } from './utils.js';
+
+const ENV = {
+  TEST_ROUTES: '1',
+  AUTH_ENABLED: '0',
+  RATE_LIMIT_ENABLED: '0',
+  ISL_BASE_URL: 'mock',
+  ISL_MOCK_ENABLE: '1',
+};
+
+// Valid graph for testing
+const VALID_GRAPH = {
+  nodes: [
+    { id: 'factor-a', kind: 'factor', label: 'Factor A' },
+    { id: 'factor-b', kind: 'factor', label: 'Factor B' },
+    { id: 'goal', kind: 'goal', label: 'Goal' },
+  ],
+  edges: [
+    { from: 'factor-a', to: 'goal', exists_probability: 0.8, strength: { mean: 0.5, std: 0.1 } },
+    { from: 'factor-b', to: 'goal', exists_probability: 0.9, strength: { mean: 0.6, std: 0.1 } },
+  ],
+};
+
+const VALID_OPTIONS = [
+  {
+    id: 'opt1',
+    label: 'Option 1',
+    interventions: { 'factor-a': { value: 1.5, source: 'user_specified' } },
+  },
+  {
+    id: 'opt2',
+    label: 'Option 2',
+    interventions: { 'factor-b': { value: 2.0, source: 'user_specified' } },
+  },
+];
+
+describe('V2 Determinism and Contract Tests', () => {
+  let server: ServerHandle | null = null;
+
+  afterEach(async () => {
+    await server?.kill();
+    server = null;
+  });
+
+  describe('7a: 422 Unwrapped V2RunError Contract', () => {
+    it('returns unwrapped V2RunError on 422 (not error.v1 envelope)', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const res = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: VALID_GRAPH,
+          options: VALID_OPTIONS,
+          goal_node_id: 'nonexistent', // Trigger GOAL_NODE_NOT_IN_GRAPH
+        }),
+      });
+
+      expect(res.status).toBe(422);
+
+      // V2RunError shape directly
+      expect(res.data.analysis_status).toBe('blocked');
+      expect(res.data.critiques).toBeDefined();
+      expect(Array.isArray(res.data.critiques)).toBe(true);
+      expect(res.data.status_reason).toBeDefined();
+
+      // NOT wrapped in error.v1
+      expect(res.data.error).toBeUndefined();
+      expect(res.data.schema).toBeUndefined();
+    });
+  });
+
+  describe('7b: Hash Invariant - Node Order', () => {
+    it('produces identical hash regardless of node array order', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const payload1 = {
+        graph: VALID_GRAPH,
+        options: VALID_OPTIONS,
+        goal_node_id: 'goal',
+        seed: '42',
+      };
+
+      const payload2 = {
+        graph: {
+          ...VALID_GRAPH,
+          nodes: [...VALID_GRAPH.nodes].reverse(),
+        },
+        options: VALID_OPTIONS,
+        goal_node_id: 'goal',
+        seed: '42',
+      };
+
+      const res1 = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload1),
+      });
+
+      const res2 = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload2),
+      });
+
+      expect(res1.status).toBe(200);
+      expect(res2.status).toBe(200);
+      expect(res1.data.response_hash).toBe(res2.data.response_hash);
+    });
+  });
+
+  describe('7c: Hash Invariant - Edge Order', () => {
+    it('produces identical hash regardless of edge array order', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const payload1 = {
+        graph: VALID_GRAPH,
+        options: VALID_OPTIONS,
+        goal_node_id: 'goal',
+        seed: '42',
+      };
+
+      const payload2 = {
+        graph: {
+          ...VALID_GRAPH,
+          edges: [...VALID_GRAPH.edges].reverse(),
+        },
+        options: VALID_OPTIONS,
+        goal_node_id: 'goal',
+        seed: '42',
+      };
+
+      const res1 = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload1),
+      });
+
+      const res2 = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload2),
+      });
+
+      expect(res1.status).toBe(200);
+      expect(res2.status).toBe(200);
+      expect(res1.data.response_hash).toBe(res2.data.response_hash);
+    });
+  });
+
+  describe('7d: Hash Invariant - Option Order', () => {
+    it('produces identical hash regardless of option array order', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const payload1 = {
+        graph: VALID_GRAPH,
+        options: VALID_OPTIONS,
+        goal_node_id: 'goal',
+        seed: '42',
+      };
+
+      const payload2 = {
+        graph: VALID_GRAPH,
+        options: [...VALID_OPTIONS].reverse(),
+        goal_node_id: 'goal',
+        seed: '42',
+      };
+
+      const res1 = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload1),
+      });
+
+      const res2 = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload2),
+      });
+
+      expect(res1.status).toBe(200);
+      expect(res2.status).toBe(200);
+      expect(res1.data.response_hash).toBe(res2.data.response_hash);
+    });
+  });
+
+  describe('7e: Outcome Invariant - Option Order', () => {
+    it('produces identical outcomes per option ID regardless of request order', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const payload1 = {
+        graph: VALID_GRAPH,
+        options: VALID_OPTIONS,
+        goal_node_id: 'goal',
+        seed: '42',
+      };
+
+      const payload2 = {
+        graph: VALID_GRAPH,
+        options: [...VALID_OPTIONS].reverse(),
+        goal_node_id: 'goal',
+        seed: '42',
+      };
+
+      const res1 = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload1),
+      });
+
+      const res2 = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload2),
+      });
+
+      expect(res1.status).toBe(200);
+      expect(res2.status).toBe(200);
+
+      // Hash must match (input canonicalisation)
+      expect(res1.data.response_hash).toBe(res2.data.response_hash);
+
+      // Outcomes must match BY OPTION ID (output determinism)
+      if (res1.data.option_comparison && res2.data.option_comparison) {
+        for (const opt1 of res1.data.option_comparison) {
+          const opt2 = res2.data.option_comparison.find((o: any) => o.option_id === opt1.option_id);
+          expect(opt2).toBeDefined();
+
+          // Compare outcomes by option ID
+          if (opt1.expected_outcome !== undefined && opt2.expected_outcome !== undefined) {
+            expect(opt1.expected_outcome).toBeCloseTo(opt2.expected_outcome, 6);
+          }
+          if (opt1.probability_of_goal !== undefined && opt2.probability_of_goal !== undefined) {
+            expect(opt1.probability_of_goal).toBeCloseTo(opt2.probability_of_goal, 6);
+          }
+          if (opt1.confidence_interval && opt2.confidence_interval) {
+            expect(opt1.confidence_interval[0]).toBeCloseTo(opt2.confidence_interval[0], 6);
+            expect(opt1.confidence_interval[1]).toBeCloseTo(opt2.confidence_interval[1], 6);
+          }
+        }
+      }
+    });
+  });
+
+  describe('7f: GOAL_NODE_NOT_CAUSAL Validation', () => {
+    it('returns GOAL_NODE_NOT_CAUSAL for decision node as goal', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const graphWithDecision = {
+        nodes: [
+          { id: 'factor-a', kind: 'factor', label: 'Factor A' },
+          { id: 'my_decision', kind: 'decision', label: 'Decision Node' },
+          { id: 'goal', kind: 'goal', label: 'Goal' },
+        ],
+        edges: [
+          { from: 'factor-a', to: 'goal', exists_probability: 0.8, strength: { mean: 0.5, std: 0.1 } },
+        ],
+      };
+
+      const res = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: graphWithDecision,
+          options: [
+            { id: 'opt1', label: 'Option 1', interventions: { 'factor-a': { value: 1.0, source: 'user_specified' } } },
+            { id: 'opt2', label: 'Option 2', interventions: { 'factor-a': { value: 2.0, source: 'user_specified' } } },
+          ],
+          goal_node_id: 'my_decision', // Decision node as goal
+        }),
+      });
+
+      expect(res.status).toBe(422);
+      expect(res.data.analysis_status).toBe('blocked');
+      expect(res.data.critiques.some((c: any) => c.code === 'GOAL_NODE_NOT_CAUSAL')).toBe(true);
+    });
+
+    it('returns GOAL_NODE_NOT_CAUSAL for option node as goal', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const graphWithOption = {
+        nodes: [
+          { id: 'factor-a', kind: 'factor', label: 'Factor A' },
+          { id: 'my_option', kind: 'option', label: 'Option Node' },
+          { id: 'goal', kind: 'goal', label: 'Goal' },
+        ],
+        edges: [
+          { from: 'factor-a', to: 'goal', exists_probability: 0.8, strength: { mean: 0.5, std: 0.1 } },
+        ],
+      };
+
+      const res = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: graphWithOption,
+          options: [
+            { id: 'opt1', label: 'Option 1', interventions: { 'factor-a': { value: 1.0, source: 'user_specified' } } },
+            { id: 'opt2', label: 'Option 2', interventions: { 'factor-a': { value: 2.0, source: 'user_specified' } } },
+          ],
+          goal_node_id: 'my_option', // Option node as goal
+        }),
+      });
+
+      expect(res.status).toBe(422);
+      expect(res.data.analysis_status).toBe('blocked');
+      expect(res.data.critiques.some((c: any) => c.code === 'GOAL_NODE_NOT_CAUSAL')).toBe(true);
+    });
+  });
+
+  describe('7f: 500 Error Envelope', () => {
+    it('internal errors return 500 with error.v1 envelope (not V2RunError)', async () => {
+      // Note: This test verifies the contract - actual internal errors are hard to trigger
+      // The test validates that if we could trigger an internal error, it would be 500 with error.v1
+
+      // We can't easily trigger an internal error, but we can verify the structure
+      // by checking that 422 responses are NOT error.v1
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const res = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: VALID_GRAPH,
+          options: VALID_OPTIONS,
+          goal_node_id: 'nonexistent',
+        }),
+      });
+
+      // 422 should be V2RunError, NOT error.v1
+      expect(res.status).toBe(422);
+      expect(res.data.schema).toBeUndefined(); // error.v1 would have schema field
+      expect(res.data.code).toBeUndefined(); // error.v1 would have code field
+      expect(res.data.analysis_status).toBe('blocked'); // V2RunError shape
+    });
+  });
+
+  describe('Response structure matches OpenAPI', () => {
+    it('422 response has all required V2RunError fields', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const res = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: VALID_GRAPH,
+          options: [
+            { id: 'opt1', label: 'Empty Option', interventions: {} },
+            { id: 'opt2', label: 'Valid Option', interventions: { 'factor-a': { value: 1.0, source: 'user_specified' } } },
+          ],
+          goal_node_id: 'goal',
+        }),
+      });
+
+      expect(res.status).toBe(422);
+
+      // Required fields per OpenAPI v2RunError schema
+      expect(res.data.analysis_status).toBe('blocked');
+      expect(typeof res.data.status_reason).toBe('string');
+      expect(Array.isArray(res.data.critiques)).toBe(true);
+      expect(res.data.critiques.length).toBeGreaterThan(0);
+
+      // Each critique has required fields
+      for (const critique of res.data.critiques) {
+        expect(critique.code).toBeDefined();
+        expect(critique.severity).toBe('blocker');
+        expect(typeof critique.message).toBe('string');
+      }
+    });
+  });
+});

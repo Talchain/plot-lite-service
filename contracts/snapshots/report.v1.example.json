@@ -66,6 +66,7 @@
     "status": "low_discrimination",
     "status_reason": "Edge sensitivities are similar - outcomes may not differentiate well between options"
   },
+  "drivers_status": "unavailable",
   "enrichment": {
     "metadata": {
       "detail_level": "standard",
@@ -296,6 +297,7 @@
     },
     "seed": 42
   },
+  "option_comparison_status": "unavailable_legacy_contract",
   "result": {
     "response_hash": "de96956c7db88a130173bed6c9b72f8bf680b91df451c80087f588b3961bf7ba",
     "summary": {
@@ -315,6 +317,7 @@
       "outcome": 105
     }
   },
+  "robustness_status": "unavailable",
   "schema": "run.v1",
   "sensitivity_summary": {
     "concentration": "diffuse",

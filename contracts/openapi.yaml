@@ -3483,22 +3483,37 @@ paths:
         - Options are intervention bundles (not graph nodes)
         - Strict preflight validation with BLOCKER critiques
         - No intervention synthesis - requires explicit interventions
-        - Option nodes filtered from graph before analysis
+        - Option/decision nodes filtered from graph before analysis
 
         **Required Fields**:
         - `graph`: Causal graph with nodes and edges
-        - `options`: Array of intervention bundles (min 1)
+        - `options`: Array of intervention bundles (min 2 for comparison)
         - `goal_node_id`: Target node for outcome measurement
+        - `seed`: Random seed (accepts string or number, normalised to string internally)
 
-        **Response Status Fields**:
-        - `option_comparison_status`: 'available' | 'unavailable'
-        - `robustness_status`: 'available' | 'unavailable'
-        - `drivers_status`: 'available' | 'unavailable'
+        **Top-Level Status** (NOT UI vocabulary):
+        - `analysis_status`: 'computed' | 'partial' | 'failed' (HTTP 200) or 'blocked' (HTTP 422)
+
+        **Per-Feature Status** (UI vocabulary ONLY):
+        - `option_comparison_status`: 'computed' | 'unavailable' | 'skipped' | 'error'
+        - `robustness_status`: 'computed' | 'unavailable' | 'skipped' | 'error'
+        - `drivers_status`: 'computed' | 'unavailable' | 'skipped' | 'error'
+
+        **Response Hash**:
+        - `response_hash`: 16-char hex hash computed from semantic fields only (for determinism)
+
+        **Seed Handling**:
+        - Accept string (canonical) or number (legacy)
+        - Normalise to string internally
+        - Echo as `meta.seed_used` (always string, e.g., "42")
+
+        **422 Envelope Exception**:
+        This endpoint returns unwrapped V2RunError on 422, NOT wrapped in error.v1 envelope.
+        This is a documented PoC exception.
 
         **Preflight Validation**:
-        All validation failures return BLOCKER critiques. Analysis only proceeds
-        if preflight passes. Blocker codes include:
-        - MISSING_GOAL_NODE
+        All validation failures return BLOCKER critiques with HTTP 422. Blocker codes:
+        - GOAL_NODE_NOT_IN_GRAPH
         - NO_OPTIONS
         - EMPTY_INTERVENTIONS
         - INVALID_INTERVENTION_TARGET
@@ -3547,8 +3562,9 @@ paths:
                       interventions:
                         budget: { value: 200000 }
                   goal_node_id: "revenue"
-                  seed: 42
+                  seed: "42"
                   n_samples: 1000
+                  detail_level: "deep"
       responses:
         '200':
           description: OK - Analysis complete (may be available or unavailable)
@@ -3557,16 +3573,17 @@ paths:
               schema:
                 $ref: '#/components/schemas/runResponseV3'
               examples:
-                available:
-                  summary: Analysis available
+                computed:
+                  summary: Analysis fully computed
                   value:
                     request_schema_version: "v3"
                     endpoint_version: "v2/run"
                     preflight_version: "2025-12-26"
                     request_id: "req-abc123"
-                    option_comparison_status: "available"
-                    robustness_status: "available"
-                    drivers_status: "available"
+                    analysis_status: "computed"
+                    option_comparison_status: "computed"
+                    robustness_status: "computed"
+                    drivers_status: "computed"
                     critiques: []
                     option_comparison:
                       - option_id: "opt1"
@@ -3579,37 +3596,39 @@ paths:
                         expected_outcome: 220000
                         confidence_interval: [180000, 260000]
                         probability_of_goal: 0.85
+                    response_hash: "a1b2c3d4e5f67890"
                     meta:
-                      seed: 42
+                      seed_used: "42"
                       n_samples: 1000
                       detail_level: "standard"
                       latency_ms: 245
-                preflight_failed:
-                  summary: Preflight validation failed
+                partial:
+                  summary: Some analyses computed, others unavailable
                   value:
                     request_schema_version: "v3"
                     endpoint_version: "v2/run"
                     preflight_version: "2025-12-26"
-                    request_id: "req-xyz789"
-                    option_comparison_status: "unavailable"
+                    request_id: "req-abc123"
+                    analysis_status: "partial"
+                    status_reason: "Robustness analysis unavailable"
+                    option_comparison_status: "computed"
                     robustness_status: "unavailable"
-                    drivers_status: "unavailable"
-                    unavailable_reason: "preflight_validation_failed"
-                    critiques:
-                      - id: "crit-001"
-                        code: "NO_PATH_TO_GOAL"
-                        severity: "blocker"
-                        message: "Option 'Increase Budget' has no causal effect on the goal."
-                        source: "validation"
-                        affected_option_ids: ["opt1"]
-                        blocks_analysis: true
+                    drivers_status: "computed"
+                    critiques: []
+                    option_comparison:
+                      - option_id: "opt1"
+                        option_label: "Increase Budget"
+                        expected_outcome: 150000
+                        confidence_interval: [120000, 180000]
+                        probability_of_goal: 0.72
+                    response_hash: "a1b2c3d4e5f67890"
                     meta:
-                      seed: 42
+                      seed_used: "42"
                       n_samples: 1000
                       detail_level: "standard"
-                      latency_ms: 15
+                      latency_ms: 245
         '400':
-          description: Bad Request - Invalid input
+          description: Bad Request - Invalid input (schema validation)
           content:
             application/json:
               schema:
@@ -3620,6 +3639,53 @@ paths:
                     schema: error.v1
                     code: BAD_INPUT
                     message: "body must have required property 'goal_node_id'"
+        '422':
+          description: Unprocessable Entity - Preflight validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/v2RunError'
+              examples:
+                goal_not_in_graph:
+                  summary: Goal node not found
+                  value:
+                    analysis_status: "blocked"
+                    status_reason: "Goal node \"nonexistent\" not found in graph"
+                    critiques:
+                      - id: "crit-001"
+                        code: "GOAL_NODE_NOT_IN_GRAPH"
+                        severity: "blocker"
+                        message: "Goal node \"nonexistent\" not found in graph. Select an existing node as the goal, or add the goal node to the graph."
+                        source: "validation"
+                        affected_node_ids: ["nonexistent"]
+                        blocks_analysis: true
+                goal_not_causal:
+                  summary: Goal node is a non-causal type (option/decision)
+                  value:
+                    analysis_status: "blocked"
+                    status_reason: "Goal node \"my_decision\" is a decision node"
+                    critiques:
+                      - id: "crit-003"
+                        code: "GOAL_NODE_NOT_CAUSAL"
+                        severity: "blocker"
+                        message: "Goal node \"my_decision\" is a decision node, which cannot be used as an analysis target. Select a factor, outcome, risk, or goal node as the analysis target."
+                        source: "validation"
+                        affected_node_ids: ["my_decision"]
+                        blocks_analysis: true
+                invalid_intervention_target:
+                  summary: Intervention targets non-existent node
+                  value:
+                    analysis_status: "blocked"
+                    status_reason: "Preflight validation failed"
+                    critiques:
+                      - id: "crit-002"
+                        code: "INVALID_INTERVENTION_TARGET"
+                        severity: "blocker"
+                        message: "Option 'Bad Option' intervenes on node 'nonexistent_node' which does not exist."
+                        source: "validation"
+                        affected_option_ids: ["option_bad"]
+                        affected_node_ids: ["nonexistent_node"]
+                        blocks_analysis: true
 
 
 components:
@@ -5076,9 +5142,26 @@ components:
             max:
               type: number
 
+    v2RunError:
+      type: object
+      required: [analysis_status, status_reason, critiques]
+      description: V2 run error response (unwrapped, NOT error.v1 envelope)
+      properties:
+        analysis_status:
+          type: string
+          enum: ['blocked']
+          description: Always 'blocked' for 422 responses
+        status_reason:
+          type: string
+          description: Reason for blocking
+        critiques:
+          type: array
+          items:
+            $ref: '#/components/schemas/critiqueV3'
+
     runResponseV3:
       type: object
-      required: [request_schema_version, endpoint_version, preflight_version, request_id, option_comparison_status, robustness_status, drivers_status, critiques, meta]
+      required: [request_schema_version, endpoint_version, preflight_version, request_id, analysis_status, option_comparison_status, robustness_status, drivers_status, critiques, meta]
       properties:
         request_schema_version:
           type: string
@@ -5091,18 +5174,34 @@ components:
           description: Date-based version of preflight validation
         request_id:
           type: string
+        analysis_status:
+          type: string
+          enum: [computed, partial, failed]
+          description: Top-level status (NOT UI vocabulary)
+        status_reason:
+          type: string
+          description: Reason when status is not 'computed'
         option_comparison_status:
           type: string
-          enum: [available, unavailable]
+          enum: [computed, unavailable, skipped, error]
+          description: Per-feature status (UI vocabulary)
         robustness_status:
           type: string
-          enum: [available, unavailable]
+          enum: [computed, unavailable, skipped, error]
+          description: Per-feature status (UI vocabulary)
         drivers_status:
           type: string
-          enum: [available, unavailable]
-        unavailable_reason:
+          enum: [computed, unavailable, skipped, error]
+          description: Per-feature status (UI vocabulary)
+        isl_analysis_status:
           type: string
-          description: Reason when any status is unavailable
+          description: ISL status echoed for debugging
+        isl_status_reason:
+          type: string
+          description: ISL status reason echoed for debugging
+        response_hash:
+          type: string
+          description: 16-char hex hash of canonical request (semantic fields only)
         critiques:
           type: array
           items:
@@ -5175,9 +5274,11 @@ components:
               type: string
         meta:
           type: object
+          required: [seed_used, n_samples, detail_level, latency_ms]
           properties:
-            seed:
-              type: number
+            seed_used:
+              type: string
+              description: Seed used (always echoed as string, e.g., "42")
             n_samples:
               type: number
             detail_level:

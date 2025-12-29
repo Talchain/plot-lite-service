@@ -82,6 +82,9 @@ function createWarning(
 
 /**
  * Validate goal node exists in graph.
+ *
+ * Returns MISSING_GOAL_NODE if goal_node_id is empty/undefined.
+ * Returns GOAL_NODE_NOT_IN_GRAPH if goal node doesn't exist in graph.
  */
 function validateGoalNode(
   graph: EngineGraphV3,
@@ -89,6 +92,7 @@ function validateGoalNode(
 ): CritiqueV3[] {
   const critiques: CritiqueV3[] = [];
 
+  // Check if goal_node_id is provided
   if (!goalNodeId || goalNodeId.trim() === '') {
     critiques.push(
       createBlocker(
@@ -99,12 +103,13 @@ function validateGoalNode(
     return critiques;
   }
 
+  // Check if goal node exists in graph
   const nodeIds = new Set(graph.nodes.map((n) => n.id));
   if (!nodeIds.has(goalNodeId)) {
     critiques.push(
       createBlocker(
-        'MISSING_GOAL_NODE',
-        `Goal node '${goalNodeId}' does not exist in the graph.`,
+        'GOAL_NODE_NOT_IN_GRAPH',
+        `Goal node "${goalNodeId}" not found in graph. Select an existing node as the goal, or add the goal node to the graph.`,
         undefined,
         [goalNodeId]
       )

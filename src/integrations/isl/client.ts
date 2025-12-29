@@ -8,7 +8,7 @@
  * - Error classification
  */
 
-import { ISLHttpError, ISLTimeoutError, ISLNetworkError, isRetryableError } from './errors.js';
+import { ISLHttpError, ISLTimeoutError, ISLNetworkError, isRetryableError, type ISLError422 } from './errors.js';
 import { computeOlumiHash } from '../../util/canonical.js';
 import { recordDownstreamCall } from '../../util/downstream-tracker.js';
 
@@ -84,6 +84,8 @@ export class ISLClient {
             'X-API-Key': this.config.apiKey,
             'X-Request-Id': requestId,
             'x-olumi-payload-hash': payloadHash,
+            // P0-PLOT-2: Request ISL V2 responses
+            'X-ISL-Response-Version': '2',
           },
           body: JSON.stringify(body),
           signal: controller.signal,
@@ -114,6 +116,19 @@ export class ISLClient {
             requestId,
           });
           const errorBody = await response.text();
+
+          // P0-PLOT-3: Parse ISL 422 as structured result
+          // 422 contains structured critiques that should be passed through
+          if (response.status === 422) {
+            try {
+              const islError = JSON.parse(errorBody) as ISLError422;
+              throw new ISLHttpError(response.status, errorBody, endpoint, islError);
+            } catch (parseErr) {
+              // If parsing fails, throw generic error
+              throw new ISLHttpError(response.status, errorBody, endpoint);
+            }
+          }
+
           throw new ISLHttpError(response.status, errorBody, endpoint);
         }
 

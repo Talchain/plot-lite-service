@@ -161,6 +161,7 @@ describe('V2 Run Golden Scenarios', () => {
           graph: {
             nodes: [
               { id: 'factor-a', kind: 'factor', label: 'Factor A' },
+              { id: 'factor-b', kind: 'factor', label: 'Factor B' },
               { id: 'goal', kind: 'goal', label: 'Goal' },
               // Legacy option nodes that should be filtered
               { id: 'legacy-opt-1', kind: 'option', label: 'Legacy Option 1' },
@@ -168,6 +169,7 @@ describe('V2 Run Golden Scenarios', () => {
             ],
             edges: [
               { from: 'factor-a', to: 'goal', exists_probability: 0.9, strength: { mean: 0.6, std: 0.1 } },
+              { from: 'factor-b', to: 'goal', exists_probability: 0.85, strength: { mean: 0.5, std: 0.1 } },
               // Edges incident to option nodes should be filtered
               { from: 'legacy-opt-1', to: 'goal', exists_probability: 0.7, strength: { mean: 0.3, std: 0.1 } },
               { from: 'legacy-opt-2', to: 'goal', exists_probability: 0.6, strength: { mean: 0.4, std: 0.1 } },
@@ -181,6 +183,13 @@ describe('V2 Run Golden Scenarios', () => {
                 'factor-a': { value: 1.5, source: 'user_specified' },
               },
             },
+            {
+              id: 'opt2',
+              label: 'New Option 2',
+              interventions: {
+                'factor-b': { value: 2.0, source: 'user_specified' },
+              },
+            },
           ],
           goal_node_id: 'goal',
         }),
@@ -189,8 +198,7 @@ describe('V2 Run Golden Scenarios', () => {
       expect(res.status).toBe(200);
 
       // Should succeed without blockers - option nodes were filtered
-      const blockers = res.data.critiques.filter((c: any) => c.severity === 'blocker');
-      expect(blockers.length).toBe(0);
+      expect(['computed', 'partial', 'failed']).toContain(res.data.analysis_status);
 
       // The response should not contain references to filtered option nodes
       if (res.data.option_comparison) {
@@ -205,11 +213,11 @@ describe('V2 Run Golden Scenarios', () => {
   /**
    * Scenario 3: Preflight Validation Blockers
    *
-   * The endpoint should return 200 with blocker critiques (not 4xx)
-   * when validation fails, allowing the UI to display helpful messages.
+   * P0: The endpoint returns 422 with V2RunError when preflight validation fails.
+   * This is NOT wrapped in error.v1 envelope.
    */
   describe('Scenario 3: Preflight Validation Blockers', () => {
-    it('returns MISSING_GOAL_NODE when goal not in graph', async () => {
+    it('returns 422 with GOAL_NODE_NOT_IN_GRAPH when goal not in graph', async () => {
       vi.resetModules();
       server = await spawnServer({ env: ENV });
 
@@ -218,7 +226,10 @@ describe('V2 Run Golden Scenarios', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           graph: {
-            nodes: [{ id: 'factor-a', kind: 'factor', label: 'Factor A' }],
+            nodes: [
+              { id: 'factor-a', kind: 'factor', label: 'Factor A' },
+              { id: 'factor-b', kind: 'factor', label: 'Factor B' },
+            ],
             edges: [],
           },
           options: [
@@ -227,21 +238,27 @@ describe('V2 Run Golden Scenarios', () => {
               label: 'Option 1',
               interventions: { 'factor-a': { value: 1.0, source: 'user_specified' } },
             },
+            {
+              id: 'opt2',
+              label: 'Option 2',
+              interventions: { 'factor-b': { value: 2.0, source: 'user_specified' } },
+            },
           ],
           goal_node_id: 'nonexistent-goal',
         }),
       });
 
-      expect(res.status).toBe(200);
-      expect(res.data.option_comparison_status).toBe('unavailable');
-      expect(res.data.unavailable_reason).toBe('preflight_validation_failed');
+      // P0: Returns 422 with V2RunError
+      expect(res.status).toBe(422);
+      expect(res.data.analysis_status).toBe('blocked');
+      expect(res.data.status_reason).toBeDefined();
 
-      const blocker = res.data.critiques.find((c: any) => c.code === 'MISSING_GOAL_NODE');
+      const blocker = res.data.critiques.find((c: any) => c.code === 'GOAL_NODE_NOT_IN_GRAPH');
       expect(blocker).toBeDefined();
       expect(blocker.severity).toBe('blocker');
     });
 
-    it('returns NO_PATH_TO_GOAL when intervention cannot affect goal', async () => {
+    it('returns 422 with NO_PATH_TO_GOAL when intervention cannot affect goal', async () => {
       vi.resetModules();
       server = await spawnServer({ env: ENV });
 
@@ -269,19 +286,27 @@ describe('V2 Run Golden Scenarios', () => {
                 'isolated-factor': { value: 1.0, source: 'user_specified' },
               },
             },
+            {
+              id: 'opt2',
+              label: 'Connected Option',
+              interventions: {
+                'connected-factor': { value: 2.0, source: 'user_specified' },
+              },
+            },
           ],
           goal_node_id: 'goal',
         }),
       });
 
-      expect(res.status).toBe(200);
-      expect(res.data.option_comparison_status).toBe('unavailable');
+      // P0: Returns 422 with V2RunError
+      expect(res.status).toBe(422);
+      expect(res.data.analysis_status).toBe('blocked');
 
       const blocker = res.data.critiques.find((c: any) => c.code === 'NO_PATH_TO_GOAL');
       expect(blocker).toBeDefined();
     });
 
-    it('returns IDENTICAL_OPTIONS when options have same interventions', async () => {
+    it('returns 422 with IDENTICAL_OPTIONS when options have same interventions', async () => {
       vi.resetModules();
       server = await spawnServer({ env: ENV });
 
@@ -315,14 +340,15 @@ describe('V2 Run Golden Scenarios', () => {
         }),
       });
 
-      expect(res.status).toBe(200);
-      expect(res.data.option_comparison_status).toBe('unavailable');
+      // P0: Returns 422 with V2RunError
+      expect(res.status).toBe(422);
+      expect(res.data.analysis_status).toBe('blocked');
 
       const blocker = res.data.critiques.find((c: any) => c.code === 'IDENTICAL_OPTIONS');
       expect(blocker).toBeDefined();
     });
 
-    it('returns EMPTY_INTERVENTIONS when option has no interventions', async () => {
+    it('returns 422 with EMPTY_INTERVENTIONS when option has no interventions', async () => {
       vi.resetModules();
       server = await spawnServer({ env: ENV });
 
@@ -345,13 +371,19 @@ describe('V2 Run Golden Scenarios', () => {
               label: 'Empty Option',
               interventions: {}, // No interventions
             },
+            {
+              id: 'opt2',
+              label: 'Valid Option',
+              interventions: { 'factor-a': { value: 1.0, source: 'user_specified' } },
+            },
           ],
           goal_node_id: 'goal',
         }),
       });
 
-      expect(res.status).toBe(200);
-      expect(res.data.option_comparison_status).toBe('unavailable');
+      // P0: Returns 422 with V2RunError
+      expect(res.status).toBe(422);
+      expect(res.data.analysis_status).toBe('blocked');
 
       const blocker = res.data.critiques.find((c: any) => c.code === 'EMPTY_INTERVENTIONS');
       expect(blocker).toBeDefined();
@@ -376,10 +408,12 @@ describe('V2 Run Golden Scenarios', () => {
           graph: {
             nodes: [
               { id: 'factor-a', data: { kind: 'factor', label: 'Factor A' } },
+              { id: 'factor-b', data: { kind: 'factor', label: 'Factor B' } },
               { id: 'goal', data: { kind: 'goal', label: 'Goal' } },
             ],
             edges: [
               { source: 'factor-a', target: 'goal', data: { weight: 0.7, belief_exists: 0.9 } },
+              { source: 'factor-b', target: 'goal', data: { weight: 0.6, belief_exists: 0.85 } },
             ],
           },
           options: [
@@ -388,13 +422,18 @@ describe('V2 Run Golden Scenarios', () => {
               label: 'Option 1',
               interventions: { 'factor-a': { value: 1.0, source: 'user_specified' } },
             },
+            {
+              id: 'opt2',
+              label: 'Option 2',
+              interventions: { 'factor-b': { value: 2.0, source: 'user_specified' } },
+            },
           ],
           goal_node_id: 'goal',
         }),
       });
 
       expect(res.status).toBe(200);
-      expect(res.data.critiques.filter((c: any) => c.severity === 'blocker').length).toBe(0);
+      expect(['computed', 'partial', 'failed']).toContain(res.data.analysis_status);
     });
 
     it('normalizes legacy edge format (weight, belief_exists)', async () => {
@@ -408,6 +447,7 @@ describe('V2 Run Golden Scenarios', () => {
           graph: {
             nodes: [
               { id: 'factor-a', kind: 'factor', label: 'Factor A' },
+              { id: 'factor-b', kind: 'factor', label: 'Factor B' },
               { id: 'goal', kind: 'goal', label: 'Goal' },
             ],
             edges: [
@@ -418,6 +458,13 @@ describe('V2 Run Golden Scenarios', () => {
                 belief_exists: 0.85,
                 strength_std: 0.12,
               },
+              {
+                from: 'factor-b',
+                to: 'goal',
+                weight: 0.5,
+                belief_exists: 0.9,
+                strength_std: 0.1,
+              },
             ],
           },
           options: [
@@ -426,13 +473,18 @@ describe('V2 Run Golden Scenarios', () => {
               label: 'Option 1',
               interventions: { 'factor-a': { value: 1.0, source: 'user_specified' } },
             },
+            {
+              id: 'opt2',
+              label: 'Option 2',
+              interventions: { 'factor-b': { value: 2.0, source: 'user_specified' } },
+            },
           ],
           goal_node_id: 'goal',
         }),
       });
 
       expect(res.status).toBe(200);
-      expect(res.data.critiques.filter((c: any) => c.severity === 'blocker').length).toBe(0);
+      expect(['computed', 'partial', 'failed']).toContain(res.data.analysis_status);
     });
 
     it('normalizes EdgeV2.2 format (exists_probability, strength object)', async () => {
@@ -446,6 +498,7 @@ describe('V2 Run Golden Scenarios', () => {
           graph: {
             nodes: [
               { id: 'factor-a', kind: 'factor', label: 'Factor A' },
+              { id: 'factor-b', kind: 'factor', label: 'Factor B' },
               { id: 'goal', kind: 'goal', label: 'Goal' },
             ],
             edges: [
@@ -455,6 +508,12 @@ describe('V2 Run Golden Scenarios', () => {
                 exists_probability: 0.9,
                 strength: { mean: 0.7, std: 0.1 },
               },
+              {
+                from: 'factor-b',
+                to: 'goal',
+                exists_probability: 0.85,
+                strength: { mean: 0.6, std: 0.1 },
+              },
             ],
           },
           options: [
@@ -463,13 +522,18 @@ describe('V2 Run Golden Scenarios', () => {
               label: 'Option 1',
               interventions: { 'factor-a': { value: 1.0, source: 'user_specified' } },
             },
+            {
+              id: 'opt2',
+              label: 'Option 2',
+              interventions: { 'factor-b': { value: 2.0, source: 'user_specified' } },
+            },
           ],
           goal_node_id: 'goal',
         }),
       });
 
       expect(res.status).toBe(200);
-      expect(res.data.critiques.filter((c: any) => c.severity === 'blocker').length).toBe(0);
+      expect(['computed', 'partial', 'failed']).toContain(res.data.analysis_status);
     });
   });
 });
