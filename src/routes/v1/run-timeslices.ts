@@ -13,6 +13,8 @@ interface SliceOverride {
   edges?: Array<{ from: string; to: string; [key: string]: any }>;
 }
 
+import { MAX_NODES, MAX_EDGES } from '../../constants/limits.js';
+
 interface RunTimeslicesRequest {
   graph: { nodes: any[]; edges: any[] };
   timeslices: string[];
@@ -22,8 +24,6 @@ interface RunTimeslicesRequest {
   seed?: number;
 }
 
-const MAX_NODES = 50;
-const MAX_EDGES = 200;
 const MAX_TIMESLICES = 12;
 
 export async function registerRunTimeslicesRoute(app: FastifyInstance) {

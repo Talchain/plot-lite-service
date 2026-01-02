@@ -13,6 +13,7 @@ import type { InferenceEngine, InferenceConfig, InferenceResult } from './types.
 import { runSCMLite } from '../scm-lite/adapter.js';
 import { applyPriorsToGraph } from './apply-priors.js';
 import { applyEdgeFunction } from '../engine/edge-functions.js';
+import { MAX_NODES, MAX_EDGES } from '../constants/limits.js';
 
 export class ModelBasedInference implements InferenceEngine {
   name = 'model_based';
@@ -38,8 +39,8 @@ export class ModelBasedInference implements InferenceEngine {
       const scmConfig = {
         seed,
         K: k_samples || Number(process.env.SCM_LITE_K || 256),
-        maxNodes: Number(process.env.SCM_LITE_MAX_NODES || 50),
-        maxEdges: Number(process.env.SCM_LITE_MAX_EDGES || 200),
+        maxNodes: Number(process.env.SCM_LITE_MAX_NODES || MAX_NODES),
+        maxEdges: Number(process.env.SCM_LITE_MAX_EDGES || MAX_EDGES),
         beliefDefault: Number(process.env.SCM_LITE_BELIEF_DEFAULT || 0.7),
         // Adaptive K early-stopping
         adaptiveK,

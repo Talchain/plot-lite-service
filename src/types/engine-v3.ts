@@ -7,6 +7,14 @@
  * @see Integration Alignment Implementation Brief v1.1
  */
 
+// Import canonical limits from single source of truth
+import {
+  LIMITS,
+  MAX_NODES as LIMITS_MAX_NODES,
+  MAX_EDGES as LIMITS_MAX_EDGES,
+  MAX_OPTIONS as LIMITS_MAX_OPTIONS,
+} from '../constants/limits.js';
+
 // -----------------------------------------------------------------------------
 // Node Kinds
 // -----------------------------------------------------------------------------
@@ -263,6 +271,7 @@ export type BlockerCode =
   | 'GOAL_NODE_NOT_IN_GRAPH'  // Canonical code for goal node validation
   | 'GOAL_NODE_NOT_CAUSAL'    // Goal is a non-causal node (option/decision)
   | 'NO_OPTIONS'
+  | 'TOO_MANY_OPTIONS'        // Options exceed MAX_OPTIONS limit
   | 'EMPTY_INTERVENTIONS'
   | 'INVALID_INTERVENTION_TARGET'
   | 'INVALID_INTERVENTION_VALUE'
@@ -510,11 +519,17 @@ export interface PreflightResultV3 {
 /** Valid node ID pattern */
 export const NODE_ID_PATTERN = /^[a-z0-9_:-]+$/;
 
-/** Maximum nodes allowed */
-export const MAX_NODES = 50;
+/** Maximum nodes allowed - re-exported from single source of truth */
+export const MAX_NODES = LIMITS_MAX_NODES;
 
-/** Maximum edges allowed */
-export const MAX_EDGES = 100;
+/** Maximum edges allowed - re-exported from single source of truth */
+export const MAX_EDGES = LIMITS_MAX_EDGES;
+
+/** Maximum options allowed - re-exported from single source of truth */
+export const MAX_OPTIONS = LIMITS_MAX_OPTIONS;
+
+// Also export the LIMITS object for consumers who prefer it
+export { LIMITS };
 
 /** Preflight version (date-based) */
 export const PREFLIGHT_VERSION = '2025-12-26';

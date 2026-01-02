@@ -49,13 +49,24 @@ function normaliseValue(value: number): number {
  * @returns Canonical string representation
  */
 export function canonicaliseInterventions(
-  interventions: Record<string, InterventionValueV3>
+  interventions: Record<string, InterventionValueV3 | number>
 ): string {
   // Extract node_id → value pairs
+  // Supports both flat format { factor_id: 59 } and nested { factor_id: { value: 59 } }
   const pairs: Array<[string, number]> = [];
 
-  for (const [nodeId, intervention] of Object.entries(interventions)) {
-    pairs.push([nodeId, normaliseValue(intervention.value)]);
+  for (const [nodeId, rawIntervention] of Object.entries(interventions)) {
+    // Handle flat format (number), nested format ({ value }), and invalid (null/undefined)
+    let value: number;
+    if (typeof rawIntervention === 'number') {
+      value = rawIntervention;
+    } else if (rawIntervention && typeof rawIntervention.value === 'number') {
+      value = rawIntervention.value;
+    } else {
+      // Invalid intervention - use NaN so it won't match anything valid
+      value = NaN;
+    }
+    pairs.push([nodeId, normaliseValue(value)]);
   }
 
   // Sort by node_id for deterministic ordering

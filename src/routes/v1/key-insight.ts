@@ -32,9 +32,8 @@ import type {
 import type { RankingConfidence } from './types/run-bundle.types.js';
 import type { NodeKind } from '../../trust/types.js';
 import { VALID_NODE_KINDS } from '../../trust/types.js';
+import { MAX_NODES, MAX_EDGES } from '../../constants/limits.js';
 
-const MAX_NODES = 50;
-const MAX_EDGES = 200;
 const DEFAULT_K_SAMPLES = 32;
 const CEE_TIMEOUT_MS = Number(process.env.CEE_TIMEOUT_MS || 10_000);
 

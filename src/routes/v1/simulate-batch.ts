@@ -28,14 +28,15 @@ import type {
   SimulationTraces,
 } from '../../sampling/types.js';
 import { SAMPLING_CONFIG_VERSION } from '../../sampling/types.js';
+import { MAX_NODES, MAX_EDGES } from '../../constants/limits.js';
 
 /**
  * Configuration limits
  */
 const LIMITS = {
   MAX_PERTURBATIONS: 100,
-  MAX_NODES: 50,
-  MAX_EDGES: 200,
+  MAX_NODES,
+  MAX_EDGES,
   MAX_SAMPLES: 10000,
   DEFAULT_SAMPLES: 256,
 };

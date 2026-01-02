@@ -94,6 +94,113 @@ describe('Preflight Validation', () => {
     });
   });
 
+  describe('Intervention Format Normalisation', () => {
+    it('accepts nested format { factor_id: { value: 59 } }', () => {
+      const optionsNested: OptionV3[] = [
+        {
+          id: 'opt1',
+          label: 'Option 1',
+          interventions: {
+            'factor-a': { value: 59, source: 'user_specified' },
+          },
+        },
+        {
+          id: 'opt2',
+          label: 'Option 2',
+          interventions: {
+            'factor-a': { value: 49, source: 'user_specified' },
+          },
+        },
+      ];
+
+      const result = runPreflightValidation(validGraph, optionsNested, 'goal', defaultStats);
+
+      expect(result.blockers.some(b => b.code === 'INVALID_INTERVENTION_VALUE')).toBe(false);
+    });
+
+    it('accepts flat format { factor_id: 59 }', () => {
+      // Use 'as any' to bypass TypeScript strict typing for flat format
+      const optionsFlat = [
+        {
+          id: 'opt1',
+          label: 'Option 1',
+          interventions: {
+            'factor-a': 59,
+          },
+        },
+        {
+          id: 'opt2',
+          label: 'Option 2',
+          interventions: {
+            'factor-a': 49,
+          },
+        },
+      ] as OptionV3[];
+
+      const result = runPreflightValidation(validGraph, optionsFlat, 'goal', defaultStats);
+
+      expect(result.blockers.some(b => b.code === 'INVALID_INTERVENTION_VALUE')).toBe(false);
+      expect(result.blockers.some(b => b.code === 'EMPTY_INTERVENTIONS')).toBe(false);
+    });
+
+    it('rejects invalid values (null, undefined, NaN)', () => {
+      const optionsInvalid = [
+        {
+          id: 'opt1',
+          label: 'Option 1',
+          interventions: {
+            'factor-a': null,
+          },
+        },
+      ] as unknown as OptionV3[];
+
+      const result = runPreflightValidation(validGraph, optionsInvalid, 'goal', defaultStats);
+
+      expect(result.passed).toBe(false);
+      expect(result.blockers.some(b => b.code === 'INVALID_INTERVENTION_VALUE')).toBe(true);
+    });
+
+    it('rejects Infinity values', () => {
+      const optionsInfinity = [
+        {
+          id: 'opt1',
+          label: 'Option 1',
+          interventions: {
+            'factor-a': Infinity,
+          },
+        },
+      ] as OptionV3[];
+
+      const result = runPreflightValidation(validGraph, optionsInfinity, 'goal', defaultStats);
+
+      expect(result.passed).toBe(false);
+      expect(result.blockers.some(b => b.code === 'INVALID_INTERVENTION_VALUE')).toBe(true);
+    });
+
+    it('detects identical options with flat format', () => {
+      const optionsIdenticalFlat = [
+        {
+          id: 'opt1',
+          label: 'Option 1',
+          interventions: {
+            'factor-a': 59,
+          },
+        },
+        {
+          id: 'opt2',
+          label: 'Option 2',
+          interventions: {
+            'factor-a': 59, // Same value as opt1
+          },
+        },
+      ] as OptionV3[];
+
+      const result = runPreflightValidation(validGraph, optionsIdenticalFlat, 'goal', defaultStats);
+
+      expect(result.blockers.some(b => b.code === 'IDENTICAL_OPTIONS')).toBe(true);
+    });
+  });
+
   describe('INVALID_INTERVENTION_TARGET', () => {
     it('fails when intervention targets non-existent node', () => {
       const optionsWithInvalidTarget: OptionV3[] = [
@@ -263,7 +370,29 @@ describe('Preflight Validation', () => {
   });
 
   describe('GRAPH_TOO_LARGE', () => {
-    it('fails when too many nodes', () => {
+    it('accepts graph with exactly 50 nodes (boundary)', () => {
+      const maxGraph: EngineGraphV3 = {
+        nodes: Array.from({ length: 50 }, (_, i) => ({
+          id: `node-${i}`,
+          kind: i === 49 ? 'goal' as const : 'factor' as const,
+          label: `Node ${i}`,
+        })),
+        edges: [
+          { from: 'node-0', to: 'node-49', exists_probability: 0.8, strength: { mean: 0.5, std: 0.1 } },
+        ],
+      };
+
+      const options: OptionV3[] = [
+        { id: 'opt1', label: 'Opt 1', interventions: { 'node-0': { value: 1, source: 'user_specified' } } },
+        { id: 'opt2', label: 'Opt 2', interventions: { 'node-0': { value: 2, source: 'user_specified' } } },
+      ];
+
+      const result = runPreflightValidation(maxGraph, options, 'node-49', defaultStats);
+
+      expect(result.blockers.some(b => b.code === 'GRAPH_TOO_LARGE')).toBe(false);
+    });
+
+    it('fails when too many nodes (51 exceeds limit of 50)', () => {
       const largeGraph: EngineGraphV3 = {
         nodes: Array.from({ length: 51 }, (_, i) => ({
           id: `node-${i}`,
@@ -279,7 +408,33 @@ describe('Preflight Validation', () => {
       expect(result.blockers.some(b => b.code === 'GRAPH_TOO_LARGE')).toBe(true);
     });
 
-    it('fails when too many edges', () => {
+    it('accepts graph with exactly 100 edges (boundary)', () => {
+      const nodes = Array.from({ length: 10 }, (_, i) => ({
+        id: `node-${i}`,
+        kind: i === 9 ? 'goal' as const : 'factor' as const,
+        label: `Node ${i}`,
+      }));
+
+      const edges = Array.from({ length: 100 }, (_, i) => ({
+        from: `node-${i % 9}`,
+        to: `node-9`,
+        exists_probability: 0.8,
+        strength: { mean: 0.5 + (i * 0.001), std: 0.1 }, // Slightly different to avoid identical edges
+      }));
+
+      const maxEdgeGraph: EngineGraphV3 = { nodes, edges };
+
+      const options: OptionV3[] = [
+        { id: 'opt1', label: 'Opt 1', interventions: { 'node-0': { value: 1, source: 'user_specified' } } },
+        { id: 'opt2', label: 'Opt 2', interventions: { 'node-0': { value: 2, source: 'user_specified' } } },
+      ];
+
+      const result = runPreflightValidation(maxEdgeGraph, options, 'node-9', defaultStats);
+
+      expect(result.blockers.some(b => b.code === 'GRAPH_TOO_LARGE')).toBe(false);
+    });
+
+    it('fails when too many edges (101 exceeds limit of 100)', () => {
       const nodes = Array.from({ length: 10 }, (_, i) => ({
         id: `node-${i}`,
         kind: 'factor' as const,
@@ -299,6 +454,39 @@ describe('Preflight Validation', () => {
 
       expect(result.passed).toBe(false);
       expect(result.blockers.some(b => b.code === 'GRAPH_TOO_LARGE')).toBe(true);
+    });
+  });
+
+  describe('TOO_MANY_OPTIONS', () => {
+    it('accepts exactly 10 options (boundary)', () => {
+      const maxOptions: OptionV3[] = Array.from({ length: 10 }, (_, i) => ({
+        id: `opt-${i}`,
+        label: `Option ${i}`,
+        interventions: {
+          'factor-a': { value: i + 1, source: 'user_specified' as const },
+        },
+      }));
+
+      const result = runPreflightValidation(validGraph, maxOptions, 'goal', defaultStats);
+
+      expect(result.blockers.some(b => b.code === 'TOO_MANY_OPTIONS')).toBe(false);
+    });
+
+    it('fails when too many options (11 exceeds limit of 10)', () => {
+      const tooManyOptions: OptionV3[] = Array.from({ length: 11 }, (_, i) => ({
+        id: `opt-${i}`,
+        label: `Option ${i}`,
+        interventions: {
+          'factor-a': { value: i + 1, source: 'user_specified' as const },
+        },
+      }));
+
+      const result = runPreflightValidation(validGraph, tooManyOptions, 'goal', defaultStats);
+
+      expect(result.passed).toBe(false);
+      expect(result.blockers.some(b => b.code === 'TOO_MANY_OPTIONS')).toBe(true);
+      expect(result.blockers.find(b => b.code === 'TOO_MANY_OPTIONS')?.message).toContain('11 options');
+      expect(result.blockers.find(b => b.code === 'TOO_MANY_OPTIONS')?.message).toContain('limit of 10');
     });
   });
 

@@ -5046,8 +5046,10 @@ components:
           minLength: 1
           description: Target node for outcome measurement
         seed:
-          type: number
-          description: Random seed for determinism (default 42)
+          oneOf:
+            - type: string
+            - type: number
+          description: Random seed for determinism (accepts string or number, normalised to string internally)
         n_samples:
           type: number
           minimum: 100
@@ -5295,12 +5297,34 @@ components:
     critiqueV3:
       type: object
       required: [id, code, severity, message, source, blocks_analysis]
+      description: |
+        Actionable critique with structured metadata.
+        Blockers cause 422; warnings/info included in 200 responses.
       properties:
         id:
           type: string
+          description: Unique critique identifier
         code:
           type: string
-          description: Blocker code (e.g., MISSING_GOAL_NODE, NO_PATH_TO_GOAL)
+          description: |
+            Programmatic blocker code. Known codes:
+            - MISSING_GOAL_NODE: Goal node ID not provided
+            - GOAL_NODE_NOT_IN_GRAPH: Goal node not found in graph
+            - GOAL_NODE_NOT_CAUSAL: Goal is a non-causal node (option/decision)
+            - NO_OPTIONS: No options provided for comparison
+            - TOO_MANY_OPTIONS: Options exceed MAX_OPTIONS limit
+            - EMPTY_INTERVENTIONS: Option has no interventions
+            - INVALID_INTERVENTION_TARGET: Intervention targets non-existent node
+            - INVALID_INTERVENTION_VALUE: Intervention value is invalid
+            - NO_PATH_TO_GOAL: No causal path from intervention to goal
+            - IDENTICAL_OPTIONS: Multiple options have identical interventions
+            - INVALID_NODE_ID_PATTERN: Node ID contains invalid characters
+            - INVALID_EDGE_ENDPOINT: Edge references non-existent node
+            - DUPLICATE_NODE_IDS: Multiple nodes share same ID
+            - GRAPH_TOO_LARGE: Graph exceeds limits (50 nodes, 100 edges)
+            - GRAPH_CYCLE_DETECTED: Graph contains cycles
+            - IDENTIFIABILITY_ISSUE: Causal model cannot be identified
+            - ISL_CANNOT_IDENTIFY: ISL layer cannot identify effect
         severity:
           type: string
           enum: [info, warning, error, blocker]

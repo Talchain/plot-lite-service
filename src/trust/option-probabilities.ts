@@ -10,6 +10,7 @@
 
 import { computeThresholdProbability, type ThresholdProbabilityResult } from '../scm-lite/kernel.js';
 import type { DAG } from '../scm-lite/types.js';
+import { MAX_NODES, MAX_EDGES } from '../constants/limits.js';
 
 /**
  * Per-option goal probability result
@@ -150,8 +151,8 @@ export function computeOptionProbabilities(
     goal_threshold,
     seed,
     k_samples,
-    maxNodes = 50,
-    maxEdges = 200,
+    maxNodes = MAX_NODES,
+    maxEdges = MAX_EDGES,
   } = config;
 
   // Detect options

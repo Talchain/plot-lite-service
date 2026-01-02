@@ -22,9 +22,8 @@ import type {
   IslConditionalRecommendResponse,
   RecommendationCondition,
 } from './types/proxy.types.js';
+import { MAX_NODES, MAX_EDGES } from '../../constants/limits.js';
 
-const MAX_NODES = 50;
-const MAX_EDGES = 200;
 const MAX_CONDITIONS = 20;
 const DEFAULT_K_SAMPLES = 32;
 

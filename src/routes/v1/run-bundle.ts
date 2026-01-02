@@ -44,6 +44,7 @@ import {
   analyzeEdgeFunctionSensitivity,
   shouldAnalyzeEdgeFunctionSensitivity,
 } from '../../engine/edge-function-sensitivity.js';
+import { MAX_NODES, MAX_EDGES, MAX_OPTIONS } from '../../constants/limits.js';
 
 interface GraphDelta {
   label: string;
@@ -71,9 +72,8 @@ interface RunBundleRequest {
   primary_outcome?: string;
 }
 
-const MAX_NODES = 50;
-const MAX_EDGES = 200;
-const MAX_DELTAS = 10;
+// MAX_NODES, MAX_EDGES imported from constants/limits.ts
+const MAX_DELTAS = MAX_OPTIONS; // Alias for backwards compatibility
 
 // P0: Concurrency control for scenario processing
 // Limits parallel inference to prevent CPU spikes under load

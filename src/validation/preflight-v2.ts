@@ -12,6 +12,7 @@ import {
   NODE_ID_PATTERN,
   MAX_NODES,
   MAX_EDGES,
+  MAX_OPTIONS,
 } from '../types/engine-v3.js';
 import type {
   EngineGraphV3,
@@ -135,6 +136,21 @@ function validateOptionsPresent(options: OptionV3[] | undefined): CritiqueV3[] {
 }
 
 /**
+ * Validate options count does not exceed limit.
+ */
+function validateOptionsCount(options: OptionV3[]): CritiqueV3[] {
+  if (options.length > MAX_OPTIONS) {
+    return [
+      createBlocker(
+        'TOO_MANY_OPTIONS',
+        `Request has ${options.length} options, exceeding the limit of ${MAX_OPTIONS}.`
+      ),
+    ];
+  }
+  return [];
+}
+
+/**
  * Validate each option has non-empty interventions.
  */
 function validateInterventions(
@@ -172,7 +188,11 @@ function validateInterventions(
       }
 
       // Validate intervention value (separate code for value issues)
-      const intervention = option.interventions[targetNodeId];
+      // Normalize flat format { factor_id: 59 } to nested { factor_id: { value: 59 } }
+      const rawIntervention = option.interventions[targetNodeId];
+      const intervention = typeof rawIntervention === 'number'
+        ? { value: rawIntervention }
+        : rawIntervention;
       if (
         typeof intervention?.value !== 'number' ||
         !Number.isFinite(intervention.value)
@@ -478,6 +498,9 @@ export function runPreflightValidation(
   let targetsWithPathToGoalCount = 0;
 
   if (options && options.length > 0) {
+    // Validate options count
+    blockers.push(...validateOptionsCount(options));
+
     // Validate interventions
     blockers.push(...validateInterventions(options, nodeIds));
 

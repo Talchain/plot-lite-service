@@ -22,9 +22,8 @@ import type {
   IslPolicyTreeResponse,
   PolicyTreeNode,
 } from './types/proxy.types.js';
+import { MAX_NODES, MAX_EDGES } from '../../constants/limits.js';
 
-const MAX_NODES = 50;
-const MAX_EDGES = 200;
 const MAX_STAGES = 10;
 const DEFAULT_MAX_DEPTH = 10;
 const DEFAULT_K_SAMPLES = 32;

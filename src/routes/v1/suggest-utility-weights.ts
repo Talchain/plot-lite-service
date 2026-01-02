@@ -20,9 +20,8 @@ import type {
   OutcomeWeightSuggestion,
 } from './types/proxy.types.js';
 import type { NodeKind } from '../../trust/types.js';
+import { MAX_NODES, MAX_EDGES } from '../../constants/limits.js';
 
-const MAX_NODES = 50;
-const MAX_EDGES = 200;
 const CEE_TIMEOUT_MS = Number(process.env.CEE_TIMEOUT_MS || 10_000);
 
 /**

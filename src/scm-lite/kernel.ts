@@ -19,6 +19,7 @@ import type { DAG, KernelConfig, KernelResult, Edge, Node } from './types.js';
 import { XorShift128Plus } from './rng.js';
 import { applyEdgeFunction } from '../engine/edge-functions.js';
 import { FLAGS } from '../config/flags.js';
+import { MAX_NODES, MAX_EDGES } from '../constants/limits.js';
 
 /** Default values for EdgeV2 dual beliefs */
 const EDGE_V2_DEFAULTS = {
@@ -32,8 +33,8 @@ const EDGE_V2_DEFAULTS = {
 
 const DEFAULT_CONFIG: Partial<KernelConfig> = {
   K: 256,
-  maxNodes: 50,
-  maxEdges: 200,
+  maxNodes: MAX_NODES,
+  maxEdges: MAX_EDGES,
   beliefDefault: 0.7,
   beliefStrengthDefault: 0.8, // Default belief_strength for EdgeV2
   // Adaptive K defaults

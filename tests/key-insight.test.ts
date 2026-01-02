@@ -74,7 +74,7 @@ describe('Key Insight Endpoint', () => {
 
       expect(response.statusCode).toBe(400);
       const body = JSON.parse(response.payload);
-      expect(body.error.message).toContain('max 200 edges');
+      expect(body.error.message).toContain('max 100 edges');
     });
 
     it('returns successful response with valid graph', async () => {

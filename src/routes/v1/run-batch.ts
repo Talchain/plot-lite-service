@@ -7,6 +7,7 @@ import { recordAuditEvent } from '../../governance/audit-ring.js';
 import { createHash } from 'crypto';
 import { replyWithAppError } from '../../errors.js';
 import { processWithConcurrency } from '../../util/semaphore.js';
+import { MAX_NODES, MAX_EDGES, MAX_OPTIONS } from '../../constants/limits.js';
 
 interface BatchItem {
   graph: { nodes: any[]; edges: any[] };
@@ -18,9 +19,9 @@ interface BatchRequest {
   items: BatchItem[];
 }
 
-const MAX_BATCH_ITEMS = 10;
-const MAX_NODES_PER_ITEM = 50;
-const MAX_EDGES_PER_ITEM = 100;
+const MAX_BATCH_ITEMS = MAX_OPTIONS; // Batch items limited to same as options
+const MAX_NODES_PER_ITEM = MAX_NODES;
+const MAX_EDGES_PER_ITEM = MAX_EDGES;
 
 // P2: Concurrency control for batch processing
 // Clamp to safe range [1, MAX_BATCH_ITEMS] and warn on invalid/capped values

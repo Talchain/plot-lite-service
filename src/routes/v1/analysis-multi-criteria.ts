@@ -23,10 +23,9 @@ import type {
   TradeOff,
   ProxyError,
 } from './types/proxy.types.js';
+import { MAX_NODES, MAX_EDGES, MAX_OPTIONS } from '../../constants/limits.js';
 
-const MAX_NODES = 50;
-const MAX_EDGES = 200;
-const MAX_CRITERIA = 10;
+const MAX_CRITERIA = MAX_OPTIONS;
 const DEFAULT_K_SAMPLES = 32;
 
 /**
