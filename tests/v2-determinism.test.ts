@@ -354,6 +354,248 @@ describe('V2 Determinism and Contract Tests', () => {
     });
   });
 
+  describe('7g: Hash Invariant - Intervention Format', () => {
+    it('produces identical hash for flat vs nested intervention formats', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      // Nested format: { value: 1.5, source: 'user_specified' }
+      const nestedOptions = [
+        {
+          id: 'opt1',
+          label: 'Option 1',
+          interventions: { 'factor-a': { value: 1.5, source: 'user_specified' } },
+        },
+        {
+          id: 'opt2',
+          label: 'Option 2',
+          interventions: { 'factor-b': { value: 2.0, source: 'user_specified' } },
+        },
+      ];
+
+      // Flat format: just the number
+      const flatOptions = [
+        {
+          id: 'opt1',
+          label: 'Option 1',
+          interventions: { 'factor-a': 1.5 },
+        },
+        {
+          id: 'opt2',
+          label: 'Option 2',
+          interventions: { 'factor-b': 2.0 },
+        },
+      ];
+
+      const payload1 = {
+        graph: VALID_GRAPH,
+        options: nestedOptions,
+        goal_node_id: 'goal',
+        seed: '42',
+      };
+
+      const payload2 = {
+        graph: VALID_GRAPH,
+        options: flatOptions,
+        goal_node_id: 'goal',
+        seed: '42',
+      };
+
+      const res1 = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload1),
+      });
+
+      const res2 = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload2),
+      });
+
+      expect(res1.status).toBe(200);
+      expect(res2.status).toBe(200);
+      expect(res1.data.response_hash).toBe(res2.data.response_hash);
+    });
+
+    it('produces identical outcomes for flat vs nested intervention formats', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      // V2 requires at least 2 options for comparison
+      const nestedOptions = [
+        { id: 'opt1', label: 'Option 1', interventions: { 'factor-a': { value: 1.5, source: 'user_specified' } } },
+        { id: 'opt2', label: 'Option 2', interventions: { 'factor-a': { value: 2.0, source: 'user_specified' } } },
+      ];
+
+      const flatOptions = [
+        { id: 'opt1', label: 'Option 1', interventions: { 'factor-a': 1.5 } },
+        { id: 'opt2', label: 'Option 2', interventions: { 'factor-a': 2.0 } },
+      ];
+
+      const payload1 = {
+        graph: VALID_GRAPH,
+        options: nestedOptions,
+        goal_node_id: 'goal',
+        seed: '42',
+      };
+
+      const payload2 = {
+        graph: VALID_GRAPH,
+        options: flatOptions,
+        goal_node_id: 'goal',
+        seed: '42',
+      };
+
+      const res1 = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload1),
+      });
+
+      const res2 = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload2),
+      });
+
+      expect(res1.status).toBe(200);
+      expect(res2.status).toBe(200);
+
+      // Both should return same option_comparison results
+      if (res1.data.option_comparison && res2.data.option_comparison) {
+        const opt1 = res1.data.option_comparison[0];
+        const opt2 = res2.data.option_comparison[0];
+        expect(opt1.option_id).toBe(opt2.option_id);
+        if (opt1.expected_outcome !== undefined && opt2.expected_outcome !== undefined) {
+          expect(opt1.expected_outcome).toBeCloseTo(opt2.expected_outcome, 6);
+        }
+      }
+    });
+  });
+
+  describe('7h: Infinity/NaN Rejection', () => {
+    // Note: JSON.stringify converts Infinity/NaN to null.
+    // Business validation catches these null values and returns 422.
+    // This validates our code properly rejects non-finite values.
+
+    it('rejects Infinity in intervention values', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const res = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: VALID_GRAPH,
+          options: [
+            { id: 'opt1', label: 'Option 1', interventions: { 'factor-a': Infinity } },
+            { id: 'opt2', label: 'Option 2', interventions: { 'factor-a': 1.0 } },
+          ],
+          goal_node_id: 'goal',
+        }),
+      });
+
+      // Infinity → null → caught by business validation
+      expect(res.status).toBe(422);
+      expect(res.data.analysis_status).toBe('blocked');
+    });
+
+    it('rejects NaN in intervention values', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const res = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: VALID_GRAPH,
+          options: [
+            { id: 'opt1', label: 'Option 1', interventions: { 'factor-a': NaN } },
+            { id: 'opt2', label: 'Option 2', interventions: { 'factor-a': 1.0 } },
+          ],
+          goal_node_id: 'goal',
+        }),
+      });
+
+      // NaN → null → caught by business validation
+      expect(res.status).toBe(422);
+      expect(res.data.analysis_status).toBe('blocked');
+    });
+
+    it('rejects -Infinity in intervention values', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const res = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: VALID_GRAPH,
+          options: [
+            { id: 'opt1', label: 'Option 1', interventions: { 'factor-a': -Infinity } },
+            { id: 'opt2', label: 'Option 2', interventions: { 'factor-a': 1.0 } },
+          ],
+          goal_node_id: 'goal',
+        }),
+      });
+
+      // -Infinity → null → caught by business validation
+      expect(res.status).toBe(422);
+      expect(res.data.analysis_status).toBe('blocked');
+    });
+
+    it('rejects Infinity in edge strength mean', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const badGraph = {
+        nodes: VALID_GRAPH.nodes,
+        edges: [
+          { from: 'factor-a', to: 'goal', exists_probability: 0.8, strength: { mean: Infinity, std: 0.1 } },
+        ],
+      };
+
+      const res = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: badGraph,
+          options: VALID_OPTIONS,
+          goal_node_id: 'goal',
+        }),
+      });
+
+      // Infinity → null → caught by normalization/validation
+      expect(res.status).toBe(422);
+    });
+
+    it('rejects NaN in edge strength std', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const badGraph = {
+        nodes: VALID_GRAPH.nodes,
+        edges: [
+          { from: 'factor-a', to: 'goal', exists_probability: 0.8, strength: { mean: 0.5, std: NaN } },
+        ],
+      };
+
+      const res = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: badGraph,
+          options: VALID_OPTIONS,
+          goal_node_id: 'goal',
+        }),
+      });
+
+      // NaN → null → caught by normalization/validation
+      expect(res.status).toBe(422);
+    });
+  });
+
   describe('Response structure matches OpenAPI', () => {
     it('422 response has all required V2RunError fields', async () => {
       vi.resetModules();

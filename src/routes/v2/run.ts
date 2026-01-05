@@ -166,19 +166,22 @@ const runV3Schema = {
 
 /**
  * Map ISL status to UI vocabulary per-feature status.
+ *
+ * Data presence takes precedence: if hasData=false, the feature is unavailable
+ * regardless of what ISL claims. This prevents returning "computed" with empty results.
  */
 function mapToPerFeatureStatus(islStatus: string | undefined, hasData: boolean): PerFeatureStatus {
+  // Data presence is authoritative - if we have data, it's computed
   if (hasData) return 'computed';
 
+  // No data: only trust ISL for explicit skip/fail semantics
   switch (islStatus) {
-    case 'computed':
-    case 'partial':
-      return 'computed';
     case 'failed':
       return 'error';
     case 'skipped':
       return 'skipped';
     default:
+      // No data = unavailable, even if ISL says 'computed'
       return 'unavailable';
   }
 }
@@ -817,6 +820,18 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         const optionStatus = mapToPerFeatureStatus(islAnalysisStatus, hasOptionComparison);
         const robustnessStatus = mapToPerFeatureStatus(islAnalysisStatus, hasRobustness);
         const driversStatus = mapToPerFeatureStatus(islAnalysisStatus, hasDrivers);
+
+        // Warn if ISL claims 'computed' but returned no data
+        if (islAnalysisStatus === 'computed' && !hasOptionComparison && !hasRobustness && !hasDrivers) {
+          critiques.push({
+            id: randomUUID(),
+            code: 'ISL_EMPTY_RESULTS',
+            severity: 'warning',
+            message: 'Analysis completed but no results available. Graph structure may prevent causal inference.',
+            source: 'isl',
+            blocks_analysis: false,
+          });
+        }
 
         // Extract option outcomes for status determination
         const optionOutcomes = islResult.results?.map((r: any) => ({
