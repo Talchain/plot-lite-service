@@ -814,7 +814,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
 
         // Compute per-feature statuses
         const hasOptionComparison = islResult.results?.length > 0;
-        const hasRobustness = !!islResult.robustness;
+        // Check for meaningful robustness data (empty objects {} are truthy but have no score)
+        const hasRobustness = islResult.robustness?.score !== undefined;
         const hasDrivers = islResult.sensitivity?.length > 0;
 
         const optionStatus = mapToPerFeatureStatus(islAnalysisStatus, hasOptionComparison);

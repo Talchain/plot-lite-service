@@ -28,6 +28,8 @@ services:
         value: "1"
       - key: RATE_LIMIT_RPM
         value: "60"
+      - key: BUILD_ID
+        fromEnvVar: RENDER_GIT_COMMIT
       # Add AUTH_TOKEN as secret in Render dashboard after connecting repo
 
   # Production: manual deploy only (safer)
@@ -56,4 +58,6 @@ services:
         value: "1"
       - key: RATE_LIMIT_RPM
         value: "60"
+      - key: BUILD_ID
+        fromEnvVar: RENDER_GIT_COMMIT
       # Add AUTH_TOKEN as secret in Render dashboard after connecting repo
