@@ -36,7 +36,7 @@ import type {
   ImprovementGuidanceV3,
   RationaleV3,
 } from '../../types/engine-v3.js';
-import { DEFAULT_SEED } from '../../types/engine-v3.js';
+// Note: DEFAULT_SEED no longer used - random seed generated when none provided
 import { normaliseGraph, NormalisationError } from '../../normalisation/graph-normaliser.js';
 import { filterOptionNodes } from '../../normalisation/option-filter.js';
 import { hashRequest } from '../../normalisation/canonicalise.js';
@@ -71,10 +71,12 @@ const BODY_LIMIT_BYTES = 10 * 1024 * 1024; // 10MB
 /**
  * Normalize seed to string format.
  * Accepts string (canonical) or number (legacy).
+ * Generates random seed if none provided (production behavior).
  */
 function normalizeSeed(seed: string | number | undefined): string {
   if (seed === undefined || seed === null) {
-    return DEFAULT_SEED;
+    // Generate random seed for production - ensures varied Monte Carlo results
+    return randomUUID();
   }
   return String(seed);
 }

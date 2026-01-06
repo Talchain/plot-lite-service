@@ -392,7 +392,8 @@ describe('POST /v2/run Integration', () => {
       expect(typeof res.data.meta.latency_ms).toBe('number');
       // P0: seed_used should be a string (not number)
       expect(typeof res.data.meta.seed_used).toBe('string');
-      expect(res.data.meta.seed_used).toBe('42'); // Default seed
+      // When no seed provided, generates random UUID
+      expect(res.data.meta.seed_used).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
     });
 
     it('accepts numeric seed and echoes seed_used as string', async () => {

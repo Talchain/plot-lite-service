@@ -390,7 +390,7 @@ describe('/v2/run Contract Smoke Tests', () => {
       expect(typeof res.data.meta.seed_used).toBe('string');
     });
 
-    it('uses default seed "42" when seed not provided', async () => {
+    it('generates random UUID seed when seed not provided', async () => {
       vi.resetModules();
       server = await spawnServer({ env: ENV });
 
@@ -406,8 +406,9 @@ describe('/v2/run Contract Smoke Tests', () => {
       });
 
       expect(res.status).toBe(200);
-      expect(res.data.meta.seed_used).toBe('42');
       expect(typeof res.data.meta.seed_used).toBe('string');
+      // Should be a UUID format (8-4-4-4-12 hex characters)
+      expect(res.data.meta.seed_used).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
     });
   });
 
