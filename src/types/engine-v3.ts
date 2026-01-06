@@ -478,13 +478,43 @@ export interface RunResponseV3 {
 }
 
 /**
+ * Outcome statistics from ISL Monte Carlo simulation.
+ */
+export interface OutcomeStatsV3 {
+  /** Mean outcome value */
+  mean: number;
+  /** Standard deviation */
+  std?: number;
+  /** 10th percentile (pessimistic) */
+  p10: number;
+  /** 50th percentile (median/expected) */
+  p50: number;
+  /** 90th percentile (optimistic) */
+  p90: number;
+  /** Number of Monte Carlo samples */
+  n_samples?: number;
+  /** Number of valid (non-NaN) samples */
+  n_valid_samples?: number;
+  /** Ratio of valid to total samples */
+  validity_ratio?: number;
+}
+
+/**
  * Per-option comparison result.
  */
 export interface OptionComparisonResultV3 {
   option_id: string;
   option_label: string;
-  expected_outcome: number;
-  confidence_interval: [number, number];
+  /** @deprecated Use outcome.mean instead */
+  expected_outcome?: number;
+  /** @deprecated Use [outcome.p10, outcome.p90] instead */
+  confidence_interval?: [number, number];
+  /** Full outcome statistics from ISL */
+  outcome?: OutcomeStatsV3;
+  /** Option computation status */
+  status?: 'computed' | 'skipped' | 'error';
+  /** Reason if status is not 'computed' */
+  status_reason?: string;
   probability_of_goal?: number;
 }
 

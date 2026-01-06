@@ -305,12 +305,46 @@ function buildResponse(
   // ISL V2 uses 'options' field; V1 uses 'results'. Check both for compatibility.
   const islOptionData = islResult?.options ?? islResult?.results;
   const optionComparison = islOptionData?.map((r: any) => {
-    const option = options?.find((o) => o.id === r.option_id);
+    const optionId = r.option_id ?? r.id;
+    const option = options?.find((o) => o.id === optionId);
+
+    // ISL V2 returns outcome as nested object; V1 returns flat fields
+    const outcomeData = r.outcome;
+    const hasOutcomeObject = outcomeData && typeof outcomeData === 'object';
+
+    // Build full outcome stats from ISL V2 format
+    const outcome = hasOutcomeObject
+      ? {
+          mean: outcomeData.mean,
+          std: outcomeData.std,
+          p10: outcomeData.p10,
+          p50: outcomeData.p50,
+          p90: outcomeData.p90,
+          n_samples: outcomeData.n_samples,
+          n_valid_samples: outcomeData.n_valid_samples,
+          validity_ratio: outcomeData.validity_ratio,
+        }
+      : undefined;
+
+    // Derive legacy fields for backward compatibility
+    const expectedOutcome = hasOutcomeObject
+      ? outcomeData.mean ?? outcomeData.p50
+      : r.expected_outcome;
+    const confidenceInterval: [number, number] = hasOutcomeObject
+      ? [outcomeData.p10 ?? 0, outcomeData.p90 ?? 0]
+      : r.confidence_interval ?? [0, 0];
+
     return {
-      option_id: r.option_id,
-      option_label: option?.label ?? r.option_id,
-      expected_outcome: r.expected_outcome,
-      confidence_interval: r.confidence_interval ?? [0, 0],
+      option_id: optionId,
+      option_label: option?.label ?? r.label ?? optionId,
+      // Legacy fields (deprecated but kept for backward compatibility)
+      expected_outcome: expectedOutcome,
+      confidence_interval: confidenceInterval,
+      // Full outcome stats (new V2 format)
+      outcome,
+      // Status fields
+      status: r.status,
+      status_reason: r.status_reason,
       probability_of_goal: r.probability_of_goal,
     };
   });
@@ -1033,7 +1067,15 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               results_count: islResult?.results?.length ?? 0,
               // Resolved data (what we'll use)
               resolved_options_count: optionData?.length ?? 0,
-              resolved_sample: optionData?.slice(0, 2),
+              // Show first option's outcome structure for debugging
+              first_option_has_outcome: !!optionData?.[0]?.outcome,
+              first_option_outcome_keys: optionData?.[0]?.outcome ? Object.keys(optionData[0].outcome) : [],
+              first_option_sample: optionData?.[0] ? {
+                id: optionData[0].id ?? optionData[0].option_id,
+                has_outcome: !!optionData[0].outcome,
+                outcome_p50: optionData[0].outcome?.p50,
+                outcome_p90: optionData[0].outcome?.p90,
+              } : null,
               has_robustness: !!islResult?.robustness,
               robustness_keys: islResult?.robustness ? Object.keys(islResult.robustness) : [],
               has_factor_sensitivity: !!islResult?.factor_sensitivity,
