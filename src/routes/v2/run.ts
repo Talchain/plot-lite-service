@@ -983,6 +983,23 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         let islStatusCode = 0;
         let islError: ISLHttpError | undefined;
 
+        // DEBUG: Log ISL request payload for option comparison investigation
+        console.log(JSON.stringify({
+          event: 'isl_request_debug',
+          request_id: requestId,
+          isl_request: {
+            options: islRequest.options.map((o: any) => ({
+              id: o.id,
+              interventions: o.interventions
+            })),
+            analysis_types: islRequest.analysis_types,
+            goal_node_id: islRequest.goal_node_id,
+            graph_node_count: islRequest.graph.nodes.length,
+            graph_edge_count: islRequest.graph.edges.length,
+            graph_node_ids: islRequest.graph.nodes.map((n: any) => n.id)
+          }
+        }));
+
         try {
           const response = await islService.callAnalysisEndpoint<any>(
             '/api/v1/robustness/analyze/v2',
@@ -994,6 +1011,19 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             islResult = response.data;
             islSuccess = true;
             islStatusCode = 200;
+
+            // DEBUG: Log ISL response for option comparison investigation
+            console.log(JSON.stringify({
+              event: 'isl_response_debug',
+              request_id: requestId,
+              has_results: !!islResult?.results,
+              results_count: islResult?.results?.length ?? 0,
+              results_sample: islResult?.results?.slice(0, 2),
+              has_robustness: !!islResult?.robustness,
+              robustness_keys: islResult?.robustness ? Object.keys(islResult.robustness) : [],
+              has_factor_sensitivity: !!islResult?.factor_sensitivity,
+              factor_sensitivity_count: islResult?.factor_sensitivity?.length ?? 0
+            }));
           } else {
             islStatusCode = 500;
             console.error(

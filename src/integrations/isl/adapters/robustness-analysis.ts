@@ -17,6 +17,28 @@ import type {
 } from '../types/plot-types.js';
 
 /**
+ * Map ISL V2 (Option C) level to PLoT robustness label
+ *
+ * ISL V2 levels: 'high' | 'medium' | 'low' | 'very_low'
+ * PLoT labels: 'robust' | 'moderate' | 'fragile'
+ */
+function mapLevelToLabel(
+  level: 'high' | 'medium' | 'low' | 'very_low' | undefined
+): 'robust' | 'moderate' | 'fragile' {
+  switch (level) {
+    case 'high':
+      return 'robust';
+    case 'medium':
+      return 'moderate';
+    case 'low':
+    case 'very_low':
+      return 'fragile';
+    default:
+      return 'moderate';
+  }
+}
+
+/**
  * Transform ISL edge sensitivity item to PLoT format
  */
 function transformEdgeSensitivity(item: ISLEdgeSensitivityItem): EdgeSensitivityEntry {
@@ -115,12 +137,15 @@ export function adaptRobustnessAnalysisResponse(
     }))
     .sort((a, b) => b.voi - a.voi);
 
-  // Extract robustness data
-  const robustness = isl.robustness ?? {
-    score: 0.5,
-    label: 'moderate' as const,
-    fragile_edges: [],
-    robust_edges: [],
+  // Extract robustness data - normalize V2 (Option C) format to PLoT format
+  // V1: { score, label: 'robust'|'moderate'|'fragile' }
+  // V2: { confidence, level: 'high'|'medium'|'low'|'very_low' }
+  const rawRobustness = isl.robustness ?? {};
+  const robustness = {
+    score: rawRobustness.score ?? rawRobustness.confidence ?? 0.5,
+    label: rawRobustness.label ?? mapLevelToLabel(rawRobustness.level),
+    fragile_edges: rawRobustness.fragile_edges ?? [],
+    robust_edges: rawRobustness.robust_edges ?? [],
   };
 
   return {

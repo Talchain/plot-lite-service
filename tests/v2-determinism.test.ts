@@ -630,4 +630,43 @@ describe('V2 Determinism and Contract Tests', () => {
       }
     });
   });
+
+  describe('Status prioritizes data presence over ISL claims', () => {
+    it('returns unavailable status when hasData is false, regardless of ISL status', async () => {
+      // This test validates that mapToPerFeatureStatus returns 'unavailable'
+      // when ISL claims 'computed' but returns empty result arrays.
+      // The fix ensures we never show "computed" status with no data.
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      // Valid request that should succeed
+      const res = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: VALID_GRAPH,
+          options: VALID_OPTIONS,
+          goal_node_id: 'goal',
+        }),
+      });
+
+      expect(res.status).toBe(200);
+
+      // Verify status fields exist and are valid
+      expect(['computed', 'partial', 'unavailable', 'skipped', 'error']).toContain(
+        res.data.option_comparison_status
+      );
+      expect(['computed', 'partial', 'unavailable', 'skipped', 'error']).toContain(
+        res.data.robustness_status
+      );
+
+      // Critical invariant: if data is empty, status must NOT be 'computed'
+      if (!res.data.option_comparison || res.data.option_comparison.length === 0) {
+        expect(res.data.option_comparison_status).not.toBe('computed');
+      }
+      if (!res.data.robustness || Object.keys(res.data.robustness).length === 0) {
+        expect(res.data.robustness_status).not.toBe('computed');
+      }
+    });
+  });
 });

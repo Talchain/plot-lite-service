@@ -233,18 +233,31 @@ export interface ISLRobustnessAnalyzeV2Response {
   /** Factor-level sensitivity scores */
   factor_sensitivity?: ISLFactorSensitivityItem[];
 
-  /** Overall robustness assessment (when 'robustness' in analysis_types) */
+  /** Overall robustness assessment (when 'robustness' in analysis_types)
+   *
+   * Supports both V1 and V2 (Option C) formats:
+   * - V1: { score, label: 'robust'|'moderate'|'fragile', explanation }
+   * - V2: { confidence, level: 'high'|'medium'|'low'|'very_low', is_robust, recommendation_stability }
+   */
   robustness?: {
-    /** Robustness score (0-1) */
-    score: number;
-    /** Human-readable label */
-    label: 'robust' | 'moderate' | 'fragile';
+    /** Robustness score (0-1) - V1 format */
+    score?: number;
+    /** Robustness confidence (0-1) - V2/Option C format */
+    confidence?: number;
+    /** Human-readable label - V1 format */
+    label?: 'robust' | 'moderate' | 'fragile';
+    /** Robustness level - V2/Option C format */
+    level?: 'high' | 'medium' | 'low' | 'very_low';
+    /** Boolean robustness flag - V2/Option C format */
+    is_robust?: boolean;
+    /** Recommendation stability score (0-1) - V2/Option C format */
+    recommendation_stability?: number;
     /** Edges identified as fragile (sensitive to changes) */
     fragile_edges?: string[];
     /** Edges identified as robust */
     robust_edges?: string[];
-    /** Explanation of robustness assessment */
-    explanation: string;
+    /** Explanation of robustness assessment - V1 format (optional in V2) */
+    explanation?: string;
   };
 
   /** Option comparison results (when 'comparison' in analysis_types) */
