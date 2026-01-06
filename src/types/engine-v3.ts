@@ -417,6 +417,49 @@ export interface RunResponseV3 {
   /** Overall robustness assessment (if robustness_status is 'computed') */
   robustness?: RobustnessAssessmentV3;
 
+  /**
+   * CEE's synthesized explanation of robustness.
+   * Null if CEE unavailable or not called.
+   */
+  robustness_synthesis?: RobustnessSynthesisV3 | null;
+
+  // ---------------------------------------------------------------------------
+  // CEE Results Panel Fields (top-level for flat V2 structure)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * CEE integration status.
+   * - 'available': CEE responded successfully
+   * - 'unavailable': CEE not configured or endpoint unreachable
+   * - 'degraded': CEE responded with partial data or errors
+   * - 'skipped': CEE call was skipped (e.g., no robustness data to send)
+   */
+  cee_status?: CeeStatusV3;
+
+  /**
+   * Decision quality assessment from CEE.
+   * Null if CEE unavailable.
+   */
+  decision_quality?: DecisionQualityV3 | null;
+
+  /**
+   * Insights from CEE analysis (fragile assumptions, biases, info gaps).
+   * Null if CEE unavailable.
+   */
+  insights?: InsightV3[] | null;
+
+  /**
+   * Improvement guidance from CEE.
+   * Null if CEE unavailable.
+   */
+  improvement_guidance?: ImprovementGuidanceV3[] | null;
+
+  /**
+   * Rationale explanation from CEE.
+   * Null if CEE unavailable.
+   */
+  rationale?: RationaleV3 | null;
+
   /** Determinism hash of canonical request (semantic fields only) */
   response_hash?: string;
 
@@ -430,6 +473,7 @@ export interface RunResponseV3 {
     normalization_ms?: number;
     validation_ms?: number;
     isl_ms?: number;
+    cee_ms?: number;
   };
 }
 
@@ -476,6 +520,81 @@ export interface RobustnessAssessmentV3 {
   fragile_edges?: string[];
   robust_edges?: string[];
   explanation: string;
+}
+
+/**
+ * CEE's synthesized explanation of robustness.
+ */
+export interface RobustnessSynthesisV3 {
+  /** One-line summary of robustness assessment */
+  headline: string;
+  /** Detailed explanations for each assumption/edge */
+  assumption_explanations?: Array<{
+    edge_id: string;
+    explanation: string;
+    severity: 'fragile' | 'moderate' | 'robust';
+  }>;
+  /** Suggestions for what to investigate next */
+  investigation_suggestions?: Array<{
+    factor_id: string;
+    suggestion: string;
+    potential_value: number;
+  }>;
+}
+
+// -----------------------------------------------------------------------------
+// CEE Results Panel Types
+// -----------------------------------------------------------------------------
+
+/**
+ * CEE status for V2 response.
+ */
+export type CeeStatusV3 = 'available' | 'unavailable' | 'degraded' | 'skipped';
+
+/**
+ * Decision quality assessment from CEE.
+ */
+export interface DecisionQualityV3 {
+  level: 'incomplete' | 'needs_strengthening' | 'good' | 'solid';
+  summary: string;
+}
+
+/**
+ * Insight types from CEE analysis.
+ */
+export type InsightTypeV3 = 'fragile_assumption' | 'potential_bias' | 'information_gap';
+
+/**
+ * Individual insight from CEE.
+ */
+export interface InsightV3 {
+  type: InsightTypeV3;
+  content: string;
+  severity?: 'low' | 'medium' | 'high';
+}
+
+/**
+ * Source of improvement guidance.
+ */
+export type ImprovementSourceV3 = 'missing_baseline' | 'fragile_edge' | 'bias' | 'structure';
+
+/**
+ * Improvement guidance item from CEE.
+ */
+export interface ImprovementGuidanceV3 {
+  priority: number;
+  action: string;
+  reason: string;
+  source: ImprovementSourceV3;
+}
+
+/**
+ * Rationale explanation from CEE.
+ */
+export interface RationaleV3 {
+  summary: string;
+  key_driver?: string;
+  goal_alignment?: string;
 }
 
 // -----------------------------------------------------------------------------

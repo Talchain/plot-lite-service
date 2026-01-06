@@ -29,6 +29,12 @@ import type {
   PerFeatureStatus,
   TopLevelAnalysisStatus,
   V2RunError,
+  RobustnessSynthesisV3,
+  CeeStatusV3,
+  DecisionQualityV3,
+  InsightV3,
+  ImprovementGuidanceV3,
+  RationaleV3,
 } from '../../types/engine-v3.js';
 import { DEFAULT_SEED } from '../../types/engine-v3.js';
 import { normaliseGraph, NormalisationError } from '../../normalisation/graph-normaliser.js';
@@ -45,6 +51,10 @@ import {
 } from '../../logging/preflight-logger.js';
 import { getISLService } from '../../integrations/isl/index.js';
 import { ISLHttpError } from '../../integrations/isl/errors.js';
+import { buildRobustnessDataForCee } from '../../integrations/isl/adapters/robustness-enrichment.js';
+import type { RobustnessDataForCee } from '../../integrations/isl/types/plot-types.js';
+import { orchestrateCeeReview } from '../../cee/orchestrator.js';
+import type { CeeReviewRequest } from '../../cee/types.js';
 
 // -----------------------------------------------------------------------------
 // Constants
@@ -242,6 +252,18 @@ interface MetaParams {
   normalizationMs?: number;
   validationMs?: number;
   islMs?: number;
+  ceeMs?: number;
+}
+
+/**
+ * CEE results for passing to buildResponse.
+ */
+interface CeeResultsParams {
+  ceeStatus: CeeStatusV3;
+  decisionQuality: DecisionQualityV3 | null;
+  insights: InsightV3[] | null;
+  improvementGuidance: ImprovementGuidanceV3[] | null;
+  rationale: RationaleV3 | null;
 }
 
 /**
@@ -275,7 +297,9 @@ function buildResponse(
   islResult?: any,
   options?: OptionV3[],
   islAnalysisStatus?: string,
-  islStatusReason?: string
+  islStatusReason?: string,
+  robustnessSynthesis?: RobustnessSynthesisV3 | null,
+  ceeResults?: CeeResultsParams
 ): RunResponseV3 {
   // Map ISL results to response format
   const optionComparison = islResult?.results?.map((r: any) => {
@@ -337,6 +361,15 @@ function buildResponse(
     edge_sensitivity: edgeSensitivity,
     factor_sensitivity: factorSensitivity,
     robustness,
+    robustness_synthesis: robustnessSynthesis,
+
+    // CEE Results Panel fields
+    cee_status: ceeResults?.ceeStatus,
+    decision_quality: ceeResults?.decisionQuality,
+    insights: ceeResults?.insights,
+    improvement_guidance: ceeResults?.improvementGuidance,
+    rationale: ceeResults?.rationale,
+
     response_hash: responseHash,
 
     meta: {
@@ -347,6 +380,7 @@ function buildResponse(
       normalization_ms: meta.normalizationMs,
       validation_ms: meta.validationMs,
       isl_ms: meta.islMs,
+      cee_ms: meta.ceeMs,
     },
   };
 }
@@ -376,6 +410,314 @@ function mapISLCritiquesToV2(islCritiques: Array<{
     affected_node_ids: c.affected_nodes,
     blocks_analysis: c.severity === 'blocker',
   }));
+}
+
+// -----------------------------------------------------------------------------
+// CEE Integration
+// -----------------------------------------------------------------------------
+
+/**
+ * Result of CEE orchestration for V2 response.
+ */
+interface CeeOrchestrationResult {
+  ceeResults: CeeResultsParams;
+  robustnessSynthesis: RobustnessSynthesisV3 | null;
+  latencyMs: number;
+}
+
+/**
+ * Get CEE environment configuration.
+ */
+function getCeeEnv(): { baseUrl?: string; apiKey?: string; timeoutMs?: number } {
+  return {
+    baseUrl: process.env.CEE_BASE_URL,
+    apiKey: process.env.CEE_API_KEY,
+    timeoutMs: Number(process.env.CEE_TIMEOUT_MS ?? 60_000),
+  };
+}
+
+/**
+ * Check if CEE integration is enabled.
+ */
+function isCeeEnabled(): boolean {
+  const enabled = process.env.CEE_ORCHESTRATOR_ENABLE ?? process.env.CEE_ORCHESTRATOR_ENABLED;
+  return enabled === '1' || enabled === 'true';
+}
+
+/**
+ * Build CEE review request from ISL results.
+ */
+function buildCeeReviewRequest(
+  scenarioId: string,
+  graph: EngineGraphV3,
+  options: OptionV3[],
+  islResult: any,
+  robustnessData: RobustnessDataForCee | null
+): CeeReviewRequest {
+  // Build ISL robustness summary for CEE
+  let islRobustness: CeeReviewRequest['isl_robustness'];
+  if (islResult?.robustness) {
+    const r = islResult.robustness;
+    islRobustness = {
+      overall_robustness: r.label as 'robust' | 'moderate' | 'fragile',
+      validation_status: islResult.validation_status,
+      validation_confidence: islResult.validation_confidence,
+      sensitive_parameters: islResult.factor_sensitivity?.slice(0, 5).map((f: any) => ({
+        parameter: f.node_id,
+        sensitivity: f.sensitivity,
+        impact_direction: f.direction ?? 'positive',
+      })),
+      recommendations: robustnessData?.fragile_edges?.slice(0, 3).map(e =>
+        `Review assumption: ${e.from_label} → ${e.to_label}`
+      ),
+    };
+  }
+
+  return {
+    scenario_id: scenarioId,
+    graph_snapshot: {
+      nodes: graph.nodes,
+      edges: graph.edges,
+    },
+    graph_schema_version: '2.2',
+    inference_results: {
+      quantiles: {
+        p10: islResult?.results?.[0]?.confidence_interval?.[0] ?? 0,
+        p50: islResult?.results?.[0]?.expected_outcome ?? 0,
+        p90: islResult?.results?.[0]?.confidence_interval?.[1] ?? 0,
+      },
+      top_edge_drivers: islResult?.sensitivity?.slice(0, 5).map((s: any) => ({
+        id: `${s.edge_from}::${s.edge_to}`,
+        sensitivity: s.elasticity,
+      })),
+      ranked_actions: options.map((o, i) => ({
+        id: o.id,
+        rank: i + 1,
+      })),
+    },
+    intent: 'selection',
+    isl_robustness: islRobustness,
+  };
+}
+
+/**
+ * Extract CEE Results Panel fields from CEE response.
+ */
+function extractCeeResultsFromResponse(ceeReview: any): {
+  decisionQuality: DecisionQualityV3 | null;
+  insights: InsightV3[] | null;
+  improvementGuidance: ImprovementGuidanceV3[] | null;
+  rationale: RationaleV3 | null;
+} {
+  if (!ceeReview) {
+    return {
+      decisionQuality: null,
+      insights: null,
+      improvementGuidance: null,
+      rationale: null,
+    };
+  }
+
+  // Extract decision_quality
+  const decisionQuality: DecisionQualityV3 | null = ceeReview.decision_quality
+    ? {
+        level: ceeReview.decision_quality.level,
+        summary: ceeReview.decision_quality.summary,
+      }
+    : null;
+
+  // Extract insights
+  const insights: InsightV3[] | null = Array.isArray(ceeReview.insights)
+    ? ceeReview.insights.map((i: any) => ({
+        type: i.type,
+        content: i.content,
+        severity: i.severity,
+      }))
+    : null;
+
+  // Extract improvement_guidance
+  const improvementGuidance: ImprovementGuidanceV3[] | null = Array.isArray(ceeReview.improvement_guidance)
+    ? ceeReview.improvement_guidance.map((g: any) => ({
+        priority: g.priority,
+        action: g.action,
+        reason: g.reason,
+        source: g.source,
+      }))
+    : null;
+
+  // Extract rationale
+  const rationale: RationaleV3 | null = ceeReview.rationale
+    ? {
+        summary: ceeReview.rationale.summary,
+        key_driver: ceeReview.rationale.key_driver,
+        goal_alignment: ceeReview.rationale.goal_alignment,
+      }
+    : null;
+
+  return { decisionQuality, insights, improvementGuidance, rationale };
+}
+
+/**
+ * Build robustness synthesis from CEE response blocks.
+ */
+function extractRobustnessSynthesis(ceeReview: any): RobustnessSynthesisV3 | null {
+  if (!ceeReview) return null;
+
+  // Look for robustness block in CEE response
+  const robustnessBlock = ceeReview.blocks?.find((b: any) => b.id === 'robustness');
+
+  if (!robustnessBlock) return null;
+
+  return {
+    headline: robustnessBlock.headline ?? 'Robustness analysis complete',
+    assumption_explanations: robustnessBlock.factors?.map((f: string, i: number) => ({
+      edge_id: `factor_${i}`,
+      explanation: f,
+      severity: robustnessBlock.status === 'error' ? 'fragile' as const :
+                robustnessBlock.status === 'warning' ? 'moderate' as const : 'robust' as const,
+    })),
+  };
+}
+
+/**
+ * Request CEE review with Results Panel fields.
+ *
+ * Graceful degradation: never throws, returns skipped/unavailable status on failure.
+ */
+async function requestCeeReview(
+  scenarioId: string,
+  graph: EngineGraphV3,
+  options: OptionV3[],
+  islResult: any,
+  robustnessData: RobustnessDataForCee | null,
+  requestId: string,
+  logger?: any
+): Promise<CeeOrchestrationResult> {
+  const startTime = performance.now();
+
+  // Check if CEE is enabled
+  if (!isCeeEnabled()) {
+    return {
+      ceeResults: {
+        ceeStatus: 'skipped',
+        decisionQuality: null,
+        insights: null,
+        improvementGuidance: null,
+        rationale: null,
+      },
+      robustnessSynthesis: null,
+      latencyMs: 0,
+    };
+  }
+
+  const ceeEnv = getCeeEnv();
+
+  // Check if CEE is configured
+  if (!ceeEnv.baseUrl || !ceeEnv.apiKey) {
+    logger?.warn({ evt: 'cee_not_configured' }, 'CEE not configured, skipping');
+    return {
+      ceeResults: {
+        ceeStatus: 'unavailable',
+        decisionQuality: null,
+        insights: null,
+        improvementGuidance: null,
+        rationale: null,
+      },
+      robustnessSynthesis: null,
+      latencyMs: 0,
+    };
+  }
+
+  // Check if there's meaningful data to send
+  const hasResults = islResult?.results?.length > 0;
+  if (!hasResults) {
+    return {
+      ceeResults: {
+        ceeStatus: 'skipped',
+        decisionQuality: null,
+        insights: null,
+        improvementGuidance: null,
+        rationale: null,
+      },
+      robustnessSynthesis: null,
+      latencyMs: 0,
+    };
+  }
+
+  try {
+    // Build CEE review request
+    const ceeRequest = buildCeeReviewRequest(scenarioId, graph, options, islResult, robustnessData);
+
+    // Call CEE orchestrator
+    const ceeResult = await orchestrateCeeReview(ceeEnv, ceeRequest, requestId);
+    const latencyMs = performance.now() - startTime;
+
+    // Log CEE call
+    logger?.info({
+      evt: 'cee_review_complete',
+      request_id: requestId,
+      latency_ms: latencyMs,
+      has_review: !!ceeResult.ceeReview,
+      has_error: !!ceeResult.ceeError,
+    }, 'CEE review completed');
+
+    // Handle CEE error
+    if (ceeResult.ceeError) {
+      logger?.warn({
+        evt: 'cee_review_error',
+        error_code: ceeResult.ceeError.code,
+        error_message: ceeResult.ceeError.message,
+      }, 'CEE review returned error');
+
+      return {
+        ceeResults: {
+          ceeStatus: 'degraded',
+          decisionQuality: null,
+          insights: null,
+          improvementGuidance: null,
+          rationale: null,
+        },
+        robustnessSynthesis: null,
+        latencyMs,
+      };
+    }
+
+    // Extract results from CEE response
+    const { decisionQuality, insights, improvementGuidance, rationale } =
+      extractCeeResultsFromResponse(ceeResult.ceeReview);
+    const robustnessSynthesis = extractRobustnessSynthesis(ceeResult.ceeReview);
+
+    return {
+      ceeResults: {
+        ceeStatus: 'available',
+        decisionQuality,
+        insights,
+        improvementGuidance,
+        rationale,
+      },
+      robustnessSynthesis,
+      latencyMs,
+    };
+  } catch (err) {
+    const latencyMs = performance.now() - startTime;
+    logger?.warn({
+      evt: 'cee_review_exception',
+      error: String(err),
+      latency_ms: latencyMs,
+    }, 'CEE review threw exception');
+
+    return {
+      ceeResults: {
+        ceeStatus: 'unavailable',
+        decisionQuality: null,
+        insights: null,
+        improvementGuidance: null,
+        rationale: null,
+      },
+      robustnessSynthesis: null,
+      latencyMs,
+    };
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -814,8 +1156,11 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
 
         // Compute per-feature statuses
         const hasOptionComparison = islResult.results?.length > 0;
-        // Check for meaningful robustness data (empty objects {} are truthy but have no score)
-        const hasRobustness = islResult.robustness?.score !== undefined;
+        // Check for meaningful robustness data - support both V1 (score) and V2 (confidence) formats
+        const hasRobustness = islResult.robustness?.score !== undefined
+          || islResult.robustness?.confidence !== undefined
+          || (islResult.robustness?.fragile_edges?.length ?? 0) > 0
+          || (islResult.robustness?.robust_edges?.length ?? 0) > 0;
         const hasDrivers = islResult.sensitivity?.length > 0;
 
         const optionStatus = mapToPerFeatureStatus(islAnalysisStatus, hasOptionComparison);
@@ -847,6 +1192,31 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           optionOutcomes
         );
 
+        // =================================================================
+        // Phase 6: CEE Review (optional, non-blocking)
+        // =================================================================
+        // Build enriched robustness data for CEE
+        const robustnessDataForCee = buildRobustnessDataForCee(
+          islResult.robustness,
+          islResult.factor_sensitivity,
+          islResult.recommended_option_id,
+          filteredGraph,
+          normalizedOptions
+        );
+
+        // Request CEE review (graceful degradation - returns null on failure)
+        const ceeOrchestrationResult = await requestCeeReview(
+          responseHash ?? requestId, // Use response hash as scenario ID
+          filteredGraph,
+          normalizedOptions,
+          islResult,
+          robustnessDataForCee,
+          requestId,
+          req.log
+        );
+
+        const finalTotalMs = performance.now() - startTime;
+
         return reply.send(buildResponse(
           requestId,
           topLevelStatus,
@@ -859,16 +1229,19 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             seedUsed,
             nSamples,
             detailLevel,
-            latencyMs: totalMs,
+            latencyMs: finalTotalMs,
             normalizationMs,
             validationMs,
             islMs,
+            ceeMs: ceeOrchestrationResult.latencyMs,
           },
           responseHash,
           islResult,
           normalizedOptions,
           islAnalysisStatus,
-          islStatusReason
+          islStatusReason,
+          ceeOrchestrationResult.robustnessSynthesis,
+          ceeOrchestrationResult.ceeResults
         ));
       } catch (err) {
         const totalMs = performance.now() - startTime;

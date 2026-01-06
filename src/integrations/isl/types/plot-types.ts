@@ -211,3 +211,99 @@ export interface PLoTFactorSensitivityResult {
   /** Source of the result */
   source: 'isl' | 'unavailable';
 }
+
+// =============================================================================
+// Robustness Data Enrichment Types (CEE Integration)
+// =============================================================================
+
+/**
+ * Enriched fragile edge with human-readable labels.
+ * Maps ISL IDs to labels from the graph for CEE synthesis.
+ */
+export interface EnrichedFragileEdge {
+  /** Edge ID in format "from_id->to_id" */
+  edge_id: string;
+  /** Source node ID */
+  from_id: string;
+  /** Target node ID */
+  to_id: string;
+  /** Human-readable source node label */
+  from_label: string;
+  /** Human-readable target node label */
+  to_label: string;
+  /** Option ID that would win if this edge changes */
+  alternative_winner_id?: string;
+  /** Human-readable label for alternative winner option */
+  alternative_winner_label?: string;
+  /** Probability of switching recommendation (0-1) */
+  switch_probability?: number;
+}
+
+/**
+ * Enriched robust edge with human-readable labels.
+ */
+export interface EnrichedRobustEdge {
+  /** Edge ID */
+  edge_id: string;
+  /** Human-readable source node label */
+  from_label: string;
+  /** Human-readable target node label */
+  to_label: string;
+}
+
+/**
+ * Enriched factor sensitivity with human-readable label.
+ */
+export interface EnrichedFactorSensitivity {
+  /** Factor node ID */
+  factor_id: string;
+  /** Human-readable factor label */
+  factor_label: string;
+  /** Sensitivity score */
+  sensitivity: number;
+  /** Value of information */
+  value_of_information?: number;
+  /** Direction of impact */
+  direction?: 'positive' | 'negative' | 'mixed';
+}
+
+/**
+ * Robustness data payload for CEE /review request.
+ * Contains ISL robustness data enriched with human-readable labels.
+ */
+export interface RobustnessDataForCee {
+  /** Recommendation stability score (0-1) */
+  recommendation_stability?: number;
+  /** Recommended option with label */
+  recommended_option?: {
+    id: string;
+    label: string;
+  };
+  /** Fragile edges with enriched labels */
+  fragile_edges: EnrichedFragileEdge[];
+  /** Robust edges with enriched labels */
+  robust_edges: EnrichedRobustEdge[];
+  /** Factor sensitivity with enriched labels */
+  factor_sensitivity?: EnrichedFactorSensitivity[];
+}
+
+/**
+ * CEE's synthesized robustness explanation.
+ * Returned by CEE after processing robustness data.
+ */
+export interface RobustnessSynthesis {
+  /** One-line summary of robustness assessment */
+  headline: string;
+  /** Detailed explanations for each assumption/edge */
+  assumption_explanations?: Array<{
+    edge_id: string;
+    explanation: string;
+    severity: 'fragile' | 'moderate' | 'robust';
+  }>;
+  /** Suggestions for what to investigate next */
+  investigation_suggestions?: Array<{
+    factor_id: string;
+    suggestion: string;
+    potential_value: number;
+  }>;
+}
