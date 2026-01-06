@@ -520,6 +520,7 @@ function buildCeeReviewRequest(
     graph_schema_version: '2.2',
     inference_results: {
       // ISL V2 uses 'options' field; V1 uses 'results'. Check both for compatibility.
+      // Keep quantiles for backward compatibility (first option's quantiles)
       quantiles: (() => {
         const firstOption = (islResult?.options ?? islResult?.results)?.[0];
         return {
@@ -527,6 +528,17 @@ function buildCeeReviewRequest(
           p50: firstOption?.expected_outcome ?? 0,
           p90: firstOption?.confidence_interval?.[1] ?? 0,
         };
+      })(),
+      // Per-option outcomes for comparative analysis (all options)
+      per_option_outcomes: (() => {
+        const islOptions = islResult?.options ?? islResult?.results;
+        if (!Array.isArray(islOptions)) return undefined;
+        return islOptions.map((opt: any) => ({
+          option_id: opt.option_id ?? opt.id,
+          p10: opt.confidence_interval?.[0] ?? opt.outcome?.p10 ?? 0,
+          p50: opt.expected_outcome ?? opt.outcome?.p50 ?? 0,
+          p90: opt.confidence_interval?.[1] ?? opt.outcome?.p90 ?? 0,
+        }));
       })(),
       top_edge_drivers: islResult?.sensitivity?.slice(0, 5).map((s: any) => ({
         id: `${s.edge_from}::${s.edge_to}`,

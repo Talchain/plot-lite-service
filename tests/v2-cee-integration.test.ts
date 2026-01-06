@@ -265,6 +265,54 @@ describe('CEE Integration in V2 Response', () => {
       expect(mockIslResult.results).toBeDefined();
       expect((mockIslResult as any).robustness).toBeUndefined();
     });
+
+    it('should include per_option_outcomes for all options', () => {
+      // Mock ISL result with multiple options
+      const mockIslResult = {
+        options: [
+          { option_id: 'opt1', expected_outcome: 100, confidence_interval: [80, 120] },
+          { option_id: 'opt2', expected_outcome: 150, confidence_interval: [130, 170] },
+          { option_id: 'opt3', expected_outcome: 200, confidence_interval: [180, 220] },
+        ],
+      };
+
+      // Build per_option_outcomes from ISL result (same logic as buildCeeReviewRequest)
+      const perOptionOutcomes = mockIslResult.options.map((opt: any) => ({
+        option_id: opt.option_id ?? opt.id,
+        p10: opt.confidence_interval?.[0] ?? opt.outcome?.p10 ?? 0,
+        p50: opt.expected_outcome ?? opt.outcome?.p50 ?? 0,
+        p90: opt.confidence_interval?.[1] ?? opt.outcome?.p90 ?? 0,
+      }));
+
+      // Verify all options are included
+      expect(perOptionOutcomes).toHaveLength(3);
+      expect(perOptionOutcomes[0]).toEqual({ option_id: 'opt1', p10: 80, p50: 100, p90: 120 });
+      expect(perOptionOutcomes[1]).toEqual({ option_id: 'opt2', p10: 130, p50: 150, p90: 170 });
+      expect(perOptionOutcomes[2]).toEqual({ option_id: 'opt3', p10: 180, p50: 200, p90: 220 });
+    });
+
+    it('should handle ISL V2 outcome format in per_option_outcomes', () => {
+      // Mock ISL V2 result with nested outcome object
+      const mockIslResult = {
+        options: [
+          { option_id: 'opt1', outcome: { p10: 80, p50: 100, p90: 120, mean: 100 } },
+          { option_id: 'opt2', outcome: { p10: 130, p50: 150, p90: 170, mean: 150 } },
+        ],
+      };
+
+      // Build per_option_outcomes from ISL result (handles both legacy and V2 format)
+      const perOptionOutcomes = mockIslResult.options.map((opt: any) => ({
+        option_id: opt.option_id ?? opt.id,
+        p10: opt.confidence_interval?.[0] ?? opt.outcome?.p10 ?? 0,
+        p50: opt.expected_outcome ?? opt.outcome?.p50 ?? 0,
+        p90: opt.confidence_interval?.[1] ?? opt.outcome?.p90 ?? 0,
+      }));
+
+      // Verify V2 format is correctly extracted
+      expect(perOptionOutcomes).toHaveLength(2);
+      expect(perOptionOutcomes[0]).toEqual({ option_id: 'opt1', p10: 80, p50: 100, p90: 120 });
+      expect(perOptionOutcomes[1]).toEqual({ option_id: 'opt2', p10: 130, p50: 150, p90: 170 });
+    });
   });
 
   describe('CEE Results Extraction', () => {

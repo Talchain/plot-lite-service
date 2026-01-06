@@ -209,13 +209,54 @@ export interface ISLEdgeSensitivityItem {
 }
 
 /**
+ * ISL V2 nested outcome object
+ */
+export interface ISLOutcomeStats {
+  /** Mean outcome value */
+  mean?: number;
+  /** Standard deviation */
+  std?: number;
+  /** 10th percentile */
+  p10?: number;
+  /** 50th percentile (median) */
+  p50?: number;
+  /** 90th percentile */
+  p90?: number;
+  /** Number of samples used */
+  n_samples?: number;
+  /** Number of valid (non-NaN) samples */
+  n_valid_samples?: number;
+  /** Ratio of valid to total samples */
+  validity_ratio?: number;
+}
+
+/**
  * Option comparison result from ISL /api/v1/robustness/analyze/v2 response
  * Returned when analysis_types includes 'comparison'
+ *
+ * Supports both V1 (flat) and V2 (nested outcome) formats.
  */
 export interface ISLOptionComparisonResult {
-  option_id: string;
-  expected_outcome: number;
-  confidence_interval: [number, number];
+  /** Option identifier (V2 format uses option_id, V1 uses id) */
+  option_id?: string;
+  /** Legacy option identifier (V1 format) */
+  id?: string;
+  /** Option label for display */
+  label?: string;
+  /** Expected outcome value (V1 format, deprecated - use outcome.mean) */
+  expected_outcome?: number;
+  /** Confidence interval [p10, p90] (V1 format, deprecated - use outcome.p10/p90) */
+  confidence_interval?: [number, number];
+  /** Full outcome statistics (V2 format) */
+  outcome?: ISLOutcomeStats;
+  /** Probability that this option achieves the goal */
+  probability_of_goal?: number;
+  /** Win probability vs other options */
+  win_probability?: number;
+  /** Computation status for this option */
+  status?: 'computed' | 'skipped' | 'error';
+  /** Reason if status is not 'computed' */
+  status_reason?: string;
 }
 
 /**
@@ -280,6 +321,12 @@ export interface ISLRobustnessAnalyzeV2Response {
 
   /** Confidence in the recommendation */
   recommendation_confidence?: number;
+
+  /** Validation status from causal graph analysis */
+  validation_status?: 'identifiable' | 'uncertain' | 'cannot_identify';
+
+  /** Confidence in the validation assessment */
+  validation_confidence?: 'high' | 'medium' | 'low';
 
   /** Analysis metadata */
   metadata?: {

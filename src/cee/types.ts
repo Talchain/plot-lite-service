@@ -238,6 +238,13 @@ export interface CeeReviewRequest {
   /** Inference results to review */
   inference_results: {
     quantiles: { p10: number; p50: number; p90: number };
+    /** Per-option outcome quantiles for comparative analysis */
+    per_option_outcomes?: Array<{
+      option_id: string;
+      p10: number;
+      p50: number;
+      p90: number;
+    }>;
     top_edge_drivers?: Array<{ id: string; sensitivity?: number }>;
     ranked_actions?: Array<{ id: string; rank: number }>;
   };

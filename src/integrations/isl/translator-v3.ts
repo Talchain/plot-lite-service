@@ -96,18 +96,16 @@ export function toISLNode(node: EngineNodeV3): ISLNodeV3 {
 /**
  * Translate internal edge to ISL format.
  *
- * Note: exists_probability is forced to 1.0 (structural uncertainty disabled).
- * ISL's dual uncertainty model causes zero-heavy outcome distributions when
- * edges have low existence probability. For the PoC, we disable structural
- * uncertainty by treating all edges as definitely existing.
- * TODO: Re-enable when UI toggle for structural uncertainty is wired.
+ * Preserves structural uncertainty via exists_probability field.
+ * The edge.exists_probability has already been normalized from legacy
+ * fields (belief, belief_exists) by the graph normalizer.
  */
 export function toISLEdge(edge: EngineEdgeV3): ISLEdgeV3 {
   return {
     from: edge.from,
     to: edge.to,
-    // Force all edges to exist (structural uncertainty disabled for PoC)
-    exists_probability: 1.0,
+    // Use actual exists_probability (defaults to 1.0 if not set during normalization)
+    exists_probability: edge.exists_probability,
     strength: {
       mean: edge.strength.mean,
       std: edge.strength.std,

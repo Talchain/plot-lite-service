@@ -7,6 +7,7 @@ import {
   toISLInterventions,
   toISLRobustnessRequest,
   validateISLRequest,
+  toISLEdge,
 } from '../src/integrations/isl/translator-v3.js';
 import type { EngineGraphV3, OptionV3 } from '../src/types/engine-v3.js';
 
@@ -84,12 +85,12 @@ describe('ISL Translator V3', () => {
       });
 
       // Check edges - uses ISL V3 format with strength object
-      // Note: exists_probability is forced to 1.0 (structural uncertainty disabled for PoC)
+      // exists_probability is preserved from input (structural uncertainty enabled)
       expect(result.graph.edges).toHaveLength(2);
       expect(result.graph.edges[0]).toEqual({
         from: 'factor-a',
         to: 'goal',
-        exists_probability: 1.0,
+        exists_probability: 0.8, // Preserves actual value from input
         strength: { mean: 0.5, std: 0.1 },
       });
     });
@@ -202,6 +203,60 @@ describe('ISL Translator V3', () => {
       const errors = validateISLRequest(request);
 
       expect(errors.some(e => e.includes('interventions'))).toBe(true);
+    });
+  });
+
+  describe('toISLEdge - exists_probability preservation', () => {
+    it('preserves explicit exists_probability value', () => {
+      const edge = {
+        from: 'a',
+        to: 'b',
+        exists_probability: 0.7,
+        strength: { mean: 0.5, std: 0.1 },
+      };
+
+      const result = toISLEdge(edge);
+
+      expect(result.exists_probability).toBe(0.7);
+    });
+
+    it('preserves high exists_probability value', () => {
+      const edge = {
+        from: 'a',
+        to: 'b',
+        exists_probability: 0.95,
+        strength: { mean: 0.5, std: 0.1 },
+      };
+
+      const result = toISLEdge(edge);
+
+      expect(result.exists_probability).toBe(0.95);
+    });
+
+    it('preserves low exists_probability value', () => {
+      const edge = {
+        from: 'a',
+        to: 'b',
+        exists_probability: 0.3,
+        strength: { mean: 0.5, std: 0.1 },
+      };
+
+      const result = toISLEdge(edge);
+
+      expect(result.exists_probability).toBe(0.3);
+    });
+
+    it('preserves 1.0 exists_probability (certain edge)', () => {
+      const edge = {
+        from: 'a',
+        to: 'b',
+        exists_probability: 1.0,
+        strength: { mean: 0.5, std: 0.1 },
+      };
+
+      const result = toISLEdge(edge);
+
+      expect(result.exists_probability).toBe(1.0);
     });
   });
 });
