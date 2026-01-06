@@ -28,9 +28,13 @@ export async function registerV1Routes(app: FastifyInstance) {
   app.addHook('preHandler', async (req, reply) => {
     // Only apply to /v1/* routes
     if (req.url?.startsWith('/v1/')) {
-      // Allow demo bypass only for GET /v1/stream
+      // Allow demo bypass for GET /v1/stream, skip auth entirely for /v1/templates (read-only public)
       const isStreamRoute = req.method === 'GET' && req.url.startsWith('/v1/stream');
-      const authorized = await authGuard(req, reply, { allowDemoBypass: isStreamRoute });
+      const isTemplatesRoute = req.url.startsWith('/v1/templates');
+      const authorized = await authGuard(req, reply, {
+        allowDemoBypass: isStreamRoute,
+        skipAuth: isTemplatesRoute,
+      });
       // P1 fix: Return early if auth failed (response already sent)
       if (!authorized) {
         return reply;

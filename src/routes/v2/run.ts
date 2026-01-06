@@ -1250,7 +1250,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           || islResult.robustness?.confidence !== undefined
           || (islResult.robustness?.fragile_edges?.length ?? 0) > 0
           || (islResult.robustness?.robust_edges?.length ?? 0) > 0;
-        const hasDrivers = islResult.sensitivity?.length > 0;
+        // Check both edge sensitivity and factor sensitivity for drivers status
+        const hasDrivers = (islResult.sensitivity?.length > 0) || (islResult.factor_sensitivity?.length > 0);
 
         const optionStatus = mapToPerFeatureStatus(islAnalysisStatus, hasOptionComparison);
         const robustnessStatus = mapToPerFeatureStatus(islAnalysisStatus, hasRobustness);
