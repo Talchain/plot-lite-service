@@ -260,7 +260,19 @@ export interface ISLRobustnessAnalyzeV2Response {
     explanation?: string;
   };
 
-  /** Option comparison results (when 'comparison' in analysis_types) */
+  /**
+   * Option comparison results (when 'comparison' in analysis_types)
+   *
+   * ISL Response Version handling:
+   * - V1 format: uses 'results' field
+   * - V2 format: uses 'options' field with p10/p50/p90 bands
+   *
+   * PLoT sends X-ISL-Response-Version: 2 header, so prefer 'options'.
+   * Keep 'results' for backward compatibility during transition.
+   */
+  options?: ISLOptionComparisonResult[];
+
+  /** @deprecated V1 format - use 'options' for V2 responses */
   results?: ISLOptionComparisonResult[];
 
   /** Recommended option ID */

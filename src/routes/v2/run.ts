@@ -302,7 +302,9 @@ function buildResponse(
   ceeResults?: CeeResultsParams
 ): RunResponseV3 {
   // Map ISL results to response format
-  const optionComparison = islResult?.results?.map((r: any) => {
+  // ISL V2 uses 'options' field; V1 uses 'results'. Check both for compatibility.
+  const islOptionData = islResult?.options ?? islResult?.results;
+  const optionComparison = islOptionData?.map((r: any) => {
     const option = options?.find((o) => o.id === r.option_id);
     return {
       option_id: r.option_id,
@@ -481,11 +483,15 @@ function buildCeeReviewRequest(
     },
     graph_schema_version: '2.2',
     inference_results: {
-      quantiles: {
-        p10: islResult?.results?.[0]?.confidence_interval?.[0] ?? 0,
-        p50: islResult?.results?.[0]?.expected_outcome ?? 0,
-        p90: islResult?.results?.[0]?.confidence_interval?.[1] ?? 0,
-      },
+      // ISL V2 uses 'options' field; V1 uses 'results'. Check both for compatibility.
+      quantiles: (() => {
+        const firstOption = (islResult?.options ?? islResult?.results)?.[0];
+        return {
+          p10: firstOption?.confidence_interval?.[0] ?? 0,
+          p50: firstOption?.expected_outcome ?? 0,
+          p90: firstOption?.confidence_interval?.[1] ?? 0,
+        };
+      })(),
       top_edge_drivers: islResult?.sensitivity?.slice(0, 5).map((s: any) => ({
         id: `${s.edge_from}::${s.edge_to}`,
         sensitivity: s.elasticity,
@@ -629,7 +635,8 @@ async function requestCeeReview(
   }
 
   // Check if there's meaningful data to send
-  const hasResults = islResult?.results?.length > 0;
+  // ISL V2 uses 'options' field; V1 uses 'results'. Check both for compatibility.
+  const hasResults = (islResult?.options ?? islResult?.results)?.length > 0;
   if (!hasResults) {
     return {
       ceeResults: {
@@ -1013,12 +1020,20 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             islStatusCode = 200;
 
             // DEBUG: Log ISL response for option comparison investigation
+            // ISL V2 uses 'options' field; V1 uses 'results'. Log both for debugging.
+            const optionData = islResult?.options ?? islResult?.results;
             console.log(JSON.stringify({
               event: 'isl_response_debug',
               request_id: requestId,
+              // V2 format (preferred)
+              has_options: !!islResult?.options,
+              options_count: islResult?.options?.length ?? 0,
+              // V1 format (fallback)
               has_results: !!islResult?.results,
               results_count: islResult?.results?.length ?? 0,
-              results_sample: islResult?.results?.slice(0, 2),
+              // Resolved data (what we'll use)
+              resolved_options_count: optionData?.length ?? 0,
+              resolved_sample: optionData?.slice(0, 2),
               has_robustness: !!islResult?.robustness,
               robustness_keys: islResult?.robustness ? Object.keys(islResult.robustness) : [],
               has_factor_sensitivity: !!islResult?.factor_sensitivity,
@@ -1185,7 +1200,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         }
 
         // Compute per-feature statuses
-        const hasOptionComparison = islResult.results?.length > 0;
+        // ISL V2 response uses 'options' field; V1 uses 'results'. Check both for compatibility.
+        const optionComparisonData = islResult.options ?? islResult.results;
+        const hasOptionComparison = optionComparisonData?.length > 0;
         // Check for meaningful robustness data - support both V1 (score) and V2 (confidence) formats
         const hasRobustness = islResult.robustness?.score !== undefined
           || islResult.robustness?.confidence !== undefined
@@ -1210,7 +1227,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         }
 
         // Extract option outcomes for status determination
-        const optionOutcomes = islResult.results?.map((r: any) => ({
+        // Use optionComparisonData which already handles V1/V2 format fallback
+        const optionOutcomes = optionComparisonData?.map((r: any) => ({
           option_id: r.option_id,
           expected_outcome: r.expected_outcome,
         }));
