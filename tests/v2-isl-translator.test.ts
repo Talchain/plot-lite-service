@@ -83,12 +83,13 @@ describe('ISL Translator V3', () => {
         observed_state: { value: 50 },
       });
 
-      // Check edges - uses ISL V3 format with exists_probability and strength object
+      // Check edges - uses ISL V3 format with strength object
+      // Note: exists_probability is forced to 1.0 (structural uncertainty disabled for PoC)
       expect(result.graph.edges).toHaveLength(2);
       expect(result.graph.edges[0]).toEqual({
         from: 'factor-a',
         to: 'goal',
-        exists_probability: 0.8,
+        exists_probability: 1.0,
         strength: { mean: 0.5, std: 0.1 },
       });
     });
