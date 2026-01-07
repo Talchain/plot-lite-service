@@ -19,6 +19,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type {
   RunRequestV3,
@@ -30,6 +31,7 @@ import type {
   TopLevelAnalysisStatus,
   V2RunError,
   RobustnessSynthesisV3,
+  RobustnessAssessmentV3,
   CeeStatusV3,
   DecisionQualityV3,
   InsightV3,
@@ -52,9 +54,43 @@ import {
 import { getISLService } from '../../integrations/isl/index.js';
 import { ISLHttpError } from '../../integrations/isl/errors.js';
 import { buildRobustnessDataForCee } from '../../integrations/isl/adapters/robustness-enrichment.js';
-import type { RobustnessDataForCee } from '../../integrations/isl/types/plot-types.js';
+import {
+  normalizeFragileEdges,
+  normalizeRobustEdges,
+} from '../../integrations/isl/adapters/robustness-analysis.js';
+import type { RobustnessDataForCee, NormalizedEdgeInfo } from '../../integrations/isl/types/plot-types.js';
 import { orchestrateCeeReview } from '../../cee/orchestrator.js';
-import type { CeeReviewRequest } from '../../cee/types.js';
+import type { CeeReviewRequest, CeeTrace } from '../../cee/types.js';
+
+// -----------------------------------------------------------------------------
+// Build ID (for deployment verification)
+// -----------------------------------------------------------------------------
+
+// Cached build ID to avoid per-request git calls
+let cachedBuildId: string | null = null;
+
+function getBuildId(): string {
+  if (cachedBuildId !== null) return cachedBuildId;
+
+  // Prefer env vars from CI/CD (set at build/deploy time)
+  const envBuildId = process.env.BUILD_ID || process.env.GITHUB_SHA;
+  if (envBuildId) {
+    cachedBuildId = envBuildId.slice(0, 7);
+    return cachedBuildId;
+  }
+
+  // Fallback to git (one-time only, typically in dev)
+  try {
+    const res = spawnSync('git', ['--no-pager', 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' });
+    if (res.status === 0) {
+      cachedBuildId = res.stdout.trim() || 'unknown';
+      return cachedBuildId;
+    }
+  } catch { /* ignore */ }
+
+  cachedBuildId = 'unknown';
+  return cachedBuildId;
+}
 
 // -----------------------------------------------------------------------------
 // Constants
@@ -256,6 +292,7 @@ interface MetaParams {
   validationMs?: number;
   islMs?: number;
   ceeMs?: number;
+  build?: string;
 }
 
 /**
@@ -302,7 +339,8 @@ function buildResponse(
   islAnalysisStatus?: string,
   islStatusReason?: string,
   robustnessSynthesis?: RobustnessSynthesisV3 | null,
-  ceeResults?: CeeResultsParams
+  ceeResults?: CeeResultsParams,
+  ceeTrace?: CeeTrace | null
 ): RunResponseV3 {
   // Map ISL results to response format
   // ISL V2 uses 'options' field; V1 uses 'results'. Check both for compatibility.
@@ -381,15 +419,38 @@ function buildResponse(
     direction: f.direction,
   }));
 
-  const robustness = islResult?.robustness
-    ? {
-        score: islResult.robustness.score,
-        label: islResult.robustness.label,
-        fragile_edges: islResult.robustness.fragile_edges,
-        robust_edges: islResult.robustness.robust_edges,
-        explanation: islResult.robustness.explanation,
-      }
-    : undefined;
+  // Normalize robustness edges to consistent object format
+  // ISL returns fragile_edges as objects, robust_edges as strings - normalize both
+  let robustness: RobustnessAssessmentV3 | undefined;
+
+  if (islResult?.robustness) {
+    const fragileResult = normalizeFragileEdges(
+      islResult.robustness.fragile_edges as unknown[],
+      requestId
+    );
+    const robustResult = normalizeRobustEdges(
+      islResult.robustness.robust_edges as unknown[],
+      requestId
+    );
+    const normalizationErrors = [...fragileResult.errors, ...robustResult.errors];
+
+    // Validate and cast label to expected union type
+    const rawLabel = islResult.robustness.label;
+    const label: 'robust' | 'moderate' | 'fragile' | undefined =
+      rawLabel === 'robust' || rawLabel === 'moderate' || rawLabel === 'fragile'
+        ? rawLabel
+        : undefined;
+
+    robustness = {
+      score: islResult.robustness.score,
+      label,
+      fragile_edges: fragileResult.edges,
+      robust_edges: robustResult.edges,
+      explanation: islResult.robustness.explanation,
+      // Include normalization errors if any occurred (for observability)
+      ...(normalizationErrors.length > 0 && { normalization_errors: normalizationErrors }),
+    };
+  }
 
   return {
     request_schema_version: 'v3',
@@ -421,6 +482,9 @@ function buildResponse(
     improvement_guidance: ceeResults?.improvementGuidance,
     rationale: ceeResults?.rationale,
 
+    // CEE trace for observability (includes degraded flag)
+    ceeTrace: ceeTrace ?? undefined,
+
     response_hash: responseHash,
 
     meta: {
@@ -432,6 +496,7 @@ function buildResponse(
       validation_ms: meta.validationMs,
       isl_ms: meta.islMs,
       cee_ms: meta.ceeMs,
+      build: meta.build,
     },
   };
 }
@@ -474,6 +539,7 @@ interface CeeOrchestrationResult {
   ceeResults: CeeResultsParams;
   robustnessSynthesis: RobustnessSynthesisV3 | null;
   latencyMs: number;
+  ceeTrace: CeeTrace | null;
 }
 
 /**
@@ -674,6 +740,13 @@ async function requestCeeReview(
       },
       robustnessSynthesis: null,
       latencyMs: 0,
+      ceeTrace: {
+        requestId: requestId,
+        degraded: false,
+        timestamp: new Date().toISOString(),
+        source: 'orchestrator',
+        reason: 'CEE feature disabled',
+      },
     };
   }
 
@@ -692,6 +765,13 @@ async function requestCeeReview(
       },
       robustnessSynthesis: null,
       latencyMs: 0,
+      ceeTrace: {
+        requestId: requestId,
+        degraded: true,
+        timestamp: new Date().toISOString(),
+        source: 'orchestrator',
+        reason: 'CEE_BASE_URL or CEE_API_KEY not configured',
+      },
     };
   }
 
@@ -709,6 +789,13 @@ async function requestCeeReview(
       },
       robustnessSynthesis: null,
       latencyMs: 0,
+      ceeTrace: {
+        requestId: requestId,
+        degraded: false,
+        timestamp: new Date().toISOString(),
+        source: 'orchestrator',
+        reason: 'No ISL results to send to CEE',
+      },
     };
   }
 
@@ -735,6 +822,7 @@ async function requestCeeReview(
         evt: 'cee_review_error',
         error_code: ceeResult.ceeError.code,
         error_message: ceeResult.ceeError.message,
+        degraded: ceeResult.ceeTrace?.degraded,
       }, 'CEE review returned error');
 
       return {
@@ -747,6 +835,7 @@ async function requestCeeReview(
         },
         robustnessSynthesis: null,
         latencyMs,
+        ceeTrace: ceeResult.ceeTrace,
       };
     }
 
@@ -765,6 +854,7 @@ async function requestCeeReview(
       },
       robustnessSynthesis,
       latencyMs,
+      ceeTrace: ceeResult.ceeTrace,
     };
   } catch (err) {
     const latencyMs = performance.now() - startTime;
@@ -784,6 +874,13 @@ async function requestCeeReview(
       },
       robustnessSynthesis: null,
       latencyMs,
+      ceeTrace: {
+        requestId: requestId,
+        degraded: true,
+        timestamp: new Date().toISOString(),
+        source: 'orchestrator',
+        reason: `CEE review threw exception: ${String(err)}`,
+      },
     };
   }
 }
@@ -1013,6 +1110,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               latencyMs: totalMs,
               normalizationMs,
               validationMs,
+              build: getBuildId(),
             },
             responseHash
           ));
@@ -1266,6 +1364,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               normalizationMs,
               validationMs,
               islMs,
+              build: getBuildId(),
             },
             responseHash
           ));
@@ -1292,6 +1391,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               normalizationMs,
               validationMs,
               islMs,
+              build: getBuildId(),
             },
             responseHash,
             islResult,
@@ -1304,14 +1404,17 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // Compute per-feature statuses
         // ISL V2 response uses 'options' field; V1 uses 'results'. Check both for compatibility.
         const optionComparisonData = islResult.options ?? islResult.results;
-        const hasOptionComparison = optionComparisonData?.length > 0;
+        const hasOptionComparison = Array.isArray(optionComparisonData) && optionComparisonData.length > 0;
         // Check for meaningful robustness data - support both V1 (score) and V2 (confidence) formats
         const hasRobustness = islResult.robustness?.score !== undefined
           || islResult.robustness?.confidence !== undefined
-          || (islResult.robustness?.fragile_edges?.length ?? 0) > 0
-          || (islResult.robustness?.robust_edges?.length ?? 0) > 0;
+          || (Array.isArray(islResult.robustness?.fragile_edges) && islResult.robustness.fragile_edges.length > 0)
+          || (Array.isArray(islResult.robustness?.robust_edges) && islResult.robustness.robust_edges.length > 0);
         // Check both edge sensitivity and factor sensitivity for drivers status
-        const hasDrivers = (islResult.sensitivity?.length > 0) || (islResult.factor_sensitivity?.length > 0);
+        // Use explicit Array.isArray checks to handle null/undefined/object edge cases
+        const hasEdgeSensitivity = Array.isArray(islResult.sensitivity) && islResult.sensitivity.length > 0;
+        const hasFactorSensitivity = Array.isArray(islResult.factor_sensitivity) && islResult.factor_sensitivity.length > 0;
+        const hasDrivers = hasEdgeSensitivity || hasFactorSensitivity;
 
         const optionStatus = mapToPerFeatureStatus(islAnalysisStatus, hasOptionComparison);
         const robustnessStatus = mapToPerFeatureStatus(islAnalysisStatus, hasRobustness);
@@ -1385,6 +1488,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             validationMs,
             islMs,
             ceeMs: ceeOrchestrationResult.latencyMs,
+            build: getBuildId(),
           },
           responseHash,
           islResult,
@@ -1392,7 +1496,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           islAnalysisStatus,
           islStatusReason,
           ceeOrchestrationResult.robustnessSynthesis,
-          ceeOrchestrationResult.ceeResults
+          ceeOrchestrationResult.ceeResults,
+          ceeOrchestrationResult.ceeTrace
         ));
       } catch (err) {
         const totalMs = performance.now() - startTime;

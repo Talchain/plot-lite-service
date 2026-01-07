@@ -45,8 +45,9 @@ function parseEdgeId(edgeId: string): { from: string; to: string } {
 
 /**
  * Result of edge normalization with errors tracked.
+ * @public Exported for use in route handlers.
  */
-interface NormalizationResult {
+export interface NormalizationResult {
   edges: NormalizedEdgeInfo[];
   errors: EdgeNormalizationError[];
 }
@@ -83,8 +84,10 @@ function normalizeRobustEdge(edgeId: string): NormalizedEdgeInfo {
  * Safely normalize fragile edges array with defensive handling.
  * Handles both object format (expected) and string format (legacy fallback).
  * Collects errors for observability instead of silently dropping.
+ *
+ * @public Exported for use in route handlers.
  */
-function normalizeFragileEdges(
+export function normalizeFragileEdges(
   edges: unknown[] | undefined,
   requestId?: string
 ): NormalizationResult {
@@ -137,8 +140,10 @@ function normalizeFragileEdges(
  * Safely normalize robust edges array with defensive handling.
  * Handles both string format (expected) and object format (fallback).
  * Collects errors for observability instead of silently dropping.
+ *
+ * @public Exported for use in route handlers.
  */
-function normalizeRobustEdges(
+export function normalizeRobustEdges(
   edges: unknown[] | undefined,
   requestId?: string
 ): NormalizationResult {

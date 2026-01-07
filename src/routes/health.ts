@@ -64,8 +64,10 @@ export async function registerHealthRoutes(app: FastifyInstance, opts: HealthRou
     // Metrics already imported statically
     const { rateLimitState } = await import('../rateLimit.js');
     const mem = process.memoryUsage();
+    const build = getBuildId();
     const base = {
       status: 'ok' as const,
+      build,  // Added for deployment verification
       // Preserve legacy top-level p95 for compatibility
       p95_ms: p95Ms(),
       ...snapshot(),

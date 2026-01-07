@@ -468,6 +468,24 @@ export interface RunResponseV3 {
    */
   rationale?: RationaleV3 | null;
 
+  /**
+   * CEE trace for observability.
+   * Contains requestId, degraded flag, timestamp, and error reason if applicable.
+   */
+  ceeTrace?: {
+    requestId: string;
+    degraded: boolean;
+    timestamp: string;
+    source?: string;
+    reason?: string;
+    status?: number;
+    plot_request_id?: string;
+    cee_sent_request_id?: string | null;
+    cee_returned_request_id?: string | null;
+    latency_ms?: number | null;
+    id_mismatch?: boolean;
+  };
+
   /** Determinism hash of canonical request (semantic fields only) */
   response_hash?: string;
 
@@ -482,6 +500,8 @@ export interface RunResponseV3 {
     validation_ms?: number;
     isl_ms?: number;
     cee_ms?: number;
+    /** Build version for deployment verification */
+    build?: string;
   };
 }
 
@@ -558,14 +578,29 @@ export interface FactorSensitivityResultV3 {
 }
 
 /**
+ * Normalized edge info for robustness assessment.
+ * Consistent object shape regardless of ISL format.
+ */
+export interface NormalizedEdgeInfoV3 {
+  edge_id: string;
+  from_id: string;
+  to_id: string;
+  switch_probability: number;
+}
+
+/**
  * Overall robustness assessment.
  */
 export interface RobustnessAssessmentV3 {
-  score: number;
-  label: 'robust' | 'moderate' | 'fragile';
-  fragile_edges?: string[];
-  robust_edges?: string[];
-  explanation: string;
+  score?: number;
+  label?: 'robust' | 'moderate' | 'fragile';
+  /** Fragile edges - normalized to consistent object format */
+  fragile_edges?: NormalizedEdgeInfoV3[];
+  /** Robust edges - normalized to consistent object format */
+  robust_edges?: NormalizedEdgeInfoV3[];
+  explanation?: string;
+  /** Normalization errors if any (for observability) */
+  normalization_errors?: Array<{ edge_type: string; error: string; raw_value?: unknown }>;
 }
 
 /**
