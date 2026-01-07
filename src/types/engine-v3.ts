@@ -247,6 +247,14 @@ export interface RunRequestV3 {
 
   /** Idempotency key */
   idempotency_key?: string;
+
+  /**
+   * User-defined success threshold for goal.
+   * When provided, response includes probability_of_goal per option
+   * indicating likelihood of outcome meeting or exceeding this value.
+   * Null is treated as absent.
+   */
+  goal_threshold?: number | null;
 }
 
 // -----------------------------------------------------------------------------
@@ -515,7 +523,15 @@ export interface OptionComparisonResultV3 {
   status?: 'computed' | 'skipped' | 'error';
   /** Reason if status is not 'computed' */
   status_reason?: string;
+  /**
+   * Probability of outcome meeting or exceeding goal_threshold [0, 1].
+   * Only present when goal_threshold provided in request.
+   */
   probability_of_goal?: number;
+  /**
+   * Probability this option outperforms alternatives across simulated scenarios [0, 1].
+   */
+  win_probability?: number;
 }
 
 /**

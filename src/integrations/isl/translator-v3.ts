@@ -75,6 +75,11 @@ export interface ISLRobustnessRequestV3 {
     mean: number;
     std: number;
   }>;
+  /**
+   * User-defined success threshold for goal.
+   * When provided, ISL returns probability_of_goal per option.
+   */
+  goal_threshold?: number;
 }
 
 // -----------------------------------------------------------------------------
@@ -189,6 +194,7 @@ export function buildParameterUncertaintiesV3(
  * @param goalNodeId Goal node ID
  * @param requestId Request ID for correlation
  * @param nSamples Number of samples (optional)
+ * @param goalThreshold Goal threshold for probability_of_goal computation (optional)
  * @returns ISL robustness request
  */
 export function toISLRobustnessRequest(
@@ -196,9 +202,10 @@ export function toISLRobustnessRequest(
   options: OptionV3[],
   goalNodeId: string,
   requestId: string,
-  nSamples?: number
+  nSamples?: number,
+  goalThreshold?: number
 ): ISLRobustnessRequestV3 {
-  return {
+  const request: ISLRobustnessRequestV3 = {
     request_id: requestId,
     graph: {
       nodes: graph.nodes.map(toISLNode),
@@ -210,6 +217,13 @@ export function toISLRobustnessRequest(
     analysis_types: ['comparison', 'sensitivity', 'robustness'],
     parameter_uncertainties: buildParameterUncertaintiesV3(graph.nodes),
   };
+
+  // Only include goal_threshold if provided (omit entirely when absent)
+  if (goalThreshold !== undefined) {
+    request.goal_threshold = goalThreshold;
+  }
+
+  return request;
 }
 
 // -----------------------------------------------------------------------------

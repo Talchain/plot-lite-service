@@ -435,4 +435,221 @@ describe('/v2/run Contract Smoke Tests', () => {
       expect(['computed', 'unavailable', 'skipped', 'error']).toContain(res.data.drivers_status);
     });
   });
+
+  describe('F.11 - goal_threshold handling', () => {
+    it('accepts goal_threshold: 20000 (positive number)', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const res = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: VALID_GRAPH,
+          options: VALID_OPTIONS,
+          goal_node_id: 'goal',
+          goal_threshold: 20000,
+          seed: '42',
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(['computed', 'partial', 'failed']).toContain(res.data.analysis_status);
+    });
+
+    it('accepts goal_threshold: 0 (zero is valid)', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const res = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: VALID_GRAPH,
+          options: VALID_OPTIONS,
+          goal_node_id: 'goal',
+          goal_threshold: 0,
+          seed: '42',
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(['computed', 'partial', 'failed']).toContain(res.data.analysis_status);
+    });
+
+    it('accepts goal_threshold: -500 (negative is valid)', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const res = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: VALID_GRAPH,
+          options: VALID_OPTIONS,
+          goal_node_id: 'goal',
+          goal_threshold: -500,
+          seed: '42',
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(['computed', 'partial', 'failed']).toContain(res.data.analysis_status);
+    });
+
+    it('accepts null goal_threshold (treated as absent)', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const res = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: VALID_GRAPH,
+          options: VALID_OPTIONS,
+          goal_node_id: 'goal',
+          goal_threshold: null,
+          seed: '42',
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(['computed', 'partial', 'failed']).toContain(res.data.analysis_status);
+    });
+
+    it('rejects goal_threshold as object with 400', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const res = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: VALID_GRAPH,
+          options: VALID_OPTIONS,
+          goal_node_id: 'goal',
+          goal_threshold: { value: 20000 }, // Invalid: object
+          seed: '42',
+        }),
+      });
+
+      // Fastify schema should reject object type
+      expect(res.status).toBe(400);
+    });
+
+    it('coerces numeric string to number (Fastify behavior)', async () => {
+      // Note: Fastify with AJV coerces numeric strings to numbers by default
+      // This test documents that behavior - strings that parse as numbers are accepted
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const res = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: VALID_GRAPH,
+          options: VALID_OPTIONS,
+          goal_node_id: 'goal',
+          goal_threshold: '20000', // String coerced to number
+          seed: '42',
+        }),
+      });
+
+      // Fastify coerces "20000" to 20000
+      expect(res.status).toBe(200);
+    });
+
+    it('produces different response_hash for different goal_threshold values', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      // Request 1: goal_threshold = 20000
+      const res1 = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: VALID_GRAPH,
+          options: VALID_OPTIONS,
+          goal_node_id: 'goal',
+          goal_threshold: 20000,
+          seed: '42',
+        }),
+      });
+
+      // Request 2: goal_threshold = 30000
+      const res2 = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: VALID_GRAPH,
+          options: VALID_OPTIONS,
+          goal_node_id: 'goal',
+          goal_threshold: 30000,
+          seed: '42',
+        }),
+      });
+
+      expect(res1.status).toBe(200);
+      expect(res2.status).toBe(200);
+      expect(res1.data.response_hash).not.toBe(res2.data.response_hash);
+    });
+
+    it('produces different response_hash with vs without goal_threshold', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      // Request 1: with goal_threshold
+      const res1 = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: VALID_GRAPH,
+          options: VALID_OPTIONS,
+          goal_node_id: 'goal',
+          goal_threshold: 20000,
+          seed: '42',
+        }),
+      });
+
+      // Request 2: without goal_threshold
+      const res2 = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: VALID_GRAPH,
+          options: VALID_OPTIONS,
+          goal_node_id: 'goal',
+          seed: '42',
+        }),
+      });
+
+      expect(res1.status).toBe(200);
+      expect(res2.status).toBe(200);
+      expect(res1.data.response_hash).not.toBe(res2.data.response_hash);
+    });
+
+    it('backward compatible: existing clients without goal_threshold work unchanged', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const res = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: VALID_GRAPH,
+          options: VALID_OPTIONS,
+          goal_node_id: 'goal',
+          seed: '42',
+          // goal_threshold intentionally omitted
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(['computed', 'partial', 'failed']).toContain(res.data.analysis_status);
+      // Verify response structure exists (option_comparison may be undefined if status is 'failed')
+      expect(res.data.critiques).toBeDefined();
+      expect(res.data.meta).toBeDefined();
+      expect(res.data.meta.seed_used).toBe('42');
+    });
+  });
 });

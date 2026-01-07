@@ -168,6 +168,7 @@ const runV3Schema = {
       detail_level: { type: 'string', enum: ['quick', 'standard', 'deep'] },
       request_id: { type: 'string' },
       idempotency_key: { type: 'string' },
+      goal_threshold: { type: ['number', 'null'] },
     },
   },
 };
@@ -336,7 +337,8 @@ function buildResponse(
       ? [outcomeData.p10 ?? 0, outcomeData.p90 ?? 0]
       : r.confidence_interval ?? [0, 0];
 
-    return {
+    // Build result object - only include optional fields if present
+    const result: any = {
       option_id: optionId,
       option_label: option?.label ?? r.label ?? optionId,
       // Legacy fields (deprecated but kept for backward compatibility)
@@ -347,8 +349,19 @@ function buildResponse(
       // Status fields
       status: r.status,
       status_reason: r.status_reason,
-      probability_of_goal: r.probability_of_goal,
     };
+
+    // Only include probability_of_goal if ISL returned it (omit when absent, not null)
+    if (r.probability_of_goal !== undefined && r.probability_of_goal !== null) {
+      result.probability_of_goal = r.probability_of_goal;
+    }
+
+    // Only include win_probability if ISL returned it (omit when absent, not null)
+    if (r.win_probability !== undefined && r.win_probability !== null) {
+      result.win_probability = r.win_probability;
+    }
+
+    return result;
   });
 
   const edgeSensitivity = islResult?.sensitivity?.map((s: any) => ({
@@ -794,6 +807,22 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
       const nSamples = body.n_samples ?? DEFAULT_N_SAMPLES;
       const detailLevel = body.detail_level ?? 'standard';
 
+      // Normalize goal_threshold: null is treated as absent
+      let goalThreshold: number | undefined;
+      if (body.goal_threshold === null) {
+        // Explicit null - treat as absent with debug log
+        console.log(JSON.stringify({
+          event: 'goal_threshold_null',
+          request_id: requestId,
+          message: 'goal_threshold was explicitly null, treating as absent',
+        }));
+        goalThreshold = undefined;
+      } else if (typeof body.goal_threshold === 'number' && Number.isFinite(body.goal_threshold)) {
+        goalThreshold = body.goal_threshold;
+      } else {
+        goalThreshold = undefined;
+      }
+
       // Timing tracking
       let normalizationMs = 0;
       let validationMs = 0;
@@ -995,7 +1024,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           normalizedOptions,
           body.goal_node_id,
           requestId,
-          nSamples
+          nSamples,
+          goalThreshold
         );
 
         // Validate ISL request (should never fail after preflight, but defensive)
@@ -1095,6 +1125,22 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               has_factor_sensitivity: !!islResult?.factor_sensitivity,
               factor_sensitivity_count: islResult?.factor_sensitivity?.length ?? 0
             }));
+
+            // Warn if goal_threshold was provided but ISL didn't return probability_of_goal
+            if (goalThreshold !== undefined) {
+              const optionsWithoutProbGoal = optionData?.filter(
+                (opt: any) => opt.probability_of_goal === undefined || opt.probability_of_goal === null
+              );
+              if (optionsWithoutProbGoal && optionsWithoutProbGoal.length > 0) {
+                console.warn(JSON.stringify({
+                  event: 'goal_threshold_no_probability',
+                  request_id: requestId,
+                  goal_threshold: goalThreshold,
+                  options_missing_probability: optionsWithoutProbGoal.length,
+                  message: 'goal_threshold was provided but ISL did not return probability_of_goal for some options',
+                }));
+              }
+            }
           } else {
             islStatusCode = 500;
             console.error(

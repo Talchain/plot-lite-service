@@ -5065,6 +5065,13 @@ components:
         idempotency_key:
           type: string
           description: Optional idempotency key for replay
+        goal_threshold:
+          type: number
+          nullable: true
+          description: |
+            User-defined success threshold. When provided, response includes
+            probability_of_goal per option indicating likelihood of outcome
+            meeting or exceeding this value. Null is treated as absent.
 
     nodeV3:
       type: object
@@ -5219,12 +5226,54 @@ components:
                 type: string
               expected_outcome:
                 type: number
+                description: Expected outcome value (deprecated - use outcome.mean)
               confidence_interval:
                 type: array
                 items:
                   type: number
+                description: "[p10, p90] confidence interval (deprecated - use outcome.p10/p90)"
+              outcome:
+                type: object
+                description: Full outcome statistics from ISL Monte Carlo simulation
+                properties:
+                  mean:
+                    type: number
+                  std:
+                    type: number
+                  p10:
+                    type: number
+                    description: 10th percentile (pessimistic)
+                  p50:
+                    type: number
+                    description: 50th percentile (median)
+                  p90:
+                    type: number
+                    description: 90th percentile (optimistic)
+                  n_samples:
+                    type: integer
+                  n_valid_samples:
+                    type: integer
+                  validity_ratio:
+                    type: number
+              status:
+                type: string
+                enum: [computed, skipped, error]
+              status_reason:
+                type: string
               probability_of_goal:
                 type: number
+                minimum: 0
+                maximum: 1
+                description: |
+                  Probability of outcome meeting or exceeding goal_threshold.
+                  Only present when goal_threshold provided in request.
+              win_probability:
+                type: number
+                minimum: 0
+                maximum: 1
+                description: |
+                  Probability this option outperforms alternatives across
+                  simulated scenarios.
         edge_sensitivity:
           type: array
           items:

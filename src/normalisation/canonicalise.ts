@@ -152,6 +152,8 @@ interface CanonicalRequest {
   seed: string;
   goal_node_id: string;
   detail_level: string;
+  /** Goal threshold affects probability_of_goal computation */
+  goal_threshold?: number;
   graph: {
     nodes: CanonicalNode[];
     edges: CanonicalEdge[];
@@ -198,6 +200,12 @@ export function canonicaliseRequest(
       .sort((a, b) => a.id.localeCompare(b.id))
       .map(canonicaliseOption),
   };
+
+  // Include goal_threshold in hash if provided (affects probability_of_goal computation)
+  // Treat null as absent (not included in hash)
+  if (typeof req.goal_threshold === 'number' && Number.isFinite(req.goal_threshold)) {
+    canonical.goal_threshold = normaliseFloat(req.goal_threshold);
+  }
 
   return JSON.stringify(canonical);
 }
