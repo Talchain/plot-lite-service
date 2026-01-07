@@ -149,6 +149,21 @@ export interface ISLPreflightResult {
 }
 
 /**
+ * Normalized edge info for fragile/robust edges.
+ * Provides consistent object shape regardless of ISL format variations.
+ */
+export interface NormalizedEdgeInfo {
+  /** Edge ID in "from->to" or "from::to" format */
+  edge_id: string;
+  /** Source node ID */
+  from_id: string;
+  /** Target node ID */
+  to_id: string;
+  /** Probability this edge causes recommendation to switch (0=fragile, 1=robust) */
+  switch_probability: number;
+}
+
+/**
  * PLoT robustness analysis result (transformed from ISL /robustness/analyze/v2)
  *
  * Contains both edge and factor sensitivity when available.
@@ -181,10 +196,16 @@ export interface PLoTRobustnessAnalysisResult {
   overall_robustness: 'robust' | 'moderate' | 'fragile';
   /** Robustness score (0-1) */
   robustness_score: number;
-  /** Edges identified as fragile */
-  fragile_edges: string[];
-  /** Edges identified as robust */
-  robust_edges: string[];
+  /**
+   * Edges identified as fragile - normalized to consistent object shape.
+   * Contains edge_id, from_id, to_id, and optional switch_probability.
+   */
+  fragile_edges: NormalizedEdgeInfo[];
+  /**
+   * Edges identified as robust - normalized to consistent object shape.
+   * Contains edge_id, from_id, to_id (switch_probability defaults to 1.0).
+   */
+  robust_edges: NormalizedEdgeInfo[];
 
   // ============ Metadata ============
   /** ISL latency in milliseconds */

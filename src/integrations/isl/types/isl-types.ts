@@ -209,6 +209,23 @@ export interface ISLEdgeSensitivityItem {
 }
 
 /**
+ * ISL fragile edge info from robustness analysis.
+ * Returned in robustness.fragile_edges array.
+ */
+export interface ISLFragileEdgeInfo {
+  /** Edge ID in "from->to" format */
+  edge_id: string;
+  /** Source node ID (may be parsed from edge_id) */
+  from_id?: string;
+  /** Target node ID (may be parsed from edge_id) */
+  to_id?: string;
+  /** Probability this edge causes recommendation to switch (0-1) */
+  switch_probability?: number;
+  /** Option that would win if this edge changes */
+  alternative_winner_id?: string;
+}
+
+/**
  * ISL V2 nested outcome object
  */
 export interface ISLOutcomeStats {
@@ -293,9 +310,15 @@ export interface ISLRobustnessAnalyzeV2Response {
     is_robust?: boolean;
     /** Recommendation stability score (0-1) - V2/Option C format */
     recommendation_stability?: number;
-    /** Edges identified as fragile (sensitive to changes) */
-    fragile_edges?: string[];
-    /** Edges identified as robust */
+    /**
+     * Edges identified as fragile (sensitive to changes).
+     * ISL returns objects with edge_id, from_id, to_id, switch_probability.
+     */
+    fragile_edges?: ISLFragileEdgeInfo[];
+    /**
+     * Edges identified as robust.
+     * ISL returns strings in "from->to" format.
+     */
     robust_edges?: string[];
     /** Explanation of robustness assessment - V1 format (optional in V2) */
     explanation?: string;
