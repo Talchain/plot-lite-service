@@ -37,6 +37,8 @@ import type {
   InsightV3,
   ImprovementGuidanceV3,
   RationaleV3,
+  EdgeSensitivityResultV3,
+  FactorSensitivityResultV3,
 } from '../../types/engine-v3.js';
 // Note: DEFAULT_SEED no longer used - random seed generated when none provided
 import { normaliseGraph, NormalisationError } from '../../normalisation/graph-normaliser.js';
@@ -61,6 +63,49 @@ import {
 import type { RobustnessDataForCee, NormalizedEdgeInfo } from '../../integrations/isl/types/plot-types.js';
 import { orchestrateCeeReview } from '../../cee/orchestrator.js';
 import type { CeeReviewRequest, CeeTrace } from '../../cee/types.js';
+
+// -----------------------------------------------------------------------------
+// Array Utilities
+// -----------------------------------------------------------------------------
+
+/**
+ * Check if value is a non-empty array.
+ * Single source of truth for "has data" checks to prevent status/data misalignment.
+ */
+function hasNonEmptyArray(value: unknown): boolean {
+  return Array.isArray(value) && value.length > 0;
+}
+
+/**
+ * Transform ISL sensitivity array to edge sensitivity response format.
+ * Returns undefined if input is not a non-empty array.
+ */
+function transformEdgeSensitivity(islSensitivity: unknown): EdgeSensitivityResultV3[] | undefined {
+  if (!hasNonEmptyArray(islSensitivity)) return undefined;
+  return (islSensitivity as any[]).map((s: any) => ({
+    edge_id: `${s.edge_from}::${s.edge_to}`,
+    from: s.edge_from,
+    to: s.edge_to,
+    sensitivity_type: s.sensitivity_type as 'existence' | 'magnitude',
+    elasticity: s.elasticity,
+    importance_rank: s.importance_rank,
+    interpretation: s.interpretation,
+  }));
+}
+
+/**
+ * Transform ISL factor sensitivity array to response format.
+ * Returns undefined if input is not a non-empty array.
+ */
+function transformFactorSensitivity(islFactorSensitivity: unknown): FactorSensitivityResultV3[] | undefined {
+  if (!hasNonEmptyArray(islFactorSensitivity)) return undefined;
+  return (islFactorSensitivity as any[]).map((f: any) => ({
+    factor_id: f.node_id,
+    sensitivity_score: f.sensitivity,
+    value_of_information: f.value_of_information,
+    direction: f.direction as 'positive' | 'negative' | 'mixed' | undefined,
+  }));
+}
 
 // -----------------------------------------------------------------------------
 // Build ID (for deployment verification)
@@ -321,6 +366,12 @@ function buildBlockedResponse(
   };
 }
 
+// Pre-computed sensitivity data to ensure status/response alignment
+interface SensitivityData {
+  edgeSensitivity: ReturnType<typeof transformEdgeSensitivity>;
+  factorSensitivity: ReturnType<typeof transformFactorSensitivity>;
+}
+
 /**
  * Build a success/partial/failed response (HTTP 200).
  */
@@ -340,7 +391,8 @@ function buildResponse(
   islStatusReason?: string,
   robustnessSynthesis?: RobustnessSynthesisV3 | null,
   ceeResults?: CeeResultsParams,
-  ceeTrace?: CeeTrace | null
+  ceeTrace?: CeeTrace | null,
+  sensitivityData?: SensitivityData
 ): RunResponseV3 {
   // Map ISL results to response format
   // ISL V2 uses 'options' field; V1 uses 'results'. Check both for compatibility.
@@ -402,22 +454,12 @@ function buildResponse(
     return result;
   });
 
-  const edgeSensitivity = islResult?.sensitivity?.map((s: any) => ({
-    edge_id: `${s.edge_from}::${s.edge_to}`,
-    from: s.edge_from,
-    to: s.edge_to,
-    sensitivity_type: s.sensitivity_type,
-    elasticity: s.elasticity,
-    importance_rank: s.importance_rank,
-    interpretation: s.interpretation,
-  }));
-
-  const factorSensitivity = islResult?.factor_sensitivity?.map((f: any) => ({
-    factor_id: f.node_id,
-    sensitivity_score: f.sensitivity,
-    value_of_information: f.value_of_information,
-    direction: f.direction,
-  }));
+  // Use pre-computed sensitivity data if provided (for status/response alignment)
+  // Fall back to computing from islResult for backward compatibility
+  const edgeSensitivity = sensitivityData?.edgeSensitivity
+    ?? transformEdgeSensitivity(islResult?.sensitivity);
+  const factorSensitivity = sensitivityData?.factorSensitivity
+    ?? transformFactorSensitivity(islResult?.factor_sensitivity);
 
   // Normalize robustness edges to consistent object format
   // ISL returns fragile_edges as objects, robust_edges as strings - normalize both
@@ -1401,27 +1443,48 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           ));
         }
 
+        // =================================================================
         // Compute per-feature statuses
+        // =================================================================
+        // Transform sensitivity arrays FIRST - these are the final arrays that will be returned
+        // Status check must use the SAME arrays to prevent status/response misalignment
+        const edgeSensitivity = transformEdgeSensitivity(islResult.sensitivity);
+        const factorSensitivity = transformFactorSensitivity(islResult.factor_sensitivity);
+        const sensitivityData: SensitivityData = { edgeSensitivity, factorSensitivity };
+
+        // Use hasNonEmptyArray on the FINAL transformed arrays (single source of truth)
+        const hasEdgeSensitivity = hasNonEmptyArray(edgeSensitivity);
+        const hasFactorSensitivity = hasNonEmptyArray(factorSensitivity);
+        const hasDriversSensitivity = hasEdgeSensitivity || hasFactorSensitivity;
+
         // ISL V2 response uses 'options' field; V1 uses 'results'. Check both for compatibility.
         const optionComparisonData = islResult.options ?? islResult.results;
-        const hasOptionComparison = Array.isArray(optionComparisonData) && optionComparisonData.length > 0;
+        const hasOptionComparison = hasNonEmptyArray(optionComparisonData);
         // Check for meaningful robustness data - support both V1 (score) and V2 (confidence) formats
         const hasRobustness = islResult.robustness?.score !== undefined
           || islResult.robustness?.confidence !== undefined
-          || (Array.isArray(islResult.robustness?.fragile_edges) && islResult.robustness.fragile_edges.length > 0)
-          || (Array.isArray(islResult.robustness?.robust_edges) && islResult.robustness.robust_edges.length > 0);
-        // Check both edge sensitivity and factor sensitivity for drivers status
-        // Use explicit Array.isArray checks to handle null/undefined/object edge cases
-        const hasEdgeSensitivity = Array.isArray(islResult.sensitivity) && islResult.sensitivity.length > 0;
-        const hasFactorSensitivity = Array.isArray(islResult.factor_sensitivity) && islResult.factor_sensitivity.length > 0;
-        const hasDrivers = hasEdgeSensitivity || hasFactorSensitivity;
+          || hasNonEmptyArray(islResult.robustness?.fragile_edges)
+          || hasNonEmptyArray(islResult.robustness?.robust_edges);
 
         const optionStatus = mapToPerFeatureStatus(islAnalysisStatus, hasOptionComparison);
         const robustnessStatus = mapToPerFeatureStatus(islAnalysisStatus, hasRobustness);
-        const driversStatus = mapToPerFeatureStatus(islAnalysisStatus, hasDrivers);
+        const driversStatus = mapToPerFeatureStatus(islAnalysisStatus, hasDriversSensitivity);
+
+        // Debug logging for drivers status decisions
+        console.log(JSON.stringify({
+          event: 'drivers_status_decision',
+          request_id: requestId,
+          edge_len: edgeSensitivity?.length ?? 0,
+          factor_len: factorSensitivity?.length ?? 0,
+          hasEdgeSensitivity,
+          hasFactorSensitivity,
+          hasDriversSensitivity,
+          isl_analysis_status: islAnalysisStatus,
+          chosen_status: driversStatus,
+        }));
 
         // Warn if ISL claims 'computed' but returned no data
-        if (islAnalysisStatus === 'computed' && !hasOptionComparison && !hasRobustness && !hasDrivers) {
+        if (islAnalysisStatus === 'computed' && !hasOptionComparison && !hasRobustness && !hasDriversSensitivity) {
           critiques.push({
             id: randomUUID(),
             code: 'ISL_EMPTY_RESULTS',
@@ -1442,7 +1505,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         const topLevelStatus = determineTopLevelStatus(
           optionStatus,
           robustnessStatus,
-          driversStatus,
+          driversStatus,  // Uses hasDriversSensitivity which checks both edge AND factor
           optionOutcomes
         );
 
@@ -1497,7 +1560,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           islStatusReason,
           ceeOrchestrationResult.robustnessSynthesis,
           ceeOrchestrationResult.ceeResults,
-          ceeOrchestrationResult.ceeTrace
+          ceeOrchestrationResult.ceeTrace,
+          sensitivityData  // Pre-computed arrays ensure status/response alignment
         ));
       } catch (err) {
         const totalMs = performance.now() - startTime;

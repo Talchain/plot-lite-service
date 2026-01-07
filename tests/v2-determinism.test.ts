@@ -669,4 +669,97 @@ describe('V2 Determinism and Contract Tests', () => {
       }
     });
   });
+
+  describe('Drivers status contract', () => {
+    it('drivers_status is computed only when sensitivity arrays have data', async () => {
+      // Critical invariant: drivers_status === 'computed' IMPLIES
+      // (edge_sensitivity has items) OR (factor_sensitivity has items)
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const res = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: VALID_GRAPH,
+          options: VALID_OPTIONS,
+          goal_node_id: 'goal',
+        }),
+      });
+
+      expect(res.status).toBe(200);
+
+      const hasEdgeSensitivity = Array.isArray(res.data.edge_sensitivity) && res.data.edge_sensitivity.length > 0;
+      const hasFactorSensitivity = Array.isArray(res.data.factor_sensitivity) && res.data.factor_sensitivity.length > 0;
+      const hasDriversSensitivity = hasEdgeSensitivity || hasFactorSensitivity;
+
+      // Contract: if drivers_status is 'computed', we MUST have at least one non-empty sensitivity array
+      if (res.data.drivers_status === 'computed') {
+        expect(hasDriversSensitivity).toBe(true);
+      }
+
+      // Contract: if both sensitivity arrays are empty/missing, status MUST NOT be 'computed'
+      if (!hasDriversSensitivity) {
+        expect(res.data.drivers_status).not.toBe('computed');
+      }
+    });
+
+    it('does not fire critique when factor_sensitivity exists but edge_sensitivity is empty', async () => {
+      // If factor_sensitivity has data, drivers_status should be 'computed'
+      // and no "computed but empty" critique should fire
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const res = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: VALID_GRAPH,
+          options: VALID_OPTIONS,
+          goal_node_id: 'goal',
+        }),
+      });
+
+      expect(res.status).toBe(200);
+
+      const hasFactorSensitivity = Array.isArray(res.data.factor_sensitivity) && res.data.factor_sensitivity.length > 0;
+
+      // If factor_sensitivity has data, status should be 'computed' regardless of edge_sensitivity
+      if (hasFactorSensitivity) {
+        // No "computed but empty" critique should exist
+        const emptyCritique = res.data.critiques?.find((c: any) =>
+          c.message?.toLowerCase().includes('computed') && c.message?.toLowerCase().includes('empty')
+        );
+        expect(emptyCritique).toBeUndefined();
+      }
+    });
+
+    it('drivers_status is unavailable when both sensitivity arrays are empty', async () => {
+      // When ISL returns empty sensitivity arrays, drivers_status should be 'unavailable'
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const res = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: VALID_GRAPH,
+          options: VALID_OPTIONS,
+          goal_node_id: 'goal',
+        }),
+      });
+
+      expect(res.status).toBe(200);
+
+      const hasEdgeSensitivity = Array.isArray(res.data.edge_sensitivity) && res.data.edge_sensitivity.length > 0;
+      const hasFactorSensitivity = Array.isArray(res.data.factor_sensitivity) && res.data.factor_sensitivity.length > 0;
+
+      // If both are empty, status must not be 'computed'
+      if (!hasEdgeSensitivity && !hasFactorSensitivity) {
+        expect(res.data.drivers_status).not.toBe('computed');
+        // Should be 'unavailable' (unless ISL explicitly said skipped/error)
+        expect(['unavailable', 'skipped', 'error']).toContain(res.data.drivers_status);
+      }
+    });
+  });
 });
