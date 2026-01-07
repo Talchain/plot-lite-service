@@ -50,7 +50,8 @@ describe('Edge Normalization in adaptRobustnessAnalysisResponse', () => {
       MOCK_ISL_RESPONSE,
       100,
       'available',
-      'available'
+      'available',
+      'test-request-123'
     );
 
     expect(result.fragile_edges).toHaveLength(1);
@@ -66,7 +67,8 @@ describe('Edge Normalization in adaptRobustnessAnalysisResponse', () => {
       MOCK_ISL_RESPONSE,
       100,
       'available',
-      'available'
+      'available',
+      'test-request-123'
     );
 
     expect(result.robust_edges).toHaveLength(2);
@@ -95,7 +97,8 @@ describe('Edge Normalization in adaptRobustnessAnalysisResponse', () => {
       emptyResponse,
       100,
       'available',
-      'available'
+      'available',
+      'test-request-123'
     );
 
     expect(result.fragile_edges).toEqual([]);
@@ -117,13 +120,59 @@ describe('Edge Normalization in adaptRobustnessAnalysisResponse', () => {
       response,
       100,
       'available',
-      'available'
+      'available',
+      'test-request-123'
     );
 
     expect(result.fragile_edges).toHaveLength(1);
     expect(result.fragile_edges[0].from_id).toBe('nodeA');
     expect(result.fragile_edges[0].to_id).toBe('nodeB');
     expect(result.fragile_edges[0].switch_probability).toBe(0); // Default for fragile
+  });
+
+  it('tracks normalization errors for malformed edges', () => {
+    const response: ISLRobustnessAnalyzeV2Response = {
+      robustness: {
+        fragile_edges: [
+          { edge_id: 'valid->edge' },
+          123 as unknown as any, // Invalid: number instead of object/string
+        ],
+        robust_edges: [
+          'valid->edge',
+          { not_edge_id: 'missing edge_id' } as unknown as any, // Invalid: missing edge_id
+        ],
+      },
+    };
+
+    const result = adaptRobustnessAnalysisResponse(
+      response,
+      100,
+      'available',
+      'available',
+      'test-request-456'
+    );
+
+    // Should have normalized valid edges
+    expect(result.fragile_edges).toHaveLength(1);
+    expect(result.robust_edges).toHaveLength(1);
+
+    // Should have tracked errors
+    expect(result.normalization_errors).toBeDefined();
+    expect(result.normalization_errors).toHaveLength(2);
+    expect(result.normalization_errors![0].edge_type).toBe('fragile');
+    expect(result.normalization_errors![1].edge_type).toBe('robust');
+  });
+
+  it('omits normalization_errors when all edges are valid', () => {
+    const result = adaptRobustnessAnalysisResponse(
+      MOCK_ISL_RESPONSE,
+      100,
+      'available',
+      'available',
+      'test-request-123'
+    );
+
+    expect(result.normalization_errors).toBeUndefined();
   });
 });
 

@@ -212,6 +212,23 @@ export interface PLoTRobustnessAnalysisResult {
   latency_ms: number;
   /** Source of the result */
   source: 'isl' | 'unavailable';
+  /**
+   * Errors encountered during edge normalization.
+   * Present only if ISL returned malformed edge data.
+   */
+  normalization_errors?: EdgeNormalizationError[];
+}
+
+/**
+ * Error encountered during edge normalization.
+ */
+export interface EdgeNormalizationError {
+  /** Type of edge that failed normalization */
+  edge_type: 'fragile' | 'robust';
+  /** Error description */
+  error: string;
+  /** Original malformed value (for debugging) */
+  raw_value?: unknown;
 }
 
 /**

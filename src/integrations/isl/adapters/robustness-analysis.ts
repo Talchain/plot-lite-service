@@ -15,6 +15,7 @@ import type {
   FactorSensitivityEntry,
   VOIEntry,
   NormalizedEdgeInfo,
+  EdgeNormalizationError,
 } from '../types/plot-types.js';
 
 // -----------------------------------------------------------------------------
@@ -41,6 +42,14 @@ function parseEdgeId(edgeId: string): { from: string; to: string } {
 // -----------------------------------------------------------------------------
 // Edge Normalization
 // -----------------------------------------------------------------------------
+
+/**
+ * Result of edge normalization with errors tracked.
+ */
+interface NormalizationResult {
+  edges: NormalizedEdgeInfo[];
+  errors: EdgeNormalizationError[];
+}
 
 /**
  * Normalize a fragile edge from ISL format to consistent object shape.
@@ -73,72 +82,110 @@ function normalizeRobustEdge(edgeId: string): NormalizedEdgeInfo {
 /**
  * Safely normalize fragile edges array with defensive handling.
  * Handles both object format (expected) and string format (legacy fallback).
+ * Collects errors for observability instead of silently dropping.
  */
-function normalizeFragileEdges(edges: unknown[] | undefined): NormalizedEdgeInfo[] {
-  if (!Array.isArray(edges)) return [];
+function normalizeFragileEdges(
+  edges: unknown[] | undefined,
+  requestId?: string
+): NormalizationResult {
+  const result: NormalizationResult = { edges: [], errors: [] };
+  if (!Array.isArray(edges)) return result;
 
-  return edges
-    .map((edge): NormalizedEdgeInfo | null => {
-      try {
-        // Object format (expected from ISL)
-        if (typeof edge === 'object' && edge !== null && 'edge_id' in edge) {
-          return normalizeFragileEdge(edge as ISLFragileEdgeInfo);
-        }
-        // String format (legacy fallback)
-        if (typeof edge === 'string') {
-          const parsed = parseEdgeId(edge);
-          return {
-            edge_id: edge,
-            from_id: parsed.from,
-            to_id: parsed.to,
-            switch_probability: 0,
-          };
-        }
-        // Unknown format - log and skip
-        console.warn('[robustness-analysis] Unexpected fragile_edge format:', typeof edge);
-        return null;
-      } catch (err) {
-        console.warn('[robustness-analysis] Error normalizing fragile_edge:', err);
-        return null;
+  for (const edge of edges) {
+    try {
+      // Object format (expected from ISL)
+      if (typeof edge === 'object' && edge !== null && 'edge_id' in edge) {
+        result.edges.push(normalizeFragileEdge(edge as ISLFragileEdgeInfo));
+        continue;
       }
-    })
-    .filter((e): e is NormalizedEdgeInfo => e !== null);
+      // String format (legacy fallback)
+      if (typeof edge === 'string') {
+        const parsed = parseEdgeId(edge);
+        result.edges.push({
+          edge_id: edge,
+          from_id: parsed.from,
+          to_id: parsed.to,
+          switch_probability: 0,
+        });
+        continue;
+      }
+      // Unknown format - track error
+      const errorMsg = `Unexpected fragile_edge format: ${typeof edge}`;
+      console.warn(JSON.stringify({
+        event: 'edge_normalization_error',
+        request_id: requestId,
+        edge_type: 'fragile',
+        error: errorMsg,
+        raw_type: typeof edge,
+      }));
+      result.errors.push({ edge_type: 'fragile', error: errorMsg, raw_value: edge });
+    } catch (err) {
+      const errorMsg = `Error normalizing fragile_edge: ${err instanceof Error ? err.message : String(err)}`;
+      console.warn(JSON.stringify({
+        event: 'edge_normalization_error',
+        request_id: requestId,
+        edge_type: 'fragile',
+        error: errorMsg,
+      }));
+      result.errors.push({ edge_type: 'fragile', error: errorMsg, raw_value: edge });
+    }
+  }
+  return result;
 }
 
 /**
  * Safely normalize robust edges array with defensive handling.
  * Handles both string format (expected) and object format (fallback).
+ * Collects errors for observability instead of silently dropping.
  */
-function normalizeRobustEdges(edges: unknown[] | undefined): NormalizedEdgeInfo[] {
-  if (!Array.isArray(edges)) return [];
+function normalizeRobustEdges(
+  edges: unknown[] | undefined,
+  requestId?: string
+): NormalizationResult {
+  const result: NormalizationResult = { edges: [], errors: [] };
+  if (!Array.isArray(edges)) return result;
 
-  return edges
-    .map((edge): NormalizedEdgeInfo | null => {
-      try {
-        // String format (expected from ISL)
-        if (typeof edge === 'string') {
-          return normalizeRobustEdge(edge);
-        }
-        // Object format (fallback - treat like fragile but with switch_probability=1)
-        if (typeof edge === 'object' && edge !== null && 'edge_id' in edge) {
-          const objEdge = edge as ISLFragileEdgeInfo;
-          const parsed = parseEdgeId(objEdge.edge_id);
-          return {
-            edge_id: objEdge.edge_id,
-            from_id: objEdge.from_id ?? parsed.from,
-            to_id: objEdge.to_id ?? parsed.to,
-            switch_probability: objEdge.switch_probability ?? 1,
-          };
-        }
-        // Unknown format - log and skip
-        console.warn('[robustness-analysis] Unexpected robust_edge format:', typeof edge);
-        return null;
-      } catch (err) {
-        console.warn('[robustness-analysis] Error normalizing robust_edge:', err);
-        return null;
+  for (const edge of edges) {
+    try {
+      // String format (expected from ISL)
+      if (typeof edge === 'string') {
+        result.edges.push(normalizeRobustEdge(edge));
+        continue;
       }
-    })
-    .filter((e): e is NormalizedEdgeInfo => e !== null);
+      // Object format (fallback - treat like fragile but with switch_probability=1)
+      if (typeof edge === 'object' && edge !== null && 'edge_id' in edge) {
+        const objEdge = edge as ISLFragileEdgeInfo;
+        const parsed = parseEdgeId(objEdge.edge_id);
+        result.edges.push({
+          edge_id: objEdge.edge_id,
+          from_id: objEdge.from_id ?? parsed.from,
+          to_id: objEdge.to_id ?? parsed.to,
+          switch_probability: objEdge.switch_probability ?? 1,
+        });
+        continue;
+      }
+      // Unknown format - track error
+      const errorMsg = `Unexpected robust_edge format: ${typeof edge}`;
+      console.warn(JSON.stringify({
+        event: 'edge_normalization_error',
+        request_id: requestId,
+        edge_type: 'robust',
+        error: errorMsg,
+        raw_type: typeof edge,
+      }));
+      result.errors.push({ edge_type: 'robust', error: errorMsg, raw_value: edge });
+    } catch (err) {
+      const errorMsg = `Error normalizing robust_edge: ${err instanceof Error ? err.message : String(err)}`;
+      console.warn(JSON.stringify({
+        event: 'edge_normalization_error',
+        request_id: requestId,
+        edge_type: 'robust',
+        error: errorMsg,
+      }));
+      result.errors.push({ edge_type: 'robust', error: errorMsg, raw_value: edge });
+    }
+  }
+  return result;
 }
 
 // -----------------------------------------------------------------------------
@@ -220,6 +267,7 @@ function mergeEdgeSensitivity(
  * @param latencyMs - Request latency in milliseconds
  * @param edgeStatus - Status of edge sensitivity analysis
  * @param factorStatus - Status of factor sensitivity analysis
+ * @param requestId - Request ID for log correlation (optional)
  * @returns PLoT-formatted robustness analysis result
  *
  * @example
@@ -229,7 +277,8 @@ function mergeEdgeSensitivity(
  *   islResponse,
  *   280,
  *   'available',
- *   'available'
+ *   'available',
+ *   'req-123'
  * );
  * ```
  */
@@ -237,7 +286,8 @@ export function adaptRobustnessAnalysisResponse(
   isl: ISLRobustnessAnalyzeV2Response,
   latencyMs: number,
   edgeStatus: PLoTRobustnessAnalysisResult['edge_sensitivity_status'],
-  factorStatus: PLoTRobustnessAnalysisResult['factor_sensitivity_status']
+  factorStatus: PLoTRobustnessAnalysisResult['factor_sensitivity_status'],
+  requestId?: string
 ): PLoTRobustnessAnalysisResult {
   // Transform edge sensitivity - separate by type
   const allEdges = (isl.sensitivity ?? []).map(transformEdgeSensitivity);
@@ -270,15 +320,20 @@ export function adaptRobustnessAnalysisResponse(
   // V1: { score, label: 'robust'|'moderate'|'fragile' }
   // V2: { confidence, level: 'high'|'medium'|'low'|'very_low' }
   const rawRobustness = isl.robustness ?? {};
+
+  // Normalize edges with error tracking
+  const fragileResult = normalizeFragileEdges(rawRobustness.fragile_edges as unknown[], requestId);
+  const robustResult = normalizeRobustEdges(rawRobustness.robust_edges as unknown[], requestId);
+  const normalizationErrors = [...fragileResult.errors, ...robustResult.errors];
+
   const robustness = {
     score: rawRobustness.score ?? rawRobustness.confidence ?? 0.5,
     label: rawRobustness.label ?? mapLevelToLabel(rawRobustness.level),
-    // Normalize edges to consistent object shape (ISL returns mixed formats)
-    fragile_edges: normalizeFragileEdges(rawRobustness.fragile_edges as unknown[]),
-    robust_edges: normalizeRobustEdges(rawRobustness.robust_edges as unknown[]),
+    fragile_edges: fragileResult.edges,
+    robust_edges: robustResult.edges,
   };
 
-  return {
+  const result: PLoTRobustnessAnalysisResult = {
     // Edge sensitivity
     edges: mergedEdges,
     edges_existence: existenceEdges.length > 0 ? existenceEdges : undefined,
@@ -295,13 +350,20 @@ export function adaptRobustnessAnalysisResponse(
     // Robustness
     overall_robustness: robustness.label,
     robustness_score: robustness.score,
-    fragile_edges: robustness.fragile_edges ?? [],
-    robust_edges: robustness.robust_edges ?? [],
+    fragile_edges: robustness.fragile_edges,
+    robust_edges: robustness.robust_edges,
 
     // Metadata
     latency_ms: latencyMs,
     source: 'isl',
   };
+
+  // Include normalization errors if any occurred
+  if (normalizationErrors.length > 0) {
+    result.normalization_errors = normalizationErrors;
+  }
+
+  return result;
 }
 
 /**
