@@ -416,8 +416,11 @@ export interface RunResponseV3 {
   /** Option comparison results (if status is 'computed') */
   option_comparison?: OptionComparisonResultV3[];
 
-  /** Edge sensitivity results (if drivers_status is 'computed') */
-  edge_sensitivity?: EdgeSensitivityResultV3[];
+  /**
+   * Edge sensitivity results. Always an array (empty if unavailable).
+   * Edge ID format: `from::to` (double-colon separator)
+   */
+  edge_sensitivity: EdgeSensitivityResultV3[];
 
   /** Factor sensitivity results (if available) */
   factor_sensitivity?: FactorSensitivityResultV3[];
@@ -558,12 +561,19 @@ export interface OptionComparisonResultV3 {
  * Edge sensitivity result.
  */
 export interface EdgeSensitivityResultV3 {
+  /** Edge identifier. Format: `from::to` (double-colon separator) */
   edge_id: string;
+  /** Source node ID */
   from: string;
+  /** Target node ID */
   to: string;
+  /** Type of sensitivity analysis */
   sensitivity_type: 'existence' | 'magnitude';
+  /** Elasticity score */
   elasticity: number;
+  /** Importance ranking (1 = most important) */
   importance_rank: number;
+  /** Human-readable interpretation */
   interpretation: string;
 }
 

@@ -78,12 +78,15 @@ function hasNonEmptyArray(value: unknown): boolean {
 
 /**
  * Transform ISL sensitivity array to edge sensitivity response format.
- * Returns undefined if input is not a non-empty array.
+ * Always returns an array (empty if no data).
+ *
+ * Edge ID format: `from::to` (double-colon separator)
+ * @see docs/UI_Handoff_PLoT_v1.md for format specification
  */
-function transformEdgeSensitivity(islSensitivity: unknown): EdgeSensitivityResultV3[] | undefined {
-  if (!hasNonEmptyArray(islSensitivity)) return undefined;
+function transformEdgeSensitivity(islSensitivity: unknown): EdgeSensitivityResultV3[] {
+  if (!hasNonEmptyArray(islSensitivity)) return [];
   return (islSensitivity as any[]).map((s: any) => ({
-    edge_id: `${s.edge_from}::${s.edge_to}`,
+    edge_id: `${s.edge_from}::${s.edge_to}`,  // Double-colon separator (canonical format)
     from: s.edge_from,
     to: s.edge_to,
     sensitivity_type: s.sensitivity_type as 'existence' | 'magnitude',
