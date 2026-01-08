@@ -670,6 +670,233 @@ describe('V2 Determinism and Contract Tests', () => {
     });
   });
 
+  describe('Seed Determinism', () => {
+    it('same graph produces same computed seed when seed omitted', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const payload = {
+        graph: VALID_GRAPH,
+        options: VALID_OPTIONS,
+        goal_node_id: 'goal',
+        // No seed provided
+      };
+
+      const res1 = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const res2 = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      expect(res1.status).toBe(200);
+      expect(res2.status).toBe(200);
+      expect(res1.data.meta.seed_used).toBe(res2.data.meta.seed_used);
+      expect(res1.data.meta.seed_used).not.toBe('42'); // Not hardcoded default
+    });
+
+    it('different graphs produce different computed seeds', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const graph2 = {
+        nodes: [
+          { id: 'x', kind: 'factor', label: 'X' },
+          { id: 'y', kind: 'goal', label: 'Y' },
+        ],
+        edges: [
+          { from: 'x', to: 'y', exists_probability: 0.7, strength: { mean: 0.3, std: 0.1 } },
+        ],
+      };
+
+      const options2 = [
+        { id: 'a', label: 'A', interventions: { x: 1.0 } },
+        { id: 'b', label: 'B', interventions: { x: 2.0 } },
+      ];
+
+      const res1 = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: VALID_GRAPH,
+          options: VALID_OPTIONS,
+          goal_node_id: 'goal',
+        }),
+      });
+
+      const res2 = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: graph2,
+          options: options2,
+          goal_node_id: 'y',
+        }),
+      });
+
+      expect(res1.status).toBe(200);
+      expect(res2.status).toBe(200);
+      expect(res1.data.meta.seed_used).not.toBe(res2.data.meta.seed_used);
+    });
+
+    it('identical requests produce identical response_hash', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const payload = {
+        graph: VALID_GRAPH,
+        options: VALID_OPTIONS,
+        goal_node_id: 'goal',
+        seed: '12345',
+      };
+
+      const res1 = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const res2 = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      expect(res1.status).toBe(200);
+      expect(res2.status).toBe(200);
+      expect(res1.data.response_hash).toBe(res2.data.response_hash);
+    });
+
+    it('same graph without seed produces stable response_hash', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const payload = {
+        graph: VALID_GRAPH,
+        options: VALID_OPTIONS,
+        goal_node_id: 'goal',
+        // No seed - should derive from graph hash
+      };
+
+      const res1 = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const res2 = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      expect(res1.status).toBe(200);
+      expect(res2.status).toBe(200);
+      expect(res1.data.response_hash).toBe(res2.data.response_hash);
+    });
+
+    it('provided seed is echoed in seed_used', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const explicitSeed = '99999';
+
+      const res = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: VALID_GRAPH,
+          options: VALID_OPTIONS,
+          goal_node_id: 'goal',
+          seed: explicitSeed,
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.data.meta.seed_used).toBe(explicitSeed);
+    });
+
+    it('computed seed is deterministic, not random', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const payload = {
+        graph: VALID_GRAPH,
+        options: VALID_OPTIONS,
+        goal_node_id: 'goal',
+        // No seed
+      };
+
+      const seeds: string[] = [];
+
+      // Run multiple times
+      for (let i = 0; i < 3; i++) {
+        const res = await requestJSON(`${server.baseUrl}/v2/run`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        expect(res.status).toBe(200);
+        seeds.push(res.data.meta.seed_used);
+      }
+
+      // All should be identical (deterministic)
+      expect(new Set(seeds).size).toBe(1);
+
+      // Should be a reasonable integer, not a UUID
+      const seedNum = parseInt(seeds[0], 10);
+      expect(Number.isFinite(seedNum)).toBe(true);
+      expect(seedNum).toBeLessThan(2147483647);
+    });
+  });
+
+  describe('Schema alignment - robustness edges', () => {
+    it('robustness edges runtime matches TypeScript types (object shape, not strings)', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const res = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: VALID_GRAPH,
+          options: VALID_OPTIONS,
+          goal_node_id: 'goal',
+        }),
+      });
+
+      expect(res.status).toBe(200);
+
+      // Verify fragile_edges shape if present
+      if (res.data.robustness?.fragile_edges?.length > 0) {
+        const edge = res.data.robustness.fragile_edges[0];
+        // Should be object, not string
+        expect(typeof edge).toBe('object');
+        expect(edge).toHaveProperty('from_id');
+        expect(edge).toHaveProperty('to_id');
+        expect(edge).toHaveProperty('switch_probability');
+        expect(typeof edge.from_id).toBe('string');
+        expect(typeof edge.to_id).toBe('string');
+        expect(typeof edge.switch_probability).toBe('number');
+      }
+
+      // Same for robust_edges
+      if (res.data.robustness?.robust_edges?.length > 0) {
+        const edge = res.data.robustness.robust_edges[0];
+        expect(typeof edge).toBe('object');
+        expect(edge).toHaveProperty('from_id');
+        expect(edge).toHaveProperty('to_id');
+        expect(typeof edge.from_id).toBe('string');
+        expect(typeof edge.to_id).toBe('string');
+      }
+    });
+  });
+
   describe('Drivers status contract', () => {
     it('drivers_status is computed only when sensitivity arrays have data', async () => {
       // Critical invariant: drivers_status === 'computed' IMPLIES

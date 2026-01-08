@@ -3,6 +3,26 @@
  *
  * Brief 8: Task 7 - Seed Management
  *
+ * Seed Generation Strategy
+ * ========================
+ *
+ * When caller provides seed:
+ *   - Use provided seed directly
+ *   - Return in seed_used field
+ *   - Guarantees reproducibility
+ *
+ * When caller omits seed:
+ *   - Compute deterministic seed from graph canonical hash
+ *   - Same graph → same seed → same results
+ *   - Return computed seed in seed_used field
+ *
+ * NOTE: The V2 /run endpoint derives seed from graph hash when not provided.
+ * This ensures determinism: identical requests without seed produce identical
+ * results and response_hash values. See src/routes/v2/run.ts resolveSeed().
+ *
+ * For guaranteed reproducibility across API versions, callers
+ * should provide explicit seed and persist seed_used from response.
+ *
  * Provides utilities for:
  * - Default seed derivation from graph_hash (reproducible without explicit seed)
  * - Seed sequence generation for perturbation sweeps
@@ -315,6 +335,9 @@ export function normalizeSeed(
 /**
  * Check if results would be deterministic with given seed
  *
+ * Note: In V2, when seed is omitted, it's derived from graph hash (deterministic).
+ * This function is for utility purposes; actual V2 determinism is handled in run.ts.
+ *
  * @param seed - Seed value
  * @returns Object with deterministic flag and note
  */
@@ -325,7 +348,7 @@ export function checkDeterminism(seed: number | null | undefined): {
   if (seed === null || seed === undefined) {
     return {
       deterministic: true,
-      note: `Using default seed (${DEFAULT_SEED}) - results are deterministic`,
+      note: 'Seed will be derived from graph hash - results are deterministic for same graph',
     };
   }
 

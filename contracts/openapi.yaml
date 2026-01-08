@@ -3457,6 +3457,156 @@ paths:
                     code: "BAD_INPUT"
                     message: "edge_id is required"
 
+  /v1/cee/draft-graph:
+    post:
+      operationId: ceeDraftGraph
+      tags: [cee-proxy]
+      summary: Proxy to CEE draft-graph endpoint
+      description: |
+        Proxies requests to CEE `/assist/v1/draft-graph` endpoint.
+
+        **Purpose:**
+        Bypasses Netlify's ~50s Edge Function timeout by routing through PLoT.
+        PLoT has a 120s timeout configured, accommodating CEE's typical 45-70s processing time.
+
+        **Authentication:**
+        - CEE API key is injected server-side (CEE_API_KEY env var)
+        - Never exposed to client
+
+        **Query Parameters:**
+        - All query parameters are forwarded to CEE (e.g., `?schema=v3`)
+
+        **Environment Variables Required:**
+        - `CEE_BASE_URL`: CEE service base URL
+        - `CEE_API_KEY`: CEE API key for authentication
+        - `CEE_DRAFT_GRAPH_TIMEOUT_MS`: Optional, defaults to 120000ms
+      parameters:
+        - name: schema
+          in: query
+          description: CEE schema version
+          schema:
+            type: string
+            enum: [v2, v3]
+            default: v2
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Request body is forwarded to CEE as-is
+              properties:
+                brief:
+                  type: string
+                  description: Text description for graph generation
+                  example: "Analyze the impact of pricing changes on customer retention"
+                config:
+                  type: object
+                  properties:
+                    streaming:
+                      type: boolean
+                      default: false
+                      description: Whether to use streaming response (not supported via proxy)
+            examples:
+              basic:
+                summary: Basic draft graph request
+                value:
+                  brief: "Analyze the impact of marketing spend on revenue growth"
+                  config:
+                    streaming: false
+      responses:
+        '200':
+          description: CEE draft graph response (forwarded as-is)
+          headers:
+            X-Request-Id:
+              description: PLoT request ID for tracing
+              schema: { type: string }
+            X-CEE-Latency-Ms:
+              description: CEE request latency in milliseconds
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                type: object
+                description: CEE response structure (passed through unchanged)
+                properties:
+                  graph:
+                    type: object
+                    properties:
+                      nodes:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id: { type: string }
+                            label: { type: string }
+                            kind: { type: string }
+                      edges:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            from: { type: string }
+                            to: { type: string }
+                            weight: { type: number }
+        '400':
+          description: Bad request (missing body or CEE validation error)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                missing_body:
+                  value:
+                    schema: "error.v1"
+                    code: "BAD_INPUT"
+                    message: "Request body is required"
+        '502':
+          description: Bad gateway (network error connecting to CEE)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ceeProxyError'
+              examples:
+                network_error:
+                  value:
+                    error:
+                      code: "CEE_NETWORK_ERROR"
+                      message: "Failed to connect to CEE"
+                      retryable: true
+                    trace:
+                      request_id: "abc-123"
+                      latency_ms: 5000
+        '503':
+          description: Service unavailable (CEE not configured)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ceeProxyError'
+              examples:
+                config_missing:
+                  value:
+                    error:
+                      code: "CEE_CONFIG_MISSING"
+                      message: "CEE_BASE_URL or CEE_API_KEY not configured"
+                      retryable: false
+        '504':
+          description: Gateway timeout (CEE request timed out)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ceeProxyError'
+              examples:
+                timeout:
+                  value:
+                    error:
+                      code: "CEE_TIMEOUT"
+                      message: "CEE request timed out after 120000ms"
+                      retryable: true
+                    trace:
+                      request_id: "abc-123"
+                      latency_ms: 120000
+
   # =============================================================================
   # V2 API - Option Comparison Mode
   # =============================================================================
@@ -3504,8 +3654,10 @@ paths:
 
         **Seed Handling**:
         - Accept string (canonical) or number (legacy)
-        - Normalise to string internally
-        - Echo as `meta.seed_used` (always string, e.g., "42")
+        - If provided: Use directly for reproducible results
+        - If omitted: Derive deterministically from graph structure (same graph = same seed)
+        - Echo computed/provided seed as `meta.seed_used` (always string)
+        - For guaranteed reproducibility: provide explicit seed or persist `seed_used` for replay
 
         **422 Envelope Exception**:
         This endpoint returns unwrapped V2RunError on 422, NOT wrapped in error.v1 envelope.
@@ -3728,6 +3880,44 @@ components:
         error:
           type: object
           additionalProperties: true
+
+    # CEE proxy error envelope for /v1/cee/* routes
+    ceeProxyError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, retryable]
+          properties:
+            code:
+              type: string
+              enum: [CEE_TIMEOUT, CEE_NETWORK_ERROR, CEE_CONFIG_MISSING, CEE_HTTP_400, CEE_HTTP_401, CEE_HTTP_403, CEE_HTTP_429, CEE_HTTP_500, CEE_HTTP_502, CEE_HTTP_503, CEE_HTTP_504, BAD_INPUT]
+              description: Error code indicating the type of failure
+            message:
+              type: string
+              description: Human-readable error message
+            retryable:
+              type: boolean
+              description: Whether the client should retry the request
+            details:
+              type: object
+              additionalProperties: true
+              description: Additional error context from CEE
+        trace:
+          type: object
+          properties:
+            request_id:
+              type: string
+              description: PLoT request ID for correlation
+            latency_ms:
+              type: integer
+              description: Request duration in milliseconds
+        cee_response:
+          type: object
+          additionalProperties: true
+          description: Original CEE error response (if available)
+
     sseEvent:
       type: object
       required: [event]
@@ -5049,7 +5239,12 @@ components:
           oneOf:
             - type: string
             - type: number
-          description: Random seed for determinism (accepts string or number, normalised to string internally)
+          description: |
+            Random seed for Monte Carlo simulation.
+            If provided: Used directly for reproducible results.
+            If omitted: Deterministically derived from graph structure.
+            For guaranteed reproducibility, provide explicit seed or
+            persist `seed_used` from response for replay.
         n_samples:
           type: number
           minimum: 100
@@ -5315,12 +5510,40 @@ components:
               type: string
             fragile_edges:
               type: array
+              description: Edges most likely to switch state under perturbation
               items:
-                type: string
+                type: object
+                properties:
+                  edge_id:
+                    type: string
+                    description: Edge identifier in format "from_id::to_id"
+                  from_id:
+                    type: string
+                    description: Source node ID
+                  to_id:
+                    type: string
+                    description: Target node ID
+                  switch_probability:
+                    type: number
+                    description: Probability that this edge's existence would flip
             robust_edges:
               type: array
+              description: Edges least likely to switch state under perturbation
               items:
-                type: string
+                type: object
+                properties:
+                  edge_id:
+                    type: string
+                    description: Edge identifier in format "from_id::to_id"
+                  from_id:
+                    type: string
+                    description: Source node ID
+                  to_id:
+                    type: string
+                    description: Target node ID
+                  switch_probability:
+                    type: number
+                    description: Probability that this edge's existence would flip
             explanation:
               type: string
         meta:
@@ -5329,7 +5552,11 @@ components:
           properties:
             seed_used:
               type: string
-              description: Seed used (always echoed as string, e.g., "42")
+              description: |
+                The actual seed used for this analysis.
+                If request included seed: echoes that value.
+                If request omitted seed: returns the computed seed (derived from graph hash).
+                Store this value to replay identical results.
             n_samples:
               type: number
             detail_level:

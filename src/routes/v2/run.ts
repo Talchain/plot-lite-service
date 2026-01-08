@@ -40,10 +40,11 @@ import type {
   EdgeSensitivityResultV3,
   FactorSensitivityResultV3,
 } from '../../types/engine-v3.js';
-// Note: DEFAULT_SEED no longer used - random seed generated when none provided
+// Seed derivation: when seed omitted, derive deterministically from graph hash
 import { normaliseGraph, NormalisationError } from '../../normalisation/graph-normaliser.js';
 import { filterOptionNodes } from '../../normalisation/option-filter.js';
 import { hashRequest } from '../../normalisation/canonicalise.js';
+import { hashGraph, deriveSeedFromHash } from '../../sampling/graph-hash.js';
 import { runPreflightValidation } from '../../validation/preflight-v2.js';
 import { toISLRobustnessRequest, validateISLRequest } from '../../integrations/isl/translator-v3.js';
 import {
@@ -153,16 +154,49 @@ const BODY_LIMIT_BYTES = 10 * 1024 * 1024; // 10MB
 // -----------------------------------------------------------------------------
 
 /**
- * Normalize seed to string format.
- * Accepts string (canonical) or number (legacy).
- * Generates random seed if none provided (production behavior).
+ * Seed Resolution Strategy
+ * ========================
+ *
+ * When caller provides seed:
+ *   - Use provided seed directly
+ *   - Return in seed_used field
+ *   - Guarantees reproducibility
+ *
+ * When caller omits seed:
+ *   - Compute deterministic seed from graph canonical hash
+ *   - Same graph → same seed → same results
+ *   - Return computed seed in seed_used field
+ *
+ * This ensures determinism: identical requests (same graph, no seed)
+ * always produce identical results and response_hash values.
+ *
+ * For guaranteed reproducibility across API versions, callers
+ * should provide explicit seed and persist seed_used from response.
  */
-function normalizeSeed(seed: string | number | undefined): string {
-  if (seed === undefined || seed === null) {
-    // Generate random seed for production - ensures varied Monte Carlo results
-    return randomUUID();
+
+/**
+ * Resolve seed from provided value or derive from graph hash.
+ *
+ * @param providedSeed - Seed from request (string, number, or undefined)
+ * @param graph - Normalized graph for hash computation
+ * @returns Resolved seed as string (always deterministic)
+ */
+function resolveSeed(providedSeed: string | number | undefined, graph: EngineGraphV3): string {
+  // Explicit seed provided - use as-is
+  if (providedSeed !== undefined && providedSeed !== null) {
+    return String(providedSeed);
   }
-  return String(seed);
+
+  // No seed provided - derive deterministically from graph hash
+  // Same graph always produces same seed
+  // Note: hashGraph accepts a generic graph shape; EngineGraphV3 is compatible
+  const graphForHash = {
+    nodes: graph.nodes.map((n) => ({ id: n.id, kind: n.kind, value: n.observed_state?.value })),
+    edges: graph.edges.map((e) => ({ from: e.from, to: e.to, weight: e.strength.mean })),
+  };
+  const graphHash = hashGraph(graphForHash);
+  const derivedSeed = deriveSeedFromHash(graphHash);
+  return String(derivedSeed);
 }
 
 // -----------------------------------------------------------------------------
@@ -945,7 +979,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
       const startTime = performance.now();
       const body = req.body as RunRequestV3;
       const requestId = body.request_id ?? String(req.id) ?? randomUUID();
-      const seedUsed = normalizeSeed(body.seed);
+      // Note: seedUsed is resolved AFTER graph normalization for determinism
+      // When seed is omitted, we derive it from the normalized graph hash
+      const providedSeed = body.seed;  // May be undefined - will resolve after normalization
       const nSamples = body.n_samples ?? DEFAULT_N_SAMPLES;
       const detailLevel = body.detail_level ?? 'standard';
 
@@ -1012,6 +1048,13 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // Filter non-causal nodes (option, decision)
         const filterResult = filterOptionNodes(normalizedGraph);
         const filteredGraph = filterResult.filteredGraph;
+
+        // =================================================================
+        // Seed Resolution (after normalization for determinism)
+        // =================================================================
+        // Resolve seed: use provided value or derive from normalized graph hash
+        // This ensures identical requests (same graph, no seed) produce identical results
+        const seedUsed = resolveSeed(providedSeed, filteredGraph);
 
         // Log if option nodes were filtered
         if (filterResult.removedNodeIds.size > 0) {

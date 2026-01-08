@@ -410,6 +410,55 @@ Exposed at `/metrics` (requires `PROMETHEUS_ENABLE=1`):
 
 ---
 
+## 10. Reproducibility & Determinism
+
+### Seed Handling
+
+PLoT V2 provides deterministic results through seed management:
+
+| Scenario | Behaviour | Reproducibility |
+|----------|-----------|-----------------|
+| Seed provided | Uses provided seed directly | ✅ Guaranteed |
+| Seed omitted | Derives from graph hash | ✅ Same graph = same seed |
+
+**How it works:**
+- When a seed is provided in the request, it's used directly for Monte Carlo simulation
+- When no seed is provided, a deterministic seed is derived from the canonical hash of the normalized graph
+- The same graph structure always produces the same derived seed, ensuring consistent results
+
+**Best Practice:** For audit trails and replay capability, either:
+1. Provide explicit seed in request, OR
+2. Persist `seed_used` from response for future replay
+
+### Response Hash
+
+The `response_hash` field provides semantic fingerprinting:
+- Computed from canonical request representation (semantic fields only)
+- Includes: seed, graph structure, options, goal_node_id
+- Excludes: labels, descriptions, non-semantic metadata
+- Identical requests (same graph + same seed) produce identical hashes
+- Use for caching and deduplication
+
+### Determinism Contract
+
+Given the same:
+- Graph structure (nodes, edges, strengths, probabilities)
+- Seed (explicit or derived)
+- Options (intervention bundles)
+- Goal node
+
+PLoT guarantees identical:
+- Monte Carlo samples
+- Inference results
+- Response hash
+
+**Key files:**
+- `src/routes/v2/run.ts` – seed resolution (`resolveSeed()`)
+- `src/sampling/graph-hash.ts` – graph hashing and seed derivation
+- `src/normalisation/canonicalise.ts` – response hash computation
+
+---
+
 ## Summary
 
 The PLoT platform is a **well-bounded causal inference service** with:

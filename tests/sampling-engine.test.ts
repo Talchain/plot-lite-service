@@ -615,10 +615,10 @@ describe('Seed Management Utilities', () => {
       expect(result.deterministic).toBe(true);
     });
 
-    it('reports deterministic for default seed', () => {
+    it('reports deterministic for derived seed (from graph hash)', () => {
       const result = checkDeterminism(undefined);
       expect(result.deterministic).toBe(true);
-      expect(result.note).toContain('default seed');
+      expect(result.note).toContain('derived from graph hash');
     });
   });
 

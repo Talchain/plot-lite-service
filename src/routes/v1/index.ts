@@ -123,7 +123,9 @@ export async function registerV1Routes(app: FastifyInstance) {
   // Brief 8: Sampling Engine & Caching (ISL robustness analysis)
   await registerSimulateBatchRoute(app);
   await registerAuditTestRoute(app);
-  await registerGovernanceRoute(app);  
+  await registerGovernanceRoute(app);
+  // CEE Proxy Routes - bypass Netlify timeout for long-running CEE calls
+  await registerCeeDraftGraphRoute(app);  
   // P1: Register enhanced stream route if enabled, otherwise use legacy
   if (process.env.STREAM_PARITY_ENABLE === '1') {
     await registerStreamRouteEnhanced(app);
@@ -273,3 +275,5 @@ import { registerExplainPolicyRoute } from './explain-policy.js';
 import { registerAnalysisOptimiseRoute } from './analysis-optimise.js';
 // Brief 8: Sampling Engine & Caching
 import { registerSimulateBatchRoute } from './simulate-batch.js';
+// CEE Proxy Routes
+import { registerCeeDraftGraphRoute } from './cee-draft-graph.js';

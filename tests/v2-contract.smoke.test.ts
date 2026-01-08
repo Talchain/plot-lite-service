@@ -390,7 +390,7 @@ describe('/v2/run Contract Smoke Tests', () => {
       expect(typeof res.data.meta.seed_used).toBe('string');
     });
 
-    it('generates random UUID seed when seed not provided', async () => {
+    it('derives deterministic seed from graph hash when seed not provided', async () => {
       vi.resetModules();
       server = await spawnServer({ env: ENV });
 
@@ -401,14 +401,17 @@ describe('/v2/run Contract Smoke Tests', () => {
           graph: VALID_GRAPH,
           options: VALID_OPTIONS,
           goal_node_id: 'goal',
-          // seed omitted
+          // seed omitted - will be derived from graph hash
         }),
       });
 
       expect(res.status).toBe(200);
       expect(typeof res.data.meta.seed_used).toBe('string');
-      // Should be a UUID format (8-4-4-4-12 hex characters)
-      expect(res.data.meta.seed_used).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+      // Should be a numeric string (derived from graph hash), not UUID
+      // The seed is deterministically derived from the normalized graph
+      expect(res.data.meta.seed_used).toMatch(/^\d+$/);
+      const seedNum = parseInt(res.data.meta.seed_used, 10);
+      expect(seedNum).toBeLessThan(2147483647);
     });
   });
 

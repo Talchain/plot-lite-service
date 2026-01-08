@@ -392,8 +392,11 @@ describe('POST /v2/run Integration', () => {
       expect(typeof res.data.meta.latency_ms).toBe('number');
       // P0: seed_used should be a string (not number)
       expect(typeof res.data.meta.seed_used).toBe('string');
-      // When no seed provided, generates random UUID
-      expect(res.data.meta.seed_used).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+      // When no seed provided, derives deterministic seed from graph hash
+      // Should be a numeric string, not UUID
+      expect(res.data.meta.seed_used).toMatch(/^\d+$/);
+      const seedNum = parseInt(res.data.meta.seed_used, 10);
+      expect(seedNum).toBeLessThan(2147483647);
     });
 
     it('accepts numeric seed and echoes seed_used as string', async () => {
