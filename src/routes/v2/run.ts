@@ -148,17 +148,22 @@ function getBuildId(): string {
 /**
  * ISL Response Summary for consolidated boundary logging.
  * Captures shape information (counts only, not content) for diagnostics.
+ *
+ * Note: Counts reflect RAW ISL response arrays, not post-normalization.
+ * This is intentional for debugging ISL response shapes before normalization.
  */
 interface ISLResponseSummary {
   request_id: string;
   seed_used: string;
+  isl_success: boolean;
+  isl_status_code: number;
+  isl_duration_ms: number;
   options_count: number;
   fragile_edges_count: number;
   robust_edges_count: number;
   sensitivity_count: number;
   factor_sensitivity_count: number;
   fallback_executed: boolean;
-  response_time_ms: number;
   analysis_status?: string;
   robustness_label?: string;
 }
@@ -171,7 +176,9 @@ function buildISLResponseSummary(
   requestId: string,
   seedUsed: string,
   islResult: any,
-  responseTimeMs: number,
+  islDurationMs: number,
+  islSuccess: boolean,
+  islStatusCode: number,
   fallbackExecuted: boolean
 ): ISLResponseSummary {
   // ISL V2 uses 'options' field; V1 uses 'results'. Check both.
@@ -180,6 +187,9 @@ function buildISLResponseSummary(
   return {
     request_id: requestId,
     seed_used: seedUsed,
+    isl_success: islSuccess,
+    isl_status_code: islStatusCode,
+    isl_duration_ms: Math.round(islDurationMs),
     options_count: Array.isArray(optionData) ? optionData.length : 0,
     fragile_edges_count: Array.isArray(islResult?.robustness?.fragile_edges)
       ? islResult.robustness.fragile_edges.length : 0,
@@ -190,7 +200,6 @@ function buildISLResponseSummary(
     factor_sensitivity_count: Array.isArray(islResult?.factor_sensitivity)
       ? islResult.factor_sensitivity.length : 0,
     fallback_executed: fallbackExecuted,
-    response_time_ms: Math.round(responseTimeMs),
     analysis_status: islResult?.analysis_status,
     robustness_label: islResult?.robustness?.label,
   };
@@ -1404,6 +1413,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             seedUsed,
             islResult,
             islMs,
+            islSuccess,
+            islStatusCode,
             islFallbackExecuted
           ),
         });
