@@ -142,6 +142,61 @@ function getBuildId(): string {
 }
 
 // -----------------------------------------------------------------------------
+// ISL Response Summary (Consolidated Boundary Logging)
+// -----------------------------------------------------------------------------
+
+/**
+ * ISL Response Summary for consolidated boundary logging.
+ * Captures shape information (counts only, not content) for diagnostics.
+ */
+interface ISLResponseSummary {
+  request_id: string;
+  seed_used: string;
+  options_count: number;
+  fragile_edges_count: number;
+  robust_edges_count: number;
+  sensitivity_count: number;
+  factor_sensitivity_count: number;
+  fallback_executed: boolean;
+  response_time_ms: number;
+  analysis_status?: string;
+  robustness_label?: string;
+}
+
+/**
+ * Build ISL response summary for consolidated logging.
+ * Only captures counts and metadata - no PII or large payloads.
+ */
+function buildISLResponseSummary(
+  requestId: string,
+  seedUsed: string,
+  islResult: any,
+  responseTimeMs: number,
+  fallbackExecuted: boolean
+): ISLResponseSummary {
+  // ISL V2 uses 'options' field; V1 uses 'results'. Check both.
+  const optionData = islResult?.options ?? islResult?.results;
+
+  return {
+    request_id: requestId,
+    seed_used: seedUsed,
+    options_count: Array.isArray(optionData) ? optionData.length : 0,
+    fragile_edges_count: Array.isArray(islResult?.robustness?.fragile_edges)
+      ? islResult.robustness.fragile_edges.length : 0,
+    robust_edges_count: Array.isArray(islResult?.robustness?.robust_edges)
+      ? islResult.robustness.robust_edges.length : 0,
+    sensitivity_count: Array.isArray(islResult?.sensitivity)
+      ? islResult.sensitivity.length : 0,
+    factor_sensitivity_count: Array.isArray(islResult?.factor_sensitivity)
+      ? islResult.factor_sensitivity.length : 0,
+    fallback_executed: fallbackExecuted,
+    response_time_ms: Math.round(responseTimeMs),
+    analysis_status: islResult?.analysis_status,
+    robustness_label: islResult?.robustness?.label,
+  };
+}
+
+// -----------------------------------------------------------------------------
 // Constants
 // -----------------------------------------------------------------------------
 
@@ -1008,11 +1063,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
       let goalThreshold: number | undefined;
       if (body.goal_threshold === null) {
         // Explicit null - treat as absent with debug log
-        console.log(JSON.stringify({
-          event: 'goal_threshold_null',
-          request_id: requestId,
-          message: 'goal_threshold was explicitly null, treating as absent',
-        }));
+        req.log.debug({ event: 'goal_threshold_null' });
         goalThreshold = undefined;
       } else if (typeof body.goal_threshold === 'number' && Number.isFinite(body.goal_threshold)) {
         goalThreshold = body.goal_threshold;
@@ -1077,15 +1128,12 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
 
         // Log if option nodes were filtered
         if (filterResult.removedNodeIds.size > 0) {
-          console.log(
-            JSON.stringify({
-              event: 'non_causal_nodes_filtered',
-              request_id: requestId,
-              removed_count: filterResult.removedNodeIds.size,
-              removed_edge_count: filterResult.removedEdgeCount,
-              removed_node_ids: Array.from(filterResult.removedNodeIds),
-            })
-          );
+          req.log.info({
+            event: 'non_causal_nodes_filtered',
+            removed_count: filterResult.removedNodeIds.size,
+            removed_edge_count: filterResult.removedEdgeCount,
+            removed_node_ids: Array.from(filterResult.removedNodeIds),
+          });
         }
 
         // =================================================================
@@ -1236,13 +1284,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // Validate ISL request (should never fail after preflight, but defensive)
         const islValidationErrors = validateISLRequest(islRequest);
         if (islValidationErrors.length > 0) {
-          console.error(
-            JSON.stringify({
-              event: 'isl_request_validation_failed',
-              request_id: requestId,
-              errors: islValidationErrors,
-            })
-          );
+          req.log.error({
+            event: 'isl_request_validation_failed',
+            errors: islValidationErrors,
+          });
 
           return reply.status(422).send(buildBlockedResponse(
             'ISL request validation failed',
@@ -1272,23 +1317,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         let islSuccess = false;
         let islStatusCode = 0;
         let islError: ISLHttpError | undefined;
-
-        // DEBUG: Log ISL request payload for option comparison investigation
-        console.log(JSON.stringify({
-          event: 'isl_request_debug',
-          request_id: requestId,
-          isl_request: {
-            options: islRequest.options.map((o: any) => ({
-              id: o.id,
-              interventions: o.interventions
-            })),
-            analysis_types: islRequest.analysis_types,
-            goal_node_id: islRequest.goal_node_id,
-            graph_node_count: islRequest.graph.nodes.length,
-            graph_edge_count: islRequest.graph.edges.length,
-            graph_node_ids: islRequest.graph.nodes.map((n: any) => n.id)
-          }
-        }));
+        let islFallbackExecuted = false;
 
         try {
           const response = await islService.callAnalysisEndpoint<any>(
@@ -1302,95 +1331,58 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             islSuccess = true;
             islStatusCode = 200;
 
-            // DEBUG: Log ISL response for option comparison investigation
-            // ISL V2 uses 'options' field; V1 uses 'results'. Log both for debugging.
-            const optionData = islResult?.options ?? islResult?.results;
-            console.log(JSON.stringify({
-              event: 'isl_response_debug',
-              request_id: requestId,
-              // V2 format (preferred)
-              has_options: !!islResult?.options,
-              options_count: islResult?.options?.length ?? 0,
-              // V1 format (fallback)
-              has_results: !!islResult?.results,
-              results_count: islResult?.results?.length ?? 0,
-              // Resolved data (what we'll use)
-              resolved_options_count: optionData?.length ?? 0,
-              // Show first option's outcome structure for debugging
-              first_option_has_outcome: !!optionData?.[0]?.outcome,
-              first_option_outcome_keys: optionData?.[0]?.outcome ? Object.keys(optionData[0].outcome) : [],
-              first_option_sample: optionData?.[0] ? {
-                id: optionData[0].id ?? optionData[0].option_id,
-                has_outcome: !!optionData[0].outcome,
-                outcome_p50: optionData[0].outcome?.p50,
-                outcome_p90: optionData[0].outcome?.p90,
-              } : null,
-              has_robustness: !!islResult?.robustness,
-              robustness_keys: islResult?.robustness ? Object.keys(islResult.robustness) : [],
-              has_factor_sensitivity: !!islResult?.factor_sensitivity,
-              factor_sensitivity_count: islResult?.factor_sensitivity?.length ?? 0
-            }));
-
             // Warn if goal_threshold was provided but ISL didn't return probability_of_goal
             if (goalThreshold !== undefined) {
+              const optionData = islResult?.options ?? islResult?.results;
               const optionsWithoutProbGoal = optionData?.filter(
                 (opt: any) => opt.probability_of_goal === undefined || opt.probability_of_goal === null
               );
               if (optionsWithoutProbGoal && optionsWithoutProbGoal.length > 0) {
-                console.warn(JSON.stringify({
+                req.log.warn({
                   event: 'goal_threshold_no_probability',
-                  request_id: requestId,
                   goal_threshold: goalThreshold,
                   options_missing_probability: optionsWithoutProbGoal.length,
-                  message: 'goal_threshold was provided but ISL did not return probability_of_goal for some options',
-                }));
+                });
               }
             }
           } else {
             islStatusCode = 500;
-            console.error(
-              JSON.stringify({
-                event: 'isl_call_failed',
-                request_id: requestId,
-                error: response.error?.message ?? 'Unknown error',
-                error_code: response.error?.code,
-              })
-            );
+            islFallbackExecuted = true;
+            req.log.error({
+              event: 'isl_call_failed',
+              error: response.error?.message ?? 'Unknown error',
+              error_code: response.error?.code,
+            });
           }
         } catch (err) {
+          islFallbackExecuted = true;
           if (err instanceof ISLHttpError) {
             islError = err;
             islStatusCode = err.status;
 
             // Handle 422 from ISL with structured critiques (V2, V1, or Pydantic format)
             if (err.is422()) {
-              console.log(
-                JSON.stringify({
-                  event: 'isl_422_received',
-                  request_id: requestId,
-                  format: err.isV2Format() ? 'v2' : 'legacy',
-                  message: err.getErrorMessage(),
-                  critiques_count: err.getCritiques().length,
-                })
-              );
+              req.log.info({
+                event: 'isl_422_received',
+                format: err.isV2Format() ? 'v2' : 'legacy',
+                message: err.getErrorMessage(),
+                critiques_count: err.getCritiques().length,
+              });
             }
           } else {
             islStatusCode = 500;
           }
 
-          console.error(
-            JSON.stringify({
-              event: 'isl_call_failed',
-              request_id: requestId,
-              error: (err as Error).message,
-              status: islStatusCode,
-            })
-          );
+          req.log.error({
+            event: 'isl_call_exception',
+            error: (err as Error).message,
+            status: islStatusCode,
+          });
         }
 
         islMs = performance.now() - islStart;
 
-        // Log ISL response
+        // Log ISL response (existing structured log)
         const islRespLog = addISLResponseToLog(
           islReqLog,
           islStatusCode,
@@ -1400,25 +1392,38 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         );
         logISLCall(islRespLog);
 
+        // =================================================================
+        // CONSOLIDATED ISL BOUNDARY LOG
+        // Single structured summary of ISL response shape for diagnostics
+        // Gated at debug level - not shown at default production log level
+        // =================================================================
+        req.log.debug({
+          event: 'isl_response_summary',
+          isl_response_summary: buildISLResponseSummary(
+            requestId,
+            seedUsed,
+            islResult,
+            islMs,
+            islFallbackExecuted
+          ),
+        });
+
         // Build response
         const totalMs = performance.now() - startTime;
         const critiques: CritiqueV3[] = [...preflight.warnings];
 
         // Log normalization warnings with structured context for telemetry
         if (normWarnings.length > 0) {
-          console.log(
-            JSON.stringify({
-              event: 'normalisation_warnings',
-              request_id: requestId,
-              warning_count: normWarnings.length,
-              warnings: normWarnings,
-              graph_stats: {
-                node_count: body.graph.nodes?.length ?? 0,
-                edge_count: body.graph.edges?.length ?? 0,
-                option_count: normalizedOptions.length,
-              },
-            })
-          );
+          req.log.info({
+            event: 'normalisation_warnings',
+            warning_count: normWarnings.length,
+            warnings: normWarnings,
+            graph_stats: {
+              node_count: body.graph.nodes?.length ?? 0,
+              edge_count: body.graph.edges?.length ?? 0,
+              option_count: normalizedOptions.length,
+            },
+          });
         }
 
         // Add normalization warnings as info critiques
@@ -1535,10 +1540,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         const robustnessStatus = mapToPerFeatureStatus(islAnalysisStatus, hasRobustness);
         const driversStatus = mapToPerFeatureStatus(islAnalysisStatus, hasDriversSensitivity);
 
-        // Debug logging for drivers status decisions
-        console.log(JSON.stringify({
+        // Debug logging for drivers status decisions (gated at debug level)
+        req.log.debug({
           event: 'drivers_status_decision',
-          request_id: requestId,
           edge_len: edgeSensitivity?.length ?? 0,
           factor_len: factorSensitivity?.length ?? 0,
           hasEdgeSensitivity,
@@ -1546,7 +1550,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           hasDriversSensitivity,
           isl_analysis_status: islAnalysisStatus,
           chosen_status: driversStatus,
-        }));
+        });
 
         // Warn if ISL claims 'computed' but returned no data
         if (islAnalysisStatus === 'computed' && !hasOptionComparison && !hasRobustness && !hasDriversSensitivity) {
@@ -1633,14 +1637,11 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
       } catch (err) {
         const totalMs = performance.now() - startTime;
 
-        console.error(
-          JSON.stringify({
-            event: 'v2_run_error',
-            request_id: requestId,
-            error: (err as Error).message,
-            stack: (err as Error).stack,
-          })
-        );
+        req.log.error({
+          event: 'v2_run_error',
+          error: (err as Error).message,
+          stack: (err as Error).stack,
+        });
 
         // Internal errors return 500 with error.v1 envelope (NOT 422 V2RunError)
         // This distinguishes client validation errors (422) from server errors (500)
