@@ -267,7 +267,7 @@ export async function registerExplainPolicyRoute(app: FastifyInstance) {
       let provenance: 'cee' | 'plot_fallback' = 'plot_fallback';
 
       const ceeEnabled = isFlagOn(
-        process.env.CEE_EXPLAIN_POLICY_ENABLE ?? process.env.CEE_ORCHESTRATOR_ENABLE
+        process.env.CEE_EXPLAIN_POLICY_ENABLE ?? process.env.CEE_ORCHESTRATOR_ENABLED
       );
 
       if (ceeEnabled) {

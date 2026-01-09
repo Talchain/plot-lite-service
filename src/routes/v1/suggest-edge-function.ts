@@ -193,7 +193,7 @@ export async function registerSuggestEdgeFunctionRoute(app: FastifyInstance) {
       let ceeError: ProxyError | undefined;
       let provenance: 'cee' | 'plot_fallback' = 'plot_fallback';
 
-      const ceeEnabled = isFlagOn(process.env.CEE_EDGE_FUNCTION_ENABLE ?? process.env.CEE_ORCHESTRATOR_ENABLE);
+      const ceeEnabled = isFlagOn(process.env.CEE_EDGE_FUNCTION_ENABLE ?? process.env.CEE_ORCHESTRATOR_ENABLED);
 
       if (ceeEnabled) {
         req.log.info({

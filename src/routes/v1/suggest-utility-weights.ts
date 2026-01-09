@@ -226,7 +226,7 @@ export async function registerSuggestUtilityWeightsRoute(app: FastifyInstance) {
       let ceeError: { code: string; message: string; retryable: boolean } | undefined;
       let provenance: 'cee' | 'plot_fallback' = 'plot_fallback';
 
-      const ceeEnabled = isFlagOn(process.env.CEE_UTILITY_WEIGHTS_ENABLE ?? process.env.CEE_ORCHESTRATOR_ENABLE);
+      const ceeEnabled = isFlagOn(process.env.CEE_UTILITY_WEIGHTS_ENABLE ?? process.env.CEE_ORCHESTRATOR_ENABLED);
 
       if (ceeEnabled) {
         req.log.info({

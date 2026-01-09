@@ -223,7 +223,7 @@ export async function registerNarrateConditionsRoute(app: FastifyInstance) {
       let provenance: 'cee' | 'plot_fallback' = 'plot_fallback';
 
       const ceeEnabled = isFlagOn(
-        process.env.CEE_NARRATE_CONDITIONS_ENABLE ?? process.env.CEE_ORCHESTRATOR_ENABLE
+        process.env.CEE_NARRATE_CONDITIONS_ENABLE ?? process.env.CEE_ORCHESTRATOR_ENABLED
       );
 
       if (ceeEnabled) {

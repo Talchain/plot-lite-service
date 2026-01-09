@@ -181,7 +181,7 @@ export async function registerElicitBeliefRoute(app: FastifyInstance) {
       let ceeError: { code: string; message: string; retryable: boolean } | undefined;
       let provenance: 'cee' | 'plot_fallback' = 'plot_fallback';
 
-      const ceeEnabled = isFlagOn(process.env.CEE_ELICIT_BELIEF_ENABLE ?? process.env.CEE_ORCHESTRATOR_ENABLE);
+      const ceeEnabled = isFlagOn(process.env.CEE_ELICIT_BELIEF_ENABLE ?? process.env.CEE_ORCHESTRATOR_ENABLED);
 
       if (ceeEnabled) {
         req.log.info({

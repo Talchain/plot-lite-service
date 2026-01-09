@@ -715,7 +715,8 @@ function getCeeEnv(): { baseUrl?: string; apiKey?: string; timeoutMs?: number } 
  * Check if CEE integration is enabled.
  */
 function isCeeEnabled(): boolean {
-  const enabled = process.env.CEE_ORCHESTRATOR_ENABLE ?? process.env.CEE_ORCHESTRATOR_ENABLED;
+  // Prefer CEE_ORCHESTRATOR_ENABLED (matches Render config)
+  const enabled = process.env.CEE_ORCHESTRATOR_ENABLED ?? process.env.CEE_ORCHESTRATOR_ENABLE;
   return enabled === '1' || enabled === 'true';
 }
 
