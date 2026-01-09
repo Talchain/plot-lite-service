@@ -28,6 +28,11 @@ export async function registerV1Routes(app: FastifyInstance) {
   app.addHook('preHandler', async (req, reply) => {
     // Only apply to /v1/* routes
     if (req.url?.startsWith('/v1/')) {
+      // Skip auth for OPTIONS preflight requests - CORS plugin handles these
+      // Browsers don't send Authorization headers on preflight
+      if (req.method === 'OPTIONS') {
+        return;
+      }
       // Allow demo bypass for GET /v1/stream, skip auth entirely for /v1/templates (read-only public)
       const isStreamRoute = req.method === 'GET' && req.url.startsWith('/v1/stream');
       const isTemplatesRoute = req.url.startsWith('/v1/templates');
