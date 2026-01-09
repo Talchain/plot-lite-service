@@ -281,5 +281,81 @@ describe('Graph Normalisation', () => {
       expect(result.graph.nodes).toHaveLength(1);
       expect(result.graph.nodes[0].kind).toBe('option');
     });
+
+    it('infers negative coefficient for risk → goal edges', () => {
+      const result = normaliseGraph({
+        nodes: [
+          { id: 'risk_budget_overrun', kind: 'risk', label: 'Budget Overrun' },
+          { id: 'goal_productivity', kind: 'goal', label: 'Increase Productivity' },
+        ],
+        edges: [
+          { from: 'risk_budget_overrun', to: 'goal_productivity', weight: 0.5 },
+        ],
+      });
+
+      // Risk → goal should have NEGATIVE coefficient (risks reduce goal achievement)
+      expect(result.graph.edges[0].strength.mean).toBe(-0.5);
+    });
+
+    it('infers negative coefficient for risk → outcome edges', () => {
+      const result = normaliseGraph({
+        nodes: [
+          { id: 'risk_delay', kind: 'risk', label: 'Project Delay' },
+          { id: 'out_delivery', kind: 'outcome', label: 'On-time Delivery' },
+        ],
+        edges: [
+          { from: 'risk_delay', to: 'out_delivery', weight: 0.7 },
+        ],
+      });
+
+      // Risk → outcome should have NEGATIVE coefficient
+      expect(result.graph.edges[0].strength.mean).toBe(-0.7);
+    });
+
+    it('preserves positive coefficient for outcome → goal edges', () => {
+      const result = normaliseGraph({
+        nodes: [
+          { id: 'out_quality', kind: 'outcome', label: 'High Quality' },
+          { id: 'goal_success', kind: 'goal', label: 'Project Success' },
+        ],
+        edges: [
+          { from: 'out_quality', to: 'goal_success', weight: 0.8 },
+        ],
+      });
+
+      // Outcome → goal should have POSITIVE coefficient (outcomes increase goal)
+      expect(result.graph.edges[0].strength.mean).toBe(0.8);
+    });
+
+    it('respects explicit effect_direction over inferred', () => {
+      const result = normaliseGraph({
+        nodes: [
+          { id: 'risk_node', kind: 'risk', label: 'Risk' },
+          { id: 'goal_node', kind: 'goal', label: 'Goal' },
+        ],
+        edges: [
+          // Explicit positive direction should override the inferred negative
+          { from: 'risk_node', to: 'goal_node', weight: 0.5, effect_direction: 'positive' },
+        ],
+      });
+
+      // Explicit direction takes precedence
+      expect(result.graph.edges[0].strength.mean).toBe(0.5);
+    });
+
+    it('handles risk → factor edges as positive (not a goal)', () => {
+      const result = normaliseGraph({
+        nodes: [
+          { id: 'risk_market', kind: 'risk', label: 'Market Risk' },
+          { id: 'factor_cost', kind: 'factor', label: 'Operating Cost' },
+        ],
+        edges: [
+          { from: 'risk_market', to: 'factor_cost', weight: 0.6 },
+        ],
+      });
+
+      // Risk → factor defaults to positive (only risk→goal/outcome is negative)
+      expect(result.graph.edges[0].strength.mean).toBe(0.6);
+    });
   });
 });

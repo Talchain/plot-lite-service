@@ -132,20 +132,50 @@ export function normaliseNode(node: UpstreamNode): EngineNodeV3 {
 // -----------------------------------------------------------------------------
 
 /**
+ * Infer effect direction from source node kind when not explicitly provided.
+ *
+ * Risk nodes should have negative effect on goals/outcomes by default.
+ * This aligns with the semantics: risks reduce goal achievement.
+ *
+ * @param fromNodeKind Kind of the source node (if known)
+ * @param toNodeKind Kind of the target node (if known)
+ * @returns Inferred effect direction
+ */
+function inferEffectDirection(
+  fromNodeKind: string | undefined,
+  toNodeKind: string | undefined
+): 'positive' | 'negative' {
+  // Risk nodes have negative effects on goals/outcomes
+  if (fromNodeKind === 'risk') {
+    // Risk → goal/outcome = negative (risks reduce achievement)
+    if (toNodeKind === 'goal' || toNodeKind === 'outcome') {
+      return 'negative';
+    }
+  }
+  // Default to positive for all other relationships
+  return 'positive';
+}
+
+/**
  * Normalize an upstream edge to canonical EngineEdgeV3 format.
  *
  * Handles:
  * - React Flow naming (source/target → from/to)
  * - Multiple uncertainty field names (exists_probability, belief_exists, belief)
  * - Multiple strength representations (weight, strength, strength_std, belief_strength)
- * - Effect direction (positive/negative)
+ * - Effect direction (positive/negative) - inferred from node kinds if not provided
  *
  * @param edge Upstream edge in any supported format
  * @param index Edge index for error reporting
+ * @param nodeKindMap Optional map of node IDs to their kinds for effect direction inference
  * @returns Normalized edge in EngineEdgeV3 format
  * @throws NormalisationError if edge is invalid
  */
-export function normaliseEdge(edge: UpstreamEdge, index: number): EngineEdgeV3 {
+export function normaliseEdge(
+  edge: UpstreamEdge,
+  index: number,
+  nodeKindMap?: Map<string, string>
+): EngineEdgeV3 {
   // 1. Resolve from/to
   const from = edge.from ?? edge.source;
   const to = edge.to ?? edge.target;
@@ -183,14 +213,23 @@ export function normaliseEdge(edge: UpstreamEdge, index: number): EngineEdgeV3 {
   let std: number;
 
   if (edge.strength?.mean !== undefined) {
-    // Explicit strength object
+    // Explicit strength object - use mean directly (already signed)
     mean = edge.strength.mean;
     std = edge.strength.std ?? deriveStd(mean, existsProbability);
   } else {
     // Derive from weight and direction
     const weight = edge.weight ?? DEFAULT_WEIGHT;
-    const direction =
-      edge.effect_direction ?? edge.direction ?? 'positive';
+
+    // Resolve effect direction: explicit > inferred from node kinds > positive default
+    let direction: 'positive' | 'negative' = edge.effect_direction ?? edge.direction ?? 'positive';
+
+    // If no explicit direction and we have node kind info, infer from semantics
+    if (!edge.effect_direction && !edge.direction && nodeKindMap) {
+      const fromKind = nodeKindMap.get(from);
+      const toKind = nodeKindMap.get(to);
+      direction = inferEffectDirection(fromKind, toKind);
+    }
+
     mean = direction === 'negative' ? -Math.abs(weight) : Math.abs(weight);
 
     // Derive std from strength_std, belief_strength, or exists_probability
@@ -240,6 +279,11 @@ export interface NormalisationResult {
  * This does NOT filter option nodes - that is done separately.
  * This just normalizes all field formats to canonical form.
  *
+ * Effect direction inference:
+ * - If edge has explicit effect_direction, use it
+ * - If not, infer from node kinds (e.g., risk → goal = negative)
+ * - Otherwise default to positive
+ *
  * @param upstreamGraph Graph in upstream format
  * @returns Normalized graph with stats
  * @throws NormalisationError if any node/edge is invalid
@@ -248,6 +292,14 @@ export function normaliseGraph(upstreamGraph: UpstreamGraph): NormalisationResul
   const warnings: string[] = [];
   const nodes: EngineNodeV3[] = [];
   const edges: EngineEdgeV3[] = [];
+
+  // Build node kind map for effect direction inference
+  // Map node IDs to their kinds so edges can infer direction from source/target semantics
+  const nodeKindMap = new Map<string, string>();
+  for (const upstreamNode of upstreamGraph.nodes ?? []) {
+    const kind = upstreamNode.kind ?? upstreamNode.type ?? upstreamNode.data?.kind ?? upstreamNode.data?.type ?? 'factor';
+    nodeKindMap.set(upstreamNode.id, kind.toLowerCase());
+  }
 
   // Normalize nodes
   for (const upstreamNode of upstreamGraph.nodes ?? []) {
@@ -274,11 +326,11 @@ export function normaliseGraph(upstreamGraph: UpstreamGraph): NormalisationResul
     }
   }
 
-  // Normalize edges
+  // Normalize edges (with node kind map for effect direction inference)
   let edgeIndex = 0;
   for (const upstreamEdge of upstreamGraph.edges ?? []) {
     try {
-      edges.push(normaliseEdge(upstreamEdge, edgeIndex));
+      edges.push(normaliseEdge(upstreamEdge, edgeIndex, nodeKindMap));
       edgeIndex++;
     } catch (err) {
       if (err instanceof NormalisationError) {
