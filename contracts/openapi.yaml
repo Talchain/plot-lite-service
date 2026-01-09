@@ -5229,7 +5229,8 @@ components:
                 $ref: '#/components/schemas/edgeV3'
         options:
           type: array
-          minItems: 1
+          minItems: 2
+          description: Decision options to compare (minimum 2 required)
           items:
             $ref: '#/components/schemas/optionV3'
         goal_node_id:
@@ -5525,7 +5526,7 @@ components:
                 properties:
                   edge_id:
                     type: string
-                    description: Edge identifier in format "from_id::to_id"
+                    description: Edge identifier (supports "from_id->to_id" or "from_id::to_id" format)
                   from_id:
                     type: string
                     description: Source node ID
@@ -5543,7 +5544,7 @@ components:
                 properties:
                   edge_id:
                     type: string
-                    description: Edge identifier in format "from_id::to_id"
+                    description: Edge identifier (supports "from_id->to_id" or "from_id::to_id" format)
                   from_id:
                     type: string
                     description: Source node ID

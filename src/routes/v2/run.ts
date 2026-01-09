@@ -177,6 +177,22 @@ const BODY_LIMIT_BYTES = 10 * 1024 * 1024; // 10MB
 /**
  * Resolve seed from provided value or derive from graph hash.
  *
+ * **Seed Derivation Scope (Design Decision):**
+ * When no seed is provided, seed is derived from graph TOPOLOGY + mean edge weights only:
+ * - Node: id, kind, observed_state.value
+ * - Edge: from, to, strength.mean
+ *
+ * Intentionally EXCLUDED from seed derivation:
+ * - exists_probability (edge uncertainty)
+ * - strength.std (edge variance)
+ * - Other node/edge metadata
+ *
+ * Rationale: Seed determines the random sampling stream. Including only topology
+ * ensures the same causal structure produces the same seed, while uncertainty
+ * parameters affect the distribution shape without changing the sampling sequence.
+ * This means two graphs differing only in uncertainty will use the same random
+ * stream but produce different outcome distributions.
+ *
  * @param providedSeed - Seed from request (string, number, or undefined)
  * @param graph - Normalized graph for hash computation
  * @returns Resolved seed as string (always deterministic)
@@ -187,9 +203,8 @@ function resolveSeed(providedSeed: string | number | undefined, graph: EngineGra
     return String(providedSeed);
   }
 
-  // No seed provided - derive deterministically from graph hash
-  // Same graph always produces same seed
-  // Note: hashGraph accepts a generic graph shape; EngineGraphV3 is compatible
+  // No seed provided - derive deterministically from graph topology hash
+  // Same graph topology always produces same seed (see docstring for scope)
   const graphForHash = {
     nodes: graph.nodes.map((n) => ({ id: n.id, kind: n.kind, value: n.observed_state?.value })),
     edges: graph.edges.map((e) => ({ from: e.from, to: e.to, weight: e.strength.mean })),
