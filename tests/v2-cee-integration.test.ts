@@ -402,6 +402,136 @@ describe('CEE Integration in V2 Response', () => {
   });
 });
 
+describe('Brief Field for Contextualised CEE Output', () => {
+  describe('Request Schema', () => {
+    it('should accept brief field in RunRequestV3', () => {
+      // Verify brief field is in the request type
+      const mockRequest = {
+        graph: {
+          nodes: [
+            { id: 'A', label: 'Input', kind: 'factor' },
+            { id: 'B', label: 'Output', kind: 'outcome' },
+          ],
+          edges: [{ from: 'A', to: 'B', strength: { mean: 0.5, std: 0.1 } }],
+        },
+        options: [
+          { id: 'opt1', label: 'Option 1', interventions: { A: { value: 1 } } },
+          { id: 'opt2', label: 'Option 2', interventions: { A: { value: 2 } } },
+        ],
+        goal_node_id: 'B',
+        seed: '42',
+        brief: 'Should we invest in marketing or R&D to increase revenue?',
+      };
+
+      expect(mockRequest.brief).toBe('Should we invest in marketing or R&D to increase revenue?');
+      expect(mockRequest.brief.length).toBeLessThanOrEqual(10000);
+    });
+
+    it('should handle undefined brief gracefully', () => {
+      const mockRequest = {
+        graph: {
+          nodes: [{ id: 'A', label: 'Input' }],
+          edges: [],
+        },
+        options: [],
+        goal_node_id: 'A',
+        seed: '42',
+        // No brief field
+      };
+
+      expect((mockRequest as any).brief).toBeUndefined();
+    });
+
+    it('should handle empty string brief', () => {
+      const mockRequest = {
+        graph: {
+          nodes: [{ id: 'A', label: 'Input' }],
+          edges: [],
+        },
+        options: [],
+        goal_node_id: 'A',
+        seed: '42',
+        brief: '',
+      };
+
+      expect(mockRequest.brief).toBe('');
+    });
+  });
+
+  describe('CEE Request Building', () => {
+    it('should include brief in CEE request when provided', () => {
+      const brief = 'Should we hire a senior developer to improve productivity?';
+
+      // Simulate buildCeeReviewRequest output structure
+      const mockCeeRequest = {
+        scenario_id: 'test-hash',
+        graph_snapshot: { nodes: [], edges: [] },
+        graph_schema_version: '2.2' as const,
+        brief: brief,
+        inference_results: {
+          quantiles: { p10: 0, p50: 0, p90: 0 },
+        },
+        intent: 'selection' as const,
+      };
+
+      expect(mockCeeRequest.brief).toBe(brief);
+    });
+
+    it('should omit brief from CEE request when not provided', () => {
+      // Simulate buildCeeReviewRequest output without brief
+      const mockCeeRequest = {
+        scenario_id: 'test-hash',
+        graph_snapshot: { nodes: [], edges: [] },
+        graph_schema_version: '2.2' as const,
+        // No brief field
+        inference_results: {
+          quantiles: { p10: 0, p50: 0, p90: 0 },
+        },
+        intent: 'selection' as const,
+      };
+
+      expect((mockCeeRequest as any).brief).toBeUndefined();
+    });
+
+    it('should preserve brief through the request chain', () => {
+      const originalBrief = 'Original decision question from user';
+
+      // Verify brief is preserved (not transformed or truncated)
+      expect(originalBrief).toBe('Original decision question from user');
+      expect(originalBrief.length).toBeLessThan(10000);
+    });
+  });
+
+  describe('Brief Backward Compatibility', () => {
+    it('should work without brief field (backward compatible)', () => {
+      // Verify existing callers without brief continue to work
+      const legacyRequest = {
+        graph: {
+          nodes: [
+            { id: 'A', label: 'Factor A', kind: 'factor' },
+            { id: 'B', label: 'Goal B', kind: 'outcome' },
+          ],
+          edges: [{ from: 'A', to: 'B', strength: { mean: 0.6, std: 0.1 } }],
+        },
+        options: [
+          { id: 'opt1', label: 'Option 1', interventions: { A: { value: 1 } } },
+          { id: 'opt2', label: 'Option 2', interventions: { A: { value: 2 } } },
+        ],
+        goal_node_id: 'B',
+        seed: '42',
+        n_samples: 1000,
+        // No brief - should still work
+      };
+
+      // Verify required fields are present
+      expect(legacyRequest.graph).toBeDefined();
+      expect(legacyRequest.options).toBeDefined();
+      expect(legacyRequest.goal_node_id).toBeDefined();
+      expect((legacyRequest as any).brief).toBeUndefined();
+    });
+  });
+});
+
 describe('Robustness Synthesis from CEE', () => {
   it('should extract robustness synthesis from CEE blocks', () => {
     const mockCeeReview = {

@@ -648,7 +648,8 @@ function buildCeeReviewRequest(
   graph: EngineGraphV3,
   options: OptionV3[],
   islResult: any,
-  robustnessData: RobustnessDataForCee | null
+  robustnessData: RobustnessDataForCee | null,
+  brief?: string
 ): CeeReviewRequest {
   // Build ISL robustness summary for CEE
   let islRobustness: CeeReviewRequest['isl_robustness'];
@@ -676,6 +677,8 @@ function buildCeeReviewRequest(
       edges: graph.edges,
     },
     graph_schema_version: '2.2',
+    // Include brief for contextualised CEE output (only if provided)
+    ...(brief && { brief }),
     inference_results: {
       // ISL V2 uses 'options' field; V1 uses 'results'. Check both for compatibility.
       // Keep quantiles for backward compatibility (first option's quantiles)
@@ -803,7 +806,8 @@ async function requestCeeReview(
   islResult: any,
   robustnessData: RobustnessDataForCee | null,
   requestId: string,
-  logger?: any
+  logger?: any,
+  brief?: string
 ): Promise<CeeOrchestrationResult> {
   const startTime = performance.now();
 
@@ -879,8 +883,8 @@ async function requestCeeReview(
   }
 
   try {
-    // Build CEE review request
-    const ceeRequest = buildCeeReviewRequest(scenarioId, graph, options, islResult, robustnessData);
+    // Build CEE review request (include brief for contextualised output)
+    const ceeRequest = buildCeeReviewRequest(scenarioId, graph, options, islResult, robustnessData, brief);
 
     // Call CEE orchestrator
     const ceeResult = await orchestrateCeeReview(ceeEnv, ceeRequest, requestId);
@@ -1568,6 +1572,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         );
 
         // Request CEE review (graceful degradation - returns null on failure)
+        // Pass brief for contextualised CEE output when available
         const ceeOrchestrationResult = await requestCeeReview(
           responseHash ?? requestId, // Use response hash as scenario ID
           filteredGraph,
@@ -1575,7 +1580,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           islResult,
           robustnessDataForCee,
           requestId,
-          req.log
+          req.log,
+          body.brief
         );
 
         const finalTotalMs = performance.now() - startTime;

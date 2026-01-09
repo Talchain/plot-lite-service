@@ -3717,6 +3717,7 @@ paths:
                   seed: "42"
                   n_samples: 1000
                   detail_level: "deep"
+                  brief: "Should we increase our marketing budget to improve revenue?"
       responses:
         '200':
           description: OK - Analysis complete (may be available or unavailable)
@@ -5267,6 +5268,14 @@ components:
             User-defined success threshold. When provided, response includes
             probability_of_goal per option indicating likelihood of outcome
             meeting or exceeding this value. Null is treated as absent.
+        brief:
+          type: string
+          maxLength: 10000
+          description: |
+            Original decision description/brief.
+            When provided, CEE generates contextualised review output
+            (e.g., "Hiring a senior developer is recommended for your goal
+            of increasing productivity" instead of generic "Option A recommended").
 
     nodeV3:
       type: object

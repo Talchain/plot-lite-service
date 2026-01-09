@@ -255,6 +255,15 @@ export interface RunRequestV3 {
    * Null is treated as absent.
    */
   goal_threshold?: number | null;
+
+  /**
+   * Original decision description/brief.
+   * When provided, CEE can generate contextualised review output
+   * (e.g., "Hiring a senior developer is recommended for your goal
+   * of increasing productivity" instead of generic "Option A recommended").
+   * Max 10000 characters.
+   */
+  brief?: string;
 }
 
 // -----------------------------------------------------------------------------

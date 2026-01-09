@@ -235,6 +235,11 @@ export interface CeeReviewRequest {
   };
   /** Graph schema version - must be '2.2' */
   graph_schema_version: '2.2';
+  /**
+   * Original decision brief/description.
+   * When provided, CEE generates contextualised output.
+   */
+  brief?: string;
   /** Inference results to review */
   inference_results: {
     quantiles: { p10: number; p50: number; p90: number };
