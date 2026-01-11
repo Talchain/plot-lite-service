@@ -1,21 +1,49 @@
 /**
  * SCM-Lite Kernel
  * Deterministic structural causal approximation with edge masking
+ *
+ * Supports Pearl's do-operator for intervention semantics:
+ * - Interventional mode (default): P(Y | do(X)) - cuts incoming edges to intervention targets
+ * - Observational mode: P(Y | X) - conditions on observed values
+ *
+ * When evaluating options/decisions, use interventional semantics to model
+ * "what happens when we actively choose this option" rather than
+ * "what we learn when we observe this option was chosen".
+ *
+ * EdgeV2 Dual Beliefs Support:
+ * - belief_exists: Edge inclusion probability (Bernoulli)
+ * - belief_strength: Weight variance (higher = tighter distribution around weight)
  */
 import { createHash } from 'node:crypto';
-import type { DAG, KernelConfig, KernelResult } from './types.js';
+import type { DAG, KernelConfig, KernelResult, Edge, Node } from './types.js';
 import { XorShift128Plus } from './rng.js';
+import { applyEdgeFunction } from '../engine/edge-functions.js';
+import { FLAGS } from '../config/flags.js';
+import { MAX_NODES, MAX_EDGES } from '../constants/limits.js';
+
+/** Default values for EdgeV2 dual beliefs */
+const EDGE_V2_DEFAULTS = {
+  BELIEF_EXISTS: 1.0,
+  BELIEF_STRENGTH: 0.8,
+  /** Default std as percentage of |weight| when neither strength_std nor belief_strength provided */
+  DEFAULT_STD_RATIO: 0.1,
+  /** Minimum std to ensure non-zero variance */
+  MIN_STD: 0.05,
+};
 
 const DEFAULT_CONFIG: Partial<KernelConfig> = {
   K: 256,
-  maxNodes: 50,
-  maxEdges: 200,
+  maxNodes: MAX_NODES,
+  maxEdges: MAX_EDGES,
   beliefDefault: 0.7,
+  beliefStrengthDefault: 0.8, // Default belief_strength for EdgeV2
   // Adaptive K defaults
   adaptiveK: false,
   convergenceThreshold: 0.01, // 1% default
   kStep: 8,
   kMin: 16,
+  // Intervention defaults
+  mode: 'interventional', // Default to do-operator semantics for option evaluation
 };
 
 export function runKernel(dag: DAG, target: string, config: Partial<KernelConfig>): KernelResult {
@@ -46,6 +74,15 @@ export function runKernel(dag: DAG, target: string, config: Partial<KernelConfig
   // Topological order
   const topoOrder = topologicalSort(dag, nodeIds);
   
+  // Build intervention map for do-operator semantics
+  // Only apply in interventional mode (default)
+  const interventionMap = new Map<string, number>();
+  if (cfg.mode !== 'observational' && cfg.interventions) {
+    for (const iv of cfg.interventions) {
+      interventionMap.set(iv.node_id, iv.value);
+    }
+  }
+
   // Sample K edge masks with optional adaptive early-stopping
   const rng = new XorShift128Plus(cfg.seed);
   const samples: number[] = [];
@@ -58,9 +95,16 @@ export function runKernel(dag: DAG, target: string, config: Partial<KernelConfig
   let K_converged = false;
   let prevP50Int: number | null = null;
 
+  // Precompute incoming edge index once for O(1) lookup in forwardPass
+  // This reduces complexity from O(K*N*E) to O(K*N)
+  const incomingEdgeIndex = buildIncomingEdgeIndex(dag);
+
+  // Build node map for factor value initialization
+  const nodeMap = buildNodeMap(dag);
+
   for (let k = 0; k < cfg.K; k++) {
-    const mask = sampleEdgeMask(dag, rng, cfg.beliefDefault);
-    const value = forwardPass(dag, mask, topoOrder, target);
+    const { mask, sampledWeights } = sampleEdgeMask(dag, rng, cfg);
+    const value = forwardPass(incomingEdgeIndex, nodeMap, mask, sampledWeights, topoOrder, target, interventionMap);
     samples.push(value);
     graphHashes.add(hashMask(mask));
 
@@ -90,9 +134,15 @@ export function runKernel(dag: DAG, target: string, config: Partial<KernelConfig
   // Compute quantiles on final samples
   samples.sort((a, b) => a - b);
   const K_evaluated = samples.length;
-  const p10 = samples[Math.floor(K_evaluated * 0.1)];
-  const p50 = samples[Math.floor(K_evaluated * 0.5)];
-  const p90 = samples[Math.floor(K_evaluated * 0.9)];
+
+  // Epistemic humility cap - probabilistic models should never claim certainty
+  // Only cap values that would display as "100%" (near 1.0), not magnitude outputs
+  const MAX_PROBABILITY = 0.99;
+  const capNearOne = (v: number) => (v >= 0.995 && v <= 1.005) ? MAX_PROBABILITY : v;
+
+  const p10 = capNearOne(samples[Math.floor(K_evaluated * 0.1)]);
+  const p50 = capNearOne(samples[Math.floor(K_evaluated * 0.5)]);
+  const p90 = capNearOne(samples[Math.floor(K_evaluated * 0.9)]);
   
   // Confidence heuristic
   const uniqueGraphs = graphHashes.size;
@@ -118,6 +168,12 @@ export function runKernel(dag: DAG, target: string, config: Partial<KernelConfig
   if (cfg.adaptiveK) {
     meta.K_requested = K_requested;
     meta.K_converged = K_converged;
+  }
+
+  // Include intervention semantics in meta
+  if (cfg.interventions && cfg.interventions.length > 0) {
+    meta.inference_mode = cfg.mode ?? 'interventional';
+    meta.intervention_count = interventionMap.size;
   }
 
   return {
@@ -192,31 +248,278 @@ function topologicalSort(dag: DAG, nodeIds: string[]): string[] {
   return result;
 }
 
-function sampleEdgeMask(dag: DAG, rng: XorShift128Plus, defaultBelief: number): Set<string> {
-  const mask = new Set<string>();
-  for (const edge of dag.edges) {
-    const belief = edge.belief ?? defaultBelief;
-    if (rng.next() < belief) {
-      mask.add(`${edge.from}->${edge.to}`);
-    }
+/**
+ * Get effective belief_exists value for an edge.
+ * Supports both EdgeV1 (single belief) and EdgeV2 (dual beliefs).
+ */
+function getBeliefExists(edge: Edge, defaultBelief: number): number {
+  // EdgeV2: use belief_exists directly
+  if (edge.belief_exists !== undefined) {
+    return Math.max(0, Math.min(1, edge.belief_exists));
   }
-  return mask;
+  // EdgeV1: use legacy belief field
+  if (edge.belief !== undefined) {
+    return Math.max(0, Math.min(1, edge.belief));
+  }
+  // Default
+  return defaultBelief;
 }
 
-function forwardPass(dag: DAG, mask: Set<string>, topoOrder: string[], target: string): number {
+/**
+ * Get effective belief_strength value for an edge.
+ * Supports both EdgeV1 (single belief) and EdgeV2 (dual beliefs).
+ */
+function getBeliefStrength(edge: Edge, defaultBeliefStrength: number): number {
+  // EdgeV2: use belief_strength directly
+  if (edge.belief_strength !== undefined) {
+    return Math.max(0, Math.min(1, edge.belief_strength));
+  }
+  // EdgeV1: use legacy belief field as strength proxy
+  if (edge.belief !== undefined) {
+    return Math.max(0, Math.min(1, edge.belief));
+  }
+  // Default
+  return defaultBeliefStrength;
+}
+
+/**
+ * Derive standard deviation from legacy beliefStrength field.
+ *
+ * beliefStrength represents confidence in the effect magnitude.
+ * High beliefStrength → low variance, low beliefStrength → high variance.
+ *
+ * @param weight - The base weight value
+ * @param beliefStrength - Confidence in weight precision [0,1]
+ * @returns Derived standard deviation
+ */
+function deriveStdFromBeliefStrength(weight: number, beliefStrength: number): number {
+  // Coefficient of variation inversely proportional to belief strength
+  // cv ranges from 0.1 (high confidence) to 0.4 (low confidence)
+  const cv = 0.3 * (1 - beliefStrength) + 0.1;
+  return Math.max(EDGE_V2_DEFAULTS.MIN_STD, cv * Math.abs(weight));
+}
+
+/**
+ * Get the standard deviation for edge strength sampling.
+ *
+ * Priority:
+ * 1. Use explicit strength_std if provided (v2.2)
+ * 2. Derive from belief_strength (legacy) if provided
+ * 3. Use default (10% of |weight|, minimum 0.05)
+ *
+ * @param edge - The edge to get std for
+ * @param defaultBeliefStrength - Default belief_strength if not specified
+ * @returns Standard deviation for Normal sampling
+ */
+export function getEdgeStd(edge: Edge, defaultBeliefStrength: number = EDGE_V2_DEFAULTS.BELIEF_STRENGTH): number {
+  // v2.2: Prefer explicit strength_std
+  if (edge.strength_std !== undefined && edge.strength_std > 0) {
+    return edge.strength_std;
+  }
+
+  // Legacy: Derive from belief_strength
+  const beliefStrength = getBeliefStrength(edge, defaultBeliefStrength);
+  if (edge.belief_strength !== undefined || edge.belief !== undefined) {
+    return deriveStdFromBeliefStrength(edge.weight ?? 1.0, beliefStrength);
+  }
+
+  // Default fallback: 10% of |weight|, minimum 0.05
+  const weight = edge.weight ?? 1.0;
+  return Math.max(EDGE_V2_DEFAULTS.MIN_STD, Math.abs(weight) * EDGE_V2_DEFAULTS.DEFAULT_STD_RATIO);
+}
+
+/**
+ * Sample from Normal distribution using Box-Muller transform.
+ *
+ * @param mean - Mean of the distribution
+ * @param std - Standard deviation (must be > 0)
+ * @param rng - Seeded random number generator
+ * @returns Sampled value from N(mean, std)
+ */
+function sampleNormal(mean: number, std: number, rng: XorShift128Plus): number {
+  // Box-Muller transform
+  let u1 = rng.next();
+  const u2 = rng.next();
+
+  // Avoid log(0)
+  while (u1 === 0) {
+    u1 = rng.next();
+  }
+
+  const z0 = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+  return mean + z0 * std;
+}
+
+/**
+ * Sample edge mask and weights for a single Monte Carlo iteration.
+ *
+ * EdgeV1 behaviour (legacy): Uses single belief for edge inclusion
+ * EdgeV2 behaviour (dual beliefs): Uses belief_exists for inclusion, belief_strength for weight variance
+ * EdgeV2.2 behaviour: Uses strength_std for explicit parametric uncertainty (Normal sampling)
+ *
+ * @param dag - The DAG
+ * @param rng - Random number generator
+ * @param cfg - Kernel configuration
+ * @returns Object with mask (active edges) and sampledWeights (edge→weight)
+ */
+function sampleEdgeMask(
+  dag: DAG,
+  rng: XorShift128Plus,
+  cfg: KernelConfig
+): { mask: Set<string>; sampledWeights: Map<string, number> } {
+  const mask = new Set<string>();
+  const sampledWeights = new Map<string, number>();
+  const useDualBeliefs = FLAGS.ENABLE_DUAL_BELIEFS;
+
+  for (const edge of dag.edges) {
+    const edgeKey = `${edge.from}->${edge.to}`;
+    const beliefExists = getBeliefExists(edge, cfg.beliefDefault);
+
+    // Step 1: Edge inclusion (Bernoulli with probability belief_exists)
+    if (rng.next() < beliefExists) {
+      mask.add(edgeKey);
+
+      // Step 2: Weight sampling (only when dual beliefs enabled)
+      if (useDualBeliefs) {
+        const baseWeight = edge.weight ?? 1.0;
+
+        // v2.2: All edges use Normal sampling N(weight, std)
+        // getEdgeStd handles priority: strength_std > belief_strength > default
+        const std = getEdgeStd(edge, cfg.beliefStrengthDefault ?? EDGE_V2_DEFAULTS.BELIEF_STRENGTH);
+        const sampledWeight = sampleNormal(baseWeight, std, rng);
+        sampledWeights.set(edgeKey, sampledWeight);
+      } else {
+        // EdgeV1: use base weight directly
+        sampledWeights.set(edgeKey, edge.weight ?? 1.0);
+      }
+    }
+  }
+
+  return { mask, sampledWeights };
+}
+
+/**
+ * Build an index of incoming edges for each node.
+ * This allows O(1) lookup instead of O(E) filtering per node.
+ *
+ * @param dag - The directed acyclic graph
+ * @returns Map from node ID to array of incoming edges
+ */
+function buildIncomingEdgeIndex(dag: DAG): Map<string, Edge[]> {
+  const index = new Map<string, Edge[]>();
+  // Initialize empty arrays for all nodes
+  for (const node of dag.nodes) {
+    index.set(node.id, []);
+  }
+  // Populate with edges
+  for (const edge of dag.edges) {
+    const incoming = index.get(edge.to);
+    if (incoming) {
+      incoming.push(edge);
+    }
+  }
+  return index;
+}
+
+/**
+ * Build a lookup map from node ID to node data
+ *
+ * Used for factor value initialization - root factor nodes use observed_state.value.
+ */
+function buildNodeMap(dag: DAG): Map<string, Node> {
+  const map = new Map<string, Node>();
+  for (const node of dag.nodes) {
+    map.set(node.id, node);
+  }
+  return map;
+}
+
+/**
+ * Forward pass through the DAG with intervention support
+ *
+ * When a node is in the interventionMap:
+ * - Its value is set directly to the intervention value
+ * - All incoming edges are ignored (do-operator cuts parent influences)
+ * - Downstream effects propagate normally
+ *
+ * This implements Pearl's do(X=x) semantics:
+ * Original: X = f(Parents(X), U_x)
+ * Intervention: X = x (constant, parents ignored)
+ *
+ * Factor value initialization (Phase 1B):
+ * Structural root factor nodes (kind='factor', no incoming edges in graph) use
+ * observed_state.value if present, otherwise default to baseline 1.0 (capped to 0.99
+ * for numerical stability).
+ *
+ * @param incomingEdgeIndex - Precomputed index of incoming edges per node
+ * @param nodeMap - Map from node ID to node data for factor value lookup
+ * @param mask - Set of active edges for this sample
+ * @param sampledWeights - Map of edge key to sampled weight (from dual beliefs)
+ * @param topoOrder - Nodes in topological order
+ * @param target - Target node to compute value for
+ * @param interventionMap - Map of node_id → intervention value (optional)
+ * @returns Computed value of target node
+ */
+function forwardPass(
+  incomingEdgeIndex: Map<string, Edge[]>,
+  nodeMap: Map<string, Node>,
+  mask: Set<string>,
+  sampledWeights: Map<string, number>,
+  topoOrder: string[],
+  target: string,
+  interventionMap?: Map<string, number>
+): number {
   const values = new Map<string, number>();
   for (const id of topoOrder) values.set(id, 0);
-  
-  for (const node of topoOrder) {
-    const incoming = dag.edges.filter(e => e.to === node && mask.has(`${e.from}->${e.to}`));
-    let sum = 0;
-    for (const edge of incoming) {
-      const weight = edge.weight ?? 1.0;
-      sum += (values.get(edge.from) || 0) * weight;
+
+  for (const nodeId of topoOrder) {
+    // Check if this node is intervened upon (do-operator)
+    // Intervention cuts all incoming edges and sets value directly
+    if (interventionMap?.has(nodeId)) {
+      values.set(nodeId, interventionMap.get(nodeId)!);
+      continue; // Skip natural evaluation - this is the key do-operator behavior
     }
-    values.set(node, sum || 1); // baseline 1 if no incoming
+
+    // Natural evaluation: compute from parents using precomputed index
+    // O(1) lookup instead of O(E) filter per node
+    const allIncoming = incomingEdgeIndex.get(nodeId) || [];
+    let sum = 0;
+    let hasActiveIncoming = false;
+    for (const edge of allIncoming) {
+      const edgeKey = `${edge.from}->${edge.to}`;
+      // Skip edges not in the sampled mask
+      if (!mask.has(edgeKey)) continue;
+      hasActiveIncoming = true;
+      const parentValue = values.get(edge.from) || 0;
+      // Use sampled weight from dual beliefs (already accounts for belief_strength variance)
+      const weight = sampledWeights.get(edgeKey) ?? edge.weight ?? 1.0;
+      // Apply non-linear edge function if specified
+      const transformedValue = applyEdgeFunction(parentValue, edge);
+      sum += transformedValue * weight;
+    }
+
+    if (hasActiveIncoming) {
+      // Node with active incoming edges: compute value from incoming edges
+      values.set(nodeId, sum);
+    } else {
+      // No active incoming edges in this sample
+      // Phase 1B: Check for structural root factor node with observed_state.value
+      // Structural root = no incoming edges in the graph at all
+      const isStructuralRoot = allIncoming.length === 0;
+      const node = nodeMap.get(nodeId);
+
+      if (isStructuralRoot && node?.kind === 'factor' && node.observed_state?.value !== undefined) {
+        // Structural root factor node with observed_state.value - use it
+        // This only triggers for true structural roots (no incoming edges at all)
+        values.set(nodeId, node.observed_state.value);
+      } else {
+        // Default baseline for all other nodes without active incoming edges
+        // (includes both structural roots and nodes with masked-out edges)
+        values.set(nodeId, 1);
+      }
+    }
   }
-  
+
   return values.get(target) || 0;
 }
 
@@ -236,8 +539,10 @@ function countPaths(dag: DAG, target: string): number {
   const adj = new Map<string, string[]>();
   for (const node of dag.nodes) adj.set(node.id, []);
   for (const edge of dag.edges) adj.get(edge.from)?.push(edge.to);
-  
-  const roots = dag.nodes.filter(n => !dag.edges.some(e => e.to === n.id));
+
+  // P0 fix: O(E) root finding instead of O(V×E)
+  const hasIncoming = new Set(dag.edges.map(e => e.to));
+  const roots = dag.nodes.filter(n => !hasIncoming.has(n.id));
   let paths = 0;
   
   const dfs = (node: string, visited: Set<string>) => {
@@ -266,4 +571,96 @@ function mapConfidence(diversity: number, signStability: number, paths: number):
   if (score >= 0.7) return 'high';
   if (score >= 0.4) return 'medium';
   return 'low';
+}
+
+/**
+ * Compute P(target ≥ threshold | do(interventions))
+ *
+ * Runs Monte Carlo sampling and counts how many samples exceed the threshold.
+ * Used for computing per-option goal probabilities (Brief A).
+ *
+ * @param dag - The directed acyclic graph
+ * @param target - Target node to evaluate
+ * @param threshold - Value to consider "achieved"
+ * @param config - Kernel configuration (including interventions for do-operator)
+ * @returns Probability and confidence metrics
+ */
+export interface ThresholdProbabilityResult {
+  probability: number;      // P(target ≥ threshold)
+  confidence: number;       // 1 - 2*SE (binomial standard error)
+  samples_above: number;    // Count of samples exceeding threshold
+  total_samples: number;    // Total samples evaluated
+}
+
+export function computeThresholdProbability(
+  dag: DAG,
+  target: string,
+  threshold: number,
+  config: Partial<KernelConfig>
+): ThresholdProbabilityResult {
+  const cfg = { ...DEFAULT_CONFIG, ...config } as KernelConfig;
+
+  // Validate scope guardrails
+  if (dag.nodes.length > cfg.maxNodes) {
+    throw new Error(`Graph exceeds max nodes: ${dag.nodes.length} > ${cfg.maxNodes}`);
+  }
+  if (dag.edges.length > cfg.maxEdges) {
+    throw new Error(`Graph exceeds max edges: ${dag.edges.length} > ${cfg.maxEdges}`);
+  }
+  if (hasCycle(dag)) {
+    throw new Error('Graph contains cycle');
+  }
+
+  // Stable sort nodes by id
+  const nodes = [...dag.nodes].sort((a, b) => a.id.localeCompare(b.id));
+  const nodeIds = nodes.map(n => n.id);
+
+  if (!nodeIds.includes(target)) {
+    throw new Error(`Target node ${target} not in graph`);
+  }
+
+  // Topological order
+  const topoOrder = topologicalSort(dag, nodeIds);
+
+  // Build intervention map for do-operator semantics
+  const interventionMap = new Map<string, number>();
+  if (cfg.mode !== 'observational' && cfg.interventions) {
+    for (const iv of cfg.interventions) {
+      interventionMap.set(iv.node_id, iv.value);
+    }
+  }
+
+  // Sample and count threshold crossings
+  const rng = new XorShift128Plus(cfg.seed);
+  let samplesAbove = 0;
+  const K = cfg.K;
+
+  // Precompute incoming edge index once for O(1) lookup in forwardPass
+  const incomingEdgeIndex = buildIncomingEdgeIndex(dag);
+
+  // Build node map for factor value initialization
+  const nodeMap = buildNodeMap(dag);
+
+  for (let k = 0; k < K; k++) {
+    const { mask, sampledWeights } = sampleEdgeMask(dag, rng, cfg);
+    const value = forwardPass(incomingEdgeIndex, nodeMap, mask, sampledWeights, topoOrder, target, interventionMap);
+    if (value >= threshold) {
+      samplesAbove++;
+    }
+  }
+
+  const probability = samplesAbove / K;
+
+  // Confidence based on binomial standard error
+  // SE = sqrt(p * (1-p) / n)
+  // Confidence = 1 - 2*SE (rough 95% CI width proxy)
+  const se = Math.sqrt((probability * (1 - probability)) / K);
+  const confidence = Math.max(0, Math.min(1, 1 - 2 * se));
+
+  return {
+    probability,
+    confidence,
+    samples_above: samplesAbove,
+    total_samples: K,
+  };
 }

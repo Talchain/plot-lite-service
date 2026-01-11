@@ -92,12 +92,28 @@ export async function registerValidateRoute(app: FastifyInstance) {
         const hasOutgoing = body.graph.edges.some((e: any) => e.from === optionId);
         if (!hasOutgoing) {
           const severity: 'error' | 'warning' = 'warning';
-          violations.push({ 
-            code: 'OPTION_NO_OUTGOING', 
+          violations.push({
+            code: 'OPTION_NO_OUTGOING',
             severity,
             level: validationSeverityToLevel(severity),
             at: { node: optionId },
             suggestion: 'Option nodes should have outgoing edges to outcomes.'
+          });
+        }
+      }
+
+      // 5. FACTOR_HAS_INCOMING_EDGES
+      const factors = body.graph.nodes.filter((n: any) => n.kind === 'factor');
+      for (const factor of factors) {
+        const incomingEdges = body.graph.edges.filter((e: any) => e.to === factor.id);
+        if (incomingEdges.length > 0) {
+          const severity: 'error' | 'warning' = 'warning';
+          violations.push({
+            code: 'FACTOR_HAS_INCOMING_EDGES',
+            severity,
+            level: validationSeverityToLevel(severity),
+            at: { node_id: factor.id, label: factor.label },
+            suggestion: 'Remove incoming edges or change node type to outcome/risk. Factors represent external inputs and should be root nodes.'
           });
         }
       }

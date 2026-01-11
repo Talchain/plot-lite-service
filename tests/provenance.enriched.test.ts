@@ -24,7 +24,7 @@ describe('Provenance enrichment', () => {
       expect(summary.edges_with_provenance).toBe(0);
       expect(summary.edges_total).toBe(0);
       expect(summary.coverage_ratio).toBe(0);
-      expect(summary.confidence_level).toBe('UNKNOWN');
+      expect(summary.confidence_level).toBe('unknown');
       expect(summary.confidence_score).toBe(0);
       expect(isValidIsoTimestamp(summary.collected_at)).toBe(true);
     });
@@ -51,7 +51,7 @@ describe('Provenance enrichment', () => {
       expect(summary.edges_total).toBe(4);
       expect(summary.edges_with_provenance).toBe(2);
       expect(summary.coverage_ratio).toBeCloseTo(0.5, 5);
-      expect(['LOW', 'MEDIUM', 'HIGH', 'UNKNOWN']).toContain(summary.confidence_level);
+      expect(['low', 'medium', 'high', 'unknown']).toContain(summary.confidence_level);
       expect(summary.confidence_score).toBeGreaterThanOrEqual(0);
       expect(summary.confidence_score).toBeLessThanOrEqual(1);
       expect(isValidIsoTimestamp(summary.collected_at)).toBe(true);
@@ -72,7 +72,7 @@ describe('Provenance enrichment', () => {
       expect(summary.source_count).toBe(0);
       expect(summary.edges_with_provenance).toBe(0);
       expect(summary.coverage_ratio).toBe(0);
-      expect(summary.confidence_level).toBe('LOW');
+      expect(summary.confidence_level).toBe('low');
     });
 
     it('is deterministic for equivalent graphs regardless of edge order', () => {
@@ -108,31 +108,31 @@ describe('Provenance enrichment', () => {
   describe('classifyProvenanceConfidence', () => {
     it('returns UNKNOWN for empty graphs', () => {
       const { level, score } = classifyProvenanceConfidence(0, 0, 0);
-      expect(level).toBe('UNKNOWN');
+      expect(level).toBe('unknown');
       expect(score).toBe(0);
     });
 
     it('returns LOW when no edges have provenance', () => {
       const { level, score } = classifyProvenanceConfidence(0, 10, 0);
-      expect(level).toBe('LOW');
+      expect(level).toBe('low');
       expect(score).toBe(0);
     });
 
     it('returns LOW for sparse coverage', () => {
       const { level } = classifyProvenanceConfidence(1, 10, 1);
-      expect(level).toBe('LOW');
+      expect(level).toBe('low');
     });
 
     it('returns MEDIUM for moderate coverage and sources', () => {
       const { level, score } = classifyProvenanceConfidence(5, 10, 2);
-      expect(level).toBe('MEDIUM');
+      expect(level).toBe('medium');
       expect(score).toBeGreaterThan(0.4);
       expect(score).toBeLessThan(0.8);
     });
 
     it('returns HIGH for strong coverage and diverse sources', () => {
       const { level, score } = classifyProvenanceConfidence(8, 10, 3);
-      expect(level).toBe('HIGH');
+      expect(level).toBe('high');
       expect(score).toBeGreaterThanOrEqual(0.75);
       expect(score).toBeLessThanOrEqual(1);
     });

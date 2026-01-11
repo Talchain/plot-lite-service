@@ -12,6 +12,7 @@ import { SlidingWindow } from './cb/window.js';
 import { BoundedLRU } from '../lib/BoundedLRU.js';
 import { extractPrincipal, isPrincipalExtractionEnabled } from '../lib/extractPrincipal.js'; // PR-3
 import { replyWithAppError } from '../errors.js';
+import { recordCircuitOpen, recordCircuitProbe, recordRateLimit429 } from '../metrics/registry.js'; // P0: ESM imports
 
 type CircuitState = 'closed' | 'open' | 'half_open';
 type TransitionReason = 'threshold' | 'half_open_timeout' | 'probes_success'; // PR-2C.1
@@ -163,7 +164,6 @@ function transitionTo(circuit: CircuitStats, newState: CircuitState, scope?: 'gl
     // PR-1/PR-2C: Record circuit open event with reason
     if (scope) {
       try {
-        const { recordCircuitOpen } = require('../metrics/registry.js');
         recordCircuitOpen(scope, reason);
       } catch (err) {
         console.warn('[circuit-breaker] Failed to record circuit open event:', err);
@@ -208,7 +208,6 @@ function recordOutcome(circuit: CircuitStats, is429: boolean, scope?: 'global' |
       // PR-1: Record probe result
       if (scope) {
         try {
-          const { recordCircuitProbe } = require('../metrics/registry.js');
           recordCircuitProbe(scope, 'success');
         } catch (err) {
           console.warn('[circuit-breaker] Failed to record circuit probe:', err);
@@ -318,7 +317,6 @@ export function trackCircuitBreakerResponse(
   // PR-1: Always record 429 events for metrics (even when breaker is OFF)
   if (is429) {
     try {
-      const { recordRateLimit429 } = require('../metrics/registry.js');
       const route = (req as any)?.routeOptions?.url || 'unknown';
       recordRateLimit429(route);
     } catch (err) {

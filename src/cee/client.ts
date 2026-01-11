@@ -2,6 +2,7 @@
 // NOTE: Real CEE Decision Review POST endpoint is not yet specified.
 // For now we implement health probing and a fixture-based fallback example endpoint.
 
+import { randomUUID } from 'node:crypto';
 import type { FastifyBaseLogger } from 'fastify';
 import type {
   CeeReviewResult as PortCeeReviewResult,
@@ -12,6 +13,21 @@ import type {
 } from './types.js';
 import { runDecisionReviewViaSdk, type EvidenceHelperItem } from './orchestrator.js';
 import { isFlagOn } from './codes.js';
+import { computeOlumiHash } from '../util/canonical.js';
+import { recordDownstreamCall } from '../util/downstream-tracker.js';
+
+/**
+ * Sanitize request ID per M1 CEE Orchestrator spec v1.1
+ * Pattern: ^[A-Za-z0-9._-]+$ (max 64 chars)
+ * Falls back to UUID if invalid
+ */
+const SAFE_REQUEST_ID_PATTERN = /^[A-Za-z0-9._-]+$/;
+export function sanitizeRequestId(id: string | undefined | null): string {
+  if (id && id.length <= 64 && SAFE_REQUEST_ID_PATTERN.test(id)) {
+    return id;
+  }
+  return randomUUID();
+}
 
 export interface CeeRunContext {
   // Minimal, non-sensitive context about the run
@@ -104,6 +120,163 @@ async function fetchWithTimeout(url: string, opts: FetchOptions): Promise<Respon
   }
 }
 
+// =============================================================================
+// CEE Schema V2 HTTP Client
+// =============================================================================
+// Direct HTTP calls with ?schema=v2 query parameter for endpoints that need
+// v2 format (effect_direction, strength_std, observed_state fields).
+// Bypasses SDK which doesn't support schema parameter.
+
+export interface CEESchemaV2Config {
+  baseUrl: string;
+  apiKey: string;
+  timeoutMs?: number;
+}
+
+export interface CEESchemaV2Response<T> {
+  data: T;
+  schema_version?: string;
+  latency_ms: number;
+}
+
+/**
+ * Call CEE endpoint with ?schema=v2 query parameter
+ *
+ * This bypasses the SDK to request v2 format which includes:
+ * - effect_direction on edges (for signed weights)
+ * - strength_std on edges (for parametric uncertainty)
+ * - observed_state on nodes (for factor values)
+ *
+ * @param config - CEE connection config
+ * @param path - Endpoint path (e.g., '/assist/v1/draft-graph')
+ * @param payload - Request body
+ * @param requestId - Request ID for tracing
+ * @returns Response with v2 format data
+ */
+export async function callCEEWithSchemaV2<T>(
+  config: CEESchemaV2Config,
+  path: string,
+  payload: unknown,
+  requestId: string
+): Promise<CEESchemaV2Response<T>> {
+  const baseUrl = config.baseUrl.replace(/\/$/, '');
+  const url = `${baseUrl}${path}?schema=v2`;
+  const timeoutMs = config.timeoutMs ?? 30000;
+  const startMs = Date.now();
+
+  try {
+    const response = await fetchWithTimeout(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-Olumi-Assist-Key': config.apiKey,
+        'X-Request-Id': requestId,
+      },
+      body: JSON.stringify(payload),
+      timeoutMs,
+    });
+
+    const latencyMs = Date.now() - startMs;
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => 'Unknown error');
+      throw new Error(`CEE ${path} failed: HTTP ${response.status} - ${errorText}`);
+    }
+
+    // Capture X-CEE-API-Version header
+    const ceeApiVersion = response.headers.get('X-CEE-API-Version');
+
+    const data = await response.json() as T & { schema_version?: string; graph?: { edges?: Array<{ effect_direction?: string; strength_std?: number }> } };
+    const schemaVersion = (data as any)?.schema_version;
+
+    // V2 verification logging per acceptance criteria
+    const edges = (data as any)?.graph?.edges ?? [];
+    const edgeCount = edges.length;
+    const hasEffectDirection = edgeCount > 0 && edges.every((e: any) => e.effect_direction !== undefined);
+    const hasStrengthStd = edgeCount > 0 && edges.every((e: any) => typeof e.strength_std === 'number' && e.strength_std > 0);
+
+    console.log('[CEE_V2_RESPONSE]', JSON.stringify({
+      path,
+      cee_api_version: ceeApiVersion,
+      schema_version: schemaVersion,
+      edge_count: edgeCount,
+      has_effect_direction: hasEffectDirection,
+      has_strength_std: hasStrengthStd,
+      latency_ms: latencyMs,
+    }));
+
+    // Warn if v2 format fields are missing
+    if (!schemaVersion) {
+      console.warn(`[CEE_V2] ${path} missing schema_version in response - may not be v2 format`);
+    }
+    if (edgeCount > 0 && !hasEffectDirection) {
+      console.warn(`[CEE_V2] ${path} edges missing effect_direction - v2 format may not be enabled`);
+    }
+
+    return {
+      data,
+      schema_version: schemaVersion,
+      latency_ms: latencyMs,
+    };
+  } catch (error) {
+    const latencyMs = Date.now() - startMs;
+    console.error(`[CEE_V2] ${path} failed after ${latencyMs}ms:`, error instanceof Error ? error.message : error);
+    throw error;
+  }
+}
+
+/**
+ * Draft graph with schema v2 format
+ * Returns graph with effect_direction, strength_std on edges
+ */
+export async function draftGraphV2(
+  config: CEESchemaV2Config,
+  brief: string,
+  requestId: string
+): Promise<CEESchemaV2Response<any>> {
+  return callCEEWithSchemaV2(
+    config,
+    '/assist/v1/draft-graph',
+    { brief, config: { streaming: false } },
+    requestId
+  );
+}
+
+/**
+ * Get options with schema v2 format
+ */
+export async function optionsV2(
+  config: CEESchemaV2Config,
+  graph: unknown,
+  archetype: string | null,
+  requestId: string
+): Promise<CEESchemaV2Response<any>> {
+  return callCEEWithSchemaV2(
+    config,
+    '/assist/v1/options',
+    { graph, archetype },
+    requestId
+  );
+}
+
+/**
+ * Bias check with schema v2 format
+ */
+export async function biasCheckV2(
+  config: CEESchemaV2Config,
+  graph: unknown,
+  archetype: string | null,
+  requestId: string
+): Promise<CEESchemaV2Response<any>> {
+  return callCEEWithSchemaV2(
+    config,
+    '/assist/v1/bias-check',
+    { graph, archetype },
+    requestId
+  );
+}
+
 async function probeHealth(baseUrl: string, timeoutMs: number, logger?: FastifyBaseLogger): Promise<boolean> {
   const url = `${baseUrl.replace(/\/$/, '')}/healthz`;
   const started = Date.now();
@@ -134,6 +307,15 @@ async function fetchFixtureExample(baseUrl: string, timeoutMs: number, requestId
     logger?.info({ evt: 'cee_fixture_fetch', status: res.status, duration_ms: durationMs }, 'CEE fixture fetch');
 
     if (!res.ok) {
+      // Record failed fixture fetch
+      recordDownstreamCall({
+        service: 'cee',
+        endpoint: '/assist/v1/decision-review/example',
+        status: res.status,
+        elapsedMs: durationMs,
+        payloadHash: '-', // GET request, no payload
+        requestId,
+      });
       return {
         ceeReview: null,
         ceeTrace: {
@@ -156,6 +338,15 @@ async function fetchFixtureExample(baseUrl: string, timeoutMs: number, requestId
     try {
       payload = await res.json();
     } catch {
+      // Record fixture fetch with parse error
+      recordDownstreamCall({
+        service: 'cee',
+        endpoint: '/assist/v1/decision-review/example',
+        status: res.status,
+        elapsedMs: durationMs,
+        payloadHash: '-',
+        requestId,
+      });
       return {
         ceeReview: null,
         ceeTrace: {
@@ -173,6 +364,18 @@ async function fetchFixtureExample(baseUrl: string, timeoutMs: number, requestId
       };
     }
 
+    // Record successful fixture fetch with response hash
+    const responseHash = computeOlumiHash(payload);
+    recordDownstreamCall({
+      service: 'cee',
+      endpoint: '/assist/v1/decision-review/example',
+      status: res.status,
+      elapsedMs: durationMs,
+      payloadHash: '-',
+      responseHash,
+      requestId,
+    });
+
     return {
       ceeReview: payload ?? null,
       ceeTrace: {
@@ -185,6 +388,16 @@ async function fetchFixtureExample(baseUrl: string, timeoutMs: number, requestId
       usedFixture: true,
     };
   } catch {
+    const durationMs = Date.now() - started;
+    // Record fixture fetch network error
+    recordDownstreamCall({
+      service: 'cee',
+      endpoint: '/assist/v1/decision-review/example',
+      status: 0,
+      elapsedMs: durationMs,
+      payloadHash: '-',
+      requestId,
+    });
     return {
       ceeReview: null,
       ceeTrace: {
@@ -209,15 +422,15 @@ export interface RunDecisionReviewOptions {
   logger?: FastifyBaseLogger;
 }
 
-// P2: Aligned with orchestrator default (10s) - consistent across all CEE calls
-const DEFAULT_TIMEOUT_MS = Number(process.env.CEE_TIMEOUT_MS || 10_000);
+// CEE timeout: 60s for staging integration testing (tighten for production later)
+const DEFAULT_TIMEOUT_MS = Number(process.env.CEE_TIMEOUT_MS || 60_000);
 
 export async function runDecisionReview(opts: RunDecisionReviewOptions): Promise<CeeDecisionReviewResult> {
   const { context, requestId, logger } = opts;
 
   const legacyOn = isFlagOn(process.env.CEE_REVIEW_ENABLED);
   const orchestratorOn = isFlagOn(
-    (process.env.CEE_ORCHESTRATOR_ENABLE ?? process.env.CEE_ORCHESTRATOR_ENABLED) ?? undefined,
+    (process.env.CEE_ORCHESTRATOR_ENABLED ?? process.env.CEE_ORCHESTRATOR_ENABLE) ?? undefined,
   );
 
   // Master gate: without orchestrator flag, behave exactly as today (no CEE fields populated).
@@ -282,6 +495,9 @@ async function postDecisionReview(
     scenario_kind: context.scenario_kind,
   };
 
+  // P1: Compute payload hash for x-olumi-payload-hash header (outside try for catch access)
+  const payloadHash = computeOlumiHash(payload);
+
   try {
     const res = await fetchWithTimeout(url, {
       timeoutMs,
@@ -291,6 +507,7 @@ async function postDecisionReview(
         'Accept': 'application/json',
         'Authorization': `Bearer ${apiKey}`,
         'X-Request-Id': requestId,
+        'x-olumi-payload-hash': payloadHash,
       },
       body: JSON.stringify(payload),
     });
@@ -302,6 +519,15 @@ async function postDecisionReview(
     );
 
     if (!res.ok) {
+      // Record failed downstream call
+      recordDownstreamCall({
+        service: 'cee',
+        endpoint: '/assist/v1/decision-review',
+        status: res.status,
+        elapsedMs: durationMs,
+        payloadHash,
+        requestId,
+      });
       // Non-2xx response - fallback to fixture
       logger?.warn(
         { evt: 'cee_decision_review_error', status: res.status, duration_ms: durationMs },
@@ -314,6 +540,15 @@ async function postDecisionReview(
     try {
       responsePayload = await res.json();
     } catch {
+      // Record downstream call with parse error
+      recordDownstreamCall({
+        service: 'cee',
+        endpoint: '/assist/v1/decision-review',
+        status: res.status,
+        elapsedMs: durationMs,
+        payloadHash,
+        requestId,
+      });
       logger?.warn({ evt: 'cee_decision_review_parse_error' }, 'Failed to parse CEE response');
       return {
         ceeReview: null,
@@ -332,6 +567,18 @@ async function postDecisionReview(
       };
     }
 
+    // Record successful downstream call with response hash
+    const responseHash = computeOlumiHash(responsePayload);
+    recordDownstreamCall({
+      service: 'cee',
+      endpoint: '/assist/v1/decision-review',
+      status: res.status,
+      elapsedMs: durationMs,
+      payloadHash,
+      responseHash,
+      requestId,
+    });
+
     return {
       ceeReview: responsePayload ?? null,
       ceeTrace: {
@@ -345,6 +592,15 @@ async function postDecisionReview(
     };
   } catch (err: any) {
     const durationMs = Date.now() - started;
+    // Record timeout/network error downstream call
+    recordDownstreamCall({
+      service: 'cee',
+      endpoint: '/assist/v1/decision-review',
+      status: 0, // 0 indicates network/timeout error
+      elapsedMs: durationMs,
+      payloadHash,
+      requestId,
+    });
     logger?.warn(
       { evt: 'cee_decision_review_fetch_error', error: String(err?.message || err), duration_ms: durationMs },
       'CEE decision review fetch failed; falling back to fixture'
@@ -523,8 +779,10 @@ export async function callDecisionReviewFromEngine(opts: {
   /** Optional enhanced mode flag for richer review journeys. */
   enhanced?: boolean;
 }): Promise<PortCeeReviewResult & { usedFixture: boolean }> {
-  const requestId = String(opts.requestId || '');
-  const timeoutMs = Number(opts.env.timeoutMs ?? 10_000);
+  // M1 CEE Orchestrator spec v1.1: Sanitize request ID and use 6s timeout
+  const plotRequestId = opts.requestId || '';
+  const requestId = sanitizeRequestId(plotRequestId);
+  const timeoutMs = Number(opts.env.timeoutMs ?? 60_000);
 
   const degraded = (
     code: string,
@@ -534,6 +792,8 @@ export async function callDecisionReviewFromEngine(opts: {
     reason?: string,
     /** Optional HTTP status code when degraded due to upstream failure */
     status?: number,
+    /** Latency in ms if available */
+    latencyMs?: number,
   ): PortCeeReviewResult & { usedFixture: boolean } => ({
     review: null,
     trace: {
@@ -541,6 +801,12 @@ export async function callDecisionReviewFromEngine(opts: {
       degraded: true,
       timestamp: new Date().toISOString(),
       source: 'cee-client',
+      // M1 CEE Orchestrator spec v1.1: Three-ID tracing
+      plot_request_id: plotRequestId || undefined,
+      cee_sent_request_id: requestId,
+      cee_returned_request_id: null,
+      latency_ms: latencyMs ?? null,
+      id_mismatch: false, // No response, so no mismatch possible
       ...(reason ? { reason } : {}),
       ...(status ? { status } : {}),
     },
@@ -609,6 +875,7 @@ export async function callDecisionReviewFromEngine(opts: {
   }
 
   // 3) Real path via Assistants SDK orchestrator
+  const orchestratorStart = Date.now();
   try {
     const brief = opts.enhanced
       ? 'Create a small decision graph from the run context with enhanced assumptions and sensitivity insights.'
@@ -616,35 +883,48 @@ export async function callDecisionReviewFromEngine(opts: {
     const evidenceItems = mapEvidenceItems(opts.evidence);
     // Pass graph_summary as structural context (no user content exposed)
     const briefContext = opts.context.graph_summary;
+    // M1 CEE Orchestrator spec v1.1: Pass request ID for three-ID tracing
     const res = await runDecisionReviewViaSdk(
       { baseUrl, apiKey, timeoutMs },
       brief,
       evidenceItems,
       briefContext,
+      requestId, // Pass sanitized request ID
     );
+    const orchestratorLatency = Date.now() - orchestratorStart;
     const hasReview = res.review !== null && res.review !== undefined;
     const hasError = !!res.error;
 
     if (!hasReview && !hasError) {
-      return degraded('CEE_EMPTY_REVIEW', 'retry', false, 'SDK returned neither review nor error');
+      return degraded('CEE_EMPTY_REVIEW', 'retry', false, 'SDK returned neither review nor error', undefined, orchestratorLatency);
     }
 
+    // M1 CEE Orchestrator spec v1.1: Build trace with three-ID tracking
+    const ceeReturnedId = res.trace?.cee_returned_request_id ?? null;
+    const idMismatch = requestId !== ceeReturnedId && ceeReturnedId !== null;
     const trace = {
       ...(res.trace ?? {}),
       requestId,
       degraded: !!res.error,
       timestamp: new Date().toISOString(),
       source: 'orchestrator',
-      ...(res.error ? { reason: `SDK error: ${res.error.code}` } : {}),
+      // Three-ID tracing
+      plot_request_id: plotRequestId || undefined,
+      cee_sent_request_id: requestId,
+      cee_returned_request_id: ceeReturnedId,
+      latency_ms: res.trace?.latency_ms ?? orchestratorLatency,
+      model: res.trace?.model,
+      id_mismatch: idMismatch,
+      ...(res.error ? { reason: `SDK error: ${res.error.code || 'CEE_SDK_ERROR'}` } : {}),
     };
 
     let error: PortCeeError | undefined;
     if (res.error) {
       error = {
-        code: res.error.code,
-        retryable: res.error.retryable,
+        code: res.error.code || 'CEE_SDK_ERROR',
+        retryable: res.error.retryable ?? true,
         traceId: res.error.traceId,
-        suggestedAction: res.error.suggestedAction,
+        suggestedAction: res.error.suggestedAction ?? 'retry',
       };
     }
 
@@ -655,7 +935,8 @@ export async function callDecisionReviewFromEngine(opts: {
       usedFixture: false,
     };
   } catch (err: unknown) {
+    const orchestratorLatency = Date.now() - orchestratorStart;
     const msg = err instanceof Error ? err.message : String(err);
-    return degraded('CEE_CLIENT_ERROR', 'retry', false, `SDK orchestrator threw: ${msg}`);
+    return degraded('CEE_CLIENT_ERROR', 'retry', false, `SDK orchestrator threw: ${msg}`, undefined, orchestratorLatency);
   }
 }

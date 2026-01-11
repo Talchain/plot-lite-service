@@ -22,6 +22,7 @@ describe('Demo Mode - Deterministic Responses', () => {
         PORT,
         TEST_ROUTES: '0',
         RATE_LIMIT_ENABLED: '0',
+        DEMO_MODE_ENABLED: '1', // Enable demo mode feature for tests
       },
       stdio: 'ignore'
     });

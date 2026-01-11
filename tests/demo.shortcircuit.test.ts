@@ -9,15 +9,18 @@ import type { FastifyInstance } from 'fastify';
 describe('v1 demo short-circuit', () => {
   let app: FastifyInstance;
   const prevTestRoutes = process.env.TEST_ROUTES;
+  const prevDemoMode = process.env.DEMO_MODE_ENABLED;
 
   beforeAll(async () => {
     process.env.TEST_ROUTES = '1';
+    process.env.DEMO_MODE_ENABLED = '1';
     app = await createServer({ enableTestRoutes: true });
   });
 
   afterAll(async () => {
     await app.close();
     if (prevTestRoutes === undefined) delete process.env.TEST_ROUTES; else process.env.TEST_ROUTES = prevTestRoutes;
+    if (prevDemoMode === undefined) delete process.env.DEMO_MODE_ENABLED; else process.env.DEMO_MODE_ENABLED = prevDemoMode;
   });
 
   it('/v1/run?demo=1 returns contract-true demo', async () => {

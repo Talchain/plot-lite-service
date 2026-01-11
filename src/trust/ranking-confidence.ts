@@ -116,3 +116,32 @@ export function computeRankingConfidenceDetailed(
     overlap_pct: Math.round(overlapPct * 100) / 100,
   };
 }
+
+/**
+ * Check if the winner dominates all other options.
+ *
+ * An option dominates another if it is better or equal on all metrics (p10, p50, p90).
+ * This is a simple local check for first-order dominance.
+ *
+ * @param sortedResults - Results sorted by ranking (best first)
+ * @returns True if winner dominates all others
+ */
+export function isWinnerDominant(
+  sortedResults: Array<{ summary: DistributionSummary | null }>
+): boolean {
+  const valid = sortedResults.filter((r) => r.summary !== null) as Array<{
+    summary: DistributionSummary;
+  }>;
+
+  if (valid.length < 2) {
+    return true; // Single option or no options = trivially dominant
+  }
+
+  const winner = valid[0].summary;
+
+  // Check if winner dominates all others
+  return valid.slice(1).every((other) => {
+    const o = other.summary;
+    return winner.p10 >= o.p10 && winner.p50 >= o.p50 && winner.p90 >= o.p90;
+  });
+}

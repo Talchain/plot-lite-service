@@ -146,9 +146,9 @@ describe('variance-helper', () => {
       expect(detectSinglePath(graph)).toBe(false);
     });
 
-    it('returns true for disjoint chains (no branching anywhere)', () => {
+    it('returns false for disjoint chains (not a single connected path)', () => {
       // Two separate chains: A -> B and C -> D
-      // Current semantics: "no branching" = true (not "exactly one connected chain")
+      // Semantics: "single path" = exactly one connected linear chain
       const graph: Graph = {
         nodes: [
           { id: 'a', label: 'A' },
@@ -161,13 +161,54 @@ describe('variance-helper', () => {
           { from: 'c', to: 'd' },
         ],
       };
-      // Semantics: detectSinglePath means "no node has >1 in or out edge"
-      // not "exactly one connected path". Disjoint chains have no branching.
+      // Disjoint chains are NOT a single path
+      expect(detectSinglePath(graph)).toBe(false);
+    });
+
+    it('returns false for graph with isolated nodes', () => {
+      // Connected: A -> B, but C is isolated
+      const graph: Graph = {
+        nodes: [
+          { id: 'a', label: 'A' },
+          { id: 'b', label: 'B' },
+          { id: 'c', label: 'C' },
+        ],
+        edges: [
+          { from: 'a', to: 'b' },
+        ],
+      };
+      // Single edge is a valid single path (A -> B), even with isolated nodes
+      expect(detectSinglePath(graph)).toBe(true);
+    });
+
+    it('returns true for single edge (minimal single path)', () => {
+      const graph: Graph = {
+        nodes: [
+          { id: 'a', label: 'A' },
+          { id: 'b', label: 'B' },
+        ],
+        edges: [
+          { from: 'a', to: 'b' },
+        ],
+      };
       expect(detectSinglePath(graph)).toBe(true);
     });
   });
 
   describe('buildGraphHealth', () => {
+    it('returns unknown status for graph with no edges', () => {
+      const graph: Graph = {
+        nodes: [
+          { id: 'a', label: 'A' },
+          { id: 'b', label: 'B' },
+        ],
+        edges: [],
+      };
+      const health = buildGraphHealth(graph);
+      expect(health.variance_status).toBe('unknown');
+      expect(health.source).toBe('engine');
+    });
+
     it('returns healthy status for graph with varied weights and beliefs', () => {
       const graph: Graph = {
         nodes: [

@@ -10,6 +10,8 @@ export interface SensitivityEdge {
   provenance: string;
   rank: number;
   score: number;
+  /** OpenAPI-compatible alias for score */
+  sensitivity: number;
 }
 
 /**
@@ -35,6 +37,7 @@ export function computeSensitivityAll(
       belief,
       provenance,
       score,
+      sensitivity: score,
       rank: 0,
     };
   });

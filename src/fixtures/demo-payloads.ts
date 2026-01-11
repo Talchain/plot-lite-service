@@ -10,6 +10,8 @@ import { calculateConfidence } from '../trust/confidence.js';
 import { buildCritique } from '../trust/critique-builder.js';
 import { buildExplainDelta } from '../trust/explain-delta.js';
 import { checkLinearity, detectThresholdCrossings, generateForkSuggestions } from '../trust/linearity.js';
+import { computeSensitivitySimple } from '../lib/sensitivity-simple.js';
+import { buildDriversPayload, buildDiscriminationSignal, applyDiscriminationToDrivers } from '../trust/drivers-builder.js';
 
 /**
  * Demo graph: Pricing Change scenario
@@ -105,8 +107,18 @@ export function getDemoRunResponse(seed: number = 42): any {
     top_n: 3,
   });
 
+  // P0: Compute top edge drivers for "Why this recommendation?" section
+  const top_edge_drivers = computeSensitivitySimple(graph.edges, 'ltv');
+
+  // P0: Build DriversPayload with explicit status handling
+  const driversPayloadRaw = buildDriversPayload(top_edge_drivers, true);
+  const discrimination = buildDiscriminationSignal(10500, 11500, 12800, 10000);
+  const drivers_payload = applyDiscriminationToDrivers(driversPayloadRaw, discrimination);
+
   const report = {
     schema: 'run.v1',
+    // P0: request_id always present in demo response
+    request_id: `demo-${seed}`,
     meta: {
       seed,
       commit: process.env.BUILD_ID || process.env.GITHUB_SHA || 'dev',
@@ -124,7 +136,11 @@ export function getDemoRunResponse(seed: number = 42): any {
     threshold_crossings,
     fork_suggestions,
     critique,
-    explain_delta,
+    // P0: Discrimination signal for low-variance outcomes
+    discrimination,
+    // P0: Structured drivers payload with explicit status handling
+    drivers_payload,
+    explain_delta: { ...explain_delta, top_edge_drivers },
   } as any;
   return stampResponseHash(report);
 }

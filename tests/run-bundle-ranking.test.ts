@@ -1,10 +1,13 @@
 /**
  * Tests for enhanced /v1/run_bundle with ranking and attribution
+ * Phase 1: Decision Support Enhancement
  */
 import { describe, it, expect } from 'vitest';
-import { computeRankingConfidence, computeRankingConfidenceDetailed } from '../src/trust/ranking-confidence.js';
+import { computeRankingConfidence, computeRankingConfidenceDetailed, isWinnerDominant } from '../src/trust/ranking-confidence.js';
 import { aggregateNodeSensitivity, getTopNodeSensitivity } from '../src/trust/sensitivity-node.js';
 import { buildChangeAttributionFromDelta } from '../src/util/change-attribution.js';
+import { detectPrimaryOutcome, shouldSuggestUtilityMode } from '../src/services/ranking/outcome-detector.js';
+import { validateUtilityLocal } from '../src/services/ranking/utility-validator.js';
 import type { SensitivityEdge } from '../src/lib/sensitivity-simple.js';
 
 describe('Ranking Confidence', () => {
@@ -262,5 +265,218 @@ describe('run_bundle Ranking Integration', () => {
     expect(sorted[0].label).toBe('A'); // p90 = 80 (best ceiling)
     expect(sorted[1].label).toBe('B'); // p90 = 70
     expect(sorted[2].label).toBe('C'); // p90 = 65
+  });
+});
+
+// ============================================================================
+// Phase 1: Decision Support Enhancement Tests
+// ============================================================================
+
+describe('Winner Dominance Detection', () => {
+  it('returns true when winner dominates all others', () => {
+    const results = [
+      { summary: { p10: 80, p50: 90, p90: 100 } }, // Winner - best on all
+      { summary: { p10: 50, p50: 60, p90: 70 } },
+      { summary: { p10: 40, p50: 50, p90: 60 } },
+    ];
+    expect(isWinnerDominant(results)).toBe(true);
+  });
+
+  it('returns false when winner does not dominate all', () => {
+    const results = [
+      { summary: { p10: 60, p50: 90, p90: 100 } }, // Best p50/p90 but not p10
+      { summary: { p10: 70, p50: 80, p90: 85 } },  // Better p10
+    ];
+    expect(isWinnerDominant(results)).toBe(false);
+  });
+
+  it('returns true for single result', () => {
+    const results = [{ summary: { p10: 50, p50: 60, p90: 70 } }];
+    expect(isWinnerDominant(results)).toBe(true);
+  });
+
+  it('returns true for empty results', () => {
+    expect(isWinnerDominant([])).toBe(true);
+  });
+
+  it('handles null summaries', () => {
+    const results = [
+      { summary: { p10: 80, p50: 90, p90: 100 } },
+      { summary: null },
+    ];
+    expect(isWinnerDominant(results as any)).toBe(true);
+  });
+});
+
+describe('Primary Outcome Detection', () => {
+  it('detects terminal outcome node', () => {
+    const graph = {
+      nodes: [
+        { id: 'input', kind: 'action' as const },
+        { id: 'factor', kind: 'risk' as const },
+        { id: 'result', kind: 'outcome' as const },
+      ],
+      edges: [
+        { from: 'input', to: 'result' },
+        { from: 'factor', to: 'result' },
+      ],
+    };
+
+    const result = detectPrimaryOutcome(graph);
+    expect(result.detected).toBe(true);
+    expect(result.node_id).toBe('result');
+    expect(result.strategy).toBe('terminal_outcome');
+  });
+
+  it('detects single goal node', () => {
+    const graph = {
+      nodes: [
+        { id: 'input', kind: 'action' as const },
+        { id: 'target', kind: 'goal' as const },
+      ],
+      edges: [{ from: 'input', to: 'target' }],
+    };
+
+    const result = detectPrimaryOutcome(graph);
+    expect(result.detected).toBe(true);
+    expect(result.node_id).toBe('target');
+    expect(result.strategy).toBe('single_goal');
+  });
+
+  it('falls back to last node if outcome/goal kind', () => {
+    const graph = {
+      nodes: [
+        { id: 'a', kind: 'action' as const },
+        { id: 'b', kind: 'action' as const },
+        { id: 'c', kind: 'outcome' as const },
+        { id: 'd', kind: 'outcome' as const }, // Both are outcomes, last node wins
+      ],
+      edges: [
+        { from: 'a', to: 'c' },
+        { from: 'b', to: 'd' },
+      ],
+    };
+
+    const result = detectPrimaryOutcome(graph);
+    expect(result.detected).toBe(true);
+    expect(result.node_id).toBe('d');
+    expect(result.strategy).toBe('last_node_fallback');
+  });
+
+  it('returns ambiguous when no clear primary outcome', () => {
+    const graph = {
+      nodes: [
+        { id: 'a', kind: 'action' as const },
+        { id: 'b', kind: 'action' as const },
+      ],
+      edges: [],
+    };
+
+    const result = detectPrimaryOutcome(graph);
+    expect(result.detected).toBe(false);
+    expect(result.node_id).toBe(null);
+    expect(result.strategy).toBe('ambiguous');
+  });
+
+  it('collects all outcome nodes', () => {
+    const graph = {
+      nodes: [
+        { id: 'a', kind: 'outcome' as const },
+        { id: 'b', kind: 'outcome' as const },
+        { id: 'c', kind: 'action' as const },
+      ],
+      edges: [],
+    };
+
+    const result = detectPrimaryOutcome(graph);
+    expect(result.outcome_nodes).toEqual(['a', 'b']);
+  });
+});
+
+describe('Utility Mode Suggestion', () => {
+  it('suggests utility mode for multiple outcome nodes', () => {
+    const result = shouldSuggestUtilityMode(['outcome1', 'outcome2', 'outcome3']);
+    expect(result.applicable).toBe(true);
+    expect(result.message).toContain('3 outcome nodes');
+  });
+
+  it('does not suggest for single outcome node', () => {
+    const result = shouldSuggestUtilityMode(['outcome1']);
+    expect(result.applicable).toBe(false);
+  });
+
+  it('does not suggest for empty outcome nodes', () => {
+    const result = shouldSuggestUtilityMode([]);
+    expect(result.applicable).toBe(false);
+  });
+});
+
+describe('Local Utility Validation', () => {
+  const nodes = [
+    { id: 'outcome1', kind: 'outcome' },
+    { id: 'outcome2', kind: 'outcome' },
+    { id: 'action1', kind: 'action' },
+  ];
+
+  it('accepts valid utility function', () => {
+    const utility = { weights: { outcome1: 0.6, outcome2: 0.4 } };
+    const result = validateUtilityLocal(utility, nodes);
+    expect(result.valid).toBe(true);
+    expect(result.issues.filter((i) => i.severity === 'error')).toHaveLength(0);
+  });
+
+  it('rejects weights not summing to 1.0', () => {
+    const utility = { weights: { outcome1: 0.6, outcome2: 0.5 } };
+    const result = validateUtilityLocal(utility, nodes);
+    expect(result.valid).toBe(false);
+    expect(result.issues.find((i) => i.code === 'WEIGHTS_NOT_NORMALIZED')).toBeDefined();
+  });
+
+  it('rejects non-existent node references', () => {
+    const utility = { weights: { outcome1: 0.5, nonexistent: 0.5 } };
+    const result = validateUtilityLocal(utility, nodes);
+    expect(result.valid).toBe(false);
+    expect(result.issues.find((i) => i.code === 'NODE_NOT_FOUND')).toBeDefined();
+  });
+
+  it('rejects negative weights', () => {
+    const utility = { weights: { outcome1: 1.5, outcome2: -0.5 } };
+    const result = validateUtilityLocal(utility, nodes);
+    expect(result.valid).toBe(false);
+    expect(result.issues.find((i) => i.code === 'INVALID_WEIGHT')).toBeDefined();
+  });
+
+  it('warns about zero weights', () => {
+    const utility = { weights: { outcome1: 1.0, outcome2: 0 } };
+    const result = validateUtilityLocal(utility, nodes);
+    expect(result.valid).toBe(true); // Still valid, just a warning
+    expect(result.issues.find((i) => i.code === 'ZERO_WEIGHT')).toBeDefined();
+  });
+
+  it('warns about non-outcome weighted nodes', () => {
+    const utility = { weights: { outcome1: 0.5, action1: 0.5 } };
+    const result = validateUtilityLocal(utility, nodes);
+    expect(result.valid).toBe(true); // Still valid, just info
+    expect(result.issues.find((i) => i.code === 'NON_OUTCOME_WEIGHTED')).toBeDefined();
+  });
+
+  it('rejects empty weights', () => {
+    const utility = { weights: {} };
+    const result = validateUtilityLocal(utility, nodes);
+    expect(result.valid).toBe(false);
+    expect(result.issues.find((i) => i.code === 'NO_WEIGHTS')).toBeDefined();
+  });
+
+  it('validates risk_attitude', () => {
+    const utility = { weights: { outcome1: 1.0 }, risk_attitude: 'invalid' as any };
+    const result = validateUtilityLocal(utility, nodes);
+    expect(result.valid).toBe(false);
+    expect(result.issues.find((i) => i.code === 'INVALID_RISK_ATTITUDE')).toBeDefined();
+  });
+
+  it('accepts valid risk_attitude', () => {
+    const utility = { weights: { outcome1: 1.0 }, risk_attitude: 'risk_averse' as const };
+    const result = validateUtilityLocal(utility, nodes);
+    expect(result.valid).toBe(true);
   });
 });

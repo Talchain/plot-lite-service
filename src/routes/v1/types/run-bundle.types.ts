@@ -2,14 +2,113 @@
  * Enhanced Run Bundle Types
  *
  * Extended request/response types for option ranking and change attribution.
+ * Phase 1: Simple mode ranking without utility function requirement.
+ * Phase 2: Edge type inference and response warnings.
+ * Phase 1 Critical Fixes: Constraint status, coherence warnings, baseline identification.
  */
 
 import type { ChangeAttribution } from '../../../types/change-attribution.js';
+import type { EdgeType } from '../../../trust/types.js';
+import type {
+  ConstraintStatus,
+  CoherenceWarning,
+  ConstraintViolation,
+} from '../../../trust/result-coherence.js';
+
+// Re-export for convenience
+export type { ConstraintStatus, CoherenceWarning, ConstraintViolation };
 
 /**
  * Sort key for ranking options
  */
 export type RankingSortKey = 'p10' | 'p50' | 'p90';
+
+/**
+ * Ranking mode for option comparison
+ * - simple: Rank by primary outcome p50 (default, no utility required)
+ * - utility: Rank by expected utility (requires utility_function)
+ */
+export type RankingMode = 'simple' | 'utility';
+
+/**
+ * Risk attitude for utility calculations
+ */
+export type RiskAttitude = 'risk_averse' | 'risk_neutral' | 'risk_seeking';
+
+/**
+ * Utility function for multi-outcome ranking
+ */
+export interface UtilityFunction {
+  /** Weights per outcome node (must sum to 1.0) */
+  weights: Record<string, number>;
+  /** Risk attitude affects how uncertainty is valued */
+  risk_attitude?: RiskAttitude;
+}
+
+/**
+ * Validation issue for utility function
+ */
+export interface UtilityValidationIssue {
+  severity: 'error' | 'warning' | 'info';
+  code: string;
+  message: string;
+  field?: string;
+}
+
+/**
+ * Result of utility function validation
+ */
+export interface UtilityValidationResult {
+  valid: boolean;
+  issues: UtilityValidationIssue[];
+}
+
+/**
+ * Suggestion to use utility mode
+ */
+export interface UtilitySuggestion {
+  message: string;
+  applicable: boolean;
+  outcome_nodes: string[];
+}
+
+/**
+ * Warning code for response warnings
+ */
+export type ResponseWarningCode =
+  | 'EDGE_TYPE_INFERRED'
+  | 'PRIMARY_OUTCOME_INFERRED'
+  | 'BELIEF_DEFAULTED'
+  | 'UTILITY_MODE_EXPERIMENTAL';
+
+/**
+ * Warning about inferred or defaulted values in the request
+ */
+export interface ResponseWarning {
+  /** Machine-readable warning code */
+  code: ResponseWarningCode;
+  /** Human-readable warning message */
+  message: string;
+  /** Affected entity IDs (edge IDs, node IDs, etc.) */
+  affected_ids?: string[];
+  /** Severity level */
+  severity: 'info' | 'warning';
+}
+
+/**
+ * Summary of edge type inference for observability
+ */
+export interface EdgeTypeInferenceSummary {
+  /** Count of edges with explicit types */
+  explicit_count: number;
+  /** Count of edges with inferred types */
+  inferred_count: number;
+  /** Inferred edge type details by edge */
+  inferred_edges?: Array<{
+    edge_id: string;
+    inferred_type: EdgeType;
+  }>;
+}
 
 /**
  * Ranking confidence level based on distribution overlap
@@ -62,6 +161,20 @@ export interface RankingSummary {
   ranked_count: number;
   /** Labels of options excluded from ranking (due to errors) */
   excluded: string[];
+  /** True if winner dominates all others (p10, p50, p90 all better) */
+  winner_dominant?: boolean;
+}
+
+/**
+ * Delta from baseline including vs baseline comparison
+ */
+export interface DeltaVsBaseline {
+  /** Difference in p10 from baseline */
+  p10: number;
+  /** Difference in p50 from baseline */
+  p50: number;
+  /** Difference in p90 from baseline */
+  p90: number;
 }
 
 /**
@@ -82,8 +195,14 @@ export interface EnhancedBundleResult {
   success_probability?: number;
   /** Difference from baseline scenario */
   delta_from_baseline?: DeltaFromBaseline;
+  /** Delta vs identified baseline option (Task 1.7) */
+  delta_vs_baseline?: DeltaVsBaseline;
   /** Node-level sensitivity (top 5 nodes) */
   sensitivity_by_node?: NodeSensitivity[];
+  /** Constraint violations for this option (Task 1.3) */
+  constraint_violations?: ConstraintViolation[];
+  /** Is this option infeasible due to constraint violations? (Task 1.3) */
+  infeasible?: boolean;
   /** Model metadata */
   model_card: {
     seed: number;
@@ -110,6 +229,25 @@ export interface EnhancedBundleResponse {
   schema: 'run_bundle.v1';
   results: EnhancedBundleResult[];
   ranking_summary?: RankingSummary;
+  /** Ranking mode that was used */
+  ranking_mode_used?: RankingMode;
+  /** Primary outcome node used for ranking */
+  primary_outcome_used?: string;
+  /** True if primary outcome was auto-detected */
+  primary_outcome_detected?: boolean;
+  /** Suggestion to use utility mode (when applicable) */
+  utility_suggestion?: UtilitySuggestion;
+  /** Response warnings for inferred/defaulted values (Phase 2) */
+  warnings?: ResponseWarning[];
+  /** Edge type inference summary for observability (Phase 2) */
+  edge_type_inference?: EdgeTypeInferenceSummary;
+  /** Constraint status with violations and active constraints (Task 1.3) */
+  constraint_status?: ConstraintStatus;
+  /** Coherence warnings about inference results (Task 1.6) */
+  coherence_warnings?: CoherenceWarning[];
+  /** Edge function sensitivity warnings (Phase 3, Task 4.3) - separate from coherence for schema clarity */
+  edge_function_warnings?: CoherenceWarning[];
+  // baseline_label moved to meta (single source of truth)
   model_card: {
     seed: number;
     detail_level: string;

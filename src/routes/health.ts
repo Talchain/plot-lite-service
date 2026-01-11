@@ -12,6 +12,8 @@ import {
   replaySnapshot,
 } from '../metrics.js';
 import { getCeeCircuitBreakerStats } from '../cee/circuit-breaker.js';
+import { WEIGHT_SCHEMAS, DEFAULT_WEIGHT_SCHEMA, type WeightSchemaVersion } from '../engine/weight-schema.js';
+import { getBeliefSpreadCapability, CURRENT_BELIEF_SPREAD_VERSION } from '../engine/belief-spread.js';
 
 export interface HealthRoutesOptions {
   enableTestRoutes?: boolean;
@@ -62,8 +64,10 @@ export async function registerHealthRoutes(app: FastifyInstance, opts: HealthRou
     // Metrics already imported statically
     const { rateLimitState } = await import('../rateLimit.js');
     const mem = process.memoryUsage();
+    const build = getBuildId();
     const base = {
       status: 'ok' as const,
+      build,  // Added for deployment verification
       // Preserve legacy top-level p95 for compatibility
       p95_ms: p95Ms(),
       ...snapshot(),
@@ -128,6 +132,14 @@ export async function registerHealthRoutes(app: FastifyInstance, opts: HealthRou
       streaming: process.env.STREAM_PARITY_ENABLE === '1' ? 'enhanced' : 'legacy',
       isl_integration: process.env.ISL_ENABLE === '1',
       max_recommended_latency_ms: 25000, // Hint for clients about proxy timeouts
+      // Phase 2: Weight schema versioning (Task 2.1)
+      weight_schema: {
+        default_version: DEFAULT_WEIGHT_SCHEMA,
+        supported_versions: Object.keys(WEIGHT_SCHEMAS) as WeightSchemaVersion[],
+        schemas: WEIGHT_SCHEMAS,
+      },
+      // Phase 2: Belief→spread mapping (Task 2.2)
+      belief_spread: getBeliefSpreadCapability(),
     };
     return {
       api: 'warp/0.1.0',

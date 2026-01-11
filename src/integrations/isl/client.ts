@@ -8,7 +8,9 @@
  * - Error classification
  */
 
-import { ISLHttpError, ISLTimeoutError, ISLNetworkError, isRetryableError } from './errors.js';
+import { ISLHttpError, ISLTimeoutError, ISLNetworkError, isRetryableError, type ISLError422 } from './errors.js';
+import { computeOlumiHash } from '../../util/canonical.js';
+import { recordDownstreamCall } from '../../util/downstream-tracker.js';
 
 /**
  * ISL client configuration
@@ -61,7 +63,13 @@ export class ISLClient {
 
     let lastError: Error | null = null;
 
+    // P1: Compute payload hash outside loop for catch block access
+    const payloadHash = computeOlumiHash(body);
+
     for (let attempt = 1; attempt <= this.config.maxRetries; attempt++) {
+      // Track start time outside try block for catch access
+      const startTime = Date.now();
+
       try {
         const controller = new AbortController();
         const timeoutId = setTimeout(
@@ -69,14 +77,15 @@ export class ISLClient {
           this.config.timeoutMs
         );
 
-        const startTime = Date.now();
-
         const response = await fetch(url, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'X-API-Key': this.config.apiKey,
             'X-Request-Id': requestId,
+            'x-olumi-payload-hash': payloadHash,
+            // P0-PLOT-2: Request ISL V2 responses
+            'X-ISL-Response-Version': '2',
           },
           body: JSON.stringify(body),
           signal: controller.signal,
@@ -97,11 +106,46 @@ export class ISLClient {
         });
 
         if (!response.ok) {
+          // Record failed downstream call
+          recordDownstreamCall({
+            service: 'isl',
+            endpoint,
+            status: response.status,
+            elapsedMs: duration,
+            payloadHash,
+            requestId,
+          });
           const errorBody = await response.text();
+
+          // P0-PLOT-3: Parse ISL 422 as structured result
+          // 422 contains structured critiques that should be passed through
+          if (response.status === 422) {
+            try {
+              const islError = JSON.parse(errorBody) as ISLError422;
+              throw new ISLHttpError(response.status, errorBody, endpoint, islError);
+            } catch (parseErr) {
+              // If parsing fails, throw generic error
+              throw new ISLHttpError(response.status, errorBody, endpoint);
+            }
+          }
+
           throw new ISLHttpError(response.status, errorBody, endpoint);
         }
 
-        return (await response.json()) as T;
+        // Parse response and record successful downstream call
+        const responseData = (await response.json()) as T;
+        const responseHash = computeOlumiHash(responseData);
+        recordDownstreamCall({
+          service: 'isl',
+          endpoint,
+          status: response.status,
+          elapsedMs: duration,
+          payloadHash,
+          responseHash,
+          requestId,
+        });
+
+        return responseData;
       } catch (error) {
         // P1.1: Wrap errors in appropriate ISL error types
         let wrappedError: Error;
@@ -138,6 +182,17 @@ export class ISLClient {
         });
 
         if (!retryable || isLastAttempt) {
+          // Record failed downstream call on final attempt (only for non-HTTP errors, HTTP errors already recorded)
+          if (!(wrappedError instanceof ISLHttpError)) {
+            recordDownstreamCall({
+              service: 'isl',
+              endpoint,
+              status: 0, // 0 indicates timeout/network error
+              elapsedMs: Date.now() - startTime,
+              payloadHash,
+              requestId,
+            });
+          }
           break;
         }
 

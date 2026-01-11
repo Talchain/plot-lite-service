@@ -42,7 +42,16 @@ export function detectUniformBeliefs(edges: GraphEdge[]): boolean {
 
 /**
  * Detects if graph is a single linear path (no branching)
- * A single path has at most one incoming AND one outgoing edge per node
+ * Requires:
+ * 1. At most one incoming AND one outgoing edge per node (no branching)
+ * 2. All edges form exactly one connected component (no disjoint chains)
+ * 3. Exactly one root (no incoming edges) and one leaf (no outgoing edges)
+ *
+ * Returns false for:
+ * - Disjoint chains (A→B, C→D)
+ * - Branching paths (A→B, A→C)
+ * - Converging paths (B→C, D→C)
+ * - Isolated nodes not connected to the path
  */
 export function detectSinglePath(graph: Graph): boolean {
   if (graph.nodes.length === 0 || graph.edges.length === 0) return false;
@@ -69,7 +78,30 @@ export function detectSinglePath(graph: Graph): boolean {
     if (degree > 1) return false;
   }
 
-  return true;
+  // Check for exactly one connected chain:
+  // Must have exactly one root (inDegree=0) and one leaf (outDegree=0)
+  // among connected nodes, and edges must form n-1 connections for n nodes
+  const connectedNodeIds = new Set<string>();
+  for (const edge of graph.edges) {
+    connectedNodeIds.add(edge.from);
+    connectedNodeIds.add(edge.to);
+  }
+
+  // A connected linear path with n nodes has exactly n-1 edges
+  if (graph.edges.length !== connectedNodeIds.size - 1) {
+    return false;
+  }
+
+  // Count roots and leaves among connected nodes
+  let rootCount = 0;
+  let leafCount = 0;
+  for (const nodeId of connectedNodeIds) {
+    if ((inDegree.get(nodeId) || 0) === 0) rootCount++;
+    if ((outDegree.get(nodeId) || 0) === 0) leafCount++;
+  }
+
+  // Single path: exactly one root and one leaf
+  return rootCount === 1 && leafCount === 1;
 }
 
 /**
@@ -93,8 +125,13 @@ export function buildGraphHealth(
   }
 
   // Determine variance status
+  // 'unknown': under-specified graph (no edges to analyze)
+  // 'limited': issues detected that constrain variance
+  // 'healthy': no issues detected
   let variance_status: GraphHealth['variance_status'] = 'healthy';
-  if (issues.length > 0) {
+  if (graph.edges.length === 0) {
+    variance_status = 'unknown';
+  } else if (issues.length > 0) {
     variance_status = 'limited';
   }
 

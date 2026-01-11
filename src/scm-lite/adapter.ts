@@ -1,10 +1,14 @@
 /**
  * SCM-Lite Adapter for /v1/run
  * Maps request payload to kernel and adapts results to report.v1
+ *
+ * Supports intervention semantics (do-operator) for causal inference:
+ * - Pass interventions array to set node values and cut incoming edges
+ * - Use mode: 'interventional' (default) or 'observational'
  */
 
 import { runKernel } from './kernel.js';
-import type { DAG, KernelResult } from './types.js';
+import type { DAG, KernelResult, Intervention, InferenceMode } from './types.js';
 import type { Graph } from '../trust/types.js';
 
 export interface AdapterConfig {
@@ -15,6 +19,9 @@ export interface AdapterConfig {
   // Adaptive K early-stopping
   adaptiveK?: boolean;
   convergenceThreshold?: number;
+  // Intervention semantics (do-operator)
+  interventions?: Intervention[];
+  mode?: InferenceMode;
 }
 
 export interface AdaptedResults {
@@ -34,15 +41,26 @@ export interface AdaptedResults {
     unique_graphs: number;
     sign_stability: number;
     identified_paths: number;
+    // Intervention semantics
+    inference_mode?: InferenceMode;
+    intervention_count?: number;
   };
 }
 
 export function adaptGraphToDAG(graph: Graph, beliefDefault: number = 0.7): DAG {
-  const nodes = graph.nodes.map(n => ({ id: n.id, label: n.label }));
+  const nodes = graph.nodes.map(n => ({
+    id: n.id,
+    label: n.label,
+    // Preserve kind for factor value initialization
+    kind: n.kind,
+    // Preserve observed_state for root factor nodes
+    observed_state: n.observed_state,
+  }));
   const edges = graph.edges.map(e => ({
     from: e.from,
     to: e.to,
-    belief: beliefDefault, // Use default since Graph doesn't have belief field
+    // Use edge's belief if defined, otherwise fall back to default
+    belief: e.belief ?? e.belief_exists ?? beliefDefault,
     weight: e.weight,
   }));
   return { nodes, edges };
@@ -63,6 +81,9 @@ export function runSCMLite(
     // Adaptive K early-stopping
     adaptiveK: config.adaptiveK,
     convergenceThreshold: config.convergenceThreshold,
+    // Intervention semantics (do-operator)
+    interventions: config.interventions,
+    mode: config.mode,
   });
 
   return {

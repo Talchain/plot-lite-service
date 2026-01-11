@@ -1,3 +1,21 @@
+/**
+ * Legacy Idempotency System (v1)
+ *
+ * TECH DEBT: This is the legacy idempotency implementation used by:
+ * - /v1/run route (main inference endpoint)
+ * - Rate limiter (for replay detection)
+ *
+ * A newer system exists in lib/idempotency-cache.ts (IdempotencyCache) which uses
+ * BoundedLRU and is used by /v1/run-bundle, /v1/optimise, /v1/intervene.
+ *
+ * Key differences:
+ * - Legacy: Simple Map with manual LRU, key = principal::idempKey
+ * - New: BoundedLRU class, key = sha256(method|path|principal|bodyHash|idempKey|version)
+ *
+ * Future unification should migrate /v1/run to use canonicalIdempotencyPreHandler/OnSend
+ * from middleware/idempotency-canonical.ts, then remove this store Map.
+ * Keep inflight tracking (Set) and principalFor as they're used by both systems.
+ */
 import type { FastifyRequest } from 'fastify';
 import { extractPrincipal } from '../lib/token-principal.js';
 import { MAX_IDEM_ENTRIES } from '../config/constants.js';

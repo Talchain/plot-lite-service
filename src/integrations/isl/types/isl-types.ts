@@ -103,3 +103,281 @@ export interface ISLCounterfactualRequest {
   intervention: Record<string, number>;
   target: string;
 }
+
+/**
+ * Parameter uncertainty specification for factor sensitivity analysis
+ * Used in /api/v1/robustness/analyze/v2 requests
+ */
+export interface ISLParameterUncertainty {
+  /** Node ID of the factor */
+  node_id: string;
+  /** Distribution type for uncertainty */
+  distribution: 'normal' | 'uniform';
+  /** Mean value (for normal distribution) */
+  mean?: number;
+  /** Standard deviation (for normal distribution) */
+  std?: number;
+  /** Minimum value (for uniform distribution) */
+  range_min?: number;
+  /** Maximum value (for uniform distribution) */
+  range_max?: number;
+}
+
+/**
+ * ISL robustness analysis request for /api/v1/robustness/analyze/v2
+ *
+ * When analysis_types includes 'sensitivity', returns edge sensitivity data.
+ * When analysis_types includes 'comparison', returns option comparison results.
+ * When analysis_types includes 'robustness', returns overall robustness assessment.
+ */
+export interface ISLRobustnessAnalyzeV2Request {
+  request_id: string;
+  graph: {
+    nodes: Array<{
+      id: string;
+      kind?: 'decision' | 'option' | 'factor' | 'outcome' | 'goal';
+      label?: string;
+      observed_state?: {
+        value?: number;
+        baseline?: number;
+        unit?: string;
+      };
+    }>;
+    edges: Array<{
+      from: string;
+      to: string;
+      /** Probability that this edge exists (0-1) */
+      exists_probability?: number;
+      /** Edge strength with uncertainty */
+      strength?: {
+        mean: number;
+        std: number;
+      };
+      // Legacy fields for backwards compatibility
+      weight?: number;
+      belief_exists?: number;
+      belief_strength?: number;
+    }>;
+  };
+  options: Array<{
+    id: string;
+    label?: string;
+    interventions?: Record<string, number>;
+  }>;
+  goal_node_id: string;
+  n_samples?: number;
+  /** Analysis types to run - 'sensitivity' returns edge sensitivity data */
+  analysis_types: Array<'comparison' | 'sensitivity' | 'robustness'>;
+  /** Optional parameter uncertainties for factor sensitivity */
+  parameter_uncertainties?: ISLParameterUncertainty[];
+}
+
+/** @deprecated Use ISLRobustnessAnalyzeV2Request instead */
+export type ISLFactorSensitivityRequest = ISLRobustnessAnalyzeV2Request;
+
+/**
+ * Factor sensitivity item from ISL /api/v1/robustness/analyze/v2 response
+ */
+export interface ISLFactorSensitivityItem {
+  /** Node ID of the factor */
+  node_id: string;
+  /** Elasticity/sensitivity score */
+  sensitivity: number;
+  /** Value of information for this factor */
+  value_of_information: number;
+  /** Optional direction of impact */
+  direction?: 'positive' | 'negative' | 'mixed';
+}
+
+/**
+ * Edge sensitivity item from ISL /api/v1/robustness/analyze/v2 response
+ * Returned when analysis_types includes 'sensitivity'
+ */
+export interface ISLEdgeSensitivityItem {
+  /** Source node ID */
+  edge_from: string;
+  /** Target node ID */
+  edge_to: string;
+  /** Type of sensitivity: whether edge exists vs magnitude of effect */
+  sensitivity_type: 'existence' | 'magnitude';
+  /** Elasticity score - how much outcome changes per unit change */
+  elasticity: number;
+  /** Rank by importance (1 = most important) */
+  importance_rank: number;
+  /** Human-readable interpretation - USE THIS for direction, not elasticity sign */
+  interpretation: string;
+}
+
+/**
+ * ISL fragile edge info from robustness analysis.
+ * Returned in robustness.fragile_edges array.
+ */
+export interface ISLFragileEdgeInfo {
+  /** Edge ID in "from->to" format */
+  edge_id: string;
+  /** Source node ID (may be parsed from edge_id) */
+  from_id?: string;
+  /** Target node ID (may be parsed from edge_id) */
+  to_id?: string;
+  /** Probability this edge causes recommendation to switch (0-1) */
+  switch_probability?: number;
+  /** Option that would win if this edge changes */
+  alternative_winner_id?: string;
+}
+
+/**
+ * ISL V2 nested outcome object
+ */
+export interface ISLOutcomeStats {
+  /** Mean outcome value */
+  mean?: number;
+  /** Standard deviation */
+  std?: number;
+  /** 10th percentile */
+  p10?: number;
+  /** 50th percentile (median) */
+  p50?: number;
+  /** 90th percentile */
+  p90?: number;
+  /** Number of samples used */
+  n_samples?: number;
+  /** Number of valid (non-NaN) samples */
+  n_valid_samples?: number;
+  /** Ratio of valid to total samples */
+  validity_ratio?: number;
+}
+
+/**
+ * Option comparison result from ISL /api/v1/robustness/analyze/v2 response
+ * Returned when analysis_types includes 'comparison'
+ *
+ * Supports both V1 (flat) and V2 (nested outcome) formats.
+ */
+export interface ISLOptionComparisonResult {
+  /** Option identifier (V2 format uses option_id, V1 uses id) */
+  option_id?: string;
+  /** Legacy option identifier (V1 format) */
+  id?: string;
+  /** Option label for display */
+  label?: string;
+  /** Expected outcome value (V1 format, deprecated - use outcome.mean) */
+  expected_outcome?: number;
+  /** Confidence interval [p10, p90] (V1 format, deprecated - use outcome.p10/p90) */
+  confidence_interval?: [number, number];
+  /** Full outcome statistics (V2 format) */
+  outcome?: ISLOutcomeStats;
+  /** Probability that this option achieves the goal */
+  probability_of_goal?: number;
+  /** Win probability vs other options */
+  win_probability?: number;
+  /** Computation status for this option */
+  status?: 'computed' | 'skipped' | 'error';
+  /** Reason if status is not 'computed' */
+  status_reason?: string;
+}
+
+/**
+ * ISL robustness analysis response from /api/v1/robustness/analyze/v2
+ *
+ * Full response schema when all analysis_types are requested.
+ */
+export interface ISLRobustnessAnalyzeV2Response {
+  /** Request ID echo */
+  request_id?: string;
+
+  /** Edge sensitivity (when 'sensitivity' in analysis_types) */
+  sensitivity?: ISLEdgeSensitivityItem[];
+
+  /** Factor-level sensitivity scores */
+  factor_sensitivity?: ISLFactorSensitivityItem[];
+
+  /** Overall robustness assessment (when 'robustness' in analysis_types)
+   *
+   * Supports both V1 and V2 (Option C) formats:
+   * - V1: { score, label: 'robust'|'moderate'|'fragile', explanation }
+   * - V2: { confidence, level: 'high'|'medium'|'low'|'very_low', is_robust, recommendation_stability }
+   */
+  robustness?: {
+    /** Robustness score (0-1) - V1 format */
+    score?: number;
+    /** Robustness confidence (0-1) - V2/Option C format */
+    confidence?: number;
+    /** Human-readable label - V1 format */
+    label?: 'robust' | 'moderate' | 'fragile';
+    /** Robustness level - V2/Option C format */
+    level?: 'high' | 'medium' | 'low' | 'very_low';
+    /** Boolean robustness flag - V2/Option C format */
+    is_robust?: boolean;
+    /** Recommendation stability score (0-1) - V2/Option C format */
+    recommendation_stability?: number;
+    /**
+     * Edges identified as fragile (sensitive to changes).
+     * ISL returns objects with edge_id, from_id, to_id, switch_probability.
+     */
+    fragile_edges?: ISLFragileEdgeInfo[];
+    /**
+     * Edges identified as robust.
+     * ISL returns strings in "from->to" format.
+     */
+    robust_edges?: string[];
+    /** Explanation of robustness assessment - V1 format (optional in V2) */
+    explanation?: string;
+  };
+
+  /**
+   * Option comparison results (when 'comparison' in analysis_types)
+   *
+   * ISL Response Version handling:
+   * - V1 format: uses 'results' field
+   * - V2 format: uses 'options' field with p10/p50/p90 bands
+   *
+   * PLoT sends X-ISL-Response-Version: 2 header, so prefer 'options'.
+   * Keep 'results' for backward compatibility during transition.
+   */
+  options?: ISLOptionComparisonResult[];
+
+  /** @deprecated V1 format - use 'options' for V2 responses */
+  results?: ISLOptionComparisonResult[];
+
+  /** Recommended option ID */
+  recommended_option_id?: string;
+
+  /** Confidence in the recommendation */
+  recommendation_confidence?: number;
+
+  /** Validation status from causal graph analysis */
+  validation_status?: 'identifiable' | 'uncertain' | 'cannot_identify';
+
+  /** Confidence in the validation assessment */
+  validation_confidence?: 'high' | 'medium' | 'low';
+
+  /** Analysis metadata */
+  metadata?: {
+    /** Number of samples used */
+    n_samples?: number;
+    /** Analysis duration in milliseconds */
+    duration_ms?: number;
+  };
+}
+
+/** @deprecated Use ISLRobustnessAnalyzeV2Response instead */
+export interface ISLFactorSensitivityResponse {
+  /** Factor-level sensitivity scores */
+  factor_sensitivity: ISLFactorSensitivityItem[];
+  /** Overall robustness assessment */
+  robustness: {
+    /** Robustness score (0-1) */
+    score: number;
+    /** Human-readable label */
+    label: 'robust' | 'moderate' | 'fragile';
+    /** Explanation of robustness assessment */
+    explanation: string;
+  };
+  /** Analysis metadata */
+  metadata?: {
+    /** Number of samples used */
+    n_samples?: number;
+    /** Analysis duration in milliseconds */
+    duration_ms?: number;
+  };
+}

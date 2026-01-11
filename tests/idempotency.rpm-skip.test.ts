@@ -44,7 +44,7 @@ function parseIntSafe(v: string | null): number {
 
 describe('Idempotent replays do not consume RPM for POST /v1/run', () => {
   it('same Idempotency-Key does not decrement remaining; new key 429s under tiny RPM', async () => {
-    const { port, child } = await startServer({ AUTH_ENABLED: '0', RATE_LIMIT_ENABLED: '1', RATE_LIMIT_RPM: '1' });
+    const { port, child } = await startServer({ AUTH_ENABLED: '0', RATE_LIMIT_ENABLED: '1', RATE_LIMIT_RPM: '1', IDEMPOTENCY_ENABLE: '1' });
     const BASE = `http://127.0.0.1:${port}`;
     try {
       const hdrs = { 'Content-Type': 'application/json', 'Idempotency-Key': 'K1' } as any;

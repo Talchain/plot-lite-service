@@ -3,16 +3,20 @@ import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
 import { existsSync } from 'fs';
 import { resolve, join as joinPath } from 'path';
-import { createHash, timingSafeEqual, randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { promises as fsp } from 'node:fs';
 import { makeRateLimiter } from './middleware/rate-limit.js';
 import { refreshFromEnv } from './config/runtimeConfig.js';
 import { securityHeadersOnSend } from './middleware/security-headers.js';
 import { replyWithAppError } from './errors.js';
+import { authGuard } from './middleware/auth-guard.js';
 import { sanitizeUrl } from './lib/log-sanitizer.js';
 import inflightPlugin from './plugins/inflight.js';
 import type {} from './types/fastify.js';
 import { registerHealthRoutes } from './routes/health.js';
+import { computeOlumiHash } from './util/canonical.js';
+import { initDownstreamTracking, clearDownstreamTracking, formatDownstreamHeader, getDownstreamCallsForLog } from './util/downstream-tracker.js';
+import { recordPayloadHashInvalid } from './metrics/registry.js';
 import {
   noteLastRequestAt,
   recordDurationMs,
@@ -151,49 +155,7 @@ export async function createServer(opts: ServerOpts = {}) {
     }
     return null;
   }
-  // Minimal auth helper (flag-gated)
-  async function checkAuth(req: any, reply: any): Promise<boolean> {
-    if (process.env.AUTH_ENABLED !== '1') return true;
-    const hdr = String((req.headers?.authorization || req.headers?.Authorization || '') || '');
-    const expected = String(process.env.AUTH_TOKEN || '').trim();
-    if (!hdr.startsWith('Bearer ')) {
-      try {
-        reply.header('WWW-Authenticate', 'Bearer');
-      } catch (err) {
-        req.log?.error?.({
-          evt: 'auth_header_failed',
-          reqId: req.id,
-          header: 'WWW-Authenticate',
-          error: err instanceof Error ? err.message : String(err)
-        }, 'Failed to set WWW-Authenticate header on 401 response');
-      }
-      // Use standardized error envelope (error.v1) for missing auth
-      return replyWithAppError(reply, {
-        type: 'BAD_INPUT',
-        statusCode: 401,
-        message: 'Missing bearer token',
-        fields: { code: 'UNAUTHORIZED' },
-      }) as any;
-    }
-    const tok = hdr.slice('Bearer '.length).trim();
-    if (!expected || tok.length !== expected.length) {
-      return replyWithAppError(reply, {
-        type: 'BAD_INPUT',
-        statusCode: 403,
-        message: 'Invalid token',
-        fields: { code: 'FORBIDDEN' },
-      }) as any;
-    }
-    if (!timingSafeEqual(Buffer.from(tok), Buffer.from(expected))) {
-      return replyWithAppError(reply, {
-        type: 'BAD_INPUT',
-        statusCode: 403,
-        message: 'Invalid token',
-        fields: { code: 'FORBIDDEN' },
-      }) as any;
-    }
-    return true;
-  }
+  // Auth helper - uses consolidated middleware from auth-guard.ts
   // Refresh runtime tunables from current env at server creation
   try {
     refreshFromEnv();
@@ -356,7 +318,7 @@ export async function createServer(opts: ServerOpts = {}) {
     await app.register(cors, {
       origin: origins,
       methods: ['GET', 'POST', 'OPTIONS', 'HEAD'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key', 'X-SCM-Lite'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key', 'X-SCM-Lite', 'x-olumi-payload-hash', 'x-olumi-downstream-calls', 'X-Request-Id', 'X-Correlation-Id'],
       exposedHeaders: [
         'Retry-After',
         'X-RateLimit-Limit',
@@ -366,7 +328,12 @@ export async function createServer(opts: ServerOpts = {}) {
         'X-SCM-Lite',
         'X-Olumi-Backend',
         'X-CEE-Debug',
+        'X-CEE-Latency-Ms',
         'X-Build-Tag',
+        'x-olumi-service-build',
+        'x-olumi-service',
+        'x-olumi-response-hash',
+        'x-olumi-downstream-calls',
         'X-Request-Id',
       ],
       credentials: false,
@@ -428,10 +395,102 @@ export async function createServer(opts: ServerOpts = {}) {
   app.addHook('onRequest', async (req) => {
     (req as any).startTime = process.hrtime.bigint();
     try { noteLastRequestAt(); } catch { /* ignore */ }
+
+    // P1: Initialize downstream call tracking for this request
+    try { initDownstreamTracking(String(req.id)); } catch { /* ignore */ }
+
+    // P1: Capture and validate x-olumi-payload-hash header from client (if provided)
+    // Expected format: 12-character lowercase hex string
+    const incomingPayloadHash = (req.headers as any)['x-olumi-payload-hash'] || '';
+    if (incomingPayloadHash) {
+      const trimmed = String(incomingPayloadHash).trim().toLowerCase();
+      // Only accept valid 12-char hex format to prevent telemetry pollution
+      if (/^[0-9a-f]{12}$/.test(trimmed)) {
+        (req as any).__olumi_payload_hash = trimmed;
+      } else {
+        // Log malformed header but don't store it
+        try {
+          req.log.warn({
+            evt: 'olumi_payload_hash_invalid',
+            request_id: req.id,
+            received: trimmed.slice(0, 20), // Truncate for safety
+          }, 'Invalid x-olumi-payload-hash format (expected 12 hex chars)');
+          // P1: Emit metric for invalid payload hash (helps detect abuse or SDK bugs)
+          recordPayloadHashInvalid();
+        } catch { /* ignore */ }
+      }
+    }
+
+    // P1: boundary.request logging
+    const route = (() => {
+      try {
+        const url = new URL(req.url, 'http://local');
+        return url.pathname;
+      } catch {
+        return String(req.url || '').split('?')[0].split('#')[0];
+      }
+    })();
+    try {
+      req.log.info({
+        event: 'boundary.request',
+        timestamp: new Date().toISOString(),
+        request_id: req.id,
+        service: 'plot',
+        route,
+        method: req.method,
+        x_olumi_payload_hash: (req as any).__olumi_payload_hash || null,
+      }, 'boundary.request');
+    } catch { /* ignore */ }
   });
-  // Echo X-Request-ID on all responses
+  // Echo X-Request-ID on all responses and add Olumi observability headers
   app.addHook('onSend', async (req, reply, payload) => {
     try { reply.header('X-Request-ID', String(req.id)); } catch { /* ignore */ }
+
+    // P1: Add x-olumi-service header (all responses)
+    try { reply.header('x-olumi-service', 'plot'); } catch { /* ignore */ }
+
+    // P1: Add x-olumi-service-build header (replaces X-Build-Tag, keep both during transition)
+    try {
+      const buildTag = process.env.BUILD_ID || process.env.GITHUB_SHA || 'dev';
+      reply.header('x-olumi-service-build', buildTag);
+      reply.header('X-Build-Tag', buildTag); // Keep for backward compatibility
+    } catch { /* ignore */ }
+
+    // P1: Add x-olumi-response-hash header for JSON responses (lowercase for HTTP/2 compliance)
+    // LIMITATION: This only works for buffered JSON responses where Fastify provides the full
+    // payload in onSend. For streamed responses (SSE, reply.raw usage, custom serializers returning
+    // streams), payload is falsy and the hash header will not be set. This is acceptable for now
+    // since our primary use case is buffered JSON API responses.
+    try {
+      const ct = String(reply.getHeader('Content-Type') || '');
+      if (ct.includes('application/json') && payload) {
+        let bodyObj: unknown = null;
+        if (typeof payload === 'string') {
+          try { bodyObj = JSON.parse(payload); } catch { /* ignore */ }
+        } else if (Buffer.isBuffer(payload)) {
+          // Handle Buffer payloads - convert to string then parse
+          try { bodyObj = JSON.parse(payload.toString('utf8')); } catch { /* ignore */ }
+        } else if (typeof payload === 'object' && payload !== null) {
+          // Plain object - use directly (but not Buffer or other special types)
+          bodyObj = payload;
+        }
+        if (bodyObj && typeof bodyObj === 'object' && !Buffer.isBuffer(bodyObj)) {
+          const responseHash = computeOlumiHash(bodyObj);
+          reply.header('x-olumi-response-hash', responseHash);
+          (req as any).__olumi_response_hash = responseHash;
+        }
+      }
+    } catch { /* ignore */ }
+
+    // P1: Add x-olumi-downstream-calls header (if any downstream calls were made)
+    // Format: service:status:elapsedMs:payloadHash:responseHash;...
+    try {
+      const downstreamHeader = formatDownstreamHeader(String(req.id));
+      if (downstreamHeader) {
+        reply.header('x-olumi-downstream-calls', downstreamHeader);
+      }
+    } catch { /* ignore */ }
+
     // HSTS only in production over TLS (proxied ok via X-Forwarded-Proto)
     try {
       if (process.env.NODE_ENV === 'production') {
@@ -484,6 +543,26 @@ export async function createServer(opts: ServerOpts = {}) {
       } catch { /* ignore */ }
     }
     app.log.info({ reqId: req.id, route, statusCode: reply.statusCode, durationMs }, 'request completed');
+
+    // P1: boundary.response logging (canonical schema)
+    try {
+      const requestId = String(req.id);
+      const downstreamCalls = getDownstreamCallsForLog(requestId);
+      req.log.info({
+        event: 'boundary.response',
+        timestamp: new Date().toISOString(),
+        request_id: req.id,
+        service: 'plot',
+        route,
+        method: req.method,
+        status_code: reply.statusCode,
+        duration_ms: durationMs,
+        x_olumi_response_hash: (req as any).__olumi_response_hash || null,
+        downstream: downstreamCalls.length > 0 ? downstreamCalls : null,
+      }, 'boundary.response');
+      // Clean up downstream tracking for this request
+      clearDownstreamTracking(requestId);
+    } catch { /* ignore */ }
   });
 
   // Load fixtures and pre-serialise for legacy POST /draft-flows (C5: cached)
@@ -657,32 +736,10 @@ export async function createServer(opts: ServerOpts = {}) {
       app.get(path, async (req: any, reply: any) => {
         const headers: any = (req as any).headers || {};
         const q: any = (req as any).query || {};
+        // Auth check for /stream route using consolidated auth guard
         const authRequired = process.env.AUTH_ENABLED === '1' && process.env.FEATURE_STREAM === '1' && path === '/stream';
         if (authRequired) {
-          const bearer = String(headers.authorization || headers.Authorization || '');
-          const expected = String(process.env.AUTH_TOKEN || '').trim();
-          if (!bearer.startsWith('Bearer ')) {
-            reply.header('WWW-Authenticate', 'Bearer');
-            reply.header('Content-Type', 'application/json; charset=utf-8');
-            return replyWithAppError(reply, {
-              type: 'BAD_INPUT',
-              statusCode: 401,
-              message: 'Missing bearer token',
-              fields: { code: 'UNAUTHORIZED' },
-            });
-          }
-          const token = bearer.slice('Bearer '.length).trim();
-          const sameLength = !!expected && token.length === expected.length;
-          const matches = sameLength && timingSafeEqual(Buffer.from(token), Buffer.from(expected));
-          if (!sameLength || !matches) {
-            reply.header('Content-Type', 'application/json; charset=utf-8');
-            return replyWithAppError(reply, {
-              type: 'BAD_INPUT',
-              statusCode: 403,
-              message: 'Invalid token',
-              fields: { code: 'FORBIDDEN' },
-            });
-          }
+          if (!(await authGuard(req, reply))) return;
         }
 
         const streamId = typeof q.id === 'string' && q.id ? q.id : 'default';
@@ -914,7 +971,7 @@ export async function createServer(opts: ServerOpts = {}) {
   fixturesReady = true;
 
   app.get('/draft-flows', async (req, reply) => {
-    if (!(await checkAuth(req, reply))) return;
+    if (!(await authGuard(req, reply))) return;
     const q = (req as any).query || {};
     const fields: Record<string, any> = {};
     const template = typeof q.template === 'string' ? q.template : '';
@@ -995,7 +1052,7 @@ export async function createServer(opts: ServerOpts = {}) {
   }
 
   app.post('/draft-flows', async (req, reply) => {
-    if (!(await checkAuth(req, reply))) return;
+    if (!(await authGuard(req, reply))) return;
     const body: any = (req as any).body || {};
     // Test error header
     {
@@ -1182,7 +1239,7 @@ export async function createServer(opts: ServerOpts = {}) {
   if (process.env.FEATURE_STREAM === '1') {
     app.get('/stream', async (req: any, reply: any) => {
       // Auth gate (minimal)
-      if (!(await checkAuth(req, reply))) return;
+      if (!(await authGuard(req, reply))) return;
 
       // SSE headers
       reply.header('Content-Type', 'text/event-stream');
@@ -1431,6 +1488,10 @@ export async function createServer(opts: ServerOpts = {}) {
   // Register /v1 routes (PLoT Engine v1 with trust signals)
   const { registerV1Routes } = await import('./routes/v1/index.js');
   await registerV1Routes(app);
+
+  // Register /v2 routes (Option Comparison Mode - canonical model)
+  const { registerV2Routes } = await import('./routes/v2/index.js');
+  await registerV2Routes(app);
 
   // Prometheus /metrics (C4, flag-gated)
   const { registerPrometheusMetrics } = await import('./plugins/metrics.js');

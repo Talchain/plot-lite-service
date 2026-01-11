@@ -3,16 +3,90 @@
  * Structural Causal Model approximation with edge masking
  */
 
+/**
+ * Observed state for factor nodes (Decision Model Schema v2.2)
+ */
+export interface ObservedState {
+  /** Current value (e.g., 59 for price) */
+  value: number;
+  /** Reference/baseline value for comparison */
+  baseline?: number;
+  /** Display unit (e.g., "£", "%") */
+  unit?: string;
+}
+
 export interface Node {
   id: string;
   label?: string;
+  /** Node classification for inference semantics */
+  kind?: string;
+  /**
+   * Observed state for factor nodes.
+   * Only used when kind='factor' and node has no incoming edges.
+   */
+  observed_state?: ObservedState;
 }
 
+/** Edge function type for non-linear relationships (includes EdgeV2 additions) */
+export type EdgeFunctionType = 'linear' | 'diminishing_returns' | 'threshold' | 's_curve' | 'noisy_or' | 'noisy_and_not' | 'logistic' | 'mixed';
+
+/** Alias for EdgeFunctionType - used in EdgeV2 schema */
+export type FunctionalForm = EdgeFunctionType;
+
+/** Parameters for non-linear edge functions */
+export interface EdgeFunctionParams {
+  k?: number;         // Rate parameter (diminishing, s_curve, logistic)
+  threshold?: number; // Threshold value (threshold, logistic)
+  midpoint?: number;  // S-curve midpoint
+  slope?: number;     // Post-threshold slope
+}
+
+/**
+ * Edge interface supporting both EdgeV1 and EdgeV2 schemas
+ *
+ * EdgeV1 (legacy): Uses single 'belief' field
+ * EdgeV2 (dual beliefs): Uses 'belief_exists' + 'belief_strength'
+ * EdgeV2.2: Adds explicit 'strength_std' for parametric uncertainty
+ */
 export interface Edge {
+  /** Optional edge identifier */
+  id?: string;
   from: string;
   to: string;
-  belief?: number; // [0,1] edge existence probability; default 0.7
-  weight?: number; // β coefficient; default 1.0
+  /** @deprecated Use belief_exists. Edge existence probability [0,1]; default 0.7 */
+  belief?: number;
+  /**
+   * Effect magnitude (signed).
+   * - Positive: increasing parent increases child
+   * - Negative: increasing parent decreases child
+   * Default: 1.0
+   */
+  weight?: number;
+  /** @deprecated Use functional_form. Non-linear function (default: linear) */
+  function_type?: EdgeFunctionType;
+  /** How effect propagates (EdgeV2 schema) */
+  functional_form?: FunctionalForm;
+  /** Parameters for non-linear edge functions */
+  function_params?: EdgeFunctionParams;
+
+  // EdgeV2 dual beliefs
+  /** Confidence that this edge exists at all (0-1). EdgeV2 schema. */
+  belief_exists?: number;
+  /**
+   * @deprecated Use strength_std instead.
+   * Confidence in weight precision (0-1). EdgeV2 schema.
+   * Higher = less variance around weight value.
+   */
+  belief_strength?: number;
+
+  // EdgeV2.2 explicit parametric uncertainty
+  /**
+   * Standard deviation of effect magnitude.
+   * If provided, used directly for Normal sampling: N(weight, strength_std).
+   * If absent, derived from belief_strength for backward compatibility.
+   * Must be > 0.
+   */
+  strength_std?: number;
 }
 
 export interface DAG {
@@ -31,11 +105,16 @@ export interface KernelConfig {
   maxNodes: number; // hard cap (default 12)
   maxEdges: number; // hard cap (default 20)
   beliefDefault: number; // default edge belief (default 0.7)
+  // EdgeV2 dual beliefs defaults
+  beliefStrengthDefault?: number; // default belief_strength (default 0.8)
   // Adaptive K early-stopping
   adaptiveK?: boolean; // enable early stopping when p50 converges
   convergenceThreshold?: number; // percentage threshold (e.g., 0.01 = 1%)
   kStep?: number; // batch size for convergence checks (default 8)
   kMin?: number; // minimum samples before checking convergence (default 16)
+  // Intervention semantics (do-operator)
+  interventions?: Intervention[]; // nodes to intervene on with their values
+  mode?: InferenceMode; // 'interventional' (default) or 'observational'
 }
 
 export interface KernelResult {
@@ -54,6 +133,9 @@ export interface KernelResult {
     unique_graphs: number;
     sign_stability: number; // [0,1]
     identified_paths: number;
+    // Intervention semantics
+    inference_mode?: InferenceMode; // 'interventional' or 'observational'
+    intervention_count?: number; // number of nodes intervened on
   };
 }
 
@@ -62,3 +144,28 @@ export interface SeededRNG {
   nextInt(max: number): number; // [0, max)
   jump(): void; // advance to next independent stream
 }
+
+/**
+ * Intervention specification for do-operator semantics
+ *
+ * Pearl's do-calculus: When we intervene on X, we replace the structural
+ * equation for X with a constant, effectively removing X from its parents'
+ * influence while preserving X's influence on its children.
+ *
+ * Original: X = f(Parents(X), U_x)
+ * Intervention: X = x (constant)
+ */
+export interface Intervention {
+  /** Node ID to intervene on */
+  node_id: string;
+  /** Value to set the node to (cuts all incoming edges) */
+  value: number;
+}
+
+/**
+ * Inference mode for causal analysis
+ *
+ * - 'interventional': P(Y | do(X)) - cutting incoming edges to intervention targets
+ * - 'observational': P(Y | X) - conditioning on observed values (default)
+ */
+export type InferenceMode = 'interventional' | 'observational';

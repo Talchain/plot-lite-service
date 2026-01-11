@@ -9,14 +9,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Check for src/*.js files (should not exist)
+        run: |
+          JS_FILES=$(find src -name "*.js" -not -path "src/scripts/*" | head -20)
+          if [ -n "$JS_FILES" ]; then
+            echo "ERROR: Found .js files in src/ that should not exist:"
+            echo "$JS_FILES"
+            echo ""
+            echo "These are likely build artifacts. Run: find src -name '*.js' -not -path 'src/scripts/*' -delete"
+            exit 1
+          fi
+          echo "✓ No stray .js files in src/"
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
       - run: npm ci
-      - name: Lint (ESLint - non-blocking during remediation)
-        run: npm run lint || echo "::warning::Lint failures detected - 72 empty catches remain, see docs/empty-catch-remediation-roadmap.md"
-        continue-on-error: true
+      - name: Lint (ESLint)
+        run: npx eslint src tests --ext .ts --max-warnings 29
       - run: npm run build
       - name: Run tests
         run: RATE_LIMIT_ENABLED=0 npm test

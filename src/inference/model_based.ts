@@ -1,19 +1,35 @@
 /**
  * Model-Based Inference Engine
- * 
+ *
  * Standard probabilistic inference using SCM-Lite or fallback simulation.
+ *
+ * Supports Pearl's do-operator for intervention semantics:
+ * - interventional mode (default): P(Y | do(X)) - cutting incoming edges
+ * - observational mode: P(Y | X) - conditioning on observed values
  */
 
 import type { Graph } from '../trust/types.js';
 import type { InferenceEngine, InferenceConfig, InferenceResult } from './types.js';
 import { runSCMLite } from '../scm-lite/adapter.js';
 import { applyPriorsToGraph } from './apply-priors.js';
+import { applyEdgeFunction } from '../engine/edge-functions.js';
+import { MAX_NODES, MAX_EDGES } from '../constants/limits.js';
 
 export class ModelBasedInference implements InferenceEngine {
   name = 'model_based';
 
   run(graph: Graph, config: InferenceConfig): InferenceResult {
-    const { seed, k_samples, outcome_node, baseline_value, priors, adaptiveK, convergenceThreshold } = config;
+    const {
+      seed,
+      k_samples,
+      outcome_node,
+      baseline_value,
+      priors,
+      adaptiveK,
+      convergenceThreshold,
+      interventions,
+      mode,
+    } = config;
 
     // Apply priors to graph if provided
     const workingGraph = priors ? applyPriorsToGraph(graph, priors, seed) : graph;
@@ -23,12 +39,15 @@ export class ModelBasedInference implements InferenceEngine {
       const scmConfig = {
         seed,
         K: k_samples || Number(process.env.SCM_LITE_K || 256),
-        maxNodes: Number(process.env.SCM_LITE_MAX_NODES || 50),
-        maxEdges: Number(process.env.SCM_LITE_MAX_EDGES || 200),
+        maxNodes: Number(process.env.SCM_LITE_MAX_NODES || MAX_NODES),
+        maxEdges: Number(process.env.SCM_LITE_MAX_EDGES || MAX_EDGES),
         beliefDefault: Number(process.env.SCM_LITE_BELIEF_DEFAULT || 0.7),
         // Adaptive K early-stopping
         adaptiveK,
         convergenceThreshold,
+        // Intervention semantics (do-operator)
+        interventions,
+        mode,
       };
 
       const scmResult = runSCMLite(workingGraph, outcome_node, scmConfig);
@@ -44,6 +63,9 @@ export class ModelBasedInference implements InferenceEngine {
           K_evaluated: scmResult.meta.K_evaluated,
           K_requested: scmResult.meta.K_requested,
           K_converged: scmResult.meta.K_converged,
+          // Intervention semantics
+          inference_mode: scmResult.meta.inference_mode,
+          intervention_count: scmResult.meta.intervention_count,
         },
       };
     }
@@ -80,15 +102,18 @@ export class ModelBasedInference implements InferenceEngine {
     }
     
     // Calculate weighted influence from parent nodes
+    // Apply non-linear edge functions when specified
     let totalInfluence = 0;
     let totalWeight = 0;
-    
+
     for (const edge of incomingEdges) {
       const parentNode = graph.nodes.find(n => n.id === edge.from);
       if (parentNode) {
         const parentValue = (parentNode as any).value ?? 0.5;
         const edgeWeight = edge.weight ?? 1.0;
-        totalInfluence += parentValue * edgeWeight;
+        // Apply non-linear edge function if specified
+        const transformedValue = applyEdgeFunction(parentValue, edge);
+        totalInfluence += transformedValue * edgeWeight;
         totalWeight += edgeWeight;
       }
     }

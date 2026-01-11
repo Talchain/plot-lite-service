@@ -57,7 +57,7 @@ export function calculateConfidence(inputs: ConfidenceInputs): ConfidenceBadge {
     Math.round(kcov_raw * 250 / 1000) +
     Math.round(calib_raw * 150 / 1000);
 
-  // Thresholds: HIGH >= 750, MEDIUM >= 500 (out of 1000)
+  // Thresholds: high >= 750, medium >= 500 (out of 1000)
   let level: ConfidenceLevel;
   let reason: string;
 
@@ -93,7 +93,7 @@ export function calculateConfidence(inputs: ConfidenceInputs): ConfidenceBadge {
     });
   }
 
-  // Invariant: level must be UPPERCASE only
+  // Invariant: level must be uppercase only
   if (!['HIGH', 'MEDIUM', 'LOW'].includes(level)) {
     throw new Error(`Invalid confidence.level: ${level}`);
   }

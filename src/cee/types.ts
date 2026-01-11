@@ -14,6 +14,19 @@ export interface CeeTrace {
   source?: string;
   /** HTTP status code when degraded due to upstream failure */
   status?: number;
+  // M1 CEE Orchestrator spec v1.1: Three-ID tracing
+  /** Original request ID from PLoT client */
+  plot_request_id?: string;
+  /** Request ID sent to CEE service */
+  cee_sent_request_id?: string | null;
+  /** Request ID returned from CEE service response */
+  cee_returned_request_id?: string | null;
+  /** CEE call latency in milliseconds */
+  latency_ms?: number | null;
+  /** CEE model/version used (if returned by service) */
+  model?: string;
+  /** True if sent request ID differs from returned request ID */
+  id_mismatch?: boolean;
 }
 
 export interface CeeError {
@@ -202,4 +215,120 @@ export interface EnhancedCeeReview extends CeeReview {
   weight_suggestions?: WeightSuggestion[];
   /** Where these enhancements originated from. */
   enhancement_source?: 'isl' | 'engine' | 'mixed';
+}
+
+// =============================================================================
+// M1 CEE review() Contract Types (SDK v1.12.0+)
+// =============================================================================
+
+/**
+ * Request payload for CeeClient.review() - M1 unified endpoint
+ * Replaces the compose pattern of individual endpoint calls
+ */
+export interface CeeReviewRequest {
+  /** Scenario identifier - prefer body.scenario_id, fallback to response_hash */
+  scenario_id: string;
+  /** Full graph snapshot (actual arrays, not counts) */
+  graph_snapshot: {
+    nodes: unknown[];
+    edges: unknown[];
+  };
+  /** Graph schema version - must be '2.2' */
+  graph_schema_version: '2.2';
+  /**
+   * Original decision brief/description.
+   * When provided, CEE generates contextualised output.
+   */
+  brief?: string;
+  /** Inference results to review */
+  inference_results: {
+    quantiles: { p10: number; p50: number; p90: number };
+    /** Per-option outcome quantiles for comparative analysis */
+    per_option_outcomes?: Array<{
+      option_id: string;
+      p10: number;
+      p50: number;
+      p90: number;
+    }>;
+    top_edge_drivers?: Array<{ id: string; sensitivity?: number }>;
+    ranked_actions?: Array<{ id: string; rank: number }>;
+  };
+  /** User intent - must be 'selection' | 'prediction' | 'validation' */
+  intent: 'selection' | 'prediction' | 'validation';
+  /** Market context metadata */
+  market_context?: Record<string, unknown>;
+  /**
+   * ISL robustness output (optional)
+   * When provided, CEE synthesizes this into ceeReview.blocks
+   */
+  isl_robustness?: {
+    /** Overall model robustness from ISL sensitivity analysis */
+    overall_robustness: 'robust' | 'moderate' | 'fragile';
+    /** Identifiability status from ISL validation */
+    validation_status?: 'identifiable' | 'uncertain' | 'cannot_identify';
+    /** Confidence in the validation */
+    validation_confidence?: 'high' | 'medium' | 'low';
+    /** Top sensitive parameters (max 5) */
+    sensitive_parameters?: Array<{
+      parameter: string;
+      sensitivity: number;
+      impact_direction: 'positive' | 'negative';
+    }>;
+    /** Actionable recommendations from ISL */
+    recommendations?: string[];
+    /** ISL-detected issues (max 3) */
+    issues?: Array<{
+      type: string;
+      description: string;
+      suggested_action?: string;
+    }>;
+  };
+}
+
+/**
+ * Block status in CEE review response
+ */
+export interface CeeReviewBlock {
+  id: string;
+  status: 'ok' | 'warning' | 'error' | 'skipped';
+  headline?: string;
+  details?: string;
+  factors?: string[];
+}
+
+/**
+ * Readiness assessment in CEE review response
+ */
+export interface CeeReviewReadiness {
+  level: 'ready' | 'needs_attention' | 'not_ready';
+  headline: string;
+  factors: string[];
+}
+
+/**
+ * M1 CEE review response payload
+ * This is what CeeClient.review() returns
+ */
+export interface CeeReviewResponse {
+  intent: string;
+  analysis_state: 'ran' | 'skipped' | 'failed';
+  readiness: CeeReviewReadiness;
+  blocks: CeeReviewBlock[];
+  trace: {
+    request_id?: string;
+    latency_ms?: number;
+    model?: string;
+  };
+}
+
+/**
+ * Normalized error with both retriable (canonical) and retryable (alias) fields
+ */
+export interface CeeErrorNormalized {
+  code: string;
+  message?: string;
+  /** Canonical field name per M1 spec */
+  retriable: boolean;
+  /** Alias for UI tolerance */
+  retryable: boolean;
 }

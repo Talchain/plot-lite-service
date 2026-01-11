@@ -14,7 +14,7 @@ async function waitFor(url, timeoutMs = 5000) {
 }
 async function startServer(env) {
   const port = String(nextPort());
-  const child = spawn(process.execPath, ['tools/test-server.js'], { env: { ...process.env, TEST_ROUTES: '1', AUTH_ENABLED: '0', TEST_PORT: port, ...env }, stdio: 'ignore' });
+  const child = spawn(process.execPath, ['tools/test-server.js'], { env: { ...process.env, TEST_ROUTES: '1', AUTH_ENABLED: '0', DEMO_MODE_ENABLED: '1', TEST_PORT: port, ...env }, stdio: 'ignore' });
   const ok = await waitFor(`http://127.0.0.1:${port}/v1/health`, 5000);
   if (!ok) throw new Error('server not healthy');
   return { port, child };

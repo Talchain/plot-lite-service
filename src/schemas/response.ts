@@ -54,6 +54,19 @@ export const runResponseSchema = {
         level_direction: { type: 'string', enum: ['upgrade', 'downgrade', 'same'], nullable: true },
         interpretation: { type: 'string' }
       }
+    },
+    // Brief A: Per-option goal probabilities (ENABLE_OPTION_PROBABILITIES flag)
+    option_probabilities: {
+      type: 'object',
+      nullable: true,
+      additionalProperties: {
+        type: 'object',
+        properties: {
+          goal_probability: { type: 'number', description: 'P(goal achieved | do(option))' },
+          confidence: { type: 'number', description: 'Confidence in estimate (0-1)' }
+        },
+        required: ['goal_probability', 'confidence']
+      }
     }
   }
 } as const;

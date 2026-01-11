@@ -4,8 +4,6 @@
  */
 
 import type { FastifyInstance } from 'fastify';
-import { timingSafeEqual } from 'crypto';
-import { replyWithAppError } from '../../errors.js';
 import { registerRunRoute } from './run.js';
 import { registerCounterfactualRoute } from './counterfactual.js';
 import { registerCritiqueRoute } from './critique.js';
@@ -18,66 +16,34 @@ import { getStreamHealthExtras, p95Ms, getLastRequestAt, getJson429Count, getSse
 import { getFixtureCacheSize, getFixtureCacheStats } from '../../lib/fixtures-cache.js';
 import { registerStreamRoute } from './stream.js';
 import { registerStreamRouteEnhanced } from './stream-enhanced.js';
-import { isDemoMode } from '../../middleware/demo-mode.js';
 import { getIdemStoreSize } from '../../middleware/idempotency.js';
+import { authGuard } from '../../middleware/auth-guard.js';
 // healthResponseSchema used for OpenAPI documentation
-
-/**
- * Auth preHandler for /v1/* routes
- * Guards all v1 endpoints when AUTH_ENABLED=1
- */
-async function v1AuthGuard(req: any, reply: any) {
-  if (process.env.AUTH_ENABLED !== '1') return;
-  // Demo bypass ONLY for GET /v1/stream when isDemoMode(req) is true
-  try {
-    const urlStr = String(req.url || '/');
-    const u = new URL(urlStr, 'http://local');
-    const isStream = String(req.method || 'GET').toUpperCase() === 'GET' && u.pathname === '/v1/stream';
-    if (isStream && isDemoMode(req)) return; // auth bypass only
-  } catch { /* ignore */ }
-  
-  const hdr = String((req.headers?.authorization || req.headers?.Authorization || '') || '');
-  const expected = String(process.env.AUTH_TOKEN || '').trim();
-  
-  if (!hdr.startsWith('Bearer ')) {
-    reply.header('WWW-Authenticate', 'Bearer');
-    // Use canonical OlumiErrorV1 envelope while preserving schema/code/message
-    return replyWithAppError(reply, {
-      type: 'BAD_INPUT',
-      statusCode: 401,
-      fields: { code: 'UNAUTHORIZED' },
-      message: 'Missing bearer token',
-    });
-  }
-  
-  const tok = hdr.slice('Bearer '.length).trim();
-  if (!expected || tok.length !== expected.length) {
-    return replyWithAppError(reply, {
-      type: 'BAD_INPUT',
-      statusCode: 403,
-      fields: { code: 'FORBIDDEN' },
-      message: 'Invalid token',
-    });
-  }
-  if (!timingSafeEqual(Buffer.from(tok), Buffer.from(expected))) {
-    return replyWithAppError(reply, {
-      type: 'BAD_INPUT',
-      statusCode: 403,
-      fields: { code: 'FORBIDDEN' },
-      message: 'Invalid token',
-    });
-  }
-}
 
 /**
  * Register all /v1 routes
  */
 export async function registerV1Routes(app: FastifyInstance) {
-  // Add auth guard hook for all /v1/* routes
+  // Add consolidated auth guard hook for all /v1/* routes
   app.addHook('preHandler', async (req, reply) => {
     // Only apply to /v1/* routes
     if (req.url?.startsWith('/v1/')) {
-      await v1AuthGuard(req, reply);
+      // Skip auth for OPTIONS preflight requests - CORS plugin handles these
+      // Browsers don't send Authorization headers on preflight
+      if (req.method === 'OPTIONS') {
+        return;
+      }
+      // Allow demo bypass for GET /v1/stream, skip auth entirely for /v1/templates (read-only public)
+      const isStreamRoute = req.method === 'GET' && req.url.startsWith('/v1/stream');
+      const isTemplatesRoute = req.url.startsWith('/v1/templates');
+      const authorized = await authGuard(req, reply, {
+        allowDemoBypass: isStreamRoute,
+        skipAuth: isTemplatesRoute,
+      });
+      // P1 fix: Return early if auth failed (response already sent)
+      if (!authorized) {
+        return reply;
+      }
     }
   });
 
@@ -141,8 +107,30 @@ export async function registerV1Routes(app: FastifyInstance) {
   await registerPreferencesRoute(app);
   await registerRunBundleRoute(app);
   await registerRunTimeslicesRoute(app);
+  await registerKeyInsightRoute(app);
+  await registerElicitBeliefRoute(app);
+  await registerSuggestUtilityWeightsRoute(app);
+  await registerDominanceAnalysisRoute(app);
+  await registerParetoAnalysisRoute(app);
+  await registerMultiCriteriaAnalysisRoute(app);
+  await registerElicitRiskToleranceRoute(app);
+  await registerRiskAdjustRoute(app);
+  await registerThresholdsRoute(app);
+  await registerSuggestEdgeFunctionRoute(app);
+  // Phase 4: Sequential graph support
+  await registerConditionalRecommendRoute(app);
+  await registerSequentialAnalysisRoute(app);
+  await registerPolicyTreeRoute(app);
+  await registerGenerateRecommendationRoute(app);
+  await registerNarrateConditionsRoute(app);
+  await registerExplainPolicyRoute(app);
+  await registerAnalysisOptimiseRoute(app);
+  // Brief 8: Sampling Engine & Caching (ISL robustness analysis)
+  await registerSimulateBatchRoute(app);
   await registerAuditTestRoute(app);
-  await registerGovernanceRoute(app);  
+  await registerGovernanceRoute(app);
+  // CEE Proxy Routes - bypass Netlify timeout for long-running CEE calls
+  await registerCeeDraftGraphRoute(app);  
   // P1: Register enhanced stream route if enabled, otherwise use legacy
   if (process.env.STREAM_PARITY_ENABLE === '1') {
     await registerStreamRouteEnhanced(app);
@@ -272,3 +260,25 @@ import { registerRunTimeslicesRoute } from './run-timeslices.js';
 import { registerAuditTestRoute } from '../test/audit.js';
 import { registerGovernanceRoute } from '../test/governance.js';
 import { registerDiffRoute } from './diff.js';
+import { registerKeyInsightRoute } from './key-insight.js';
+import { registerElicitBeliefRoute } from './elicit-belief.js';
+import { registerSuggestUtilityWeightsRoute } from './suggest-utility-weights.js';
+import { registerDominanceAnalysisRoute } from './analysis-dominance.js';
+import { registerParetoAnalysisRoute } from './analysis-pareto.js';
+import { registerMultiCriteriaAnalysisRoute } from './analysis-multi-criteria.js';
+import { registerElicitRiskToleranceRoute } from './elicit-risk-tolerance.js';
+import { registerRiskAdjustRoute } from './analysis-risk-adjust.js';
+import { registerThresholdsRoute } from './analysis-thresholds.js';
+import { registerSuggestEdgeFunctionRoute } from './suggest-edge-function.js';
+// Phase 4: Sequential graph support
+import { registerConditionalRecommendRoute } from './analysis-conditional-recommend.js';
+import { registerSequentialAnalysisRoute } from './analysis-sequential.js';
+import { registerPolicyTreeRoute } from './analysis-policy-tree.js';
+import { registerGenerateRecommendationRoute } from './recommend-generate.js';
+import { registerNarrateConditionsRoute } from './narrate-conditions.js';
+import { registerExplainPolicyRoute } from './explain-policy.js';
+import { registerAnalysisOptimiseRoute } from './analysis-optimise.js';
+// Brief 8: Sampling Engine & Caching
+import { registerSimulateBatchRoute } from './simulate-batch.js';
+// CEE Proxy Routes
+import { registerCeeDraftGraphRoute } from './cee-draft-graph.js';

@@ -23,5 +23,5 @@
     "sdk/node/index.ts",
     "sdk/node/example.ts"
   ],
-  "exclude": ["node_modules", "dist"]
+  "exclude": ["node_modules", "dist", "src"]
 }

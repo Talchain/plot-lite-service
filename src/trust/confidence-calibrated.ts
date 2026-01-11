@@ -81,7 +81,7 @@ export interface ConfidenceComparison {
 }
 
 /**
- * Level hierarchy for comparison
+ * Level hierarchy for comparison (uppercase per UI contract)
  */
 const LEVEL_ORDER: Record<string, number> = {
   LOW: 0,

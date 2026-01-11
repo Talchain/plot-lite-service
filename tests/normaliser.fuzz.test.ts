@@ -29,7 +29,7 @@ function baseDoc() {
       flags_on: ['TEST_ROUTES'],
       determinism_note: 'stable'
     },
-    confidence: { level: 'HIGH', reason: 'DEMO', score: 0.99, factors: {} },
+    confidence: { level: 'high', reason: 'DEMO', score: 0.99, factors: {} },
     explain_delta: { top_drivers: [], summary: 'none' }
   } as any;
 }

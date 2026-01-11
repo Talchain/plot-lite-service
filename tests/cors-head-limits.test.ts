@@ -59,6 +59,6 @@ describe('CORS + HEAD + Limits', () => {
     expect(typeof data.max_edges).toBe('number');
     expect(typeof data.max_body_kb).toBe('number');
     expect(data.max_nodes).toBeGreaterThanOrEqual(50);
-    expect(data.max_edges).toBeGreaterThanOrEqual(200);
+    expect(data.max_edges).toBeGreaterThanOrEqual(100);
   });
 });

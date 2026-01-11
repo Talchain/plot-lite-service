@@ -15,6 +15,8 @@ import { buildExplainDelta } from '../../trust/explain-delta.js';
 import { checkLinearity, detectThresholdCrossings, generateForkSuggestions } from '../../trust/linearity.js';
 import { checkIdentifiability } from '../../trust/identifiability.js';
 import { enforceComputeBudget } from '../../governance/cost-estimator.js';
+import { computeSensitivitySimple } from '../../lib/sensitivity-simple.js';
+import { buildDriversPayload, buildDiscriminationSignal, applyDiscriminationToDrivers } from '../../trust/drivers-builder.js';
 
 export async function registerSelfCheckRoute(app: FastifyInstance) {
   app.get('/v1/self-check', async (req: FastifyRequest, reply: FastifyReply) => {
@@ -112,6 +114,28 @@ export async function registerSelfCheckRoute(app: FastifyInstance) {
       top_n: 3,
     });
 
+    // Top edge drivers for sensitivity
+    const top_edge_drivers = computeSensitivitySimple(graph.edges, outcome_node);
+
+    // Results for discrimination signal
+    const results = {
+      conservative: { outcome: baseline_value * 0.95 },
+      most_likely: { outcome: baseline_value },
+      optimistic: { outcome: baseline_value * 1.05 },
+    };
+
+    // Discrimination signal for low-variance outcomes
+    const discrimination = buildDiscriminationSignal(
+      results.conservative.outcome,
+      results.most_likely.outcome,
+      results.optimistic.outcome,
+      baseline_value
+    );
+
+    // Drivers payload with status handling
+    const driversPayloadRaw = buildDriversPayload(top_edge_drivers, true);
+    const drivers_payload = applyDiscriminationToDrivers(driversPayloadRaw, discrimination);
+
     // Build full report (matching /v1/run structure) and stamp response hash
     const report = stampResponseHash({
       schema: 'run.v1',
@@ -121,18 +145,16 @@ export async function registerSelfCheckRoute(app: FastifyInstance) {
         version: '1.0.0',
       },
       graph,
-      results: {
-        conservative: { outcome: baseline_value * 1.05 },
-        most_likely: { outcome: current_value },
-        optimistic: { outcome: baseline_value * 1.25 },
-      },
+      results,
       model_card,
       confidence,
       linearity_warning: linearity_warning.outside_range ? linearity_warning : undefined,
       threshold_crossings: threshold_crossings.length > 0 ? threshold_crossings : undefined,
       fork_suggestions,
       critique,
-      explain_delta,
+      discrimination,
+      drivers_payload,
+      explain_delta: { ...explain_delta, top_edge_drivers },
       identifiability: identifiability.summary,
     } as any);
 

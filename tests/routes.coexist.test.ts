@@ -9,6 +9,7 @@ describe('v1 router coexistence: templates + stream', () => {
   beforeAll(async () => {
     delete process.env.AUTH_ENABLED;
     process.env.STREAM_PARITY_ENABLE = '0';
+    process.env.DEMO_MODE_ENABLED = '1';
     app = await createServer({});
     await app.listen({ port: 0, host: '127.0.0.1' });
     const addr = app.server.address();

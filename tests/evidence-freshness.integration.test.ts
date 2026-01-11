@@ -158,7 +158,7 @@ describe('Evidence freshness integration on /v1/run', () => {
     });
 
     const body = JSON.parse(res.body);
-    const stale = body.critique.find((c: any) => c.code === 'STALE_EVIDENCE');
+    const stale = body.critique.find((c: any) => c.code === 'EVIDENCE_STALE');
     expect(stale).toBeDefined();
     expect(stale.severity).toBe('IMPROVEMENT');
     expect(stale.semantic_severity).toBe('WARNING');
@@ -187,7 +187,7 @@ describe('Evidence freshness integration on /v1/run', () => {
     });
 
     const body = JSON.parse(res.body);
-    const stale = body.critique.find((c: any) => c.code === 'STALE_EVIDENCE');
+    const stale = body.critique.find((c: any) => c.code === 'EVIDENCE_STALE');
     expect(stale).toBeUndefined();
   });
 
@@ -216,7 +216,7 @@ describe('Evidence freshness integration on /v1/run', () => {
     const body = JSON.parse(res.body);
     // Quick detail_level skips critique entirely
     expect(Array.isArray(body.critique)).toBe(true);
-    const stale = body.critique.find((c: any) => c.code === 'STALE_EVIDENCE');
+    const stale = body.critique.find((c: any) => c.code === 'EVIDENCE_STALE');
     expect(stale).toBeUndefined();
   });
 });

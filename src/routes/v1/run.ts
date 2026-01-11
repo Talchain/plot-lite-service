@@ -14,7 +14,14 @@ import { checkLinearity, detectThresholdCrossings, generateForkSuggestions } fro
 import { checkIdentifiability } from '../../trust/identifiability.js';
 import { enforceComputeBudget } from '../../governance/cost-estimator.js';
 import { stampResponseHash, hashCanonicalInput } from '../../util/canonical-json.js';
-import type { DetailLevel } from '../../trust/types.js';
+import type {
+  DetailLevel,
+  RunResponseEnrichment,
+  CausalValidationEnrichment,
+  SensitivityAnalysisEnrichment,
+  FactorSensitivityEnrichment,
+  VOIEnrichment,
+} from '../../trust/types.js';
 import { DETAIL_LEVEL_CONFIG } from '../../trust/types.js';
 import { getInferenceEngine } from '../../inference/index.js';
 import { computeSensitivitySimple, computeSensitivityAll } from '../../lib/sensitivity-simple.js';
@@ -24,7 +31,7 @@ import { generateInsights } from '../../trust/insights.js';
 import { analyseEvidence } from '../../trust/evidence-analysis.js';
 import { computeFullSensitivity } from '../../trust/sensitivity-full.js';
 import { calculateCalibratedConfidence, compareConfidence } from '../../trust/confidence-calibrated.js';
-import { getISLService, type PLoTValidationResult, type PLoTSensitivityResult } from '../../integrations/isl/index.js';
+import { getISLService, type PLoTValidationResult, type PLoTSensitivityResult, type PLoTFactorSensitivityResult, type ISLParameterUncertainty } from '../../integrations/isl/index.js';
 import { recordEngineComputeMs } from '../../metrics.js';
 import {
   recordCeeAttempted,
@@ -48,10 +55,206 @@ import {
   LIMITS_MAX_EDGES
 } from '../../config/constants.js';
 import { validateEffect } from '../../engine/effects.js';
-import { callDecisionReviewFromEngine } from '../../cee/client.js';
+import { orchestrateCeeReview, type OrchestratorEnv } from '../../cee/orchestrator.js';
+import type { CeeReviewRequest } from '../../cee/types.js';
 import { summarizeEvidenceFreshnessFromEvidence } from '../../trust/evidence-freshness.js';
 import { buildGraphHealth } from '../../trust/variance-helper.js';
+import { CRITIQUE_CODES } from '../../trust/critique-codes.js';
+import { computeOptionProbabilities, detectGoalNode, detectGoalThreshold } from '../../trust/option-probabilities.js';
+import { buildDriversPayload, buildDiscriminationSignal, applyDiscriminationToDrivers } from '../../trust/drivers-builder.js';
+import { canonicalIdempotencyPreHandler, canonicalIdempotencyOnSend } from '../../middleware/idempotency-canonical.js';
 
+/**
+ * Transform ISL validation result to enrichment schema
+ */
+function transformValidationToEnrichment(
+  validation: PLoTValidationResult | undefined
+): CausalValidationEnrichment | undefined {
+  if (!validation) return undefined;
+
+  // Extract confounders from issues if present
+  const confounders: string[] = [];
+  const warnings: string[] = [];
+  if (validation.issues) {
+    for (const issue of validation.issues) {
+      if (issue.type === 'confounder' || issue.type === 'unobserved_confounder') {
+        confounders.push(...issue.affected_nodes);
+      }
+      warnings.push(issue.description);
+    }
+  }
+
+  return {
+    identifiable: validation.status === 'identifiable',
+    confidence: validation.confidence,
+    adjustment_sets: validation.adjustment_sets,
+    minimal_set: validation.minimal_set,
+    confounders: confounders.length > 0 ? confounders : undefined,
+    warnings: warnings.length > 0 ? warnings : undefined,
+    explanation: validation.explanation,
+  };
+}
+
+/**
+ * Transform ISL sensitivity result to enrichment schema
+ * @deprecated Use transformRobustnessToEnrichment for combined edge + factor sensitivity
+ */
+function transformSensitivityToEnrichment(
+  sensitivity: PLoTSensitivityResult | undefined,
+  graph: { nodes: any[]; edges: any[] }
+): SensitivityAnalysisEnrichment | undefined {
+  if (!sensitivity) return undefined;
+
+  // Build edge list from sensitive parameters - map to new EdgeSensitivityEnrichment format
+  const edges: SensitivityAnalysisEnrichment['edges'] = sensitivity.sensitive_parameters.map((param, idx) => {
+    // Try to find the corresponding edge in the graph
+    const edge = graph.edges.find((e: any) =>
+      param.parameter === `${e.from}->${e.to}` ||
+      param.parameter === e.from ||
+      param.parameter === e.to
+    );
+
+    const fromNode = edge?.from || param.parameter.split('->')[0] || param.parameter;
+    const toNode = edge?.to || param.parameter.split('->')[1] || param.parameter;
+
+    return {
+      edge_id: edge?.id || `${fromNode}::${toNode}`,
+      from: fromNode,
+      to: toNode,
+      elasticity: param.sensitivity,
+      interpretation: `${param.impact_direction === 'positive' ? 'Increasing' : 'Decreasing'} this edge ${param.impact_direction === 'positive' ? 'increases' : 'decreases'} outcome`,
+    };
+  });
+
+  // Extract top drivers (nodes with highest sensitivity)
+  const topDrivers = sensitivity.sensitive_parameters
+    .slice(0, 3)
+    .map(p => p.parameter);
+
+  // Identify fragile edges (elasticity > 0.7)
+  const fragileEdges = edges
+    .filter(e => Math.abs(e.elasticity) > 0.7)
+    .map(e => e.edge_id);
+
+  return {
+    overall_robustness: sensitivity.overall_robustness,
+    edges,
+    edges_provenance: 'plot:computeSensitivityAll',
+    edge_sensitivity_status: 'fallback_local_heuristic',
+    top_drivers: topDrivers.length > 0 ? topDrivers : undefined,
+    fragile_edges: fragileEdges.length > 0 ? fragileEdges : undefined,
+    recommendations: sensitivity.recommendations.length > 0 ? sensitivity.recommendations : undefined,
+  };
+}
+
+/**
+ * Extract parameter uncertainties from graph factor nodes
+ * Used for ISL /robustness/analyze/v2 factor sensitivity call
+ */
+function extractParameterUncertainties(graph: { nodes: any[]; edges: any[] }): ISLParameterUncertainty[] {
+  return graph.nodes
+    .filter((n: any) => n.kind === 'factor' && n.observed_state?.value !== undefined)
+    .map((n: any) => ({
+      node_id: n.id,
+      distribution: 'normal' as const,
+      mean: n.observed_state.value,
+      // Default uncertainty: ±20% of value, minimum 0.1
+      std: Math.max(Math.abs(n.observed_state.value) * 0.2, 0.1),
+    }));
+}
+
+/**
+ * Check if graph has factor nodes with observed_state values
+ */
+function hasParameterUncertainties(graph: { nodes: any[]; edges: any[] }): boolean {
+  return graph.nodes.some((n: any) => n.kind === 'factor' && n.observed_state?.value !== undefined);
+}
+
+/**
+ * Extract option nodes from graph
+ */
+function extractOptionNodes(graph: { nodes: any[]; edges: any[] }): Array<{ id: string; label?: string }> {
+  return graph.nodes
+    .filter((n: any) => n.kind === 'option')
+    .map((n: any) => ({
+      id: n.id,
+      label: n.label,
+    }));
+}
+
+/**
+ * Build enrichment object from ISL results
+ */
+function buildEnrichment(
+  islService: { isEnabled(): boolean },
+  detail_level: DetailLevel,
+  isl_validation: PLoTValidationResult | undefined,
+  isl_sensitivity: PLoTSensitivityResult | undefined,
+  isl_factor_sensitivity: PLoTFactorSensitivityResult | undefined,
+  isl_latency_ms: number | undefined,
+  graph: { nodes: any[]; edges: any[] }
+): RunResponseEnrichment | undefined {
+  // No enrichment for quick mode or when ISL is disabled
+  if (detail_level === 'quick') {
+    return undefined;
+  }
+
+  const isl_enabled = islService.isEnabled();
+  const isl_degraded = (isl_validation?.source !== 'isl' && isl_validation !== undefined) ||
+                       (isl_sensitivity?.source !== 'isl' && isl_sensitivity !== undefined);
+
+  // Build endpoints called list
+  const endpoints_called: string[] = [];
+  if (isl_validation?.source === 'isl') endpoints_called.push('causal/validate');
+  if (isl_sensitivity?.source === 'isl') endpoints_called.push('causal/sensitivity/detailed');
+  if (isl_factor_sensitivity?.source === 'isl') endpoints_called.push('robustness/analyze/v2');
+
+  // Build base sensitivity analysis enrichment
+  const sensitivity_analysis = transformSensitivityToEnrichment(isl_sensitivity, graph);
+
+  // Add factor sensitivity to sensitivity_analysis if available
+  if (sensitivity_analysis && isl_factor_sensitivity?.source === 'isl' && isl_factor_sensitivity.factors.length > 0) {
+    sensitivity_analysis.factors = isl_factor_sensitivity.factors.map((f) => ({
+      factor_id: f.factor_id,
+      sensitivity_score: f.sensitivity_score,
+      direction: f.direction,
+    }));
+    sensitivity_analysis.value_of_information = isl_factor_sensitivity.value_of_information.map((v) => ({
+      factor_id: v.factor_id,
+      voi: v.voi,
+    }));
+  }
+
+  // Determine factor sensitivity status - using new granular status values
+  let factor_sensitivity_status: 'available' | 'skipped_no_factor_values' | 'skipped_no_parameter_uncertainties' | 'failed' | undefined;
+  let factor_sensitivity_count: number | undefined;
+  if (detail_level === 'deep') {
+    if (isl_factor_sensitivity?.source === 'isl') {
+      factor_sensitivity_status = 'available';
+      factor_sensitivity_count = isl_factor_sensitivity.factors.length;
+    } else if (isl_factor_sensitivity?.source === 'unavailable') {
+      // Map old 'unavailable' to new granular status
+      factor_sensitivity_status = hasParameterUncertainties(graph) ? 'failed' : 'skipped_no_factor_values';
+    } else if (!hasParameterUncertainties(graph)) {
+      factor_sensitivity_status = 'skipped_no_factor_values';
+    }
+  }
+
+  return {
+    causal_validation: transformValidationToEnrichment(isl_validation),
+    sensitivity_analysis,
+    metadata: {
+      isl_enabled,
+      detail_level,
+      isl_latency_ms,
+      isl_degraded: isl_degraded || undefined,
+      endpoints_called: endpoints_called.length > 0 ? endpoints_called : undefined,
+      factor_sensitivity_status,
+      factor_sensitivity_count,
+      isl_factor_latency_ms: isl_factor_sensitivity?.latency_ms,
+    },
+  };
+}
 
 export interface RunRequest {
   graph: { nodes: any[]; edges: any[] };
@@ -68,12 +271,15 @@ export interface RunRequest {
   evidence?: Array<{ node_id: string; source: string; note?: string; weight?: number }>;
   targets?: string[];
   detail_level?: 'quick' | 'standard' | 'deep';
+  /** Goal node ID for per-option probability computation (Brief A) */
+  goal_node?: string;
+  /** Threshold for goal achievement (Brief A) */
+  goal_threshold?: number;
 }
 
 export async function registerRunRoute(app: FastifyInstance) {
   const { createValidator } = await import('../../middleware/input-validation.js');
-  const { principalFor, getCached, setCached, pruneExpired, markInflight, clearInflight } = await import('../../middleware/idempotency.js');
-  
+
   // HEAD /v1/run for UI probe - returns 405 with Allow header
   // UI expects non-404 to indicate route exists (200/401/403/405 all valid)
   app.head('/v1/run', async (_req, reply) => {
@@ -99,7 +305,9 @@ export async function registerRunRoute(app: FastifyInstance) {
           constraints: { type: 'object' },
           priors: { type: 'object' },
           evidence: { type: 'array' },
-          detail_level: { type: 'string', enum: ['quick', 'standard', 'deep'] },
+          detail_level: { type: 'string' },  // Validated at runtime for user-friendly errors
+          goal_node: { type: 'string' },     // Brief A: Goal node for option probability
+          goal_threshold: { type: 'number' }, // Brief A: Threshold for goal achievement
         },
         additionalProperties: true,
       },
@@ -128,52 +336,15 @@ export async function registerRunRoute(app: FastifyInstance) {
           throw err;  // Let global error handler format it
         }
       },
-      // Idempotency replay (before validation)
+      // P2: Migrate to canonical idempotency handlers (unified with run-bundle, optimise, intervene)
       async (req: FastifyRequest, reply: FastifyReply) => {
-        try { if (Math.random() < 0.01) pruneExpired(); } catch { /* ignore */ }
-        const idk = String((req.headers as any)['idempotency-key'] || (req.headers as any)['Idempotency-Key'] || '').trim();
-        if (!idk) return;
-        const principal = principalFor(req);
-        const hit = getCached(principal, idk);
-        if (hit) {
-          (req as any).__idempotent_replay = true;
-          try { reply.header('Idempotent-Replayed', '1'); } catch { /* ignore */ }
-          return reply.code(hit.status).type('application/json').send(hit.body);
-        }
-        markInflight(principal, idk);
-        // Mark for onSend storage
-        (req as any).__idempotent_replay = false;
-        (req as any).__idemp = { principal, idk };
-        try { reply.header('Idempotent-Replayed', '0'); } catch { /* ignore */ }
+        return canonicalIdempotencyPreHandler(req, reply, '/v1/run');
       },
       createValidator('run'),
     ],
     onSend: [
       async (req: FastifyRequest, reply: FastifyReply, payload: any) => {
-        try {
-          const marker = (req as any).__idemp;
-          if (!marker) return payload;
-          // Only store JSON bodies
-          let body: any = payload;
-          if (typeof payload === 'string') {
-            try { body = JSON.parse(payload); } catch { body = null; }
-          }
-          // P0: Always clear inflight (even for non-2xx)
-          const { clearInflight } = await import('../../middleware/idempotency.js');
-          clearInflight(marker.principal, marker.idk);
-          
-          // Only cache 2xx responses
-          if (body && typeof body === 'object') {
-            const status = reply.statusCode || 200;
-            if (status >= 200 && status < 300) {
-              setCached(marker.principal, marker.idk, status, body);
-              try { reply.header('Idempotent-Replayed', '0'); } catch { /* ignore */ }
-            }
-          }
-          return payload;
-        } catch {
-          return payload;
-        }
+        return canonicalIdempotencyOnSend(req, reply, payload);
       },
     ],
   }, async (req: FastifyRequest, reply: FastifyReply) => {
@@ -181,6 +352,49 @@ export async function registerRunRoute(app: FastifyInstance) {
     const computeStart = performance.now();
 
     const body = (req as any).body as RunRequest;
+
+    // === Diagnostic Log Point 1: Run Request Entry ===
+    // Captures what the UI sends before any transformation
+    try {
+      const rawGraph = body.graph ?? { nodes: [], edges: [] };
+      const graphSummary = {
+        node_count: rawGraph.nodes?.length ?? 0,
+        edge_count: rawGraph.edges?.length ?? 0,
+        node_kinds: Object.fromEntries(
+          Object.entries(
+            (rawGraph.nodes ?? []).reduce((acc: Record<string, number>, n: any) => {
+              const kind = n.kind ?? 'unknown';
+              acc[kind] = (acc[kind] ?? 0) + 1;
+              return acc;
+            }, {})
+          )
+        ),
+        edges_with_belief_exists_lt_1: (rawGraph.edges ?? []).filter(
+          (e: any) => (e.belief_exists ?? e.belief ?? 1) < 1
+        ).length,
+        edges_with_strength_std: (rawGraph.edges ?? []).filter(
+          (e: any) => e.strength_std !== undefined
+        ).length,
+        factors_with_observed_state: (rawGraph.nodes ?? []).filter(
+          (n: any) => n.kind === 'factor' && n.observed_state?.value !== undefined
+        ).length,
+      };
+
+      const entryLog = {
+        level: 'info',
+        time: Date.now(),
+        event: 'plot_run_request_received',
+        request_id: String(req.id),
+        outcome_node: body.outcome_node,
+        goal_node: body.goal_node,
+        options_received: (rawGraph.nodes ?? [])
+          .filter((n: any) => n.kind === 'option')
+          .map((n: any) => n.id),
+        graph_summary: graphSummary,
+        detail_level: body.detail_level ?? 'standard',
+      };
+      console.log(JSON.stringify(entryLog));
+    } catch { /* ignore logging errors */ }
     
     // Normalize targets: canonical targets field, fallback to legacy query.targets
     const _targets = body.targets ?? (body.query as any)?.targets ?? [];
@@ -251,12 +465,13 @@ export async function registerRunRoute(app: FastifyInstance) {
     
     // Validate constraints if present
     if (body.constraints) {
-      const nodeIds = new Set(graph.nodes.map((n: any) => n.id));
-      
+      // P1 fix: O(1) node lookup instead of O(n) per constraint
+      const nodeMap = new Map(graph.nodes.map((n: any) => [n.id, n]));
+
       // Validate bounds
       if (body.constraints.bounds) {
         for (const [nodeId, bounds] of Object.entries(body.constraints.bounds)) {
-          if (!nodeIds.has(nodeId)) {
+          if (!nodeMap.has(nodeId)) {
             req.log.info({ evt: 'constraints_violation', id: req.id, route: '/v1/run', reason: 'invalid_node_in_bounds', node: nodeId });
             return replyWithAppError(reply, {
               type: 'BAD_INPUT',
@@ -264,9 +479,9 @@ export async function registerRunRoute(app: FastifyInstance) {
               message: `Bounds constraint references non-existent node: ${nodeId}`,
             });
           }
-          
+
           // Check if any node values violate bounds (simplified check for now)
-          const node = graph.nodes.find((n: any) => n.id === nodeId);
+          const node = nodeMap.get(nodeId);
           if (node && typeof (node as any).value === 'number') {
             const val = (node as any).value;
             const b = bounds as any;
@@ -292,9 +507,10 @@ export async function registerRunRoute(app: FastifyInstance) {
       
       // Validate structure (forbid edges)
       if (body.constraints.structure?.forbid_edges) {
+        // P1 fix: O(E) edge set build + O(1) lookups instead of O(forbid × edges)
+        const edgeKeys = new Set(graph.edges.map((e: any) => `${e.from}→${e.to}`));
         for (const [from, to] of body.constraints.structure.forbid_edges) {
-          const forbiddenEdge = graph.edges.find((e: any) => e.from === from && e.to === to);
-          if (forbiddenEdge) {
+          if (edgeKeys.has(`${from}→${to}`)) {
             req.log.info({ evt: 'constraints_violation', id: req.id, route: '/v1/run', reason: 'forbidden_edge', from, to });
             return replyWithAppError(reply, {
               type: 'BAD_INPUT',
@@ -352,15 +568,52 @@ export async function registerRunRoute(app: FastifyInstance) {
     if (usePlaceholder) {
       return reply.send({
         schema: 'run.v1',
+        request_id: req.id,
         results: [],
+        model_card: {
+          seed: 0,
+          assumptions_summary: ['Placeholder mode - SCM-Lite disabled in production'],
+          backend: 'placeholder',
+        },
+        meta: {
+          placeholder: true,
+          reason: 'SCM_LITE disabled in production with PROD_SCM_LITE_PLACEHOLDER=1',
+        },
       });
     }
 
-    // Resolve detail_level and its configuration
+    /**
+     * detail_level Contract (Phase 1A)
+     *
+     * Controls ISL enrichment and compute budget:
+     *
+     * - 'quick': No ISL calls. Fastest response. K=16 samples.
+     *   Guaranteed fields: results, model_card, confidence, result.summary
+     *   enrichment: undefined
+     *
+     * - 'standard' (default): Calls ISL causal validation. Medium latency. K=32 samples.
+     *   Guaranteed fields: [quick fields] + enrichment.causal_validation
+     *   enrichment.metadata.detail_level = 'standard'
+     *
+     * - 'deep': Calls ISL validation + sensitivity. Highest latency. K=64 samples.
+     *   Guaranteed fields: [standard fields] + enrichment.sensitivity_analysis
+     *   enrichment.metadata.detail_level = 'deep'
+     *
+     * When ISL is disabled (ISL_ENABLE=0), enrichment is still present for
+     * standard/deep modes with metadata.isl_enabled=false.
+     */
+    const VALID_DETAIL_LEVELS = ['quick', 'standard', 'deep'] as const;
     const detail_level: DetailLevel = body.detail_level ?? 'standard';
+    if (!VALID_DETAIL_LEVELS.includes(detail_level as any)) {
+      return replyWithAppError(reply, {
+        type: 'BAD_INPUT',
+        statusCode: 400,
+        message: `Invalid detail_level '${body.detail_level}'. Must be one of: quick, standard, deep`,
+        fields: { field: 'detail_level' },
+      });
+    }
     const detailConfig = DETAIL_LEVEL_CONFIG[detail_level];
 
-    // ... (rest of the code remains the same)
     const {
       seed = 42,
       treatment_node = graph.nodes[0]?.id,
@@ -445,6 +698,7 @@ export async function registerRunRoute(app: FastifyInstance) {
     // Add graph normalization warnings (e.g., invalid node kind values) as OBSERVATION critiques
     for (const warning of graphWarnings) {
       critique.push({
+        code: CRITIQUE_CODES.INVALID_NODE_KIND,
         severity: 'OBSERVATION',
         semantic_severity: 'INFO',
         message: warning,
@@ -567,7 +821,7 @@ export async function registerRunRoute(app: FastifyInstance) {
       if (inferenceResult.meta?.unique_graphs) {
         // scmLevelMap reserved for future confidence calibration
         confidence = {
-          level: 'MEDIUM' as any,
+          level: 'MEDIUM',
           reason: `${inferenceEngine.name} (K=${k_samples}, unique_graphs=${inferenceResult.meta.unique_graphs})`,
           score: 0.6,
           factors: {
@@ -581,11 +835,7 @@ export async function registerRunRoute(app: FastifyInstance) {
     } catch (err: any) {
       const msg = String(err?.message || '');
       if (msg.includes('exceeds max nodes') || msg.includes('exceeds max edges')) {
-        // P0: Clear inflight key on early 400 exit
-        const marker = (req as any).__idemp;
-        if (marker) {
-          try { clearInflight(marker.principal, marker.idk); } catch { /* ignore */ }
-        }
+        // Inflight cleared by canonicalIdempotencyOnSend (runs on all responses including 400s)
         return replyWithAppError(reply, {
           type: 'BAD_INPUT',
           statusCode: 400,
@@ -693,24 +943,65 @@ export async function registerRunRoute(app: FastifyInstance) {
     // ISL calls are non-blocking and use graceful fallback on failure
     let isl_validation: PLoTValidationResult | undefined;
     let isl_sensitivity: PLoTSensitivityResult | undefined;
+    let isl_factor_sensitivity: PLoTFactorSensitivityResult | undefined;
     const islService = getISLService();
+    let isl_latency_ms: number | undefined;
 
     if (islService.isEnabled() && detail_level !== 'quick') {
+      const islStartTime = Date.now();
       try {
+        // Extract parameter uncertainties for factor sensitivity analysis
+        const parameterUncertainties = extractParameterUncertainties(graph);
+        const optionNodes = extractOptionNodes(graph);
+
         // Run ISL calls in parallel for efficiency
-        const [validationResult, sensitivityResult] = await Promise.allSettled([
+        // Note: Using analyseRobustness for combined edge + factor sensitivity (replaces old analyseSensitivity)
+        // The old /api/v1/causal/sensitivity/detailed endpoint is disabled in favor of /api/v1/robustness/analyze/v2
+        const [validationResult, robustnessResult] = await Promise.allSettled([
           islService.validateCausal(graph, treatment_node, outcome_node, String(req.id)),
-          detail_level === 'deep'
-            ? islService.analyseSensitivity(graph, treatment_node, outcome_node, String(req.id))
-            : Promise.resolve(undefined),
+          // Combined edge + factor sensitivity via /api/v1/robustness/analyze/v2
+          // This replaces both analyseSensitivity and analyseFactorSensitivity calls
+          islService.analyseRobustness(
+            graph,
+            outcome_node,
+            optionNodes,
+            String(req.id)
+          ),
         ]);
 
         if (validationResult.status === 'fulfilled' && validationResult.value) {
           isl_validation = validationResult.value;
         }
 
-        if (sensitivityResult.status === 'fulfilled' && sensitivityResult.value) {
-          isl_sensitivity = sensitivityResult.value;
+        // Handle robustness analysis result - maps to both sensitivity and factor sensitivity
+        if (robustnessResult.status === 'fulfilled' && robustnessResult.value) {
+          const robustness = robustnessResult.value;
+
+          // Map to legacy isl_sensitivity format for backward compatibility
+          if (robustness.edges.length > 0) {
+            isl_sensitivity = {
+              overall_robustness: robustness.overall_robustness,
+              sensitive_parameters: robustness.edges.map((e) => ({
+                parameter: e.edge_id,
+                sensitivity: e.elasticity,
+                impact_direction: e.interpretation.toLowerCase().includes('positive') ? 'positive' as const : 'negative' as const,
+              })),
+              recommendations: [],
+              source: robustness.source === 'isl' ? 'isl' : 'engine_fallback',
+            };
+          }
+
+          // Map to legacy isl_factor_sensitivity format for backward compatibility
+          if (robustness.factors.length > 0) {
+            isl_factor_sensitivity = {
+              factors: robustness.factors,
+              value_of_information: robustness.value_of_information,
+              robustness_label: robustness.overall_robustness,
+              robustness_score: robustness.robustness_score,
+              latency_ms: robustness.latency_ms,
+              source: robustness.source === 'isl' ? 'isl' : 'unavailable',
+            };
+          }
         }
       } catch (err) {
         // Log but don't fail the request - ISL errors are non-fatal
@@ -722,20 +1013,25 @@ export async function registerRunRoute(app: FastifyInstance) {
           }, 'ISL enrichment failed; continuing without ISL');
         } catch { /* ignore */ }
       }
+      isl_latency_ms = Date.now() - islStartTime;
     }
 
     if (detailConfig.run_critique && isl_validation) {
       try {
         if (isl_validation.status === 'cannot_identify') {
           (critique as any[]).push({
+            code: CRITIQUE_CODES.ISL_CANNOT_IDENTIFY,
             severity: 'BLOCKER',
+            semantic_severity: 'ERROR',
             source: 'isl' as const,
             message: 'ISL validation indicates the causal effect cannot be identified from the current graph.',
             suggested_action: isl_validation.explanation?.summary ?? 'Review graph structure and ISL issues before relying on this estimate.',
           });
         } else if (isl_validation.status === 'uncertain') {
           (critique as any[]).push({
+            code: CRITIQUE_CODES.ISL_UNCERTAIN,
             severity: 'IMPROVEMENT',
+            semantic_severity: 'WARNING',
             source: 'isl' as const,
             message: 'ISL validation reports partial identifiability; results may rely on stronger assumptions.',
             suggested_action: isl_validation.explanation?.summary,
@@ -745,7 +1041,9 @@ export async function registerRunRoute(app: FastifyInstance) {
         if (isl_validation.issues && isl_validation.issues.length > 0) {
           for (const issue of isl_validation.issues.slice(0, 3)) {
             (critique as any[]).push({
+              code: CRITIQUE_CODES.ISL_ISSUE,
               severity: 'IMPROVEMENT',
+              semantic_severity: 'WARNING',
               source: 'isl' as const,
               message: issue.description,
               suggested_action: issue.suggested_action,
@@ -758,13 +1056,38 @@ export async function registerRunRoute(app: FastifyInstance) {
     if (detailConfig.run_critique && isl_sensitivity && isl_sensitivity.overall_robustness === 'fragile') {
       try {
         (critique as any[]).push({
+          code: CRITIQUE_CODES.ISL_FRAGILE,
           severity: 'IMPROVEMENT',
+          semantic_severity: 'WARNING',
           source: 'isl' as const,
           message: 'ISL sensitivity analysis indicates fragile estimates; small input changes may materially shift outcomes.',
           suggested_action: isl_sensitivity.recommendations[0],
         });
       } catch { /* ignore */ }
     }
+
+    // === Diagnostic Log Point 4: Critique Generation ===
+    // Logs what critiques were generated including BLOCKER triggers
+    try {
+      const blockerCritiques = (critique as any[]).filter((c: any) => c.severity === 'BLOCKER');
+      const critiqueLog = {
+        level: 'info',
+        time: Date.now(),
+        event: 'plot_critique_generated',
+        request_id: String(req.id),
+        total_critiques: critique.length,
+        blocker_count: blockerCritiques.length,
+        has_blocker: blockerCritiques.length > 0,
+        blocker_codes: blockerCritiques.map((c: any) => c.code),
+        blocker_sources: blockerCritiques.map((c: any) => c.source),
+        improvement_count: (critique as any[]).filter((c: any) => c.severity === 'IMPROVEMENT').length,
+        observation_count: (critique as any[]).filter((c: any) => c.severity === 'OBSERVATION').length,
+        isl_validation_status: isl_validation?.status,
+        isl_sensitivity_robustness: isl_sensitivity?.overall_robustness,
+        identifiable: identifiability.identifiable,
+      };
+      console.log(JSON.stringify(critiqueLog));
+    } catch { /* ignore logging errors */ }
 
     // P1: Compute graph quality score
     // Only count edges with external evidence (exclude 'template' and 'assumption' - aligned with evidence-analysis)
@@ -812,7 +1135,7 @@ export async function registerRunRoute(app: FastifyInstance) {
       if (detailConfig.run_critique && evidence_freshness.buckets.STALE > 0) {
         try {
           (critique as any[]).push({
-            code: 'STALE_EVIDENCE',
+            code: CRITIQUE_CODES.EVIDENCE_STALE,
             source: 'engine' as const,
             message: 'Some evidence is stale (>= 365 days old); consider refreshing key inputs.',
             severity: 'IMPROVEMENT',
@@ -843,10 +1166,50 @@ export async function registerRunRoute(app: FastifyInstance) {
       top_driver_label: topDriverLabel,
     });
 
+    // Brief A: Per-option goal probabilities (flag-gated)
+    // Computes P(goal achieved | option) for each option node
+    let option_probabilities: Record<string, { goal_probability: number; confidence: number }> | undefined;
+    if (FLAGS.ENABLE_OPTION_PROBABILITIES && detail_level !== 'quick') {
+      const goalNode = detectGoalNode(graph as any, body.goal_node);
+      if (goalNode) {
+        const goalThreshold = detectGoalThreshold(graph as any, goalNode, body.goal_threshold, baseline_value);
+        option_probabilities = computeOptionProbabilities({
+          graph: graph as any,
+          goal_node: goalNode,
+          goal_threshold: goalThreshold,
+          seed,
+          k_samples: K_evaluated ?? budget.k,
+        });
+        // Only include if options were found
+        if (Object.keys(option_probabilities).length === 0) {
+          option_probabilities = undefined;
+        }
+      }
+    }
+
+    // P0: Build DriversPayload with explicit status handling
+    // Ensures drivers are never silently empty after a successful run
+    const driversPayloadRaw = buildDriversPayload(top_edge_drivers, true);
+
+    // P0: Build DiscriminationSignal from outcome bands
+    const discrimination = buildDiscriminationSignal(
+      results.conservative.outcome,
+      results.most_likely.outcome,
+      results.optimistic.outcome,
+      baseline_value
+    );
+
+    // Apply discrimination status to drivers (may downgrade 'ok' to 'low_discrimination')
+    const drivers_payload = applyDiscriminationToDrivers(driversPayloadRaw, discrimination);
+
     const base: any = {
       confidence,
       critique,
       ...(debug && { debug }),
+      // P0: Discrimination signal for low-variance outcomes
+      discrimination,
+      // P0: Structured drivers payload with explicit status handling
+      drivers_payload,
       explain_delta: {
         ...explain_delta,
         top_edge_drivers,
@@ -861,8 +1224,12 @@ export async function registerRunRoute(app: FastifyInstance) {
       ...(evidence_analysis && { evidence_analysis }),
       ...(sensitivity_full && { sensitivity_full }),
       ...(confidence_comparison && { confidence_comparison }),
+      ...(option_probabilities && { option_probabilities }),
       ...(isl_validation && { isl_validation }),
       ...(isl_sensitivity && { isl_sensitivity }),
+      ...(isl_factor_sensitivity && { isl_factor_sensitivity }),
+      // Phase 1A: Structured enrichment object for UI consumers
+      enrichment: buildEnrichment(islService, detail_level, isl_validation, isl_sensitivity, isl_factor_sensitivity, isl_latency_ms, graph),
       meta: {
         seed,
         commit: process.env.BUILD_ID || process.env.GITHUB_SHA || 'dev',
@@ -890,6 +1257,11 @@ export async function registerRunRoute(app: FastifyInstance) {
       },
       results,
       schema: 'run.v1',
+      // V2 Alignment: Status flags for UI gating
+      // V1 uses option nodes as graph nodes, not intervention bundles
+      option_comparison_status: 'unavailable_legacy_contract' as const,
+      robustness_status: isl_sensitivity?.source === 'isl' ? 'available' as const : 'unavailable' as const,
+      drivers_status: drivers_payload.status === 'ok' ? 'available' as const : 'unavailable' as const,
     };
     // Add BMA hash BEFORE stamping (must be included in response_hash)
     if (scm_bma_hash) {
@@ -910,8 +1282,12 @@ export async function registerRunRoute(app: FastifyInstance) {
 
     // Stamp response hash (handles circularity correctly)
     const stamped = stampResponseHash(base);
-    // trace_id: use client-provided X-Request-Id/X-Trace-Id or generate new
-    // Always enabled when TRACE_ID_PASSTHROUGH=1 or TRACE_MIN=1
+
+    // P0: request_id ALWAYS present in response body (matches X-Request-Id header)
+    // Uses Fastify's req.id which is either client-provided or auto-generated
+    stamped.request_id = req.id;
+
+    // Legacy trace_id: kept for backward compatibility, only when flags are set
     const clientTraceId = String(
       req.headers['x-request-id'] || req.headers['x-trace-id'] || ''
     ).trim();
@@ -924,7 +1300,7 @@ export async function registerRunRoute(app: FastifyInstance) {
 
     // CEE gate: {idk}:{flag}:{status}:{code}
     const idkHeader = String((req.headers as any)['idempotency-key'] || (req.headers as any)['Idempotency-Key'] || '').trim();
-    const ceeEnabled = isFlagOn(process.env.CEE_ORCHESTRATOR_ENABLE ?? process.env.CEE_ORCHESTRATOR_ENABLED);
+    const ceeEnabled = isFlagOn(process.env.CEE_ORCHESTRATOR_ENABLED ?? process.env.CEE_ORCHESTRATOR_ENABLE);
     const baseUrl = String(process.env.CEE_BASE_URL ?? '').trim();
     const apiKey = String(process.env.CEE_API_KEY ?? '').trim();
     const hasConfig = baseUrl.length > 0 && apiKey.length > 0;
@@ -959,46 +1335,88 @@ export async function registerRunRoute(app: FastifyInstance) {
       // Attempt CEE call
       recordCeeAttempted('/v1/run');
       try {
-        const cee = await callDecisionReviewFromEngine({
-          requestId: String(req.id),
-          context: {
-            response_hash: response.result?.response_hash,
-            seed,
-            inference_mode,
-            graph_summary: {
-              nodes: graph.nodes?.length ?? 0,
-              edges: graph.edges?.length ?? 0,
-            },
-          },
-          env: {
-            enable: ceeEnabled,
-            baseUrl,
-            apiKey,
-            timeoutMs: Number(process.env.CEE_TIMEOUT_MS ?? 10_000),
-          },
-          evidence: body.evidence,
-          enhanced: Boolean(isl_validation || isl_sensitivity),
-        });
+        // Build CEE environment and request per M1 CEE Orchestrator spec
+        const ceeEnv: OrchestratorEnv = {
+          baseUrl,
+          apiKey,
+          timeoutMs: Number(process.env.CEE_TIMEOUT_MS ?? 60_000),
+        };
 
-        // Determine status and code
-        if (cee.error) {
+        // Build top_edge_drivers from ISL sensitivity if available
+        // Use p.parameter as primary ID (matches ISL output format)
+        const topEdgeDrivers = isl_sensitivity?.sensitive_parameters?.slice(0, 5)?.map((p: any) => ({
+          id: p.parameter ?? p.parameter_id ?? p.edge_id ?? '',
+          sensitivity: p.sensitivity,
+        }));
+
+        // Build ISL robustness payload for CEE synthesis (optional)
+        // Only include if we have real ISL data with overall_robustness
+        // Guard against partial payloads: require overall_robustness to be present
+        const hasRealIslData = (isl_sensitivity?.source === 'isl' || isl_validation?.source === 'isl');
+        const hasRobustness = isl_sensitivity?.overall_robustness !== undefined;
+        const islRobustness = (hasRealIslData && hasRobustness) ? {
+          overall_robustness: isl_sensitivity!.overall_robustness,
+          validation_status: isl_validation?.status,
+          validation_confidence: isl_validation?.confidence,
+          sensitive_parameters: isl_sensitivity?.sensitive_parameters?.slice(0, 5)?.map((p: any) => ({
+            parameter: p.parameter ?? p.parameter_id ?? '',
+            sensitivity: p.sensitivity,
+            impact_direction: p.impact_direction ?? 'positive',
+          })),
+          recommendations: isl_sensitivity?.recommendations?.slice(0, 3),
+          issues: isl_validation?.issues?.slice(0, 3)?.map((i: any) => ({
+            type: i.type,
+            description: i.description,
+            suggested_action: i.suggested_action,
+          })),
+        } : undefined;
+
+        const ceeRequest: CeeReviewRequest = {
+          // Prefer body.scenario_id, fallback to response_hash (never random UUID)
+          scenario_id: (body as any).scenario_id ?? response.result?.response_hash ?? '',
+          // Send actual graph arrays, not counts
+          graph_snapshot: {
+            nodes: graph.nodes ?? [],
+            edges: graph.edges ?? [],
+          },
+          // Must be '2.2' per CEE contract
+          graph_schema_version: '2.2',
+          // Ensure quantiles object is always present with defaults
+          inference_results: {
+            quantiles: {
+              p10: results.conservative?.outcome ?? 0,
+              p50: results.most_likely?.outcome ?? 0,
+              p90: results.optimistic?.outcome ?? 0,
+            },
+            top_edge_drivers: topEdgeDrivers,
+            // ranked_actions not available in current response shape
+          },
+          // Must be 'selection' | 'prediction' | 'validation'
+          intent: ((body as any).intent as 'selection' | 'prediction' | 'validation') ?? 'selection',
+          market_context: (body as any).market_context,
+          // ISL robustness for CEE synthesis (optional)
+          isl_robustness: islRobustness as any,
+        };
+
+        const cee = await orchestrateCeeReview(ceeEnv, ceeRequest, String(req.id));
+
+        // Determine status and code (circuit breaker is handled internally by orchestrator)
+        if (cee.ceeError) {
           ceeStatus = 'degraded';
-          ceeCode = cee.error.code || 'unknown';
+          ceeCode = cee.ceeError.code || 'unknown';
           recordCeeDegraded('/v1/run', normalizeCeeCode(ceeCode));
-          recordCeeFailure(); // Circuit breaker: track failure
         } else {
           ceeStatus = 'ok';
           ceeCode = '';
           recordCeeOk('/v1/run');
-          recordCeeSuccess(); // Circuit breaker: reset on success
         }
 
         // Only attach CEE fields if they have actual data (not null)
-        if (cee.review !== null) {
-          (response as any).ceeReview = cee.review;
+        if (cee.ceeReview !== null) {
+          (response as any).ceeReview = cee.ceeReview;
 
           // Extract weight_suggestions from CEE review and add as critique items
-          const weightSuggestions = (cee.review as any)?.weight_suggestions;
+          const weightSuggestions = (cee.ceeReview as any)?.weight_suggestions;
           if (Array.isArray(weightSuggestions) && weightSuggestions.length > 0) {
             const weightCritiques = weightSuggestions.map((ws: any) => {
               // Use CEE's rationale if available, otherwise generate fallback message
@@ -1042,7 +1460,18 @@ export async function registerRunRoute(app: FastifyInstance) {
                 message += ' (auto-applied by CEE)';
               }
 
+              // Map CEE reason to critique code
+              const ceeReasonToCode: Record<string, string> = {
+                'uniform_weights': CRITIQUE_CODES.CEE_UNIFORM_WEIGHTS,
+                'weight_too_low': CRITIQUE_CODES.CEE_WEIGHT_ISSUE,
+                'weight_too_high': CRITIQUE_CODES.CEE_WEIGHT_ISSUE,
+                'near_zero': CRITIQUE_CODES.CEE_BELIEF_ISSUE,
+                'near_one': CRITIQUE_CODES.CEE_BELIEF_ISSUE,
+                'uniform_distribution': CRITIQUE_CODES.CEE_BELIEF_ISSUE,
+              };
+
               const critique: any = {
+                code: ceeReasonToCode[ws.reason] ?? CRITIQUE_CODES.CEE_WEIGHT_ISSUE,
                 severity: 'IMPROVEMENT' as const,
                 semantic_severity: 'WARNING' as const,
                 message,
@@ -1066,19 +1495,19 @@ export async function registerRunRoute(app: FastifyInstance) {
             }
           }
         }
-        if (cee.trace) {
-          (response as any).ceeTrace = cee.trace;
+        if (cee.ceeTrace) {
+          (response as any).ceeTrace = cee.ceeTrace;
           // P0: Add top-level CEE degraded indicator
-          (response as any).meta.cee_degraded = cee.trace.degraded ?? false;
+          (response as any).meta.cee_degraded = cee.ceeTrace.degraded ?? false;
         }
-        if (cee.error) {
-          (response as any).ceeError = cee.error;
+        if (cee.ceeError) {
+          (response as any).ceeError = cee.ceeError;
         }
       } catch (err: any) {
         ceeStatus = 'error';
         ceeCode = err?.code || 'client_error';
         recordCeeDegraded('/v1/run', normalizeCeeCode(ceeCode));
-        recordCeeFailure(); // Circuit breaker: track failure
+        // Note: Circuit breaker is handled internally by orchestrateCeeReview()
         // P0: Mark CEE as degraded on error
         (response as any).meta.cee_degraded = true;
 

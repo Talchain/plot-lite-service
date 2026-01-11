@@ -47,7 +47,7 @@
         },
         "level": {
           "type": "string",
-          "enum": ["HIGH", "MEDIUM", "LOW"]
+          "enum": ["high", "medium", "low"]
         },
         "factors": {
           "type": "object"

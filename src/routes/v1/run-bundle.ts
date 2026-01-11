@@ -8,6 +8,11 @@
  * - include_change_attribution: Explain why options differ from baseline
  * - baseline_index: Which delta is the baseline for comparison
  * - sort_by: Rank by p10, p50, or p90
+ *
+ * Phase 1 Decision Support:
+ * - ranking_mode: 'simple' (default) or 'utility'
+ * - primary_outcome: Auto-detected or explicit
+ * - utility_function: Required when ranking_mode='utility'
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { createHash } from 'crypto';
@@ -19,11 +24,27 @@ import { getInferenceEngine } from '../../inference/index.js';
 import { normalizeGraph } from '../../util/normalize.js';
 import type { DetailLevel } from '../../trust/types.js';
 import { DETAIL_LEVEL_CONFIG } from '../../trust/types.js';
-import { computeRankingConfidence } from '../../trust/ranking-confidence.js';
+import { computeRankingConfidence, isWinnerDominant } from '../../trust/ranking-confidence.js';
 import { buildChangeAttributionFromDelta } from '../../util/change-attribution.js';
 import { getTopNodeSensitivity } from '../../trust/sensitivity-node.js';
 import { computeSensitivityAll } from '../../lib/sensitivity-simple.js';
-import type { RankingSortKey, RankingSummary } from './types/run-bundle.types.js';
+import { detectPrimaryOutcome, shouldSuggestUtilityMode } from '../../services/ranking/outcome-detector.js';
+import { validateUtilityLocal } from '../../services/ranking/utility-validator.js';
+import { inferEdgeTypes } from '../../services/ranking/edge-type-inference.js';
+import type { EdgeTypeWarning } from '../../services/ranking/edge-type-inference.js';
+import type { RankingSortKey, RankingSummary, RankingMode, UtilityFunction, UtilitySuggestion, ResponseWarning, EdgeTypeInferenceSummary, ConstraintStatus, CoherenceWarning } from './types/run-bundle.types.js';
+import { processWithConcurrency } from '../../util/semaphore.js';
+import {
+  computeDeltasVsBaseline,
+  validateCoherence,
+  emptyConstraintStatus,
+  type RankableResult,
+} from '../../trust/result-coherence.js';
+import {
+  analyzeEdgeFunctionSensitivity,
+  shouldAnalyzeEdgeFunctionSensitivity,
+} from '../../engine/edge-function-sensitivity.js';
+import { MAX_NODES, MAX_EDGES, MAX_OPTIONS } from '../../constants/limits.js';
 
 interface GraphDelta {
   label: string;
@@ -45,11 +66,27 @@ interface RunBundleRequest {
   include_change_attribution?: boolean;
   baseline_index?: number;
   sort_by?: RankingSortKey;
+  // Phase 1: Decision Support Enhancement
+  ranking_mode?: RankingMode;
+  utility_function?: UtilityFunction;
+  primary_outcome?: string;
 }
 
-const MAX_NODES = 50;
-const MAX_EDGES = 200;
-const MAX_DELTAS = 10;
+// MAX_NODES, MAX_EDGES imported from constants/limits.ts
+const MAX_DELTAS = MAX_OPTIONS; // Alias for backwards compatibility
+
+// P0: Concurrency control for scenario processing
+// Limits parallel inference to prevent CPU spikes under load
+const rawConcurrency = parseInt(process.env.RUN_BUNDLE_MAX_CONCURRENCY || '4', 10);
+const RUN_BUNDLE_CONCURRENCY = Math.max(1, Math.min(MAX_DELTAS, Number.isNaN(rawConcurrency) ? 4 : rawConcurrency));
+
+if (process.env.RUN_BUNDLE_MAX_CONCURRENCY !== undefined) {
+  if (Number.isNaN(rawConcurrency)) {
+    console.warn(`[run-bundle] Invalid RUN_BUNDLE_MAX_CONCURRENCY="${process.env.RUN_BUNDLE_MAX_CONCURRENCY}", using default 4`);
+  } else if (rawConcurrency !== RUN_BUNDLE_CONCURRENCY) {
+    console.warn(`[run-bundle] RUN_BUNDLE_MAX_CONCURRENCY=${rawConcurrency} clamped to ${RUN_BUNDLE_CONCURRENCY} (valid range: 1-${MAX_DELTAS})`);
+  }
+}
 
 export async function registerRunBundleRoute(app: FastifyInstance) {
   app.post(
@@ -194,6 +231,19 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
     }
     const detailConfig = DETAIL_LEVEL_CONFIG[detail_level];
 
+    // Validate unique scenario labels (P1-5: Contract requirement for clarity)
+    const labels = body.deltas.map((d: { label?: string }) => d.label).filter((l): l is string => Boolean(l));
+    const labelSet = new Set(labels);
+    if (labelSet.size !== labels.length) {
+      const duplicates = labels.filter((label, i) => labels.indexOf(label) !== i);
+      return replyWithAppError(reply, {
+        type: 'BAD_INPUT',
+        statusCode: 400,
+        message: `Duplicate scenario labels detected: ${[...new Set(duplicates)].join(', ')}. All scenario labels must be unique.`,
+        fields: { field: 'deltas[].label' },
+      });
+    }
+
     // Pre-validate all graphs and build scenario list
     const scenarios: Array<{
       index: number;
@@ -201,6 +251,11 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
       graph: { nodes: any[]; edges: any[] };
       scenarioSeed: number;
     }> = [];
+
+    // Phase 2: Track edge type inference warnings across all scenarios
+    let edgeTypeExplicitCount = 0;
+    let edgeTypeInferredCount = 0;
+    const edgeTypeWarnings: EdgeTypeWarning[] = [];
 
     for (let i = 0; i < body.deltas.length; i++) {
       const delta = body.deltas[i];
@@ -238,7 +293,21 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
       }
 
       // Normalize graph (map confidence|probability→belief)
-      const graph = normalizeGraph(rawGraph, false);
+      const normalizedGraph = normalizeGraph(rawGraph, false);
+
+      // Phase 2: Apply edge type inference
+      const edgeInference = inferEdgeTypes(normalizedGraph.nodes, normalizedGraph.edges);
+      const graph = {
+        nodes: normalizedGraph.nodes,
+        edges: edgeInference.edges,
+      };
+
+      // Track inference stats (only from first scenario to avoid duplicates)
+      if (i === 0) {
+        edgeTypeExplicitCount = edgeInference.explicit_count;
+        edgeTypeInferredCount = edgeInference.inferred_count;
+        edgeTypeWarnings.push(...edgeInference.warnings);
+      }
 
       // Deterministic seed per scenario: base seed + index + 1
       const scenarioSeed = seed + i + 1;
@@ -251,16 +320,72 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
       });
     }
 
-    // Determine outcome node (defaults to last node in first scenario)
-    const outcome_node = body.outcome_node ??
-      scenarios[0]?.graph.nodes[scenarios[0].graph.nodes.length - 1]?.id;
+    // Phase 1: Determine ranking mode and validate utility function
+    const rankingMode: RankingMode = body.ranking_mode ?? 'simple';
+    let primaryOutcomeDetected = false;
+    let detectedOutcomeNodes: string[] = [];
+    let utilityModeExperimental = false;
+
+    // Validate utility function if utility mode requested
+    if (rankingMode === 'utility') {
+      if (!body.utility_function) {
+        return replyWithAppError(reply, {
+          type: 'BAD_INPUT',
+          statusCode: 400,
+          message: 'utility_function required when ranking_mode is "utility"',
+          fields: { field: 'utility_function' },
+        });
+      }
+
+      const utilityValidation = validateUtilityLocal(body.utility_function, body.base_graph.nodes);
+      if (!utilityValidation.valid) {
+        const firstError = utilityValidation.issues.find((i) => i.severity === 'error');
+        return replyWithAppError(reply, {
+          type: 'BAD_INPUT',
+          statusCode: 400,
+          message: firstError?.message ?? 'Invalid utility_function',
+          fields: { field: firstError?.field ?? 'utility_function' },
+        });
+      }
+
+      // P0: Mark utility mode as experimental - ranking currently falls back to sort_by
+      // Full utility-based ranking (weighted multi-outcome aggregation) is not yet implemented
+      utilityModeExperimental = true;
+    }
+
+    // Determine outcome node with enhanced detection
+    let outcome_node: string;
+    if (body.outcome_node) {
+      // Explicit outcome node provided
+      outcome_node = body.outcome_node;
+    } else if (body.primary_outcome) {
+      // Explicit primary outcome provided (Phase 1 parameter)
+      outcome_node = body.primary_outcome;
+    } else if (scenarios[0]) {
+      // Auto-detect primary outcome
+      const detection = detectPrimaryOutcome(scenarios[0].graph);
+      detectedOutcomeNodes = detection.outcome_nodes;
+
+      if (detection.detected && detection.node_id) {
+        outcome_node = detection.node_id;
+        primaryOutcomeDetected = true;
+      } else {
+        // Fallback to last node (backward compatibility)
+        outcome_node = scenarios[0].graph.nodes[scenarios[0].graph.nodes.length - 1]?.id;
+      }
+    } else {
+      outcome_node = '';
+    }
 
     // Get inference engine
     const inferenceEngine = getInferenceEngine('model_based');
 
-    // Run inference on all scenarios in parallel
-    const inferenceResults = await Promise.all(
-      scenarios.map(async (scenario) => {
+    // Run inference on all scenarios with concurrency control
+    // P0: Limits parallel inference to RUN_BUNDLE_MAX_CONCURRENCY (default: 4) to prevent CPU spikes
+    const inferenceResults = await processWithConcurrency(
+      scenarios,
+      RUN_BUNDLE_CONCURRENCY,
+      async (scenario) => {
         try {
           const result = await inferenceEngine.run(scenario.graph, {
             seed: scenario.scenarioSeed,
@@ -290,7 +415,7 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
             error: err instanceof Error ? err.message : String(err),
           };
         }
-      })
+      }
     );
 
     // Build results from inference
@@ -360,8 +485,9 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
     // === ENHANCED FEATURES ===
 
     // Parse enhancement options with defaults
-    const includeRanking = body.include_ranking !== false; // Default: true
-    const includeChangeAttribution = body.include_change_attribution === true; // Default: false
+    // IMPORTANT: These defaults are part of the API contract
+    const includeRanking = body.include_ranking !== false; // Default: true (opt-out)
+    const includeChangeAttribution = body.include_change_attribution === true; // Default: false (opt-in, computational cost)
     const baselineIndex = body.baseline_index ?? 0;
     const sortBy: RankingSortKey = body.sort_by ?? 'p50';
 
@@ -418,15 +544,16 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
     // Compute rankings
     let rankingSummary: RankingSummary | undefined;
     if (includeRanking) {
-      // Filter to valid results and sort by selected metric (descending = best first)
-      const validResults = results.filter((r: any) => r.summary !== null);
+      // Filter to valid results: must have summary AND no inference error
+      // Errored scenarios get fallback summaries but should not win rankings
+      const validResults = results.filter((r: any) => r.summary !== null && !r.error);
       const sortedResults = [...validResults].sort((a: any, b: any) => {
         return b.summary[sortBy] - a.summary[sortBy];
       });
 
-      // Assign ranks to all results
+      // Assign ranks to all results (errored scenarios get rank but can't win)
       for (const result of results) {
-        if (result.summary === null) {
+        if (result.summary === null || result.error) {
           result.rank = null;
           continue;
         }
@@ -438,8 +565,9 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
       // Build ranking summary
       const winner = sortedResults[0];
       const runnerUp = sortedResults[1];
+      // Exclude scenarios with no summary OR with inference errors
       const excludedLabels = results
-        .filter((r: any) => r.summary === null)
+        .filter((r: any) => r.summary === null || r.error)
         .map((r: any) => r.label);
 
       const margin = winner && runnerUp
@@ -458,10 +586,65 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
         ranking_confidence: computeRankingConfidence(sortedResults),
         ranked_count: validResults.length,
         excluded: excludedLabels,
+        winner_dominant: isWinnerDominant(sortedResults),
       };
     }
 
-    // === END ENHANCED FEATURES ===
+    // === PHASE 1 CRITICAL FIXES ===
+
+    // Task 1.7: Baseline identification
+    // Single source of truth: baseline_index (explicit from request, defaults to 0)
+    // baselineResult is already computed above at line ~492
+    const baselineLabel = baselineResult?.label ?? null;
+
+    // Task 1.7: Compute delta_vs_baseline for each result
+    if (baselineLabel) {
+      const deltasVsBaseline = computeDeltasVsBaseline(results as RankableResult[], baselineLabel);
+      for (const result of results) {
+        const delta = deltasVsBaseline.get(result.label);
+        if (delta) {
+          result.delta_vs_baseline = delta;
+        }
+      }
+    }
+
+    // Task 1.3: Constraint status (currently using empty status - constraints evaluated at validation stage)
+    // Future: integrate with node-level constraint tracking during inference
+    const constraintStatus: ConstraintStatus = emptyConstraintStatus();
+
+    // Task 1.6: Result coherence validation
+    const coherenceWarnings: CoherenceWarning[] = validateCoherence(
+      results as RankableResult[],
+      baselineLabel,
+      {
+        close_race_threshold: 0.02, // 2% margin
+        high_uncertainty_threshold: 0.5, // 50% spread/p50 ratio
+        baseline_value: body.baseline_value ?? 0,
+      }
+    );
+
+    // === END PHASE 1 CRITICAL FIXES ===
+
+    // Phase 3: Task 4.3 - Edge function sensitivity analysis
+    // Test if results are sensitive to edge function type choices
+    // Note: These warnings are returned in a separate field for schema clarity
+    const edgeFunctionWarnings: CoherenceWarning[] = [];
+    if (scenarios.length > 0 && outcome_node && shouldAnalyzeEdgeFunctionSensitivity(scenarios[0].graph)) {
+      const topResult = results.find((r: any) => r.rank === 1);
+      if (topResult?.summary?.p50) {
+        const sensitivityResult = analyzeEdgeFunctionSensitivity(
+          scenarios[0].graph,
+          outcome_node,
+          topResult.summary.p50,
+          {
+            top_n_edges: 3,
+            significance_threshold: 0.05,
+          }
+        );
+        // Store edge function warnings separately for cleaner client consumption
+        edgeFunctionWarnings.push(...sensitivityResult.warnings);
+      }
+    }
 
     const duration = Date.now() - start;
     req.log.info({ 
@@ -497,10 +680,89 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
     const fallbackCount = inferenceResults.filter((ir) => !ir.success).length;
     const allSucceeded = fallbackCount === 0;
 
+    // Phase 1: Build utility suggestion if applicable
+    let utilitySuggestion: UtilitySuggestion | undefined;
+    if (rankingMode === 'simple' && includeRanking) {
+      const suggestion = shouldSuggestUtilityMode(detectedOutcomeNodes);
+      if (suggestion.applicable) {
+        utilitySuggestion = {
+          message: suggestion.message,
+          applicable: true,
+          outcome_nodes: detectedOutcomeNodes,
+        };
+      }
+    }
+
+    // Phase 2: Build response warnings from edge type inference
+    const responseWarnings: ResponseWarning[] = [];
+
+    // P0: Add experimental utility mode warning
+    if (utilityModeExperimental) {
+      responseWarnings.push({
+        code: 'UTILITY_MODE_EXPERIMENTAL',
+        message: 'ranking_mode="utility" is experimental; ranking uses sort_by fallback (weighted multi-outcome aggregation not yet implemented)',
+        severity: 'warning',
+      });
+    }
+
+    if (edgeTypeInferredCount > 0) {
+      responseWarnings.push({
+        code: 'EDGE_TYPE_INFERRED',
+        message: `${edgeTypeInferredCount} edge(s) had types inferred from node kinds`,
+        affected_ids: edgeTypeWarnings.map((w) => w.edge_id),
+        severity: 'info',
+      });
+    }
+
+    // Phase 2: Build edge type inference summary
+    let edgeTypeInferenceSummary: EdgeTypeInferenceSummary | undefined;
+    if (edgeTypeExplicitCount > 0 || edgeTypeInferredCount > 0) {
+      edgeTypeInferenceSummary = {
+        explicit_count: edgeTypeExplicitCount,
+        inferred_count: edgeTypeInferredCount,
+        ...(edgeTypeInferredCount > 0 && {
+          inferred_edges: edgeTypeWarnings.map((w) => ({
+            edge_id: w.edge_id,
+            inferred_type: w.inferred_type,
+          })),
+        }),
+      };
+    }
+
+    // Log edge type inference for observability
+    if (edgeTypeInferredCount > 0) {
+      req.log.info({
+        evt: 'edge_type_inference',
+        id: req.id,
+        explicit_count: edgeTypeExplicitCount,
+        inferred_count: edgeTypeInferredCount,
+        inferred_edges: edgeTypeWarnings.map((w) => ({
+          edge_id: w.edge_id,
+          from_kind: scenarios[0]?.graph.nodes.find((n: any) => n.id === w.from)?.kind,
+          to_kind: scenarios[0]?.graph.nodes.find((n: any) => n.id === w.to)?.kind,
+          inferred_type: w.inferred_type,
+        })),
+      });
+    }
+
     const response: any = {
       schema: 'run_bundle.v1',
       results,
       ...(rankingSummary && { ranking_summary: rankingSummary }),
+      // Phase 1: Decision support metadata
+      ...(includeRanking && { ranking_mode_used: rankingMode }),
+      ...(includeRanking && outcome_node && { primary_outcome_used: outcome_node }),
+      ...(includeRanking && primaryOutcomeDetected && { primary_outcome_detected: true }),
+      ...(utilitySuggestion && { utility_suggestion: utilitySuggestion }),
+      // Phase 2: Edge type inference and warnings
+      ...(responseWarnings.length > 0 && { warnings: responseWarnings }),
+      ...(edgeTypeInferenceSummary && { edge_type_inference: edgeTypeInferenceSummary }),
+      // Phase 1 Critical Fixes: Constraint status (omit when empty), coherence warnings, baseline identification
+      ...((constraintStatus.violations.length > 0 || constraintStatus.active_constraints.length > 0) && { constraint_status: constraintStatus }),
+      ...(coherenceWarnings.length > 0 && { coherence_warnings: coherenceWarnings }),
+      // Phase 3: Edge function sensitivity warnings (separate from coherence for schema clarity)
+      ...(edgeFunctionWarnings.length > 0 && { edge_function_warnings: edgeFunctionWarnings }),
+      // baseline_label in meta only (single source of truth)
       model_card: {
         seed,
         detail_level,

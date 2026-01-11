@@ -28,6 +28,10 @@ services:
         value: "1"
       - key: RATE_LIMIT_RPM
         value: "60"
+      - key: BUILD_ID
+        fromEnvVar: RENDER_GIT_COMMIT
+      - key: CORS_ORIGINS
+        value: "https://staging--olumi.netlify.app,https://olumi.netlify.app,http://localhost:5173"
       # Add AUTH_TOKEN as secret in Render dashboard after connecting repo
 
   # Production: manual deploy only (safer)
@@ -56,4 +60,8 @@ services:
         value: "1"
       - key: RATE_LIMIT_RPM
         value: "60"
+      - key: BUILD_ID
+        fromEnvVar: RENDER_GIT_COMMIT
+      - key: CORS_ORIGINS
+        value: "https://olumi.netlify.app,https://staging--olumi.netlify.app"
       # Add AUTH_TOKEN as secret in Render dashboard after connecting repo

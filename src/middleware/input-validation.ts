@@ -74,10 +74,23 @@ const graphSchema = {
       items: {
         type: 'object',
         required: ['id', 'label'],
+        additionalProperties: true,  // Allow extra fields (value, stage, resolves_at, etc.)
         properties: {
           id: { type: 'string', maxLength: 100 },
           label: { type: 'string', maxLength: 200 },
           type: { type: 'string', maxLength: 50 },
+          // Decision Model Schema v2.2: Node classification
+          kind: { type: 'string', maxLength: 50 },
+          // Decision Model Schema v2.2: Observed state for factor nodes
+          observed_state: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              value: { type: 'number' },
+              baseline: { type: 'number' },
+              unit: { type: 'string', maxLength: 50 },
+            },
+          },
         },
       },
     },
@@ -95,6 +108,8 @@ const graphSchema = {
           weight: { type: 'number', minimum: -1000000, maximum: 1000000 },
           belief: { type: 'number', minimum: 0, maximum: 1 },
           provenance: { type: 'string', maxLength: 100 },
+          // EdgeV2.2: Explicit parametric uncertainty (must be > 0)
+          strength_std: { type: 'number', exclusiveMinimum: 0 },
         },
       },
     },
@@ -128,8 +143,11 @@ const runRequestSchema = {
       minItems: 1,
       uniqueItems: true,
     },
-    // P1: Detail level for compute budget and feature enablement
-    detail_level: { type: 'string', enum: ['quick', 'standard', 'deep'] },
+    // P1: Detail level for compute budget and feature enablement (validated at runtime for user-friendly errors)
+    detail_level: { type: 'string' },
+    // Brief A: Per-option goal probabilities
+    goal_node: { type: 'string', maxLength: 100 },
+    goal_threshold: { type: 'number', minimum: -1000000, maximum: 1000000 },
     // Legacy query.targets bridge (strict shape)
     query: {
       type: 'object',
@@ -427,7 +445,7 @@ export function createValidator(route: 'run' | 'counterfactual' | 'critique' | '
     switch (route) {
       case 'run':
         validator = validateRun;
-        allowedKeys = new Set(['graph','seed','k_samples','treatment_node','outcome_node','baseline_value','inputs','query','constraints','inference_mode','include_debug','priors','evidence','targets','detail_level']);
+        allowedKeys = new Set(['graph','seed','k_samples','treatment_node','outcome_node','baseline_value','inputs','query','constraints','inference_mode','include_debug','priors','evidence','targets','detail_level','goal_node','goal_threshold']);
         break;
       case 'counterfactual':
         validator = validateCounterfactual;

@@ -89,6 +89,9 @@ export function normaliseReport(report: unknown): unknown {
   delete normalised.debug;
   delete normalised.timing;
   delete normalised.duration_ms;
+
+  // Remove request_id at root level (varies per-request, not deterministic)
+  delete normalised.request_id;
   
   // Normalize critique to array
   if ('critique' in normalised) {

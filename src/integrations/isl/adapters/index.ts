@@ -5,3 +5,9 @@
 export { adaptValidationResponse, createFallbackValidation } from './validation.js';
 export { adaptSensitivityResponse, createFallbackSensitivity } from './sensitivity.js';
 export { adaptCounterfactualResponse, createFallbackCounterfactual } from './counterfactual.js';
+export { adaptFactorSensitivityResponse, createFallbackFactorSensitivity } from './factor-sensitivity.js';
+export {
+  adaptRobustnessAnalysisResponse,
+  createFallbackRobustnessAnalysis,
+  createLocalHeuristicResult,
+} from './robustness-analysis.js';

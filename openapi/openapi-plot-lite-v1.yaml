@@ -270,11 +270,31 @@ components:
         from: { type: string }
         to: { type: string }
         weight: { type: number }
-        belief: { type: number, minimum: 0, maximum: 1 }
+        belief: { type: number, minimum: 0, maximum: 1, description: 'EdgeV1: Legacy unified belief. Use belief_exists + belief_strength for EdgeV2.' }
+        belief_exists: { type: number, minimum: 0, maximum: 1, description: 'EdgeV2: Probability edge exists (structural uncertainty)' }
+        belief_strength: { type: number, minimum: 0, maximum: 1, description: 'EdgeV2: Confidence in weight precision' }
         rationale: { type: string }
         evidence:
           type: array
           items: { type: string }
+        edge_type:
+          type: string
+          enum: [structural, functional, probabilistic]
+          description: 'Edge semantic type for inference routing'
+        function_type:
+          type: string
+          enum: [linear, diminishing_returns, threshold, s_curve, noisy_or, noisy_and_not, logistic, mixed]
+          description: 'Edge function type for value transformation. mixed combines generative (noisy_or) and preventative (noisy_and_not) causes.'
+        function_params:
+          type: object
+          description: 'Parameters for edge function'
+          properties:
+            k: { type: number, description: 'Steepness for diminishing_returns/s_curve/logistic' }
+            threshold: { type: number, description: 'Activation threshold' }
+            midpoint: { type: number, description: 'S-curve midpoint' }
+            slope: { type: number, description: 'Threshold slope' }
+            leak: { type: number, minimum: 0, maximum: 1, description: 'Background probability for noisy_or (default: 0.01)' }
+            base_rate: { type: number, minimum: 0, maximum: 1, description: 'Base probability for noisy_and_not (required)' }
       required: [id, from, to, weight, belief]
     Comment:
       type: object

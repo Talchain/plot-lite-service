@@ -19,6 +19,60 @@
       "source": "engine"
     }
   ],
+  "discrimination": {
+    "metric": "quantile_spread",
+    "status": "ok",
+    "threshold": 0.05,
+    "value": 0.1
+  },
+  "drivers_payload": {
+    "drivers": [
+      {
+        "direction": "positive",
+        "id": "process::approved::2",
+        "impact": 0,
+        "kind": "edge",
+        "label": "process → approved",
+        "sensitivity_score": 0
+      },
+      {
+        "direction": "positive",
+        "id": "process::rejected::3",
+        "impact": 0,
+        "kind": "edge",
+        "label": "process → rejected",
+        "sensitivity_score": 0
+      },
+      {
+        "direction": "positive",
+        "id": "process::review::4",
+        "impact": 0,
+        "kind": "edge",
+        "label": "process → review",
+        "sensitivity_score": 0
+      }
+    ],
+    "informative": false,
+    "remediation_actions": [
+      {
+        "code": "refine_edge_weights",
+        "label": "Adjust edge weights to reflect different strengths"
+      },
+      {
+        "code": "add_evidence",
+        "label": "Add evidence to differentiate edge impacts"
+      }
+    ],
+    "status": "low_discrimination",
+    "status_reason": "Edge sensitivities are similar - outcomes may not differentiate well between options"
+  },
+  "drivers_status": "unavailable",
+  "enrichment": {
+    "metadata": {
+      "detail_level": "standard",
+      "isl_enabled": false
+    }
+  },
   "evidence_analysis": {
     "assumption_edges": [
       "process::approved::2",
@@ -78,6 +132,7 @@
         "provenance": "template",
         "rank": 1,
         "score": 0,
+        "sensitivity": 0,
         "to": "approved",
         "weight": 0
       },
@@ -89,6 +144,7 @@
         "provenance": "template",
         "rank": 2,
         "score": 0,
+        "sensitivity": 0,
         "to": "rejected",
         "weight": 0
       },
@@ -100,6 +156,7 @@
         "provenance": "template",
         "rank": 3,
         "score": 0,
+        "sensitivity": 0,
         "to": "review",
         "weight": 0
       }
@@ -240,6 +297,7 @@
     },
     "seed": 42
   },
+  "option_comparison_status": "unavailable_legacy_contract",
   "result": {
     "response_hash": "de96956c7db88a130173bed6c9b72f8bf680b91df451c80087f588b3961bf7ba",
     "summary": {
@@ -259,6 +317,7 @@
       "outcome": 105
     }
   },
+  "robustness_status": "unavailable",
   "schema": "run.v1",
   "sensitivity_summary": {
     "concentration": "diffuse",

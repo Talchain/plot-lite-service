@@ -6,6 +6,8 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { recordAuditEvent } from '../../governance/audit-ring.js';
 import { createHash } from 'crypto';
 import { replyWithAppError } from '../../errors.js';
+import { processWithConcurrency } from '../../util/semaphore.js';
+import { MAX_NODES, MAX_EDGES, MAX_OPTIONS } from '../../constants/limits.js';
 
 interface BatchItem {
   graph: { nodes: any[]; edges: any[] };
@@ -17,9 +19,9 @@ interface BatchRequest {
   items: BatchItem[];
 }
 
-const MAX_BATCH_ITEMS = 10;
-const MAX_NODES_PER_ITEM = 50;
-const MAX_EDGES_PER_ITEM = 100;
+const MAX_BATCH_ITEMS = MAX_OPTIONS; // Batch items limited to same as options
+const MAX_NODES_PER_ITEM = MAX_NODES;
+const MAX_EDGES_PER_ITEM = MAX_EDGES;
 
 // P2: Concurrency control for batch processing
 // Clamp to safe range [1, MAX_BATCH_ITEMS] and warn on invalid/capped values
@@ -34,61 +36,7 @@ if (process.env.BATCH_CONCURRENCY !== undefined) {
   }
 }
 
-/**
- * Simple semaphore for controlling concurrent operations
- */
-class Semaphore {
-  private permits: number;
-  private waiting: Array<() => void> = [];
-
-  constructor(permits: number) {
-    this.permits = permits;
-  }
-
-  async acquire(): Promise<void> {
-    if (this.permits > 0) {
-      this.permits--;
-      return;
-    }
-    return new Promise<void>((resolve) => {
-      this.waiting.push(resolve);
-    });
-  }
-
-  release(): void {
-    if (this.waiting.length > 0) {
-      const next = this.waiting.shift();
-      next?.();
-    } else {
-      this.permits++;
-    }
-  }
-}
-
-/**
- * Process batch items with controlled concurrency
- */
-async function processBatchWithConcurrency<T, R>(
-  items: T[],
-  concurrency: number,
-  processor: (item: T, index: number) => Promise<R>
-): Promise<R[]> {
-  const semaphore = new Semaphore(concurrency);
-  const results: R[] = new Array(items.length);
-
-  await Promise.all(
-    items.map(async (item, index) => {
-      await semaphore.acquire();
-      try {
-        results[index] = await processor(item, index);
-      } finally {
-        semaphore.release();
-      }
-    })
-  );
-
-  return results;
-}
+// Semaphore and concurrency processing moved to ../../util/semaphore.js
 
 export async function registerRunBatchRoute(app: FastifyInstance) {
   app.post('/v1/run_batch', async (req: FastifyRequest, reply: FastifyReply) => {
@@ -165,7 +113,7 @@ export async function registerRunBatchRoute(app: FastifyInstance) {
     }
     
     // P2: Process items with controlled concurrency for better throughput
-    const results = await processBatchWithConcurrency(
+    const results = await processWithConcurrency(
       body.items,
       BATCH_CONCURRENCY,
       async (item, idx) => {

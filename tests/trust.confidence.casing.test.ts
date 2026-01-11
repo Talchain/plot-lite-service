@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { calculateConfidence } from '../src/trust/confidence.js';
 
 describe('Confidence Level Casing Invariant', () => {
-  it('emits UPPERCASE confidence.level only', () => {
+  it('emits uppercase confidence.level only', () => {
     // Deterministic, seeded inputs
     const out = calculateConfidence({
       graph: {
@@ -18,15 +18,15 @@ describe('Confidence Level Casing Invariant', () => {
       calibrated: false,
     });
 
-    // Must be one of UPPERCASE values
+    // Must be one of uppercase values (UI contract)
     expect(['HIGH', 'MEDIUM', 'LOW']).toContain(out.level);
-    
+
     // Must be equal to its uppercase version (i.e., already uppercase)
     expect(out.level).toBe(out.level.toUpperCase());
   });
 
   it('covers all confidence levels with varied inputs', () => {
-    // Test HIGH confidence
+    // Test high confidence
     const high = calculateConfidence({
       graph: {
         nodes: Array.from({ length: 5 }, (_, i) => ({ id: `node${i}`, type: 'decision' })),
@@ -40,7 +40,7 @@ describe('Confidence Level Casing Invariant', () => {
     expect(high.level).toBe('HIGH');
     expect(high.level).toBe(high.level.toUpperCase());
 
-    // Test MEDIUM confidence
+    // Test medium confidence
     const medium = calculateConfidence({
       graph: {
         nodes: [{ id: 'a', type: 'decision' }, { id: 'b', type: 'outcome' }],
@@ -54,7 +54,7 @@ describe('Confidence Level Casing Invariant', () => {
     expect(['HIGH', 'MEDIUM']).toContain(medium.level);
     expect(medium.level).toBe(medium.level.toUpperCase());
 
-    // Test LOW confidence
+    // Test low confidence
     const low = calculateConfidence({
       graph: {
         nodes: [{ id: 'x', type: 'decision' }],
