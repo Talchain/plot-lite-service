@@ -46,6 +46,7 @@ export interface UpstreamNode {
   label?: string;
   description?: string;
   body?: string; // Legacy field for description
+  intercept?: number | null;
   observed_state?: {
     value?: number;
     baseline?: number;
@@ -55,6 +56,7 @@ export interface UpstreamNode {
     // React Flow nesting
     kind?: string;
     type?: string;
+    intercept?: number | null;
     value?: number;
     baseline?: number;
     unit?: string;
@@ -116,6 +118,8 @@ export interface EngineNodeV3 {
   label: string;
   /** Optional description */
   description?: string;
+  /** Constant term (β₀) in structural equation. Omitted treated as 0.0 */
+  intercept?: number;
   /** Observed state for factor nodes */
   observed_state?: {
     value: number;

@@ -82,6 +82,7 @@ describe('ISL Translator V3', () => {
         kind: 'factor',
         label: 'Factor A',
         observed_state: { value: 50 },
+        intercept: 0.0,
       });
 
       // Check edges - uses ISL V3 format with strength object
@@ -93,6 +94,29 @@ describe('ISL Translator V3', () => {
         exists_probability: 0.8, // Preserves actual value from input
         strength: { mean: 0.5, std: 0.1 },
       });
+    });
+
+    it('includes intercept for all nodes (default 0.0)', () => {
+      const graphWithIntercept: EngineGraphV3 = {
+        nodes: [
+          { id: 'fac_price', kind: 'factor', label: 'Price', intercept: 0.0 },
+          { id: 'out_revenue', kind: 'outcome', label: 'Revenue', intercept: 500.0 },
+          { id: 'goal', kind: 'goal', label: 'Goal' },
+        ],
+        edges: [
+          { from: 'fac_price', to: 'out_revenue', exists_probability: 1.0, strength: { mean: 0.5, std: 0.1 } },
+          { from: 'out_revenue', to: 'goal', exists_probability: 1.0, strength: { mean: 0.8, std: 0.1 } },
+        ],
+      };
+
+      const result = toISLRobustnessRequest(graphWithIntercept, options, 'goal', 'req-123', 1000);
+      const fac = result.graph.nodes.find((n) => n.id === 'fac_price');
+      const out = result.graph.nodes.find((n) => n.id === 'out_revenue');
+      const goal = result.graph.nodes.find((n) => n.id === 'goal');
+
+      expect(fac?.intercept).toBe(0.0);
+      expect(out?.intercept).toBe(500.0);
+      expect(goal?.intercept).toBe(0.0);
     });
 
     it('transforms options correctly', () => {
@@ -154,7 +178,7 @@ describe('ISL Translator V3', () => {
         goal_node_id: 'nonexistent',
         request_id: 'req-123',
         n_samples: 1000,
-        analysis_types: ['comparison'] as const[],
+        analysis_types: ['comparison'] as Array<'comparison' | 'sensitivity' | 'robustness'>,
       };
 
       const errors = validateISLRequest(request as any);
@@ -170,6 +194,7 @@ describe('ISL Translator V3', () => {
         goal_node_id: 'goal',
         request_id: 'req-123',
         n_samples: 1000,
+        analysis_types: ['comparison'] as Array<'comparison' | 'sensitivity' | 'robustness'>,
       };
 
       const errors = validateISLRequest(request);
@@ -184,6 +209,7 @@ describe('ISL Translator V3', () => {
         goal_node_id: 'goal',
         request_id: 'req-123',
         n_samples: 1000,
+        analysis_types: ['comparison'] as Array<'comparison' | 'sensitivity' | 'robustness'>,
       };
 
       const errors = validateISLRequest(request);
@@ -198,6 +224,7 @@ describe('ISL Translator V3', () => {
         goal_node_id: 'goal',
         request_id: 'req-123',
         n_samples: 1000,
+        analysis_types: ['comparison'] as Array<'comparison' | 'sensitivity' | 'robustness'>,
       };
 
       const errors = validateISLRequest(request);

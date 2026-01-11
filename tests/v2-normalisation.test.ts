@@ -103,6 +103,48 @@ describe('Graph Normalisation', () => {
 
       expect(node.description).toBe('This is a legacy description');
     });
+
+    it('accepts intercept as a finite number', () => {
+      const node = normaliseNode({
+        id: 'out_revenue',
+        kind: 'outcome',
+        intercept: 1000,
+      } as any);
+
+      expect(node.intercept).toBe(1000);
+    });
+
+    it('accepts intercept from React Flow data nesting', () => {
+      const node = normaliseNode({
+        id: 'out_revenue',
+        kind: 'outcome',
+        data: { intercept: 500 },
+      } as any);
+
+      expect(node.intercept).toBe(500);
+    });
+
+    it('rejects null intercept', () => {
+      expect(() => normaliseNode({
+        id: 'out_revenue',
+        kind: 'outcome',
+        intercept: null,
+      } as any)).toThrow(NormalisationError);
+    });
+
+    it('rejects non-finite intercept', () => {
+      expect(() => normaliseNode({
+        id: 'out_revenue',
+        kind: 'outcome',
+        intercept: Infinity,
+      } as any)).toThrow(NormalisationError);
+
+      expect(() => normaliseNode({
+        id: 'out_revenue',
+        kind: 'outcome',
+        intercept: NaN,
+      } as any)).toThrow(NormalisationError);
+    });
   });
 
   describe('normaliseEdge', () => {

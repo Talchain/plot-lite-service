@@ -31,6 +31,7 @@ export interface ISLNodeV3 {
     baseline?: number;
     unit?: string;
   };
+  intercept?: number;
 }
 
 /**
@@ -95,6 +96,7 @@ export function toISLNode(node: EngineNodeV3): ISLNodeV3 {
     kind: node.kind,
     label: node.label,
     observed_state: node.observed_state,
+    intercept: node.intercept ?? 0.0,
   };
 }
 

@@ -104,6 +104,32 @@ export function normaliseNode(node: UpstreamNode): EngineNodeV3 {
   // Extract observed_state from various locations
   let observedState: EngineNodeV3['observed_state'] | undefined;
 
+  // Extract and validate intercept from various locations
+  // Contract: optional; if present must be a finite number; null is rejected.
+  let rawIntercept: unknown = undefined;
+  if (Object.prototype.hasOwnProperty.call(node, 'intercept')) {
+    rawIntercept = (node as any).intercept;
+  } else if (node.data && Object.prototype.hasOwnProperty.call(node.data, 'intercept')) {
+    rawIntercept = (node.data as any).intercept;
+  }
+
+  if (rawIntercept === null) {
+    throw new NormalisationError(
+      `Node '${node.id}': intercept cannot be null (omit field instead)`,
+      'intercept',
+      node.id
+    );
+  }
+  if (rawIntercept !== undefined) {
+    if (typeof rawIntercept !== 'number' || !Number.isFinite(rawIntercept)) {
+      throw new NormalisationError(
+        `Node '${node.id}': intercept must be a finite number`,
+        'intercept',
+        node.id
+      );
+    }
+  }
+
   if (node.observed_state?.value !== undefined) {
     observedState = {
       value: node.observed_state.value,
@@ -123,6 +149,7 @@ export function normaliseNode(node: UpstreamNode): EngineNodeV3 {
     kind,
     label: node.label ?? node.id,
     description: node.description ?? node.body,
+    intercept: rawIntercept === undefined ? undefined : (rawIntercept as number),
     observed_state: observedState,
   };
 }
