@@ -236,13 +236,19 @@ export function normaliseEdge(
   );
 
   // 3. Resolve strength
+  // Accept BOTH nested (strength.mean/std) AND flat (strength_mean/std) formats
+  // This enables compatibility with CEE V3 which outputs flat fields
   let mean: number;
   let std: number;
 
-  if (edge.strength?.mean !== undefined) {
-    // Explicit strength object - use mean directly (already signed)
-    mean = edge.strength.mean;
-    std = edge.strength.std ?? deriveStd(mean, existsProbability);
+  // Check for explicit strength: nested object OR flat fields
+  const hasNestedStrength = edge.strength?.mean !== undefined;
+  const hasFlatStrength = (edge as any).strength_mean !== undefined;
+
+  if (hasNestedStrength || hasFlatStrength) {
+    // Explicit strength provided - use it directly (already signed)
+    mean = edge.strength?.mean ?? (edge as any).strength_mean;
+    std = edge.strength?.std ?? (edge as any).strength_std ?? deriveStd(mean, existsProbability);
   } else {
     // Derive from weight and direction
     const weight = edge.weight ?? DEFAULT_WEIGHT;

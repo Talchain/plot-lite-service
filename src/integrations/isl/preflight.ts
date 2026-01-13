@@ -16,26 +16,29 @@ import type { ISLParameterUncertainty } from './types/isl-types.js';
  * Edge sensitivity requires:
  * - exists_probability (0 < p < 1) for existence sensitivity, OR
  * - strength.std > 0 (or belief_strength < 1) for magnitude sensitivity
+ *
+ * Supports both nested (strength.std) and flat (strength_std) field formats
+ * for compatibility with CEE V3 which outputs flat fields.
  */
-function edgeHasUncertainty(edge: GraphEdge): boolean {
-  // Check for explicit exists_probability
-  const hasExistenceUncertainty =
-    edge.belief_exists !== undefined &&
-    edge.belief_exists > 0 &&
-    edge.belief_exists < 1;
+export function edgeHasUncertainty(edge: GraphEdge): boolean {
+  // Cast to any to access properties from multiple edge formats
+  // Preflight may receive upstream (GraphEdge) or normalized (EngineEdgeV3) edges
+  const e = edge as any;
 
-  // Check for strength uncertainty (EdgeV2.2 strength_std or EdgeV2 belief_strength)
+  // Check for existence uncertainty - support multiple field names
+  // exists_probability (normalized EngineEdgeV3), belief_exists (upstream EdgeV2), belief (legacy EdgeV1)
+  const existsProb = e.exists_probability ?? e.belief_exists ?? e.belief ?? 1.0;
+  const hasExistenceUncertainty = existsProb > 0 && existsProb < 1;
+
+  // Check for strength uncertainty - support nested AND flat formats
+  // Nested: edge.strength.std (normalized EngineEdgeV3 format)
+  // Flat: edge.strength_std (CEE V3 / EdgeV2.2 format)
+  const strengthStd = e.strength?.std ?? e.strength_std ?? 0;
   const hasStrengthUncertainty =
-    (edge.strength_std !== undefined && edge.strength_std > 0) ||
-    (edge.belief_strength !== undefined && edge.belief_strength < 1);
+    strengthStd > 0 ||
+    (e.belief_strength !== undefined && e.belief_strength < 1);
 
-  // Legacy belief field as fallback
-  const hasLegacyUncertainty =
-    edge.belief !== undefined &&
-    edge.belief > 0 &&
-    edge.belief < 1;
-
-  return hasExistenceUncertainty || hasStrengthUncertainty || hasLegacyUncertainty;
+  return hasExistenceUncertainty || hasStrengthUncertainty;
 }
 
 /**

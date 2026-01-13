@@ -270,6 +270,56 @@ describe('Graph Normalisation', () => {
 
       expect(lowConfEdge.strength.std).toBeGreaterThan(edge.strength.std);
     });
+
+    // CEE V3 flat field format support
+    it('accepts flat strength_mean and strength_std fields (CEE V3 format)', () => {
+      const edge = normaliseEdge({
+        from: 'a',
+        to: 'b',
+        strength_mean: 0.6,
+        strength_std: 0.15,
+        belief_exists: 0.8,
+      } as any, 0);
+
+      expect(edge.strength.mean).toBe(0.6);
+      expect(edge.strength.std).toBe(0.15);
+    });
+
+    it('uses flat strength_mean with derived std when strength_std missing', () => {
+      const edge = normaliseEdge({
+        from: 'a',
+        to: 'b',
+        strength_mean: 0.7,
+        belief_exists: 0.9,
+      } as any, 0);
+
+      expect(edge.strength.mean).toBe(0.7);
+      expect(edge.strength.std).toBeGreaterThan(0); // derived from exists_probability
+    });
+
+    it('prefers nested strength over flat fields', () => {
+      const edge = normaliseEdge({
+        from: 'a',
+        to: 'b',
+        strength: { mean: 0.8, std: 0.2 },
+        strength_mean: 0.5, // should be ignored
+        strength_std: 0.1,  // should be ignored
+      } as any, 0);
+
+      expect(edge.strength.mean).toBe(0.8);
+      expect(edge.strength.std).toBe(0.2);
+    });
+
+    it('still accepts nested strength object (backward compatibility)', () => {
+      const edge = normaliseEdge({
+        from: 'a',
+        to: 'b',
+        strength: { mean: 0.9, std: 0.05 },
+      }, 0);
+
+      expect(edge.strength.mean).toBe(0.9);
+      expect(edge.strength.std).toBe(0.05);
+    });
   });
 
   describe('normaliseGraph', () => {
