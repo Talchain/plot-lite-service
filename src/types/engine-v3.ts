@@ -596,6 +596,8 @@ export interface EdgeSensitivityResultV3 {
 export interface FactorSensitivityResultV3 {
   factor_id: string;
   sensitivity_score: number;
+  /** Normalized importance score bounded to [0, 1] for UI display */
+  importance_score: number;
   value_of_information: number;
   direction?: 'positive' | 'negative' | 'mixed';
 }

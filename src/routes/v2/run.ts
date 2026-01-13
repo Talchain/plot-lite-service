@@ -100,12 +100,18 @@ function transformEdgeSensitivity(islSensitivity: unknown): EdgeSensitivityResul
 /**
  * Transform ISL factor sensitivity array to response format.
  * Returns undefined if input is not a non-empty array.
+ *
+ * Adds bounded importance_score for UI compatibility:
+ * - Raw sensitivity values from ISL can be unbounded
+ * - importance_score is normalized to [0, 1] using: min(1, |sensitivity| / 2)
  */
 function transformFactorSensitivity(islFactorSensitivity: unknown): FactorSensitivityResultV3[] | undefined {
   if (!hasNonEmptyArray(islFactorSensitivity)) return undefined;
   return (islFactorSensitivity as any[]).map((f: any) => ({
     factor_id: f.node_id,
     sensitivity_score: f.sensitivity,
+    // Bounded importance score for UI: normalizes unbounded sensitivity to [0, 1]
+    importance_score: Math.min(1, Math.abs(f.sensitivity ?? 0) / 2),
     value_of_information: f.value_of_information,
     direction: f.direction as 'positive' | 'negative' | 'mixed' | undefined,
   }));
@@ -1290,6 +1296,19 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           nSamples,
           goalThreshold
         );
+
+        // Diagnostic logging: ISL request configuration for debugging sensitivity issues
+        // Log at debug level to avoid production log volume; enable via LOG_LEVEL=debug
+        req.log.debug({
+          event: 'isl_request_config',
+          request_id: requestId,
+          analysis_types: islRequest.analysis_types,
+          parameter_uncertainties_count: islRequest.parameter_uncertainties?.length ?? 0,
+          parameter_uncertainties_node_ids: islRequest.parameter_uncertainties?.map((p) => p.node_id) ?? [],
+          edges_count: islRequest.graph.edges.length,
+          // Track edges with existence uncertainty (exists_probability < 1)
+          edges_with_existence_uncertainty: islRequest.graph.edges.filter((e) => e.exists_probability < 1).length,
+        });
 
         // Validate ISL request (should never fail after preflight, but defensive)
         const islValidationErrors = validateISLRequest(islRequest);

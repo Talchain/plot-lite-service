@@ -451,3 +451,61 @@ describe('Graph Normalisation', () => {
     });
   });
 });
+
+/**
+ * Tests for importance_score normalization formula
+ * importance_score = min(1, |sensitivity| / 2)
+ *
+ * This formula normalizes unbounded sensitivity values to [0, 1] range for UI.
+ */
+describe('importance_score Normalization', () => {
+  // Test the normalization formula directly since transformFactorSensitivity is internal
+  const normalizeImportanceScore = (sensitivity: number | undefined): number =>
+    Math.min(1, Math.abs(sensitivity ?? 0) / 2);
+
+  describe('bounded output range', () => {
+    it('returns 0 for null/undefined sensitivity', () => {
+      expect(normalizeImportanceScore(undefined)).toBe(0);
+      expect(normalizeImportanceScore(0)).toBe(0);
+    });
+
+    it('returns 0.25 for sensitivity 0.5', () => {
+      expect(normalizeImportanceScore(0.5)).toBe(0.25);
+    });
+
+    it('returns 0.5 for sensitivity 1.0', () => {
+      expect(normalizeImportanceScore(1.0)).toBe(0.5);
+    });
+
+    it('returns 1.0 for sensitivity 2.0 (caps at 1)', () => {
+      expect(normalizeImportanceScore(2.0)).toBe(1.0);
+    });
+
+    it('returns 1.0 for sensitivity > 2.0 (capped)', () => {
+      expect(normalizeImportanceScore(5.0)).toBe(1.0);
+      expect(normalizeImportanceScore(100.0)).toBe(1.0);
+    });
+  });
+
+  describe('handles negative sensitivity values', () => {
+    it('uses absolute value for negative sensitivity', () => {
+      expect(normalizeImportanceScore(-0.5)).toBe(0.25);
+      expect(normalizeImportanceScore(-1.0)).toBe(0.5);
+      expect(normalizeImportanceScore(-2.0)).toBe(1.0);
+    });
+  });
+
+  describe('typical ISL sensitivity ranges', () => {
+    it('maps typical sensitivity 0.8 to importance 0.4', () => {
+      expect(normalizeImportanceScore(0.8)).toBe(0.4);
+    });
+
+    it('maps typical sensitivity 0.3 to importance 0.15', () => {
+      expect(normalizeImportanceScore(0.3)).toBe(0.15);
+    });
+
+    it('maps high sensitivity 1.5 to importance 0.75', () => {
+      expect(normalizeImportanceScore(1.5)).toBe(0.75);
+    });
+  });
+});

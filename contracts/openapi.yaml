@@ -5517,6 +5517,11 @@ components:
                 type: string
               sensitivity_score:
                 type: number
+              importance_score:
+                type: number
+                minimum: 0
+                maximum: 1
+                description: Normalized importance score bounded to [0,1] for UI display
               value_of_information:
                 type: number
               direction:
