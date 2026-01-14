@@ -1093,6 +1093,23 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
       let islMs = 0;
 
       try {
+        // === BOUNDARY DIAGNOSTIC: Raw input before transformation ===
+        // Gated at debug level to avoid exposing edge values in production logs
+        req.log.debug({
+          event: 'BOUNDARY-PLOT-IN',
+          request_id: body.request_id,
+          edge_count: body.graph?.edges?.length ?? 0,
+          sample_edges: body.graph?.edges?.slice(0, 3).map(e => ({
+            from: e.from,
+            to: e.to,
+            strength_mean: e.strength?.mean ?? 'MISSING',
+            strength_std: e.strength?.std ?? 'MISSING',
+            exists_probability: e.exists_probability ?? 'MISSING',
+            weight: e.weight ?? 'MISSING',
+          })),
+          has_parameter_uncertainties: !!(body as any).parameter_uncertainties?.length,
+        });
+
         // =================================================================
         // Phase 1: Normalization
         // =================================================================
@@ -1341,6 +1358,18 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           body.goal_node_id
         );
 
+        // === BOUNDARY DIAGNOSTIC: ISL request payload for sensitivity debugging ===
+        req.log.debug({
+          event: 'BOUNDARY-PLOT-TO-ISL',
+          request_id: requestId,
+          edge_count: islRequest.graph.edges.length,
+          edges_with_uncertainty: islRequest.graph.edges.filter(e =>
+            e.exists_probability < 1 || (e.strength?.std ?? 0) > 0
+          ).length,
+          parameter_uncertainties_count: islRequest.parameter_uncertainties?.length ?? 0,
+          analysis_types: islRequest.analysis_types,
+        });
+
         // Call ISL
         let islResult: any;
         let islSuccess = false;
@@ -1437,6 +1466,17 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             islStatusCode,
             islFallbackExecuted
           ),
+        });
+
+        // === BOUNDARY DIAGNOSTIC: ISL sensitivity response for debugging ===
+        req.log.debug({
+          event: 'isl_sensitivity_raw',
+          request_id: requestId,
+          factor_sensitivity_count: islResult?.factor_sensitivity?.length ?? 0,
+          factor_sensitivity_sample: islResult?.factor_sensitivity?.[0],
+          edge_sensitivity_count: islResult?.sensitivity?.length ?? 0,
+          edge_sensitivity_sample: islResult?.sensitivity?.[0],
+          has_robustness: !!islResult?.robustness,
         });
 
         // Build response
