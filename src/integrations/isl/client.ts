@@ -59,7 +59,16 @@ export class ISLClient {
    */
   async request<T>(options: ISLRequestOptions): Promise<T> {
     const { endpoint, body, requestId } = options;
-    const url = `${this.config.baseUrl}${endpoint}`;
+    // Pin response version via query param (in addition to header)
+    const url = `${this.config.baseUrl}${endpoint}?response_version=2`;
+
+    // Log the exact URL called (excluding API key) for debugging
+    this.log('info', {
+      event: 'isl_request_url',
+      url,
+      endpoint,
+      request_id: requestId,
+    });
 
     let lastError: Error | null = null;
 

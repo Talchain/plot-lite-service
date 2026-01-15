@@ -32,6 +32,7 @@ import type {
   V2RunError,
   RobustnessSynthesisV3,
   RobustnessAssessmentV3,
+  NormalizedEdgeInfoV3,
   CeeStatusV3,
   DecisionQualityV3,
   InsightV3,
@@ -39,6 +40,8 @@ import type {
   RationaleV3,
   EdgeSensitivityResultV3,
   FactorSensitivityResultV3,
+  ISLDownstreamTrace,
+  DownstreamCallsTrace,
 } from '../../types/engine-v3.js';
 // Seed derivation: when seed omitted, derive deterministically from graph hash
 import { normaliseGraph, NormalisationError } from '../../normalisation/graph-normaliser.js';
@@ -56,7 +59,14 @@ import {
 } from '../../logging/preflight-logger.js';
 import { getISLService } from '../../integrations/isl/index.js';
 import { ISLHttpError } from '../../integrations/isl/errors.js';
-import { buildRobustnessDataForCee } from '../../integrations/isl/adapters/robustness-enrichment.js';
+import {
+  buildRobustnessDataForCee,
+  enrichFragileEdge,
+  enrichRobustEdge,
+  getNodeLabel,
+  getOptionLabel,
+  type ISLFragileEdge,
+} from '../../integrations/isl/adapters/robustness-enrichment.js';
 import {
   normalizeFragileEdges,
   normalizeRobustEdges,
@@ -78,11 +88,13 @@ function hasNonEmptyArray(value: unknown): boolean {
 }
 
 /**
- * Transform ISL sensitivity array to edge sensitivity response format.
+ * Transform ISL sensitivity array to edge sensitivity response format (V1 fallback).
  * Always returns an array (empty if no data).
  *
  * Edge ID format: `from::to` (double-colon separator)
  * @see docs/UI_Handoff_PLoT_v1.md for format specification
+ *
+ * @deprecated V2 uses robustness.fragile_edges/robust_edges instead
  */
 function transformEdgeSensitivity(islSensitivity: unknown): EdgeSensitivityResultV3[] {
   if (!hasNonEmptyArray(islSensitivity)) return [];
@@ -95,6 +107,59 @@ function transformEdgeSensitivity(islSensitivity: unknown): EdgeSensitivityResul
     importance_rank: s.importance_rank,
     interpretation: s.interpretation,
   }));
+}
+
+/**
+ * Transform V2 robustness edges to edge sensitivity format.
+ * Uses robustness.fragile_edges and robust_edges instead of V1 sensitivity array.
+ *
+ * V2 mapping:
+ * - fragile_edges: high sensitivity edges (elasticity approximated from switch_probability)
+ * - robust_edges: low sensitivity edges (elasticity ~ 0)
+ */
+function transformEdgeSensitivityV2(robustness: any): EdgeSensitivityResultV3[] {
+  const results: EdgeSensitivityResultV3[] = [];
+  let rank = 1;
+
+  // Process fragile edges first (high sensitivity)
+  if (hasNonEmptyArray(robustness?.fragile_edges)) {
+    for (const edge of robustness.fragile_edges) {
+      const fromId = edge.from_id ?? edge.edge_id?.split('->')[0] ?? '';
+      const toId = edge.to_id ?? edge.edge_id?.split('->')[1] ?? '';
+      const switchProb = edge.switch_probability ?? 0.5;
+
+      results.push({
+        edge_id: `${fromId}::${toId}`,
+        from: fromId,
+        to: toId,
+        sensitivity_type: 'existence',
+        // Approximate elasticity from switch probability (higher switch prob = higher sensitivity)
+        elasticity: switchProb,
+        importance_rank: rank++,
+        interpretation: `Edge is fragile with ${Math.round(switchProb * 100)}% chance of affecting outcome`,
+      });
+    }
+  }
+
+  // Process robust edges (low sensitivity)
+  if (hasNonEmptyArray(robustness?.robust_edges)) {
+    for (const edge of robustness.robust_edges) {
+      const fromId = edge.from_id ?? edge.edge_id?.split('->')[0] ?? '';
+      const toId = edge.to_id ?? edge.edge_id?.split('->')[1] ?? '';
+
+      results.push({
+        edge_id: `${fromId}::${toId}`,
+        from: fromId,
+        to: toId,
+        sensitivity_type: 'existence',
+        elasticity: 0.1,  // Low elasticity for robust edges
+        importance_rank: rank++,
+        interpretation: 'Edge is robust and unlikely to affect outcome',
+      });
+    }
+  }
+
+  return results;
 }
 
 /**
@@ -208,6 +273,75 @@ function buildISLResponseSummary(
     fallback_executed: fallbackExecuted,
     analysis_status: islResult?.analysis_status,
     robustness_label: islResult?.robustness?.label,
+  };
+}
+
+// -----------------------------------------------------------------------------
+// ISL V2 Shape Guard
+// -----------------------------------------------------------------------------
+
+/**
+ * Result of ISL response shape validation.
+ */
+interface ISLShapeValidationResult {
+  valid: boolean;
+  isV1Shape: boolean;
+  missingFields: string[];
+  reason?: string;
+}
+
+/**
+ * Validate ISL response has V2 structure.
+ * Returns validation result with missing fields list.
+ *
+ * Required V2 structure:
+ * - `options` array exists (NOT `results`)
+ * - Each option has `id`
+ * - Each option has `outcome.mean`
+ * - `robustness` object exists
+ */
+function validateISLV2Shape(islResult: any): ISLShapeValidationResult {
+  const missingFields: string[] = [];
+
+  // Check for V1 shape (results array instead of options)
+  if (islResult?.results && !islResult?.options) {
+    return {
+      valid: false,
+      isV1Shape: true,
+      missingFields: ['options'],
+      reason: 'ISL returned V1 shape (results[] instead of options[])',
+    };
+  }
+
+  // Validate options array exists
+  if (!Array.isArray(islResult?.options)) {
+    missingFields.push('options');
+  } else {
+    // Validate each option has required fields
+    const options = islResult.options;
+    for (let i = 0; i < options.length; i++) {
+      const opt = options[i];
+      if (opt.id === undefined && opt.option_id === undefined) {
+        missingFields.push(`options[${i}].id`);
+      }
+      if (opt.outcome?.mean === undefined) {
+        missingFields.push(`options[${i}].outcome.mean`);
+      }
+    }
+  }
+
+  // Validate robustness object exists
+  if (!islResult?.robustness || typeof islResult.robustness !== 'object') {
+    missingFields.push('robustness');
+  }
+
+  return {
+    valid: missingFields.length === 0,
+    isV1Shape: false,
+    missingFields,
+    reason: missingFields.length > 0
+      ? `ISL response missing required V2 fields: ${missingFields.join(', ')}`
+      : undefined,
   };
 }
 
@@ -509,12 +643,14 @@ function buildResponse(
   responseHash: string | undefined,
   islResult?: any,
   options?: OptionV3[],
+  graph?: EngineGraphV3, // Added for label enrichment
   islAnalysisStatus?: string,
   islStatusReason?: string,
   robustnessSynthesis?: RobustnessSynthesisV3 | null,
   ceeResults?: CeeResultsParams,
   ceeTrace?: CeeTrace | null,
-  sensitivityData?: SensitivityData
+  sensitivityData?: SensitivityData,
+  islDownstreamTrace?: ISLDownstreamTrace
 ): RunResponseV3 {
   // Map ISL results to response format
   // ISL V2 uses 'options' field; V1 uses 'results'. Check both for compatibility.
@@ -553,6 +689,11 @@ function buildResponse(
     const result: any = {
       option_id: optionId,
       option_label: option?.label ?? r.label ?? optionId,
+      // V2 flat fields for UI (from ISL options[i].outcome.*)
+      expected: hasOutcomeObject ? outcomeData.mean : r.expected_outcome,
+      p10: hasOutcomeObject ? outcomeData.p10 : confidenceInterval[0],
+      p50: hasOutcomeObject ? outcomeData.p50 : undefined,
+      p90: hasOutcomeObject ? outcomeData.p90 : confidenceInterval[1],
       // Legacy fields (deprecated but kept for backward compatibility)
       expected_outcome: expectedOutcome,
       confidence_interval: confidenceInterval,
@@ -577,26 +718,86 @@ function buildResponse(
   });
 
   // Use pre-computed sensitivity data if provided (for status/response alignment)
-  // Fall back to computing from islResult for backward compatibility
+  // V2: Use robustness.fragile_edges/robust_edges
+  // V1 fallback: Use sensitivity array
   const edgeSensitivity = sensitivityData?.edgeSensitivity
-    ?? transformEdgeSensitivity(islResult?.sensitivity);
+    ?? (islResult?.robustness
+        ? transformEdgeSensitivityV2(islResult.robustness)
+        : transformEdgeSensitivity(islResult?.sensitivity));
   const factorSensitivity = sensitivityData?.factorSensitivity
     ?? transformFactorSensitivity(islResult?.factor_sensitivity);
 
-  // Normalize robustness edges to consistent object format
-  // ISL returns fragile_edges as objects, robust_edges as strings - normalize both
+  // Build robustness with enriched edges (labels from graph)
+  // ISL returns fragile_edges as objects, robust_edges as strings
+  // When graph is available, enrich edges with human-readable labels for UI display
   let robustness: RobustnessAssessmentV3 | undefined;
 
   if (islResult?.robustness) {
-    const fragileResult = normalizeFragileEdges(
-      islResult.robustness.fragile_edges as unknown[],
-      requestId
-    );
-    const robustResult = normalizeRobustEdges(
-      islResult.robustness.robust_edges as unknown[],
-      requestId
-    );
-    const normalizationErrors = [...fragileResult.errors, ...robustResult.errors];
+    const normalizationErrors: Array<{ edge_type: string; error: string; raw_value?: unknown }> = [];
+
+    // Enrich fragile edges with labels if graph is available
+    const fragileEdges: NormalizedEdgeInfoV3[] = [];
+    const rawFragileEdges = islResult.robustness.fragile_edges as unknown[] ?? [];
+    for (const edge of rawFragileEdges) {
+      try {
+        if (graph && options) {
+          // Use enrichment for UI-ready output with labels
+          const enriched = enrichFragileEdge(edge as ISLFragileEdge, graph, options);
+          fragileEdges.push({
+            edge_id: enriched.edge_id,
+            from_id: enriched.from_id,
+            to_id: enriched.to_id,
+            switch_probability: enriched.switch_probability ?? 0,
+            from_label: enriched.from_label,
+            to_label: enriched.to_label,
+            alternative_winner_id: enriched.alternative_winner_id,
+            alternative_winner_label: enriched.alternative_winner_label,
+          });
+        } else {
+          // Fallback: normalize without labels
+          const fragileResult = normalizeFragileEdges([edge], requestId);
+          fragileEdges.push(...fragileResult.edges);
+          normalizationErrors.push(...fragileResult.errors);
+        }
+      } catch (err) {
+        normalizationErrors.push({
+          edge_type: 'fragile',
+          error: `Error enriching fragile edge: ${err instanceof Error ? err.message : String(err)}`,
+          raw_value: edge,
+        });
+      }
+    }
+
+    // Enrich robust edges with labels if graph is available
+    const robustEdges: NormalizedEdgeInfoV3[] = [];
+    const rawRobustEdges = islResult.robustness.robust_edges as unknown[] ?? [];
+    for (const edge of rawRobustEdges) {
+      try {
+        if (graph && typeof edge === 'string') {
+          // Use enrichment for UI-ready output with labels
+          const enriched = enrichRobustEdge(edge, graph);
+          robustEdges.push({
+            edge_id: enriched.edge_id,
+            from_id: enriched.edge_id.includes('->') ? enriched.edge_id.split('->')[0] : enriched.edge_id.split('::')[0],
+            to_id: enriched.edge_id.includes('->') ? enriched.edge_id.split('->')[1] ?? '' : enriched.edge_id.split('::')[1] ?? '',
+            switch_probability: 1, // Robust edges are stable
+            from_label: enriched.from_label,
+            to_label: enriched.to_label,
+          });
+        } else {
+          // Fallback: normalize without labels
+          const robustResult = normalizeRobustEdges([edge], requestId);
+          robustEdges.push(...robustResult.edges);
+          normalizationErrors.push(...robustResult.errors);
+        }
+      } catch (err) {
+        normalizationErrors.push({
+          edge_type: 'robust',
+          error: `Error enriching robust edge: ${err instanceof Error ? err.message : String(err)}`,
+          raw_value: edge,
+        });
+      }
+    }
 
     // Validate and cast label to expected union type
     const rawLabel = islResult.robustness.label;
@@ -608,8 +809,8 @@ function buildResponse(
     robustness = {
       score: islResult.robustness.score,
       label,
-      fragile_edges: fragileResult.edges,
-      robust_edges: robustResult.edges,
+      fragile_edges: fragileEdges,
+      robust_edges: robustEdges,
       explanation: islResult.robustness.explanation,
       // Include normalization errors if any occurred (for observability)
       ...(normalizationErrors.length > 0 && { normalization_errors: normalizationErrors }),
@@ -636,6 +837,9 @@ function buildResponse(
     option_comparison: optionComparison,
     edge_sensitivity: edgeSensitivity,
     factor_sensitivity: factorSensitivity,
+    // Factor sensitivity status: 'computed' if data exists, 'not_requested' otherwise
+    // (parameter_uncertainties not populated in ISL request)
+    factor_sensitivity_status: hasNonEmptyArray(factorSensitivity) ? 'computed' : 'not_requested',
     robustness,
     robustness_synthesis: robustnessSynthesis,
 
@@ -648,6 +852,9 @@ function buildResponse(
 
     // CEE trace for observability (includes degraded flag)
     ceeTrace: ceeTrace ?? undefined,
+
+    // Downstream call traces for Debug Panel visibility
+    downstream_calls: islDownstreamTrace ? { isl: islDownstreamTrace } : undefined,
 
     response_hash: responseHash,
 
@@ -1300,7 +1507,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               validationMs,
               build: getBuildId(),
             },
-            responseHash
+            responseHash,
+            undefined,  // No ISL result
+            normalizedOptions,
+            filteredGraph  // For label enrichment
           ));
         }
 
@@ -1383,6 +1593,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         let islStatusCode = 0;
         let islError: ISLHttpError | undefined;
         let islFallbackExecuted = false;
+        let islShapeValid = true;
+        let islShapeReason: string | undefined;
 
         try {
           const response = await islService.callAnalysisEndpoint<any>(
@@ -1396,6 +1608,36 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             islSuccess = true;
             islStatusCode = 200;
 
+            // =================================================================
+            // ISL V2 Shape Guard
+            // Validate response structure before mapping
+            // =================================================================
+            const shapeValidation = validateISLV2Shape(islResult);
+
+            if (!shapeValidation.valid) {
+              islShapeValid = false;
+              islShapeReason = shapeValidation.reason;
+
+              if (shapeValidation.isV1Shape) {
+                // V1 shape detected - high severity alert
+                req.log.error({
+                  event: 'unexpected_response_version',
+                  request_id: requestId,
+                  reason: shapeValidation.reason,
+                  has_results: !!islResult?.results,
+                  has_options: !!islResult?.options,
+                });
+              } else {
+                // V2 shape with missing fields - high severity alert
+                req.log.error({
+                  event: 'isl_response_shape_mismatch',
+                  request_id: requestId,
+                  reason: shapeValidation.reason,
+                  missing_fields: shapeValidation.missingFields,
+                });
+              }
+            }
+
             // === TEMPORARY: Trace option IDs returned from ISL ===
             const islOptionData = islResult?.options ?? islResult?.results;
             req.log.info({
@@ -1404,6 +1646,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               option_ids_received: islOptionData?.map((o: any) => o.option_id ?? o.id) ?? [],
               uses_options_field: !!islResult?.options,
               uses_results_field: !!islResult?.results,
+              shape_valid: islShapeValid,
             });
 
             // Warn if goal_threshold was provided but ISL didn't return probability_of_goal
@@ -1496,6 +1739,21 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           has_robustness: !!islResult?.robustness,
         });
 
+        // =================================================================
+        // ISL DOWNSTREAM TRACE (Debug Panel visibility)
+        // Captures request/response payloads for debugging
+        // =================================================================
+        const islDownstreamTrace: ISLDownstreamTrace = {
+          endpoint: '/api/v1/robustness/analyze/v2',
+          request: islRequest,
+          response: islSuccess ? islResult : null,
+          status_code: islStatusCode,
+          success: islSuccess,
+          latency_ms: islMs,
+          ...(islError && { error: islError.message }),
+          ...(!islSuccess && !islError && { error: 'ISL call failed without error details' }),
+        };
+
         // Build response
         const totalMs = performance.now() - startTime;
         const critiques: CritiqueV3[] = [...preflight.warnings];
@@ -1566,7 +1824,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               islMs,
               build: getBuildId(),
             },
-            responseHash
+            responseHash,
+            undefined, // No ISL result
+            normalizedOptions,
+            filteredGraph  // For label enrichment
           ));
         }
 
@@ -1596,8 +1857,119 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             responseHash,
             islResult,
             normalizedOptions,
+            filteredGraph,  // For label enrichment
             islAnalysisStatus,
             islStatusReason
+          ));
+        }
+
+        // =================================================================
+        // Shape Validation Check
+        // If ISL response doesn't match V2 structure, return degraded
+        // =================================================================
+        if (!islShapeValid) {
+          // Add critique for shape mismatch
+          critiques.push({
+            id: randomUUID(),
+            code: 'ISL_RESPONSE_SHAPE_MISMATCH',
+            severity: 'error',
+            message: islShapeReason || 'ISL response structure does not match expected V2 format',
+            source: 'isl',
+            blocks_analysis: false,
+          });
+
+          return reply.send(buildResponse(
+            requestId,
+            'failed',
+            islShapeReason || 'isl_response_shape_mismatch',
+            'error',
+            'error',
+            'error',
+            critiques,
+            {
+              seedUsed,
+              nSamples,
+              detailLevel,
+              latencyMs: totalMs,
+              normalizationMs,
+              validationMs,
+              islMs,
+              build: getBuildId(),
+            },
+            responseHash,
+            undefined,  // Don't pass malformed ISL result
+            normalizedOptions,
+            filteredGraph,  // For label enrichment
+            islAnalysisStatus,
+            islShapeReason,
+            undefined,  // No robustness synthesis
+            undefined,  // No CEE results
+            undefined,  // No CEE trace
+            undefined,  // No sensitivity data
+            islDownstreamTrace  // Still include downstream trace for debugging
+          ));
+        }
+
+        // =================================================================
+        // Option ID Invariant Check
+        // Verify option IDs sent to ISL match option IDs in response
+        // =================================================================
+        const sentOptionIds = new Set(islRequest.options.map((o: any) => o.id));
+        const receivedOptionIds = new Set(
+          (islResult.options ?? []).map((o: any) => o.option_id ?? o.id)
+        );
+        const missingIds = [...sentOptionIds].filter(id => !receivedOptionIds.has(id));
+        const unexpectedIds = [...receivedOptionIds].filter(id => !sentOptionIds.has(id));
+
+        if (missingIds.length > 0 || unexpectedIds.length > 0) {
+          req.log.error({
+            event: 'isl_option_id_mismatch',
+            request_id: requestId,
+            sent_option_ids: [...sentOptionIds],
+            received_option_ids: [...receivedOptionIds],
+            missing_ids: missingIds,
+            unexpected_ids: unexpectedIds,
+          });
+
+          // Add critique for option ID mismatch
+          critiques.push({
+            id: randomUUID(),
+            code: 'ISL_OPTION_ID_MISMATCH',
+            severity: 'error',
+            message: `Option IDs in ISL response do not match request: missing [${missingIds.join(', ')}], unexpected [${unexpectedIds.join(', ')}]`,
+            source: 'isl',
+            blocks_analysis: false,
+          });
+
+          return reply.send(buildResponse(
+            requestId,
+            'failed',
+            'isl_option_id_mismatch',
+            'error',
+            'error',
+            'error',
+            critiques,
+            {
+              seedUsed,
+              nSamples,
+              detailLevel,
+              latencyMs: totalMs,
+              normalizationMs,
+              validationMs,
+              islMs,
+              build: getBuildId(),
+            },
+            responseHash,
+            undefined,  // Don't pass mismatched ISL result
+            normalizedOptions,
+            filteredGraph,  // For label enrichment
+            islAnalysisStatus,
+            'Option IDs in ISL response do not match request',
+            undefined,  // No robustness synthesis
+            undefined,  // No CEE results
+            undefined,  // No CEE trace
+            undefined,  // No sensitivity data
+            islDownstreamTrace  // Still include downstream trace for debugging
           ));
         }
 
@@ -1606,7 +1978,11 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // =================================================================
         // Transform sensitivity arrays FIRST - these are the final arrays that will be returned
         // Status check must use the SAME arrays to prevent status/response misalignment
-        const edgeSensitivity = transformEdgeSensitivity(islResult.sensitivity);
+        // V2: Use robustness.fragile_edges/robust_edges for edge sensitivity
+        // V1 fallback: Use sensitivity array
+        const edgeSensitivity = islResult.robustness
+          ? transformEdgeSensitivityV2(islResult.robustness)
+          : transformEdgeSensitivity(islResult.sensitivity);
         const factorSensitivity = transformFactorSensitivity(islResult.factor_sensitivity);
         const sensitivityData: SensitivityData = { edgeSensitivity, factorSensitivity };
 
@@ -1715,12 +2091,14 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           responseHash,
           islResult,
           normalizedOptions,
+          filteredGraph,  // For label enrichment in fragile_edges/robust_edges
           islAnalysisStatus,
           islStatusReason,
           ceeOrchestrationResult.robustnessSynthesis,
           ceeOrchestrationResult.ceeResults,
           ceeOrchestrationResult.ceeTrace,
-          sensitivityData  // Pre-computed arrays ensure status/response alignment
+          sensitivityData,  // Pre-computed arrays ensure status/response alignment
+          islDownstreamTrace  // Debug Panel visibility for ISL request/response
         ));
       } catch (err) {
         const totalMs = performance.now() - startTime;
