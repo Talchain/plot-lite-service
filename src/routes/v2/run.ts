@@ -1370,6 +1370,13 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           analysis_types: islRequest.analysis_types,
         });
 
+        // === TEMPORARY: Trace option IDs at ISL boundary ===
+        req.log.info({
+          event: 'PLOT_TO_ISL_OPTION_IDS',
+          request_id: requestId,
+          option_ids_sent: islRequest.options.map((o: any) => o.id),
+        });
+
         // Call ISL
         let islResult: any;
         let islSuccess = false;
@@ -1388,6 +1395,16 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             islResult = response.data;
             islSuccess = true;
             islStatusCode = 200;
+
+            // === TEMPORARY: Trace option IDs returned from ISL ===
+            const islOptionData = islResult?.options ?? islResult?.results;
+            req.log.info({
+              event: 'ISL_TO_PLOT_OPTION_IDS',
+              request_id: requestId,
+              option_ids_received: islOptionData?.map((o: any) => o.option_id ?? o.id) ?? [],
+              uses_options_field: !!islResult?.options,
+              uses_results_field: !!islResult?.results,
+            });
 
             // Warn if goal_threshold was provided but ISL didn't return probability_of_goal
             if (goalThreshold !== undefined) {
