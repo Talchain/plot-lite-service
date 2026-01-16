@@ -324,6 +324,16 @@ export async function runDecisionReviewViaV2Http(
       console.log(`[CEE_V2_VERIFY] draft-graph edge: effect_direction=${firstEdge.effect_direction} strength_std=${firstEdge.strength_std}`);
     }
 
+    // Diagnostic logging for options request payload
+    console.log('[CEE_V2_OPTIONS_REQUEST]', JSON.stringify({
+      draft_keys: draft ? Object.keys(draft) : 'DRAFT_UNDEFINED',
+      graph_present: draft?.graph !== undefined,
+      graph_type: typeof draft?.graph,
+      graph_keys: draft?.graph ? Object.keys(draft.graph) : 'GRAPH_MISSING',
+      graph_nodes_count: Array.isArray(draft?.graph?.nodes) ? draft.graph.nodes.length : 'N/A',
+      graph_edges_count: Array.isArray(draft?.graph?.edges) ? draft.graph.edges.length : 'N/A',
+    }));
+
     // 2) Options with v2 format
     const archetype = draft?.archetype ?? null;
     const optionsResult = await optionsV2(v2Config, draft.graph, archetype, requestId);
