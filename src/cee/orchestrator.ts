@@ -549,6 +549,17 @@ export async function orchestrateCeeReview(
     let model: string | undefined;
     let sdkLatencyMs: number | undefined;
 
+    // Diagnostic logging for path selection
+    const pathDecision = {
+      CEE_SCHEMA_V2: process.env.CEE_SCHEMA_V2,
+      CEE_TIMEOUT_MS: process.env.CEE_TIMEOUT_MS,
+      BUILD_ID: process.env.BUILD_ID,
+      isV2Enabled: isCeeSchemaV2Enabled(),
+      sdkSupportsReview: sdkSupportsReview(client),
+      branch: sdkSupportsReview(client) ? 'm1' : (isCeeSchemaV2Enabled() ? 'v2_http' : 'sdk'),
+    };
+    console.log('[CEE_PATH_DECISION]', JSON.stringify(pathDecision));
+
     if (sdkSupportsReview(client)) {
       // M1 Path: Use unified review() method (SDK v1.12.0+)
       // TODO: Uncomment when SDK v1.12.0 is available
