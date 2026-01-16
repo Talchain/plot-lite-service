@@ -46,6 +46,7 @@ async function callCeeEndpoint(
   endpoint: CeeEndpoint,
   body: unknown,
   queryString: string,
+  incomingPath: string,
   requestId: string,
   correlationId: string,
   logger?: any
@@ -75,6 +76,10 @@ async function callCeeEndpoint(
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
+  // Parse query params for logging
+  const queryParams = new URLSearchParams(queryString);
+  const schemaRequested = queryParams.get('schema') || 'none';
+
   try {
     // Log at request ingress
     logger?.info({
@@ -82,8 +87,11 @@ async function callCeeEndpoint(
       endpoint,
       request_id: requestId,
       correlation_id: correlationId,
+      incoming_path: incomingPath,
+      schema_requested: schemaRequested,
+      upstream_url: url,  // Full URL including query string
+      cee_host: baseUrl ? new URL(baseUrl).host : 'unknown',
       timeout_ms: timeoutMs,
-      timestamp: new Date().toISOString(),
     });
 
     const res = await fetch(url, {
@@ -106,24 +114,28 @@ async function callCeeEndpoint(
     const responseText = await res.text();
     const responseContentType = res.headers.get('content-type') || 'application/json';
 
-    // Log at response egress
+    // Try to parse as JSON if content type suggests it
+    let data: unknown = responseText;
+    let parsedData: Record<string, any> | null = null;
+    if (responseContentType.startsWith('application/json') && responseText) {
+      try {
+        parsedData = JSON.parse(responseText);
+        data = parsedData;
+      } catch {
+        // JSON parse failed — keep as text
+      }
+    }
+
+    // Log at response egress (after parsing so we can include schema/model)
     logger?.info({
       event: 'CEE_PROXY_RESPONSE',
       endpoint,
       status: res.status,
       request_id: requestId,
       duration_ms: latencyMs,
+      schema_served: parsedData?.schema_version || parsedData?.graph?.version,
+      model_used: parsedData?.trace?.engine?.model,
     });
-
-    // Try to parse as JSON if content type suggests it
-    let data: unknown = responseText;
-    if (responseContentType.startsWith('application/json') && responseText) {
-      try {
-        data = JSON.parse(responseText);
-      } catch {
-        // JSON parse failed — keep as text
-      }
-    }
 
     // Handle error responses
     if (!res.ok) {
@@ -220,6 +232,7 @@ function createCeeProxyHandler(endpoint: CeeEndpoint) {
       endpoint,
       req.body,
       queryString,
+      req.url,  // Pass incoming path for logging
       requestId,
       correlationId,
       req.log
