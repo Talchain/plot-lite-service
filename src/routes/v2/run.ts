@@ -2018,11 +2018,11 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         const edgeSensitivity = islResult.robustness
           ? transformEdgeSensitivityV2(islResult.robustness)
           : transformEdgeSensitivity(islResult.sensitivity);
-        // Factor sensitivity: prefer ISL result, fallback to graph-computed values
-        // Graph-computed uses path analysis when ISL doesn't return factor_sensitivity
-        // (typically because parameter_uncertainties weren't populated in request)
-        const factorSensitivity = transformFactorSensitivity(islResult.factor_sensitivity)
-          ?? computeFactorSensitivityFromGraph(filteredGraph, body.goal_node_id);
+        // Factor sensitivity: prefer graph-based calculation (Schema D.5)
+        // Graph-computed uses path analysis to derive influence from edge data
+        // ISL fallback only if graph computation returns empty (no factors or no paths)
+        const factorSensitivity = computeFactorSensitivityFromGraph(filteredGraph, body.goal_node_id)
+          ?? transformFactorSensitivity(islResult.factor_sensitivity);
         const sensitivityData: SensitivityData = { edgeSensitivity, factorSensitivity };
 
         // Use hasNonEmptyArray on the FINAL transformed arrays (single source of truth)
