@@ -8,8 +8,9 @@ import {
   toISLRobustnessRequest,
   validateISLRequest,
   toISLEdge,
+  buildParameterUncertaintiesV3,
 } from '../src/integrations/isl/translator-v3.js';
-import type { EngineGraphV3, OptionV3 } from '../src/types/engine-v3.js';
+import type { EngineGraphV3, EngineNodeV3, OptionV3 } from '../src/types/engine-v3.js';
 
 describe('ISL Translator V3', () => {
   describe('toISLInterventions', () => {
@@ -284,6 +285,159 @@ describe('ISL Translator V3', () => {
       const result = toISLEdge(edge);
 
       expect(result.exists_probability).toBe(1.0);
+    });
+  });
+
+  describe('buildParameterUncertaintiesV3 - std calculation', () => {
+    it('uses range-based std when state_space.range is provided', () => {
+      const nodes: EngineNodeV3[] = [
+        {
+          id: 'pa-hired',
+          kind: 'factor',
+          label: 'PA Hired',
+          observed_state: { value: 0 },
+          state_space: { range: { min: 0, max: 1 } },
+        },
+      ];
+
+      const result = buildParameterUncertaintiesV3(nodes);
+
+      expect(result).toBeDefined();
+      expect(result).toHaveLength(1);
+      // 10% of range (1 - 0) = 0.1
+      expect(result![0].std).toBe(0.1);
+    });
+
+    it('uses large range-based std for factors like salary', () => {
+      const nodes: EngineNodeV3[] = [
+        {
+          id: 'pa-salary',
+          kind: 'factor',
+          label: 'PA Salary',
+          observed_state: { value: 0 },
+          state_space: { range: { min: 0, max: 50000 } },
+        },
+      ];
+
+      const result = buildParameterUncertaintiesV3(nodes);
+
+      expect(result).toBeDefined();
+      expect(result).toHaveLength(1);
+      // 10% of range (50000 - 0) = 5000
+      expect(result![0].std).toBe(5000);
+    });
+
+    it('uses value-based std when no range is provided', () => {
+      const nodes: EngineNodeV3[] = [
+        {
+          id: 'pro-price',
+          kind: 'factor',
+          label: 'Pro Price',
+          observed_state: { value: 49 },
+        },
+      ];
+
+      const result = buildParameterUncertaintiesV3(nodes);
+
+      expect(result).toBeDefined();
+      expect(result).toHaveLength(1);
+      // 10% of value (49) = 4.9
+      expect(result![0].std).toBe(4.9);
+    });
+
+    it('uses fallback std=1.0 for zero-valued factor without range', () => {
+      const nodes: EngineNodeV3[] = [
+        {
+          id: 'zero-factor',
+          kind: 'factor',
+          label: 'Zero Factor',
+          observed_state: { value: 0 },
+        },
+      ];
+
+      const result = buildParameterUncertaintiesV3(nodes);
+
+      expect(result).toBeDefined();
+      expect(result).toHaveLength(1);
+      // Fallback for zero without range = 1.0
+      expect(result![0].std).toBe(1.0);
+    });
+
+    it('applies floor of 0.1 to small range-based std', () => {
+      const nodes: EngineNodeV3[] = [
+        {
+          id: 'rate',
+          kind: 'factor',
+          label: 'Rate',
+          observed_state: { value: 0.2 },
+          state_space: { range: { min: 0, max: 1 } },
+        },
+      ];
+
+      const result = buildParameterUncertaintiesV3(nodes);
+
+      expect(result).toBeDefined();
+      expect(result).toHaveLength(1);
+      // 10% of range (1 - 0) = 0.1, which equals floor
+      expect(result![0].std).toBe(0.1);
+    });
+
+    it('applies floor of 0.1 to very small value-based std', () => {
+      const nodes: EngineNodeV3[] = [
+        {
+          id: 'tiny-factor',
+          kind: 'factor',
+          label: 'Tiny Factor',
+          observed_state: { value: 0.5 },
+        },
+      ];
+
+      const result = buildParameterUncertaintiesV3(nodes);
+
+      expect(result).toBeDefined();
+      expect(result).toHaveLength(1);
+      // 10% of value (0.5) = 0.05 < 0.1, so floor applies
+      expect(result![0].std).toBe(0.1);
+    });
+
+    it('handles degenerate range (max === min)', () => {
+      const nodes: EngineNodeV3[] = [
+        {
+          id: 'degenerate-range',
+          kind: 'factor',
+          label: 'Degenerate Range',
+          observed_state: { value: 5 },
+          state_space: { range: { min: 5, max: 5 } },
+        },
+      ];
+
+      const result = buildParameterUncertaintiesV3(nodes);
+
+      expect(result).toBeDefined();
+      expect(result).toHaveLength(1);
+      // Degenerate range falls back to value-based: 10% of 5 = 0.5
+      expect(result![0].std).toBe(0.5);
+    });
+
+    it('skips non-factor nodes', () => {
+      const nodes: EngineNodeV3[] = [
+        { id: 'goal', kind: 'goal', label: 'Goal' },
+        { id: 'outcome', kind: 'outcome', label: 'Outcome' },
+      ];
+
+      const result = buildParameterUncertaintiesV3(nodes);
+
+      expect(result).toBeUndefined();
+    });
+
+    it('skips factor nodes without observed_state', () => {
+      const nodes: EngineNodeV3[] = [
+        { id: 'factor-no-value', kind: 'factor', label: 'Factor No Value' },
+      ];
+
+      const result = buildParameterUncertaintiesV3(nodes);
+
+      expect(result).toBeUndefined();
     });
   });
 });

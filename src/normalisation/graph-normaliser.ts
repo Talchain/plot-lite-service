@@ -144,6 +144,9 @@ export function normaliseNode(node: UpstreamNode): EngineNodeV3 {
     };
   }
 
+  // Extract state_space from various locations
+  const stateSpace = node.state_space ?? node.data?.state_space;
+
   return {
     id: node.id,
     kind,
@@ -151,6 +154,7 @@ export function normaliseNode(node: UpstreamNode): EngineNodeV3 {
     description: node.description ?? node.body,
     intercept: rawIntercept === undefined ? undefined : (rawIntercept as number),
     observed_state: observedState,
+    state_space: stateSpace,
   };
 }
 

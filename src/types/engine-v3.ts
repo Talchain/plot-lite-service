@@ -86,6 +86,10 @@ export interface UpstreamNode {
     baseline?: number;
     unit?: string;
   };
+  /** State space bounds for the factor (used for uncertainty calculation) */
+  state_space?: {
+    range?: { min: number; max: number };
+  };
   data?: {
     // React Flow nesting
     kind?: string;
@@ -94,6 +98,10 @@ export interface UpstreamNode {
     value?: number;
     baseline?: number;
     unit?: string;
+    /** State space bounds for the factor (used for uncertainty calculation) */
+    state_space?: {
+      range?: { min: number; max: number };
+    };
   };
 }
 
@@ -159,6 +167,10 @@ export interface EngineNodeV3 {
     value: number;
     baseline?: number;
     unit?: string;
+  };
+  /** State space bounds for the factor (used for parameter uncertainty calculation) */
+  state_space?: {
+    range?: { min: number; max: number };
   };
 }
 

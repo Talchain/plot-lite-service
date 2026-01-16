@@ -162,6 +162,13 @@ export function toISLOption(option: OptionV3): ISLOptionV3 {
  * For each factor node with an observed value, create a parameter uncertainty
  * specification for ISL.
  *
+ * Standard deviation calculation priority:
+ * 1. If state_space.range is defined: 10% of the range (max - min)
+ * 2. If value != 0: 10% of the absolute value
+ * 3. Fallback for zero-valued factors without range: 1.0
+ *
+ * All std values have a floor of 0.1 to ensure meaningful sensitivity.
+ *
  * @param nodes Graph nodes
  * @returns Parameter uncertainties for ISL
  */
@@ -173,8 +180,22 @@ export function buildParameterUncertaintiesV3(
   for (const node of nodes) {
     if (node.kind === 'factor' && node.observed_state?.value !== undefined) {
       const value = node.observed_state.value;
-      // Default uncertainty: 10% coefficient of variation
-      const std = Math.max(0.1, Math.abs(value) * 0.1);
+      const range = node.state_space?.range;
+
+      let std: number;
+      if (range && range.max !== range.min) {
+        // Use 10% of the factor's range
+        std = (range.max - range.min) * 0.1;
+      } else if (value !== 0) {
+        // Use 10% of the absolute value
+        std = Math.abs(value) * 0.1;
+      } else {
+        // Fallback for zero-valued factors without range: use 1.0
+        std = 1.0;
+      }
+
+      // Floor at 0.1 to ensure meaningful sensitivity
+      std = Math.max(0.1, std);
 
       uncertainties.push({
         node_id: node.id,

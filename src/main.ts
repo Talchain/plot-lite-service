@@ -12,6 +12,9 @@ async function start() {
   // Validate environment variables first (fail-fast)
   validateEnv();
 
+  // CEE config diagnostic - helps debug V2 path activation issues
+  console.log(`[STARTUP] CEE_SCHEMA_V2=${process.env.CEE_SCHEMA_V2}, type=${typeof process.env.CEE_SCHEMA_V2}`);
+
   if (process.env.NODE_ENV === 'production' && process.env.TEST_ROUTES === '1') {
     // Fail fast before binding any ports
     process.stderr.write('TEST_ROUTES in production – aborting\n');
