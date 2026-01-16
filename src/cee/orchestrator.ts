@@ -491,6 +491,17 @@ export async function orchestrateCeeReview(
   const sanitisedId = sanitizeRequestId(plotRequestId);
   const wasSanitised = sanitisedId !== plotRequestId;
 
+  // Diagnostic logging for CEE enrichment timeout investigation
+  const v2Enabled = isCeeSchemaV2Enabled();
+  console.log('[CEE_ENRICHMENT] Starting', {
+    timeout_ms: env.timeoutMs,
+    timeout_ms_type: typeof env.timeoutMs,
+    CEE_TIMEOUT_MS_env: process.env.CEE_TIMEOUT_MS,
+    CEE_SCHEMA_V2_env: process.env.CEE_SCHEMA_V2,
+    using_v2_path: v2Enabled,
+    request_id: plotRequestId,
+  });
+
   // Check circuit breaker
   if (!shouldAllowCeeCall()) {
     return {
