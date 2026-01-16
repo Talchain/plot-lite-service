@@ -1,0 +1,345 @@
+/**
+ * Factor Influence Computation
+ *
+ * Computes factor influence and confidence from graph edge data.
+ * Uses path analysis to derive total causal effect from each factor to the goal.
+ *
+ * Scientific Approach:
+ * - Influence = Sum of path effects (product of strength.mean along each path)
+ * - Confidence = Combined certainty from exists_probability and strength.std
+ * - Direction = Sign of total influence (positive/negative effect on goal)
+ *
+ * @see Schema D.5 - Factor influence derived from edge-level data
+ */
+
+import type { EngineGraphV3, EngineEdgeV3, EngineNodeV3 } from '../types/engine-v3.js';
+
+// -----------------------------------------------------------------------------
+// Types
+// -----------------------------------------------------------------------------
+
+/**
+ * Computed factor influence result.
+ */
+export interface FactorInfluence {
+  factor_id: string;
+  label: string;
+  influence: number;            // Raw total causal effect (sum of path effects)
+  normalised_influence: number; // 0-1 for display (relative to max |influence|)
+  confidence: number;           // 0-1 (combined path certainty)
+  direction: 'positive' | 'negative';
+}
+
+/**
+ * Internal edge representation for path computation.
+ */
+interface EdgeInfo {
+  to: string;
+  strength_mean: number;
+  strength_std: number;
+  exists_probability: number;
+}
+
+/**
+ * Path through the graph from factor to goal.
+ */
+interface PathInfo {
+  nodes: string[];
+  effect: number;      // Product of strength.mean along path
+  confidence: number;  // Combined certainty along path
+}
+
+// -----------------------------------------------------------------------------
+// Configuration
+// -----------------------------------------------------------------------------
+
+/** Maximum path depth to prevent infinite loops in cyclic graphs */
+const MAX_PATH_DEPTH = 10;
+
+/** Minimum exists_probability to consider an edge viable */
+const MIN_EXISTS_PROBABILITY = 0.01;
+
+// -----------------------------------------------------------------------------
+// Core Implementation
+// -----------------------------------------------------------------------------
+
+/**
+ * Build an edge lookup map from graph edges.
+ *
+ * Maps each source node to all outgoing edges with their strength data.
+ * Only includes edges with exists_probability > MIN_EXISTS_PROBABILITY.
+ *
+ * @param edges Graph edges
+ * @returns Map of source node ID → outgoing edge info
+ */
+function buildEdgeLookup(edges: EngineEdgeV3[]): Map<string, EdgeInfo[]> {
+  const lookup = new Map<string, EdgeInfo[]>();
+
+  for (const edge of edges) {
+    // Skip edges with very low existence probability
+    if (edge.exists_probability < MIN_EXISTS_PROBABILITY) {
+      continue;
+    }
+
+    const edgeInfo: EdgeInfo = {
+      to: edge.to,
+      strength_mean: edge.strength.mean,
+      strength_std: edge.strength.std,
+      exists_probability: edge.exists_probability,
+    };
+
+    if (!lookup.has(edge.from)) {
+      lookup.set(edge.from, []);
+    }
+    lookup.get(edge.from)!.push(edgeInfo);
+  }
+
+  return lookup;
+}
+
+/**
+ * Find all paths from a source node to the goal using DFS.
+ *
+ * Handles cycles by tracking visited nodes per path.
+ * Limits depth to MAX_PATH_DEPTH to prevent explosion in dense graphs.
+ *
+ * @param edgeLookup Edge lookup map
+ * @param sourceId Starting node
+ * @param goalId Target goal node
+ * @returns Array of all paths found
+ */
+function findAllPathsToGoal(
+  edgeLookup: Map<string, EdgeInfo[]>,
+  sourceId: string,
+  goalId: string
+): PathInfo[] {
+  const paths: PathInfo[] = [];
+
+  // DFS with path tracking to detect cycles
+  function dfs(
+    currentNode: string,
+    path: string[],
+    effect: number,
+    confidences: number[]
+  ): void {
+    // Reached goal - record path
+    if (currentNode === goalId) {
+      // Compute path confidence as product of exists_probability × certainty from std
+      // Use geometric mean of individual edge confidences
+      const avgConfidence = confidences.length > 0
+        ? confidences.reduce((a, b) => a * b, 1) ** (1 / confidences.length)
+        : 1;
+
+      paths.push({
+        nodes: [...path],
+        effect,
+        confidence: avgConfidence,
+      });
+      return;
+    }
+
+    // Depth limit reached
+    if (path.length >= MAX_PATH_DEPTH) {
+      return;
+    }
+
+    // Get outgoing edges
+    const outEdges = edgeLookup.get(currentNode);
+    if (!outEdges) {
+      return;
+    }
+
+    // Explore each neighbor
+    for (const edge of outEdges) {
+      // Skip if already in path (cycle detection)
+      if (path.includes(edge.to)) {
+        continue;
+      }
+
+      // Compute edge confidence: exists_probability × certainty_from_std
+      // certainty = 1 / (1 + |std / mean|) when mean != 0, else use exists_probability only
+      let edgeCertainty: number;
+      if (Math.abs(edge.strength_mean) > 0.001) {
+        const relativeStd = Math.abs(edge.strength_std / edge.strength_mean);
+        edgeCertainty = 1 / (1 + relativeStd);
+      } else {
+        // Mean is ~0, use exists_probability as proxy for certainty
+        edgeCertainty = edge.exists_probability;
+      }
+      const edgeConfidence = edge.exists_probability * edgeCertainty;
+
+      // Recurse with accumulated effect and confidence
+      dfs(
+        edge.to,
+        [...path, edge.to],
+        effect * edge.strength_mean,
+        [...confidences, edgeConfidence]
+      );
+    }
+  }
+
+  // Start DFS from source
+  dfs(sourceId, [sourceId], 1, []);
+
+  return paths;
+}
+
+/**
+ * Compute total influence and confidence for a factor.
+ *
+ * Influence = Sum of all path effects
+ * Confidence = Weighted average of path confidences (weighted by |effect|)
+ *
+ * @param paths All paths from factor to goal
+ * @returns { influence, confidence }
+ */
+function computeInfluenceFromPaths(paths: PathInfo[]): { influence: number; confidence: number } {
+  if (paths.length === 0) {
+    return { influence: 0, confidence: 0 };
+  }
+
+  // Sum all path effects to get total influence
+  const totalInfluence = paths.reduce((sum, p) => sum + p.effect, 0);
+
+  // Weighted average of confidences (weighted by |effect|)
+  const totalWeight = paths.reduce((sum, p) => sum + Math.abs(p.effect), 0);
+  const weightedConfidence = totalWeight > 0
+    ? paths.reduce((sum, p) => sum + Math.abs(p.effect) * p.confidence, 0) / totalWeight
+    : 0;
+
+  return {
+    influence: totalInfluence,
+    confidence: weightedConfidence,
+  };
+}
+
+// -----------------------------------------------------------------------------
+// Public API
+// -----------------------------------------------------------------------------
+
+/**
+ * Compute factor influence and confidence from graph structure.
+ *
+ * For each factor node, finds all paths to the goal and computes:
+ * - influence: total causal effect (sum of path effects)
+ * - confidence: combined certainty along paths
+ * - direction: positive or negative effect on goal
+ *
+ * No dependency on parameter_uncertainties - derived purely from edge data.
+ *
+ * @param graph Graph with nodes and edges
+ * @param goalNodeId Target goal node ID
+ * @returns Array of factor influences, sorted by |influence| descending
+ */
+export function computeFactorInfluence(
+  graph: EngineGraphV3,
+  goalNodeId: string
+): FactorInfluence[] {
+  // Validate goal node exists
+  const goalNode = graph.nodes.find(n => n.id === goalNodeId);
+  if (!goalNode) {
+    return [];
+  }
+
+  // Build edge lookup for efficient path finding
+  const edgeLookup = buildEdgeLookup(graph.edges);
+
+  // Find all factor nodes
+  const factorNodes = graph.nodes.filter(n => n.kind === 'factor');
+
+  // Compute influence for each factor
+  const results: Array<{ factor: EngineNodeV3; influence: number; confidence: number }> = [];
+
+  for (const factor of factorNodes) {
+    // Skip if factor is the goal itself
+    if (factor.id === goalNodeId) {
+      continue;
+    }
+
+    // Find all paths from factor to goal
+    const paths = findAllPathsToGoal(edgeLookup, factor.id, goalNodeId);
+
+    // Compute influence and confidence
+    const { influence, confidence } = computeInfluenceFromPaths(paths);
+
+    results.push({ factor, influence, confidence });
+  }
+
+  // Find max absolute influence for normalization
+  const maxAbsInfluence = Math.max(
+    ...results.map(r => Math.abs(r.influence)),
+    0.001 // Prevent division by zero
+  );
+
+  // Build final output with normalized values
+  const output: FactorInfluence[] = results.map(({ factor, influence, confidence }) => ({
+    factor_id: factor.id,
+    label: factor.label,
+    influence,
+    normalised_influence: Math.abs(influence) / maxAbsInfluence,
+    confidence,
+    direction: influence >= 0 ? 'positive' : 'negative',
+  }));
+
+  // Sort by absolute influence descending
+  output.sort((a, b) => Math.abs(b.influence) - Math.abs(a.influence));
+
+  return output;
+}
+
+/**
+ * Compute factor influence with additional metadata for debugging.
+ *
+ * Same as computeFactorInfluence but includes path details.
+ *
+ * @param graph Graph with nodes and edges
+ * @param goalNodeId Target goal node ID
+ * @returns Array of factor influences with path details
+ */
+export function computeFactorInfluenceWithPaths(
+  graph: EngineGraphV3,
+  goalNodeId: string
+): Array<FactorInfluence & { paths: PathInfo[] }> {
+  const goalNode = graph.nodes.find(n => n.id === goalNodeId);
+  if (!goalNode) {
+    return [];
+  }
+
+  const edgeLookup = buildEdgeLookup(graph.edges);
+  const factorNodes = graph.nodes.filter(n => n.kind === 'factor');
+
+  const results: Array<{
+    factor: EngineNodeV3;
+    influence: number;
+    confidence: number;
+    paths: PathInfo[];
+  }> = [];
+
+  for (const factor of factorNodes) {
+    if (factor.id === goalNodeId) continue;
+
+    const paths = findAllPathsToGoal(edgeLookup, factor.id, goalNodeId);
+    const { influence, confidence } = computeInfluenceFromPaths(paths);
+
+    results.push({ factor, influence, confidence, paths });
+  }
+
+  const maxAbsInfluence = Math.max(
+    ...results.map(r => Math.abs(r.influence)),
+    0.001
+  );
+
+  const output = results.map(({ factor, influence, confidence, paths }) => ({
+    factor_id: factor.id,
+    label: factor.label,
+    influence,
+    normalised_influence: Math.abs(influence) / maxAbsInfluence,
+    confidence,
+    direction: (influence >= 0 ? 'positive' : 'negative') as 'positive' | 'negative',
+    paths,
+  }));
+
+  output.sort((a, b) => Math.abs(b.influence) - Math.abs(a.influence));
+
+  return output;
+}

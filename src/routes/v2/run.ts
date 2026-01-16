@@ -58,6 +58,7 @@ import {
   logISLCall,
 } from '../../logging/preflight-logger.js';
 import { getISLService } from '../../integrations/isl/index.js';
+import { computeFactorInfluence } from '../../lib/factor-influence.js';
 import { ISLHttpError } from '../../integrations/isl/errors.js';
 import {
   buildRobustnessDataForCee,
@@ -179,6 +180,40 @@ function transformFactorSensitivity(islFactorSensitivity: unknown): FactorSensit
     importance_score: Math.min(1, Math.abs(f.sensitivity ?? 0) / 2),
     value_of_information: f.value_of_information,
     direction: f.direction as 'positive' | 'negative' | 'mixed' | undefined,
+  }));
+}
+
+/**
+ * Compute factor sensitivity from graph structure using path analysis.
+ *
+ * This is the fallback when ISL doesn't return factor_sensitivity
+ * (typically because parameter_uncertainties weren't populated).
+ *
+ * Derives influence and confidence purely from edge data:
+ * - influence = sum of path effects (product of strength.mean along paths)
+ * - confidence = combined certainty from exists_probability and strength.std
+ *
+ * @param graph Graph with nodes and edges
+ * @param goalNodeId Target goal node ID
+ * @returns Factor sensitivity results in standard format, or undefined if no factors
+ */
+function computeFactorSensitivityFromGraph(
+  graph: EngineGraphV3 | undefined,
+  goalNodeId: string | undefined
+): FactorSensitivityResultV3[] | undefined {
+  if (!graph || !goalNodeId) return undefined;
+
+  const influences = computeFactorInfluence(graph, goalNodeId);
+  if (influences.length === 0) return undefined;
+
+  return influences.map(f => ({
+    factor_id: f.factor_id,
+    sensitivity_score: f.influence,
+    // Use normalised_influence directly for UI display (already 0-1)
+    importance_score: f.normalised_influence,
+    // Use confidence as proxy for value_of_information (both represent certainty)
+    value_of_information: f.confidence,
+    direction: f.direction,
   }));
 }
 
@@ -1983,7 +2018,11 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         const edgeSensitivity = islResult.robustness
           ? transformEdgeSensitivityV2(islResult.robustness)
           : transformEdgeSensitivity(islResult.sensitivity);
-        const factorSensitivity = transformFactorSensitivity(islResult.factor_sensitivity);
+        // Factor sensitivity: prefer ISL result, fallback to graph-computed values
+        // Graph-computed uses path analysis when ISL doesn't return factor_sensitivity
+        // (typically because parameter_uncertainties weren't populated in request)
+        const factorSensitivity = transformFactorSensitivity(islResult.factor_sensitivity)
+          ?? computeFactorSensitivityFromGraph(filteredGraph, body.goal_node_id);
         const sensitivityData: SensitivityData = { edgeSensitivity, factorSensitivity };
 
         // Use hasNonEmptyArray on the FINAL transformed arrays (single source of truth)
