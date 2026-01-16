@@ -1308,6 +1308,14 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
       bodyLimit: BODY_LIMIT_BYTES,
     },
     async (req: FastifyRequest, reply: FastifyReply) => {
+      // Diagnostic: Verify route is being hit and console.log appears in Render logs
+      console.log('[V2_RUN_ENTRY]', JSON.stringify({
+        timestamp: new Date().toISOString(),
+        request_id: (req.body as any)?.request_id || req.id || 'unknown',
+        method: req.method,
+        url: req.url,
+      }));
+
       const startTime = performance.now();
       const body = req.body as RunRequestV3;
       const requestId = body.request_id ?? String(req.id) ?? randomUUID();
