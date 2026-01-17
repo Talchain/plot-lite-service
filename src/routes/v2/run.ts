@@ -1214,8 +1214,8 @@ async function requestCeeReview(
     // Build CEE review request (include brief for contextualised output)
     const ceeRequest = buildCeeReviewRequest(scenarioId, graph, options, islResult, robustnessData, brief);
 
-    // Call CEE orchestrator
-    const ceeResult = await orchestrateCeeReview(ceeEnv, ceeRequest, requestId);
+    // Call CEE orchestrator (pass logger for Pino structured logging)
+    const ceeResult = await orchestrateCeeReview(ceeEnv, ceeRequest, requestId, logger);
     const latencyMs = performance.now() - startTime;
 
     // Log CEE call
@@ -1321,6 +1321,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
       const startTime = performance.now();
       const body = req.body as RunRequestV3;
       const requestId = body.request_id ?? String(req.id) ?? randomUUID();
+      reply.header('X-Olumi-Plot-Build', getBuildId());
+      reply.header('X-Olumi-Plot-Instance', process.env.RENDER_INSTANCE_ID || 'unknown');
       // Note: seedUsed is resolved AFTER graph normalization for determinism
       // When seed is omitted, we derive it from the normalized graph hash
       const providedSeed = body.seed;  // May be undefined - will resolve after normalization

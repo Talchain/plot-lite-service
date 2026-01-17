@@ -11,6 +11,7 @@ import type {
   CeeReviewBlock,
   CeeErrorNormalized,
 } from './types.js';
+import type { FastifyBaseLogger } from 'fastify';
 import {
   sanitizeRequestId,
   draftGraphV2,
@@ -18,7 +19,7 @@ import {
   biasCheckV2,
   type CEESchemaV2Config,
 } from './client.js';
-import { shouldAllowCeeCall, recordCeeSuccess, recordCeeFailure } from './circuit-breaker.js';
+import { shouldAllowCeeCall, recordCeeSuccess, recordCeeFailure, getCeeCircuitBreakerStats } from './circuit-breaker.js';
 
 // -----------------------------------------------------------------------------
 // ISL Robustness Validation
@@ -494,6 +495,7 @@ export async function orchestrateCeeReview(
   env: OrchestratorEnv,
   request: CeeReviewRequest,
   plotRequestId: string,
+  logger?: FastifyBaseLogger,
 ): Promise<CeeOrchestrationResult> {
   const startTime = Date.now();
 
@@ -501,16 +503,19 @@ export async function orchestrateCeeReview(
   const sanitisedId = sanitizeRequestId(plotRequestId);
   const wasSanitised = sanitisedId !== plotRequestId;
 
-  // Diagnostic logging for CEE enrichment timeout investigation
+  // Diagnostic logging for CEE enrichment timeout investigation (Pino)
   const v2Enabled = isCeeSchemaV2Enabled();
-  console.log('[CEE_ENRICHMENT] Starting', {
-    timeout_ms: env.timeoutMs,
-    timeout_ms_type: typeof env.timeoutMs,
-    CEE_TIMEOUT_MS_env: process.env.CEE_TIMEOUT_MS,
-    CEE_SCHEMA_V2_env: process.env.CEE_SCHEMA_V2,
-    using_v2_path: v2Enabled,
+  const timeoutMs = Number(env.timeoutMs ?? 60_000);
+  const circuitBreaker = getCeeCircuitBreakerStats();
+  logger?.info({
+    event: 'cee_enrichment_start',
     request_id: plotRequestId,
-  });
+    effective_timeout_ms: timeoutMs,
+    client_path: v2Enabled ? 'v2_http' : 'sdk',
+    circuit_breaker_state: circuitBreaker.state,
+    cee_base_url: env.baseUrl,
+    endpoint: '/assist/v1/options',
+  }, 'cee_enrichment_start');
 
   // Check circuit breaker
   if (!shouldAllowCeeCall()) {
@@ -540,7 +545,7 @@ export async function orchestrateCeeReview(
   const client = createCEEClient({
     apiKey: String(env.apiKey ?? ''),
     baseUrl: env.baseUrl,
-    timeout: Number(env.timeoutMs ?? 60_000),
+    timeout: timeoutMs,
   });
 
   try {
