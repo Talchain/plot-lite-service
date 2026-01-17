@@ -558,7 +558,8 @@ export async function orchestrateCeeReview(
       sdkSupportsReview: sdkSupportsReview(client),
       branch: sdkSupportsReview(client) ? 'm1' : (isCeeSchemaV2Enabled() ? 'v2_http' : 'sdk'),
     };
-    console.log('[CEE_PATH_DECISION]', JSON.stringify(pathDecision));
+    // Use stderr for guaranteed capture (console.log may not appear in Render)
+    process.stderr.write(`[CEE_PATH_DECISION] ${JSON.stringify(pathDecision)}\n`);
 
     if (sdkSupportsReview(client)) {
       // M1 Path: Use unified review() method (SDK v1.12.0+)
