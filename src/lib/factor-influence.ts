@@ -126,9 +126,14 @@ function findAllPathsToGoal(
     if (currentNode === goalId) {
       // Compute path confidence as product of exists_probability × certainty from std
       // Use geometric mean of individual edge confidences
-      const avgConfidence = confidences.length > 0
+      let avgConfidence = confidences.length > 0
         ? confidences.reduce((a, b) => a * b, 1) ** (1 / confidences.length)
         : 1;
+
+      // Guard against NaN/Infinity from edge cases (e.g., 0 confidence, overflow)
+      if (!Number.isFinite(avgConfidence)) {
+        avgConfidence = 0;
+      }
 
       paths.push({
         nodes: [...path],
@@ -199,13 +204,21 @@ function computeInfluenceFromPaths(paths: PathInfo[]): { influence: number; conf
   }
 
   // Sum all path effects to get total influence
-  const totalInfluence = paths.reduce((sum, p) => sum + p.effect, 0);
+  let totalInfluence = paths.reduce((sum, p) => sum + p.effect, 0);
 
   // Weighted average of confidences (weighted by |effect|)
   const totalWeight = paths.reduce((sum, p) => sum + Math.abs(p.effect), 0);
-  const weightedConfidence = totalWeight > 0
+  let weightedConfidence = totalWeight > 0
     ? paths.reduce((sum, p) => sum + Math.abs(p.effect) * p.confidence, 0) / totalWeight
     : 0;
+
+  // Guard against NaN/Infinity from edge cases (e.g., overflow, invalid input data)
+  if (!Number.isFinite(totalInfluence)) {
+    totalInfluence = 0;
+  }
+  if (!Number.isFinite(weightedConfidence)) {
+    weightedConfidence = 0;
+  }
 
   return {
     influence: totalInfluence,

@@ -77,6 +77,62 @@ describe('Preflight Validation', () => {
     });
   });
 
+  describe('Option ID Consistency', () => {
+    it('passes when option IDs match option nodes', () => {
+      const result = runPreflightValidation(
+        validGraph,
+        validOptions,
+        'goal',
+        defaultStats,
+        ['opt1', 'opt2']
+      );
+
+      expect(result.blockers.some(b => b.code === 'OPTION_NODE_MISSING_FROM_ARRAY')).toBe(false);
+      expect(result.blockers.some(b => b.code === 'OPTION_ID_NOT_IN_GRAPH')).toBe(false);
+    });
+
+    it('blocks when option node is missing from options array', () => {
+      const optionsMissing: OptionV3[] = [validOptions[0]];
+      const result = runPreflightValidation(
+        validGraph,
+        optionsMissing,
+        'goal',
+        defaultStats,
+        ['opt1', 'opt2']
+      );
+
+      expect(result.passed).toBe(false);
+      expect(result.blockers.some(b => b.code === 'OPTION_NODE_MISSING_FROM_ARRAY')).toBe(true);
+    });
+
+    it('blocks when option ID not found in option nodes', () => {
+      const result = runPreflightValidation(
+        validGraph,
+        validOptions,
+        'goal',
+        defaultStats,
+        ['opt1']
+      );
+
+      expect(result.passed).toBe(false);
+      expect(result.blockers.some(b => b.code === 'OPTION_ID_NOT_IN_GRAPH')).toBe(true);
+    });
+
+    it('skips check when no option nodes are provided', () => {
+      const result = runPreflightValidation(
+        validGraph,
+        validOptions,
+        'goal',
+        defaultStats,
+        []
+      );
+
+      expect(result.passed).toBe(true);
+      expect(result.blockers.some(b => b.code === 'OPTION_NODE_MISSING_FROM_ARRAY')).toBe(false);
+      expect(result.blockers.some(b => b.code === 'OPTION_ID_NOT_IN_GRAPH')).toBe(false);
+    });
+  });
+
   describe('EMPTY_INTERVENTIONS', () => {
     it('fails when option has no interventions', () => {
       const optionsWithEmpty: OptionV3[] = [
@@ -135,7 +191,7 @@ describe('Preflight Validation', () => {
             'factor-a': 49,
           },
         },
-      ] as OptionV3[];
+      ] as unknown as OptionV3[];
 
       const result = runPreflightValidation(validGraph, optionsFlat, 'goal', defaultStats);
 
@@ -169,7 +225,7 @@ describe('Preflight Validation', () => {
             'factor-a': Infinity,
           },
         },
-      ] as OptionV3[];
+      ] as unknown as OptionV3[];
 
       const result = runPreflightValidation(validGraph, optionsInfinity, 'goal', defaultStats);
 
@@ -193,7 +249,7 @@ describe('Preflight Validation', () => {
             'factor-a': 59, // Same value as opt1
           },
         },
-      ] as OptionV3[];
+      ] as unknown as OptionV3[];
 
       const result = runPreflightValidation(validGraph, optionsIdenticalFlat, 'goal', defaultStats);
 

@@ -10,6 +10,27 @@
  * - Field ordering in objects
  *
  * @see P0-PLOT-5: Determinism Hash with Full Numeric Normalisation
+ *
+ * ## BREAKING CHANGE (v2)
+ *
+ * Hash version 2 introduces breaking changes that invalidate all existing hashes:
+ *
+ * 1. **Precision increase**: DECIMAL_PRECISION changed from 6 to 12 decimals
+ *    - Previous: 0.123456 → 0.123456
+ *    - Current:  0.123456 → 0.123456000000
+ *    - Impact: Prevents float rounding issues at high precision
+ *
+ * 2. **Intercept field inclusion**: Node `intercept` now included in hash
+ *    - Previous: intercept ignored
+ *    - Current:  intercept included (defaults to 0.0 if absent)
+ *    - Impact: Nodes with intercept values produce different hashes
+ *
+ * 3. **Hash version prefix**: Version number is now part of canonical form
+ *    - Ensures version changes are detectable
+ *
+ * **Migration**: Clients caching by response_hash must invalidate caches
+ * when upgrading to this version. Hash collisions between v1 and v2 are
+ * impossible due to the version prefix in the canonical form.
  */
 
 import { createHash } from 'node:crypto';

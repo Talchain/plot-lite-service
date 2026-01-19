@@ -373,6 +373,49 @@ describe('POST /v2/run Integration', () => {
       expect(Array.isArray(res.data.critiques)).toBe(true);
     });
 
+    it('surfaces coefficient repair warnings as critiques', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const res = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: {
+            nodes: [
+              { id: 'factor-a', kind: 'factor', label: 'Factor A' },
+              { id: 'goal', kind: 'goal', label: 'Goal' },
+            ],
+            edges: [
+              {
+                from: 'factor-a',
+                to: 'goal',
+                strength_mean: 2.5,
+                strength_std: 1.2,
+                belief_exists: 2.0,
+              },
+            ],
+          },
+          options: [
+            {
+              id: 'opt1',
+              label: 'Option 1',
+              interventions: { 'factor-a': { value: 1.0, source: 'user_specified' } },
+            },
+            {
+              id: 'opt2',
+              label: 'Option 2',
+              interventions: { 'factor-a': { value: 2.0, source: 'user_specified' } },
+            },
+          ],
+          goal_node_id: 'goal',
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.data.critiques.some((c: any) => c.code === 'COEFFICIENT_REPAIRED')).toBe(true);
+    });
+
     it('includes meta with seed_used as string and timing info', async () => {
       vi.resetModules();
       server = await spawnServer({ env: ENV });

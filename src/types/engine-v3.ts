@@ -123,6 +123,9 @@ export interface UpstreamEdge {
   // Strength - multiple representations
   weight?: number;
   strength?: { mean: number; std: number };
+  /** Flat strength mean field (alternative to strength.mean) */
+  strength_mean?: number;
+  /** Flat strength std field (alternative to strength.std) */
   strength_std?: number;
   belief_strength?: number;
 
@@ -344,6 +347,8 @@ export type BlockerCode =
   | 'INVALID_INTERVENTION_VALUE'
   | 'NO_PATH_TO_GOAL'
   | 'IDENTICAL_OPTIONS'
+  | 'OPTION_NODE_MISSING_FROM_ARRAY'
+  | 'OPTION_ID_NOT_IN_GRAPH'
   | 'INVALID_NODE_ID_PATTERN'
   | 'INVALID_EDGE_ENDPOINT'
   | 'DUPLICATE_NODE_IDS'
@@ -836,7 +841,7 @@ export const DEFAULT_SEED = '42';
  * Non-causal node kinds to filter before ISL translation.
  * Use exclusion-based filtering to avoid dropping new causal kinds.
  */
-export const NON_CAUSAL_NODE_KINDS = ['option', 'decision'] as const;
+export const NON_CAUSAL_NODE_KINDS = ['option', 'decision', 'constraint'] as const;
 
 /** Minimum std for edge strength (to avoid division by zero) */
 export const MIN_STRENGTH_STD = 1e-6;

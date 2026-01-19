@@ -44,7 +44,11 @@ import type {
   DownstreamCallsTrace,
 } from '../../types/engine-v3.js';
 // Seed derivation: when seed omitted, derive deterministically from graph hash
-import { normaliseGraph, NormalisationError } from '../../normalisation/graph-normaliser.js';
+import {
+  normaliseGraph,
+  NormalisationError,
+  type NormalisationWarning,
+} from '../../normalisation/graph-normaliser.js';
 import { filterOptionNodes } from '../../normalisation/option-filter.js';
 import { hashRequest } from '../../normalisation/canonicalise.js';
 import { hashGraph, deriveSeedFromHash } from '../../sampling/graph-hash.js';
@@ -66,6 +70,8 @@ import {
   enrichRobustEdge,
   getNodeLabel,
   getOptionLabel,
+  parseEdgeFrom,
+  parseEdgeTo,
   type ISLFragileEdge,
 } from '../../integrations/isl/adapters/robustness-enrichment.js';
 import {
@@ -88,6 +94,89 @@ function hasNonEmptyArray(value: unknown): boolean {
   return Array.isArray(value) && value.length > 0;
 }
 
+function buildNormalizationCritiques(
+  warnings: NormalisationWarning[]
+): CritiqueV3[] {
+  return warnings.map((warning) => ({
+    id: randomUUID(),
+    code: warning.code,
+    severity: warning.code === 'COEFFICIENT_REPAIRED' ? 'warning' : 'info',
+    message: warning.message,
+    source: 'validation',
+    blocks_analysis: false,
+  }));
+}
+
+/**
+ * Extract edge IDs from an ISL robustness edge entry.
+ * Returns null if IDs are missing.
+ */
+function extractEdgeIds(edge: unknown): { fromId: string; toId: string } | null {
+  if (!edge) return null;
+  if (typeof edge === 'string') {
+    const fromId = parseEdgeFrom(edge);
+    const toId = parseEdgeTo(edge);
+    return fromId && toId ? { fromId, toId } : null;
+  }
+
+  const typed = edge as { edge_id?: string; from_id?: string; to_id?: string };
+  const edgeId = typed.edge_id;
+  const fromId = typed.from_id ?? (edgeId ? parseEdgeFrom(edgeId) : '');
+  const toId = typed.to_id ?? (edgeId ? parseEdgeTo(edgeId) : '');
+
+  return fromId && toId ? { fromId, toId } : null;
+}
+
+// -----------------------------------------------------------------------------
+// ISL Response Type Guards
+// -----------------------------------------------------------------------------
+
+/**
+ * ISL edge sensitivity item shape.
+ * Raw response structure from ISL sensitivity array.
+ */
+interface ISLEdgeSensitivityItem {
+  edge_from?: string;
+  edge_to?: string;
+  sensitivity_type?: string;
+  elasticity?: number;
+  importance_rank?: number;
+  interpretation?: string;
+}
+
+/**
+ * ISL factor sensitivity item shape.
+ * Raw response structure from ISL factor_sensitivity array.
+ */
+interface ISLFactorSensitivityItem {
+  node_id?: string;
+  sensitivity?: number;
+  value_of_information?: number;
+  direction?: string;
+}
+
+/**
+ * Type guard: check if value has expected ISL edge sensitivity shape.
+ * Validates structural shape only; does not validate field values.
+ */
+function isISLEdgeSensitivityItem(value: unknown): value is ISLEdgeSensitivityItem {
+  if (!value || typeof value !== 'object') return false;
+  const v = value as Record<string, unknown>;
+  // Must have at least one identifier field
+  return typeof v.edge_from === 'string' || typeof v.edge_to === 'string';
+}
+
+/**
+ * Type guard: check if value has expected ISL factor sensitivity shape.
+ * Validates structural shape only; does not validate field values.
+ */
+function isISLFactorSensitivityItem(value: unknown): value is ISLFactorSensitivityItem {
+  if (!value || typeof value !== 'object') return false;
+  const v = value as Record<string, unknown>;
+  // Must have node_id to be useful
+  return typeof v.node_id === 'string';
+}
+
 /**
  * Transform ISL sensitivity array to edge sensitivity response format (V1 fallback).
  * Always returns an array (empty if no data).
@@ -97,17 +186,38 @@ function hasNonEmptyArray(value: unknown): boolean {
  *
  * @deprecated V2 uses robustness.fragile_edges/robust_edges instead
  */
-function transformEdgeSensitivity(islSensitivity: unknown): EdgeSensitivityResultV3[] {
+function transformEdgeSensitivity(
+  islSensitivity: unknown,
+  stats?: { droppedCount: number }
+): EdgeSensitivityResultV3[] {
   if (!hasNonEmptyArray(islSensitivity)) return [];
-  return (islSensitivity as any[]).map((s: any) => ({
-    edge_id: `${s.edge_from}::${s.edge_to}`,  // Double-colon separator (canonical format)
-    from: s.edge_from,
-    to: s.edge_to,
-    sensitivity_type: s.sensitivity_type as 'existence' | 'magnitude',
-    elasticity: s.elasticity,
-    importance_rank: s.importance_rank,
-    interpretation: s.interpretation,
-  }));
+
+  // Type-safe iteration with validation
+  const sensitivityArray = islSensitivity as unknown[];
+  return sensitivityArray.flatMap((item) => {
+    if (!isISLEdgeSensitivityItem(item)) {
+      if (stats) stats.droppedCount += 1;
+      return [];
+    }
+
+    const fromId = item.edge_from ?? '';
+    const toId = item.edge_to ?? '';
+    if (!fromId || !toId) {
+      if (stats) stats.droppedCount += 1;
+      return [];
+    }
+
+    // Provide defaults for optional ISL fields
+    return [{
+      edge_id: `${fromId}::${toId}`,  // Double-colon separator (canonical format)
+      from: fromId,
+      to: toId,
+      sensitivity_type: (item.sensitivity_type ?? 'magnitude') as 'existence' | 'magnitude',
+      elasticity: item.elasticity ?? 0,
+      importance_rank: item.importance_rank ?? 0,
+      interpretation: item.interpretation ?? '',
+    }];
+  });
 }
 
 /**
@@ -118,15 +228,22 @@ function transformEdgeSensitivity(islSensitivity: unknown): EdgeSensitivityResul
  * - fragile_edges: high sensitivity edges (elasticity approximated from switch_probability)
  * - robust_edges: low sensitivity edges (elasticity ~ 0)
  */
-function transformEdgeSensitivityV2(robustness: any): EdgeSensitivityResultV3[] {
+function transformEdgeSensitivityV2(
+  robustness: any,
+  stats?: { droppedCount: number }
+): EdgeSensitivityResultV3[] {
   const results: EdgeSensitivityResultV3[] = [];
   let rank = 1;
 
   // Process fragile edges first (high sensitivity)
   if (hasNonEmptyArray(robustness?.fragile_edges)) {
     for (const edge of robustness.fragile_edges) {
-      const fromId = edge.from_id ?? edge.edge_id?.split('->')[0] ?? '';
-      const toId = edge.to_id ?? edge.edge_id?.split('->')[1] ?? '';
+      const ids = extractEdgeIds(edge);
+      if (!ids) {
+        if (stats) stats.droppedCount += 1;
+        continue;
+      }
+      const { fromId, toId } = ids;
       const switchProb = edge.switch_probability ?? 0.5;
 
       results.push({
@@ -145,8 +262,12 @@ function transformEdgeSensitivityV2(robustness: any): EdgeSensitivityResultV3[] 
   // Process robust edges (low sensitivity)
   if (hasNonEmptyArray(robustness?.robust_edges)) {
     for (const edge of robustness.robust_edges) {
-      const fromId = edge.from_id ?? edge.edge_id?.split('->')[0] ?? '';
-      const toId = edge.to_id ?? edge.edge_id?.split('->')[1] ?? '';
+      const ids = extractEdgeIds(edge);
+      if (!ids) {
+        if (stats) stats.droppedCount += 1;
+        continue;
+      }
+      const { fromId, toId } = ids;
 
       results.push({
         edge_id: `${fromId}::${toId}`,
@@ -173,14 +294,20 @@ function transformEdgeSensitivityV2(robustness: any): EdgeSensitivityResultV3[] 
  */
 function transformFactorSensitivity(islFactorSensitivity: unknown): FactorSensitivityResultV3[] | undefined {
   if (!hasNonEmptyArray(islFactorSensitivity)) return undefined;
-  return (islFactorSensitivity as any[]).map((f: any) => ({
-    factor_id: f.node_id,
-    sensitivity_score: f.sensitivity,
-    // Bounded importance score for UI: normalizes unbounded sensitivity to [0, 1]
-    importance_score: Math.min(1, Math.abs(f.sensitivity ?? 0) / 2),
-    value_of_information: f.value_of_information,
-    direction: f.direction as 'positive' | 'negative' | 'mixed' | undefined,
-  }));
+
+  // Type-safe iteration with validation
+  const factorArray = islFactorSensitivity as unknown[];
+  return factorArray
+    .filter(isISLFactorSensitivityItem)
+    .map((f) => ({
+      // Type guard ensures node_id is string, but provide empty default for safety
+      factor_id: f.node_id ?? '',
+      sensitivity_score: f.sensitivity ?? 0,
+      // Bounded importance score for UI: normalizes unbounded sensitivity to [0, 1]
+      importance_score: Math.min(1, Math.abs(f.sensitivity ?? 0) / 2),
+      value_of_information: f.value_of_information ?? 0,
+      direction: f.direction as 'positive' | 'negative' | 'mixed' | undefined,
+    }));
 }
 
 /**
@@ -387,6 +514,18 @@ function validateISLV2Shape(islResult: any): ISLShapeValidationResult {
 const PREFLIGHT_VERSION_VALUE = '2025-12-26';
 const DEFAULT_N_SAMPLES = 1000;
 const BODY_LIMIT_BYTES = 10 * 1024 * 1024; // 10MB
+
+/**
+ * ISL Shape Validation Retry Configuration
+ *
+ * V1 shape detection (results[] instead of options[]) may indicate ISL is
+ * mid-deployment and temporarily serving the old format. Retry logic gives
+ * ISL time to complete its deployment before failing the request.
+ *
+ * Only V1 shape triggers retry; missing V2 fields are considered bugs, not transient.
+ */
+const ISL_V1_SHAPE_MAX_RETRIES = parseInt(process.env.ISL_V1_SHAPE_MAX_RETRIES ?? '2', 10);
+const ISL_V1_SHAPE_RETRY_DELAY_MS = parseInt(process.env.ISL_V1_SHAPE_RETRY_DELAY_MS ?? '500', 10);
 
 // -----------------------------------------------------------------------------
 // Seed Handling
@@ -1372,7 +1511,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         let normalizedGraph: EngineGraphV3;
         let nodesNormalised = 0;
         let edgesNormalised = 0;
-        let normWarnings: string[] = [];
+        let normWarnings: NormalisationWarning[] = [];
 
         // Normalize options (support both simple numbers and rich objects)
         const normalizedOptions = normalizeOptions(body.options);
@@ -1402,6 +1541,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           throw err;
         }
 
+        const optionNodeIds = normalizedGraph.nodes
+          .filter((node) => node.kind?.toLowerCase?.() === 'option')
+          .map((node) => node.id);
+
         // Filter non-causal nodes (option, decision)
         const filterResult = filterOptionNodes(normalizedGraph);
         const filteredGraph = filterResult.filteredGraph;
@@ -1427,7 +1570,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // Phase 1b: Early Goal Validation (before filtering)
         // =================================================================
         // Validate goal in ORIGINAL graph before filtering to give specific errors
-        const NON_CAUSAL_NODE_KINDS = ['option', 'decision'];
+        const NON_CAUSAL_NODE_KINDS = ['option', 'decision', 'constraint'];
 
         if (!body.goal_node_id || body.goal_node_id.trim() === '') {
           return reply.status(422).send(buildBlockedResponse(
@@ -1493,7 +1636,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             optionEdgesFiltered: filterResult.removedEdgeCount,
             nodesNormalised,
             edgesNormalised,
-          }
+          },
+          optionNodeIds
         );
 
         validationMs = performance.now() - valStart;
@@ -1513,6 +1657,20 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             'Preflight validation failed',
             preflight.blockers
           ));
+        }
+
+        const normalizationCritiques = buildNormalizationCritiques(normWarnings);
+        if (normWarnings.length > 0) {
+          req.log.info({
+            event: 'normalisation_warnings',
+            warning_count: normWarnings.length,
+            warnings: normWarnings,
+            graph_stats: {
+              node_count: body.graph.nodes?.length ?? 0,
+              edge_count: body.graph.edges?.length ?? 0,
+              option_count: normalizedOptions.length,
+            },
+          });
         }
 
         // =================================================================
@@ -1537,14 +1695,18 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             'unavailable',
             'unavailable',
             'unavailable',
-            [{
-              id: randomUUID(),
-              code: 'ISL_NOT_ENABLED',
-              severity: 'warning',
-              message: 'ISL service is not enabled. Analysis unavailable.',
-              source: 'validation',
-              blocks_analysis: false,
-            }],
+            [
+              ...preflight.warnings,
+              ...normalizationCritiques,
+              {
+                id: randomUUID(),
+                code: 'ISL_NOT_ENABLED',
+                severity: 'warning',
+                message: 'ISL service is not enabled. Analysis unavailable.',
+                source: 'validation',
+                blocks_analysis: false,
+              },
+            ],
             {
               seedUsed,
               nSamples,
@@ -1634,7 +1796,11 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           option_ids_sent: islRequest.options.map((o: any) => o.id),
         });
 
-        // Call ISL
+        // Call ISL with retry logic for V1 shape detection
+        //
+        // V1 shape (results[] instead of options[]) may indicate ISL is mid-deployment.
+        // We retry a few times with delay to give ISL time to complete its deployment.
+        // Missing V2 fields are considered bugs and are NOT retried.
         let islResult: any;
         let islSuccess = false;
         let islStatusCode = 0;
@@ -1642,108 +1808,144 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         let islFallbackExecuted = false;
         let islShapeValid = true;
         let islShapeReason: string | undefined;
+        let v1ShapeRetryCount = 0;
 
-        try {
-          const response = await islService.callAnalysisEndpoint<any>(
-            '/api/v1/robustness/analyze/v2',
-            islRequest,
-            requestId
-          );
+        // Retry loop for V1 shape detection
+        islCallLoop: for (let shapeAttempt = 0; shapeAttempt <= ISL_V1_SHAPE_MAX_RETRIES; shapeAttempt++) {
+          // Reset state for each attempt
+          islResult = undefined;
+          islSuccess = false;
+          islStatusCode = 0;
+          islError = undefined;
+          islFallbackExecuted = false;
+          islShapeValid = true;
+          islShapeReason = undefined;
 
-          if (response.data) {
-            islResult = response.data;
-            islSuccess = true;
-            islStatusCode = 200;
+          try {
+            const response = await islService.callAnalysisEndpoint<any>(
+              '/api/v1/robustness/analyze/v2',
+              islRequest,
+              requestId
+            );
 
-            // =================================================================
-            // ISL V2 Shape Guard
-            // Validate response structure before mapping
-            // =================================================================
-            const shapeValidation = validateISLV2Shape(islResult);
+            if (response.data) {
+              islResult = response.data;
+              islSuccess = true;
+              islStatusCode = 200;
 
-            if (!shapeValidation.valid) {
-              islShapeValid = false;
-              islShapeReason = shapeValidation.reason;
+              // =================================================================
+              // ISL V2 Shape Guard
+              // Validate response structure before mapping
+              // =================================================================
+              const shapeValidation = validateISLV2Shape(islResult);
 
-              if (shapeValidation.isV1Shape) {
-                // V1 shape detected - high severity alert
-                req.log.error({
-                  event: 'unexpected_response_version',
-                  request_id: requestId,
-                  reason: shapeValidation.reason,
-                  has_results: !!islResult?.results,
-                  has_options: !!islResult?.options,
-                });
-              } else {
-                // V2 shape with missing fields - high severity alert
-                req.log.error({
-                  event: 'isl_response_shape_mismatch',
-                  request_id: requestId,
-                  reason: shapeValidation.reason,
-                  missing_fields: shapeValidation.missingFields,
-                });
+              if (!shapeValidation.valid) {
+                islShapeValid = false;
+                islShapeReason = shapeValidation.reason;
+
+                if (shapeValidation.isV1Shape) {
+                  // V1 shape detected - check if we should retry
+                  if (shapeAttempt < ISL_V1_SHAPE_MAX_RETRIES) {
+                    v1ShapeRetryCount++;
+                    req.log.warn({
+                      event: 'isl_v1_shape_retry',
+                      request_id: requestId,
+                      attempt: shapeAttempt + 1,
+                      max_retries: ISL_V1_SHAPE_MAX_RETRIES,
+                      delay_ms: ISL_V1_SHAPE_RETRY_DELAY_MS,
+                      reason: 'V1 shape detected, retrying in case ISL is mid-deployment',
+                    });
+                    await new Promise(resolve => setTimeout(resolve, ISL_V1_SHAPE_RETRY_DELAY_MS));
+                    continue islCallLoop;  // Retry
+                  }
+
+                  // Final attempt still V1 - log error
+                  req.log.error({
+                    event: 'unexpected_response_version',
+                    request_id: requestId,
+                    reason: shapeValidation.reason,
+                    has_results: !!islResult?.results,
+                    has_options: !!islResult?.options,
+                    v1_shape_retries: v1ShapeRetryCount,
+                  });
+                } else {
+                  // V2 shape with missing fields - do NOT retry (likely a bug, not transient)
+                  req.log.error({
+                    event: 'isl_response_shape_mismatch',
+                    request_id: requestId,
+                    reason: shapeValidation.reason,
+                    missing_fields: shapeValidation.missingFields,
+                  });
+                }
               }
-            }
 
-            // === TEMPORARY: Trace option IDs returned from ISL ===
-            const islOptionData = islResult?.options ?? islResult?.results;
-            req.log.info({
-              event: 'ISL_TO_PLOT_OPTION_IDS',
-              request_id: requestId,
-              option_ids_received: islOptionData?.map((o: any) => o.option_id ?? o.id) ?? [],
-              uses_options_field: !!islResult?.options,
-              uses_results_field: !!islResult?.results,
-              shape_valid: islShapeValid,
-            });
-
-            // Warn if goal_threshold was provided but ISL didn't return probability_of_goal
-            if (goalThreshold !== undefined) {
-              const optionData = islResult?.options ?? islResult?.results;
-              const optionsWithoutProbGoal = optionData?.filter(
-                (opt: any) => opt.probability_of_goal === undefined || opt.probability_of_goal === null
-              );
-              if (optionsWithoutProbGoal && optionsWithoutProbGoal.length > 0) {
-                req.log.warn({
-                  event: 'goal_threshold_no_probability',
-                  goal_threshold: goalThreshold,
-                  options_missing_probability: optionsWithoutProbGoal.length,
-                });
-              }
-            }
-          } else {
-            islStatusCode = 500;
-            islFallbackExecuted = true;
-            req.log.error({
-              event: 'isl_call_failed',
-              error: response.error?.message ?? 'Unknown error',
-              error_code: response.error?.code,
-            });
-          }
-        } catch (err) {
-          islFallbackExecuted = true;
-          if (err instanceof ISLHttpError) {
-            islError = err;
-            islStatusCode = err.status;
-
-            // Handle 422 from ISL with structured critiques (V2, V1, or Pydantic format)
-            if (err.is422()) {
+              // === TEMPORARY: Trace option IDs returned from ISL ===
+              const islOptionData = islResult?.options ?? islResult?.results;
               req.log.info({
-                event: 'isl_422_received',
-                format: err.isV2Format() ? 'v2' : 'legacy',
-                message: err.getErrorMessage(),
-                critiques_count: err.getCritiques().length,
+                event: 'ISL_TO_PLOT_OPTION_IDS',
+                request_id: requestId,
+                option_ids_received: islOptionData?.map((o: any) => o.option_id ?? o.id) ?? [],
+                uses_options_field: !!islResult?.options,
+                uses_results_field: !!islResult?.results,
+                shape_valid: islShapeValid,
+                v1_shape_retries: v1ShapeRetryCount,
+              });
+
+              // Warn if goal_threshold was provided but ISL didn't return probability_of_goal
+              if (goalThreshold !== undefined) {
+                const optionData = islResult?.options ?? islResult?.results;
+                const optionsWithoutProbGoal = optionData?.filter(
+                  (opt: any) => opt.probability_of_goal === undefined || opt.probability_of_goal === null
+                );
+                if (optionsWithoutProbGoal && optionsWithoutProbGoal.length > 0) {
+                  req.log.warn({
+                    event: 'goal_threshold_no_probability',
+                    goal_threshold: goalThreshold,
+                    options_missing_probability: optionsWithoutProbGoal.length,
+                  });
+                }
+              }
+            } else {
+              islStatusCode = 500;
+              islFallbackExecuted = true;
+              req.log.error({
+                event: 'isl_call_failed',
+                error: response.error?.message ?? 'Unknown error',
+                error_code: response.error?.code,
               });
             }
-          } else {
-            islStatusCode = 500;
-          }
 
-          req.log.error({
-            event: 'isl_call_exception',
-            error: (err as Error).message,
-            status: islStatusCode,
-          });
-        }
+            // Success or non-retryable error - exit loop
+            break islCallLoop;
+          } catch (err) {
+            islFallbackExecuted = true;
+            if (err instanceof ISLHttpError) {
+              islError = err;
+              islStatusCode = err.status;
+
+              // Handle 422 from ISL with structured critiques (V2, V1, or Pydantic format)
+              if (err.is422()) {
+                req.log.info({
+                  event: 'isl_422_received',
+                  format: err.isV2Format() ? 'v2' : 'legacy',
+                  message: err.getErrorMessage(),
+                  critiques_count: err.getCritiques().length,
+                });
+              }
+            } else {
+              islStatusCode = 500;
+            }
+
+            req.log.error({
+              event: 'isl_call_exception',
+              error: (err as Error).message,
+              status: islStatusCode,
+            });
+
+            // Don't retry on exceptions - exit loop
+            break islCallLoop;
+          }
+        }  // End of V1 shape retry loop
 
         islMs = performance.now() - islStart;
 
@@ -1803,33 +2005,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
 
         // Build response
         const totalMs = performance.now() - startTime;
-        const critiques: CritiqueV3[] = [...preflight.warnings];
-
-        // Log normalization warnings with structured context for telemetry
-        if (normWarnings.length > 0) {
-          req.log.info({
-            event: 'normalisation_warnings',
-            warning_count: normWarnings.length,
-            warnings: normWarnings,
-            graph_stats: {
-              node_count: body.graph.nodes?.length ?? 0,
-              edge_count: body.graph.edges?.length ?? 0,
-              option_count: normalizedOptions.length,
-            },
-          });
-        }
-
-        // Add normalization warnings as info critiques
-        for (const warning of normWarnings) {
-          critiques.push({
-            id: randomUUID(),
-            code: 'NORMALIZATION_WARNING',
-            severity: 'info',
-            message: warning,
-            source: 'validation',
-            blocks_analysis: false,
-          });
-        }
+        const critiques: CritiqueV3[] = [
+          ...preflight.warnings,
+          ...normalizationCritiques,
+        ];
 
         // Handle ISL 422 with structured critiques (V2, V1, or Pydantic format)
         if (islError?.is422()) {
@@ -2027,9 +2206,16 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // Status check must use the SAME arrays to prevent status/response misalignment
         // V2: Use robustness.fragile_edges/robust_edges for edge sensitivity
         // V1 fallback: Use sensitivity array
+        const edgeSensitivityStats = { droppedCount: 0 };
         const edgeSensitivity = islResult.robustness
-          ? transformEdgeSensitivityV2(islResult.robustness)
-          : transformEdgeSensitivity(islResult.sensitivity);
+          ? transformEdgeSensitivityV2(islResult.robustness, edgeSensitivityStats)
+          : transformEdgeSensitivity(islResult.sensitivity, edgeSensitivityStats);
+        if (edgeSensitivityStats.droppedCount > 0) {
+          req.log.warn(
+            { droppedCount: edgeSensitivityStats.droppedCount, reason: 'empty_edge_ids' },
+            'Filtered malformed edge_sensitivity entries'
+          );
+        }
         // Factor sensitivity: prefer graph-based calculation (Schema D.5)
         // Graph-computed uses path analysis to derive influence from edge data
         // ISL fallback only if graph computation returns empty (no factors or no paths)

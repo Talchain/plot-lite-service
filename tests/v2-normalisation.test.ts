@@ -338,7 +338,7 @@ describe('Graph Normalisation', () => {
       expect(result.graph.edges).toHaveLength(1);
       expect(result.nodesNormalised).toBe(2);
       expect(result.edgesNormalised).toBe(1);
-      expect(result.warnings).toHaveLength(0);
+      expect(result.warnings.some((w) => w.code === 'COEFFICIENT_REPAIRED')).toBe(true);
     });
 
     it('warns about option nodes', () => {
@@ -351,7 +351,55 @@ describe('Graph Normalisation', () => {
       });
 
       expect(result.warnings).toHaveLength(1);
-      expect(result.warnings[0]).toContain('option');
+      expect(result.warnings[0].message).toContain('option');
+    });
+
+    it('warns on unknown node kinds', () => {
+      const result = normaliseGraph({
+        nodes: [
+          { id: 'mystery', kind: 'mystery', label: 'Mystery' },
+        ],
+        edges: [],
+      });
+
+      expect(result.warnings.some((w) => w.code === 'UNKNOWN_NODE_KIND')).toBe(true);
+    });
+
+    it('does not warn on known node kinds', () => {
+      const result = normaliseGraph({
+        nodes: [
+          { id: 'factor-a', kind: 'factor', label: 'Factor A' },
+          { id: 'decision-a', kind: 'decision', label: 'Decision A' },
+          { id: 'constraint-a', kind: 'constraint', label: 'Constraint A' },
+          { id: 'option-a', kind: 'option', label: 'Option A' },
+        ],
+        edges: [],
+      });
+
+      expect(result.warnings.some((w) => w.code === 'UNKNOWN_NODE_KIND')).toBe(false);
+    });
+
+    it('emits coefficient repair warnings for out-of-range coefficients', () => {
+      const result = normaliseGraph({
+        nodes: [
+          { id: 'a', kind: 'factor', label: 'A' },
+          { id: 'b', kind: 'goal', label: 'B' },
+        ],
+        edges: [
+          {
+            from: 'a',
+            to: 'b',
+            strength_mean: 2.5,
+            strength_std: 1.2,
+            belief_exists: 2.0,
+          } as any,
+        ],
+      });
+
+      expect(result.graph.edges[0].strength.mean).toBe(1);
+      expect(result.graph.edges[0].strength.std).toBe(0.4);
+      expect(result.graph.edges[0].exists_probability).toBe(1);
+      expect(result.warnings.some((w) => w.code === 'COEFFICIENT_REPAIRED')).toBe(true);
     });
 
     it('handles empty graph', () => {
@@ -387,6 +435,21 @@ describe('Graph Normalisation', () => {
 
       // Risk → goal should have NEGATIVE coefficient (risks reduce goal achievement)
       expect(result.graph.edges[0].strength.mean).toBe(-0.5);
+      expect(result.warnings.some((w) => w.code === 'DIRECTION_INFERRED')).toBe(true);
+    });
+
+    it('does not warn when effect direction is explicit', () => {
+      const result = normaliseGraph({
+        nodes: [
+          { id: 'risk_budget_overrun', kind: 'risk', label: 'Budget Overrun' },
+          { id: 'goal_productivity', kind: 'goal', label: 'Increase Productivity' },
+        ],
+        edges: [
+          { from: 'risk_budget_overrun', to: 'goal_productivity', weight: 0.5, effect_direction: 'negative' },
+        ],
+      });
+
+      expect(result.warnings.some((w) => w.code === 'DIRECTION_INFERRED')).toBe(false);
     });
 
     it('infers negative coefficient for risk → outcome edges', () => {
@@ -448,6 +511,7 @@ describe('Graph Normalisation', () => {
 
       // Risk → factor defaults to positive (only risk→goal/outcome is negative)
       expect(result.graph.edges[0].strength.mean).toBe(0.6);
+      expect(result.warnings.some((w) => w.code === 'DIRECTION_INFERRED')).toBe(false);
     });
   });
 });

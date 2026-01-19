@@ -150,6 +150,59 @@ function validateOptionsCount(options: OptionV3[]): CritiqueV3[] {
   return [];
 }
 
+function resolveOptionNodeIds(
+  graph: EngineGraphV3,
+  optionNodeIds?: string[]
+): string[] {
+  if (optionNodeIds) {
+    return optionNodeIds;
+  }
+
+  return graph.nodes
+    .filter((node) => node.kind?.toLowerCase?.() === 'option')
+    .map((node) => node.id);
+}
+
+function validateOptionIdConsistency(
+  optionNodeIds: string[],
+  options: OptionV3[]
+): CritiqueV3[] {
+  if (optionNodeIds.length === 0) {
+    return [];
+  }
+
+  const critiques: CritiqueV3[] = [];
+  const optionNodeIdSet = new Set(optionNodeIds);
+  const optionArrayIdSet = new Set(options.map((option) => option.id));
+
+  for (const optionNodeId of optionNodeIdSet) {
+    if (!optionArrayIdSet.has(optionNodeId)) {
+      critiques.push(
+        createBlocker(
+          'OPTION_NODE_MISSING_FROM_ARRAY',
+          `Option node '${optionNodeId}' exists in graph but not in options array`,
+          undefined,
+          [optionNodeId]
+        )
+      );
+    }
+  }
+
+  for (const optionId of optionArrayIdSet) {
+    if (!optionNodeIdSet.has(optionId)) {
+      critiques.push(
+        createBlocker(
+          'OPTION_ID_NOT_IN_GRAPH',
+          `Option '${optionId}' not found as option node in graph`,
+          [optionId]
+        )
+      );
+    }
+  }
+
+  return critiques;
+}
+
 /**
  * Validate each option has non-empty interventions.
  */
@@ -467,7 +520,8 @@ export function runPreflightValidation(
     optionEdgesFiltered: number;
     nodesNormalised: number;
     edgesNormalised: number;
-  }
+  },
+  optionNodeIds?: string[]
 ): PreflightResultV3 {
   const blockers: CritiqueV3[] = [];
   const warnings: CritiqueV3[] = [];
@@ -491,6 +545,8 @@ export function runPreflightValidation(
   const optionsCritiques = validateOptionsPresent(options);
   blockers.push(...optionsCritiques);
 
+  const resolvedOptionNodeIds = resolveOptionNodeIds(graph, optionNodeIds);
+
   // Only continue with option-specific validation if options exist
   let optionsWithInterventions = 0;
   let optionsWithPathToGoal = 0;
@@ -500,6 +556,10 @@ export function runPreflightValidation(
   if (options && options.length > 0) {
     // Validate options count
     blockers.push(...validateOptionsCount(options));
+
+    if (resolvedOptionNodeIds.length > 0) {
+      blockers.push(...validateOptionIdConsistency(resolvedOptionNodeIds, options));
+    }
 
     // Validate interventions
     blockers.push(...validateInterventions(options, nodeIds));
