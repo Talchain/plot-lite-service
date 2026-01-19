@@ -115,6 +115,7 @@ export function normaliseNode(
     warnings?.push({
       code: 'UNKNOWN_NODE_KIND',
       message: `Node '${node.id}' has unknown kind '${normalizedKind}'`,
+      node_id: node.id,
     });
   }
 
@@ -410,6 +411,9 @@ export function normaliseEdge(
 export interface NormalisationWarning {
   code: string;
   message: string;
+  /** Affected node ID (for node-level warnings) */
+  node_id?: string;
+  /** Affected edge ID (for edge-level warnings) */
   edge_id?: string;
 }
 

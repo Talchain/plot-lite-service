@@ -94,16 +94,26 @@ function hasNonEmptyArray(value: unknown): boolean {
   return Array.isArray(value) && value.length > 0;
 }
 
+/** Warning codes that should be surfaced as 'warning' severity (not 'info') */
+const WARNING_SEVERITY_CODES = new Set([
+  'COEFFICIENT_REPAIRED',
+  'UNKNOWN_NODE_KIND',
+  'DIRECTION_INFERRED',
+]);
+
 function buildNormalizationCritiques(
   warnings: NormalisationWarning[]
 ): CritiqueV3[] {
   return warnings.map((warning) => ({
     id: randomUUID(),
     code: warning.code,
-    severity: warning.code === 'COEFFICIENT_REPAIRED' ? 'warning' : 'info',
+    severity: WARNING_SEVERITY_CODES.has(warning.code) ? 'warning' : 'info',
     message: warning.message,
     source: 'validation',
     blocks_analysis: false,
+    // Include affected node/edge IDs for UI highlighting
+    ...(warning.node_id && { affected_node_ids: [warning.node_id] }),
+    ...(warning.edge_id && { affected_edge_ids: [warning.edge_id] }),
   }));
 }
 
