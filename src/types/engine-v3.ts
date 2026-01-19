@@ -344,6 +344,7 @@ export type BlockerCode =
   | 'TOO_MANY_OPTIONS'        // Options exceed MAX_OPTIONS limit
   | 'EMPTY_INTERVENTIONS'
   | 'INVALID_INTERVENTION_TARGET'
+  | 'INVALID_INTERVENTION_TARGET_KIND'  // Intervention targets non-factor node
   | 'INVALID_INTERVENTION_VALUE'
   | 'NO_PATH_TO_GOAL'
   | 'IDENTICAL_OPTIONS'
@@ -355,7 +356,8 @@ export type BlockerCode =
   | 'GRAPH_TOO_LARGE'
   | 'IDENTIFIABILITY_ISSUE'
   | 'GRAPH_CYCLE_DETECTED'
-  | 'ISL_CANNOT_IDENTIFY';
+  | 'ISL_CANNOT_IDENTIFY'
+  | 'MISSING_OUTCOME_OR_RISK';  // Graph has no outcome, risk, or goal nodes
 
 /**
  * Actionable critique with structured metadata.

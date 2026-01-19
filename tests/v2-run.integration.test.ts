@@ -228,11 +228,24 @@ describe('POST /v2/run Integration', () => {
         edges: [], // No edges - isolated node has no path to goal
       };
 
+      // Add another factor node that DOES have a path to goal for comparison
+      const graphWithIsolatedAndConnected = {
+        nodes: [
+          { id: 'isolated', kind: 'factor', label: 'Isolated' },
+          { id: 'connected', kind: 'factor', label: 'Connected' },
+          { id: 'goal', kind: 'goal', label: 'Goal' },
+        ],
+        edges: [
+          // Only connected -> goal, no edge from isolated
+          { from: 'connected', to: 'goal', exists_probability: 0.8, strength: { mean: 0.5, std: 0.1 } },
+        ],
+      };
+
       const res = await requestJSON(`${server.baseUrl}/v2/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          graph: graphWithIsolated,
+          graph: graphWithIsolatedAndConnected,
           options: [
             {
               id: 'opt1',
@@ -242,7 +255,7 @@ describe('POST /v2/run Integration', () => {
             {
               id: 'opt2',
               label: 'Option 2',
-              interventions: { 'goal': { value: 100, source: 'user_specified' } },
+              interventions: { 'connected': { value: 2.0, source: 'user_specified' } },
             },
           ],
           goal_node_id: 'goal',

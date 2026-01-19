@@ -1551,13 +1551,15 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           throw err;
         }
 
-        const optionNodeIds = normalizedGraph.nodes
-          .filter((node) => node.kind?.toLowerCase?.() === 'option')
-          .map((node) => node.id);
-
-        // Filter non-causal nodes (option, decision)
+        // Filter non-causal nodes (option, decision) FIRST
         const filterResult = filterOptionNodes(normalizedGraph);
         const filteredGraph = filterResult.filteredGraph;
+
+        // Get option node IDs from FILTERED graph (will be empty after filtering)
+        // This ensures validation doesn't fail due to mismatch between filtered graph and options
+        const optionNodeIds = filteredGraph.nodes
+          .filter((node) => node.kind?.toLowerCase?.() === 'option')
+          .map((node) => node.id);
 
         // =================================================================
         // Seed Resolution (after normalization for determinism)
