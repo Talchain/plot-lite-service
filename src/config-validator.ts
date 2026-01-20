@@ -90,10 +90,11 @@ export function validateEnv(): void {
       errors.push(`Invalid CEE_TIMEOUT_MS: ${process.env.CEE_TIMEOUT_MS} (must be 500-120000)`);
     }
   }
+  // ISL timeout: allow up to 180s for complex robustness analysis operations
   if (process.env.ISL_TIMEOUT_MS) {
     const timeout = Number(process.env.ISL_TIMEOUT_MS);
-    if (isNaN(timeout) || timeout < 1000 || timeout > 30000) {
-      errors.push(`Invalid ISL_TIMEOUT_MS: ${process.env.ISL_TIMEOUT_MS} (must be 1000-30000)`);
+    if (isNaN(timeout) || timeout < 1000 || timeout > 180000) {
+      errors.push(`Invalid ISL_TIMEOUT_MS: ${process.env.ISL_TIMEOUT_MS} (must be 1000-180000)`);
     }
   }
   if (process.env.SSE_MAX_MS) {
@@ -124,8 +125,9 @@ export function validateEnv(): void {
   }
 
   // P0.1: Combined timeout budget validation
-  // Ensure worst-case latency fits within proxy timeout (default 26s for Netlify)
-  const PROXY_TIMEOUT_MS = Number(process.env.PROXY_TIMEOUT_MS || '26000');
+  // Ensure worst-case latency fits within proxy timeout
+  // Default 600s (10 min) to accommodate long-running ISL/CEE operations with retries
+  const PROXY_TIMEOUT_MS = Number(process.env.PROXY_TIMEOUT_MS || '600000');
   const islTimeoutMs = Number(process.env.ISL_TIMEOUT_MS || '15000');
   const islMaxRetries = Number(process.env.ISL_MAX_RETRIES || '3');
   const ceeTimeoutMs = Number(process.env.CEE_TIMEOUT_MS || '5000');

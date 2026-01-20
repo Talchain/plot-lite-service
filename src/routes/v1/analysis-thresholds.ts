@@ -1,10 +1,10 @@
 /**
  * POST /v1/analysis/thresholds - Threshold Identification Proxy
  *
- * Runs inference at each parameter value in sweep configuration,
- * then forwards computed scores to ISL /api/v1/analysis/thresholds.
+ * Calls ISL's native /api/v1/analysis/thresholds endpoint for efficient
+ * threshold detection in a single call. ISL handles parameter sweeps internally.
  *
- * Phase 2 Week 2: ISL integration
+ * Phase 2 Week 2: ISL integration (updated to use native ISL endpoint)
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
@@ -19,6 +19,8 @@ import type {
   ThresholdRequest,
   ThresholdResponse,
   IslThresholdResponse,
+  IslNativeThresholdRequest,
+  IslNativeThresholdResponse,
   SweepResult,
   ThresholdPoint,
   SensitivityRanking,
@@ -134,6 +136,61 @@ function computeLocalThresholds(sweepResults: SweepResult[]): IslThresholdRespon
   };
 }
 
+/**
+ * Transform ISL native threshold response to PLoT's response format
+ * Maintains backward compatibility with existing UI consumers
+ */
+function transformIslNativeResponse(
+  islResponse: IslNativeThresholdResponse,
+  sweepConfigs: Array<{ node_id: string; parameter: string; values: number[] }>
+): { analysis: IslThresholdResponse; sweepResults: SweepResult[] } {
+  // Transform thresholds to PLoT format
+  const thresholds: ThresholdPoint[] = islResponse.thresholds.map((t, idx) => ({
+    sweep_id: t.sweep_id ?? `sweep_${idx}`,
+    node_id: t.node_id,
+    parameter: t.parameter,
+    threshold_value: Math.round(t.threshold_value * 1000) / 1000,
+    crossing_type: t.crossing_type,
+    options_affected: t.options_affected ?? (t.alternative_winner_id ? [t.alternative_winner_id] : []),
+    description: t.description ?? `Threshold crossing at ${t.parameter} = ${t.threshold_value.toFixed(2)}`,
+  }));
+
+  // Transform sensitivity ranking to PLoT format
+  const sensitivityRanking: SensitivityRanking[] = islResponse.sensitivity_ranking.map((s, idx) => ({
+    sweep_id: s.sweep_id ?? `sweep_${idx}`,
+    node_id: s.node_id,
+    parameter: s.parameter,
+    sensitivity_score: Math.round(s.sensitivity_score * 1000) / 1000,
+    rank: s.rank,
+  }));
+
+  // Use ISL's sweep_results if provided, otherwise construct minimal sweep results
+  let sweepResults: SweepResult[];
+  if (islResponse.sweep_results && islResponse.sweep_results.length > 0) {
+    sweepResults = islResponse.sweep_results;
+  } else {
+    // Construct minimal sweep results from config (ISL computed internally)
+    sweepResults = sweepConfigs.map((config, idx) => ({
+      sweep_id: `sweep_${idx}`,
+      node_id: config.node_id,
+      parameter: config.parameter,
+      // ISL computed scores internally - we don't have per-value scores in this case
+      scores: config.values.map((value) => ({
+        value,
+        option_scores: [], // ISL handled scoring internally
+      })),
+    }));
+  }
+
+  const analysis: IslThresholdResponse = {
+    thresholds,
+    sensitivity_ranking: sensitivityRanking,
+    summary: islResponse.summary,
+  };
+
+  return { analysis, sweepResults };
+}
+
 export async function registerThresholdsRoute(app: FastifyInstance) {
   app.post(
     '/v1/analysis/thresholds',
@@ -245,126 +302,187 @@ export async function registerThresholdsRoute(app: FastifyInstance) {
         });
       }
 
-      // Run sweeps
-      const inferenceEngine = getInferenceEngine('model_based');
-      const sweepResults: SweepResult[] = [];
-      let totalEvaluations = 0;
+      // Prepare options for ISL
+      const options = optionNodes.map((n: any) => ({
+        id: n.id,
+        label: n.label || n.id,
+      }));
 
-      for (let s = 0; s < body.sweeps.length; s++) {
-        const sweepConfig = body.sweeps[s];
-        const sweepId = `sweep_${s}`;
-        const scores: SweepResult['scores'] = [];
-
-        for (let v = 0; v < sweepConfig.values.length; v++) {
-          const sweepValue = sweepConfig.values[v];
-          const sweepSeed = seed + s * 1000 + v;
-
-          // Create modified graph with sweep value
-          const modifiedGraph = JSON.parse(JSON.stringify(baseGraph));
-
-          // Apply sweep value to node or edge
-          if (sweepConfig.parameter === 'value') {
-            const node = modifiedGraph.nodes.find((n: any) => n.id === sweepConfig.node_id);
-            if (node) {
-              node.value = sweepValue;
-            }
-          } else if (sweepConfig.parameter === 'belief') {
-            const edge = modifiedGraph.edges.find(
-              (e: any) => e.from === sweepConfig.node_id || e.to === sweepConfig.node_id
-            );
-            if (edge) {
-              edge.belief = sweepValue;
-            }
-          } else if (sweepConfig.parameter === 'weight') {
-            const edge = modifiedGraph.edges.find(
-              (e: any) => e.from === sweepConfig.node_id || e.to === sweepConfig.node_id
-            );
-            if (edge) {
-              edge.weight = sweepValue;
-            }
-          }
-
-          // Run inference for each option
-          const optionScores: Array<{ option_id: string; score: number }> = [];
-
-          for (let i = 0; i < optionNodes.length; i++) {
-            const optionNode = optionNodes[i];
-            const optionSeed = sweepSeed + i + 1;
-
-            try {
-              const result = await inferenceEngine.run(modifiedGraph, {
-                seed: optionSeed,
-                k_samples: DEFAULT_K_SAMPLES,
-                outcome_node: outcomeNode,
-                baseline_value: 100,
-                adaptiveK: false, // Faster for sweeps
-              });
-
-              optionScores.push({
-                option_id: optionNode.id,
-                score: Math.round(result.most_likely.outcome * 1000) / 1000,
-              });
-              totalEvaluations++;
-            } catch (err: any) {
-              req.log.warn({
-                evt: 'threshold_inference_error',
-                sweep_id: sweepId,
-                value: sweepValue,
-                option_id: optionNode.id,
-                error: err.message,
-              });
-            }
-          }
-
-          scores.push({
-            value: sweepValue,
-            option_scores: optionScores,
-          });
-        }
-
-        sweepResults.push({
-          sweep_id: sweepId,
-          node_id: sweepConfig.node_id,
-          parameter: sweepConfig.parameter,
-          scores,
-        });
-      }
-
-      const inferenceEnd = Date.now();
-
-      // Call ISL if enabled
+      // Track results
       let analysis: IslThresholdResponse | null = null;
+      let sweepResults: SweepResult[] = [];
       let islError: ProxyError | undefined;
       let provenance: 'isl' | 'plot_fallback' = 'plot_fallback';
       let islMs: number | undefined;
+      let inferenceMs = 0;
+      let totalEvaluations = 0;
 
       const islEnabled = isFlagOn(process.env.ISL_THRESHOLDS_ENABLE ?? process.env.ISL_ENABLE);
 
+      // Try ISL native endpoint first (single call)
       if (islEnabled) {
+        const islRequest: IslNativeThresholdRequest = {
+          plot_request_id: requestId,
+          graph: {
+            nodes: baseGraph.nodes.map((n: any) => ({
+              id: n.id,
+              label: n.label,
+              kind: n.kind,
+              value: n.value,
+            })),
+            edges: baseGraph.edges.map((e: any) => ({
+              from: e.from,
+              to: e.to,
+              weight: e.weight,
+              belief: e.belief,
+            })),
+          },
+          options,
+          goal_node_id: outcomeNode,
+          sweeps: body.sweeps,
+          seed,
+        };
+
         req.log.info({
-          evt: 'thresholds_isl_call',
+          evt: 'thresholds_isl_native_call',
           id: requestId,
-          sweeps_count: sweepResults.length,
-          total_evaluations: totalEvaluations,
+          sweeps_count: body.sweeps.length,
+          options_count: options.length,
+          goal_node_id: outcomeNode,
         });
 
-        const islResult = await islService.callAnalysisEndpoint<IslThresholdResponse>(
+        const islStart = Date.now();
+        const islResult = await islService.callAnalysisEndpoint<IslNativeThresholdResponse>(
           '/api/v1/analysis/thresholds',
-          { plot_request_id: requestId, sweep_results: sweepResults },
+          islRequest,
           requestId
         );
+        islMs = Date.now() - islStart;
 
-        analysis = islResult.data;
-        islError = islResult.error;
-        islMs = islResult.latency_ms;
-
-        if (analysis) {
+        if (islResult.data) {
+          // Transform ISL native response to PLoT format
+          const transformed = transformIslNativeResponse(islResult.data, body.sweeps);
+          analysis = transformed.analysis;
+          sweepResults = transformed.sweepResults;
           provenance = 'isl';
+          inferenceMs = islMs; // ISL handled inference internally
+          // Estimate total evaluations: sweeps * values * options (ISL computed internally)
+          totalEvaluations = body.sweeps.reduce(
+            (sum, sweep) => sum + sweep.values.length * options.length,
+            0
+          );
+
+          req.log.info({
+            evt: 'thresholds_isl_native_success',
+            id: requestId,
+            thresholds_found: analysis.thresholds.length,
+            isl_ms: islMs,
+          });
+        } else {
+          islError = islResult.error;
+          req.log.warn({
+            evt: 'thresholds_isl_native_failed',
+            id: requestId,
+            error: islResult.error?.code,
+            message: islResult.error?.message,
+          });
         }
       }
 
-      // Use local fallback if ISL unavailable or disabled
+      // Fall back to local N-call pattern if ISL unavailable
       if (!analysis) {
+        req.log.info({
+          evt: 'thresholds_local_fallback',
+          id: requestId,
+          reason: islError ? 'isl_error' : 'isl_disabled',
+        });
+
+        const inferenceEngine = getInferenceEngine('model_based');
+        const localSweepResults: SweepResult[] = [];
+        const inferenceStart = Date.now();
+
+        for (let s = 0; s < body.sweeps.length; s++) {
+          const sweepConfig = body.sweeps[s];
+          const sweepId = `sweep_${s}`;
+          const scores: SweepResult['scores'] = [];
+
+          for (let v = 0; v < sweepConfig.values.length; v++) {
+            const sweepValue = sweepConfig.values[v];
+            const sweepSeed = seed + s * 1000 + v;
+
+            // Create modified graph with sweep value
+            const modifiedGraph = JSON.parse(JSON.stringify(baseGraph));
+
+            // Apply sweep value to node or edge
+            if (sweepConfig.parameter === 'value') {
+              const node = modifiedGraph.nodes.find((n: any) => n.id === sweepConfig.node_id);
+              if (node) {
+                node.value = sweepValue;
+              }
+            } else if (sweepConfig.parameter === 'belief') {
+              const edge = modifiedGraph.edges.find(
+                (e: any) => e.from === sweepConfig.node_id || e.to === sweepConfig.node_id
+              );
+              if (edge) {
+                edge.belief = sweepValue;
+              }
+            } else if (sweepConfig.parameter === 'weight') {
+              const edge = modifiedGraph.edges.find(
+                (e: any) => e.from === sweepConfig.node_id || e.to === sweepConfig.node_id
+              );
+              if (edge) {
+                edge.weight = sweepValue;
+              }
+            }
+
+            // Run inference for each option
+            const optionScores: Array<{ option_id: string; score: number }> = [];
+
+            for (let i = 0; i < optionNodes.length; i++) {
+              const optionNode = optionNodes[i];
+              const optionSeed = sweepSeed + i + 1;
+
+              try {
+                const result = await inferenceEngine.run(modifiedGraph, {
+                  seed: optionSeed,
+                  k_samples: DEFAULT_K_SAMPLES,
+                  outcome_node: outcomeNode,
+                  baseline_value: 100,
+                  adaptiveK: false, // Faster for sweeps
+                });
+
+                optionScores.push({
+                  option_id: optionNode.id,
+                  score: Math.round(result.most_likely.outcome * 1000) / 1000,
+                });
+                totalEvaluations++;
+              } catch (err: any) {
+                req.log.warn({
+                  evt: 'threshold_inference_error',
+                  sweep_id: sweepId,
+                  value: sweepValue,
+                  option_id: optionNode.id,
+                  error: err.message,
+                });
+              }
+            }
+
+            scores.push({
+              value: sweepValue,
+              option_scores: optionScores,
+            });
+          }
+
+          localSweepResults.push({
+            sweep_id: sweepId,
+            node_id: sweepConfig.node_id,
+            parameter: sweepConfig.parameter,
+            scores,
+          });
+        }
+
+        inferenceMs = Date.now() - inferenceStart;
+        sweepResults = localSweepResults;
         analysis = computeLocalThresholds(sweepResults);
       }
 
@@ -376,7 +494,7 @@ export async function registerThresholdsRoute(app: FastifyInstance) {
         total_evaluations: totalEvaluations,
         thresholds_found: analysis.thresholds.length,
         provenance,
-        inference_ms: inferenceEnd - start,
+        inference_ms: inferenceMs,
         isl_ms: islMs,
         duration_ms: duration,
       });
@@ -394,7 +512,7 @@ export async function registerThresholdsRoute(app: FastifyInstance) {
           total_evaluations: totalEvaluations,
         },
         timing: {
-          inference_ms: inferenceEnd - start,
+          inference_ms: inferenceMs,
           ...(islMs !== undefined && { isl_ms: islMs }),
           total_ms: duration,
         },

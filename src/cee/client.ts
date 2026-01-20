@@ -165,6 +165,22 @@ export async function callCEEWithSchemaV2<T>(
   const startMs = Date.now();
 
   try {
+    // Log payload for debugging (only for options endpoint)
+    if (path.includes('/options')) {
+      const payloadObj = payload as Record<string, unknown>;
+      console.log('[CEE_V2_OPTIONS_PAYLOAD]', JSON.stringify({
+        path,
+        payload_keys: Object.keys(payloadObj),
+        graph_present: 'graph' in payloadObj,
+        graph_type: typeof payloadObj.graph,
+        graph_is_null: payloadObj.graph === null,
+        graph_is_undefined: payloadObj.graph === undefined,
+        graph_keys: payloadObj.graph && typeof payloadObj.graph === 'object'
+          ? Object.keys(payloadObj.graph as object) : 'N/A',
+        payload_preview: JSON.stringify(payload).slice(0, 500),
+      }));
+    }
+
     const response = await fetchWithTimeout(url, {
       method: 'POST',
       headers: {

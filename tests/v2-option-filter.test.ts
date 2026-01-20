@@ -52,6 +52,30 @@ describe('Option Node Filtering', () => {
       expect(result.removedEdgeCount).toBe(2);
     });
 
+    it('removes constraint nodes and their edges', () => {
+      const graph: EngineGraphV3 = {
+        nodes: [
+          { id: 'constraint-1', kind: 'constraint' as any, label: 'Constraint' },
+          { id: 'factor', kind: 'factor', label: 'Factor' },
+          { id: 'goal', kind: 'goal', label: 'Goal' },
+        ],
+        edges: [
+          { from: 'constraint-1', to: 'factor', exists_probability: 0.8, strength: { mean: 0.4, std: 0.1 } },
+          { from: 'factor', to: 'goal', exists_probability: 0.9, strength: { mean: 0.6, std: 0.1 } },
+        ],
+      };
+
+      const result = filterOptionNodes(graph);
+
+      expect(result.filteredGraph.nodes).toHaveLength(2);
+      expect(result.filteredGraph.nodes.find((n) => n.id === 'constraint-1')).toBeUndefined();
+      expect(result.filteredGraph.edges).toHaveLength(1);
+      expect(result.filteredGraph.edges[0].from).toBe('factor');
+      expect(result.filteredGraph.edges[0].to).toBe('goal');
+      expect(result.removedNodeIds.has('constraint-1')).toBe(true);
+      expect(result.removedEdgeCount).toBe(1);
+    });
+
     it('returns original graph when no option nodes', () => {
       const graph: EngineGraphV3 = {
         nodes: [

@@ -612,6 +612,7 @@ paths:
                 success:
                   value:
                     schema: run.v1
+                    request_id: "req-123"
                     result:
                       response_hash: "a1b2c3d4e5f6..."
                       summary:
@@ -626,6 +627,7 @@ paths:
                   summary: Response with CEE Decision Review (when CEE enabled)
                   value:
                     schema: run.v1
+                    request_id: "req-123"
                     result:
                       response_hash: "a1b2c3d4e5f6..."
                       summary:
@@ -649,6 +651,7 @@ paths:
                   summary: Response when CEE service unavailable (graceful degradation)
                   value:
                     schema: run.v1
+                    request_id: "req-123"
                     result:
                       response_hash: "a1b2c3d4e5f6..."
                       summary:
@@ -3619,6 +3622,8 @@ paths:
       description: |
         Returns 405 Method Not Allowed with Allow header. Use POST for option comparison.
       responses:
+        '204':
+          description: No Content (endpoint reachable)
         '405':
           description: Method Not Allowed - Use POST for option comparison
           headers:
@@ -4235,7 +4240,8 @@ components:
                     description: 'Mode for mixed function_type (default: nested). nested = Noisy-OR wrapped in Noisy-AND-NOT; logistic = logistic combination.'
               strength_std:
                 type: number
-                exclusiveMinimum: 0
+                minimum: 0
+                exclusiveMinimum: true
                 description: |
                   Standard deviation of effect magnitude (EdgeV2.2).
                   If provided, used directly for Normal sampling: N(weight, strength_std).
@@ -5289,7 +5295,11 @@ components:
           type: string
         kind:
           type: string
-          enum: [factor, outcome, option, decision, intermediate]
+          enum: [factor, outcome, option, decision, goal, risk, action]
+        intercept:
+          type: number
+          default: 0.0
+          description: 'Constant term (β₀) in structural equation. Applied by ISL for computed nodes (outcome, risk, goal). Ignored for exogenous nodes. Omit or set to 0.0 for default behaviour.'
         observed_state:
           type: object
           properties:
@@ -5507,6 +5517,11 @@ components:
                 type: string
               sensitivity_score:
                 type: number
+              importance_score:
+                type: number
+                minimum: 0
+                maximum: 1
+                description: Normalized importance score bounded to [0,1] for UI display
               value_of_information:
                 type: number
               direction:

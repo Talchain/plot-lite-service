@@ -12,6 +12,17 @@ async function start() {
   // Validate environment variables first (fail-fast)
   validateEnv();
 
+  // CEE config diagnostic - helps debug V2 path activation and timeout issues
+  console.log('[STARTUP] CEE config:', {
+    CEE_TIMEOUT_MS: process.env.CEE_TIMEOUT_MS,
+    CEE_TIMEOUT_MS_parsed: Number(process.env.CEE_TIMEOUT_MS),
+    CEE_SCHEMA_V2: process.env.CEE_SCHEMA_V2,
+    CEE_SCHEMA_V2_type: typeof process.env.CEE_SCHEMA_V2,
+    CEE_SCHEMA_V2_length: process.env.CEE_SCHEMA_V2?.length,
+    CEE_SCHEMA_V2_is_1: process.env.CEE_SCHEMA_V2 === '1',
+    CEE_SCHEMA_V2_is_true: process.env.CEE_SCHEMA_V2 === 'true',
+  });
+
   if (process.env.NODE_ENV === 'production' && process.env.TEST_ROUTES === '1') {
     // Fail fast before binding any ports
     process.stderr.write('TEST_ROUTES in production – aborting\n');

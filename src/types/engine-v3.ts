@@ -16,6 +16,40 @@ import {
 } from '../constants/limits.js';
 
 // -----------------------------------------------------------------------------
+// Downstream Call Tracing (Debug Panel visibility)
+// -----------------------------------------------------------------------------
+
+/**
+ * ISL downstream call trace for Debug Panel visibility.
+ * Captures request/response payloads at the ISL boundary.
+ */
+export interface ISLDownstreamTrace {
+  /** Request payload sent to ISL */
+  request: unknown;
+  /** Response payload received from ISL (null if error before response) */
+  response: unknown | null;
+  /** HTTP status code (0 if network/timeout error) */
+  status_code: number;
+  /** Whether the call was successful */
+  success: boolean;
+  /** Latency in milliseconds */
+  latency_ms: number;
+  /** Error message if call failed */
+  error?: string;
+  /** ISL endpoint called */
+  endpoint: string;
+}
+
+/**
+ * Container for all downstream service call traces.
+ * Enables Debug Panel visibility into service-to-service communication.
+ */
+export interface DownstreamCallsTrace {
+  /** ISL call trace (always present when ISL is called) */
+  isl?: ISLDownstreamTrace;
+}
+
+// -----------------------------------------------------------------------------
 // Node Kinds
 // -----------------------------------------------------------------------------
 
@@ -46,18 +80,28 @@ export interface UpstreamNode {
   label?: string;
   description?: string;
   body?: string; // Legacy field for description
+  intercept?: number | null;
   observed_state?: {
     value?: number;
     baseline?: number;
     unit?: string;
   };
+  /** State space bounds for the factor (used for uncertainty calculation) */
+  state_space?: {
+    range?: { min: number; max: number };
+  };
   data?: {
     // React Flow nesting
     kind?: string;
     type?: string;
+    intercept?: number | null;
     value?: number;
     baseline?: number;
     unit?: string;
+    /** State space bounds for the factor (used for uncertainty calculation) */
+    state_space?: {
+      range?: { min: number; max: number };
+    };
   };
 }
 
@@ -79,6 +123,9 @@ export interface UpstreamEdge {
   // Strength - multiple representations
   weight?: number;
   strength?: { mean: number; std: number };
+  /** Flat strength mean field (alternative to strength.mean) */
+  strength_mean?: number;
+  /** Flat strength std field (alternative to strength.std) */
   strength_std?: number;
   belief_strength?: number;
 
@@ -116,11 +163,17 @@ export interface EngineNodeV3 {
   label: string;
   /** Optional description */
   description?: string;
+  /** Constant term (β₀) in structural equation. Omitted treated as 0.0 */
+  intercept?: number;
   /** Observed state for factor nodes */
   observed_state?: {
     value: number;
     baseline?: number;
     unit?: string;
+  };
+  /** State space bounds for the factor (used for parameter uncertainty calculation) */
+  state_space?: {
+    range?: { min: number; max: number };
   };
 }
 
@@ -291,16 +344,20 @@ export type BlockerCode =
   | 'TOO_MANY_OPTIONS'        // Options exceed MAX_OPTIONS limit
   | 'EMPTY_INTERVENTIONS'
   | 'INVALID_INTERVENTION_TARGET'
+  | 'INVALID_INTERVENTION_TARGET_KIND'  // Intervention targets non-factor node
   | 'INVALID_INTERVENTION_VALUE'
   | 'NO_PATH_TO_GOAL'
   | 'IDENTICAL_OPTIONS'
+  | 'OPTION_NODE_MISSING_FROM_ARRAY'
+  | 'OPTION_ID_NOT_IN_GRAPH'
   | 'INVALID_NODE_ID_PATTERN'
   | 'INVALID_EDGE_ENDPOINT'
   | 'DUPLICATE_NODE_IDS'
   | 'GRAPH_TOO_LARGE'
   | 'IDENTIFIABILITY_ISSUE'
   | 'GRAPH_CYCLE_DETECTED'
-  | 'ISL_CANNOT_IDENTIFY';
+  | 'ISL_CANNOT_IDENTIFY'
+  | 'MISSING_OUTCOME_OR_RISK';  // Graph has no outcome, risk, or goal nodes
 
 /**
  * Actionable critique with structured metadata.
@@ -434,6 +491,15 @@ export interface RunResponseV3 {
   /** Factor sensitivity results (if available) */
   factor_sensitivity?: FactorSensitivityResultV3[];
 
+  /**
+   * Factor sensitivity status.
+   * - 'computed': Factor sensitivity was computed successfully
+   * - 'not_requested': Parameter uncertainties not provided
+   * - 'unavailable': Factor sensitivity not available
+   * - 'error': Factor sensitivity computation failed
+   */
+  factor_sensitivity_status?: 'computed' | 'not_requested' | 'unavailable' | 'error';
+
   /** Overall robustness assessment (if robustness_status is 'computed') */
   robustness?: RobustnessAssessmentV3;
 
@@ -497,6 +563,12 @@ export interface RunResponseV3 {
     latency_ms?: number | null;
     id_mismatch?: boolean;
   };
+
+  /**
+   * Downstream service call traces for Debug Panel visibility.
+   * Contains request/response payloads from ISL and other downstream services.
+   */
+  downstream_calls?: DownstreamCallsTrace;
 
   /** Determinism hash of canonical request (semantic fields only) */
   response_hash?: string;
@@ -592,6 +664,8 @@ export interface EdgeSensitivityResultV3 {
 export interface FactorSensitivityResultV3 {
   factor_id: string;
   sensitivity_score: number;
+  /** Normalized importance score bounded to [0, 1] for UI display */
+  importance_score: number;
   value_of_information: number;
   direction?: 'positive' | 'negative' | 'mixed';
 }
@@ -599,12 +673,21 @@ export interface FactorSensitivityResultV3 {
 /**
  * Normalized edge info for robustness assessment.
  * Consistent object shape regardless of ISL format.
+ * Includes optional labels for UI display (enriched from graph data).
  */
 export interface NormalizedEdgeInfoV3 {
   edge_id: string;
   from_id: string;
   to_id: string;
   switch_probability: number;
+  /** Human-readable label for source node (enriched from graph) */
+  from_label?: string;
+  /** Human-readable label for target node (enriched from graph) */
+  to_label?: string;
+  /** Option ID that would win if this edge changes */
+  alternative_winner_id?: string;
+  /** Human-readable label for alternative winner option (enriched from options) */
+  alternative_winner_label?: string;
 }
 
 /**
@@ -760,7 +843,7 @@ export const DEFAULT_SEED = '42';
  * Non-causal node kinds to filter before ISL translation.
  * Use exclusion-based filtering to avoid dropping new causal kinds.
  */
-export const NON_CAUSAL_NODE_KINDS = ['option', 'decision'] as const;
+export const NON_CAUSAL_NODE_KINDS = ['option', 'decision', 'constraint'] as const;
 
 /** Minimum std for edge strength (to avoid division by zero) */
 export const MIN_STRENGTH_STD = 1e-6;

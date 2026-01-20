@@ -228,11 +228,24 @@ describe('POST /v2/run Integration', () => {
         edges: [], // No edges - isolated node has no path to goal
       };
 
+      // Add another factor node that DOES have a path to goal for comparison
+      const graphWithIsolatedAndConnected = {
+        nodes: [
+          { id: 'isolated', kind: 'factor', label: 'Isolated' },
+          { id: 'connected', kind: 'factor', label: 'Connected' },
+          { id: 'goal', kind: 'goal', label: 'Goal' },
+        ],
+        edges: [
+          // Only connected -> goal, no edge from isolated
+          { from: 'connected', to: 'goal', exists_probability: 0.8, strength: { mean: 0.5, std: 0.1 } },
+        ],
+      };
+
       const res = await requestJSON(`${server.baseUrl}/v2/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          graph: graphWithIsolated,
+          graph: graphWithIsolatedAndConnected,
           options: [
             {
               id: 'opt1',
@@ -242,7 +255,7 @@ describe('POST /v2/run Integration', () => {
             {
               id: 'opt2',
               label: 'Option 2',
-              interventions: { 'goal': { value: 100, source: 'user_specified' } },
+              interventions: { 'connected': { value: 2.0, source: 'user_specified' } },
             },
           ],
           goal_node_id: 'goal',
@@ -371,6 +384,49 @@ describe('POST /v2/run Integration', () => {
 
       expect(res.status).toBe(200);
       expect(Array.isArray(res.data.critiques)).toBe(true);
+    });
+
+    it('surfaces coefficient repair warnings as critiques', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const res = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: {
+            nodes: [
+              { id: 'factor-a', kind: 'factor', label: 'Factor A' },
+              { id: 'goal', kind: 'goal', label: 'Goal' },
+            ],
+            edges: [
+              {
+                from: 'factor-a',
+                to: 'goal',
+                strength_mean: 2.5,
+                strength_std: 1.2,
+                belief_exists: 2.0,
+              },
+            ],
+          },
+          options: [
+            {
+              id: 'opt1',
+              label: 'Option 1',
+              interventions: { 'factor-a': { value: 1.0, source: 'user_specified' } },
+            },
+            {
+              id: 'opt2',
+              label: 'Option 2',
+              interventions: { 'factor-a': { value: 2.0, source: 'user_specified' } },
+            },
+          ],
+          goal_node_id: 'goal',
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.data.critiques.some((c: any) => c.code === 'COEFFICIENT_REPAIRED')).toBe(true);
     });
 
     it('includes meta with seed_used as string and timing info', async () => {

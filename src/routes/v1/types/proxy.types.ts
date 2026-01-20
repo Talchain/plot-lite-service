@@ -637,7 +637,59 @@ export interface SensitivityRanking {
 }
 
 /**
- * ISL threshold identification response
+ * ISL native threshold analysis request
+ * Sent to ISL /api/v1/analysis/thresholds for single-call threshold detection
+ */
+export interface IslNativeThresholdRequest {
+  /** PLoT request ID for tracing */
+  plot_request_id: string;
+  /** Graph structure */
+  graph: {
+    nodes: Array<{ id: string; label?: string; kind?: string; value?: number }>;
+    edges: Array<{ from: string; to: string; weight?: number; belief?: number }>;
+  };
+  /** Options to compare */
+  options: Array<{ id: string; label?: string }>;
+  /** Goal/outcome node ID */
+  goal_node_id: string;
+  /** Sweep configurations */
+  sweeps: SweepConfig[];
+  /** Optional seed for determinism */
+  seed?: number;
+}
+
+/**
+ * ISL native threshold analysis response
+ * Response from ISL /api/v1/analysis/thresholds
+ */
+export interface IslNativeThresholdResponse {
+  /** Detected threshold crossings */
+  thresholds: Array<{
+    sweep_id?: string;
+    node_id: string;
+    parameter: string;
+    threshold_value: number;
+    crossing_type: 'rising' | 'falling';
+    options_affected?: string[];
+    alternative_winner_id?: string;
+    description?: string;
+  }>;
+  /** Sensitivity ranking for each sweep parameter */
+  sensitivity_ranking: Array<{
+    sweep_id?: string;
+    node_id: string;
+    parameter: string;
+    sensitivity_score: number;
+    rank: number;
+  }>;
+  /** Computed sweep results (optional - ISL may return this) */
+  sweep_results?: SweepResult[];
+  /** Summary text */
+  summary: string;
+}
+
+/**
+ * ISL threshold identification response (legacy format for backward compatibility)
  */
 export interface IslThresholdResponse {
   thresholds: ThresholdPoint[];

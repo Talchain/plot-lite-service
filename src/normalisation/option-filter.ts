@@ -1,11 +1,11 @@
 /**
  * Non-Causal Node Filtering
  *
- * In the canonical model, option and decision nodes are UI scaffolding only.
+ * In the canonical model, option, decision, and constraint nodes are UI scaffolding only.
  * They must be filtered from the graph before causal analysis.
  *
  * This module removes:
- * - Nodes with kind='option' or kind='decision' (non-causal kinds)
+ * - Nodes with kind='option', kind='decision', or kind='constraint' (non-causal kinds)
  * - All edges incident to those nodes (both incoming and outgoing)
  *
  * Uses EXCLUSION-based filtering (not allow-list) to avoid accidentally
@@ -52,12 +52,12 @@ function isNonCausalKind(kind: string): boolean {
 /**
  * Filter non-causal nodes and incident edges from the graph.
  *
- * Non-causal nodes (kind='option' or kind='decision') are UI scaffolding
+ * Non-causal nodes (kind='option', kind='decision', or kind='constraint') are UI scaffolding
  * that represent decision choices. In the canonical model, options are passed
  * separately as intervention bundles, not as graph nodes.
  *
  * This function:
- * 1. Identifies all nodes with non-causal kinds (option, decision)
+ * 1. Identifies all nodes with non-causal kinds (option, decision, constraint)
  * 2. Removes those nodes from the graph
  * 3. Removes ALL edges incident to those nodes (both incoming and outgoing)
  *

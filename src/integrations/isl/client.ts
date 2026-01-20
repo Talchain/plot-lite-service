@@ -24,6 +24,8 @@ export interface ISLClientConfig {
   timeoutMs: number;
   /** Maximum retry attempts */
   maxRetries: number;
+  /** Health check timeout in milliseconds (default: 5000) */
+  healthCheckTimeoutMs?: number;
 }
 
 /**
@@ -59,7 +61,16 @@ export class ISLClient {
    */
   async request<T>(options: ISLRequestOptions): Promise<T> {
     const { endpoint, body, requestId } = options;
-    const url = `${this.config.baseUrl}${endpoint}`;
+    // Pin response version via query param (in addition to header)
+    const url = `${this.config.baseUrl}${endpoint}?response_version=2`;
+
+    // Log the exact URL called (excluding API key) for debugging
+    this.log('info', {
+      event: 'isl_request_url',
+      url,
+      endpoint,
+      request_id: requestId,
+    });
 
     let lastError: Error | null = null;
 
@@ -213,7 +224,8 @@ export class ISLClient {
   async healthCheck(): Promise<boolean> {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const healthCheckTimeout = this.config.healthCheckTimeoutMs ?? 5000;
+      const timeoutId = setTimeout(() => controller.abort(), healthCheckTimeout);
 
       const response = await fetch(`${this.config.baseUrl}/health`, {
         method: 'GET',
@@ -264,11 +276,13 @@ export class ISLClient {
  * Get ISL client configuration from environment
  */
 export function getISLClientConfig(): ISLClientConfig {
+  const healthCheckTimeoutEnv = process.env.ISL_HEALTH_CHECK_TIMEOUT_MS;
   return {
     baseUrl: String(process.env.ISL_BASE_URL ?? '').trim(),
     apiKey: String(process.env.ISL_API_KEY ?? '').trim(),
     timeoutMs: parseInt(process.env.ISL_TIMEOUT_MS ?? '15000', 10),
     maxRetries: parseInt(process.env.ISL_MAX_RETRIES ?? '3', 10),
+    healthCheckTimeoutMs: healthCheckTimeoutEnv ? parseInt(healthCheckTimeoutEnv, 10) : undefined,
   };
 }
 

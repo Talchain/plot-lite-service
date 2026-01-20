@@ -10,6 +10,27 @@
  * - Field ordering in objects
  *
  * @see P0-PLOT-5: Determinism Hash with Full Numeric Normalisation
+ *
+ * ## BREAKING CHANGE (v2)
+ *
+ * Hash version 2 introduces breaking changes that invalidate all existing hashes:
+ *
+ * 1. **Precision increase**: DECIMAL_PRECISION changed from 6 to 12 decimals
+ *    - Previous: 0.123456 → 0.123456
+ *    - Current:  0.123456 → 0.123456000000
+ *    - Impact: Prevents float rounding issues at high precision
+ *
+ * 2. **Intercept field inclusion**: Node `intercept` now included in hash
+ *    - Previous: intercept ignored
+ *    - Current:  intercept included (defaults to 0.0 if absent)
+ *    - Impact: Nodes with intercept values produce different hashes
+ *
+ * 3. **Hash version prefix**: Version number is now part of canonical form
+ *    - Ensures version changes are detectable
+ *
+ * **Migration**: Clients caching by response_hash must invalidate caches
+ * when upgrading to this version. Hash collisions between v1 and v2 are
+ * impossible due to the version prefix in the canonical form.
  */
 
 import { createHash } from 'node:crypto';
@@ -19,8 +40,11 @@ import type { RunRequestV3, OptionV3, EngineGraphV3 } from '../types/engine-v3.j
 // Constants
 // -----------------------------------------------------------------------------
 
+/** Hash version to prevent collisions when canonicalisation changes */
+const HASH_VERSION = 2;
+
 /** Number of decimal places for float normalisation */
-const DECIMAL_PRECISION = 6;
+const DECIMAL_PRECISION = 12;
 
 // -----------------------------------------------------------------------------
 // Float Normalisation
@@ -32,6 +56,19 @@ const DECIMAL_PRECISION = 6;
  */
 function normaliseFloat(n: number): number {
   return parseFloat(n.toFixed(DECIMAL_PRECISION));
+}
+
+/**
+ * Canonicalise an optional number for hashing.
+ * - undefined/null => 0.0
+ * - -0 => 0
+ * - fixed precision to avoid float drift
+ */
+function canonicaliseNumber(value: number | undefined | null): number {
+  if (value === undefined || value === null) return 0.0;
+  if (!Number.isFinite(value)) return 0.0;
+  if (Object.is(value, -0)) return 0;
+  return normaliseFloat(value);
 }
 
 /**
@@ -48,6 +85,7 @@ function normaliseOptionalFloat(n: number | undefined): number | undefined {
 interface CanonicalNode {
   id: string;
   kind: string;
+  intercept: number;
   observed_state?: {
     value: number;
     std?: number;
@@ -62,6 +100,7 @@ function canonicaliseNode(node: EngineGraphV3['nodes'][0]): CanonicalNode {
   const canonical: CanonicalNode = {
     id: node.id,
     kind: node.kind,
+    intercept: canonicaliseNumber((node as any).intercept),
   };
 
   if (node.observed_state && node.observed_state.value !== undefined) {
@@ -149,6 +188,7 @@ function canonicaliseOption(option: OptionV3): CanonicalOption {
 // -----------------------------------------------------------------------------
 
 interface CanonicalRequest {
+  version: number;
   seed: string;
   goal_node_id: string;
   detail_level: string;
@@ -182,6 +222,7 @@ export function canonicaliseRequest(
   seedUsed: string
 ): string {
   const canonical: CanonicalRequest = {
+    version: HASH_VERSION,
     seed: seedUsed,
     goal_node_id: req.goal_node_id,
     detail_level: req.detail_level ?? 'standard',
@@ -204,7 +245,7 @@ export function canonicaliseRequest(
   // Include goal_threshold in hash if provided (affects probability_of_goal computation)
   // Treat null as absent (not included in hash)
   if (typeof req.goal_threshold === 'number' && Number.isFinite(req.goal_threshold)) {
-    canonical.goal_threshold = normaliseFloat(req.goal_threshold);
+    canonical.goal_threshold = canonicaliseNumber(req.goal_threshold);
   }
 
   return JSON.stringify(canonical);

@@ -11,6 +11,7 @@ import type {
   CeeReviewBlock,
   CeeErrorNormalized,
 } from './types.js';
+import type { FastifyBaseLogger } from 'fastify';
 import {
   sanitizeRequestId,
   draftGraphV2,
@@ -18,7 +19,7 @@ import {
   biasCheckV2,
   type CEESchemaV2Config,
 } from './client.js';
-import { shouldAllowCeeCall, recordCeeSuccess, recordCeeFailure } from './circuit-breaker.js';
+import { shouldAllowCeeCall, recordCeeSuccess, recordCeeFailure, getCeeCircuitBreakerStats } from './circuit-breaker.js';
 
 // -----------------------------------------------------------------------------
 // ISL Robustness Validation
@@ -324,6 +325,16 @@ export async function runDecisionReviewViaV2Http(
       console.log(`[CEE_V2_VERIFY] draft-graph edge: effect_direction=${firstEdge.effect_direction} strength_std=${firstEdge.strength_std}`);
     }
 
+    // Diagnostic logging for options request payload
+    console.log('[CEE_V2_OPTIONS_REQUEST]', JSON.stringify({
+      draft_keys: draft ? Object.keys(draft) : 'DRAFT_UNDEFINED',
+      graph_present: draft?.graph !== undefined,
+      graph_type: typeof draft?.graph,
+      graph_keys: draft?.graph ? Object.keys(draft.graph) : 'GRAPH_MISSING',
+      graph_nodes_count: Array.isArray(draft?.graph?.nodes) ? draft.graph.nodes.length : 'N/A',
+      graph_edges_count: Array.isArray(draft?.graph?.edges) ? draft.graph.edges.length : 'N/A',
+    }));
+
     // 2) Options with v2 format
     const archetype = draft?.archetype ?? null;
     const optionsResult = await optionsV2(v2Config, draft.graph, archetype, requestId);
@@ -484,12 +495,27 @@ export async function orchestrateCeeReview(
   env: OrchestratorEnv,
   request: CeeReviewRequest,
   plotRequestId: string,
+  logger?: FastifyBaseLogger,
 ): Promise<CeeOrchestrationResult> {
   const startTime = Date.now();
 
   // Sanitize request ID per M1 spec
   const sanitisedId = sanitizeRequestId(plotRequestId);
   const wasSanitised = sanitisedId !== plotRequestId;
+
+  // Diagnostic logging for CEE enrichment timeout investigation (Pino)
+  const v2Enabled = isCeeSchemaV2Enabled();
+  const timeoutMs = Number(env.timeoutMs ?? 60_000);
+  const circuitBreaker = getCeeCircuitBreakerStats();
+  logger?.info({
+    event: 'cee_enrichment_start',
+    request_id: plotRequestId,
+    effective_timeout_ms: timeoutMs,
+    client_path: v2Enabled ? 'v2_http' : 'sdk',
+    circuit_breaker_state: circuitBreaker.state,
+    cee_base_url: env.baseUrl,
+    endpoint: '/assist/v1/options',
+  }, 'cee_enrichment_start');
 
   // Check circuit breaker
   if (!shouldAllowCeeCall()) {
@@ -519,7 +545,7 @@ export async function orchestrateCeeReview(
   const client = createCEEClient({
     apiKey: String(env.apiKey ?? ''),
     baseUrl: env.baseUrl,
-    timeout: Number(env.timeoutMs ?? 60_000),
+    timeout: timeoutMs,
   });
 
   try {
@@ -527,6 +553,18 @@ export async function orchestrateCeeReview(
     let ceeReturnedId: string | null = null;
     let model: string | undefined;
     let sdkLatencyMs: number | undefined;
+
+    // Diagnostic logging for path selection
+    const pathDecision = {
+      CEE_SCHEMA_V2: process.env.CEE_SCHEMA_V2,
+      CEE_TIMEOUT_MS: process.env.CEE_TIMEOUT_MS,
+      BUILD_ID: process.env.BUILD_ID,
+      isV2Enabled: isCeeSchemaV2Enabled(),
+      sdkSupportsReview: sdkSupportsReview(client),
+      branch: sdkSupportsReview(client) ? 'm1' : (isCeeSchemaV2Enabled() ? 'v2_http' : 'sdk'),
+    };
+    // Use stderr for guaranteed capture (console.log may not appear in Render)
+    process.stderr.write(`[CEE_PATH_DECISION] ${JSON.stringify(pathDecision)}\n`);
 
     if (sdkSupportsReview(client)) {
       // M1 Path: Use unified review() method (SDK v1.12.0+)

@@ -77,6 +77,62 @@ describe('Preflight Validation', () => {
     });
   });
 
+  describe('Option ID Consistency', () => {
+    it('passes when option IDs match option nodes', () => {
+      const result = runPreflightValidation(
+        validGraph,
+        validOptions,
+        'goal',
+        defaultStats,
+        ['opt1', 'opt2']
+      );
+
+      expect(result.blockers.some(b => b.code === 'OPTION_NODE_MISSING_FROM_ARRAY')).toBe(false);
+      expect(result.blockers.some(b => b.code === 'OPTION_ID_NOT_IN_GRAPH')).toBe(false);
+    });
+
+    it('blocks when option node is missing from options array', () => {
+      const optionsMissing: OptionV3[] = [validOptions[0]];
+      const result = runPreflightValidation(
+        validGraph,
+        optionsMissing,
+        'goal',
+        defaultStats,
+        ['opt1', 'opt2']
+      );
+
+      expect(result.passed).toBe(false);
+      expect(result.blockers.some(b => b.code === 'OPTION_NODE_MISSING_FROM_ARRAY')).toBe(true);
+    });
+
+    it('blocks when option ID not found in option nodes', () => {
+      const result = runPreflightValidation(
+        validGraph,
+        validOptions,
+        'goal',
+        defaultStats,
+        ['opt1']
+      );
+
+      expect(result.passed).toBe(false);
+      expect(result.blockers.some(b => b.code === 'OPTION_ID_NOT_IN_GRAPH')).toBe(true);
+    });
+
+    it('skips check when no option nodes are provided', () => {
+      const result = runPreflightValidation(
+        validGraph,
+        validOptions,
+        'goal',
+        defaultStats,
+        []
+      );
+
+      expect(result.passed).toBe(true);
+      expect(result.blockers.some(b => b.code === 'OPTION_NODE_MISSING_FROM_ARRAY')).toBe(false);
+      expect(result.blockers.some(b => b.code === 'OPTION_ID_NOT_IN_GRAPH')).toBe(false);
+    });
+  });
+
   describe('EMPTY_INTERVENTIONS', () => {
     it('fails when option has no interventions', () => {
       const optionsWithEmpty: OptionV3[] = [
@@ -135,7 +191,7 @@ describe('Preflight Validation', () => {
             'factor-a': 49,
           },
         },
-      ] as OptionV3[];
+      ] as unknown as OptionV3[];
 
       const result = runPreflightValidation(validGraph, optionsFlat, 'goal', defaultStats);
 
@@ -169,7 +225,7 @@ describe('Preflight Validation', () => {
             'factor-a': Infinity,
           },
         },
-      ] as OptionV3[];
+      ] as unknown as OptionV3[];
 
       const result = runPreflightValidation(validGraph, optionsInfinity, 'goal', defaultStats);
 
@@ -193,7 +249,7 @@ describe('Preflight Validation', () => {
             'factor-a': 59, // Same value as opt1
           },
         },
-      ] as OptionV3[];
+      ] as unknown as OptionV3[];
 
       const result = runPreflightValidation(validGraph, optionsIdenticalFlat, 'goal', defaultStats);
 
@@ -217,6 +273,88 @@ describe('Preflight Validation', () => {
 
       expect(result.passed).toBe(false);
       expect(result.blockers.some(b => b.code === 'INVALID_INTERVENTION_TARGET')).toBe(true);
+    });
+  });
+
+  describe('INVALID_INTERVENTION_TARGET_KIND', () => {
+    it('fails when intervention targets a goal node', () => {
+      const optionsTargetingGoal: OptionV3[] = [
+        {
+          id: 'opt1',
+          label: 'Option 1',
+          interventions: {
+            'goal': { value: 100, source: 'user_specified' },
+          },
+        },
+      ];
+
+      const result = runPreflightValidation(validGraph, optionsTargetingGoal, 'goal', defaultStats);
+
+      expect(result.passed).toBe(false);
+      expect(result.blockers.some(b => b.code === 'INVALID_INTERVENTION_TARGET_KIND')).toBe(true);
+      expect(result.blockers.find(b => b.code === 'INVALID_INTERVENTION_TARGET_KIND')?.message).toContain("'goal' is a 'goal' node");
+    });
+
+    it('fails when intervention targets an outcome node', () => {
+      const graphWithOutcome: EngineGraphV3 = {
+        nodes: [
+          { id: 'factor-a', kind: 'factor', label: 'Factor A' },
+          { id: 'revenue', kind: 'outcome', label: 'Revenue' },
+        ],
+        edges: [
+          { from: 'factor-a', to: 'revenue', exists_probability: 0.8, strength: { mean: 0.5, std: 0.1 } },
+        ],
+      };
+
+      const optionsTargetingOutcome: OptionV3[] = [
+        {
+          id: 'opt1',
+          label: 'Option 1',
+          interventions: {
+            'revenue': { value: 100, source: 'user_specified' },
+          },
+        },
+      ];
+
+      const result = runPreflightValidation(graphWithOutcome, optionsTargetingOutcome, 'revenue', defaultStats);
+
+      expect(result.passed).toBe(false);
+      expect(result.blockers.some(b => b.code === 'INVALID_INTERVENTION_TARGET_KIND')).toBe(true);
+      expect(result.blockers.find(b => b.code === 'INVALID_INTERVENTION_TARGET_KIND')?.message).toContain("'revenue' is a 'outcome' node");
+    });
+
+    it('fails when intervention targets a risk node', () => {
+      const graphWithRisk: EngineGraphV3 = {
+        nodes: [
+          { id: 'factor-a', kind: 'factor', label: 'Factor A' },
+          { id: 'churn-risk', kind: 'risk', label: 'Churn Risk' },
+        ],
+        edges: [
+          { from: 'factor-a', to: 'churn-risk', exists_probability: 0.8, strength: { mean: 0.5, std: 0.1 } },
+        ],
+      };
+
+      const optionsTargetingRisk: OptionV3[] = [
+        {
+          id: 'opt1',
+          label: 'Option 1',
+          interventions: {
+            'churn-risk': { value: 0.5, source: 'user_specified' },
+          },
+        },
+      ];
+
+      const result = runPreflightValidation(graphWithRisk, optionsTargetingRisk, 'churn-risk', defaultStats);
+
+      expect(result.passed).toBe(false);
+      expect(result.blockers.some(b => b.code === 'INVALID_INTERVENTION_TARGET_KIND')).toBe(true);
+      expect(result.blockers.find(b => b.code === 'INVALID_INTERVENTION_TARGET_KIND')?.message).toContain("'churn-risk' is a 'risk' node");
+    });
+
+    it('passes when intervention targets a factor node', () => {
+      const result = runPreflightValidation(validGraph, validOptions, 'goal', defaultStats);
+
+      expect(result.blockers.some(b => b.code === 'INVALID_INTERVENTION_TARGET_KIND')).toBe(false);
     });
   });
 
@@ -246,18 +384,26 @@ describe('Preflight Validation', () => {
       expect(result.blockers.some(b => b.code === 'NO_PATH_TO_GOAL')).toBe(true);
     });
 
-    it('passes when targeting goal directly', () => {
-      const optionsTargetingGoal: OptionV3[] = [
+    it('passes when factor has direct path to goal', () => {
+      // factor-a has direct edge to goal in validGraph
+      const optionsTargetingFactor: OptionV3[] = [
         {
           id: 'opt1',
           label: 'Option 1',
           interventions: {
-            'goal': { value: 100, source: 'user_specified' },
+            'factor-a': { value: 100, source: 'user_specified' },
+          },
+        },
+        {
+          id: 'opt2',
+          label: 'Option 2',
+          interventions: {
+            'factor-a': { value: 50, source: 'user_specified' },
           },
         },
       ];
 
-      const result = runPreflightValidation(validGraph, optionsTargetingGoal, 'goal', defaultStats);
+      const result = runPreflightValidation(validGraph, optionsTargetingFactor, 'goal', defaultStats);
 
       expect(result.blockers.some(b => b.code === 'NO_PATH_TO_GOAL')).toBe(false);
     });
@@ -487,6 +633,110 @@ describe('Preflight Validation', () => {
       expect(result.blockers.some(b => b.code === 'TOO_MANY_OPTIONS')).toBe(true);
       expect(result.blockers.find(b => b.code === 'TOO_MANY_OPTIONS')?.message).toContain('11 options');
       expect(result.blockers.find(b => b.code === 'TOO_MANY_OPTIONS')?.message).toContain('limit of 10');
+    });
+  });
+
+  describe('MISSING_OUTCOME_OR_RISK', () => {
+    it('fails when graph has only factor nodes (no outcome/risk/goal)', () => {
+      const graphWithOnlyFactors: EngineGraphV3 = {
+        nodes: [
+          { id: 'factor-a', kind: 'factor', label: 'Factor A' },
+          { id: 'factor-b', kind: 'factor', label: 'Factor B' },
+          { id: 'factor-c', kind: 'factor', label: 'Factor C' },
+        ],
+        edges: [
+          { from: 'factor-a', to: 'factor-b', exists_probability: 0.8, strength: { mean: 0.5, std: 0.1 } },
+          { from: 'factor-b', to: 'factor-c', exists_probability: 0.9, strength: { mean: 0.7, std: 0.1 } },
+        ],
+      };
+
+      const options: OptionV3[] = [
+        {
+          id: 'opt1',
+          label: 'Option 1',
+          interventions: {
+            'factor-a': { value: 1.5, source: 'user_specified' },
+          },
+        },
+      ];
+
+      const result = runPreflightValidation(graphWithOnlyFactors, options, 'factor-c', defaultStats);
+
+      expect(result.passed).toBe(false);
+      expect(result.blockers.some(b => b.code === 'MISSING_OUTCOME_OR_RISK')).toBe(true);
+      expect(result.blockers.find(b => b.code === 'MISSING_OUTCOME_OR_RISK')?.message).toContain('outcome, risk, or goal node');
+    });
+
+    it('passes when graph has a goal node', () => {
+      const result = runPreflightValidation(validGraph, validOptions, 'goal', defaultStats);
+
+      expect(result.blockers.some(b => b.code === 'MISSING_OUTCOME_OR_RISK')).toBe(false);
+    });
+
+    it('passes when graph has an outcome node', () => {
+      const graphWithOutcome: EngineGraphV3 = {
+        nodes: [
+          { id: 'factor-a', kind: 'factor', label: 'Factor A' },
+          { id: 'revenue', kind: 'outcome', label: 'Revenue' },
+        ],
+        edges: [
+          { from: 'factor-a', to: 'revenue', exists_probability: 0.8, strength: { mean: 0.5, std: 0.1 } },
+        ],
+      };
+
+      const options: OptionV3[] = [
+        {
+          id: 'opt1',
+          label: 'Option 1',
+          interventions: {
+            'factor-a': { value: 1.5, source: 'user_specified' },
+          },
+        },
+        {
+          id: 'opt2',
+          label: 'Option 2',
+          interventions: {
+            'factor-a': { value: 2.5, source: 'user_specified' },
+          },
+        },
+      ];
+
+      const result = runPreflightValidation(graphWithOutcome, options, 'revenue', defaultStats);
+
+      expect(result.blockers.some(b => b.code === 'MISSING_OUTCOME_OR_RISK')).toBe(false);
+    });
+
+    it('passes when graph has a risk node', () => {
+      const graphWithRisk: EngineGraphV3 = {
+        nodes: [
+          { id: 'factor-a', kind: 'factor', label: 'Factor A' },
+          { id: 'churn-risk', kind: 'risk', label: 'Churn Risk' },
+        ],
+        edges: [
+          { from: 'factor-a', to: 'churn-risk', exists_probability: 0.8, strength: { mean: 0.5, std: 0.1 } },
+        ],
+      };
+
+      const options: OptionV3[] = [
+        {
+          id: 'opt1',
+          label: 'Option 1',
+          interventions: {
+            'factor-a': { value: 1.5, source: 'user_specified' },
+          },
+        },
+        {
+          id: 'opt2',
+          label: 'Option 2',
+          interventions: {
+            'factor-a': { value: 2.5, source: 'user_specified' },
+          },
+        },
+      ];
+
+      const result = runPreflightValidation(graphWithRisk, options, 'churn-risk', defaultStats);
+
+      expect(result.blockers.some(b => b.code === 'MISSING_OUTCOME_OR_RISK')).toBe(false);
     });
   });
 
