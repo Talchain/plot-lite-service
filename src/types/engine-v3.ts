@@ -46,18 +46,28 @@ export interface UpstreamNode {
   label?: string;
   description?: string;
   body?: string; // Legacy field for description
+  intercept?: number | null;
   observed_state?: {
     value?: number;
     baseline?: number;
     unit?: string;
   };
+  /** State space bounds for the factor (used for uncertainty calculation) */
+  state_space?: {
+    range?: { min: number; max: number };
+  };
   data?: {
     // React Flow nesting
     kind?: string;
     type?: string;
+    intercept?: number | null;
     value?: number;
     baseline?: number;
     unit?: string;
+    /** State space bounds for the factor (used for uncertainty calculation) */
+    state_space?: {
+      range?: { min: number; max: number };
+    };
   };
 }
 
@@ -79,6 +89,8 @@ export interface UpstreamEdge {
   // Strength - multiple representations
   weight?: number;
   strength?: { mean: number; std: number };
+  /** Flat strength mean field (alternative to strength.mean) */
+  strength_mean?: number;
   strength_std?: number;
   belief_strength?: number;
 
@@ -116,11 +128,17 @@ export interface EngineNodeV3 {
   label: string;
   /** Optional description */
   description?: string;
+  /** Node intercept for baseline effect */
+  intercept?: number;
   /** Observed state for factor nodes */
   observed_state?: {
     value: number;
     baseline?: number;
     unit?: string;
+  };
+  /** State space bounds for the factor (used for uncertainty calculation) */
+  state_space?: {
+    range?: { min: number; max: number };
   };
 }
 
