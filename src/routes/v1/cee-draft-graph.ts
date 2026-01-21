@@ -42,7 +42,6 @@ interface CeeDraftGraphResult {
  *
  * @param body - Request body to forward to CEE
  * @param queryString - Query string to append (e.g., "schema=v3")
- * @param incomingPath - Original incoming request path for logging
  * @param requestId - Request ID for tracing
  * @param correlationId - Optional correlation ID for distributed tracing
  * @param logger - Fastify logger
@@ -50,7 +49,6 @@ interface CeeDraftGraphResult {
 async function callCeeDraftGraph(
   body: unknown,
   queryString: string,
-  incomingPath: string,
   requestId: string,
   correlationId: string | undefined,
   logger?: any
@@ -79,19 +77,12 @@ async function callCeeDraftGraph(
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), CEE_DRAFT_GRAPH_TIMEOUT_MS);
 
-  // Parse query params for logging
-  const queryParams = new URLSearchParams(queryString);
-  const schemaRequested = queryParams.get('schema') || 'none';
-
   try {
     logger?.info({
       evt: 'cee_draft_graph_call',
       request_id: requestId,
       correlation_id: correlationId,
-      incoming_path: incomingPath,
-      schema_requested: schemaRequested,
-      upstream_url: url,  // Full URL including query string
-      cee_host: baseUrl ? new URL(baseUrl).host : 'unknown',
+      url: urlBase, // Log base URL without query params for security
       timeout_ms: CEE_DRAFT_GRAPH_TIMEOUT_MS,
     });
 
@@ -110,6 +101,14 @@ async function callCeeDraftGraph(
 
     clearTimeout(timeoutId);
     const latencyMs = Date.now() - startMs;
+
+    // Log response metadata
+    logger?.info({
+      evt: 'cee_draft_graph_response',
+      request_id: requestId,
+      status: res.status,
+      latency_ms: latencyMs,
+    });
 
     // Forward CEE error responses as-is
     if (!res.ok) {
@@ -141,18 +140,7 @@ async function callCeeDraftGraph(
     }
 
     // Parse successful response
-    const data = await res.json() as Record<string, any>;
-
-    // Log response metadata with schema/model info (data already parsed)
-    logger?.info({
-      evt: 'cee_draft_graph_response',
-      request_id: requestId,
-      status: res.status,
-      latency_ms: latencyMs,
-      schema_served: data?.schema_version || data?.graph?.version,
-      model_used: data?.trace?.engine?.model,
-    });
-
+    const data = await res.json();
     return {
       data,
       status: res.status,
@@ -222,7 +210,6 @@ export async function registerCeeDraftGraphRoute(app: FastifyInstance) {
       const result = await callCeeDraftGraph(
         req.body,
         queryString,
-        req.url,  // Pass incoming path for logging
         requestId,
         correlationId,
         req.log

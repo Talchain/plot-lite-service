@@ -259,11 +259,25 @@ export function normaliseEdge(
   }
 
   const edgeId = `${from}::${to}`;
-  const pushCoefficientWarning = (message: string) => {
+
+  /**
+   * Push a coefficient repair warning with structured repair data.
+   */
+  const pushCoefficientWarning = (
+    message: string,
+    repair: {
+      field: string;
+      action: 'clamped' | 'defaulted' | 'inferred' | 'floored' | 'derived';
+      from_value: number | string | null;
+      to_value: number | string;
+      reason: string;
+    }
+  ) => {
     warnings?.push({
       code: 'COEFFICIENT_REPAIRED',
       message,
       edge_id: edgeId,
+      repair,
     });
   };
 
@@ -273,18 +287,39 @@ export function normaliseEdge(
   if (rawExistsProbability === undefined) {
     existsProbability = DEFAULT_EXISTS_PROBABILITY;
     pushCoefficientWarning(
-      `Edge ${edgeId}: exists_probability defaulted to ${DEFAULT_EXISTS_PROBABILITY}`
+      `Edge ${edgeId}: exists_probability defaulted to ${DEFAULT_EXISTS_PROBABILITY}`,
+      {
+        field: 'edge.exists_probability',
+        action: 'defaulted',
+        from_value: null,
+        to_value: DEFAULT_EXISTS_PROBABILITY,
+        reason: 'Missing value, using default',
+      }
     );
   } else if (typeof rawExistsProbability !== 'number' || !Number.isFinite(rawExistsProbability)) {
     existsProbability = DEFAULT_EXISTS_PROBABILITY;
     pushCoefficientWarning(
-      `Edge ${edgeId}: exists_probability invalid, defaulted to ${DEFAULT_EXISTS_PROBABILITY}`
+      `Edge ${edgeId}: exists_probability invalid, defaulted to ${DEFAULT_EXISTS_PROBABILITY}`,
+      {
+        field: 'edge.exists_probability',
+        action: 'defaulted',
+        from_value: rawExistsProbability as number | string | null,
+        to_value: DEFAULT_EXISTS_PROBABILITY,
+        reason: 'Invalid value, using default',
+      }
     );
   } else {
     const clampedExistsProbability = clamp(rawExistsProbability, 0, 1);
     if (clampedExistsProbability !== rawExistsProbability) {
       pushCoefficientWarning(
-        `Edge ${edgeId}: exists_probability clamped from ${rawExistsProbability} to ${clampedExistsProbability}`
+        `Edge ${edgeId}: exists_probability clamped from ${rawExistsProbability} to ${clampedExistsProbability}`,
+        {
+          field: 'edge.exists_probability',
+          action: 'clamped',
+          from_value: rawExistsProbability,
+          to_value: clampedExistsProbability,
+          reason: 'Value exceeded valid range [0, 1]',
+        }
       );
     }
     existsProbability = clampedExistsProbability;
@@ -305,7 +340,16 @@ export function normaliseEdge(
       mean = rawMean;
       hasExplicitMean = true;
     } else {
-      pushCoefficientWarning(`Edge ${edgeId}: strength.mean invalid, defaulted using weight`);
+      pushCoefficientWarning(
+        `Edge ${edgeId}: strength.mean invalid, defaulted using weight`,
+        {
+          field: 'edge.strength.mean',
+          action: 'defaulted',
+          from_value: rawMean as number | string | null,
+          to_value: DEFAULT_WEIGHT,
+          reason: 'Invalid value, derived from weight',
+        }
+      );
     }
   }
 
@@ -315,12 +359,27 @@ export function normaliseEdge(
     if (weight === undefined) {
       weight = DEFAULT_WEIGHT;
       pushCoefficientWarning(
-        `Edge ${edgeId}: strength.mean defaulted using weight ${DEFAULT_WEIGHT}`
+        `Edge ${edgeId}: strength.mean defaulted using weight ${DEFAULT_WEIGHT}`,
+        {
+          field: 'edge.strength.mean',
+          action: 'defaulted',
+          from_value: null,
+          to_value: DEFAULT_WEIGHT,
+          reason: 'Missing value, derived from weight',
+        }
       );
     } else if (typeof weight !== 'number' || !Number.isFinite(weight)) {
+      const invalidWeight = weight;
       weight = DEFAULT_WEIGHT;
       pushCoefficientWarning(
-        `Edge ${edgeId}: strength.mean defaulted using weight ${DEFAULT_WEIGHT} (invalid weight)`
+        `Edge ${edgeId}: strength.mean defaulted using weight ${DEFAULT_WEIGHT} (invalid weight)`,
+        {
+          field: 'edge.strength.mean',
+          action: 'defaulted',
+          from_value: invalidWeight as number | string | null,
+          to_value: DEFAULT_WEIGHT,
+          reason: 'Invalid weight, using default',
+        }
       );
     }
 
@@ -337,6 +396,13 @@ export function normaliseEdge(
           code: 'DIRECTION_INFERRED',
           message: `Edge '${from}' -> '${to}': effect direction inferred as 'negative' from ${fromKind ?? 'unknown'} -> ${toKind ?? 'unknown'}`,
           edge_id: edgeId,
+          repair: {
+            field: 'edge.effect_direction',
+            action: 'inferred',
+            from_value: null,
+            to_value: 'negative',
+            reason: `Inferred from source node kind '${fromKind ?? 'unknown'}'`,
+          },
         });
       }
     }
@@ -346,7 +412,16 @@ export function normaliseEdge(
 
   const clampedMean = clamp(mean, -1, 1);
   if (clampedMean !== mean) {
-    pushCoefficientWarning(`Edge ${edgeId}: strength.mean clamped from ${mean} to ${clampedMean}`);
+    pushCoefficientWarning(
+      `Edge ${edgeId}: strength.mean clamped from ${mean} to ${clampedMean}`,
+      {
+        field: 'edge.strength.mean',
+        action: 'clamped',
+        from_value: mean,
+        to_value: clampedMean,
+        reason: 'Value exceeded valid range [-1, 1]',
+      }
+    );
     mean = clampedMean;
   }
 
@@ -356,7 +431,16 @@ export function normaliseEdge(
       std = rawStd;
     } else {
       std = deriveStd(mean, existsProbability);
-      pushCoefficientWarning(`Edge ${edgeId}: strength.std invalid, defaulted to ${std}`);
+      pushCoefficientWarning(
+        `Edge ${edgeId}: strength.std invalid, defaulted to ${std}`,
+        {
+          field: 'edge.strength.std',
+          action: 'defaulted',
+          from_value: rawStd as number | string | null,
+          to_value: std,
+          reason: 'Invalid value, derived from mean and belief',
+        }
+      );
     }
   } else if (edge.belief_strength !== undefined) {
     if (typeof edge.belief_strength === 'number' && Number.isFinite(edge.belief_strength)) {
@@ -365,22 +449,56 @@ export function normaliseEdge(
     } else {
       std = deriveStd(mean, existsProbability);
       pushCoefficientWarning(
-        `Edge ${edgeId}: strength.std defaulted to ${std} (invalid belief_strength)`
+        `Edge ${edgeId}: strength.std defaulted to ${std} (invalid belief_strength)`,
+        {
+          field: 'edge.strength.std',
+          action: 'defaulted',
+          from_value: edge.belief_strength as number | string | null,
+          to_value: std,
+          reason: 'Invalid belief_strength, derived from mean and belief',
+        }
       );
     }
   } else {
     std = deriveStd(mean, existsProbability);
-    pushCoefficientWarning(`Edge ${edgeId}: strength.std defaulted to ${std}`);
+    pushCoefficientWarning(
+      `Edge ${edgeId}: strength.std defaulted to ${std}`,
+      {
+        field: 'edge.strength.std',
+        action: 'derived',
+        from_value: null,
+        to_value: std,
+        reason: 'Missing value, derived from mean and belief',
+      }
+    );
   }
 
   if (!Number.isFinite(std)) {
     const prevStd = std;
     std = MIN_STD;
-    pushCoefficientWarning(`Edge ${edgeId}: strength.std floored from ${prevStd} to ${MIN_STD}`);
+    pushCoefficientWarning(
+      `Edge ${edgeId}: strength.std floored from ${prevStd} to ${MIN_STD}`,
+      {
+        field: 'edge.strength.std',
+        action: 'floored',
+        from_value: prevStd,
+        to_value: MIN_STD,
+        reason: 'Value not finite, floored to minimum',
+      }
+    );
   } else {
     const clampedStd = clamp(std, STD_RANGE_MIN, STD_RANGE_MAX);
     if (clampedStd !== std) {
-      pushCoefficientWarning(`Edge ${edgeId}: strength.std clamped from ${std} to ${clampedStd}`);
+      pushCoefficientWarning(
+        `Edge ${edgeId}: strength.std clamped from ${std} to ${clampedStd}`,
+        {
+          field: 'edge.strength.std',
+          action: 'clamped',
+          from_value: std,
+          to_value: clampedStd,
+          reason: `Value exceeded valid range [${STD_RANGE_MIN}, ${STD_RANGE_MAX}]`,
+        }
+      );
     }
     std = clampedStd;
 
@@ -388,7 +506,16 @@ export function normaliseEdge(
     if (std <= 0) {
       const prevStd = std;
       std = MIN_STD;
-      pushCoefficientWarning(`Edge ${edgeId}: strength.std floored from ${prevStd} to ${MIN_STD}`);
+      pushCoefficientWarning(
+        `Edge ${edgeId}: strength.std floored from ${prevStd} to ${MIN_STD}`,
+        {
+          field: 'edge.strength.std',
+          action: 'floored',
+          from_value: prevStd,
+          to_value: MIN_STD,
+          reason: `Value below minimum threshold ${MIN_STD}`,
+        }
+      );
     }
   }
 
@@ -415,6 +542,17 @@ export interface NormalisationWarning {
   node_id?: string;
   /** Affected edge ID (for edge-level warnings) */
   edge_id?: string;
+  /**
+   * Structured repair data for _meta.repairs_applied.
+   * Only present for warnings that represent actual data repairs.
+   */
+  repair?: {
+    field: string;
+    action: 'clamped' | 'defaulted' | 'inferred' | 'floored' | 'derived';
+    from_value: number | string | null;
+    to_value: number | string;
+    reason: string;
+  };
 }
 
 export interface NormalisationResult {

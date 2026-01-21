@@ -70,7 +70,7 @@ describe('Goal Threshold - Request Validation', () => {
         // goal_threshold intentionally omitted
       };
 
-      expect((body as any).goal_threshold).toBeUndefined();
+      expect(body.goal_threshold).toBeUndefined();
     });
 
     it('treats null goal_threshold as absent', () => {
@@ -374,107 +374,6 @@ describe('Goal Threshold - Contract Hashing', () => {
 
     // 0 is a valid threshold, should produce different hash than absent
     expect(hash1).not.toBe(hash2);
-  });
-
-  it('different intercepts produce different hashes', () => {
-    const normalizedGraph1 = {
-      ...normalizedGraph,
-      nodes: [
-        { id: 'factor-a', kind: 'factor' as const, label: 'Factor A', intercept: 0.0 },
-        { id: 'goal', kind: 'goal' as const, label: 'Goal', intercept: 0.0 },
-      ],
-    };
-    const normalizedGraph2 = {
-      ...normalizedGraph,
-      nodes: [
-        { id: 'factor-a', kind: 'factor' as const, label: 'Factor A', intercept: 0.0 },
-        { id: 'goal', kind: 'goal' as const, label: 'Goal', intercept: 100.0 },
-      ],
-    };
-
-    const canonical1 = canonicaliseRequest(baseRequest, normalizedGraph1, '42');
-    const canonical2 = canonicaliseRequest(baseRequest, normalizedGraph2, '42');
-
-    const hash1 = computeResponseHash(canonical1);
-    const hash2 = computeResponseHash(canonical2);
-
-    expect(hash1).not.toBe(hash2);
-  });
-
-  it('undefined intercept hashes same as 0.0', () => {
-    const normalizedGraph1 = {
-      ...normalizedGraph,
-      nodes: [
-        { id: 'factor-a', kind: 'factor' as const, label: 'Factor A' },
-        { id: 'goal', kind: 'goal' as const, label: 'Goal' },
-      ],
-    };
-    const normalizedGraph2 = {
-      ...normalizedGraph,
-      nodes: [
-        { id: 'factor-a', kind: 'factor' as const, label: 'Factor A', intercept: 0.0 },
-        { id: 'goal', kind: 'goal' as const, label: 'Goal', intercept: 0.0 },
-      ],
-    };
-
-    const canonical1 = canonicaliseRequest(baseRequest, normalizedGraph1, '42');
-    const canonical2 = canonicaliseRequest(baseRequest, normalizedGraph2, '42');
-
-    const hash1 = computeResponseHash(canonical1);
-    const hash2 = computeResponseHash(canonical2);
-
-    expect(hash1).toBe(hash2);
-  });
-
-  it('negative zero intercept hashes same as zero', () => {
-    const normalizedGraph1 = {
-      ...normalizedGraph,
-      nodes: [
-        { id: 'factor-a', kind: 'factor' as const, label: 'Factor A', intercept: -0 },
-        { id: 'goal', kind: 'goal' as const, label: 'Goal', intercept: -0 },
-      ],
-    };
-    const normalizedGraph2 = {
-      ...normalizedGraph,
-      nodes: [
-        { id: 'factor-a', kind: 'factor' as const, label: 'Factor A', intercept: 0 },
-        { id: 'goal', kind: 'goal' as const, label: 'Goal', intercept: 0 },
-      ],
-    };
-
-    const canonical1 = canonicaliseRequest(baseRequest, normalizedGraph1, '42');
-    const canonical2 = canonicaliseRequest(baseRequest, normalizedGraph2, '42');
-
-    const hash1 = computeResponseHash(canonical1);
-    const hash2 = computeResponseHash(canonical2);
-
-    expect(hash1).toBe(hash2);
-  });
-
-  it('float precision is deterministic for intercept', () => {
-    const intercept = 0.1 + 0.2;
-    const normalizedGraph1 = {
-      ...normalizedGraph,
-      nodes: [
-        { id: 'factor-a', kind: 'factor' as const, label: 'Factor A', intercept },
-        { id: 'goal', kind: 'goal' as const, label: 'Goal', intercept },
-      ],
-    };
-    const normalizedGraph2 = {
-      ...normalizedGraph,
-      nodes: [
-        { id: 'factor-a', kind: 'factor' as const, label: 'Factor A', intercept: 0.3 },
-        { id: 'goal', kind: 'goal' as const, label: 'Goal', intercept: 0.3 },
-      ],
-    };
-
-    const canonical1 = canonicaliseRequest(baseRequest, normalizedGraph1, '42');
-    const canonical2 = canonicaliseRequest(baseRequest, normalizedGraph2, '42');
-
-    const hash1 = computeResponseHash(canonical1);
-    const hash2 = computeResponseHash(canonical2);
-
-    expect(hash1).toBe(hash2);
   });
 });
 

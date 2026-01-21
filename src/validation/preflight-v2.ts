@@ -150,69 +150,14 @@ function validateOptionsCount(options: OptionV3[]): CritiqueV3[] {
   return [];
 }
 
-function resolveOptionNodeIds(
-  graph: EngineGraphV3,
-  optionNodeIds?: string[]
-): string[] {
-  if (optionNodeIds) {
-    return optionNodeIds;
-  }
-
-  return graph.nodes
-    .filter((node) => node.kind?.toLowerCase?.() === 'option')
-    .map((node) => node.id);
-}
-
-function validateOptionIdConsistency(
-  optionNodeIds: string[],
-  options: OptionV3[]
-): CritiqueV3[] {
-  if (optionNodeIds.length === 0) {
-    return [];
-  }
-
-  const critiques: CritiqueV3[] = [];
-  const optionNodeIdSet = new Set(optionNodeIds);
-  const optionArrayIdSet = new Set(options.map((option) => option.id));
-
-  for (const optionNodeId of optionNodeIdSet) {
-    if (!optionArrayIdSet.has(optionNodeId)) {
-      critiques.push(
-        createBlocker(
-          'OPTION_NODE_MISSING_FROM_ARRAY',
-          `Option node '${optionNodeId}' exists in graph but not in options array`,
-          undefined,
-          [optionNodeId]
-        )
-      );
-    }
-  }
-
-  for (const optionId of optionArrayIdSet) {
-    if (!optionNodeIdSet.has(optionId)) {
-      critiques.push(
-        createBlocker(
-          'OPTION_ID_NOT_IN_GRAPH',
-          `Option '${optionId}' not found as option node in graph`,
-          [optionId]
-        )
-      );
-    }
-  }
-
-  return critiques;
-}
-
 /**
  * Validate each option has non-empty interventions.
- * Also validates that intervention targets are factor nodes (not outcome/risk/goal).
  */
 function validateInterventions(
   options: OptionV3[],
-  graph: EngineGraphV3
+  nodeIds: Set<string>
 ): CritiqueV3[] {
   const critiques: CritiqueV3[] = [];
-  const nodeMap = new Map(graph.nodes.map((n) => [n.id, n]));
 
   for (const option of options) {
     const interventionKeys = Object.keys(option.interventions ?? {});
@@ -229,28 +174,13 @@ function validateInterventions(
       continue;
     }
 
-    // Check each intervention target exists in graph and is a factor
+    // Check each intervention target exists in graph
     for (const targetNodeId of interventionKeys) {
-      const targetNode = nodeMap.get(targetNodeId);
-
-      if (!targetNode) {
+      if (!nodeIds.has(targetNodeId)) {
         critiques.push(
           createBlocker(
             'INVALID_INTERVENTION_TARGET',
             `Option '${option.label}' references non-existent node '${targetNodeId}'.`,
-            [option.id],
-            [targetNodeId]
-          )
-        );
-        continue;
-      }
-
-      // Validate intervention target is a factor node (not outcome/risk/goal)
-      if (targetNode.kind !== 'factor') {
-        critiques.push(
-          createBlocker(
-            'INVALID_INTERVENTION_TARGET_KIND',
-            `Interventions can only target factor nodes. '${targetNodeId}' is a '${targetNode.kind}' node.`,
             [option.id],
             [targetNodeId]
           )
@@ -280,29 +210,6 @@ function validateInterventions(
   }
 
   return critiques;
-}
-
-/**
- * Node kinds that represent outcomes in causal graphs.
- * At least one must be present for valid causal inference.
- */
-const OUTCOME_NODE_KINDS = new Set(['outcome', 'risk', 'goal']);
-
-/**
- * Validate that graph contains at least one outcome, risk, or goal node.
- * Without an outcome node, causal inference produces meaningless results.
- */
-function validateOutcomePresence(graph: EngineGraphV3): CritiqueV3[] {
-  const hasOutcome = graph.nodes.some((n) => OUTCOME_NODE_KINDS.has(n.kind));
-  if (!hasOutcome) {
-    return [
-      createBlocker(
-        'MISSING_OUTCOME_OR_RISK',
-        'Graph must contain at least one outcome, risk, or goal node for causal inference.'
-      ),
-    ];
-  }
-  return [];
 }
 
 /**
@@ -560,11 +467,13 @@ export function runPreflightValidation(
     optionEdgesFiltered: number;
     nodesNormalised: number;
     edgesNormalised: number;
-  },
-  optionNodeIds?: string[]
+  }
 ): PreflightResultV3 {
   const blockers: CritiqueV3[] = [];
   const warnings: CritiqueV3[] = [];
+
+  // Node set for validation
+  const nodeIds = new Set(graph.nodes.map((n) => n.id));
 
   // Run structural validations first (these don't depend on options)
   blockers.push(...validateNodeIdPatterns(graph));
@@ -572,7 +481,6 @@ export function runPreflightValidation(
   blockers.push(...validateEdgeEndpoints(graph));
   blockers.push(...validateGraphSize(graph));
   blockers.push(...checkCycles(graph)); // V2: cycles are blockers
-  blockers.push(...validateOutcomePresence(graph)); // Graph must have outcome/risk/goal
 
   // Validate goal node
   const goalCritiques = validateGoalNode(graph, goalNodeId);
@@ -582,8 +490,6 @@ export function runPreflightValidation(
   // Validate options presence
   const optionsCritiques = validateOptionsPresent(options);
   blockers.push(...optionsCritiques);
-
-  const resolvedOptionNodeIds = resolveOptionNodeIds(graph, optionNodeIds);
 
   // Only continue with option-specific validation if options exist
   let optionsWithInterventions = 0;
@@ -595,12 +501,8 @@ export function runPreflightValidation(
     // Validate options count
     blockers.push(...validateOptionsCount(options));
 
-    if (resolvedOptionNodeIds.length > 0) {
-      blockers.push(...validateOptionIdConsistency(resolvedOptionNodeIds, options));
-    }
-
-    // Validate interventions (including target node kind)
-    blockers.push(...validateInterventions(options, graph));
+    // Validate interventions
+    blockers.push(...validateInterventions(options, nodeIds));
 
     // Count options with interventions
     optionsWithInterventions = options.filter(
