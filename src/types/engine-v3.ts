@@ -49,6 +49,8 @@ export interface UpstreamNode {
   intercept?: number | null;
   observed_state?: {
     value?: number;
+    /** Standard deviation for parameter uncertainty (if known) */
+    std?: number;
     baseline?: number;
     unit?: string;
   };
@@ -133,6 +135,8 @@ export interface EngineNodeV3 {
   /** Observed state for factor nodes */
   observed_state?: {
     value: number;
+    /** Standard deviation for parameter uncertainty (if known) */
+    std?: number;
     baseline?: number;
     unit?: string;
   };
@@ -619,11 +623,16 @@ export interface EdgeSensitivityResultV3 {
 
 /**
  * Factor sensitivity result.
+ *
+ * Note: Numeric fields are optional because ISL may not always provide them.
+ * Missing values mean "unavailable" (not "zero influence") — do not default to 0.
  */
 export interface FactorSensitivityResultV3 {
   factor_id: string;
-  sensitivity_score: number;
-  value_of_information: number;
+  /** Sensitivity score from ISL. Undefined means ISL couldn't compute it. */
+  sensitivity_score?: number;
+  /** Value of information. Undefined means ISL couldn't compute it. */
+  value_of_information?: number;
   direction?: 'positive' | 'negative' | 'mixed';
 }
 

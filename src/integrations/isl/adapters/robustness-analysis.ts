@@ -305,21 +305,28 @@ export function adaptRobustnessAnalysisResponse(
   const mergedEdges = mergeEdgeSensitivity(existenceEdges, magnitudeEdges);
 
   // Transform factor sensitivity
-  const factors: FactorSensitivityEntry[] = (isl.factor_sensitivity ?? []).map((item) => ({
-    factor_id: item.node_id,
-    sensitivity_score: item.sensitivity,
-    direction: item.direction ?? 'mixed',
-  }));
+  // Filter out items without valid numeric sensitivity (Schema v2.6 uses sensitivity_score, legacy uses sensitivity)
+  const factors: FactorSensitivityEntry[] = (isl.factor_sensitivity ?? [])
+    .filter((item) => {
+      const sensitivity = item.sensitivity_score ?? item.sensitivity;
+      return typeof sensitivity === 'number';
+    })
+    .map((item) => ({
+      factor_id: item.node_id,
+      sensitivity_score: (item.sensitivity_score ?? item.sensitivity) as number,
+      direction: item.direction ?? 'mixed',
+    }));
 
   // Sort factors by absolute sensitivity descending
   factors.sort((a, b) => Math.abs(b.sensitivity_score) - Math.abs(a.sensitivity_score));
 
   // Transform value of information
+  // Filter out items without valid numeric value_of_information
   const voiEntries: VOIEntry[] = (isl.factor_sensitivity ?? [])
-    .filter((item) => item.value_of_information > 0)
+    .filter((item) => typeof item.value_of_information === 'number' && item.value_of_information > 0)
     .map((item) => ({
       factor_id: item.node_id,
-      voi: item.value_of_information,
+      voi: item.value_of_information as number,
     }))
     .sort((a, b) => b.voi - a.voi);
 

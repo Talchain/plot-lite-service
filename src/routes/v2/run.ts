@@ -146,12 +146,31 @@ function transformEdgeSensitivity(islSensitivity: unknown): EdgeSensitivityResul
  */
 function transformFactorSensitivity(islFactorSensitivity: unknown): FactorSensitivityResultV3[] | undefined {
   if (!hasNonEmptyArray(islFactorSensitivity)) return undefined;
-  return (islFactorSensitivity as any[]).map((f: any) => ({
-    factor_id: f.node_id,
-    sensitivity_score: f.sensitivity,
-    value_of_information: f.value_of_information,
-    direction: f.direction as 'positive' | 'negative' | 'mixed' | undefined,
-  }));
+  return (islFactorSensitivity as any[]).map((f: any) => {
+    // Schema v2.6 canonical field is 'sensitivity_score'; legacy used 'sensitivity'
+    // Support both for backward compatibility
+    const sensitivityValue = f.sensitivity_score ?? f.sensitivity;
+
+    // Defensive logging: warn if no numeric sensitivity value found
+    // This helps identify if ISL is returning incomplete data
+    if (sensitivityValue === undefined) {
+      console.warn('[FACTOR_SENSITIVITY_MISSING_NUMERIC]', JSON.stringify({
+        node_id: f.node_id,
+        available_keys: Object.keys(f),
+        message: 'ISL did not provide sensitivity_score — UI will show "unavailable"',
+      }));
+    }
+
+    // IMPORTANT: Do NOT default missing values to 0.
+    // Missing data means "we couldn't compute influence" which is semantically
+    // different from "this factor has zero influence". Let undefined pass through.
+    return {
+      factor_id: f.node_id ?? f.factor_id,
+      sensitivity_score: sensitivityValue,  // undefined if ISL didn't provide it
+      value_of_information: f.value_of_information,  // undefined if not provided
+      direction: f.direction as 'positive' | 'negative' | 'mixed' | undefined,
+    };
+  });
 }
 
 // -----------------------------------------------------------------------------

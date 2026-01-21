@@ -26,21 +26,29 @@ export function adaptFactorSensitivityResponse(
   latencyMs: number
 ): PLoTFactorSensitivityResult {
   // Transform factor sensitivities
-  const factors: FactorSensitivityEntry[] = isl.factor_sensitivity.map((item) => ({
-    factor_id: item.node_id,
-    sensitivity_score: item.sensitivity,
-    direction: item.direction ?? 'mixed',
-  }));
+  // Filter out items without valid numeric sensitivity values
+  // Schema v2.6 canonical field is 'sensitivity_score'; legacy used 'sensitivity'
+  const factors: FactorSensitivityEntry[] = isl.factor_sensitivity
+    .filter((item) => {
+      const sensitivity = item.sensitivity_score ?? item.sensitivity;
+      return typeof sensitivity === 'number';
+    })
+    .map((item) => ({
+      factor_id: item.node_id,
+      sensitivity_score: (item.sensitivity_score ?? item.sensitivity) as number,
+      direction: item.direction ?? 'mixed',
+    }));
 
   // Sort by sensitivity descending (most sensitive first)
   factors.sort((a, b) => Math.abs(b.sensitivity_score) - Math.abs(a.sensitivity_score));
 
   // Transform value of information entries
+  // Filter items that have valid numeric value_of_information > 0
   const value_of_information: VOIEntry[] = isl.factor_sensitivity
-    .filter((item) => item.value_of_information > 0)
+    .filter((item) => typeof item.value_of_information === 'number' && item.value_of_information > 0)
     .map((item) => ({
       factor_id: item.node_id,
-      voi: item.value_of_information,
+      voi: item.value_of_information as number,
     }))
     .sort((a, b) => b.voi - a.voi);
 

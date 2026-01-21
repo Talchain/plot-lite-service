@@ -551,6 +551,8 @@ export interface EdgeV2 {
 export interface ObservedState {
   /** Current value (e.g., 59 for price) */
   value: number;
+  /** Standard deviation for parameter uncertainty (if known) */
+  std?: number;
   /** Reference/baseline value for comparison (e.g., 49) */
   baseline?: number;
   /** Display unit (e.g., "£", "%", "users") */

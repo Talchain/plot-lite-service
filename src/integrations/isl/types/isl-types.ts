@@ -177,15 +177,23 @@ export type ISLFactorSensitivityRequest = ISLRobustnessAnalyzeV2Request;
 
 /**
  * Factor sensitivity item from ISL /api/v1/robustness/analyze/v2 response
+ *
+ * Field name evolution:
+ * - Schema v2.6 canonical: sensitivity_score
+ * - Legacy: sensitivity
+ *
+ * PLoT supports both for backward compatibility.
  */
 export interface ISLFactorSensitivityItem {
   /** Node ID of the factor */
   node_id: string;
-  /** Elasticity/sensitivity score */
-  sensitivity: number;
+  /** Sensitivity score (Schema v2.6 canonical) */
+  sensitivity_score?: number;
+  /** Legacy: Sensitivity score (pre-v2.6) */
+  sensitivity?: number;
   /** Value of information for this factor */
-  value_of_information: number;
-  /** Optional direction of impact */
+  value_of_information?: number;
+  /** Direction of impact */
   direction?: 'positive' | 'negative' | 'mixed';
 }
 

@@ -164,6 +164,9 @@ export async function callCEEWithSchemaV2<T>(
   const timeoutMs = config.timeoutMs ?? 30000;
   const startMs = Date.now();
 
+  // Compute payload hash for downstream tracking
+  const payloadHash = computeOlumiHash(payload);
+
   try {
     // Log payload for debugging (only for options endpoint)
     if (path.includes('/options')) {
@@ -196,6 +199,15 @@ export async function callCEEWithSchemaV2<T>(
     const latencyMs = Date.now() - startMs;
 
     if (!response.ok) {
+      // Record failed downstream call (HTTP error)
+      recordDownstreamCall({
+        service: 'cee',
+        endpoint: path,
+        status: response.status,
+        elapsedMs: latencyMs,
+        payloadHash,
+        requestId,
+      });
       const errorText = await response.text().catch(() => 'Unknown error');
       throw new Error(`CEE ${path} failed: HTTP ${response.status} - ${errorText}`);
     }
@@ -205,6 +217,20 @@ export async function callCEEWithSchemaV2<T>(
 
     const data = await response.json() as T & { schema_version?: string; graph?: { edges?: Array<{ effect_direction?: string; strength_std?: number }> } };
     const schemaVersion = (data as any)?.schema_version;
+
+    // Compute response hash for downstream tracking
+    const responseHash = computeOlumiHash(data);
+
+    // Record successful downstream call
+    recordDownstreamCall({
+      service: 'cee',
+      endpoint: path,
+      status: response.status,
+      elapsedMs: latencyMs,
+      payloadHash,
+      responseHash,
+      requestId,
+    });
 
     // V2 verification logging per acceptance criteria
     const edges = (data as any)?.graph?.edges ?? [];
@@ -237,6 +263,21 @@ export async function callCEEWithSchemaV2<T>(
     };
   } catch (error) {
     const latencyMs = Date.now() - startMs;
+
+    // Record failed downstream call (network/timeout error)
+    // Only record if not already recorded (HTTP errors are recorded above)
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    if (!errorMsg.includes('HTTP ')) {
+      recordDownstreamCall({
+        service: 'cee',
+        endpoint: path,
+        status: 0, // 0 indicates network/timeout error
+        elapsedMs: latencyMs,
+        payloadHash,
+        requestId,
+      });
+    }
+
     console.error(`[CEE_V2] ${path} failed after ${latencyMs}ms:`, error instanceof Error ? error.message : error);
     throw error;
   }

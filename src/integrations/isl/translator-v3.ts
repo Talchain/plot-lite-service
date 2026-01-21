@@ -160,12 +160,13 @@ export function toISLOption(option: OptionV3): ISLOptionV3 {
  * Build parameter uncertainties from factor nodes with observed_state.
  *
  * For each factor node with an observed value, create a parameter uncertainty
- * specification for ISL.
+ * specification for ISL. This enables ISL to compute factor_sensitivity scores.
  *
  * Standard deviation calculation priority:
- * 1. If state_space.range is defined: 10% of the range (max - min)
- * 2. If value != 0: 10% of the absolute value
- * 3. Fallback for zero-valued factors without range: 1.0
+ * 1. Use observed_state.std if present and > 0
+ * 2. For binary factors (0/1 range): use 0.3
+ * 3. Use 15% of |observed_state.value| if value != 0
+ * 4. Fallback: 0.5
  *
  * All std values have a floor of 0.1 to ensure meaningful sensitivity.
  *
@@ -180,18 +181,33 @@ export function buildParameterUncertaintiesV3(
   for (const node of nodes) {
     if (node.kind === 'factor' && node.observed_state?.value !== undefined) {
       const value = node.observed_state.value;
+      const observedStd = node.observed_state.std;
       const range = node.state_space?.range;
 
+      // Detect binary factors using strong signals only
+      const isBinary = isBinaryFactor(node);
+
       let std: number;
-      if (range && range.max !== range.min) {
-        // Use 10% of the factor's range
-        std = (range.max - range.min) * 0.1;
-      } else if (value !== 0) {
-        // Use 10% of the absolute value
-        std = Math.abs(value) * 0.1;
-      } else {
-        // Fallback for zero-valued factors without range: use 1.0
-        std = 1.0;
+
+      // Priority 1: Use observed_state.std if present and meaningful
+      // Cap at 2.0 to prevent extreme values from destabilizing ISL
+      if (observedStd !== undefined && observedStd > 0) {
+        std = Math.min(observedStd, 2.0);
+        if (observedStd > 2.0) {
+          console.warn(`[PARAMETER_UNCERTAINTY] node_id=${node.id} observed_state.std=${observedStd} capped to 2.0`);
+        }
+      }
+      // Priority 2: Binary factors get std = 0.3
+      else if (isBinary) {
+        std = 0.3;
+      }
+      // Priority 3: 15% of absolute value for non-zero values
+      else if (value !== 0) {
+        std = Math.abs(value) * 0.15;
+      }
+      // Priority 4: Fallback for zero-valued continuous factors
+      else {
+        std = 0.5;
       }
 
       // Floor at 0.1 to ensure meaningful sensitivity
@@ -207,6 +223,52 @@ export function buildParameterUncertaintiesV3(
   }
 
   return uncertainties.length > 0 ? uncertainties : undefined;
+}
+
+/**
+ * Detect if a factor node is binary using strong signals.
+ * Avoids misclassifying continuous factors (e.g., "Number of Developers Hired" = 0) as binary.
+ *
+ * Binary detection signals (in order):
+ * 1. Explicit range [0,1]
+ * 2. Label contains explicit binary markers: "(0/1)", "yes/no", "true/false"
+ * 3. Unit suggests boolean: "boolean", "bool", "binary"
+ * 4. Common boolean naming patterns + value is exactly 0 or 1
+ */
+function isBinaryFactor(node: EngineNodeV3): boolean {
+  const range = node.state_space?.range;
+  const value = node.observed_state?.value;
+
+  // Signal 1: Explicit range [0,1]
+  if (range && range.min === 0 && range.max === 1) {
+    return true;
+  }
+
+  const label = (node.label ?? '').toLowerCase();
+
+  // Signal 2: Label contains explicit binary markers
+  if (label.includes('(0/1)') || label.includes('yes/no') || label.includes('true/false')) {
+    return true;
+  }
+
+  // Signal 3: Unit suggests boolean
+  const unit = (node.observed_state?.unit ?? '').toLowerCase();
+  if (unit === 'boolean' || unit === 'bool' || unit === 'binary') {
+    return true;
+  }
+
+  // Signal 4: Common boolean naming patterns + value is exactly 0 or 1
+  // Only applies when no range is specified and value suggests binary
+  if ((value === 0 || value === 1) && !range) {
+    const id = node.id.toLowerCase();
+    const booleanPrefixes = ['is_', 'has_', 'can_', 'should_', 'will_', 'was_', 'did_'];
+    const booleanSuffixes = ['_flag', '_enabled', '_active', '_hired', '_present', '_available'];
+
+    if (booleanPrefixes.some((p) => id.startsWith(p))) return true;
+    if (booleanSuffixes.some((s) => id.endsWith(s))) return true;
+  }
+
+  return false;
 }
 
 /**

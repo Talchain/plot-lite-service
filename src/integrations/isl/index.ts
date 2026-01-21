@@ -527,7 +527,7 @@ export function createISLService(): ISLService {
           robustness_label: response.robustness?.label ?? 'unknown',
           robustness_score: response.robustness?.score,
           option_comparison_count: response.results?.length ?? 0,
-          has_voi: response.factor_sensitivity?.some((f) => f.value_of_information > 0) ?? false,
+          has_voi: response.factor_sensitivity?.some((f) => typeof f.value_of_information === 'number' && f.value_of_information > 0) ?? false,
         };
         console.log(JSON.stringify(islResponseLog));
 
