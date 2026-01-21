@@ -318,7 +318,7 @@ export async function createServer(opts: ServerOpts = {}) {
     await app.register(cors, {
       origin: origins,
       methods: ['GET', 'POST', 'OPTIONS', 'HEAD'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key', 'X-SCM-Lite', 'x-olumi-payload-hash', 'x-olumi-downstream-calls', 'X-Request-Id', 'X-Correlation-Id'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key', 'X-SCM-Lite', 'x-olumi-payload-hash', 'x-olumi-downstream-calls', 'x-olumi-client-build', 'X-Request-Id', 'X-Correlation-Id'],
       exposedHeaders: [
         'Retry-After',
         'X-RateLimit-Limit',
