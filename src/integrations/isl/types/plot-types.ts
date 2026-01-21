@@ -161,6 +161,8 @@ export interface NormalizedEdgeInfo {
   to_id: string;
   /** Probability this edge causes recommendation to switch (0=fragile, 1=robust) */
   switch_probability: number;
+  /** Option that would win if this edge changes (from ISL) */
+  alternative_winner_id?: string;
 }
 
 /**

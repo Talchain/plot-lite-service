@@ -526,6 +526,12 @@ export interface RunResponseV3 {
    */
   _meta?: CanonicalMeta;
 
+  /**
+   * Downstream service calls made during request processing.
+   * Contains ISL and CEE call details for debugging and tracing.
+   */
+  downstream_calls?: DownstreamCallsV3;
+
   /** Processing metadata */
   meta: {
     /** Seed used (always echoed as string) */
@@ -630,6 +636,10 @@ export interface NormalizedEdgeInfoV3 {
   from_id: string;
   to_id: string;
   switch_probability: number;
+  /** Option that would win if this edge changes (from ISL) */
+  alternative_winner_id?: string;
+  /** Human-readable label for the alternative winner option */
+  alternative_winner_label?: string;
 }
 
 /**
@@ -770,6 +780,36 @@ export interface CanonicalMeta {
   request_id: string;
   /** PLoT build version */
   plot_build: string;
+}
+
+/**
+ * Single downstream service call info.
+ */
+export interface DownstreamCallInfoV3 {
+  /** Service identifier: 'cee' | 'isl' */
+  service: string;
+  /** API endpoint path */
+  endpoint: string;
+  /** HTTP response status code */
+  status: number;
+  /** Call duration in milliseconds */
+  elapsed_ms: number;
+  /** 12-char payload hash sent to downstream */
+  payload_hash: string;
+  /** 12-char response hash from downstream (null if unavailable) */
+  response_hash: string | null;
+  /** X-Request-Id forwarded to downstream */
+  request_id: string;
+}
+
+/**
+ * Downstream service calls container for response body.
+ */
+export interface DownstreamCallsV3 {
+  /** ISL calls made during request */
+  isl?: DownstreamCallInfoV3[];
+  /** CEE calls made during request */
+  cee?: DownstreamCallInfoV3[];
 }
 
 // -----------------------------------------------------------------------------

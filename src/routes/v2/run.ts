@@ -32,6 +32,7 @@ import type {
   V2RunError,
   RobustnessSynthesisV3,
   RobustnessAssessmentV3,
+  NormalizedEdgeInfoV3,
   CeeStatusV3,
   DecisionQualityV3,
   InsightV3,
@@ -42,6 +43,7 @@ import type {
   RepairRecord,
   CanonicalMeta,
   SourcePath,
+  DownstreamCallsV3,
 } from '../../types/engine-v3.js';
 // Seed derivation: when seed omitted, derive deterministically from graph hash
 import { normaliseGraph, NormalisationError, type NormalisationWarning } from '../../normalisation/graph-normaliser.js';
@@ -67,6 +69,7 @@ import {
 import type { RobustnessDataForCee, NormalizedEdgeInfo } from '../../integrations/isl/types/plot-types.js';
 import { orchestrateCeeReview } from '../../cee/orchestrator.js';
 import type { CeeReviewRequest, CeeTrace } from '../../cee/types.js';
+import { getDownstreamCallsForLog } from '../../util/downstream-tracker.js';
 
 // -----------------------------------------------------------------------------
 // Feature Flags
@@ -643,10 +646,27 @@ function buildResponse(
         ? rawLabel
         : undefined;
 
+    // Build option ID → label lookup for alternative_winner_label resolution
+    const optionLabelMap = new Map<string, string>();
+    if (options) {
+      for (const opt of options) {
+        optionLabelMap.set(opt.id, opt.label);
+      }
+    }
+
+    // Enrich fragile edges with alternative_winner_label
+    const enrichedFragileEdges: NormalizedEdgeInfoV3[] = fragileResult.edges.map(edge => ({
+      ...edge,
+      // Resolve alternative_winner_label from option ID
+      ...(edge.alternative_winner_id && optionLabelMap.has(edge.alternative_winner_id)
+        ? { alternative_winner_label: optionLabelMap.get(edge.alternative_winner_id) }
+        : {}),
+    }));
+
     robustness = {
       score: islResult.robustness.score,
       label,
-      fragile_edges: fragileResult.edges,
+      fragile_edges: enrichedFragileEdges,
       robust_edges: robustResult.edges,
       explanation: islResult.robustness.explanation,
       // Include normalization errors if any occurred (for observability)
@@ -700,6 +720,18 @@ function buildResponse(
           plot_build: meta.build ?? 'unknown',
         }
       : undefined,
+
+    // Downstream service calls (ISL, CEE) for debugging and tracing
+    downstream_calls: (() => {
+      const allCalls = getDownstreamCallsForLog(requestId);
+      if (allCalls.length === 0) return undefined;
+      const islCalls = allCalls.filter(c => c.service === 'isl');
+      const ceeCalls = allCalls.filter(c => c.service === 'cee');
+      const result: DownstreamCallsV3 = {};
+      if (islCalls.length > 0) result.isl = islCalls;
+      if (ceeCalls.length > 0) result.cee = ceeCalls;
+      return Object.keys(result).length > 0 ? result : undefined;
+    })(),
 
     meta: {
       seed_used: meta.seedUsed,
