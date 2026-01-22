@@ -24,6 +24,10 @@ export interface DownstreamCall {
   responseHash?: string;
   /** X-Request-Id forwarded to downstream */
   requestId: string;
+  /** Sanitized request payload for debug (optional, truncated if large) */
+  requestPayload?: unknown;
+  /** Sanitized response payload for debug (optional, truncated if large) */
+  responsePayload?: unknown;
 }
 
 /**
@@ -138,6 +142,8 @@ export function getDownstreamCallsForLog(requestId: string): Array<{
   payload_hash: string;
   response_hash: string | null;
   request_id: string;
+  request_payload?: unknown;
+  response_payload?: unknown;
 }> {
   return getDownstreamCalls(requestId).map((call) => ({
     service: call.service,
@@ -147,5 +153,54 @@ export function getDownstreamCallsForLog(requestId: string): Array<{
     payload_hash: call.payloadHash,
     response_hash: call.responseHash || null,
     request_id: call.requestId,
+    request_payload: call.requestPayload,
+    response_payload: call.responsePayload,
   }));
+}
+
+// -----------------------------------------------------------------------------
+// Payload Sanitization for Debug
+// -----------------------------------------------------------------------------
+
+const MAX_ARRAY_ITEMS = 30;
+const SENSITIVE_KEYS = new Set(['password', 'secret', 'token', 'api_key', 'apiKey', 'authorization']);
+
+/**
+ * Sanitize a payload for debug output.
+ * - Truncates arrays with more than MAX_ARRAY_ITEMS
+ * - Redacts sensitive keys
+ * - Deep clones to avoid mutating originals
+ */
+export function sanitizePayloadForDebug(payload: unknown): unknown {
+  if (payload === null || payload === undefined) {
+    return payload;
+  }
+
+  if (Array.isArray(payload)) {
+    const truncated = payload.length > MAX_ARRAY_ITEMS;
+    const items = payload.slice(0, MAX_ARRAY_ITEMS).map(sanitizePayloadForDebug);
+    if (truncated) {
+      return {
+        _truncated: true,
+        _original_length: payload.length,
+        _shown: MAX_ARRAY_ITEMS,
+        items,
+      };
+    }
+    return items;
+  }
+
+  if (typeof payload === 'object') {
+    const result: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(payload)) {
+      if (SENSITIVE_KEYS.has(key.toLowerCase())) {
+        result[key] = '[REDACTED]';
+      } else {
+        result[key] = sanitizePayloadForDebug(value);
+      }
+    }
+    return result;
+  }
+
+  return payload;
 }

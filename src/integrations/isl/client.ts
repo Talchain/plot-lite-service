@@ -10,7 +10,7 @@
 
 import { ISLHttpError, ISLTimeoutError, ISLNetworkError, isRetryableError, type ISLError422 } from './errors.js';
 import { computeOlumiHash } from '../../util/canonical.js';
-import { recordDownstreamCall } from '../../util/downstream-tracker.js';
+import { recordDownstreamCall, sanitizePayloadForDebug } from '../../util/downstream-tracker.js';
 
 /**
  * ISL client configuration
@@ -38,6 +38,17 @@ export interface ISLRequestOptions {
   body: unknown;
   /** Request ID for tracing */
   requestId: string;
+}
+
+/**
+ * Safely parse JSON, returning the string if parsing fails.
+ */
+function tryParseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
 }
 
 /**
@@ -117,7 +128,8 @@ export class ISLClient {
         });
 
         if (!response.ok) {
-          // Record failed downstream call
+          const errorBody = await response.text();
+          // Record failed downstream call with payloads for debug
           recordDownstreamCall({
             service: 'isl',
             endpoint,
@@ -125,8 +137,9 @@ export class ISLClient {
             elapsedMs: duration,
             payloadHash,
             requestId,
+            requestPayload: sanitizePayloadForDebug(body),
+            responsePayload: sanitizePayloadForDebug(tryParseJson(errorBody)),
           });
-          const errorBody = await response.text();
 
           // P0-PLOT-3: Parse ISL 422 as structured result
           // 422 contains structured critiques that should be passed through
@@ -143,7 +156,7 @@ export class ISLClient {
           throw new ISLHttpError(response.status, errorBody, endpoint);
         }
 
-        // Parse response and record successful downstream call
+        // Parse response and record successful downstream call with payloads for debug
         const responseData = (await response.json()) as T;
         const responseHash = computeOlumiHash(responseData);
         recordDownstreamCall({
@@ -154,6 +167,8 @@ export class ISLClient {
           payloadHash,
           responseHash,
           requestId,
+          requestPayload: sanitizePayloadForDebug(body),
+          responsePayload: sanitizePayloadForDebug(responseData),
         });
 
         return responseData;
@@ -202,6 +217,8 @@ export class ISLClient {
               elapsedMs: Date.now() - startTime,
               payloadHash,
               requestId,
+              requestPayload: sanitizePayloadForDebug(body),
+              // No response payload for network/timeout errors
             });
           }
           break;

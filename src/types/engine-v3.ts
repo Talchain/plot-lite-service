@@ -809,6 +809,10 @@ export interface DownstreamCallInfoV3 {
   response_hash: string | null;
   /** X-Request-Id forwarded to downstream */
   request_id: string;
+  /** Sanitized request payload for debug (truncated if large, sensitive data redacted) */
+  request_payload?: unknown;
+  /** Sanitized response payload for debug (truncated if large, sensitive data redacted) */
+  response_payload?: unknown;
 }
 
 /**
