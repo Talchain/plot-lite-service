@@ -12,7 +12,7 @@
  * @see Schema D.5 - Factor influence derived from edge-level data
  */
 
-import type { EngineGraphV3, EngineEdgeV3, EngineNodeV3 } from '../types/engine-v3.js';
+import type { EngineGraphV3, EngineEdgeV3, EngineNodeV3, FactorSensitivityResultV3 } from '../types/engine-v3.js';
 
 // -----------------------------------------------------------------------------
 // Types
@@ -355,4 +355,71 @@ export function computeFactorInfluenceWithPaths(
   output.sort((a, b) => Math.abs(b.influence) - Math.abs(a.influence));
 
   return output;
+}
+
+// -----------------------------------------------------------------------------
+// Wrapper for v2/run response format
+// -----------------------------------------------------------------------------
+
+/**
+ * Compute factor sensitivity from graph structure.
+ *
+ * This is the primary source for factor sensitivity - ISL is the fallback.
+ * Maps FactorInfluence output to FactorSensitivityResultV3 format.
+ *
+ * @param graph Graph with nodes and edges
+ * @param goalNodeId Target goal node ID
+ * @returns Array of factor sensitivity results, or null if computation fails/empty
+ */
+export function computeFactorSensitivityFromGraph(
+  graph: EngineGraphV3,
+  goalNodeId: string
+): FactorSensitivityResultV3[] | null {
+  // Compute using the core algorithm
+  const influences = computeFactorInfluence(graph, goalNodeId);
+
+  // Return null if no factors found (triggers ISL fallback)
+  if (influences.length === 0) {
+    return null;
+  }
+
+  // Map to FactorSensitivityResultV3 format
+  return influences.map((f, index) => ({
+    // Core identification
+    factor_id: f.factor_id,
+    factor_label: f.label || undefined,
+
+    // Influence from graph calculation
+    influence_score: f.normalised_influence,
+    influence_rank: index + 1, // 1-indexed rank (already sorted by |influence|)
+
+    // Map influence to sensitivity_score (raw total causal effect)
+    sensitivity_score: f.influence,
+
+    // Elasticity is the normalized influence (same as influence_score for graph-based)
+    elasticity: f.normalised_influence,
+
+    // Direction from sign of influence
+    direction: f.direction,
+
+    // Importance rank same as influence rank for graph-based
+    importance_rank: index + 1,
+
+    // Graph-based doesn't provide interpretation text
+    interpretation: undefined,
+
+    // Map confidence to value_of_information (0-1 scale)
+    value_of_information: f.confidence,
+
+    // Confidence from edge path analysis
+    confidence: f.confidence,
+
+    // Zero reason for factors with no path to goal
+    zero_reason: f.influence === 0 && f.confidence === 0
+      ? 'no_path_to_goal'
+      : undefined,
+
+    // Mark source as graph-based
+    source: 'graph' as const,
+  }));
 }

@@ -627,31 +627,41 @@ export interface EdgeSensitivityResultV3 {
  * Note: Numeric fields are optional because ISL may not always provide them.
  * Missing values mean "unavailable" (not "zero influence") — do not default to 0.
  *
- * Preserves all ISL fields including new influence_score and zero_reason fields.
+ * Sources:
+ * - Graph-based (primary): Computed from edge path analysis using computeFactorInfluence()
+ * - ISL (fallback): From ISL /api/v1/robustness/analyze/v2 response
  */
 export interface FactorSensitivityResultV3 {
-  /** Factor identifier (mapped from ISL node_id) */
+  /** Factor identifier (mapped from ISL node_id or graph factor.id) */
   factor_id: string;
-  /** Human-readable factor label from ISL */
+  /** Human-readable factor label */
   factor_label?: string;
-  /** Influence score from ISL (NEW). Undefined means ISL couldn't compute it. */
+  /** Influence score (normalized 0-1). From graph or ISL. */
   influence_score?: number;
-  /** Influence rank from ISL (NEW). 1 = most influential. */
+  /** Influence rank. 1 = most influential. */
   influence_rank?: number;
-  /** Sensitivity score from ISL. Undefined means ISL couldn't compute it. */
+  /** Sensitivity score (raw total causal effect). From graph influence or ISL. */
   sensitivity_score?: number;
   /** Elasticity measure from ISL */
   elasticity?: number;
-  /** Direction of influence */
+  /** Direction of influence on goal */
   direction?: 'positive' | 'negative' | 'mixed' | 'unknown';
-  /** Importance ranking (1 = most important) */
+  /** Importance ranking (1 = most important) - same as influence_rank for graph-based */
   importance_rank?: number;
   /** Human-readable interpretation from ISL */
   interpretation?: string;
-  /** Value of information. Undefined means ISL couldn't compute it. */
+  /** Value of information from ISL */
   value_of_information?: number;
-  /** Reason why sensitivity is zero (NEW). Present when sensitivity_score = 0. */
+  /**
+   * Confidence in the sensitivity score (0-1).
+   * Graph-based: derived from edge exists_probability and strength.std along paths
+   * ISL: may be provided or derived from value_of_information
+   */
+  confidence?: number;
+  /** Reason why sensitivity is zero. Present when sensitivity_score = 0. */
   zero_reason?: string;
+  /** Source of this factor sensitivity data */
+  source?: 'graph' | 'isl';
 }
 
 /**

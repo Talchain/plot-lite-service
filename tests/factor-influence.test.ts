@@ -10,9 +10,10 @@ import { describe, it, expect } from 'vitest';
 import {
   computeFactorInfluence,
   computeFactorInfluenceWithPaths,
+  computeFactorSensitivityFromGraph,
   type FactorInfluence,
 } from '../src/lib/factor-influence.js';
-import type { EngineGraphV3 } from '../src/types/engine-v3.js';
+import type { EngineGraphV3, FactorSensitivityResultV3 } from '../src/types/engine-v3.js';
 
 // -----------------------------------------------------------------------------
 // Test Fixtures
@@ -449,5 +450,97 @@ describe('computeFactorInfluenceWithPaths', () => {
 
     // Should have 2 paths from fac_price to goal
     expect(priceResult!.paths.length).toBe(2);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// computeFactorSensitivityFromGraph Wrapper Tests
+// -----------------------------------------------------------------------------
+
+describe('computeFactorSensitivityFromGraph', () => {
+  describe('mapping to FactorSensitivityResultV3', () => {
+    it('returns correctly mapped result for simple graph', () => {
+      const result = computeFactorSensitivityFromGraph(SIMPLE_LINEAR_GRAPH, 'goal_profit');
+
+      expect(result).not.toBeNull();
+      expect(result).toHaveLength(1);
+
+      const factor = result![0];
+
+      // Check field mapping
+      expect(factor.factor_id).toBe('fac_price');
+      expect(factor.factor_label).toBe('Price');
+      expect(factor.sensitivity_score).toBeCloseTo(0.72, 2); // Raw influence
+      expect(factor.influence_score).toBeCloseTo(1.0, 2);    // Normalised (only factor)
+      expect(factor.elasticity).toBeCloseTo(1.0, 2);         // Same as normalised
+      expect(factor.direction).toBe('positive');
+      expect(factor.importance_rank).toBe(1);
+      expect(factor.influence_rank).toBe(1);
+      expect(factor.confidence).toBeGreaterThan(0.5);
+      expect(factor.value_of_information).toEqual(factor.confidence);
+      expect(factor.source).toBe('graph');
+    });
+
+    it('sets importance_rank correctly for multiple factors', () => {
+      const result = computeFactorSensitivityFromGraph(MULTIPLE_PATH_GRAPH, 'goal');
+
+      expect(result).not.toBeNull();
+      expect(result).toHaveLength(2);
+
+      // Should be sorted by |influence| descending
+      // Factor 0 should have rank 1, Factor 1 should have rank 2
+      expect(result![0].importance_rank).toBe(1);
+      expect(result![0].influence_rank).toBe(1);
+      expect(result![1].importance_rank).toBe(2);
+      expect(result![1].influence_rank).toBe(2);
+    });
+
+    it('returns null for empty graph (triggers fallback)', () => {
+      const emptyGraph: EngineGraphV3 = { nodes: [], edges: [] };
+      const result = computeFactorSensitivityFromGraph(emptyGraph, 'goal');
+
+      expect(result).toBeNull();
+    });
+
+    it('returns null for non-existent goal (triggers fallback)', () => {
+      const result = computeFactorSensitivityFromGraph(SIMPLE_LINEAR_GRAPH, 'non_existent_goal');
+
+      expect(result).toBeNull();
+    });
+
+    it('sets zero_reason for factors with no path to goal', () => {
+      const result = computeFactorSensitivityFromGraph(ZERO_PROBABILITY_GRAPH, 'goal');
+
+      expect(result).not.toBeNull();
+      expect(result).toHaveLength(1);
+
+      // Factor exists but has no path (edge excluded due to zero probability)
+      const factor = result![0];
+      expect(factor.sensitivity_score).toBe(0);
+      expect(factor.confidence).toBe(0);
+      expect(factor.zero_reason).toBe('no_path_to_goal');
+    });
+
+    it('includes confidence derived from edge data', () => {
+      const highConfidenceGraph: EngineGraphV3 = {
+        nodes: [
+          { id: 'fac_a', kind: 'factor', label: 'Factor A' },
+          { id: 'goal', kind: 'goal', label: 'Goal' },
+        ],
+        edges: [
+          {
+            from: 'fac_a',
+            to: 'goal',
+            exists_probability: 0.99,
+            strength: { mean: 0.8, std: 0.01 },
+          },
+        ],
+      };
+
+      const result = computeFactorSensitivityFromGraph(highConfidenceGraph, 'goal');
+
+      expect(result).not.toBeNull();
+      expect(result![0].confidence).toBeGreaterThan(0.9);
+    });
   });
 });

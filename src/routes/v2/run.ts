@@ -70,6 +70,7 @@ import type { RobustnessDataForCee, NormalizedEdgeInfo } from '../../integration
 import { orchestrateCeeReview } from '../../cee/orchestrator.js';
 import type { CeeReviewRequest, CeeTrace } from '../../cee/types.js';
 import { getDownstreamCallsForLog } from '../../util/downstream-tracker.js';
+import { computeFactorSensitivityFromGraph } from '../../lib/factor-influence.js';
 
 // -----------------------------------------------------------------------------
 // Feature Flags
@@ -174,7 +175,7 @@ function transformFactorSensitivity(islFactorSensitivity: unknown): FactorSensit
       factor_id: f.node_id ?? f.factor_id,
       factor_label: f.label ?? null,
 
-      // NEW influence fields from ISL
+      // Influence fields from ISL
       influence_score: f.influence_score ?? null,
       influence_rank: f.influence_rank ?? null,
 
@@ -186,8 +187,14 @@ function transformFactorSensitivity(islFactorSensitivity: unknown): FactorSensit
       interpretation: f.interpretation ?? null,
       value_of_information: f.value_of_information ?? null,
 
-      // NEW zero_reason field (when sensitivity_score = 0)
+      // Confidence: derive from value_of_information if ISL provides it
+      confidence: f.confidence ?? f.value_of_information ?? null,
+
+      // Zero reason field (when sensitivity_score = 0)
       zero_reason: f.zero_reason ?? null,
+
+      // Mark source as ISL
+      source: 'isl' as const,
     };
   });
 }
@@ -1737,7 +1744,32 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // Transform sensitivity arrays FIRST - these are the final arrays that will be returned
         // Status check must use the SAME arrays to prevent status/response misalignment
         const edgeSensitivity = transformEdgeSensitivity(islResult.sensitivity);
-        const factorSensitivity = transformFactorSensitivity(islResult.factor_sensitivity);
+
+        // Factor sensitivity: Graph-based is PRIMARY, ISL is FALLBACK
+        // Graph-based uses edge path analysis (Schema D.5) - no dependency on parameter_uncertainties
+        const graphBasedFactorSensitivity = computeFactorSensitivityFromGraph(filteredGraph, body.goal_node_id);
+        const islFactorSensitivity = transformFactorSensitivity(islResult.factor_sensitivity);
+
+        // Use graph-based if available, otherwise fall back to ISL
+        const factorSensitivity = graphBasedFactorSensitivity ?? islFactorSensitivity;
+        const factorSensitivitySource = graphBasedFactorSensitivity ? 'graph' : 'isl';
+
+        // Log which source was used for factor sensitivity
+        req.log.info({
+          event: 'factor_sensitivity_source',
+          source: factorSensitivitySource,
+          graph_based_count: graphBasedFactorSensitivity?.length ?? 0,
+          isl_count: islFactorSensitivity?.length ?? 0,
+          final_count: factorSensitivity?.length ?? 0,
+          sample: factorSensitivity?.slice(0, 2).map((f) => ({
+            factor_id: f.factor_id,
+            sensitivity_score: f.sensitivity_score,
+            confidence: f.confidence,
+            direction: f.direction,
+            source: f.source,
+          })),
+        });
+
         const sensitivityData: SensitivityData = { edgeSensitivity, factorSensitivity };
 
         // Use hasNonEmptyArray on the FINAL transformed arrays (single source of truth)
