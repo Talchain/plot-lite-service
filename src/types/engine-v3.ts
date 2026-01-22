@@ -626,14 +626,32 @@ export interface EdgeSensitivityResultV3 {
  *
  * Note: Numeric fields are optional because ISL may not always provide them.
  * Missing values mean "unavailable" (not "zero influence") — do not default to 0.
+ *
+ * Preserves all ISL fields including new influence_score and zero_reason fields.
  */
 export interface FactorSensitivityResultV3 {
+  /** Factor identifier (mapped from ISL node_id) */
   factor_id: string;
+  /** Human-readable factor label from ISL */
+  factor_label?: string;
+  /** Influence score from ISL (NEW). Undefined means ISL couldn't compute it. */
+  influence_score?: number;
+  /** Influence rank from ISL (NEW). 1 = most influential. */
+  influence_rank?: number;
   /** Sensitivity score from ISL. Undefined means ISL couldn't compute it. */
   sensitivity_score?: number;
+  /** Elasticity measure from ISL */
+  elasticity?: number;
+  /** Direction of influence */
+  direction?: 'positive' | 'negative' | 'mixed' | 'unknown';
+  /** Importance ranking (1 = most important) */
+  importance_rank?: number;
+  /** Human-readable interpretation from ISL */
+  interpretation?: string;
   /** Value of information. Undefined means ISL couldn't compute it. */
   value_of_information?: number;
-  direction?: 'positive' | 'negative' | 'mixed';
+  /** Reason why sensitivity is zero (NEW). Present when sensitivity_score = 0. */
+  zero_reason?: string;
 }
 
 /**
@@ -789,6 +807,24 @@ export interface CanonicalMeta {
   request_id: string;
   /** PLoT build version */
   plot_build: string;
+  /** Build versions for all services in the pipeline */
+  builds?: {
+    /** UI build version (from request header) */
+    ui?: string | null;
+    /** CEE build version */
+    cee?: string | null;
+    /** PLoT build version */
+    plot?: string | null;
+    /** ISL build version (from ISL response) */
+    isl?: string | null;
+  };
+  /** Debug payloads for downstream service calls */
+  payloads?: {
+    /** Sanitized ISL request payload */
+    isl_request?: unknown;
+    /** Sanitized ISL response payload */
+    isl_response?: unknown;
+  };
 }
 
 /**

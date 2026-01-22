@@ -142,7 +142,11 @@ function transformEdgeSensitivity(islSensitivity: unknown): EdgeSensitivityResul
 
 /**
  * Transform ISL factor sensitivity array to response format.
+ * Preserves ALL ISL fields including new influence_score and zero_reason fields.
  * Returns undefined if input is not a non-empty array.
+ *
+ * Field mapping: ISL uses node_id, PLoT uses factor_id.
+ * All other fields are preserved verbatim for forward compatibility.
  */
 function transformFactorSensitivity(islFactorSensitivity: unknown): FactorSensitivityResultV3[] | undefined {
   if (!hasNonEmptyArray(islFactorSensitivity)) return undefined;
@@ -164,11 +168,26 @@ function transformFactorSensitivity(islFactorSensitivity: unknown): FactorSensit
     // IMPORTANT: Do NOT default missing values to 0.
     // Missing data means "we couldn't compute influence" which is semantically
     // different from "this factor has zero influence". Let undefined pass through.
+    // Preserve ALL ISL fields - do not silently drop any.
     return {
+      // Core identification
       factor_id: f.node_id ?? f.factor_id,
+      factor_label: f.label ?? null,
+
+      // NEW influence fields from ISL
+      influence_score: f.influence_score ?? null,
+      influence_rank: f.influence_rank ?? null,
+
+      // Existing sensitivity fields
       sensitivity_score: sensitivityValue,  // undefined if ISL didn't provide it
-      value_of_information: f.value_of_information,  // undefined if not provided
-      direction: f.direction as 'positive' | 'negative' | 'mixed' | undefined,
+      elasticity: f.elasticity ?? null,
+      direction: (f.direction as 'positive' | 'negative' | 'mixed' | 'unknown') ?? null,
+      importance_rank: f.importance_rank ?? null,
+      interpretation: f.interpretation ?? null,
+      value_of_information: f.value_of_information ?? null,
+
+      // NEW zero_reason field (when sensitivity_score = 0)
+      zero_reason: f.zero_reason ?? null,
     };
   });
 }
@@ -520,6 +539,10 @@ interface MetaParams {
   repairs?: RepairRecord[];
   /** Source path for analysis (for _meta.source_path). Required to ensure auditability. */
   sourcePath: SourcePath;
+  /** UI build version from x-olumi-client-build header */
+  uiBuild?: string;
+  /** CEE build version from CEE response */
+  ceeBuild?: string;
 }
 
 /**
@@ -731,14 +754,35 @@ function buildResponse(
     // Canonical metadata for UI canonicalisation layer (when feature flag enabled)
     // Always included with empty repairs_applied if no repairs - this lets UI distinguish
     // "flag off" from "flag on with zero repairs"
-    _meta: isCanonicalMetaEnabled()
-      ? {
-          source_path: meta.sourcePath,
-          repairs_applied: meta.repairs ?? [],
-          request_id: requestId,
-          plot_build: meta.build ?? 'unknown',
-        }
-      : undefined,
+    _meta: (() => {
+      if (!isCanonicalMetaEnabled()) return undefined;
+
+      // Get downstream calls to extract ISL payloads for debug
+      const allCalls = getDownstreamCallsForLog(requestId);
+      const islCall = allCalls.find(c => c.service === 'isl');
+
+      return {
+        source_path: meta.sourcePath,
+        repairs_applied: meta.repairs ?? [],
+        request_id: requestId,
+        plot_build: meta.build ?? 'unknown',
+
+        // Build versions for all services in the pipeline
+        builds: {
+          ui: meta.uiBuild ?? null,
+          cee: meta.ceeBuild ?? null,
+          plot: meta.build ?? null,
+          // ISL build from response payload or from islResult directly
+          isl: (islCall?.response_payload as any)?.build ?? islResult?.build ?? null,
+        },
+
+        // Debug payloads for ISL request/response (populated from downstream_calls)
+        payloads: islCall ? {
+          isl_request: islCall.request_payload ?? null,
+          isl_response: islCall.response_payload ?? null,
+        } : undefined,
+      };
+    })(),
 
     // Downstream service calls (ISL, CEE) for debugging and tracing
     downstream_calls: (() => {
@@ -1188,6 +1232,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         goalThreshold = undefined;
       }
 
+      // Capture UI build version from request header for debug bundle
+      const uiBuild = (req.headers['x-olumi-client-build'] as string) ?? undefined;
+
       // Timing tracking
       let normalizationMs = 0;
       let validationMs = 0;
@@ -1388,6 +1435,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               build: getBuildId(),
               repairs,
               sourcePath: 'graph_fallback',
+              uiBuild,
             },
             responseHash
           ));
@@ -1490,16 +1538,22 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             req.log.info({
               event: 'isl_response_factor_sensitivity',
               count: islFactorSensitivity.length,
-              sample: islFactorSensitivity.slice(0, 3).map((f: any) => ({
-                node_id: f.node_id,
-                sensitivity_score: f.sensitivity_score,
-                sensitivity: f.sensitivity,
-                direction: f.direction,
-                value_of_information: f.value_of_information,
-              })),
-              has_any_nonzero: islFactorSensitivity.some(
+              has_any_nonzero_sensitivity: islFactorSensitivity.some(
                 (f: any) => (f.sensitivity_score ?? f.sensitivity ?? 0) !== 0
               ),
+              has_any_nonzero_influence: islFactorSensitivity.some(
+                (f: any) => (f.influence_score ?? 0) > 0
+              ),
+              sample: islFactorSensitivity.slice(0, 3).map((f: any) => ({
+                node_id: f.node_id,
+                influence_score: f.influence_score,
+                influence_rank: f.influence_rank,
+                sensitivity_score: f.sensitivity_score ?? f.sensitivity,
+                direction: f.direction,
+                zero_reason: f.zero_reason,
+              })),
+              // Capture ISL build version if present
+              isl_build: islResult?.build ?? null,
             });
           } else {
             islStatusCode = 500;
@@ -1637,6 +1691,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               build: getBuildId(),
               repairs,
               sourcePath: 'isl',
+              uiBuild,
             },
             responseHash
           ));
@@ -1666,6 +1721,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               build: getBuildId(),
               repairs,
               sourcePath: 'isl',
+              uiBuild,
             },
             responseHash,
             islResult,
@@ -1787,6 +1843,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             build: getBuildId(),
             repairs,
             sourcePath: 'isl',
+            uiBuild,
+            ceeBuild: ceeOrchestrationResult.ceeTrace?.source ?? undefined,
           },
           responseHash,
           islResult,
