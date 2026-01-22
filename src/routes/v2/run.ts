@@ -1403,6 +1403,23 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           goalThreshold
         );
 
+        // === DIAGNOSTIC: Log parameter_uncertainties sent to ISL ===
+        // This helps diagnose why ISL may return empty factor_sensitivity
+        const paramUncertainties = islRequest.parameter_uncertainties ?? [];
+        req.log.info({
+          event: 'isl_request_parameter_uncertainties',
+          count: paramUncertainties.length,
+          sample: paramUncertainties.slice(0, 3).map((p) => ({
+            node_id: p.node_id,
+            mean: p.mean,
+            std: p.std,
+          })),
+          factor_nodes_in_graph: filteredGraph.nodes.filter((n) => n.kind === 'factor').length,
+          factors_with_observed_value: filteredGraph.nodes.filter(
+            (n) => n.kind === 'factor' && n.observed_state?.value !== undefined
+          ).length,
+        });
+
         // Validate ISL request (should never fail after preflight, but defensive)
         const islValidationErrors = validateISLRequest(islRequest);
         if (islValidationErrors.length > 0) {
@@ -1467,6 +1484,23 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                 });
               }
             }
+
+            // === DIAGNOSTIC: Log factor_sensitivity from ISL response ===
+            const islFactorSensitivity = islResult?.factor_sensitivity ?? [];
+            req.log.info({
+              event: 'isl_response_factor_sensitivity',
+              count: islFactorSensitivity.length,
+              sample: islFactorSensitivity.slice(0, 3).map((f: any) => ({
+                node_id: f.node_id,
+                sensitivity_score: f.sensitivity_score,
+                sensitivity: f.sensitivity,
+                direction: f.direction,
+                value_of_information: f.value_of_information,
+              })),
+              has_any_nonzero: islFactorSensitivity.some(
+                (f: any) => (f.sensitivity_score ?? f.sensitivity ?? 0) !== 0
+              ),
+            });
           } else {
             islStatusCode = 500;
             islFallbackExecuted = true;
