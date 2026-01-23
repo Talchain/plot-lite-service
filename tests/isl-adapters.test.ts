@@ -382,7 +382,7 @@ describe('Robustness Analysis Adapter', () => {
         robustness: {
           confidence: 0.85,
           level: 'high' as const,
-          fragile_edges: [{ edge_id: 'a->b', switch_probability: 0.2 }],
+          fragile_edges: [{ edge_id: 'a->b', switch_probability: 0.2, marginal_switch_probability: 0.08 }],
           robust_edges: ['c->d'],
         },
         sensitivity: [

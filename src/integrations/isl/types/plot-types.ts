@@ -161,6 +161,8 @@ export interface NormalizedEdgeInfo {
   to_id: string;
   /** Probability this edge causes recommendation to switch (0=fragile, 1=robust) */
   switch_probability: number;
+  /** Marginal probability of recommendation switch for this edge */
+  marginal_switch_probability?: number;
   /** Option that would win if this edge changes (from ISL) */
   alternative_winner_id?: string;
 }
@@ -277,6 +279,8 @@ export interface EnrichedFragileEdge {
   alternative_winner_label?: string;
   /** Probability of switching recommendation (0-1) */
   switch_probability?: number;
+  /** Marginal probability of recommendation switch for this edge */
+  marginal_switch_probability?: number;
 }
 
 /**

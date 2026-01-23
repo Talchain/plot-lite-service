@@ -344,6 +344,8 @@ export interface CritiqueV3 {
   affected_node_ids?: string[];
   /** Whether this critique blocks analysis */
   blocks_analysis: boolean;
+  /** Suggested remediation action */
+  suggestion?: string;
 }
 
 // -----------------------------------------------------------------------------
@@ -673,6 +675,8 @@ export interface NormalizedEdgeInfoV3 {
   from_id: string;
   to_id: string;
   switch_probability: number;
+  /** Marginal probability of recommendation switch for this edge */
+  marginal_switch_probability?: number;
   /** Option that would win if this edge changes (from ISL) */
   alternative_winner_id?: string;
   /** Human-readable label for the alternative winner option */

@@ -222,6 +222,7 @@ describe('buildRobustnessDataForCee', () => {
           to_id: 'goal_revenue',
           alternative_winner_id: 'opt_economy',
           switch_probability: 0.34,
+          marginal_switch_probability: 0.18,
         },
       ],
       robust_edges: ['fac_market_size->goal_revenue'],
@@ -252,6 +253,7 @@ describe('buildRobustnessDataForCee', () => {
     });
     expect(result!.fragile_edges).toHaveLength(1);
     expect(result!.fragile_edges[0].alternative_winner_label).toBe('Economy Pricing');
+    expect(result!.fragile_edges[0].marginal_switch_probability).toBe(0.18);
     expect(result!.robust_edges).toHaveLength(1);
     expect(result!.robust_edges[0].from_label).toBe('Market Size');
     expect(result!.factor_sensitivity).toHaveLength(1);

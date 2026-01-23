@@ -60,6 +60,7 @@ const mockV2Response = {
         from_id: 'factor_a',
         to_id: 'goal',
         switch_probability: 0.3,
+        marginal_switch_probability: 0.12,
       },
     ],
     robust_edges: [
@@ -224,6 +225,7 @@ describe('ISL V2 Response Mapping Contract', () => {
       expect(fragileEdge.from_id).toBe('factor_a');
       expect(fragileEdge.to_id).toBe('goal');
       expect(fragileEdge.switch_probability).toBe(0.3);
+      expect(fragileEdge.marginal_switch_probability).toBe(0.12);
     });
 
     it('should use robustness.robust_edges for V2', () => {

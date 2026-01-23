@@ -63,6 +63,10 @@ function normalizeFragileEdge(edge: ISLFragileEdgeInfo): NormalizedEdgeInfo {
     from_id: edge.from_id ?? parsed.from,
     to_id: edge.to_id ?? parsed.to,
     switch_probability: edge.switch_probability ?? 0,
+    // Passthrough marginal_switch_probability from ISL (optional field)
+    ...(edge.marginal_switch_probability !== undefined
+      ? { marginal_switch_probability: edge.marginal_switch_probability }
+      : {}),
     // Preserve alternative_winner_id from ISL for label resolution downstream
     ...(edge.alternative_winner_id ? { alternative_winner_id: edge.alternative_winner_id } : {}),
   };

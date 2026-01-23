@@ -32,6 +32,7 @@ const MOCK_ISL_RESPONSE: ISLRobustnessAnalyzeV2Response = {
         from_id: 'fac_price',
         to_id: 'goal_revenue',
         switch_probability: 0.3,
+        marginal_switch_probability: 0.15,
       },
     ],
     robust_edges: ['fac_quality->goal_revenue', 'fac_market::goal_revenue'],
@@ -60,6 +61,7 @@ describe('Edge Normalization in adaptRobustnessAnalysisResponse', () => {
     expect(fragile.from_id).toBe('fac_price');
     expect(fragile.to_id).toBe('goal_revenue');
     expect(fragile.switch_probability).toBe(0.3);
+    expect(fragile.marginal_switch_probability).toBe(0.15);
   });
 
   it('normalizes robust_edges from strings to NormalizedEdgeInfo', () => {

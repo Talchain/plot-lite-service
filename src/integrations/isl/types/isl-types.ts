@@ -229,6 +229,8 @@ export interface ISLFragileEdgeInfo {
   to_id?: string;
   /** Probability this edge causes recommendation to switch (0-1) */
   switch_probability?: number;
+  /** Marginal probability of recommendation switch for this edge */
+  marginal_switch_probability?: number;
   /** Option that would win if this edge changes */
   alternative_winner_id?: string;
 }

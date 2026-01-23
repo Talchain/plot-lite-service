@@ -88,6 +88,7 @@ export type ISLFragileEdge = string | {
   to_id?: string;
   alternative_winner_id?: string;
   switch_probability?: number;
+  marginal_switch_probability?: number;
 };
 
 /**
@@ -140,6 +141,7 @@ export function enrichFragileEdge(
       ? getOptionLabel(options, edge.alternative_winner_id)
       : undefined,
     switch_probability: edge.switch_probability,
+    marginal_switch_probability: edge.marginal_switch_probability,
   };
 }
 
