@@ -14,6 +14,16 @@
 
 import type { EngineGraphV3, EngineEdgeV3, EngineNodeV3, FactorSensitivityResultV3 } from '../types/engine-v3.js';
 
+/**
+ * Minimal fragile edge interface for VOI computation.
+ * Compatible with both NormalizedEdgeInfo and NormalizedEdgeInfoV3.
+ */
+interface FragileEdgeForVoi {
+  from_id: string;
+  to_id: string;
+  marginal_switch_probability?: number;
+}
+
 // -----------------------------------------------------------------------------
 // Types
 // -----------------------------------------------------------------------------
@@ -358,6 +368,64 @@ export function computeFactorInfluenceWithPaths(
 }
 
 // -----------------------------------------------------------------------------
+// Value of Information (VOI) Computation
+// -----------------------------------------------------------------------------
+
+/**
+ * Compute Value of Information for a factor.
+ *
+ * Heuristic VOI proxy (v1) - not formal EVPI.
+ *
+ * Formula: |sensitivity_score| × (1 - confidence) × decision_fragility
+ *
+ * Where decision_fragility = max marginal_switch_probability for fragile edges
+ * where this factor is from_id or to_id.
+ *
+ * @param factorId Factor node ID
+ * @param sensitivityScore Factor's sensitivity score (or influence_score as fallback)
+ * @param confidence Factor's confidence (0-1), defaults to 0.5 if missing
+ * @param fragileEdges Array of fragile edges from robustness analysis
+ * @returns VOI value clamped to [0, 1]
+ */
+export function computeValueOfInformation(
+  factorId: string,
+  sensitivityScore: number | undefined,
+  confidence: number | undefined,
+  fragileEdges: FragileEdgeForVoi[] | undefined
+): number {
+  // Handle missing inputs gracefully
+  if (!fragileEdges || fragileEdges.length === 0) {
+    return 0;
+  }
+
+  const effectiveSensitivity = sensitivityScore ?? 0;
+  const effectiveConfidence = confidence ?? 0.5;
+
+  // Find max marginal_switch_probability for edges adjacent to this factor
+  // Use from_id/to_id equality matching (NOT string contains)
+  let decisionFragility = 0;
+  for (const edge of fragileEdges) {
+    if (edge.from_id === factorId || edge.to_id === factorId) {
+      const marginal = edge.marginal_switch_probability ?? 0;
+      if (marginal > decisionFragility) {
+        decisionFragility = marginal;
+      }
+    }
+  }
+
+  // Factor not adjacent to any fragile edge → VOI = 0
+  if (decisionFragility === 0) {
+    return 0;
+  }
+
+  // Compute VOI: |sensitivity| × (1 - confidence) × fragility
+  const voi = Math.abs(effectiveSensitivity) * (1 - effectiveConfidence) * decisionFragility;
+
+  // Clamp to [0, 1]
+  return Math.max(0, Math.min(1, voi));
+}
+
+// -----------------------------------------------------------------------------
 // Wrapper for v2/run response format
 // -----------------------------------------------------------------------------
 
@@ -369,11 +437,13 @@ export function computeFactorInfluenceWithPaths(
  *
  * @param graph Graph with nodes and edges
  * @param goalNodeId Target goal node ID
+ * @param fragileEdges Optional fragile edges for VOI computation
  * @returns Array of factor sensitivity results, or null if computation fails/empty
  */
 export function computeFactorSensitivityFromGraph(
   graph: EngineGraphV3,
-  goalNodeId: string
+  goalNodeId: string,
+  fragileEdges?: FragileEdgeForVoi[]
 ): FactorSensitivityResultV3[] | null {
   // Compute using the core algorithm
   const influences = computeFactorInfluence(graph, goalNodeId);
@@ -408,8 +478,14 @@ export function computeFactorSensitivityFromGraph(
     // Graph-based doesn't provide interpretation text
     interpretation: undefined,
 
-    // Map confidence to value_of_information (0-1 scale)
-    value_of_information: f.confidence,
+    // Heuristic VOI proxy (v1) - not formal EVPI
+    // Formula: |sensitivity| × (1 - confidence) × decision_fragility
+    value_of_information: computeValueOfInformation(
+      f.factor_id,
+      f.normalised_influence, // Use normalised influence as sensitivity proxy
+      f.confidence,
+      fragileEdges
+    ),
 
     // Confidence from edge path analysis
     confidence: f.confidence,

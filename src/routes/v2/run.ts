@@ -837,7 +837,8 @@ function mapISLCritiquesToV2(islCritiques: Array<{
     severity: c.severity === 'blocker' ? 'blocker' :
               c.severity === 'error' ? 'error' :
               c.severity === 'warning' ? 'warning' : 'info',
-    message: c.suggestion ? `${c.message} ${c.suggestion}` : c.message,
+    message: c.message,
+    suggestion: c.suggestion,
     source: 'isl' as const,
     affected_node_ids: c.affected_nodes,
     blocks_analysis: c.severity === 'blocker',
@@ -1417,6 +1418,19 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         if (!islService.isEnabled()) {
           const totalMs = performance.now() - startTime;
 
+          // Include preflight warnings (e.g., scale mismatch) alongside ISL_NOT_ENABLED
+          const islNotEnabledCritiques: CritiqueV3[] = [
+            ...preflight.warnings,
+            {
+              id: randomUUID(),
+              code: 'ISL_NOT_ENABLED',
+              severity: 'warning',
+              message: 'ISL service is not enabled. Analysis unavailable.',
+              source: 'validation',
+              blocks_analysis: false,
+            },
+          ];
+
           return reply.send(buildResponse(
             requestId,
             'failed',
@@ -1424,14 +1438,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             'unavailable',
             'unavailable',
             'unavailable',
-            [{
-              id: randomUUID(),
-              code: 'ISL_NOT_ENABLED',
-              severity: 'warning',
-              message: 'ISL service is not enabled. Analysis unavailable.',
-              source: 'validation',
-              blocks_analysis: false,
-            }],
+            islNotEnabledCritiques,
             {
               seedUsed,
               nSamples,
@@ -1747,7 +1754,15 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
 
         // Factor sensitivity: Graph-based is PRIMARY, ISL is FALLBACK
         // Graph-based uses edge path analysis (Schema D.5) - no dependency on parameter_uncertainties
-        const graphBasedFactorSensitivity = computeFactorSensitivityFromGraph(filteredGraph, body.goal_node_id);
+        // Normalize fragile edges for VOI computation in factor sensitivity
+        const fragileEdgesForVoi = islResult.robustness?.fragile_edges
+          ? normalizeFragileEdges(islResult.robustness.fragile_edges as unknown[], requestId).edges
+          : undefined;
+        const graphBasedFactorSensitivity = computeFactorSensitivityFromGraph(
+          filteredGraph,
+          body.goal_node_id,
+          fragileEdgesForVoi
+        );
         const islFactorSensitivity = transformFactorSensitivity(islResult.factor_sensitivity);
 
         // Use graph-based if available, otherwise fall back to ISL

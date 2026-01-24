@@ -11,6 +11,7 @@ import {
   computeFactorInfluence,
   computeFactorInfluenceWithPaths,
   computeFactorSensitivityFromGraph,
+  computeValueOfInformation,
   type FactorInfluence,
 } from '../src/lib/factor-influence.js';
 import type { EngineGraphV3, FactorSensitivityResultV3 } from '../src/types/engine-v3.js';
@@ -477,7 +478,8 @@ describe('computeFactorSensitivityFromGraph', () => {
       expect(factor.importance_rank).toBe(1);
       expect(factor.influence_rank).toBe(1);
       expect(factor.confidence).toBeGreaterThan(0.5);
-      expect(factor.value_of_information).toEqual(factor.confidence);
+      // When no fragile edges provided, VOI = 0
+      expect(factor.value_of_information).toBe(0);
       expect(factor.source).toBe('graph');
     });
 
@@ -541,6 +543,246 @@ describe('computeFactorSensitivityFromGraph', () => {
 
       expect(result).not.toBeNull();
       expect(result![0].confidence).toBeGreaterThan(0.9);
+    });
+  });
+
+  describe('VOI with fragile edges', () => {
+    const PRICING_GRAPH: EngineGraphV3 = {
+      nodes: [
+        { id: 'fac_price', kind: 'factor', label: 'Price' },
+        { id: 'fac_quality', kind: 'factor', label: 'Quality' },
+        { id: 'goal', kind: 'goal', label: 'Revenue' },
+      ],
+      edges: [
+        {
+          from: 'fac_price',
+          to: 'goal',
+          exists_probability: 0.9,
+          strength: { mean: 0.8, std: 0.2 },
+        },
+        {
+          from: 'fac_quality',
+          to: 'goal',
+          exists_probability: 0.95,
+          strength: { mean: 0.6, std: 0.1 },
+        },
+      ],
+    };
+
+    it('computes VOI > 0 when factor is on fragile edge with marginal > 0', () => {
+      const fragileEdges = [
+        {
+          edge_id: 'fac_price->goal',
+          from_id: 'fac_price',
+          to_id: 'goal',
+          switch_probability: 0.3,
+          marginal_switch_probability: 0.25,
+        },
+      ];
+
+      const result = computeFactorSensitivityFromGraph(PRICING_GRAPH, 'goal', fragileEdges);
+
+      expect(result).not.toBeNull();
+      const priceFactor = result!.find(f => f.factor_id === 'fac_price');
+      expect(priceFactor).toBeDefined();
+
+      // Price is on fragile edge, so VOI > 0
+      expect(priceFactor!.value_of_information).toBeGreaterThan(0);
+    });
+
+    it('VOI = 0 when factor not adjacent to any fragile edge', () => {
+      const fragileEdges = [
+        {
+          edge_id: 'fac_price->goal',
+          from_id: 'fac_price',
+          to_id: 'goal',
+          switch_probability: 0.3,
+          marginal_switch_probability: 0.25,
+        },
+      ];
+
+      const result = computeFactorSensitivityFromGraph(PRICING_GRAPH, 'goal', fragileEdges);
+
+      expect(result).not.toBeNull();
+      const qualityFactor = result!.find(f => f.factor_id === 'fac_quality');
+      expect(qualityFactor).toBeDefined();
+
+      // Quality is NOT on any fragile edge, so VOI = 0
+      expect(qualityFactor!.value_of_information).toBe(0);
+    });
+
+    it('VOI != confidence when factor on fragile edge (canary)', () => {
+      const fragileEdges = [
+        {
+          edge_id: 'fac_price->goal',
+          from_id: 'fac_price',
+          to_id: 'goal',
+          switch_probability: 0.3,
+          marginal_switch_probability: 0.4,
+        },
+      ];
+
+      const result = computeFactorSensitivityFromGraph(PRICING_GRAPH, 'goal', fragileEdges);
+
+      expect(result).not.toBeNull();
+      const priceFactor = result!.find(f => f.factor_id === 'fac_price');
+      expect(priceFactor).toBeDefined();
+
+      // VOI should NOT equal confidence when using the formula
+      expect(priceFactor!.value_of_information).not.toEqual(priceFactor!.confidence);
+    });
+  });
+});
+
+// -----------------------------------------------------------------------------
+// computeValueOfInformation Tests
+// -----------------------------------------------------------------------------
+
+describe('computeValueOfInformation', () => {
+  describe('edge cases', () => {
+    it('returns 0 when fragile edges is undefined', () => {
+      const voi = computeValueOfInformation('fac_price', 0.8, 0.5, undefined);
+      expect(voi).toBe(0);
+    });
+
+    it('returns 0 when fragile edges is empty array', () => {
+      const voi = computeValueOfInformation('fac_price', 0.8, 0.5, []);
+      expect(voi).toBe(0);
+    });
+
+    it('returns 0 when factor not adjacent to any fragile edge', () => {
+      const fragileEdges = [
+        { from_id: 'other_factor', to_id: 'goal', marginal_switch_probability: 0.5 },
+      ];
+      const voi = computeValueOfInformation('fac_price', 0.8, 0.5, fragileEdges);
+      expect(voi).toBe(0);
+    });
+
+    it('returns 0 when marginal_switch_probability is 0', () => {
+      const fragileEdges = [
+        { from_id: 'fac_price', to_id: 'goal', marginal_switch_probability: 0 },
+      ];
+      const voi = computeValueOfInformation('fac_price', 0.8, 0.5, fragileEdges);
+      expect(voi).toBe(0);
+    });
+
+    it('returns 0 when marginal_switch_probability is missing', () => {
+      const fragileEdges = [
+        { from_id: 'fac_price', to_id: 'goal' }, // No marginal_switch_probability
+      ];
+      const voi = computeValueOfInformation('fac_price', 0.8, 0.5, fragileEdges);
+      expect(voi).toBe(0);
+    });
+  });
+
+  describe('formula computation', () => {
+    it('computes VOI using |sensitivity| × (1 - confidence) × fragility', () => {
+      // sensitivity = 0.8, confidence = 0.4, fragility = 0.5
+      // VOI = |0.8| × (1 - 0.4) × 0.5 = 0.8 × 0.6 × 0.5 = 0.24
+      const fragileEdges = [
+        { from_id: 'fac_price', to_id: 'goal', marginal_switch_probability: 0.5 },
+      ];
+      const voi = computeValueOfInformation('fac_price', 0.8, 0.4, fragileEdges);
+      expect(voi).toBeCloseTo(0.24, 5);
+    });
+
+    it('uses absolute value of sensitivity (negative case)', () => {
+      // sensitivity = -0.8, confidence = 0.4, fragility = 0.5
+      // VOI = |-0.8| × (1 - 0.4) × 0.5 = 0.8 × 0.6 × 0.5 = 0.24
+      const fragileEdges = [
+        { from_id: 'fac_price', to_id: 'goal', marginal_switch_probability: 0.5 },
+      ];
+      const voi = computeValueOfInformation('fac_price', -0.8, 0.4, fragileEdges);
+      expect(voi).toBeCloseTo(0.24, 5);
+    });
+
+    it('uses max marginal_switch_probability from multiple adjacent edges', () => {
+      // Factor on two fragile edges with marginal 0.3 and 0.6 → use 0.6
+      // sensitivity = 1.0, confidence = 0.5, fragility = 0.6
+      // VOI = 1.0 × 0.5 × 0.6 = 0.3
+      const fragileEdges = [
+        { from_id: 'fac_price', to_id: 'out_a', marginal_switch_probability: 0.3 },
+        { from_id: 'fac_price', to_id: 'out_b', marginal_switch_probability: 0.6 },
+      ];
+      const voi = computeValueOfInformation('fac_price', 1.0, 0.5, fragileEdges);
+      expect(voi).toBeCloseTo(0.3, 5);
+    });
+
+    it('matches factor when it is to_id of fragile edge', () => {
+      // Factor is target of fragile edge
+      const fragileEdges = [
+        { from_id: 'other', to_id: 'fac_price', marginal_switch_probability: 0.4 },
+      ];
+      const voi = computeValueOfInformation('fac_price', 1.0, 0.5, fragileEdges);
+      // VOI = 1.0 × 0.5 × 0.4 = 0.2
+      expect(voi).toBeCloseTo(0.2, 5);
+    });
+  });
+
+  describe('default values', () => {
+    it('defaults confidence to 0.5 when undefined', () => {
+      // sensitivity = 1.0, confidence = 0.5 (default), fragility = 0.4
+      // VOI = 1.0 × 0.5 × 0.4 = 0.2
+      const fragileEdges = [
+        { from_id: 'fac_price', to_id: 'goal', marginal_switch_probability: 0.4 },
+      ];
+      const voi = computeValueOfInformation('fac_price', 1.0, undefined, fragileEdges);
+      expect(voi).toBeCloseTo(0.2, 5);
+    });
+
+    it('defaults sensitivity to 0 when undefined', () => {
+      const fragileEdges = [
+        { from_id: 'fac_price', to_id: 'goal', marginal_switch_probability: 0.5 },
+      ];
+      const voi = computeValueOfInformation('fac_price', undefined, 0.5, fragileEdges);
+      expect(voi).toBe(0);
+    });
+  });
+
+  describe('clamping', () => {
+    it('clamps result to maximum of 1', () => {
+      // sensitivity = 5.0, confidence = 0.0, fragility = 1.0
+      // Raw VOI = 5.0 × 1.0 × 1.0 = 5.0 → clamped to 1.0
+      const fragileEdges = [
+        { from_id: 'fac_price', to_id: 'goal', marginal_switch_probability: 1.0 },
+      ];
+      const voi = computeValueOfInformation('fac_price', 5.0, 0.0, fragileEdges);
+      expect(voi).toBe(1);
+    });
+
+    it('clamps result to minimum of 0', () => {
+      // All valid inputs should produce non-negative VOI anyway
+      const fragileEdges = [
+        { from_id: 'fac_price', to_id: 'goal', marginal_switch_probability: 0.5 },
+      ];
+      const voi = computeValueOfInformation('fac_price', 0.0, 0.5, fragileEdges);
+      expect(voi).toBe(0);
+      expect(voi).toBeGreaterThanOrEqual(0);
+    });
+  });
+
+  describe('from_id/to_id matching (not string contains)', () => {
+    it('does not match factor when ID is substring of from_id', () => {
+      // 'price' should NOT match 'fac_price' via contains
+      const fragileEdges = [
+        { from_id: 'fac_price', to_id: 'goal', marginal_switch_probability: 0.5 },
+      ];
+      const voi = computeValueOfInformation('price', 0.8, 0.5, fragileEdges);
+      expect(voi).toBe(0); // Should NOT match
+    });
+
+    it('requires exact from_id or to_id match', () => {
+      const fragileEdges = [
+        { from_id: 'fac_price', to_id: 'goal', marginal_switch_probability: 0.5 },
+      ];
+
+      // Exact match on from_id
+      const voiExact = computeValueOfInformation('fac_price', 0.8, 0.5, fragileEdges);
+      expect(voiExact).toBeGreaterThan(0);
+
+      // Similar but not exact - should not match
+      const voiPartial = computeValueOfInformation('fac_price_v2', 0.8, 0.5, fragileEdges);
+      expect(voiPartial).toBe(0);
     });
   });
 });
