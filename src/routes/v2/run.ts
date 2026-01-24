@@ -725,6 +725,10 @@ function buildResponse(
       fragile_edges: enrichedFragileEdges,
       robust_edges: robustResult.edges,
       explanation: islResult.robustness.explanation,
+      // Pass through recommendation_stability from ISL if present
+      ...(islResult.robustness.recommendation_stability !== undefined && {
+        recommendation_stability: islResult.robustness.recommendation_stability,
+      }),
       // Include normalization errors if any occurred (for observability)
       ...(normalizationErrors.length > 0 && { normalization_errors: normalizationErrors }),
     };

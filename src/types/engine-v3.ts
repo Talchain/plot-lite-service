@@ -664,6 +664,13 @@ export interface FactorSensitivityResultV3 {
   zero_reason?: string;
   /** Source of this factor sensitivity data */
   source?: 'graph' | 'isl';
+  /**
+   * Flip risk category based on fragile edge adjacency.
+   * - 'isolated': This factor alone can flip the recommendation (marginal_switch_probability > 0.05)
+   * - 'correlated': This factor can flip recommendation in combination with others (switch_probability > 0.05)
+   * - 'negligible': Minimal flip risk
+   */
+  flip_risk_category?: 'isolated' | 'correlated' | 'negligible';
 }
 
 /**
@@ -694,6 +701,8 @@ export interface RobustnessAssessmentV3 {
   /** Robust edges - normalized to consistent object format */
   robust_edges?: NormalizedEdgeInfoV3[];
   explanation?: string;
+  /** Recommendation stability from ISL (0-1, probability recommendation holds under perturbation) */
+  recommendation_stability?: number;
   /** Normalization errors if any (for observability) */
   normalization_errors?: Array<{ edge_type: string; error: string; raw_value?: unknown }>;
 }

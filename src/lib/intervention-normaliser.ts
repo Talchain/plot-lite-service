@@ -213,7 +213,15 @@ export function buildNormalisationContext(
   let goalContext: FactorNormalisationContext | undefined;
 
   for (const node of nodes) {
-    // Build context for all nodes (factors, goals, etc.) that might need normalisation
+    // Only build context for factors and the goal node
+    // Skip non-causal nodes (option, decision, etc.) to avoid spurious normalisation
+    const isGoalNode = node.id === goalNodeId;
+    const isFactorNode = node.kind === 'factor';
+
+    if (!isGoalNode && !isFactorNode) {
+      continue;
+    }
+
     const range = deriveRange(node);
     const baseline = node.observed_state?.baseline ?? node.observed_state?.value ?? 0;
 
@@ -226,7 +234,7 @@ export function buildNormalisationContext(
     factors.set(node.id, context);
 
     // Track goal node context separately for outcome denormalisation
-    if (node.id === goalNodeId) {
+    if (isGoalNode) {
       goalContext = context;
     }
   }

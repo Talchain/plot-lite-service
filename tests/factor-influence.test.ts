@@ -12,6 +12,7 @@ import {
   computeFactorInfluenceWithPaths,
   computeFactorSensitivityFromGraph,
   computeValueOfInformation,
+  computeFlipRiskCategory,
   type FactorInfluence,
 } from '../src/lib/factor-influence.js';
 import type { EngineGraphV3, FactorSensitivityResultV3 } from '../src/types/engine-v3.js';
@@ -783,6 +784,183 @@ describe('computeValueOfInformation', () => {
       // Similar but not exact - should not match
       const voiPartial = computeValueOfInformation('fac_price_v2', 0.8, 0.5, fragileEdges);
       expect(voiPartial).toBe(0);
+    });
+  });
+
+  // ===========================================================================
+  // Flip Risk Category Tests
+  // ===========================================================================
+
+  describe('computeFlipRiskCategory', () => {
+    it('returns "negligible" when no fragile edges', () => {
+      const result = computeFlipRiskCategory('fac_price', undefined);
+      expect(result).toBe('negligible');
+    });
+
+    it('returns "negligible" when empty fragile edges array', () => {
+      const result = computeFlipRiskCategory('fac_price', []);
+      expect(result).toBe('negligible');
+    });
+
+    it('returns "isolated" when marginal_switch_probability > 0.05', () => {
+      const fragileEdges = [
+        {
+          from_id: 'fac_price',
+          to_id: 'goal',
+          switch_probability: 0.3,
+          marginal_switch_probability: 0.1, // > 0.05 threshold
+        },
+      ];
+      const result = computeFlipRiskCategory('fac_price', fragileEdges);
+      expect(result).toBe('isolated');
+    });
+
+    it('returns "correlated" when switch_probability > 0.05 but marginal <= 0.05', () => {
+      const fragileEdges = [
+        {
+          from_id: 'fac_price',
+          to_id: 'goal',
+          switch_probability: 0.26, // > 0.05
+          marginal_switch_probability: 0, // <= 0.05
+        },
+      ];
+      const result = computeFlipRiskCategory('fac_price', fragileEdges);
+      expect(result).toBe('correlated');
+    });
+
+    it('returns "negligible" when both probabilities <= 0.05', () => {
+      const fragileEdges = [
+        {
+          from_id: 'fac_price',
+          to_id: 'goal',
+          switch_probability: 0.03,
+          marginal_switch_probability: 0.01,
+        },
+      ];
+      const result = computeFlipRiskCategory('fac_price', fragileEdges);
+      expect(result).toBe('negligible');
+    });
+
+    it('returns "negligible" when factor not adjacent to any fragile edge', () => {
+      const fragileEdges = [
+        {
+          from_id: 'other_factor',
+          to_id: 'goal',
+          switch_probability: 0.5,
+          marginal_switch_probability: 0.3,
+        },
+      ];
+      const result = computeFlipRiskCategory('fac_price', fragileEdges);
+      expect(result).toBe('negligible');
+    });
+
+    it('uses max probabilities across multiple adjacent edges', () => {
+      const fragileEdges = [
+        {
+          from_id: 'fac_price',
+          to_id: 'goal1',
+          switch_probability: 0.1, // > 0.05
+          marginal_switch_probability: 0.01, // <= 0.05
+        },
+        {
+          from_id: 'fac_price',
+          to_id: 'goal2',
+          switch_probability: 0.02, // <= 0.05
+          marginal_switch_probability: 0.02, // <= 0.05
+        },
+      ];
+      // Max switch = 0.1 > 0.05, max marginal = 0.02 <= 0.05 → correlated
+      const result = computeFlipRiskCategory('fac_price', fragileEdges);
+      expect(result).toBe('correlated');
+    });
+
+    it('matches factor on to_id as well as from_id', () => {
+      const fragileEdges = [
+        {
+          from_id: 'other',
+          to_id: 'fac_price', // Factor is the target
+          switch_probability: 0.3,
+          marginal_switch_probability: 0.15,
+        },
+      ];
+      const result = computeFlipRiskCategory('fac_price', fragileEdges);
+      expect(result).toBe('isolated'); // marginal > 0.05
+    });
+
+    it('handles missing switch_probability (defaults to 0)', () => {
+      const fragileEdges = [
+        {
+          from_id: 'fac_price',
+          to_id: 'goal',
+          // switch_probability missing
+          marginal_switch_probability: 0.01,
+        },
+      ];
+      const result = computeFlipRiskCategory('fac_price', fragileEdges);
+      expect(result).toBe('negligible'); // Both effectively <= 0.05
+    });
+
+    it('handles missing marginal_switch_probability (defaults to 0)', () => {
+      const fragileEdges = [
+        {
+          from_id: 'fac_price',
+          to_id: 'goal',
+          switch_probability: 0.2,
+          // marginal_switch_probability missing
+        },
+      ];
+      const result = computeFlipRiskCategory('fac_price', fragileEdges);
+      expect(result).toBe('correlated'); // switch > 0.05, marginal defaults to 0
+    });
+  });
+
+  describe('flip_risk_category in computeFactorSensitivityFromGraph', () => {
+    const PRICING_GRAPH: EngineGraphV3 = {
+      nodes: [
+        { id: 'fac_price', kind: 'factor', label: 'Price' },
+        { id: 'fac_quality', kind: 'factor', label: 'Quality' },
+        { id: 'goal', kind: 'goal', label: 'Revenue' },
+      ],
+      edges: [
+        {
+          from: 'fac_price',
+          to: 'goal',
+          exists_probability: 0.9,
+          strength: { mean: 0.8, std: 0.2 },
+        },
+        {
+          from: 'fac_quality',
+          to: 'goal',
+          exists_probability: 0.95,
+          strength: { mean: 0.6, std: 0.1 },
+        },
+      ],
+    };
+
+    it('includes flip_risk_category in factor sensitivity results', () => {
+      const fragileEdges = [
+        {
+          from_id: 'fac_price',
+          to_id: 'goal',
+          switch_probability: 0.26,
+          marginal_switch_probability: 0,
+        },
+      ];
+
+      const result = computeFactorSensitivityFromGraph(PRICING_GRAPH, 'goal', fragileEdges);
+
+      expect(result).not.toBeNull();
+      const priceFactor = result!.find(f => f.factor_id === 'fac_price');
+      const qualityFactor = result!.find(f => f.factor_id === 'fac_quality');
+
+      expect(priceFactor).toBeDefined();
+      expect(qualityFactor).toBeDefined();
+
+      // Price is on correlated fragile edge
+      expect(priceFactor!.flip_risk_category).toBe('correlated');
+
+      // Quality is not on any fragile edge
+      expect(qualityFactor!.flip_risk_category).toBe('negligible');
     });
   });
 });

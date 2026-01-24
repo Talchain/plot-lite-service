@@ -15,12 +15,13 @@
 import type { EngineGraphV3, EngineEdgeV3, EngineNodeV3, FactorSensitivityResultV3 } from '../types/engine-v3.js';
 
 /**
- * Minimal fragile edge interface for VOI computation.
+ * Minimal fragile edge interface for VOI and flip risk computation.
  * Compatible with both NormalizedEdgeInfo and NormalizedEdgeInfoV3.
  */
 interface FragileEdgeForVoi {
   from_id: string;
   to_id: string;
+  switch_probability?: number;
   marginal_switch_probability?: number;
 }
 
@@ -425,6 +426,61 @@ export function computeValueOfInformation(
   return Math.max(0, Math.min(1, voi));
 }
 
+/**
+ * Compute flip risk category for a factor based on adjacent fragile edges.
+ *
+ * Categories:
+ * - 'isolated': This factor alone can flip the recommendation (max marginal_switch_probability > 0.05)
+ * - 'correlated': This factor can flip in combination with others (max switch_probability > 0.05, marginal <= 0.05)
+ * - 'negligible': Minimal flip risk (both probabilities <= 0.05 or no adjacent fragile edges)
+ *
+ * @param factorId Factor node ID
+ * @param fragileEdges Array of fragile edges from robustness analysis
+ * @returns Flip risk category
+ */
+export function computeFlipRiskCategory(
+  factorId: string,
+  fragileEdges: FragileEdgeForVoi[] | undefined
+): 'isolated' | 'correlated' | 'negligible' {
+  if (!fragileEdges || fragileEdges.length === 0) {
+    return 'negligible';
+  }
+
+  // Find max switch_probability and max marginal_switch_probability for edges adjacent to this factor
+  let maxSwitchProb = 0;
+  let maxMarginalProb = 0;
+
+  for (const edge of fragileEdges) {
+    if (edge.from_id === factorId || edge.to_id === factorId) {
+      const switchProb = edge.switch_probability ?? 0;
+      const marginalProb = edge.marginal_switch_probability ?? 0;
+
+      if (switchProb > maxSwitchProb) {
+        maxSwitchProb = switchProb;
+      }
+      if (marginalProb > maxMarginalProb) {
+        maxMarginalProb = marginalProb;
+      }
+    }
+  }
+
+  // Threshold for significant flip risk
+  const FLIP_THRESHOLD = 0.05;
+
+  // 'isolated' if marginal > threshold (factor alone can flip)
+  if (maxMarginalProb > FLIP_THRESHOLD) {
+    return 'isolated';
+  }
+
+  // 'correlated' if switch > threshold (factor can flip in combination)
+  if (maxSwitchProb > FLIP_THRESHOLD) {
+    return 'correlated';
+  }
+
+  // Otherwise negligible
+  return 'negligible';
+}
+
 // -----------------------------------------------------------------------------
 // Wrapper for v2/run response format
 // -----------------------------------------------------------------------------
@@ -497,5 +553,8 @@ export function computeFactorSensitivityFromGraph(
 
     // Mark source as graph-based
     source: 'graph' as const,
+
+    // Flip risk category based on fragile edge adjacency
+    flip_risk_category: computeFlipRiskCategory(f.factor_id, fragileEdges),
   }));
 }
