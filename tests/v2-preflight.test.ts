@@ -521,6 +521,169 @@ describe('Preflight Validation', () => {
     });
   });
 
+  describe('SCALE_MISMATCH_WARNING', () => {
+    it('emits warning when intervention values span wide range (ratio > 100)', () => {
+      const optionsWithMixedScales = [
+        {
+          id: 'opt1',
+          label: 'Binary Option',
+          interventions: {
+            'factor-a': 1,  // Binary scale
+          },
+        },
+        {
+          id: 'opt2',
+          label: 'Dollar Option',
+          interventions: {
+            'factor-b': 180000,  // Dollar scale
+          },
+        },
+      ] as OptionV3[];
+
+      const result = runPreflightValidation(validGraph, optionsWithMixedScales, 'goal', defaultStats);
+
+      // Should pass (warning doesn't block)
+      expect(result.passed).toBe(true);
+      // Should have scale mismatch warning
+      expect(result.warnings.some(w => w.code === 'SCALE_MISMATCH_WARNING')).toBe(true);
+
+      const warning = result.warnings.find(w => w.code === 'SCALE_MISMATCH_WARNING');
+      expect(warning?.severity).toBe('warning');
+      expect(warning?.blocks_analysis).toBe(false);
+      expect(warning?.message).toContain('180,000');  // Ratio should be ~180,000
+      expect(warning?.suggestion).toBeDefined();
+    });
+
+    it('does NOT emit warning when ratio is small (< 100)', () => {
+      const optionsWithSmallRange = [
+        {
+          id: 'opt1',
+          label: 'Option 1',
+          interventions: {
+            'factor-a': 1,
+          },
+        },
+        {
+          id: 'opt2',
+          label: 'Option 2',
+          interventions: {
+            'factor-a': 2,
+            'factor-b': 5,
+          },
+        },
+      ] as OptionV3[];
+
+      const result = runPreflightValidation(validGraph, optionsWithSmallRange, 'goal', defaultStats);
+
+      expect(result.warnings.some(w => w.code === 'SCALE_MISMATCH_WARNING')).toBe(false);
+    });
+
+    it('does NOT emit warning when all values are zero', () => {
+      const optionsWithZeros = [
+        {
+          id: 'opt1',
+          label: 'Option 1',
+          interventions: {
+            'factor-a': 0,
+          },
+        },
+        {
+          id: 'opt2',
+          label: 'Option 2',
+          interventions: {
+            'factor-b': 0,
+          },
+        },
+      ] as OptionV3[];
+
+      const result = runPreflightValidation(validGraph, optionsWithZeros, 'goal', defaultStats);
+
+      expect(result.warnings.some(w => w.code === 'SCALE_MISMATCH_WARNING')).toBe(false);
+    });
+
+    it('does NOT emit warning with single non-zero value', () => {
+      const optionsWithSingleValue = [
+        {
+          id: 'opt1',
+          label: 'Option 1',
+          interventions: {
+            'factor-a': 1000,
+          },
+        },
+        {
+          id: 'opt2',
+          label: 'Option 2',
+          interventions: {
+            'factor-b': 0,  // Zero doesn't count
+          },
+        },
+      ] as OptionV3[];
+
+      const result = runPreflightValidation(validGraph, optionsWithSingleValue, 'goal', defaultStats);
+
+      expect(result.warnings.some(w => w.code === 'SCALE_MISMATCH_WARNING')).toBe(false);
+    });
+
+    it('handles nested intervention format', () => {
+      const optionsNested: OptionV3[] = [
+        {
+          id: 'opt1',
+          label: 'Option 1',
+          interventions: {
+            'factor-a': { value: 1, source: 'user_specified' },
+          },
+        },
+        {
+          id: 'opt2',
+          label: 'Option 2',
+          interventions: {
+            'factor-b': { value: 500, source: 'user_specified' },  // 500x ratio > 100
+          },
+        },
+      ];
+
+      const result = runPreflightValidation(validGraph, optionsNested, 'goal', defaultStats);
+
+      expect(result.warnings.some(w => w.code === 'SCALE_MISMATCH_WARNING')).toBe(true);
+    });
+
+    it('uses absolute values for ratio calculation (handles negatives)', () => {
+      const optionsWithNegatives = [
+        {
+          id: 'opt1',
+          label: 'Option 1',
+          interventions: {
+            'factor-a': -1,
+          },
+        },
+        {
+          id: 'opt2',
+          label: 'Option 2',
+          interventions: {
+            'factor-b': 200,  // |200| / |-1| = 200 > 100
+          },
+        },
+      ] as OptionV3[];
+
+      const result = runPreflightValidation(validGraph, optionsWithNegatives, 'goal', defaultStats);
+
+      expect(result.warnings.some(w => w.code === 'SCALE_MISMATCH_WARNING')).toBe(true);
+    });
+
+    it('emits only ONE warning per request (not per option)', () => {
+      const optionsMultiple = [
+        { id: 'opt1', label: 'Option 1', interventions: { 'factor-a': 1 } },
+        { id: 'opt2', label: 'Option 2', interventions: { 'factor-a': 1000 } },
+        { id: 'opt3', label: 'Option 3', interventions: { 'factor-b': 100000 } },
+      ] as OptionV3[];
+
+      const result = runPreflightValidation(validGraph, optionsMultiple, 'goal', defaultStats);
+
+      const scaleWarnings = result.warnings.filter(w => w.code === 'SCALE_MISMATCH_WARNING');
+      expect(scaleWarnings).toHaveLength(1);  // Only one warning, not multiple
+    });
+  });
+
   describe('Full validation pass', () => {
     it('passes with valid inputs', () => {
       const result = runPreflightValidation(validGraph, validOptions, 'goal', defaultStats);

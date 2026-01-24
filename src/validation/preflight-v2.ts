@@ -443,6 +443,82 @@ function validatePathsToGoal(
 }
 
 // -----------------------------------------------------------------------------
+// Scale Mismatch Validation
+// -----------------------------------------------------------------------------
+
+/** Threshold ratio above which we emit a scale mismatch warning */
+const SCALE_MISMATCH_THRESHOLD = 100;
+
+/**
+ * Validate intervention values don't span excessive ranges.
+ *
+ * Per Data Responsibility Contract §10.4: PLoT should warn, not silently repair.
+ * When intervention values span wide ranges (e.g., binary 0/1 alongside $180,000),
+ * Monte Carlo simulation may produce misleading outcomes.
+ *
+ * @param options Options with interventions
+ * @returns Warning critique if scale mismatch detected, empty array otherwise
+ */
+function validateInterventionScales(options: OptionV3[]): CritiqueV3[] {
+  // Collect all numeric intervention values across all options
+  const allValues: number[] = [];
+
+  for (const option of options) {
+    for (const [, rawIntervention] of Object.entries(option.interventions ?? {})) {
+      // Normalize flat format { factor_id: 59 } to nested { factor_id: { value: 59 } }
+      const intervention =
+        typeof rawIntervention === 'number'
+          ? { value: rawIntervention }
+          : rawIntervention;
+
+      if (typeof intervention?.value === 'number' && Number.isFinite(intervention.value)) {
+        allValues.push(intervention.value);
+      }
+    }
+  }
+
+  // Filter to non-zero values (zeros are excluded from scale comparison)
+  const nonZeroValues = allValues.filter((v) => v !== 0);
+
+  // Need at least 2 non-zero values to compute a ratio
+  if (nonZeroValues.length < 2) {
+    return [];
+  }
+
+  // Calculate ratio: max(|values|) / min(|non-zero values|)
+  const absValues = nonZeroValues.map(Math.abs);
+  const maxAbs = Math.max(...absValues);
+  const minAbs = Math.min(...absValues);
+
+  // Guard against division by zero (shouldn't happen after filtering, but defensive)
+  if (minAbs === 0) {
+    return [];
+  }
+
+  const ratio = maxAbs / minAbs;
+
+  if (ratio > SCALE_MISMATCH_THRESHOLD) {
+    // Format ratio for display (round to nearest integer for readability)
+    const displayRatio = Math.round(ratio).toLocaleString();
+
+    return [
+      {
+        id: randomUUID(),
+        code: 'SCALE_MISMATCH_WARNING',
+        severity: 'warning',
+        message: `Intervention values span wide range (max is ~${displayRatio}× min). Large magnitudes may dominate outcomes.`,
+        suggestion:
+          'Express large quantities as 0–1 proportions with explicit cap in factor label.',
+        source: 'validation',
+        blocks_analysis: false,
+      },
+    ];
+  }
+
+  return [];
+}
+
+// -----------------------------------------------------------------------------
 // Main Preflight Validation
 // -----------------------------------------------------------------------------
 
@@ -503,6 +579,9 @@ export function runPreflightValidation(
 
     // Validate interventions
     blockers.push(...validateInterventions(options, nodeIds));
+
+    // Check for scale mismatch in intervention values (warning only)
+    warnings.push(...validateInterventionScales(options));
 
     // Count options with interventions
     optionsWithInterventions = options.filter(

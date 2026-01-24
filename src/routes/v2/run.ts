@@ -71,6 +71,13 @@ import { orchestrateCeeReview } from '../../cee/orchestrator.js';
 import type { CeeReviewRequest, CeeTrace } from '../../cee/types.js';
 import { getDownstreamCallsForLog } from '../../util/downstream-tracker.js';
 import { computeFactorSensitivityFromGraph } from '../../lib/factor-influence.js';
+import {
+  normaliseOptionsForISL,
+  denormaliseISLResult,
+  needsNormalisation,
+  type NormalisationContext,
+  type NormalisationDiagnostic,
+} from '../../lib/intervention-normaliser.js';
 
 // -----------------------------------------------------------------------------
 // Feature Flags
@@ -1455,10 +1462,51 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           ));
         }
 
-        // Build ISL request
+        // =================================================================
+        // Phase 4a: Intervention Normalisation
+        // =================================================================
+        // Normalise intervention values to [0,1] for ISL
+        // ISL expects normalised inputs; raw values (e.g., $180,000) cause catastrophic outcomes
+        let optionsForISL = normalizedOptions;
+        let normalisationContext: NormalisationContext | undefined;
+        let normalisationDiagnostics: NormalisationDiagnostic[] = [];
+
+        if (needsNormalisation(normalizedOptions)) {
+          const normResult = normaliseOptionsForISL(
+            normalizedOptions,
+            filteredGraph.nodes,
+            body.goal_node_id
+          );
+          optionsForISL = normResult.options;
+          normalisationContext = normResult.context;
+          normalisationDiagnostics = normResult.diagnostics;
+
+          // Log normalisation diagnostics
+          req.log.info({
+            event: 'intervention_normalisation',
+            normalised: true,
+            diagnostics_count: normalisationDiagnostics.length,
+            sample: normalisationDiagnostics.slice(0, 3).map(d => ({
+              factor_id: d.factor_id,
+              original: d.original_value,
+              normalised: d.normalised_value,
+              range_source: d.range.source,
+              clamped: d.clamped,
+            })),
+            goal_range: normalisationContext.goal_context?.range,
+          });
+        } else {
+          req.log.debug({
+            event: 'intervention_normalisation',
+            normalised: false,
+            reason: 'All intervention values already in [0,1] range',
+          });
+        }
+
+        // Build ISL request (using normalised options)
         const islRequest = toISLRobustnessRequest(
           filteredGraph,
-          normalizedOptions,
+          optionsForISL,
           body.goal_node_id,
           requestId,
           nSamples,
@@ -1711,9 +1759,24 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           ));
         }
 
+        // =================================================================
+        // Phase 5a: Outcome Denormalisation
+        // =================================================================
+        // If we normalised interventions, denormalise ISL outcomes back to user units
+        let processedIslResult = islResult;
+        if (normalisationContext) {
+          processedIslResult = denormaliseISLResult(islResult, normalisationContext);
+
+          req.log.info({
+            event: 'outcome_denormalisation',
+            goal_range: normalisationContext.goal_context?.range,
+            options_processed: (processedIslResult.options ?? processedIslResult.results)?.length ?? 0,
+          });
+        }
+
         // Handle HTTP 200 with analysis_status='failed' from ISL
-        const islAnalysisStatus = islResult.analysis_status;
-        const islStatusReason = islResult.status_reason;
+        const islAnalysisStatus = processedIslResult.analysis_status;
+        const islStatusReason = processedIslResult.status_reason;
 
         if (islAnalysisStatus === 'failed') {
           return reply.send(buildResponse(
@@ -1738,7 +1801,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               uiBuild,
             },
             responseHash,
-            islResult,
+            processedIslResult,
             normalizedOptions,
             islAnalysisStatus,
             islStatusReason
@@ -1793,7 +1856,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         const hasDriversSensitivity = hasEdgeSensitivity || hasFactorSensitivity;
 
         // ISL V2 response uses 'options' field; V1 uses 'results'. Check both for compatibility.
-        const optionComparisonData = islResult.options ?? islResult.results;
+        // Use processedIslResult for denormalised outcome data
+        const optionComparisonData = processedIslResult.options ?? processedIslResult.results;
         const hasOptionComparison = hasNonEmptyArray(optionComparisonData);
         // Check for meaningful robustness data - support both V1 (score) and V2 (confidence) formats
         const hasRobustness = islResult.robustness?.score !== undefined
@@ -1894,7 +1958,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             ceeBuild: ceeOrchestrationResult.ceeTrace?.source ?? undefined,
           },
           responseHash,
-          islResult,
+          processedIslResult,
           normalizedOptions,
           islAnalysisStatus,
           islStatusReason,

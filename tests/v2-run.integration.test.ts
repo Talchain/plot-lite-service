@@ -554,4 +554,62 @@ describe('POST /v2/run Integration', () => {
       expect(res.data.critiques.some((c: any) => c.code === 'GRAPH_TOO_LARGE')).toBe(true);
     });
   });
+
+  describe('Scale mismatch warning', () => {
+    it('includes SCALE_MISMATCH_WARNING in critiques for mixed-scale interventions', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const res = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: VALID_GRAPH,
+          options: [
+            {
+              id: 'opt1',
+              label: 'Binary Option',
+              interventions: { 'factor-a': { value: 1, source: 'user_specified' } },  // Binary scale
+            },
+            {
+              id: 'opt2',
+              label: 'Dollar Option',
+              interventions: { 'factor-b': { value: 180000, source: 'user_specified' } },  // Dollar scale
+            },
+          ],
+          goal_node_id: 'goal',
+        }),
+      });
+
+      // Should succeed (warning doesn't block)
+      expect(res.status).toBe(200);
+      expect(['computed', 'partial', 'failed']).toContain(res.data.analysis_status);
+
+      // Should have scale mismatch warning in critiques
+      const scaleWarning = res.data.critiques.find((c: any) => c.code === 'SCALE_MISMATCH_WARNING');
+      expect(scaleWarning).toBeDefined();
+      expect(scaleWarning.severity).toBe('warning');
+      expect(scaleWarning.blocks_analysis).toBe(false);
+      expect(scaleWarning.message).toContain('180,000');  // Ratio display
+      expect(scaleWarning.suggestion).toBeDefined();
+    });
+
+    it('does NOT include SCALE_MISMATCH_WARNING for normal scale interventions', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const res = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: VALID_GRAPH,
+          options: VALID_OPTIONS,  // Uses 1.5 and 2.0, ratio ~1.33 < 100
+          goal_node_id: 'goal',
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.data.critiques.some((c: any) => c.code === 'SCALE_MISMATCH_WARNING')).toBe(false);
+    });
+  });
 });
