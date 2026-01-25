@@ -729,6 +729,16 @@ function buildResponse(
       ...(islResult.robustness.recommendation_stability !== undefined && {
         recommendation_stability: islResult.robustness.recommendation_stability,
       }),
+      // Pass through V2/Option C robustness summary fields from ISL
+      ...(islResult.robustness.is_robust !== undefined && {
+        is_robust: islResult.robustness.is_robust,
+      }),
+      ...(islResult.robustness.level !== undefined && {
+        level: islResult.robustness.level,
+      }),
+      ...(islResult.robustness.confidence !== undefined && {
+        confidence: islResult.robustness.confidence,
+      }),
       // Include normalization errors if any occurred (for observability)
       ...(normalizationErrors.length > 0 && { normalization_errors: normalizationErrors }),
     };

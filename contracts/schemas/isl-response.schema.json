@@ -1,0 +1,198 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://olumi.ai/schemas/isl-response.schema.json",
+  "title": "ISL Response",
+  "description": "Response schema for ISL /api/v1/robustness/analyze/v2 endpoint",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["options", "robustness"],
+  "properties": {
+    "version": {
+      "type": "string"
+    },
+    "endpoint_version": {
+      "type": "string"
+    },
+    "engine_version": {
+      "type": "string"
+    },
+    "build": {
+      "type": "string"
+    },
+    "analysis_status": {
+      "type": "string"
+    },
+    "robustness_status": {
+      "type": "string"
+    },
+    "factor_sensitivity_status": {
+      "type": "string"
+    },
+    "options": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["id", "win_probability", "outcome"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "win_probability": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "outcome": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": ["mean"],
+            "properties": {
+              "mean": {
+                "type": "number"
+              },
+              "std": {
+                "type": "number"
+              },
+              "p10": {
+                "type": "number"
+              },
+              "p50": {
+                "type": "number"
+              },
+              "p90": {
+                "type": "number"
+              },
+              "n_samples": {
+                "type": "integer"
+              },
+              "n_valid_samples": {
+                "type": "integer"
+              },
+              "validity_ratio": {
+                "type": "number"
+              }
+            }
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "robustness": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["recommendation_stability", "fragile_edges"],
+      "properties": {
+        "level": {
+          "type": "string"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "recommendation_stability": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "is_robust": {
+          "type": "boolean"
+        },
+        "fragile_edges": {
+          "type": "array",
+          "description": "Edges sensitive to uncertainty. marginal_switch_probability is optional (defaults to 0 in PLoT when omitted by ISL)",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": ["edge_id", "switch_probability"],
+            "properties": {
+              "edge_id": {
+                "type": "string"
+              },
+              "from_id": {
+                "type": "string"
+              },
+              "to_id": {
+                "type": "string"
+              },
+              "switch_probability": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "marginal_switch_probability": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "alternative_winner_id": {
+                "type": ["string", "null"]
+              }
+            }
+          }
+        },
+        "robust_edges": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "fragile_edges_v1": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "factor_sensitivity": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "node_id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "sensitivity_score": {
+            "type": "number"
+          },
+          "importance_score": {
+            "type": "number"
+          },
+          "elasticity": {
+            "type": "number"
+          },
+          "direction": {
+            "type": "string"
+          },
+          "importance_rank": {
+            "type": "integer"
+          },
+          "influence_score": {
+            "type": "number"
+          },
+          "influence_rank": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    "critiques": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "seed_used": {
+      "type": "string"
+    }
+  }
+}

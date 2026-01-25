@@ -703,6 +703,12 @@ export interface RobustnessAssessmentV3 {
   explanation?: string;
   /** Recommendation stability from ISL (0-1, probability recommendation holds under perturbation) */
   recommendation_stability?: number;
+  /** Boolean robustness flag from ISL V2/Option C format */
+  is_robust?: boolean;
+  /** Robustness level from ISL V2/Option C format */
+  level?: 'high' | 'medium' | 'low' | 'very_low';
+  /** Robustness confidence from ISL (0-1) V2/Option C format */
+  confidence?: number;
   /** Normalization errors if any (for observability) */
   normalization_errors?: Array<{ edge_type: string; error: string; raw_value?: unknown }>;
 }

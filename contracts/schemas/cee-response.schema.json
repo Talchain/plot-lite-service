@@ -1,0 +1,84 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://olumi.ai/schemas/cee-response.schema.json",
+  "title": "CEE Response",
+  "description": "Response schema for CEE /api/v1/review endpoint (M1 contract)",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["intent", "analysis_state", "readiness", "blocks"],
+  "properties": {
+    "intent": {
+      "type": "string",
+      "description": "User intent classification"
+    },
+    "analysis_state": {
+      "type": "string",
+      "enum": ["ran", "skipped", "failed"],
+      "description": "State of the CEE analysis"
+    },
+    "readiness": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["level", "headline", "factors"],
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": ["ready", "needs_attention", "not_ready"]
+        },
+        "headline": {
+          "type": "string"
+        },
+        "factors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "blocks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["id", "status"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["ok", "warning", "error", "skipped"]
+          },
+          "headline": {
+            "type": "string"
+          },
+          "details": {
+            "type": "string"
+          },
+          "factors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "trace": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "request_id": {
+          "type": "string"
+        },
+        "latency_ms": {
+          "type": "number"
+        },
+        "model": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

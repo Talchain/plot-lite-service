@@ -1,0 +1,318 @@
+{
+  "request_schema_version": "v3",
+  "endpoint_version": "v2/run",
+  "preflight_version": "2025-12-26",
+  "analysis_status": "computed",
+  "option_comparison_status": "computed",
+  "robustness_status": "computed",
+  "drivers_status": "computed",
+  "isl_analysis_status": "computed",
+  "critiques": [
+    {
+      "id": "cbbbdc6a-82c9-4bf0-8c94-e707bb0837b3",
+      "code": "NORMALIZATION_WARNING",
+      "severity": "info",
+      "message": "Node 'opt_keep_49' has kind='option'. Option nodes are filtered before analysis.",
+      "source": "validation",
+      "blocks_analysis": false
+    },
+    {
+      "id": "19f52098-0fc1-4ed0-b2c8-c90c05570129",
+      "code": "NORMALIZATION_WARNING",
+      "severity": "info",
+      "message": "Node 'opt_raise_59' has kind='option'. Option nodes are filtered before analysis.",
+      "source": "validation",
+      "blocks_analysis": false
+    },
+    {
+      "id": "0b7fffb8-822d-4070-bd44-db31052d09ff",
+      "code": "NORMALIZATION_WARNING",
+      "severity": "info",
+      "message": "Edge dec_pro_price_change::opt_keep_49: strength.std clamped from 0.01 to 0.05",
+      "source": "validation",
+      "blocks_analysis": false
+    },
+    {
+      "id": "75700c37-69c9-4e3b-9b27-43089fad8403",
+      "code": "NORMALIZATION_WARNING",
+      "severity": "info",
+      "message": "Edge dec_pro_price_change::opt_raise_59: strength.std clamped from 0.01 to 0.05",
+      "source": "validation",
+      "blocks_analysis": false
+    },
+    {
+      "id": "97e0fce5-35af-44be-bf66-3d430aab87ac",
+      "code": "NORMALIZATION_WARNING",
+      "severity": "info",
+      "message": "Edge opt_keep_49::fac_pro_price: strength.std clamped from 0.01 to 0.05",
+      "source": "validation",
+      "blocks_analysis": false
+    },
+    {
+      "id": "08f0d66e-09f4-4407-9a55-7432501c36b8",
+      "code": "NORMALIZATION_WARNING",
+      "severity": "info",
+      "message": "Edge opt_raise_59::fac_pro_price: strength.std clamped from 0.01 to 0.05",
+      "source": "validation",
+      "blocks_analysis": false
+    }
+  ],
+  "option_comparison": [
+    {
+      "option_id": "opt_keep_49",
+      "option_label": "Keep Pro at £49 with Next Release",
+      "expected_outcome": -5.460751547451585,
+      "confidence_interval": [
+        -39.16374621569541,
+        19.008134620134523
+      ],
+      "outcome": {
+        "mean": -5.460751547451585,
+        "std": 14.883909243520923,
+        "p10": -39.16374621569541,
+        "p50": -3.5817614172984182,
+        "p90": 19.008134620134523,
+        "n_samples": 1000,
+        "n_valid_samples": 1000,
+        "validity_ratio": 1
+      },
+      "status": "computed",
+      "win_probability": 0.2725
+    },
+    {
+      "option_id": "opt_raise_59",
+      "option_label": "Raise Pro to £59 with Next Release",
+      "expected_outcome": -5.442107359108535,
+      "confidence_interval": [
+        -39.10956685496294,
+        19.029644694878222
+      ],
+      "outcome": {
+        "mean": -5.442107359108535,
+        "std": 14.884897795967127,
+        "p10": -39.10956685496294,
+        "p50": -3.530419681533349,
+        "p90": 19.029644694878222,
+        "n_samples": 1000,
+        "n_valid_samples": 1000,
+        "validity_ratio": 1
+      },
+      "status": "computed",
+      "win_probability": 0.7275
+    }
+  ],
+  "edge_sensitivity": [],
+  "factor_sensitivity": [
+    {
+      "factor_id": "fac_release_value_perception",
+      "factor_label": "Perceived Value of Next Pro Feature Release",
+      "influence_score": 1,
+      "influence_rank": 1,
+      "sensitivity_score": 0.9025000000000001,
+      "elasticity": 1,
+      "direction": "positive",
+      "importance_rank": 1,
+      "value_of_information": 0,
+      "confidence": 0.65437788880698,
+      "source": "graph",
+      "flip_risk_category": "correlated"
+    },
+    {
+      "factor_id": "fac_price_elasticity",
+      "factor_label": "Price Sensitivity (Elasticity)",
+      "influence_score": 0.6869806094182827,
+      "influence_rank": 2,
+      "sensitivity_score": -0.6200000000000001,
+      "elasticity": 0.6869806094182827,
+      "direction": "negative",
+      "importance_rank": 2,
+      "value_of_information": 0,
+      "confidence": 0.596040038462214,
+      "source": "graph",
+      "flip_risk_category": "correlated"
+    },
+    {
+      "factor_id": "fac_competitor_pricing_pressure",
+      "factor_label": "Competitor Pricing Pressure",
+      "influence_score": 0.4155124653739612,
+      "influence_rank": 3,
+      "sensitivity_score": -0.375,
+      "elasticity": 0.4155124653739612,
+      "direction": "negative",
+      "importance_rank": 3,
+      "value_of_information": 0,
+      "confidence": 0.5256997032601572,
+      "source": "graph",
+      "flip_risk_category": "correlated"
+    },
+    {
+      "factor_id": "fac_pro_price",
+      "factor_label": "Pro Plan Price",
+      "influence_score": 0.14681440443213295,
+      "influence_rank": 4,
+      "sensitivity_score": 0.1325,
+      "elasticity": 0.14681440443213295,
+      "direction": "positive",
+      "importance_rank": 4,
+      "value_of_information": 0.008685219411875871,
+      "confidence": 0.7311008398209957,
+      "source": "graph",
+      "flip_risk_category": "isolated"
+    },
+    {
+      "factor_id": "factor_churn_rate_0",
+      "factor_label": "Churn Rate",
+      "influence_score": 0,
+      "influence_rank": 5,
+      "sensitivity_score": 0,
+      "elasticity": 0,
+      "direction": "positive",
+      "importance_rank": 5,
+      "value_of_information": 0,
+      "confidence": 0,
+      "zero_reason": "no_path_to_goal",
+      "source": "graph",
+      "flip_risk_category": "negligible"
+    }
+  ],
+  "robustness": {
+    "fragile_edges": [
+      {
+        "edge_id": "fac_price_elasticity->risk_logo_churn",
+        "from_id": "fac_price_elasticity",
+        "to_id": "risk_logo_churn",
+        "switch_probability": 0.30445544554455445,
+        "marginal_switch_probability": 0,
+        "alternative_winner_id": "opt_keep_49",
+        "alternative_winner_label": "Keep Pro at £49 with Next Release"
+      },
+      {
+        "edge_id": "fac_price_elasticity->out_new_logo_acquisition",
+        "from_id": "fac_price_elasticity",
+        "to_id": "out_new_logo_acquisition",
+        "switch_probability": 0.292,
+        "marginal_switch_probability": 0,
+        "alternative_winner_id": "opt_keep_49",
+        "alternative_winner_label": "Keep Pro at £49 with Next Release"
+      },
+      {
+        "edge_id": "out_new_logo_acquisition->goal_20k_mrr_low_churn",
+        "from_id": "out_new_logo_acquisition",
+        "to_id": "goal_20k_mrr_low_churn",
+        "switch_probability": 0.2,
+        "marginal_switch_probability": 0.02,
+        "alternative_winner_id": "opt_keep_49",
+        "alternative_winner_label": "Keep Pro at £49 with Next Release"
+      },
+      {
+        "edge_id": "fac_release_value_perception->risk_logo_churn",
+        "from_id": "fac_release_value_perception",
+        "to_id": "risk_logo_churn",
+        "switch_probability": 0.236,
+        "marginal_switch_probability": 0,
+        "alternative_winner_id": "opt_keep_49",
+        "alternative_winner_label": "Keep Pro at £49 with Next Release"
+      },
+      {
+        "edge_id": "fac_release_value_perception->out_mrr_growth",
+        "from_id": "fac_release_value_perception",
+        "to_id": "out_mrr_growth",
+        "switch_probability": 0.2860696517412935,
+        "marginal_switch_probability": 0,
+        "alternative_winner_id": "opt_keep_49",
+        "alternative_winner_label": "Keep Pro at £49 with Next Release"
+      },
+      {
+        "edge_id": "fac_release_value_perception->out_new_logo_acquisition",
+        "from_id": "fac_release_value_perception",
+        "to_id": "out_new_logo_acquisition",
+        "switch_probability": 0.28,
+        "marginal_switch_probability": 0,
+        "alternative_winner_id": "opt_keep_49",
+        "alternative_winner_label": "Keep Pro at £49 with Next Release"
+      },
+      {
+        "edge_id": "risk_logo_churn->goal_20k_mrr_low_churn",
+        "from_id": "risk_logo_churn",
+        "to_id": "goal_20k_mrr_low_churn",
+        "switch_probability": 0.336,
+        "marginal_switch_probability": 0,
+        "alternative_winner_id": "opt_keep_49",
+        "alternative_winner_label": "Keep Pro at £49 with Next Release"
+      },
+      {
+        "edge_id": "fac_competitor_pricing_pressure->risk_logo_churn",
+        "from_id": "fac_competitor_pricing_pressure",
+        "to_id": "risk_logo_churn",
+        "switch_probability": 0.2746331236897275,
+        "marginal_switch_probability": 0,
+        "alternative_winner_id": "opt_keep_49",
+        "alternative_winner_label": "Keep Pro at £49 with Next Release"
+      },
+      {
+        "edge_id": "out_mrr_growth->goal_20k_mrr_low_churn",
+        "from_id": "out_mrr_growth",
+        "to_id": "goal_20k_mrr_low_churn",
+        "switch_probability": 0.436,
+        "marginal_switch_probability": 0.09,
+        "alternative_winner_id": "opt_keep_49",
+        "alternative_winner_label": "Keep Pro at £49 with Next Release"
+      },
+      {
+        "edge_id": "fac_pro_price->risk_logo_churn",
+        "from_id": "fac_pro_price",
+        "to_id": "risk_logo_churn",
+        "switch_probability": 0.17263843648208468,
+        "marginal_switch_probability": 0.22,
+        "alternative_winner_id": "opt_keep_49",
+        "alternative_winner_label": "Keep Pro at £49 with Next Release"
+      },
+      {
+        "edge_id": "fac_competitor_pricing_pressure->out_new_logo_acquisition",
+        "from_id": "fac_competitor_pricing_pressure",
+        "to_id": "out_new_logo_acquisition",
+        "switch_probability": 0.224,
+        "marginal_switch_probability": 0,
+        "alternative_winner_id": "opt_keep_49",
+        "alternative_winner_label": "Keep Pro at £49 with Next Release"
+      },
+      {
+        "edge_id": "fac_pro_price->out_new_logo_acquisition",
+        "from_id": "fac_pro_price",
+        "to_id": "out_new_logo_acquisition",
+        "switch_probability": 0.388,
+        "marginal_switch_probability": 0.01,
+        "alternative_winner_id": "opt_keep_49",
+        "alternative_winner_label": "Keep Pro at £49 with Next Release"
+      },
+      {
+        "edge_id": "fac_pro_price->out_mrr_growth",
+        "from_id": "fac_pro_price",
+        "to_id": "out_mrr_growth",
+        "switch_probability": 0.604,
+        "marginal_switch_probability": 0.07,
+        "alternative_winner_id": "opt_keep_49",
+        "alternative_winner_label": "Keep Pro at £49 with Next Release"
+      }
+    ],
+    "robust_edges": [],
+    "recommendation_stability": 0.7275
+  },
+  "robustness_synthesis": null,
+  "cee_status": "skipped",
+  "decision_quality": null,
+  "insights": null,
+  "improvement_guidance": null,
+  "rationale": null,
+  "meta": {
+    "seed_used": "89741",
+    "n_samples": 1000,
+    "detail_level": "deep",
+    "latency_ms": 738.3999570000451,
+    "normalization_ms": 1.0481749998871237,
+    "validation_ms": 1.3290900001302361,
+    "isl_ms": 724.947598000057,
+    "cee_ms": 0,
+    "build": "b364475"
+  }
+}

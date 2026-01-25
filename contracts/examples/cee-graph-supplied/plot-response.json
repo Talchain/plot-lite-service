@@ -1,0 +1,2156 @@
+{
+  "request_schema_version": "v3",
+  "endpoint_version": "v2/run",
+  "preflight_version": "2025-12-26",
+  "request_id": "d495f0e9-bf4f-4add-ab6b-8878450ab92e",
+  "analysis_status": "computed",
+  "option_comparison_status": "computed",
+  "robustness_status": "computed",
+  "drivers_status": "computed",
+  "isl_analysis_status": "computed",
+  "critiques": [
+    {
+      "id": "3d9fe585-ed29-4168-8f37-8ae089a30d81",
+      "code": "SCALE_MISMATCH_WARNING",
+      "severity": "warning",
+      "message": "Intervention values span wide range (max is ~8,000\u00d7 min). Large magnitudes may dominate outcomes.",
+      "suggestion": "Express large quantities as 0\u20131 proportions with explicit cap in factor label.",
+      "source": "validation",
+      "blocks_analysis": false
+    },
+    {
+      "id": "ae823a54-8491-4522-9f6d-3343e83b50de",
+      "code": "NORMALIZATION_WARNING",
+      "severity": "info",
+      "message": "Node 'opt_full_time_pa' has kind='option'. Option nodes are filtered before analysis.",
+      "source": "validation",
+      "blocks_analysis": false
+    },
+    {
+      "id": "4f9f3b3e-0ba6-4803-9d9f-e2ff6046d6ad",
+      "code": "NORMALIZATION_WARNING",
+      "severity": "info",
+      "message": "Node 'opt_part_time_va' has kind='option'. Option nodes are filtered before analysis.",
+      "source": "validation",
+      "blocks_analysis": false
+    },
+    {
+      "id": "826c5b92-e2a1-4550-b94f-835e24a4627d",
+      "code": "NORMALIZATION_WARNING",
+      "severity": "info",
+      "message": "Node 'opt_status_quo' has kind='option'. Option nodes are filtered before analysis.",
+      "source": "validation",
+      "blocks_analysis": false
+    },
+    {
+      "id": "1df23cdf-039c-4ea2-88c9-2ea9545e5e5c",
+      "code": "NORMALIZATION_WARNING",
+      "severity": "info",
+      "message": "Edge dec_personal_assistant::opt_full_time_pa: strength.std clamped from 0.01 to 0.05",
+      "source": "validation",
+      "blocks_analysis": false
+    },
+    {
+      "id": "c1265cf0-6447-4415-981a-df053880fc02",
+      "code": "NORMALIZATION_WARNING",
+      "severity": "info",
+      "message": "Edge dec_personal_assistant::opt_part_time_va: strength.std clamped from 0.01 to 0.05",
+      "source": "validation",
+      "blocks_analysis": false
+    },
+    {
+      "id": "7dba1aff-9de8-4137-aa3d-f9be06f17012",
+      "code": "NORMALIZATION_WARNING",
+      "severity": "info",
+      "message": "Edge dec_personal_assistant::opt_status_quo: strength.std clamped from 0.01 to 0.05",
+      "source": "validation",
+      "blocks_analysis": false
+    },
+    {
+      "id": "a5ee09c8-fb4f-4d53-b330-fe8dfaddf53a",
+      "code": "NORMALIZATION_WARNING",
+      "severity": "info",
+      "message": "Edge opt_full_time_pa::fac_assistant_hours_week: strength.std clamped from 0.01 to 0.05",
+      "source": "validation",
+      "blocks_analysis": false
+    },
+    {
+      "id": "535245d7-646f-4d94-b99c-4d6ae7fc50df",
+      "code": "NORMALIZATION_WARNING",
+      "severity": "info",
+      "message": "Edge opt_full_time_pa::fac_delegation_rate: strength.std clamped from 0.01 to 0.05",
+      "source": "validation",
+      "blocks_analysis": false
+    },
+    {
+      "id": "db4be5ce-0449-4dff-965f-4f87d78741ef",
+      "code": "NORMALIZATION_WARNING",
+      "severity": "info",
+      "message": "Edge opt_full_time_pa::fac_monthly_assistant_cost: strength.std clamped from 0.01 to 0.05",
+      "source": "validation",
+      "blocks_analysis": false
+    },
+    {
+      "id": "bf929537-7948-4039-b619-8d23aea20855",
+      "code": "NORMALIZATION_WARNING",
+      "severity": "info",
+      "message": "Edge opt_full_time_pa::fac_onboarding_time_hours_week: strength.std clamped from 0.01 to 0.05",
+      "source": "validation",
+      "blocks_analysis": false
+    },
+    {
+      "id": "78d50d2e-1fa0-4864-8eef-585cc696bd97",
+      "code": "NORMALIZATION_WARNING",
+      "severity": "info",
+      "message": "Edge opt_part_time_va::fac_assistant_hours_week: strength.std clamped from 0.01 to 0.05",
+      "source": "validation",
+      "blocks_analysis": false
+    },
+    {
+      "id": "60fce377-8fe6-4abe-99ea-faa3a339fe07",
+      "code": "NORMALIZATION_WARNING",
+      "severity": "info",
+      "message": "Edge opt_part_time_va::fac_delegation_rate: strength.std clamped from 0.01 to 0.05",
+      "source": "validation",
+      "blocks_analysis": false
+    },
+    {
+      "id": "1a831c48-d206-41f1-b036-a9d57184a361",
+      "code": "NORMALIZATION_WARNING",
+      "severity": "info",
+      "message": "Edge opt_part_time_va::fac_monthly_assistant_cost: strength.std clamped from 0.01 to 0.05",
+      "source": "validation",
+      "blocks_analysis": false
+    },
+    {
+      "id": "6f13e606-5e24-4236-8a8b-48aa47c863e1",
+      "code": "NORMALIZATION_WARNING",
+      "severity": "info",
+      "message": "Edge opt_part_time_va::fac_onboarding_time_hours_week: strength.std clamped from 0.01 to 0.05",
+      "source": "validation",
+      "blocks_analysis": false
+    },
+    {
+      "id": "c3c11fb9-8fd1-40af-8f0c-624d906976da",
+      "code": "NORMALIZATION_WARNING",
+      "severity": "info",
+      "message": "Edge opt_status_quo::fac_assistant_hours_week: strength.std clamped from 0.01 to 0.05",
+      "source": "validation",
+      "blocks_analysis": false
+    },
+    {
+      "id": "d839c953-85da-4fce-9487-c33bed259894",
+      "code": "NORMALIZATION_WARNING",
+      "severity": "info",
+      "message": "Edge opt_status_quo::fac_delegation_rate: strength.std clamped from 0.01 to 0.05",
+      "source": "validation",
+      "blocks_analysis": false
+    },
+    {
+      "id": "6d93aa35-e2c2-4d81-86e0-3079ad1e40c5",
+      "code": "NORMALIZATION_WARNING",
+      "severity": "info",
+      "message": "Edge opt_status_quo::fac_monthly_assistant_cost: strength.std clamped from 0.01 to 0.05",
+      "source": "validation",
+      "blocks_analysis": false
+    },
+    {
+      "id": "b99195e1-4292-4c2e-b216-aa051d97fa50",
+      "code": "NORMALIZATION_WARNING",
+      "severity": "info",
+      "message": "Edge opt_status_quo::fac_onboarding_time_hours_week: strength.std clamped from 0.01 to 0.05",
+      "source": "validation",
+      "blocks_analysis": false
+    }
+  ],
+  "option_comparison": [
+    {
+      "option_id": "opt_full_time_pa",
+      "option_label": "Hire Full-time Personal Assistant",
+      "expected_outcome": 0.49114601709361216,
+      "confidence_interval": [
+        -0.7492311537448978,
+        1.6666744280841668
+      ],
+      "outcome": {
+        "mean": 0.49114601709361216,
+        "std": 0.6079372981797148,
+        "p10": -0.7492311537448978,
+        "p50": 0.49151745649681056,
+        "p90": 1.6666744280841668,
+        "n_samples": 1000,
+        "n_valid_samples": 1000,
+        "validity_ratio": 1
+      },
+      "status": "computed",
+      "win_probability": 0.7815
+    },
+    {
+      "option_id": "opt_part_time_va",
+      "option_label": "Hire Part-time / Virtual Assistant",
+      "expected_outcome": 0.3242061478213822,
+      "confidence_interval": [
+        -0.7792334108754352,
+        1.3729668213446977
+      ],
+      "outcome": {
+        "mean": 0.3242061478213822,
+        "std": 0.5494814755437682,
+        "p10": -0.7792334108754352,
+        "p50": 0.32232635205572113,
+        "p90": 1.3729668213446977,
+        "n_samples": 1000,
+        "n_valid_samples": 1000,
+        "validity_ratio": 1
+      },
+      "status": "computed",
+      "win_probability": 0.0135
+    },
+    {
+      "option_id": "opt_status_quo",
+      "option_label": "Status Quo (No Assistant)",
+      "expected_outcome": 0,
+      "confidence_interval": [
+        0,
+        0
+      ],
+      "outcome": {
+        "mean": 0,
+        "std": 0,
+        "p10": 0,
+        "p50": 0,
+        "p90": 0,
+        "n_samples": 1000,
+        "n_valid_samples": 1000,
+        "validity_ratio": 1
+      },
+      "status": "computed",
+      "win_probability": 0.205
+    }
+  ],
+  "edge_sensitivity": [],
+  "factor_sensitivity": [
+    {
+      "factor_id": "fac_assistant_quality_fit",
+      "factor_label": "Assistant Quality & Fit (Uncontrollable)",
+      "influence_score": 1,
+      "influence_rank": 1,
+      "sensitivity_score": 0.88,
+      "elasticity": 1,
+      "direction": "positive",
+      "importance_rank": 1,
+      "value_of_information": 0,
+      "confidence": 0.629243276042826,
+      "source": "graph",
+      "flip_risk_category": "negligible"
+    },
+    {
+      "factor_id": "fac_assistant_hours_week",
+      "factor_label": "Assistant Hours per Week",
+      "influence_score": 0.9147727272727273,
+      "influence_rank": 2,
+      "sensitivity_score": 0.805,
+      "elasticity": 0.9147727272727273,
+      "direction": "positive",
+      "importance_rank": 2,
+      "value_of_information": 0,
+      "confidence": 0.6876675128251118,
+      "source": "graph",
+      "flip_risk_category": "correlated"
+    },
+    {
+      "factor_id": "fac_delegation_rate",
+      "factor_label": "Delegation Rate (0-1)",
+      "influence_score": 0.8125000000000001,
+      "influence_rank": 3,
+      "sensitivity_score": 0.7150000000000001,
+      "elasticity": 0.8125000000000001,
+      "direction": "positive",
+      "importance_rank": 3,
+      "value_of_information": 0,
+      "confidence": 0.6464544948123716,
+      "source": "graph",
+      "flip_risk_category": "correlated"
+    },
+    {
+      "factor_id": "fac_value_per_hour_high_value",
+      "factor_label": "Value per Hour of High-Value Work (Uncontrollable)",
+      "influence_score": 0.596590909090909,
+      "influence_rank": 4,
+      "sensitivity_score": 0.5249999999999999,
+      "elasticity": 0.596590909090909,
+      "direction": "positive",
+      "importance_rank": 4,
+      "value_of_information": 0,
+      "confidence": 0.6911800670284635,
+      "source": "graph",
+      "flip_risk_category": "correlated"
+    },
+    {
+      "factor_id": "fac_monthly_assistant_cost",
+      "factor_label": "Monthly Assistant Cost",
+      "influence_score": 0.5454545454545454,
+      "influence_rank": 5,
+      "sensitivity_score": -0.48,
+      "elasticity": 0.5454545454545454,
+      "direction": "negative",
+      "importance_rank": 5,
+      "value_of_information": 0,
+      "confidence": 0.7712215043005818,
+      "source": "graph",
+      "flip_risk_category": "correlated"
+    },
+    {
+      "factor_id": "fac_onboarding_time_hours_week",
+      "factor_label": "Onboarding & Management Time (hours/week)",
+      "influence_score": 0.3181818181818181,
+      "influence_rank": 6,
+      "sensitivity_score": -0.27999999999999997,
+      "elasticity": 0.3181818181818181,
+      "direction": "negative",
+      "importance_rank": 6,
+      "value_of_information": 0,
+      "confidence": 0.6287241983947006,
+      "source": "graph",
+      "flip_risk_category": "correlated"
+    },
+    {
+      "factor_id": "fac_admin_task_volume",
+      "factor_label": "Admin Task Volume (Uncontrollable)",
+      "influence_score": 0.11363636363636367,
+      "influence_rank": 7,
+      "sensitivity_score": 0.10000000000000003,
+      "elasticity": 0.11363636363636367,
+      "direction": "positive",
+      "importance_rank": 7,
+      "value_of_information": 0,
+      "confidence": 0.5508464963950013,
+      "source": "graph",
+      "flip_risk_category": "correlated"
+    }
+  ],
+  "robustness": {
+    "fragile_edges": [
+      {
+        "edge_id": "out_time_freed->goal_net_effectiveness",
+        "from_id": "out_time_freed",
+        "to_id": "goal_net_effectiveness",
+        "switch_probability": 0.428,
+        "marginal_switch_probability": 0.1,
+        "alternative_winner_id": "opt_status_quo",
+        "alternative_winner_label": "Status Quo (No Assistant)"
+      },
+      {
+        "edge_id": "out_value_creation->goal_net_effectiveness",
+        "from_id": "out_value_creation",
+        "to_id": "goal_net_effectiveness",
+        "switch_probability": 0.276,
+        "marginal_switch_probability": 0.03,
+        "alternative_winner_id": "opt_status_quo",
+        "alternative_winner_label": "Status Quo (No Assistant)"
+      },
+      {
+        "edge_id": "fac_assistant_hours_week->out_time_freed",
+        "from_id": "fac_assistant_hours_week",
+        "to_id": "out_time_freed",
+        "switch_probability": 0.276,
+        "marginal_switch_probability": 0,
+        "alternative_winner_id": "opt_status_quo",
+        "alternative_winner_label": "Status Quo (No Assistant)"
+      },
+      {
+        "edge_id": "fac_monthly_assistant_cost->risk_financial_burden",
+        "from_id": "fac_monthly_assistant_cost",
+        "to_id": "risk_financial_burden",
+        "switch_probability": 0.12,
+        "marginal_switch_probability": 0,
+        "alternative_winner_id": "opt_status_quo",
+        "alternative_winner_label": "Status Quo (No Assistant)"
+      },
+      {
+        "edge_id": "risk_management_overhead->goal_net_effectiveness",
+        "from_id": "risk_management_overhead",
+        "to_id": "goal_net_effectiveness",
+        "switch_probability": 0.388,
+        "marginal_switch_probability": 0.01,
+        "alternative_winner_id": "opt_status_quo",
+        "alternative_winner_label": "Status Quo (No Assistant)"
+      },
+      {
+        "edge_id": "risk_financial_burden->goal_net_effectiveness",
+        "from_id": "risk_financial_burden",
+        "to_id": "goal_net_effectiveness",
+        "switch_probability": 0.324,
+        "marginal_switch_probability": 0,
+        "alternative_winner_id": "opt_status_quo",
+        "alternative_winner_label": "Status Quo (No Assistant)"
+      },
+      {
+        "edge_id": "fac_delegation_rate->out_time_freed",
+        "from_id": "fac_delegation_rate",
+        "to_id": "out_time_freed",
+        "switch_probability": 0.256,
+        "marginal_switch_probability": 0,
+        "alternative_winner_id": "opt_status_quo",
+        "alternative_winner_label": "Status Quo (No Assistant)"
+      },
+      {
+        "edge_id": "fac_assistant_hours_week->out_value_creation",
+        "from_id": "fac_assistant_hours_week",
+        "to_id": "out_value_creation",
+        "switch_probability": 0.332,
+        "marginal_switch_probability": 0,
+        "alternative_winner_id": "opt_status_quo",
+        "alternative_winner_label": "Status Quo (No Assistant)"
+      },
+      {
+        "edge_id": "fac_onboarding_time_hours_week->risk_management_overhead",
+        "from_id": "fac_onboarding_time_hours_week",
+        "to_id": "risk_management_overhead",
+        "switch_probability": 0.144,
+        "marginal_switch_probability": 0,
+        "alternative_winner_id": "opt_status_quo",
+        "alternative_winner_label": "Status Quo (No Assistant)"
+      },
+      {
+        "edge_id": "fac_assistant_hours_week->risk_management_overhead",
+        "from_id": "fac_assistant_hours_week",
+        "to_id": "risk_management_overhead",
+        "switch_probability": 0.144,
+        "marginal_switch_probability": 0,
+        "alternative_winner_id": "opt_status_quo",
+        "alternative_winner_label": "Status Quo (No Assistant)"
+      },
+      {
+        "edge_id": "fac_delegation_rate->out_value_creation",
+        "from_id": "fac_delegation_rate",
+        "to_id": "out_value_creation",
+        "switch_probability": 0.292,
+        "marginal_switch_probability": 0,
+        "alternative_winner_id": "opt_status_quo",
+        "alternative_winner_label": "Status Quo (No Assistant)"
+      },
+      {
+        "edge_id": "fac_delegation_rate->out_wellbeing",
+        "from_id": "fac_delegation_rate",
+        "to_id": "out_wellbeing",
+        "switch_probability": 0.23574144486692014,
+        "marginal_switch_probability": 0,
+        "alternative_winner_id": "opt_status_quo",
+        "alternative_winner_label": "Status Quo (No Assistant)"
+      },
+      {
+        "edge_id": "fac_admin_task_volume->out_time_freed",
+        "from_id": "fac_admin_task_volume",
+        "to_id": "out_time_freed",
+        "switch_probability": 0.212,
+        "marginal_switch_probability": 0,
+        "alternative_winner_id": "opt_status_quo",
+        "alternative_winner_label": "Status Quo (No Assistant)"
+      },
+      {
+        "edge_id": "fac_delegation_rate->risk_admin_errors",
+        "from_id": "fac_delegation_rate",
+        "to_id": "risk_admin_errors",
+        "switch_probability": 0.1543859649122807,
+        "marginal_switch_probability": 0,
+        "alternative_winner_id": "opt_status_quo",
+        "alternative_winner_label": "Status Quo (No Assistant)"
+      },
+      {
+        "edge_id": "out_wellbeing->goal_net_effectiveness",
+        "from_id": "out_wellbeing",
+        "to_id": "goal_net_effectiveness",
+        "switch_probability": 0.324,
+        "marginal_switch_probability": 0,
+        "alternative_winner_id": "opt_status_quo",
+        "alternative_winner_label": "Status Quo (No Assistant)"
+      },
+      {
+        "edge_id": "risk_admin_errors->goal_net_effectiveness",
+        "from_id": "risk_admin_errors",
+        "to_id": "goal_net_effectiveness",
+        "switch_probability": 0.22,
+        "marginal_switch_probability": 0,
+        "alternative_winner_id": "opt_status_quo",
+        "alternative_winner_label": "Status Quo (No Assistant)"
+      },
+      {
+        "edge_id": "fac_value_per_hour_high_value->out_value_creation",
+        "from_id": "fac_value_per_hour_high_value",
+        "to_id": "out_value_creation",
+        "switch_probability": 0.19285714285714287,
+        "marginal_switch_probability": 0,
+        "alternative_winner_id": "opt_status_quo",
+        "alternative_winner_label": "Status Quo (No Assistant)"
+      },
+      {
+        "edge_id": "fac_admin_task_volume->risk_management_overhead",
+        "from_id": "fac_admin_task_volume",
+        "to_id": "risk_management_overhead",
+        "switch_probability": 0.2175925925925926,
+        "marginal_switch_probability": 0,
+        "alternative_winner_id": "opt_status_quo",
+        "alternative_winner_label": "Status Quo (No Assistant)"
+      }
+    ],
+    "robust_edges": [],
+    "recommendation_stability": 0.7815
+  },
+  "robustness_synthesis": null,
+  "cee_status": "skipped",
+  "decision_quality": null,
+  "insights": null,
+  "improvement_guidance": null,
+  "rationale": null,
+  "ceeTrace": {
+    "requestId": "d495f0e9-bf4f-4add-ab6b-8878450ab92e",
+    "degraded": false,
+    "timestamp": "2026-01-25T16:12:08.389Z",
+    "source": "orchestrator",
+    "reason": "CEE feature disabled"
+  },
+  "response_hash": "57a4cdd71522deb0",
+  "_meta": {
+    "source_path": "isl",
+    "repairs_applied": [
+      {
+        "field": "edge.strength.std",
+        "action": "clamped",
+        "from_value": 0.01,
+        "to_value": 0.05,
+        "reason": "Value exceeded valid range [0.05, 0.4]"
+      },
+      {
+        "field": "edge.strength.std",
+        "action": "clamped",
+        "from_value": 0.01,
+        "to_value": 0.05,
+        "reason": "Value exceeded valid range [0.05, 0.4]"
+      },
+      {
+        "field": "edge.strength.std",
+        "action": "clamped",
+        "from_value": 0.01,
+        "to_value": 0.05,
+        "reason": "Value exceeded valid range [0.05, 0.4]"
+      },
+      {
+        "field": "edge.strength.std",
+        "action": "clamped",
+        "from_value": 0.01,
+        "to_value": 0.05,
+        "reason": "Value exceeded valid range [0.05, 0.4]"
+      },
+      {
+        "field": "edge.strength.std",
+        "action": "clamped",
+        "from_value": 0.01,
+        "to_value": 0.05,
+        "reason": "Value exceeded valid range [0.05, 0.4]"
+      },
+      {
+        "field": "edge.strength.std",
+        "action": "clamped",
+        "from_value": 0.01,
+        "to_value": 0.05,
+        "reason": "Value exceeded valid range [0.05, 0.4]"
+      },
+      {
+        "field": "edge.strength.std",
+        "action": "clamped",
+        "from_value": 0.01,
+        "to_value": 0.05,
+        "reason": "Value exceeded valid range [0.05, 0.4]"
+      },
+      {
+        "field": "edge.strength.std",
+        "action": "clamped",
+        "from_value": 0.01,
+        "to_value": 0.05,
+        "reason": "Value exceeded valid range [0.05, 0.4]"
+      },
+      {
+        "field": "edge.strength.std",
+        "action": "clamped",
+        "from_value": 0.01,
+        "to_value": 0.05,
+        "reason": "Value exceeded valid range [0.05, 0.4]"
+      },
+      {
+        "field": "edge.strength.std",
+        "action": "clamped",
+        "from_value": 0.01,
+        "to_value": 0.05,
+        "reason": "Value exceeded valid range [0.05, 0.4]"
+      },
+      {
+        "field": "edge.strength.std",
+        "action": "clamped",
+        "from_value": 0.01,
+        "to_value": 0.05,
+        "reason": "Value exceeded valid range [0.05, 0.4]"
+      },
+      {
+        "field": "edge.strength.std",
+        "action": "clamped",
+        "from_value": 0.01,
+        "to_value": 0.05,
+        "reason": "Value exceeded valid range [0.05, 0.4]"
+      },
+      {
+        "field": "edge.strength.std",
+        "action": "clamped",
+        "from_value": 0.01,
+        "to_value": 0.05,
+        "reason": "Value exceeded valid range [0.05, 0.4]"
+      },
+      {
+        "field": "edge.strength.std",
+        "action": "clamped",
+        "from_value": 0.01,
+        "to_value": 0.05,
+        "reason": "Value exceeded valid range [0.05, 0.4]"
+      },
+      {
+        "field": "edge.strength.std",
+        "action": "clamped",
+        "from_value": 0.01,
+        "to_value": 0.05,
+        "reason": "Value exceeded valid range [0.05, 0.4]"
+      }
+    ],
+    "request_id": "d495f0e9-bf4f-4add-ab6b-8878450ab92e",
+    "plot_build": "b364475",
+    "builds": {
+      "ui": null,
+      "cee": "orchestrator",
+      "plot": "b364475",
+      "isl": "50e932e"
+    },
+    "payloads": {
+      "isl_request": {
+        "request_id": "d495f0e9-bf4f-4add-ab6b-8878450ab92e",
+        "graph": {
+          "nodes": [
+            {
+              "id": "fac_admin_task_volume",
+              "kind": "factor",
+              "label": "Admin Task Volume (Uncontrollable)",
+              "intercept": 0
+            },
+            {
+              "id": "fac_assistant_hours_week",
+              "kind": "factor",
+              "label": "Assistant Hours per Week",
+              "observed_state": {
+                "value": 0,
+                "baseline": 0,
+                "unit": "hours/week"
+              },
+              "intercept": 0
+            },
+            {
+              "id": "fac_assistant_quality_fit",
+              "kind": "factor",
+              "label": "Assistant Quality & Fit (Uncontrollable)",
+              "intercept": 0
+            },
+            {
+              "id": "fac_delegation_rate",
+              "kind": "factor",
+              "label": "Delegation Rate (0-1)",
+              "observed_state": {
+                "value": 0,
+                "baseline": 0,
+                "unit": "ratio"
+              },
+              "intercept": 0
+            },
+            {
+              "id": "fac_monthly_assistant_cost",
+              "kind": "factor",
+              "label": "Monthly Assistant Cost",
+              "observed_state": {
+                "value": 0,
+                "baseline": 0,
+                "unit": "$/month"
+              },
+              "intercept": 0
+            },
+            {
+              "id": "fac_onboarding_time_hours_week",
+              "kind": "factor",
+              "label": "Onboarding & Management Time (hours/week)",
+              "observed_state": {
+                "value": 0,
+                "baseline": 0,
+                "unit": "hours/week"
+              },
+              "intercept": 0
+            },
+            {
+              "id": "fac_value_per_hour_high_value",
+              "kind": "factor",
+              "label": "Value per Hour of High-Value Work (Uncontrollable)",
+              "intercept": 0
+            },
+            {
+              "id": "goal_net_effectiveness",
+              "kind": "goal",
+              "label": "Increase Net Personal Effectiveness (Value Created minus Costs/Risks)",
+              "intercept": 0
+            },
+            {
+              "id": "out_time_freed",
+              "kind": "outcome",
+              "label": "Time Freed for High-Value Work",
+              "intercept": 0
+            },
+            {
+              "id": "out_value_creation",
+              "kind": "outcome",
+              "label": "Value Creation / Output",
+              "intercept": 0
+            },
+            {
+              "id": "out_wellbeing",
+              "kind": "outcome",
+              "label": "Wellbeing & Reduced Stress",
+              "intercept": 0
+            },
+            {
+              "id": "risk_admin_errors",
+              "kind": "risk",
+              "label": "Admin Errors / Rework",
+              "intercept": 0
+            },
+            {
+              "id": "risk_financial_burden",
+              "kind": "risk",
+              "label": "Financial Burden",
+              "intercept": 0
+            },
+            {
+              "id": "risk_management_overhead",
+              "kind": "risk",
+              "label": "Management Overhead",
+              "intercept": 0
+            }
+          ],
+          "edges": [
+            {
+              "from": "fac_admin_task_volume",
+              "to": "out_time_freed",
+              "exists_probability": 0.8,
+              "strength": {
+                "mean": 0.4,
+                "std": 0.2
+              }
+            },
+            {
+              "from": "fac_admin_task_volume",
+              "to": "risk_management_overhead",
+              "exists_probability": 0.65,
+              "strength": {
+                "mean": 0.3,
+                "std": 0.25
+              }
+            },
+            {
+              "from": "fac_assistant_hours_week",
+              "to": "out_time_freed",
+              "exists_probability": 0.95,
+              "strength": {
+                "mean": 0.85,
+                "std": 0.12
+              }
+            },
+            {
+              "from": "fac_assistant_hours_week",
+              "to": "out_value_creation",
+              "exists_probability": 0.85,
+              "strength": {
+                "mean": 0.55,
+                "std": 0.18
+              }
+            },
+            {
+              "from": "fac_assistant_hours_week",
+              "to": "out_wellbeing",
+              "exists_probability": 0.65,
+              "strength": {
+                "mean": 0.3,
+                "std": 0.22
+              }
+            },
+            {
+              "from": "fac_assistant_hours_week",
+              "to": "risk_management_overhead",
+              "exists_probability": 0.8,
+              "strength": {
+                "mean": 0.45,
+                "std": 0.2
+              }
+            },
+            {
+              "from": "fac_assistant_quality_fit",
+              "to": "out_time_freed",
+              "exists_probability": 0.7,
+              "strength": {
+                "mean": 0.35,
+                "std": 0.22
+              }
+            },
+            {
+              "from": "fac_assistant_quality_fit",
+              "to": "out_value_creation",
+              "exists_probability": 0.75,
+              "strength": {
+                "mean": 0.45,
+                "std": 0.2
+              }
+            },
+            {
+              "from": "fac_assistant_quality_fit",
+              "to": "risk_admin_errors",
+              "exists_probability": 0.85,
+              "strength": {
+                "mean": -0.7,
+                "std": 0.18
+              }
+            },
+            {
+              "from": "fac_delegation_rate",
+              "to": "out_time_freed",
+              "exists_probability": 0.9,
+              "strength": {
+                "mean": 0.65,
+                "std": 0.15
+              }
+            },
+            {
+              "from": "fac_delegation_rate",
+              "to": "out_value_creation",
+              "exists_probability": 0.8,
+              "strength": {
+                "mean": 0.5,
+                "std": 0.2
+              }
+            },
+            {
+              "from": "fac_delegation_rate",
+              "to": "out_wellbeing",
+              "exists_probability": 0.75,
+              "strength": {
+                "mean": 0.45,
+                "std": 0.2
+              }
+            },
+            {
+              "from": "fac_delegation_rate",
+              "to": "risk_admin_errors",
+              "exists_probability": 0.75,
+              "strength": {
+                "mean": 0.35,
+                "std": 0.22
+              }
+            },
+            {
+              "from": "fac_monthly_assistant_cost",
+              "to": "risk_financial_burden",
+              "exists_probability": 0.95,
+              "strength": {
+                "mean": 0.8,
+                "std": 0.12
+              }
+            },
+            {
+              "from": "fac_onboarding_time_hours_week",
+              "to": "risk_management_overhead",
+              "exists_probability": 0.9,
+              "strength": {
+                "mean": 0.7,
+                "std": 0.15
+              }
+            },
+            {
+              "from": "fac_value_per_hour_high_value",
+              "to": "out_value_creation",
+              "exists_probability": 0.75,
+              "strength": {
+                "mean": 0.7,
+                "std": 0.2
+              }
+            },
+            {
+              "from": "out_time_freed",
+              "to": "goal_net_effectiveness",
+              "exists_probability": 0.9,
+              "strength": {
+                "mean": 0.55,
+                "std": 0.15
+              }
+            },
+            {
+              "from": "out_value_creation",
+              "to": "goal_net_effectiveness",
+              "exists_probability": 0.95,
+              "strength": {
+                "mean": 0.75,
+                "std": 0.12
+              }
+            },
+            {
+              "from": "out_wellbeing",
+              "to": "goal_net_effectiveness",
+              "exists_probability": 0.8,
+              "strength": {
+                "mean": 0.35,
+                "std": 0.2
+              }
+            },
+            {
+              "from": "risk_admin_errors",
+              "to": "goal_net_effectiveness",
+              "exists_probability": 0.85,
+              "strength": {
+                "mean": -0.5,
+                "std": 0.18
+              }
+            },
+            {
+              "from": "risk_financial_burden",
+              "to": "goal_net_effectiveness",
+              "exists_probability": 0.9,
+              "strength": {
+                "mean": -0.6,
+                "std": 0.15
+              }
+            },
+            {
+              "from": "risk_management_overhead",
+              "to": "goal_net_effectiveness",
+              "exists_probability": 0.8,
+              "strength": {
+                "mean": -0.4,
+                "std": 0.2
+              }
+            }
+          ]
+        },
+        "options": [
+          {
+            "id": "opt_full_time_pa",
+            "label": "Hire Full-time Personal Assistant",
+            "interventions": {
+              "fac_assistant_hours_week": 1,
+              "fac_monthly_assistant_cost": 1,
+              "fac_delegation_rate": 0.8,
+              "fac_onboarding_time_hours_week": 1
+            }
+          },
+          {
+            "id": "opt_part_time_va",
+            "label": "Hire Part-time / Virtual Assistant",
+            "interventions": {
+              "fac_assistant_hours_week": 1,
+              "fac_monthly_assistant_cost": 1,
+              "fac_delegation_rate": 0.5,
+              "fac_onboarding_time_hours_week": 1
+            }
+          },
+          {
+            "id": "opt_status_quo",
+            "label": "Status Quo (No Assistant)",
+            "interventions": {
+              "fac_assistant_hours_week": 0,
+              "fac_monthly_assistant_cost": 0,
+              "fac_delegation_rate": 0,
+              "fac_onboarding_time_hours_week": 0
+            }
+          }
+        ],
+        "goal_node_id": "goal_net_effectiveness",
+        "n_samples": 1000,
+        "analysis_types": [
+          "comparison",
+          "sensitivity",
+          "robustness"
+        ],
+        "parameter_uncertainties": [
+          {
+            "node_id": "fac_assistant_hours_week",
+            "distribution": "normal",
+            "mean": 0,
+            "std": 0.5
+          },
+          {
+            "node_id": "fac_delegation_rate",
+            "distribution": "normal",
+            "mean": 0,
+            "std": 0.5
+          },
+          {
+            "node_id": "fac_monthly_assistant_cost",
+            "distribution": "normal",
+            "mean": 0,
+            "std": 0.5
+          },
+          {
+            "node_id": "fac_onboarding_time_hours_week",
+            "distribution": "normal",
+            "mean": 0,
+            "std": 0.5
+          }
+        ]
+      },
+      "isl_response": {
+        "version": "2.0",
+        "endpoint_version": "analyze/v2",
+        "engine_version": "1.0.0",
+        "build": "50e932e",
+        "timestamp": "2026-01-25T16:12:08.360300Z",
+        "analysis_status": "computed",
+        "robustness_status": "computed",
+        "factor_sensitivity_status": "computed",
+        "critiques": [
+          {
+            "id": "critique_124b53d9",
+            "code": "DEGENERATE_OPTION_ZERO_VARIANCE",
+            "severity": "warning",
+            "message": "Option 'Status Quo (No Assistant)' has zero variance \u2014 intervention may have no causal path to goal",
+            "source": "analysis",
+            "affected_option_ids": [
+              "opt_status_quo"
+            ],
+            "suggestion": "Check that intervention targets are connected to the goal with non-zero edge strengths"
+          }
+        ],
+        "request_echo": {
+          "graph_node_count": 14,
+          "graph_edge_count": 22,
+          "options_count": 3,
+          "goal_node_id_hash": "dfe80cce3083",
+          "n_samples": 1000,
+          "response_version_requested": 2,
+          "include_diagnostics": false
+        },
+        "options": [
+          {
+            "id": "opt_full_time_pa",
+            "outcome": {
+              "mean": 0.49114601709361216,
+              "std": 0.6079372981797148,
+              "p10": -0.7492311537448978,
+              "p50": 0.49151745649681056,
+              "p90": 1.6666744280841668,
+              "n_samples": 1000,
+              "n_valid_samples": 1000,
+              "validity_ratio": 1
+            },
+            "win_probability": 0.7815,
+            "status": "computed"
+          },
+          {
+            "id": "opt_part_time_va",
+            "outcome": {
+              "mean": 0.3242061478213822,
+              "std": 0.5494814755437682,
+              "p10": -0.7792334108754352,
+              "p50": 0.32232635205572113,
+              "p90": 1.3729668213446977,
+              "n_samples": 1000,
+              "n_valid_samples": 1000,
+              "validity_ratio": 1
+            },
+            "win_probability": 0.0135,
+            "status": "computed"
+          },
+          {
+            "id": "opt_status_quo",
+            "outcome": {
+              "mean": 0,
+              "std": 0,
+              "p10": 0,
+              "p50": 0,
+              "p90": 0,
+              "n_samples": 1000,
+              "n_valid_samples": 1000,
+              "validity_ratio": 1
+            },
+            "win_probability": 0.205,
+            "status": "computed"
+          }
+        ],
+        "robustness": {
+          "level": "low",
+          "confidence": 0.7567868000857841,
+          "fragile_edges": [
+            {
+              "edge_id": "out_time_freed->goal_net_effectiveness",
+              "from_id": "out_time_freed",
+              "to_id": "goal_net_effectiveness",
+              "alternative_winner_id": "opt_status_quo",
+              "switch_probability": 0.428,
+              "marginal_switch_probability": 0.1
+            },
+            {
+              "edge_id": "out_value_creation->goal_net_effectiveness",
+              "from_id": "out_value_creation",
+              "to_id": "goal_net_effectiveness",
+              "alternative_winner_id": "opt_status_quo",
+              "switch_probability": 0.276,
+              "marginal_switch_probability": 0.03
+            },
+            {
+              "edge_id": "fac_assistant_hours_week->out_time_freed",
+              "from_id": "fac_assistant_hours_week",
+              "to_id": "out_time_freed",
+              "alternative_winner_id": "opt_status_quo",
+              "switch_probability": 0.276,
+              "marginal_switch_probability": 0
+            },
+            {
+              "edge_id": "fac_monthly_assistant_cost->risk_financial_burden",
+              "from_id": "fac_monthly_assistant_cost",
+              "to_id": "risk_financial_burden",
+              "alternative_winner_id": "opt_status_quo",
+              "switch_probability": 0.12,
+              "marginal_switch_probability": 0
+            },
+            {
+              "edge_id": "risk_management_overhead->goal_net_effectiveness",
+              "from_id": "risk_management_overhead",
+              "to_id": "goal_net_effectiveness",
+              "alternative_winner_id": "opt_status_quo",
+              "switch_probability": 0.388,
+              "marginal_switch_probability": 0.01
+            },
+            {
+              "edge_id": "risk_financial_burden->goal_net_effectiveness",
+              "from_id": "risk_financial_burden",
+              "to_id": "goal_net_effectiveness",
+              "alternative_winner_id": "opt_status_quo",
+              "switch_probability": 0.324,
+              "marginal_switch_probability": 0
+            },
+            {
+              "edge_id": "fac_delegation_rate->out_time_freed",
+              "from_id": "fac_delegation_rate",
+              "to_id": "out_time_freed",
+              "alternative_winner_id": "opt_status_quo",
+              "switch_probability": 0.256,
+              "marginal_switch_probability": 0
+            },
+            {
+              "edge_id": "fac_assistant_hours_week->out_value_creation",
+              "from_id": "fac_assistant_hours_week",
+              "to_id": "out_value_creation",
+              "alternative_winner_id": "opt_status_quo",
+              "switch_probability": 0.332,
+              "marginal_switch_probability": 0
+            },
+            {
+              "edge_id": "fac_onboarding_time_hours_week->risk_management_overhead",
+              "from_id": "fac_onboarding_time_hours_week",
+              "to_id": "risk_management_overhead",
+              "alternative_winner_id": "opt_status_quo",
+              "switch_probability": 0.144,
+              "marginal_switch_probability": 0
+            },
+            {
+              "edge_id": "fac_assistant_hours_week->risk_management_overhead",
+              "from_id": "fac_assistant_hours_week",
+              "to_id": "risk_management_overhead",
+              "alternative_winner_id": "opt_status_quo",
+              "switch_probability": 0.144,
+              "marginal_switch_probability": 0
+            },
+            {
+              "edge_id": "fac_delegation_rate->out_value_creation",
+              "from_id": "fac_delegation_rate",
+              "to_id": "out_value_creation",
+              "alternative_winner_id": "opt_status_quo",
+              "switch_probability": 0.292,
+              "marginal_switch_probability": 0
+            },
+            {
+              "edge_id": "fac_delegation_rate->out_wellbeing",
+              "from_id": "fac_delegation_rate",
+              "to_id": "out_wellbeing",
+              "alternative_winner_id": "opt_status_quo",
+              "switch_probability": 0.23574144486692014,
+              "marginal_switch_probability": 0
+            },
+            {
+              "edge_id": "fac_admin_task_volume->out_time_freed",
+              "from_id": "fac_admin_task_volume",
+              "to_id": "out_time_freed",
+              "alternative_winner_id": "opt_status_quo",
+              "switch_probability": 0.212,
+              "marginal_switch_probability": 0
+            },
+            {
+              "edge_id": "fac_delegation_rate->risk_admin_errors",
+              "from_id": "fac_delegation_rate",
+              "to_id": "risk_admin_errors",
+              "alternative_winner_id": "opt_status_quo",
+              "switch_probability": 0.1543859649122807,
+              "marginal_switch_probability": 0
+            },
+            {
+              "edge_id": "out_wellbeing->goal_net_effectiveness",
+              "from_id": "out_wellbeing",
+              "to_id": "goal_net_effectiveness",
+              "alternative_winner_id": "opt_status_quo",
+              "switch_probability": 0.324,
+              "marginal_switch_probability": 0
+            },
+            {
+              "edge_id": "risk_admin_errors->goal_net_effectiveness",
+              "from_id": "risk_admin_errors",
+              "to_id": "goal_net_effectiveness",
+              "alternative_winner_id": "opt_status_quo",
+              "switch_probability": 0.22,
+              "marginal_switch_probability": 0
+            },
+            {
+              "edge_id": "fac_value_per_hour_high_value->out_value_creation",
+              "from_id": "fac_value_per_hour_high_value",
+              "to_id": "out_value_creation",
+              "alternative_winner_id": "opt_status_quo",
+              "switch_probability": 0.19285714285714287,
+              "marginal_switch_probability": 0
+            },
+            {
+              "edge_id": "fac_admin_task_volume->risk_management_overhead",
+              "from_id": "fac_admin_task_volume",
+              "to_id": "risk_management_overhead",
+              "alternative_winner_id": "opt_status_quo",
+              "switch_probability": 0.2175925925925926,
+              "marginal_switch_probability": 0
+            }
+          ],
+          "is_robust": false,
+          "fragile_edges_v1": [
+            "out_wellbeing->goal_net_effectiveness",
+            "fac_delegation_rate->out_wellbeing",
+            "fac_assistant_hours_week->risk_management_overhead",
+            "risk_admin_errors->goal_net_effectiveness",
+            "fac_value_per_hour_high_value->out_value_creation",
+            "fac_assistant_hours_week->out_value_creation",
+            "fac_assistant_hours_week->out_time_freed",
+            "fac_admin_task_volume->risk_management_overhead",
+            "out_value_creation->goal_net_effectiveness",
+            "fac_delegation_rate->out_time_freed",
+            "fac_admin_task_volume->out_time_freed",
+            "out_time_freed->goal_net_effectiveness",
+            "fac_onboarding_time_hours_week->risk_management_overhead",
+            "fac_delegation_rate->risk_admin_errors",
+            "risk_management_overhead->goal_net_effectiveness",
+            "fac_monthly_assistant_cost->risk_financial_burden",
+            "risk_financial_burden->goal_net_effectiveness",
+            "fac_delegation_rate->out_value_creation"
+          ],
+          "robust_edges": [],
+          "recommendation_stability": 0.7815
+        },
+        "factor_sensitivity": [
+          {
+            "node_id": "fac_assistant_hours_week",
+            "label": "Assistant Hours per Week",
+            "sensitivity_score": 0,
+            "importance_score": 1,
+            "elasticity": 0,
+            "elasticity_display": 0,
+            "direction": "negative",
+            "importance_rank": 1,
+            "observed_value": 0,
+            "interpretation": "Decision is robust to Assistant Hours per Week value variation",
+            "zero_reason": "intervention_override",
+            "baseline_near_zero": false,
+            "influence_score": 1,
+            "influence_rank": 1
+          },
+          {
+            "node_id": "fac_delegation_rate",
+            "label": "Delegation Rate (0-1)",
+            "sensitivity_score": 0,
+            "importance_score": 0.6666666666666667,
+            "elasticity": 0,
+            "elasticity_display": 0,
+            "direction": "negative",
+            "importance_rank": 2,
+            "observed_value": 0,
+            "interpretation": "Decision is robust to Delegation Rate (0-1) value variation",
+            "zero_reason": "intervention_override",
+            "baseline_near_zero": false,
+            "influence_score": 0.864870479237209,
+            "influence_rank": 2
+          },
+          {
+            "node_id": "fac_monthly_assistant_cost",
+            "label": "Monthly Assistant Cost",
+            "sensitivity_score": 0,
+            "importance_score": 0.33333333333333337,
+            "elasticity": 0,
+            "elasticity_display": 0,
+            "direction": "negative",
+            "importance_rank": 3,
+            "observed_value": 0,
+            "interpretation": "Decision is robust to Monthly Assistant Cost value variation",
+            "zero_reason": "intervention_override",
+            "baseline_near_zero": false,
+            "influence_score": 0.4546833129063753,
+            "influence_rank": 3
+          },
+          {
+            "node_id": "fac_onboarding_time_hours_week",
+            "label": "Onboarding & Management Time (hours/week)",
+            "sensitivity_score": 0,
+            "importance_score": 0,
+            "elasticity": 0,
+            "elasticity_display": 0,
+            "direction": "negative",
+            "importance_rank": 4,
+            "observed_value": 0,
+            "interpretation": "Decision is robust to Onboarding & Management Time (hours/week) value variation",
+            "zero_reason": "intervention_override",
+            "baseline_near_zero": false,
+            "influence_score": 0.22335320633997385,
+            "influence_rank": 4
+          }
+        ],
+        "request_id": "d495f0e9-bf4f-4add-ab6b-8878450ab92e",
+        "processing_time_ms": 1285,
+        "seed_used": "2048201295"
+      }
+    }
+  },
+  "downstream_calls": {
+    "isl": [
+      {
+        "service": "isl",
+        "endpoint": "/api/v1/robustness/analyze/v2",
+        "status": 200,
+        "elapsed_ms": 1371,
+        "payload_hash": "639b019b84c2",
+        "response_hash": "ba2314f6c315",
+        "request_id": "d495f0e9-bf4f-4add-ab6b-8878450ab92e",
+        "request_payload": {
+          "request_id": "d495f0e9-bf4f-4add-ab6b-8878450ab92e",
+          "graph": {
+            "nodes": [
+              {
+                "id": "fac_admin_task_volume",
+                "kind": "factor",
+                "label": "Admin Task Volume (Uncontrollable)",
+                "intercept": 0
+              },
+              {
+                "id": "fac_assistant_hours_week",
+                "kind": "factor",
+                "label": "Assistant Hours per Week",
+                "observed_state": {
+                  "__redacted": true,
+                  "type": "object",
+                  "keys": [
+                    "value",
+                    "baseline",
+                    "unit"
+                  ]
+                },
+                "intercept": 0
+              },
+              {
+                "id": "fac_assistant_quality_fit",
+                "kind": "factor",
+                "label": "Assistant Quality & Fit (Uncontrollable)",
+                "intercept": 0
+              },
+              {
+                "id": "fac_delegation_rate",
+                "kind": "factor",
+                "label": "Delegation Rate (0-1)",
+                "observed_state": {
+                  "__redacted": true,
+                  "type": "object",
+                  "keys": [
+                    "value",
+                    "baseline",
+                    "unit"
+                  ]
+                },
+                "intercept": 0
+              },
+              {
+                "id": "fac_monthly_assistant_cost",
+                "kind": "factor",
+                "label": "Monthly Assistant Cost",
+                "observed_state": {
+                  "__redacted": true,
+                  "type": "object",
+                  "keys": [
+                    "value",
+                    "baseline",
+                    "unit"
+                  ]
+                },
+                "intercept": 0
+              },
+              {
+                "id": "fac_onboarding_time_hours_week",
+                "kind": "factor",
+                "label": "Onboarding & Management Time (hours/week)",
+                "observed_state": {
+                  "__redacted": true,
+                  "type": "object",
+                  "keys": [
+                    "value",
+                    "baseline",
+                    "unit"
+                  ]
+                },
+                "intercept": 0
+              },
+              {
+                "id": "fac_value_per_hour_high_value",
+                "kind": "factor",
+                "label": "Value per Hour of High-Value Work (Uncontrollable)",
+                "intercept": 0
+              },
+              {
+                "id": "goal_net_effectiveness",
+                "kind": "goal",
+                "label": "Increase Net Personal Effectiveness (Value Created minus Costs/Risks)",
+                "intercept": 0
+              },
+              {
+                "id": "out_time_freed",
+                "kind": "outcome",
+                "label": "Time Freed for High-Value Work",
+                "intercept": 0
+              },
+              {
+                "id": "out_value_creation",
+                "kind": "outcome",
+                "label": "Value Creation / Output",
+                "intercept": 0
+              },
+              {
+                "id": "out_wellbeing",
+                "kind": "outcome",
+                "label": "Wellbeing & Reduced Stress",
+                "intercept": 0
+              },
+              {
+                "id": "risk_admin_errors",
+                "kind": "risk",
+                "label": "Admin Errors / Rework",
+                "intercept": 0
+              },
+              {
+                "id": "risk_financial_burden",
+                "kind": "risk",
+                "label": "Financial Burden",
+                "intercept": 0
+              },
+              {
+                "id": "risk_management_overhead",
+                "kind": "risk",
+                "label": "Management Overhead",
+                "intercept": 0
+              }
+            ],
+            "edges": [
+              {
+                "from": "fac_admin_task_volume",
+                "to": "out_time_freed",
+                "exists_probability": 0.8,
+                "strength": {
+                  "__redacted": true,
+                  "type": "object",
+                  "keys": [
+                    "mean",
+                    "std"
+                  ]
+                }
+              },
+              {
+                "from": "fac_admin_task_volume",
+                "to": "risk_management_overhead",
+                "exists_probability": 0.65,
+                "strength": {
+                  "__redacted": true,
+                  "type": "object",
+                  "keys": [
+                    "mean",
+                    "std"
+                  ]
+                }
+              },
+              {
+                "from": "fac_assistant_hours_week",
+                "to": "out_time_freed",
+                "exists_probability": 0.95,
+                "strength": {
+                  "__redacted": true,
+                  "type": "object",
+                  "keys": [
+                    "mean",
+                    "std"
+                  ]
+                }
+              },
+              {
+                "from": "fac_assistant_hours_week",
+                "to": "out_value_creation",
+                "exists_probability": 0.85,
+                "strength": {
+                  "__redacted": true,
+                  "type": "object",
+                  "keys": [
+                    "mean",
+                    "std"
+                  ]
+                }
+              },
+              {
+                "from": "fac_assistant_hours_week",
+                "to": "out_wellbeing",
+                "exists_probability": 0.65,
+                "strength": {
+                  "__redacted": true,
+                  "type": "object",
+                  "keys": [
+                    "mean",
+                    "std"
+                  ]
+                }
+              },
+              {
+                "from": "fac_assistant_hours_week",
+                "to": "risk_management_overhead",
+                "exists_probability": 0.8,
+                "strength": {
+                  "__redacted": true,
+                  "type": "object",
+                  "keys": [
+                    "mean",
+                    "std"
+                  ]
+                }
+              },
+              {
+                "from": "fac_assistant_quality_fit",
+                "to": "out_time_freed",
+                "exists_probability": 0.7,
+                "strength": {
+                  "__redacted": true,
+                  "type": "object",
+                  "keys": [
+                    "mean",
+                    "std"
+                  ]
+                }
+              },
+              {
+                "from": "fac_assistant_quality_fit",
+                "to": "out_value_creation",
+                "exists_probability": 0.75,
+                "strength": {
+                  "__redacted": true,
+                  "type": "object",
+                  "keys": [
+                    "mean",
+                    "std"
+                  ]
+                }
+              },
+              {
+                "from": "fac_assistant_quality_fit",
+                "to": "risk_admin_errors",
+                "exists_probability": 0.85,
+                "strength": {
+                  "__redacted": true,
+                  "type": "object",
+                  "keys": [
+                    "mean",
+                    "std"
+                  ]
+                }
+              },
+              {
+                "from": "fac_delegation_rate",
+                "to": "out_time_freed",
+                "exists_probability": 0.9,
+                "strength": {
+                  "__redacted": true,
+                  "type": "object",
+                  "keys": [
+                    "mean",
+                    "std"
+                  ]
+                }
+              },
+              {
+                "from": "fac_delegation_rate",
+                "to": "out_value_creation",
+                "exists_probability": 0.8,
+                "strength": {
+                  "__redacted": true,
+                  "type": "object",
+                  "keys": [
+                    "mean",
+                    "std"
+                  ]
+                }
+              },
+              {
+                "from": "fac_delegation_rate",
+                "to": "out_wellbeing",
+                "exists_probability": 0.75,
+                "strength": {
+                  "__redacted": true,
+                  "type": "object",
+                  "keys": [
+                    "mean",
+                    "std"
+                  ]
+                }
+              },
+              {
+                "from": "fac_delegation_rate",
+                "to": "risk_admin_errors",
+                "exists_probability": 0.75,
+                "strength": {
+                  "__redacted": true,
+                  "type": "object",
+                  "keys": [
+                    "mean",
+                    "std"
+                  ]
+                }
+              },
+              {
+                "from": "fac_monthly_assistant_cost",
+                "to": "risk_financial_burden",
+                "exists_probability": 0.95,
+                "strength": {
+                  "__redacted": true,
+                  "type": "object",
+                  "keys": [
+                    "mean",
+                    "std"
+                  ]
+                }
+              },
+              {
+                "from": "fac_onboarding_time_hours_week",
+                "to": "risk_management_overhead",
+                "exists_probability": 0.9,
+                "strength": {
+                  "__redacted": true,
+                  "type": "object",
+                  "keys": [
+                    "mean",
+                    "std"
+                  ]
+                }
+              },
+              {
+                "from": "fac_value_per_hour_high_value",
+                "to": "out_value_creation",
+                "exists_probability": 0.75,
+                "strength": {
+                  "__redacted": true,
+                  "type": "object",
+                  "keys": [
+                    "mean",
+                    "std"
+                  ]
+                }
+              },
+              {
+                "from": "out_time_freed",
+                "to": "goal_net_effectiveness",
+                "exists_probability": 0.9,
+                "strength": {
+                  "__redacted": true,
+                  "type": "object",
+                  "keys": [
+                    "mean",
+                    "std"
+                  ]
+                }
+              },
+              {
+                "from": "out_value_creation",
+                "to": "goal_net_effectiveness",
+                "exists_probability": 0.95,
+                "strength": {
+                  "__redacted": true,
+                  "type": "object",
+                  "keys": [
+                    "mean",
+                    "std"
+                  ]
+                }
+              },
+              {
+                "from": "out_wellbeing",
+                "to": "goal_net_effectiveness",
+                "exists_probability": 0.8,
+                "strength": {
+                  "__redacted": true,
+                  "type": "object",
+                  "keys": [
+                    "mean",
+                    "std"
+                  ]
+                }
+              },
+              {
+                "from": "risk_admin_errors",
+                "to": "goal_net_effectiveness",
+                "exists_probability": 0.85,
+                "strength": {
+                  "__redacted": true,
+                  "type": "object",
+                  "keys": [
+                    "mean",
+                    "std"
+                  ]
+                }
+              },
+              {
+                "from": "risk_financial_burden",
+                "to": "goal_net_effectiveness",
+                "exists_probability": 0.9,
+                "strength": {
+                  "__redacted": true,
+                  "type": "object",
+                  "keys": [
+                    "mean",
+                    "std"
+                  ]
+                }
+              },
+              {
+                "from": "risk_management_overhead",
+                "to": "goal_net_effectiveness",
+                "exists_probability": 0.8,
+                "strength": {
+                  "__redacted": true,
+                  "type": "object",
+                  "keys": [
+                    "mean",
+                    "std"
+                  ]
+                }
+              }
+            ]
+          },
+          "options": [
+            {
+              "id": "opt_full_time_pa",
+              "label": "Hire Full-time Personal Assistant",
+              "interventions": {
+                "fac_assistant_hours_week": 1,
+                "fac_monthly_assistant_cost": 1,
+                "fac_delegation_rate": 0.8,
+                "fac_onboarding_time_hours_week": 1
+              }
+            },
+            {
+              "id": "opt_part_time_va",
+              "label": "Hire Part-time / Virtual Assistant",
+              "interventions": {
+                "fac_assistant_hours_week": 1,
+                "fac_monthly_assistant_cost": 1,
+                "fac_delegation_rate": 0.5,
+                "fac_onboarding_time_hours_week": 1
+              }
+            },
+            {
+              "id": "opt_status_quo",
+              "label": "Status Quo (No Assistant)",
+              "interventions": {
+                "fac_assistant_hours_week": 0,
+                "fac_monthly_assistant_cost": 0,
+                "fac_delegation_rate": 0,
+                "fac_onboarding_time_hours_week": 0
+              }
+            }
+          ],
+          "goal_node_id": "goal_net_effectiveness",
+          "n_samples": 1000,
+          "analysis_types": [
+            "comparison",
+            "sensitivity",
+            "robustness"
+          ],
+          "parameter_uncertainties": [
+            {
+              "node_id": "fac_assistant_hours_week",
+              "distribution": "normal",
+              "mean": 0,
+              "std": 0.5
+            },
+            {
+              "node_id": "fac_delegation_rate",
+              "distribution": "normal",
+              "mean": 0,
+              "std": 0.5
+            },
+            {
+              "node_id": "fac_monthly_assistant_cost",
+              "distribution": "normal",
+              "mean": 0,
+              "std": 0.5
+            },
+            {
+              "node_id": "fac_onboarding_time_hours_week",
+              "distribution": "normal",
+              "mean": 0,
+              "std": 0.5
+            }
+          ]
+        },
+        "response_payload": {
+          "version": "2.0",
+          "endpoint_version": "analyze/v2",
+          "engine_version": "1.0.0",
+          "build": "50e932e",
+          "timestamp": "2026-01-25T16:12:08.360300Z",
+          "analysis_status": "computed",
+          "robustness_status": "computed",
+          "factor_sensitivity_status": "computed",
+          "critiques": [
+            {
+              "id": "critique_124b53d9",
+              "code": "DEGENERATE_OPTION_ZERO_VARIANCE",
+              "severity": "warning",
+              "message": "Option 'Status Quo (No Assistant)' has zero variance \u2014 intervention may have no causal path to goal",
+              "source": "analysis",
+              "affected_option_ids": [
+                "opt_status_quo"
+              ],
+              "suggestion": "Check that intervention targets are connected to the goal with non-zero edge strengths"
+            }
+          ],
+          "request_echo": {
+            "graph_node_count": 14,
+            "graph_edge_count": 22,
+            "options_count": 3,
+            "goal_node_id_hash": "dfe80cce3083",
+            "n_samples": 1000,
+            "response_version_requested": 2,
+            "include_diagnostics": false
+          },
+          "options": [
+            {
+              "id": "opt_full_time_pa",
+              "outcome": {
+                "mean": 0.49114601709361216,
+                "std": 0.6079372981797148,
+                "p10": -0.7492311537448978,
+                "p50": 0.49151745649681056,
+                "p90": 1.6666744280841668,
+                "n_samples": 1000,
+                "n_valid_samples": 1000,
+                "validity_ratio": 1
+              },
+              "win_probability": 0.7815,
+              "status": "computed"
+            },
+            {
+              "id": "opt_part_time_va",
+              "outcome": {
+                "mean": 0.3242061478213822,
+                "std": 0.5494814755437682,
+                "p10": -0.7792334108754352,
+                "p50": 0.32232635205572113,
+                "p90": 1.3729668213446977,
+                "n_samples": 1000,
+                "n_valid_samples": 1000,
+                "validity_ratio": 1
+              },
+              "win_probability": 0.0135,
+              "status": "computed"
+            },
+            {
+              "id": "opt_status_quo",
+              "outcome": {
+                "mean": 0,
+                "std": 0,
+                "p10": 0,
+                "p50": 0,
+                "p90": 0,
+                "n_samples": 1000,
+                "n_valid_samples": 1000,
+                "validity_ratio": 1
+              },
+              "win_probability": 0.205,
+              "status": "computed"
+            }
+          ],
+          "robustness": {
+            "level": "low",
+            "confidence": 0.7567868000857841,
+            "fragile_edges": [
+              {
+                "edge_id": "out_time_freed->goal_net_effectiveness",
+                "from_id": "out_time_freed",
+                "to_id": "goal_net_effectiveness",
+                "alternative_winner_id": "opt_status_quo",
+                "switch_probability": 0.428,
+                "marginal_switch_probability": 0.1
+              },
+              {
+                "edge_id": "out_value_creation->goal_net_effectiveness",
+                "from_id": "out_value_creation",
+                "to_id": "goal_net_effectiveness",
+                "alternative_winner_id": "opt_status_quo",
+                "switch_probability": 0.276,
+                "marginal_switch_probability": 0.03
+              },
+              {
+                "edge_id": "fac_assistant_hours_week->out_time_freed",
+                "from_id": "fac_assistant_hours_week",
+                "to_id": "out_time_freed",
+                "alternative_winner_id": "opt_status_quo",
+                "switch_probability": 0.276,
+                "marginal_switch_probability": 0
+              },
+              {
+                "edge_id": "fac_monthly_assistant_cost->risk_financial_burden",
+                "from_id": "fac_monthly_assistant_cost",
+                "to_id": "risk_financial_burden",
+                "alternative_winner_id": "opt_status_quo",
+                "switch_probability": 0.12,
+                "marginal_switch_probability": 0
+              },
+              {
+                "edge_id": "risk_management_overhead->goal_net_effectiveness",
+                "from_id": "risk_management_overhead",
+                "to_id": "goal_net_effectiveness",
+                "alternative_winner_id": "opt_status_quo",
+                "switch_probability": 0.388,
+                "marginal_switch_probability": 0.01
+              },
+              {
+                "edge_id": "risk_financial_burden->goal_net_effectiveness",
+                "from_id": "risk_financial_burden",
+                "to_id": "goal_net_effectiveness",
+                "alternative_winner_id": "opt_status_quo",
+                "switch_probability": 0.324,
+                "marginal_switch_probability": 0
+              },
+              {
+                "edge_id": "fac_delegation_rate->out_time_freed",
+                "from_id": "fac_delegation_rate",
+                "to_id": "out_time_freed",
+                "alternative_winner_id": "opt_status_quo",
+                "switch_probability": 0.256,
+                "marginal_switch_probability": 0
+              },
+              {
+                "edge_id": "fac_assistant_hours_week->out_value_creation",
+                "from_id": "fac_assistant_hours_week",
+                "to_id": "out_value_creation",
+                "alternative_winner_id": "opt_status_quo",
+                "switch_probability": 0.332,
+                "marginal_switch_probability": 0
+              },
+              {
+                "edge_id": "fac_onboarding_time_hours_week->risk_management_overhead",
+                "from_id": "fac_onboarding_time_hours_week",
+                "to_id": "risk_management_overhead",
+                "alternative_winner_id": "opt_status_quo",
+                "switch_probability": 0.144,
+                "marginal_switch_probability": 0
+              },
+              {
+                "edge_id": "fac_assistant_hours_week->risk_management_overhead",
+                "from_id": "fac_assistant_hours_week",
+                "to_id": "risk_management_overhead",
+                "alternative_winner_id": "opt_status_quo",
+                "switch_probability": 0.144,
+                "marginal_switch_probability": 0
+              },
+              {
+                "edge_id": "fac_delegation_rate->out_value_creation",
+                "from_id": "fac_delegation_rate",
+                "to_id": "out_value_creation",
+                "alternative_winner_id": "opt_status_quo",
+                "switch_probability": 0.292,
+                "marginal_switch_probability": 0
+              },
+              {
+                "edge_id": "fac_delegation_rate->out_wellbeing",
+                "from_id": "fac_delegation_rate",
+                "to_id": "out_wellbeing",
+                "alternative_winner_id": "opt_status_quo",
+                "switch_probability": 0.23574144486692014,
+                "marginal_switch_probability": 0
+              },
+              {
+                "edge_id": "fac_admin_task_volume->out_time_freed",
+                "from_id": "fac_admin_task_volume",
+                "to_id": "out_time_freed",
+                "alternative_winner_id": "opt_status_quo",
+                "switch_probability": 0.212,
+                "marginal_switch_probability": 0
+              },
+              {
+                "edge_id": "fac_delegation_rate->risk_admin_errors",
+                "from_id": "fac_delegation_rate",
+                "to_id": "risk_admin_errors",
+                "alternative_winner_id": "opt_status_quo",
+                "switch_probability": 0.1543859649122807,
+                "marginal_switch_probability": 0
+              },
+              {
+                "edge_id": "out_wellbeing->goal_net_effectiveness",
+                "from_id": "out_wellbeing",
+                "to_id": "goal_net_effectiveness",
+                "alternative_winner_id": "opt_status_quo",
+                "switch_probability": 0.324,
+                "marginal_switch_probability": 0
+              },
+              {
+                "edge_id": "risk_admin_errors->goal_net_effectiveness",
+                "from_id": "risk_admin_errors",
+                "to_id": "goal_net_effectiveness",
+                "alternative_winner_id": "opt_status_quo",
+                "switch_probability": 0.22,
+                "marginal_switch_probability": 0
+              },
+              {
+                "edge_id": "fac_value_per_hour_high_value->out_value_creation",
+                "from_id": "fac_value_per_hour_high_value",
+                "to_id": "out_value_creation",
+                "alternative_winner_id": "opt_status_quo",
+                "switch_probability": 0.19285714285714287,
+                "marginal_switch_probability": 0
+              },
+              {
+                "edge_id": "fac_admin_task_volume->risk_management_overhead",
+                "from_id": "fac_admin_task_volume",
+                "to_id": "risk_management_overhead",
+                "alternative_winner_id": "opt_status_quo",
+                "switch_probability": 0.2175925925925926,
+                "marginal_switch_probability": 0
+              }
+            ],
+            "is_robust": false,
+            "fragile_edges_v1": [
+              "out_wellbeing->goal_net_effectiveness",
+              "fac_delegation_rate->out_wellbeing",
+              "fac_assistant_hours_week->risk_management_overhead",
+              "risk_admin_errors->goal_net_effectiveness",
+              "fac_value_per_hour_high_value->out_value_creation",
+              "fac_assistant_hours_week->out_value_creation",
+              "fac_assistant_hours_week->out_time_freed",
+              "fac_admin_task_volume->risk_management_overhead",
+              "out_value_creation->goal_net_effectiveness",
+              "fac_delegation_rate->out_time_freed",
+              "fac_admin_task_volume->out_time_freed",
+              "out_time_freed->goal_net_effectiveness",
+              "fac_onboarding_time_hours_week->risk_management_overhead",
+              "fac_delegation_rate->risk_admin_errors",
+              "risk_management_overhead->goal_net_effectiveness",
+              "fac_monthly_assistant_cost->risk_financial_burden",
+              "risk_financial_burden->goal_net_effectiveness",
+              "fac_delegation_rate->out_value_creation"
+            ],
+            "robust_edges": [],
+            "recommendation_stability": 0.7815
+          },
+          "factor_sensitivity": [
+            {
+              "node_id": "fac_assistant_hours_week",
+              "label": "Assistant Hours per Week",
+              "sensitivity_score": 0,
+              "importance_score": 1,
+              "elasticity": 0,
+              "elasticity_display": 0,
+              "direction": "negative",
+              "importance_rank": 1,
+              "observed_value": 0,
+              "interpretation": "Decision is robust to Assistant Hours per Week value variation",
+              "zero_reason": "intervention_override",
+              "baseline_near_zero": false,
+              "influence_score": 1,
+              "influence_rank": 1
+            },
+            {
+              "node_id": "fac_delegation_rate",
+              "label": "Delegation Rate (0-1)",
+              "sensitivity_score": 0,
+              "importance_score": 0.6666666666666667,
+              "elasticity": 0,
+              "elasticity_display": 0,
+              "direction": "negative",
+              "importance_rank": 2,
+              "observed_value": 0,
+              "interpretation": "Decision is robust to Delegation Rate (0-1) value variation",
+              "zero_reason": "intervention_override",
+              "baseline_near_zero": false,
+              "influence_score": 0.864870479237209,
+              "influence_rank": 2
+            },
+            {
+              "node_id": "fac_monthly_assistant_cost",
+              "label": "Monthly Assistant Cost",
+              "sensitivity_score": 0,
+              "importance_score": 0.33333333333333337,
+              "elasticity": 0,
+              "elasticity_display": 0,
+              "direction": "negative",
+              "importance_rank": 3,
+              "observed_value": 0,
+              "interpretation": "Decision is robust to Monthly Assistant Cost value variation",
+              "zero_reason": "intervention_override",
+              "baseline_near_zero": false,
+              "influence_score": 0.4546833129063753,
+              "influence_rank": 3
+            },
+            {
+              "node_id": "fac_onboarding_time_hours_week",
+              "label": "Onboarding & Management Time (hours/week)",
+              "sensitivity_score": 0,
+              "importance_score": 0,
+              "elasticity": 0,
+              "elasticity_display": 0,
+              "direction": "negative",
+              "importance_rank": 4,
+              "observed_value": 0,
+              "interpretation": "Decision is robust to Onboarding & Management Time (hours/week) value variation",
+              "zero_reason": "intervention_override",
+              "baseline_near_zero": false,
+              "influence_score": 0.22335320633997385,
+              "influence_rank": 4
+            }
+          ],
+          "request_id": "d495f0e9-bf4f-4add-ab6b-8878450ab92e",
+          "processing_time_ms": 1285,
+          "seed_used": "2048201295"
+        }
+      }
+    ]
+  },
+  "meta": {
+    "seed_used": "204177",
+    "n_samples": 1000,
+    "detail_level": "deep",
+    "latency_ms": 1375.321180999279,
+    "normalization_ms": 0.18556998670101166,
+    "validation_ms": 0.46722400188446045,
+    "isl_ms": 1373.2310620099306,
+    "cee_ms": 0,
+    "build": "b364475"
+  }
+}

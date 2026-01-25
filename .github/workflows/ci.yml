@@ -27,6 +27,8 @@ jobs:
       - run: npm ci
       - name: Lint (ESLint)
         run: npx eslint src tests --ext .ts --max-warnings 29
+      - name: Validate contracts
+        run: npm run validate:contracts
       - run: npm run build
       - name: Run tests
         run: RATE_LIMIT_ENABLED=0 npm test

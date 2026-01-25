@@ -1,0 +1,244 @@
+{
+  "version": "2.0",
+  "endpoint_version": "analyze/v2",
+  "engine_version": "1.0.0",
+  "build": "50e932e",
+  "analysis_status": "computed",
+  "robustness_status": "computed",
+  "factor_sensitivity_status": "computed",
+  "critiques": [
+    {
+      "id": "critique_a2548c81",
+      "code": "GRAPH_DISCONNECTED",
+      "severity": "warning",
+      "message": "Graph has 2 disconnected components",
+      "source": "validation",
+      "suggestion": "Verify graph connectivity; disconnected nodes won't affect goal"
+    }
+  ],
+  "options": [
+    {
+      "id": "opt_keep_49",
+      "outcome": {
+        "mean": -5.460751547451585,
+        "std": 14.883909243520923,
+        "p10": -39.16374621569541,
+        "p50": -3.5817614172984182,
+        "p90": 19.008134620134523,
+        "n_samples": 1000,
+        "n_valid_samples": 1000,
+        "validity_ratio": 1
+      },
+      "win_probability": 0.2725,
+      "status": "computed"
+    },
+    {
+      "id": "opt_raise_59",
+      "outcome": {
+        "mean": -5.442107359108535,
+        "std": 14.884897795967127,
+        "p10": -39.10956685496294,
+        "p50": -3.530419681533349,
+        "p90": 19.029644694878222,
+        "n_samples": 1000,
+        "n_valid_samples": 1000,
+        "validity_ratio": 1
+      },
+      "win_probability": 0.7275,
+      "status": "computed"
+    }
+  ],
+  "robustness": {
+    "level": "low",
+    "confidence": 0.7044944300222751,
+    "fragile_edges": [
+      {
+        "edge_id": "fac_price_elasticity->risk_logo_churn",
+        "from_id": "fac_price_elasticity",
+        "to_id": "risk_logo_churn",
+        "alternative_winner_id": "opt_keep_49",
+        "switch_probability": 0.30445544554455445,
+        "marginal_switch_probability": 0
+      },
+      {
+        "edge_id": "fac_price_elasticity->out_new_logo_acquisition",
+        "from_id": "fac_price_elasticity",
+        "to_id": "out_new_logo_acquisition",
+        "alternative_winner_id": "opt_keep_49",
+        "switch_probability": 0.292,
+        "marginal_switch_probability": 0
+      },
+      {
+        "edge_id": "out_new_logo_acquisition->goal_20k_mrr_low_churn",
+        "from_id": "out_new_logo_acquisition",
+        "to_id": "goal_20k_mrr_low_churn",
+        "alternative_winner_id": "opt_keep_49",
+        "switch_probability": 0.2,
+        "marginal_switch_probability": 0.02
+      },
+      {
+        "edge_id": "fac_release_value_perception->risk_logo_churn",
+        "from_id": "fac_release_value_perception",
+        "to_id": "risk_logo_churn",
+        "alternative_winner_id": "opt_keep_49",
+        "switch_probability": 0.236,
+        "marginal_switch_probability": 0
+      },
+      {
+        "edge_id": "fac_release_value_perception->out_mrr_growth",
+        "from_id": "fac_release_value_perception",
+        "to_id": "out_mrr_growth",
+        "alternative_winner_id": "opt_keep_49",
+        "switch_probability": 0.2860696517412935,
+        "marginal_switch_probability": 0
+      },
+      {
+        "edge_id": "fac_release_value_perception->out_new_logo_acquisition",
+        "from_id": "fac_release_value_perception",
+        "to_id": "out_new_logo_acquisition",
+        "alternative_winner_id": "opt_keep_49",
+        "switch_probability": 0.28,
+        "marginal_switch_probability": 0
+      },
+      {
+        "edge_id": "risk_logo_churn->goal_20k_mrr_low_churn",
+        "from_id": "risk_logo_churn",
+        "to_id": "goal_20k_mrr_low_churn",
+        "alternative_winner_id": "opt_keep_49",
+        "switch_probability": 0.336,
+        "marginal_switch_probability": 0
+      },
+      {
+        "edge_id": "fac_competitor_pricing_pressure->risk_logo_churn",
+        "from_id": "fac_competitor_pricing_pressure",
+        "to_id": "risk_logo_churn",
+        "alternative_winner_id": "opt_keep_49",
+        "switch_probability": 0.2746331236897275,
+        "marginal_switch_probability": 0
+      },
+      {
+        "edge_id": "out_mrr_growth->goal_20k_mrr_low_churn",
+        "from_id": "out_mrr_growth",
+        "to_id": "goal_20k_mrr_low_churn",
+        "alternative_winner_id": "opt_keep_49",
+        "switch_probability": 0.436,
+        "marginal_switch_probability": 0.09
+      },
+      {
+        "edge_id": "fac_pro_price->risk_logo_churn",
+        "from_id": "fac_pro_price",
+        "to_id": "risk_logo_churn",
+        "alternative_winner_id": "opt_keep_49",
+        "switch_probability": 0.17263843648208468,
+        "marginal_switch_probability": 0.22
+      },
+      {
+        "edge_id": "fac_competitor_pricing_pressure->out_new_logo_acquisition",
+        "from_id": "fac_competitor_pricing_pressure",
+        "to_id": "out_new_logo_acquisition",
+        "alternative_winner_id": "opt_keep_49",
+        "switch_probability": 0.224,
+        "marginal_switch_probability": 0
+      },
+      {
+        "edge_id": "fac_pro_price->out_new_logo_acquisition",
+        "from_id": "fac_pro_price",
+        "to_id": "out_new_logo_acquisition",
+        "alternative_winner_id": "opt_keep_49",
+        "switch_probability": 0.388,
+        "marginal_switch_probability": 0.01
+      },
+      {
+        "edge_id": "fac_pro_price->out_mrr_growth",
+        "from_id": "fac_pro_price",
+        "to_id": "out_mrr_growth",
+        "alternative_winner_id": "opt_keep_49",
+        "switch_probability": 0.604,
+        "marginal_switch_probability": 0.07
+      }
+    ],
+    "is_robust": false,
+    "fragile_edges_v1": [
+      "fac_competitor_pricing_pressure->out_new_logo_acquisition",
+      "fac_pro_price->risk_logo_churn",
+      "fac_release_value_perception->risk_logo_churn",
+      "risk_logo_churn->goal_20k_mrr_low_churn",
+      "fac_release_value_perception->out_new_logo_acquisition",
+      "fac_competitor_pricing_pressure->risk_logo_churn",
+      "fac_pro_price->out_mrr_growth",
+      "fac_price_elasticity->risk_logo_churn",
+      "fac_release_value_perception->out_mrr_growth",
+      "out_mrr_growth->goal_20k_mrr_low_churn",
+      "fac_pro_price->out_new_logo_acquisition",
+      "fac_price_elasticity->out_new_logo_acquisition",
+      "out_new_logo_acquisition->goal_20k_mrr_low_churn"
+    ],
+    "robust_edges": [],
+    "recommendation_stability": 0.7275
+  },
+  "factor_sensitivity": [
+    {
+      "node_id": "fac_price_elasticity",
+      "label": "Price Sensitivity (Elasticity)",
+      "sensitivity_score": 1,
+      "importance_score": 1,
+      "elasticity": -3.6036065418840546,
+      "elasticity_display": -3.6036065418840546,
+      "direction": "negative",
+      "importance_rank": 1,
+      "observed_value": 49,
+      "interpretation": "Decision is highly sensitive to Price Sensitivity (Elasticity) value - consider narrowing uncertainty or gathering more data",
+      "baseline_near_zero": false,
+      "influence_score": 0.4427173763263056,
+      "influence_rank": 3
+    },
+    {
+      "node_id": "fac_release_value_perception",
+      "label": "Perceived Value of Next Pro Feature Release",
+      "sensitivity_score": 0.6672480994389786,
+      "importance_score": 0.6666666666666667,
+      "elasticity": 2.4044996161980055,
+      "elasticity_display": 2.4044996161980055,
+      "direction": "positive",
+      "importance_rank": 2,
+      "observed_value": 20,
+      "interpretation": "Decision is highly sensitive to Perceived Value of Next Pro Feature Release value - consider narrowing uncertainty or gathering more data",
+      "baseline_near_zero": false,
+      "influence_score": 0.7237357034587296,
+      "influence_rank": 2
+    },
+    {
+      "node_id": "fac_pro_price",
+      "label": "Pro Plan Price",
+      "sensitivity_score": 0,
+      "importance_score": 0.33333333333333337,
+      "elasticity": 0,
+      "elasticity_display": 0,
+      "direction": "negative",
+      "importance_rank": 3,
+      "observed_value": 49,
+      "interpretation": "Decision is robust to Pro Plan Price value variation",
+      "zero_reason": "intervention_override",
+      "baseline_near_zero": false,
+      "influence_score": 1,
+      "influence_rank": 1
+    },
+    {
+      "node_id": "factor_churn_rate_0",
+      "label": "Churn Rate",
+      "sensitivity_score": 0,
+      "importance_score": 0,
+      "elasticity": 0,
+      "elasticity_display": 0,
+      "direction": "negative",
+      "importance_rank": 4,
+      "observed_value": 0.04,
+      "interpretation": "Decision is robust to Churn Rate value variation",
+      "zero_reason": "disconnected",
+      "baseline_near_zero": false,
+      "influence_score": 0,
+      "influence_rank": 4
+    }
+  ],
+  "seed_used": "864973025"
+}

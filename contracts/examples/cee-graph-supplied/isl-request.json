@@ -1,0 +1,480 @@
+{
+  "request_id": "d495f0e9-bf4f-4add-ab6b-8878450ab92e",
+  "graph": {
+    "nodes": [
+      {
+        "id": "fac_admin_task_volume",
+        "kind": "factor",
+        "label": "Admin Task Volume (Uncontrollable)",
+        "intercept": 0
+      },
+      {
+        "id": "fac_assistant_hours_week",
+        "kind": "factor",
+        "label": "Assistant Hours per Week",
+        "observed_state": {
+          "__redacted": true,
+          "type": "object",
+          "keys": [
+            "value",
+            "baseline",
+            "unit"
+          ]
+        },
+        "intercept": 0
+      },
+      {
+        "id": "fac_assistant_quality_fit",
+        "kind": "factor",
+        "label": "Assistant Quality & Fit (Uncontrollable)",
+        "intercept": 0
+      },
+      {
+        "id": "fac_delegation_rate",
+        "kind": "factor",
+        "label": "Delegation Rate (0-1)",
+        "observed_state": {
+          "__redacted": true,
+          "type": "object",
+          "keys": [
+            "value",
+            "baseline",
+            "unit"
+          ]
+        },
+        "intercept": 0
+      },
+      {
+        "id": "fac_monthly_assistant_cost",
+        "kind": "factor",
+        "label": "Monthly Assistant Cost",
+        "observed_state": {
+          "__redacted": true,
+          "type": "object",
+          "keys": [
+            "value",
+            "baseline",
+            "unit"
+          ]
+        },
+        "intercept": 0
+      },
+      {
+        "id": "fac_onboarding_time_hours_week",
+        "kind": "factor",
+        "label": "Onboarding & Management Time (hours/week)",
+        "observed_state": {
+          "__redacted": true,
+          "type": "object",
+          "keys": [
+            "value",
+            "baseline",
+            "unit"
+          ]
+        },
+        "intercept": 0
+      },
+      {
+        "id": "fac_value_per_hour_high_value",
+        "kind": "factor",
+        "label": "Value per Hour of High-Value Work (Uncontrollable)",
+        "intercept": 0
+      },
+      {
+        "id": "goal_net_effectiveness",
+        "kind": "goal",
+        "label": "Increase Net Personal Effectiveness (Value Created minus Costs/Risks)",
+        "intercept": 0
+      },
+      {
+        "id": "out_time_freed",
+        "kind": "outcome",
+        "label": "Time Freed for High-Value Work",
+        "intercept": 0
+      },
+      {
+        "id": "out_value_creation",
+        "kind": "outcome",
+        "label": "Value Creation / Output",
+        "intercept": 0
+      },
+      {
+        "id": "out_wellbeing",
+        "kind": "outcome",
+        "label": "Wellbeing & Reduced Stress",
+        "intercept": 0
+      },
+      {
+        "id": "risk_admin_errors",
+        "kind": "risk",
+        "label": "Admin Errors / Rework",
+        "intercept": 0
+      },
+      {
+        "id": "risk_financial_burden",
+        "kind": "risk",
+        "label": "Financial Burden",
+        "intercept": 0
+      },
+      {
+        "id": "risk_management_overhead",
+        "kind": "risk",
+        "label": "Management Overhead",
+        "intercept": 0
+      }
+    ],
+    "edges": [
+      {
+        "from": "fac_admin_task_volume",
+        "to": "out_time_freed",
+        "exists_probability": 0.8,
+        "strength": {
+          "__redacted": true,
+          "type": "object",
+          "keys": [
+            "mean",
+            "std"
+          ]
+        }
+      },
+      {
+        "from": "fac_admin_task_volume",
+        "to": "risk_management_overhead",
+        "exists_probability": 0.65,
+        "strength": {
+          "__redacted": true,
+          "type": "object",
+          "keys": [
+            "mean",
+            "std"
+          ]
+        }
+      },
+      {
+        "from": "fac_assistant_hours_week",
+        "to": "out_time_freed",
+        "exists_probability": 0.95,
+        "strength": {
+          "__redacted": true,
+          "type": "object",
+          "keys": [
+            "mean",
+            "std"
+          ]
+        }
+      },
+      {
+        "from": "fac_assistant_hours_week",
+        "to": "out_value_creation",
+        "exists_probability": 0.85,
+        "strength": {
+          "__redacted": true,
+          "type": "object",
+          "keys": [
+            "mean",
+            "std"
+          ]
+        }
+      },
+      {
+        "from": "fac_assistant_hours_week",
+        "to": "out_wellbeing",
+        "exists_probability": 0.65,
+        "strength": {
+          "__redacted": true,
+          "type": "object",
+          "keys": [
+            "mean",
+            "std"
+          ]
+        }
+      },
+      {
+        "from": "fac_assistant_hours_week",
+        "to": "risk_management_overhead",
+        "exists_probability": 0.8,
+        "strength": {
+          "__redacted": true,
+          "type": "object",
+          "keys": [
+            "mean",
+            "std"
+          ]
+        }
+      },
+      {
+        "from": "fac_assistant_quality_fit",
+        "to": "out_time_freed",
+        "exists_probability": 0.7,
+        "strength": {
+          "__redacted": true,
+          "type": "object",
+          "keys": [
+            "mean",
+            "std"
+          ]
+        }
+      },
+      {
+        "from": "fac_assistant_quality_fit",
+        "to": "out_value_creation",
+        "exists_probability": 0.75,
+        "strength": {
+          "__redacted": true,
+          "type": "object",
+          "keys": [
+            "mean",
+            "std"
+          ]
+        }
+      },
+      {
+        "from": "fac_assistant_quality_fit",
+        "to": "risk_admin_errors",
+        "exists_probability": 0.85,
+        "strength": {
+          "__redacted": true,
+          "type": "object",
+          "keys": [
+            "mean",
+            "std"
+          ]
+        }
+      },
+      {
+        "from": "fac_delegation_rate",
+        "to": "out_time_freed",
+        "exists_probability": 0.9,
+        "strength": {
+          "__redacted": true,
+          "type": "object",
+          "keys": [
+            "mean",
+            "std"
+          ]
+        }
+      },
+      {
+        "from": "fac_delegation_rate",
+        "to": "out_value_creation",
+        "exists_probability": 0.8,
+        "strength": {
+          "__redacted": true,
+          "type": "object",
+          "keys": [
+            "mean",
+            "std"
+          ]
+        }
+      },
+      {
+        "from": "fac_delegation_rate",
+        "to": "out_wellbeing",
+        "exists_probability": 0.75,
+        "strength": {
+          "__redacted": true,
+          "type": "object",
+          "keys": [
+            "mean",
+            "std"
+          ]
+        }
+      },
+      {
+        "from": "fac_delegation_rate",
+        "to": "risk_admin_errors",
+        "exists_probability": 0.75,
+        "strength": {
+          "__redacted": true,
+          "type": "object",
+          "keys": [
+            "mean",
+            "std"
+          ]
+        }
+      },
+      {
+        "from": "fac_monthly_assistant_cost",
+        "to": "risk_financial_burden",
+        "exists_probability": 0.95,
+        "strength": {
+          "__redacted": true,
+          "type": "object",
+          "keys": [
+            "mean",
+            "std"
+          ]
+        }
+      },
+      {
+        "from": "fac_onboarding_time_hours_week",
+        "to": "risk_management_overhead",
+        "exists_probability": 0.9,
+        "strength": {
+          "__redacted": true,
+          "type": "object",
+          "keys": [
+            "mean",
+            "std"
+          ]
+        }
+      },
+      {
+        "from": "fac_value_per_hour_high_value",
+        "to": "out_value_creation",
+        "exists_probability": 0.75,
+        "strength": {
+          "__redacted": true,
+          "type": "object",
+          "keys": [
+            "mean",
+            "std"
+          ]
+        }
+      },
+      {
+        "from": "out_time_freed",
+        "to": "goal_net_effectiveness",
+        "exists_probability": 0.9,
+        "strength": {
+          "__redacted": true,
+          "type": "object",
+          "keys": [
+            "mean",
+            "std"
+          ]
+        }
+      },
+      {
+        "from": "out_value_creation",
+        "to": "goal_net_effectiveness",
+        "exists_probability": 0.95,
+        "strength": {
+          "__redacted": true,
+          "type": "object",
+          "keys": [
+            "mean",
+            "std"
+          ]
+        }
+      },
+      {
+        "from": "out_wellbeing",
+        "to": "goal_net_effectiveness",
+        "exists_probability": 0.8,
+        "strength": {
+          "__redacted": true,
+          "type": "object",
+          "keys": [
+            "mean",
+            "std"
+          ]
+        }
+      },
+      {
+        "from": "risk_admin_errors",
+        "to": "goal_net_effectiveness",
+        "exists_probability": 0.85,
+        "strength": {
+          "__redacted": true,
+          "type": "object",
+          "keys": [
+            "mean",
+            "std"
+          ]
+        }
+      },
+      {
+        "from": "risk_financial_burden",
+        "to": "goal_net_effectiveness",
+        "exists_probability": 0.9,
+        "strength": {
+          "__redacted": true,
+          "type": "object",
+          "keys": [
+            "mean",
+            "std"
+          ]
+        }
+      },
+      {
+        "from": "risk_management_overhead",
+        "to": "goal_net_effectiveness",
+        "exists_probability": 0.8,
+        "strength": {
+          "__redacted": true,
+          "type": "object",
+          "keys": [
+            "mean",
+            "std"
+          ]
+        }
+      }
+    ]
+  },
+  "options": [
+    {
+      "id": "opt_full_time_pa",
+      "label": "Hire Full-time Personal Assistant",
+      "interventions": {
+        "fac_assistant_hours_week": 1,
+        "fac_monthly_assistant_cost": 1,
+        "fac_delegation_rate": 0.8,
+        "fac_onboarding_time_hours_week": 1
+      }
+    },
+    {
+      "id": "opt_part_time_va",
+      "label": "Hire Part-time / Virtual Assistant",
+      "interventions": {
+        "fac_assistant_hours_week": 1,
+        "fac_monthly_assistant_cost": 1,
+        "fac_delegation_rate": 0.5,
+        "fac_onboarding_time_hours_week": 1
+      }
+    },
+    {
+      "id": "opt_status_quo",
+      "label": "Status Quo (No Assistant)",
+      "interventions": {
+        "fac_assistant_hours_week": 0,
+        "fac_monthly_assistant_cost": 0,
+        "fac_delegation_rate": 0,
+        "fac_onboarding_time_hours_week": 0
+      }
+    }
+  ],
+  "goal_node_id": "goal_net_effectiveness",
+  "n_samples": 1000,
+  "analysis_types": [
+    "comparison",
+    "sensitivity",
+    "robustness"
+  ],
+  "parameter_uncertainties": [
+    {
+      "node_id": "fac_assistant_hours_week",
+      "distribution": "normal",
+      "mean": 0,
+      "std": 0.5
+    },
+    {
+      "node_id": "fac_delegation_rate",
+      "distribution": "normal",
+      "mean": 0,
+      "std": 0.5
+    },
+    {
+      "node_id": "fac_monthly_assistant_cost",
+      "distribution": "normal",
+      "mean": 0,
+      "std": 0.5
+    },
+    {
+      "node_id": "fac_onboarding_time_hours_week",
+      "distribution": "normal",
+      "mean": 0,
+      "std": 0.5
+    }
+  ]
+}

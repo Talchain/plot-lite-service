@@ -1,0 +1,113 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://olumi.ai/schemas/cee-graph.schema.json",
+  "title": "CEE Graph Draft",
+  "description": "Schema for CEE graph draft output (M0/M2 - graph generation, not M1 review)",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema_version", "nodes", "edges", "goal_node_id"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "CEE graph schema version"
+    },
+    "nodes": {
+      "type": "array",
+      "description": "Graph nodes (factors, decisions, options, outcomes, goals, risks)",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["id", "kind", "label"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["factor", "decision", "option", "outcome", "goal", "risk"]
+          },
+          "label": {
+            "type": "string"
+          },
+          "observed_state": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "value": {
+                "type": "number"
+              },
+              "unit": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "edges": {
+      "type": "array",
+      "description": "Graph edges with causal relationships",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["from", "to"],
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "strength_mean": {
+            "type": "number"
+          },
+          "strength_std": {
+            "type": "number"
+          },
+          "belief_exists": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "effect_direction": {
+            "type": "string",
+            "enum": ["positive", "negative", "mixed"]
+          }
+        }
+      }
+    },
+    "options": {
+      "type": "array",
+      "description": "Decision options with interventions",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["id", "label"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "interventions": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "goal_node_id": {
+      "type": "string",
+      "description": "ID of the goal node"
+    },
+    "analysis_ready": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Analysis readiness status for options"
+    }
+  }
+}

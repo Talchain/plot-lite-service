@@ -1,0 +1,900 @@
+{
+  "schema_version": "3.0",
+  "nodes": [
+    {
+      "id": "dec_personal_assistant",
+      "kind": "decision",
+      "label": "Hire a Personal Assistant for Admin"
+    },
+    {
+      "id": "fac_admin_task_volume",
+      "kind": "factor",
+      "label": "Admin Task Volume (Uncontrollable)"
+    },
+    {
+      "id": "fac_assistant_hours_week",
+      "kind": "factor",
+      "label": "Assistant Hours per Week",
+      "observed_state": {
+        "value": 0,
+        "unit": "hours/week",
+        "source": "cee_inference"
+      }
+    },
+    {
+      "id": "fac_assistant_quality_fit",
+      "kind": "factor",
+      "label": "Assistant Quality & Fit (Uncontrollable)"
+    },
+    {
+      "id": "fac_delegation_rate",
+      "kind": "factor",
+      "label": "Delegation Rate (0-1)",
+      "observed_state": {
+        "value": 0,
+        "unit": "ratio",
+        "source": "cee_inference"
+      }
+    },
+    {
+      "id": "fac_monthly_assistant_cost",
+      "kind": "factor",
+      "label": "Monthly Assistant Cost",
+      "observed_state": {
+        "value": 0,
+        "unit": "$/month",
+        "source": "cee_inference"
+      }
+    },
+    {
+      "id": "fac_onboarding_time_hours_week",
+      "kind": "factor",
+      "label": "Onboarding & Management Time (hours/week)",
+      "observed_state": {
+        "value": 0,
+        "unit": "hours/week",
+        "source": "cee_inference"
+      }
+    },
+    {
+      "id": "fac_value_per_hour_high_value",
+      "kind": "factor",
+      "label": "Value per Hour of High-Value Work (Uncontrollable)"
+    },
+    {
+      "id": "goal_net_effectiveness",
+      "kind": "goal",
+      "label": "Increase Net Personal Effectiveness (Value Created minus Costs/Risks)"
+    },
+    {
+      "id": "opt_full_time_pa",
+      "kind": "option",
+      "label": "Hire Full-time Personal Assistant"
+    },
+    {
+      "id": "opt_part_time_va",
+      "kind": "option",
+      "label": "Hire Part-time / Virtual Assistant"
+    },
+    {
+      "id": "opt_status_quo",
+      "kind": "option",
+      "label": "Status Quo (No Assistant)"
+    },
+    {
+      "id": "out_time_freed",
+      "kind": "outcome",
+      "label": "Time Freed for High-Value Work"
+    },
+    {
+      "id": "out_value_creation",
+      "kind": "outcome",
+      "label": "Value Creation / Output"
+    },
+    {
+      "id": "out_wellbeing",
+      "kind": "outcome",
+      "label": "Wellbeing & Reduced Stress"
+    },
+    {
+      "id": "risk_admin_errors",
+      "kind": "risk",
+      "label": "Admin Errors / Rework"
+    },
+    {
+      "id": "risk_financial_burden",
+      "kind": "risk",
+      "label": "Financial Burden"
+    },
+    {
+      "id": "risk_management_overhead",
+      "kind": "risk",
+      "label": "Management Overhead"
+    }
+  ],
+  "edges": [
+    {
+      "from": "dec_personal_assistant",
+      "to": "opt_full_time_pa",
+      "strength_mean": 1,
+      "strength_std": 0.01,
+      "belief_exists": 0.3333333333333333,
+      "effect_direction": "positive"
+    },
+    {
+      "from": "dec_personal_assistant",
+      "to": "opt_part_time_va",
+      "strength_mean": 1,
+      "strength_std": 0.01,
+      "belief_exists": 0.3333333333333333,
+      "effect_direction": "positive"
+    },
+    {
+      "from": "dec_personal_assistant",
+      "to": "opt_status_quo",
+      "strength_mean": 1,
+      "strength_std": 0.01,
+      "belief_exists": 0.3333333333333333,
+      "effect_direction": "positive"
+    },
+    {
+      "from": "fac_admin_task_volume",
+      "to": "out_time_freed",
+      "strength_mean": 0.4,
+      "strength_std": 0.2,
+      "belief_exists": 0.8,
+      "effect_direction": "positive"
+    },
+    {
+      "from": "fac_admin_task_volume",
+      "to": "risk_management_overhead",
+      "strength_mean": 0.3,
+      "strength_std": 0.25,
+      "belief_exists": 0.65,
+      "effect_direction": "positive"
+    },
+    {
+      "from": "fac_assistant_hours_week",
+      "to": "out_time_freed",
+      "strength_mean": 0.85,
+      "strength_std": 0.12,
+      "belief_exists": 0.95,
+      "effect_direction": "positive"
+    },
+    {
+      "from": "fac_assistant_hours_week",
+      "to": "out_value_creation",
+      "strength_mean": 0.55,
+      "strength_std": 0.18,
+      "belief_exists": 0.85,
+      "effect_direction": "positive"
+    },
+    {
+      "from": "fac_assistant_hours_week",
+      "to": "out_wellbeing",
+      "strength_mean": 0.3,
+      "strength_std": 0.22,
+      "belief_exists": 0.65,
+      "effect_direction": "positive"
+    },
+    {
+      "from": "fac_assistant_hours_week",
+      "to": "risk_management_overhead",
+      "strength_mean": 0.45,
+      "strength_std": 0.2,
+      "belief_exists": 0.8,
+      "effect_direction": "positive"
+    },
+    {
+      "from": "fac_assistant_quality_fit",
+      "to": "out_time_freed",
+      "strength_mean": 0.35,
+      "strength_std": 0.22,
+      "belief_exists": 0.7,
+      "effect_direction": "positive"
+    },
+    {
+      "from": "fac_assistant_quality_fit",
+      "to": "out_value_creation",
+      "strength_mean": 0.45,
+      "strength_std": 0.2,
+      "belief_exists": 0.75,
+      "effect_direction": "positive"
+    },
+    {
+      "from": "fac_assistant_quality_fit",
+      "to": "risk_admin_errors",
+      "strength_mean": -0.7,
+      "strength_std": 0.18,
+      "belief_exists": 0.85,
+      "effect_direction": "negative"
+    },
+    {
+      "from": "fac_delegation_rate",
+      "to": "out_time_freed",
+      "strength_mean": 0.65,
+      "strength_std": 0.15,
+      "belief_exists": 0.9,
+      "effect_direction": "positive"
+    },
+    {
+      "from": "fac_delegation_rate",
+      "to": "out_value_creation",
+      "strength_mean": 0.5,
+      "strength_std": 0.2,
+      "belief_exists": 0.8,
+      "effect_direction": "positive"
+    },
+    {
+      "from": "fac_delegation_rate",
+      "to": "out_wellbeing",
+      "strength_mean": 0.45,
+      "strength_std": 0.2,
+      "belief_exists": 0.75,
+      "effect_direction": "positive"
+    },
+    {
+      "from": "fac_delegation_rate",
+      "to": "risk_admin_errors",
+      "strength_mean": 0.35,
+      "strength_std": 0.22,
+      "belief_exists": 0.75,
+      "effect_direction": "positive"
+    },
+    {
+      "from": "fac_monthly_assistant_cost",
+      "to": "risk_financial_burden",
+      "strength_mean": 0.8,
+      "strength_std": 0.12,
+      "belief_exists": 0.95,
+      "effect_direction": "positive"
+    },
+    {
+      "from": "fac_onboarding_time_hours_week",
+      "to": "risk_management_overhead",
+      "strength_mean": 0.7,
+      "strength_std": 0.15,
+      "belief_exists": 0.9,
+      "effect_direction": "positive"
+    },
+    {
+      "from": "fac_value_per_hour_high_value",
+      "to": "out_value_creation",
+      "strength_mean": 0.7,
+      "strength_std": 0.2,
+      "belief_exists": 0.75,
+      "effect_direction": "positive"
+    },
+    {
+      "from": "opt_full_time_pa",
+      "to": "fac_assistant_hours_week",
+      "strength_mean": 1,
+      "strength_std": 0.01,
+      "belief_exists": 1,
+      "effect_direction": "positive"
+    },
+    {
+      "from": "opt_full_time_pa",
+      "to": "fac_delegation_rate",
+      "strength_mean": 1,
+      "strength_std": 0.01,
+      "belief_exists": 1,
+      "effect_direction": "positive"
+    },
+    {
+      "from": "opt_full_time_pa",
+      "to": "fac_monthly_assistant_cost",
+      "strength_mean": 1,
+      "strength_std": 0.01,
+      "belief_exists": 1,
+      "effect_direction": "positive"
+    },
+    {
+      "from": "opt_full_time_pa",
+      "to": "fac_onboarding_time_hours_week",
+      "strength_mean": 1,
+      "strength_std": 0.01,
+      "belief_exists": 1,
+      "effect_direction": "positive"
+    },
+    {
+      "from": "opt_part_time_va",
+      "to": "fac_assistant_hours_week",
+      "strength_mean": 1,
+      "strength_std": 0.01,
+      "belief_exists": 1,
+      "effect_direction": "positive"
+    },
+    {
+      "from": "opt_part_time_va",
+      "to": "fac_delegation_rate",
+      "strength_mean": 1,
+      "strength_std": 0.01,
+      "belief_exists": 1,
+      "effect_direction": "positive"
+    },
+    {
+      "from": "opt_part_time_va",
+      "to": "fac_monthly_assistant_cost",
+      "strength_mean": 1,
+      "strength_std": 0.01,
+      "belief_exists": 1,
+      "effect_direction": "positive"
+    },
+    {
+      "from": "opt_part_time_va",
+      "to": "fac_onboarding_time_hours_week",
+      "strength_mean": 1,
+      "strength_std": 0.01,
+      "belief_exists": 1,
+      "effect_direction": "positive"
+    },
+    {
+      "from": "opt_status_quo",
+      "to": "fac_assistant_hours_week",
+      "strength_mean": 1,
+      "strength_std": 0.01,
+      "belief_exists": 1,
+      "effect_direction": "positive"
+    },
+    {
+      "from": "opt_status_quo",
+      "to": "fac_delegation_rate",
+      "strength_mean": 1,
+      "strength_std": 0.01,
+      "belief_exists": 1,
+      "effect_direction": "positive"
+    },
+    {
+      "from": "opt_status_quo",
+      "to": "fac_monthly_assistant_cost",
+      "strength_mean": 1,
+      "strength_std": 0.01,
+      "belief_exists": 1,
+      "effect_direction": "positive"
+    },
+    {
+      "from": "opt_status_quo",
+      "to": "fac_onboarding_time_hours_week",
+      "strength_mean": 1,
+      "strength_std": 0.01,
+      "belief_exists": 1,
+      "effect_direction": "positive"
+    },
+    {
+      "from": "out_time_freed",
+      "to": "goal_net_effectiveness",
+      "strength_mean": 0.55,
+      "strength_std": 0.15,
+      "belief_exists": 0.9,
+      "effect_direction": "positive"
+    },
+    {
+      "from": "out_value_creation",
+      "to": "goal_net_effectiveness",
+      "strength_mean": 0.75,
+      "strength_std": 0.12,
+      "belief_exists": 0.95,
+      "effect_direction": "positive"
+    },
+    {
+      "from": "out_wellbeing",
+      "to": "goal_net_effectiveness",
+      "strength_mean": 0.35,
+      "strength_std": 0.2,
+      "belief_exists": 0.8,
+      "effect_direction": "positive"
+    },
+    {
+      "from": "risk_admin_errors",
+      "to": "goal_net_effectiveness",
+      "strength_mean": -0.5,
+      "strength_std": 0.18,
+      "belief_exists": 0.85,
+      "effect_direction": "negative"
+    },
+    {
+      "from": "risk_financial_burden",
+      "to": "goal_net_effectiveness",
+      "strength_mean": -0.6,
+      "strength_std": 0.15,
+      "belief_exists": 0.9,
+      "effect_direction": "negative"
+    },
+    {
+      "from": "risk_management_overhead",
+      "to": "goal_net_effectiveness",
+      "strength_mean": -0.4,
+      "strength_std": 0.2,
+      "belief_exists": 0.8,
+      "effect_direction": "negative"
+    }
+  ],
+  "options": [
+    {
+      "id": "opt_full_time_pa",
+      "label": "Hire Full-time Personal Assistant",
+      "status": "ready",
+      "interventions": {
+        "fac_assistant_hours_week": {
+          "value": 30,
+          "unit": "hours/week",
+          "source": "brief_extraction",
+          "target_match": {
+            "node_id": "fac_assistant_hours_week",
+            "match_type": "exact_id",
+            "confidence": "high"
+          },
+          "value_confidence": "high",
+          "reasoning": "Direct from V4 prompt data.interventions"
+        },
+        "fac_monthly_assistant_cost": {
+          "value": 4000,
+          "unit": "$/month",
+          "source": "brief_extraction",
+          "target_match": {
+            "node_id": "fac_monthly_assistant_cost",
+            "match_type": "exact_id",
+            "confidence": "high"
+          },
+          "value_confidence": "high",
+          "reasoning": "Direct from V4 prompt data.interventions"
+        },
+        "fac_delegation_rate": {
+          "value": 0.8,
+          "unit": "ratio",
+          "source": "brief_extraction",
+          "target_match": {
+            "node_id": "fac_delegation_rate",
+            "match_type": "exact_id",
+            "confidence": "high"
+          },
+          "value_confidence": "high",
+          "reasoning": "Direct from V4 prompt data.interventions"
+        },
+        "fac_onboarding_time_hours_week": {
+          "value": 3,
+          "unit": "hours/week",
+          "source": "brief_extraction",
+          "target_match": {
+            "node_id": "fac_onboarding_time_hours_week",
+            "match_type": "exact_id",
+            "confidence": "high"
+          },
+          "value_confidence": "high",
+          "reasoning": "Direct from V4 prompt data.interventions"
+        }
+      },
+      "provenance": {
+        "source": "brief_extraction"
+      }
+    },
+    {
+      "id": "opt_part_time_va",
+      "label": "Hire Part-time / Virtual Assistant",
+      "status": "ready",
+      "interventions": {
+        "fac_assistant_hours_week": {
+          "value": 10,
+          "unit": "hours/week",
+          "source": "brief_extraction",
+          "target_match": {
+            "node_id": "fac_assistant_hours_week",
+            "match_type": "exact_id",
+            "confidence": "high"
+          },
+          "value_confidence": "high",
+          "reasoning": "Direct from V4 prompt data.interventions"
+        },
+        "fac_monthly_assistant_cost": {
+          "value": 1200,
+          "unit": "$/month",
+          "source": "brief_extraction",
+          "target_match": {
+            "node_id": "fac_monthly_assistant_cost",
+            "match_type": "exact_id",
+            "confidence": "high"
+          },
+          "value_confidence": "high",
+          "reasoning": "Direct from V4 prompt data.interventions"
+        },
+        "fac_delegation_rate": {
+          "value": 0.5,
+          "unit": "ratio",
+          "source": "brief_extraction",
+          "target_match": {
+            "node_id": "fac_delegation_rate",
+            "match_type": "exact_id",
+            "confidence": "high"
+          },
+          "value_confidence": "high",
+          "reasoning": "Direct from V4 prompt data.interventions"
+        },
+        "fac_onboarding_time_hours_week": {
+          "value": 1.5,
+          "unit": "hours/week",
+          "source": "brief_extraction",
+          "target_match": {
+            "node_id": "fac_onboarding_time_hours_week",
+            "match_type": "exact_id",
+            "confidence": "high"
+          },
+          "value_confidence": "high",
+          "reasoning": "Direct from V4 prompt data.interventions"
+        }
+      },
+      "provenance": {
+        "source": "brief_extraction"
+      }
+    },
+    {
+      "id": "opt_status_quo",
+      "label": "Status Quo (No Assistant)",
+      "status": "ready",
+      "interventions": {
+        "fac_assistant_hours_week": {
+          "value": 0,
+          "unit": "hours/week",
+          "source": "brief_extraction",
+          "target_match": {
+            "node_id": "fac_assistant_hours_week",
+            "match_type": "exact_id",
+            "confidence": "high"
+          },
+          "value_confidence": "high",
+          "reasoning": "Direct from V4 prompt data.interventions"
+        },
+        "fac_monthly_assistant_cost": {
+          "value": 0,
+          "unit": "$/month",
+          "source": "brief_extraction",
+          "target_match": {
+            "node_id": "fac_monthly_assistant_cost",
+            "match_type": "exact_id",
+            "confidence": "high"
+          },
+          "value_confidence": "high",
+          "reasoning": "Direct from V4 prompt data.interventions"
+        },
+        "fac_delegation_rate": {
+          "value": 0,
+          "unit": "ratio",
+          "source": "brief_extraction",
+          "target_match": {
+            "node_id": "fac_delegation_rate",
+            "match_type": "exact_id",
+            "confidence": "high"
+          },
+          "value_confidence": "high",
+          "reasoning": "Direct from V4 prompt data.interventions"
+        },
+        "fac_onboarding_time_hours_week": {
+          "value": 0,
+          "unit": "hours/week",
+          "source": "brief_extraction",
+          "target_match": {
+            "node_id": "fac_onboarding_time_hours_week",
+            "match_type": "exact_id",
+            "confidence": "high"
+          },
+          "value_confidence": "high",
+          "reasoning": "Direct from V4 prompt data.interventions"
+        }
+      },
+      "provenance": {
+        "source": "brief_extraction"
+      }
+    }
+  ],
+  "goal_node_id": "goal_net_effectiveness",
+  "analysis_ready": {
+    "options": [
+      {
+        "id": "opt_full_time_pa",
+        "label": "Hire Full-time Personal Assistant",
+        "status": "ready",
+        "status_reason": "4 intervention(s) ready for analysis",
+        "interventions": {
+          "fac_assistant_hours_week": 30,
+          "fac_monthly_assistant_cost": 4000,
+          "fac_delegation_rate": 0.8,
+          "fac_onboarding_time_hours_week": 3
+        },
+        "extraction_metadata": {
+          "source": "brief_extraction",
+          "confidence": "high",
+          "reasoning": "Direct from V4 prompt data.interventions"
+        }
+      },
+      {
+        "id": "opt_part_time_va",
+        "label": "Hire Part-time / Virtual Assistant",
+        "status": "ready",
+        "status_reason": "4 intervention(s) ready for analysis",
+        "interventions": {
+          "fac_assistant_hours_week": 10,
+          "fac_monthly_assistant_cost": 1200,
+          "fac_delegation_rate": 0.5,
+          "fac_onboarding_time_hours_week": 1.5
+        },
+        "extraction_metadata": {
+          "source": "brief_extraction",
+          "confidence": "high",
+          "reasoning": "Direct from V4 prompt data.interventions"
+        }
+      },
+      {
+        "id": "opt_status_quo",
+        "label": "Status Quo (No Assistant)",
+        "status": "ready",
+        "status_reason": "4 intervention(s) ready for analysis",
+        "interventions": {
+          "fac_assistant_hours_week": 0,
+          "fac_monthly_assistant_cost": 0,
+          "fac_delegation_rate": 0,
+          "fac_onboarding_time_hours_week": 0
+        },
+        "extraction_metadata": {
+          "source": "brief_extraction",
+          "confidence": "high",
+          "reasoning": "Direct from V4 prompt data.interventions"
+        }
+      }
+    ],
+    "goal_node_id": "goal_net_effectiveness",
+    "status": "ready"
+  },
+  "quality": {
+    "overall": 9,
+    "structure": 8,
+    "coverage": 10,
+    "causality": 8,
+    "safety": 7,
+    "details": {
+      "raw_confidence": 0.85,
+      "engine_issue_count": 1,
+      "cee_issue_count": 1,
+      "node_count": 18,
+      "edge_count": 37,
+      "option_count": 3,
+      "risk_count": 3,
+      "outcome_count": 3
+    }
+  },
+  "trace": {
+    "request_id": "86a5fadc-7c91-46d0-9634-6febf2b2ed9c",
+    "correlation_id": "86a5fadc-7c91-46d0-9634-6febf2b2ed9c",
+    "engine": {
+      "provider": "openai",
+      "model": "gpt-5.2",
+      "version": "1.11.1"
+    },
+    "goal_handling": {
+      "goal_source": "llm_generated",
+      "retry_attempted": false
+    },
+    "pipeline": {
+      "status": "success",
+      "total_duration_ms": 70866,
+      "llm_call_count": 1,
+      "stages": [
+        {
+          "name": "llm_draft",
+          "status": "success",
+          "duration_ms": 70859
+        },
+        {
+          "name": "coefficient_normalisation",
+          "status": "success",
+          "duration_ms": 0
+        },
+        {
+          "name": "node_validation",
+          "status": "success",
+          "duration_ms": 0
+        },
+        {
+          "name": "connectivity_check",
+          "status": "success",
+          "duration_ms": 0,
+          "details": {
+            "decision_count": 1,
+            "reachable_options": 3,
+            "reachable_goals": 1,
+            "unreachable_count": 0
+          }
+        },
+        {
+          "name": "final_validation",
+          "status": "success",
+          "duration_ms": 4
+        }
+      ],
+      "connectivity": {
+        "checked": true,
+        "passed": true,
+        "decision_ids": [
+          "dec_personal_assistant"
+        ],
+        "reachable_options": [
+          "opt_full_time_pa",
+          "opt_part_time_va",
+          "opt_status_quo"
+        ],
+        "reachable_goals": [
+          "goal_net_effectiveness"
+        ],
+        "unreachable_nodes": []
+      },
+      "llm_quality": {
+        "risk_coefficient_corrections": 0
+      },
+      "llm_metadata": {
+        "model": "gpt-5.2",
+        "prompt_version": "draft_graph_default@v11 (staging)",
+        "prompt_hash": "470e7a6415859ab7c00c162f922e0ecaa18452222b0815aad19a3cb00ea7dec6",
+        "duration_ms": 68526,
+        "finish_reason": "stop",
+        "response_chars": 10000,
+        "token_usage": {
+          "prompt_tokens": 3554,
+          "completion_tokens": 4780,
+          "total_tokens": 8334
+        },
+        "seed": 17,
+        "reasoning_effort": "medium",
+        "instance_id": "adb91499",
+        "cache_age_ms": 0,
+        "cache_status": "fresh",
+        "use_staging_mode": true
+      },
+      "node_extraction": {
+        "raw": {
+          "decision": 1,
+          "option": 3,
+          "factor": 7,
+          "outcome": 3,
+          "risk": 3,
+          "goal": 1
+        },
+        "normalised": {
+          "decision": 1,
+          "factor": 7,
+          "goal": 1,
+          "option": 3,
+          "outcome": 3,
+          "risk": 3
+        },
+        "validated": {
+          "decision": 1,
+          "factor": 7,
+          "goal": 1,
+          "option": 3,
+          "outcome": 3,
+          "risk": 3
+        }
+      },
+      "validation_summary": {
+        "status": "valid",
+        "required_kinds": [
+          "goal",
+          "decision",
+          "option"
+        ],
+        "present_kinds": [
+          "decision",
+          "factor",
+          "goal",
+          "option",
+          "outcome",
+          "risk"
+        ],
+        "missing_kinds": []
+      },
+      "llm_raw": {
+        "output_preview": "{\n  \"nodes\": [\n    {\n      \"id\": \"dec_personal_assistant\",\n      \"kind\": \"decision\",\n      \"label\": \"Hire a Personal Assistant for Admin\"\n    },\n    {\n      \"id\": \"opt_status_quo\",\n      \"kind\": \"option\",\n      \"label\": \"Status Quo (No Assistant)\",\n      \"data\": {\n        \"interventions\": {\n          \"fac_assistant_hours_week\": 0,\n          \"fac_monthly_assistant_cost\": 0,\n          \"fac_delegation_rate\": 0,\n          \"fac_onboarding_time_hours_week\": 0\n        }\n      }\n    },\n    {\n      \"id\": \"opt_part_time_va\",\n      \"kind\": \"option\",\n      \"label\": \"Hire Part-time / Virtual Assistant\",\n      \"data\": {\n        \"interventions\": {\n          \"fac_assistant_hours_week\": 10,\n          \"fac_monthly_assistant_cost\": 1200,\n          \"fac_delegation_rate\": 0.5,\n          \"fac_onboarding_time_hours_week\": 1.5\n        }\n      }\n    },\n    {\n      \"id\": \"opt_full_time_pa\",\n      \"kind\": \"option\",\n      \"label\": \"Hire Full-time Personal Assistant\",\n      \"data\": {\n        \"interventions\": {\n   ... (truncated, 2000 chars total)",
+        "output_hash": "462c9986bd5b887e0a4b74c423d423ac22fcf809c739da7f4d0d992cbf8a88af",
+        "output_node_count": 18,
+        "output_edge_count": 37,
+        "truncated": true,
+        "full_output_available": true
+      },
+      "final_graph": {
+        "node_count": 18,
+        "edge_count": 37,
+        "node_kinds": [
+          "decision",
+          "factor",
+          "goal",
+          "option",
+          "outcome",
+          "risk"
+        ]
+      }
+    }
+  },
+  "validation_warnings": [
+    {
+      "code": "EDGE_STRENGTH_LOW",
+      "severity": "warning",
+      "message": "Edge from \"fac_admin_task_volume\" to \"out_time_freed\" has low strength (0.400)",
+      "affected_node_id": "fac_admin_task_volume",
+      "suggestion": "Review the strength of this relationship"
+    },
+    {
+      "code": "EDGE_STRENGTH_LOW",
+      "severity": "warning",
+      "message": "Edge from \"fac_admin_task_volume\" to \"risk_management_overhead\" has low strength (0.300)",
+      "affected_node_id": "fac_admin_task_volume",
+      "suggestion": "Review the strength of this relationship"
+    },
+    {
+      "code": "EDGE_STRENGTH_LOW",
+      "severity": "warning",
+      "message": "Edge from \"fac_assistant_hours_week\" to \"out_wellbeing\" has low strength (0.300)",
+      "affected_node_id": "fac_assistant_hours_week",
+      "suggestion": "Review the strength of this relationship"
+    },
+    {
+      "code": "EDGE_STRENGTH_LOW",
+      "severity": "warning",
+      "message": "Edge from \"fac_assistant_hours_week\" to \"risk_management_overhead\" has low strength (0.450)",
+      "affected_node_id": "fac_assistant_hours_week",
+      "suggestion": "Review the strength of this relationship"
+    },
+    {
+      "code": "EDGE_STRENGTH_LOW",
+      "severity": "warning",
+      "message": "Edge from \"fac_assistant_quality_fit\" to \"out_time_freed\" has low strength (0.350)",
+      "affected_node_id": "fac_assistant_quality_fit",
+      "suggestion": "Review the strength of this relationship"
+    },
+    {
+      "code": "EDGE_STRENGTH_LOW",
+      "severity": "warning",
+      "message": "Edge from \"fac_assistant_quality_fit\" to \"out_value_creation\" has low strength (0.450)",
+      "affected_node_id": "fac_assistant_quality_fit",
+      "suggestion": "Review the strength of this relationship"
+    },
+    {
+      "code": "EDGE_STRENGTH_LOW",
+      "severity": "warning",
+      "message": "Edge from \"fac_delegation_rate\" to \"out_wellbeing\" has low strength (0.450)",
+      "affected_node_id": "fac_delegation_rate",
+      "suggestion": "Review the strength of this relationship"
+    },
+    {
+      "code": "EDGE_STRENGTH_LOW",
+      "severity": "warning",
+      "message": "Edge from \"fac_delegation_rate\" to \"risk_admin_errors\" has low strength (0.350)",
+      "affected_node_id": "fac_delegation_rate",
+      "suggestion": "Review the strength of this relationship"
+    },
+    {
+      "code": "EDGE_STRENGTH_LOW",
+      "severity": "warning",
+      "message": "Edge from \"out_wellbeing\" to \"goal_net_effectiveness\" has low strength (0.350)",
+      "affected_node_id": "out_wellbeing",
+      "suggestion": "Review the strength of this relationship"
+    },
+    {
+      "code": "EDGE_STRENGTH_LOW",
+      "severity": "warning",
+      "message": "Edge from \"risk_management_overhead\" to \"goal_net_effectiveness\" has low strength (-0.400)",
+      "affected_node_id": "risk_management_overhead",
+      "suggestion": "Review the strength of this relationship"
+    }
+  ],
+  "meta": {
+    "roots": [
+      "dec_personal_assistant",
+      "fac_admin_task_volume",
+      "fac_assistant_quality_fit",
+      "fac_value_per_hour_high_value"
+    ],
+    "leaves": [
+      "goal_net_effectiveness"
+    ],
+    "source": "assistant"
+  }
+}
