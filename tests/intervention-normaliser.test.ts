@@ -409,14 +409,61 @@ describe('normaliseOptions', () => {
     expect(diagnostics.some(d => d.factor_id === 'salary' && d.original_value === 180000)).toBe(true);
   });
 
-  it('uses default range for unknown factors', () => {
+  it('infers range from intervention values for unknown factors', () => {
     const context = buildNormalisationContext([], 'goal');
     const options = [createOption('test', { unknown_factor: 0.5 })];
 
     const { options: normalised, diagnostics } = normaliseOptions(options, context);
 
     expect(diagnostics[0].range.source).toBe('default');
+    // Range inferred as [0, 2 × 0.5] = [0, 1], so 0.5 normalises to 0.5
     expect(normalised[0].interventions.unknown_factor.value).toBe(0.5);
+  });
+
+  it('preserves distinct large values when no factor context exists', () => {
+    // Reproduces the bug: values like 38000, 18000, 15 were being collapsed to 1
+    const context = buildNormalisationContext([], 'goal');
+    const options = [
+      createOption('optionA', { budget: 38000 }),
+      createOption('optionB', { budget: 18000 }),
+      createOption('optionC', { budget: 15 }),
+    ];
+
+    const { options: normalised, diagnostics } = normaliseOptions(options, context);
+
+    // Range should be inferred as [0, 2 × 38000] = [0, 76000]
+    expect(diagnostics[0].range.max).toBe(76000);
+
+    // Verify distinct normalised values (NOT all collapsed to 1)
+    const normalisedA = normalised[0].interventions.budget.value;
+    const normalisedB = normalised[1].interventions.budget.value;
+    const normalisedC = normalised[2].interventions.budget.value;
+
+    // 38000 / 76000 = 0.5
+    expect(normalisedA).toBeCloseTo(0.5);
+    // 18000 / 76000 ≈ 0.237
+    expect(normalisedB).toBeCloseTo(0.237, 2);
+    // 15 / 76000 ≈ 0.0002
+    expect(normalisedC).toBeCloseTo(0.000197, 4);
+
+    // Crucially: all values are DISTINCT
+    expect(normalisedA).not.toBe(normalisedB);
+    expect(normalisedB).not.toBe(normalisedC);
+    expect(normalisedA).not.toBe(1); // NOT clamped to 1
+  });
+
+  it('uses consistent range across all options for same unknown factor', () => {
+    const context = buildNormalisationContext([], 'goal');
+    const options = [
+      createOption('small', { factor: 10 }),
+      createOption('large', { factor: 1000 }),
+    ];
+
+    const { diagnostics } = normaliseOptions(options, context);
+
+    // Both should use the same range derived from max value
+    expect(diagnostics[0].range.max).toBe(2000); // 2 × 1000
+    expect(diagnostics[1].range.max).toBe(2000);
   });
 
   it('preserves intervention source', () => {

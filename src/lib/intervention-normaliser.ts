@@ -251,7 +251,64 @@ export function buildNormalisationContext(
 // -----------------------------------------------------------------------------
 
 /**
+ * Build fallback ranges from intervention values for factors without context.
+ *
+ * When a factor has no normalisation context (no observed_state, no state_space.range),
+ * we derive a range from the intervention values themselves to avoid collapsing
+ * distinct values to the same normalised result.
+ *
+ * Range: [0, 2 × max(|intervention values|)]
+ *
+ * @param options Options with intervention values
+ * @param context Existing normalisation context
+ * @returns Map of factor ID to inferred range
+ */
+function buildFallbackRanges(
+  options: OptionV3[],
+  context: NormalisationContext
+): Map<string, NormalisationRange> {
+  // Collect all intervention values by factor ID
+  const valuesByFactor = new Map<string, number[]>();
+
+  for (const option of options) {
+    for (const [factorId, intervention] of Object.entries(option.interventions)) {
+      // Only collect for factors without existing context
+      if (!context.factors.has(factorId)) {
+        const existing = valuesByFactor.get(factorId) ?? [];
+        existing.push(intervention.value);
+        valuesByFactor.set(factorId, existing);
+      }
+    }
+  }
+
+  // Build ranges from collected values
+  const fallbackRanges = new Map<string, NormalisationRange>();
+
+  for (const [factorId, values] of valuesByFactor) {
+    const maxAbsValue = Math.max(...values.map(Math.abs));
+
+    if (maxAbsValue > 0) {
+      // Range: [0, 2 × max(|values|)] - ensures all values fit with headroom
+      fallbackRanges.set(factorId, {
+        min: 0,
+        max: 2 * maxAbsValue,
+        source: 'default', // Still 'default' source but with meaningful range
+      });
+    } else {
+      // All values are zero - use [0, 1]
+      fallbackRanges.set(factorId, { min: 0, max: 1, source: 'default' });
+    }
+  }
+
+  return fallbackRanges;
+}
+
+/**
  * Normalise all intervention values in options.
+ *
+ * When factors lack normalisation context (no observed_state, no state_space.range),
+ * ranges are inferred from the intervention values themselves to ensure distinct
+ * values produce distinct normalised results.
  *
  * @param options Original options with raw intervention values
  * @param context Normalisation context
@@ -263,45 +320,34 @@ export function normaliseOptions(
 ): { options: OptionV3[]; diagnostics: NormalisationDiagnostic[] } {
   const diagnostics: NormalisationDiagnostic[] = [];
 
+  // Build fallback ranges for factors without context
+  const fallbackRanges = buildFallbackRanges(options, context);
+
   const normalisedOptions: OptionV3[] = options.map(option => {
     const normalisedInterventions: Record<string, InterventionValueV3> = {};
 
     for (const [factorId, intervention] of Object.entries(option.interventions)) {
       const factorContext = context.factors.get(factorId);
 
-      if (!factorContext) {
-        // No context for this factor - use default range
-        const defaultRange: NormalisationRange = { min: 0, max: 1, source: 'default' };
-        const { normalised, clamped } = normaliseValue(intervention.value, defaultRange);
+      // Determine which range to use
+      const range: NormalisationRange = factorContext
+        ? factorContext.range
+        : fallbackRanges.get(factorId) ?? { min: 0, max: 1, source: 'default' };
 
-        normalisedInterventions[factorId] = {
-          value: normalised,
-          source: intervention.source,
-        };
+      const { normalised, clamped } = normaliseValue(intervention.value, range);
 
-        diagnostics.push({
-          factor_id: factorId,
-          original_value: intervention.value,
-          normalised_value: normalised,
-          range: defaultRange,
-          clamped,
-        });
-      } else {
-        const { normalised, clamped } = normaliseValue(intervention.value, factorContext.range);
+      normalisedInterventions[factorId] = {
+        value: normalised,
+        source: intervention.source,
+      };
 
-        normalisedInterventions[factorId] = {
-          value: normalised,
-          source: intervention.source,
-        };
-
-        diagnostics.push({
-          factor_id: factorId,
-          original_value: intervention.value,
-          normalised_value: normalised,
-          range: factorContext.range,
-          clamped,
-        });
-      }
+      diagnostics.push({
+        factor_id: factorId,
+        original_value: intervention.value,
+        normalised_value: normalised,
+        range,
+        clamped,
+      });
     }
 
     return {
