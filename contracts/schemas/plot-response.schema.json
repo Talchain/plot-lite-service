@@ -183,6 +183,43 @@
         "recommended_option_label": {
           "type": "string",
           "description": "Human-readable label for the recommended option. Fallback chain: graph node label → option_comparison label → option_id."
+        },
+        "near_tie": {
+          "type": "object",
+          "description": "Near-tie detection when top options are statistically equivalent. Gap < 10% threshold indicates recommendation is uncertain.",
+          "additionalProperties": false,
+          "required": ["is_tie", "top_option_id", "second_option_id", "tied_option_ids", "gap", "threshold"],
+          "properties": {
+            "is_tie": {
+              "type": "boolean",
+              "description": "Whether a near-tie was detected (gap < threshold)"
+            },
+            "top_option_id": {
+              "type": "string",
+              "description": "ID of top-performing option (highest win_probability)"
+            },
+            "second_option_id": {
+              "type": ["string", "null"],
+              "description": "ID of second-place option (null if only one computed option)"
+            },
+            "tied_option_ids": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "IDs of all options within threshold of top performer"
+            },
+            "gap": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Gap between top two options (0-1 probability)"
+            },
+            "threshold": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Threshold used for detection (default: 0.10)"
+            }
+          }
         }
       }
     },
@@ -237,6 +274,39 @@
           },
           "zero_reason": {
             "type": "string"
+          }
+        }
+      }
+    },
+    "factor_enrichments": {
+      "type": "array",
+      "description": "Factor enrichments from CEE /assist/v1/review. Human-readable insights for UI factor cards. Non-deterministic (LLM-derived), excluded from canonical hash.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["factor_id", "factor_label", "observations", "perspectives"],
+        "properties": {
+          "factor_id": {
+            "type": "string",
+            "description": "Factor ID matching factor_sensitivity[].factor_id"
+          },
+          "factor_label": {
+            "type": "string",
+            "description": "Human-readable factor label"
+          },
+          "observations": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Key observations about this factor's influence"
+          },
+          "perspectives": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Alternative perspectives to consider"
+          },
+          "confidence_question": {
+            "type": "string",
+            "description": "Optional question to prompt user confidence calibration"
           }
         }
       }

@@ -10,6 +10,9 @@ import type {
   CeeTrace,
   CeeDecisionReviewPayloadV1,
   CeeErrorSuggestedAction,
+  FactorEnrichment,
+  CeeFactorReviewRequest,
+  CeeFactorReviewResponse,
 } from './types.js';
 import { runDecisionReviewViaSdk, type EvidenceHelperItem } from './orchestrator.js';
 import { isFlagOn } from './codes.js';
@@ -332,6 +335,141 @@ export async function biasCheckV2(
     { graph, archetype },
     requestId
   );
+}
+
+// -----------------------------------------------------------------------------
+// Factor Enrichments - CEE /assist/v1/review
+// -----------------------------------------------------------------------------
+
+/** Hard timeout for factor enrichments (3s per brief) */
+const FACTOR_REVIEW_TIMEOUT_MS = 3000;
+
+/**
+ * Call CEE /assist/v1/review for factor enrichments.
+ *
+ * This endpoint provides human-readable insights for factor cards in the UI.
+ * It is DISTINCT from /assist/v1/decision-review (which provides robustness synthesis).
+ *
+ * Contract:
+ * - 3s hard timeout
+ * - On error/timeout: returns undefined (silent fallback)
+ * - Does not throw exceptions
+ * - Does not affect analysis_status
+ * - Logs errors for observability
+ *
+ * @param config CEE connection config
+ * @param graph Normalized graph used for analysis
+ * @param factorSensitivity Factor sensitivity results (will be capped to top 10 by rank)
+ * @param requestId Request ID for tracing
+ * @returns Factor enrichments array, or undefined on error
+ */
+export async function factorReviewV2(
+  config: CEESchemaV2Config,
+  graph: unknown,
+  factorSensitivity: CeeFactorReviewRequest['factor_sensitivity'],
+  requestId: string
+): Promise<FactorEnrichment[] | undefined> {
+  const startMs = Date.now();
+  const path = '/assist/v1/review';
+
+  try {
+    // Cap to top 10 factors by rank (per brief)
+    const cappedFactors = [...factorSensitivity]
+      .sort((a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity))
+      .slice(0, 10);
+
+    const payload: CeeFactorReviewRequest = {
+      graph,
+      factor_sensitivity: cappedFactors,
+    };
+
+    const baseUrl = config.baseUrl.replace(/\/$/, '');
+    const url = `${baseUrl}${path}?schema=v2`;
+    const payloadHash = computeOlumiHash(payload);
+
+    const response = await fetchWithTimeout(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-Olumi-Assist-Key': config.apiKey,
+        'X-Request-Id': requestId,
+      },
+      body: JSON.stringify(payload),
+      timeoutMs: FACTOR_REVIEW_TIMEOUT_MS,
+    });
+
+    const latencyMs = Date.now() - startMs;
+
+    if (!response.ok) {
+      // Record failed downstream call
+      recordDownstreamCall({
+        service: 'cee',
+        endpoint: path,
+        status: response.status,
+        elapsedMs: latencyMs,
+        payloadHash,
+        requestId,
+      });
+
+      const errorText = await response.text().catch(() => 'Unknown error');
+      console.warn(JSON.stringify({
+        event: 'cee_factor_review_error',
+        request_id: requestId,
+        status: response.status,
+        error: errorText,
+        latency_ms: latencyMs,
+      }));
+
+      return undefined;
+    }
+
+    const data = await response.json() as CeeFactorReviewResponse;
+    const responseHash = computeOlumiHash(data);
+
+    // Record successful downstream call
+    recordDownstreamCall({
+      service: 'cee',
+      endpoint: path,
+      status: response.status,
+      elapsedMs: latencyMs,
+      payloadHash,
+      responseHash,
+      requestId,
+    });
+
+    console.log(JSON.stringify({
+      event: 'cee_factor_review_success',
+      request_id: requestId,
+      enrichment_count: data.factor_enrichments?.length ?? 0,
+      latency_ms: latencyMs,
+    }));
+
+    return data.factor_enrichments;
+  } catch (error) {
+    const latencyMs = Date.now() - startMs;
+    const errorMsg = error instanceof Error ? error.message : String(error);
+
+    // Record failed downstream call (network/timeout)
+    recordDownstreamCall({
+      service: 'cee',
+      endpoint: path,
+      status: 0, // 0 indicates network/timeout error
+      elapsedMs: latencyMs,
+      payloadHash: '-',
+      requestId,
+    });
+
+    console.warn(JSON.stringify({
+      event: 'cee_factor_review_error',
+      request_id: requestId,
+      error: errorMsg,
+      latency_ms: latencyMs,
+      timeout: errorMsg.includes('timeout') || errorMsg.includes('Timeout'),
+    }));
+
+    return undefined;
+  }
 }
 
 async function probeHealth(baseUrl: string, timeoutMs: number, logger?: FastifyBaseLogger): Promise<boolean> {

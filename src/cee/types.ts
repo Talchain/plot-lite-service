@@ -332,3 +332,50 @@ export interface CeeErrorNormalized {
   /** Alias for UI tolerance */
   retryable: boolean;
 }
+
+// -----------------------------------------------------------------------------
+// Factor Enrichments (CEE /assist/v1/review)
+// -----------------------------------------------------------------------------
+
+/**
+ * Factor enrichment from CEE /assist/v1/review endpoint.
+ * Provides human-readable insights for UI display on factor cards.
+ */
+export interface FactorEnrichment {
+  /** Factor ID matching factor_sensitivity[].factor_id */
+  factor_id: string;
+  /** Human-readable factor label */
+  factor_label: string;
+  /** Key observations about this factor's influence */
+  observations: string[];
+  /** Alternative perspectives to consider */
+  perspectives: string[];
+  /** Optional question to prompt user confidence calibration */
+  confidence_question?: string;
+}
+
+/**
+ * Request payload for CEE /assist/v1/review endpoint
+ */
+export interface CeeFactorReviewRequest {
+  /** Normalized graph used for analysis */
+  graph: unknown;
+  /** Factor sensitivity results (top 10 by rank) */
+  factor_sensitivity: Array<{
+    factor_id: string;
+    factor_label?: string;
+    elasticity?: number;
+    rank?: number;
+    direction?: string;
+    value_of_information?: number;
+    confidence?: number;
+    flip_risk_category?: string;
+  }>;
+}
+
+/**
+ * Response from CEE /assist/v1/review endpoint
+ */
+export interface CeeFactorReviewResponse {
+  factor_enrichments: FactorEnrichment[];
+}

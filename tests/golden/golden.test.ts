@@ -94,6 +94,35 @@ describe('Golden Fixtures - Pricing Canary', () => {
       expect(typeof plotResponse.robustness.recommended_option_label).toBe('string');
       expect((plotResponse.robustness.recommended_option_label as string).length).toBeGreaterThan(0);
     });
+
+    it('near_tie object is present in robustness', () => {
+      expect(plotResponse.robustness.near_tie).toBeDefined();
+    });
+
+    it('near_tie.is_tie = false for wide gap (45.5%)', () => {
+      expect(plotResponse.robustness.near_tie.is_tie).toBe(false);
+    });
+
+    it('near_tie.gap = 0.455 (72.75% - 27.25%)', () => {
+      expect(plotResponse.robustness.near_tie.gap).toBe(0.455);
+    });
+
+    it('near_tie.threshold = 0.1 (10%)', () => {
+      expect(plotResponse.robustness.near_tie.threshold).toBe(0.1);
+    });
+
+    it('near_tie.top_option_id matches recommended_option_id', () => {
+      expect(plotResponse.robustness.near_tie.top_option_id).toBe(
+        plotResponse.robustness.recommended_option_id
+      );
+    });
+
+    it('near_tie.tied_option_ids contains only top option for non-tie', () => {
+      expect(plotResponse.robustness.near_tie.tied_option_ids).toHaveLength(1);
+      expect(plotResponse.robustness.near_tie.tied_option_ids[0]).toBe(
+        plotResponse.robustness.near_tie.top_option_id
+      );
+    });
   });
 
   // =============================================================================

@@ -56,6 +56,10 @@ const SCENARIO_REQUIREMENTS: Record<string, ScenarioRequirement> = {
     type: 'full',
     requiredFiles: ['cee-graph.json', 'isl-request.json', 'isl-response.json', 'plot-response.json'],
   },
+  'near-tie-canary': {
+    type: 'minimal',
+    requiredFiles: ['isl-response.json', 'plot-response.json'],
+  },
 };
 
 interface ValidationResult {

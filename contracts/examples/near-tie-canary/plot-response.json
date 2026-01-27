@@ -1,0 +1,106 @@
+{
+  "request_schema_version": "v3",
+  "endpoint_version": "v2/run",
+  "preflight_version": "2025-12-26",
+  "analysis_status": "computed",
+  "option_comparison_status": "computed",
+  "robustness_status": "computed",
+  "drivers_status": "computed",
+  "isl_analysis_status": "computed",
+  "critiques": [],
+  "option_comparison": [
+    {
+      "option_id": "opt_a",
+      "option_label": "Option A",
+      "expected_outcome": 10.5,
+      "confidence_interval": [7.2, 13.8],
+      "outcome": {
+        "mean": 10.5,
+        "std": 2.1,
+        "p10": 7.2,
+        "p50": 10.4,
+        "p90": 13.8,
+        "n_samples": 1000,
+        "n_valid_samples": 1000,
+        "validity_ratio": 1
+      },
+      "status": "computed",
+      "win_probability": 0.48
+    },
+    {
+      "option_id": "opt_b",
+      "option_label": "Option B",
+      "expected_outcome": 10.8,
+      "confidence_interval": [7.3, 14.1],
+      "outcome": {
+        "mean": 10.8,
+        "std": 2.2,
+        "p10": 7.3,
+        "p50": 10.7,
+        "p90": 14.1,
+        "n_samples": 1000,
+        "n_valid_samples": 1000,
+        "validity_ratio": 1
+      },
+      "status": "computed",
+      "win_probability": 0.52
+    }
+  ],
+  "factor_sensitivity": [
+    {
+      "factor_id": "factor_x",
+      "factor_label": "Factor X",
+      "sensitivity_score": 0.8,
+      "elasticity": 0.75,
+      "direction": "positive",
+      "confidence": 0.8,
+      "value_of_information": 0.75,
+      "influence_rank": 1,
+      "source": "graph",
+      "flip_risk_category": "isolated"
+    }
+  ],
+  "robustness": {
+    "fragile_edges": [
+      {
+        "edge_id": "factor_x->goal",
+        "from_id": "factor_x",
+        "to_id": "goal",
+        "switch_probability": 0.48,
+        "marginal_switch_probability": 0.04,
+        "alternative_winner_id": "opt_a",
+        "alternative_winner_label": "Option A"
+      }
+    ],
+    "robust_edges": [],
+    "recommendation_stability": 0.52,
+    "recommended_option_id": "opt_b",
+    "recommended_option_label": "Option B",
+    "near_tie": {
+      "is_tie": true,
+      "top_option_id": "opt_b",
+      "second_option_id": "opt_a",
+      "tied_option_ids": ["opt_b", "opt_a"],
+      "gap": 0.04,
+      "threshold": 0.1
+    }
+  },
+  "robustness_synthesis": null,
+  "cee_status": "skipped",
+  "decision_quality": null,
+  "insights": null,
+  "improvement_guidance": null,
+  "rationale": null,
+  "meta": {
+    "seed_used": "12345",
+    "n_samples": 1000,
+    "detail_level": "deep",
+    "latency_ms": 500,
+    "normalization_ms": 1.0,
+    "validation_ms": 1.0,
+    "isl_ms": 450,
+    "cee_ms": 0,
+    "build": "near-tie-canary",
+    "computed_at": "2026-01-27T12:00:00.000Z"
+  }
+}

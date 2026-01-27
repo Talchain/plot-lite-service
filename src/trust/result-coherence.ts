@@ -10,6 +10,21 @@
  */
 
 // ============================================================================
+// Constants
+// ============================================================================
+
+/**
+ * Near-tie threshold for UI messaging.
+ * When gap between top two options < 10%, recommendation is not meaningfully distinguishable.
+ *
+ * NOTE: This is a product/UX choice (10%), distinct from close_race_threshold (2%).
+ * Do not consolidate or "optimise" — they serve different purposes:
+ * - NEAR_TIE_THRESHOLD (0.10): UI messaging about recommendation certainty
+ * - close_race_threshold (0.02): Internal coherence warning for close outcomes
+ */
+export const NEAR_TIE_THRESHOLD = 0.10;
+
+// ============================================================================
 // Types
 // ============================================================================
 

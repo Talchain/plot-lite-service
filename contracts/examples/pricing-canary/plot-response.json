@@ -298,7 +298,15 @@
     "robust_edges": [],
     "recommendation_stability": 0.7275,
     "recommended_option_id": "opt_raise_59",
-    "recommended_option_label": "Raise Pro to £59 with Next Release"
+    "recommended_option_label": "Raise Pro to £59 with Next Release",
+    "near_tie": {
+      "is_tie": false,
+      "top_option_id": "opt_raise_59",
+      "second_option_id": "opt_keep_49",
+      "tied_option_ids": ["opt_raise_59"],
+      "gap": 0.455,
+      "threshold": 0.1
+    }
   },
   "robustness_synthesis": null,
   "cee_status": "skipped",

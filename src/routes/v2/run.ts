@@ -33,6 +33,7 @@ import type {
   RobustnessSynthesisV3,
   RobustnessAssessmentV3,
   NormalizedEdgeInfoV3,
+  NearTieInfoV3,
   CeeStatusV3,
   DecisionQualityV3,
   InsightV3,
@@ -68,9 +69,11 @@ import {
 } from '../../integrations/isl/adapters/robustness-analysis.js';
 import type { RobustnessDataForCee, NormalizedEdgeInfo } from '../../integrations/isl/types/plot-types.js';
 import { orchestrateCeeReview } from '../../cee/orchestrator.js';
-import type { CeeReviewRequest, CeeTrace } from '../../cee/types.js';
+import type { CeeReviewRequest, CeeTrace, FactorEnrichment } from '../../cee/types.js';
+import { factorReviewV2, type CEESchemaV2Config } from '../../cee/client.js';
 import { getDownstreamCallsForLog } from '../../util/downstream-tracker.js';
 import { computeFactorSensitivityFromGraph } from '../../lib/factor-influence.js';
+import { NEAR_TIE_THRESHOLD } from '../../trust/result-coherence.js';
 import {
   normaliseOptionsForISL,
   denormaliseISLResult,
@@ -594,6 +597,75 @@ function buildBlockedResponse(
 interface SensitivityData {
   edgeSensitivity: ReturnType<typeof transformEdgeSensitivity>;
   factorSensitivity: ReturnType<typeof transformFactorSensitivity>;
+  factorEnrichments?: FactorEnrichment[];
+}
+
+/**
+ * Compute near-tie detection from option comparison results.
+ *
+ * A near-tie is detected when the gap between the top two options
+ * is less than NEAR_TIE_THRESHOLD (10%).
+ *
+ * @param optionComparison Array of option comparison results
+ * @returns Near-tie info object
+ */
+export function computeNearTie(
+  optionComparison: Array<{ option_id: string; win_probability?: number; status?: string }> | undefined
+): NearTieInfoV3 | undefined {
+  if (!optionComparison || optionComparison.length === 0) {
+    return undefined;
+  }
+
+  // Filter to options where status === 'computed' and win_probability is valid
+  const validOptions = optionComparison.filter(
+    (o) =>
+      (o.status === undefined || o.status === 'computed') &&
+      o.win_probability !== undefined &&
+      o.win_probability !== null &&
+      Number.isFinite(o.win_probability)
+  );
+
+  if (validOptions.length === 0) {
+    return undefined;
+  }
+
+  // Sort descending by win_probability
+  const sorted = [...validOptions].sort((a, b) => b.win_probability! - a.win_probability!);
+
+  const topOption = sorted[0];
+  const topWinProb = topOption.win_probability!;
+
+  // Single valid option case
+  if (sorted.length === 1) {
+    return {
+      is_tie: false,
+      top_option_id: topOption.option_id,
+      second_option_id: null,
+      tied_option_ids: [],
+      gap: 1.0, // No comparison possible
+      threshold: NEAR_TIE_THRESHOLD,
+    };
+  }
+
+  // Two or more valid options
+  const secondOption = sorted[1];
+  const secondWinProb = secondOption.win_probability!;
+  const gap = topWinProb - secondWinProb;
+  const isTie = gap < NEAR_TIE_THRESHOLD;
+
+  // Find all options within threshold of top performer
+  const tiedOptionIds = sorted
+    .filter((o) => (topWinProb - o.win_probability!) < NEAR_TIE_THRESHOLD)
+    .map((o) => o.option_id);
+
+  return {
+    is_tie: isTie,
+    top_option_id: topOption.option_id,
+    second_option_id: secondOption.option_id,
+    tied_option_ids: tiedOptionIds,
+    gap,
+    threshold: NEAR_TIE_THRESHOLD,
+  };
 }
 
 /**
@@ -819,6 +891,15 @@ function buildResponse(
     robustness.recommended_option_label = recommendedOption.recommended_option_label;
   }
 
+  // Compute near-tie detection (after optionComparison is built)
+  const nearTie = computeNearTie(optionComparison);
+  if (robustness && nearTie) {
+    robustness.near_tie = nearTie;
+  }
+
+  // Extract factor_enrichments from sensitivityData (if present)
+  const factorEnrichments = sensitivityData?.factorEnrichments;
+
   return {
     request_schema_version: 'v3',
     endpoint_version: 'v2/run',
@@ -839,6 +920,9 @@ function buildResponse(
     option_comparison: optionComparison,
     edge_sensitivity: edgeSensitivity,
     factor_sensitivity: factorSensitivity,
+    // Factor enrichments from CEE /assist/v1/review (undefined when unavailable)
+    // NOTE: Non-deterministic (LLM-derived), excluded from canonical hash
+    ...(factorEnrichments && { factor_enrichments: factorEnrichments }),
     robustness,
     robustness_synthesis: robustnessSynthesis,
 
@@ -2018,16 +2102,52 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
 
         // Request CEE review (graceful degradation - returns null on failure)
         // Pass brief for contextualised CEE output when available
-        const ceeOrchestrationResult = await requestCeeReview(
-          responseHash ?? requestId, // Use response hash as scenario ID
-          filteredGraph,
-          normalizedOptions,
-          islResult,
-          robustnessDataForCee,
-          requestId,
-          req.log,
-          body.brief
-        );
+        //
+        // Run CEE factor review in parallel with decision review for efficiency
+        // Factor review has 3s timeout and silent fallback on error
+        const ceeConfig: CEESchemaV2Config | undefined = process.env.CEE_BASE_URL && process.env.CEE_API_KEY
+          ? {
+              baseUrl: process.env.CEE_BASE_URL,
+              apiKey: process.env.CEE_API_KEY,
+              timeoutMs: 3000, // Hard 3s timeout for factor review
+            }
+          : undefined;
+
+        // Prepare factor sensitivity for CEE review (use final computed array)
+        const factorSensitivityForCee = factorSensitivity?.map((f) => ({
+          factor_id: f.factor_id,
+          factor_label: f.factor_label,
+          elasticity: f.elasticity,
+          rank: f.influence_rank,
+          direction: f.direction,
+          value_of_information: f.value_of_information,
+          confidence: f.confidence,
+          flip_risk_category: f.flip_risk_category,
+        })) ?? [];
+
+        // Run both CEE calls in parallel
+        const [ceeOrchestrationResult, factorEnrichments] = await Promise.all([
+          requestCeeReview(
+            responseHash ?? requestId, // Use response hash as scenario ID
+            filteredGraph,
+            normalizedOptions,
+            islResult,
+            robustnessDataForCee,
+            requestId,
+            req.log,
+            body.brief
+          ),
+          // CEE factor review - returns undefined on error/timeout (silent fallback)
+          ceeConfig && factorSensitivityForCee.length > 0
+            ? factorReviewV2(ceeConfig, filteredGraph, factorSensitivityForCee, requestId)
+            : Promise.resolve(undefined),
+        ]);
+
+        // Update sensitivityData with factor enrichments (if available)
+        const enrichedSensitivityData: SensitivityData = {
+          ...sensitivityData,
+          factorEnrichments,
+        };
 
         const finalTotalMs = performance.now() - startTime;
 
@@ -2063,7 +2183,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           ceeOrchestrationResult.robustnessSynthesis,
           ceeOrchestrationResult.ceeResults,
           ceeOrchestrationResult.ceeTrace,
-          sensitivityData  // Pre-computed arrays ensure status/response alignment
+          enrichedSensitivityData  // Pre-computed arrays + factor enrichments
         ));
       } catch (err) {
         const totalMs = performance.now() - startTime;

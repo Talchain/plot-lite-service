@@ -15,6 +15,9 @@ import {
   MAX_OPTIONS as LIMITS_MAX_OPTIONS,
 } from '../constants/limits.js';
 
+// Import CEE types for factor enrichments
+import type { FactorEnrichment } from '../cee/types.js';
+
 // -----------------------------------------------------------------------------
 // Node Kinds
 // -----------------------------------------------------------------------------
@@ -458,6 +461,16 @@ export interface RunResponseV3 {
   /** Factor sensitivity results (if available) */
   factor_sensitivity?: FactorSensitivityResultV3[];
 
+  /**
+   * Factor enrichments from CEE /assist/v1/review.
+   * Provides human-readable insights for UI factor cards.
+   * Undefined if CEE unavailable, timed out, or failed.
+   *
+   * NOTE: This field is LLM-derived and non-deterministic.
+   * Must be excluded from canonical hash calculations.
+   */
+  factor_enrichments?: FactorEnrichment[];
+
   /** Overall robustness assessment (if robustness_status is 'computed') */
   robustness?: RobustnessAssessmentV3;
 
@@ -696,6 +709,25 @@ export interface NormalizedEdgeInfoV3 {
 }
 
 /**
+ * Near-tie detection result.
+ * Indicates when top options are statistically equivalent and recommendation is uncertain.
+ */
+export interface NearTieInfoV3 {
+  /** Whether a near-tie was detected (gap < threshold) */
+  is_tie: boolean;
+  /** ID of top-performing option (highest win_probability) */
+  top_option_id: string;
+  /** ID of second-place option (null if only one computed option) */
+  second_option_id: string | null;
+  /** IDs of all options within threshold of top performer */
+  tied_option_ids: string[];
+  /** Gap between top two options (0-1 probability, not percentage) */
+  gap: number;
+  /** Threshold used for detection (default: 0.10) */
+  threshold: number;
+}
+
+/**
  * Overall robustness assessment.
  */
 export interface RobustnessAssessmentV3 {
@@ -726,6 +758,11 @@ export interface RobustnessAssessmentV3 {
    * Fallback chain: graph node label → option_comparison label → option_id.
    */
   recommended_option_label?: string;
+  /**
+   * Near-tie detection when top options are statistically equivalent.
+   * Present when option_comparison is computed with valid win_probability values.
+   */
+  near_tie?: NearTieInfoV3;
 }
 
 /**

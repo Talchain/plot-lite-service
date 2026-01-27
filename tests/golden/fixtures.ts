@@ -101,3 +101,11 @@ export const pricingCanary = loadScenario('pricing-canary');
  * The CEE graph was generated in a prior request (different request_id).
  */
 export const ceeGraphSupplied = loadScenario('cee-graph-supplied');
+
+/**
+ * Pre-loaded near-tie-canary scenario
+ *
+ * Tests near-tie detection when top options are statistically equivalent.
+ * win_probability: opt_a=0.48, opt_b=0.52 → gap=0.04 < threshold=0.10
+ */
+export const nearTieCanary = loadScenario('near-tie-canary');
