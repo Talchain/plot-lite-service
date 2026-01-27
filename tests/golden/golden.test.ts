@@ -79,6 +79,21 @@ describe('Golden Fixtures - Pricing Canary', () => {
         islResponse.robustness.recommendation_stability
       );
     });
+
+    it('recommended_option_id matches winner from win_probability', () => {
+      // Winner is argmax(option_comparison[].win_probability)
+      const options = plotResponse.option_comparison as OptionResult[];
+      const maxWinProb = Math.max(...options.map((o) => o.win_probability));
+      const winner = options.find((o) => o.win_probability === maxWinProb);
+
+      expect(plotResponse.robustness.recommended_option_id).toBe(winner?.option_id ?? winner?.id);
+    });
+
+    it('recommended_option_label is present and non-empty', () => {
+      expect(plotResponse.robustness.recommended_option_label).toBeDefined();
+      expect(typeof plotResponse.robustness.recommended_option_label).toBe('string');
+      expect((plotResponse.robustness.recommended_option_label as string).length).toBeGreaterThan(0);
+    });
   });
 
   // =============================================================================
@@ -86,6 +101,19 @@ describe('Golden Fixtures - Pricing Canary', () => {
   // Validates that output values are mathematically coherent
   // =============================================================================
   describe('Tier 2: Semantic Validity', () => {
+    it('meta.computed_at is valid ISO 8601 timestamp', () => {
+      const meta = plotResponse.meta as { computed_at?: string };
+      expect(meta.computed_at).toBeDefined();
+      expect(typeof meta.computed_at).toBe('string');
+
+      // Validate ISO 8601 format
+      const isoPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z$/;
+      expect(meta.computed_at).toMatch(isoPattern);
+
+      // Validate it parses to a valid date
+      const parsed = new Date(meta.computed_at as string);
+      expect(Number.isNaN(parsed.getTime())).toBe(false);
+    });
     it('win_probability sums to ~1', () => {
       const sum = (plotResponse.option_comparison as OptionResult[]).reduce(
         (s, o) => s + o.win_probability,

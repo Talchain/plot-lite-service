@@ -551,6 +551,11 @@ export interface RunResponseV3 {
     cee_ms?: number;
     /** Build version for deployment verification */
     build?: string;
+    /**
+     * ISO 8601 timestamp when analysis computation completed.
+     * Captured when ISL response is received (before PLoT processing).
+     */
+    computed_at?: string;
   };
 }
 
@@ -711,6 +716,16 @@ export interface RobustnessAssessmentV3 {
   confidence?: number;
   /** Normalization errors if any (for observability) */
   normalization_errors?: Array<{ edge_type: string; error: string; raw_value?: unknown }>;
+  /**
+   * Recommended option ID derived from argmax(win_probability).
+   * Tie-breaker: lexicographic sort on option_id when win_probability within epsilon (1e-9).
+   */
+  recommended_option_id?: string;
+  /**
+   * Human-readable label for the recommended option.
+   * Fallback chain: graph node label → option_comparison label → option_id.
+   */
+  recommended_option_label?: string;
 }
 
 /**

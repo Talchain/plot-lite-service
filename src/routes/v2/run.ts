@@ -557,6 +557,11 @@ interface MetaParams {
   uiBuild?: string;
   /** CEE build version from CEE response */
   ceeBuild?: string;
+  /**
+   * ISO 8601 timestamp when analysis computation completed.
+   * Captured when ISL response is received.
+   */
+  computedAt?: string;
 }
 
 /**
@@ -589,6 +594,67 @@ function buildBlockedResponse(
 interface SensitivityData {
   edgeSensitivity: ReturnType<typeof transformEdgeSensitivity>;
   factorSensitivity: ReturnType<typeof transformFactorSensitivity>;
+}
+
+/**
+ * Derive recommended option from win_probability values.
+ *
+ * Winner definition: argmax(option_comparison[].win_probability)
+ *
+ * Tie-break rules (for determinism):
+ * - If multiple options have win_probability within epsilon (1e-9), use lexicographic sort on option_id
+ *
+ * @param optionComparison Array of option comparison results with win_probability
+ * @param options Original options array for label lookup
+ * @returns Recommended option ID and label, or undefined if no valid winner
+ *
+ * @public Exported for unit testing
+ */
+export function deriveRecommendedOption(
+  optionComparison: Array<{ option_id: string; option_label?: string; win_probability?: number }> | undefined,
+  options: OptionV3[] | undefined
+): { recommended_option_id: string; recommended_option_label: string } | undefined {
+  if (!optionComparison || optionComparison.length === 0) {
+    return undefined;
+  }
+
+  // Filter to options with valid win_probability
+  const validOptions = optionComparison.filter(
+    (o) => o.win_probability !== undefined && o.win_probability !== null && Number.isFinite(o.win_probability)
+  );
+
+  if (validOptions.length === 0) {
+    return undefined;
+  }
+
+  // Find max win_probability
+  const maxWinProbability = Math.max(...validOptions.map((o) => o.win_probability!));
+
+  // Epsilon for floating point comparison (1e-9 as specified)
+  const EPSILON = 1e-9;
+
+  // Find all options within epsilon of max (potential ties)
+  const topOptions = validOptions.filter(
+    (o) => Math.abs(o.win_probability! - maxWinProbability) < EPSILON
+  );
+
+  // Tie-breaker: lexicographic sort on option_id
+  topOptions.sort((a, b) => a.option_id.localeCompare(b.option_id));
+
+  const winner = topOptions[0];
+  const winnerId = winner.option_id;
+
+  // Label fallback chain:
+  // 1. Graph node label where node.id === winner_option_id (preferred)
+  // 2. option_comparison[].label or option_comparison[].option_label if present
+  // 3. option_id as final fallback
+  const graphOption = options?.find((o) => o.id === winnerId);
+  const winnerLabel = graphOption?.label ?? winner.option_label ?? winnerId;
+
+  return {
+    recommended_option_id: winnerId,
+    recommended_option_label: winnerLabel,
+  };
 }
 
 /**
@@ -744,6 +810,15 @@ function buildResponse(
     };
   }
 
+  // Derive recommended option from win_probability (after optionComparison is built)
+  const recommendedOption = deriveRecommendedOption(optionComparison, options);
+
+  // Add recommended_option_id and recommended_option_label to robustness if derived
+  if (robustness && recommendedOption) {
+    robustness.recommended_option_id = recommendedOption.recommended_option_id;
+    robustness.recommended_option_label = recommendedOption.recommended_option_label;
+  }
+
   return {
     request_schema_version: 'v3',
     endpoint_version: 'v2/run',
@@ -834,6 +909,7 @@ function buildResponse(
       isl_ms: meta.islMs,
       cee_ms: meta.ceeMs,
       build: meta.build,
+      computed_at: meta.computedAt,
     },
   };
 }
@@ -1471,6 +1547,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               repairs,
               sourcePath: 'graph_fallback',
               uiBuild,
+              computedAt: new Date().toISOString(),
             },
             responseHash
           ));
@@ -1581,6 +1658,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         let islStatusCode = 0;
         let islError: ISLHttpError | undefined;
         let islFallbackExecuted = false;
+        let computedAt: string | undefined;
 
         try {
           const response = await islService.callAnalysisEndpoint<any>(
@@ -1593,6 +1671,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             islResult = response.data;
             islSuccess = true;
             islStatusCode = 200;
+            // Capture timestamp when ISL response received (before any PLoT processing)
+            // Use ISL's computed_at if provided, otherwise capture now
+            computedAt = islResult?.computed_at ?? new Date().toISOString();
 
             // Warn if goal_threshold was provided but ISL didn't return probability_of_goal
             if (goalThreshold !== undefined) {
@@ -1768,6 +1849,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               repairs,
               sourcePath: 'isl',
               uiBuild,
+              computedAt: computedAt ?? new Date().toISOString(),
             },
             responseHash
           ));
@@ -1813,6 +1895,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               repairs,
               sourcePath: 'isl',
               uiBuild,
+              computedAt,
             },
             responseHash,
             processedIslResult,
@@ -1970,6 +2053,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             sourcePath: 'isl',
             uiBuild,
             ceeBuild: ceeOrchestrationResult.ceeTrace?.source ?? undefined,
+            computedAt,
           },
           responseHash,
           processedIslResult,

@@ -296,7 +296,9 @@
       }
     ],
     "robust_edges": [],
-    "recommendation_stability": 0.7275
+    "recommendation_stability": 0.7275,
+    "recommended_option_id": "opt_raise_59",
+    "recommended_option_label": "Raise Pro to £59 with Next Release"
   },
   "robustness_synthesis": null,
   "cee_status": "skipped",
@@ -313,6 +315,7 @@
     "validation_ms": 1.3290900001302361,
     "isl_ms": 724.947598000057,
     "cee_ms": 0,
-    "build": "b364475"
+    "build": "b364475",
+    "computed_at": "2026-01-24T14:30:45.123Z"
   }
 }

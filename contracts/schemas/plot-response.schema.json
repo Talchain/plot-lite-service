@@ -175,6 +175,14 @@
           "minimum": 0,
           "maximum": 1,
           "description": "Robustness confidence from ISL (0-1) V2/Option C format"
+        },
+        "recommended_option_id": {
+          "type": "string",
+          "description": "Recommended option ID derived from argmax(win_probability). Tie-breaker: lexicographic sort on option_id when within epsilon (1e-9)."
+        },
+        "recommended_option_label": {
+          "type": "string",
+          "description": "Human-readable label for the recommended option. Fallback chain: graph node label → option_comparison label → option_id."
         }
       }
     },
@@ -276,6 +284,11 @@
         },
         "build": {
           "type": "string"
+        },
+        "computed_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when analysis computation completed. Captured when ISL response is received."
         }
       }
     }
