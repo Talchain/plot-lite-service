@@ -121,6 +121,6 @@ export async function registerValidateRoute(app: FastifyInstance) {
     
     // valid is false only if at least one violation has severity: 'error' (or missing severity)
     const hasError = violations.some(v => (v.severity ?? 'error') !== 'warning');
-    return reply.send({ valid: !hasError, violations });
+    return reply.send({ valid: !hasError, violations, normalized: body.graph });
   });
 }
