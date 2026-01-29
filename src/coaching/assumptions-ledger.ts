@@ -6,6 +6,7 @@
  */
 
 import type { CoachingInputs } from './types.js';
+import { getThresholds } from './thresholds.js';
 
 export interface AssumptionRecord {
   /** Deduplication key: {source_service}:{action}:{entity_type}:{entity_id}:{field} */
@@ -175,11 +176,13 @@ function mapRepairToAssumption(
  */
 function extractISLAssumptions(inputs: CoachingInputs): AssumptionRecord[] {
   const assumptions: AssumptionRecord[] = [];
+  const thresholds = getThresholds();
 
   // Fragile edges are high-impact assumptions
+  // Use centralized threshold for consistency with other coaching components
   for (const edge of inputs.fragileEdges) {
-    if (edge.marginalSwitchProb >= 0.15) {
-      const dedupKey = `isl_engine:flagged:edge:${edge.edgeId}:marginal_switch_probability`;
+    if (edge.switchProb >= thresholds.headline_fragile_edge_min) {
+      const dedupKey = `isl_engine:flagged:edge:${edge.edgeId}:switch_probability`;
 
       assumptions.push({
         dedup_key: dedupKey,
@@ -187,11 +190,11 @@ function extractISLAssumptions(inputs: CoachingInputs): AssumptionRecord[] {
         action: 'flagged',
         entity_type: 'edge',
         entity_id: edge.edgeId,
-        field: 'marginal_switch_probability',
+        field: 'switch_probability',
         from_value: null,
-        to_value: edge.marginalSwitchProb,
-        reason: `Edge ${edge.displayLabel} has ${Math.round(edge.marginalSwitchProb * 100)}% chance of flipping decision`,
-        impact: edge.marginalSwitchProb >= 0.25 ? 'high' : 'medium',
+        to_value: edge.switchProb,
+        reason: `Edge ${edge.displayLabel} has ${Math.round(edge.switchProb * 100)}% chance of flipping decision`,
+        impact: edge.switchProb >= 0.25 ? 'high' : 'medium',
         impact_reason_code: 'FRAGILE_EDGE',
       });
     }

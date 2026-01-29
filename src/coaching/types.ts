@@ -28,7 +28,8 @@ export interface NormalisedFragileEdge {
   fromLabel: string;           // Human-readable
   toLabel: string;             // Human-readable
   displayLabel: string;        // "{fromLabel} → {toLabel}"
-  marginalSwitchProb: number;
+  /** Switch probability (prefers switch_probability, falls back to marginal_switch_probability) */
+  switchProb: number;
   altWinnerId: string | null;
   altWinnerLabel: string | null;
 }
@@ -123,6 +124,30 @@ export interface Critique {
 // B4: Next Actions
 // =============================================================================
 
+/**
+ * Readiness State
+ *
+ * Indicates how ready the decision is to proceed based on model quality and evidence.
+ * States are evaluated in priority order (first match wins):
+ *
+ * 1. **needs_framing** (highest priority)
+ *    - Trigger: NARROW_FRAMING critique present
+ *    - Meaning: Decision structure is flawed; add options or baseline before proceeding
+ *
+ * 2. **needs_evidence**
+ *    - Trigger: High VoI evidence gaps exist (≥2 gaps with top gap VoI > threshold)
+ *    - Meaning: Key assumptions lack supporting data; gather evidence before deciding
+ *
+ * 3. **close_call**
+ *    - Trigger: headline_type is 'close_call' or 'high_uncertainty'
+ *    - Meaning: Winner margin is within model uncertainty; define tie-breakers
+ *
+ * 4. **ready** (lowest priority)
+ *    - Trigger: headline_type is 'clear_winner' or 'moderate_winner'
+ *    - Meaning: Decision is robust enough to proceed confidently
+ *
+ * Default fallback: needs_evidence (if no conditions match)
+ */
 export type Readiness = 'ready' | 'close_call' | 'needs_evidence' | 'needs_framing';
 
 export interface NextAction {
@@ -130,6 +155,11 @@ export interface NextAction {
   action: string;              // Interpolated
   rationale: string;           // REQUIRED — explains why this action matters
   related_critique?: CritiqueType;
+
+  // Canvas targeting (for "Focus" CTAs)
+  target_type?: 'node' | 'edge' | 'factor' | 'option';
+  target_id?: string;          // Canonical ID (node_id, edge_id, option_id)
+  target_label?: string;       // Human-readable label (populated by PLoT)
 }
 
 // =============================================================================

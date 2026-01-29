@@ -198,7 +198,7 @@ function computeModelRobustness(
 
   // Penalty for fragile edges
   const highFragileCount = inputs.fragileEdges.filter(
-    (e) => e.marginalSwitchProb > thresholds.action_fragile_edge_threshold
+    (e) => e.switchProb > thresholds.action_fragile_edge_threshold
   ).length;
 
   if (highFragileCount > 0) {

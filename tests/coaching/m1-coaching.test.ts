@@ -543,7 +543,7 @@ describe('B4: Next Actions', () => {
           fromLabel: 'Cost',
           toLabel: 'Revenue',
           displayLabel: 'Cost → Revenue',
-          marginalSwitchProb: 0.30,
+          switchProb: 0.30,
           altWinnerId: 'opt2',
           altWinnerLabel: 'Option B',
         },
@@ -727,5 +727,247 @@ describe('generateM1Coaching', () => {
 
     // < 100ms budget
     expect(elapsed).toBeLessThan(100);
+  });
+});
+
+// =============================================================================
+// Fragility Fallback Behavior (UI Alignment)
+// =============================================================================
+
+describe('Fragility Fallback Behavior', () => {
+  it('prefers switch_probability over marginal_switch_probability', () => {
+    const graph = createMinimalGraph();
+    const options = createMinimalOptions();
+    const islResult = {
+      ...createMinimalISLResult(),
+      robustness: {
+        fragile_edges: [
+          {
+            edge_id: 'f1→goal',
+            from_id: 'f1',
+            to_id: 'goal',
+            switch_probability: 0.35,           // Should use this
+            marginal_switch_probability: 0.25,  // Should ignore this
+            alternative_winner_id: 'opt2',
+          },
+        ],
+      },
+    };
+
+    const inputs = normaliseCoachingInputs(graph, options, islResult);
+    expect(inputs.fragileEdges[0].switchProb).toBe(0.35);
+  });
+
+  it('falls back to marginal_switch_probability when switch_probability is missing', () => {
+    const graph = createMinimalGraph();
+    const options = createMinimalOptions();
+    const islResult = {
+      ...createMinimalISLResult(),
+      robustness: {
+        fragile_edges: [
+          {
+            edge_id: 'f1→goal',
+            from_id: 'f1',
+            to_id: 'goal',
+            // No switch_probability
+            marginal_switch_probability: 0.28,
+            alternative_winner_id: 'opt2',
+          },
+        ],
+      },
+    };
+
+    const inputs = normaliseCoachingInputs(graph, options, islResult);
+    expect(inputs.fragileEdges[0].switchProb).toBe(0.28);
+  });
+
+  it('defaults to 0 when both probability fields are missing', () => {
+    const graph = createMinimalGraph();
+    const options = createMinimalOptions();
+    const islResult = {
+      ...createMinimalISLResult(),
+      robustness: {
+        fragile_edges: [
+          {
+            edge_id: 'f1→goal',
+            from_id: 'f1',
+            to_id: 'goal',
+            // No probability fields
+            alternative_winner_id: 'opt2',
+          },
+        ],
+      },
+    };
+
+    const inputs = normaliseCoachingInputs(graph, options, islResult);
+    expect(inputs.fragileEdges[0].switchProb).toBe(0);
+  });
+
+  it('sorts fragile edges by switchProb descending', () => {
+    const graph = createMinimalGraph();
+    const options = createMinimalOptions();
+    const islResult = {
+      ...createMinimalISLResult(),
+      robustness: {
+        fragile_edges: [
+          {
+            edge_id: 'f1→goal',
+            from_id: 'f1',
+            to_id: 'goal',
+            switch_probability: 0.15,
+            alternative_winner_id: 'opt2',
+          },
+          {
+            edge_id: 'f2→goal',
+            from_id: 'f2',
+            to_id: 'goal',
+            switch_probability: 0.40,
+            alternative_winner_id: 'opt2',
+          },
+        ],
+      },
+    };
+
+    const inputs = normaliseCoachingInputs(graph, options, islResult);
+    expect(inputs.fragileEdges[0].switchProb).toBe(0.40);
+    expect(inputs.fragileEdges[1].switchProb).toBe(0.15);
+  });
+});
+
+// =============================================================================
+// NextAction Targeting Fields (Canvas Focus CTAs)
+// =============================================================================
+
+describe('NextAction Targeting Fields', () => {
+  it('populates target_type and target_id for evidence gap actions', () => {
+    const inputs: CoachingInputs = {
+      graph: createMinimalGraph(),
+      options: createMinimalOptions(),
+      factorSensitivity: [
+        {
+          node_id: 'f1',
+          label: 'Cost',
+          importance_rank: 1,
+          elasticity: 0.6,
+          influence_score: 0.6,
+          confidence: 0.3,
+        },
+      ],
+      fragileEdges: [],
+      robustness: {},
+    };
+
+    const evidenceGaps = [
+      {
+        factor_id: 'f1',
+        factor_label: 'Cost',
+        voi_score: 0.5,
+        confidence: 0.3,
+        confidence_display: '30%',
+        confidence_defaulted: false,
+        influence: 0.8,
+        influence_display: '80%',
+        suggestion: 'Gather data on Cost',
+        notes: [],
+      },
+    ];
+
+    const actions = generateNextActions(inputs, 'needs_evidence', [], evidenceGaps);
+
+    const evidenceAction = actions.find((a) => a.action.includes('Gather evidence'));
+    expect(evidenceAction?.target_type).toBe('factor');
+    expect(evidenceAction?.target_id).toBe('f1');
+    expect(evidenceAction?.target_label).toBe('Cost');
+  });
+
+  it('populates target_type and target_id for fragile edge actions', () => {
+    const inputs: CoachingInputs = {
+      graph: createMinimalGraph(),
+      options: createMinimalOptions(),
+      factorSensitivity: [],
+      fragileEdges: [
+        {
+          edgeId: 'f1::goal',
+          fromId: 'f1',
+          toId: 'goal',
+          fromLabel: 'Cost',
+          toLabel: 'Revenue',
+          displayLabel: 'Cost → Revenue',
+          switchProb: 0.30,
+          altWinnerId: 'opt2',
+          altWinnerLabel: 'Option B',
+        },
+      ],
+      robustness: { recommendationStability: 0.60 },
+    };
+
+    const actions = generateNextActions(inputs, 'moderate_winner', [], []);
+
+    const fragileAction = actions.find((a) => a.action.includes('Validate the'));
+    expect(fragileAction?.target_type).toBe('edge');
+    expect(fragileAction?.target_id).toBe('f1::goal');
+    expect(fragileAction?.target_label).toBe('Cost → Revenue');
+  });
+
+  it('populates target_type and target_id for close_call actions', () => {
+    const inputs: CoachingInputs = {
+      graph: createMinimalGraph(),
+      options: [
+        { id: 'opt1', label: 'Option A', winProbability: 0.52, expectedOutcome: 102 },
+        { id: 'opt2', label: 'Option B', winProbability: 0.48, expectedOutcome: 98 },
+      ],
+      factorSensitivity: [],
+      fragileEdges: [],
+      robustness: { recommendationStability: 0.50 },
+    };
+
+    const actions = generateNextActions(inputs, 'close_call', [], []);
+
+    const tieBreaker = actions.find((a) => a.action.includes('tie-breaker'));
+    expect(tieBreaker?.target_type).toBe('option');
+    expect(tieBreaker?.target_id).toBe('opt1');
+    expect(tieBreaker?.target_label).toBe('Option A');
+  });
+
+  it('populates target_type and target_id for "Proceed with" actions', () => {
+    const inputs: CoachingInputs = {
+      graph: createMinimalGraph(),
+      options: [
+        { id: 'opt1', label: 'Option A', winProbability: 0.80, expectedOutcome: 120 },
+        { id: 'opt2', label: 'Option B', winProbability: 0.20, expectedOutcome: 80 },
+      ],
+      factorSensitivity: [],
+      fragileEdges: [],
+      robustness: { recommendationStability: 0.85 },
+    };
+
+    const actions = generateNextActions(inputs, 'clear_winner', [], []);
+
+    const proceedAction = actions.find((a) => a.action.includes('Proceed with'));
+    expect(proceedAction?.target_type).toBe('option');
+    expect(proceedAction?.target_id).toBe('opt1');
+    expect(proceedAction?.target_label).toBe('Option A');
+  });
+
+  it('omits targeting fields for narrow framing actions (no specific target)', () => {
+    const inputs: CoachingInputs = {
+      graph: createMinimalGraph(),
+      options: createMinimalOptions(),
+      factorSensitivity: [],
+      fragileEdges: [],
+      robustness: {},
+    };
+
+    const actions = generateNextActions(
+      inputs,
+      'moderate_winner',
+      [{ type: 'NARROW_FRAMING', severity: 'concern', challenge_question: '', suggested_action: '' }],
+      []
+    );
+
+    const framingAction = actions.find((a) => a.action.includes('Reconsider framing'));
+    expect(framingAction?.target_type).toBeUndefined();
+    expect(framingAction?.target_id).toBeUndefined();
+    expect(framingAction?.target_label).toBeUndefined();
   });
 });

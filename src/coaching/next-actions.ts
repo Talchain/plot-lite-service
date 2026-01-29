@@ -41,6 +41,7 @@ export function generateNextActions(
       action: 'Reconsider framing — add alternatives or Status Quo baseline',
       rationale: `With only ${context.optionCount} options and no baseline, comparisons may be misleading`,
       related_critique: 'NARROW_FRAMING',
+      // No specific target - framing issue affects entire decision
     });
   }
 
@@ -50,19 +51,25 @@ export function generateNextActions(
       priority: 2,
       action: `Gather evidence on ${context.topGap.factor_label}`,
       rationale: `This factor has high impact (${context.topGap.influence_display}) but low confidence (${context.topGap.confidence_display})`,
+      target_type: 'factor',
+      target_id: context.topGap.factor_id,
+      target_label: context.topGap.factor_label,
     });
   }
 
   // Priority 3: Fragile edges
   if (
     context.topFragileEdge &&
-    context.topFragileEdge.marginalSwitchProb > thresholds.action_fragile_edge_threshold &&
+    context.topFragileEdge.switchProb > thresholds.action_fragile_edge_threshold &&
     actions.length < 3
   ) {
     actions.push({
       priority: 3,
       action: `Validate the ${context.topFragileEdge.displayLabel} assumption`,
-      rationale: `${Math.round(context.topFragileEdge.marginalSwitchProb * 100)}% chance this flips the decision to ${context.topFragileEdge.altWinnerLabel}`,
+      rationale: `${Math.round(context.topFragileEdge.switchProb * 100)}% chance this flips the decision to ${context.topFragileEdge.altWinnerLabel}`,
+      target_type: 'edge',
+      target_id: context.topFragileEdge.edgeId,
+      target_label: context.topFragileEdge.displayLabel,
     });
   }
 
@@ -74,6 +81,9 @@ export function generateNextActions(
       priority: 4,
       action: 'Define tie-breaker criteria — margin is too close to call',
       rationale: `Winner leads by only ${delta} points; within model uncertainty`,
+      target_type: 'option',
+      target_id: context.winner?.id,
+      target_label: winnerLabel,
     });
   }
 
@@ -86,6 +96,9 @@ export function generateNextActions(
       priority: 7,
       action: `Proceed with ${winnerLabel}`,
       rationale: `Decision is robust: ${delta}-point margin with ${stabilityDisplay}% stability`,
+      target_type: 'option',
+      target_id: context.winner?.id,
+      target_label: winnerLabel,
     });
   }
 
@@ -95,6 +108,7 @@ export function generateNextActions(
       priority: 99,
       action: 'Review model assumptions',
       rationale: 'Unable to generate specific guidance',
+      // No specific target - general fallback
     });
   }
 

@@ -38,12 +38,12 @@ export function generateHeadlines(inputs: CoachingInputs): StoryHeadlines {
   const stability = robustness.recommendationStability;
   const hasFactorSensitivity = factorSensitivity.length > 0;
 
-  // Get top fragile edge (highest marginal switch prob)
+  // Get top fragile edge (highest switch probability)
   const topFragile = fragileEdges
-    .filter((e) => e.marginalSwitchProb >= thresholds.headline_fragile_edge_min)
-    .sort((a, b) => b.marginalSwitchProb - a.marginalSwitchProb)[0];
+    .filter((e) => e.switchProb >= thresholds.headline_fragile_edge_min)
+    .sort((a, b) => b.switchProb - a.switchProb)[0];
 
-  const topFragileMarginal = topFragile?.marginalSwitchProb ?? 0;
+  const topFragileSwitchProb = topFragile?.switchProb ?? 0;
 
   // Compute evidence gap influence (simplified for now)
   const topGapVoI = computeTopGapInfluence(factorSensitivity);
@@ -53,7 +53,7 @@ export function generateHeadlines(inputs: CoachingInputs): StoryHeadlines {
     winProbDelta,
     stability,
     topGapVoI,
-    topFragileMarginal,
+    topFragileSwitchProb,
     hasFactorSensitivity,
     thresholds
   );
@@ -114,7 +114,7 @@ function selectHeadlineType(
   winProbDelta: number,
   stability: number | undefined,
   topGapVoI: number,
-  topFragileMarginal: number,
+  topFragileSwitchProb: number,
   hasFactorSensitivity: boolean,
   thresholds: ReturnType<typeof getThresholds>
 ): HeadlineType {
@@ -124,7 +124,7 @@ function selectHeadlineType(
   }
 
   // 2. High swing risk → high_uncertainty (check FIRST)
-  if (topGapVoI > thresholds.headline_high_uncertainty_voi || topFragileMarginal > thresholds.headline_high_uncertainty_fragile) {
+  if (topGapVoI > thresholds.headline_high_uncertainty_voi || topFragileSwitchProb > thresholds.headline_high_uncertainty_fragile) {
     return 'high_uncertainty';
   }
 
@@ -159,11 +159,11 @@ function computeTopGapInfluence(factors: Array<{ confidence?: number; elasticity
   return Math.max(...withVoI, 0); // Return max VoI directly
 }
 
-export function getFragileEdgeContext(fragileEdges: Array<{ edgeId: string; displayLabel: string; marginalSwitchProb: number; altWinnerLabel: string | null; altWinnerId: string | null }>): FragileEdgeContext | undefined {
+export function getFragileEdgeContext(fragileEdges: Array<{ edgeId: string; displayLabel: string; switchProb: number; altWinnerLabel: string | null; altWinnerId: string | null }>): FragileEdgeContext | undefined {
   const thresholds = getThresholds();
   const top = fragileEdges
-    .filter((e) => e.marginalSwitchProb >= thresholds.headline_fragile_edge_min)
-    .sort((a, b) => b.marginalSwitchProb - a.marginalSwitchProb)[0];
+    .filter((e) => e.switchProb >= thresholds.headline_fragile_edge_min)
+    .sort((a, b) => b.switchProb - a.switchProb)[0];
 
   if (!top) return undefined;
 
@@ -171,8 +171,8 @@ export function getFragileEdgeContext(fragileEdges: Array<{ edgeId: string; disp
     edgeId: top.edgeId,
     label: top.displayLabel,
     altWinner: top.altWinnerLabel ?? top.altWinnerId ?? 'another option',
-    switchProb: top.marginalSwitchProb,
-    switchProbDisplay: `${Math.round(top.marginalSwitchProb * 100)}%`,
+    switchProb: top.switchProb,
+    switchProbDisplay: `${Math.round(top.switchProb * 100)}%`,
   };
 }
 
@@ -201,12 +201,12 @@ export function detectHeadlineType(inputs: CoachingInputs): HeadlineType {
   const stability = robustness.recommendationStability;
   const hasFactorSensitivity = factorSensitivity.length > 0;
 
-  // Get top fragile edge (highest marginal switch prob)
+  // Get top fragile edge (highest switch probability)
   const topFragile = fragileEdges
-    .filter((e) => e.marginalSwitchProb >= thresholds.headline_fragile_edge_min)
-    .sort((a, b) => b.marginalSwitchProb - a.marginalSwitchProb)[0];
+    .filter((e) => e.switchProb >= thresholds.headline_fragile_edge_min)
+    .sort((a, b) => b.switchProb - a.switchProb)[0];
 
-  const topFragileMarginal = topFragile?.marginalSwitchProb ?? 0;
+  const topFragileSwitchProb = topFragile?.switchProb ?? 0;
 
   // Compute evidence gap influence
   const topGapVoI = computeTopGapInfluence(factorSensitivity);
@@ -215,7 +215,7 @@ export function detectHeadlineType(inputs: CoachingInputs): HeadlineType {
     winProbDelta,
     stability,
     topGapVoI,
-    topFragileMarginal,
+    topFragileSwitchProb,
     hasFactorSensitivity,
     thresholds
   );

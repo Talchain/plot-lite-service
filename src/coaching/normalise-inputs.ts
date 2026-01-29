@@ -45,7 +45,8 @@ export function normaliseCoachingInputs(
     }));
 
   // Normalise fragile edges with human-readable labels
-  // Sort by marginal switch probability descending (highest first) for reliable [0] access
+  // Prefer switch_probability (UI field) with fallback to marginal_switch_probability
+  // Sort by switch probability descending (highest first) for reliable [0] access
   const fragileEdges: NormalisedFragileEdge[] = (
     islResult.robustness?.fragile_edges ?? []
   )
@@ -63,14 +64,15 @@ export function normaliseCoachingInputs(
         fromLabel,
         toLabel,
         displayLabel: `${fromLabel} → ${toLabel}`,
-        marginalSwitchProb: edge.marginal_switch_probability ?? 0,
+        // Prefer switch_probability (aligned with UI) over marginal_switch_probability
+        switchProb: edge.switch_probability ?? edge.marginal_switch_probability ?? 0,
         altWinnerId: edge.alternative_winner_id ?? null,
         altWinnerLabel: edge.alternative_winner_id
           ? options.find((o) => o.id === edge.alternative_winner_id)?.label ?? edge.alternative_winner_id
           : null,
       };
     })
-    .sort((a: NormalisedFragileEdge, b: NormalisedFragileEdge) => b.marginalSwitchProb - a.marginalSwitchProb);
+    .sort((a: NormalisedFragileEdge, b: NormalisedFragileEdge) => b.switchProb - a.switchProb);
 
   // Normalise options with ISL outcome data
   // Sort by win probability descending (highest first) for reliable [0] access
