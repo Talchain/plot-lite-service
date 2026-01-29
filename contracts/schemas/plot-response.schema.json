@@ -311,6 +311,95 @@
         }
       }
     },
+    "m1_coaching": {
+      "type": "object",
+      "description": "M1 Core Coaching output (Phase 2). Deterministic coaching layer providing story headlines, evidence gaps, model critiques, and next actions. Excluded from response_hash as non-semantic metadata.",
+      "additionalProperties": false,
+      "required": ["story_headlines", "evidence_gaps", "model_critiques", "next_actions", "readiness", "headline_type", "coaching_version", "computed_at"],
+      "properties": {
+        "story_headlines": {
+          "type": "object",
+          "description": "Map of option IDs to one-line headline summaries",
+          "additionalProperties": { "type": "string" }
+        },
+        "evidence_gaps": {
+          "type": "array",
+          "description": "Top 3 factors where gathering evidence would most impact the decision",
+          "items": {
+            "type": "object",
+            "required": ["factor_id", "factor_label", "voi_score", "confidence", "influence"],
+            "properties": {
+              "factor_id": { "type": "string" },
+              "factor_label": { "type": "string" },
+              "voi_score": { "type": "number" },
+              "confidence": { "type": "number" },
+              "confidence_display": { "type": "string" },
+              "confidence_defaulted": { "type": "boolean" },
+              "influence": { "type": "number" },
+              "influence_display": { "type": "string" },
+              "suggestion": { "type": "string" },
+              "notes": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            }
+          }
+        },
+        "model_critiques": {
+          "type": "array",
+          "description": "Structural issues that may affect decision quality",
+          "items": {
+            "type": "object",
+            "required": ["type", "severity", "challenge_question", "suggested_action"],
+            "properties": {
+              "type": { "type": "string" },
+              "severity": { "type": "string", "enum": ["warning", "concern"] },
+              "challenge_question": { "type": "string" },
+              "suggested_action": { "type": "string" },
+              "targets": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "context": { "type": "object" }
+            }
+          }
+        },
+        "next_actions": {
+          "type": "array",
+          "description": "Prioritized action list (max 3) with required rationales",
+          "maxItems": 3,
+          "items": {
+            "type": "object",
+            "required": ["priority", "action", "rationale"],
+            "properties": {
+              "priority": { "type": "number" },
+              "action": { "type": "string" },
+              "rationale": { "type": "string" },
+              "related_critique": { "type": "string" }
+            }
+          }
+        },
+        "readiness": {
+          "type": "string",
+          "enum": ["ready", "close_call", "needs_evidence", "needs_framing"]
+        },
+        "headline_type": {
+          "type": "string",
+          "enum": ["clear_winner", "moderate_winner", "close_call", "high_uncertainty", "needs_evidence"]
+        },
+        "top_fragile_edge": {
+          "type": "object",
+          "properties": {
+            "edge_id": { "type": "string" },
+            "label": { "type": "string" },
+            "alternative_winner": { "type": "string" },
+            "switch_probability": { "type": "number" }
+          }
+        },
+        "coaching_version": { "type": "string" },
+        "computed_at": { "type": "string", "format": "date-time" }
+      }
+    },
     "edge_sensitivity": {
       "type": "array"
     },

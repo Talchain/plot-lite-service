@@ -82,7 +82,14 @@ export function generateHeadlines(inputs: CoachingInputs): StoryHeadlines {
         .replace('{altWinner}', topFragile?.altWinnerLabel ?? 'another option');
       break;
     case 'needs_evidence':
-      const topGapLabel = factorSensitivity[0]?.label ?? 'key factors';
+      // Find factor with highest VoI (impact × uncertainty)
+      const topGap = factorSensitivity
+        .map((f) => ({
+          label: f.label,
+          voi: Math.abs(f.elasticity ?? f.influence_score ?? 0) * (1 - (f.confidence ?? 0.5)),
+        }))
+        .sort((a, b) => b.voi - a.voi)[0];
+      const topGapLabel = topGap?.label ?? 'key factors';
       winnerHeadline = HEADLINE_TEMPLATES.needs_evidence
         .replace('{topGapLabel}', topGapLabel);
       break;

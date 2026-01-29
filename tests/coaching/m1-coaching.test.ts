@@ -609,7 +609,7 @@ describe('normaliseCoachingInputs', () => {
     const options = createMinimalOptions();
     const islResult = createMinimalISLResult();
 
-    const inputs = normaliseCoachingInputs(graph, options, islResult, 'goal');
+    const inputs = normaliseCoachingInputs(graph, options, islResult);
 
     expect(inputs.factorSensitivity[0].label).toBe('Cost');
     expect(inputs.factorSensitivity[1].label).toBe('Market Risk');
@@ -634,7 +634,7 @@ describe('normaliseCoachingInputs', () => {
       },
     };
 
-    const inputs = normaliseCoachingInputs(graph, options, islResult, 'goal');
+    const inputs = normaliseCoachingInputs(graph, options, islResult);
 
     expect(inputs.fragileEdges[0].displayLabel).toBe('Cost → Revenue');
   });
@@ -644,7 +644,7 @@ describe('normaliseCoachingInputs', () => {
     const options = createMinimalOptions();
     const islResult = createMinimalISLResult();
 
-    const inputs = normaliseCoachingInputs(graph, options, islResult, 'goal');
+    const inputs = normaliseCoachingInputs(graph, options, islResult);
 
     expect(inputs.options[0].label).toBe('Option A');
     expect(inputs.options[0].winProbability).toBe(0.75);
@@ -661,7 +661,7 @@ describe('generateM1Coaching', () => {
     const options = createMinimalOptions();
     const islResult = createMinimalISLResult();
 
-    const coaching = generateM1Coaching(graph, options, islResult, 'goal');
+    const coaching = generateM1Coaching(graph, options, islResult);
 
     expect(coaching).toBeDefined();
     expect(coaching?.story_headlines).toBeDefined();
@@ -679,7 +679,7 @@ describe('generateM1Coaching', () => {
       robustness: {},
     };
 
-    const coaching = generateM1Coaching(graph, options, islResult, 'goal');
+    const coaching = generateM1Coaching(graph, options, islResult);
 
     // Should still return object with successful components
     expect(coaching).toBeDefined();
@@ -693,7 +693,7 @@ describe('generateM1Coaching', () => {
     // @ts-ignore - intentionally invalid
     const islResult = null;
 
-    const coaching = generateM1Coaching(graph, options, islResult, 'goal');
+    const coaching = generateM1Coaching(graph, options, islResult);
 
     expect(coaching).toBeNull();
   });
@@ -703,8 +703,8 @@ describe('generateM1Coaching', () => {
     const options = createMinimalOptions();
     const islResult = createMinimalISLResult();
 
-    const run1 = generateM1Coaching(graph, options, islResult, 'goal');
-    const run2 = generateM1Coaching(graph, options, islResult, 'goal');
+    const run1 = generateM1Coaching(graph, options, islResult);
+    const run2 = generateM1Coaching(graph, options, islResult);
 
     // Compare structure (excluding computed_at timestamp)
     expect(run1?.story_headlines).toEqual(run2?.story_headlines);
@@ -719,7 +719,7 @@ describe('generateM1Coaching', () => {
     const islResult = createMinimalISLResult();
 
     const start = performance.now();
-    generateM1Coaching(graph, options, islResult, 'goal');
+    generateM1Coaching(graph, options, islResult);
     const elapsed = performance.now() - start;
 
     // < 100ms budget

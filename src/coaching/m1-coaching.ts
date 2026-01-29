@@ -19,7 +19,6 @@ import { generateNextActions, computeReadiness } from './next-actions.js';
  * @param graph Normalized graph (after filtering)
  * @param options Request options
  * @param islResult ISL response data
- * @param goalNodeId Goal node ID
  * @param logger Optional logger for warnings
  * @returns M1Coaching object or null if generation fails
  */
@@ -27,14 +26,13 @@ export function generateM1Coaching(
   graph: EngineGraphV3,
   options: OptionV3[],
   islResult: any,
-  goalNodeId: string,
   logger?: any
 ): M1Coaching | null {
   const startTime = performance.now();
 
   try {
     // Normalize inputs (required for all components)
-    const inputs = normaliseCoachingInputs(graph, options, islResult, goalNodeId);
+    const inputs = normaliseCoachingInputs(graph, options, islResult);
 
     // Generate each component with error isolation
     const storyHeadlines = safeCompute(() => generateHeadlines(inputs), {}, logger, 'headlines');

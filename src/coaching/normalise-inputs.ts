@@ -24,8 +24,7 @@ import type { EngineGraphV3, OptionV3 } from '../types/engine-v3.js';
 export function normaliseCoachingInputs(
   graph: EngineGraphV3,
   options: OptionV3[],
-  islResult: any,
-  goalNodeId: string
+  islResult: any
 ): CoachingInputs {
   // Build node label lookup from graph
   const nodeLabelMap = new Map<string, string>(
@@ -46,42 +45,48 @@ export function normaliseCoachingInputs(
     }));
 
   // Normalise fragile edges with human-readable labels
+  // Sort by marginal switch probability descending (highest first) for reliable [0] access
   const fragileEdges: NormalisedFragileEdge[] = (
     islResult.robustness?.fragile_edges ?? []
-  ).map((edge: any) => {
-    // Parse edge_id (format: "from->to", "from::to", "from-to", or "from→to")
-    const fromId = edge.from_id ?? edge.edge_id?.split(/->|::|→|-/)[0] ?? 'unknown';
-    const toId = edge.to_id ?? edge.edge_id?.split(/->|::|→|-/)[1] ?? 'unknown';
-    const fromLabel = nodeLabelMap.get(fromId) ?? fromId;
-    const toLabel = nodeLabelMap.get(toId) ?? toId;
+  )
+    .map((edge: any) => {
+      // Parse edge_id (format: "from->to", "from::to", "from-to", or "from→to")
+      const fromId = edge.from_id ?? edge.edge_id?.split(/->|::|→|-/)[0] ?? 'unknown';
+      const toId = edge.to_id ?? edge.edge_id?.split(/->|::|→|-/)[1] ?? 'unknown';
+      const fromLabel = nodeLabelMap.get(fromId) ?? fromId;
+      const toLabel = nodeLabelMap.get(toId) ?? toId;
 
-    return {
-      edgeId: edge.edge_id ?? `${fromId}::${toId}`,
-      fromId,
-      toId,
-      fromLabel,
-      toLabel,
-      displayLabel: `${fromLabel} → ${toLabel}`,
-      marginalSwitchProb: edge.marginal_switch_probability ?? 0,
-      altWinnerId: edge.alternative_winner_id ?? null,
-      altWinnerLabel: edge.alternative_winner_id
-        ? options.find((o) => o.id === edge.alternative_winner_id)?.label ?? edge.alternative_winner_id
-        : null,
-    };
-  });
+      return {
+        edgeId: edge.edge_id ?? `${fromId}::${toId}`,
+        fromId,
+        toId,
+        fromLabel,
+        toLabel,
+        displayLabel: `${fromLabel} → ${toLabel}`,
+        marginalSwitchProb: edge.marginal_switch_probability ?? 0,
+        altWinnerId: edge.alternative_winner_id ?? null,
+        altWinnerLabel: edge.alternative_winner_id
+          ? options.find((o) => o.id === edge.alternative_winner_id)?.label ?? edge.alternative_winner_id
+          : null,
+      };
+    })
+    .sort((a: NormalisedFragileEdge, b: NormalisedFragileEdge) => b.marginalSwitchProb - a.marginalSwitchProb);
 
   // Normalise options with ISL outcome data
-  const normalisedOptions: NormalisedOption[] = (islResult.options ?? []).map((islOpt: any) => {
-    const matchingOption = options.find((o) => o.id === islOpt.id);
-    return {
-      id: islOpt.id,
-      label: matchingOption?.label ?? islOpt.label ?? islOpt.id,
-      winProbability: islOpt.win_probability ?? 0,
-      outcomeMean: islOpt.outcome?.mean ?? 0,
-      outcomeP10: islOpt.outcome?.p10,
-      outcomeP90: islOpt.outcome?.p90,
-    };
-  });
+  // Sort by win probability descending (highest first) for reliable [0] access
+  const normalisedOptions: NormalisedOption[] = (islResult.options ?? [])
+    .map((islOpt: any) => {
+      const matchingOption = options.find((o) => o.id === islOpt.id);
+      return {
+        id: islOpt.id,
+        label: matchingOption?.label ?? islOpt.label ?? islOpt.id,
+        winProbability: islOpt.win_probability ?? 0,
+        outcomeMean: islOpt.outcome?.mean ?? 0,
+        outcomeP10: islOpt.outcome?.p10,
+        outcomeP90: islOpt.outcome?.p90,
+      };
+    })
+    .sort((a: NormalisedOption, b: NormalisedOption) => b.winProbability - a.winProbability);
 
   // Normalise robustness
   const robustness: NormalisedRobustness = {

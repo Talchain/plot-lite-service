@@ -2161,7 +2161,6 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             filteredGraph,
             body.options,
             processedIslResult,
-            body.goal_node_id,
             req.log
           );
         } catch (err) {
