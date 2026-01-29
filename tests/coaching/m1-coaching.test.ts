@@ -11,6 +11,7 @@ import { computeEvidenceGaps } from '../../src/coaching/evidence-gaps.js';
 import { generateCritiques } from '../../src/coaching/critiques.js';
 import { generateNextActions, computeReadiness } from '../../src/coaching/next-actions.js';
 import { normaliseCoachingInputs } from '../../src/coaching/normalise-inputs.js';
+import { getThresholds } from '../../src/coaching/thresholds.js';
 import type { CoachingInputs, EngineGraphV3, OptionV3 } from '../../src/coaching/types.js';
 
 // Test fixtures
@@ -488,7 +489,8 @@ describe('B4: Next Actions', () => {
     const readiness = computeReadiness(
       'moderate_winner',
       [{ type: 'NARROW_FRAMING', severity: 'concern', challenge_question: '', suggested_action: '' }],
-      []
+      [],
+      getThresholds()
     );
     expect(readiness).toBe('needs_framing');
   });
@@ -500,18 +502,19 @@ describe('B4: Next Actions', () => {
       [
         { factor_id: 'f1', factor_label: 'Cost', voi_score: 0.5, confidence: 0.3, influence: 0.8 },
         { factor_id: 'f2', factor_label: 'Risk', voi_score: 0.4, confidence: 0.4, influence: 0.6 },
-      ]
+      ],
+      getThresholds()
     );
     expect(readiness).toBe('needs_evidence');
   });
 
   it('computes readiness as "close_call" for close_call headline', () => {
-    const readiness = computeReadiness('close_call', [], []);
+    const readiness = computeReadiness('close_call', [], [], getThresholds());
     expect(readiness).toBe('close_call');
   });
 
   it('computes readiness as "ready" for clear_winner headline', () => {
-    const readiness = computeReadiness('clear_winner', [], []);
+    const readiness = computeReadiness('clear_winner', [], [], getThresholds());
     expect(readiness).toBe('ready');
   });
 

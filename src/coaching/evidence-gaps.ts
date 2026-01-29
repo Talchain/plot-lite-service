@@ -5,25 +5,23 @@
  */
 
 import type { CoachingInputs, EvidenceGap } from './types.js';
+import { computeNormalisedImpact } from './normalise-inputs.js';
+import { getThresholds } from './thresholds.js';
 
 export function computeEvidenceGaps(inputs: CoachingInputs): EvidenceGap[] {
   const { factorSensitivity } = inputs;
+  const thresholds = getThresholds();
 
   if (factorSensitivity.length === 0) {
     return [];
   }
 
-  // Compute raw impact (prefer elasticity, fallback to influence_score)
-  const withImpact = factorSensitivity.map((f) => ({
-    ...f,
-    rawImpact: Math.abs(f.elasticity ?? f.influence_score ?? 0),
-  }));
+  // Use centralized normalised impact (shared with key drivers)
+  const normalisedImpactMap = computeNormalisedImpact(factorSensitivity);
 
-  // Normalise by max
-  const maxImpact = Math.max(...withImpact.map((f) => f.rawImpact), 0.001);
-  const normalised = withImpact.map((f) => ({
+  const normalised = factorSensitivity.map((f) => ({
     ...f,
-    normalisedImpact: f.rawImpact / maxImpact,
+    normalisedImpact: normalisedImpactMap.get(f.node_id) ?? 0,
   }));
 
   // Compute VoI = normalisedImpact × (1 - confidence)
@@ -34,12 +32,12 @@ export function computeEvidenceGaps(inputs: CoachingInputs): EvidenceGap[] {
     voi: f.normalisedImpact * (1 - (f.confidence ?? 0.5)),
   }));
 
-  // Top quartile with min floor of 3
-  const k = Math.min(Math.max(Math.ceil(factorSensitivity.length / 4), 3), factorSensitivity.length);
+  // Top quartile with min floor from thresholds
+  const k = Math.min(Math.max(Math.ceil(factorSensitivity.length / 4), thresholds.evidence_gap_floor), factorSensitivity.length);
   const gaps = withVoI
-    .filter((f) => f.importance_rank <= k && f.confidence < 0.7)
+    .filter((f) => f.importance_rank <= k && f.confidence < 0.7 && f.voi >= thresholds.evidence_gap_min_voi)
     .sort((a, b) => b.voi - a.voi)
-    .slice(0, 3); // Cap at 3
+    .slice(0, thresholds.evidence_gap_cap); // Cap from thresholds
 
   return gaps.map((f) => ({
     factor_id: f.node_id,

@@ -2154,14 +2154,25 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           factorEnrichments,
         };
 
-        // Generate M1 coaching (Phase 2 deterministic coaching layer)
+        // Generate M1 coaching (Phase 2+3+4 deterministic coaching layer)
         let m1Coaching: any = null;
         try {
+          // Map repairs to format expected by assumptions ledger
+          const repairsForCoaching = (repairs ?? []).map((r) => ({
+            field: r.field,
+            action: r.action,
+            from_value: r.from_value ?? null,
+            to_value: r.to_value,
+            reason: r.reason,
+          }));
+
           m1Coaching = generateM1Coaching(
             filteredGraph,
             body.options,
             processedIslResult,
-            req.log
+            req.log,
+            repairsForCoaching,  // Phase 3: normaliser repairs for assumptions ledger
+            []                   // Phase 3: CEE critiques (empty for now, can be extended)
           );
         } catch (err) {
           req.log.warn({

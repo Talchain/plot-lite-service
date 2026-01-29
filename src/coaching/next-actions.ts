@@ -5,6 +5,7 @@
  */
 
 import type { CoachingInputs, Critique, NextAction, Readiness, HeadlineType, EvidenceGap } from './types.js';
+import { getThresholds } from './thresholds.js';
 
 export function generateNextActions(
   inputs: CoachingInputs,
@@ -12,8 +13,10 @@ export function generateNextActions(
   critiques: Critique[],
   evidenceGaps: EvidenceGap[]
 ): NextAction[] {
+  const thresholds = getThresholds();
+
   // Compute readiness
-  const readiness = computeReadiness(headlineType, critiques, evidenceGaps);
+  const readiness = computeReadiness(headlineType, critiques, evidenceGaps, thresholds);
 
   // Build context for action interpolation
   const context = {
@@ -53,7 +56,7 @@ export function generateNextActions(
   // Priority 3: Fragile edges
   if (
     context.topFragileEdge &&
-    context.topFragileEdge.marginalSwitchProb > 0.20 &&
+    context.topFragileEdge.marginalSwitchProb > thresholds.action_fragile_edge_threshold &&
     actions.length < 3
   ) {
     actions.push({
@@ -101,7 +104,8 @@ export function generateNextActions(
 export function computeReadiness(
   headlineType: HeadlineType,
   critiques: Critique[],
-  evidenceGaps: EvidenceGap[]
+  evidenceGaps: EvidenceGap[],
+  thresholds: ReturnType<typeof getThresholds>
 ): Readiness {
   // Framing issues take priority
   if (critiques.some((c) => c.type === 'NARROW_FRAMING')) {
@@ -109,7 +113,7 @@ export function computeReadiness(
   }
 
   // High evidence gaps
-  if (evidenceGaps.length >= 2 && evidenceGaps[0] && evidenceGaps[0].voi_score > 0.4) {
+  if (evidenceGaps.length >= thresholds.readiness_high_evidence_gap_count && evidenceGaps[0] && evidenceGaps[0].voi_score > thresholds.readiness_high_voi_threshold) {
     return 'needs_evidence';
   }
 

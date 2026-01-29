@@ -103,3 +103,30 @@ export function normaliseCoachingInputs(
     robustness,
   };
 }
+
+/**
+ * Compute normalised impact scores for factors (0-1 scale).
+ * Used by both evidence gaps and key drivers to ensure consistency.
+ *
+ * @param factors Factor sensitivity data
+ * @returns Map of factor ID to normalised impact (0-1)
+ */
+export function computeNormalisedImpact(
+  factors: NormalisedFactorSensitivity[]
+): Map<string, number> {
+  if (factors.length === 0) {
+    return new Map();
+  }
+
+  const maxImpact = Math.max(
+    ...factors.map((f) => Math.abs(f.elasticity ?? f.influence_score ?? 0)),
+    0.001
+  );
+
+  return new Map(
+    factors.map((f) => [
+      f.node_id,
+      Math.abs(f.elasticity ?? f.influence_score ?? 0) / maxImpact,
+    ])
+  );
+}

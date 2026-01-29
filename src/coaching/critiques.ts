@@ -5,12 +5,14 @@
  */
 
 import type { CoachingInputs, Critique, CritiqueType } from './types.js';
+import { getThresholds } from './thresholds.js';
 
 export function generateCritiques(inputs: CoachingInputs): Critique[] {
   const critiques: Critique[] = [];
+  const thresholds = getThresholds();
 
   // Check DOMINANT_FACTOR
-  const dominantFactor = checkDominantFactor(inputs);
+  const dominantFactor = checkDominantFactor(inputs, thresholds);
   if (dominantFactor) critiques.push(dominantFactor);
 
   // Check MISSING_RISK_PATHWAY
@@ -18,25 +20,25 @@ export function generateCritiques(inputs: CoachingInputs): Critique[] {
   if (missingRisk) critiques.push(missingRisk);
 
   // Check INFLUENTIAL_EXTERNALS
-  const influentialExternals = checkInfluentialExternals(inputs);
+  const influentialExternals = checkInfluentialExternals(inputs, thresholds);
   if (influentialExternals) critiques.push(influentialExternals);
 
   // Check NARROW_FRAMING
-  const narrowFraming = checkNarrowFraming(inputs);
+  const narrowFraming = checkNarrowFraming(inputs, thresholds);
   if (narrowFraming) critiques.push(narrowFraming);
 
   // Check ANCHORING_RISK
-  const anchoringRisk = checkAnchoringRisk(inputs);
+  const anchoringRisk = checkAnchoringRisk(inputs, thresholds);
   if (anchoringRisk) critiques.push(anchoringRisk);
 
   // Check OVERCONFIDENCE
-  const overconfidence = checkOverconfidence(inputs);
+  const overconfidence = checkOverconfidence(inputs, thresholds);
   if (overconfidence) critiques.push(overconfidence);
 
   return critiques;
 }
 
-function checkDominantFactor(inputs: CoachingInputs): Critique | null {
+function checkDominantFactor(inputs: CoachingInputs, thresholds: ReturnType<typeof getThresholds>): Critique | null {
   const { factorSensitivity } = inputs;
   if (factorSensitivity.length === 0) return null;
 
@@ -45,7 +47,7 @@ function checkDominantFactor(inputs: CoachingInputs): Critique | null {
   if (total === 0) return null;
 
   const dominant = factorSensitivity.find(
-    (f, i) => absElasticities[i] / total >= 0.50 && f.importance_rank <= 3
+    (f, i) => absElasticities[i] / total >= thresholds.critique_dominant_factor_threshold && f.importance_rank <= 3
   );
 
   if (!dominant) return null;
@@ -79,11 +81,11 @@ function checkMissingRiskPathway(inputs: CoachingInputs): Critique | null {
   return null;
 }
 
-function checkInfluentialExternals(inputs: CoachingInputs): Critique | null {
+function checkInfluentialExternals(inputs: CoachingInputs, thresholds: ReturnType<typeof getThresholds>): Critique | null {
   const { factorSensitivity, graph } = inputs;
   if (factorSensitivity.length === 0) return null;
 
-  const topQuartileRank = Math.ceil(factorSensitivity.length / 4);
+  const topQuartileRank = Math.ceil(factorSensitivity.length * thresholds.critique_influential_external_quartile);
   const influentialExternals = factorSensitivity.filter((f) => {
     const node = graph.nodes.find((n) => n.id === f.node_id);
     return node?.category === 'external' && f.importance_rank <= topQuartileRank;
@@ -103,7 +105,7 @@ function checkInfluentialExternals(inputs: CoachingInputs): Critique | null {
   };
 }
 
-function checkNarrowFraming(inputs: CoachingInputs): Critique | null {
+function checkNarrowFraming(inputs: CoachingInputs, thresholds: ReturnType<typeof getThresholds>): Critique | null {
   const { options } = inputs;
   const hasStatusQuo = options.some(
     (o) =>
@@ -112,7 +114,7 @@ function checkNarrowFraming(inputs: CoachingInputs): Critique | null {
       o.label?.toLowerCase().includes('current')
   );
 
-  if (options.length <= 2 && !hasStatusQuo) {
+  if (options.length <= thresholds.critique_narrow_framing_max_options && !hasStatusQuo) {
     return {
       type: 'NARROW_FRAMING',
       severity: 'concern',
@@ -125,7 +127,7 @@ function checkNarrowFraming(inputs: CoachingInputs): Critique | null {
   return null;
 }
 
-function checkAnchoringRisk(inputs: CoachingInputs): Critique | null {
+function checkAnchoringRisk(inputs: CoachingInputs, thresholds: ReturnType<typeof getThresholds>): Critique | null {
   const { factorSensitivity, graph } = inputs;
 
   const suspects = factorSensitivity.filter((f) => {
@@ -134,7 +136,7 @@ function checkAnchoringRisk(inputs: CoachingInputs): Critique | null {
     if (!node || node.category === 'external') return false;
 
     const value = node.observed_state?.value ?? node.observed_state?.baseline;
-    return value === 0.5;
+    return value === thresholds.critique_anchoring_baseline_value;
   });
 
   if (suspects.length === 0) return null;
@@ -151,7 +153,7 @@ function checkAnchoringRisk(inputs: CoachingInputs): Critique | null {
   };
 }
 
-function checkOverconfidence(inputs: CoachingInputs): Critique | null {
+function checkOverconfidence(inputs: CoachingInputs, thresholds: ReturnType<typeof getThresholds>): Critique | null {
   const { factorSensitivity } = inputs;
 
   const withConfidence = factorSensitivity.filter((f) => f.confidence !== undefined);
@@ -160,7 +162,7 @@ function checkOverconfidence(inputs: CoachingInputs): Critique | null {
   const avgConfidence =
     withConfidence.reduce((sum, f) => sum + f.confidence!, 0) / withConfidence.length;
 
-  if (avgConfidence > 0.85) {
+  if (avgConfidence > thresholds.critique_overconfidence_threshold) {
     return {
       type: 'OVERCONFIDENCE',
       severity: 'warning',

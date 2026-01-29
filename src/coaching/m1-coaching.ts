@@ -12,6 +12,11 @@ import { generateHeadlines, getFragileEdgeContext } from './headlines.js';
 import { computeEvidenceGaps } from './evidence-gaps.js';
 import { generateCritiques } from './critiques.js';
 import { generateNextActions, computeReadiness } from './next-actions.js';
+import { getThresholds } from './thresholds.js';
+import { buildAssumptionsLedger } from './assumptions-ledger.js';
+import { computeReadinessSignals } from './readiness-signals.js';
+import { computeKeyDrivers } from './key-drivers.js';
+import { generateExecutiveSummary } from './executive-summary.js';
 
 /**
  * Generate M1 coaching output from ISL response data.
@@ -20,21 +25,38 @@ import { generateNextActions, computeReadiness } from './next-actions.js';
  * @param options Request options
  * @param islResult ISL response data
  * @param logger Optional logger for warnings
+ * @param repairsApplied Optional repairs from normaliser (_meta.repairs_applied)
+ * @param ceeCritiques Optional critiques from CEE review
  * @returns M1Coaching object or null if generation fails
  */
 export function generateM1Coaching(
   graph: EngineGraphV3,
   options: OptionV3[],
   islResult: any,
-  logger?: any
+  logger?: any,
+  repairsApplied?: Array<{
+    field: string;
+    action: string;
+    from_value: number | string | null;
+    to_value: number | string;
+    reason: string;
+  }>,
+  ceeCritiques?: Array<{
+    type: string;
+    message: string;
+    severity?: string;
+  }>
 ): M1Coaching | null {
   const startTime = performance.now();
 
   try {
+    // Get thresholds (used by Phase 2-4 components)
+    const thresholds = getThresholds();
+
     // Normalize inputs (required for all components)
     const inputs = normaliseCoachingInputs(graph, options, islResult);
 
-    // Generate each component with error isolation
+    // Phase 2: Core Coaching (B1-B4)
     const storyHeadlines = safeCompute(() => generateHeadlines(inputs), {}, logger, 'headlines');
     const evidenceGaps = safeCompute(() => computeEvidenceGaps(inputs), [], logger, 'evidence_gaps');
     const modelCritiques = safeCompute(() => generateCritiques(inputs), [], logger, 'critiques');
@@ -51,10 +73,40 @@ export function generateM1Coaching(
     );
 
     // Compute readiness
-    const readiness = computeReadiness(headlineType, modelCritiques, evidenceGaps);
+    const readiness = computeReadiness(headlineType, modelCritiques, evidenceGaps, thresholds);
 
     // Get fragile edge context if relevant
     const topFragileEdge = getFragileEdgeContext(inputs.fragileEdges);
+
+    // Phase 3: Differentiators (C1-C3)
+    const assumptionsLedger = safeCompute(
+      () => buildAssumptionsLedger(inputs, repairsApplied, ceeCritiques),
+      { assumptions: [], total_count: 0, high_impact_count: 0, medium_impact_count: 0, low_impact_count: 0 },
+      logger,
+      'assumptions_ledger'
+    );
+
+    const readinessSignals = safeCompute(
+      () => computeReadinessSignals(inputs, readiness, modelCritiques, evidenceGaps, thresholds),
+      undefined,
+      logger,
+      'readiness_signals'
+    );
+
+    // Phase 4: Summary (D1-D2)
+    const keyDrivers = safeCompute(
+      () => computeKeyDrivers(inputs),
+      [],
+      logger,
+      'key_drivers'
+    );
+
+    const executiveSummary = safeCompute(
+      () => generateExecutiveSummary(inputs, readiness, headlineType, keyDrivers, evidenceGaps),
+      undefined,
+      logger,
+      'executive_summary'
+    );
 
     // Check computation time
     const elapsed = performance.now() - startTime;
@@ -63,6 +115,7 @@ export function generateM1Coaching(
     }
 
     return {
+      // Phase 2: Core Coaching
       story_headlines: storyHeadlines,
       evidence_gaps: evidenceGaps,
       model_critiques: modelCritiques,
@@ -77,7 +130,18 @@ export function generateM1Coaching(
             switch_probability: topFragileEdge.switchProb,
           }
         : undefined,
-      coaching_version: '1.0.0',
+
+      // Phase 3: Differentiators
+      assumptions_ledger: assumptionsLedger,
+      thresholds_used: thresholds,
+      readiness_signals: readinessSignals,
+
+      // Phase 4: Summary
+      key_drivers: keyDrivers,
+      executive_summary: executiveSummary,
+
+      // Metadata
+      coaching_version: '1.1.0',
       computed_at: new Date().toISOString(),
     };
   } catch (err) {

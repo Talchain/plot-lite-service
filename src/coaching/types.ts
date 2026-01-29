@@ -133,10 +133,11 @@ export interface NextAction {
 }
 
 // =============================================================================
-// M1 Coaching Output
+// M1 Coaching Output (Phase 2 + Phase 3-4)
 // =============================================================================
 
 export interface M1Coaching {
+  // Phase 2: Core Coaching (B1-B4)
   story_headlines: StoryHeadlines;
   evidence_gaps: EvidenceGap[];
   model_critiques: Critique[];
@@ -154,7 +155,87 @@ export interface M1Coaching {
     switch_probability: number;
   };
 
+  // Phase 3: Differentiators (C1-C3)
+  assumptions_ledger?: {
+    assumptions: Array<{
+      dedup_key: string;
+      source_service: 'plot_normaliser' | 'isl_engine' | 'cee_review';
+      action: 'clamped' | 'defaulted' | 'inferred' | 'floored' | 'derived' | 'flagged' | 'assumed';
+      entity_type: 'edge' | 'node' | 'option' | 'global';
+      entity_id: string;
+      field: string;
+      from_value: number | string | null;
+      to_value: number | string | null;
+      reason: string;
+      impact: 'high' | 'medium' | 'low';
+      impact_reason_code: 'AFFECTS_WINNER' | 'HIGH_INFLUENCE_FACTOR' | 'FRAGILE_EDGE' | 'OUTCOME_MODIFIER' | 'STRUCTURAL_ONLY' | 'COSMETIC';
+    }>;
+    total_count: number;
+    high_impact_count: number;
+    medium_impact_count: number;
+    low_impact_count: number;
+  };
+
+  thresholds_used?: {
+    headline_clear_winner_delta: number;
+    headline_clear_winner_stability: number;
+    headline_moderate_winner_delta: number;
+    headline_moderate_winner_stability: number;
+    headline_close_call_delta: number;
+    headline_high_uncertainty_voi: number;
+    headline_high_uncertainty_fragile: number;
+    headline_fragile_edge_min: number;
+    evidence_gap_min_voi: number;
+    evidence_gap_top_quartile: boolean;
+    evidence_gap_floor: number;
+    evidence_gap_cap: number;
+    critique_dominant_factor_threshold: number;
+    critique_influential_external_quartile: number;
+    critique_narrow_framing_max_options: number;
+    critique_anchoring_baseline_value: number;
+    critique_overconfidence_threshold: number;
+    action_fragile_edge_threshold: number;
+    action_high_voi_threshold: number;
+    readiness_high_evidence_gap_count: number;
+    readiness_high_voi_threshold: number;
+  };
+
+  readiness_signals?: {
+    overall: Readiness;
+    overall_score: number;
+    computed_score_raw: number;  // Raw weighted score before enum alignment (for transparency)
+    dimensions: {
+      evidence_quality: number;
+      model_robustness: number;
+      framing_quality: number;
+    };
+    signals: Array<{
+      dimension: 'evidence' | 'robustness' | 'framing';
+      signal: string;
+      impact: 'positive' | 'negative' | 'neutral';
+      weight: number;
+    }>;
+  };
+
+  // Phase 4: Summary (D1-D2)
+  key_drivers?: Array<{
+    factor_id: string;
+    factor_label: string;
+    influence_score: number;
+    normalised_impact: number;
+    impact_display: string;
+    direction: 'positive' | 'negative' | 'neutral' | null;
+    rank: number;
+  }>;
+
+  executive_summary?: {
+    summary: string;
+    decision_statement: string;
+    key_qualifier: string;
+    action_implication: string;
+  };
+
   // Metadata
-  coaching_version: string;  // "1.0.0"
+  coaching_version: string;  // "1.1.0" (Phase 3-4)
   computed_at: string;       // ISO timestamp
 }

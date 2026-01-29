@@ -5,6 +5,7 @@
  */
 
 import type { CoachingInputs, HeadlineType, StoryHeadlines, FragileEdgeContext } from './types.js';
+import { getThresholds } from './thresholds.js';
 
 const HEADLINE_TEMPLATES = {
   clear_winner: '{option} outperforms by {deltaPoints} points with high confidence',
@@ -17,6 +18,7 @@ const HEADLINE_TEMPLATES = {
 
 export function generateHeadlines(inputs: CoachingInputs): StoryHeadlines {
   const { options, factorSensitivity, fragileEdges, robustness } = inputs;
+  const thresholds = getThresholds();
 
   if (options.length === 0) {
     return {};
@@ -38,7 +40,7 @@ export function generateHeadlines(inputs: CoachingInputs): StoryHeadlines {
 
   // Get top fragile edge (highest marginal switch prob)
   const topFragile = fragileEdges
-    .filter((e) => e.marginalSwitchProb >= 0.15)
+    .filter((e) => e.marginalSwitchProb >= thresholds.headline_fragile_edge_min)
     .sort((a, b) => b.marginalSwitchProb - a.marginalSwitchProb)[0];
 
   const topFragileMarginal = topFragile?.marginalSwitchProb ?? 0;
@@ -52,7 +54,8 @@ export function generateHeadlines(inputs: CoachingInputs): StoryHeadlines {
     stability,
     topGapVoI,
     topFragileMarginal,
-    hasFactorSensitivity
+    hasFactorSensitivity,
+    thresholds
   );
 
   // Generate headline for winner
@@ -112,7 +115,8 @@ function selectHeadlineType(
   stability: number | undefined,
   topGapVoI: number,
   topFragileMarginal: number,
-  hasFactorSensitivity: boolean
+  hasFactorSensitivity: boolean,
+  thresholds: ReturnType<typeof getThresholds>
 ): HeadlineType {
   // 1. Missing data → needs_evidence
   if (!hasFactorSensitivity || stability === undefined) {
@@ -120,22 +124,22 @@ function selectHeadlineType(
   }
 
   // 2. High swing risk → high_uncertainty (check FIRST)
-  if (topGapVoI > 0.30 || topFragileMarginal > 0.25) {
+  if (topGapVoI > thresholds.headline_high_uncertainty_voi || topFragileMarginal > thresholds.headline_high_uncertainty_fragile) {
     return 'high_uncertainty';
   }
 
   // 3. Clear winner
-  if (winProbDelta >= 0.20 && stability >= 0.70) {
+  if (winProbDelta >= thresholds.headline_clear_winner_delta && stability >= thresholds.headline_clear_winner_stability) {
     return 'clear_winner';
   }
 
   // 4. Moderate winner
-  if (winProbDelta >= 0.10 && stability >= 0.50) {
+  if (winProbDelta >= thresholds.headline_moderate_winner_delta && stability >= thresholds.headline_moderate_winner_stability) {
     return 'moderate_winner';
   }
 
   // 5. Close call
-  if (winProbDelta < 0.10) {
+  if (winProbDelta < thresholds.headline_close_call_delta) {
     return 'close_call';
   }
 
@@ -156,8 +160,9 @@ function computeTopGapInfluence(factors: Array<{ confidence?: number; elasticity
 }
 
 export function getFragileEdgeContext(fragileEdges: Array<{ edgeId: string; displayLabel: string; marginalSwitchProb: number; altWinnerLabel: string | null; altWinnerId: string | null }>): FragileEdgeContext | undefined {
+  const thresholds = getThresholds();
   const top = fragileEdges
-    .filter((e) => e.marginalSwitchProb >= 0.15)
+    .filter((e) => e.marginalSwitchProb >= thresholds.headline_fragile_edge_min)
     .sort((a, b) => b.marginalSwitchProb - a.marginalSwitchProb)[0];
 
   if (!top) return undefined;
@@ -176,6 +181,7 @@ export function getFragileEdgeContext(fragileEdges: Array<{ edgeId: string; disp
  */
 export function detectHeadlineType(inputs: CoachingInputs): HeadlineType {
   const { options, factorSensitivity, fragileEdges, robustness } = inputs;
+  const thresholds = getThresholds();
 
   if (options.length === 0) {
     return 'needs_evidence';
@@ -197,7 +203,7 @@ export function detectHeadlineType(inputs: CoachingInputs): HeadlineType {
 
   // Get top fragile edge (highest marginal switch prob)
   const topFragile = fragileEdges
-    .filter((e) => e.marginalSwitchProb >= 0.15)
+    .filter((e) => e.marginalSwitchProb >= thresholds.headline_fragile_edge_min)
     .sort((a, b) => b.marginalSwitchProb - a.marginalSwitchProb)[0];
 
   const topFragileMarginal = topFragile?.marginalSwitchProb ?? 0;
@@ -210,6 +216,7 @@ export function detectHeadlineType(inputs: CoachingInputs): HeadlineType {
     stability,
     topGapVoI,
     topFragileMarginal,
-    hasFactorSensitivity
+    hasFactorSensitivity,
+    thresholds
   );
 }
