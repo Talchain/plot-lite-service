@@ -61,6 +61,8 @@ export interface UpstreamNode {
   state_space?: {
     range?: { min: number; max: number };
   };
+  /** Factor category for M1 coaching classification */
+  category?: 'controllable' | 'observable' | 'external';
   data?: {
     // React Flow nesting
     kind?: string;
@@ -73,6 +75,8 @@ export interface UpstreamNode {
     state_space?: {
       range?: { min: number; max: number };
     };
+    /** Factor category for M1 coaching classification (React Flow nesting) */
+    category?: 'controllable' | 'observable' | 'external';
   };
 }
 
@@ -147,6 +151,8 @@ export interface EngineNodeV3 {
   state_space?: {
     range?: { min: number; max: number };
   };
+  /** Factor category for M1 coaching classification */
+  category?: 'controllable' | 'observable' | 'external';
 }
 
 /**

@@ -29,7 +29,7 @@ describe('INV-META-01: _meta.repairs_applied structure', () => {
         exists_probability: 0.8,
       },
       0,
-      undefined,
+      new Map(),
       warnings
     );
 
@@ -43,7 +43,7 @@ describe('INV-META-01: _meta.repairs_applied structure', () => {
     normaliseEdge(
       { from: 'A', to: 'B', exists_probability: 1.5, weight: 0.5 },
       0,
-      undefined,
+      new Map(),
       warnings
     );
 
@@ -70,7 +70,7 @@ describe('INV-META-02: Repair action types are valid', () => {
     normaliseEdge(
       { from: 'A', to: 'B', exists_probability: 1.5, weight: 0.5 },
       0,
-      undefined,
+      new Map(),
       warnings
     );
 

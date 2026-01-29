@@ -31,7 +31,7 @@ describe('INV-NORM-01: exists_probability bounded [0, 1]', () => {
     const edge = normaliseEdge(
       { from: 'A', to: 'B', exists_probability: 1.5, weight: 0.5 },
       0,
-      undefined,
+      new Map(),
       []
     );
     expect(edge.exists_probability).toBe(1);
@@ -41,7 +41,7 @@ describe('INV-NORM-01: exists_probability bounded [0, 1]', () => {
     const edge = normaliseEdge(
       { from: 'A', to: 'B', exists_probability: -0.5, weight: 0.5 },
       0,
-      undefined,
+      new Map(),
       []
     );
     expect(edge.exists_probability).toBe(0);
@@ -51,7 +51,7 @@ describe('INV-NORM-01: exists_probability bounded [0, 1]', () => {
     const edge = normaliseEdge(
       { from: 'A', to: 'B', weight: 0.5 },
       0,
-      undefined,
+      new Map(),
       []
     );
     expect(edge.exists_probability).toBe(DEFAULT_EXISTS_PROBABILITY);
@@ -61,7 +61,7 @@ describe('INV-NORM-01: exists_probability bounded [0, 1]', () => {
     const edge = normaliseEdge(
       { from: 'A', to: 'B', exists_probability: 0.75, weight: 0.5 },
       0,
-      undefined,
+      new Map(),
       []
     );
     expect(edge.exists_probability).toBe(0.75);
@@ -76,7 +76,7 @@ describe('INV-NORM-02: strength.mean bounded [-1, 1]', () => {
     const edge = normaliseEdge(
       { from: 'A', to: 'B', strength: { mean: 1.5, std: 0.1 } },
       0,
-      undefined,
+      new Map(),
       []
     );
     expect(edge.strength.mean).toBe(1);
@@ -86,7 +86,7 @@ describe('INV-NORM-02: strength.mean bounded [-1, 1]', () => {
     const edge = normaliseEdge(
       { from: 'A', to: 'B', strength: { mean: -1.5, std: 0.1 } },
       0,
-      undefined,
+      new Map(),
       []
     );
     expect(edge.strength.mean).toBe(-1);
@@ -96,7 +96,7 @@ describe('INV-NORM-02: strength.mean bounded [-1, 1]', () => {
     const edge = normaliseEdge(
       { from: 'A', to: 'B', strength: { mean: -0.7, std: 0.1 } },
       0,
-      undefined,
+      new Map(),
       []
     );
     expect(edge.strength.mean).toBe(-0.7);
@@ -106,7 +106,7 @@ describe('INV-NORM-02: strength.mean bounded [-1, 1]', () => {
     const edge = normaliseEdge(
       { from: 'A', to: 'B', weight: 0.8, effect_direction: 'positive' },
       0,
-      undefined,
+      new Map(),
       []
     );
     expect(edge.strength.mean).toBe(0.8);
@@ -116,7 +116,7 @@ describe('INV-NORM-02: strength.mean bounded [-1, 1]', () => {
     const edge = normaliseEdge(
       { from: 'A', to: 'B', weight: 0.8, effect_direction: 'negative' },
       0,
-      undefined,
+      new Map(),
       []
     );
     expect(edge.strength.mean).toBe(-0.8);
@@ -131,27 +131,62 @@ describe('INV-NORM-03: strength.std bounded [0.001, 0.4]', () => {
     const edge = normaliseEdge(
       { from: 'A', to: 'B', strength: { mean: 0.5, std: 0.8 } },
       0,
-      undefined,
+      new Map(),
       []
     );
     expect(edge.strength.std).toBe(STD_RANGE_MAX);
   });
 
-  it('clamps strength.std below 0.05 to 0.05', () => {
+  it('clamps causal edge strength.std below 0.05 to 0.05', () => {
+    // Causal edge (factor → outcome)
+    const nodeKindMap = new Map([
+      ['factor_a', 'factor'],
+      ['outcome_b', 'outcome'],
+    ]);
     const edge = normaliseEdge(
-      { from: 'A', to: 'B', strength: { mean: 0.5, std: 0.01 } },
+      { from: 'factor_a', to: 'outcome_b', strength: { mean: 0.5, std: 0.01 } },
       0,
-      undefined,
+      nodeKindMap,
       []
     );
-    expect(edge.strength.std).toBe(STD_RANGE_MIN);
+    expect(edge.strength.std).toBe(STD_RANGE_MIN); // 0.05
+  });
+
+  it('allows structural edge strength.std of 0.01 (decision → option)', () => {
+    // Structural edge: decision → option
+    const nodeKindMap = new Map([
+      ['dec_1', 'decision'],
+      ['opt_1', 'option'],
+    ]);
+    const edge = normaliseEdge(
+      { from: 'dec_1', to: 'opt_1', strength: { mean: 1.0, std: 0.01 } },
+      0,
+      nodeKindMap,
+      []
+    );
+    expect(edge.strength.std).toBe(0.01); // Not clamped to 0.05
+  });
+
+  it('allows structural edge strength.std of 0.01 (option → factor)', () => {
+    // Structural edge: option → factor
+    const nodeKindMap = new Map([
+      ['opt_1', 'option'],
+      ['fac_1', 'factor'],
+    ]);
+    const edge = normaliseEdge(
+      { from: 'opt_1', to: 'fac_1', strength: { mean: 1.0, std: 0.01 } },
+      0,
+      nodeKindMap,
+      []
+    );
+    expect(edge.strength.std).toBe(0.01); // Not clamped to 0.05
   });
 
   it('floors zero strength.std to MIN_STD', () => {
     const edge = normaliseEdge(
       { from: 'A', to: 'B', strength: { mean: 0.5, std: 0 } },
       0,
-      undefined,
+      new Map(),
       []
     );
     expect(edge.strength.std).toBe(STD_RANGE_MIN);
@@ -161,7 +196,7 @@ describe('INV-NORM-03: strength.std bounded [0.001, 0.4]', () => {
     const edge = normaliseEdge(
       { from: 'A', to: 'B', strength: { mean: 0.5, std: 0.2 } },
       0,
-      undefined,
+      new Map(),
       []
     );
     expect(edge.strength.std).toBe(0.2);
@@ -171,7 +206,7 @@ describe('INV-NORM-03: strength.std bounded [0.001, 0.4]', () => {
     const edge = normaliseEdge(
       { from: 'A', to: 'B', strength: { mean: 0.5, std: NaN } },
       0,
-      undefined,
+      new Map(),
       []
     );
     expect(edge.strength.std).toBeGreaterThanOrEqual(STD_RANGE_MIN);
@@ -231,14 +266,14 @@ describe('INV-NORM-05: Normalisation idempotency', () => {
     const edge = normaliseEdge(
       { from: 'A', to: 'B', strength: { mean: 0.5, std: 0.2 }, exists_probability: 0.9 },
       0,
-      undefined,
+      new Map(),
       []
     );
 
     const renormalized = normaliseEdge(
       { from: edge.from, to: edge.to, strength: edge.strength, exists_probability: edge.exists_probability },
       0,
-      undefined,
+      new Map(),
       []
     );
 
@@ -257,7 +292,7 @@ describe('INV-NORM-06: Repair warnings are emitted', () => {
     normaliseEdge(
       { from: 'A', to: 'B', exists_probability: 1.5, weight: 0.5 },
       0,
-      undefined,
+      new Map(),
       warnings
     );
 
@@ -271,7 +306,7 @@ describe('INV-NORM-06: Repair warnings are emitted', () => {
     normaliseEdge(
       { from: 'A', to: 'B', weight: 0.5 },
       0,
-      undefined,
+      new Map(),
       warnings
     );
 
@@ -337,7 +372,7 @@ describe('INV-NORM-08: Repair records contain correct structure', () => {
     normaliseEdge(
       { from: 'A', to: 'B', exists_probability: 1.5, weight: 0.5 },
       0,
-      undefined,
+      new Map(),
       warnings
     );
 
@@ -360,7 +395,7 @@ describe('INV-NORM-08: Repair records contain correct structure', () => {
     normaliseEdge(
       { from: 'A', to: 'B', strength: { mean: 1.5, std: 0.1 } },
       0,
-      undefined,
+      new Map(),
       warnings
     );
 
@@ -383,7 +418,7 @@ describe('INV-NORM-08: Repair records contain correct structure', () => {
     normaliseEdge(
       { from: 'A', to: 'B', strength: { mean: 0.5, std: 0.8 } },
       0,
-      undefined,
+      new Map(),
       warnings
     );
 
@@ -406,7 +441,7 @@ describe('INV-NORM-08: Repair records contain correct structure', () => {
     normaliseEdge(
       { from: 'A', to: 'B', weight: 0.5, belief: 0.9 },
       0,
-      undefined,
+      new Map(),
       warnings
     );
 
@@ -452,7 +487,7 @@ describe('INV-NORM-08: Repair records contain correct structure', () => {
     normaliseEdge(
       { from: 'A', to: 'B', exists_probability: 1.5, weight: 0.5 },
       0,
-      undefined,
+      new Map(),
       warnings
     );
 
@@ -470,7 +505,7 @@ describe('INV-NORM-08: Repair records contain correct structure', () => {
     normaliseEdge(
       { from: 'A', to: 'B', exists_probability: 1.5, weight: 0.5 },
       0,
-      undefined,
+      new Map(),
       warnings
     );
 

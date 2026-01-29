@@ -119,6 +119,27 @@ describe('ISL Translator V3', () => {
       expect(factorAUncertainty!.distribution).toBe('normal');
       expect(factorAUncertainty!.mean).toBe(50);
     });
+
+    it('does not include category field in ISL request', () => {
+      const graphWithCategory: EngineGraphV3 = {
+        nodes: [
+          { id: 'factor-a', kind: 'factor', label: 'Factor A', category: 'controllable' },
+          { id: 'factor-b', kind: 'factor', label: 'Factor B', category: 'observable' },
+          { id: 'goal', kind: 'goal', label: 'Goal' },
+        ],
+        edges: [
+          { from: 'factor-a', to: 'goal', exists_probability: 0.8, strength: { mean: 0.5, std: 0.1 } },
+          { from: 'factor-b', to: 'goal', exists_probability: 0.9, strength: { mean: 0.7, std: 0.15 } },
+        ],
+      };
+
+      const result = toISLRobustnessRequest(graphWithCategory, options, 'goal', 'req-123', 1000);
+
+      // Verify category is NOT in ISL payload (it's PLoT-internal metadata for M1 coaching)
+      result.graph.nodes.forEach((node: any) => {
+        expect(node).not.toHaveProperty('category');
+      });
+    });
   });
 
   describe('validateISLRequest', () => {

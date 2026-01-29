@@ -49,8 +49,9 @@ const VALID_NODE_KINDS: Set<string> = new Set([
 
 const DEFAULT_EXISTS_PROBABILITY = 0.8;
 const DEFAULT_WEIGHT = 0.5;
-const MIN_STD = 0.001; // ISL requires std > 0
-const STD_RANGE_MIN = 0.05;
+const MIN_STD = 0.001;           // ISL minimum (technical requirement)
+const STD_RANGE_MIN = 0.05;      // Causal edge floor (epistemic uncertainty)
+const STRUCTURAL_STD_MIN = 0.01; // Structural edge floor (definitional edges)
 const STD_RANGE_MAX = 0.4;
 
 // -----------------------------------------------------------------------------
@@ -74,6 +75,36 @@ export function deriveStd(mean: number, belief: number): number {
  */
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+/**
+ * Determine if an edge is structural (definitional) rather than causal.
+ * Structural edges represent graph structure, not epistemic uncertainty.
+ *
+ * Structural edge types:
+ * - decision → option (decision structure)
+ * - option → factor (intervention definition)
+ *
+ * @param edge The edge to check
+ * @param nodeKindMap Map of node IDs to their kinds (before filtering)
+ * @returns true if edge is structural, false if causal
+ */
+function isStructuralEdgeType(
+  edge: { from: string; to: string },
+  nodeKindMap: Map<string, string>
+): boolean {
+  const fromKind = nodeKindMap.get(edge.from);
+  const toKind = nodeKindMap.get(edge.to);
+
+  if (!fromKind || !toKind) return false;
+
+  // decision → option
+  if (fromKind === 'decision' && toKind === 'option') return true;
+
+  // option → factor
+  if (fromKind === 'option' && toKind === 'factor') return true;
+
+  return false;
 }
 
 // -----------------------------------------------------------------------------
@@ -175,6 +206,50 @@ export function normaliseNode(
   // Extract state_space from various locations
   const stateSpace = node.state_space ?? node.data?.state_space;
 
+  // Extract and validate category field (for M1 coaching classification)
+  const rawCategory = node.category ?? node.data?.category;
+  let category: 'controllable' | 'observable' | 'external' | undefined;
+
+  if (rawCategory !== undefined) {
+    // Type check: category must be a string
+    if (typeof rawCategory !== 'string') {
+      warnings?.push({
+        code: 'INVALID_CATEGORY',
+        message: `Node '${node.id}': category must be a string, got ${typeof rawCategory}`,
+        node_id: node.id,
+        repair: {
+          field: 'node.category',
+          action: 'defaulted',
+          from_value: String(rawCategory),
+          to_value: 'undefined',
+          reason: `Category must be a string (got ${typeof rawCategory})`,
+        },
+      });
+      category = undefined;
+    } else {
+      // Normalize to lowercase and validate against allowed values
+      const normalizedCategory = rawCategory.toLowerCase();
+      if (normalizedCategory === 'controllable' || normalizedCategory === 'observable' || normalizedCategory === 'external') {
+        category = normalizedCategory;
+      } else {
+        // Invalid category value - issue warning with repair metadata
+        warnings?.push({
+          code: 'INVALID_CATEGORY',
+          message: `Node '${node.id}' has invalid category '${rawCategory}'. Valid values: controllable, observable, external`,
+          node_id: node.id,
+          repair: {
+            field: 'node.category',
+            action: 'defaulted',
+            from_value: rawCategory,
+            to_value: 'undefined',
+            reason: `Invalid category value. Valid values: controllable, observable, external`,
+          },
+        });
+        category = undefined;
+      }
+    }
+  }
+
   return {
     id: node.id,
     kind,
@@ -183,6 +258,7 @@ export function normaliseNode(
     intercept: rawIntercept === undefined ? undefined : (rawIntercept as number),
     observed_state: observedState,
     state_space: stateSpace,
+    category,
   };
 }
 
@@ -226,14 +302,14 @@ function inferEffectDirection(
  *
  * @param edge Upstream edge in any supported format
  * @param index Edge index for error reporting
- * @param nodeKindMap Optional map of node IDs to their kinds for effect direction inference
+ * @param nodeKindMap Map of node IDs to their kinds for effect direction inference and structural edge detection
  * @returns Normalized edge in EngineEdgeV3 format
  * @throws NormalisationError if edge is invalid
  */
 export function normaliseEdge(
   edge: UpstreamEdge,
   index: number,
-  nodeKindMap?: Map<string, string>,
+  nodeKindMap: Map<string, string>,
   warnings?: NormalisationWarning[]
 ): EngineEdgeV3 {
   // 1. Resolve from/to
@@ -487,7 +563,11 @@ export function normaliseEdge(
       }
     );
   } else {
-    const clampedStd = clamp(std, STD_RANGE_MIN, STD_RANGE_MAX);
+    // Structural edges (decision→option, option→factor) use lower floor (0.01)
+    // Causal edges use epistemic uncertainty floor (0.05)
+    const isStructural = isStructuralEdgeType({ from, to }, nodeKindMap);
+    const effectiveMinStd = isStructural ? STRUCTURAL_STD_MIN : STD_RANGE_MIN;
+    const clampedStd = clamp(std, effectiveMinStd, STD_RANGE_MAX);
     if (clampedStd !== std) {
       pushCoefficientWarning(
         `Edge ${edgeId}: strength.std clamped from ${std} to ${clampedStd}`,
@@ -496,7 +576,7 @@ export function normaliseEdge(
           action: 'clamped',
           from_value: std,
           to_value: clampedStd,
-          reason: `Value exceeded valid range [${STD_RANGE_MIN}, ${STD_RANGE_MAX}]`,
+          reason: `Value exceeded valid range [${effectiveMinStd}, ${STD_RANGE_MAX}]`,
         }
       );
     }
@@ -620,7 +700,7 @@ export function normaliseGraph(upstreamGraph: UpstreamGraph): NormalisationResul
     }
   }
 
-  // Normalize edges (with node kind map for effect direction inference)
+  // Normalize edges (with node kind map for effect direction inference and structural edge detection)
   let edgeIndex = 0;
   for (const upstreamEdge of upstreamGraph.edges ?? []) {
     try {
