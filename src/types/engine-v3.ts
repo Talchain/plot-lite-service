@@ -17,6 +17,7 @@ import {
 
 // Import CEE types for factor enrichments
 import type { FactorEnrichment } from '../cee/types.js';
+import type { M1Coaching } from '../coaching/types.js';
 
 // -----------------------------------------------------------------------------
 // Node Kinds
@@ -476,6 +477,17 @@ export interface RunResponseV3 {
    * Must be excluded from canonical hash calculations.
    */
   factor_enrichments?: FactorEnrichment[];
+
+  /**
+   * M1 Coaching output (Phase 2).
+   * Deterministic coaching layer providing story headlines, evidence gaps,
+   * model critiques, and next actions.
+   * Undefined if ISL data unavailable or coaching generation fails.
+   *
+   * NOTE: Fully deterministic (no LLM calls) but excluded from response_hash
+   * as non-semantic metadata.
+   */
+  m1_coaching?: M1Coaching;
 
   /** Overall robustness assessment (if robustness_status is 'computed') */
   robustness?: RobustnessAssessmentV3;

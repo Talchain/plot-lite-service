@@ -71,6 +71,7 @@ import type { RobustnessDataForCee, NormalizedEdgeInfo } from '../../integration
 import { orchestrateCeeReview } from '../../cee/orchestrator.js';
 import type { CeeReviewRequest, CeeTrace, FactorEnrichment } from '../../cee/types.js';
 import { factorReviewV2, type CEESchemaV2Config } from '../../cee/client.js';
+import { generateM1Coaching } from '../../coaching/m1-coaching.js';
 import { getDownstreamCallsForLog } from '../../util/downstream-tracker.js';
 import { computeFactorSensitivityFromGraph } from '../../lib/factor-influence.js';
 import { NEAR_TIE_THRESHOLD } from '../../trust/result-coherence.js';
@@ -749,7 +750,8 @@ function buildResponse(
   robustnessSynthesis?: RobustnessSynthesisV3 | null,
   ceeResults?: CeeResultsParams,
   ceeTrace?: CeeTrace | null,
-  sensitivityData?: SensitivityData
+  sensitivityData?: SensitivityData,
+  m1Coaching?: any
 ): RunResponseV3 {
   // Map ISL results to response format
   // ISL V2 uses 'options' field; V1 uses 'results'. Check both for compatibility.
@@ -923,6 +925,9 @@ function buildResponse(
     // Factor enrichments from CEE /assist/v1/review (undefined when unavailable)
     // NOTE: Non-deterministic (LLM-derived), excluded from canonical hash
     ...(factorEnrichments && { factor_enrichments: factorEnrichments }),
+    // M1 Coaching (Phase 2 deterministic coaching layer)
+    // NOTE: Deterministic (no LLM), but excluded from canonical hash as non-semantic metadata
+    ...(m1Coaching && { m1_coaching: m1Coaching }),
     robustness,
     robustness_synthesis: robustnessSynthesis,
 
@@ -2149,6 +2154,25 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           factorEnrichments,
         };
 
+        // Generate M1 coaching (Phase 2 deterministic coaching layer)
+        let m1Coaching: any = null;
+        try {
+          m1Coaching = generateM1Coaching(
+            filteredGraph,
+            body.options,
+            processedIslResult,
+            body.goal_node_id,
+            req.log
+          );
+        } catch (err) {
+          req.log.warn({
+            event: 'm1_coaching_generation_failed',
+            error: (err as Error).message,
+            request_id: requestId,
+          });
+          // Continue without coaching (graceful degradation)
+        }
+
         const finalTotalMs = performance.now() - startTime;
 
         return reply.send(buildResponse(
@@ -2183,7 +2207,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           ceeOrchestrationResult.robustnessSynthesis,
           ceeOrchestrationResult.ceeResults,
           ceeOrchestrationResult.ceeTrace,
-          enrichedSensitivityData  // Pre-computed arrays + factor enrichments
+          enrichedSensitivityData,  // Pre-computed arrays + factor enrichments
+          m1Coaching  // M1 coaching (Phase 2)
         ));
       } catch (err) {
         const totalMs = performance.now() - startTime;
