@@ -13,11 +13,17 @@
  * @see Schema v2.6 §B.8 - Range derivation priority chain
  */
 
-import type { EngineNodeV3, OptionV3, InterventionValueV3, OutcomeStatsV3 } from '../types/engine-v3.js';
+import type { EngineNodeV3, OptionV3, InterventionValueV3, OutcomeStatsV3, RepairRecord } from '../types/engine-v3.js';
 
 // -----------------------------------------------------------------------------
 // Types
 // -----------------------------------------------------------------------------
+
+/**
+ * Range source for normalisation.
+ * Priority order: explicit > extracted > inferred_baseline > inferred_value > default
+ */
+export type RangeSource = 'explicit' | 'extracted' | 'inferred_baseline' | 'inferred_value' | 'default';
 
 /**
  * Range for normalisation.
@@ -25,7 +31,34 @@ import type { EngineNodeV3, OptionV3, InterventionValueV3, OutcomeStatsV3 } from
 export interface NormalisationRange {
   min: number;
   max: number;
-  source: 'explicit' | 'inferred_baseline' | 'inferred_value' | 'default';
+  source: RangeSource;
+}
+
+/**
+ * Intervention hints from CE (Context Engine).
+ * Used to provide additional metadata for normalisation.
+ */
+export interface InterventionHints {
+  /** Unit of measurement (e.g., "USD", "percent") */
+  unit?: string;
+  /** Factor type hint (e.g., "salary", "probability") */
+  factor_type?: string;
+  /** CE-extracted range bounds */
+  extracted_range?: [number, number];
+  /** Source of the intervention */
+  source?: 'brief_extraction' | 'user_specified' | 'inferred';
+}
+
+/**
+ * Intervention transform record for repairs_applied[].
+ * Captures the normalisation transform for auditability.
+ */
+export interface InterventionTransformRecord {
+  factor_id: string;
+  raw: number;
+  normalised: number;
+  range: { min: number; max: number };
+  range_source: RangeSource;
 }
 
 /**
@@ -74,18 +107,33 @@ export interface NormalisationDiagnostic {
 // -----------------------------------------------------------------------------
 
 /**
+ * Validate an extracted range from CE.
+ * Returns true if the range is valid for normalisation.
+ */
+function isValidExtractedRange(range: [number, number] | undefined): range is [number, number] {
+  if (!Array.isArray(range) || range.length !== 2) return false;
+  const [min, max] = range;
+  if (typeof min !== 'number' || typeof max !== 'number') return false;
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return false;
+  if (min >= max) return false;
+  return true;
+}
+
+/**
  * Derive normalisation range for a factor node.
  *
  * Priority chain:
  * 1. Explicit state_space.range (highest priority)
+ * 1.5. CE extracted_range (from intervention_hints)
  * 2. Inferred from baseline and current value
  * 3. Inferred from current value only
  * 4. Default [0, 1]
  *
  * @param node Factor node
+ * @param hints Optional intervention hints from CE
  * @returns Normalisation range with source indicator
  */
-export function deriveRange(node: EngineNodeV3): NormalisationRange {
+export function deriveRange(node: EngineNodeV3, hints?: InterventionHints): NormalisationRange {
   const stateSpace = node.state_space;
   const observedState = node.observed_state;
 
@@ -95,6 +143,12 @@ export function deriveRange(node: EngineNodeV3): NormalisationRange {
     if (typeof min === 'number' && typeof max === 'number' && max > min) {
       return { min, max, source: 'explicit' };
     }
+  }
+
+  // Priority 1.5: CE extracted_range (from intervention_hints)
+  if (hints && isValidExtractedRange(hints.extracted_range)) {
+    const [min, max] = hints.extracted_range;
+    return { min, max, source: 'extracted' };
   }
 
   // Get current value and baseline
@@ -203,11 +257,13 @@ export function denormaliseValue(normalised: number, range: NormalisationRange):
  *
  * @param nodes Graph nodes
  * @param goalNodeId Goal node ID
+ * @param interventionHints Optional map of factor ID to intervention hints from CE
  * @returns Normalisation context
  */
 export function buildNormalisationContext(
   nodes: EngineNodeV3[],
-  goalNodeId: string
+  goalNodeId: string,
+  interventionHints?: Map<string, InterventionHints>
 ): NormalisationContext {
   const factors = new Map<string, FactorNormalisationContext>();
   let goalContext: FactorNormalisationContext | undefined;
@@ -222,7 +278,9 @@ export function buildNormalisationContext(
       continue;
     }
 
-    const range = deriveRange(node);
+    // Get hints for this factor if available
+    const hints = interventionHints?.get(node.id);
+    const range = deriveRange(node, hints);
     const baseline = node.observed_state?.baseline ?? node.observed_state?.value ?? 0;
 
     const context: FactorNormalisationContext = {
@@ -304,6 +362,23 @@ function buildFallbackRanges(
 }
 
 /**
+ * Round a number to 6 decimal places for stable diffs.
+ */
+function roundTo6Decimals(value: number): number {
+  return Math.round(value * 1e6) / 1e6;
+}
+
+/**
+ * Format reason string for intervention normalisation.
+ * Format: "normalised range=[{min},{max}] source={range_source}"
+ */
+function formatNormalisationReason(range: NormalisationRange): string {
+  const min = roundTo6Decimals(range.min);
+  const max = roundTo6Decimals(range.max);
+  return `normalised range=[${min},${max}] source=${range.source}`;
+}
+
+/**
  * Normalise all intervention values in options.
  *
  * When factors lack normalisation context (no observed_state, no state_space.range),
@@ -312,13 +387,25 @@ function buildFallbackRanges(
  *
  * @param options Original options with raw intervention values
  * @param context Normalisation context
- * @returns Normalised options and diagnostics
+ * @returns Normalised options, diagnostics, transforms, and repair records
  */
 export function normaliseOptions(
   options: OptionV3[],
   context: NormalisationContext
-): { options: OptionV3[]; diagnostics: NormalisationDiagnostic[] } {
+): {
+  options: OptionV3[];
+  diagnostics: NormalisationDiagnostic[];
+  transforms: Map<string, InterventionTransformRecord>;
+  repairs: RepairRecord[];
+} {
   const diagnostics: NormalisationDiagnostic[] = [];
+
+  // Track transforms by factor ID (for deduplication)
+  // Key: factor_id, Value: transform record
+  const transforms = new Map<string, InterventionTransformRecord>();
+
+  // Track first raw value seen for each factor (for repair records)
+  const firstRawValueByFactor = new Map<string, number>();
 
   // Build fallback ranges for factors without context
   const fallbackRanges = buildFallbackRanges(options, context);
@@ -348,6 +435,22 @@ export function normaliseOptions(
         range,
         clamped,
       });
+
+      // Track first raw value for this factor (for deduplicated repair record)
+      if (!firstRawValueByFactor.has(factorId)) {
+        firstRawValueByFactor.set(factorId, intervention.value);
+      }
+
+      // Only create one transform record per factor (dedupe by factor_id)
+      if (!transforms.has(factorId)) {
+        transforms.set(factorId, {
+          factor_id: factorId,
+          raw: roundTo6Decimals(intervention.value),
+          normalised: roundTo6Decimals(normalised),
+          range: { min: roundTo6Decimals(range.min), max: roundTo6Decimals(range.max) },
+          range_source: range.source,
+        });
+      }
     }
 
     return {
@@ -357,7 +460,21 @@ export function normaliseOptions(
     };
   });
 
-  return { options: normalisedOptions, diagnostics };
+  // Build repair records from transforms (one per factor)
+  // Include factor_id in field name for traceability: "intervention.value.{factor_id}"
+  const repairs: RepairRecord[] = Array.from(transforms.values()).map(transform => ({
+    field: `intervention.value.${transform.factor_id}`,
+    action: 'normalised' as const,
+    from_value: transform.raw,
+    to_value: transform.normalised,
+    reason: formatNormalisationReason({
+      min: transform.range.min,
+      max: transform.range.max,
+      source: transform.range_source,
+    }),
+  }));
+
+  return { options: normalisedOptions, diagnostics, transforms, repairs };
 }
 
 // -----------------------------------------------------------------------------
@@ -430,6 +547,19 @@ export function denormaliseConfidenceInterval(
 // -----------------------------------------------------------------------------
 
 /**
+ * Full result from normaliseOptionsForISL including repair records.
+ */
+export interface NormalisationResult {
+  options: OptionV3[];
+  context: NormalisationContext;
+  diagnostics: NormalisationDiagnostic[];
+  /** Intervention transforms by factor ID */
+  transforms: Map<string, InterventionTransformRecord>;
+  /** Repair records for _meta.repairs_applied (one per factor) */
+  repairs: RepairRecord[];
+}
+
+/**
  * Normalise options for ISL call.
  *
  * Entry point for normalisation. Returns normalised options and context
@@ -438,20 +568,24 @@ export function denormaliseConfidenceInterval(
  * @param options Original options with raw intervention values
  * @param nodes Graph nodes (for building normalisation context)
  * @param goalNodeId Goal node ID
- * @returns Normalised options and context
+ * @param interventionHints Optional map of factor ID to intervention hints from CE
+ * @returns Normalised options, context, diagnostics, transforms, and repair records
  */
 export function normaliseOptionsForISL(
   options: OptionV3[],
   nodes: EngineNodeV3[],
-  goalNodeId: string
-): NormalisedOptions & { diagnostics: NormalisationDiagnostic[] } {
-  const context = buildNormalisationContext(nodes, goalNodeId);
-  const { options: normalisedOptions, diagnostics } = normaliseOptions(options, context);
+  goalNodeId: string,
+  interventionHints?: Map<string, InterventionHints>
+): NormalisationResult {
+  const context = buildNormalisationContext(nodes, goalNodeId, interventionHints);
+  const { options: normalisedOptions, diagnostics, transforms, repairs } = normaliseOptions(options, context);
 
   return {
     options: normalisedOptions,
     context,
     diagnostics,
+    transforms,
+    repairs,
   };
 }
 

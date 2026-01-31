@@ -1661,11 +1661,15 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           normalisationContext = normResult.context;
           normalisationDiagnostics = normResult.diagnostics;
 
+          // Add intervention transform repairs to repairs_applied[]
+          repairs = repairs.concat(normResult.repairs);
+
           // Log normalisation diagnostics
           req.log.info({
             event: 'intervention_normalisation',
             normalised: true,
             diagnostics_count: normalisationDiagnostics.length,
+            repairs_count: normResult.repairs.length,
             sample: normalisationDiagnostics.slice(0, 3).map(d => ({
               factor_id: d.factor_id,
               original: d.original_value,

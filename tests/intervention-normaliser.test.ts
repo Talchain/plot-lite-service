@@ -664,3 +664,221 @@ describe('edge cases', () => {
     expect(result.normalised).toBeCloseTo(0.5); // 0 is midpoint of [-50, 50]
   });
 });
+
+// =============================================================================
+// CE extracted_range Integration (Priority 1.5)
+// =============================================================================
+
+describe('CE extracted_range integration', () => {
+  it('uses explicit range over extracted_range (Priority 1 > 1.5)', () => {
+    const node = createFactorNode('salary', 180000, undefined, { min: 0, max: 500000 });
+    const hints = { extracted_range: [0, 1000000] as [number, number] };
+
+    const range = deriveRange(node, hints);
+
+    expect(range.source).toBe('explicit');
+    expect(range.max).toBe(500000); // Uses explicit, not extracted
+  });
+
+  it('uses extracted_range when no explicit range (Priority 1.5)', () => {
+    const node = createFactorNode('salary', 180000);
+    const hints = { extracted_range: [0, 300000] as [number, number] };
+
+    const range = deriveRange(node, hints);
+
+    expect(range.source).toBe('extracted');
+    expect(range.min).toBe(0);
+    expect(range.max).toBe(300000);
+  });
+
+  it('falls back to inferred_baseline when extracted_range is invalid (min >= max)', () => {
+    const node = createFactorNode('salary', 180000, 100000);
+    const hints = { extracted_range: [500, 100] as [number, number] }; // Invalid: min > max
+
+    const range = deriveRange(node, hints);
+
+    expect(range.source).toBe('inferred_baseline');
+    expect(range.max).toBe(360000); // 2 × 180000
+  });
+
+  it('falls back to inferred_baseline when extracted_range contains NaN', () => {
+    const node = createFactorNode('salary', 180000, 100000);
+    const hints = { extracted_range: [0, NaN] as [number, number] };
+
+    const range = deriveRange(node, hints);
+
+    expect(range.source).toBe('inferred_baseline');
+  });
+
+  it('falls back to inferred_baseline when extracted_range contains Infinity', () => {
+    const node = createFactorNode('salary', 180000, 100000);
+    const hints = { extracted_range: [0, Infinity] as [number, number] };
+
+    const range = deriveRange(node, hints);
+
+    expect(range.source).toBe('inferred_baseline');
+  });
+
+  it('falls back to inferred_value when extracted_range invalid and no baseline', () => {
+    const node = createFactorNode('salary', 180000);
+    const hints = { extracted_range: [100, 50] as [number, number] }; // Invalid
+
+    const range = deriveRange(node, hints);
+
+    expect(range.source).toBe('inferred_value');
+    expect(range.max).toBe(360000); // 2 × 180000
+  });
+
+  it('falls back to default when no valid source available', () => {
+    const node: EngineNodeV3 = { id: 'empty', kind: 'factor', label: 'Empty' };
+    const hints = { extracted_range: [-1, -5] as [number, number] }; // Invalid
+
+    const range = deriveRange(node, hints);
+
+    expect(range.source).toBe('default');
+    expect(range.min).toBe(0);
+    expect(range.max).toBe(1);
+  });
+
+  it('passes hints through buildNormalisationContext', () => {
+    const nodes = [createFactorNode('salary', 180000)];
+    const hints = new Map([['salary', { extracted_range: [0, 250000] as [number, number] }]]);
+
+    const context = buildNormalisationContext(nodes, 'goal', hints);
+
+    expect(context.factors.get('salary')?.range.source).toBe('extracted');
+    expect(context.factors.get('salary')?.range.max).toBe(250000);
+  });
+
+  it('passes hints through normaliseOptionsForISL', () => {
+    const nodes = [createFactorNode('salary', 180000)];
+    const options = [createOption('hire', { salary: 180000 })];
+    const hints = new Map([['salary', { extracted_range: [0, 360000] as [number, number] }]]);
+
+    const result = normaliseOptionsForISL(options, nodes, 'goal', hints);
+
+    expect(result.options[0].interventions.salary.value).toBeCloseTo(0.5); // 180000/360000
+    expect(result.diagnostics[0].range.source).toBe('extracted');
+  });
+});
+
+// =============================================================================
+// Intervention Transform Logging (repairs_applied)
+// =============================================================================
+
+describe('Intervention Transform Logging', () => {
+  it('returns repair records with correct field and action', () => {
+    const nodes = [createFactorNode('salary', 100000, undefined, { min: 0, max: 500000 })];
+    const context = buildNormalisationContext(nodes, 'goal');
+    const options = [createOption('hire', { salary: 180000 })];
+
+    const { repairs } = normaliseOptions(options, context);
+
+    expect(repairs.length).toBe(1);
+    expect(repairs[0].field).toBe('intervention.value.salary'); // Includes factor_id for traceability
+    expect(repairs[0].action).toBe('normalised');
+    expect(repairs[0].from_value).toBe(180000);
+    expect(repairs[0].to_value).toBeCloseTo(0.36);
+  });
+
+  it('deduplicates repairs by factor_id (one record per factor)', () => {
+    const nodes = [createFactorNode('salary', 100000, undefined, { min: 0, max: 500000 })];
+    const context = buildNormalisationContext(nodes, 'goal');
+    const options = [
+      createOption('optionA', { salary: 180000 }),
+      createOption('optionB', { salary: 150000 }),
+      createOption('optionC', { salary: 200000 }),
+    ];
+
+    const { repairs } = normaliseOptions(options, context);
+
+    // Only one repair record for 'salary', not three
+    expect(repairs.length).toBe(1);
+    expect(repairs[0].from_value).toBe(180000); // Uses first encountered value
+  });
+
+  it('creates separate repair records for different factors', () => {
+    const nodes = [
+      createFactorNode('salary', 100000, undefined, { min: 0, max: 500000 }),
+      createFactorNode('bonus', 10000, undefined, { min: 0, max: 100000 }),
+    ];
+    const context = buildNormalisationContext(nodes, 'goal');
+    const options = [createOption('hire', { salary: 180000, bonus: 20000 })];
+
+    const { repairs } = normaliseOptions(options, context);
+
+    expect(repairs.length).toBe(2);
+    expect(repairs.some(r => r.from_value === 180000)).toBe(true);
+    expect(repairs.some(r => r.from_value === 20000)).toBe(true);
+  });
+
+  it('formats reason string correctly', () => {
+    const nodes = [createFactorNode('salary', 100000, undefined, { min: 0, max: 500000 })];
+    const context = buildNormalisationContext(nodes, 'goal');
+    const options = [createOption('hire', { salary: 180000 })];
+
+    const { repairs } = normaliseOptions(options, context);
+
+    expect(repairs[0].reason).toBe('normalised range=[0,500000] source=explicit');
+  });
+
+  it('includes range_source in reason for extracted ranges', () => {
+    const nodes = [createFactorNode('salary', 180000)];
+    const hints = new Map([['salary', { extracted_range: [0, 300000] as [number, number] }]]);
+    const context = buildNormalisationContext(nodes, 'goal', hints);
+    const options = [createOption('hire', { salary: 180000 })];
+
+    const { repairs } = normaliseOptions(options, context);
+
+    expect(repairs[0].reason).toContain('source=extracted');
+  });
+
+  it('returns transforms map keyed by factor_id', () => {
+    const nodes = [createFactorNode('salary', 100000, undefined, { min: 0, max: 500000 })];
+    const context = buildNormalisationContext(nodes, 'goal');
+    const options = [createOption('hire', { salary: 180000 })];
+
+    const { transforms } = normaliseOptions(options, context);
+
+    expect(transforms.has('salary')).toBe(true);
+    expect(transforms.get('salary')?.raw).toBe(180000);
+    expect(transforms.get('salary')?.normalised).toBeCloseTo(0.36);
+    expect(transforms.get('salary')?.range_source).toBe('explicit');
+  });
+
+  it('rounds values to 6 decimal places for stable diffs', () => {
+    const nodes = [createFactorNode('factor', 100, undefined, { min: 0, max: 300 })];
+    const context = buildNormalisationContext(nodes, 'goal');
+    const options = [createOption('test', { factor: 100 })];
+
+    const { transforms, repairs } = normaliseOptions(options, context);
+
+    // 100 / 300 = 0.333333...
+    const transform = transforms.get('factor')!;
+    expect(transform.normalised).toBe(0.333333); // Rounded to 6 decimals
+    expect(String(transform.normalised).split('.')[1]?.length || 0).toBeLessThanOrEqual(6);
+  });
+
+  it('includes repairs in normaliseOptionsForISL result', () => {
+    const nodes = [createFactorNode('salary', 100000, undefined, { min: 0, max: 500000 })];
+    const options = [createOption('hire', { salary: 180000 })];
+
+    const result = normaliseOptionsForISL(options, nodes, 'goal');
+
+    expect(result.repairs).toBeDefined();
+    expect(result.repairs.length).toBe(1);
+    expect(result.repairs[0].field).toBe('intervention.value.salary');
+  });
+
+  it('backward compatible: works without intervention_hints', () => {
+    const nodes = [createFactorNode('salary', 100000, undefined, { min: 0, max: 500000 })];
+    const options = [createOption('hire', { salary: 180000 })];
+
+    // Call without hints parameter
+    const result = normaliseOptionsForISL(options, nodes, 'goal');
+
+    expect(result.options[0].interventions.salary.value).toBeCloseTo(0.36);
+    expect(result.diagnostics[0].range.source).toBe('explicit');
+    expect(result.repairs.length).toBe(1);
+  });
+});
