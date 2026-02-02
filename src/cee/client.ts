@@ -472,6 +472,168 @@ export async function factorReviewV2(
   }
 }
 
+// -----------------------------------------------------------------------------
+// M2 Decision Review - CEE /assist/v1/decision-review
+// -----------------------------------------------------------------------------
+
+/** Hard timeout for decision review (3s per brief) */
+const DECISION_REVIEW_TIMEOUT_MS = 3000;
+
+/**
+ * M2 Decision review response from CEE.
+ * (Distinct from CeeDecisionReviewResult used by the legacy review flow)
+ */
+export interface M2DecisionReviewResult {
+  review: unknown | null;
+  meta: {
+    model?: string;
+    latency_ms: number;
+    tokens?: number;
+  };
+  error?: {
+    code: string;
+    message: string;
+  } | null;
+}
+
+/**
+ * Call CEE /assist/v1/decision-review for M2 decision review.
+ *
+ * This endpoint provides LLM-generated decision review output based on
+ * deterministic M1 coaching data and ISL results.
+ *
+ * Contract:
+ * - 3s hard timeout
+ * - On error/timeout: returns { review: null, error: {...} }
+ * - Does not throw exceptions
+ * - Logs errors for observability
+ *
+ * @param config CEE connection config
+ * @param request DecisionReviewRequest payload
+ * @param requestId Request ID for tracing
+ * @returns M2DecisionReviewResult with review or error
+ */
+export async function callDecisionReview(
+  config: CEESchemaV2Config,
+  request: unknown,
+  requestId: string
+): Promise<M2DecisionReviewResult> {
+  const startMs = Date.now();
+  const path = '/assist/v1/decision-review';
+
+  try {
+    const baseUrl = config.baseUrl.replace(/\/$/, '');
+    const url = `${baseUrl}${path}`;
+    const payloadHash = computeOlumiHash(request);
+
+    const response = await fetchWithTimeout(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-Olumi-Assist-Key': config.apiKey,
+        'X-Request-Id': requestId,
+      },
+      body: JSON.stringify(request),
+      timeoutMs: DECISION_REVIEW_TIMEOUT_MS,
+    });
+
+    const latencyMs = Date.now() - startMs;
+
+    if (!response.ok) {
+      // Record failed downstream call
+      recordDownstreamCall({
+        service: 'cee',
+        endpoint: path,
+        status: response.status,
+        elapsedMs: latencyMs,
+        payloadHash,
+        requestId,
+      });
+
+      const errorText = await response.text().catch(() => 'Unknown error');
+      console.warn(JSON.stringify({
+        event: 'cee_decision_review_error',
+        request_id: requestId,
+        status: response.status,
+        error: errorText.slice(0, 200),
+        latency_ms: latencyMs,
+      }));
+
+      return {
+        review: null,
+        meta: { latency_ms: latencyMs },
+        error: {
+          code: `CEE_HTTP_${response.status}`,
+          message: errorText.slice(0, 200),
+        },
+      };
+    }
+
+    const data = await response.json() as { review?: unknown; _meta?: { model?: string; latency_ms?: number; tokens?: number } };
+    const responseHash = computeOlumiHash(data);
+
+    // Record successful downstream call
+    recordDownstreamCall({
+      service: 'cee',
+      endpoint: path,
+      status: response.status,
+      elapsedMs: latencyMs,
+      payloadHash,
+      responseHash,
+      requestId,
+    });
+
+    console.log(JSON.stringify({
+      event: 'cee_decision_review_success',
+      request_id: requestId,
+      has_review: data.review !== null && data.review !== undefined,
+      model: data._meta?.model,
+      latency_ms: latencyMs,
+    }));
+
+    return {
+      review: data.review ?? null,
+      meta: {
+        model: data._meta?.model,
+        latency_ms: latencyMs,
+        tokens: data._meta?.tokens,
+      },
+    };
+  } catch (error) {
+    const latencyMs = Date.now() - startMs;
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    const isTimeout = errorMsg.includes('timeout') || errorMsg.includes('Timeout') || errorMsg.includes('AbortError');
+
+    // Record failed downstream call (network/timeout)
+    recordDownstreamCall({
+      service: 'cee',
+      endpoint: path,
+      status: 0, // 0 indicates network/timeout error
+      elapsedMs: latencyMs,
+      payloadHash: '-',
+      requestId,
+    });
+
+    console.warn(JSON.stringify({
+      event: 'cee_decision_review_error',
+      request_id: requestId,
+      error: errorMsg.slice(0, 200),
+      latency_ms: latencyMs,
+      timeout: isTimeout,
+    }));
+
+    return {
+      review: null,
+      meta: { latency_ms: latencyMs },
+      error: {
+        code: isTimeout ? 'CEE_TIMEOUT' : 'CEE_NETWORK_ERROR',
+        message: errorMsg.slice(0, 200),
+      },
+    };
+  }
+}
+
 async function probeHealth(baseUrl: string, timeoutMs: number, logger?: FastifyBaseLogger): Promise<boolean> {
   const url = `${baseUrl.replace(/\/$/, '')}/healthz`;
   const started = Date.now();

@@ -70,4 +70,10 @@ export const FLAGS = {
     const raw = process.env.CEE_ORCHESTRATOR_ENABLED ?? process.env.CEE_ORCHESTRATOR_ENABLE;
     return raw === '1' || raw === 'true';
   },
+
+  // M2 Decision Review Integration
+  /** Enable M2 decision review (LLM-generated review with 9-tier validation) */
+  get DECISION_REVIEW_ENABLE() {
+    return process.env.DECISION_REVIEW_ENABLE === '1' || process.env.DECISION_REVIEW_ENABLE === 'true';
+  },
 } as const;

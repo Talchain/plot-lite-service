@@ -21,9 +21,9 @@ import type { EngineNodeV3, OptionV3, InterventionValueV3, OutcomeStatsV3, Repai
 
 /**
  * Range source for normalisation.
- * Priority order: explicit > extracted > inferred_baseline > inferred_value > default
+ * Priority order: explicit > extracted > inferred_spread > inferred_baseline > inferred_value > default
  */
-export type RangeSource = 'explicit' | 'extracted' | 'inferred_baseline' | 'inferred_value' | 'default';
+export type RangeSource = 'explicit' | 'extracted' | 'inferred_spread' | 'inferred_baseline' | 'inferred_value' | 'default';
 
 /**
  * Range for normalisation.
@@ -122,18 +122,24 @@ function isValidExtractedRange(range: [number, number] | undefined): range is [n
 /**
  * Derive normalisation range for a factor node.
  *
- * Priority chain:
+ * Priority chain (per Schema v2.6 §B.8):
  * 1. Explicit state_space.range (highest priority)
  * 1.5. CE extracted_range (from intervention_hints)
+ * 1.75. Intervention spread (min/max of intervention values + 20% padding)
  * 2. Inferred from baseline and current value
  * 3. Inferred from current value only
  * 4. Default [0, 1]
  *
  * @param node Factor node
  * @param hints Optional intervention hints from CE
+ * @param interventionValues Optional array of intervention values for this factor across options
  * @returns Normalisation range with source indicator
  */
-export function deriveRange(node: EngineNodeV3, hints?: InterventionHints): NormalisationRange {
+export function deriveRange(
+  node: EngineNodeV3,
+  hints?: InterventionHints,
+  interventionValues?: number[]
+): NormalisationRange {
   const stateSpace = node.state_space;
   const observedState = node.observed_state;
 
@@ -149,6 +155,35 @@ export function deriveRange(node: EngineNodeV3, hints?: InterventionHints): Norm
   if (hints && isValidExtractedRange(hints.extracted_range)) {
     const [min, max] = hints.extracted_range;
     return { min, max, source: 'extracted' };
+  }
+
+  // Priority 1.75: Intervention spread across options
+  // Requires ≥2 intervention values to compute meaningful spread
+  if (interventionValues && interventionValues.length >= 2) {
+    // Sort values for consistent min/max calculation regardless of input order
+    const sorted = interventionValues.slice().sort((a, b) => a - b);
+    const minVal = sorted[0];
+    const maxVal = sorted[sorted.length - 1];
+    const spread = maxVal - minVal;
+
+    // Only use spread if there's actual variation
+    if (spread > 0) {
+      // Outlier guard: skip spread if ratio is extreme (likely extraction error)
+      // e.g., one option has £50k, another has £5m due to LLM hallucination
+      if (minVal > 0 && maxVal > minVal * 100) {
+        // Fall through to baseline/value inference
+        // Extreme ratio detected - spread range would be unreliable
+      } else {
+        const padding = spread * 0.2;
+        // Clamp lower bound to 0 when all intervention values are non-negative
+        const paddedMin = minVal >= 0 ? Math.max(0, minVal - padding) : minVal - padding;
+        return {
+          min: paddedMin,
+          max: maxVal + padding,
+          source: 'inferred_spread',
+        };
+      }
+    }
   }
 
   // Get current value and baseline
@@ -250,6 +285,24 @@ export function denormaliseValue(normalised: number, range: NormalisationRange):
 // -----------------------------------------------------------------------------
 
 /**
+ * Collect intervention values per factor from all options.
+ * Returns a map of factor ID to array of intervention values.
+ */
+function collectInterventionValues(options: OptionV3[]): Map<string, number[]> {
+  const valuesByFactor = new Map<string, number[]>();
+
+  for (const option of options) {
+    for (const [factorId, intervention] of Object.entries(option.interventions)) {
+      const existing = valuesByFactor.get(factorId) ?? [];
+      existing.push(intervention.value);
+      valuesByFactor.set(factorId, existing);
+    }
+  }
+
+  return valuesByFactor;
+}
+
+/**
  * Build normalisation context from graph nodes.
  *
  * Creates contexts for all factor nodes that might be intervention targets
@@ -258,15 +311,20 @@ export function denormaliseValue(normalised: number, range: NormalisationRange):
  * @param nodes Graph nodes
  * @param goalNodeId Goal node ID
  * @param interventionHints Optional map of factor ID to intervention hints from CE
+ * @param options Optional options array for intervention spread calculation
  * @returns Normalisation context
  */
 export function buildNormalisationContext(
   nodes: EngineNodeV3[],
   goalNodeId: string,
-  interventionHints?: Map<string, InterventionHints>
+  interventionHints?: Map<string, InterventionHints>,
+  options?: OptionV3[]
 ): NormalisationContext {
   const factors = new Map<string, FactorNormalisationContext>();
   let goalContext: FactorNormalisationContext | undefined;
+
+  // Collect intervention values per factor for spread calculation
+  const interventionValuesByFactor = options ? collectInterventionValues(options) : new Map();
 
   for (const node of nodes) {
     // Only build context for factors and the goal node
@@ -280,7 +338,9 @@ export function buildNormalisationContext(
 
     // Get hints for this factor if available
     const hints = interventionHints?.get(node.id);
-    const range = deriveRange(node, hints);
+    // Get intervention values for spread calculation
+    const interventionValues = interventionValuesByFactor.get(node.id);
+    const range = deriveRange(node, hints, interventionValues);
     const baseline = node.observed_state?.baseline ?? node.observed_state?.value ?? 0;
 
     const context: FactorNormalisationContext = {
@@ -343,6 +403,33 @@ function buildFallbackRanges(
   const fallbackRanges = new Map<string, NormalisationRange>();
 
   for (const [factorId, values] of valuesByFactor) {
+    // Use spread formula when ≥2 values with actual variation
+    if (values.length >= 2) {
+      // Sort values for consistent min/max calculation regardless of input order
+      const sorted = values.slice().sort((a, b) => a - b);
+      const minVal = sorted[0];
+      const maxVal = sorted[sorted.length - 1];
+      const spread = maxVal - minVal;
+
+      if (spread > 0) {
+        // Outlier guard: skip spread if ratio is extreme (likely extraction error)
+        const isOutlier = minVal > 0 && maxVal > minVal * 100;
+        if (!isOutlier) {
+          const padding = spread * 0.2;
+          // Clamp lower bound to 0 when all values are non-negative
+          const paddedMin = minVal >= 0 ? Math.max(0, minVal - padding) : minVal - padding;
+          fallbackRanges.set(factorId, {
+            min: paddedMin,
+            max: maxVal + padding,
+            source: 'inferred_spread',
+          });
+          continue;
+        }
+        // Fall through to default range on extreme outlier
+      }
+    }
+
+    // Fallback for single value, zero spread, or extreme outlier: [0, 2 × max(|values|)]
     const maxAbsValue = Math.max(...values.map(Math.abs));
 
     if (maxAbsValue > 0) {
@@ -577,7 +664,8 @@ export function normaliseOptionsForISL(
   goalNodeId: string,
   interventionHints?: Map<string, InterventionHints>
 ): NormalisationResult {
-  const context = buildNormalisationContext(nodes, goalNodeId, interventionHints);
+  // Pass options to context builder for intervention spread calculation
+  const context = buildNormalisationContext(nodes, goalNodeId, interventionHints, options);
   const { options: normalisedOptions, diagnostics, transforms, repairs } = normaliseOptions(options, context);
 
   return {

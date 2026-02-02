@@ -421,30 +421,36 @@ describe('normaliseOptions', () => {
   });
 
   it('preserves distinct large values when no factor context exists', () => {
-    // Reproduces the bug: values like 38000, 18000, 15 were being collapsed to 1
+    // Values with reasonable ratio (< 100x) to avoid outlier guard
+    // Using values 18000, 25000, 38000 (ratio ≈ 2.1x)
     const context = buildNormalisationContext([], 'goal');
     const options = [
       createOption('optionA', { budget: 38000 }),
       createOption('optionB', { budget: 18000 }),
-      createOption('optionC', { budget: 15 }),
+      createOption('optionC', { budget: 25000 }),
     ];
 
     const { options: normalised, diagnostics } = normaliseOptions(options, context);
 
-    // Range should be inferred as [0, 2 × 38000] = [0, 76000]
-    expect(diagnostics[0].range.max).toBe(76000);
+    // Range should be inferred using spread formula:
+    // min=18000, max=38000, spread=20000, padding=4000
+    // paddedMin = max(0, 18000-4000) = 14000, paddedMax = 38000+4000 = 42000
+    expect(diagnostics[0].range.source).toBe('inferred_spread');
+    expect(diagnostics[0].range.min).toBe(14000);
+    expect(diagnostics[0].range.max).toBe(42000);
 
     // Verify distinct normalised values (NOT all collapsed to 1)
     const normalisedA = normalised[0].interventions.budget.value;
     const normalisedB = normalised[1].interventions.budget.value;
     const normalisedC = normalised[2].interventions.budget.value;
 
-    // 38000 / 76000 = 0.5
-    expect(normalisedA).toBeCloseTo(0.5);
-    // 18000 / 76000 ≈ 0.237
-    expect(normalisedB).toBeCloseTo(0.237, 2);
-    // 15 / 76000 ≈ 0.0002
-    expect(normalisedC).toBeCloseTo(0.000197, 4);
+    // Range width = 42000 - 14000 = 28000
+    // 38000 normalised = (38000 - 14000) / 28000 = 24000/28000 ≈ 0.857
+    expect(normalisedA).toBeCloseTo(0.857, 2);
+    // 18000 normalised = (18000 - 14000) / 28000 = 4000/28000 ≈ 0.143
+    expect(normalisedB).toBeCloseTo(0.143, 2);
+    // 25000 normalised = (25000 - 14000) / 28000 = 11000/28000 ≈ 0.393
+    expect(normalisedC).toBeCloseTo(0.393, 2);
 
     // Crucially: all values are DISTINCT
     expect(normalisedA).not.toBe(normalisedB);
@@ -461,9 +467,13 @@ describe('normaliseOptions', () => {
 
     const { diagnostics } = normaliseOptions(options, context);
 
-    // Both should use the same range derived from max value
-    expect(diagnostics[0].range.max).toBe(2000); // 2 × 1000
-    expect(diagnostics[1].range.max).toBe(2000);
+    // Both should use the same range derived using spread formula:
+    // min=10, max=1000, spread=990, padding=198
+    // paddedMin = max(0, 10-198) = 0, paddedMax = 1000+198 = 1198
+    expect(diagnostics[0].range.source).toBe('inferred_spread');
+    expect(diagnostics[0].range.min).toBe(0);
+    expect(diagnostics[0].range.max).toBe(1198);
+    expect(diagnostics[1].range.max).toBe(1198);
   });
 
   it('preserves intervention source', () => {
@@ -759,6 +769,262 @@ describe('CE extracted_range integration', () => {
 
     expect(result.options[0].interventions.salary.value).toBeCloseTo(0.5); // 180000/360000
     expect(result.diagnostics[0].range.source).toBe('extracted');
+  });
+});
+
+// =============================================================================
+// Intervention Spread (Priority 1.75 per Schema v2.6 §B.8)
+// =============================================================================
+
+describe('Intervention Spread (Priority 1.75)', () => {
+  it('uses intervention spread when ≥2 intervention values exist', () => {
+    // Factor with interventions [50000, 80000] → range [44000, 86000]
+    const node = createFactorNode('salary', undefined); // No observed_state, no explicit range
+    const interventionValues = [50000, 80000];
+
+    const range = deriveRange(node, undefined, interventionValues);
+
+    expect(range.source).toBe('inferred_spread');
+    // spread = 80000 - 50000 = 30000, padding = 30000 * 0.2 = 6000
+    // min = 50000 - 6000 = 44000, max = 80000 + 6000 = 86000
+    expect(range.min).toBe(44000);
+    expect(range.max).toBe(86000);
+  });
+
+  it('uses intervention spread with 3 intervention values', () => {
+    const node = createFactorNode('salary', undefined);
+    const interventionValues = [50000, 80000, 65000];
+
+    const range = deriveRange(node, undefined, interventionValues);
+
+    expect(range.source).toBe('inferred_spread');
+    // min = 50000, max = 80000, spread = 30000, padding = 6000
+    expect(range.min).toBe(44000);
+    expect(range.max).toBe(86000);
+  });
+
+  it('falls back when only single intervention value', () => {
+    const node = createFactorNode('salary', 100000); // Has current value
+    const interventionValues = [180000]; // Only one value
+
+    const range = deriveRange(node, undefined, interventionValues);
+
+    // Should fall back to inferred_value (Priority 3)
+    expect(range.source).toBe('inferred_value');
+    expect(range.max).toBe(200000); // 2 × 100000
+  });
+
+  it('falls back when no intervention values', () => {
+    const node = createFactorNode('salary', 100000);
+
+    const range = deriveRange(node, undefined, undefined);
+
+    expect(range.source).toBe('inferred_value');
+  });
+
+  it('falls back when intervention values have zero spread', () => {
+    const node = createFactorNode('salary', 100000);
+    const interventionValues = [50000, 50000, 50000]; // All same value
+
+    const range = deriveRange(node, undefined, interventionValues);
+
+    // Should fall back because spread = 0
+    expect(range.source).toBe('inferred_value');
+  });
+
+  it('uses explicit range over intervention spread (Priority 1 > 1.75)', () => {
+    const node = createFactorNode('salary', undefined, undefined, { min: 0, max: 500000 });
+    const interventionValues = [50000, 80000];
+
+    const range = deriveRange(node, undefined, interventionValues);
+
+    expect(range.source).toBe('explicit');
+    expect(range.max).toBe(500000);
+  });
+
+  it('uses CE extracted_range over intervention spread (Priority 1.5 > 1.75)', () => {
+    const node = createFactorNode('salary', undefined);
+    const hints = { extracted_range: [0, 200000] as [number, number] };
+    const interventionValues = [50000, 80000];
+
+    const range = deriveRange(node, hints, interventionValues);
+
+    expect(range.source).toBe('extracted');
+    expect(range.max).toBe(200000);
+  });
+
+  it('uses intervention spread over baseline (Priority 1.75 > 2)', () => {
+    const node = createFactorNode('salary', 100000, 80000); // Has baseline
+    const interventionValues = [50000, 80000];
+
+    const range = deriveRange(node, undefined, interventionValues);
+
+    expect(range.source).toBe('inferred_spread');
+    expect(range.min).toBe(44000);
+    expect(range.max).toBe(86000);
+  });
+
+  it('integrates with buildNormalisationContext', () => {
+    const nodes = [createFactorNode('salary', undefined)];
+    const options = [
+      createOption('optionA', { salary: 50000 }),
+      createOption('optionB', { salary: 80000 }),
+    ];
+
+    const context = buildNormalisationContext(nodes, 'goal', undefined, options);
+
+    expect(context.factors.get('salary')?.range.source).toBe('inferred_spread');
+    expect(context.factors.get('salary')?.range.min).toBe(44000);
+    expect(context.factors.get('salary')?.range.max).toBe(86000);
+  });
+
+  it('integrates with normaliseOptionsForISL', () => {
+    const nodes = [createFactorNode('salary', undefined)];
+    const options = [
+      createOption('optionA', { salary: 50000 }),
+      createOption('optionB', { salary: 80000 }),
+    ];
+
+    const result = normaliseOptionsForISL(options, nodes, 'goal');
+
+    expect(result.diagnostics[0].range.source).toBe('inferred_spread');
+    // 50000 normalised in range [44000, 86000] = (50000 - 44000) / (86000 - 44000) = 6000/42000 ≈ 0.143
+    expect(result.options[0].interventions.salary.value).toBeCloseTo(0.143, 2);
+    // 80000 normalised = (80000 - 44000) / 42000 = 36000/42000 ≈ 0.857
+    expect(result.options[1].interventions.salary.value).toBeCloseTo(0.857, 2);
+  });
+
+  it('logs inferred_spread in repair reason', () => {
+    const nodes = [createFactorNode('salary', undefined)];
+    const options = [
+      createOption('optionA', { salary: 50000 }),
+      createOption('optionB', { salary: 80000 }),
+    ];
+
+    const result = normaliseOptionsForISL(options, nodes, 'goal');
+
+    expect(result.repairs[0].reason).toContain('source=inferred_spread');
+    expect(result.repairs[0].reason).toContain('range=[44000,86000]');
+  });
+
+  it('skips spread for extreme outliers (ratio > 100x)', () => {
+    // Outlier scenario: £50k and £5.1m (102x ratio) - likely extraction error
+    const node = createFactorNode('salary', 100000, 80000); // Has baseline for fallback
+    const interventionValues = [50000, 5100000]; // 102x ratio (> 100x threshold)
+
+    const range = deriveRange(node, undefined, interventionValues);
+
+    // Should skip spread and fall back to inferred_baseline
+    expect(range.source).toBe('inferred_baseline');
+    // Range = [0, 2 × max(80000, 100000)] = [0, 200000]
+    expect(range.min).toBe(0);
+    expect(range.max).toBe(200000);
+  });
+
+  it('uses spread when ratio is just under 100x threshold', () => {
+    const node = createFactorNode('salary', undefined);
+    // Ratio of 99x should NOT trigger outlier guard
+    const interventionValues = [1000, 99000]; // 99x ratio
+
+    const range = deriveRange(node, undefined, interventionValues);
+
+    expect(range.source).toBe('inferred_spread');
+  });
+
+  it('skips spread when ratio is exactly 100x', () => {
+    const node = createFactorNode('salary', 50000); // Has value for fallback
+    // Ratio of exactly 100x should trigger outlier guard
+    const interventionValues = [1000, 100000]; // Exactly 100x
+
+    const range = deriveRange(node, undefined, interventionValues);
+
+    // 100000 > 1000 * 100 is false, so spread IS used
+    // (guard is maxVal > minVal * 100, not >=)
+    expect(range.source).toBe('inferred_spread');
+  });
+
+  it('skips spread when ratio exceeds 100x', () => {
+    const node = createFactorNode('salary', 50000); // Has value for fallback
+    // Ratio of 101x should trigger outlier guard
+    const interventionValues = [1000, 101000]; // 101x ratio
+
+    const range = deriveRange(node, undefined, interventionValues);
+
+    // Should skip spread and fall back
+    expect(range.source).toBe('inferred_value');
+  });
+
+  it('does not apply outlier guard when minVal is zero', () => {
+    // When minVal = 0, guard condition (minVal > 0) is false
+    const node = createFactorNode('salary', undefined);
+    const interventionValues = [0, 1000000]; // minVal = 0
+
+    const range = deriveRange(node, undefined, interventionValues);
+
+    // Should use spread (outlier guard doesn't apply when min = 0)
+    expect(range.source).toBe('inferred_spread');
+  });
+
+  it('does not apply outlier guard when minVal is negative', () => {
+    const node = createFactorNode('balance', undefined);
+    const interventionValues = [-1000, 5000000]; // minVal < 0
+
+    const range = deriveRange(node, undefined, interventionValues);
+
+    // Should use spread (outlier guard doesn't apply when min < 0)
+    expect(range.source).toBe('inferred_spread');
+  });
+
+  it('produces same result regardless of input order', () => {
+    const node = createFactorNode('salary', undefined);
+
+    // Different orders of the same values
+    const order1 = [50000, 80000, 65000];
+    const order2 = [80000, 50000, 65000];
+    const order3 = [65000, 80000, 50000];
+
+    const range1 = deriveRange(node, undefined, order1);
+    const range2 = deriveRange(node, undefined, order2);
+    const range3 = deriveRange(node, undefined, order3);
+
+    // All should produce identical ranges
+    expect(range1.min).toBe(range2.min);
+    expect(range1.max).toBe(range2.max);
+    expect(range1.source).toBe(range2.source);
+
+    expect(range2.min).toBe(range3.min);
+    expect(range2.max).toBe(range3.max);
+    expect(range2.source).toBe(range3.source);
+  });
+
+  it('applies outlier guard in buildFallbackRanges for unknown factors', () => {
+    // Unknown factor (no context) with extreme outlier values
+    const context = buildNormalisationContext([], 'goal');
+    const options = [
+      createOption('optionA', { budget: 50000 }),
+      createOption('optionB', { budget: 5100000 }), // 102x ratio (> 100x threshold)
+    ];
+
+    const { diagnostics } = normaliseOptions(options, context);
+
+    // Should fall back to default range (not spread) due to outlier guard
+    expect(diagnostics[0].range.source).toBe('default');
+    // Range = [0, 2 × 5100000] = [0, 10200000]
+    expect(diagnostics[0].range.max).toBe(10200000);
+  });
+
+  it('uses spread in buildFallbackRanges when not an outlier', () => {
+    // Unknown factor with reasonable values
+    const context = buildNormalisationContext([], 'goal');
+    const options = [
+      createOption('optionA', { budget: 50000 }),
+      createOption('optionB', { budget: 80000 }),
+    ];
+
+    const { diagnostics } = normaliseOptions(options, context);
+
+    // Should use spread
+    expect(diagnostics[0].range.source).toBe('inferred_spread');
   });
 });
 
