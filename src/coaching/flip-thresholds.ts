@@ -42,6 +42,7 @@ export interface OptionComparisonInput {
   option_id: string;
   option_label?: string;
   win_probability: number;
+  expected_outcome?: number;
 }
 
 // =============================================================================

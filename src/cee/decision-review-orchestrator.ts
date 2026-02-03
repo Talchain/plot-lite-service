@@ -141,8 +141,8 @@ export async function orchestrateDecisionReview(
     event: DecisionReviewEvents.REQUESTED,
     request_id: input.requestId,
     brief_hash: briefHash,
-    winner_id: request.winner.option_id,
-    runner_up_id: request.runner_up?.option_id ?? null,
+    winner_id: request.winner.id,
+    runner_up_id: request.runner_up?.id ?? null,
     cache_hit: false,
   });
 

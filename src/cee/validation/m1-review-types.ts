@@ -265,11 +265,13 @@ export interface DeterministicCoachingData {
 
 /**
  * Winner/runner-up option data.
+ * Field names match CEE's /assist/v1/decision-review Zod schema.
  */
 export interface WinnerData {
-  option_id: string;
-  option_label: string;
+  id: string;
+  label: string;
   win_probability: number;
+  outcome_mean?: number;
 }
 
 /**

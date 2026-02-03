@@ -142,16 +142,18 @@ export function buildDecisionReviewRequest(
     deterministic_coaching: deterministicCoaching,
     winner: winner
       ? {
-          option_id: winner.option_id,
-          option_label: winner.option_label ?? winner.option_id,
+          id: winner.option_id,
+          label: winner.option_label ?? winner.option_id,
           win_probability: winner.win_probability,
+          outcome_mean: winner.expected_outcome,
         }
-      : { option_id: '', option_label: '', win_probability: 0 },
+      : { id: '', label: '', win_probability: 0 },
     runner_up: runnerUp
       ? {
-          option_id: runnerUp.option_id,
-          option_label: runnerUp.option_label ?? runnerUp.option_id,
+          id: runnerUp.option_id,
+          label: runnerUp.option_label ?? runnerUp.option_id,
           win_probability: runnerUp.win_probability,
+          outcome_mean: runnerUp.expected_outcome,
         }
       : null,
     flip_threshold_data: flipThresholdData,
