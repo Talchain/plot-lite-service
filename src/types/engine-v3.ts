@@ -530,6 +530,12 @@ export interface RunResponseV3 {
    */
   review_failure_codes?: string[];
 
+  /**
+   * M2 Decision Review warnings.
+   * Present when review passed with non-critical issues (e.g., UNGROUNDED_NUMBER after correction).
+   */
+  review_warnings?: string[];
+
   /** Overall robustness assessment (if robustness_status is 'computed') */
   robustness?: RobustnessAssessmentV3;
 

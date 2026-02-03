@@ -215,10 +215,13 @@ describe('Decision Review Orchestrator', () => {
       const input = buildTestInput();
       const config = { baseUrl: 'https://cee.test', apiKey: 'test-key' };
 
-      // Return review with invented number
+      // Return review with missing option headline (non-downgraded failure)
       const invalidReview = {
         ...VALID_READY_REVIEW,
-        narrative_summary: 'Option A has 99.9% chance of success.', // Invented number
+        story_headlines: {
+          'option-a': 'Strong market positioning',
+          // Missing 'option-b' headline - causes MISSING_OPTION_HEADLINE failure
+        },
       };
 
       vi.spyOn(ceeClient, 'callDecisionReview').mockResolvedValue({
@@ -233,6 +236,35 @@ describe('Decision Review Orchestrator', () => {
       expect(result.m1_review).toBeNull();
       expect(result.review_failure_codes).toBeDefined();
       expect(result.review_failure_codes!.length).toBeGreaterThan(0);
+    });
+
+    it('returns complete with warnings when UNGROUNDED_NUMBER is only failure', async () => {
+      vi.spyOn(FLAGS, 'DECISION_REVIEW_ENABLE', 'get').mockReturnValue(true);
+
+      const input = buildTestInput();
+      const config = { baseUrl: 'https://cee.test', apiKey: 'test-key' };
+
+      // Return review with invented number that's >25% away from all ISL values:
+      // ISL values: 77%, 23%, 88%, 70%, 50%, 80%, margin 54%
+      // 35% is >25% drift from all of these, so it won't be corrected
+      const invalidReview = {
+        ...VALID_READY_REVIEW,
+        narrative_summary: 'Option A has 35% chance of success.', // >25% drift from all ISL values
+      };
+
+      vi.spyOn(ceeClient, 'callDecisionReview').mockResolvedValue({
+        review: invalidReview,
+        error: null,
+        meta: { model: 'test-model', latency_ms: 500, tokens: 1000 },
+      });
+
+      const result = await orchestrateDecisionReview(input, config);
+
+      // UNGROUNDED_NUMBER alone gets downgraded to warning, not failure
+      expect(result.review_status).toBe('complete');
+      expect(result.m1_review).not.toBeNull();
+      expect(result.review_warnings).toBeDefined();
+      expect(result.review_warnings).toContain('UNGROUNDED_NUMBER');
     });
 
     it('returns failed status on shape validation failure', async () => {
@@ -271,7 +303,12 @@ describe('Decision Review Orchestrator', () => {
       const result = await orchestrateDecisionReview(input, config);
 
       expect(result.review_status).toBe('complete');
-      expect(result.m1_review).toEqual(VALID_READY_REVIEW);
+      // Review passes through the number corrector (even if no corrections needed),
+      // so check key fields match rather than exact equality
+      expect(result.m1_review).not.toBeNull();
+      expect(result.m1_review!.narrative_summary).toBe(VALID_READY_REVIEW.narrative_summary);
+      expect(result.m1_review!.story_headlines).toEqual(VALID_READY_REVIEW.story_headlines);
+      expect(result.m1_review!.readiness_rationale).toBe(VALID_READY_REVIEW.readiness_rationale);
       expect(result.review_meta?.model).toBe('gpt-4');
       expect(result.review_meta?.latency_ms).toBe(800);
       expect(result.review_meta?.tokens).toBe(1500);

@@ -363,6 +363,7 @@ export interface DecisionReviewResult {
     tokens?: number;
   };
   review_failure_codes?: string[];
+  review_warnings?: string[];
 }
 
 // =============================================================================

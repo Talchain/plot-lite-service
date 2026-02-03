@@ -199,6 +199,28 @@ describe('/v2/run M2 Decision Review integration', () => {
         expect(Array.isArray(body.review_failure_codes)).toBe(true);
       }
     });
+
+    it('review_warnings is optional array when present', async () => {
+      const res = await fetch(`${baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(v2Payload),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+
+      // review_warnings is optional - when present, it should be an array
+      if (body.review_warnings !== undefined) {
+        expect(Array.isArray(body.review_warnings)).toBe(true);
+        // If warnings present, status should be 'complete' (downgraded)
+        expect(body.review_status).toBe('complete');
+        // m1_review should be populated when warnings (not failures)
+        expect(body.m1_review).not.toBeNull();
+      }
+    });
   });
 
   describe('with DECISION_REVIEW_ENABLE=false', () => {

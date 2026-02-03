@@ -28,7 +28,8 @@ import {
   getCachedReview,
   setCachedReview,
 } from './validation/review-cache.js';
-import { DecisionReviewEvents } from './validation/m1-review-constants.js';
+import { DecisionReviewEvents, M1ReviewFailureCodes } from './validation/m1-review-constants.js';
+import { correctUngroundedNumbers, type IslResultsForCorrection } from './validation/number-corrector.js';
 
 // =============================================================================
 // Types
@@ -195,15 +196,68 @@ export async function orchestrateDecisionReview(
     };
   }
 
-  const review = parseResult.data;
+  const parsedReview = parseResult.data;
+
+  // Run deterministic number correction BEFORE validation
+  const islResultsForCorrection = buildIslResultsForCorrection(input.islResult);
+  const { corrected: review, corrections } = correctUngroundedNumbers(
+    parsedReview,
+    islResultsForCorrection,
+    request.winner.id,
+    request.runner_up?.id
+  );
+
+  // Log corrections for observability
+  if (corrections.length > 0) {
+    logger?.info({
+      event: 'M1_REVIEW_NUMBERS_CORRECTED',
+      request_id: input.requestId,
+      count: corrections.length,
+      corrections,
+    });
+  }
 
   // Build validation context from the same request object
   const validationContext = buildValidationContext(request);
 
-  // Run 9-tier validation
+  // Run 9-tier validation on corrected review
   const validationResult = validateM1Review(review, validationContext);
 
   if (!validationResult.valid) {
+    // Check if UNGROUNDED_NUMBER is the only failure code
+    const failureCodes = validationResult.failure_codes;
+    const onlyUngroundedNumber =
+      failureCodes.length === 1 &&
+      failureCodes[0] === M1ReviewFailureCodes.UNGROUNDED_NUMBER;
+
+    if (onlyUngroundedNumber) {
+      // Downgrade to warning - review is still usable
+      setCachedReview(cacheKey, review, ceeResult.meta);
+
+      const latencyMs = Date.now() - startMs;
+      logger?.info({
+        event: DecisionReviewEvents.COMPLETED,
+        request_id: input.requestId,
+        review_status: 'complete',
+        review_warnings: [M1ReviewFailureCodes.UNGROUNDED_NUMBER],
+        model: ceeResult.meta.model,
+        tokens: ceeResult.meta.tokens,
+        latency_ms: latencyMs,
+      });
+
+      return {
+        m1_review: review,
+        review_status: 'complete',
+        review_warnings: [M1ReviewFailureCodes.UNGROUNDED_NUMBER],
+        review_meta: {
+          model: ceeResult.meta.model,
+          latency_ms: ceeResult.meta.latency_ms,
+          tokens: ceeResult.meta.tokens,
+        },
+      };
+    }
+
+    // Other failures remain hard failures
     const latencyMs = Date.now() - startMs;
     logger?.warn({
       event: DecisionReviewEvents.VALIDATION_FAILED,
@@ -247,6 +301,30 @@ export async function orchestrateDecisionReview(
       latency_ms: ceeResult.meta.latency_ms,
       tokens: ceeResult.meta.tokens,
     },
+  };
+}
+
+/**
+ * Build ISL results format for number correction.
+ */
+function buildIslResultsForCorrection(islResult: ISLResultInput): IslResultsForCorrection {
+  const options = islResult.options ?? islResult.results ?? [];
+
+  return {
+    option_comparison: options.map((opt) => ({
+      option_id: opt.option_id ?? opt.id ?? '',
+      option_label: opt.option_label ?? opt.label ?? '',
+      win_probability: opt.win_probability ?? 0,
+      expected_outcome: opt.expected_outcome ?? opt.outcome?.mean,
+    })),
+    robustness: {
+      recommendation_stability: islResult.robustness?.recommendation_stability ?? 0,
+    },
+    factor_sensitivity: (islResult.factor_sensitivity ?? []).map((f) => ({
+      factor_id: f.factor_id,
+      elasticity: f.elasticity ?? 0,
+      confidence: f.confidence,
+    })),
   };
 }
 
