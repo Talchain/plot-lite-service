@@ -224,13 +224,19 @@ export async function orchestrateDecisionReview(
   const validationResult = validateM1Review(review, validationContext);
 
   if (!validationResult.valid) {
-    // Check if UNGROUNDED_NUMBER is the only failure code
-    const failureCodes = validationResult.failure_codes;
-    const onlyUngroundedNumber =
-      failureCodes.length === 1 &&
-      failureCodes[0] === M1ReviewFailureCodes.UNGROUNDED_NUMBER;
+    // Warning-grade failure codes that don't block the review
+    const WARNING_GRADE_CODES: Set<string> = new Set([
+      M1ReviewFailureCodes.UNGROUNDED_NUMBER,
+      M1ReviewFailureCodes.READINESS_MISALIGNMENT,
+    ]);
 
-    if (onlyUngroundedNumber) {
+    // Check if ALL failure codes are warning-grade
+    const failureCodes = validationResult.failure_codes;
+    const allWarningGrade =
+      failureCodes.length > 0 &&
+      failureCodes.every((code) => WARNING_GRADE_CODES.has(code));
+
+    if (allWarningGrade) {
       // Downgrade to warning - review is still usable
       setCachedReview(cacheKey, review, ceeResult.meta);
 
@@ -239,7 +245,7 @@ export async function orchestrateDecisionReview(
         event: DecisionReviewEvents.COMPLETED,
         request_id: input.requestId,
         review_status: 'complete',
-        review_warnings: [M1ReviewFailureCodes.UNGROUNDED_NUMBER],
+        review_warnings: failureCodes,
         model: ceeResult.meta.model,
         tokens: ceeResult.meta.tokens,
         latency_ms: latencyMs,
@@ -248,7 +254,7 @@ export async function orchestrateDecisionReview(
       return {
         m1_review: review,
         review_status: 'complete',
-        review_warnings: [M1ReviewFailureCodes.UNGROUNDED_NUMBER],
+        review_warnings: failureCodes,
         review_meta: {
           model: ceeResult.meta.model,
           latency_ms: ceeResult.meta.latency_ms,

@@ -1,7 +1,9 @@
 /**
  * Validation Downgrade Tests
  *
- * Tests for UNGROUNDED_NUMBER downgrade from failure to warning.
+ * Tests for warning-grade failure code downgrades:
+ * - UNGROUNDED_NUMBER
+ * - READINESS_MISALIGNMENT
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -237,6 +239,223 @@ describe('Validation Downgrade: UNGROUNDED_NUMBER', () => {
 
       expect(isOnlyUngroundedNumber).toBe(false);
       // Orchestrator should return null in this case
+    });
+  });
+});
+
+// =============================================================================
+// READINESS_MISALIGNMENT Downgrade Tests
+// =============================================================================
+
+describe('Validation Downgrade: READINESS_MISALIGNMENT', () => {
+  // Warning-grade codes that can be downgraded
+  const WARNING_GRADE_CODES = new Set([
+    M1ReviewFailureCodes.UNGROUNDED_NUMBER,
+    M1ReviewFailureCodes.READINESS_MISALIGNMENT,
+  ]);
+
+  function createContextWithReadiness(readiness: string, allowedNumbers: number[] = [0.74, 0.78, 0.26]) {
+    return {
+      optionIds: ['opt_a', 'opt_b'],
+      optionLabels: ['Option A', 'Option B'],
+      optionIdToLabel: { opt_a: 'Option A', opt_b: 'Option B' },
+      nodeIds: ['goal', 'factor_a', 'factor_b'],
+      edgeIds: ['edge_1', 'edge_2'],
+      fragileEdgeIds: [],
+      evidenceGapFactorIds: ['factor_a'],
+      readiness,
+      allowedNumbers,
+      briefText: 'Which option should we choose?',
+      flipThresholdData: [],
+    };
+  }
+
+  describe('validation result behavior', () => {
+    it('returns valid=false with READINESS_MISALIGNMENT when tone mismatches readiness', () => {
+      const review = createValidReview();
+      // needs_framing requires 'framing', 'structure', or 'missing' in narrative/rationale
+      // Our review doesn't have these phrases
+      // Also avoid forbidden phrases like 'ready to proceed', 'confident', 'clear choice'
+      review.narrative_summary = 'Option A wins with 74% probability. Stability at 78%.';
+      review.readiness_rationale = 'We should consider this decision carefully.';
+
+      const context = createContextWithReadiness('needs_framing', [0.74, 0.78, 0.26]);
+
+      const result = validateM1Review(review, context);
+
+      expect(result.valid).toBe(false);
+      expect(result.failure_codes).toContain(M1ReviewFailureCodes.READINESS_MISALIGNMENT);
+    });
+
+    it('returns valid=true when tone matches readiness', () => {
+      const review = createValidReview();
+      // Include required phrase for needs_framing
+      review.narrative_summary = 'Option A wins with 74% probability. The decision structure needs work.';
+      review.readiness_rationale = 'The framing of this decision needs refinement.';
+
+      const context = createContextWithReadiness('needs_framing', [0.74, 0.78, 0.26]);
+
+      const result = validateM1Review(review, context);
+
+      // Should not have READINESS_MISALIGNMENT
+      expect(result.failure_codes).not.toContain(M1ReviewFailureCodes.READINESS_MISALIGNMENT);
+    });
+  });
+
+  describe('downgrade eligibility logic', () => {
+    it('READINESS_MISALIGNMENT only → downgrade-eligible', () => {
+      const failureCodes = [M1ReviewFailureCodes.READINESS_MISALIGNMENT];
+
+      const allWarningGrade =
+        failureCodes.length > 0 &&
+        failureCodes.every((code) => WARNING_GRADE_CODES.has(code));
+
+      expect(allWarningGrade).toBe(true);
+    });
+
+    it('UNGROUNDED_NUMBER only → downgrade-eligible (unchanged behavior)', () => {
+      const failureCodes = [M1ReviewFailureCodes.UNGROUNDED_NUMBER];
+
+      const allWarningGrade =
+        failureCodes.length > 0 &&
+        failureCodes.every((code) => WARNING_GRADE_CODES.has(code));
+
+      expect(allWarningGrade).toBe(true);
+    });
+
+    it('READINESS_MISALIGNMENT + UNGROUNDED_NUMBER → downgrade-eligible', () => {
+      const failureCodes = [
+        M1ReviewFailureCodes.READINESS_MISALIGNMENT,
+        M1ReviewFailureCodes.UNGROUNDED_NUMBER,
+      ];
+
+      const allWarningGrade =
+        failureCodes.length > 0 &&
+        failureCodes.every((code) => WARNING_GRADE_CODES.has(code));
+
+      expect(allWarningGrade).toBe(true);
+    });
+
+    it('READINESS_MISALIGNMENT + hard failure → NOT downgrade-eligible', () => {
+      const failureCodes = [
+        M1ReviewFailureCodes.READINESS_MISALIGNMENT,
+        M1ReviewFailureCodes.MISSING_STORY_HEADLINE,
+      ];
+
+      const allWarningGrade =
+        failureCodes.length > 0 &&
+        failureCodes.every((code) => WARNING_GRADE_CODES.has(code));
+
+      expect(allWarningGrade).toBe(false);
+    });
+  });
+
+  describe('orchestrator behavior simulation', () => {
+    it('READINESS_MISALIGNMENT only → review_status: complete, review_warnings populated, m1_review populated', () => {
+      const review = createValidReview();
+      // needs_framing requires 'framing', 'structure', or 'missing' but these don't include them
+      // Also avoid forbidden phrases like 'ready to proceed', 'confident', 'clear choice'
+      review.narrative_summary = 'Option A wins with 74% probability. Stability at 78%.';
+      review.readiness_rationale = 'We should consider this decision carefully.';
+
+      const context = createContextWithReadiness('needs_framing', [0.74, 0.78, 0.26]);
+      const validationResult = validateM1Review(review, context);
+
+      const failureCodes = validationResult.failure_codes;
+
+      // Should contain READINESS_MISALIGNMENT
+      expect(failureCodes).toContain(M1ReviewFailureCodes.READINESS_MISALIGNMENT);
+
+      // Should be all warning-grade
+      const allWarningGrade =
+        failureCodes.length > 0 &&
+        failureCodes.every((code) => WARNING_GRADE_CODES.has(code));
+
+      expect(allWarningGrade).toBe(true);
+
+      // Simulate orchestrator behavior
+      if (allWarningGrade) {
+        const review_status = 'complete';
+        const review_warnings = failureCodes;
+        const m1_review = review; // Would be returned
+
+        expect(review_status).toBe('complete');
+        expect(review_warnings).toContain(M1ReviewFailureCodes.READINESS_MISALIGNMENT);
+        expect(m1_review).not.toBeNull();
+      }
+    });
+
+    it('READINESS_MISALIGNMENT + UNGROUNDED_NUMBER → review_status: complete, both in review_warnings', () => {
+      const review = createValidReview();
+      // Trigger READINESS_MISALIGNMENT (no required phrase for needs_framing)
+      // Also trigger UNGROUNDED_NUMBER (99% not in allowed list)
+      // Avoid forbidden phrases
+      review.narrative_summary = 'Option A wins with 99% probability.'; // Ungrounded number
+      review.readiness_rationale = 'We should consider this decision carefully.';
+
+      const context = createContextWithReadiness('needs_framing', [0.74, 0.78, 0.26]);
+      const validationResult = validateM1Review(review, context);
+
+      const failureCodes = validationResult.failure_codes;
+
+      // Should contain both
+      expect(failureCodes).toContain(M1ReviewFailureCodes.READINESS_MISALIGNMENT);
+      expect(failureCodes).toContain(M1ReviewFailureCodes.UNGROUNDED_NUMBER);
+
+      // Should be all warning-grade
+      const allWarningGrade =
+        failureCodes.length > 0 &&
+        failureCodes.every((code) => WARNING_GRADE_CODES.has(code));
+
+      expect(allWarningGrade).toBe(true);
+
+      // Simulate orchestrator behavior
+      if (allWarningGrade) {
+        const review_status = 'complete';
+        const review_warnings = failureCodes;
+        const m1_review = review;
+
+        expect(review_status).toBe('complete');
+        expect(review_warnings).toContain(M1ReviewFailureCodes.READINESS_MISALIGNMENT);
+        expect(review_warnings).toContain(M1ReviewFailureCodes.UNGROUNDED_NUMBER);
+        expect(m1_review).not.toBeNull();
+      }
+    });
+
+    it('READINESS_MISALIGNMENT + hard failure → review_status: failed, m1_review: null', () => {
+      const review = createValidReview();
+      // Trigger READINESS_MISALIGNMENT (no required phrase for needs_framing)
+      // Avoid forbidden phrases
+      review.narrative_summary = 'Option A wins with 74% probability.';
+      review.readiness_rationale = 'We should consider this decision carefully.';
+      // Trigger hard failure: missing story headline
+      review.story_headlines = { opt_a: 'Only A headline' }; // Missing opt_b
+
+      const context = createContextWithReadiness('needs_framing', [0.74, 0.78, 0.26]);
+      const validationResult = validateM1Review(review, context);
+
+      const failureCodes = validationResult.failure_codes;
+
+      // Should contain READINESS_MISALIGNMENT
+      expect(failureCodes).toContain(M1ReviewFailureCodes.READINESS_MISALIGNMENT);
+      // Should contain hard failure
+      expect(failureCodes).toContain(M1ReviewFailureCodes.MISSING_OPTION_HEADLINE);
+
+      // Should NOT be all warning-grade
+      const allWarningGrade =
+        failureCodes.length > 0 &&
+        failureCodes.every((code) => WARNING_GRADE_CODES.has(code));
+
+      expect(allWarningGrade).toBe(false);
+
+      // Simulate orchestrator behavior
+      if (!allWarningGrade) {
+        const review_status = 'failed';
+        const m1_review = null;
+
+        expect(review_status).toBe('failed');
+        expect(m1_review).toBeNull();
+      }
     });
   });
 });

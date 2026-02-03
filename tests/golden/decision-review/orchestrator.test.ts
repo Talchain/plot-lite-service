@@ -267,6 +267,45 @@ describe('Decision Review Orchestrator', () => {
       expect(result.review_warnings).toContain('UNGROUNDED_NUMBER');
     });
 
+    it('returns complete with warnings when READINESS_MISALIGNMENT is only failure', async () => {
+      vi.spyOn(FLAGS, 'DECISION_REVIEW_ENABLE', 'get').mockReturnValue(true);
+
+      // Set readiness to 'needs_framing' which requires 'framing', 'structure', or 'missing'
+      // Keep evidence_gaps so grounded_in references remain valid
+      const baseInput = buildTestInput();
+      const input = {
+        ...baseInput,
+        m1Coaching: {
+          ...baseInput.m1Coaching,
+          readiness: 'needs_framing',
+        },
+      };
+      const config = { baseUrl: 'https://cee.test', apiKey: 'test-key' };
+
+      // Return review that doesn't include required phrases for needs_framing
+      // Also avoid forbidden phrases like 'ready to proceed', 'confident', 'clear choice'
+      const misalignedReview = {
+        ...VALID_READY_REVIEW,
+        // Uses grounded numbers (77%, 88%) but lacks 'framing', 'structure', or 'missing'
+        narrative_summary: 'Option A has 77% win probability. The recommendation shows 88% stability.',
+        readiness_rationale: 'We should carefully consider this decision given the data.',
+      };
+
+      vi.spyOn(ceeClient, 'callDecisionReview').mockResolvedValue({
+        review: misalignedReview,
+        error: null,
+        meta: { model: 'test-model', latency_ms: 500, tokens: 1000 },
+      });
+
+      const result = await orchestrateDecisionReview(input, config);
+
+      // READINESS_MISALIGNMENT alone gets downgraded to warning, not failure
+      expect(result.review_status).toBe('complete');
+      expect(result.m1_review).not.toBeNull();
+      expect(result.review_warnings).toBeDefined();
+      expect(result.review_warnings).toContain('READINESS_MISALIGNMENT');
+    });
+
     it('returns failed status on shape validation failure', async () => {
       vi.spyOn(FLAGS, 'DECISION_REVIEW_ENABLE', 'get').mockReturnValue(true);
 
