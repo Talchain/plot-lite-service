@@ -484,8 +484,8 @@ export async function factorReviewV2(
 // M2 Decision Review - CEE /assist/v1/decision-review
 // -----------------------------------------------------------------------------
 
-/** Hard timeout for decision review (3s per brief) */
-const DECISION_REVIEW_TIMEOUT_MS = 3000;
+/** Hard timeout for decision review (2 minutes for premium LLM call) */
+const DECISION_REVIEW_TIMEOUT_MS = 120000;
 
 /**
  * M2 Decision review response from CEE.
@@ -511,7 +511,7 @@ export interface M2DecisionReviewResult {
  * deterministic M1 coaching data and ISL results.
  *
  * Contract:
- * - 3s hard timeout
+ * - 120s hard timeout (premium LLM call)
  * - On error/timeout: returns { review: null, error: {...} }
  * - Does not throw exceptions
  * - Logs errors for observability
