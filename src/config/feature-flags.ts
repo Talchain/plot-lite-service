@@ -44,6 +44,10 @@ export const KNOWN_FEATURE_FLAGS = [
   'FEATURE_STREAM',
   'STREAM_PARITY_ENABLE',
   'WHATIF_DELTA_ENABLE',
+  // CEE Integration
+  'CEE_ORCHESTRATOR_ENABLE',
+  'CEE_ORCHESTRATOR_ENABLED',
+  'DECISION_REVIEW_ENABLE',
 ] as const;
 
 export function validateFeatureFlags(logger?: any): void {

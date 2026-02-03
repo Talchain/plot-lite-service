@@ -40,18 +40,18 @@ const TEST_TIMEOUT_MS = 30_000;
 // =============================================================================
 
 interface DraftGraphResponse {
-  graph: {
-    nodes: Array<{ id: string; kind?: string; label: string; [key: string]: unknown }>;
-    edges: Array<{ from: string; to: string; [key: string]: unknown }>;
-  };
-  options?: Array<{ id: string; label: string }>;
-  outcome_node?: string;
+  // CEE returns nodes/edges at top level, not nested under 'graph'
+  nodes: Array<{ id: string; kind?: string; label: string; [key: string]: unknown }>;
+  edges: Array<{ from: string; to: string; [key: string]: unknown }>;
+  options?: Array<{ id: string; label: string; interventions?: Record<string, unknown> }>;
+  goal_node_id?: string;
   [key: string]: unknown;
 }
 
 async function callDraftGraph(brief: string): Promise<DraftGraphResponse> {
   const url = `${CEE_BASE_URL.replace(/\/$/, '')}/assist/v1/draft-graph?schema=v3`;
 
+  // 90s timeout for draft-graph (LLM call can be slow, especially on cold start)
   const response = await fetch(url, {
     method: 'POST',
     headers: {
@@ -61,7 +61,7 @@ async function callDraftGraph(brief: string): Promise<DraftGraphResponse> {
       'X-Request-Id': randomUUID(),
     },
     body: JSON.stringify({ brief }),
-    signal: AbortSignal.timeout(TEST_TIMEOUT_MS),
+    signal: AbortSignal.timeout(90_000),
   });
 
   if (!response.ok) {
@@ -182,15 +182,15 @@ describe.skipIf(!LIVE)('Decision Review — Live CEE Integration', () => {
     console.log('[Live Test] Calling CEE draft-graph...');
     draftGraphResult = await callDraftGraph(TEST_BRIEF);
 
-    // Normalize graph to EngineGraphV3
+    // Normalize graph to EngineGraphV3 (CEE returns nodes/edges at top level)
     graph = {
-      nodes: draftGraphResult.graph.nodes.map(n => ({
+      nodes: draftGraphResult.nodes.map(n => ({
         id: n.id,
         kind: (n.kind ?? 'factor') as any,
         label: n.label,
         ...n,
       })),
-      edges: draftGraphResult.graph.edges.map(e => ({
+      edges: draftGraphResult.edges.map(e => ({
         from: e.from,
         to: e.to,
         strength: { mean: 0.5, std: 0.1 },
@@ -198,11 +198,11 @@ describe.skipIf(!LIVE)('Decision Review — Live CEE Integration', () => {
       })),
     };
 
-    // Extract options from draft-graph result or graph
+    // Extract options from draft-graph result or graph nodes
     options = draftGraphResult.options?.map(o => ({
       id: o.id,
       label: o.label,
-      interventions: {},
+      interventions: o.interventions ?? {},
     })) ?? graph.nodes
       .filter(n => n.kind === 'option')
       .map(n => ({
@@ -212,7 +212,7 @@ describe.skipIf(!LIVE)('Decision Review — Live CEE Integration', () => {
       }));
 
     console.log(`[Live Test] Graph: ${graph.nodes.length} nodes, ${graph.edges.length} edges, ${options.length} options`);
-  }, TEST_TIMEOUT_MS);
+  }, 90_000); // 90s timeout for draft-graph (can be slow on cold start)
 
   it('completes M2 decision review with valid response', async () => {
     // Build ISL results (mock, since we're testing M2 not ISL)

@@ -18,6 +18,8 @@ import {
 // Import CEE types for factor enrichments
 import type { FactorEnrichment } from '../cee/types.js';
 import type { M1Coaching } from '../coaching/types.js';
+import type { M1Review } from '../cee/validation/m1-review-types.js';
+import type { ReviewStatus } from '../cee/validation/m1-review-constants.js';
 
 // -----------------------------------------------------------------------------
 // Node Kinds
@@ -488,6 +490,45 @@ export interface RunResponseV3 {
    * as non-semantic metadata.
    */
   m1_coaching?: M1Coaching;
+
+  // ---------------------------------------------------------------------------
+  // M2 Decision Review Fields (LLM-generated review from CEE)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * M2 Decision Review from CEE /assist/v1/decision-review endpoint.
+   * LLM-generated review validated by PLoT's 9-tier validator.
+   * Null if review failed validation, skipped, or disabled.
+   *
+   * NOTE: LLM-derived, non-deterministic. Excluded from response_hash.
+   */
+  m1_review?: M1Review | null;
+
+  /**
+   * M2 Decision Review status.
+   * - 'complete': Review passed validation
+   * - 'failed': Review failed validation (see review_failure_codes)
+   * - 'skipped': Review skipped (e.g., CEE unavailable)
+   * - 'disabled': DECISION_REVIEW_ENABLE flag is false
+   */
+  review_status?: ReviewStatus;
+
+  /**
+   * M2 Decision Review metadata.
+   * Contains model info and latency for observability.
+   */
+  review_meta?: {
+    model?: string;
+    latency_ms?: number;
+    tokens?: number;
+  };
+
+  /**
+   * M2 Decision Review failure codes.
+   * Present when review_status is 'failed'.
+   * See M1ReviewFailureCodes for valid codes.
+   */
+  review_failure_codes?: string[];
 
   /** Overall robustness assessment (if robustness_status is 'computed') */
   robustness?: RobustnessAssessmentV3;

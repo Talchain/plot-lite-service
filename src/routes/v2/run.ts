@@ -69,9 +69,13 @@ import {
 } from '../../integrations/isl/adapters/robustness-analysis.js';
 import type { RobustnessDataForCee, NormalizedEdgeInfo } from '../../integrations/isl/types/plot-types.js';
 import { orchestrateCeeReview } from '../../cee/orchestrator.js';
+import { orchestrateDecisionReview, type DecisionReviewInput, type DecisionReviewConfig } from '../../cee/decision-review-orchestrator.js';
 import type { CeeReviewRequest, CeeTrace, FactorEnrichment } from '../../cee/types.js';
 import { factorReviewV2, type CEESchemaV2Config } from '../../cee/client.js';
+import { FLAGS } from '../../config/flags.js';
 import { generateM1Coaching } from '../../coaching/m1-coaching.js';
+import type { M1Review } from '../../cee/validation/m1-review-types.js';
+import type { ReviewStatus } from '../../cee/validation/m1-review-constants.js';
 import { getDownstreamCallsForLog } from '../../util/downstream-tracker.js';
 import { computeFactorSensitivityFromGraph } from '../../lib/factor-influence.js';
 import { NEAR_TIE_THRESHOLD } from '../../trust/result-coherence.js';
@@ -751,7 +755,13 @@ function buildResponse(
   ceeResults?: CeeResultsParams,
   ceeTrace?: CeeTrace | null,
   sensitivityData?: SensitivityData,
-  m1Coaching?: any
+  m1Coaching?: any,
+  m2DecisionReview?: {
+    m1_review: M1Review | null;
+    review_status: ReviewStatus;
+    review_meta?: { model?: string; latency_ms?: number; tokens?: number };
+    review_failure_codes?: string[];
+  }
 ): RunResponseV3 {
   // Map ISL results to response format
   // ISL V2 uses 'options' field; V1 uses 'results'. Check both for compatibility.
@@ -928,6 +938,18 @@ function buildResponse(
     // M1 Coaching (Phase 2 deterministic coaching layer)
     // NOTE: Deterministic (no LLM), but excluded from canonical hash as non-semantic metadata
     ...(m1Coaching && { m1_coaching: m1Coaching }),
+
+    // M2 Decision Review (LLM-generated from CEE /assist/v1/decision-review)
+    // NOTE: LLM-derived, non-deterministic. Excluded from canonical hash.
+    ...(m2DecisionReview && {
+      m1_review: m2DecisionReview.m1_review,
+      review_status: m2DecisionReview.review_status,
+      ...(m2DecisionReview.review_meta && { review_meta: m2DecisionReview.review_meta }),
+      ...(m2DecisionReview.review_failure_codes && m2DecisionReview.review_failure_codes.length > 0 && {
+        review_failure_codes: m2DecisionReview.review_failure_codes,
+      }),
+    }),
+
     robustness,
     robustness_synthesis: robustnessSynthesis,
 
@@ -1617,6 +1639,12 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             },
           ];
 
+          // M2: Set status for early return (disabled or skipped)
+          const m2EarlyReturn = {
+            m1_review: null as M1Review | null,
+            review_status: (FLAGS.DECISION_REVIEW_ENABLE ? 'skipped' : 'disabled') as ReviewStatus,
+          };
+
           return reply.send(buildResponse(
             requestId,
             'failed',
@@ -1638,7 +1666,17 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               uiBuild,
               computedAt: new Date().toISOString(),
             },
-            responseHash
+            responseHash,
+            undefined, // islResult
+            undefined, // options
+            undefined, // islAnalysisStatus
+            undefined, // islStatusReason
+            undefined, // robustnessSynthesis
+            undefined, // ceeResults
+            undefined, // ceeTrace
+            undefined, // sensitivityData
+            undefined, // m1Coaching
+            m2EarlyReturn  // M2 Decision Review status
           ));
         }
 
@@ -1922,6 +1960,12 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             blocks_analysis: false,
           });
 
+          // M2: Set status for early return (disabled or skipped)
+          const m2IslErrorReturn = {
+            m1_review: null as M1Review | null,
+            review_status: (FLAGS.DECISION_REVIEW_ENABLE ? 'skipped' : 'disabled') as ReviewStatus,
+          };
+
           return reply.send(buildResponse(
             requestId,
             'failed',
@@ -1944,7 +1988,17 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               uiBuild,
               computedAt: computedAt ?? new Date().toISOString(),
             },
-            responseHash
+            responseHash,
+            undefined, // islResult
+            undefined, // options
+            undefined, // islAnalysisStatus
+            undefined, // islStatusReason
+            undefined, // robustnessSynthesis
+            undefined, // ceeResults
+            undefined, // ceeTrace
+            undefined, // sensitivityData
+            undefined, // m1Coaching
+            m2IslErrorReturn  // M2 Decision Review status
           ));
         }
 
@@ -1968,6 +2022,12 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         const islStatusReason = processedIslResult.status_reason;
 
         if (islAnalysisStatus === 'failed') {
+          // M2: Set status for early return (disabled or skipped)
+          const m2IslFailedReturn = {
+            m1_review: null as M1Review | null,
+            review_status: (FLAGS.DECISION_REVIEW_ENABLE ? 'skipped' : 'disabled') as ReviewStatus,
+          };
+
           return reply.send(buildResponse(
             requestId,
             'failed',
@@ -1994,7 +2054,13 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             processedIslResult,
             normalizedOptions,
             islAnalysisStatus,
-            islStatusReason
+            islStatusReason,
+            undefined, // robustnessSynthesis
+            undefined, // ceeResults
+            undefined, // ceeTrace
+            undefined, // sensitivityData
+            undefined, // m1Coaching
+            m2IslFailedReturn  // M2 Decision Review status
           ));
         }
 
@@ -2187,6 +2253,87 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           // Continue without coaching (graceful degradation)
         }
 
+        // M2 Decision Review (LLM-generated review from CEE)
+        // Gate on DECISION_REVIEW_ENABLE flag; runs independently of legacy CEE
+        let m2DecisionReview: {
+          m1_review: M1Review | null;
+          review_status: ReviewStatus;
+          review_meta?: { model?: string; latency_ms?: number; tokens?: number };
+          review_failure_codes?: string[];
+        } | undefined;
+
+        if (FLAGS.DECISION_REVIEW_ENABLE && m1Coaching) {
+          try {
+            const decisionReviewInput: DecisionReviewInput = {
+              brief: body.brief ?? '',
+              graph: filteredGraph,
+              options: normalizedOptions,
+              islResult: processedIslResult,
+              m1Coaching,
+              responseHash: responseHash ?? requestId,
+              requestId,
+            };
+
+            const ceeBaseUrl = process.env.CEE_BASE_URL?.trim() ?? '';
+            const ceeApiKey = process.env.CEE_API_KEY?.trim() ?? '';
+
+            if (ceeBaseUrl && ceeApiKey) {
+              const decisionReviewConfig: DecisionReviewConfig = {
+                baseUrl: ceeBaseUrl,
+                apiKey: ceeApiKey,
+                timeoutMs: 3000, // 3s independent timeout
+              };
+
+              const decisionReviewResult = await orchestrateDecisionReview(
+                decisionReviewInput,
+                decisionReviewConfig,
+                req.log
+              );
+
+              m2DecisionReview = {
+                m1_review: decisionReviewResult.m1_review,
+                review_status: decisionReviewResult.review_status,
+                review_meta: decisionReviewResult.review_meta,
+                review_failure_codes: decisionReviewResult.review_failure_codes,
+              };
+            } else {
+              // CEE not configured
+              m2DecisionReview = {
+                m1_review: null,
+                review_status: 'skipped',
+              };
+              req.log.info({
+                event: 'm2_decision_review_skipped',
+                reason: 'cee_not_configured',
+                request_id: requestId,
+              });
+            }
+          } catch (err) {
+            req.log.warn({
+              event: 'm2_decision_review_error',
+              error: (err as Error).message,
+              request_id: requestId,
+            });
+            m2DecisionReview = {
+              m1_review: null,
+              review_status: 'failed',
+              review_failure_codes: ['ORCHESTRATION_ERROR'],
+            };
+          }
+        } else if (!FLAGS.DECISION_REVIEW_ENABLE) {
+          // Flag disabled - include in response for transparency
+          m2DecisionReview = {
+            m1_review: null,
+            review_status: 'disabled',
+          };
+        } else if (FLAGS.DECISION_REVIEW_ENABLE && !m1Coaching) {
+          // Flag enabled but no M1 coaching data (e.g., ISL failed) - skip review
+          m2DecisionReview = {
+            m1_review: null,
+            review_status: 'skipped',
+          };
+        }
+
         const finalTotalMs = performance.now() - startTime;
 
         return reply.send(buildResponse(
@@ -2222,7 +2369,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           ceeOrchestrationResult.ceeResults,
           ceeOrchestrationResult.ceeTrace,
           enrichedSensitivityData,  // Pre-computed arrays + factor enrichments
-          m1Coaching  // M1 coaching (Phase 2)
+          m1Coaching,  // M1 coaching (Phase 2)
+          m2DecisionReview  // M2 Decision Review (LLM-generated)
         ));
       } catch (err) {
         const totalMs = performance.now() - startTime;
