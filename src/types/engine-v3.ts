@@ -989,6 +989,8 @@ export interface DownstreamCallInfoV3 {
   request_payload?: unknown;
   /** Sanitized response payload for debug (truncated if large, sensitive data redacted) */
   response_payload?: unknown;
+  /** Error response body for non-200 responses (truncated to 1000 chars) */
+  error_body?: string;
 }
 
 /**

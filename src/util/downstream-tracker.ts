@@ -28,6 +28,8 @@ export interface DownstreamCall {
   requestPayload?: unknown;
   /** Sanitized response payload for debug (optional, truncated if large) */
   responsePayload?: unknown;
+  /** Error response body for non-200 responses (truncated to 1000 chars) */
+  errorBody?: string;
 }
 
 /**
@@ -144,6 +146,7 @@ export function getDownstreamCallsForLog(requestId: string): Array<{
   request_id: string;
   request_payload?: unknown;
   response_payload?: unknown;
+  error_body?: string;
 }> {
   return getDownstreamCalls(requestId).map((call) => ({
     service: call.service,
@@ -155,6 +158,7 @@ export function getDownstreamCallsForLog(requestId: string): Array<{
     request_id: call.requestId,
     request_payload: call.requestPayload,
     response_payload: call.responsePayload,
+    ...(call.errorBody && { error_body: call.errorBody }),
   }));
 }
 

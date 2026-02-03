@@ -202,7 +202,11 @@ export async function callCEEWithSchemaV2<T>(
     const latencyMs = Date.now() - startMs;
 
     if (!response.ok) {
-      // Record failed downstream call (HTTP error)
+      // Read error body first (truncate to 1000 chars for logging)
+      const errorText = await response.text().catch(() => 'Unknown error');
+      const errorBody = errorText.slice(0, 1000);
+
+      // Record failed downstream call (HTTP error) with error body
       recordDownstreamCall({
         service: 'cee',
         endpoint: path,
@@ -210,8 +214,8 @@ export async function callCEEWithSchemaV2<T>(
         elapsedMs: latencyMs,
         payloadHash,
         requestId,
+        errorBody,
       });
-      const errorText = await response.text().catch(() => 'Unknown error');
       throw new Error(`CEE ${path} failed: HTTP ${response.status} - ${errorText}`);
     }
 
@@ -402,7 +406,11 @@ export async function factorReviewV2(
     const latencyMs = Date.now() - startMs;
 
     if (!response.ok) {
-      // Record failed downstream call
+      // Read error body first (truncate to 1000 chars for logging)
+      const errorText = await response.text().catch(() => 'Unknown error');
+      const errorBody = errorText.slice(0, 1000);
+
+      // Record failed downstream call with error body
       recordDownstreamCall({
         service: 'cee',
         endpoint: path,
@@ -410,14 +418,14 @@ export async function factorReviewV2(
         elapsedMs: latencyMs,
         payloadHash,
         requestId,
+        errorBody,
       });
 
-      const errorText = await response.text().catch(() => 'Unknown error');
       console.warn(JSON.stringify({
         event: 'cee_factor_review_error',
         request_id: requestId,
         status: response.status,
-        error: errorText,
+        error: errorText.slice(0, 200),
         latency_ms: latencyMs,
       }));
 
@@ -541,7 +549,11 @@ export async function callDecisionReview(
     const latencyMs = Date.now() - startMs;
 
     if (!response.ok) {
-      // Record failed downstream call
+      // Read error body first (truncate to 1000 chars for logging)
+      const errorText = await response.text().catch(() => 'Unknown error');
+      const errorBody = errorText.slice(0, 1000);
+
+      // Record failed downstream call with error body
       recordDownstreamCall({
         service: 'cee',
         endpoint: path,
@@ -549,9 +561,9 @@ export async function callDecisionReview(
         elapsedMs: latencyMs,
         payloadHash,
         requestId,
+        errorBody,
       });
 
-      const errorText = await response.text().catch(() => 'Unknown error');
       console.warn(JSON.stringify({
         event: 'cee_decision_review_error',
         request_id: requestId,
