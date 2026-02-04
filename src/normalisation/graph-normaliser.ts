@@ -280,14 +280,15 @@ export function normaliseNode(
   }
 
   // Clean annotation suffixes from labels (e.g., "(0-1)", "(percentage)")
-  // before returning to UI
+  // before returning to UI. Fall back to node.id if cleaned label is empty.
   const rawLabel = node.label ?? node.id;
   const cleanedLabel = cleanLabelAnnotation(rawLabel);
+  const finalLabel = cleanedLabel || node.id; // Fallback to ID if cleaning produces empty string
 
   return {
     id: node.id,
     kind,
-    label: cleanedLabel,
+    label: finalLabel,
     description: node.description ?? node.body,
     intercept: rawIntercept === undefined ? undefined : (rawIntercept as number),
     observed_state: observedState,

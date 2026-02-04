@@ -47,7 +47,7 @@ import type {
   DownstreamCallsV3,
 } from '../../types/engine-v3.js';
 // Seed derivation: when seed omitted, derive deterministically from graph hash
-import { normaliseGraph, NormalisationError, type NormalisationWarning } from '../../normalisation/graph-normaliser.js';
+import { normaliseGraph, NormalisationError, cleanLabelAnnotation, type NormalisationWarning } from '../../normalisation/graph-normaliser.js';
 import { filterOptionNodes } from '../../normalisation/option-filter.js';
 import { hashRequest } from '../../normalisation/canonicalise.js';
 import { hashGraph, deriveSeedFromHash } from '../../sampling/graph-hash.js';
@@ -865,10 +865,12 @@ function buildResponse(
 
     // Build option ID → label lookup for alternative_winner_label resolution
     // Options are organisational nodes not in graph.nodes (Schema v2.6 §A.1)
+    // Apply cleanLabelAnnotation to ensure consistency with cleaned node labels
     const optionLabelMap = new Map<string, string>();
     if (options) {
       for (const opt of options) {
-        optionLabelMap.set(opt.id, opt.label);
+        const cleanedLabel = cleanLabelAnnotation(opt.label);
+        optionLabelMap.set(opt.id, cleanedLabel || opt.id);
       }
     }
 

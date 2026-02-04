@@ -221,6 +221,28 @@ describe('/v2/run M2 Decision Review integration', () => {
         expect(body.m1_review).not.toBeNull();
       }
     });
+
+    it('INVARIANT: review_skip_reason only present when review_status=skipped', async () => {
+      const res = await fetch(`${baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(v2Payload),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+
+      // Invariant: review_skip_reason should ONLY be defined when status is 'skipped'
+      if (body.review_status === 'skipped') {
+        expect(body.review_skip_reason).toBeDefined();
+        expect(typeof body.review_skip_reason).toBe('string');
+      } else {
+        // For 'disabled', 'complete', or 'failed', review_skip_reason must NOT be present
+        expect(body.review_skip_reason).toBeUndefined();
+      }
+    });
   });
 
   describe('with DECISION_REVIEW_ENABLE=false', () => {
@@ -266,6 +288,8 @@ describe('/v2/run M2 Decision Review integration', () => {
       expect(body.m1_review).toBeNull();
       // No failure codes when simply disabled
       expect(body.review_failure_codes).toBeUndefined();
+      // INVARIANT: review_skip_reason must NOT be present when status is 'disabled'
+      expect(body.review_skip_reason).toBeUndefined();
     });
   });
 
