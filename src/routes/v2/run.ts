@@ -2354,6 +2354,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                 review_status: decisionReviewResult.review_status,
                 review_meta: decisionReviewResult.review_meta,
                 review_failure_codes: decisionReviewResult.review_failure_codes,
+                review_skip_reason: decisionReviewResult.review_skip_reason,
               };
             } else {
               // CEE not configured

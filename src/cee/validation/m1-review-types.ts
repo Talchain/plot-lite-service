@@ -11,7 +11,7 @@
  */
 
 import { z } from 'zod';
-import { M1_REVIEW_LIMITS, type ReviewStatus } from './m1-review-constants.js';
+import { M1_REVIEW_LIMITS, type ReviewStatus, type ReviewSkipReason } from './m1-review-constants.js';
 
 // =============================================================================
 // M1Review — What CEE Returns
@@ -364,6 +364,8 @@ export interface DecisionReviewResult {
   };
   review_failure_codes?: string[];
   review_warnings?: string[];
+  /** Reason for skip when review_status is 'skipped' */
+  review_skip_reason?: ReviewSkipReason;
 }
 
 // =============================================================================

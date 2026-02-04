@@ -28,7 +28,7 @@ import {
   getCachedReview,
   setCachedReview,
 } from './validation/review-cache.js';
-import { DecisionReviewEvents, M1ReviewFailureCodes } from './validation/m1-review-constants.js';
+import { DecisionReviewEvents, M1ReviewFailureCodes, ReviewSkipReasons } from './validation/m1-review-constants.js';
 import { correctUngroundedNumbers, type IslResultsForCorrection } from './validation/number-corrector.js';
 
 // =============================================================================
@@ -106,6 +106,7 @@ export async function orchestrateDecisionReview(
     return {
       m1_review: null,
       review_status: 'skipped',
+      review_skip_reason: ReviewSkipReasons.CEE_NOT_CONFIGURED,
     };
   }
 
@@ -166,6 +167,7 @@ export async function orchestrateDecisionReview(
     return {
       m1_review: null,
       review_status: 'skipped',
+      review_skip_reason: ReviewSkipReasons.CEE_ERROR,
       review_meta: {
         latency_ms: ceeResult.meta.latency_ms,
       },

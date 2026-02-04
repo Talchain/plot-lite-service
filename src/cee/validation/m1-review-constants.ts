@@ -184,6 +184,8 @@ export const ReviewSkipReasons = {
   ISL_ANALYSIS_FAILED: 'ISL_ANALYSIS_FAILED',
   /** CEE service not configured (missing CEE_BASE_URL) */
   CEE_NOT_CONFIGURED: 'CEE_NOT_CONFIGURED',
+  /** CEE request failed with error or returned null review */
+  CEE_ERROR: 'CEE_ERROR',
   /** M1 coaching data not available (prerequisite for M2 review) */
   NO_M1_COACHING: 'NO_M1_COACHING',
 } as const;
