@@ -2200,18 +2200,41 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           flip_risk_category: f.flip_risk_category,
         })) ?? [];
 
-        // Run both CEE calls in parallel
+        // Run CEE calls in parallel
+        // M2 decision-review replaces legacy /review + /options calls when enabled
+        const legacyCeeSkipped: CeeOrchestrationResult = {
+          ceeResults: {
+            ceeStatus: 'skipped',
+            decisionQuality: null,
+            insights: null,
+            improvementGuidance: null,
+            rationale: null,
+          },
+          robustnessSynthesis: null,
+          latencyMs: 0,
+          ceeTrace: {
+            requestId: requestId,
+            degraded: false,
+            timestamp: new Date().toISOString(),
+            source: 'orchestrator',
+            reason: 'Legacy CEE calls skipped (M2 decision-review enabled)',
+          },
+        };
+
         const [ceeOrchestrationResult, factorEnrichments] = await Promise.all([
-          requestCeeReview(
-            responseHash ?? requestId, // Use response hash as scenario ID
-            filteredGraph,
-            normalizedOptions,
-            islResult,
-            robustnessDataForCee,
-            requestId,
-            req.log,
-            body.brief
-          ),
+          // Skip legacy CEE /review + /options when M2 decision-review is enabled
+          FLAGS.DECISION_REVIEW_ENABLE
+            ? Promise.resolve(legacyCeeSkipped)
+            : requestCeeReview(
+                responseHash ?? requestId, // Use response hash as scenario ID
+                filteredGraph,
+                normalizedOptions,
+                islResult,
+                robustnessDataForCee,
+                requestId,
+                req.log,
+                body.brief
+              ),
           // CEE factor review - returns undefined on error/timeout (silent fallback)
           ceeConfig && factorSensitivityForCee.length > 0
             ? factorReviewV2(ceeConfig, filteredGraph, factorSensitivityForCee, requestId)

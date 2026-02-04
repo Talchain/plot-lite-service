@@ -312,3 +312,6 @@ describe('/v2/run M2 Decision Review integration', () => {
     });
   });
 });
+
+// Legacy CEE Skip tests moved to tests/v2-legacy-cee-skip.test.ts
+// (requires vi.mock for ISL to reach the CEE code path)
