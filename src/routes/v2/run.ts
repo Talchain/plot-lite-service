@@ -76,6 +76,7 @@ import { FLAGS } from '../../config/flags.js';
 import { generateM1Coaching } from '../../coaching/m1-coaching.js';
 import type { M1Review } from '../../cee/validation/m1-review-types.js';
 import type { ReviewStatus } from '../../cee/validation/m1-review-constants.js';
+import { ReviewSkipReasons, type ReviewSkipReason } from '../../cee/validation/m1-review-constants.js';
 import { getDownstreamCallsForLog } from '../../util/downstream-tracker.js';
 import { computeFactorSensitivityFromGraph } from '../../lib/factor-influence.js';
 import { NEAR_TIE_THRESHOLD } from '../../trust/result-coherence.js';
@@ -749,6 +750,7 @@ function buildResponse(
   responseHash: string | undefined,
   islResult?: any,
   options?: OptionV3[],
+  graph?: EngineGraphV3, // Added for fragile edge label enrichment (Schema v2.6)
   islAnalysisStatus?: string,
   islStatusReason?: string,
   robustnessSynthesis?: RobustnessSynthesisV3 | null,
@@ -761,6 +763,7 @@ function buildResponse(
     review_status: ReviewStatus;
     review_meta?: { model?: string; latency_ms?: number; tokens?: number };
     review_failure_codes?: string[];
+    review_skip_reason?: ReviewSkipReason;
   }
 ): RunResponseV3 {
   // Map ISL results to response format
@@ -852,7 +855,16 @@ function buildResponse(
         ? rawLabel
         : undefined;
 
+    // Build node ID → label lookup for from_label/to_label resolution (Schema v2.6)
+    const nodeLabelMap = new Map<string, string>();
+    if (graph?.nodes) {
+      for (const node of graph.nodes) {
+        nodeLabelMap.set(node.id, node.label);
+      }
+    }
+
     // Build option ID → label lookup for alternative_winner_label resolution
+    // Options are organisational nodes not in graph.nodes (Schema v2.6 §A.1)
     const optionLabelMap = new Map<string, string>();
     if (options) {
       for (const opt of options) {
@@ -860,20 +872,34 @@ function buildResponse(
       }
     }
 
-    // Enrich fragile edges with alternative_winner_label
+    // Enrich fragile edges with labels (Schema v2.6: from_label, to_label, alternative_winner_label)
     const enrichedFragileEdges: NormalizedEdgeInfoV3[] = fragileResult.edges.map(edge => ({
       ...edge,
-      // Resolve alternative_winner_label from option ID
-      ...(edge.alternative_winner_id && optionLabelMap.has(edge.alternative_winner_id)
-        ? { alternative_winner_label: optionLabelMap.get(edge.alternative_winner_id) }
-        : {}),
+      // from_label and to_label from graph lookup, fall back to node ID if not found
+      from_label: nodeLabelMap.get(edge.from_id) ?? edge.from_id,
+      to_label: nodeLabelMap.get(edge.to_id) ?? edge.to_id,
+      // Resolve alternative_winner_label from option ID (null when no alternative winner)
+      alternative_winner_id: edge.alternative_winner_id ?? null,
+      alternative_winner_label: edge.alternative_winner_id
+        ? (optionLabelMap.get(edge.alternative_winner_id) ?? edge.alternative_winner_id)
+        : null,
+    }));
+
+    // Enrich robust edges with labels (Schema v2.6)
+    const enrichedRobustEdges: NormalizedEdgeInfoV3[] = robustResult.edges.map(edge => ({
+      ...edge,
+      from_label: nodeLabelMap.get(edge.from_id) ?? edge.from_id,
+      to_label: nodeLabelMap.get(edge.to_id) ?? edge.to_id,
+      // Robust edges don't have alternative_winner, explicitly set to null
+      alternative_winner_id: null,
+      alternative_winner_label: null,
     }));
 
     robustness = {
       score: islResult.robustness.score,
       label,
       fragile_edges: enrichedFragileEdges,
-      robust_edges: robustResult.edges,
+      robust_edges: enrichedRobustEdges,
       explanation: islResult.robustness.explanation,
       // Pass through recommendation_stability from ISL if present
       ...(islResult.robustness.recommendation_stability !== undefined && {
@@ -947,6 +973,9 @@ function buildResponse(
       ...(m2DecisionReview.review_meta && { review_meta: m2DecisionReview.review_meta }),
       ...(m2DecisionReview.review_failure_codes && m2DecisionReview.review_failure_codes.length > 0 && {
         review_failure_codes: m2DecisionReview.review_failure_codes,
+      }),
+      ...(m2DecisionReview.review_skip_reason && {
+        review_skip_reason: m2DecisionReview.review_skip_reason,
       }),
     }),
 
@@ -1643,6 +1672,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           const m2EarlyReturn = {
             m1_review: null as M1Review | null,
             review_status: (FLAGS.DECISION_REVIEW_ENABLE ? 'skipped' : 'disabled') as ReviewStatus,
+            review_skip_reason: FLAGS.DECISION_REVIEW_ENABLE ? ReviewSkipReasons.ISL_NOT_ENABLED : undefined,
           };
 
           return reply.send(buildResponse(
@@ -1669,6 +1699,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             responseHash,
             undefined, // islResult
             undefined, // options
+            undefined, // graph
             undefined, // islAnalysisStatus
             undefined, // islStatusReason
             undefined, // robustnessSynthesis
@@ -1964,6 +1995,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           const m2IslErrorReturn = {
             m1_review: null as M1Review | null,
             review_status: (FLAGS.DECISION_REVIEW_ENABLE ? 'skipped' : 'disabled') as ReviewStatus,
+            review_skip_reason: FLAGS.DECISION_REVIEW_ENABLE ? ReviewSkipReasons.ISL_ERROR : undefined,
           };
 
           return reply.send(buildResponse(
@@ -1991,6 +2023,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             responseHash,
             undefined, // islResult
             undefined, // options
+            undefined, // graph
             undefined, // islAnalysisStatus
             undefined, // islStatusReason
             undefined, // robustnessSynthesis
@@ -2026,6 +2059,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           const m2IslFailedReturn = {
             m1_review: null as M1Review | null,
             review_status: (FLAGS.DECISION_REVIEW_ENABLE ? 'skipped' : 'disabled') as ReviewStatus,
+            review_skip_reason: FLAGS.DECISION_REVIEW_ENABLE ? ReviewSkipReasons.ISL_ANALYSIS_FAILED : undefined,
           };
 
           return reply.send(buildResponse(
@@ -2053,6 +2087,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             responseHash,
             processedIslResult,
             normalizedOptions,
+            undefined, // graph (not needed for failed status)
             islAnalysisStatus,
             islStatusReason,
             undefined, // robustnessSynthesis
@@ -2283,6 +2318,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           review_status: ReviewStatus;
           review_meta?: { model?: string; latency_ms?: number; tokens?: number };
           review_failure_codes?: string[];
+          review_skip_reason?: ReviewSkipReason;
         } | undefined;
 
         if (FLAGS.DECISION_REVIEW_ENABLE && m1Coaching) {
@@ -2324,6 +2360,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               m2DecisionReview = {
                 m1_review: null,
                 review_status: 'skipped',
+                review_skip_reason: ReviewSkipReasons.CEE_NOT_CONFIGURED,
               };
               req.log.info({
                 event: 'm2_decision_review_skipped',
@@ -2354,6 +2391,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           m2DecisionReview = {
             m1_review: null,
             review_status: 'skipped',
+            review_skip_reason: ReviewSkipReasons.NO_M1_COACHING,
           };
         }
 
@@ -2386,6 +2424,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           responseHash,
           processedIslResult,
           normalizedOptions,
+          filteredGraph, // For fragile/robust edge label enrichment (Schema v2.6)
           islAnalysisStatus,
           islStatusReason,
           ceeOrchestrationResult.robustnessSynthesis,

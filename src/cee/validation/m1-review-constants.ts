@@ -166,3 +166,26 @@ export type BiasType = typeof BiasTypes[keyof typeof BiasTypes] | string;
 // =============================================================================
 
 export type ReviewStatus = 'complete' | 'failed' | 'skipped' | 'disabled';
+
+// =============================================================================
+// Skip Reason Codes (used when review_status = 'skipped')
+// =============================================================================
+
+/**
+ * Reason codes for why M2 decision review was skipped.
+ * Helps diagnose issues without exposing internal details.
+ */
+export const ReviewSkipReasons = {
+  /** ISL service is not enabled/available */
+  ISL_NOT_ENABLED: 'ISL_NOT_ENABLED',
+  /** ISL request failed with error */
+  ISL_ERROR: 'ISL_ERROR',
+  /** ISL analysis returned status='failed' */
+  ISL_ANALYSIS_FAILED: 'ISL_ANALYSIS_FAILED',
+  /** CEE service not configured (missing CEE_BASE_URL) */
+  CEE_NOT_CONFIGURED: 'CEE_NOT_CONFIGURED',
+  /** M1 coaching data not available (prerequisite for M2 review) */
+  NO_M1_COACHING: 'NO_M1_COACHING',
+} as const;
+
+export type ReviewSkipReason = typeof ReviewSkipReasons[keyof typeof ReviewSkipReasons];

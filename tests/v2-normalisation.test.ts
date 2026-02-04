@@ -9,6 +9,7 @@ import {
   normaliseGraph,
   deriveStd,
   NormalisationError,
+  cleanLabelAnnotation,
 } from '../src/normalisation/graph-normaliser.js';
 
 describe('Graph Normalisation', () => {
@@ -28,6 +29,54 @@ describe('Graph Normalisation', () => {
     it('returns minimum 0.05', () => {
       const std = deriveStd(0, 1.0);
       expect(std).toBeGreaterThanOrEqual(0.05);
+    });
+  });
+
+  describe('cleanLabelAnnotation', () => {
+    it('strips (0-1) suffix', () => {
+      expect(cleanLabelAnnotation('Delegation Rate (0-1)')).toBe('Delegation Rate');
+    });
+
+    it('strips (0–1) suffix with en-dash', () => {
+      expect(cleanLabelAnnotation('Quality Score (0–1)')).toBe('Quality Score');
+    });
+
+    it('strips (percentage) suffix', () => {
+      expect(cleanLabelAnnotation('Price Change (percentage)')).toBe('Price Change');
+    });
+
+    it('strips (qualitative scale) suffix', () => {
+      expect(cleanLabelAnnotation('Confidence (qualitative scale)')).toBe('Confidence');
+    });
+
+    it('strips (0-1 qualitative scale) suffix', () => {
+      expect(cleanLabelAnnotation('Risk Level (0-1 qualitative scale)')).toBe('Risk Level');
+    });
+
+    it('strips (likert scale) suffix', () => {
+      expect(cleanLabelAnnotation('Satisfaction (likert scale)')).toBe('Satisfaction');
+    });
+
+    it('preserves labels without annotation suffix', () => {
+      expect(cleanLabelAnnotation('Simple Label')).toBe('Simple Label');
+    });
+
+    it('preserves labels with unrelated parentheses', () => {
+      expect(cleanLabelAnnotation('Revenue (Q1)')).toBe('Revenue (Q1)');
+    });
+
+    it('handles empty string', () => {
+      expect(cleanLabelAnnotation('')).toBe('');
+    });
+
+    it('handles labels with only annotation', () => {
+      // Edge case: should return empty string
+      expect(cleanLabelAnnotation('(0-1)')).toBe('');
+    });
+
+    it('is case-insensitive for annotation patterns', () => {
+      expect(cleanLabelAnnotation('Factor (PERCENTAGE)')).toBe('Factor');
+      expect(cleanLabelAnnotation('Metric (Qualitative Scale)')).toBe('Metric');
     });
   });
 
@@ -79,6 +128,16 @@ describe('Graph Normalisation', () => {
       });
 
       expect(node.label).toBe('unlabeled-node');
+    });
+
+    it('cleans annotation suffix from label', () => {
+      const node = normaliseNode({
+        id: 'test-node',
+        kind: 'factor',
+        label: 'Delegation Rate (0-1)',
+      });
+
+      expect(node.label).toBe('Delegation Rate');
     });
 
     it('throws on missing id', () => {

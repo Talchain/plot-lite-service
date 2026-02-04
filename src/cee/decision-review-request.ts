@@ -87,6 +87,11 @@ export interface ISLResultInput {
  * This assembles all the data needed for CEE's /assist/v1/decision-review endpoint.
  * The same request object should be used to build the ValidationContext for the validator.
  *
+ * IMPORTANT: This function implements an ALLOWLIST pattern for CEE payload safety.
+ * Each field is explicitly mapped rather than spread from input objects.
+ * This prevents unexpected fields from leaking into the CEE request and causing 400s.
+ * When adding new fields, explicitly map them rather than using spread operators.
+ *
  * @param brief The user's decision brief text
  * @param graph Normalized/filtered graph
  * @param options Request options

@@ -21,6 +21,10 @@ interface FragileEdge {
   edge_id: string;
   from_id: string;
   to_id: string;
+  /** Human-readable source node label (Schema v2.6) */
+  from_label?: string;
+  /** Human-readable target node label (Schema v2.6) */
+  to_label?: string;
   switch_probability: number | null;
   marginal_switch_probability: number;
   alternative_winner_id: string | null;
@@ -72,6 +76,28 @@ describe('Golden Fixtures - Pricing Canary', () => {
         const islEdge = islEdgeMap.get(plotEdge.edge_id);
         expect(plotEdge.switch_probability).toBe(islEdge!.switch_probability);
       });
+    });
+
+    // Schema v2.6: from_label and to_label enrichment
+    it('fragile_edges have from_label and to_label strings (Schema v2.6)', () => {
+      (plotResponse.robustness.fragile_edges as FragileEdge[]).forEach((edge) => {
+        expect(typeof edge.from_label).toBe('string');
+        expect(typeof edge.to_label).toBe('string');
+        expect(edge.from_label.length).toBeGreaterThan(0);
+        expect(edge.to_label.length).toBeGreaterThan(0);
+      });
+    });
+
+    it('robust_edges have from_label and to_label strings (Schema v2.6)', () => {
+      const robustEdges = plotResponse.robustness.robust_edges as Array<{ from_label?: string; to_label?: string }>;
+      if (robustEdges && robustEdges.length > 0) {
+        robustEdges.forEach((edge) => {
+          expect(typeof edge.from_label).toBe('string');
+          expect(typeof edge.to_label).toBe('string');
+          expect(edge.from_label!.length).toBeGreaterThan(0);
+          expect(edge.to_label!.length).toBeGreaterThan(0);
+        });
+      }
     });
 
     it('recommendation_stability passes through', () => {

@@ -48,6 +48,35 @@ const VALID_NODE_KINDS: Set<string> = new Set([
 ]);
 
 const DEFAULT_EXISTS_PROBABILITY = 0.8;
+
+// -----------------------------------------------------------------------------
+// Label Cleaning
+// -----------------------------------------------------------------------------
+
+/**
+ * Common annotation suffix patterns to strip from labels.
+ * These patterns are added by CEE/upstream and should not be shown in UI.
+ *
+ * Examples:
+ * - "Delegation Rate (0-1)" → "Delegation Rate"
+ * - "Price Change (percentage)" → "Price Change"
+ * - "Quality Score (0–1 qualitative scale)" → "Quality Score"
+ */
+const LABEL_ANNOTATION_PATTERN = /\s*\([^)]*(?:scale|0[-–]1|percentage|likert|qualitative)[^)]*\)\s*$/i;
+
+/**
+ * Clean annotation suffixes from node labels.
+ *
+ * CEE and other upstream sources may add scale/format annotations to labels
+ * (e.g., "(0-1)", "(percentage)", "(qualitative scale)").
+ * These are stripped before returning to UI.
+ *
+ * @param label Raw label with potential annotation suffix
+ * @returns Cleaned label without annotation suffix
+ */
+export function cleanLabelAnnotation(label: string): string {
+  return label.replace(LABEL_ANNOTATION_PATTERN, '').trim();
+}
 const DEFAULT_WEIGHT = 0.5;
 const MIN_STD = 0.001;           // ISL minimum (technical requirement)
 const STD_RANGE_MIN = 0.05;      // Causal edge floor (epistemic uncertainty)
@@ -250,10 +279,15 @@ export function normaliseNode(
     }
   }
 
+  // Clean annotation suffixes from labels (e.g., "(0-1)", "(percentage)")
+  // before returning to UI
+  const rawLabel = node.label ?? node.id;
+  const cleanedLabel = cleanLabelAnnotation(rawLabel);
+
   return {
     id: node.id,
     kind,
-    label: node.label ?? node.id,
+    label: cleanedLabel,
     description: node.description ?? node.body,
     intercept: rawIntercept === undefined ? undefined : (rawIntercept as number),
     observed_state: observedState,

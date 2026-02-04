@@ -19,7 +19,7 @@ import {
 import type { FactorEnrichment } from '../cee/types.js';
 import type { M1Coaching } from '../coaching/types.js';
 import type { M1Review } from '../cee/validation/m1-review-types.js';
-import type { ReviewStatus } from '../cee/validation/m1-review-constants.js';
+import type { ReviewStatus, ReviewSkipReason } from '../cee/validation/m1-review-constants.js';
 
 // -----------------------------------------------------------------------------
 // Node Kinds
@@ -536,6 +536,13 @@ export interface RunResponseV3 {
    */
   review_warnings?: string[];
 
+  /**
+   * M2 Decision Review skip reason.
+   * Present when review_status is 'skipped'. Explains why review was skipped.
+   * See ReviewSkipReasons for valid codes.
+   */
+  review_skip_reason?: ReviewSkipReason;
+
   /** Overall robustness assessment (if robustness_status is 'computed') */
   robustness?: RobustnessAssessmentV3;
 
@@ -759,18 +766,23 @@ export interface FactorSensitivityResultV3 {
 /**
  * Normalized edge info for robustness assessment.
  * Consistent object shape regardless of ISL format.
+ * Enriched with human-readable labels per Decision Model Schema v2.6.
  */
 export interface NormalizedEdgeInfoV3 {
   edge_id: string;
   from_id: string;
   to_id: string;
+  /** Human-readable source node label (falls back to from_id if node not found) */
+  from_label: string;
+  /** Human-readable target node label (falls back to to_id if node not found) */
+  to_label: string;
   switch_probability: number;
   /** Marginal probability of recommendation switch for this edge */
   marginal_switch_probability?: number;
   /** Option that would win if this edge changes (from ISL) */
-  alternative_winner_id?: string;
-  /** Human-readable label for the alternative winner option */
-  alternative_winner_label?: string;
+  alternative_winner_id?: string | null;
+  /** Human-readable label for the alternative winner option (null when no alternative winner) */
+  alternative_winner_label?: string | null;
 }
 
 /**
