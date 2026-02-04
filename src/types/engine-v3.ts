@@ -232,6 +232,83 @@ export interface OptionV3 {
 }
 
 // -----------------------------------------------------------------------------
+// Goal Constraints (Multi-Constraint Analysis)
+// -----------------------------------------------------------------------------
+
+/**
+ * A single goal constraint for multi-constraint analysis.
+ *
+ * Users can specify multiple success criteria (e.g., "reach £20k MRR while keeping churn under 4%").
+ * ISL evaluates joint satisfaction across all constraints.
+ *
+ * @see Multi-Constraint Analysis Phase 1 Spec
+ */
+export interface GoalConstraint {
+  /** Unique identifier within the request */
+  constraint_id: string;
+  /** Target node ID - must exist in graph.nodes and participate in inference */
+  node_id: string;
+  /** Comparison operator - ASCII only (UI renders as ≥/≤) */
+  operator: '>=' | '<=';
+  /** Threshold value in user units (same convention as goal_threshold) */
+  value: number;
+  /** Human-readable label for UI display */
+  label?: string;
+  /** Reserved for post-PoC weighted constraint prioritization */
+  weight?: number;
+}
+
+/**
+ * Result for a single constraint evaluation.
+ */
+export interface ConstraintResult {
+  /** Constraint ID from request */
+  constraint_id: string;
+  /** Target node ID */
+  node_id: string;
+  /** Operator used */
+  operator: '>=' | '<=';
+  /** Threshold value */
+  value: number;
+  /** Probability of satisfying this constraint [0, 1] */
+  probability: number;
+}
+
+/**
+ * Diagnostic information for constraint analysis.
+ */
+export interface ConstraintDiagnostic {
+  /** Constraint ID */
+  constraint_id: string;
+  /** Median failure margin (how far failures miss the threshold) */
+  failure_margin_median: number;
+  /** Fraction of failures within 10% of threshold (near misses) */
+  near_miss_fraction: number;
+  /** Whether this constraint is the primary limiter of joint probability */
+  binding: boolean;
+}
+
+/**
+ * Conditional probability between constraints.
+ * P(target_constraint | given_constraint is satisfied)
+ */
+export interface ConditionalProbability {
+  /** Constraint used as condition */
+  given_constraint_id: string;
+  /** Constraint whose probability is computed */
+  target_constraint_id: string;
+  /** Conditional probability [0, 1] */
+  probability: number;
+  /** Effective sample size for this computation */
+  effective_sample_size: number;
+}
+
+/**
+ * Feature status for constraint analysis.
+ */
+export type ConstraintFeatureStatus = 'computed' | 'unavailable' | 'skipped' | 'error';
+
+// -----------------------------------------------------------------------------
 // Request Schema
 // -----------------------------------------------------------------------------
 
@@ -298,6 +375,19 @@ export interface RunRequestV3 {
    * Max 10000 characters.
    */
   brief?: string;
+
+  /**
+   * Multiple success constraints for joint evaluation.
+   * When present and non-empty, activates multi-constraint analysis mode.
+   * Takes precedence over goal_threshold if both are provided.
+   *
+   * @example
+   * goal_constraints: [
+   *   { constraint_id: 'mrr', node_id: 'mrr_node', operator: '>=', value: 20000 },
+   *   { constraint_id: 'churn', node_id: 'churn_node', operator: '<=', value: 0.04 }
+   * ]
+   */
+  goal_constraints?: GoalConstraint[];
 }
 
 // -----------------------------------------------------------------------------
@@ -327,6 +417,11 @@ export type BlockerCode =
   | 'INVALID_INTERVENTION_TARGET'
   | 'INVALID_INTERVENTION_VALUE'
   | 'NO_PATH_TO_GOAL'
+  // Constraint validation blockers
+  | 'CONSTRAINT_TARGET_NOT_FOUND'      // node_id not in graph.nodes
+  | 'CONSTRAINT_TARGET_NOT_IN_INFERENCE' // Target node kind is decision, option, or constraint
+  | 'CONSTRAINT_INVALID_OPERATOR'      // Operator not >= or <=
+  | 'CONSTRAINT_DUPLICATE_ID'          // Two constraints share the same constraint_id
   | 'IDENTICAL_OPTIONS'
   | 'INVALID_NODE_ID_PATTERN'
   | 'INVALID_EDGE_ENDPOINT'
@@ -335,6 +430,15 @@ export type BlockerCode =
   | 'IDENTIFIABILITY_ISSUE'
   | 'GRAPH_CYCLE_DETECTED'
   | 'ISL_CANNOT_IDENTIFY';
+
+/**
+ * WARNING critique codes for constraint validation.
+ * These do not block analysis but indicate potential issues.
+ */
+export type ConstraintWarningCode =
+  | 'CONSTRAINT_VALUE_OUTSIDE_RANGE'  // Value outside derivable state_space.range for target node
+  | 'CONSTRAINT_MISSING_RANGE'        // Target node has no derivable range (heuristic fallback needed)
+  | 'CONSTRAINT_DUPLICATE_TARGET';    // Two constraints target same node with same operator (after dedupe)
 
 /**
  * Actionable critique with structured metadata.
@@ -444,6 +548,35 @@ export interface RunResponseV3 {
    * UI vocabulary: computed | unavailable | skipped | error
    */
   drivers_status: PerFeatureStatus;
+
+  // ---------------------------------------------------------------------------
+  // Multi-Constraint Analysis Fields (Phase 1)
+  // Only present when goal_constraints[] is provided in request
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Multi-constraint analysis status.
+   * Only present when goal_constraints provided in request.
+   */
+  constraints_status?: ConstraintFeatureStatus;
+
+  /**
+   * Per-constraint evaluation results.
+   * Only present when goal_constraints provided and constraints_status is 'computed'.
+   */
+  constraint_results?: ConstraintResult[];
+
+  /**
+   * Diagnostic information for constraint analysis.
+   * Only present when goal_constraints provided and constraints_status is 'computed'.
+   */
+  constraint_diagnostics?: ConstraintDiagnostic[];
+
+  /**
+   * Conditional probabilities between constraints.
+   * Only present when goal_constraints provided and constraints_status is 'computed'.
+   */
+  conditional_probabilities?: ConditionalProbability[];
 
   /**
    * ISL status echoed for debugging.
@@ -691,6 +824,19 @@ export interface OptionComparisonResultV3 {
    * Probability this option outperforms alternatives across simulated scenarios [0, 1].
    */
   win_probability?: number;
+
+  /**
+   * Probability of jointly satisfying all goal_constraints [0, 1].
+   * Only present when goal_constraints provided in request.
+   */
+  probability_of_joint_goal?: number;
+
+  /**
+   * Per-constraint probabilities for this option.
+   * Map of constraint_id to probability [0, 1].
+   * Only present when goal_constraints provided in request.
+   */
+  constraint_probabilities?: Record<string, number>;
 }
 
 /**

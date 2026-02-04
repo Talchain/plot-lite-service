@@ -16,10 +16,12 @@ import {
 } from '../types/engine-v3.js';
 import type {
   EngineGraphV3,
+  EngineNodeV3,
   OptionV3,
   CritiqueV3,
   PreflightResultV3,
   BlockerCode,
+  GoalConstraint,
 } from '../types/engine-v3.js';
 import {
   validateOptionPaths,
@@ -440,6 +442,185 @@ function validatePathsToGoal(
   }
 
   return critiques;
+}
+
+// -----------------------------------------------------------------------------
+// Goal Constraint Validation
+// -----------------------------------------------------------------------------
+
+/**
+ * Node kinds that are excluded from inference.
+ * Constraints cannot target these node types.
+ */
+const INFERENCE_EXCLUDED_KINDS = ['decision', 'option', 'constraint'] as const;
+
+/**
+ * Valid constraint operators (ASCII only).
+ */
+const VALID_OPERATORS = ['>=', '<='] as const;
+
+/**
+ * Validation result for goal constraints.
+ */
+export interface ConstraintValidationResult {
+  blockers: CritiqueV3[];
+  warnings: CritiqueV3[];
+}
+
+/**
+ * Validate goal constraints if present.
+ *
+ * Only runs if `goal_constraints` is present and non-empty.
+ * Emits blocker critiques for:
+ * - CONSTRAINT_TARGET_NOT_FOUND: node_id not in graph.nodes
+ * - CONSTRAINT_TARGET_NOT_IN_INFERENCE: target node kind is decision/option/constraint
+ * - CONSTRAINT_INVALID_OPERATOR: operator not >= or <=
+ * - CONSTRAINT_DUPLICATE_ID: two constraints share the same constraint_id
+ *
+ * Emits warning critiques for:
+ * - CONSTRAINT_VALUE_OUTSIDE_RANGE: value outside derivable state_space.range
+ * - CONSTRAINT_MISSING_RANGE: target node has no derivable range
+ * - CONSTRAINT_DUPLICATE_TARGET: two constraints target same node with same operator
+ *
+ * @param goalConstraints Goal constraints from request (may be undefined or empty)
+ * @param graph Normalized graph
+ * @returns Validation result with blockers and warnings
+ */
+export function validateGoalConstraints(
+  goalConstraints: GoalConstraint[] | undefined,
+  graph: EngineGraphV3
+): ConstraintValidationResult {
+  const blockers: CritiqueV3[] = [];
+  const warnings: CritiqueV3[] = [];
+
+  // Only validate if goal_constraints is present and non-empty
+  if (!goalConstraints || goalConstraints.length === 0) {
+    return { blockers, warnings };
+  }
+
+  // Build node lookup maps
+  const nodeMap = new Map<string, EngineNodeV3>();
+  for (const node of graph.nodes) {
+    nodeMap.set(node.id, node);
+  }
+
+  // Track constraint_ids for duplicate detection
+  const seenConstraintIds = new Set<string>();
+
+  // Track (node_id, operator) pairs for duplicate target detection
+  const seenTargets = new Map<string, GoalConstraint>();
+
+  for (const constraint of goalConstraints) {
+    const { constraint_id, node_id, operator, value } = constraint;
+
+    // Check for duplicate constraint_id (blocker)
+    if (seenConstraintIds.has(constraint_id)) {
+      blockers.push(
+        createBlocker(
+          'CONSTRAINT_DUPLICATE_ID',
+          `Duplicate constraint_id "${constraint_id}". Each constraint must have a unique ID.`,
+          undefined,
+          [node_id]
+        )
+      );
+      continue; // Skip further validation for this constraint
+    }
+    seenConstraintIds.add(constraint_id);
+
+    // Check node exists in graph (blocker)
+    const targetNode = nodeMap.get(node_id);
+    if (!targetNode) {
+      blockers.push(
+        createBlocker(
+          'CONSTRAINT_TARGET_NOT_FOUND',
+          `Constraint "${constraint_id}" targets node "${node_id}" which does not exist in the graph.`,
+          undefined,
+          [node_id]
+        )
+      );
+      continue; // Skip further validation for this constraint
+    }
+
+    // Check node kind is not excluded from inference (blocker)
+    if (INFERENCE_EXCLUDED_KINDS.includes(targetNode.kind as any)) {
+      blockers.push(
+        createBlocker(
+          'CONSTRAINT_TARGET_NOT_IN_INFERENCE',
+          `Constraint "${constraint_id}" targets node "${node_id}" with kind "${targetNode.kind}". Constraints can only target nodes that participate in inference (not decision, option, or constraint nodes).`,
+          undefined,
+          [node_id]
+        )
+      );
+      continue; // Skip further validation for this constraint
+    }
+
+    // Check operator is valid (blocker)
+    if (!VALID_OPERATORS.includes(operator as any)) {
+      blockers.push(
+        createBlocker(
+          'CONSTRAINT_INVALID_OPERATOR',
+          `Constraint "${constraint_id}" has invalid operator "${operator}". Use ">=" or "<=".`,
+          undefined,
+          [node_id]
+        )
+      );
+      continue; // Skip further validation for this constraint
+    }
+
+    // Check for duplicate target (node_id, operator) - warning
+    const targetKey = `${node_id}:${operator}`;
+    const existingConstraint = seenTargets.get(targetKey);
+    if (existingConstraint) {
+      // Determine which constraint is kept (strictest threshold)
+      const keepExisting = (operator === '>=' && existingConstraint.value >= value) ||
+                          (operator === '<=' && existingConstraint.value <= value);
+      const keptId = keepExisting ? existingConstraint.constraint_id : constraint_id;
+      const droppedId = keepExisting ? constraint_id : existingConstraint.constraint_id;
+
+      warnings.push(
+        createWarning(
+          'CONSTRAINT_DUPLICATE_TARGET',
+          `Constraints "${existingConstraint.constraint_id}" and "${constraint_id}" both target node "${node_id}" with operator "${operator}". Keeping "${keptId}" (stricter threshold), dropping "${droppedId}".`,
+          [node_id]
+        )
+      );
+
+      // Update seenTargets if the new constraint is stricter
+      if (!keepExisting) {
+        seenTargets.set(targetKey, constraint);
+      }
+    } else {
+      seenTargets.set(targetKey, constraint);
+    }
+
+    // Check value against derivable range - warning only
+    const stateSpace = targetNode.state_space;
+    const range = stateSpace?.range;
+
+    if (range && typeof range.min === 'number' && typeof range.max === 'number') {
+      // Range is derivable - check if value is within range
+      if (value < range.min || value > range.max) {
+        warnings.push(
+          createWarning(
+            'CONSTRAINT_VALUE_OUTSIDE_RANGE',
+            `Constraint "${constraint_id}" value ${value} is outside the derivable range [${range.min}, ${range.max}] for node "${node_id}".`,
+            [node_id]
+          )
+        );
+      }
+    } else {
+      // Range is not derivable - emit CONSTRAINT_MISSING_RANGE warning
+      warnings.push(
+        createWarning(
+          'CONSTRAINT_MISSING_RANGE',
+          `Constraint "${constraint_id}" target node "${node_id}" has no derivable range. Heuristic fallback will be used for normalisation.`,
+          [node_id]
+        )
+      );
+    }
+  }
+
+  return { blockers, warnings };
 }
 
 // -----------------------------------------------------------------------------

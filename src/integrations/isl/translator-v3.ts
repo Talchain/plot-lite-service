@@ -13,6 +13,7 @@ import type {
   EngineEdgeV3,
   OptionV3,
   InterventionValueV3,
+  GoalConstraint,
 } from '../../types/engine-v3.js';
 
 // -----------------------------------------------------------------------------
@@ -81,6 +82,13 @@ export interface ISLRobustnessRequestV3 {
    * When provided, ISL returns probability_of_goal per option.
    */
   goal_threshold?: number;
+
+  /**
+   * Multiple success constraints for joint evaluation.
+   * When provided, ISL evaluates joint satisfaction across all constraints.
+   * Takes precedence over goal_threshold if both are provided.
+   */
+  goal_constraints?: GoalConstraint[];
 }
 
 // -----------------------------------------------------------------------------
@@ -280,6 +288,7 @@ function isBinaryFactor(node: EngineNodeV3): boolean {
  * @param requestId Request ID for correlation
  * @param nSamples Number of samples (optional)
  * @param goalThreshold Goal threshold for probability_of_goal computation (optional)
+ * @param goalConstraints Goal constraints for multi-constraint analysis (optional)
  * @returns ISL robustness request
  */
 export function toISLRobustnessRequest(
@@ -288,7 +297,8 @@ export function toISLRobustnessRequest(
   goalNodeId: string,
   requestId: string,
   nSamples?: number,
-  goalThreshold?: number
+  goalThreshold?: number,
+  goalConstraints?: GoalConstraint[]
 ): ISLRobustnessRequestV3 {
   const request: ISLRobustnessRequestV3 = {
     request_id: requestId,
@@ -306,6 +316,11 @@ export function toISLRobustnessRequest(
   // Only include goal_threshold if provided (omit entirely when absent)
   if (goalThreshold !== undefined) {
     request.goal_threshold = goalThreshold;
+  }
+
+  // Only include goal_constraints if provided and non-empty (omit entirely when absent)
+  if (goalConstraints && goalConstraints.length > 0) {
+    request.goal_constraints = goalConstraints;
   }
 
   return request;

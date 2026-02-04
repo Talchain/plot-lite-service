@@ -45,13 +45,15 @@ import type {
   CanonicalMeta,
   SourcePath,
   DownstreamCallsV3,
+  GoalConstraint,
 } from '../../types/engine-v3.js';
 // Seed derivation: when seed omitted, derive deterministically from graph hash
 import { normaliseGraph, NormalisationError, cleanLabelAnnotation, type NormalisationWarning } from '../../normalisation/graph-normaliser.js';
 import { filterOptionNodes } from '../../normalisation/option-filter.js';
 import { hashRequest } from '../../normalisation/canonicalise.js';
 import { hashGraph, deriveSeedFromHash } from '../../sampling/graph-hash.js';
-import { runPreflightValidation } from '../../validation/preflight-v2.js';
+import { runPreflightValidation, validateGoalConstraints } from '../../validation/preflight-v2.js';
+import { compileConstraintNodes } from '../../normalisation/constraint-compiler.js';
 import { toISLRobustnessRequest, validateISLRequest } from '../../integrations/isl/translator-v3.js';
 import {
   createPreflightLog,
@@ -84,6 +86,8 @@ import {
   normaliseOptionsForISL,
   denormaliseISLResult,
   needsNormalisation,
+  normaliseGoalConstraints,
+  constraintsNeedNormalisation,
   type NormalisationContext,
   type NormalisationDiagnostic,
 } from '../../lib/intervention-normaliser.js';
@@ -1604,6 +1608,102 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           ));
         }
 
+        // =================================================================
+        // Phase 1c: Constraint Node Compilation
+        // =================================================================
+        // Compile any constraint nodes from the graph into GoalConstraint entries
+        // This runs BEFORE constraint validation to allow graph-defined constraints
+        const constraintCompilation = compileConstraintNodes(
+          normalizedGraph,  // Use normalizedGraph (before filtering) to access constraint nodes
+          body.goal_constraints
+        );
+
+        // Add compilation repairs to repairs_applied
+        repairs = repairs.concat(constraintCompilation.repairs);
+
+        // Log skipped constraint nodes
+        if (constraintCompilation.skipped.length > 0) {
+          req.log.info({
+            event: 'constraint_nodes_skipped',
+            skipped_count: constraintCompilation.skipped.length,
+            skipped: constraintCompilation.skipped,
+          });
+        }
+
+        // =================================================================
+        // Phase 1d: Constraint Validation
+        // =================================================================
+        // Validate compiled + explicit constraints against the filtered graph
+        const constraintValidation = validateGoalConstraints(
+          constraintCompilation.constraints,
+          filteredGraph
+        );
+
+        // Check for blocker-severity constraint critiques
+        if (constraintValidation.blockers.length > 0) {
+          return reply.status(422).send(buildBlockedResponse(
+            'Constraint validation failed',
+            constraintValidation.blockers
+          ));
+        }
+
+        // =================================================================
+        // Phase 1e: Precedence Routing (goal_constraints vs goal_threshold)
+        // =================================================================
+        // Determine which goal mechanism to use:
+        // - If goal_constraints present and non-empty: use multi-constraint path
+        // - Otherwise: use existing goal_threshold path (unchanged)
+        let activeGoalConstraints: GoalConstraint[] | undefined;
+        let effectiveGoalThreshold: number | undefined = goalThreshold;
+
+        if (constraintCompilation.constraints.length > 0) {
+          // Multi-constraint path activated
+          activeGoalConstraints = constraintCompilation.constraints;
+
+          // Check for conflict with goal_threshold
+          if (goalThreshold !== undefined) {
+            const goalNodeConstraint = activeGoalConstraints.find(
+              c => c.node_id === body.goal_node_id
+            );
+            const isConflicting = goalNodeConstraint && (
+              goalNodeConstraint.value !== goalThreshold ||
+              goalNodeConstraint.operator === '<='
+            );
+
+            if (isConflicting) {
+              repairs.push({
+                field: 'goal_threshold',
+                action: 'inferred',
+                from_value: goalThreshold,
+                to_value: 'ignored',
+                reason: `goal_constraints present and contains conflicting constraint on goal_node_id="${body.goal_node_id}". goal_threshold=${goalThreshold} ignored in favor of constraint ${goalNodeConstraint!.constraint_id} (${goalNodeConstraint!.operator} ${goalNodeConstraint!.value})`,
+              });
+              req.log.warn({
+                event: 'goal_threshold_conflict',
+                goal_threshold: goalThreshold,
+                conflicting_constraint: goalNodeConstraint,
+              });
+            } else {
+              repairs.push({
+                field: 'goal_threshold',
+                action: 'inferred',
+                from_value: goalThreshold,
+                to_value: 'ignored',
+                reason: `goal_constraints present. goal_threshold=${goalThreshold} ignored (goal_constraints take precedence)`,
+              });
+            }
+          }
+
+          // Clear goal_threshold when using multi-constraint path
+          effectiveGoalThreshold = undefined;
+
+          req.log.info({
+            event: 'multi_constraint_path_activated',
+            constraint_count: activeGoalConstraints.length,
+            constraint_ids: activeGoalConstraints.map(c => c.constraint_id),
+          });
+        }
+
         normalizationMs = performance.now() - normStart;
 
         // =================================================================
@@ -1758,14 +1858,64 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           });
         }
 
-        // Build ISL request (using normalised options)
+        // =================================================================
+        // Phase 4b: Constraint Normalisation (if multi-constraint path active)
+        // =================================================================
+        let constraintsForISL: GoalConstraint[] | undefined;
+
+        if (activeGoalConstraints && activeGoalConstraints.length > 0) {
+          if (constraintsNeedNormalisation(activeGoalConstraints)) {
+            const constraintNormResult = normaliseGoalConstraints(
+              activeGoalConstraints,
+              filteredGraph.nodes
+            );
+
+            // Use normalised constraint values for ISL
+            constraintsForISL = constraintNormResult.constraints;
+
+            // Add constraint normalisation repairs
+            repairs = repairs.concat(constraintNormResult.repairs);
+
+            // Log constraint normalisation diagnostics
+            req.log.info({
+              event: 'constraint_normalisation',
+              normalised: true,
+              constraint_count: constraintNormResult.constraints.length,
+              heuristic_count: constraintNormResult.diagnostics.filter(d => d.used_heuristic).length,
+              sample: constraintNormResult.diagnostics.slice(0, 3).map(d => ({
+                constraint_id: d.constraint_id,
+                node_id: d.node_id,
+                original: d.original_value,
+                normalised: d.normalised_value,
+                range_source: d.range.source,
+              })),
+            });
+          } else {
+            // Constraints already in [0,1] - use as-is
+            constraintsForISL = activeGoalConstraints;
+            req.log.debug({
+              event: 'constraint_normalisation',
+              normalised: false,
+              reason: 'All constraint values already in [0,1] range',
+            });
+          }
+        }
+
+        // Add constraint validation warnings to preflight warnings
+        // These don't block analysis but inform the user
+        if (constraintValidation.warnings.length > 0) {
+          preflight.warnings.push(...constraintValidation.warnings);
+        }
+
+        // Build ISL request (using normalised options and constraints)
         const islRequest = toISLRobustnessRequest(
           filteredGraph,
           optionsForISL,
           body.goal_node_id,
           requestId,
           nSamples,
-          goalThreshold
+          effectiveGoalThreshold,  // Use effective threshold (undefined if multi-constraint)
+          constraintsForISL        // Pass normalised constraints (undefined if not using multi-constraint)
         );
 
         // === DIAGNOSTIC: Log parameter_uncertainties sent to ISL ===

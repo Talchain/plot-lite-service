@@ -810,3 +810,139 @@ function denormaliseOptionResult(
 
   return denormalised;
 }
+
+// -----------------------------------------------------------------------------
+// Goal Constraint Normalisation
+// -----------------------------------------------------------------------------
+
+import type { GoalConstraint } from '../types/engine-v3.js';
+
+/**
+ * Normalised goal constraint with original value preserved.
+ */
+export interface NormalisedGoalConstraint extends GoalConstraint {
+  /** Original value in user units (before normalisation) */
+  original_value: number;
+}
+
+/**
+ * Result of constraint normalisation.
+ */
+export interface ConstraintNormalisationResult {
+  /** Normalised constraints */
+  constraints: NormalisedGoalConstraint[];
+  /** Repair records for auditing */
+  repairs: RepairRecord[];
+  /** Diagnostics for logging */
+  diagnostics: Array<{
+    constraint_id: string;
+    node_id: string;
+    original_value: number;
+    normalised_value: number;
+    range: NormalisationRange;
+    used_heuristic: boolean;
+  }>;
+}
+
+/**
+ * Normalise goal constraint values to [0,1] space.
+ *
+ * Uses the same deriveRange() function as interventions.
+ * Preserves original user-unit value for response denormalisation.
+ *
+ * @param constraints Goal constraints to normalise
+ * @param nodes Graph nodes (for range derivation)
+ * @returns Normalised constraints with original values preserved
+ */
+export function normaliseGoalConstraints(
+  constraints: GoalConstraint[],
+  nodes: EngineNodeV3[]
+): ConstraintNormalisationResult {
+  const repairs: RepairRecord[] = [];
+  const diagnostics: ConstraintNormalisationResult['diagnostics'] = [];
+  const normalisedConstraints: NormalisedGoalConstraint[] = [];
+
+  // Build node lookup map
+  const nodeMap = new Map<string, EngineNodeV3>();
+  for (const node of nodes) {
+    nodeMap.set(node.id, node);
+  }
+
+  for (const constraint of constraints) {
+    const { constraint_id, node_id, operator, value, label, weight } = constraint;
+
+    // Find target node
+    const targetNode = nodeMap.get(node_id);
+
+    // Derive range for the target node
+    // If node not found, use default range [0,1]
+    const range = targetNode
+      ? deriveRange(targetNode)
+      : { min: 0, max: 1, source: 'default' as const };
+
+    // Normalise value
+    const { normalised, clamped } = normaliseValue(value, range);
+
+    // Track if we used a heuristic (non-explicit range)
+    const usedHeuristic = range.source !== 'explicit';
+
+    // Create normalised constraint
+    const normalisedConstraint: NormalisedGoalConstraint = {
+      constraint_id,
+      node_id,
+      operator,
+      value: normalised,
+      original_value: value,
+      label,
+      weight,
+    };
+    normalisedConstraints.push(normalisedConstraint);
+
+    // Add repair record
+    repairs.push({
+      field: `constraint.value.${constraint_id}`,
+      action: 'normalised',
+      from_value: value,
+      to_value: normalised,
+      reason: `normalised range=[${range.min},${range.max}] source=${range.source}${clamped ? ' (clamped)' : ''}`,
+    });
+
+    // Add diagnostic
+    diagnostics.push({
+      constraint_id,
+      node_id,
+      original_value: value,
+      normalised_value: normalised,
+      range,
+      used_heuristic: usedHeuristic,
+    });
+
+    // Log if heuristic fallback was used
+    if (usedHeuristic) {
+      console.info(`[CONSTRAINT_NORMALISATION_HEURISTIC] constraint_id=${constraint_id} node_id=${node_id} range_source=${range.source}`);
+    }
+  }
+
+  return {
+    constraints: normalisedConstraints,
+    repairs,
+    diagnostics,
+  };
+}
+
+/**
+ * Check if constraint normalisation is needed.
+ *
+ * Returns true if any constraint value is outside [0, 1].
+ *
+ * @param constraints Constraints to check
+ * @returns True if normalisation is needed
+ */
+export function constraintsNeedNormalisation(constraints: GoalConstraint[]): boolean {
+  for (const constraint of constraints) {
+    if (constraint.value < 0 || constraint.value > 1) {
+      return true;
+    }
+  }
+  return false;
+}
