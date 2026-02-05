@@ -354,7 +354,7 @@ function getCeeConfig(): DecisionReviewConfig | null {
   return {
     baseUrl,
     apiKey,
-    timeoutMs: Number(process.env.CEE_DECISION_REVIEW_TIMEOUT_MS ?? 3000),
+    timeoutMs: Number(process.env.CEE_DECISION_REVIEW_TIMEOUT_MS ?? 120000),
   };
 }
 
