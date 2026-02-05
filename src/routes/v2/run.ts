@@ -474,6 +474,11 @@ const runV3Schema = {
       request_id: { type: 'string' },
       idempotency_key: { type: 'string' },
       goal_threshold: { type: ['number', 'null'] },
+      brief: { type: 'string', maxLength: 10000 },
+      goal_constraints: {
+        type: 'array',
+        items: { type: 'object' },
+      },
     },
   },
 };
@@ -2415,7 +2420,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             ? factorReviewV2(ceeConfig, body.brief, filteredGraph, requestId)
             : (() => {
                 if (ceeConfig && !body.brief) {
-                  req.log.debug({ event: 'cee_factor_review_skipped', request_id: requestId, reason: 'no_brief' });
+                  req.log.info({ event: 'cee_factor_review_skipped', request_id: requestId, reason: 'no_brief' });
                 }
                 return Promise.resolve(undefined);
               })(),
