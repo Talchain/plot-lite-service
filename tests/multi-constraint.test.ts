@@ -1133,3 +1133,165 @@ describe('Integration: Precedence Routing via /v2/run', () => {
     expect(data?.critiques.some((c: any) => c.code === 'CONSTRAINT_INVALID_OPERATOR')).toBe(true);
   });
 });
+
+// =============================================================================
+// Regression: Graph-Only Constraint Flow
+// =============================================================================
+// This test guards against future regressions where someone might think
+// "we need brief parsing" for constraints. Constraints should work from
+// graph-only inputs, simulating template or manual edit flows.
+//
+// Architectural principle:
+// - CEE owns natural language understanding
+// - PLoT operates on structured graphs
+// - The graph is the contract (V3 Platform Contract §10)
+
+describe('Regression: Graph-Only Constraint Flow', () => {
+  let server: ServerHandle | null = null;
+
+  const ENV = {
+    TEST_ROUTES: '1',
+    AUTH_ENABLED: '0',
+    RATE_LIMIT_ENABLED: '0',
+    ISL_BASE_URL: 'mock',
+    ISL_MOCK_ENABLE: '1',
+    UI_CANONICAL_META: '1',
+  };
+
+  afterEach(async () => {
+    await server?.kill();
+    server = null;
+  });
+
+  it('explicit goal_constraints in request work without brief text', async () => {
+    // This test proves constraints work from graph-only inputs (no brief parsing):
+    // - Request contains explicit goal_constraints (simulating CEE, template, or UI input)
+    // - No brief field is provided
+    // - PLoT validates constraints and activates multi-constraint path
+    // - goal_threshold is ignored when goal_constraints is present
+    //
+    // This guards against future regressions where someone might think "we need brief parsing".
+
+    vi.resetModules();
+    server = await spawnServer({ env: ENV });
+
+    const simpleGraph = {
+      nodes: [
+        {
+          id: 'revenue',
+          kind: 'factor',
+          label: 'Revenue',
+          observed_state: { value: 100000 },
+          state_space: { range: { min: 0, max: 500000 } },
+        },
+        {
+          id: 'costs',
+          kind: 'factor',
+          label: 'Operating Costs',
+          observed_state: { value: 80000 },
+          state_space: { range: { min: 0, max: 200000 } },
+        },
+        { id: 'goal', kind: 'goal', label: 'Profitability' },
+      ],
+      edges: [
+        { from: 'revenue', to: 'goal', exists_probability: 1, strength: { mean: 0.7, std: 0.1 } },
+        { from: 'costs', to: 'goal', exists_probability: 1, strength: { mean: -0.5, std: 0.1 } },
+      ],
+    };
+
+    const options = [
+      {
+        id: 'expand',
+        label: 'Expansion',
+        interventions: { revenue: { value: 200000, source: 'user_specified' } },
+      },
+      {
+        id: 'optimize',
+        label: 'Cost Optimization',
+        interventions: { costs: { value: 60000, source: 'user_specified' } },
+      },
+    ];
+
+    const { status, data } = await requestJSON(`${server.baseUrl}/v2/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        graph: simpleGraph,
+        options,
+        goal_node_id: 'goal',
+        goal_threshold: 80, // Should be IGNORED when goal_constraints is present
+        // NO brief field - constraints come from explicit goal_constraints only
+        // Explicit goal_constraints (could come from CEE, template, or UI)
+        goal_constraints: [
+          { constraint_id: 'revenue_target', node_id: 'revenue', operator: '>=', value: 150000, label: 'Revenue target' },
+          { constraint_id: 'cost_cap', node_id: 'costs', operator: '<=', value: 70000, label: 'Cost ceiling' },
+        ],
+      }),
+    });
+
+    // Request should succeed (200 status)
+    expect(status).toBe(200);
+
+    // Verify multi-constraint path was activated by checking for repair record showing goal_threshold was ignored
+    // This proves the constraint pipeline executed successfully without brief parsing
+    expect(data?._meta?.repairs_applied).toBeDefined();
+    const repairs = data?._meta?.repairs_applied as Array<{ field: string; action: string; reason: string }>;
+    const goalThresholdRepair = repairs?.find(
+      (r) => r.field === 'goal_threshold' && r.action === 'inferred'
+    );
+    expect(goalThresholdRepair).toBeDefined();
+    expect(goalThresholdRepair?.reason).toContain('goal_constraints');
+    expect(goalThresholdRepair?.reason).toContain('ignored');
+  });
+
+  it('rejects invalid goal_constraints targeting non-existent node without brief text', async () => {
+    // This test verifies constraint validation works for graph-only inputs.
+    // Invalid constraints should be rejected with proper error codes.
+
+    vi.resetModules();
+    server = await spawnServer({ env: ENV });
+
+    const simpleGraph = {
+      nodes: [
+        { id: 'revenue', kind: 'factor', label: 'Revenue', observed_state: { value: 100000 } },
+        { id: 'goal', kind: 'goal', label: 'Profitability' },
+      ],
+      edges: [
+        { from: 'revenue', to: 'goal', exists_probability: 1, strength: { mean: 0.7, std: 0.1 } },
+      ],
+    };
+
+    const options = [
+      {
+        id: 'grow',
+        label: 'Grow Revenue',
+        interventions: { revenue: { value: 200000, source: 'user_specified' } },
+      },
+      {
+        id: 'cut',
+        label: 'Cut Costs',
+        interventions: { revenue: { value: 120000, source: 'user_specified' } },
+      },
+    ];
+
+    const { status, data } = await requestJSON(`${server.baseUrl}/v2/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        graph: simpleGraph,
+        options,
+        goal_node_id: 'goal',
+        // NO brief field
+        // Invalid constraint: targets non-existent node 'non_existent'
+        goal_constraints: [
+          { constraint_id: 'bad_target', node_id: 'non_existent', operator: '>=', value: 100 },
+        ],
+      }),
+    });
+
+    // Should return 422 with CONSTRAINT_TARGET_NOT_FOUND
+    expect(status).toBe(422);
+    expect(data?.critiques).toBeDefined();
+    expect(data?.critiques.some((c: any) => c.code === 'CONSTRAINT_TARGET_NOT_FOUND')).toBe(true);
+  });
+});

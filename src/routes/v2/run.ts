@@ -54,7 +54,6 @@ import { hashRequest } from '../../normalisation/canonicalise.js';
 import { hashGraph, deriveSeedFromHash } from '../../sampling/graph-hash.js';
 import { runPreflightValidation, validateGoalConstraints } from '../../validation/preflight-v2.js';
 import { compileConstraintNodes } from '../../normalisation/constraint-compiler.js';
-import { processCompoundGoals } from '../../extraction/compound-goal-extractor.js';
 import { toISLRobustnessRequest, validateISLRequest } from '../../integrations/isl/translator-v3.js';
 import {
   createPreflightLog,
@@ -1610,88 +1609,14 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         }
 
         // =================================================================
-        // Phase 1b.5: Compound Goal Extraction from Brief
-        // =================================================================
-        // Extract compound goals from brief text (e.g., "Grow MRR to £50k while keeping churn under 5%")
-        // This runs BEFORE constraint node compilation to merge extracted constraints
-        let extractedGoalConstraints: GoalConstraint[] | undefined;
-        let briefExtractionGraph = normalizedGraph;
-
-        if (body.brief) {
-          const compoundResult = processCompoundGoals(body.brief, normalizedGraph.nodes);
-
-          if (compoundResult?.infrastructure) {
-            const { extraction, infrastructure } = compoundResult;
-
-            // Log extraction results
-            req.log.info({
-              event: 'compound_goal_extraction',
-              is_compound: extraction.is_compound,
-              goals_extracted: extraction.goals.length,
-              primary_goal: extraction.primary_goal?.target ?? null,
-              constraints_extracted: extraction.constraints.length,
-              patterns_matched: extraction.diagnostics.patterns_matched,
-              ambiguities: extraction.diagnostics.ambiguities,
-            });
-
-            // Add extracted goal_constraints (will be merged with explicit ones in compilation)
-            if (infrastructure.goal_constraints.length > 0) {
-              extractedGoalConstraints = infrastructure.goal_constraints;
-
-              // Add repair records for extracted constraints
-              for (const gc of infrastructure.goal_constraints) {
-                repairs.push({
-                  field: `constraint.${gc.constraint_id}`,
-                  action: 'derived',
-                  from_value: 'brief',
-                  to_value: `${gc.node_id} ${gc.operator} ${gc.value}`,
-                  reason: `Extracted from brief: "${gc.label ?? gc.constraint_id}"`,
-                });
-              }
-            }
-
-            // Add any new nodes (temporal/qualitative proxies) to graph
-            if (infrastructure.nodes.length > 0) {
-              const newFactorNodes = infrastructure.nodes.filter(n => n.kind === 'factor');
-              if (newFactorNodes.length > 0) {
-                briefExtractionGraph = {
-                  ...normalizedGraph,
-                  nodes: [...normalizedGraph.nodes, ...newFactorNodes],
-                };
-
-                req.log.info({
-                  event: 'brief_extraction_nodes_added',
-                  node_count: newFactorNodes.length,
-                  node_ids: newFactorNodes.map(n => n.id),
-                });
-
-                for (const node of newFactorNodes) {
-                  repairs.push({
-                    field: `node.${node.id}`,
-                    action: 'derived',
-                    from_value: 'brief',
-                    to_value: node.kind,
-                    reason: `Proxy node created from brief for ${node.label}`,
-                  });
-                }
-              }
-            }
-          }
-        }
-
-        // =================================================================
         // Phase 1c: Constraint Node Compilation
         // =================================================================
         // Compile any constraint nodes from the graph into GoalConstraint entries
         // This runs BEFORE constraint validation to allow graph-defined constraints
-        // Merge priority: explicit goal_constraints > compiled from graph > extracted from brief
-        const mergedExplicitConstraints = [
-          ...(body.goal_constraints ?? []),
-          ...(extractedGoalConstraints ?? []),
-        ];
+        // Note: CEE is responsible for NLP extraction; PLoT operates on structured graph data
         const constraintCompilation = compileConstraintNodes(
-          briefExtractionGraph,  // Use graph potentially augmented with proxy nodes
-          mergedExplicitConstraints.length > 0 ? mergedExplicitConstraints : undefined
+          normalizedGraph,  // Use normalizedGraph (before filtering) to access constraint nodes
+          body.goal_constraints
         );
 
         // Add compilation repairs to repairs_applied
@@ -1709,15 +1634,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // =================================================================
         // Phase 1d: Constraint Validation
         // =================================================================
-        // Validate compiled + explicit constraints against the graph
-        // If brief extraction added proxy nodes, include them in validation graph
-        const validationGraph = briefExtractionGraph !== normalizedGraph
-          ? filterOptionNodes(briefExtractionGraph).filteredGraph
-          : filteredGraph;
-
+        // Validate compiled + explicit constraints against the filtered graph
         const constraintValidation = validateGoalConstraints(
           constraintCompilation.constraints,
-          validationGraph
+          filteredGraph
         );
 
         // Check for blocker-severity constraint critiques
