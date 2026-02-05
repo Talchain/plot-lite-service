@@ -355,22 +355,19 @@ export interface FactorEnrichment {
 }
 
 /**
- * Request payload for CEE /assist/v1/review endpoint
+ * Request payload for CEE /assist/v1/review endpoint.
+ *
+ * CEE uses the brief + graph to generate factor enrichments via LLM.
+ * The graph is stripped to essential fields only.
  */
 export interface CeeFactorReviewRequest {
-  /** Normalized graph used for analysis */
-  graph: unknown;
-  /** Factor sensitivity results (top 10 by rank) */
-  factor_sensitivity: Array<{
-    factor_id: string;
-    factor_label?: string;
-    elasticity?: number;
-    rank?: number;
-    direction?: string;
-    value_of_information?: number;
-    confidence?: number;
-    flip_risk_category?: string;
-  }>;
+  /** User's decision brief text */
+  brief: string;
+  /** Stripped graph with essential node/edge fields */
+  graph: {
+    nodes: Array<{ id: string; label: string; kind: string }>;
+    edges: Array<{ from: string; to: string }>;
+  };
 }
 
 /**

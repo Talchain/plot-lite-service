@@ -2367,26 +2367,13 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // Pass brief for contextualised CEE output when available
         //
         // Run CEE factor review in parallel with decision review for efficiency
-        // Factor review has 3s timeout and silent fallback on error
+        // Factor review has silent fallback on error/timeout
         const ceeConfig: CEESchemaV2Config | undefined = process.env.CEE_BASE_URL && process.env.CEE_API_KEY
           ? {
               baseUrl: process.env.CEE_BASE_URL,
               apiKey: process.env.CEE_API_KEY,
-              timeoutMs: 3000, // Hard 3s timeout for factor review
             }
           : undefined;
-
-        // Prepare factor sensitivity for CEE review (use final computed array)
-        const factorSensitivityForCee = factorSensitivity?.map((f) => ({
-          factor_id: f.factor_id,
-          factor_label: f.factor_label,
-          elasticity: f.elasticity,
-          rank: f.influence_rank,
-          direction: f.direction,
-          value_of_information: f.value_of_information,
-          confidence: f.confidence,
-          flip_risk_category: f.flip_risk_category,
-        })) ?? [];
 
         // Run CEE calls in parallel
         // M2 decision-review replaces legacy /review + /options calls when enabled
@@ -2424,9 +2411,14 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                 body.brief
               ),
           // CEE factor review - returns undefined on error/timeout (silent fallback)
-          ceeConfig && factorSensitivityForCee.length > 0
-            ? factorReviewV2(ceeConfig, filteredGraph, factorSensitivityForCee, requestId)
-            : Promise.resolve(undefined),
+          ceeConfig && body.brief
+            ? factorReviewV2(ceeConfig, body.brief, filteredGraph, requestId)
+            : (() => {
+                if (ceeConfig && !body.brief) {
+                  req.log.debug({ event: 'cee_factor_review_skipped', request_id: requestId, reason: 'no_brief' });
+                }
+                return Promise.resolve(undefined);
+              })(),
         ]);
 
         // Update sensitivityData with factor enrichments (if available)

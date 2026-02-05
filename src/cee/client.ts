@@ -345,8 +345,8 @@ export async function biasCheckV2(
 // Factor Enrichments - CEE /assist/v1/review
 // -----------------------------------------------------------------------------
 
-/** Hard timeout for factor enrichments (3s per brief) */
-const FACTOR_REVIEW_TIMEOUT_MS = 3000;
+/** Hard timeout for factor enrichments (matches decision review timeout) */
+const FACTOR_REVIEW_TIMEOUT_MS = 120000;
 
 /**
  * Call CEE /assist/v1/review for factor enrichments.
@@ -355,36 +355,37 @@ const FACTOR_REVIEW_TIMEOUT_MS = 3000;
  * It is DISTINCT from /assist/v1/decision-review (which provides robustness synthesis).
  *
  * Contract:
- * - 3s hard timeout
+ * - 120s hard timeout (LLM-generated content)
  * - On error/timeout: returns undefined (silent fallback)
  * - Does not throw exceptions
  * - Does not affect analysis_status
  * - Logs errors for observability
  *
  * @param config CEE connection config
- * @param graph Normalized graph used for analysis
- * @param factorSensitivity Factor sensitivity results (will be capped to top 10 by rank)
+ * @param brief User's decision brief text
+ * @param graph Normalized graph (will be stripped to essential fields)
  * @param requestId Request ID for tracing
  * @returns Factor enrichments array, or undefined on error
  */
 export async function factorReviewV2(
   config: CEESchemaV2Config,
-  graph: unknown,
-  factorSensitivity: CeeFactorReviewRequest['factor_sensitivity'],
+  brief: string,
+  graph: { nodes: Array<{ id: string; label: string; kind: string }>; edges: Array<{ from: string; to: string }> },
   requestId: string
 ): Promise<FactorEnrichment[] | undefined> {
   const startMs = Date.now();
   const path = '/assist/v1/review';
 
   try {
-    // Cap to top 10 factors by rank (per brief)
-    const cappedFactors = [...factorSensitivity]
-      .sort((a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity))
-      .slice(0, 10);
+    // Strip graph to essential fields only (CEE allowlist pattern)
+    const strippedGraph = {
+      nodes: graph.nodes.map((n) => ({ id: n.id, label: n.label, kind: n.kind })),
+      edges: graph.edges.map((e) => ({ from: e.from, to: e.to })),
+    };
 
     const payload: CeeFactorReviewRequest = {
-      graph,
-      factor_sensitivity: cappedFactors,
+      brief,
+      graph: strippedGraph,
     };
 
     const baseUrl = config.baseUrl.replace(/\/$/, '');
