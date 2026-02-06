@@ -72,6 +72,7 @@ import {
 import type { RobustnessDataForCee, NormalizedEdgeInfo } from '../../integrations/isl/types/plot-types.js';
 import { orchestrateCeeReview } from '../../cee/orchestrator.js';
 import { orchestrateDecisionReview, type DecisionReviewInput, type DecisionReviewConfig } from '../../cee/decision-review-orchestrator.js';
+import { createISLInferenceFn } from '../../analysis/flip-thresholds.js';
 import type { CeeReviewRequest, CeeTrace, FactorEnrichment } from '../../cee/types.js';
 import { factorReviewV2, type CEESchemaV2Config } from '../../cee/client.js';
 import { FLAGS } from '../../config/flags.js';
@@ -2503,10 +2504,20 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                 timeoutMs: 3000, // 3s independent timeout
               };
 
+              // Build ISL inference function for flip threshold binary search
+              const flipInferenceFn = islSuccess
+                ? createISLInferenceFn(
+                    (endpoint, body, rid) => islService.callAnalysisEndpoint(endpoint, body, rid),
+                    islRequest,
+                    requestId
+                  )
+                : undefined;
+
               const decisionReviewResult = await orchestrateDecisionReview(
                 decisionReviewInput,
                 decisionReviewConfig,
-                req.log
+                req.log,
+                flipInferenceFn
               );
 
               m2DecisionReview = {

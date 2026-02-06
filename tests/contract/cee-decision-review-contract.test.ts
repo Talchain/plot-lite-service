@@ -409,6 +409,71 @@ describe('CEE Decision Review Contract', () => {
       expect(request.deterministic_coaching.model_critiques).toBeDefined();
       expect(Array.isArray(request.deterministic_coaching.model_critiques)).toBe(true);
     });
+
+    it('REGRESSION: deterministic_coaching uses model_critiques (not critiques)', () => {
+      const request = buildDecisionReviewRequest(
+        'Test brief',
+        testGraph,
+        testOptions,
+        testIslResult,
+        testM1Coaching
+      );
+
+      // CEE prompt expects model_critiques — verify exact field name
+      expect(request.deterministic_coaching).toHaveProperty('model_critiques');
+      expect((request.deterministic_coaching as any).critiques).toBeUndefined();
+
+      // Verify critique structure
+      expect(request.deterministic_coaching.model_critiques.length).toBeGreaterThan(0);
+      const critique = request.deterministic_coaching.model_critiques[0];
+      expect(critique).toHaveProperty('type');
+      expect(critique).toHaveProperty('severity');
+      expect(critique).toHaveProperty('message');
+    });
+
+    it('critique with suggested_action and targets maps to suggested_action and affected_node_ids', () => {
+      const m1WithFullCritiques: M1Coaching = {
+        ...testM1Coaching,
+        model_critiques: [
+          {
+            type: 'DOMINANT_FACTOR',
+            severity: 'warning',
+            challenge_question: 'Is Market Size too dominant?',
+            suggested_action: 'Add a competing factor to balance the model',
+            targets: ['factor_a', 'factor_b'],
+          },
+        ],
+      };
+
+      const request = buildDecisionReviewRequest(
+        'Test brief',
+        testGraph,
+        testOptions,
+        testIslResult,
+        m1WithFullCritiques
+      );
+
+      const critique = request.deterministic_coaching.model_critiques[0];
+      expect(critique.suggested_action).toBe('Add a competing factor to balance the model');
+      expect(critique.affected_node_ids).toEqual(['factor_a', 'factor_b']);
+    });
+
+    it('critique without suggested_action/targets omits keys from serialised JSON (not null)', () => {
+      // testM1Coaching critiques have no suggested_action or targets
+      const request = buildDecisionReviewRequest(
+        'Test brief',
+        testGraph,
+        testOptions,
+        testIslResult,
+        testM1Coaching
+      );
+
+      const critique = request.deterministic_coaching.model_critiques[0];
+      const serialised = JSON.parse(JSON.stringify(critique));
+
+      expect('suggested_action' in serialised).toBe(false);
+      expect('affected_node_ids' in serialised).toBe(false);
+    });
   });
 
   describe('brief_hash computation', () => {

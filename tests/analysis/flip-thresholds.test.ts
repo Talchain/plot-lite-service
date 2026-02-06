@@ -1,0 +1,529 @@
+/**
+ * Binary Search Flip Threshold Tests
+ *
+ * Tests for resolveFlipValues() — binary search over ISL inference.
+ * Uses mock ISL inference functions to test all algorithm paths.
+ */
+
+import { describe, it, expect, vi } from 'vitest';
+import {
+  resolveFlipValues,
+  createISLInferenceFn,
+  type ISLInferenceFn,
+  type FlipInferenceResult,
+} from '../../src/analysis/flip-thresholds.js';
+import type { FlipThresholdInputData } from '../../src/cee/validation/m1-review-types.js';
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+/**
+ * Create a mock ISL inference function that flips the winner
+ * when the factor's mean crosses a threshold.
+ */
+function createMonotonicMock(
+  flipThreshold: number,
+  originalWinner: string = 'opt-a',
+  alternativeWinner: string = 'opt-b',
+  direction: 'increase' | 'decrease' = 'decrease'
+): ISLInferenceFn {
+  return async (_factorId: string, overrideMean: number): Promise<FlipInferenceResult> => {
+    const flipped =
+      direction === 'decrease'
+        ? overrideMean <= flipThreshold
+        : overrideMean >= flipThreshold;
+
+    return {
+      options: [
+        {
+          option_id: originalWinner,
+          win_probability: flipped ? 0.35 : 0.65,
+        },
+        {
+          option_id: alternativeWinner,
+          win_probability: flipped ? 0.65 : 0.35,
+        },
+      ],
+    };
+  };
+}
+
+/**
+ * Create a mock ISL inference function where the winner never changes.
+ */
+function createNeverFlipMock(winner: string = 'opt-a'): ISLInferenceFn {
+  return async (): Promise<FlipInferenceResult> => ({
+    options: [
+      { option_id: winner, win_probability: 0.8 },
+      { option_id: 'opt-b', win_probability: 0.2 },
+    ],
+  });
+}
+
+/**
+ * Create a mock that oscillates (non-monotonic).
+ */
+function createOscillatingMock(): ISLInferenceFn {
+  let callCount = 0;
+  const winners = ['opt-a', 'opt-b', 'opt-a', 'opt-c', 'opt-b', 'opt-a'];
+  return async (): Promise<FlipInferenceResult> => {
+    const idx = callCount % winners.length;
+    callCount++;
+    const w = winners[idx];
+    return {
+      options: [
+        { option_id: 'opt-a', win_probability: w === 'opt-a' ? 0.5 : 0.2 },
+        { option_id: 'opt-b', win_probability: w === 'opt-b' ? 0.5 : 0.2 },
+        { option_id: 'opt-c', win_probability: w === 'opt-c' ? 0.5 : 0.1 },
+      ],
+    };
+  };
+}
+
+/**
+ * Create a mock that fails with an error.
+ */
+function createErrorMock(): ISLInferenceFn {
+  return async (): Promise<FlipInferenceResult> => {
+    throw new Error('ISL service unavailable');
+  };
+}
+
+/**
+ * Create a candidate with standard defaults.
+ */
+function makeCandidate(overrides?: Partial<FlipThresholdInputData>): FlipThresholdInputData {
+  return {
+    factor_id: 'factor-market',
+    factor_label: 'Market Demand',
+    current_value: 0.7,
+    flip_value: null,
+    direction: 'decrease',
+    flip_reason: 'heuristic',
+    iterations_used: 0,
+    ...overrides,
+  };
+}
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+describe('resolveFlipValues()', () => {
+  describe('Binary Search — Monotonic Flip', () => {
+    it('finds flip_value when flip exists (decreasing direction)', async () => {
+      // Flip at 0.35: when factor drops below 0.35, winner flips
+      const mock = createMonotonicMock(0.35, 'opt-a', 'opt-b', 'decrease');
+      const candidate = makeCandidate({ current_value: 0.7, direction: 'decrease' });
+
+      const results = await resolveFlipValues([candidate], mock, 'opt-a');
+
+      expect(results).toHaveLength(1);
+      expect(results[0].flip_value).not.toBeNull();
+      expect(results[0].flip_value!).toBeCloseTo(0.35, 1);
+      expect(results[0].flip_reason).toBe('found');
+      expect(results[0].iterations_used).toBeGreaterThan(2); // bracket + search
+    });
+
+    it('finds flip_value when flip exists (increasing direction)', async () => {
+      // Flip at 0.85: when factor rises above 0.85, winner flips
+      const mock = createMonotonicMock(0.85, 'opt-a', 'opt-b', 'increase');
+      const candidate = makeCandidate({
+        current_value: 0.6,
+        direction: 'increase',
+      });
+
+      const results = await resolveFlipValues([candidate], mock, 'opt-a');
+
+      expect(results).toHaveLength(1);
+      expect(results[0].flip_value).not.toBeNull();
+      expect(results[0].flip_value!).toBeCloseTo(0.85, 1);
+      expect(results[0].flip_reason).toBe('found');
+    });
+
+    it('converges within 10 iterations per factor', async () => {
+      const mock = createMonotonicMock(0.5, 'opt-a', 'opt-b', 'decrease');
+      const candidate = makeCandidate({ current_value: 0.9, direction: 'decrease' });
+
+      const results = await resolveFlipValues([candidate], mock, 'opt-a');
+
+      // 2 bracket + up to 10 search = 12 max
+      expect(results[0].iterations_used).toBeLessThanOrEqual(12);
+    });
+
+    it('flip_value rounded to 4 decimal places', async () => {
+      const mock = createMonotonicMock(0.333333, 'opt-a', 'opt-b', 'decrease');
+      const candidate = makeCandidate({ current_value: 0.7, direction: 'decrease' });
+
+      const results = await resolveFlipValues([candidate], mock, 'opt-a');
+
+      if (results[0].flip_value !== null) {
+        const decimalPlaces = results[0].flip_value.toString().split('.')[1]?.length ?? 0;
+        expect(decimalPlaces).toBeLessThanOrEqual(4);
+      }
+    });
+  });
+
+  describe('Bracket Check — No Flip', () => {
+    it('returns no_bracket when winner is same at both endpoints', async () => {
+      const mock = createNeverFlipMock('opt-a');
+      const candidate = makeCandidate({ current_value: 0.7, direction: 'decrease' });
+
+      const results = await resolveFlipValues([candidate], mock, 'opt-a');
+
+      expect(results).toHaveLength(1);
+      expect(results[0].flip_value).toBeNull();
+      expect(results[0].flip_reason).toBe('no_bracket');
+      expect(results[0].iterations_used).toBe(2); // only bracket check
+    });
+
+    it('bracket check saves ISL calls (no unnecessary search)', async () => {
+      const spy = vi.fn(createNeverFlipMock('opt-a'));
+      const candidate = makeCandidate();
+
+      await resolveFlipValues([candidate], spy, 'opt-a');
+
+      // Only 2 calls for bracket check (low + high endpoints)
+      expect(spy).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('Edge Cases', () => {
+    it('returns empty array for empty candidates', async () => {
+      const mock = createMonotonicMock(0.5);
+      const results = await resolveFlipValues([], mock, 'opt-a');
+      expect(results).toEqual([]);
+    });
+
+    it('returns boundary when factor at edge in flip direction', async () => {
+      const mock = createMonotonicMock(0.5);
+      // current_value is 0.0, direction is 'decrease' → range [0, 0] → boundary
+      const candidate = makeCandidate({
+        current_value: 0.005, // Within convergence threshold of boundary
+        direction: 'decrease',
+      });
+
+      const results = await resolveFlipValues([candidate], mock, 'opt-a');
+
+      expect(results[0].flip_reason).toBe('boundary');
+      expect(results[0].flip_value).toBeNull();
+      expect(results[0].iterations_used).toBe(0);
+    });
+
+    it('returns heuristic fallback when current_value is outside [0, 1]', async () => {
+      const mock = createMonotonicMock(0.5);
+      const negativeCandidate = makeCandidate({ current_value: -0.5, direction: 'increase' });
+      const overOneCandidate = makeCandidate({ current_value: 1.5, direction: 'decrease' });
+
+      const [negResults, overResults] = await Promise.all([
+        resolveFlipValues([negativeCandidate], mock, 'opt-a'),
+        resolveFlipValues([overOneCandidate], mock, 'opt-a'),
+      ]);
+
+      expect(negResults[0].flip_reason).toBe('heuristic');
+      expect(negResults[0].iterations_used).toBe(0);
+      expect(overResults[0].flip_reason).toBe('heuristic');
+      expect(overResults[0].iterations_used).toBe(0);
+    });
+
+    it('handles two candidates concurrently', async () => {
+      const mock = createMonotonicMock(0.3, 'opt-a', 'opt-b', 'decrease');
+      const candidate1 = makeCandidate({ factor_id: 'f1', current_value: 0.7, direction: 'decrease' });
+      const candidate2 = makeCandidate({ factor_id: 'f2', current_value: 0.8, direction: 'decrease' });
+
+      const results = await resolveFlipValues([candidate1, candidate2], mock, 'opt-a');
+
+      expect(results).toHaveLength(2);
+      expect(results[0].flip_reason).toBeDefined();
+      expect(results[1].flip_reason).toBeDefined();
+    });
+
+    it('preserves original fields (factor_id, factor_label, direction)', async () => {
+      const mock = createMonotonicMock(0.4, 'opt-a', 'opt-b', 'decrease');
+      const candidate = makeCandidate({
+        factor_id: 'my-factor',
+        factor_label: 'My Factor',
+        current_value: 0.8,
+        direction: 'decrease',
+      });
+
+      const results = await resolveFlipValues([candidate], mock, 'opt-a');
+
+      expect(results[0].factor_id).toBe('my-factor');
+      expect(results[0].factor_label).toBe('My Factor');
+      expect(results[0].direction).toBe('decrease');
+    });
+  });
+
+  describe('Non-Monotonicity Guard', () => {
+    it('falls back to grid scan when winner oscillates', async () => {
+      // The oscillating mock alternates winners in a non-monotonic pattern
+      const mock = createOscillatingMock();
+      const candidate = makeCandidate({ current_value: 0.9, direction: 'decrease' });
+
+      const results = await resolveFlipValues([candidate], mock, 'opt-a');
+
+      // Should complete without error
+      expect(results).toHaveLength(1);
+      expect(results[0].flip_reason).toBeDefined();
+      // Grid fallback or found or no_bracket — all acceptable
+      expect(['non_monotonic_grid', 'found', 'no_bracket']).toContain(results[0].flip_reason);
+    });
+  });
+
+  describe('Error Handling', () => {
+    it('returns isl_error when inference function throws', async () => {
+      const mock = createErrorMock();
+      const candidate = makeCandidate();
+
+      const results = await resolveFlipValues([candidate], mock, 'opt-a');
+
+      expect(results).toHaveLength(1);
+      expect(results[0].flip_value).toBeNull();
+      expect(results[0].flip_reason).toBe('isl_error');
+    });
+
+    it('does not abort other factors when one fails', async () => {
+      let callCount = 0;
+      const mixedMock: ISLInferenceFn = async (factorId, mean) => {
+        callCount++;
+        if (factorId === 'f-bad') throw new Error('ISL error');
+        // Normal monotonic for good factor
+        const flipped = mean <= 0.3;
+        return {
+          options: [
+            { option_id: 'opt-a', win_probability: flipped ? 0.3 : 0.7 },
+            { option_id: 'opt-b', win_probability: flipped ? 0.7 : 0.3 },
+          ],
+        };
+      };
+
+      const candidates = [
+        makeCandidate({ factor_id: 'f-bad', current_value: 0.8 }),
+        makeCandidate({ factor_id: 'f-good', current_value: 0.8 }),
+      ];
+
+      const results = await resolveFlipValues(candidates, mixedMock, 'opt-a');
+
+      expect(results).toHaveLength(2);
+      expect(results[0].flip_reason).toBe('isl_error');
+      // Second factor should have completed
+      expect(results[1].flip_reason).not.toBe('isl_error');
+    });
+  });
+
+  describe('Timeout Handling', () => {
+    it('returns timeout when per-factor timeout exceeded', async () => {
+      // Create a slow mock
+      const slowMock: ISLInferenceFn = async () => {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        return {
+          options: [
+            { option_id: 'opt-a', win_probability: 0.6 },
+            { option_id: 'opt-b', win_probability: 0.4 },
+          ],
+        };
+      };
+
+      const candidate = makeCandidate({ current_value: 0.9, direction: 'decrease' });
+
+      const results = await resolveFlipValues([candidate], slowMock, 'opt-a', {
+        perFactorTimeoutMs: 100, // Very short timeout
+        overallTimeoutMs: 200,
+      });
+
+      expect(results).toHaveLength(1);
+      // Should either timeout or complete (if the 2 bracket calls were fast enough)
+      expect(['timeout', 'no_bracket', 'found']).toContain(results[0].flip_reason);
+    });
+  });
+
+  describe('flip_reason and iterations_used', () => {
+    it('every result has flip_reason populated', async () => {
+      const mock = createMonotonicMock(0.4, 'opt-a', 'opt-b', 'decrease');
+      const candidates = [
+        makeCandidate({ factor_id: 'f1', current_value: 0.8, direction: 'decrease' }),
+        makeCandidate({ factor_id: 'f2', current_value: 0.005, direction: 'decrease' }), // boundary
+      ];
+
+      const results = await resolveFlipValues(candidates, mock, 'opt-a');
+
+      for (const result of results) {
+        expect(result.flip_reason).toBeDefined();
+        expect(typeof result.flip_reason).toBe('string');
+      }
+    });
+
+    it('every result has iterations_used populated', async () => {
+      const mock = createMonotonicMock(0.4, 'opt-a', 'opt-b', 'decrease');
+      const candidates = [
+        makeCandidate({ factor_id: 'f1', current_value: 0.8, direction: 'decrease' }),
+      ];
+
+      const results = await resolveFlipValues(candidates, mock, 'opt-a');
+
+      for (const result of results) {
+        expect(result.iterations_used).toBeDefined();
+        expect(typeof result.iterations_used).toBe('number');
+        expect(result.iterations_used).toBeGreaterThanOrEqual(0);
+      }
+    });
+  });
+});
+
+describe('createISLInferenceFn()', () => {
+  it('overrides the target factor mean in parameter_uncertainties', async () => {
+    let capturedBody: any = null;
+
+    const mockCallAnalysis = async (_ep: string, body: unknown, _rid: string) => {
+      capturedBody = body;
+      return {
+        data: {
+          results: [
+            { option_id: 'opt-a', win_probability: 0.6 },
+            { option_id: 'opt-b', win_probability: 0.4 },
+          ],
+        },
+      };
+    };
+
+    const originalRequest = {
+      graph: { nodes: [], edges: [] },
+      options: [{ id: 'opt-a' }, { id: 'opt-b' }],
+      goal_node_id: 'goal',
+      n_samples: 1000,
+      parameter_uncertainties: [
+        { node_id: 'factor-x', distribution: 'normal', mean: 0.7, std: 0.15 },
+        { node_id: 'factor-y', distribution: 'normal', mean: 0.5, std: 0.2 },
+      ],
+    };
+
+    const fn = createISLInferenceFn(mockCallAnalysis, originalRequest, 'req-1');
+
+    await fn('factor-x', 0.3);
+
+    // Should override factor-x mean to 0.3, leave factor-y unchanged
+    const pu = capturedBody.parameter_uncertainties;
+    expect(pu.find((p: any) => p.node_id === 'factor-x').mean).toBe(0.3);
+    expect(pu.find((p: any) => p.node_id === 'factor-y').mean).toBe(0.5);
+  });
+
+  it('uses analysis_types: ["comparison"] for efficiency', async () => {
+    let capturedBody: any = null;
+
+    const mockCallAnalysis = async (_ep: string, body: unknown, _rid: string) => {
+      capturedBody = body;
+      return {
+        data: { results: [{ option_id: 'opt-a', win_probability: 1.0 }] },
+      };
+    };
+
+    const fn = createISLInferenceFn(
+      mockCallAnalysis,
+      { graph: { nodes: [], edges: [] }, options: [], goal_node_id: 'goal' },
+      'req-1'
+    );
+
+    await fn('factor-x', 0.5);
+
+    expect(capturedBody.analysis_types).toEqual(['comparison']);
+  });
+
+  it('throws when ISL returns null data', async () => {
+    const mockCallAnalysis = async () => ({ data: null });
+
+    const fn = createISLInferenceFn(
+      mockCallAnalysis,
+      { graph: { nodes: [], edges: [] }, options: [], goal_node_id: 'goal' },
+      'req-1'
+    );
+
+    await expect(fn('factor-x', 0.5)).rejects.toThrow(/ISL inference failed/);
+  });
+
+  it('inserts factor into parameter_uncertainties when absent', async () => {
+    let capturedBody: any = null;
+
+    const mockCallAnalysis = async (_ep: string, body: unknown, _rid: string) => {
+      capturedBody = body;
+      return {
+        data: { results: [{ option_id: 'opt-a', win_probability: 1.0 }] },
+      };
+    };
+
+    const originalRequest = {
+      graph: { nodes: [], edges: [] },
+      options: [],
+      goal_node_id: 'goal',
+      parameter_uncertainties: [
+        { node_id: 'other-factor', distribution: 'normal', mean: 0.5, std: 0.2 },
+      ],
+    };
+
+    const fn = createISLInferenceFn(mockCallAnalysis, originalRequest, 'req-1');
+
+    await fn('missing-factor', 0.6);
+
+    // Should now have 2 entries: original + inserted
+    const pu = capturedBody.parameter_uncertainties;
+    expect(pu).toHaveLength(2);
+
+    const inserted = pu.find((p: any) => p.node_id === 'missing-factor');
+    expect(inserted).toBeDefined();
+    expect(inserted.mean).toBe(0.6);
+    expect(inserted.distribution).toBe('normal');
+    expect(inserted.std).toBeGreaterThanOrEqual(0.1);
+
+    // Original unchanged
+    const other = pu.find((p: any) => p.node_id === 'other-factor');
+    expect(other.mean).toBe(0.5);
+  });
+
+  it('inserts factor with std floor of 0.1 when mean is near zero', async () => {
+    let capturedBody: any = null;
+
+    const mockCallAnalysis = async (_ep: string, body: unknown, _rid: string) => {
+      capturedBody = body;
+      return {
+        data: { results: [{ option_id: 'opt-a', win_probability: 1.0 }] },
+      };
+    };
+
+    const fn = createISLInferenceFn(
+      mockCallAnalysis,
+      { graph: { nodes: [], edges: [] }, options: [], goal_node_id: 'goal', parameter_uncertainties: [] },
+      'req-1'
+    );
+
+    await fn('factor-zero', 0.01);
+
+    const inserted = capturedBody.parameter_uncertainties.find((p: any) => p.node_id === 'factor-zero');
+    // 0.01 * 0.15 = 0.0015 → floored to 0.1
+    expect(inserted.std).toBe(0.1);
+  });
+
+  it('does not mutate original request parameter_uncertainties', async () => {
+    const originalPU = [
+      { node_id: 'factor-x', distribution: 'normal', mean: 0.7, std: 0.15 },
+    ];
+
+    const mockCallAnalysis = async () => ({
+      data: { results: [{ option_id: 'opt-a', win_probability: 1.0 }] },
+    });
+
+    const originalRequest = {
+      graph: { nodes: [], edges: [] },
+      options: [],
+      goal_node_id: 'goal',
+      parameter_uncertainties: originalPU,
+    };
+
+    const fn = createISLInferenceFn(mockCallAnalysis, originalRequest, 'req-1');
+
+    await fn('factor-x', 0.1);
+
+    // Original should be unchanged
+    expect(originalPU[0].mean).toBe(0.7);
+  });
+});

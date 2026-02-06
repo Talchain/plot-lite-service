@@ -305,6 +305,8 @@ function buildDeterministicCoaching(m1Coaching: M1Coaching): DeterministicCoachi
       type: critique.type,
       severity: critique.severity,
       message: critique.challenge_question,
+      ...(critique.suggested_action !== undefined && { suggested_action: critique.suggested_action }),
+      ...(critique.targets !== undefined && { affected_node_ids: critique.targets }),
     })),
   };
 }

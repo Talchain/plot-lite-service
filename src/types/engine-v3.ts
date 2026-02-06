@@ -59,6 +59,14 @@ export interface UpstreamNode {
     std?: number;
     baseline?: number;
     unit?: string;
+    /** V3 expansion: raw unscaled value for UI display */
+    raw_value?: number;
+    /** V3 expansion: scale cap for normalization */
+    cap?: number;
+    /** V3 expansion: factor classification */
+    factor_type?: string;
+    /** V3 expansion: sources of uncertainty */
+    uncertainty_drivers?: string[];
   };
   /** State space bounds for the factor (used for uncertainty calculation) */
   state_space?: {
@@ -149,6 +157,14 @@ export interface EngineNodeV3 {
     std?: number;
     baseline?: number;
     unit?: string;
+    /** V3 expansion: raw unscaled value for UI display */
+    raw_value?: number;
+    /** V3 expansion: scale cap for normalization */
+    cap?: number;
+    /** V3 expansion: factor classification */
+    factor_type?: string;
+    /** V3 expansion: sources of uncertainty */
+    uncertainty_drivers?: string[];
   };
   /** State space bounds for the factor (used for uncertainty calculation) */
   state_space?: {

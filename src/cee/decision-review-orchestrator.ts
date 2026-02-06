@@ -30,6 +30,7 @@ import {
 } from './validation/review-cache.js';
 import { DecisionReviewEvents, M1ReviewFailureCodes, ReviewSkipReasons } from './validation/m1-review-constants.js';
 import { correctUngroundedNumbers, type IslResultsForCorrection } from './validation/number-corrector.js';
+import { resolveFlipValues, type ISLInferenceFn } from '../analysis/flip-thresholds.js';
 
 // =============================================================================
 // Types
@@ -79,7 +80,8 @@ export interface DecisionReviewConfig {
 export async function orchestrateDecisionReview(
   input: DecisionReviewInput,
   config?: DecisionReviewConfig,
-  logger?: FastifyBaseLogger
+  logger?: FastifyBaseLogger,
+  islInferenceFn?: ISLInferenceFn
 ): Promise<DecisionReviewResult> {
   const startMs = Date.now();
 
@@ -137,6 +139,34 @@ export async function orchestrateDecisionReview(
     input.islResult,
     input.m1Coaching
   );
+
+  // Resolve flip values via ISL binary search (if inference function provided)
+  if (islInferenceFn && request.flip_threshold_data.length > 0 && request.winner.id) {
+    try {
+      request.flip_threshold_data = await resolveFlipValues(
+        request.flip_threshold_data,
+        islInferenceFn,
+        request.winner.id
+      );
+      logger?.info({
+        event: 'flip_threshold_resolved',
+        request_id: input.requestId,
+        factors: request.flip_threshold_data.map((f) => ({
+          factor_id: f.factor_id,
+          flip_reason: f.flip_reason,
+          flip_value: f.flip_value,
+          iterations_used: f.iterations_used,
+        })),
+      });
+    } catch (err) {
+      logger?.warn({
+        event: 'flip_threshold_resolve_failed',
+        request_id: input.requestId,
+        error: (err as Error).message,
+      });
+      // Continue with heuristic values — don't block the review
+    }
+  }
 
   // Log request (without brief text for privacy)
   logger?.info({
@@ -354,7 +384,7 @@ function getCeeConfig(): DecisionReviewConfig | null {
   return {
     baseUrl,
     apiKey,
-    timeoutMs: Number(process.env.CEE_DECISION_REVIEW_TIMEOUT_MS ?? 120000),
+    timeoutMs: Number(process.env.CEE_DECISION_REVIEW_TIMEOUT_MS ?? 20000),
   };
 }
 

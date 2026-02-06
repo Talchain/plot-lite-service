@@ -31,6 +31,12 @@ export interface ISLNodeV3 {
     value?: number;
     baseline?: number;
     unit?: string;
+    std?: number;
+    /** V3 expansion fields (passed through for downstream consumers) */
+    raw_value?: number;
+    cap?: number;
+    factor_type?: string;
+    uncertainty_drivers?: string[];
   };
   intercept?: number;
 }

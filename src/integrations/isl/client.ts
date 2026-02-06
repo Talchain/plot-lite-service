@@ -117,15 +117,15 @@ export class ISLClient {
 
         const duration = Date.now() - startTime;
 
-        // Log successful request
-        this.log('info', {
-          event: 'isl_request_complete',
+        // Always log downstream elapsed time (not suppressed)
+        console.log(JSON.stringify({
+          event: 'isl_downstream_elapsed',
           endpoint,
           status: response.status,
-          duration_ms: duration,
+          elapsed_ms: duration,
           attempt,
           request_id: requestId,
-        });
+        }));
 
         if (!response.ok) {
           const errorBody = await response.text();
@@ -199,6 +199,7 @@ export class ISLClient {
         this.log('warn', {
           event: 'isl_request_failed',
           endpoint,
+          elapsed_ms: Date.now() - startTime,
           attempt,
           max_retries: this.config.maxRetries,
           retryable,
@@ -297,7 +298,7 @@ export function getISLClientConfig(): ISLClientConfig {
   return {
     baseUrl: String(process.env.ISL_BASE_URL ?? '').trim(),
     apiKey: String(process.env.ISL_API_KEY ?? '').trim(),
-    timeoutMs: parseInt(process.env.ISL_TIMEOUT_MS ?? '15000', 10),
+    timeoutMs: parseInt(process.env.ISL_REQUEST_TIMEOUT_MS ?? process.env.ISL_TIMEOUT_MS ?? '30000', 10),
     maxRetries: parseInt(process.env.ISL_MAX_RETRIES ?? '3', 10),
     healthCheckTimeoutMs: healthCheckTimeoutEnv ? parseInt(healthCheckTimeoutEnv, 10) : undefined,
   };

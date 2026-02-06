@@ -137,6 +137,8 @@ export function computeFlipThresholdData(
       current_value: currentValue,
       flip_value: null, // Heuristic approach: CEE computes qualitative text
       direction,
+      flip_reason: 'heuristic',
+      iterations_used: 0,
     });
   }
 

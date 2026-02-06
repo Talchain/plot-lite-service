@@ -578,4 +578,116 @@ describe('Graph Normalisation', () => {
       expect(result.graph.edges[0].strength.mean).toBe(0.6);
     });
   });
+
+  describe('V3 observed_state field preservation', () => {
+    it('preserves std through normalisation', () => {
+      const node = normaliseNode({
+        id: 'factor_a',
+        kind: 'factor',
+        label: 'Factor A',
+        observed_state: { value: 0.7, std: 0.15, baseline: 0.5, unit: 'score' },
+      });
+
+      expect(node.observed_state?.std).toBe(0.15);
+    });
+
+    it('preserves raw_value through normalisation', () => {
+      const node = normaliseNode({
+        id: 'factor_a',
+        kind: 'factor',
+        label: 'Factor A',
+        observed_state: { value: 0.7, raw_value: 70000 } as any,
+      });
+
+      expect(node.observed_state?.raw_value).toBe(70000);
+    });
+
+    it('preserves cap through normalisation', () => {
+      const node = normaliseNode({
+        id: 'factor_a',
+        kind: 'factor',
+        label: 'Factor A',
+        observed_state: { value: 0.7, cap: 100000 } as any,
+      });
+
+      expect(node.observed_state?.cap).toBe(100000);
+    });
+
+    it('preserves factor_type through normalisation', () => {
+      const node = normaliseNode({
+        id: 'factor_a',
+        kind: 'factor',
+        label: 'Factor A',
+        observed_state: { value: 0.7, factor_type: 'revenue' } as any,
+      });
+
+      expect(node.observed_state?.factor_type).toBe('revenue');
+    });
+
+    it('preserves uncertainty_drivers through normalisation', () => {
+      const node = normaliseNode({
+        id: 'factor_a',
+        kind: 'factor',
+        label: 'Factor A',
+        observed_state: {
+          value: 0.7,
+          uncertainty_drivers: ['market_volatility', 'competitor_action'],
+        } as any,
+      });
+
+      expect(node.observed_state?.uncertainty_drivers).toEqual([
+        'market_volatility',
+        'competitor_action',
+      ]);
+    });
+
+    it('preserves all V3 fields together through normaliseGraph', () => {
+      const result = normaliseGraph({
+        nodes: [
+          {
+            id: 'factor_a',
+            kind: 'factor',
+            label: 'Revenue',
+            observed_state: {
+              value: 0.7,
+              std: 0.1,
+              baseline: 0.5,
+              unit: 'normalised',
+              raw_value: 70000,
+              cap: 100000,
+              factor_type: 'revenue',
+              uncertainty_drivers: ['market_volatility'],
+            } as any,
+          },
+        ],
+        edges: [],
+      });
+
+      const os = result.graph.nodes[0].observed_state;
+      expect(os?.value).toBe(0.7);
+      expect(os?.std).toBe(0.1);
+      expect(os?.baseline).toBe(0.5);
+      expect(os?.unit).toBe('normalised');
+      expect(os?.raw_value).toBe(70000);
+      expect(os?.cap).toBe(100000);
+      expect(os?.factor_type).toBe('revenue');
+      expect(os?.uncertainty_drivers).toEqual(['market_volatility']);
+    });
+
+    it('does not pass through arbitrary unknown fields', () => {
+      const node = normaliseNode({
+        id: 'factor_a',
+        kind: 'factor',
+        label: 'Factor A',
+        observed_state: {
+          value: 0.7,
+          raw_value: 70000,
+          _internal_debug: 'should_not_survive',
+        } as any,
+      });
+
+      expect((node.observed_state as any)?._internal_debug).toBeUndefined();
+      expect(node.observed_state?.raw_value).toBe(70000);
+    });
+  });
 });

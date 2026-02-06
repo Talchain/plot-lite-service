@@ -299,8 +299,12 @@ export async function draftGraphV2(
   brief: string,
   requestId: string
 ): Promise<CEESchemaV2Response<any>> {
+  const draftConfig = {
+    ...config,
+    timeoutMs: config.timeoutMs ?? Number(process.env.CEE_DRAFT_GRAPH_TIMEOUT_MS ?? 30000),
+  };
   return callCEEWithSchemaV2(
-    config,
+    draftConfig,
     '/assist/v1/draft-graph',
     { brief, config: { streaming: false } },
     requestId
@@ -485,8 +489,8 @@ export async function factorReviewV2(
 // M2 Decision Review - CEE /assist/v1/decision-review
 // -----------------------------------------------------------------------------
 
-/** Hard timeout for decision review (2 minutes for premium LLM call) */
-const DECISION_REVIEW_TIMEOUT_MS = 120000;
+/** Default timeout for decision review (env-configurable via CEE_DECISION_REVIEW_TIMEOUT_MS) */
+const DECISION_REVIEW_TIMEOUT_MS = Number(process.env.CEE_DECISION_REVIEW_TIMEOUT_MS ?? 20000);
 
 /**
  * M2 Decision review response from CEE.
@@ -535,6 +539,7 @@ export async function callDecisionReview(
     const url = `${baseUrl}${path}`;
     const payloadHash = computeOlumiHash(request);
 
+    const effectiveTimeoutMs = config.timeoutMs ?? DECISION_REVIEW_TIMEOUT_MS;
     const response = await fetchWithTimeout(url, {
       method: 'POST',
       headers: {
@@ -544,7 +549,7 @@ export async function callDecisionReview(
         'X-Request-Id': requestId,
       },
       body: JSON.stringify(request),
-      timeoutMs: DECISION_REVIEW_TIMEOUT_MS,
+      timeoutMs: effectiveTimeoutMs,
     });
 
     const latencyMs = Date.now() - startMs;

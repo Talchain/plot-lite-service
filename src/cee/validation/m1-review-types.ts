@@ -260,6 +260,8 @@ export interface DeterministicCoachingData {
     type: string;
     severity: string;
     message: string;
+    suggested_action?: string;
+    affected_node_ids?: string[];
   }>;
 }
 
@@ -282,9 +284,17 @@ export interface FlipThresholdInputData {
   factor_id: string;
   factor_label: string;
   current_value: number;
-  /** Null when using heuristic approach (elasticity ≠ Δwin_probability) */
+  /** Null when no flip achievable or heuristic approach */
   flip_value: number | null;
   direction: 'increase' | 'decrease';
+  /** Reason for the flip_value result */
+  flip_reason?: 'found' | 'no_bracket' | 'timeout' | 'isl_error' | 'non_monotonic_grid' | 'boundary' | 'single_option' | 'heuristic';
+  /** Number of ISL inference iterations used */
+  iterations_used?: number;
+  /** Option that becomes winner after the flip (null if no flip found) */
+  alternative_winner_id?: string | null;
+  /** Factor unit from observed_state (e.g., "GBP", "%") */
+  unit?: string;
 }
 
 /**

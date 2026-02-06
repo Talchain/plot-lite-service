@@ -219,10 +219,19 @@ export function normaliseNode(
   }
 
   if (node.observed_state?.value !== undefined) {
+    // Explicit allowlist: core fields + V3 expansion metadata
+    // This preserves V3 fields (raw_value, cap, factor_type, uncertainty_drivers)
+    // without passing through arbitrary upstream garbage.
+    const os = node.observed_state;
     observedState = {
-      value: node.observed_state.value,
-      baseline: node.observed_state.baseline,
-      unit: node.observed_state.unit,
+      value: node.observed_state.value, // use narrowed path (TS knows !== undefined)
+      baseline: os.baseline,
+      unit: os.unit,
+      std: os.std,
+      raw_value: os.raw_value,
+      cap: os.cap,
+      factor_type: os.factor_type,
+      uncertainty_drivers: os.uncertainty_drivers,
     };
   } else if (node.data?.value !== undefined) {
     observedState = {
