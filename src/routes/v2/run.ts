@@ -2401,6 +2401,16 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           },
         };
 
+        // Diagnostic: log factor review guard inputs
+        req.log.info({
+          event: 'factor_review_guard',
+          request_id: requestId,
+          cee_config_present: !!ceeConfig,
+          brief_present: !!body.brief,
+          brief_length: body.brief?.length ?? 0,
+          analysis_status: topLevelStatus,
+        });
+
         const [ceeOrchestrationResult, factorEnrichments] = await Promise.all([
           // Skip legacy CEE /review + /options when M2 decision-review is enabled
           FLAGS.DECISION_REVIEW_ENABLE
