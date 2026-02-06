@@ -78,6 +78,31 @@ describe('Graph Normalisation', () => {
       expect(cleanLabelAnnotation('Factor (PERCENTAGE)')).toBe('Factor');
       expect(cleanLabelAnnotation('Metric (Qualitative Scale)')).toBe('Metric');
     });
+
+    it('strips (Yes/No) binary encoding', () => {
+      expect(cleanLabelAnnotation('Has Approval (Yes/No)')).toBe('Has Approval');
+    });
+
+    it('strips (True/False) binary encoding', () => {
+      expect(cleanLabelAnnotation('Is Active (True/False)')).toBe('Is Active');
+    });
+
+    it('strips (0/1) binary encoding', () => {
+      expect(cleanLabelAnnotation('Flag Status (0/1)')).toBe('Flag Status');
+    });
+
+    it('strips (0–1, higher is better) extended annotation', () => {
+      expect(cleanLabelAnnotation('Quality Score (0–1, higher is better)')).toBe('Quality Score');
+    });
+
+    it('preserves non-encoding parentheticals like (quarterly)', () => {
+      expect(cleanLabelAnnotation('Revenue (quarterly)')).toBe('Revenue (quarterly)');
+    });
+
+    it('strips (yes/no) case-insensitively', () => {
+      expect(cleanLabelAnnotation('Approved (yes/no)')).toBe('Approved');
+      expect(cleanLabelAnnotation('Complete (YES/NO)')).toBe('Complete');
+    });
   });
 
   describe('normaliseNode', () => {
@@ -445,6 +470,39 @@ describe('Graph Normalisation', () => {
       }, 1, new Map());
 
       expect(lowConfEdge.strength.std).toBeGreaterThan(edge.strength.std);
+    });
+
+    it('cleans annotation suffix from edge label', () => {
+      const edge = normaliseEdge({
+        from: 'a',
+        to: 'b',
+        weight: 0.5,
+        label: 'Influence (0-1)',
+      }, 0, new Map());
+
+      expect(edge.label).toBe('Influence');
+    });
+
+    it('preserves edge label without annotation', () => {
+      const edge = normaliseEdge({
+        from: 'a',
+        to: 'b',
+        weight: 0.5,
+        label: 'Causal link',
+      }, 0, new Map());
+
+      expect(edge.label).toBe('Causal link');
+    });
+
+    it('returns undefined for edge label that is purely an annotation', () => {
+      const edge = normaliseEdge({
+        from: 'a',
+        to: 'b',
+        weight: 0.5,
+        label: '(0/1)',
+      }, 0, new Map());
+
+      expect(edge.label).toBeUndefined();
     });
   });
 

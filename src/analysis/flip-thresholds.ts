@@ -133,6 +133,7 @@ async function searchFlipForFactor(
       flip_value: null,
       flip_reason: 'heuristic',
       iterations_used: 0,
+      alternative_winner_id: null,
     };
   }
 
@@ -154,6 +155,7 @@ async function searchFlipForFactor(
       flip_value: null,
       flip_reason: 'boundary',
       iterations_used: 0,
+      alternative_winner_id: null,
     };
   }
 
@@ -162,7 +164,7 @@ async function searchFlipForFactor(
   try {
     // Step 0: Bracket check — evaluate both endpoints
     if (Date.now() >= factorDeadline) {
-      return { ...candidate, flip_value: null, flip_reason: 'timeout', iterations_used: 0 };
+      return { ...candidate, flip_value: null, flip_reason: 'timeout', iterations_used: 0, alternative_winner_id: null };
     }
 
     const [lowResult, highResult] = await Promise.all([
@@ -181,6 +183,7 @@ async function searchFlipForFactor(
         flip_value: null,
         flip_reason: 'no_bracket',
         iterations_used: iterations,
+        alternative_winner_id: null,
       };
     }
 
@@ -199,6 +202,7 @@ async function searchFlipForFactor(
           flip_value: roundTo4(midpoint(searchLow, searchHigh)),
           flip_reason: 'timeout',
           iterations_used: iterations,
+          alternative_winner_id: highWinner,
         };
       }
 
@@ -241,6 +245,7 @@ async function searchFlipForFactor(
       flip_value: flipValue,
       flip_reason: 'found',
       iterations_used: iterations,
+      alternative_winner_id: highWinner,
     };
   } catch (err) {
     // ISL call failed
@@ -249,6 +254,7 @@ async function searchFlipForFactor(
       flip_value: null,
       flip_reason: 'isl_error',
       iterations_used: iterations,
+      alternative_winner_id: null,
     };
   }
 }
@@ -281,6 +287,7 @@ async function gridFallback(
         flip_value: null,
         flip_reason: 'timeout',
         iterations_used: iterations,
+        alternative_winner_id: null,
       };
     }
 
@@ -298,6 +305,7 @@ async function gridFallback(
           flip_value: roundTo4(probeValue),
           flip_reason: 'non_monotonic_grid',
           iterations_used: iterations,
+          alternative_winner_id: winner,
         };
       }
     } catch {
@@ -312,6 +320,7 @@ async function gridFallback(
     flip_value: null,
     flip_reason: 'no_bracket',
     iterations_used: iterations,
+    alternative_winner_id: null,
   };
 }
 

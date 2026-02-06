@@ -57,12 +57,14 @@ const DEFAULT_EXISTS_PROBABILITY = 0.8;
  * Common annotation suffix patterns to strip from labels.
  * These patterns are added by CEE/upstream and should not be shown in UI.
  *
- * Examples:
- * - "Delegation Rate (0-1)" → "Delegation Rate"
- * - "Price Change (percentage)" → "Price Change"
- * - "Quality Score (0–1 qualitative scale)" → "Quality Score"
+ * Matches trailing parentheticals containing encoding keywords:
+ * - Ranges:      (0-1), (0–1), (0–1, higher is better)
+ * - Binary:      (Yes/No), (True/False), (0/1)
+ * - Descriptors: (percentage), (likert), (qualitative scale)
+ *
+ * Preserves non-encoding parentheticals like "Revenue (quarterly)".
  */
-const LABEL_ANNOTATION_PATTERN = /\s*\([^)]*(?:scale|0[-–]1|percentage|likert|qualitative)[^)]*\)\s*$/i;
+const LABEL_ANNOTATION_PATTERN = /\s*\([^)]*(?:scale|0[-–]1|0\/1|percentage|likert|qualitative|yes\/no|true\/false)[^)]*\)\s*$/i;
 
 /**
  * Clean annotation suffixes from node labels.
@@ -648,7 +650,7 @@ export function normaliseEdge(
     to,
     exists_probability: existsProbability,
     strength: { mean, std },
-    label: edge.label,
+    label: edge.label ? cleanLabelAnnotation(edge.label) || undefined : edge.label,
   };
 }
 

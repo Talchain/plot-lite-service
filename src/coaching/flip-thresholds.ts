@@ -52,8 +52,14 @@ export interface OptionComparisonInput {
 /** Minimum elasticity to consider (skip near-zero values) */
 const MIN_ELASTICITY_THRESHOLD = 0.01;
 
-/** Maximum number of flip thresholds to return */
-const MAX_FLIP_THRESHOLDS = 2;
+/**
+ * Maximum number of flip thresholds to return.
+ * Top 5 by |elasticity| balances UI richness against binary search cost.
+ * Binary search runs up to 12 ISL calls per factor (2 bracket + 10 bisect),
+ * so 5 factors = 60 calls worst-case. Timeouts (5s/factor, 10s overall)
+ * prevent runaway latency. If latency proves too high, reduce to 3.
+ */
+const MAX_FLIP_THRESHOLDS = 5;
 
 // =============================================================================
 // Main Function
@@ -119,7 +125,8 @@ export function computeFlipThresholdData(
   for (const factor of rankedFactors) {
     if (results.length >= MAX_FLIP_THRESHOLDS) break;
 
-    // Find current_value from graph node
+    // Find current_value and unit from graph node
+    const factorNode = graph.nodes.find((n) => n.id === factor.factor_id);
     const currentValue = getFactorCurrentValue(factor.factor_id, graph);
     if (currentValue === null) {
       // Skip factors without current_value
@@ -139,6 +146,8 @@ export function computeFlipThresholdData(
       direction,
       flip_reason: 'heuristic',
       iterations_used: 0,
+      alternative_winner_id: null,
+      unit: factorNode?.observed_state?.unit,
     });
   }
 

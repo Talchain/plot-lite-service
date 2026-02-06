@@ -18,7 +18,7 @@ import { createHash } from 'node:crypto';
 import { FLAGS } from '../config/flags.js';
 import type { EngineGraphV3, OptionV3 } from '../types/engine-v3.js';
 import type { M1Coaching } from '../coaching/types.js';
-import type { M1Review, DecisionReviewResult } from './validation/m1-review-types.js';
+import type { M1Review, DecisionReviewResult, FlipThresholdInputData } from './validation/m1-review-types.js';
 import { safeParseM1Review } from './validation/m1-review-types.js';
 import { validateM1Review, buildValidationContext } from './validation/m1-review-validator.js';
 import { buildDecisionReviewRequest, type ISLResultInput } from './decision-review-request.js';
@@ -54,6 +54,8 @@ export interface DecisionReviewInput {
   responseHash: string;
   /** Request ID for tracing */
   requestId: string;
+  /** Pre-resolved flip threshold data (from run.ts). When provided, orchestrator skips binary search. */
+  preResolvedFlipData?: FlipThresholdInputData[];
 }
 
 /**
@@ -140,8 +142,11 @@ export async function orchestrateDecisionReview(
     input.m1Coaching
   );
 
-  // Resolve flip values via ISL binary search (if inference function provided)
-  if (islInferenceFn && request.flip_threshold_data.length > 0 && request.winner.id) {
+  // Use pre-resolved flip data from run.ts if available (avoids redundant ISL calls).
+  // Otherwise fall back to resolving via binary search (backward compatibility).
+  if (input.preResolvedFlipData) {
+    request.flip_threshold_data = input.preResolvedFlipData;
+  } else if (islInferenceFn && request.flip_threshold_data.length > 0 && request.winner.id) {
     try {
       request.flip_threshold_data = await resolveFlipValues(
         request.flip_threshold_data,

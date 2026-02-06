@@ -47,16 +47,16 @@ const TEST_GRAPH: EngineGraphV3 = {
 
 describe('computeFlipThresholdData()', () => {
   describe('Basic Functionality', () => {
-    it('returns top 2 factors by |elasticity|', () => {
+    it('returns top 5 factors by |elasticity|', () => {
       const result = computeFlipThresholdData(
         TEST_FACTOR_SENSITIVITY,
         TEST_OPTION_COMPARISON,
         TEST_GRAPH
       );
 
-      expect(result.length).toBeLessThanOrEqual(2);
+      expect(result.length).toBeLessThanOrEqual(5);
 
-      // Should include factor-high (0.5) and factor-neg (-0.4)
+      // Should include factor-high (0.5) and factor-neg (-0.4) as top candidates
       const factorIds = result.map((r) => r.factor_id);
       expect(factorIds).toContain('factor-high');
       expect(factorIds).toContain('factor-neg');
@@ -168,7 +168,7 @@ describe('computeFlipThresholdData()', () => {
         graphWithTies
       );
 
-      expect(result.length).toBe(2);
+      expect(result.length).toBe(3); // All 3 pass the min-elasticity threshold (0.3 > 0.01)
     });
 
     it('handles zero elasticity factors (excludes them)', () => {

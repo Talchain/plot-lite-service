@@ -20,6 +20,7 @@ import type { FactorEnrichment } from '../cee/types.js';
 import type { M1Coaching } from '../coaching/types.js';
 import type { M1Review } from '../cee/validation/m1-review-types.js';
 import type { ReviewStatus, ReviewSkipReason } from '../cee/validation/m1-review-constants.js';
+import type { DenormalisedFlipThreshold } from '../lib/flip-threshold-denormaliser.js';
 
 // -----------------------------------------------------------------------------
 // Node Kinds
@@ -639,6 +640,17 @@ export interface RunResponseV3 {
    * as non-semantic metadata.
    */
   m1_coaching?: M1Coaching;
+
+  /**
+   * Flip thresholds (tipping points) for the most sensitive factors.
+   * Shows at what value each factor would cause the recommended option to change.
+   * Values denormalised to user units (not [0,1] normalised space).
+   * Undefined when unavailable (ISL failure, no factor sensitivity data).
+   * Max 5 factors (top by |elasticity|).
+   *
+   * NOTE: Deterministic (no LLM). Excluded from response_hash as non-semantic.
+   */
+  flip_thresholds?: DenormalisedFlipThreshold[];
 
   // ---------------------------------------------------------------------------
   // M2 Decision Review Fields (LLM-generated review from CEE)

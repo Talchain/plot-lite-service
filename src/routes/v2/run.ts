@@ -72,7 +72,9 @@ import {
 import type { RobustnessDataForCee, NormalizedEdgeInfo } from '../../integrations/isl/types/plot-types.js';
 import { orchestrateCeeReview } from '../../cee/orchestrator.js';
 import { orchestrateDecisionReview, type DecisionReviewInput, type DecisionReviewConfig } from '../../cee/decision-review-orchestrator.js';
-import { createISLInferenceFn } from '../../analysis/flip-thresholds.js';
+import { createISLInferenceFn, resolveFlipValues } from '../../analysis/flip-thresholds.js';
+import { computeFlipThresholdData } from '../../coaching/flip-thresholds.js';
+import { denormaliseFlipThresholds, type DenormalisedFlipThreshold } from '../../lib/flip-threshold-denormaliser.js';
 import type { CeeReviewRequest, CeeTrace, FactorEnrichment } from '../../cee/types.js';
 import { factorReviewV2, type CEESchemaV2Config } from '../../cee/client.js';
 import { FLAGS } from '../../config/flags.js';
@@ -774,7 +776,8 @@ function buildResponse(
     review_meta?: { model?: string; latency_ms?: number; tokens?: number };
     review_failure_codes?: string[];
     review_skip_reason?: ReviewSkipReason;
-  }
+  },
+  flipThresholds?: DenormalisedFlipThreshold[]
 ): RunResponseV3 {
   // Map ISL results to response format
   // ISL V2 uses 'options' field; V1 uses 'results'. Check both for compatibility.
@@ -976,6 +979,10 @@ function buildResponse(
     // M1 Coaching (Phase 2 deterministic coaching layer)
     // NOTE: Deterministic (no LLM), but excluded from canonical hash as non-semantic metadata
     ...(m1Coaching && { m1_coaching: m1Coaching }),
+
+    // Flip thresholds (tipping points) for UI Results Panel
+    // NOTE: Deterministic (no LLM), excluded from canonical hash as non-semantic metadata
+    ...(flipThresholds && flipThresholds.length > 0 && { flip_thresholds: flipThresholds }),
 
     // M2 Decision Review (LLM-generated from CEE /assist/v1/decision-review)
     // NOTE: LLM-derived, non-deterministic. Excluded from canonical hash.
@@ -2472,6 +2479,83 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           // Continue without coaching (graceful degradation)
         }
 
+        // =================================================================
+        // Flip Threshold Computation (for UI Results Panel)
+        // Independent of DECISION_REVIEW_ENABLE — always computed when data available
+        // =================================================================
+        let resolvedFlipData: import('../../cee/validation/m1-review-types.js').FlipThresholdInputData[] | undefined;
+        let flipThresholds: DenormalisedFlipThreshold[] | undefined;
+
+        if (islSuccess && factorSensitivity && optionComparisonData && optionComparisonData.length >= 2) {
+          try {
+            // Step 1: Compute heuristic candidates (top 5 by |elasticity|)
+            const flipCandidates = computeFlipThresholdData(
+              factorSensitivity.map((f: any) => ({
+                factor_id: f.factor_id,
+                factor_label: f.factor_label,
+                elasticity: f.elasticity ?? f.sensitivity_score,
+                direction: f.direction,
+              })),
+              optionComparisonData.map((o: any) => ({
+                option_id: o.option_id ?? o.id,
+                option_label: o.option_label ?? o.label,
+                win_probability: o.win_probability ?? 0,
+                expected_outcome: o.expected_outcome,
+              })),
+              filteredGraph
+            );
+
+            if (flipCandidates.length > 0) {
+              // Step 2: Resolve exact flip values via ISL binary search
+              const winnerId = [...optionComparisonData]
+                .sort((a: any, b: any) => (b.win_probability ?? 0) - (a.win_probability ?? 0))[0]
+                ?.option_id ?? '';
+
+              if (winnerId) {
+                const flipInferenceFn = createISLInferenceFn(
+                  (endpoint, body, rid) => islService.callAnalysisEndpoint(endpoint, body, rid),
+                  islRequest,
+                  requestId
+                );
+
+                resolvedFlipData = await resolveFlipValues(
+                  flipCandidates,
+                  flipInferenceFn,
+                  winnerId
+                );
+
+                req.log.info({
+                  event: 'flip_thresholds_resolved',
+                  request_id: requestId,
+                  count: resolvedFlipData.length,
+                  factors: resolvedFlipData.map((f) => ({
+                    factor_id: f.factor_id,
+                    flip_reason: f.flip_reason,
+                    flip_value: f.flip_value,
+                    alternative_winner_id: f.alternative_winner_id,
+                  })),
+                });
+              } else {
+                resolvedFlipData = flipCandidates;
+              }
+
+              // Step 3: Denormalise to user units
+              flipThresholds = denormaliseFlipThresholds(
+                resolvedFlipData,
+                normalisationContext,
+                normalizedOptions
+              );
+            }
+          } catch (err) {
+            req.log.warn({
+              event: 'flip_thresholds_error',
+              request_id: requestId,
+              error: (err as Error).message,
+            });
+            // Continue without flip thresholds — non-blocking
+          }
+        }
+
         // M2 Decision Review (LLM-generated review from CEE)
         // Gate on DECISION_REVIEW_ENABLE flag; runs independently of legacy CEE
         let m2DecisionReview: {
@@ -2492,6 +2576,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               m1Coaching,
               responseHash: responseHash ?? requestId,
               requestId,
+              // Pass pre-resolved flip data so orchestrator skips redundant ISL calls
+              preResolvedFlipData: resolvedFlipData,
             };
 
             const ceeBaseUrl = process.env.CEE_BASE_URL?.trim() ?? '';
@@ -2504,20 +2590,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                 timeoutMs: 3000, // 3s independent timeout
               };
 
-              // Build ISL inference function for flip threshold binary search
-              const flipInferenceFn = islSuccess
-                ? createISLInferenceFn(
-                    (endpoint, body, rid) => islService.callAnalysisEndpoint(endpoint, body, rid),
-                    islRequest,
-                    requestId
-                  )
-                : undefined;
-
               const decisionReviewResult = await orchestrateDecisionReview(
                 decisionReviewInput,
                 decisionReviewConfig,
-                req.log,
-                flipInferenceFn
+                req.log
               );
 
               m2DecisionReview = {
@@ -2604,7 +2680,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           ceeOrchestrationResult.ceeTrace,
           enrichedSensitivityData,  // Pre-computed arrays + factor enrichments
           m1Coaching,  // M1 coaching (Phase 2)
-          m2DecisionReview  // M2 Decision Review (LLM-generated)
+          m2DecisionReview,  // M2 Decision Review (LLM-generated)
+          flipThresholds  // Flip thresholds (tipping points) for UI
         ));
       } catch (err) {
         const totalMs = performance.now() - startTime;
