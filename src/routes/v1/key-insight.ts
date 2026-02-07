@@ -35,7 +35,7 @@ import { VALID_NODE_KINDS } from '../../trust/types.js';
 import { MAX_NODES, MAX_EDGES } from '../../constants/limits.js';
 
 const DEFAULT_K_SAMPLES = 32;
-const CEE_TIMEOUT_MS = Number(process.env.CEE_TIMEOUT_MS || 10_000);
+import { CEE_TIMEOUT_MS } from '../../config/timeouts.js';
 
 /**
  * Patterns for classifying goal types

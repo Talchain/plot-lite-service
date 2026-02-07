@@ -15,13 +15,18 @@
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { randomUUID } from 'crypto';
+import {
+  CEE_PROXY_GRAPH_READINESS_TIMEOUT_MS,
+  CEE_PROXY_BIAS_CHECK_TIMEOUT_MS,
+  CEE_PROXY_SENSITIVITY_COACH_TIMEOUT_MS,
+} from '../../config/timeouts.js';
 
-// Timeout configurations per endpoint
+// Timeout configurations per endpoint — sourced from central config
 const TIMEOUTS = {
-  'graph-readiness': 30_000,
-  'bias-check': 60_000,
-  'sensitivity-coach': 60_000,
-} as const;
+  'graph-readiness': CEE_PROXY_GRAPH_READINESS_TIMEOUT_MS,
+  'bias-check': CEE_PROXY_BIAS_CHECK_TIMEOUT_MS,
+  'sensitivity-coach': CEE_PROXY_SENSITIVITY_COACH_TIMEOUT_MS,
+};
 
 type CeeEndpoint = keyof typeof TIMEOUTS;
 

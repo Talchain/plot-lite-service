@@ -1,6 +1,7 @@
 import { createServer } from './createServer.js';
 import { validateEnv } from './config-validator.js';
 import { loadFromFile } from './config/runtimeConfig.js';
+import { logResolvedTimeouts } from './config/timeouts.js';
 
 const PORT = Number(process.env.PORT || 4311);
 const HOST = '0.0.0.0';
@@ -11,6 +12,9 @@ let closing = false;
 async function start() {
   // Validate environment variables first (fail-fast)
   validateEnv();
+
+  // Log all resolved timeout values (single source of truth)
+  logResolvedTimeouts();
 
   // CEE config diagnostic - helps debug V2 path activation and timeout issues
   console.log('[STARTUP] CEE config:', {

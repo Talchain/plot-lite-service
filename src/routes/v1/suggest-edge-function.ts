@@ -19,7 +19,7 @@ import type {
 } from './types/proxy.types.js';
 import type { NodeKind } from '../../trust/types.js';
 
-const CEE_TIMEOUT_MS = Number(process.env.CEE_TIMEOUT_MS || 10_000);
+import { CEE_TIMEOUT_MS } from '../../config/timeouts.js';
 
 /**
  * Call CEE /assist/v1/suggest-edge-function endpoint

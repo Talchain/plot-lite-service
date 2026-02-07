@@ -19,7 +19,7 @@ import type {
   PolicyTreeNode,
 } from './types/proxy.types.js';
 
-const CEE_TIMEOUT_MS = Number(process.env.CEE_TIMEOUT_MS || 20_000);
+import { CEE_TIMEOUT_MS } from '../../config/timeouts.js';
 
 /**
  * Call CEE /assist/v1/explain-policy endpoint

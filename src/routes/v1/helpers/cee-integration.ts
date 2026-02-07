@@ -18,6 +18,7 @@ import {
 } from '../../../metrics/registry.js';
 import { CRITIQUE_CODES } from '../../../trust/critique-codes.js';
 import type { DetailLevelConfig } from '../../../trust/types.js';
+import { CEE_TIMEOUT_MS } from '../../../config/timeouts.js';
 
 export interface CeeIntegrationConfig {
   /** Idempotency key from request header */
@@ -136,7 +137,7 @@ export async function executeCeeIntegration(
           enable: ceeEnabled,
           baseUrl,
           apiKey,
-          timeoutMs: Number(process.env.CEE_TIMEOUT_MS ?? 10_000),
+          timeoutMs: CEE_TIMEOUT_MS,
         },
         evidence: context.evidence,
         enhanced: context.enhanced,

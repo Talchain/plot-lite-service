@@ -72,6 +72,7 @@ import {
 import type { RobustnessDataForCee, NormalizedEdgeInfo } from '../../integrations/isl/types/plot-types.js';
 import { orchestrateCeeReview } from '../../cee/orchestrator.js';
 import { orchestrateDecisionReview, type DecisionReviewInput, type DecisionReviewConfig } from '../../cee/decision-review-orchestrator.js';
+import { CEE_TIMEOUT_MS, CEE_DECISION_REVIEW_TIMEOUT_MS } from '../../config/timeouts.js';
 import { createISLInferenceFn, resolveFlipValues } from '../../analysis/flip-thresholds.js';
 import { computeFlipThresholdData } from '../../coaching/flip-thresholds.js';
 import { denormaliseFlipThresholds, type DenormalisedFlipThreshold } from '../../lib/flip-threshold-denormaliser.js';
@@ -1122,7 +1123,7 @@ function getCeeEnv(): { baseUrl?: string; apiKey?: string; timeoutMs?: number } 
   return {
     baseUrl: process.env.CEE_BASE_URL,
     apiKey: process.env.CEE_API_KEY,
-    timeoutMs: Number(process.env.CEE_TIMEOUT_MS ?? 60_000),
+    timeoutMs: CEE_TIMEOUT_MS,
   };
 }
 
@@ -2587,7 +2588,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               const decisionReviewConfig: DecisionReviewConfig = {
                 baseUrl: ceeBaseUrl,
                 apiKey: ceeApiKey,
-                timeoutMs: Number(process.env.CEE_DECISION_REVIEW_TIMEOUT_MS ?? 20000),
+                timeoutMs: CEE_DECISION_REVIEW_TIMEOUT_MS,
               };
 
               const decisionReviewResult = await orchestrateDecisionReview(

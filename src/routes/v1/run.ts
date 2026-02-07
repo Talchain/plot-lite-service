@@ -33,6 +33,7 @@ import { computeFullSensitivity } from '../../trust/sensitivity-full.js';
 import { calculateCalibratedConfidence, compareConfidence } from '../../trust/confidence-calibrated.js';
 import { getISLService, type PLoTValidationResult, type PLoTSensitivityResult, type PLoTFactorSensitivityResult, type ISLParameterUncertainty } from '../../integrations/isl/index.js';
 import { recordEngineComputeMs } from '../../metrics.js';
+import { CEE_TIMEOUT_MS } from '../../config/timeouts.js';
 import {
   recordCeeAttempted,
   recordCeeOk,
@@ -1339,7 +1340,7 @@ export async function registerRunRoute(app: FastifyInstance) {
         const ceeEnv: OrchestratorEnv = {
           baseUrl,
           apiKey,
-          timeoutMs: Number(process.env.CEE_TIMEOUT_MS ?? 60_000),
+          timeoutMs: CEE_TIMEOUT_MS,
         };
 
         // Build top_edge_drivers from ISL sensitivity if available

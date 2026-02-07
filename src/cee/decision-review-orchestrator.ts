@@ -22,6 +22,7 @@ import type { M1Review, DecisionReviewResult, FlipThresholdInputData } from './v
 import { safeParseM1Review } from './validation/m1-review-types.js';
 import { validateM1Review, buildValidationContext, capScenarioContexts } from './validation/m1-review-validator.js';
 import { buildDecisionReviewRequest, type ISLResultInput } from './decision-review-request.js';
+import { CEE_DECISION_REVIEW_TIMEOUT_MS } from '../config/timeouts.js';
 import { callDecisionReview, type CEESchemaV2Config } from './client.js';
 import {
   computeCacheKey,
@@ -410,7 +411,7 @@ function getCeeConfig(): DecisionReviewConfig | null {
   return {
     baseUrl,
     apiKey,
-    timeoutMs: Number(process.env.CEE_DECISION_REVIEW_TIMEOUT_MS ?? 20000),
+    timeoutMs: CEE_DECISION_REVIEW_TIMEOUT_MS,
   };
 }
 

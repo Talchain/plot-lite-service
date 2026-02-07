@@ -14,11 +14,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { replyWithAppError } from '../../errors.js';
 
-// CEE timeout: 120s to accommodate CEE's 45-70s processing time + network buffer
-// This is intentionally longer than the default CEE_TIMEOUT_MS (60s) used for
-// orchestrated calls, since this is a direct proxy where we want to wait for
-// the full CEE response.
-const CEE_DRAFT_GRAPH_TIMEOUT_MS = Number(process.env.CEE_DRAFT_GRAPH_TIMEOUT_MS || 120_000);
+import { CEE_DRAFT_GRAPH_TIMEOUT_MS } from '../../config/timeouts.js';
 
 interface CeeDraftGraphError {
   code: string;

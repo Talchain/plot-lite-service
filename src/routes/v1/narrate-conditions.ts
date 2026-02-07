@@ -17,7 +17,7 @@ import type {
   RecommendationCondition,
 } from './types/proxy.types.js';
 
-const CEE_TIMEOUT_MS = Number(process.env.CEE_TIMEOUT_MS || 15_000);
+import { CEE_TIMEOUT_MS } from '../../config/timeouts.js';
 const MAX_CONDITIONS = 20;
 
 /**

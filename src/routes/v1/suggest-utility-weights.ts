@@ -22,7 +22,7 @@ import type {
 import type { NodeKind } from '../../trust/types.js';
 import { MAX_NODES, MAX_EDGES } from '../../constants/limits.js';
 
-const CEE_TIMEOUT_MS = Number(process.env.CEE_TIMEOUT_MS || 10_000);
+import { CEE_TIMEOUT_MS } from '../../config/timeouts.js';
 
 /**
  * Call CEE /assist/v1/suggest-utility-weights endpoint

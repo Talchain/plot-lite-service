@@ -18,6 +18,11 @@ import { runDecisionReviewViaSdk, type EvidenceHelperItem } from './orchestrator
 import { isFlagOn } from './codes.js';
 import { computeOlumiHash } from '../util/canonical.js';
 import { recordDownstreamCall } from '../util/downstream-tracker.js';
+import {
+  CEE_TIMEOUT_MS as CENTRAL_CEE_TIMEOUT_MS,
+  CEE_DECISION_REVIEW_TIMEOUT_MS as CENTRAL_DECISION_REVIEW_TIMEOUT_MS,
+  CEE_DRAFT_GRAPH_TIMEOUT_MS as CENTRAL_DRAFT_GRAPH_TIMEOUT_MS,
+} from '../config/timeouts.js';
 
 /**
  * Sanitize request ID per M1 CEE Orchestrator spec v1.1
@@ -164,7 +169,7 @@ export async function callCEEWithSchemaV2<T>(
 ): Promise<CEESchemaV2Response<T>> {
   const baseUrl = config.baseUrl.replace(/\/$/, '');
   const url = `${baseUrl}${path}?schema=v2`;
-  const timeoutMs = config.timeoutMs ?? 30000;
+  const timeoutMs = config.timeoutMs ?? CENTRAL_CEE_TIMEOUT_MS;
   const startMs = Date.now();
 
   // Compute payload hash for downstream tracking
@@ -301,7 +306,7 @@ export async function draftGraphV2(
 ): Promise<CEESchemaV2Response<any>> {
   const draftConfig = {
     ...config,
-    timeoutMs: config.timeoutMs ?? Number(process.env.CEE_DRAFT_GRAPH_TIMEOUT_MS ?? 30000),
+    timeoutMs: config.timeoutMs ?? CENTRAL_DRAFT_GRAPH_TIMEOUT_MS,
   };
   return callCEEWithSchemaV2(
     draftConfig,
@@ -489,8 +494,8 @@ export async function factorReviewV2(
 // M2 Decision Review - CEE /assist/v1/decision-review
 // -----------------------------------------------------------------------------
 
-/** Default timeout for decision review (env-configurable via CEE_DECISION_REVIEW_TIMEOUT_MS) */
-const DECISION_REVIEW_TIMEOUT_MS = Number(process.env.CEE_DECISION_REVIEW_TIMEOUT_MS ?? 20000);
+/** Decision review timeout — sourced from central config */
+const DECISION_REVIEW_TIMEOUT_MS = CENTRAL_DECISION_REVIEW_TIMEOUT_MS;
 
 /**
  * M2 Decision review response from CEE.
@@ -797,8 +802,8 @@ export interface RunDecisionReviewOptions {
   logger?: FastifyBaseLogger;
 }
 
-// CEE timeout: 60s for staging integration testing (tighten for production later)
-const DEFAULT_TIMEOUT_MS = Number(process.env.CEE_TIMEOUT_MS || 60_000);
+/** Legacy review timeout — sourced from central config */
+const DEFAULT_TIMEOUT_MS = CENTRAL_CEE_TIMEOUT_MS;
 
 export async function runDecisionReview(opts: RunDecisionReviewOptions): Promise<CeeDecisionReviewResult> {
   const { context, requestId, logger } = opts;

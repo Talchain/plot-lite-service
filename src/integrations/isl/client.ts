@@ -11,6 +11,7 @@
 import { ISLHttpError, ISLTimeoutError, ISLNetworkError, isRetryableError, type ISLError422 } from './errors.js';
 import { computeOlumiHash } from '../../util/canonical.js';
 import { recordDownstreamCall, sanitizePayloadForDebug } from '../../util/downstream-tracker.js';
+import { ISL_TIMEOUT_MS, ISL_HEALTH_CHECK_TIMEOUT_MS } from '../../config/timeouts.js';
 
 /**
  * ISL client configuration
@@ -242,7 +243,7 @@ export class ISLClient {
   async healthCheck(): Promise<boolean> {
     try {
       const controller = new AbortController();
-      const healthCheckTimeout = this.config.healthCheckTimeoutMs ?? 5000;
+      const healthCheckTimeout = this.config.healthCheckTimeoutMs ?? ISL_HEALTH_CHECK_TIMEOUT_MS;
       const timeoutId = setTimeout(() => controller.abort(), healthCheckTimeout);
 
       const response = await fetch(`${this.config.baseUrl}/health`, {
@@ -294,13 +295,12 @@ export class ISLClient {
  * Get ISL client configuration from environment
  */
 export function getISLClientConfig(): ISLClientConfig {
-  const healthCheckTimeoutEnv = process.env.ISL_HEALTH_CHECK_TIMEOUT_MS;
   return {
     baseUrl: String(process.env.ISL_BASE_URL ?? '').trim(),
     apiKey: String(process.env.ISL_API_KEY ?? '').trim(),
-    timeoutMs: parseInt(process.env.ISL_REQUEST_TIMEOUT_MS ?? process.env.ISL_TIMEOUT_MS ?? '30000', 10),
+    timeoutMs: ISL_TIMEOUT_MS,
     maxRetries: parseInt(process.env.ISL_MAX_RETRIES ?? '3', 10),
-    healthCheckTimeoutMs: healthCheckTimeoutEnv ? parseInt(healthCheckTimeoutEnv, 10) : undefined,
+    healthCheckTimeoutMs: ISL_HEALTH_CHECK_TIMEOUT_MS,
   };
 }
 
