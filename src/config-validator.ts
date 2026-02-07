@@ -115,6 +115,25 @@ export function validateEnv(): void {
       errors.push(`Invalid RL_CB_HALF_OPEN_TIMEOUT_MS: ${process.env.RL_CB_HALF_OPEN_TIMEOUT_MS} (must be 1000-120000)`);
     }
   }
+  if (process.env.CEE_DECISION_REVIEW_TIMEOUT_MS) {
+    const timeout = Number(process.env.CEE_DECISION_REVIEW_TIMEOUT_MS);
+    if (isNaN(timeout) || timeout < 1000 || timeout > 300000) {
+      errors.push(`Invalid CEE_DECISION_REVIEW_TIMEOUT_MS: ${process.env.CEE_DECISION_REVIEW_TIMEOUT_MS} (must be 1000-300000)`);
+    }
+  }
+  // CEE proxy endpoint timeouts
+  for (const envVar of [
+    'CEE_PROXY_GRAPH_READINESS_TIMEOUT_MS',
+    'CEE_PROXY_BIAS_CHECK_TIMEOUT_MS',
+    'CEE_PROXY_SENSITIVITY_COACH_TIMEOUT_MS',
+  ]) {
+    if (process.env[envVar]) {
+      const timeout = Number(process.env[envVar]);
+      if (isNaN(timeout) || timeout < 1000 || timeout > 300000) {
+        errors.push(`Invalid ${envVar}: ${process.env[envVar]} (must be 1000-300000)`);
+      }
+    }
+  }
 
   // ISL_MAX_RETRIES validation
   if (process.env.ISL_MAX_RETRIES) {

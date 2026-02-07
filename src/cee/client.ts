@@ -521,7 +521,7 @@ export interface M2DecisionReviewResult {
  * deterministic M1 coaching data and ISL results.
  *
  * Contract:
- * - 120s hard timeout (premium LLM call)
+ * - Timeout from CEE_DECISION_REVIEW_TIMEOUT_MS (default 20s, see config/timeouts.ts)
  * - On error/timeout: returns { review: null, error: {...} }
  * - Does not throw exceptions
  * - Logs errors for observability
