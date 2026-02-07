@@ -236,6 +236,59 @@ export function buildParameterUncertaintiesV3(
     }
   }
 
+  // Second pass: external factors with prior distribution
+  for (const node of nodes) {
+    // Skip if already processed via observed_state (observed_state takes precedence)
+    if (node.kind === 'factor' && node.observed_state?.value !== undefined) continue;
+
+    if (node.kind === 'factor' && node.category === 'external' && node.prior) {
+      // Only "uniform" distribution supported for now
+      if (node.prior.distribution !== 'uniform') {
+        console.warn(
+          `[PARAMETER_UNCERTAINTY] node_id=${node.id} unsupported prior distribution '${node.prior.distribution}', skipping`
+        );
+        continue;
+      }
+
+      let rangeMin = node.prior.range_min;
+      let rangeMax = node.prior.range_max;
+
+      // Validate range_min and range_max are finite numbers
+      if (typeof rangeMin !== 'number' || !Number.isFinite(rangeMin) ||
+          typeof rangeMax !== 'number' || !Number.isFinite(rangeMax)) {
+        console.warn(
+          `[PARAMETER_UNCERTAINTY] node_id=${node.id} prior has non-finite range values, skipping`
+        );
+        continue;
+      }
+
+      // Swap if range_min > range_max
+      if (rangeMin > rangeMax) {
+        console.warn(
+          `[PARAMETER_UNCERTAINTY] node_id=${node.id} prior range_min (${rangeMin}) > range_max (${rangeMax}), swapping`
+        );
+        [rangeMin, rangeMax] = [rangeMax, rangeMin];
+      }
+
+      // Convert uniform prior to normal parameters
+      let mean = (rangeMin + rangeMax) / 2;
+      let std = (rangeMax - rangeMin) / Math.sqrt(12);
+
+      // Clamp mean to [0, 1]
+      mean = Math.max(0, Math.min(1, mean));
+
+      // Floor std at 0.01
+      std = Math.max(0.01, std);
+
+      uncertainties.push({
+        node_id: node.id,
+        distribution: 'normal',
+        mean,
+        std,
+      });
+    }
+  }
+
   return uncertainties.length > 0 ? uncertainties : undefined;
 }
 

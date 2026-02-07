@@ -13,8 +13,9 @@ import {
   buildValidationContext,
   extractNumbers,
   isGroundedNumber,
+  capScenarioContexts,
 } from '../../../src/cee/validation/m1-review-validator.js';
-import { M1ReviewFailureCodes } from '../../../src/cee/validation/m1-review-constants.js';
+import { M1ReviewFailureCodes, M1_REVIEW_LIMITS } from '../../../src/cee/validation/m1-review-constants.js';
 import {
   BASE_BRIEF,
   BASE_ISL_RESULTS,
@@ -38,6 +39,7 @@ import {
   INVALID_MODIFIED_FLIP_VALUES,
   INVALID_STRUCTURAL_LIMITS,
   INVALID_PROMPT_STRUCTURE,
+  REVIEW_WITH_EXCESS_SCENARIO_CONTEXTS,
   buildTestRequest,
   buildNeedsEvidenceRequest,
   buildSingleOptionRequest,
@@ -655,5 +657,140 @@ describe('buildValidationContext()', () => {
 
     expect(context.briefText).toContain('Option A');
     expect(context.briefText).toContain('77%');
+  });
+});
+
+// =============================================================================
+// capScenarioContexts() Tests
+// =============================================================================
+
+describe('capScenarioContexts()', () => {
+  const fragileEdges = [
+    { edge_id: 'edge-3', switch_probability: 0.12 },
+    { edge_id: 'edge-4', switch_probability: 0.05 },
+    { edge_id: 'edge-extra-1', switch_probability: 0.03 },
+    { edge_id: 'edge-extra-2', switch_probability: 0.02 },
+    { edge_id: 'edge-extra-3', switch_probability: 0.01 },
+  ];
+
+  it('returns review unchanged when scenario_contexts is undefined', () => {
+    const review = { ...VALID_READY_REVIEW, scenario_contexts: undefined };
+    const result = capScenarioContexts(review, fragileEdges);
+
+    expect(result.truncated).toBe(false);
+    expect(result.removedKeys).toHaveLength(0);
+    expect(result.warning).toBe('');
+    expect(result.review.scenario_contexts).toBeUndefined();
+  });
+
+  it('returns review unchanged when at or below limit', () => {
+    const result = capScenarioContexts(VALID_READY_REVIEW, fragileEdges);
+
+    expect(result.truncated).toBe(false);
+    expect(result.removedKeys).toHaveLength(0);
+    expect(result.review).toBe(VALID_READY_REVIEW); // Same reference = no copy
+  });
+
+  it('truncates to MAX_SCENARIO_CONTEXTS when exceeded', () => {
+    const result = capScenarioContexts(REVIEW_WITH_EXCESS_SCENARIO_CONTEXTS, fragileEdges);
+
+    expect(result.truncated).toBe(true);
+    const keptKeys = Object.keys(result.review.scenario_contexts!);
+    expect(keptKeys).toHaveLength(M1_REVIEW_LIMITS.MAX_SCENARIO_CONTEXTS);
+  });
+
+  it('keeps highest switch_probability edges (relevance ranking)', () => {
+    const result = capScenarioContexts(REVIEW_WITH_EXCESS_SCENARIO_CONTEXTS, fragileEdges);
+
+    const keptKeys = Object.keys(result.review.scenario_contexts!);
+    // edge-3 (0.12), edge-4 (0.05), edge-extra-1 (0.03) should be kept
+    expect(keptKeys).toContain('edge-3');
+    expect(keptKeys).toContain('edge-4');
+    expect(keptKeys).toContain('edge-extra-1');
+  });
+
+  it('removes lowest switch_probability edges', () => {
+    const result = capScenarioContexts(REVIEW_WITH_EXCESS_SCENARIO_CONTEXTS, fragileEdges);
+
+    // edge-extra-2 (0.02) and edge-extra-3 (0.01) should be removed
+    expect(result.removedKeys).toContain('edge-extra-2');
+    expect(result.removedKeys).toContain('edge-extra-3');
+    expect(result.removedKeys).toHaveLength(2);
+  });
+
+  it('emits warning with removed keys and counts', () => {
+    const result = capScenarioContexts(REVIEW_WITH_EXCESS_SCENARIO_CONTEXTS, fragileEdges);
+
+    expect(result.warning).toContain('capped at 3');
+    expect(result.warning).toContain('had 5');
+    expect(result.warning).toContain('edge-extra-2');
+    expect(result.warning).toContain('edge-extra-3');
+  });
+
+  it('falls back to insertion order when no fragile edge data', () => {
+    const result = capScenarioContexts(REVIEW_WITH_EXCESS_SCENARIO_CONTEXTS, []);
+
+    expect(result.truncated).toBe(true);
+    const keptKeys = Object.keys(result.review.scenario_contexts!);
+    expect(keptKeys).toHaveLength(M1_REVIEW_LIMITS.MAX_SCENARIO_CONTEXTS);
+    expect(result.removedKeys).toHaveLength(2);
+    // Insertion order preserved: first 3 keys kept
+    expect(keptKeys).toEqual(['edge-3', 'edge-4', 'edge-extra-1']);
+  });
+
+  it('ranks known edges by switch_probability and demotes unknown edges', () => {
+    // Only 2 of 5 edges have fragile edge data — the 3 without data should
+    // sort after the 2 with data, and among themselves keep insertion order.
+    const partialEdges = [
+      { edge_id: 'edge-extra-2', switch_probability: 0.20 },
+      { edge_id: 'edge-3', switch_probability: 0.12 },
+    ];
+    const result = capScenarioContexts(REVIEW_WITH_EXCESS_SCENARIO_CONTEXTS, partialEdges);
+
+    expect(result.truncated).toBe(true);
+    const keptKeys = Object.keys(result.review.scenario_contexts!);
+    // edge-extra-2 (0.20) and edge-3 (0.12) ranked first by probability,
+    // then edge-4 is first among the no-data group by insertion order
+    expect(keptKeys).toEqual(['edge-extra-2', 'edge-3', 'edge-4']);
+    expect(result.removedKeys).toContain('edge-extra-1');
+    expect(result.removedKeys).toContain('edge-extra-3');
+  });
+
+  it('does not mutate original review', () => {
+    const original = { ...REVIEW_WITH_EXCESS_SCENARIO_CONTEXTS };
+    const originalKeys = Object.keys(original.scenario_contexts!);
+    capScenarioContexts(REVIEW_WITH_EXCESS_SCENARIO_CONTEXTS, fragileEdges);
+
+    expect(Object.keys(REVIEW_WITH_EXCESS_SCENARIO_CONTEXTS.scenario_contexts!)).toEqual(originalKeys);
+  });
+});
+
+// =============================================================================
+// Tier 8: scenario_contexts limit (defensive)
+// =============================================================================
+
+describe('Tier 8: scenario_contexts structural limit', () => {
+  it('fails with STRUCTURAL_LIMIT_EXCEEDED when scenario_contexts exceeds cap (uncapped input)', () => {
+    const context = buildTestContext();
+    // Pass the excess review directly to the validator (bypassing cap step)
+    const result = validateM1Review(REVIEW_WITH_EXCESS_SCENARIO_CONTEXTS, context);
+
+    expect(result.valid).toBe(false);
+    expect(result.failure_codes).toContain(M1ReviewFailureCodes.STRUCTURAL_LIMIT_EXCEEDED);
+    const scError = result.errors.find(e => e.field === 'scenario_contexts');
+    expect(scError).toBeDefined();
+    expect(scError!.message).toContain('scenario_contexts exceeds limit');
+  });
+
+  it('passes when scenario_contexts is at limit after capping', () => {
+    const fragileEdges = [
+      { edge_id: 'edge-3', switch_probability: 0.12 },
+      { edge_id: 'edge-4', switch_probability: 0.05 },
+    ];
+    const { review: capped } = capScenarioContexts(REVIEW_WITH_EXCESS_SCENARIO_CONTEXTS, fragileEdges);
+    const context = buildTestContext();
+    const result = validateM1Review(capped, context);
+
+    expect(result.failure_codes).not.toContain(M1ReviewFailureCodes.STRUCTURAL_LIMIT_EXCEEDED);
   });
 });

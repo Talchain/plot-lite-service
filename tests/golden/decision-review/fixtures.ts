@@ -421,6 +421,36 @@ export const INVALID_PROMPT_STRUCTURE: M1Review = {
   ],
 };
 
+/**
+ * Review with too many scenario contexts (5 > limit of 3).
+ * Used to test capScenarioContexts() truncation.
+ */
+export const REVIEW_WITH_EXCESS_SCENARIO_CONTEXTS: M1Review = {
+  ...VALID_READY_REVIEW,
+  scenario_contexts: {
+    'edge-3': {
+      trigger_description: 'If confidence drops below 70%, the recommendation may flip.',
+      consequence: 'Option B becomes competitive if conditions deteriorate.',
+    },
+    'edge-4': {
+      trigger_description: 'If pricing assumptions change significantly.',
+      consequence: 'Option A loses its pricing advantage.',
+    },
+    'edge-extra-1': {
+      trigger_description: 'If a new competitor enters the market.',
+      consequence: 'Option B might become more viable.',
+    },
+    'edge-extra-2': {
+      trigger_description: 'If regulatory changes occur.',
+      consequence: 'Option A faces new constraints.',
+    },
+    'edge-extra-3': {
+      trigger_description: 'If supply chain disruptions happen.',
+      consequence: 'Option B supply chain is more resilient.',
+    },
+  },
+};
+
 // =============================================================================
 // Request Builders
 // =============================================================================

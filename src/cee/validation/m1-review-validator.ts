@@ -21,6 +21,7 @@
 import type { M1Review, FlipThresholdInputData } from './m1-review-types.js';
 import {
   M1ReviewFailureCodes,
+  M1ReviewWarningCodes,
   M1_REVIEW_LIMITS,
   M1_REVIEW_GROUNDING_MAP,
   READINESS_RULES,
@@ -600,6 +601,14 @@ function validateStructuralLimits(
       message: `fragility_factors exceeds limit: ${review.robustness_explanation.fragility_factors.length} > ${M1_REVIEW_LIMITS.MAX_FRAGILITY_FACTORS}`,
     });
   }
+
+  if (review.scenario_contexts && Object.keys(review.scenario_contexts).length > M1_REVIEW_LIMITS.MAX_SCENARIO_CONTEXTS) {
+    errors.push({
+      field: 'scenario_contexts',
+      code: M1ReviewFailureCodes.STRUCTURAL_LIMIT_EXCEEDED,
+      message: `scenario_contexts exceeds limit: ${Object.keys(review.scenario_contexts).length} > ${M1_REVIEW_LIMITS.MAX_SCENARIO_CONTEXTS}`,
+    });
+  }
 }
 
 // =============================================================================
@@ -643,6 +652,81 @@ function validateDecisionQualityPrompts(
       });
     }
   }
+}
+
+// =============================================================================
+// Scenario Context Cap (pre-validation corrective step)
+// =============================================================================
+
+/**
+ * Result of capping scenario_contexts.
+ */
+export interface ScenarioContextCapResult {
+  /** Review with scenario_contexts truncated to MAX_SCENARIO_CONTEXTS */
+  review: M1Review;
+  /** Whether truncation occurred */
+  truncated: boolean;
+  /** Edge IDs that were removed */
+  removedKeys: string[];
+  /** Warning message (empty string if no truncation) */
+  warning: string;
+}
+
+/**
+ * Cap scenario_contexts at MAX_SCENARIO_CONTEXTS.
+ *
+ * Truncates by relevance when fragile edge data is available (higher
+ * switch_probability = more relevant, kept first). Falls back to
+ * insertion order when probabilities are unavailable.
+ *
+ * @param review Parsed M1Review (not mutated)
+ * @param fragileEdges Fragile edge data with switch probabilities for relevance ranking
+ * @returns Capped review + diagnostic info
+ */
+export function capScenarioContexts(
+  review: M1Review,
+  fragileEdges: Array<{ edge_id: string; switch_probability: number }> = []
+): ScenarioContextCapResult {
+  if (!review.scenario_contexts) {
+    return { review, truncated: false, removedKeys: [], warning: '' };
+  }
+
+  const entries = Object.entries(review.scenario_contexts);
+  const limit = M1_REVIEW_LIMITS.MAX_SCENARIO_CONTEXTS;
+
+  if (entries.length <= limit) {
+    return { review, truncated: false, removedKeys: [], warning: '' };
+  }
+
+  // Build switch_probability lookup for relevance ranking
+  const switchProbMap = new Map(
+    fragileEdges.map((e) => [e.edge_id, e.switch_probability])
+  );
+
+  // Sort by switch_probability descending (most fragile = most relevant)
+  const sorted = [...entries].sort(([a], [b]) => {
+    const probA = switchProbMap.get(a) ?? -1;
+    const probB = switchProbMap.get(b) ?? -1;
+    return probB - probA;
+  });
+
+  const kept = sorted.slice(0, limit);
+  const removed = sorted.slice(limit);
+  const removedKeys = removed.map(([key]) => key);
+
+  const warning =
+    `scenario_contexts capped at ${limit}: removed ${removedKeys.join(', ')}` +
+    ` (had ${entries.length}, limit ${limit})`;
+
+  return {
+    review: {
+      ...review,
+      scenario_contexts: Object.fromEntries(kept),
+    },
+    truncated: true,
+    removedKeys,
+    warning,
+  };
 }
 
 // =============================================================================

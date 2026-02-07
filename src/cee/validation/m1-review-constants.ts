@@ -49,6 +49,15 @@ export const M1ReviewFailureCodes = {
 export type M1ReviewFailureCode = typeof M1ReviewFailureCodes[keyof typeof M1ReviewFailureCodes];
 
 // =============================================================================
+// Warning Codes (non-blocking diagnostics)
+// =============================================================================
+
+export const M1ReviewWarningCodes = {
+  /** scenario_contexts exceeded MAX_SCENARIO_CONTEXTS and was truncated */
+  SCENARIO_CONTEXTS_CAPPED: 'SCENARIO_CONTEXTS_CAPPED',
+} as const;
+
+// =============================================================================
 // Structural Limits (used by validator Tier 8)
 // =============================================================================
 
@@ -65,6 +74,8 @@ export const M1_REVIEW_LIMITS = {
   MAX_STABILITY_FACTORS: 3,
   /** Maximum number of fragility factors allowed */
   MAX_FRAGILITY_FACTORS: 3,
+  /** Maximum number of scenario contexts allowed */
+  MAX_SCENARIO_CONTEXTS: 3,
 } as const;
 
 // =============================================================================

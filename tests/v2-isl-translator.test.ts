@@ -8,8 +8,9 @@ import {
   toISLRobustnessRequest,
   validateISLRequest,
   toISLEdge,
+  buildParameterUncertaintiesV3,
 } from '../src/integrations/isl/translator-v3.js';
-import type { EngineGraphV3, OptionV3 } from '../src/types/engine-v3.js';
+import type { EngineGraphV3, EngineNodeV3, OptionV3 } from '../src/types/engine-v3.js';
 
 describe('ISL Translator V3', () => {
   describe('toISLInterventions', () => {
@@ -279,6 +280,216 @@ describe('ISL Translator V3', () => {
       const result = toISLEdge(edge);
 
       expect(result.exists_probability).toBe(1.0);
+    });
+  });
+
+  describe('buildParameterUncertaintiesV3 - external factor priors', () => {
+    it('external factor with prior [0.0, 1.0] → mean=0.5, std≈0.289', () => {
+      const nodes: EngineNodeV3[] = [
+        {
+          id: 'ext-factor',
+          kind: 'factor',
+          label: 'External Factor',
+          category: 'external',
+          prior: { distribution: 'uniform', range_min: 0.0, range_max: 1.0 },
+        },
+      ];
+
+      const result = buildParameterUncertaintiesV3(nodes)!;
+
+      expect(result).toHaveLength(1);
+      expect(result[0].node_id).toBe('ext-factor');
+      expect(result[0].distribution).toBe('normal');
+      expect(result[0].mean).toBeCloseTo(0.5, 5);
+      expect(result[0].std).toBeCloseTo(1.0 / Math.sqrt(12), 3); // ≈0.289
+    });
+
+    it('external factor with prior [0.6, 1.0] → mean=0.8, std≈0.115', () => {
+      const nodes: EngineNodeV3[] = [
+        {
+          id: 'ext-factor',
+          kind: 'factor',
+          label: 'External Factor',
+          category: 'external',
+          prior: { distribution: 'uniform', range_min: 0.6, range_max: 1.0 },
+        },
+      ];
+
+      const result = buildParameterUncertaintiesV3(nodes)!;
+
+      expect(result).toHaveLength(1);
+      expect(result[0].mean).toBeCloseTo(0.8, 5);
+      expect(result[0].std).toBeCloseTo(0.4 / Math.sqrt(12), 3); // ≈0.115
+    });
+
+    it('external factor with prior [0.3, 0.7] → mean=0.5, std≈0.115', () => {
+      const nodes: EngineNodeV3[] = [
+        {
+          id: 'ext-factor',
+          kind: 'factor',
+          label: 'External Factor',
+          category: 'external',
+          prior: { distribution: 'uniform', range_min: 0.3, range_max: 0.7 },
+        },
+      ];
+
+      const result = buildParameterUncertaintiesV3(nodes)!;
+
+      expect(result).toHaveLength(1);
+      expect(result[0].mean).toBeCloseTo(0.5, 5);
+      expect(result[0].std).toBeCloseTo(0.4 / Math.sqrt(12), 3); // ≈0.115
+    });
+
+    it('external factor without prior → no parameter_uncertainties entry', () => {
+      const nodes: EngineNodeV3[] = [
+        {
+          id: 'ext-factor',
+          kind: 'factor',
+          label: 'External Factor',
+          category: 'external',
+        },
+      ];
+
+      const result = buildParameterUncertaintiesV3(nodes);
+
+      expect(result).toBeUndefined();
+    });
+
+    it('range_min === range_max → mean=value, std=0.01 (floor)', () => {
+      const nodes: EngineNodeV3[] = [
+        {
+          id: 'ext-factor',
+          kind: 'factor',
+          label: 'External Factor',
+          category: 'external',
+          prior: { distribution: 'uniform', range_min: 0.5, range_max: 0.5 },
+        },
+      ];
+
+      const result = buildParameterUncertaintiesV3(nodes)!;
+
+      expect(result).toHaveLength(1);
+      expect(result[0].mean).toBeCloseTo(0.5, 5);
+      expect(result[0].std).toBe(0.01);
+    });
+
+    it('range_min > range_max → swapped, correct mean/std', () => {
+      const nodes: EngineNodeV3[] = [
+        {
+          id: 'ext-factor',
+          kind: 'factor',
+          label: 'External Factor',
+          category: 'external',
+          prior: { distribution: 'uniform', range_min: 0.9, range_max: 0.3 },
+        },
+      ];
+
+      const result = buildParameterUncertaintiesV3(nodes)!;
+
+      expect(result).toHaveLength(1);
+      // After swap: range_min=0.3, range_max=0.9
+      expect(result[0].mean).toBeCloseTo(0.6, 5);
+      expect(result[0].std).toBeCloseTo(0.6 / Math.sqrt(12), 3);
+    });
+
+    it('mixed graph: controllable + observable + external with prior', () => {
+      const nodes: EngineNodeV3[] = [
+        {
+          id: 'controllable-f',
+          kind: 'factor',
+          label: 'Controllable',
+          category: 'controllable',
+          observed_state: { value: 0.7 },
+        },
+        {
+          id: 'observable-f',
+          kind: 'factor',
+          label: 'Observable',
+          category: 'observable',
+          observed_state: { value: 0.4 },
+        },
+        {
+          id: 'external-f',
+          kind: 'factor',
+          label: 'External',
+          category: 'external',
+          prior: { distribution: 'uniform', range_min: 0.2, range_max: 0.8 },
+        },
+        { id: 'goal', kind: 'goal', label: 'Goal' },
+      ];
+
+      const result = buildParameterUncertaintiesV3(nodes)!;
+
+      // All three factor types should produce entries
+      expect(result).toHaveLength(3);
+
+      const controllable = result.find(u => u.node_id === 'controllable-f');
+      const observable = result.find(u => u.node_id === 'observable-f');
+      const external = result.find(u => u.node_id === 'external-f');
+
+      expect(controllable).toBeDefined();
+      expect(controllable!.mean).toBe(0.7);
+
+      expect(observable).toBeDefined();
+      expect(observable!.mean).toBe(0.4);
+
+      expect(external).toBeDefined();
+      expect(external!.mean).toBeCloseTo(0.5, 5);
+      expect(external!.std).toBeCloseTo(0.6 / Math.sqrt(12), 3);
+    });
+
+    it('external factor with observed_state AND prior → observed_state takes precedence', () => {
+      const nodes: EngineNodeV3[] = [
+        {
+          id: 'ext-factor',
+          kind: 'factor',
+          label: 'External Factor',
+          category: 'external',
+          observed_state: { value: 0.9 },
+          prior: { distribution: 'uniform', range_min: 0.0, range_max: 1.0 },
+        },
+      ];
+
+      const result = buildParameterUncertaintiesV3(nodes)!;
+
+      expect(result).toHaveLength(1);
+      // Should use observed_state value, not prior
+      expect(result[0].mean).toBe(0.9);
+    });
+
+    it('unsupported distribution → skipped with no entry', () => {
+      const nodes: EngineNodeV3[] = [
+        {
+          id: 'ext-factor',
+          kind: 'factor',
+          label: 'External Factor',
+          category: 'external',
+          prior: { distribution: 'beta', range_min: 0.3, range_max: 0.9 },
+        },
+      ];
+
+      const result = buildParameterUncertaintiesV3(nodes);
+
+      expect(result).toBeUndefined();
+    });
+
+    it('mean is clamped to [0, 1] for out-of-range priors', () => {
+      const nodes: EngineNodeV3[] = [
+        {
+          id: 'ext-factor',
+          kind: 'factor',
+          label: 'External Factor',
+          category: 'external',
+          prior: { distribution: 'uniform', range_min: -0.5, range_max: 0.3 },
+        },
+      ];
+
+      const result = buildParameterUncertaintiesV3(nodes)!;
+
+      expect(result).toHaveLength(1);
+      // mean = (-0.5 + 0.3) / 2 = -0.1 → clamped to 0
+      expect(result[0].mean).toBe(0);
+      expect(result[0].std).toBeCloseTo(0.8 / Math.sqrt(12), 3);
     });
   });
 });

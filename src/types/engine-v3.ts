@@ -75,6 +75,12 @@ export interface UpstreamNode {
   };
   /** Factor category for M1 coaching classification */
   category?: 'controllable' | 'observable' | 'external';
+  /** External factor prior distribution from CEE */
+  prior?: {
+    distribution: string;
+    range_min: number;
+    range_max: number;
+  };
   data?: {
     // React Flow nesting
     kind?: string;
@@ -173,6 +179,12 @@ export interface EngineNodeV3 {
   };
   /** Factor category for M1 coaching classification */
   category?: 'controllable' | 'observable' | 'external';
+  /** External factor prior distribution from CEE */
+  prior?: {
+    distribution: string;
+    range_min: number;
+    range_max: number;
+  };
 }
 
 /**

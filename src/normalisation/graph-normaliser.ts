@@ -305,6 +305,7 @@ export function normaliseNode(
     observed_state: observedState,
     state_space: stateSpace,
     category,
+    prior: node.prior,
   };
 }
 

@@ -20,7 +20,7 @@ import type { EngineGraphV3, OptionV3 } from '../types/engine-v3.js';
 import type { M1Coaching } from '../coaching/types.js';
 import type { M1Review, DecisionReviewResult, FlipThresholdInputData } from './validation/m1-review-types.js';
 import { safeParseM1Review } from './validation/m1-review-types.js';
-import { validateM1Review, buildValidationContext } from './validation/m1-review-validator.js';
+import { validateM1Review, buildValidationContext, capScenarioContexts } from './validation/m1-review-validator.js';
 import { buildDecisionReviewRequest, type ISLResultInput } from './decision-review-request.js';
 import { callDecisionReview, type CEESchemaV2Config } from './client.js';
 import {
@@ -28,7 +28,7 @@ import {
   getCachedReview,
   setCachedReview,
 } from './validation/review-cache.js';
-import { DecisionReviewEvents, M1ReviewFailureCodes, ReviewSkipReasons } from './validation/m1-review-constants.js';
+import { DecisionReviewEvents, M1ReviewFailureCodes, M1ReviewWarningCodes, ReviewSkipReasons } from './validation/m1-review-constants.js';
 import { correctUngroundedNumbers, type IslResultsForCorrection } from './validation/number-corrector.js';
 import { resolveFlipValues, type ISLInferenceFn } from '../analysis/flip-thresholds.js';
 
@@ -237,7 +237,7 @@ export async function orchestrateDecisionReview(
 
   // Run deterministic number correction BEFORE validation
   const islResultsForCorrection = buildIslResultsForCorrection(input.islResult);
-  const { corrected: review, corrections } = correctUngroundedNumbers(
+  const { corrected: numberCorrectedReview, corrections } = correctUngroundedNumbers(
     parsedReview,
     islResultsForCorrection,
     request.winner.id,
@@ -251,6 +251,24 @@ export async function orchestrateDecisionReview(
       request_id: input.requestId,
       count: corrections.length,
       corrections,
+    });
+  }
+
+  // Cap scenario_contexts at MAX_SCENARIO_CONTEXTS (truncate by relevance)
+  const collectWarnings: string[] = [];
+  const capResult = capScenarioContexts(
+    numberCorrectedReview,
+    request.isl_results.fragile_edges
+  );
+  const review = capResult.review;
+
+  if (capResult.truncated) {
+    collectWarnings.push(M1ReviewWarningCodes.SCENARIO_CONTEXTS_CAPPED);
+    logger?.warn({
+      event: 'SCENARIO_CONTEXTS_CAPPED',
+      request_id: input.requestId,
+      removed_keys: capResult.removedKeys,
+      detail: capResult.warning,
     });
   }
 
@@ -277,12 +295,13 @@ export async function orchestrateDecisionReview(
       // Downgrade to warning - review is still usable
       setCachedReview(cacheKey, review, ceeResult.meta);
 
+      const mergedWarnings = [...new Set([...failureCodes, ...collectWarnings])];
       const latencyMs = Date.now() - startMs;
       logger?.info({
         event: DecisionReviewEvents.COMPLETED,
         request_id: input.requestId,
         review_status: 'complete',
-        review_warnings: failureCodes,
+        review_warnings: mergedWarnings,
         model: ceeResult.meta.model,
         tokens: ceeResult.meta.tokens,
         latency_ms: latencyMs,
@@ -291,7 +310,7 @@ export async function orchestrateDecisionReview(
       return {
         m1_review: review,
         review_status: 'complete',
-        review_warnings: failureCodes,
+        review_warnings: mergedWarnings,
         review_meta: {
           model: ceeResult.meta.model,
           latency_ms: ceeResult.meta.latency_ms,
@@ -331,6 +350,7 @@ export async function orchestrateDecisionReview(
     event: DecisionReviewEvents.COMPLETED,
     request_id: input.requestId,
     review_status: 'complete',
+    ...(collectWarnings.length > 0 && { review_warnings: collectWarnings }),
     model: ceeResult.meta.model,
     tokens: ceeResult.meta.tokens,
     latency_ms: latencyMs,
@@ -339,6 +359,7 @@ export async function orchestrateDecisionReview(
   return {
     m1_review: review,
     review_status: 'complete',
+    ...(collectWarnings.length > 0 && { review_warnings: collectWarnings }),
     review_meta: {
       model: ceeResult.meta.model,
       latency_ms: ceeResult.meta.latency_ms,
