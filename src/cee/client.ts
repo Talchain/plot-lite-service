@@ -17,7 +17,7 @@ import type {
 import { runDecisionReviewViaSdk, type EvidenceHelperItem } from './orchestrator.js';
 import { isFlagOn } from './codes.js';
 import { computeOlumiHash } from '../util/canonical.js';
-import { recordDownstreamCall } from '../util/downstream-tracker.js';
+import { recordDownstreamCall, sanitizePayloadForDebug } from '../util/downstream-tracker.js';
 import {
   CEE_TIMEOUT_MS as CENTRAL_CEE_TIMEOUT_MS,
   CEE_DECISION_REVIEW_TIMEOUT_MS as CENTRAL_DECISION_REVIEW_TIMEOUT_MS,
@@ -564,7 +564,9 @@ export async function callDecisionReview(
       const errorText = await response.text().catch(() => 'Unknown error');
       const errorBody = errorText.slice(0, 1000);
 
-      // Record failed downstream call with error body
+      // Record failed downstream call with payloads for debug
+      let errorPayload: unknown;
+      try { errorPayload = JSON.parse(errorText); } catch { errorPayload = errorText; }
       recordDownstreamCall({
         service: 'cee',
         endpoint: path,
@@ -573,6 +575,8 @@ export async function callDecisionReview(
         payloadHash,
         requestId,
         errorBody,
+        requestPayload: sanitizePayloadForDebug(request),
+        responsePayload: sanitizePayloadForDebug(errorPayload),
       });
 
       console.warn(JSON.stringify({
@@ -596,7 +600,7 @@ export async function callDecisionReview(
     const data = await response.json() as { review?: unknown; _meta?: { model?: string; latency_ms?: number; tokens?: number } };
     const responseHash = computeOlumiHash(data);
 
-    // Record successful downstream call
+    // Record successful downstream call with full payloads for debug
     recordDownstreamCall({
       service: 'cee',
       endpoint: path,
@@ -605,6 +609,8 @@ export async function callDecisionReview(
       payloadHash,
       responseHash,
       requestId,
+      requestPayload: sanitizePayloadForDebug(request),
+      responsePayload: sanitizePayloadForDebug(data),
     });
 
     console.log(JSON.stringify({
@@ -628,7 +634,7 @@ export async function callDecisionReview(
     const errorMsg = error instanceof Error ? error.message : String(error);
     const isTimeout = errorMsg.includes('timeout') || errorMsg.includes('Timeout') || errorMsg.includes('AbortError');
 
-    // Record failed downstream call (network/timeout)
+    // Record failed downstream call (network/timeout) with request payload for debug
     recordDownstreamCall({
       service: 'cee',
       endpoint: path,
@@ -636,6 +642,7 @@ export async function callDecisionReview(
       elapsedMs: latencyMs,
       payloadHash: '-',
       requestId,
+      requestPayload: sanitizePayloadForDebug(request),
     });
 
     console.warn(JSON.stringify({
