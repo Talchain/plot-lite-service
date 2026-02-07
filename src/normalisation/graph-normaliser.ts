@@ -296,6 +296,42 @@ export function normaliseNode(
   const cleanedLabel = cleanLabelAnnotation(rawLabel);
   const finalLabel = cleanedLabel || node.id; // Fallback to ID if cleaning produces empty string
 
+  // Validate and pass through prior field (for external factor priors from CEE)
+  let prior: EngineNodeV3['prior'] | undefined;
+  if (node.prior !== undefined) {
+    const p = node.prior;
+    if (
+      typeof p === 'object' && p !== null &&
+      typeof p.distribution === 'string' &&
+      typeof p.range_min === 'number' && Number.isFinite(p.range_min) &&
+      typeof p.range_max === 'number' && Number.isFinite(p.range_max)
+    ) {
+      prior = p;
+
+      // Warn if prior exists on non-external factor
+      if (category !== 'external') {
+        warnings?.push({
+          code: 'PRIOR_ON_NON_EXTERNAL',
+          message: `Node '${node.id}' has prior but category is '${category ?? 'undefined'}' (expected 'external'). Prior will be ignored.`,
+          node_id: node.id,
+        });
+      }
+    } else {
+      warnings?.push({
+        code: 'INVALID_PRIOR',
+        message: `Node '${node.id}' has malformed prior (requires distribution:string, range_min:number, range_max:number). Prior dropped.`,
+        node_id: node.id,
+        repair: {
+          field: 'node.prior',
+          action: 'defaulted',
+          from_value: JSON.stringify(p),
+          to_value: 'undefined',
+          reason: 'Malformed prior object',
+        },
+      });
+    }
+  }
+
   return {
     id: node.id,
     kind,
@@ -305,7 +341,7 @@ export function normaliseNode(
     observed_state: observedState,
     state_space: stateSpace,
     category,
-    prior: node.prior,
+    prior,
   };
 }
 

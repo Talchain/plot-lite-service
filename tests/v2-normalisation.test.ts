@@ -348,6 +348,66 @@ describe('Graph Normalisation', () => {
     });
   });
 
+  describe('prior field passthrough', () => {
+    it('preserves valid prior on external factor', () => {
+      const node = normaliseNode({
+        id: 'ext-factor',
+        kind: 'factor',
+        label: 'External Factor',
+        category: 'external',
+        prior: { distribution: 'uniform', range_min: 0.3, range_max: 0.9 },
+      });
+
+      expect(node.prior).toEqual({ distribution: 'uniform', range_min: 0.3, range_max: 0.9 });
+    });
+
+    it('drops malformed prior with warning and repair', () => {
+      const warnings: any[] = [];
+      const node = normaliseNode({
+        id: 'ext-factor',
+        kind: 'factor',
+        label: 'External Factor',
+        category: 'external',
+        prior: { distribution: 'uniform', range_min: 'bad' } as any,
+      }, warnings);
+
+      expect(node.prior).toBeUndefined();
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0].code).toBe('INVALID_PRIOR');
+      expect(warnings[0].node_id).toBe('ext-factor');
+      expect(warnings[0].repair).toBeDefined();
+      expect(warnings[0].repair.field).toBe('node.prior');
+    });
+
+    it('warns when prior exists on non-external factor', () => {
+      const warnings: any[] = [];
+      const node = normaliseNode({
+        id: 'ctrl-factor',
+        kind: 'factor',
+        label: 'Controllable Factor',
+        category: 'controllable',
+        prior: { distribution: 'uniform', range_min: 0.2, range_max: 0.8 },
+      }, warnings);
+
+      // Prior is still preserved (translator decides to skip)
+      expect(node.prior).toEqual({ distribution: 'uniform', range_min: 0.2, range_max: 0.8 });
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0].code).toBe('PRIOR_ON_NON_EXTERNAL');
+      expect(warnings[0].node_id).toBe('ctrl-factor');
+    });
+
+    it('handles missing prior field', () => {
+      const node = normaliseNode({
+        id: 'ext-factor',
+        kind: 'factor',
+        label: 'External Factor',
+        category: 'external',
+      });
+
+      expect(node.prior).toBeUndefined();
+    });
+  });
+
   describe('normaliseEdge', () => {
     it('normalizes basic edge', () => {
       const edge = normaliseEdge({
