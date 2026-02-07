@@ -2587,7 +2587,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               const decisionReviewConfig: DecisionReviewConfig = {
                 baseUrl: ceeBaseUrl,
                 apiKey: ceeApiKey,
-                timeoutMs: 3000, // 3s independent timeout
+                timeoutMs: Number(process.env.CEE_DECISION_REVIEW_TIMEOUT_MS ?? 20000),
               };
 
               const decisionReviewResult = await orchestrateDecisionReview(
