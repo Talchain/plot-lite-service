@@ -972,6 +972,15 @@ export interface NormalizedEdgeInfoV3 {
 }
 
 /**
+ * CIL Phase 0 canonical fragile edge shape.
+ * Alias for NormalizedEdgeInfoV3 — guarantees consistent Array<FragileEdgeV2>
+ * in /v2/run responses regardless of ISL code path.
+ *
+ * @see NormalizedEdgeInfoV3
+ */
+export type FragileEdgeV2 = NormalizedEdgeInfoV3;
+
+/**
  * Near-tie detection result.
  * Indicates when top options are statistically equivalent and recommendation is uncertain.
  */
@@ -996,10 +1005,10 @@ export interface NearTieInfoV3 {
 export interface RobustnessAssessmentV3 {
   score?: number;
   label?: 'robust' | 'moderate' | 'fragile';
-  /** Fragile edges - normalized to consistent object format */
-  fragile_edges?: NormalizedEdgeInfoV3[];
-  /** Robust edges - normalized to consistent object format */
-  robust_edges?: NormalizedEdgeInfoV3[];
+  /** Fragile edges - always Array<FragileEdgeV2>, never undefined/null. Empty array when none. */
+  fragile_edges: NormalizedEdgeInfoV3[];
+  /** Robust edges - always Array<NormalizedEdgeInfoV3>, never undefined/null. Empty array when none. */
+  robust_edges: NormalizedEdgeInfoV3[];
   explanation?: string;
   /** Recommendation stability from ISL (0-1, probability recommendation holds under perturbation) */
   recommendation_stability?: number;

@@ -1,6 +1,7 @@
 node_modules
 dist
 dist-tools
+tsconfig.tsbuildinfo
 .DS_Store
 coverage
 npm-debug.log*

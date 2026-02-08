@@ -211,20 +211,60 @@ describe('resolveFlipValues()', () => {
       expect(results[0].iterations_used).toBe(0);
     });
 
-    it('returns heuristic fallback when current_value is outside [0, 1]', async () => {
+    it('returns heuristic fallback when current_value is not finite', async () => {
       const mock = createMonotonicMock(0.5);
-      const negativeCandidate = makeCandidate({ current_value: -0.5, direction: 'increase' });
-      const overOneCandidate = makeCandidate({ current_value: 1.5, direction: 'decrease' });
+      const nanCandidate = makeCandidate({ current_value: NaN, direction: 'increase' });
+      const infCandidate = makeCandidate({ current_value: Infinity, direction: 'decrease' });
 
-      const [negResults, overResults] = await Promise.all([
-        resolveFlipValues([negativeCandidate], mock, 'opt-a'),
-        resolveFlipValues([overOneCandidate], mock, 'opt-a'),
+      const [nanResults, infResults] = await Promise.all([
+        resolveFlipValues([nanCandidate], mock, 'opt-a'),
+        resolveFlipValues([infCandidate], mock, 'opt-a'),
       ]);
 
-      expect(negResults[0].flip_reason).toBe('heuristic');
-      expect(negResults[0].iterations_used).toBe(0);
-      expect(overResults[0].flip_reason).toBe('heuristic');
-      expect(overResults[0].iterations_used).toBe(0);
+      expect(nanResults[0].flip_reason).toBe('heuristic');
+      expect(nanResults[0].iterations_used).toBe(0);
+      expect(infResults[0].flip_reason).toBe('heuristic');
+      expect(infResults[0].iterations_used).toBe(0);
+    });
+
+    it('searches correctly when current_value is outside [0, 1] (user-unit values)', async () => {
+      const mock = createMonotonicMock(0.5);
+      const overOneCandidate = makeCandidate({ current_value: 1.5, direction: 'decrease' });
+
+      const results = await resolveFlipValues([overOneCandidate], mock, 'opt-a');
+
+      // Binary search should run and find the flip at ~0.5
+      expect(results[0].flip_reason).toBe('found');
+      expect(results[0].iterations_used).toBeGreaterThan(0);
+      expect(results[0].flip_value).toBeCloseTo(0.5, 1);
+    });
+
+    it('searches correctly when current_value is negative (decrease direction)', async () => {
+      // current_value=-1, direction='decrease' → search range [min(0,-2), -1] = [-2, -1]
+      // Flip at -1.5: when factor drops below -1.5, winner flips
+      const mock = createMonotonicMock(-1.5, 'opt-a', 'opt-b', 'decrease');
+      const candidate = makeCandidate({ current_value: -1, direction: 'decrease' });
+
+      const results = await resolveFlipValues([candidate], mock, 'opt-a');
+
+      // Should NOT immediately converge — must actually search
+      expect(results[0].iterations_used).toBeGreaterThan(0);
+      // Should find the flip near -1.5
+      expect(results[0].flip_value).not.toBeNull();
+      expect(results[0].flip_reason).not.toBe('boundary');
+      expect(results[0].flip_value!).toBeCloseTo(-1.5, 1);
+    });
+
+    it('searches correctly when current_value is negative (increase direction)', async () => {
+      // Flip at 0.5: when factor rises above 0.5, winner flips
+      const mock = createMonotonicMock(0.5, 'opt-a', 'opt-b', 'increase');
+      const candidate = makeCandidate({ current_value: -2, direction: 'increase' });
+
+      const results = await resolveFlipValues([candidate], mock, 'opt-a');
+
+      expect(results[0].iterations_used).toBeGreaterThan(0);
+      expect(results[0].flip_value).not.toBeNull();
+      expect(results[0].flip_value!).toBeCloseTo(0.5, 0);
     });
 
     it('handles two candidates concurrently', async () => {

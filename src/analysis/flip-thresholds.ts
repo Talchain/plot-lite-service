@@ -123,11 +123,10 @@ async function searchFlipForFactor(
 ): Promise<FlipThresholdInputData> {
   const factorDeadline = Math.min(Date.now() + config.perFactorTimeoutMs, overallDeadline);
 
-  // Determine search range in [0, 1] normalised space
   const currentValue = candidate.current_value;
 
-  // Guard: skip binary search if current_value is outside normalised [0, 1] range
-  if (currentValue < 0 || currentValue > 1) {
+  // Guard: skip binary search if current_value is not a finite number
+  if (!Number.isFinite(currentValue)) {
     return {
       ...candidate,
       flip_value: null,
@@ -137,15 +136,19 @@ async function searchFlipForFactor(
     };
   }
 
-  // Search direction: 'decrease' means search [0, currentValue], 'increase' means [currentValue, 1]
+  // Determine search range based on current value and direction.
+  // Values may be in normalised [0,1] space or user units (e.g., £50,000).
+  // For 'decrease': search from min(0, 2*currentValue) up to currentValue.
+  // For 'increase': search from currentValue up to max(1, 2*currentValue).
+  // Bounds are always ordered so that low <= high, even for negative domains.
   let low: number;
   let high: number;
   if (candidate.direction === 'decrease') {
-    low = 0.0;
+    low = Math.min(0.0, currentValue * 2);
     high = currentValue;
   } else {
     low = currentValue;
-    high = 1.0;
+    high = Math.max(1.0, currentValue * 2);
   }
 
   // Edge case: factor at boundary in flip direction
@@ -206,7 +209,7 @@ async function searchFlipForFactor(
         };
       }
 
-      if (searchHigh - searchLow <= config.convergenceThreshold) {
+      if (Math.abs(searchHigh - searchLow) <= config.convergenceThreshold) {
         break;
       }
 

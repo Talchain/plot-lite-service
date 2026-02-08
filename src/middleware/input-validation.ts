@@ -485,6 +485,7 @@ export function createValidator(route: 'run' | 'counterfactual' | 'critique' | '
     }
 
     // Explicit top-level additionalProperties guard (defensive, mirrors Ajv schema intent)
+    // CIL Phase 1: This allowlist will be derived from @olumi/schemas V2RunRequestSchema.shape keys. Do not manually update — coordinate via schema package.
     if (body && typeof body === 'object' && !Array.isArray(body)) {
       const keys = Object.keys(body);
       const unknown = keys.filter(k => !allowedKeys.has(k));

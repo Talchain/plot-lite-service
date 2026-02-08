@@ -555,6 +555,102 @@ describe('POST /v2/run Integration', () => {
     });
   });
 
+  // =========================================================================
+  // CIL Phase 0 — Task 2: Unknown top-level key rejection
+  // =========================================================================
+  describe('CIL Phase 0: unknown top-level key rejection', () => {
+    it('rejects /v2/run request with unknown top-level key with HTTP 400', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const res = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: VALID_GRAPH,
+          options: VALID_OPTIONS,
+          goal_node_id: 'goal',
+          unexpected_field: true,  // Unknown key — must be rejected
+        }),
+      });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects /v2/run request with multiple unknown keys with HTTP 400', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const res = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: VALID_GRAPH,
+          options: VALID_OPTIONS,
+          goal_node_id: 'goal',
+          foo: 1,
+          bar: 'baz',
+        }),
+      });
+
+      expect(res.status).toBe(400);
+    });
+  });
+
+  // =========================================================================
+  // CIL Phase 0 — Task 1: fragile_edges always present as array
+  // =========================================================================
+  describe('CIL Phase 0: fragile_edges shape guarantee', () => {
+    it('response always contains robustness.fragile_edges as array', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const res = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: VALID_GRAPH,
+          options: VALID_OPTIONS,
+          goal_node_id: 'goal',
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      // robustness must always be present
+      expect(res.data.robustness).toBeDefined();
+      // fragile_edges must always be an array (never undefined/null/absent)
+      expect(Array.isArray(res.data.robustness.fragile_edges)).toBe(true);
+      // robust_edges must always be an array
+      expect(Array.isArray(res.data.robustness.robust_edges)).toBe(true);
+    });
+
+    it('fragile_edges items are objects (not strings) when present', async () => {
+      vi.resetModules();
+      server = await spawnServer({ env: ENV });
+
+      const res = await requestJSON(`${server.baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: VALID_GRAPH,
+          options: VALID_OPTIONS,
+          goal_node_id: 'goal',
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const fragileEdges = res.data.robustness?.fragile_edges ?? [];
+      for (const edge of fragileEdges) {
+        // Must be object shape, never a bare string
+        expect(typeof edge).toBe('object');
+        expect(typeof edge.edge_id).toBe('string');
+        expect(typeof edge.from_id).toBe('string');
+        expect(typeof edge.to_id).toBe('string');
+        expect(typeof edge.switch_probability).toBe('number');
+      }
+    });
+  });
+
   describe('Scale mismatch warning', () => {
     it('includes SCALE_MISMATCH_WARNING in critiques for mixed-scale interventions', async () => {
       vi.resetModules();

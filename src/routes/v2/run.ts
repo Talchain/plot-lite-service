@@ -445,10 +445,18 @@ function normalizeOptions(
 // Request Validation Schema
 // -----------------------------------------------------------------------------
 
+// CIL Phase 1: This allowlist will be derived from @olumi/schemas V2RunRequestSchema.shape keys. Do not manually update — coordinate via schema package.
+const V2_RUN_ALLOWED_KEYS = new Set([
+  'graph', 'options', 'goal_node_id',
+  'seed', 'n_samples', 'detail_level', 'request_id', 'idempotency_key',
+  'goal_threshold', 'brief', 'goal_constraints',
+]);
+
 const runV3Schema = {
   body: {
     type: 'object',
     required: ['graph', 'options', 'goal_node_id'],
+    additionalProperties: false,
     properties: {
       graph: {
         type: 'object',
@@ -936,18 +944,27 @@ function buildResponse(
     };
   }
 
+  // CIL Phase 0: Guarantee robustness object always exists with fragile_edges/robust_edges
+  // as arrays (never undefined/null/absent). Eliminates polymorphism for downstream consumers.
+  if (!robustness) {
+    robustness = {
+      fragile_edges: [],
+      robust_edges: [],
+    };
+  }
+
   // Derive recommended option from win_probability (after optionComparison is built)
   const recommendedOption = deriveRecommendedOption(optionComparison, options);
 
   // Add recommended_option_id and recommended_option_label to robustness if derived
-  if (robustness && recommendedOption) {
+  if (recommendedOption) {
     robustness.recommended_option_id = recommendedOption.recommended_option_id;
     robustness.recommended_option_label = recommendedOption.recommended_option_label;
   }
 
   // Compute near-tie detection (after optionComparison is built)
   const nearTie = computeNearTie(optionComparison);
-  if (robustness && nearTie) {
+  if (nearTie) {
     robustness.near_tie = nearTie;
   }
 
@@ -1474,6 +1491,23 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
     {
       schema: runV3Schema,
       bodyLimit: BODY_LIMIT_BYTES,
+      // CIL Phase 0: Explicit unknown-key rejection before Fastify schema validation.
+      // Fastify's default Ajv uses removeAdditional:true which silently strips unknown keys.
+      // This preValidation hook mirrors the V1 createValidator allowlist guard pattern.
+      preValidation: async (req: FastifyRequest, reply: FastifyReply) => {
+        const body = req.body;
+        if (body && typeof body === 'object' && !Array.isArray(body)) {
+          const keys = Object.keys(body);
+          const unknown = keys.filter(k => !V2_RUN_ALLOWED_KEYS.has(k));
+          if (unknown.length > 0) {
+            return reply.status(400).send({
+              statusCode: 400,
+              error: 'Bad Request',
+              message: `Unknown field: ${unknown[0]}. /v2/run does not accept additional properties.`,
+            });
+          }
+        }
+      },
     },
     async (req: FastifyRequest, reply: FastifyReply) => {
       const startTime = performance.now();
@@ -2508,9 +2542,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
 
             if (flipCandidates.length > 0) {
               // Step 2: Resolve exact flip values via ISL binary search
-              const winnerId = [...optionComparisonData]
-                .sort((a: any, b: any) => (b.win_probability ?? 0) - (a.win_probability ?? 0))[0]
-                ?.option_id ?? '';
+              const topWinnerOption = [...optionComparisonData]
+                .sort((a: any, b: any) => (b.win_probability ?? 0) - (a.win_probability ?? 0))[0];
+              const winnerId = topWinnerOption?.option_id ?? topWinnerOption?.id ?? '';
 
               if (winnerId) {
                 const flipInferenceFn = createISLInferenceFn(
