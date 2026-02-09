@@ -264,4 +264,60 @@ describe('computeFlipThresholdData()', () => {
       expect(result.length).toBeGreaterThan(0);
     });
   });
+
+  describe('Zero Elasticity Fallback', () => {
+    it('returns top 2 factors by distance from midpoint when all elasticities are zero', () => {
+      const zeroElasticity = [
+        { factor_id: 'f1', factor_label: 'F1', elasticity: 0.0, confidence: 0.8 },
+        { factor_id: 'f2', factor_label: 'F2', elasticity: 0.0, confidence: 0.7 },
+        { factor_id: 'f3', factor_label: 'F3', elasticity: 0.0, confidence: 0.6 },
+      ];
+
+      const graph: EngineGraphV3 = {
+        nodes: [
+          { id: 'f1', label: 'F1', kind: 'factor', observed_state: { value: 0.9, belief: 0.8 } },  // 0.4 from mid
+          { id: 'f2', label: 'F2', kind: 'factor', observed_state: { value: 0.1, belief: 0.7 } },  // 0.4 from mid
+          { id: 'f3', label: 'F3', kind: 'factor', observed_state: { value: 0.5, belief: 0.6 } },  // 0.0 from mid
+        ],
+        edges: [],
+      };
+
+      const result = computeFlipThresholdData(zeroElasticity, TEST_OPTION_COMPARISON, graph);
+
+      expect(result.length).toBe(2);
+      expect(result[0].flip_reason).toBe('zero_elasticity_fallback');
+      expect(result[1].flip_reason).toBe('zero_elasticity_fallback');
+
+      // Should prioritize f1 and f2 (furthest from 0.5)
+      const factorIds = result.map((r) => r.factor_id);
+      expect(factorIds).toContain('f1');
+      expect(factorIds).toContain('f2');
+      expect(factorIds).not.toContain('f3'); // f3 is at midpoint
+    });
+
+    it('infers direction from current_value position relative to midpoint', () => {
+      const zeroElasticity = [
+        { factor_id: 'f-high', factor_label: 'High', elasticity: 0.0, confidence: 0.8 },
+        { factor_id: 'f-low', factor_label: 'Low', elasticity: 0.0, confidence: 0.7 },
+      ];
+
+      const graph: EngineGraphV3 = {
+        nodes: [
+          { id: 'f-high', label: 'High', kind: 'factor', observed_state: { value: 0.8, belief: 0.8 } },
+          { id: 'f-low', label: 'Low', kind: 'factor', observed_state: { value: 0.2, belief: 0.7 } },
+        ],
+        edges: [],
+      };
+
+      const result = computeFlipThresholdData(zeroElasticity, TEST_OPTION_COMPARISON, graph);
+
+      const highFactor = result.find((r) => r.factor_id === 'f-high');
+      const lowFactor = result.find((r) => r.factor_id === 'f-low');
+
+      // f-high (0.8 > 0.5) should suggest decrease
+      expect(highFactor?.direction).toBe('decrease');
+      // f-low (0.2 < 0.5) should suggest increase
+      expect(lowFactor?.direction).toBe('increase');
+    });
+  });
 });

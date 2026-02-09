@@ -151,6 +151,39 @@ export function computeFlipThresholdData(
     });
   }
 
+  // Fallback: zero-elasticity graphs (all factors filtered out by MIN_ELASTICITY_THRESHOLD)
+  // Emit top 2 factors by distance from midpoint (most room to flip)
+  if (results.length === 0 && factorSensitivity.length > 0) {
+    const fallbackCandidates = factorSensitivity
+      .map((f) => {
+        const currentValue = getFactorCurrentValue(f.factor_id, graph);
+        if (currentValue === null) return null;
+        return {
+          factor: f,
+          currentValue,
+          distanceFromMid: Math.abs(currentValue - 0.5),
+        };
+      })
+      .filter((c): c is NonNullable<typeof c> => c !== null)
+      .sort((a, b) => b.distanceFromMid - a.distanceFromMid)
+      .slice(0, 2);
+
+    for (const candidate of fallbackCandidates) {
+      const factorNode = graph.nodes.find((n) => n.id === candidate.factor.factor_id);
+      results.push({
+        factor_id: candidate.factor.factor_id,
+        factor_label: candidate.factor.factor_label ?? candidate.factor.factor_id,
+        current_value: candidate.currentValue,
+        flip_value: null,
+        direction: candidate.currentValue < 0.5 ? 'increase' : 'decrease',
+        flip_reason: 'zero_elasticity_fallback',
+        iterations_used: 0,
+        alternative_winner_id: null,
+        unit: factorNode?.observed_state?.unit,
+      });
+    }
+  }
+
   return results;
 }
 

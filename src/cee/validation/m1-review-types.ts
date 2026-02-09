@@ -288,7 +288,7 @@ export interface FlipThresholdInputData {
   flip_value: number | null;
   direction: 'increase' | 'decrease';
   /** Reason for the flip_value result */
-  flip_reason?: 'found' | 'no_bracket' | 'timeout' | 'isl_error' | 'non_monotonic_grid' | 'boundary' | 'single_option' | 'heuristic';
+  flip_reason?: 'found' | 'no_bracket' | 'timeout' | 'isl_error' | 'non_monotonic_grid' | 'boundary' | 'single_option' | 'heuristic' | 'zero_elasticity_fallback';
   /** Number of ISL inference iterations used */
   iterations_used?: number;
   /** Option that becomes winner after the flip (null if no flip found) */
