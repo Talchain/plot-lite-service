@@ -803,11 +803,16 @@ export interface RunResponseV3 {
     /** Seed used (always echoed as string) */
     seed_used: string;
     /**
-     * CIL 0.2: Indicates whether seed was user-provided or internally derived.
-     * - 'provided': User supplied seed in request (deterministic ISL seeding)
-     * - 'derived': Seed derived from normalized graph hash (reproducible but not user-controlled)
+     * CIL Phase 1: Indicates seed origin for deterministic Monte Carlo runs.
+     * - 'client_generated': Client explicitly provided seed in request
+     * - 'server_generated': Server derived seed from request graph hash
+     * - 'user_provided': Reserved for future use (e.g., when ISL or another service provides the seed)
+     *
+     * Why forward derived seeds: If derived seed is computed in PLoT but not sent to ISL,
+     * ISL could derive a different seed (e.g., if graph normalisation differs), making
+     * runs harder to reproduce end-to-end.
      */
-    seed_source: 'provided' | 'derived';
+    seed_source: 'client_generated' | 'server_generated' | 'user_provided';
     n_samples: number;
     detail_level: string;
     latency_ms: number;

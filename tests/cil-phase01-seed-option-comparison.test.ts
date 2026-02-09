@@ -63,15 +63,21 @@ describe('CIL 0.1 — Task 1: seed forwarding to ISL request', () => {
     expect(result.seed).toBe(4242);
   });
 
-  it('omits seed from ISL request when not provided', () => {
+  it('includes seed in ISL request when provided as derived seed (production always forwards)', () => {
+    // CIL Phase 1: In production, run.ts always passes seedUsed (either client-provided
+    // or server-derived from graph hash). This test verifies the translator correctly
+    // forwards a defined seed in all cases.
     const result = toISLRobustnessRequest(
-      GRAPH, OPTIONS, 'goal', 'req-3', 1000
+      GRAPH, OPTIONS, 'goal', 'req-3', 1000,
+      undefined, undefined, 'graph-hash-derived-seed-12345'
     );
 
-    expect(result).not.toHaveProperty('seed');
+    expect(result.seed).toBe('graph-hash-derived-seed-12345');
   });
 
-  it('omits seed from ISL request when explicitly undefined', () => {
+  it('omits seed from ISL request when explicitly undefined (no longer used in production)', () => {
+    // NOTE: This code path is no longer reachable from production (run.ts always passes
+    // a defined seed). Kept for completeness to verify translator's conditional logic.
     const result = toISLRobustnessRequest(
       GRAPH, OPTIONS, 'goal', 'req-4', 1000,
       undefined, undefined, undefined

@@ -1979,8 +1979,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         }
 
         // Build ISL request (using normalised options and constraints)
-        // CIL Phase 1: ALWAYS forward seed to ISL for deterministic Monte Carlo runs
-        // When user provides seed → use it; when not provided → use derived seed from graph hash
+        // CIL Phase 1: ALWAYS forward seed to ISL for deterministic Monte Carlo runs.
+        // Derived seeds must be forwarded to ensure end-to-end determinism: if only computed
+        // in PLoT but not sent to ISL, ISL could derive a different seed (e.g., if graph
+        // normalisation differs between PLoT and ISL), making runs harder to reproduce.
         const islRequest = toISLRobustnessRequest(
           filteredGraph,
           optionsForISL,
@@ -1991,6 +1993,17 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           constraintsForISL,       // Pass normalised constraints (undefined if not using multi-constraint)
           seedUsed  // Always forward effective seed (either user-provided or server-generated)
         );
+
+        // CIL Phase 0: Invariant check — ISL request must always include seed for determinism
+        if (islRequest.seed === undefined || islRequest.seed === null) {
+          req.log.error({
+            event: 'seed_determinism_invariant_violation',
+            request_id: requestId,
+            seed_used: seedUsed,
+            seed_source: providedSeed !== undefined ? 'client_generated' : 'server_generated',
+            message: 'INVARIANT VIOLATION: ISL request missing seed',
+          });
+        }
 
         // === DIAGNOSTIC: Log parameter_uncertainties sent to ISL ===
         // This helps diagnose why ISL may return empty factor_sensitivity
