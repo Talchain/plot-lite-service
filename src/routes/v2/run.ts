@@ -445,6 +445,11 @@ function normalizeOptions(
 // Request Validation Schema
 // -----------------------------------------------------------------------------
 
+// CIL Phase 0: Validation rejects unknown TOP-LEVEL keys only.
+// Nested objects (graph.nodes[], graph.edges[], options[].interventions)
+// intentionally allow unknown keys for forward compatibility with UI/CEE
+// additive fields. Unknown nested fields are silently dropped during
+// normalisation/translation — they do not reach ISL or the response.
 // CIL Phase 1: This allowlist will be derived from @olumi/schemas V2RunRequestSchema.shape keys. Do not manually update — coordinate via schema package.
 const V2_RUN_ALLOWED_KEYS = new Set([
   'graph', 'options', 'goal_node_id',
@@ -571,6 +576,8 @@ function determineTopLevelStatus(
 
 interface MetaParams {
   seedUsed: string;
+  /** CIL 0.2: Indicates whether seed was user-provided or internally derived */
+  seedSource: 'provided' | 'derived';
   nSamples: number;
   detailLevel: string;
   latencyMs: number;
@@ -617,6 +624,11 @@ function buildBlockedResponse(
     analysis_status: 'blocked',
     status_reason: statusReason,
     critiques,
+    // CIL 0.2: maintain robustness contract on blocked responses
+    robustness: {
+      fragile_edges: [],
+      robust_edges: [],
+    },
   };
 }
 
@@ -1083,6 +1095,9 @@ function buildResponse(
 
     meta: {
       seed_used: meta.seedUsed,
+      // CIL 0.2: seed_source tells consumers whether ISL was seeded
+      //          deterministically (provided) or locally derived (derived).
+      seed_source: meta.seedSource,
       n_samples: meta.nSamples,
       detail_level: meta.detailLevel,
       latency_ms: meta.latencyMs,
@@ -1841,6 +1856,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             islNotEnabledCritiques,
             {
               seedUsed,
+              seedSource: providedSeed !== undefined ? 'provided' : 'derived',
               nSamples,
               detailLevel,
               latencyMs: totalMs,
@@ -2216,6 +2232,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             critiques,
             {
               seedUsed,
+              seedSource: providedSeed !== undefined ? 'provided' : 'derived',
               nSamples,
               detailLevel,
               latencyMs: totalMs,
@@ -2280,6 +2297,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             critiques,
             {
               seedUsed,
+              seedSource: providedSeed !== undefined ? 'provided' : 'derived',
               nSamples,
               detailLevel,
               latencyMs: totalMs,
@@ -2697,6 +2715,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           critiques,
           {
             seedUsed,
+            seedSource: providedSeed !== undefined ? 'provided' : 'derived',
             nSamples,
             detailLevel,
             latencyMs: finalTotalMs,

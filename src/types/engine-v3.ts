@@ -530,6 +530,8 @@ export interface V2RunError {
   status_reason: string;
   /** Structured critiques explaining the block */
   critiques: CritiqueV3[];
+  /** CIL 0.2: Robustness with empty arrays maintained on blocked responses */
+  robustness: RobustnessAssessmentV3;
 }
 
 /**
@@ -800,6 +802,12 @@ export interface RunResponseV3 {
   meta: {
     /** Seed used (always echoed as string) */
     seed_used: string;
+    /**
+     * CIL 0.2: Indicates whether seed was user-provided or internally derived.
+     * - 'provided': User supplied seed in request (deterministic ISL seeding)
+     * - 'derived': Seed derived from normalized graph hash (reproducible but not user-controlled)
+     */
+    seed_source: 'provided' | 'derived';
     n_samples: number;
     detail_level: string;
     latency_ms: number;
