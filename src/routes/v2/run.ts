@@ -576,8 +576,8 @@ function determineTopLevelStatus(
 
 interface MetaParams {
   seedUsed: string;
-  /** CIL 0.2: Indicates whether seed was user-provided or internally derived */
-  seedSource: 'provided' | 'derived';
+  /** CIL Phase 1: Indicates seed origin (client_generated, server_generated, or user_provided) */
+  seedSource: 'client_generated' | 'server_generated' | 'user_provided';
   nSamples: number;
   detailLevel: string;
   latencyMs: number;
@@ -1095,8 +1095,8 @@ function buildResponse(
 
     meta: {
       seed_used: meta.seedUsed,
-      // CIL 0.2: seed_source tells consumers whether ISL was seeded
-      //          deterministically (provided) or locally derived (derived).
+      // CIL Phase 1: seed_source tells consumers seed origin
+      //             (client_generated, server_generated, or user_provided)
       seed_source: meta.seedSource,
       n_samples: meta.nSamples,
       detail_level: meta.detailLevel,
@@ -1610,7 +1610,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // =================================================================
         // Resolve seed: use provided value or derive from normalized graph hash
         // This ensures identical requests (same graph, no seed) produce identical results
-        const seedUsed = resolveSeed(providedSeed, filteredGraph);
+        // CIL Phase 1: Use let instead of const to allow ISL's seed_used to override
+        let seedUsed = resolveSeed(providedSeed, filteredGraph);
 
         // Log if option nodes were filtered
         if (filterResult.removedNodeIds.size > 0) {
@@ -1856,7 +1857,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             islNotEnabledCritiques,
             {
               seedUsed,
-              seedSource: providedSeed !== undefined ? 'provided' : 'derived',
+              seedSource: providedSeed !== undefined ? 'client_generated' : 'server_generated',
               nSamples,
               detailLevel,
               latencyMs: totalMs,
@@ -1978,7 +1979,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         }
 
         // Build ISL request (using normalised options and constraints)
-        // CIL 0.1: forward seed to ISL for deterministic Monte Carlo runs
+        // CIL Phase 1: ALWAYS forward seed to ISL for deterministic Monte Carlo runs
+        // When user provides seed → use it; when not provided → use derived seed from graph hash
         const islRequest = toISLRobustnessRequest(
           filteredGraph,
           optionsForISL,
@@ -1987,7 +1989,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           nSamples,
           effectiveGoalThreshold,  // Use effective threshold (undefined if multi-constraint)
           constraintsForISL,       // Pass normalised constraints (undefined if not using multi-constraint)
-          providedSeed !== undefined ? seedUsed : undefined  // Forward resolved seed only when user provided one
+          seedUsed  // Always forward effective seed (either user-provided or server-generated)
         );
 
         // === DIAGNOSTIC: Log parameter_uncertainties sent to ISL ===
@@ -2060,6 +2062,12 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             // Capture timestamp when ISL response received (before any PLoT processing)
             // Use ISL's computed_at if provided, otherwise capture now
             computedAt = islResult?.computed_at ?? new Date().toISOString();
+
+            // CIL Phase 1: If ISL returns seed_used, use that (ISL's actual seed)
+            // Otherwise fall back to PLoT's seedUsed (what we sent to ISL)
+            if (islResult?.seed_used !== undefined && islResult?.seed_used !== null) {
+              seedUsed = String(islResult.seed_used);
+            }
 
             // Warn if goal_threshold was provided but ISL didn't return probability_of_goal
             if (goalThreshold !== undefined) {
@@ -2232,7 +2240,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             critiques,
             {
               seedUsed,
-              seedSource: providedSeed !== undefined ? 'provided' : 'derived',
+              seedSource: providedSeed !== undefined ? 'client_generated' : 'server_generated',
               nSamples,
               detailLevel,
               latencyMs: totalMs,
@@ -2297,7 +2305,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             critiques,
             {
               seedUsed,
-              seedSource: providedSeed !== undefined ? 'provided' : 'derived',
+              seedSource: providedSeed !== undefined ? 'client_generated' : 'server_generated',
               nSamples,
               detailLevel,
               latencyMs: totalMs,
@@ -2715,7 +2723,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           critiques,
           {
             seedUsed,
-            seedSource: providedSeed !== undefined ? 'provided' : 'derived',
+            seedSource: providedSeed !== undefined ? 'client_generated' : 'server_generated',
             nSamples,
             detailLevel,
             latencyMs: finalTotalMs,
