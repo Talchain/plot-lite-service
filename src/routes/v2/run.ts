@@ -821,10 +821,15 @@ function buildResponse(
       ? [outcomeData.p10 ?? 0, outcomeData.p90 ?? 0]
       : r.confidence_interval ?? [0, 0];
 
+    const resolvedOptionLabel = option?.label ?? r.label ?? optionId;
+
     // Build result object - only include optional fields if present
     const result: any = {
       option_id: optionId,
-      option_label: option?.label ?? r.label ?? optionId,
+      option_label: resolvedOptionLabel,
+      // CIL 0.1: populate id/label from option_id/option_label for UI consumers
+      id: r.id ?? optionId,
+      label: r.label ?? resolvedOptionLabel,
       // Legacy fields (deprecated but kept for backward compatibility)
       expected_outcome: expectedOutcome,
       confidence_interval: confidenceInterval,
@@ -1957,6 +1962,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         }
 
         // Build ISL request (using normalised options and constraints)
+        // CIL 0.1: forward seed to ISL for deterministic Monte Carlo runs
         const islRequest = toISLRobustnessRequest(
           filteredGraph,
           optionsForISL,
@@ -1964,7 +1970,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           requestId,
           nSamples,
           effectiveGoalThreshold,  // Use effective threshold (undefined if multi-constraint)
-          constraintsForISL        // Pass normalised constraints (undefined if not using multi-constraint)
+          constraintsForISL,       // Pass normalised constraints (undefined if not using multi-constraint)
+          providedSeed !== undefined ? seedUsed : undefined  // Forward resolved seed only when user provided one
         );
 
         // === DIAGNOSTIC: Log parameter_uncertainties sent to ISL ===

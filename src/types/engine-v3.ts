@@ -845,6 +845,9 @@ export interface OutcomeStatsV3 {
 export interface OptionComparisonResultV3 {
   option_id: string;
   option_label: string;
+  // CIL 0.1: populate id/label from option_id/option_label for UI consumers
+  id: string;
+  label: string;
   /** @deprecated Use outcome.mean instead */
   expected_outcome?: number;
   /** @deprecated Use [outcome.p10, outcome.p90] instead */

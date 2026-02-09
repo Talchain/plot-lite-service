@@ -95,6 +95,9 @@ export interface ISLRobustnessRequestV3 {
    * Takes precedence over goal_threshold if both are provided.
    */
   goal_constraints?: GoalConstraint[];
+
+  // CIL 0.1: forward seed to ISL for deterministic Monte Carlo runs
+  seed?: string | number;
 }
 
 // -----------------------------------------------------------------------------
@@ -357,7 +360,9 @@ export function toISLRobustnessRequest(
   requestId: string,
   nSamples?: number,
   goalThreshold?: number,
-  goalConstraints?: GoalConstraint[]
+  goalConstraints?: GoalConstraint[],
+  // CIL 0.1: forward seed to ISL for deterministic Monte Carlo runs
+  seed?: string | number
 ): ISLRobustnessRequestV3 {
   const request: ISLRobustnessRequestV3 = {
     request_id: requestId,
@@ -380,6 +385,11 @@ export function toISLRobustnessRequest(
   // Only include goal_constraints if provided and non-empty (omit entirely when absent)
   if (goalConstraints && goalConstraints.length > 0) {
     request.goal_constraints = goalConstraints;
+  }
+
+  // CIL 0.1: forward seed to ISL for deterministic Monte Carlo runs
+  if (seed !== undefined) {
+    request.seed = seed;
   }
 
   return request;
