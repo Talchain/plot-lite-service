@@ -184,6 +184,9 @@ describe('BFF CEE Proxy — Timeout + Instrumentation', () => {
     expect(body.retryable).toBe(true);
     expect(body.elapsed_ms).toBeGreaterThanOrEqual(0);
     expect(body.request_id).toBeDefined();
+    // New diagnostic fields
+    expect(body.upstream_content_type).toBe('text/html');
+    expect(body.upstream_body_preview).toBe('<html><body>Bad Gateway</body></html>');
   });
 
   // ────────────────────────────────────────────────────────────────────────────
@@ -413,5 +416,89 @@ describe('BFF CEE Proxy — Timeout + Instrumentation', () => {
     expect(res.statusCode).toBe(500);
     const body = JSON.parse(res.payload);
     expect(body).toEqual(ceeResponse);
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // 10. Non-JSON CEE response includes upstream_body_preview and upstream_content_type
+  // ────────────────────────────────────────────────────────────────────────────
+  it('non-JSON CEE response includes upstream_body_preview and upstream_content_type', async () => {
+    const htmlBody = '<html><body><h1>502 Bad Gateway</h1><p>nginx</p></body></html>';
+
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false,
+      status: 502,
+      headers: new Headers({ 'content-type': 'text/html; charset=utf-8' }),
+      json: async () => { throw new Error('not json'); },
+      text: async () => htmlBody,
+    })) as unknown as typeof fetch;
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/cee/draft-graph',
+      payload: { brief: 'test' },
+    });
+
+    expect(res.statusCode).toBe(502);
+    const body = JSON.parse(res.payload);
+    expect(body.error).toBe('CEE_UPSTREAM_ERROR');
+    expect(body.upstream_content_type).toBe('text/html; charset=utf-8');
+    expect(body.upstream_body_preview).toBe(htmlBody);
+    expect(body.request_id).toBeDefined();
+    expect(body.elapsed_ms).toBeGreaterThanOrEqual(0);
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // 11. upstream_body_preview is truncated to 500 chars max
+  // ────────────────────────────────────────────────────────────────────────────
+  it('upstream_body_preview is truncated to 500 chars max', async () => {
+    const longBody = 'X'.repeat(1000);
+
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false,
+      status: 503,
+      headers: new Headers({ 'content-type': 'text/plain' }),
+      json: async () => { throw new Error('not json'); },
+      text: async () => longBody,
+    })) as unknown as typeof fetch;
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/cee/draft-graph',
+      payload: { brief: 'test' },
+    });
+
+    expect(res.statusCode).toBe(503);
+    const body = JSON.parse(res.payload);
+    expect(body.error).toBe('CEE_UPSTREAM_ERROR');
+    expect(body.upstream_body_preview).toHaveLength(500);
+    expect(body.upstream_body_preview).toBe('X'.repeat(500));
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // 12. Structured log event includes content-type and body preview on non-JSON error
+  // ────────────────────────────────────────────────────────────────────────────
+  it('structured log includes upstream_content_type and upstream_body_preview', async () => {
+    const htmlBody = '<html>Service Unavailable</html>';
+
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false,
+      status: 503,
+      headers: new Headers({ 'content-type': 'text/html' }),
+      json: async () => { throw new Error('not json'); },
+      text: async () => htmlBody,
+    })) as unknown as typeof fetch;
+
+    await app.inject({
+      method: 'POST',
+      url: '/v1/cee/draft-graph',
+      payload: { brief: 'test' },
+    });
+
+    const errorLog = logLines.find(l => l.evt === 'bff.cee_proxy.error');
+    expect(errorLog).toBeDefined();
+    expect(errorLog.upstream_content_type).toBe('text/html');
+    expect(errorLog.upstream_body_preview).toBe(htmlBody);
+    expect(errorLog.error_code).toBe('CEE_HTTP_503');
+    expect(errorLog.request_id).toBeDefined();
   });
 });

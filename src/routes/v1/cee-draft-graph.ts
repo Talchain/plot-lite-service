@@ -165,12 +165,16 @@ export async function registerCeeDraftGraphRoute(app: FastifyInstance) {
           }
 
           const elapsedMs = Date.now() - startMs;
+          const upstreamContentType = contentType || 'unknown';
+          const upstreamBodyPreview = rawText.slice(0, 500);
 
-          // bff.cee_proxy.error
+          // bff.cee_proxy.error — include raw-body preview for diagnostics
           req.log.warn({
             evt: 'bff.cee_proxy.error',
             error_code: `CEE_HTTP_${res.status}`,
             error_message: `CEE returned non-JSON ${res.status} response`,
+            upstream_content_type: upstreamContentType,
+            upstream_body_preview: upstreamBodyPreview,
             elapsed_ms: elapsedMs,
             request_id: requestId,
           });
@@ -180,6 +184,8 @@ export async function registerCeeDraftGraphRoute(app: FastifyInstance) {
             error: 'CEE_UPSTREAM_ERROR',
             message: `CEE returned non-JSON ${res.status} response`,
             retryable: res.status >= 500 || res.status === 429,
+            upstream_content_type: upstreamContentType,
+            upstream_body_preview: upstreamBodyPreview,
             elapsed_ms: elapsedMs,
             request_id: requestId,
           });
