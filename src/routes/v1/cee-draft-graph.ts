@@ -1,193 +1,38 @@
 /**
- * POST /v1/cee/draft-graph - CEE Draft Graph Proxy
+ * POST /v1/cee/draft-graph - CEE Draft Graph BFF Proxy
  *
  * Proxies draft-graph requests to CEE /assist/v1/draft-graph.
  * This endpoint allows the UI to bypass Netlify's ~50s Edge Function timeout
- * by routing through PLoT which has a 120s timeout configured.
+ * by routing through PLoT with explicit timeout above CEE's 90s budget.
  *
  * Authentication: CEE_API_KEY is injected server-side, never exposed to client.
- * Timeout: 120000ms (CEE typically takes 45-70s, plus buffer for network latency)
+ * Timeout: CEE_PROXY_TIMEOUT_MS (default 105 000ms), configurable via env var.
+ *
+ * Error handling:
+ *   - CEE JSON errors (4xx/5xx with error field) are forwarded as-is.
+ *   - Non-JSON CEE errors (e.g. Render HTML pages) are wrapped in a BFF error.
+ *   - Proxy timeout produces HTTP 504 with typed CEE_PROXY_TIMEOUT error.
  *
  * @see https://github.com/olumi/plot-lite-service/docs/cee-proxy.md
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { replyWithAppError } from '../../errors.js';
-
-import { CEE_DRAFT_GRAPH_TIMEOUT_MS } from '../../config/timeouts.js';
-
-interface CeeDraftGraphError {
-  code: string;
-  message: string;
-  retryable: boolean;
-  details?: unknown;
-}
-
-interface CeeDraftGraphResult {
-  data: unknown;
-  status: number;
-  error?: CeeDraftGraphError;
-  trace?: {
-    request_id: string;
-    latency_ms: number;
-  };
-}
-
-/**
- * Call CEE /assist/v1/draft-graph endpoint
- *
- * @param body - Request body to forward to CEE
- * @param queryString - Query string to append (e.g., "schema=v3")
- * @param requestId - Request ID for tracing
- * @param correlationId - Optional correlation ID for distributed tracing
- * @param logger - Fastify logger
- */
-async function callCeeDraftGraph(
-  body: unknown,
-  queryString: string,
-  requestId: string,
-  correlationId: string | undefined,
-  logger?: any
-): Promise<CeeDraftGraphResult> {
-  const startMs = Date.now();
-  const baseUrl = process.env.CEE_BASE_URL?.trim();
-  const apiKey = process.env.CEE_API_KEY?.trim();
-
-  if (!baseUrl || !apiKey) {
-    return {
-      data: null,
-      status: 503,
-      error: {
-        code: 'CEE_CONFIG_MISSING',
-        message: 'CEE_BASE_URL or CEE_API_KEY not configured',
-        retryable: false,
-      },
-      trace: { request_id: requestId, latency_ms: Date.now() - startMs },
-    };
-  }
-
-  // Build URL with query string
-  const urlBase = `${baseUrl.replace(/\/$/, '')}/assist/v1/draft-graph`;
-  const url = queryString ? `${urlBase}?${queryString}` : urlBase;
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), CEE_DRAFT_GRAPH_TIMEOUT_MS);
-
-  try {
-    logger?.info({
-      evt: 'cee_draft_graph_call',
-      request_id: requestId,
-      correlation_id: correlationId,
-      url: urlBase, // Log base URL without query params for security
-      timeout_ms: CEE_DRAFT_GRAPH_TIMEOUT_MS,
-    });
-
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'X-Olumi-Assist-Key': apiKey,
-        'X-Request-Id': requestId,
-        ...(correlationId && { 'X-Correlation-Id': correlationId }),
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-    const latencyMs = Date.now() - startMs;
-
-    // Log response metadata
-    logger?.info({
-      evt: 'cee_draft_graph_response',
-      request_id: requestId,
-      status: res.status,
-      latency_ms: latencyMs,
-    });
-
-    // Forward CEE error responses as-is
-    if (!res.ok) {
-      let errorBody: unknown = null;
-      try {
-        errorBody = await res.json();
-      } catch {
-        errorBody = await res.text().catch(() => null);
-      }
-
-      logger?.warn({
-        evt: 'cee_draft_graph_error',
-        request_id: requestId,
-        status: res.status,
-        latency_ms: latencyMs,
-      });
-
-      return {
-        data: errorBody,
-        status: res.status,
-        error: {
-          code: `CEE_HTTP_${res.status}`,
-          message: `CEE returned status ${res.status}`,
-          retryable: res.status >= 500 || res.status === 429,
-          details: errorBody,
-        },
-        trace: { request_id: requestId, latency_ms: latencyMs },
-      };
-    }
-
-    // Parse successful response
-    const data = await res.json();
-    return {
-      data,
-      status: res.status,
-      trace: { request_id: requestId, latency_ms: latencyMs },
-    };
-  } catch (err: any) {
-    clearTimeout(timeoutId);
-    const latencyMs = Date.now() - startMs;
-
-    const isTimeout = err.name === 'AbortError';
-    const errorCode = isTimeout ? 'CEE_TIMEOUT' : 'CEE_NETWORK_ERROR';
-    const statusCode = isTimeout ? 504 : 502;
-
-    logger?.warn({
-      evt: 'cee_draft_graph_fetch_error',
-      request_id: requestId,
-      error: err.message,
-      error_code: errorCode,
-      timeout: isTimeout,
-      latency_ms: latencyMs,
-    });
-
-    return {
-      data: null,
-      status: statusCode,
-      error: {
-        code: errorCode,
-        message: isTimeout
-          ? `CEE request timed out after ${CEE_DRAFT_GRAPH_TIMEOUT_MS}ms`
-          : err.message || 'Failed to connect to CEE',
-        retryable: true,
-      },
-      trace: { request_id: requestId, latency_ms: latencyMs },
-    };
-  }
-}
+import { CEE_PROXY_TIMEOUT_MS } from '../../config/timeouts.js';
 
 export async function registerCeeDraftGraphRoute(app: FastifyInstance) {
-  /**
-   * POST /v1/cee/draft-graph
-   *
-   * Proxies requests to CEE /assist/v1/draft-graph
-   * Query parameters are forwarded (e.g., ?schema=v3)
-   * Request body is forwarded as-is
-   * CEE API key is injected server-side
-   */
+  // Log effective config at startup
+  app.log.info({
+    evt: 'bff.config.cee_proxy_timeout',
+    timeout_ms: CEE_PROXY_TIMEOUT_MS,
+  });
+
   app.post(
     '/v1/cee/draft-graph',
     async (req: FastifyRequest, reply: FastifyReply) => {
       const requestId = String(req.id);
-      const correlationId = (req.headers['x-correlation-id'] || req.headers['X-Correlation-Id']) as string | undefined;
+      const correlationId = (req.headers['x-correlation-id'] ||
+        req.headers['X-Correlation-Id']) as string | undefined;
 
       // Extract query string from URL
       const queryString = req.url.includes('?') ? req.url.split('?')[1] : '';
@@ -202,47 +47,188 @@ export async function registerCeeDraftGraphRoute(app: FastifyInstance) {
         });
       }
 
-      // Call CEE
-      const result = await callCeeDraftGraph(
-        req.body,
-        queryString,
-        requestId,
-        correlationId,
-        req.log
-      );
+      const baseUrl = process.env.CEE_BASE_URL?.trim();
+      const apiKey = process.env.CEE_API_KEY?.trim();
 
-      // Add trace headers
-      reply.header('X-Request-Id', requestId);
-      if (result.trace) {
-        reply.header('X-CEE-Latency-Ms', String(result.trace.latency_ms));
+      if (!baseUrl || !apiKey) {
+        reply.header('X-Request-Id', requestId);
+        return reply.code(503).send({
+          error: 'CEE_CONFIG_MISSING',
+          message: 'CEE_BASE_URL or CEE_API_KEY not configured',
+          retryable: false,
+          request_id: requestId,
+        });
       }
 
-      // Return error response with appropriate status code
-      if (result.error) {
-        const errorResponse: {
-          error: CeeDraftGraphError;
-          trace?: { request_id: string; latency_ms: number };
-          cee_response?: unknown;
-        } = {
-          error: result.error,
-          trace: result.trace,
-        };
-        // Include original CEE response data if present (for debugging)
-        if (result.data) {
-          errorResponse.cee_response = result.data;
+      const urlBase = `${baseUrl.replace(/\/$/, '')}/assist/v1/draft-graph`;
+      const url = queryString ? `${urlBase}?${queryString}` : urlBase;
+
+      const startMs = Date.now();
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), CEE_PROXY_TIMEOUT_MS);
+      timeoutId.unref();
+
+      // bff.cee_proxy.request
+      req.log.info({
+        evt: 'bff.cee_proxy.request',
+        cee_url: urlBase,
+        timeout_ms: CEE_PROXY_TIMEOUT_MS,
+        request_id: requestId,
+      });
+
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'X-Olumi-Assist-Key': apiKey,
+            'X-Request-Id': requestId,
+            ...(correlationId && { 'X-Correlation-Id': correlationId }),
+          },
+          body: JSON.stringify(req.body),
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+        const ceeElapsedMs = Date.now() - startMs;
+
+        reply.header('X-Request-Id', requestId);
+        reply.header('X-CEE-Latency-Ms', String(ceeElapsedMs));
+
+        const contentType = res.headers.get('content-type') || '';
+        const isJson = contentType.includes('application/json');
+
+        // ── Success path ──────────────────────────────────────────────
+        if (res.ok) {
+          const data = isJson ? await res.json() : await res.text();
+          const bffTotalElapsedMs = Date.now() - startMs;
+
+          // bff.cee_proxy.response
+          req.log.info({
+            evt: 'bff.cee_proxy.response',
+            status: res.status,
+            cee_elapsed_ms: ceeElapsedMs,
+            bff_total_elapsed_ms: bffTotalElapsedMs,
+            request_id: requestId,
+          });
+
+          return reply.code(res.status).send(data);
         }
-        return reply.code(result.status).send(errorResponse);
-      }
 
-      // Return successful response as-is from CEE
-      return reply.code(result.status).send(result.data);
+        // ── CEE error path ────────────────────────────────────────────
+        if (isJson) {
+          let body: any;
+          try {
+            body = await res.json();
+          } catch {
+            body = null;
+          }
+
+          // CEE typed JSON error — passthrough as-is (covers CEE_LLM_TIMEOUT,
+          // CEE_REQUEST_BUDGET_EXCEEDED, validation 422, rate-limit 429, etc.)
+          if (body && typeof body === 'object' && 'error' in body) {
+            const bffTotalElapsedMs = Date.now() - startMs;
+
+            // bff.cee_proxy.response (for passthrough errors too)
+            req.log.info({
+              evt: 'bff.cee_proxy.response',
+              status: res.status,
+              cee_elapsed_ms: ceeElapsedMs,
+              bff_total_elapsed_ms: bffTotalElapsedMs,
+              request_id: requestId,
+            });
+
+            return reply.code(res.status).send(body);
+          }
+        }
+
+        // ── Non-JSON content-type — try JSON parse anyway (intermediaries
+        //    like Render sometimes strip content-type), then wrap if it fails ──
+        {
+          const rawText = await res.text().catch(() => '');
+          let parsed: any = null;
+          try { parsed = JSON.parse(rawText); } catch { /* not JSON */ }
+
+          if (parsed && typeof parsed === 'object' && 'error' in parsed) {
+            const bffTotalElapsedMs = Date.now() - startMs;
+            req.log.info({
+              evt: 'bff.cee_proxy.response',
+              status: res.status,
+              cee_elapsed_ms: ceeElapsedMs,
+              bff_total_elapsed_ms: bffTotalElapsedMs,
+              request_id: requestId,
+            });
+            return reply.code(res.status).send(parsed);
+          }
+
+          const elapsedMs = Date.now() - startMs;
+
+          // bff.cee_proxy.error
+          req.log.warn({
+            evt: 'bff.cee_proxy.error',
+            error_code: `CEE_HTTP_${res.status}`,
+            error_message: `CEE returned non-JSON ${res.status} response`,
+            elapsed_ms: elapsedMs,
+            request_id: requestId,
+          });
+
+          return reply.code(res.status).send({
+            error: 'CEE_UPSTREAM_ERROR',
+            message: `CEE returned non-JSON ${res.status} response`,
+            retryable: res.status >= 500 || res.status === 429,
+            elapsed_ms: elapsedMs,
+            request_id: requestId,
+          });
+        }
+      } catch (err: any) {
+        clearTimeout(timeoutId);
+        const elapsedMs = Date.now() - startMs;
+
+        reply.header('X-Request-Id', requestId);
+
+        if (err.name === 'AbortError') {
+          // bff.cee_proxy.timeout
+          req.log.warn({
+            evt: 'bff.cee_proxy.timeout',
+            timeout_ms: CEE_PROXY_TIMEOUT_MS,
+            elapsed_ms: elapsedMs,
+            request_id: requestId,
+          });
+
+          return reply.code(504).send({
+            error: 'CEE_PROXY_TIMEOUT',
+            message: `CEE did not respond within ${Math.round(CEE_PROXY_TIMEOUT_MS / 1000)}s`,
+            retryable: true,
+            elapsed_ms: elapsedMs,
+            request_id: requestId,
+          });
+        }
+
+        // Network / other fetch error
+        // bff.cee_proxy.error
+        req.log.warn({
+          evt: 'bff.cee_proxy.error',
+          error_code: 'CEE_NETWORK_ERROR',
+          error_message: err.message || 'Failed to connect to CEE',
+          elapsed_ms: elapsedMs,
+          request_id: requestId,
+        });
+
+        return reply.code(502).send({
+          error: 'CEE_NETWORK_ERROR',
+          message: err.message || 'Failed to connect to CEE',
+          retryable: true,
+          elapsed_ms: elapsedMs,
+          request_id: requestId,
+        });
+      }
     }
   );
 
-  // Log route registration
   app.log.info({
     evt: 'route_registered',
     route: 'POST /v1/cee/draft-graph',
-    timeout_ms: CEE_DRAFT_GRAPH_TIMEOUT_MS,
+    timeout_ms: CEE_PROXY_TIMEOUT_MS,
   });
 }

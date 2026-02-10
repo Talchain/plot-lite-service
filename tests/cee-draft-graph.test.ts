@@ -23,7 +23,7 @@ describe('CEE Draft Graph Proxy', () => {
       // Clear CEE config to test error handling
       delete process.env.CEE_BASE_URL;
       delete process.env.CEE_API_KEY;
-      process.env.CEE_DRAFT_GRAPH_TIMEOUT_MS = '5000';
+      process.env.CEE_PROXY_TIMEOUT_MS = '5000';
       process.env.RATE_LIMIT_ENABLED = '0';
       process.env.CORS_ORIGINS = 'http://localhost:5173,https://staging--olumi.netlify.app';
 
@@ -36,7 +36,7 @@ describe('CEE Draft Graph Proxy', () => {
 
     afterAll(async () => {
       await app?.close();
-      delete process.env.CEE_DRAFT_GRAPH_TIMEOUT_MS;
+      delete process.env.CEE_PROXY_TIMEOUT_MS;
       delete process.env.RATE_LIMIT_ENABLED;
       delete process.env.CORS_ORIGINS;
     });
@@ -50,9 +50,9 @@ describe('CEE Draft Graph Proxy', () => {
 
       expect(res.status).toBe(503);
       const body = await res.json();
-      expect(body.error.code).toBe('CEE_CONFIG_MISSING');
-      expect(body.error.retryable).toBe(false);
-      expect(body.error.message).toContain('CEE_BASE_URL');
+      expect(body.error).toBe('CEE_CONFIG_MISSING');
+      expect(body.retryable).toBe(false);
+      expect(body.message).toContain('CEE_BASE_URL');
     });
 
     it('returns X-Request-Id header', async () => {
@@ -73,7 +73,7 @@ describe('CEE Draft Graph Proxy', () => {
     beforeAll(async () => {
       process.env.CEE_BASE_URL = 'https://cee.test.example.com';
       process.env.CEE_API_KEY = 'test-api-key-123';
-      process.env.CEE_DRAFT_GRAPH_TIMEOUT_MS = '5000';
+      process.env.CEE_PROXY_TIMEOUT_MS = '5000';
       process.env.RATE_LIMIT_ENABLED = '0';
 
       app2 = await createServer();
@@ -87,7 +87,7 @@ describe('CEE Draft Graph Proxy', () => {
       await app2?.close();
       delete process.env.CEE_BASE_URL;
       delete process.env.CEE_API_KEY;
-      delete process.env.CEE_DRAFT_GRAPH_TIMEOUT_MS;
+      delete process.env.CEE_PROXY_TIMEOUT_MS;
       delete process.env.RATE_LIMIT_ENABLED;
     });
 
@@ -114,11 +114,11 @@ describe('CEE Draft Graph Proxy', () => {
       // Should get a network error (502) or timeout (504), not a validation error (400)
       expect([502, 504]).toContain(res.status);
       const body = await res.json();
-      expect(['CEE_NETWORK_ERROR', 'CEE_TIMEOUT']).toContain(body.error.code);
-      expect(body.error.retryable).toBe(true);
+      expect(['CEE_NETWORK_ERROR', 'CEE_PROXY_TIMEOUT']).toContain(body.error);
+      expect(body.retryable).toBe(true);
     });
 
-    it('includes trace information in error response', async () => {
+    it('includes request_id and elapsed_ms in error response', async () => {
       const res = await fetch(`${baseUrl2}/v1/cee/draft-graph`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -126,9 +126,8 @@ describe('CEE Draft Graph Proxy', () => {
       });
 
       const body = await res.json();
-      expect(body.trace).toBeDefined();
-      expect(body.trace.request_id).toBeDefined();
-      expect(body.trace.latency_ms).toBeGreaterThanOrEqual(0);
+      expect(body.request_id).toBeDefined();
+      expect(body.elapsed_ms).toBeGreaterThanOrEqual(0);
     });
   });
 
