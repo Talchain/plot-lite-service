@@ -42,6 +42,16 @@ export interface ISLRequestOptions {
 }
 
 /**
+ * Result from ISL request, including response metadata
+ */
+export interface ISLRequestResult<T> {
+  /** Parsed response data */
+  data: T;
+  /** Request ID echoed back by ISL in X-Request-Id response header */
+  islEchoedRequestId: string | null;
+}
+
+/**
  * Safely parse JSON, returning the string if parsing fails.
  */
 function tryParseJson(text: string): unknown {
@@ -71,7 +81,7 @@ export class ISLClient {
    * @returns Parsed JSON response
    * @throws ISLHttpError on non-2xx responses
    */
-  async request<T>(options: ISLRequestOptions): Promise<T> {
+  async request<T>(options: ISLRequestOptions): Promise<ISLRequestResult<T>> {
     const { endpoint, body, requestId } = options;
     // Pin response version via query param (in addition to header)
     const url = `${this.config.baseUrl}${endpoint}?response_version=2`;
@@ -130,6 +140,8 @@ export class ISLClient {
 
         if (!response.ok) {
           const errorBody = await response.text();
+          // Capture echoed request ID even on error responses for chain tracing
+          const errorEchoedRequestId = response.headers.get('x-request-id') ?? null;
           // Record failed downstream call with payloads for debug
           recordDownstreamCall({
             service: 'isl',
@@ -147,18 +159,26 @@ export class ISLClient {
           if (response.status === 422) {
             try {
               const islError = JSON.parse(errorBody) as ISLError422;
-              throw new ISLHttpError(response.status, errorBody, endpoint, islError);
+              const err = new ISLHttpError(response.status, errorBody, endpoint, islError);
+              (err as any).islEchoedRequestId = errorEchoedRequestId;
+              throw err;
             } catch (parseErr) {
+              if (parseErr instanceof ISLHttpError) throw parseErr;
               // If parsing fails, throw generic error
-              throw new ISLHttpError(response.status, errorBody, endpoint);
+              const err = new ISLHttpError(response.status, errorBody, endpoint);
+              (err as any).islEchoedRequestId = errorEchoedRequestId;
+              throw err;
             }
           }
 
-          throw new ISLHttpError(response.status, errorBody, endpoint);
+          const err = new ISLHttpError(response.status, errorBody, endpoint);
+          (err as any).islEchoedRequestId = errorEchoedRequestId;
+          throw err;
         }
 
         // Parse response and record successful downstream call with payloads for debug
         const responseData = (await response.json()) as T;
+        const islEchoedRequestId = response.headers.get('x-request-id') ?? null;
         const responseHash = computeOlumiHash(responseData);
         recordDownstreamCall({
           service: 'isl',
@@ -172,7 +192,7 @@ export class ISLClient {
           responsePayload: sanitizePayloadForDebug(responseData),
         });
 
-        return responseData;
+        return { data: responseData, islEchoedRequestId };
       } catch (error) {
         // P1.1: Wrap errors in appropriate ISL error types
         let wrappedError: Error;

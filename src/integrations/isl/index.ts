@@ -86,6 +86,8 @@ export interface ISLAnalysisResult<T> {
   };
   /** Request latency in milliseconds */
   latency_ms: number;
+  /** Request ID echoed back by ISL (from X-Request-Id response header), if any */
+  isl_echoed_request_id?: string | null;
 }
 
 /**
@@ -227,7 +229,7 @@ export function createISLService(): ISLService {
       try {
         const dag = graphToISLDAG(graph);
 
-        const response = await client.request<ISLValidationResponse>({
+        const { data: response } = await client.request<ISLValidationResponse>({
           endpoint: '/api/v1/causal/validate',
           body: { dag, treatment, outcome },
           requestId,
@@ -267,7 +269,7 @@ export function createISLService(): ISLService {
       try {
         const dag = graphToISLDAG(graph);
 
-        const response = await client.request<ISLSensitivityResponse>({
+        const { data: response } = await client.request<ISLSensitivityResponse>({
           endpoint: '/api/v1/causal/sensitivity/detailed',
           body: { dag, treatment, outcome },
           requestId,
@@ -304,7 +306,7 @@ export function createISLService(): ISLService {
       try {
         const dag = graphToISLDAG(graph);
 
-        const response = await client.request<ISLCounterfactualResponse>({
+        const { data: response } = await client.request<ISLCounterfactualResponse>({
           endpoint: '/api/v1/causal/counterfactual',
           body: { dag, intervention, target },
           requestId,
@@ -365,7 +367,7 @@ export function createISLService(): ISLService {
           parameter_uncertainties: parameterUncertainties,
         };
 
-        const response = await client.request<ISLFactorSensitivityResponse>({
+        const { data: response } = await client.request<ISLFactorSensitivityResponse>({
           endpoint: '/api/v1/robustness/analyze/v2',
           body: requestPayload,
           requestId,
@@ -485,7 +487,7 @@ export function createISLService(): ISLService {
           parameter_uncertainties: parameterUncertainties.length > 0 ? parameterUncertainties : undefined,
         };
 
-        const response = await client.request<ISLRobustnessAnalyzeV2Response>({
+        const { data: response } = await client.request<ISLRobustnessAnalyzeV2Response>({
           endpoint: '/api/v1/robustness/analyze/v2',
           body: requestPayload,
           requestId,
@@ -597,15 +599,16 @@ export function createISLService(): ISLService {
       const currentClient = new ISLClient(currentConfig);
 
       try {
-        const response = await currentClient.request<T>({
+        const { data, islEchoedRequestId } = await currentClient.request<T>({
           endpoint,
           body,
           requestId,
         });
 
         return {
-          data: response,
+          data,
           latency_ms: Date.now() - startMs,
+          isl_echoed_request_id: islEchoedRequestId,
         };
       } catch (error) {
         const err = error as Error;
@@ -630,6 +633,7 @@ export function createISLService(): ISLService {
             retryable: isRetryableError(error),
           },
           latency_ms: Date.now() - startMs,
+          isl_echoed_request_id: (err as any).islEchoedRequestId ?? null,
         };
       }
     },

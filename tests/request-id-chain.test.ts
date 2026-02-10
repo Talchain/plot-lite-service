@@ -1,0 +1,460 @@
+/**
+ * Request ID Chain Propagation Tests
+ *
+ * Verifies end-to-end request ID chain:
+ *   - X-Request-Id header priority over body.request_id
+ *   - Fallback UUID generation when neither is present
+ *   - request_id_chain in response meta
+ *   - BFF proxy forwards and echoes X-Request-Id on all paths
+ *
+ * Uses Fastify inject (no real ISL/CEE calls).
+ */
+
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
+import Fastify from 'fastify';
+import type { FastifyInstance } from 'fastify';
+import { Writable } from 'node:stream';
+
+// ── BFF Proxy Tests ──────────────────────────────────────────────────────────
+
+// Mock the timeout module to use a short timeout for tests
+vi.mock('../src/config/timeouts.js', async (importOriginal) => {
+  const original = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...original,
+    CEE_PROXY_TIMEOUT_MS: 200,
+  };
+});
+
+import { registerCeeDraftGraphRoute } from '../src/routes/v1/cee-draft-graph.js';
+import { ISLClient } from '../src/integrations/isl/client.js';
+
+describe('BFF CEE Proxy — X-Request-Id chain', () => {
+  let app: FastifyInstance;
+  const originalFetch = globalThis.fetch;
+
+  beforeAll(async () => {
+    process.env.CEE_BASE_URL = 'https://cee.test.example.com';
+    process.env.CEE_API_KEY = 'test-key';
+
+    app = Fastify({
+      logger: false,
+      requestIdHeader: 'x-request-id',
+      genReqId: (req) => {
+        const header = req.headers['x-request-id'];
+        if (header && typeof header === 'string' && header.trim()) {
+          return header.trim();
+        }
+        return 'generated-fallback-id';
+      },
+    });
+    await registerCeeDraftGraphRoute(app);
+    await app.ready();
+  });
+
+  afterAll(async () => {
+    globalThis.fetch = originalFetch;
+    await app?.close();
+    delete process.env.CEE_BASE_URL;
+    delete process.env.CEE_API_KEY;
+  });
+
+  beforeEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('forwards incoming X-Request-Id to CEE', async () => {
+    const uiRequestId = 'ui-chain-test-abc-123';
+    let capturedHeaders: Record<string, string> = {};
+
+    globalThis.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      // Capture the headers sent to CEE
+      const headers = init?.headers as Record<string, string> | undefined;
+      capturedHeaders = headers ?? {};
+      return {
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ result: 'ok' }),
+        text: async () => '{"result":"ok"}',
+      };
+    }) as unknown as typeof fetch;
+
+    await app.inject({
+      method: 'POST',
+      url: '/v1/cee/draft-graph',
+      headers: { 'x-request-id': uiRequestId },
+      payload: { brief: 'test' },
+    });
+
+    expect(capturedHeaders['X-Request-Id']).toBe(uiRequestId);
+  });
+
+  it('returns X-Request-Id in response headers on success', async () => {
+    const uiRequestId = 'ui-success-header-test';
+
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({ result: 'ok' }),
+      text: async () => '{"result":"ok"}',
+    })) as unknown as typeof fetch;
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/cee/draft-graph',
+      headers: { 'x-request-id': uiRequestId },
+      payload: { brief: 'test' },
+    });
+
+    expect(res.headers['x-request-id']).toBe(uiRequestId);
+  });
+
+  it('returns X-Request-Id in response headers on CEE JSON error passthrough', async () => {
+    const uiRequestId = 'ui-error-passthrough-test';
+
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false,
+      status: 504,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({ error: 'CEE_LLM_TIMEOUT', message: 'timed out', retryable: true }),
+      text: async () => JSON.stringify({ error: 'CEE_LLM_TIMEOUT', message: 'timed out', retryable: true }),
+    })) as unknown as typeof fetch;
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/cee/draft-graph',
+      headers: { 'x-request-id': uiRequestId },
+      payload: { brief: 'test' },
+    });
+
+    expect(res.headers['x-request-id']).toBe(uiRequestId);
+  });
+
+  it('returns X-Request-Id in response headers on CEE non-JSON error', async () => {
+    const uiRequestId = 'ui-nonjson-error-test';
+
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false,
+      status: 502,
+      headers: new Headers({ 'content-type': 'text/html' }),
+      json: async () => { throw new Error('not json'); },
+      text: async () => '<html>Bad Gateway</html>',
+    })) as unknown as typeof fetch;
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/cee/draft-graph',
+      headers: { 'x-request-id': uiRequestId },
+      payload: { brief: 'test' },
+    });
+
+    expect(res.headers['x-request-id']).toBe(uiRequestId);
+    const body = JSON.parse(res.payload);
+    expect(body.request_id).toBe(uiRequestId);
+  });
+
+  it('returns X-Request-Id in response headers on timeout', async () => {
+    const uiRequestId = 'ui-timeout-test';
+
+    globalThis.fetch = vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+      return new Promise<Response>((_resolve, reject) => {
+        const onAbort = () => {
+          reject(new DOMException('The operation was aborted.', 'AbortError'));
+        };
+        if (init?.signal?.aborted) { onAbort(); return; }
+        init?.signal?.addEventListener('abort', onAbort);
+      });
+    }) as typeof fetch;
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/cee/draft-graph',
+      headers: { 'x-request-id': uiRequestId },
+      payload: { brief: 'test' },
+    });
+
+    expect(res.headers['x-request-id']).toBe(uiRequestId);
+    const body = JSON.parse(res.payload);
+    expect(body.request_id).toBe(uiRequestId);
+  });
+
+  it('returns X-Request-Id on wrong content-type JSON passthrough', async () => {
+    const uiRequestId = 'ui-wrong-ct-test';
+    const ceeResponse = { error: 'CEE_LLM_TIMEOUT', message: 'timed out', retryable: true };
+
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false,
+      status: 504,
+      headers: new Headers({ 'content-type': 'text/plain' }),
+      json: async () => { throw new Error('not json'); },
+      text: async () => JSON.stringify(ceeResponse),
+    })) as unknown as typeof fetch;
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/cee/draft-graph',
+      headers: { 'x-request-id': uiRequestId },
+      payload: { brief: 'test' },
+    });
+
+    expect(res.headers['x-request-id']).toBe(uiRequestId);
+  });
+});
+
+// ── V2 Run Request ID Chain Tests ────────────────────────────────────────────
+
+describe('V2 Run — request_id_chain', () => {
+  let app: FastifyInstance;
+
+  const VALID_GRAPH = {
+    nodes: [
+      { id: 'factor-a', kind: 'factor', label: 'Factor A' },
+      { id: 'factor-b', kind: 'factor', label: 'Factor B' },
+      { id: 'goal', kind: 'goal', label: 'Goal' },
+    ],
+    edges: [
+      { from: 'factor-a', to: 'goal', exists_probability: 0.8, strength: { mean: 0.5, std: 0.1 } },
+      { from: 'factor-b', to: 'goal', exists_probability: 0.9, strength: { mean: 0.7, std: 0.1 } },
+    ],
+  };
+
+  const VALID_OPTIONS = [
+    {
+      id: 'opt1',
+      label: 'Option 1',
+      interventions: { 'factor-a': { value: 1.5, source: 'user_specified' } },
+    },
+    {
+      id: 'opt2',
+      label: 'Option 2',
+      interventions: { 'factor-b': { value: 2.0, source: 'user_specified' } },
+    },
+  ];
+
+  const VALID_BODY = {
+    graph: VALID_GRAPH,
+    options: VALID_OPTIONS,
+    goal_node_id: 'goal',
+    seed: '42',
+  };
+
+  beforeAll(async () => {
+    // ISL disabled — forces local fallback, no real ISL calls
+    process.env.ISL_ENABLE = '0';
+    process.env.AUTH_ENABLED = '0';
+    process.env.TEST_ROUTES = '1';
+
+    const { createServer } = await import('../src/createServer.js');
+    app = await createServer({ enableTestRoutes: true });
+    await app.ready();
+  });
+
+  afterAll(async () => {
+    await app?.close();
+    delete process.env.ISL_ENABLE;
+    delete process.env.AUTH_ENABLED;
+    delete process.env.TEST_ROUTES;
+  });
+
+  it('uses X-Request-Id header as request_id in response', async () => {
+    const uiRequestId = 'ui-v2-header-test-abc';
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v2/run',
+      headers: {
+        'content-type': 'application/json',
+        'x-request-id': uiRequestId,
+      },
+      payload: VALID_BODY,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.request_id).toBe(uiRequestId);
+    expect(res.headers['x-request-id']).toBe(uiRequestId);
+  });
+
+  it('uses body.request_id when X-Request-Id header is absent', async () => {
+    const bodyRequestId = 'body-request-id-fallback';
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v2/run',
+      headers: { 'content-type': 'application/json' },
+      payload: { ...VALID_BODY, request_id: bodyRequestId },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.request_id).toBe(bodyRequestId);
+  });
+
+  it('generates UUID when neither header nor body.request_id provided', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v2/run',
+      headers: { 'content-type': 'application/json' },
+      payload: VALID_BODY,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    // Should be a UUID v4 format
+    expect(body.request_id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    // Header should match body
+    expect(res.headers['x-request-id']).toBe(body.request_id);
+  });
+
+  it('prefers X-Request-Id header over body.request_id', async () => {
+    const headerRequestId = 'header-wins';
+    const bodyRequestId = 'body-loses';
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v2/run',
+      headers: {
+        'content-type': 'application/json',
+        'x-request-id': headerRequestId,
+      },
+      payload: { ...VALID_BODY, request_id: bodyRequestId },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.request_id).toBe(headerRequestId);
+  });
+
+  it('includes request_id_chain.received matching response request_id', async () => {
+    const uiRequestId = 'chain-received-test';
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v2/run',
+      headers: {
+        'content-type': 'application/json',
+        'x-request-id': uiRequestId,
+      },
+      payload: VALID_BODY,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.meta.request_id_chain).toBeDefined();
+    expect(body.meta.request_id_chain.received).toBe(uiRequestId);
+    expect(body.meta.request_id_chain.received).toBe(body.request_id);
+  });
+
+  it('request_id_chain.forwarded_to_isl matches received', async () => {
+    const uiRequestId = 'chain-forward-test';
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v2/run',
+      headers: {
+        'content-type': 'application/json',
+        'x-request-id': uiRequestId,
+      },
+      payload: VALID_BODY,
+    });
+
+    const body = JSON.parse(res.payload);
+    expect(body.meta.request_id_chain.forwarded_to_isl).toBe(uiRequestId);
+  });
+
+  it('request_id_chain.isl_echoed is null when ISL is disabled', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v2/run',
+      headers: {
+        'content-type': 'application/json',
+        'x-request-id': 'isl-echo-null-test',
+      },
+      payload: VALID_BODY,
+    });
+
+    const body = JSON.parse(res.payload);
+    expect(body.meta.request_id_chain.isl_echoed).toBeNull();
+  });
+
+  it('request_id_chain.all_match is false when isl_echoed is null', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v2/run',
+      headers: {
+        'content-type': 'application/json',
+        'x-request-id': 'all-match-false-test',
+      },
+      payload: VALID_BODY,
+    });
+
+    const body = JSON.parse(res.payload);
+    expect(body.meta.request_id_chain.all_match).toBe(false);
+  });
+});
+
+// ── ISL Client — echoed request ID capture ───────────────────────────────────
+
+describe('ISL Client — request ID echo capture', () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('captures X-Request-Id from ISL response headers', async () => {
+    const requestId = 'isl-echo-capture-test';
+
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({
+        'content-type': 'application/json',
+        'x-request-id': requestId,
+      }),
+      json: async () => ({ status: 'ok' }),
+    })) as unknown as typeof fetch;
+
+    const client = new ISLClient({
+      baseUrl: 'https://isl.test.example.com',
+      apiKey: 'test-key',
+      timeoutMs: 5000,
+      maxRetries: 1,
+    });
+
+    const result = await client.request<{ status: string }>({
+      endpoint: '/api/v1/test',
+      body: { test: true },
+      requestId,
+    });
+
+    expect(result.data).toEqual({ status: 'ok' });
+    expect(result.islEchoedRequestId).toBe(requestId);
+  });
+
+  it('returns null islEchoedRequestId when ISL does not echo', async () => {
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({ status: 'ok' }),
+    })) as unknown as typeof fetch;
+
+    const client = new ISLClient({
+      baseUrl: 'https://isl.test.example.com',
+      apiKey: 'test-key',
+      timeoutMs: 5000,
+      maxRetries: 1,
+    });
+
+    const result = await client.request<{ status: string }>({
+      endpoint: '/api/v1/test',
+      body: { test: true },
+      requestId: 'no-echo-test',
+    });
+
+    expect(result.islEchoedRequestId).toBeNull();
+  });
+});

@@ -827,6 +827,17 @@ export interface RunResponseV3 {
      * Captured when ISL response is received (before PLoT processing).
      */
     computed_at?: string;
+    /** End-to-end request ID chain for debug tracing */
+    request_id_chain?: {
+      /** Request ID received from UI (X-Request-Id header or body.request_id) */
+      received: string;
+      /** Request ID forwarded to ISL */
+      forwarded_to_isl: string;
+      /** Request ID echoed back by ISL (null if ISL doesn't echo) */
+      isl_echoed: string | null;
+      /** True when all non-null IDs in the chain match */
+      all_match: boolean;
+    };
   };
 }
 

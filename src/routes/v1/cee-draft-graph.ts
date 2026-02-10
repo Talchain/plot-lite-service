@@ -139,6 +139,7 @@ export async function registerCeeDraftGraphRoute(app: FastifyInstance) {
               request_id: requestId,
             });
 
+            reply.header('X-Request-Id', requestId);
             return reply.code(res.status).send(body);
           }
         }
@@ -159,6 +160,7 @@ export async function registerCeeDraftGraphRoute(app: FastifyInstance) {
               bff_total_elapsed_ms: bffTotalElapsedMs,
               request_id: requestId,
             });
+            reply.header('X-Request-Id', requestId);
             return reply.code(res.status).send(parsed);
           }
 
@@ -173,6 +175,7 @@ export async function registerCeeDraftGraphRoute(app: FastifyInstance) {
             request_id: requestId,
           });
 
+          reply.header('X-Request-Id', requestId);
           return reply.code(res.status).send({
             error: 'CEE_UPSTREAM_ERROR',
             message: `CEE returned non-JSON ${res.status} response`,

@@ -599,6 +599,13 @@ interface MetaParams {
    * Captured when ISL response is received.
    */
   computedAt?: string;
+  /** Request ID chain for end-to-end tracing */
+  requestIdChain?: {
+    received: string;
+    forwarded_to_isl: string;
+    isl_echoed: string | null;
+    all_match: boolean;
+  };
 }
 
 /**
@@ -1107,6 +1114,7 @@ function buildResponse(
       cee_ms: meta.ceeMs,
       build: meta.build,
       computed_at: meta.computedAt,
+      ...(meta.requestIdChain && { request_id_chain: meta.requestIdChain }),
     },
   };
 }
@@ -1532,7 +1540,25 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
     async (req: FastifyRequest, reply: FastifyReply) => {
       const startTime = performance.now();
       const body = req.body as RunRequestV3;
-      const requestId = body.request_id ?? String(req.id) ?? randomUUID();
+      // Priority: X-Request-Id header (captured by Fastify genReqId into req.id)
+      // → body.request_id → generated UUID (genReqId fallback).
+      // Header is preferred because the UI sends X-Request-Id for chain tracing.
+      const incomingHeaderId = (req.headers['x-request-id'] as string | undefined)?.trim();
+      const requestId = incomingHeaderId || body.request_id || String(req.id);
+      // Log when both sources are present but differ — helps trace chain mismatches
+      if (incomingHeaderId && body.request_id && incomingHeaderId !== body.request_id) {
+        req.log.warn({
+          evt: 'request_id_mismatch',
+          header_id: incomingHeaderId,
+          body_id: body.request_id,
+          resolved: requestId,
+        });
+      }
+      // Ensure the global onSend hook echoes the resolved requestId (not genReqId's
+      // fallback UUID) when body.request_id was used as the source.
+      if (requestId !== String(req.id)) {
+        (req as any).id = requestId;
+      }
       // Note: seedUsed is resolved AFTER graph normalization for determinism
       // When seed is omitted, we derive it from the normalized graph hash
       const providedSeed = body.seed;  // May be undefined - will resolve after normalization
@@ -1868,6 +1894,12 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               sourcePath: 'graph_fallback',
               uiBuild,
               computedAt: new Date().toISOString(),
+              requestIdChain: {
+                received: requestId,
+                forwarded_to_isl: requestId,
+                isl_echoed: null,
+                all_match: false,
+              },
             },
             responseHash,
             undefined, // islResult
@@ -2060,6 +2092,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         let islError: ISLHttpError | undefined;
         let islFallbackExecuted = false;
         let computedAt: string | undefined;
+        let islEchoedRequestId: string | null = null;
 
         try {
           const response = await islService.callAnalysisEndpoint<any>(
@@ -2072,6 +2105,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             islResult = response.data;
             islSuccess = true;
             islStatusCode = 200;
+            islEchoedRequestId = response.isl_echoed_request_id ?? null;
             // Capture timestamp when ISL response received (before any PLoT processing)
             // Use ISL's computed_at if provided, otherwise capture now
             computedAt = islResult?.computed_at ?? new Date().toISOString();
@@ -2122,6 +2156,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           } else {
             islStatusCode = 500;
             islFallbackExecuted = true;
+            islEchoedRequestId = response.isl_echoed_request_id ?? null;
             req.log.error({
               event: 'isl_call_failed',
               error: response.error?.message ?? 'Unknown error',
@@ -2133,6 +2168,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           if (err instanceof ISLHttpError) {
             islError = err;
             islStatusCode = err.status;
+            islEchoedRequestId = (err as any).islEchoedRequestId ?? null;
 
             // Handle 422 from ISL with structured critiques (V2, V1, or Pydantic format)
             if (err.is422()) {
@@ -2265,6 +2301,12 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               sourcePath: 'isl',
               uiBuild,
               computedAt: computedAt ?? new Date().toISOString(),
+              requestIdChain: {
+                received: requestId,
+                forwarded_to_isl: requestId,
+                isl_echoed: islEchoedRequestId,
+                all_match: islEchoedRequestId !== null && requestId === islEchoedRequestId,
+              },
             },
             responseHash,
             undefined, // islResult
@@ -2330,6 +2372,12 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               sourcePath: 'isl',
               uiBuild,
               computedAt,
+              requestIdChain: {
+                received: requestId,
+                forwarded_to_isl: requestId,
+                isl_echoed: islEchoedRequestId,
+                all_match: islEchoedRequestId !== null && requestId === islEchoedRequestId,
+              },
             },
             responseHash,
             processedIslResult,
@@ -2750,6 +2798,12 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             uiBuild,
             ceeBuild: ceeOrchestrationResult.ceeTrace?.source ?? undefined,
             computedAt,
+            requestIdChain: {
+              received: requestId,
+              forwarded_to_isl: requestId,
+              isl_echoed: islEchoedRequestId,
+              all_match: islEchoedRequestId !== null && requestId === islEchoedRequestId,
+            },
           },
           responseHash,
           processedIslResult,
