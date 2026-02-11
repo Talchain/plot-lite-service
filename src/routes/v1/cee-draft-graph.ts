@@ -124,59 +124,53 @@ export async function registerCeeDraftGraphRoute(app: FastifyInstance) {
         }
 
         // ── CEE error path ────────────────────────────────────────────
-        if (isJson) {
-          let body: any;
-          try {
-            body = await res.json();
-          } catch {
-            body = null;
-          }
-
-          // CEE typed JSON error — passthrough as-is (covers CEE_LLM_TIMEOUT,
-          // CEE_REQUEST_BUDGET_EXCEEDED, validation 422, rate-limit 429, etc.)
-          // CIL Phase 1: Use CeeTypedErrorSchema to identify CEE-owned errors
-          if (body && typeof body === 'object' && CeeTypedErrorSchema.safeParse(body).success) {
-            const bffTotalElapsedMs = Date.now() - startMs;
-
-            // bff.cee_proxy.response (for passthrough errors too)
-            req.log.info({
-              evt: 'bff.cee_proxy.response',
-              status: res.status,
-              cee_elapsed_ms: ceeElapsedMs,
-              bff_total_elapsed_ms: bffTotalElapsedMs,
-              request_id: requestId,
-            });
-
-            reply.header('X-Request-Id', requestId);
-            return reply.code(res.status).send(body);
-          }
+        // Read upstream body once — fetch stream is single-consume
+        const rawText = await res.text().catch(() => '');
+        let parsed: any = null;
+        if (isJson || rawText.trimStart().startsWith('{')) {
+          try { parsed = JSON.parse(rawText); } catch { /* not valid JSON */ }
         }
 
-        // ── Non-JSON content-type — try JSON parse anyway (intermediaries
-        //    like Render sometimes strip content-type), then wrap if it fails ──
+        // 1. CEE typed error (CeeTypedErrorSchema) — passthrough as-is
+        //    Covers: CEE_LLM_TIMEOUT, CEE_REQUEST_BUDGET_EXCEEDED,
+        //    CEE_LLM_UPSTREAM_ERROR, CEE_LLM_VALIDATION_FAILED,
+        //    CEE_CLIENT_DISCONNECT, CEE_INTERNAL_ERROR
+        if (parsed && typeof parsed === 'object' && CeeTypedErrorSchema.safeParse(parsed).success) {
+          const bffTotalElapsedMs = Date.now() - startMs;
+
+          req.log.info({
+            evt: 'bff.cee_proxy.response',
+            status: res.status,
+            cee_elapsed_ms: ceeElapsedMs,
+            bff_total_elapsed_ms: bffTotalElapsedMs,
+            request_id: requestId,
+          });
+
+          return reply.code(res.status).send(parsed);
+        }
+
+        // 2. Any JSON object with 'error' field — passthrough as-is
+        //    Covers non-enum error codes and intermediaries that strip content-type
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && 'error' in parsed) {
+          const bffTotalElapsedMs = Date.now() - startMs;
+
+          req.log.info({
+            evt: 'bff.cee_proxy.response',
+            status: res.status,
+            cee_elapsed_ms: ceeElapsedMs,
+            bff_total_elapsed_ms: bffTotalElapsedMs,
+            request_id: requestId,
+          });
+
+          return reply.code(res.status).send(parsed);
+        }
+
+        // 3. Non-JSON or unrecognized — wrap with diagnostics
         {
-          const rawText = await res.text().catch(() => '');
-          let parsed: any = null;
-          try { parsed = JSON.parse(rawText); } catch { /* not JSON */ }
-
-          if (parsed && typeof parsed === 'object' && 'error' in parsed) {
-            const bffTotalElapsedMs = Date.now() - startMs;
-            req.log.info({
-              evt: 'bff.cee_proxy.response',
-              status: res.status,
-              cee_elapsed_ms: ceeElapsedMs,
-              bff_total_elapsed_ms: bffTotalElapsedMs,
-              request_id: requestId,
-            });
-            reply.header('X-Request-Id', requestId);
-            return reply.code(res.status).send(parsed);
-          }
-
           const elapsedMs = Date.now() - startMs;
           const upstreamContentType = contentType || 'unknown';
           const upstreamBodyPreview = rawText.slice(0, 500);
 
-          // bff.cee_proxy.error — include raw-body preview for diagnostics
           req.log.warn({
             evt: 'bff.cee_proxy.error',
             error_code: `CEE_HTTP_${res.status}`,
@@ -187,7 +181,6 @@ export async function registerCeeDraftGraphRoute(app: FastifyInstance) {
             request_id: requestId,
           });
 
-          reply.header('X-Request-Id', requestId);
           // CIL Phase 1: PLoT-generated error envelope typed by @talchain/schemas
           const envelope: PlotCeeUpstreamEnvelope = {
             error: 'CEE_UPSTREAM_ERROR',

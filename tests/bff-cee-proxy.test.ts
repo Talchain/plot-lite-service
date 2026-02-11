@@ -160,6 +160,49 @@ describe('BFF CEE Proxy — Timeout + Instrumentation', () => {
   });
 
   // ────────────────────────────────────────────────────────────────────────────
+  // 3b. CEE 422 with non-enum error code + single-consume stream is passed through
+  // ────────────────────────────────────────────────────────────────────────────
+  it('CEE 422 JSON with non-enum error code and single-consume stream is passed through', async () => {
+    const ceeResponse = {
+      error: 'VALIDATION_ERROR',
+      message: 'brief must be at least 10 characters',
+      retryable: false,
+      details: { field: 'brief', min_length: 10 },
+    };
+
+    // Simulate real fetch: body stream can only be consumed once
+    let consumed = false;
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false,
+      status: 422,
+      headers: new Headers({ 'content-type': 'application/json; charset=utf-8' }),
+      json: async () => {
+        if (consumed) throw new Error('Body already consumed');
+        consumed = true;
+        return ceeResponse;
+      },
+      text: async () => {
+        if (consumed) throw new Error('Body already consumed');
+        consumed = true;
+        return JSON.stringify(ceeResponse);
+      },
+    })) as unknown as typeof fetch;
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/cee/draft-graph',
+      payload: { brief: 'test' },
+    });
+
+    expect(res.statusCode).toBe(422);
+    const body = JSON.parse(res.payload);
+    // Must be the exact CEE response — NOT wrapped in CEE_UPSTREAM_ERROR
+    expect(body).toEqual(ceeResponse);
+    expect(body.error).not.toBe('CEE_UPSTREAM_ERROR');
+    expect(body.upstream_body_preview).toBeUndefined();
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
   // 4. CEE non-JSON error (HTML) is wrapped in a generic BFF error
   // ────────────────────────────────────────────────────────────────────────────
   it('CEE non-JSON error (HTML) is wrapped in a generic BFF error', async () => {
