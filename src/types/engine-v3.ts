@@ -7,9 +7,19 @@
  * @see Integration Alignment Implementation Brief v1.1
  */
 
-// Import canonical limits from single source of truth
+// CIL Phase 1: Canonical types and constants from shared schema package
 import {
   LIMITS,
+  NODE_ID_PATTERN as SCHEMA_NODE_ID_PATTERN,
+} from '@talchain/schemas';
+import type {
+  SeedSourceType,
+  NodeV3 as SchemaNodeV3,
+  EdgeV3 as SchemaEdgeV3,
+  GraphV3 as SchemaGraphV3,
+  RepairEntry as SchemaRepairEntry,
+} from '@talchain/schemas';
+import {
   MAX_NODES as LIMITS_MAX_NODES,
   MAX_EDGES as LIMITS_MAX_EDGES,
   MAX_OPTIONS as LIMITS_MAX_OPTIONS,
@@ -804,15 +814,11 @@ export interface RunResponseV3 {
     seed_used: string;
     /**
      * CIL Phase 1: Indicates seed origin for deterministic Monte Carlo runs.
+     * Canonical type from @talchain/schemas SeedSource enum.
      * - 'client_generated': Client explicitly provided seed in request
      * - 'server_generated': Server derived seed from request graph hash
-     * - 'user_provided': Reserved for future use (e.g., when ISL or another service provides the seed)
-     *
-     * Why forward derived seeds: If derived seed is computed in PLoT but not sent to ISL,
-     * ISL could derive a different seed (e.g., if graph normalisation differs), making
-     * runs harder to reproduce end-to-end.
      */
-    seed_source: 'client_generated' | 'server_generated' | 'user_provided';
+    seed_source: SeedSourceType;
     n_samples: number;
     detail_level: string;
     latency_ms: number;
@@ -1281,8 +1287,8 @@ export interface PreflightResultV3 {
 // Constants
 // -----------------------------------------------------------------------------
 
-/** Valid node ID pattern */
-export const NODE_ID_PATTERN = /^[a-z0-9_:-]+$/;
+/** Valid node ID pattern — canonical definition from @talchain/schemas */
+export const NODE_ID_PATTERN = SCHEMA_NODE_ID_PATTERN;
 
 /** Maximum nodes allowed - re-exported from single source of truth */
 export const MAX_NODES = LIMITS_MAX_NODES;
@@ -1310,3 +1316,11 @@ export const NON_CAUSAL_NODE_KINDS = ['option', 'decision'] as const;
 
 /** Minimum std for edge strength (to avoid division by zero) */
 export const MIN_STRENGTH_STD = 1e-6;
+
+// -----------------------------------------------------------------------------
+// CIL Phase 1: Re-export schema wire types for API boundary consumers
+// Internal engine types (EngineNodeV3, EngineEdgeV3, EngineGraphV3) remain
+// PLoT-specific for the richer post-normalization representation.
+// -----------------------------------------------------------------------------
+export type { SchemaNodeV3, SchemaEdgeV3, SchemaGraphV3, SchemaRepairEntry };
+export type { SeedSourceType } from '@talchain/schemas';

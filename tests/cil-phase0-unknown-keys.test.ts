@@ -65,7 +65,7 @@ describe('CIL Phase 0.2 — Unknown top-level key rejection', () => {
     });
 
     expect(res.status).toBe(400);
-    expect(res.body.message).toContain('Unknown field: unknown_field');
+    expect(res.data.message).toContain('Unknown field: unknown_field');
   });
 
   it('accepts all allowlisted keys without rejection', async () => {

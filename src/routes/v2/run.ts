@@ -77,6 +77,8 @@ import { createISLInferenceFn, resolveFlipValues } from '../../analysis/flip-thr
 import { computeFlipThresholdData } from '../../coaching/flip-thresholds.js';
 import { denormaliseFlipThresholds, type DenormalisedFlipThreshold } from '../../lib/flip-threshold-denormaliser.js';
 import type { CeeReviewRequest, CeeTrace, FactorEnrichment } from '../../cee/types.js';
+// CIL Phase 1: Shared types from @talchain/schemas
+import type { SeedSourceType } from '@talchain/schemas';
 import { factorReviewV2, type CEESchemaV2Config } from '../../cee/client.js';
 import { FLAGS } from '../../config/flags.js';
 import { generateM1Coaching } from '../../coaching/m1-coaching.js';
@@ -576,8 +578,8 @@ function determineTopLevelStatus(
 
 interface MetaParams {
   seedUsed: string;
-  /** CIL Phase 1: Indicates seed origin (client_generated, server_generated, or user_provided) */
-  seedSource: 'client_generated' | 'server_generated' | 'user_provided';
+  /** CIL Phase 1: Seed origin — type from @talchain/schemas SeedSource */
+  seedSource: SeedSourceType;
   nSamples: number;
   detailLevel: string;
   latencyMs: number;
@@ -1103,7 +1105,7 @@ function buildResponse(
     meta: {
       seed_used: meta.seedUsed,
       // CIL Phase 1: seed_source tells consumers seed origin
-      //             (client_generated, server_generated, or user_provided)
+      //             (client_generated or server_generated)
       seed_source: meta.seedSource,
       n_samples: meta.nSamples,
       detail_level: meta.detailLevel,

@@ -37,7 +37,7 @@ describe('CIL Phase 0.2 — Blocked response robustness', () => {
     vi.resetModules();
     server = await spawnServer({ env: ENV });
 
-    // Trigger a 422 blocked response by providing < 2 options
+    // Trigger a 422 blocked response with a goal_node_id that doesn't exist in the graph
     const res = await requestJSON(`${server.baseUrl}/v2/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -49,20 +49,25 @@ describe('CIL Phase 0.2 — Blocked response robustness', () => {
             label: 'Option A',
             interventions: { 'factor-a': { value: 0.8, source: 'user_specified' } },
           },
-        ], // Only 1 option - should trigger validation error
-        goal_node_id: 'goal',
+          {
+            id: 'opt-b',
+            label: 'Option B',
+            interventions: { 'factor-a': { value: 0.6, source: 'user_specified' } },
+          },
+        ],
+        goal_node_id: 'missing-goal', // Not in graph — triggers preflight blocker
       }),
     });
 
     expect(res.status).toBe(422);
-    expect(res.body.analysis_status).toBe('blocked');
+    expect(res.data.analysis_status).toBe('blocked');
 
     // CIL 0.2: robustness must be present with empty arrays
-    expect(res.body.robustness).toBeDefined();
-    expect(res.body.robustness.fragile_edges).toEqual([]);
-    expect(res.body.robustness.robust_edges).toEqual([]);
-    expect(Array.isArray(res.body.robustness.fragile_edges)).toBe(true);
-    expect(Array.isArray(res.body.robustness.robust_edges)).toBe(true);
+    expect(res.data.robustness).toBeDefined();
+    expect(res.data.robustness.fragile_edges).toEqual([]);
+    expect(res.data.robustness.robust_edges).toEqual([]);
+    expect(Array.isArray(res.data.robustness.fragile_edges)).toBe(true);
+    expect(Array.isArray(res.data.robustness.robust_edges)).toBe(true);
   });
 
   it('blocked response includes robustness for invalid goal_node_id', async () => {
@@ -91,11 +96,11 @@ describe('CIL Phase 0.2 — Blocked response robustness', () => {
     });
 
     expect(res.status).toBe(422);
-    expect(res.body.analysis_status).toBe('blocked');
+    expect(res.data.analysis_status).toBe('blocked');
 
     // CIL 0.2: robustness must be present with empty arrays
-    expect(res.body.robustness).toBeDefined();
-    expect(res.body.robustness.fragile_edges).toEqual([]);
-    expect(res.body.robustness.robust_edges).toEqual([]);
+    expect(res.data.robustness).toBeDefined();
+    expect(res.data.robustness.fragile_edges).toEqual([]);
+    expect(res.data.robustness.robust_edges).toEqual([]);
   });
 });

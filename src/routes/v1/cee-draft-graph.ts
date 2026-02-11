@@ -19,6 +19,13 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { replyWithAppError } from '../../errors.js';
 import { CEE_PROXY_TIMEOUT_MS } from '../../config/timeouts.js';
+// CIL Phase 1: Shared error schemas from @talchain/schemas
+import {
+  CeeTypedErrorSchema,
+  PlotCeeUpstreamEnvelopeSchema,
+  PlotProxyTimeoutErrorSchema,
+} from '@talchain/schemas';
+import type { PlotCeeUpstreamEnvelope, PlotProxyTimeoutError } from '@talchain/schemas';
 
 export async function registerCeeDraftGraphRoute(app: FastifyInstance) {
   // Log effective config at startup
@@ -127,7 +134,8 @@ export async function registerCeeDraftGraphRoute(app: FastifyInstance) {
 
           // CEE typed JSON error — passthrough as-is (covers CEE_LLM_TIMEOUT,
           // CEE_REQUEST_BUDGET_EXCEEDED, validation 422, rate-limit 429, etc.)
-          if (body && typeof body === 'object' && 'error' in body) {
+          // CIL Phase 1: Use CeeTypedErrorSchema to identify CEE-owned errors
+          if (body && typeof body === 'object' && CeeTypedErrorSchema.safeParse(body).success) {
             const bffTotalElapsedMs = Date.now() - startMs;
 
             // bff.cee_proxy.response (for passthrough errors too)
@@ -180,7 +188,8 @@ export async function registerCeeDraftGraphRoute(app: FastifyInstance) {
           });
 
           reply.header('X-Request-Id', requestId);
-          return reply.code(res.status).send({
+          // CIL Phase 1: PLoT-generated error envelope typed by @talchain/schemas
+          const envelope: PlotCeeUpstreamEnvelope = {
             error: 'CEE_UPSTREAM_ERROR',
             message: `CEE returned non-JSON ${res.status} response`,
             retryable: res.status >= 500 || res.status === 429,
@@ -188,7 +197,8 @@ export async function registerCeeDraftGraphRoute(app: FastifyInstance) {
             upstream_body_preview: upstreamBodyPreview,
             elapsed_ms: elapsedMs,
             request_id: requestId,
-          });
+          };
+          return reply.code(res.status).send(envelope);
         }
       } catch (err: any) {
         clearTimeout(timeoutId);
@@ -205,13 +215,15 @@ export async function registerCeeDraftGraphRoute(app: FastifyInstance) {
             request_id: requestId,
           });
 
-          return reply.code(504).send({
+          // CIL Phase 1: PLoT-generated timeout error typed by @talchain/schemas
+          const timeoutError: PlotProxyTimeoutError = {
             error: 'CEE_PROXY_TIMEOUT',
             message: `CEE did not respond within ${Math.round(CEE_PROXY_TIMEOUT_MS / 1000)}s`,
             retryable: true,
             elapsed_ms: elapsedMs,
             request_id: requestId,
-          });
+          };
+          return reply.code(504).send(timeoutError);
         }
 
         // Network / other fetch error

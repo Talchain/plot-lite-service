@@ -4,6 +4,9 @@
  */
 
 import type { EvidenceFreshnessSummary } from './evidence-freshness.js';
+// CIL Phase 1: DetailLevel canonical type imported from shared schema package
+import { DetailLevel as DetailLevelEnum } from '@talchain/schemas';
+import { z } from 'zod';
 
 /**
  * Confidence level classification (uppercase for UI contract alignment)
@@ -16,7 +19,8 @@ export type ConfidenceLevel = 'LOW' | 'MEDIUM' | 'HIGH';
  */
 export type ProvenanceConfidenceLevel = 'low' | 'medium' | 'high' | 'unknown';
 
-export type DetailLevel = 'quick' | 'standard' | 'deep';
+/** Detail level — canonical enum derived from @talchain/schemas */
+export type DetailLevel = z.infer<typeof DetailLevelEnum>;
 
 /**
  * Detail level configuration - controls compute budget and feature enablement
