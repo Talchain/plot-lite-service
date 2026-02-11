@@ -149,7 +149,24 @@ export async function registerCeeDraftGraphRoute(app: FastifyInstance) {
           return reply.code(res.status).send(parsed);
         }
 
-        // 2. Any JSON object with 'error' field — passthrough as-is
+        // 2. CEE cee.error.v1 schema — passthrough as-is
+        //    Covers structured CEE errors (code field, trace, details) that
+        //    don't match the CeeTypedErrorSchema enum above
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && parsed.schema === 'cee.error.v1') {
+          const bffTotalElapsedMs = Date.now() - startMs;
+
+          req.log.info({
+            evt: 'bff.cee_proxy.response',
+            status: res.status,
+            cee_elapsed_ms: ceeElapsedMs,
+            bff_total_elapsed_ms: bffTotalElapsedMs,
+            request_id: requestId,
+          });
+
+          return reply.code(res.status).send(parsed);
+        }
+
+        // 3. Any JSON object with 'error' field — passthrough as-is
         //    Covers non-enum error codes and intermediaries that strip content-type
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && 'error' in parsed) {
           const bffTotalElapsedMs = Date.now() - startMs;
@@ -165,7 +182,7 @@ export async function registerCeeDraftGraphRoute(app: FastifyInstance) {
           return reply.code(res.status).send(parsed);
         }
 
-        // 3. Non-JSON or unrecognized — wrap with diagnostics
+        // 4. Non-JSON or unrecognized — wrap with diagnostics
         {
           const elapsedMs = Date.now() - startMs;
           const upstreamContentType = contentType || 'unknown';

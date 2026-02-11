@@ -203,6 +203,56 @@ describe('BFF CEE Proxy — Timeout + Instrumentation', () => {
   });
 
   // ────────────────────────────────────────────────────────────────────────────
+  // 3c. CEE cee.error.v1 structured error is passed through (not wrapped)
+  // ────────────────────────────────────────────────────────────────────────────
+  it('CEE cee.error.v1 structured error with single-consume stream is passed through', async () => {
+    const ceeResponse = {
+      schema: 'cee.error.v1',
+      code: 'CEE_VALIDATION_FAILED',
+      message: 'Graph validation failed: brief must be at least 10 characters',
+      source: 'cee',
+      trace: {
+        pipeline: {
+          checkpoints: ['ingress', 'validate'],
+          cee_provenance: 'draft-graph-v3',
+        },
+      },
+      details: { field: 'brief', min_length: 10 },
+    };
+
+    let consumed = false;
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false,
+      status: 422,
+      headers: new Headers({ 'content-type': 'application/json; charset=utf-8' }),
+      json: async () => {
+        if (consumed) throw new Error('Body already consumed');
+        consumed = true;
+        return ceeResponse;
+      },
+      text: async () => {
+        if (consumed) throw new Error('Body already consumed');
+        consumed = true;
+        return JSON.stringify(ceeResponse);
+      },
+    })) as unknown as typeof fetch;
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/cee/draft-graph',
+      payload: { brief: 'test' },
+    });
+
+    expect(res.statusCode).toBe(422);
+    const body = JSON.parse(res.payload);
+    // Must be the exact CEE response — full trace data preserved
+    expect(body).toEqual(ceeResponse);
+    expect(body.schema).toBe('cee.error.v1');
+    expect(body.trace.pipeline.checkpoints).toEqual(['ingress', 'validate']);
+    expect(body.upstream_body_preview).toBeUndefined();
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
   // 4. CEE non-JSON error (HTML) is wrapped in a generic BFF error
   // ────────────────────────────────────────────────────────────────────────────
   it('CEE non-JSON error (HTML) is wrapped in a generic BFF error', async () => {
