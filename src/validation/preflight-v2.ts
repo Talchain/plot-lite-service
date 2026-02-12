@@ -613,7 +613,7 @@ export function validateGoalConstraints(
       warnings.push(
         createWarning(
           'CONSTRAINT_MISSING_RANGE',
-          `Constraint "${constraint_id}" target node "${node_id}" has no derivable range. Heuristic fallback will be used for normalisation.`,
+          `Constraint "${constraint_id}" target node "${node_id}" has no derivable range. Constraint value will be compared as-is by ISL.`,
           [node_id]
         )
       );

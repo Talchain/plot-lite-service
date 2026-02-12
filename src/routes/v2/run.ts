@@ -92,8 +92,6 @@ import {
   normaliseOptionsForISL,
   denormaliseISLResult,
   needsNormalisation,
-  normaliseGoalConstraints,
-  constraintsNeedNormalisation,
   type NormalisationContext,
   type NormalisationDiagnostic,
 } from '../../lib/intervention-normaliser.js';
@@ -1964,46 +1962,26 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         }
 
         // =================================================================
-        // Phase 4b: Constraint Normalisation (if multi-constraint path active)
+        // Phase 4b: Constraint pass-through (no normalisation)
         // =================================================================
+        // ISL compares raw sampled values against raw constraint values.
+        // Normalising the constraint but not the samples produces wrong
+        // probabilities. Pass constraints through as-is, matching
+        // goal_threshold behaviour.
         let constraintsForISL: GoalConstraint[] | undefined;
 
         if (activeGoalConstraints && activeGoalConstraints.length > 0) {
-          if (constraintsNeedNormalisation(activeGoalConstraints)) {
-            const constraintNormResult = normaliseGoalConstraints(
-              activeGoalConstraints,
-              filteredGraph.nodes
-            );
-
-            // Use normalised constraint values for ISL
-            constraintsForISL = constraintNormResult.constraints;
-
-            // Add constraint normalisation repairs
-            repairs = repairs.concat(constraintNormResult.repairs);
-
-            // Log constraint normalisation diagnostics
-            req.log.info({
-              event: 'constraint_normalisation',
-              normalised: true,
-              constraint_count: constraintNormResult.constraints.length,
-              heuristic_count: constraintNormResult.diagnostics.filter(d => d.used_heuristic).length,
-              sample: constraintNormResult.diagnostics.slice(0, 3).map(d => ({
-                constraint_id: d.constraint_id,
-                node_id: d.node_id,
-                original: d.original_value,
-                normalised: d.normalised_value,
-                range_source: d.range.source,
-              })),
-            });
-          } else {
-            // Constraints already in [0,1] - use as-is
-            constraintsForISL = activeGoalConstraints;
-            req.log.debug({
-              event: 'constraint_normalisation',
-              normalised: false,
-              reason: 'All constraint values already in [0,1] range',
-            });
-          }
+          constraintsForISL = activeGoalConstraints;
+          req.log.debug({
+            event: 'constraint_passthrough',
+            constraint_count: activeGoalConstraints.length,
+            sample: activeGoalConstraints.slice(0, 3).map(c => ({
+              constraint_id: c.constraint_id,
+              node_id: c.node_id,
+              operator: c.operator,
+              value: c.value,
+            })),
+          });
         }
 
         // Add constraint validation warnings to preflight warnings
@@ -2024,7 +2002,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           requestId,
           nSamples,
           effectiveGoalThreshold,  // Use effective threshold (undefined if multi-constraint)
-          constraintsForISL,       // Pass normalised constraints (undefined if not using multi-constraint)
+          constraintsForISL,       // Raw constraint values (undefined if not using multi-constraint)
           seedUsed  // Always forward effective seed (either user-provided or server-generated)
         );
 

@@ -860,7 +860,7 @@ describe('T7: ISL Request Extension', () => {
 // =============================================================================
 
 describe('Integration: End-to-End Constraint Flow (Unit)', () => {
-  it('full pipeline: compile → validate → normalise → ISL request', () => {
+  it('full pipeline: compile → validate → ISL request (raw values, no normalisation)', () => {
     // Graph with a constraint node
     const graph: EngineGraphV3 = {
       nodes: [
@@ -899,12 +899,8 @@ describe('Integration: End-to-End Constraint Flow (Unit)', () => {
     const validation = validateGoalConstraints(compilation.constraints, filteredGraph);
     expect(validation.blockers).toHaveLength(0);
 
-    // Step 3: Normalise constraints
-    const normalisation = normaliseGoalConstraints(compilation.constraints, filteredGraph.nodes);
-    expect(normalisation.constraints[0].value).toBe(0.4); // 20000/50000 = 0.4
-    expect(normalisation.constraints[0].original_value).toBe(20000);
-
-    // Step 4: Build ISL request
+    // Step 3: Build ISL request with raw constraint values (no normalisation)
+    // ISL compares raw sampled values against raw constraint values.
     const options = [
       { id: 'opt1', label: 'Option 1', interventions: { mrr_factor: { value: 0.5, source: 'user_specified' as const } } },
     ];
@@ -915,12 +911,37 @@ describe('Integration: End-to-End Constraint Flow (Unit)', () => {
       'request-123',
       1000,
       undefined,
-      normalisation.constraints
+      compilation.constraints // raw, not normalised
     );
 
     expect(islRequest.goal_constraints).toHaveLength(1);
-    expect(islRequest.goal_constraints![0].value).toBe(0.4);
+    expect(islRequest.goal_constraints![0].value).toBe(20000); // raw value preserved
     expect(islRequest.goal_threshold).toBeUndefined();
+  });
+
+  it('constraint values >1 pass through to ISL without normalisation', () => {
+    const testGraph = createTestGraph();
+    const testOptions = [
+      { id: 'opt1', label: 'Option 1', interventions: { factor_a: { value: 0.8, source: 'user_specified' as const } } },
+    ];
+    const constraints: GoalConstraint[] = [
+      createTestConstraint({ constraint_id: 'mrr_min', node_id: 'factor_a', operator: '>=', value: 50000 }),
+      createTestConstraint({ constraint_id: 'cac_max', node_id: 'factor_b', operator: '<=', value: 1200 }),
+    ];
+
+    const islRequest = toISLRobustnessRequest(
+      testGraph,
+      testOptions,
+      'goal_node',
+      'request-123',
+      1000,
+      undefined,
+      constraints
+    );
+
+    expect(islRequest.goal_constraints).toHaveLength(2);
+    expect(islRequest.goal_constraints![0].value).toBe(50000);
+    expect(islRequest.goal_constraints![1].value).toBe(1200);
   });
 });
 
