@@ -287,6 +287,49 @@ describe('CIL C1: Constraint Results Passthrough', () => {
     expect(opt?.probability_of_joint_goal).toBe(0.55);
   });
 
+  it('maps constraint_id correctly when ISL returns results in reversed order', async () => {
+    // Input: revenue-min (goal, >=, 20000) then retention-max (factor-b, <=, 5000)
+    // ISL returns them reversed: factor-b first, goal second
+    mockConstraintAnalysis = {
+      constraints: [
+        { node_id: 'factor-b', operator: '<=', threshold: 5000, prob_satisfied: 0.92 },
+        { node_id: 'goal', operator: '>=', threshold: 20000, prob_satisfied: 0.85 },
+      ],
+      joint_probability: 0.78,
+      conditional_probabilities: [
+        { given_constraint_index: 0, target_constraint_index: 1, probability: 0.88, effective_sample_size: 400 },
+      ],
+    };
+
+    const res = await fetch(`${baseUrl}/v2/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...BASE_PAYLOAD, goal_constraints: GOAL_CONSTRAINTS }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    expect(body.constraints_status).toBe('computed');
+    expect(body.constraint_results).toHaveLength(2);
+
+    // First ISL result (factor-b, <=) should map to retention-max
+    expect(body.constraint_results[0].constraint_id).toBe('retention-max');
+    expect(body.constraint_results[0].node_id).toBe('factor-b');
+    expect(body.constraint_results[0].probability).toBe(0.92);
+
+    // Second ISL result (goal, >=) should map to revenue-min
+    expect(body.constraint_results[1].constraint_id).toBe('revenue-min');
+    expect(body.constraint_results[1].node_id).toBe('goal');
+    expect(body.constraint_results[1].probability).toBe(0.85);
+
+    // Conditional probabilities should use constraint_id, not index
+    expect(body.conditional_probabilities).toHaveLength(1);
+    expect(body.conditional_probabilities[0].given_constraint_id).toBe('retention-max');
+    expect(body.conditional_probabilities[0].target_constraint_id).toBe('revenue-min');
+    expect(body.conditional_probabilities[0].probability).toBe(0.88);
+  });
+
   it('deduplicates constraints with same (node_id, operator) — keeps stricter threshold', async () => {
     // Two constraints on same node with same operator but different thresholds.
     // compileConstraintNodes → mergeConstraints deduplicates by (node_id, operator),
