@@ -79,6 +79,25 @@ function createWarning(
   };
 }
 
+/**
+ * Create an info critique (not displayed in the UI results panel).
+ */
+function createInfo(
+  code: string,
+  message: string,
+  affectedNodeIds?: string[]
+): CritiqueV3 {
+  return {
+    id: randomUUID(),
+    code,
+    severity: 'info',
+    message,
+    source: 'validation',
+    affected_node_ids: affectedNodeIds,
+    blocks_analysis: false,
+  };
+}
+
 // -----------------------------------------------------------------------------
 // Individual Validators
 // -----------------------------------------------------------------------------
@@ -609,9 +628,10 @@ export function validateGoalConstraints(
         );
       }
     } else {
-      // Range is not derivable - emit CONSTRAINT_MISSING_RANGE warning
+      // Range is not derivable - informational only (no downstream impact
+      // since constraint values pass through raw to ISL)
       warnings.push(
-        createWarning(
+        createInfo(
           'CONSTRAINT_MISSING_RANGE',
           `Constraint "${constraint_id}" target node "${node_id}" has no derivable range. Constraint value will be compared as-is by ISL.`,
           [node_id]

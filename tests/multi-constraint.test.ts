@@ -255,7 +255,7 @@ describe('T2: Critique Codes', () => {
     expect(result.warnings.some(w => w.code === 'CONSTRAINT_VALUE_OUTSIDE_RANGE')).toBe(true);
   });
 
-  it('CONSTRAINT_MISSING_RANGE fires when no derivable range', () => {
+  it('CONSTRAINT_MISSING_RANGE fires as info when no derivable range', () => {
     const graphNoRange: EngineGraphV3 = {
       nodes: [
         { id: 'goal_node', kind: 'goal', label: 'Goal' },
@@ -267,7 +267,9 @@ describe('T2: Critique Codes', () => {
       createTestConstraint({ constraint_id: 'c1', node_id: 'factor_a', value: 50 }),
     ];
     const result = validateGoalConstraints(constraints, graphNoRange);
-    expect(result.warnings.some(w => w.code === 'CONSTRAINT_MISSING_RANGE')).toBe(true);
+    const critique = result.warnings.find(w => w.code === 'CONSTRAINT_MISSING_RANGE');
+    expect(critique).toBeDefined();
+    expect(critique!.severity).toBe('info');
   });
 
   it('CONSTRAINT_DUPLICATE_TARGET fires for same node/operator combination', () => {
