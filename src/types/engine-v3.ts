@@ -792,6 +792,9 @@ export interface RunResponseV3 {
     id_mismatch?: boolean;
   };
 
+  /** Total request processing time in milliseconds (contract-compliant alias for meta.latency_ms) */
+  processing_time_ms?: number;
+
   /** Determinism hash of canonical request (semantic fields only) */
   response_hash?: string;
 
@@ -833,14 +836,14 @@ export interface RunResponseV3 {
      * Captured when ISL response is received (before PLoT processing).
      */
     computed_at?: string;
-    /** End-to-end request ID chain for debug tracing */
+    /** End-to-end request ID chain for debug tracing (Platform Contract v3.3 field names) */
     request_id_chain?: {
       /** Request ID received from UI (X-Request-Id header or body.request_id) */
-      received: string;
-      /** Request ID forwarded to ISL */
-      forwarded_to_isl: string;
+      ui: string;
+      /** PLoT's own request ID (same as ui unless PLoT generates one) */
+      plot: string;
       /** Request ID echoed back by ISL (null if ISL doesn't echo) */
-      isl_echoed: string | null;
+      isl: string | null;
       /** True when all non-null IDs in the chain match */
       all_match: boolean;
     };

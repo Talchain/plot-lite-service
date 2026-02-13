@@ -31,17 +31,30 @@
  * **Migration**: Clients caching by response_hash must invalidate caches
  * when upgrading to this version. Hash collisions between v1 and v2 are
  * impossible due to the version prefix in the canonical form.
+ *
+ * ## BREAKING CHANGE (v3)
+ *
+ * Hash version 3 adds goal_constraints to the canonical form:
+ *
+ * 1. **goal_constraints inclusion**: Constraints now affect the hash
+ *    - Previous: Two requests with different goal_constraints produced same hash
+ *    - Current:  goal_constraints sorted by constraint_id, value normalised to 12dp
+ *    - Impact: Requests with goal_constraints produce different hashes from v2
+ *
+ * **Migration**: ALL hashes change from v2 due to the version prefix bump (v2→v3).
+ * Non-constraint requests have an identical canonical form to v2 except for
+ * the version field, but still produce different hashes. Cache invalidation required.
  */
 
 import { createHash } from 'node:crypto';
-import type { RunRequestV3, OptionV3, EngineGraphV3 } from '../types/engine-v3.js';
+import type { RunRequestV3, OptionV3, EngineGraphV3, GoalConstraint } from '../types/engine-v3.js';
 
 // -----------------------------------------------------------------------------
 // Constants
 // -----------------------------------------------------------------------------
 
 /** Hash version to prevent collisions when canonicalisation changes */
-const HASH_VERSION = 2;
+const HASH_VERSION = 3;
 
 /** Number of decimal places for float normalisation */
 const DECIMAL_PRECISION = 12;
@@ -187,6 +200,13 @@ function canonicaliseOption(option: OptionV3): CanonicalOption {
 // Canonical Request
 // -----------------------------------------------------------------------------
 
+interface CanonicalConstraint {
+  constraint_id: string;
+  node_id: string;
+  operator: string;
+  value: number;
+}
+
 interface CanonicalRequest {
   version: number;
   seed: string;
@@ -194,6 +214,8 @@ interface CanonicalRequest {
   detail_level: string;
   /** Goal threshold affects probability_of_goal computation */
   goal_threshold?: number;
+  /** Goal constraints affect joint probability computation (v3) */
+  goal_constraints?: CanonicalConstraint[];
   graph: {
     nodes: CanonicalNode[];
     edges: CanonicalEdge[];
@@ -246,6 +268,21 @@ export function canonicaliseRequest(
   // Treat null as absent (not included in hash)
   if (typeof req.goal_threshold === 'number' && Number.isFinite(req.goal_threshold)) {
     canonical.goal_threshold = canonicaliseNumber(req.goal_threshold);
+  }
+
+  // CIL C2: Include goal_constraints in hash (v3)
+  // Different constraints produce different results, so must produce different hashes.
+  // Sort by constraint_id for determinism. Absent/empty constraints produce no hash contribution.
+  const constraints = req.goal_constraints;
+  if (Array.isArray(constraints) && constraints.length > 0) {
+    canonical.goal_constraints = [...constraints]
+      .sort((a, b) => a.constraint_id.localeCompare(b.constraint_id))
+      .map(c => ({
+        constraint_id: c.constraint_id,
+        node_id: c.node_id,
+        operator: c.operator,
+        value: canonicaliseNumber(c.value),
+      }));
   }
 
   return JSON.stringify(canonical);

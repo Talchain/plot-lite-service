@@ -15,3 +15,7 @@ export { LIMITS };
 export const MAX_NODES = LIMITS.MAX_NODES;
 export const MAX_EDGES = LIMITS.MAX_EDGES;
 export const MAX_OPTIONS = LIMITS.MAX_OPTIONS;
+
+// CIL M5: Named constant for default edge exists_probability.
+// Not yet available in @talchain/schemas; defined here as single source of truth.
+export const DEFAULT_EXISTS_PROBABILITY = 0.8;

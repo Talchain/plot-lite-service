@@ -17,6 +17,7 @@ import type {
   EngineNodeKindV3,
 } from '../types/engine-v3.js';
 import { NON_CAUSAL_NODE_KINDS } from '../types/engine-v3.js';
+import { DEFAULT_EXISTS_PROBABILITY } from '../constants/limits.js';
 
 // -----------------------------------------------------------------------------
 // Error Types
@@ -47,7 +48,7 @@ const VALID_NODE_KINDS: Set<string> = new Set([
   'action',
 ]);
 
-const DEFAULT_EXISTS_PROBABILITY = 0.8;
+// CIL M5: Imported from constants/limits.ts (single source of truth)
 
 // -----------------------------------------------------------------------------
 // Label Cleaning

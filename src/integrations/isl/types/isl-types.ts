@@ -257,6 +257,44 @@ export interface ISLOutcomeStats {
   validity_ratio?: number;
 }
 
+// -----------------------------------------------------------------------------
+// Constraint Analysis Types (per-option, nested under option results)
+// -----------------------------------------------------------------------------
+
+/**
+ * Single constraint evaluation result from ISL.
+ * ISL uses "threshold" where PLoT input uses "value".
+ */
+export interface ISLConstraintResult {
+  node_id: string;
+  operator: string;
+  threshold: number;
+  prob_satisfied: number;
+  failure_margin_median?: number;
+  near_miss_fraction?: number;
+  binding?: boolean;
+}
+
+/**
+ * Conditional probability between constraints from ISL.
+ * Uses index-based references into the constraints array.
+ */
+export interface ISLConditionalProbability {
+  given_constraint_index: number;
+  target_constraint_index: number;
+  probability: number;
+}
+
+/**
+ * Constraint analysis block returned per-option by ISL.
+ * Present when goal_constraints were sent in the request.
+ */
+export interface ISLConstraintAnalysis {
+  constraints: ISLConstraintResult[];
+  joint_probability: number;
+  conditional_probabilities?: ISLConditionalProbability[];
+}
+
 /**
  * Option comparison result from ISL /api/v1/robustness/analyze/v2 response
  * Returned when analysis_types includes 'comparison'
@@ -284,6 +322,8 @@ export interface ISLOptionComparisonResult {
   status?: 'computed' | 'skipped' | 'error';
   /** Reason if status is not 'computed' */
   status_reason?: string;
+  /** Per-option constraint analysis (present when goal_constraints sent) */
+  constraint_analysis?: ISLConstraintAnalysis;
 }
 
 /**

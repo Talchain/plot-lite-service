@@ -327,7 +327,7 @@ describe('V2 Run — request_id_chain', () => {
     expect(body.request_id).toBe(headerRequestId);
   });
 
-  it('includes request_id_chain.received matching response request_id', async () => {
+  it('includes request_id_chain.ui matching response request_id', async () => {
     const uiRequestId = 'chain-received-test';
 
     const res = await app.inject({
@@ -343,11 +343,11 @@ describe('V2 Run — request_id_chain', () => {
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.payload);
     expect(body.meta.request_id_chain).toBeDefined();
-    expect(body.meta.request_id_chain.received).toBe(uiRequestId);
-    expect(body.meta.request_id_chain.received).toBe(body.request_id);
+    expect(body.meta.request_id_chain.ui).toBe(uiRequestId);
+    expect(body.meta.request_id_chain.ui).toBe(body.request_id);
   });
 
-  it('request_id_chain.forwarded_to_isl matches received', async () => {
+  it('request_id_chain.plot matches ui', async () => {
     const uiRequestId = 'chain-forward-test';
 
     const res = await app.inject({
@@ -361,10 +361,10 @@ describe('V2 Run — request_id_chain', () => {
     });
 
     const body = JSON.parse(res.payload);
-    expect(body.meta.request_id_chain.forwarded_to_isl).toBe(uiRequestId);
+    expect(body.meta.request_id_chain.plot).toBe(uiRequestId);
   });
 
-  it('request_id_chain.isl_echoed is null when ISL is disabled', async () => {
+  it('request_id_chain.isl is null when ISL is disabled', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/v2/run',
@@ -376,7 +376,7 @@ describe('V2 Run — request_id_chain', () => {
     });
 
     const body = JSON.parse(res.payload);
-    expect(body.meta.request_id_chain.isl_echoed).toBeNull();
+    expect(body.meta.request_id_chain.isl).toBeNull();
   });
 
   it('request_id_chain.all_match is false when isl_echoed is null', async () => {

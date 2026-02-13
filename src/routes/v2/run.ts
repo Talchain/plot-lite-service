@@ -46,6 +46,10 @@ import type {
   SourcePath,
   DownstreamCallsV3,
   GoalConstraint,
+  ConstraintResult,
+  ConstraintDiagnostic,
+  ConditionalProbability,
+  ConstraintFeatureStatus,
 } from '../../types/engine-v3.js';
 // Seed derivation: when seed omitted, derive deterministically from graph hash
 import { normaliseGraph, NormalisationError, cleanLabelAnnotation, type NormalisationWarning } from '../../normalisation/graph-normaliser.js';
@@ -599,11 +603,11 @@ interface MetaParams {
    * Captured when ISL response is received.
    */
   computedAt?: string;
-  /** Request ID chain for end-to-end tracing */
+  /** Request ID chain for end-to-end tracing (contract field names) */
   requestIdChain?: {
-    received: string;
-    forwarded_to_isl: string;
-    isl_echoed: string | null;
+    ui: string;
+    plot: string;
+    isl: string | null;
     all_match: boolean;
   };
 }
@@ -776,6 +780,105 @@ export function deriveRecommendedOption(
 }
 
 /**
+ * CIL C1: Extract top-level constraint fields from ISL response.
+ *
+ * ISL nests constraint_analysis per-option. For the top-level response we need:
+ * - constraints_status: 'computed' | 'unavailable' | omitted
+ * - constraint_results: merged from first option's constraint_analysis.constraints
+ * - constraint_diagnostics: extracted from constraint_analysis.constraints diagnostic fields
+ * - conditional_probabilities: from first option's constraint_analysis.conditional_probabilities
+ *
+ * We use the first option's constraint_analysis as the canonical source for top-level
+ * constraint metadata (diagnostics and conditional probabilities are per-graph, not per-option).
+ */
+function buildConstraintFields(
+  goalConstraints: GoalConstraint[] | undefined,
+  islResult: any
+): {
+  constraints_status?: ConstraintFeatureStatus;
+  constraint_results?: ConstraintResult[];
+  constraint_diagnostics?: ConstraintDiagnostic[];
+  conditional_probabilities?: ConditionalProbability[];
+} {
+  // No constraints sent → omit all constraint fields
+  if (!goalConstraints || goalConstraints.length === 0) {
+    return {};
+  }
+
+  // Find first option with constraint_analysis data
+  const islOptionData = islResult?.options ?? islResult?.results;
+  const firstOptionWithConstraints = Array.isArray(islOptionData)
+    ? islOptionData.find((r: any) => r.constraint_analysis?.constraints)
+    : undefined;
+
+  if (!firstOptionWithConstraints?.constraint_analysis) {
+    // Constraints sent but ISL returned no constraint_analysis
+    return { constraints_status: 'unavailable' };
+  }
+
+  const analysis = firstOptionWithConstraints.constraint_analysis;
+  const islConstraints: any[] = analysis.constraints ?? [];
+
+  // Resolve a constraint_id from ISL's echoed result back to the input constraint.
+  // Match on (node_id, operator, threshold≈value) to handle duplicate-target edge cases.
+  const resolveConstraintId = (islC: any): string => {
+    const match = goalConstraints.find(
+      gc => gc.node_id === islC.node_id && gc.operator === islC.operator && gc.value === islC.threshold
+    ) ?? goalConstraints.find(
+      gc => gc.node_id === islC.node_id && gc.operator === islC.operator
+    );
+    return match?.constraint_id ?? `${islC.node_id}_${islC.operator}`;
+  };
+
+  // Map ISL constraint results to Schema v2.7 ConstraintResult[]
+  // ISL uses "threshold" where the contract uses "value"
+  const constraintResults: ConstraintResult[] = islConstraints.map((c: any) => ({
+    constraint_id: resolveConstraintId(c),
+    node_id: c.node_id,
+    operator: c.operator as '>=' | '<=',
+    value: c.threshold,  // ISL's "threshold" → contract's "value"
+    probability: c.prob_satisfied,
+  }));
+
+  // Extract diagnostics from ISL constraint results
+  const constraintDiagnostics: ConstraintDiagnostic[] = islConstraints
+    .filter((c: any) => c.failure_margin_median !== undefined || c.near_miss_fraction !== undefined || c.binding !== undefined)
+    .map((c: any) => ({
+      constraint_id: resolveConstraintId(c),
+      failure_margin_median: c.failure_margin_median ?? 0,
+      near_miss_fraction: c.near_miss_fraction ?? 0,
+      binding: c.binding ?? false,
+    }));
+
+  // Map ISL conditional probabilities (index-based → constraint_id-based)
+  let conditionalProbabilities: ConditionalProbability[] | undefined;
+  if (Array.isArray(analysis.conditional_probabilities) && analysis.conditional_probabilities.length > 0) {
+    conditionalProbabilities = analysis.conditional_probabilities
+      .filter((cp: any) =>
+        cp.given_constraint_index < islConstraints.length &&
+        cp.target_constraint_index < islConstraints.length
+      )
+      .map((cp: any) => {
+        const givenConstraint = islConstraints[cp.given_constraint_index];
+        const targetConstraint = islConstraints[cp.target_constraint_index];
+        return {
+          given_constraint_id: resolveConstraintId(givenConstraint),
+          target_constraint_id: resolveConstraintId(targetConstraint),
+          probability: cp.probability,
+          effective_sample_size: cp.effective_sample_size ?? 0,
+        };
+      });
+  }
+
+  return {
+    constraints_status: 'computed',
+    constraint_results: constraintResults.length > 0 ? constraintResults : undefined,
+    constraint_diagnostics: constraintDiagnostics.length > 0 ? constraintDiagnostics : undefined,
+    conditional_probabilities: conditionalProbabilities,
+  };
+}
+
+/**
  * Build a success/partial/failed response (HTTP 200).
  */
 function buildResponse(
@@ -805,7 +908,8 @@ function buildResponse(
     review_failure_codes?: string[];
     review_skip_reason?: ReviewSkipReason;
   },
-  flipThresholds?: DenormalisedFlipThreshold[]
+  flipThresholds?: DenormalisedFlipThreshold[],
+  goalConstraints?: GoalConstraint[]
 ): RunResponseV3 {
   // Map ISL results to response format
   // ISL V2 uses 'options' field; V1 uses 'results'. Check both for compatibility.
@@ -867,6 +971,35 @@ function buildResponse(
     // Only include win_probability if ISL returned it (omit when absent, not null)
     if (r.win_probability !== undefined && r.win_probability !== null) {
       result.win_probability = r.win_probability;
+    }
+
+    // CIL C1: Pass through per-option constraint analysis from ISL
+    // ISL nests this as constraint_analysis per-option when goal_constraints were sent
+    const constraintAnalysis = r.constraint_analysis;
+    if (constraintAnalysis) {
+      // Map ISL's joint_probability to Schema v2.7 probability_of_joint_goal
+      if (constraintAnalysis.joint_probability !== undefined) {
+        result.probability_of_joint_goal = constraintAnalysis.joint_probability;
+      }
+
+      // Map ISL's per-constraint prob_satisfied to constraint_probabilities map
+      // Uses goal_constraints input to resolve constraint_id from index position
+      if (Array.isArray(constraintAnalysis.constraints) && constraintAnalysis.constraints.length > 0) {
+        const constraintProbs: Record<string, number> = {};
+        for (let i = 0; i < constraintAnalysis.constraints.length; i++) {
+          const c = constraintAnalysis.constraints[i];
+          // Resolve constraint_id: match by (node_id, operator, threshold≈value)
+          // to handle duplicate-target edge cases
+          const match = goalConstraints?.find(
+            gc => gc.node_id === c.node_id && gc.operator === c.operator && gc.value === c.threshold
+          ) ?? goalConstraints?.find(
+            gc => gc.node_id === c.node_id && gc.operator === c.operator
+          );
+          const constraintId = match?.constraint_id ?? `${c.node_id}_${c.operator}`;
+          constraintProbs[constraintId] = c.prob_satisfied;
+        }
+        result.constraint_probabilities = constraintProbs;
+      }
     }
 
     return result;
@@ -1008,6 +1141,9 @@ function buildResponse(
     robustness_status: robustnessStatus,
     drivers_status: driversStatus,
 
+    // CIL C1: Multi-constraint analysis fields
+    ...buildConstraintFields(goalConstraints, islResult),
+
     isl_analysis_status: islAnalysisStatus,
     isl_status_reason: islStatusReason,
 
@@ -1053,39 +1189,45 @@ function buildResponse(
     // CEE trace for observability (includes degraded flag)
     ceeTrace: ceeTrace ?? undefined,
 
+    // Contract-compliant alias for meta.latency_ms
+    processing_time_ms: meta.latencyMs,
+
     response_hash: responseHash,
 
-    // Canonical metadata for UI canonicalisation layer (when feature flag enabled)
-    // Always included with empty repairs_applied if no repairs - this lets UI distinguish
-    // "flag off" from "flag on with zero repairs"
+    // CIL M4: repairs_applied always included for CIL observability.
+    // Other _meta fields (builds, payloads) gated behind UI_CANONICAL_META feature flag.
     _meta: (() => {
-      if (!isCanonicalMetaEnabled()) return undefined;
-
-      // Get downstream calls to extract ISL payloads for debug
-      const allCalls = getDownstreamCallsForLog(requestId);
-      const islCall = allCalls.find(c => c.service === 'isl');
-
-      return {
+      // Base _meta: always include repairs_applied and source_path
+      const baseMeta: CanonicalMeta = {
         source_path: meta.sourcePath,
         repairs_applied: meta.repairs ?? [],
         request_id: requestId,
         plot_build: meta.build ?? 'unknown',
+      };
+
+      // Extended _meta fields only when feature flag enabled
+      if (isCanonicalMetaEnabled()) {
+        const allCalls = getDownstreamCallsForLog(requestId);
+        const islCall = allCalls.find(c => c.service === 'isl');
 
         // Build versions for all services in the pipeline
-        builds: {
+        (baseMeta as any).builds = {
           ui: meta.uiBuild ?? null,
           cee: meta.ceeBuild ?? null,
           plot: meta.build ?? null,
-          // ISL build from response payload or from islResult directly
           isl: (islCall?.response_payload as any)?.build ?? islResult?.build ?? null,
-        },
+        };
 
-        // Debug payloads for ISL request/response (populated from downstream_calls)
-        payloads: islCall ? {
-          isl_request: islCall.request_payload ?? null,
-          isl_response: islCall.response_payload ?? null,
-        } : undefined,
-      };
+        // Debug payloads for ISL request/response
+        if (islCall) {
+          (baseMeta as any).payloads = {
+            isl_request: islCall.request_payload ?? null,
+            isl_response: islCall.response_payload ?? null,
+          };
+        }
+      }
+
+      return baseMeta;
     })(),
 
     // Downstream service calls (ISL, CEE) for debugging and tracing
@@ -1895,9 +2037,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               uiBuild,
               computedAt: new Date().toISOString(),
               requestIdChain: {
-                received: requestId,
-                forwarded_to_isl: requestId,
-                isl_echoed: null,
+                ui: requestId,
+                plot: requestId,
+                isl: null,
                 all_match: false,
               },
             },
@@ -1912,7 +2054,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             undefined, // ceeTrace
             undefined, // sensitivityData
             undefined, // m1Coaching
-            m2EarlyReturn  // M2 Decision Review status
+            m2EarlyReturn,  // M2 Decision Review status
+            undefined, // flipThresholds
+            activeGoalConstraints  // CIL C1: goal_constraints for constraint result passthrough
           ));
         }
 
@@ -2282,9 +2426,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               uiBuild,
               computedAt: computedAt ?? new Date().toISOString(),
               requestIdChain: {
-                received: requestId,
-                forwarded_to_isl: requestId,
-                isl_echoed: islEchoedRequestId,
+                ui: requestId,
+                plot: requestId,
+                isl: islEchoedRequestId,
                 all_match: islEchoedRequestId !== null && requestId === islEchoedRequestId,
               },
             },
@@ -2299,7 +2443,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             undefined, // ceeTrace
             undefined, // sensitivityData
             undefined, // m1Coaching
-            m2IslErrorReturn  // M2 Decision Review status
+            m2IslErrorReturn,  // M2 Decision Review status
+            undefined, // flipThresholds
+            activeGoalConstraints  // CIL C1: goal_constraints for constraint result passthrough
           ));
         }
 
@@ -2353,9 +2499,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               uiBuild,
               computedAt,
               requestIdChain: {
-                received: requestId,
-                forwarded_to_isl: requestId,
-                isl_echoed: islEchoedRequestId,
+                ui: requestId,
+                plot: requestId,
+                isl: islEchoedRequestId,
                 all_match: islEchoedRequestId !== null && requestId === islEchoedRequestId,
               },
             },
@@ -2370,7 +2516,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             undefined, // ceeTrace
             undefined, // sensitivityData
             undefined, // m1Coaching
-            m2IslFailedReturn  // M2 Decision Review status
+            m2IslFailedReturn,  // M2 Decision Review status
+            undefined, // flipThresholds
+            activeGoalConstraints  // CIL C1: goal_constraints for constraint result passthrough
           ));
         }
 
@@ -2779,9 +2927,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             ceeBuild: ceeOrchestrationResult.ceeTrace?.source ?? undefined,
             computedAt,
             requestIdChain: {
-              received: requestId,
-              forwarded_to_isl: requestId,
-              isl_echoed: islEchoedRequestId,
+              ui: requestId,
+              plot: requestId,
+              isl: islEchoedRequestId,
               all_match: islEchoedRequestId !== null && requestId === islEchoedRequestId,
             },
           },
@@ -2797,7 +2945,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           enrichedSensitivityData,  // Pre-computed arrays + factor enrichments
           m1Coaching,  // M1 coaching (Phase 2)
           m2DecisionReview,  // M2 Decision Review (LLM-generated)
-          flipThresholds  // Flip thresholds (tipping points) for UI
+          flipThresholds,  // Flip thresholds (tipping points) for UI
+          activeGoalConstraints  // CIL C1: goal_constraints for constraint result passthrough
         ));
       } catch (err) {
         const totalMs = performance.now() - startTime;
