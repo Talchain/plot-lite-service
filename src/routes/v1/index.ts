@@ -130,7 +130,8 @@ export async function registerV1Routes(app: FastifyInstance) {
   await registerAuditTestRoute(app);
   await registerGovernanceRoute(app);
   // CEE Proxy Routes - bypass Netlify timeout for long-running CEE calls
-  await registerCeeDraftGraphRoute(app);  
+  await registerCeeDraftGraphRoute(app);
+  await registerCeeProxyRoutes(app);
   // P1: Register enhanced stream route if enabled, otherwise use legacy
   if (process.env.STREAM_PARITY_ENABLE === '1') {
     await registerStreamRouteEnhanced(app);
@@ -282,3 +283,4 @@ import { registerAnalysisOptimiseRoute } from './analysis-optimise.js';
 import { registerSimulateBatchRoute } from './simulate-batch.js';
 // CEE Proxy Routes
 import { registerCeeDraftGraphRoute } from './cee-draft-graph.js';
+import { registerCeeProxyRoutes } from './cee-proxy.js';

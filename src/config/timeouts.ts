@@ -36,7 +36,7 @@ export const CEE_PROXY_TIMEOUT_MS =
 
 /** CEE proxy: graph-readiness */
 export const CEE_PROXY_GRAPH_READINESS_TIMEOUT_MS =
-  Number(process.env.CEE_PROXY_GRAPH_READINESS_TIMEOUT_MS) || 30_000;
+  Number(process.env.CEE_PROXY_GRAPH_READINESS_TIMEOUT_MS) || 10_000;
 
 /** CEE proxy: bias-check */
 export const CEE_PROXY_BIAS_CHECK_TIMEOUT_MS =
@@ -45,6 +45,10 @@ export const CEE_PROXY_BIAS_CHECK_TIMEOUT_MS =
 /** CEE proxy: sensitivity-coach */
 export const CEE_PROXY_SENSITIVITY_COACH_TIMEOUT_MS =
   Number(process.env.CEE_PROXY_SENSITIVITY_COACH_TIMEOUT_MS) || 60_000;
+
+/** CEE proxy: prompts/warm */
+export const CEE_PROXY_PROMPTS_WARM_TIMEOUT_MS =
+  Number(process.env.CEE_PROXY_PROMPTS_WARM_TIMEOUT_MS) || 10_000;
 
 // -----------------------------------------------------------------------------
 // ISL Timeouts
@@ -72,6 +76,7 @@ export function logResolvedTimeouts(): void {
     CEE_PROXY_GRAPH_READINESS_TIMEOUT_MS,
     CEE_PROXY_BIAS_CHECK_TIMEOUT_MS,
     CEE_PROXY_SENSITIVITY_COACH_TIMEOUT_MS,
+    CEE_PROXY_PROMPTS_WARM_TIMEOUT_MS,
     ISL_TIMEOUT_MS,
     ISL_HEALTH_CHECK_TIMEOUT_MS,
   });
