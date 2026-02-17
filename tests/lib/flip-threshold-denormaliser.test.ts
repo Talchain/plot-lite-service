@@ -70,13 +70,13 @@ describe('denormaliseFlipThresholds()', () => {
     });
 
     it('preserves null flip_value (no flip found)', () => {
-      const flip = makeFlip({ flip_value: null, flip_reason: 'no_bracket' });
+      const flip = makeFlip({ flip_value: null, flip_reason: 'no_effect_within_bounds' });
       const context = makeContext('f1', 0, 100);
 
       const result = denormaliseFlipThresholds([flip], context, OPTIONS);
 
       expect(result[0].flip_value).toBeNull();
-      expect(result[0].flip_reason).toBe('no_bracket');
+      expect(result[0].flip_reason).toBe('no_effect_within_bounds');
     });
 
     it('resolves alternative_winner_label from options', () => {

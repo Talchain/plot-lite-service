@@ -117,13 +117,13 @@ describe('resolveFlipValues()', () => {
       const mock = createMonotonicMock(0.35, 'opt-a', 'opt-b', 'decrease');
       const candidate = makeCandidate({ current_value: 0.7, direction: 'decrease' });
 
-      const results = await resolveFlipValues([candidate], mock, 'opt-a');
+      const { results } = await resolveFlipValues([candidate], mock, 'opt-a');
 
       expect(results).toHaveLength(1);
       expect(results[0].flip_value).not.toBeNull();
       expect(results[0].flip_value!).toBeCloseTo(0.35, 1);
       expect(results[0].flip_reason).toBe('found');
-      expect(results[0].iterations_used).toBeGreaterThan(2); // bracket + search
+      expect(results[0].iterations_used).toBeGreaterThan(0);
     });
 
     it('finds flip_value when flip exists (increasing direction)', async () => {
@@ -134,7 +134,7 @@ describe('resolveFlipValues()', () => {
         direction: 'increase',
       });
 
-      const results = await resolveFlipValues([candidate], mock, 'opt-a');
+      const { results } = await resolveFlipValues([candidate], mock, 'opt-a');
 
       expect(results).toHaveLength(1);
       expect(results[0].flip_value).not.toBeNull();
@@ -142,21 +142,21 @@ describe('resolveFlipValues()', () => {
       expect(results[0].flip_reason).toBe('found');
     });
 
-    it('converges within 10 iterations per factor', async () => {
+    it('converges within precision-derived iterations (7 for [0,1])', async () => {
       const mock = createMonotonicMock(0.5, 'opt-a', 'opt-b', 'decrease');
       const candidate = makeCandidate({ current_value: 0.9, direction: 'decrease' });
 
-      const results = await resolveFlipValues([candidate], mock, 'opt-a');
+      const { results } = await resolveFlipValues([candidate], mock, 'opt-a');
 
-      // 2 bracket + up to 10 search = 12 max
-      expect(results[0].iterations_used).toBeLessThanOrEqual(12);
+      // Max iterations = ceil(log2(1/0.01)) = 7
+      expect(results[0].iterations_used).toBeLessThanOrEqual(7);
     });
 
     it('flip_value rounded to 4 decimal places', async () => {
       const mock = createMonotonicMock(0.333333, 'opt-a', 'opt-b', 'decrease');
       const candidate = makeCandidate({ current_value: 0.7, direction: 'decrease' });
 
-      const results = await resolveFlipValues([candidate], mock, 'opt-a');
+      const { results } = await resolveFlipValues([candidate], mock, 'opt-a');
 
       if (results[0].flip_value !== null) {
         const decimalPlaces = results[0].flip_value.toString().split('.')[1]?.length ?? 0;
@@ -165,106 +165,67 @@ describe('resolveFlipValues()', () => {
     });
   });
 
-  describe('Bracket Check — No Flip', () => {
-    it('returns no_bracket when winner is same at both endpoints', async () => {
+  describe('Bound Probing — No Flip', () => {
+    it('returns no_effect_within_bounds when winner is same at baseline and both bounds', async () => {
       const mock = createNeverFlipMock('opt-a');
       const candidate = makeCandidate({ current_value: 0.7, direction: 'decrease' });
 
-      const results = await resolveFlipValues([candidate], mock, 'opt-a');
+      const { results } = await resolveFlipValues([candidate], mock, 'opt-a');
 
       expect(results).toHaveLength(1);
       expect(results[0].flip_value).toBeNull();
-      expect(results[0].flip_reason).toBe('no_bracket');
-      expect(results[0].iterations_used).toBe(2); // only bracket check
+      expect(results[0].flip_reason).toBe('no_effect_within_bounds');
+      expect(results[0].iterations_used).toBe(0);
     });
 
-    it('bracket check saves ISL calls (no unnecessary search)', async () => {
+    it('probing saves ISL calls (no unnecessary binary search)', async () => {
       const spy = vi.fn(createNeverFlipMock('opt-a'));
       const candidate = makeCandidate();
 
       await resolveFlipValues([candidate], spy, 'opt-a');
 
-      // Only 2 calls for bracket check (low + high endpoints)
-      expect(spy).toHaveBeenCalledTimes(2);
+      // 3 calls for probing (baseline + min bound + max bound)
+      expect(spy).toHaveBeenCalledTimes(3);
     });
   });
 
   describe('Edge Cases', () => {
-    it('returns empty array for empty candidates', async () => {
+    it('returns empty results for empty candidates', async () => {
       const mock = createMonotonicMock(0.5);
-      const results = await resolveFlipValues([], mock, 'opt-a');
+      const { results } = await resolveFlipValues([], mock, 'opt-a');
       expect(results).toEqual([]);
     });
 
-    it('returns boundary when factor at edge in flip direction', async () => {
-      const mock = createMonotonicMock(0.5);
-      // current_value is 0.0, direction is 'decrease' → range [0, 0] → boundary
+    it('handles baseline at 0 — searches toward max bound', async () => {
+      // Flip at 0.5: when factor rises above 0.5, winner flips
+      const mock = createMonotonicMock(0.5, 'opt-a', 'opt-b', 'increase');
       const candidate = makeCandidate({
-        current_value: 0.005, // Within convergence threshold of boundary
-        direction: 'decrease',
+        current_value: 0,
+        direction: 'decrease',  // heuristic says decrease, but only max bound differs
       });
 
-      const results = await resolveFlipValues([candidate], mock, 'opt-a');
+      const { results } = await resolveFlipValues([candidate], mock, 'opt-a');
 
-      expect(results[0].flip_reason).toBe('boundary');
-      expect(results[0].flip_value).toBeNull();
-      expect(results[0].iterations_used).toBe(0);
+      // Should find the flip despite baseline=0 (old algorithm failed here with 'boundary')
+      expect(results[0].flip_value).not.toBeNull();
+      expect(results[0].flip_reason).toBe('found');
+      expect(results[0].flip_value!).toBeCloseTo(0.5, 1);
     });
 
-    it('returns heuristic fallback when current_value is not finite', async () => {
+    it('returns error fallback when current_value is not finite', async () => {
       const mock = createMonotonicMock(0.5);
       const nanCandidate = makeCandidate({ current_value: NaN, direction: 'increase' });
       const infCandidate = makeCandidate({ current_value: Infinity, direction: 'decrease' });
 
-      const [nanResults, infResults] = await Promise.all([
+      const [nanResult, infResult] = await Promise.all([
         resolveFlipValues([nanCandidate], mock, 'opt-a'),
         resolveFlipValues([infCandidate], mock, 'opt-a'),
       ]);
 
-      expect(nanResults[0].flip_reason).toBe('heuristic');
-      expect(nanResults[0].iterations_used).toBe(0);
-      expect(infResults[0].flip_reason).toBe('heuristic');
-      expect(infResults[0].iterations_used).toBe(0);
-    });
-
-    it('searches correctly when current_value is outside [0, 1] (user-unit values)', async () => {
-      const mock = createMonotonicMock(0.5);
-      const overOneCandidate = makeCandidate({ current_value: 1.5, direction: 'decrease' });
-
-      const results = await resolveFlipValues([overOneCandidate], mock, 'opt-a');
-
-      // Binary search should run and find the flip at ~0.5
-      expect(results[0].flip_reason).toBe('found');
-      expect(results[0].iterations_used).toBeGreaterThan(0);
-      expect(results[0].flip_value).toBeCloseTo(0.5, 1);
-    });
-
-    it('searches correctly when current_value is negative (decrease direction)', async () => {
-      // current_value=-1, direction='decrease' → search range [min(0,-2), -1] = [-2, -1]
-      // Flip at -1.5: when factor drops below -1.5, winner flips
-      const mock = createMonotonicMock(-1.5, 'opt-a', 'opt-b', 'decrease');
-      const candidate = makeCandidate({ current_value: -1, direction: 'decrease' });
-
-      const results = await resolveFlipValues([candidate], mock, 'opt-a');
-
-      // Should NOT immediately converge — must actually search
-      expect(results[0].iterations_used).toBeGreaterThan(0);
-      // Should find the flip near -1.5
-      expect(results[0].flip_value).not.toBeNull();
-      expect(results[0].flip_reason).not.toBe('boundary');
-      expect(results[0].flip_value!).toBeCloseTo(-1.5, 1);
-    });
-
-    it('searches correctly when current_value is negative (increase direction)', async () => {
-      // Flip at 0.5: when factor rises above 0.5, winner flips
-      const mock = createMonotonicMock(0.5, 'opt-a', 'opt-b', 'increase');
-      const candidate = makeCandidate({ current_value: -2, direction: 'increase' });
-
-      const results = await resolveFlipValues([candidate], mock, 'opt-a');
-
-      expect(results[0].iterations_used).toBeGreaterThan(0);
-      expect(results[0].flip_value).not.toBeNull();
-      expect(results[0].flip_value!).toBeCloseTo(0.5, 0);
+      expect(nanResult.results[0].flip_reason).toBe('error');
+      expect(nanResult.results[0].iterations_used).toBe(0);
+      expect(infResult.results[0].flip_reason).toBe('error');
+      expect(infResult.results[0].iterations_used).toBe(0);
     });
 
     it('handles two candidates concurrently', async () => {
@@ -272,7 +233,7 @@ describe('resolveFlipValues()', () => {
       const candidate1 = makeCandidate({ factor_id: 'f1', current_value: 0.7, direction: 'decrease' });
       const candidate2 = makeCandidate({ factor_id: 'f2', current_value: 0.8, direction: 'decrease' });
 
-      const results = await resolveFlipValues([candidate1, candidate2], mock, 'opt-a');
+      const { results } = await resolveFlipValues([candidate1, candidate2], mock, 'opt-a');
 
       expect(results).toHaveLength(2);
       expect(results[0].flip_reason).toBeDefined();
@@ -288,7 +249,7 @@ describe('resolveFlipValues()', () => {
         direction: 'decrease',
       });
 
-      const results = await resolveFlipValues([candidate], mock, 'opt-a');
+      const { results } = await resolveFlipValues([candidate], mock, 'opt-a');
 
       expect(results[0].factor_id).toBe('my-factor');
       expect(results[0].factor_label).toBe('My Factor');
@@ -302,26 +263,26 @@ describe('resolveFlipValues()', () => {
       const mock = createOscillatingMock();
       const candidate = makeCandidate({ current_value: 0.9, direction: 'decrease' });
 
-      const results = await resolveFlipValues([candidate], mock, 'opt-a');
+      const { results } = await resolveFlipValues([candidate], mock, 'opt-a');
 
       // Should complete without error
       expect(results).toHaveLength(1);
       expect(results[0].flip_reason).toBeDefined();
-      // Grid fallback or found or no_bracket — all acceptable
-      expect(['non_monotonic_grid', 'found', 'no_bracket']).toContain(results[0].flip_reason);
+      // Grid fallback or found or no_effect — all acceptable
+      expect(['non_monotonic_grid', 'found', 'no_effect_within_bounds']).toContain(results[0].flip_reason);
     });
   });
 
   describe('Error Handling', () => {
-    it('returns isl_error when inference function throws', async () => {
+    it('returns error when inference function throws', async () => {
       const mock = createErrorMock();
       const candidate = makeCandidate();
 
-      const results = await resolveFlipValues([candidate], mock, 'opt-a');
+      const { results } = await resolveFlipValues([candidate], mock, 'opt-a');
 
       expect(results).toHaveLength(1);
       expect(results[0].flip_value).toBeNull();
-      expect(results[0].flip_reason).toBe('isl_error');
+      expect(results[0].flip_reason).toBe('error');
     });
 
     it('does not abort other factors when one fails', async () => {
@@ -344,12 +305,12 @@ describe('resolveFlipValues()', () => {
         makeCandidate({ factor_id: 'f-good', current_value: 0.8 }),
       ];
 
-      const results = await resolveFlipValues(candidates, mixedMock, 'opt-a');
+      const { results } = await resolveFlipValues(candidates, mixedMock, 'opt-a');
 
       expect(results).toHaveLength(2);
-      expect(results[0].flip_reason).toBe('isl_error');
+      expect(results[0].flip_reason).toBe('error');
       // Second factor should have completed
-      expect(results[1].flip_reason).not.toBe('isl_error');
+      expect(results[1].flip_reason).not.toBe('error');
     });
   });
 
@@ -368,14 +329,14 @@ describe('resolveFlipValues()', () => {
 
       const candidate = makeCandidate({ current_value: 0.9, direction: 'decrease' });
 
-      const results = await resolveFlipValues([candidate], slowMock, 'opt-a', {
+      const { results } = await resolveFlipValues([candidate], slowMock, 'opt-a', {
         perFactorTimeoutMs: 100, // Very short timeout
         overallTimeoutMs: 200,
       });
 
       expect(results).toHaveLength(1);
-      // Should either timeout or complete (if the 2 bracket calls were fast enough)
-      expect(['timeout', 'no_bracket', 'found']).toContain(results[0].flip_reason);
+      // Should either timeout or complete (if the 3 probing calls were fast enough)
+      expect(['timeout', 'no_effect_within_bounds', 'found']).toContain(results[0].flip_reason);
     });
   });
 
@@ -384,10 +345,9 @@ describe('resolveFlipValues()', () => {
       const mock = createMonotonicMock(0.4, 'opt-a', 'opt-b', 'decrease');
       const candidates = [
         makeCandidate({ factor_id: 'f1', current_value: 0.8, direction: 'decrease' }),
-        makeCandidate({ factor_id: 'f2', current_value: 0.005, direction: 'decrease' }), // boundary
       ];
 
-      const results = await resolveFlipValues(candidates, mock, 'opt-a');
+      const { results } = await resolveFlipValues(candidates, mock, 'opt-a');
 
       for (const result of results) {
         expect(result.flip_reason).toBeDefined();
@@ -401,13 +361,113 @@ describe('resolveFlipValues()', () => {
         makeCandidate({ factor_id: 'f1', current_value: 0.8, direction: 'decrease' }),
       ];
 
-      const results = await resolveFlipValues(candidates, mock, 'opt-a');
+      const { results } = await resolveFlipValues(candidates, mock, 'opt-a');
 
       for (const result of results) {
         expect(result.iterations_used).toBeDefined();
         expect(typeof result.iterations_used).toBe('number');
         expect(result.iterations_used).toBeGreaterThanOrEqual(0);
       }
+    });
+  });
+
+  describe('Diagnostics', () => {
+    it('returns diagnostics for each factor', async () => {
+      const mock = createMonotonicMock(0.4, 'opt-a', 'opt-b', 'decrease');
+      const candidate = makeCandidate({ current_value: 0.8, direction: 'decrease' });
+
+      const { diagnostics } = await resolveFlipValues([candidate], mock, 'opt-a');
+
+      expect(diagnostics).toHaveLength(1);
+      const d = diagnostics[0];
+      expect(d.factor_id).toBe('factor-market');
+      expect(d.baseline).toBe(0.8);
+      expect(d.winner_at_baseline).toBeDefined();
+      expect(d.winner_at_min).toBeDefined();
+      expect(d.winner_at_max).toBeDefined();
+      expect(d.precision_target).toBe(0.01);
+      expect(d.precision_achieved).toBeLessThanOrEqual(0.01);
+      expect(d.flip_reason).toBe('found');
+    });
+
+    it('diagnostics show no_effect_within_bounds when winner never changes', async () => {
+      const mock = createNeverFlipMock('opt-a');
+      const candidate = makeCandidate({ current_value: 0.5, direction: 'decrease' });
+
+      const { diagnostics } = await resolveFlipValues([candidate], mock, 'opt-a');
+
+      expect(diagnostics[0].winner_at_baseline).toBe('opt-a');
+      expect(diagnostics[0].winner_at_min).toBe('opt-a');
+      expect(diagnostics[0].winner_at_max).toBe('opt-a');
+      expect(diagnostics[0].direction_searched).toBe('none');
+      expect(diagnostics[0].flip_reason).toBe('no_effect_within_bounds');
+    });
+  });
+
+  describe('3-option graph flip (spec test)', () => {
+    it('finds flip with 3 options — option A wins at ~54%, option B at ~41%', async () => {
+      // 3-option graph where factor F has baseline 0 and edge to goal with strength 0.6.
+      // When F is increased, option A's win_probability drops and option B surpasses it.
+      const threeOptionMock: ISLInferenceFn = async (_factorId: string, overrideMean: number): Promise<FlipInferenceResult> => {
+        // Simulate: as factor increases from 0 toward 1, A drops and B gains
+        const shift = overrideMean * 0.6; // strength 0.6
+        return {
+          options: [
+            { option_id: 'opt-a', win_probability: 0.54 - shift * 0.3 },
+            { option_id: 'opt-b', win_probability: 0.41 + shift * 0.3 },
+            { option_id: 'opt-c', win_probability: 0.05 },
+          ],
+        };
+      };
+
+      const candidate = makeCandidate({
+        factor_id: 'factor-f',
+        factor_label: 'Factor F',
+        current_value: 0,
+        direction: 'increase',
+      });
+
+      const { results } = await resolveFlipValues([candidate], threeOptionMock, 'opt-a');
+
+      expect(results[0].flip_value).not.toBeNull();
+      expect(results[0].flip_reason).toBe('found');
+      expect(results[0].alternative_winner_id).toBe('opt-b');
+
+      // Verify the flip_value actually flips the winner (within ±0.02 tolerance)
+      const flipVal = results[0].flip_value!;
+      const resultAtFlip = await threeOptionMock('factor-f', flipVal);
+      const resultSlightlyBefore = await threeOptionMock('factor-f', flipVal - 0.02);
+      const resultSlightlyAfter = await threeOptionMock('factor-f', flipVal + 0.02);
+
+      // At least one side should have a different winner than the baseline
+      const baselineWinner = 'opt-a';
+      const winnerBefore = resultSlightlyBefore.options.sort((a, b) => b.win_probability - a.win_probability)[0].option_id;
+      const winnerAfter = resultSlightlyAfter.options.sort((a, b) => b.win_probability - a.win_probability)[0].option_id;
+      expect(winnerBefore === baselineWinner || winnerAfter !== baselineWinner).toBe(true);
+    });
+
+    it('returns no_effect_within_bounds for factor with no path to goal', async () => {
+      // Factor with no path to goal: changing it has no effect on win probabilities
+      const noEffectMock: ISLInferenceFn = async (): Promise<FlipInferenceResult> => ({
+        options: [
+          { option_id: 'opt-a', win_probability: 0.54 },
+          { option_id: 'opt-b', win_probability: 0.41 },
+          { option_id: 'opt-c', win_probability: 0.05 },
+        ],
+      });
+
+      const candidate = makeCandidate({
+        factor_id: 'factor-orphan',
+        factor_label: 'Orphan Factor',
+        current_value: 0.5,
+        direction: 'increase',
+      });
+
+      const { results } = await resolveFlipValues([candidate], noEffectMock, 'opt-a');
+
+      expect(results[0].flip_reason).toBe('no_effect_within_bounds');
+      expect(results[0].iterations_used).toBe(0);
+      expect(results[0].flip_value).toBeNull();
     });
   });
 });

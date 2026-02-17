@@ -2775,22 +2775,18 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                   requestId
                 );
 
-                resolvedFlipData = await resolveFlipValues(
+                const flipResult = await resolveFlipValues(
                   flipCandidates,
                   flipInferenceFn,
                   winnerId
                 );
+                resolvedFlipData = flipResult.results;
 
                 req.log.info({
                   event: 'flip_thresholds_resolved',
                   request_id: requestId,
                   count: resolvedFlipData.length,
-                  factors: resolvedFlipData.map((f) => ({
-                    factor_id: f.factor_id,
-                    flip_reason: f.flip_reason,
-                    flip_value: f.flip_value,
-                    alternative_winner_id: f.alternative_winner_id,
-                  })),
+                  factors: flipResult.diagnostics,
                 });
               } else {
                 resolvedFlipData = flipCandidates;

@@ -917,7 +917,8 @@ describe('Integration: End-to-End Constraint Flow (Unit)', () => {
     );
 
     expect(islRequest.goal_constraints).toHaveLength(1);
-    expect(islRequest.goal_constraints![0].value).toBe(20000); // raw value preserved
+    expect(islRequest.goal_constraints![0].threshold).toBe(20000); // raw value preserved (mapped to ISL's "threshold" field)
+    expect(islRequest.goal_constraints![0]).not.toHaveProperty('value');
     expect(islRequest.goal_threshold).toBeUndefined();
   });
 
@@ -942,8 +943,8 @@ describe('Integration: End-to-End Constraint Flow (Unit)', () => {
     );
 
     expect(islRequest.goal_constraints).toHaveLength(2);
-    expect(islRequest.goal_constraints![0].value).toBe(50000);
-    expect(islRequest.goal_constraints![1].value).toBe(1200);
+    expect(islRequest.goal_constraints![0].threshold).toBe(50000);
+    expect(islRequest.goal_constraints![1].threshold).toBe(1200);
   });
 });
 

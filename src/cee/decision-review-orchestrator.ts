@@ -149,15 +149,16 @@ export async function orchestrateDecisionReview(
     request.flip_threshold_data = input.preResolvedFlipData;
   } else if (islInferenceFn && request.flip_threshold_data.length > 0 && request.winner.id) {
     try {
-      request.flip_threshold_data = await resolveFlipValues(
+      const flipResult = await resolveFlipValues(
         request.flip_threshold_data,
         islInferenceFn,
         request.winner.id
       );
+      request.flip_threshold_data = flipResult.results;
       logger?.info({
         event: 'flip_threshold_resolved',
         request_id: input.requestId,
-        factors: request.flip_threshold_data.map((f) => ({
+        factors: flipResult.diagnostics.length > 0 ? flipResult.diagnostics : request.flip_threshold_data.map((f) => ({
           factor_id: f.factor_id,
           flip_reason: f.flip_reason,
           flip_value: f.flip_value,

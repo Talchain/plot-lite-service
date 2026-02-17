@@ -3,13 +3,14 @@
  *
  * Task 1: seed forwarding to ISL request payload
  * Task 2: option_comparison.id and option_comparison.label always non-null
+ * Task 3: constraint forwarding — value → threshold canonicalisation
  */
 
 import { describe, it, expect } from 'vitest';
 import {
   toISLRobustnessRequest,
 } from '../src/integrations/isl/translator-v3.js';
-import type { EngineGraphV3, OptionV3 } from '../src/types/engine-v3.js';
+import type { EngineGraphV3, OptionV3, GoalConstraint } from '../src/types/engine-v3.js';
 
 // =============================================================================
 // Shared fixtures
@@ -225,5 +226,99 @@ describe('CIL 0.1 — Task 2: option_comparison id/label population', () => {
     // Actually empty string is truthy in option?.label check, so it stays ''
     expect(result[0].id).toBe('opt-x');
     expect(result[0].option_id).toBe('opt-x');
+  });
+});
+
+// =============================================================================
+// Task 3: Constraint forwarding — value → threshold canonicalisation
+// =============================================================================
+
+describe('CIL — Task 3: constraint forwarding (value → threshold)', () => {
+  it('renames value to threshold in ISL request payload', () => {
+    const constraints: GoalConstraint[] = [
+      { constraint_id: 'test', node_id: 'goal_x', operator: '>=', value: 0.5 },
+    ];
+
+    const result = toISLRobustnessRequest(
+      GRAPH, OPTIONS, 'goal', 'req-c1', 1000,
+      undefined, constraints
+    );
+
+    expect(result.goal_constraints).toHaveLength(1);
+    const c = result.goal_constraints![0];
+    expect(c.threshold).toBe(0.5);
+    expect(c).not.toHaveProperty('value');
+  });
+
+  it('forwards operator exactly without normalisation', () => {
+    const constraints: GoalConstraint[] = [
+      { constraint_id: 'c1', node_id: 'n1', operator: '>=', value: 10 },
+      { constraint_id: 'c2', node_id: 'n2', operator: '<=', value: 20 },
+    ];
+
+    const result = toISLRobustnessRequest(
+      GRAPH, OPTIONS, 'goal', 'req-c2', 1000,
+      undefined, constraints
+    );
+
+    expect(result.goal_constraints![0].operator).toBe('>=');
+    expect(result.goal_constraints![1].operator).toBe('<=');
+  });
+
+  it('exactly one of threshold/value present in outgoing payload (threshold only)', () => {
+    const constraints: GoalConstraint[] = [
+      { constraint_id: 'c1', node_id: 'n1', operator: '>=', value: 42 },
+    ];
+
+    const result = toISLRobustnessRequest(
+      GRAPH, OPTIONS, 'goal', 'req-c3', 1000,
+      undefined, constraints
+    );
+
+    const payload = result.goal_constraints![0];
+    expect(payload).toHaveProperty('threshold');
+    expect(payload).not.toHaveProperty('value');
+  });
+
+  it('forwards constraint_id and node_id', () => {
+    const constraints: GoalConstraint[] = [
+      { constraint_id: 'my-constraint', node_id: 'goal_node', operator: '>=', value: 0.7 },
+    ];
+
+    const result = toISLRobustnessRequest(
+      GRAPH, OPTIONS, 'goal', 'req-c4', 1000,
+      undefined, constraints
+    );
+
+    expect(result.goal_constraints![0].constraint_id).toBe('my-constraint');
+    expect(result.goal_constraints![0].node_id).toBe('goal_node');
+  });
+
+  it('forwards optional label and weight when present', () => {
+    const constraints: GoalConstraint[] = [
+      { constraint_id: 'c1', node_id: 'n1', operator: '>=', value: 0.5, label: 'My Constraint', weight: 2.0 },
+    ];
+
+    const result = toISLRobustnessRequest(
+      GRAPH, OPTIONS, 'goal', 'req-c5', 1000,
+      undefined, constraints
+    );
+
+    expect(result.goal_constraints![0].label).toBe('My Constraint');
+    expect(result.goal_constraints![0].weight).toBe(2.0);
+  });
+
+  it('omits label and weight when not provided', () => {
+    const constraints: GoalConstraint[] = [
+      { constraint_id: 'c1', node_id: 'n1', operator: '>=', value: 0.5 },
+    ];
+
+    const result = toISLRobustnessRequest(
+      GRAPH, OPTIONS, 'goal', 'req-c6', 1000,
+      undefined, constraints
+    );
+
+    expect(result.goal_constraints![0]).not.toHaveProperty('label');
+    expect(result.goal_constraints![0]).not.toHaveProperty('weight');
   });
 });

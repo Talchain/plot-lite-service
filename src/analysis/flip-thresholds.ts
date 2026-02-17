@@ -6,10 +6,11 @@
  * is no longer the highest win_probability option).
  *
  * ## Algorithm per factor:
- * 0. Bracket check — evaluate both endpoints; skip if no flip
- * 1. Binary search — bisect [low, high], call ISL at midpoint
- * 2. Non-monotonicity guard — if winner oscillates, fall back to grid scan
- * 3. Converge when high - low <= 0.01
+ * 0. Probe — evaluate at baseline (b), lower bound (0), upper bound (1)
+ * 1. If winner is the same at all three points → no_effect_within_bounds
+ * 2. Pick the bound where the winner differs from W0 as the far end
+ * 3. Binary search between b and that bound
+ * 4. Max iterations derived from precision target: ceil(log2(1 / precision))
  *
  * @see Task 2: Flip threshold computation — binary search over ISL inference
  */
@@ -45,10 +46,10 @@ export type ISLInferenceFn = (
  * Configuration for flip threshold binary search.
  */
 export interface FlipSearchConfig {
-  /** Max binary search iterations per factor (default: 10) */
+  /** Max binary search iterations per factor (derived from precision target) */
   maxIterations: number;
-  /** Convergence threshold for binary search (default: 0.01) */
-  convergenceThreshold: number;
+  /** Precision target for binary search convergence (default: 0.01) */
+  precisionTarget: number;
   /** Number of grid points for non-monotonic fallback (default: 11) */
   maxGridPoints: number;
   /** Per-factor timeout in ms (default: 5000) */
@@ -58,13 +59,34 @@ export interface FlipSearchConfig {
 }
 
 function getDefaultConfig(): FlipSearchConfig {
+  const precisionTarget = 0.01;
   return {
-    maxIterations: 10,
-    convergenceThreshold: 0.01,
+    maxIterations: Math.ceil(Math.log2(1 / precisionTarget)),  // ~7 for [0,1]
+    precisionTarget,
     maxGridPoints: 11,
     perFactorTimeoutMs: parseInt(process.env.FLIP_SEARCH_PER_FACTOR_TIMEOUT_MS ?? '5000', 10),
     overallTimeoutMs: parseInt(process.env.FLIP_SEARCH_OVERALL_TIMEOUT_MS ?? '10000', 10),
   };
+}
+
+/**
+ * Per-factor diagnostics emitted alongside flip_thresholds_resolved log event.
+ */
+export interface FlipDiagnostics {
+  factor_id: string;
+  baseline: number;
+  direction_searched: 'toward_min' | 'toward_max' | 'none';
+  winner_at_baseline: string;
+  winner_at_min: string;
+  winner_at_max: string;
+  bracket_low: number;
+  bracket_high: number;
+  iterations_used: number;
+  precision_target: number;
+  precision_achieved: number;
+  flip_reason: string;
+  flip_value: number | null;
+  alternative_winner_id: string | null;
 }
 
 // =============================================================================
@@ -88,23 +110,26 @@ export async function resolveFlipValues(
   inferenceFn: ISLInferenceFn,
   originalWinnerId: string,
   config?: Partial<FlipSearchConfig>
-): Promise<FlipThresholdInputData[]> {
+): Promise<{ results: FlipThresholdInputData[]; diagnostics: FlipDiagnostics[] }> {
   const cfg = { ...getDefaultConfig(), ...config };
 
   if (candidates.length === 0) {
-    return [];
+    return { results: [], diagnostics: [] };
   }
 
   const overallDeadline = Date.now() + cfg.overallTimeoutMs;
 
   // Process factors with max 2 concurrency (spec: max 2 parallel ISL calls)
-  const results = await Promise.all(
+  const settled = await Promise.all(
     candidates.map((candidate) =>
       searchFlipForFactor(candidate, inferenceFn, originalWinnerId, cfg, overallDeadline)
     )
   );
 
-  return results;
+  const results = settled.map((s) => s.result);
+  const diagnostics = settled.map((s) => s.diagnostics);
+
+  return { results, diagnostics };
 }
 
 // =============================================================================
@@ -113,6 +138,15 @@ export async function resolveFlipValues(
 
 /**
  * Search for the flip point of a single factor.
+ *
+ * Algorithm:
+ * 1. Evaluate at baseline (b) → winner W0
+ * 2. Evaluate at lower bound (0) → winner W_min
+ * 3. Evaluate at upper bound (1) → winner W_max
+ * 4. If W_min === W_max === W0 → no_effect_within_bounds
+ * 5. Otherwise pick the bound where winner differs from W0 as the far end
+ * 6. Binary search between b and that bound
+ * 7. Max iterations from precision target: ceil(log2(1 / precision_target))
  */
 async function searchFlipForFactor(
   candidate: FlipThresholdInputData,
@@ -120,96 +154,134 @@ async function searchFlipForFactor(
   originalWinnerId: string,
   config: FlipSearchConfig,
   overallDeadline: number
-): Promise<FlipThresholdInputData> {
+): Promise<{ result: FlipThresholdInputData; diagnostics: FlipDiagnostics }> {
   const factorDeadline = Math.min(Date.now() + config.perFactorTimeoutMs, overallDeadline);
 
-  const currentValue = candidate.current_value;
+  const baseline = candidate.current_value;
+
+  // Diagnostics accumulator (populated as we go)
+  const diag: FlipDiagnostics = {
+    factor_id: candidate.factor_id,
+    baseline,
+    direction_searched: 'none',
+    winner_at_baseline: '',
+    winner_at_min: '',
+    winner_at_max: '',
+    bracket_low: 0,
+    bracket_high: 0,
+    iterations_used: 0,
+    precision_target: config.precisionTarget,
+    precision_achieved: Infinity,
+    flip_reason: '',
+    flip_value: null,
+    alternative_winner_id: null,
+  };
 
   // Guard: skip binary search if current_value is not a finite number
-  if (!Number.isFinite(currentValue)) {
+  if (!Number.isFinite(baseline)) {
+    diag.flip_reason = 'error';
     return {
-      ...candidate,
-      flip_value: null,
-      flip_reason: 'heuristic',
-      iterations_used: 0,
-      alternative_winner_id: null,
+      result: { ...candidate, flip_value: null, flip_reason: 'error', iterations_used: 0, alternative_winner_id: null },
+      diagnostics: diag,
     };
   }
-
-  // Determine search range based on current value and direction.
-  // Values may be in normalised [0,1] space or user units (e.g., £50,000).
-  // For 'decrease': search from min(0, 2*currentValue) up to currentValue.
-  // For 'increase': search from currentValue up to max(1, 2*currentValue).
-  // Bounds are always ordered so that low <= high, even for negative domains.
-  let low: number;
-  let high: number;
-  if (candidate.direction === 'decrease') {
-    low = Math.min(0.0, currentValue * 2);
-    high = currentValue;
-  } else {
-    low = currentValue;
-    high = Math.max(1.0, currentValue * 2);
-  }
-
-  // Edge case: factor at boundary in flip direction
-  if (Math.abs(high - low) < config.convergenceThreshold) {
-    return {
-      ...candidate,
-      flip_value: null,
-      flip_reason: 'boundary',
-      iterations_used: 0,
-      alternative_winner_id: null,
-    };
-  }
-
-  let iterations = 0;
 
   try {
-    // Step 0: Bracket check — evaluate both endpoints
+    // Step 0: Probe baseline and both bounds
     if (Date.now() >= factorDeadline) {
-      return { ...candidate, flip_value: null, flip_reason: 'timeout', iterations_used: 0, alternative_winner_id: null };
-    }
-
-    const [lowResult, highResult] = await Promise.all([
-      inferenceFn(candidate.factor_id, low),
-      inferenceFn(candidate.factor_id, high),
-    ]);
-    iterations += 2;
-
-    const lowWinner = getArgmaxOption(lowResult);
-    const highWinner = getArgmaxOption(highResult);
-
-    // If winner is the same at both endpoints → no flip exists in this range
-    if (lowWinner === highWinner) {
+      diag.flip_reason = 'timeout';
       return {
-        ...candidate,
-        flip_value: null,
-        flip_reason: 'no_bracket',
-        iterations_used: iterations,
-        alternative_winner_id: null,
+        result: { ...candidate, flip_value: null, flip_reason: 'timeout', iterations_used: 0, alternative_winner_id: null },
+        diagnostics: diag,
       };
     }
 
-    // Step 1: Binary search
-    // We know low endpoint has one winner, high endpoint has another
-    // Find the crossover point
-    let searchLow = low;
-    let searchHigh = high;
-    // Track the winner at searchLow (we bisect toward the flip)
-    let lowSideWinner = lowWinner;
+    const [baselineResult, minResult, maxResult] = await Promise.all([
+      inferenceFn(candidate.factor_id, baseline),
+      inferenceFn(candidate.factor_id, 0),
+      inferenceFn(candidate.factor_id, 1),
+    ]);
+
+    const W0 = getArgmaxOption(baselineResult);
+    const W_min = getArgmaxOption(minResult);
+    const W_max = getArgmaxOption(maxResult);
+
+    diag.winner_at_baseline = W0;
+    diag.winner_at_min = W_min;
+    diag.winner_at_max = W_max;
+
+    // Step 1: If winner is the same at baseline and both bounds → factor cannot flip
+    if (W_min === W0 && W_max === W0) {
+      diag.flip_reason = 'no_effect_within_bounds';
+      diag.iterations_used = 0;
+      return {
+        result: { ...candidate, flip_value: null, flip_reason: 'no_effect_within_bounds', iterations_used: 0, alternative_winner_id: null },
+        diagnostics: diag,
+      };
+    }
+
+    // Step 2: Pick the bound where winner differs from W0.
+    // Prefer the candidate's heuristic direction when both bounds differ.
+    let searchLow: number;
+    let searchHigh: number;
+    let farWinner: string;
+
+    const minDiffers = W_min !== W0;
+    const maxDiffers = W_max !== W0;
+
+    if (minDiffers && maxDiffers) {
+      // Both bounds produce different winners — use heuristic direction
+      if (candidate.direction === 'decrease') {
+        searchLow = 0;
+        searchHigh = baseline;
+        farWinner = W_min;
+        diag.direction_searched = 'toward_min';
+      } else {
+        searchLow = baseline;
+        searchHigh = 1;
+        farWinner = W_max;
+        diag.direction_searched = 'toward_max';
+      }
+    } else if (minDiffers) {
+      // Only lower bound flips → search toward 0
+      searchLow = 0;
+      searchHigh = baseline;
+      farWinner = W_min;
+      diag.direction_searched = 'toward_min';
+    } else {
+      // Only upper bound flips → search toward 1
+      searchLow = baseline;
+      searchHigh = 1;
+      farWinner = W_max;
+      diag.direction_searched = 'toward_max';
+    }
+
+    diag.bracket_low = searchLow;
+    diag.bracket_high = searchHigh;
+
+    // Step 3: Binary search between baseline and the differing bound.
+    // Track winners at both ends of the search interval:
+    //   toward_min: low=0 (farWinner), high=baseline (W0)
+    //   toward_max: low=baseline (W0), high=1 (farWinner)
+    const lowSideWinner = (diag.direction_searched === 'toward_min') ? farWinner : W0;
+    const highSideWinner = (diag.direction_searched === 'toward_min') ? W0 : farWinner;
+    let iterations = 0;
 
     for (let i = 0; i < config.maxIterations; i++) {
       if (Date.now() >= factorDeadline) {
+        const flipValue = roundTo4(midpoint(searchLow, searchHigh));
+        diag.iterations_used = iterations;
+        diag.precision_achieved = Math.abs(searchHigh - searchLow);
+        diag.flip_reason = 'timeout';
+        diag.flip_value = flipValue;
+        diag.alternative_winner_id = farWinner;
         return {
-          ...candidate,
-          flip_value: roundTo4(midpoint(searchLow, searchHigh)),
-          flip_reason: 'timeout',
-          iterations_used: iterations,
-          alternative_winner_id: highWinner,
+          result: { ...candidate, flip_value: flipValue, flip_reason: 'timeout', iterations_used: iterations, alternative_winner_id: farWinner },
+          diagnostics: diag,
         };
       }
 
-      if (Math.abs(searchHigh - searchLow) <= config.convergenceThreshold) {
+      if (Math.abs(searchHigh - searchLow) <= config.precisionTarget) {
         break;
       }
 
@@ -220,44 +292,46 @@ async function searchFlipForFactor(
       const midWinner = getArgmaxOption(midResult);
 
       if (midWinner === lowSideWinner) {
-        // Flip is in [mid, searchHigh]
+        // Same winner as low side — flip is in [mid, searchHigh]
         searchLow = mid;
-        // lowSideWinner stays the same
-      } else {
-        // Check for non-monotonicity: midWinner should match highWinner
-        // if the function is monotonic
-        if (midWinner !== highWinner && midWinner !== lowSideWinner) {
-          // Non-monotonic: a third option became the winner
-          // Fall back to grid scan
-          return await gridFallback(
-            candidate, inferenceFn, originalWinnerId, low, high, config, factorDeadline, iterations
-          );
-        }
-
-        // Winner changed at midpoint — flip is in [searchLow, mid]
+      } else if (midWinner === highSideWinner) {
+        // Same winner as high side — flip is in [searchLow, mid]
         searchHigh = mid;
-        // Update highWinner tracking — it's now midWinner
-        // Note: lowSideWinner stays the same
+      } else {
+        // Non-monotonic: a third option became the winner. Fall back to grid scan.
+        return await gridFallback(
+          candidate, inferenceFn, originalWinnerId, 0, 1, config, factorDeadline, iterations, diag
+        );
       }
     }
 
-    // Converged — return midpoint of final interval
+    // Check if precision was achieved
+    const precisionAchieved = Math.abs(searchHigh - searchLow);
     const flipValue = roundTo4(midpoint(searchLow, searchHigh));
+
+    diag.iterations_used = iterations;
+    diag.precision_achieved = precisionAchieved;
+    diag.flip_value = flipValue;
+    diag.alternative_winner_id = farWinner;
+
+    if (precisionAchieved > config.precisionTarget) {
+      diag.flip_reason = 'insufficient_precision';
+      return {
+        result: { ...candidate, flip_value: flipValue, flip_reason: 'insufficient_precision', iterations_used: iterations, alternative_winner_id: farWinner },
+        diagnostics: diag,
+      };
+    }
+
+    diag.flip_reason = 'found';
     return {
-      ...candidate,
-      flip_value: flipValue,
-      flip_reason: 'found',
-      iterations_used: iterations,
-      alternative_winner_id: highWinner,
+      result: { ...candidate, flip_value: flipValue, flip_reason: 'found', iterations_used: iterations, alternative_winner_id: farWinner },
+      diagnostics: diag,
     };
   } catch (err) {
-    // ISL call failed
+    diag.flip_reason = 'error';
     return {
-      ...candidate,
-      flip_value: null,
-      flip_reason: 'isl_error',
-      iterations_used: iterations,
-      alternative_winner_id: null,
+      result: { ...candidate, flip_value: null, flip_reason: 'error', iterations_used: 0, alternative_winner_id: null },
+      diagnostics: diag,
     };
   }
 }
@@ -278,19 +352,19 @@ async function gridFallback(
   high: number,
   config: FlipSearchConfig,
   deadline: number,
-  iterationsSoFar: number
-): Promise<FlipThresholdInputData> {
+  iterationsSoFar: number,
+  diag: FlipDiagnostics
+): Promise<{ result: FlipThresholdInputData; diagnostics: FlipDiagnostics }> {
   let iterations = iterationsSoFar;
   const step = (high - low) / (config.maxGridPoints - 1);
 
   for (let i = 0; i < config.maxGridPoints; i++) {
     if (Date.now() >= deadline) {
+      diag.iterations_used = iterations;
+      diag.flip_reason = 'timeout';
       return {
-        ...candidate,
-        flip_value: null,
-        flip_reason: 'timeout',
-        iterations_used: iterations,
-        alternative_winner_id: null,
+        result: { ...candidate, flip_value: null, flip_reason: 'timeout', iterations_used: iterations, alternative_winner_id: null },
+        diagnostics: diag,
       };
     }
 
@@ -302,13 +376,14 @@ async function gridFallback(
 
       const winner = getArgmaxOption(result);
       if (winner !== originalWinnerId) {
-        // Found flip point
+        const flipValue = roundTo4(probeValue);
+        diag.iterations_used = iterations;
+        diag.flip_reason = 'non_monotonic_grid';
+        diag.flip_value = flipValue;
+        diag.alternative_winner_id = winner;
         return {
-          ...candidate,
-          flip_value: roundTo4(probeValue),
-          flip_reason: 'non_monotonic_grid',
-          iterations_used: iterations,
-          alternative_winner_id: winner,
+          result: { ...candidate, flip_value: flipValue, flip_reason: 'non_monotonic_grid', iterations_used: iterations, alternative_winner_id: winner },
+          diagnostics: diag,
         };
       }
     } catch {
@@ -318,12 +393,11 @@ async function gridFallback(
   }
 
   // No flip found in grid
+  diag.iterations_used = iterations;
+  diag.flip_reason = 'no_effect_within_bounds';
   return {
-    ...candidate,
-    flip_value: null,
-    flip_reason: 'no_bracket',
-    iterations_used: iterations,
-    alternative_winner_id: null,
+    result: { ...candidate, flip_value: null, flip_reason: 'no_effect_within_bounds', iterations_used: iterations, alternative_winner_id: null },
+    diagnostics: diag,
   };
 }
 
