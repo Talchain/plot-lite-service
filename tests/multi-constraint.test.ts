@@ -1036,7 +1036,11 @@ describe('Integration: Precedence Routing via /v2/run', () => {
     expect(goalThresholdRepair?.reason).toContain('ignored');
   });
 
-  it('falls back to goal_threshold when goal_constraints is empty', async () => {
+  it('auto-generates constraint from goal_threshold when goal_constraints is empty', async () => {
+    // P0-3: When goal_constraints is empty but goal_threshold exists,
+    // PLoT synthesises an auto-constraint. The multi-constraint path activates,
+    // so constraints_status is present (ISL mock may not return constraint_analysis,
+    // yielding 'unavailable').
     vi.resetModules();
     server = await spawnServer({ env: ENV });
 
@@ -1048,17 +1052,26 @@ describe('Integration: Precedence Routing via /v2/run', () => {
         options: VALID_OPTIONS,
         goal_node_id: 'goal',
         goal_threshold: 80,
-        goal_constraints: [], // Empty - should fall back to goal_threshold
+        goal_constraints: [], // Empty — auto-constraint synthesised from goal_threshold
       }),
     });
 
     expect(status).toBe(200);
 
-    // constraints_status should NOT be present when constraints are empty
-    expect(data?.constraints_status).toBeUndefined();
+    // Auto-constraint activates multi-constraint path → constraints_status present
+    expect(data?.constraints_status).toBeDefined();
+
+    // Verify auto-constraint repair record
+    const repairs = data?._meta?.repairs_applied as Array<{ field: string; action: string; reason: string }>;
+    const autoRepair = repairs?.find(
+      (r) => r.field === 'goal_constraints' && r.action === 'derived'
+    );
+    expect(autoRepair).toBeDefined();
+    expect(autoRepair?.reason).toContain('auto-generated');
   });
 
-  it('falls back to goal_threshold when goal_constraints is absent', async () => {
+  it('auto-generates constraint from goal_threshold when goal_constraints is absent', async () => {
+    // P0-3: Same as above but goal_constraints field is absent entirely
     vi.resetModules();
     server = await spawnServer({ env: ENV });
 
@@ -1070,14 +1083,21 @@ describe('Integration: Precedence Routing via /v2/run', () => {
         options: VALID_OPTIONS,
         goal_node_id: 'goal',
         goal_threshold: 80,
-        // No goal_constraints field
+        // No goal_constraints field — auto-constraint synthesised
       }),
     });
 
     expect(status).toBe(200);
 
-    // constraints_status should NOT be present
-    expect(data?.constraints_status).toBeUndefined();
+    // Auto-constraint activates multi-constraint path → constraints_status present
+    expect(data?.constraints_status).toBeDefined();
+
+    // Verify auto-constraint repair record
+    const repairs = data?._meta?.repairs_applied as Array<{ field: string; action: string; reason: string }>;
+    const autoRepair = repairs?.find(
+      (r) => r.field === 'goal_constraints' && r.action === 'derived'
+    );
+    expect(autoRepair).toBeDefined();
   });
 
   it('returns 422 with blocker when constraint targets non-existent node', async () => {

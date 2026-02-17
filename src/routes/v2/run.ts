@@ -1273,6 +1273,20 @@ function buildResponse(
         baseMeta.request_id_chain = { ...meta.requestIdChain };
       }
 
+      // Surface auto-constraint source metadata so UI can differentiate copy:
+      // "Success target: X%" (auto-generated) vs "Meeting all targets: X%" (CEE-extracted)
+      if (goalConstraints?.length) {
+        const sources: Record<string, string> = {};
+        for (const c of goalConstraints) {
+          if (c.constraint_id === 'auto_goal_threshold') {
+            sources[c.constraint_id] = 'auto_from_goal_threshold';
+          }
+        }
+        if (Object.keys(sources).length > 0) {
+          (baseMeta as any).constraint_sources = sources;
+        }
+      }
+
       return baseMeta;
     })(),
 
@@ -1914,6 +1928,73 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             event: 'constraint_nodes_skipped',
             skipped_count: constraintCompilation.skipped.length,
             skipped: constraintCompilation.skipped,
+          });
+        }
+
+        // =================================================================
+        // Phase 1c+: Auto-constraint fallback from goal_threshold
+        // =================================================================
+        // When no constraints were extracted (neither explicit goal_constraints
+        // nor graph constraint nodes), but a goal_threshold exists, synthesise
+        // a single constraint so ISL produces constraint_analysis output.
+        // This is a deterministic computation — no LLM call (F.6: PLoT = compute).
+        if (constraintCompilation.constraints.length === 0) {
+          // Resolve threshold: prefer request-level goal_threshold (already parsed),
+          // fall back to goal_threshold on the raw upstream goal node (CEE may set
+          // it on the node even if the request root field is absent).
+          const nodeGoalThreshold = (() => {
+            const rawGoalNode = (body.graph?.nodes as any[])?.find(
+              (n: any) => n.id === body.goal_node_id
+            );
+            const v = rawGoalNode?.goal_threshold;
+            return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+          })();
+          const autoThreshold = goalThreshold ?? nodeGoalThreshold;
+
+          if (autoThreshold !== undefined && Number.isFinite(autoThreshold)) {
+            // Synthesise a single >= constraint from goal_threshold.
+            // The `source` field is not in GoalConstraint schema but is carried
+            // in-memory for internal consumers. The ISL translator (translator-v3.ts)
+            // strips unknown fields at the wire boundary. For UI consumers, the
+            // canonical provenance signal is _meta.constraint_sources.
+            const autoConstraint: GoalConstraint & { source: string } = {
+              constraint_id: 'auto_goal_threshold',
+              node_id: body.goal_node_id,
+              operator: '>=',
+              value: autoThreshold,
+              label: 'Goal target',
+              source: 'auto_from_goal_threshold',
+            };
+            constraintCompilation.constraints.push(autoConstraint as GoalConstraint);
+            repairs.push({
+              field: 'goal_constraints',
+              action: 'derived',
+              from_value: `goal_threshold=${autoThreshold}`,
+              to_value: 'auto_goal_threshold',
+              reason: 'No goal_constraints provided; auto-generated single constraint from goal_threshold',
+            });
+            req.log.info({
+              event: 'plot.auto_constraint_from_threshold',
+              goal_node_id: body.goal_node_id,
+              threshold: autoThreshold,
+              threshold_source: goalThreshold !== undefined ? 'request' : 'goal_node',
+              action: 'synthesised',
+            });
+          } else {
+            req.log.info({
+              event: 'plot.auto_constraint_from_threshold',
+              goal_node_id: body.goal_node_id,
+              action: 'skipped',
+              reason: 'no_goal_threshold',
+            });
+          }
+        } else {
+          req.log.info({
+            event: 'plot.auto_constraint_from_threshold',
+            goal_node_id: body.goal_node_id,
+            action: 'skipped',
+            reason: 'constraints_present',
+            constraint_count: constraintCompilation.constraints.length,
           });
         }
 
