@@ -70,6 +70,36 @@ Before ANY deployment:
 
 ---
 
+## Pre-Push Validation
+
+Every `git push` runs `scripts/pre-push-validate.sh` automatically via the Husky pre-push hook.
+
+### Checks performed:
+| # | Check | What it catches |
+|---|-------|-----------------|
+| 1 | Branch guard | Direct push to `main` (blocks accidental production deploy) |
+| 2 | TypeScript | `npx tsc --noEmit` compilation errors |
+| 3 | Test suite | `npm test` (build + vitest + fixtures + OpenAPI + loadcheck) |
+| 4 | Stale .js | Compiled .js files accidentally tracked by git in src/ |
+| 5 | Dep audit | `file:` refs in package.json / package-lock.json |
+| 6 | OpenAPI | SKIPPED (no generation script; spec is hand-authored) |
+| 7 | Summary | Branch, files changed, pass/fail verdict |
+
+### Run manually:
+```bash
+bash scripts/pre-push-validate.sh
+```
+
+### Bypass (emergency only):
+```bash
+git push --no-verify origin staging
+```
+
+### Claude Code integration:
+A `PreToolUse` hook in `.claude/settings.json` intercepts `git push` Bash commands and runs the same validation. Exit code 2 blocks the push; exit code 0 allows it.
+
+---
+
 ## Incident Log
 
 ### 2026-01-23: Pushed to main instead of staging (TWICE)
@@ -92,4 +122,55 @@ Before ANY deployment:
 npm test                                    # All tests
 npm test -- --run tests/FILE.test.ts       # Specific file
 npm test -- --grep "pattern"               # Pattern match
+bash scripts/pre-push-validate.sh           # Pre-push validation (7 checks)
 ```
+
+---
+
+## Deployment
+
+- Always push to `staging` unless explicitly told otherwise. Never push to `main` without explicit user confirmation.
+- After making commits, always execute `git push` and verify it succeeded. Do not just summarise commands — run them.
+- Run `bash scripts/pre-push-validate.sh` before every push. This is also enforced by the git hook, but run it explicitly to catch issues early.
+
+---
+
+## Git Workflow
+
+- Before committing, run `git status` and `git diff --staged` to verify only intended changes are staged. Never commit all uncommitted changes without explicit user approval.
+- No simultaneous Claude Code sessions on this repository. If you detect unexpected uncommitted changes or stash entries at session start, flag them before proceeding.
+
+---
+
+## Session Preamble
+
+At the start of every session, before any other work:
+```bash
+git branch --show-current && git log --oneline -3 && git status
+```
+Report the output. Confirm the branch is correct for the task before proceeding.
+
+---
+
+## Testing
+
+- After any code changes, run the full test suite and typecheck (`npx tsc --noEmit`) before committing. Report the exact number of passing/failing tests.
+
+---
+
+## Debugging
+
+- When investigating bugs or tracing data flow, check ALL layers of the pipeline: PLoT → ISL translation (`from` → `from_`), V2 and V3 adapters, direct error shapes AND PLoT-wrapped error shapes. Do not stop at the first code path found.
+- Be aware of stale `.js` files co-located with `.ts` source files in `src/`. Node may resolve the `.js` instead of `.ts`. Check for and remove stale `.js` files when debugging unexpected behaviour.
+
+---
+
+## API / Schema Changes
+
+- When modifying API schemas or renaming fields, regenerate the OpenAPI spec (if generation exists in this repo) before pushing. Commit the updated spec.
+
+---
+
+## Code Review
+
+- When asked to critically analyse code review feedback, evaluate each point independently. Determine which items require code changes and which are already correct. Do not make changes just to appease reviewers if the existing code is right.

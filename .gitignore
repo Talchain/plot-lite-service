@@ -90,3 +90,7 @@ PR-ENGINE-*.md
 /src/routes/v1/assist-proxy.ts
 /tests/assist-proxy.test.ts
 /tests/version.ssvc.test.ts
+
+# Claude Code (commit project settings, exclude user-local files)
+.claude/*
+!.claude/settings.json
