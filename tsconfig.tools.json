@@ -20,6 +20,7 @@
     "tools/test-server.ts",
     "lib/canonical-json.ts",
     "scripts/mock-server.ts",
+    "scripts/staging-smoke.ts",
     "sdk/node/index.ts",
     "sdk/node/example.ts"
   ],

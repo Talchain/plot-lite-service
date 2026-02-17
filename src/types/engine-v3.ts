@@ -836,16 +836,20 @@ export interface RunResponseV3 {
      * Captured when ISL response is received (before PLoT processing).
      */
     computed_at?: string;
-    /** End-to-end request ID chain for debug tracing (Platform Contract v3.3 field names) */
+    /** End-to-end request ID chain (Brief 4 spec — 6 fields) */
     request_id_chain?: {
-      /** Request ID received from UI (X-Request-Id header or body.request_id) */
-      ui: string;
-      /** PLoT's own request ID (same as ui unless PLoT generates one) */
-      plot: string;
-      /** Request ID echoed back by ISL (null if ISL doesn't echo) */
+      /** Request ID from incoming request (null if auto-generated) */
+      ui: string | null;
+      /** PLoT's own request ID */
+      plot: string | null;
+      /** Request ID PLoT sent to ISL (null if ISL not called) */
       isl: string | null;
-      /** True when all non-null IDs in the chain match */
+      /** Request ID ISL echoed back (null if ISL didn't echo) */
+      isl_echoed: string | null;
+      /** true ONLY when all four are non-null AND identical */
       all_match: boolean;
+      /** true ONLY when all four are non-null */
+      chain_complete: boolean;
     };
   };
 }
@@ -1213,6 +1217,21 @@ export interface CanonicalMeta {
     isl_request?: unknown;
     /** Sanitized ISL response payload */
     isl_response?: unknown;
+  };
+  /** End-to-end request ID chain (Brief 4 spec — 6 fields) */
+  request_id_chain?: {
+    /** Request ID from incoming request (null if auto-generated) */
+    ui: string | null;
+    /** PLoT's own request ID (null if not set) */
+    plot: string | null;
+    /** Request ID PLoT sent to ISL (null if ISL not called) */
+    isl: string | null;
+    /** Request ID ISL echoed back (null if ISL didn't echo) */
+    isl_echoed: string | null;
+    /** true ONLY when all four are non-null AND identical */
+    all_match: boolean;
+    /** true ONLY when all four are non-null */
+    chain_complete: boolean;
   };
 }
 

@@ -28,6 +28,7 @@ vi.mock('../src/config/timeouts.js', async (importOriginal) => {
 
 import { registerCeeDraftGraphRoute } from '../src/routes/v1/cee-draft-graph.js';
 import { ISLClient } from '../src/integrations/isl/client.js';
+import { buildRequestIdChain } from '../src/routes/v2/run.js';
 
 describe('BFF CEE Proxy — X-Request-Id chain', () => {
   let app: FastifyInstance;
@@ -327,7 +328,7 @@ describe('V2 Run — request_id_chain', () => {
     expect(body.request_id).toBe(headerRequestId);
   });
 
-  it('includes request_id_chain.ui matching response request_id', async () => {
+  it('includes request_id_chain with all 6 Brief 4 fields', async () => {
     const uiRequestId = 'chain-received-test';
 
     const res = await app.inject({
@@ -342,9 +343,15 @@ describe('V2 Run — request_id_chain', () => {
 
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.payload);
-    expect(body.meta.request_id_chain).toBeDefined();
-    expect(body.meta.request_id_chain.ui).toBe(uiRequestId);
-    expect(body.meta.request_id_chain.ui).toBe(body.request_id);
+    const chain = body.meta.request_id_chain;
+    expect(chain).toBeDefined();
+    expect(chain.ui).toBe(uiRequestId);
+    expect(chain.plot).toBe(uiRequestId);
+    // ISL not called (disabled) → isl and isl_echoed are null
+    expect(chain.isl).toBeNull();
+    expect(chain.isl_echoed).toBeNull();
+    expect(chain.all_match).toBe(false);
+    expect(chain.chain_complete).toBe(false);
   });
 
   it('request_id_chain.plot matches ui', async () => {
@@ -364,22 +371,23 @@ describe('V2 Run — request_id_chain', () => {
     expect(body.meta.request_id_chain.plot).toBe(uiRequestId);
   });
 
-  it('request_id_chain.isl is null when ISL is disabled', async () => {
+  it('request_id_chain.isl is null when ISL is disabled (not called)', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/v2/run',
       headers: {
         'content-type': 'application/json',
-        'x-request-id': 'isl-echo-null-test',
+        'x-request-id': 'isl-null-test',
       },
       payload: VALID_BODY,
     });
 
     const body = JSON.parse(res.payload);
     expect(body.meta.request_id_chain.isl).toBeNull();
+    expect(body.meta.request_id_chain.isl_echoed).toBeNull();
   });
 
-  it('request_id_chain.all_match is false when isl_echoed is null', async () => {
+  it('all_match is false when ISL not called (isl and isl_echoed null)', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/v2/run',
@@ -392,6 +400,165 @@ describe('V2 Run — request_id_chain', () => {
 
     const body = JSON.parse(res.payload);
     expect(body.meta.request_id_chain.all_match).toBe(false);
+    expect(body.meta.request_id_chain.chain_complete).toBe(false);
+  });
+
+  it('all_match is false when request header is missing (ui is null)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v2/run',
+      headers: { 'content-type': 'application/json' },
+      payload: VALID_BODY,
+    });
+
+    const body = JSON.parse(res.payload);
+    expect(body.meta.request_id_chain.ui).toBeNull();
+    expect(body.meta.request_id_chain.all_match).toBe(false);
+    expect(body.meta.request_id_chain.chain_complete).toBe(false);
+  });
+});
+
+// ── V2 Run _meta.request_id_chain & X-Olumi-Request-Id-Chain header ──────────
+
+describe('V2 Run — _meta.request_id_chain (Brief 4 spec)', () => {
+  let app: FastifyInstance;
+
+  const VALID_GRAPH = {
+    nodes: [
+      { id: 'factor-a', kind: 'factor', label: 'Factor A' },
+      { id: 'factor-b', kind: 'factor', label: 'Factor B' },
+      { id: 'goal', kind: 'goal', label: 'Goal' },
+    ],
+    edges: [
+      { from: 'factor-a', to: 'goal', exists_probability: 0.8, strength: { mean: 0.5, std: 0.1 } },
+      { from: 'factor-b', to: 'goal', exists_probability: 0.9, strength: { mean: 0.7, std: 0.1 } },
+    ],
+  };
+
+  const VALID_OPTIONS = [
+    {
+      id: 'opt1',
+      label: 'Option 1',
+      interventions: { 'factor-a': { value: 1.5, source: 'user_specified' } },
+    },
+    {
+      id: 'opt2',
+      label: 'Option 2',
+      interventions: { 'factor-b': { value: 2.0, source: 'user_specified' } },
+    },
+  ];
+
+  const VALID_BODY = {
+    graph: VALID_GRAPH,
+    options: VALID_OPTIONS,
+    goal_node_id: 'goal',
+    seed: '42',
+  };
+
+  beforeAll(async () => {
+    process.env.ISL_ENABLE = '0';
+    process.env.AUTH_ENABLED = '0';
+    process.env.TEST_ROUTES = '1';
+
+    const { createServer } = await import('../src/createServer.js');
+    app = await createServer({ enableTestRoutes: true });
+    await app.ready();
+  });
+
+  afterAll(async () => {
+    await app?.close();
+    delete process.env.ISL_ENABLE;
+    delete process.env.AUTH_ENABLED;
+    delete process.env.TEST_ROUTES;
+  });
+
+  it('_meta.request_id_chain has all 6 Brief 4 fields', async () => {
+    const requestId = 'meta-chain-brief4-test';
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v2/run',
+      headers: {
+        'content-type': 'application/json',
+        'x-request-id': requestId,
+      },
+      payload: VALID_BODY,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body._meta).toBeDefined();
+    const chain = body._meta.request_id_chain;
+    expect(chain).toBeDefined();
+    expect(chain.ui).toBe(requestId);
+    expect(chain.plot).toBe(requestId);
+    // ISL disabled → isl and isl_echoed are null
+    expect(chain.isl).toBeNull();
+    expect(chain.isl_echoed).toBeNull();
+    expect(chain.all_match).toBe(false);
+    expect(chain.chain_complete).toBe(false);
+  });
+
+  it('X-Olumi-Request-Id-Chain header has all 6 Brief 4 fields', async () => {
+    const requestId = 'header-chain-brief4-test';
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v2/run',
+      headers: {
+        'content-type': 'application/json',
+        'x-request-id': requestId,
+      },
+      payload: VALID_BODY,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const headerValue = res.headers['x-olumi-request-id-chain'];
+    expect(headerValue).toBeDefined();
+    const chain = JSON.parse(headerValue as string);
+    expect(chain.ui).toBe(requestId);
+    expect(chain.plot).toBe(requestId);
+    expect(chain.isl).toBeNull();
+    expect(chain.isl_echoed).toBeNull();
+    expect(chain.all_match).toBe(false);
+    expect(chain.chain_complete).toBe(false);
+  });
+
+  it('_meta.request_id_chain.ui is null when no request ID provided', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v2/run',
+      headers: { 'content-type': 'application/json' },
+      payload: VALID_BODY,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    const chain = body._meta.request_id_chain;
+    expect(chain).toBeDefined();
+    // No explicit request ID → ui is null
+    expect(chain.ui).toBeNull();
+    // PLoT still generates one → plot is the auto-generated UUID
+    expect(chain.plot).toBe(body.request_id);
+    expect(chain.all_match).toBe(false);
+    expect(chain.chain_complete).toBe(false);
+  });
+
+  it('X-Olumi-Request-Id-Chain header has null ui when no request ID provided', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v2/run',
+      headers: { 'content-type': 'application/json' },
+      payload: VALID_BODY,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const headerValue = res.headers['x-olumi-request-id-chain'];
+    expect(headerValue).toBeDefined();
+    const chain = JSON.parse(headerValue as string);
+    expect(chain.ui).toBeNull();
+    expect(chain.all_match).toBe(false);
+    expect(chain.chain_complete).toBe(false);
   });
 });
 
@@ -456,5 +623,56 @@ describe('ISL Client — request ID echo capture', () => {
     });
 
     expect(result.islEchoedRequestId).toBeNull();
+  });
+});
+
+// ── buildRequestIdChain unit tests (Brief 4 spec) ────────────────────────────
+
+describe('buildRequestIdChain — Brief 4 spec', () => {
+  it('all_match is true only when all four fields are non-null and identical', () => {
+    const chain = buildRequestIdChain(true, 'abc-123', true, 'abc-123');
+    expect(chain.ui).toBe('abc-123');
+    expect(chain.plot).toBe('abc-123');
+    expect(chain.isl).toBe('abc-123');
+    expect(chain.isl_echoed).toBe('abc-123');
+    expect(chain.all_match).toBe(true);
+    expect(chain.chain_complete).toBe(true);
+  });
+
+  it('all_match is false when isl_echoed differs', () => {
+    const chain = buildRequestIdChain(true, 'abc-123', true, 'different-id');
+    expect(chain.all_match).toBe(false);
+    expect(chain.chain_complete).toBe(true);
+  });
+
+  it('all_match is false when ISL does not echo (isl_echoed null)', () => {
+    const chain = buildRequestIdChain(true, 'abc-123', true, null);
+    expect(chain.isl_echoed).toBeNull();
+    expect(chain.all_match).toBe(false);
+    expect(chain.chain_complete).toBe(false);
+  });
+
+  it('all_match is false when request header is missing (ui null)', () => {
+    const chain = buildRequestIdChain(false, 'auto-gen-uuid', true, 'auto-gen-uuid');
+    expect(chain.ui).toBeNull();
+    expect(chain.plot).toBe('auto-gen-uuid');
+    expect(chain.isl).toBe('auto-gen-uuid');
+    expect(chain.isl_echoed).toBe('auto-gen-uuid');
+    expect(chain.all_match).toBe(false);
+    expect(chain.chain_complete).toBe(false);
+  });
+
+  it('chain_complete is false when ISL not called (isl null)', () => {
+    const chain = buildRequestIdChain(true, 'abc-123', false, null);
+    expect(chain.isl).toBeNull();
+    expect(chain.isl_echoed).toBeNull();
+    expect(chain.chain_complete).toBe(false);
+    expect(chain.all_match).toBe(false);
+  });
+
+  it('chain_complete is true but all_match false when IDs differ', () => {
+    const chain = buildRequestIdChain(true, 'abc-123', true, 'xyz-456');
+    expect(chain.chain_complete).toBe(true);
+    expect(chain.all_match).toBe(false);
   });
 });

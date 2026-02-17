@@ -1,23 +1,31 @@
 name: Staging Smoke Test
 
 on:
+  push:
+    branches: [staging]
   workflow_dispatch: {}
 
 jobs:
   smoke:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     env:
-      PLOT_STAGING_URL: ${{ secrets.PLOT_STAGING_URL }}
-      AUTH_TOKEN: ${{ secrets.PLOT_AUTH_TOKEN }}
+      SMOKE_PLOT_URL: ${{ secrets.PLOT_STAGING_URL }}
+      SMOKE_CEE_URL: ${{ secrets.CEE_STAGING_URL }}
+      SMOKE_API_KEY: ${{ secrets.PLOT_AUTH_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-      
+
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      
+          cache: 'npm'
+
+      - name: Wait for staging deploy
+        run: sleep 90
+
       - name: Install dependencies
         run: npm ci
-      
+
       - name: Run staging smoke test
-        run: npm run smoke:staging
+        run: npx tsx scripts/staging-smoke.ts
