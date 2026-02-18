@@ -4,16 +4,20 @@
  * 9-tier validation for LLM-generated decision review output.
  * This is PLoT's trust boundary - verifies CEE output before trusting it.
  *
- * Tiers:
- * 1. Option Coverage (CRITICAL) - story_headlines must match all option IDs
- * 2. Scenario Context References - scenario_contexts must reference valid edges/options
- * 3. Readiness Alignment (CRITICAL) - narrative must align with readiness state
- * 4. Number Grounding (CRITICAL) - numbers must come from input data
- * 5. Bias Evidence - structural needs critique_code, semantic needs brief_evidence
- * 6. Pre-mortem Grounding - grounded_in must reference valid IDs
- * 7. Flip Threshold Integrity - values must match PLoT-computed inputs
- * 8. Structural Limits - arrays must respect max lengths
- * 9. Decision Quality Prompt Structure - questions must end with ?
+ * Tiers (blocking = hard failure, warning-grade = downgraded by orchestrator):
+ * 1. Option Coverage (blocking) - story_headlines must match all option IDs
+ * 2. Scenario Context References (blocking) - scenario_contexts must reference valid edges/options
+ * 3. Readiness Alignment (warning-grade) - narrative must align with readiness state
+ * 4. Number Grounding (warning-grade) - numbers must come from input data
+ * 5. Bias Evidence (mixed) - MISSING_CRITIQUE_CODE is blocking; brief_evidence codes are warning-grade
+ * 6. Pre-mortem Grounding (blocking) - grounded_in must reference valid IDs
+ * 7. Flip Threshold Integrity (blocking) - values must match PLoT-computed inputs
+ * 8. Structural Limits (blocking) - arrays must respect max lengths
+ * 9. Decision Quality Prompt Structure (blocking) - questions must end with ?
+ *
+ * Warning-grade policy is applied by the orchestrator (decision-review-orchestrator.ts),
+ * not by this validator. This validator reports all findings as errors; the orchestrator
+ * decides which are blocking vs warning-grade.
  *
  * @see Brief: M2 Decision Review Integration, Task 5
  */

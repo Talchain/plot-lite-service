@@ -951,6 +951,7 @@ function buildResponse(
     review_status: ReviewStatus;
     review_meta?: { model?: string; latency_ms?: number; tokens?: number };
     review_failure_codes?: string[];
+    review_warnings?: string[];
     review_skip_reason?: ReviewSkipReason;
   },
   flipThresholds?: DenormalisedFlipThreshold[],
@@ -1215,6 +1216,9 @@ function buildResponse(
       ...(m2DecisionReview.review_meta && { review_meta: m2DecisionReview.review_meta }),
       ...(m2DecisionReview.review_failure_codes && m2DecisionReview.review_failure_codes.length > 0 && {
         review_failure_codes: m2DecisionReview.review_failure_codes,
+      }),
+      ...(m2DecisionReview.review_warnings && m2DecisionReview.review_warnings.length > 0 && {
+        review_warnings: m2DecisionReview.review_warnings,
       }),
       ...(m2DecisionReview.review_skip_reason && {
         review_skip_reason: m2DecisionReview.review_skip_reason,
@@ -2358,6 +2362,56 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           });
         }
 
+        // =================================================================
+        // Phase 4b+: Auto-generate ParameterUncertainty for constrained nodes
+        // =================================================================
+        // ISL's SCM evaluator uses observed_state.value as sampling base only
+        // for root nodes (no incoming edges). Non-root nodes without a
+        // ParameterUncertainty entry default to base=0.0, which makes
+        // constraints trivially satisfied (all samples ≈ 0).
+        // Ensure every constrained node has a ParameterUncertainty entry so
+        // ISL samples around the observed value instead of 0.
+        if (constraintsForISL && constraintsForISL.length > 0) {
+          const existingPuNodeIds = new Set(
+            (islRequest.parameter_uncertainties ?? []).map((p) => p.node_id)
+          );
+          const augmented = [...(islRequest.parameter_uncertainties ?? [])];
+
+          for (const constraint of constraintsForISL) {
+            if (existingPuNodeIds.has(constraint.node_id)) continue;
+
+            const node = filteredGraph.nodes.find((n) => n.id === constraint.node_id);
+            if (!node || node.observed_state?.value === undefined) {
+              req.log.warn({
+                event: 'plot.constraint_no_observed_value',
+                node_id: constraint.node_id,
+                constraint_id: constraint.constraint_id,
+                message: 'Constrained node has no observed_state.value; ISL may use base=0.0',
+              });
+              continue;
+            }
+
+            const mean = node.observed_state.value;
+            augmented.push({
+              node_id: constraint.node_id,
+              distribution: 'normal' as const,
+              mean,
+              std: 0.001,
+            });
+            existingPuNodeIds.add(constraint.node_id);
+            req.log.info({
+              event: 'plot.constraint_auto_uncertainty',
+              node_id: constraint.node_id,
+              constraint_id: constraint.constraint_id,
+              observed_value: mean,
+              distribution: 'normal',
+              std: 0.001,
+            });
+          }
+
+          islRequest.parameter_uncertainties = augmented;
+        }
+
         // === DIAGNOSTIC: Log parameter_uncertainties sent to ISL ===
         // This helps diagnose why ISL may return empty factor_sensitivity
         const paramUncertainties = islRequest.parameter_uncertainties ?? [];
@@ -3011,6 +3065,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           review_status: ReviewStatus;
           review_meta?: { model?: string; latency_ms?: number; tokens?: number };
           review_failure_codes?: string[];
+          review_warnings?: string[];
           review_skip_reason?: ReviewSkipReason;
         } | undefined;
 
@@ -3049,6 +3104,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                 review_status: decisionReviewResult.review_status,
                 review_meta: decisionReviewResult.review_meta,
                 review_failure_codes: decisionReviewResult.review_failure_codes,
+                review_warnings: decisionReviewResult.review_warnings,
                 review_skip_reason: decisionReviewResult.review_skip_reason,
               };
             } else {

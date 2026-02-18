@@ -281,10 +281,16 @@ export async function orchestrateDecisionReview(
   const validationResult = validateM1Review(review, validationContext);
 
   if (!validationResult.valid) {
-    // Warning-grade failure codes that don't block the review
+    // Warning-grade failure codes that don't block the review.
+    // These are tone/evidence-quality issues — users should see guidance
+    // with caveats rather than nothing at all.
     const WARNING_GRADE_CODES: Set<string> = new Set([
       M1ReviewFailureCodes.UNGROUNDED_NUMBER,
       M1ReviewFailureCodes.READINESS_MISALIGNMENT,
+      M1ReviewFailureCodes.READINESS_CONTRADICTION,
+      M1ReviewFailureCodes.MISSING_BRIEF_EVIDENCE,
+      M1ReviewFailureCodes.BRIEF_EVIDENCE_TOO_SHORT,
+      M1ReviewFailureCodes.BRIEF_EVIDENCE_NOT_SUBSTRING,
     ]);
 
     // Check if ALL failure codes are warning-grade

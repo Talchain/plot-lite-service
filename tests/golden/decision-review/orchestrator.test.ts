@@ -306,6 +306,146 @@ describe('Decision Review Orchestrator', () => {
       expect(result.review_warnings).toContain('READINESS_MISALIGNMENT');
     });
 
+    it('returns complete with warnings when READINESS_CONTRADICTION is only failure', async () => {
+      vi.spyOn(FLAGS, 'DECISION_REVIEW_ENABLE', 'get').mockReturnValue(true);
+
+      // Set readiness to 'needs_evidence' which forbids 'confident', 'ready to proceed', 'clear choice'
+      const baseInput = buildTestInput();
+      const input = {
+        ...baseInput,
+        m1Coaching: {
+          ...baseInput.m1Coaching,
+          readiness: 'needs_evidence',
+        },
+      };
+      const config = { baseUrl: 'https://cee.test', apiKey: 'test-key' };
+
+      // Return review with forbidden phrase for needs_evidence readiness
+      const contradictionReview = {
+        ...VALID_READY_REVIEW,
+        // "confident" and "ready to proceed" are forbidden for needs_evidence
+        // Use grounded numbers (77%, 88%) so UNGROUNDED_NUMBER doesn't fire
+        narrative_summary: 'We are confident Option A wins with 77% probability. Ready to proceed.',
+        readiness_rationale: 'This is a clear choice with 88% stability. We should definitely go ahead.',
+      };
+
+      vi.spyOn(ceeClient, 'callDecisionReview').mockResolvedValue({
+        review: contradictionReview,
+        error: null,
+        meta: { model: 'test-model', latency_ms: 500, tokens: 1000 },
+      });
+
+      const result = await orchestrateDecisionReview(input, config);
+
+      // READINESS_CONTRADICTION alone gets downgraded to warning, not failure
+      expect(result.review_status).toBe('complete');
+      expect(result.m1_review).not.toBeNull();
+      expect(result.review_warnings).toBeDefined();
+      expect(result.review_warnings).toContain('READINESS_CONTRADICTION');
+    });
+
+    it('returns complete with warnings when MISSING_BRIEF_EVIDENCE is only failure', async () => {
+      vi.spyOn(FLAGS, 'DECISION_REVIEW_ENABLE', 'get').mockReturnValue(true);
+
+      const input = buildTestInput();
+      const config = { baseUrl: 'https://cee.test', apiKey: 'test-key' };
+
+      // Return review with semantic bias finding missing brief_evidence
+      const missingEvidenceReview = {
+        ...VALID_READY_REVIEW,
+        bias_findings: [
+          {
+            type: 'SUNK_COST',
+            source: 'semantic',
+            description: 'Prior investment may be influencing this decision.',
+            affected_elements: ['factor-price'],
+            // Missing brief_evidence → MISSING_BRIEF_EVIDENCE
+          },
+        ],
+      };
+
+      vi.spyOn(ceeClient, 'callDecisionReview').mockResolvedValue({
+        review: missingEvidenceReview,
+        error: null,
+        meta: { model: 'test-model', latency_ms: 500, tokens: 1000 },
+      });
+
+      const result = await orchestrateDecisionReview(input, config);
+
+      expect(result.review_status).toBe('complete');
+      expect(result.m1_review).not.toBeNull();
+      expect(result.review_warnings).toBeDefined();
+      expect(result.review_warnings).toContain('MISSING_BRIEF_EVIDENCE');
+    });
+
+    it('returns complete with warnings when BRIEF_EVIDENCE_TOO_SHORT is only failure', async () => {
+      vi.spyOn(FLAGS, 'DECISION_REVIEW_ENABLE', 'get').mockReturnValue(true);
+
+      const input = buildTestInput();
+      const config = { baseUrl: 'https://cee.test', apiKey: 'test-key' };
+
+      // Return review with brief_evidence that's too short (< 12 chars)
+      const shortEvidenceReview = {
+        ...VALID_READY_REVIEW,
+        bias_findings: [
+          {
+            type: 'ANCHORING',
+            source: 'semantic',
+            description: 'Price anchoring detected.',
+            affected_elements: ['factor-price'],
+            brief_evidence: 'price', // Too short
+          },
+        ],
+      };
+
+      vi.spyOn(ceeClient, 'callDecisionReview').mockResolvedValue({
+        review: shortEvidenceReview,
+        error: null,
+        meta: { model: 'test-model', latency_ms: 500, tokens: 1000 },
+      });
+
+      const result = await orchestrateDecisionReview(input, config);
+
+      expect(result.review_status).toBe('complete');
+      expect(result.m1_review).not.toBeNull();
+      expect(result.review_warnings).toBeDefined();
+      expect(result.review_warnings).toContain('BRIEF_EVIDENCE_TOO_SHORT');
+    });
+
+    it('returns complete with warnings when BRIEF_EVIDENCE_NOT_SUBSTRING is only failure', async () => {
+      vi.spyOn(FLAGS, 'DECISION_REVIEW_ENABLE', 'get').mockReturnValue(true);
+
+      const input = buildTestInput();
+      const config = { baseUrl: 'https://cee.test', apiKey: 'test-key' };
+
+      // Return review with brief_evidence not found in the brief text
+      const notSubstringReview = {
+        ...VALID_READY_REVIEW,
+        bias_findings: [
+          {
+            type: 'CONFIRMATION_BIAS',
+            source: 'semantic',
+            description: 'Confirmation bias in market analysis.',
+            affected_elements: ['factor-market'],
+            brief_evidence: 'This exact phrase is not in the brief at all',
+          },
+        ],
+      };
+
+      vi.spyOn(ceeClient, 'callDecisionReview').mockResolvedValue({
+        review: notSubstringReview,
+        error: null,
+        meta: { model: 'test-model', latency_ms: 500, tokens: 1000 },
+      });
+
+      const result = await orchestrateDecisionReview(input, config);
+
+      expect(result.review_status).toBe('complete');
+      expect(result.m1_review).not.toBeNull();
+      expect(result.review_warnings).toBeDefined();
+      expect(result.review_warnings).toContain('BRIEF_EVIDENCE_NOT_SUBSTRING');
+    });
+
     it('returns failed status on shape validation failure', async () => {
       vi.spyOn(FLAGS, 'DECISION_REVIEW_ENABLE', 'get').mockReturnValue(true);
 
