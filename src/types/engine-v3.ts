@@ -298,6 +298,29 @@ export interface GoalConstraint {
 }
 
 /**
+ * Raw goal constraint as received from CEE.
+ * May carry CEE-specific fields (deadline_metadata, unit) that are not
+ * forwarded to ISL. The temporal constraint filter strips non-evaluable
+ * constraints and returns clean GoalConstraint[].
+ */
+export interface RawGoalConstraint extends GoalConstraint {
+  /** CEE deadline metadata — presence indicates a temporal constraint */
+  deadline_metadata?: Record<string, unknown>;
+  /** Unit of the constraint value (e.g., "months", "days", "%", "currency") */
+  unit?: string;
+}
+
+/**
+ * Record of a constraint that was filtered (not forwarded to ISL).
+ * Stored in _meta.filtered_constraints[] for observability.
+ */
+export interface FilteredConstraintRecord {
+  constraint_id: string;
+  node_id: string;
+  reason: string;
+}
+
+/**
  * Result for a single constraint evaluation.
  */
 export interface ConstraintResult {
@@ -477,7 +500,8 @@ export type BlockerCode =
 export type ConstraintWarningCode =
   | 'CONSTRAINT_VALUE_OUTSIDE_RANGE'  // Value outside derivable state_space.range for target node
   | 'CONSTRAINT_MISSING_RANGE'        // Target node has no derivable range (heuristic fallback needed)
-  | 'CONSTRAINT_DUPLICATE_TARGET';    // Two constraints target same node with same operator (after dedupe)
+  | 'CONSTRAINT_DUPLICATE_TARGET'     // Two constraints target same node with same operator (after dedupe)
+  | 'CONSTRAINT_TARGET_NO_OBSERVED_VALUE'; // Factor node targeted by constraint has no observed_state.value
 
 /**
  * Actionable critique with structured metadata.
@@ -1233,6 +1257,10 @@ export interface CanonicalMeta {
     /** true ONLY when all four are non-null */
     chain_complete: boolean;
   };
+  /** Constraints filtered before ISL (non-evaluable temporal constraints) */
+  filtered_constraints?: FilteredConstraintRecord[];
+  /** Source of each constraint (e.g., 'auto_from_goal_threshold') */
+  constraint_sources?: Record<string, string>;
 }
 
 /**

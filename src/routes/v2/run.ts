@@ -58,6 +58,8 @@ import { hashRequest } from '../../normalisation/canonicalise.js';
 import { hashGraph, deriveSeedFromHash } from '../../sampling/graph-hash.js';
 import { runPreflightValidation, validateGoalConstraints } from '../../validation/preflight-v2.js';
 import { compileConstraintNodes } from '../../normalisation/constraint-compiler.js';
+import { filterTemporalConstraints } from '../../normalisation/constraint-filter.js';
+import type { RawGoalConstraint, FilteredConstraintRecord } from '../../types/engine-v3.js';
 import { toISLRobustnessRequest, validateISLRequest } from '../../integrations/isl/translator-v3.js';
 import {
   createPreflightLog,
@@ -618,6 +620,8 @@ interface MetaParams {
     /** true ONLY when all four are non-null */
     chain_complete: boolean;
   };
+  /** Filtered constraint records for _meta.filtered_constraints */
+  filteredConstraints?: import('../../types/engine-v3.js').FilteredConstraintRecord[];
 }
 
 /**
@@ -1287,6 +1291,14 @@ function buildResponse(
         }
       }
 
+      // Surface filtered constraints (non-evaluable temporal constraints dropped before ISL)
+      if (meta.filteredConstraints && meta.filteredConstraints.length > 0) {
+        baseMeta.filtered_constraints = meta.filteredConstraints;
+      }
+
+      // NOTE: _meta is response-only metadata; response_hash is computed from
+      // request inputs only (hashRequest in canonicalise.ts). Additions to _meta
+      // do NOT affect the hash.
       return baseMeta;
     })(),
 
@@ -1999,6 +2011,34 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         }
 
         // =================================================================
+        // Phase 1c++: Temporal Constraint Filter
+        // =================================================================
+        // Drop non-evaluable temporal constraints before ISL.
+        // ISL evaluates constraints via Monte Carlo on static causal graphs;
+        // temporal constraints ("achieve X within 6 months") cannot be evaluated
+        // because time is not a modelled dimension.
+        const temporalFilterResult = filterTemporalConstraints(
+          constraintCompilation.constraints as RawGoalConstraint[],
+          filteredGraph.nodes,
+          req.log
+        );
+
+        // Replace constraint list with filtered set
+        constraintCompilation.constraints = temporalFilterResult.passed;
+
+        // Stash filtered records for _meta
+        const filteredConstraintRecords = temporalFilterResult.filtered;
+
+        if (filteredConstraintRecords.length > 0) {
+          req.log.info({
+            event: 'plot.temporal_constraints_filtered',
+            filtered_count: filteredConstraintRecords.length,
+            remaining_count: constraintCompilation.constraints.length,
+            filtered: filteredConstraintRecords,
+          });
+        }
+
+        // =================================================================
         // Phase 1d: Constraint Validation
         // =================================================================
         // Validate compiled + explicit constraints against the filtered graph
@@ -2170,6 +2210,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               uiBuild,
               computedAt: new Date().toISOString(),
               requestIdChain: chain,
+              filteredConstraints: filteredConstraintRecords,
             },
             responseHash,
             undefined, // islResult
@@ -2260,6 +2301,34 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // These don't block analysis but inform the user
         if (constraintValidation.warnings.length > 0) {
           preflight.warnings.push(...constraintValidation.warnings);
+        }
+
+        // Surface temporal filter warnings as critiques (out-of-domain safety gate)
+        for (const w of temporalFilterResult.warnings) {
+          preflight.warnings.push({
+            id: randomUUID(),
+            code: 'CONSTRAINT_OUT_OF_DOMAIN',
+            severity: 'warning',
+            message: w.message,
+            source: 'validation',
+            affected_node_ids: [w.node_id],
+            blocks_analysis: false,
+          });
+        }
+
+        // Surface filtered constraints as info critiques so API consumers
+        // know temporal constraints were dropped (not silently ignored)
+        if (filteredConstraintRecords.length > 0) {
+          const ids = filteredConstraintRecords.map(f => f.constraint_id).join(', ');
+          preflight.warnings.push({
+            id: randomUUID(),
+            code: 'CONSTRAINT_FILTERED_TEMPORAL',
+            severity: 'info',
+            message: `${filteredConstraintRecords.length} temporal constraint(s) filtered before analysis: [${ids}]. Temporal constraints cannot be evaluated on a static causal graph.`,
+            source: 'validation',
+            affected_node_ids: filteredConstraintRecords.map(f => f.node_id),
+            blocks_analysis: false,
+          });
         }
 
         // Build ISL request (using normalised options and constraints)
@@ -2557,6 +2626,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               uiBuild,
               computedAt: computedAt ?? new Date().toISOString(),
               requestIdChain: chain,
+              filteredConstraints: filteredConstraintRecords,
             },
             responseHash,
             undefined, // islResult
@@ -2628,6 +2698,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               uiBuild,
               computedAt,
               requestIdChain: chain,
+              filteredConstraints: filteredConstraintRecords,
             },
             responseHash,
             processedIslResult,
@@ -3050,6 +3121,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             ceeBuild: ceeOrchestrationResult.ceeTrace?.source ?? undefined,
             computedAt,
             requestIdChain: chain,
+            filteredConstraints: filteredConstraintRecords,
           },
           responseHash,
           processedIslResult,

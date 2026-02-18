@@ -500,6 +500,7 @@ export interface ConstraintValidationResult {
  * - CONSTRAINT_VALUE_OUTSIDE_RANGE: value outside derivable state_space.range
  * - CONSTRAINT_MISSING_RANGE: target node has no derivable range
  * - CONSTRAINT_DUPLICATE_TARGET: two constraints target same node with same operator
+ * - CONSTRAINT_TARGET_NO_OBSERVED_VALUE: factor node has no observed_state.value (ISL defaults to intercept=0)
  *
  * @param goalConstraints Goal constraints from request (may be undefined or empty)
  * @param graph Normalized graph
@@ -584,6 +585,20 @@ export function validateGoalConstraints(
         )
       );
       continue; // Skip further validation for this constraint
+    }
+
+    // Check for factor nodes without observed_state.value - warning
+    // When ISL receives a factor node without observed_state, it defaults to
+    // intercept=0. Constraints against such nodes produce misleading P values
+    // (e.g., P(0 <= 0.04) = 1.0 trivially).
+    if (targetNode.kind === 'factor' && targetNode.observed_state?.value === undefined) {
+      warnings.push(
+        createWarning(
+          'CONSTRAINT_TARGET_NO_OBSERVED_VALUE',
+          `Constraint "${constraint_id}" targets factor node "${node_id}" which has no observed_state.value. ISL will default to intercept=0, which may produce misleading probability results.`,
+          [node_id]
+        )
+      );
     }
 
     // Check for duplicate target (node_id, operator) - warning

@@ -280,6 +280,34 @@ describe('T2: Critique Codes', () => {
     const result = validateGoalConstraints(constraints, graph);
     expect(result.warnings.some(w => w.code === 'CONSTRAINT_DUPLICATE_TARGET')).toBe(true);
   });
+
+  it('CONSTRAINT_TARGET_NO_OBSERVED_VALUE fires for factor without observed_state.value', () => {
+    const graphNoValue: EngineGraphV3 = {
+      nodes: [
+        { id: 'goal_node', kind: 'goal', label: 'Goal' },
+        { id: 'factor_bare', kind: 'factor', label: 'Bare Factor' }, // No observed_state
+      ] as EngineNodeV3[],
+      edges: [],
+    };
+    const constraints: GoalConstraint[] = [
+      createTestConstraint({ constraint_id: 'c1', node_id: 'factor_bare', value: 0.04 }),
+    ];
+    const result = validateGoalConstraints(constraints, graphNoValue);
+    const critique = result.warnings.find(w => w.code === 'CONSTRAINT_TARGET_NO_OBSERVED_VALUE');
+    expect(critique).toBeDefined();
+    expect(critique!.severity).toBe('warning');
+    expect(critique!.message).toContain('factor_bare');
+    expect(critique!.message).toContain('no observed_state.value');
+  });
+
+  it('CONSTRAINT_TARGET_NO_OBSERVED_VALUE does NOT fire for factor with observed_state.value', () => {
+    const constraints: GoalConstraint[] = [
+      createTestConstraint({ constraint_id: 'c1', node_id: 'factor_a', value: 80 }),
+    ];
+    // graph fixture has factor_a with observed_state: { value: 100 }
+    const result = validateGoalConstraints(constraints, graph);
+    expect(result.warnings.some(w => w.code === 'CONSTRAINT_TARGET_NO_OBSERVED_VALUE')).toBe(false);
+  });
 });
 
 // =============================================================================
