@@ -92,7 +92,7 @@ run_check_3() {
     echo "    --- test output (last 40 lines) ---"
     tail -40 "$test_log"
     echo "    --- end test output ---"
-    rm -f "$test_log"
+    echo "    Full log: $test_log"
     fail "3/7" "Test suite failed. Run: npm test"
     return 1
   fi

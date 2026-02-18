@@ -1,2 +1,12 @@
 #!/usr/bin/env sh
+# Git passes lines on stdin: <local ref> <local sha> <remote ref> <remote sha>
+# Block any push targeting refs/heads/main regardless of source branch.
+while read -r _ _ remote_ref _; do
+  case "$remote_ref" in
+    refs/heads/main)
+      echo "pre-push: BLOCKED — push targets 'main'. Use a PR or push to 'staging'."
+      exit 1
+      ;;
+  esac
+done
 bash scripts/pre-push-validate.sh
