@@ -31,7 +31,7 @@ import {
   checkPathToGoal,
 } from './path-to-goal.js';
 import {
-  checkIdenticalOptions,
+  deduplicateOptions,
   formatIdenticalOptionsMessage,
 } from './identical-options.js';
 
@@ -413,21 +413,46 @@ function checkCycles(graph: EngineGraphV3): CritiqueV3[] {
 }
 
 /**
- * Validate options are not identical.
+ * Deduplicate identical options.
+ *
+ * When duplicates exist but >= 2 unique options remain, emits warnings
+ * and returns the deduplicated set. Only blocks when < 2 unique options
+ * remain after dedup.
  */
-function validateNotIdenticalOptions(options: OptionV3[]): CritiqueV3[] {
-  const result = checkIdenticalOptions(options);
+function validateNotIdenticalOptions(
+  options: OptionV3[]
+): { blockers: CritiqueV3[]; warnings: CritiqueV3[]; deduplicated?: OptionV3[] } {
+  const { uniqueOptions, dropped } = deduplicateOptions(options);
 
-  if (result.hasDuplicates) {
-    const message = formatIdenticalOptionsMessage(result.duplicatePairs);
-    const affectedIds = result.duplicatePairs.flatMap(([, label]) =>
-      options.filter((o) => o.label === label).map((o) => o.id)
-    );
-
-    return [createBlocker('IDENTICAL_OPTIONS', message, affectedIds)];
+  // No duplicates → pass cleanly
+  if (dropped.length === 0) {
+    return { blockers: [], warnings: [] };
   }
 
-  return [];
+  // Build per-dropped-option warnings (used in both branches)
+  const dedupWarnings: CritiqueV3[] = dropped.map(({ droppedOption, keptOption }) => ({
+    id: randomUUID(),
+    code: 'IDENTICAL_OPTIONS_DEDUPED',
+    severity: 'warning' as const,
+    message: `Option '${droppedOption.label}' has identical interventions to '${keptOption.label}' and was removed. Analysis proceeds with deduplicated options.`,
+    source: 'validation' as const,
+    affected_option_ids: [keptOption.id, droppedOption.id],
+    blocks_analysis: false,
+  }));
+
+  // Block if fewer than 2 unique options remain after dedup
+  if (uniqueOptions.length < 2) {
+    const message = formatIdenticalOptionsMessage(
+      dropped.map(d => [d.keptOption.label, d.droppedOption.label])
+    );
+    return {
+      blockers: [createBlocker('IDENTICAL_OPTIONS', message,
+        dropped.map(d => d.droppedOption.id))],
+      warnings: dedupWarnings,
+    };
+  }
+
+  return { blockers: [], warnings: dedupWarnings, deduplicated: uniqueOptions };
 }
 
 /**
@@ -788,6 +813,7 @@ export function runPreflightValidation(
   let optionsWithPathToGoal = 0;
   let interventionTargets: string[] = [];
   let targetsWithPathToGoalCount = 0;
+  let deduplicatedOptions: OptionV3[] | undefined;
 
   if (options && options.length > 0) {
     // Validate options count
@@ -809,8 +835,11 @@ export function runPreflightValidation(
       ...new Set(options.flatMap((o) => Object.keys(o.interventions ?? {}))),
     ];
 
-    // Validate identical options
-    blockers.push(...validateNotIdenticalOptions(options));
+    // Deduplicate identical options (warning + dedup, block only if < 2 unique)
+    const identicalResult = validateNotIdenticalOptions(options);
+    blockers.push(...identicalResult.blockers);
+    warnings.push(...identicalResult.warnings);
+    deduplicatedOptions = identicalResult.deduplicated;
 
     // Validate paths to goal (only if goal exists and no prior blockers)
     if (goalExists && blockers.length === 0) {
@@ -835,6 +864,7 @@ export function runPreflightValidation(
     passed: blockers.length === 0,
     blockers,
     warnings,
+    deduplicated_options: deduplicatedOptions,
 
     // Stats for logging
     goal_node_exists: goalExists,

@@ -77,6 +77,48 @@ export function canonicaliseInterventions(
 }
 
 // -----------------------------------------------------------------------------
+// Deduplication
+// -----------------------------------------------------------------------------
+
+/**
+ * Result of option deduplication.
+ */
+export interface DeduplicationResult {
+  /** Deduplicated options (first option per fingerprint group, in original order) */
+  uniqueOptions: OptionV3[];
+  /** Dropped option entries for warning generation */
+  dropped: Array<{ droppedOption: OptionV3; keptOption: OptionV3; fingerprint: string }>;
+}
+
+/**
+ * Deduplicate options by intervention fingerprint.
+ *
+ * For each group of options sharing the same canonical fingerprint,
+ * keeps the first option (by array order) and drops the rest.
+ *
+ * @param options Options to deduplicate
+ * @returns Unique options and dropped entries
+ */
+export function deduplicateOptions(options: OptionV3[]): DeduplicationResult {
+  const seen = new Map<string, OptionV3>(); // fingerprint → first option
+  const uniqueOptions: OptionV3[] = [];
+  const dropped: DeduplicationResult['dropped'] = [];
+
+  for (const option of options) {
+    const fingerprint = canonicaliseInterventions(option.interventions);
+    const existing = seen.get(fingerprint);
+    if (existing) {
+      dropped.push({ droppedOption: option, keptOption: existing, fingerprint });
+    } else {
+      seen.set(fingerprint, option);
+      uniqueOptions.push(option);
+    }
+  }
+
+  return { uniqueOptions, dropped };
+}
+
+// -----------------------------------------------------------------------------
 // Duplicate Detection
 // -----------------------------------------------------------------------------
 

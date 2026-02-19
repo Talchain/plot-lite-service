@@ -264,8 +264,8 @@ describe('Preflight Validation', () => {
   });
 
   describe('IDENTICAL_OPTIONS', () => {
-    it('fails when options have identical interventions', () => {
-      const identicalOptions: OptionV3[] = [
+    it('blocks when all options are identical (< 2 unique after dedup)', () => {
+      const allIdentical: OptionV3[] = [
         {
           id: 'opt1',
           label: 'Option 1',
@@ -282,10 +282,56 @@ describe('Preflight Validation', () => {
         },
       ];
 
-      const result = runPreflightValidation(validGraph, identicalOptions, 'goal', defaultStats);
+      const result = runPreflightValidation(validGraph, allIdentical, 'goal', defaultStats);
 
       expect(result.passed).toBe(false);
       expect(result.blockers.some(b => b.code === 'IDENTICAL_OPTIONS')).toBe(true);
+
+      // Dedup warnings are also emitted alongside the blocker
+      expect(result.warnings.some(w => w.code === 'IDENTICAL_OPTIONS_DEDUPED')).toBe(true);
+    });
+
+    it('deduplicates identical options and emits IDENTICAL_OPTIONS_DEDUPED warning', () => {
+      const mixedOptions: OptionV3[] = [
+        {
+          id: 'opt1',
+          label: 'Option 1',
+          interventions: {
+            'factor-a': { value: 1.5, source: 'user_specified' },
+          },
+        },
+        {
+          id: 'opt2',
+          label: 'Option 2',
+          interventions: {
+            'factor-a': { value: 1.5, source: 'user_specified' },
+          },
+        },
+        {
+          id: 'opt3',
+          label: 'Option 3',
+          interventions: {
+            'factor-a': { value: 2.0, source: 'user_specified' },
+          },
+        },
+      ];
+
+      const result = runPreflightValidation(validGraph, mixedOptions, 'goal', defaultStats);
+
+      // Passes preflight (not blocked)
+      expect(result.passed).toBe(true);
+      expect(result.blockers.some(b => b.code === 'IDENTICAL_OPTIONS')).toBe(false);
+
+      // Warning emitted for the dropped option with affected_option_ids
+      const dedupWarning = result.warnings.find(w => w.code === 'IDENTICAL_OPTIONS_DEDUPED');
+      expect(dedupWarning).toBeDefined();
+      expect(dedupWarning!.affected_option_ids).toEqual(['opt1', 'opt2']);
+
+      // Deduped options returned
+      expect(result.deduplicated_options).toBeDefined();
+      expect(result.deduplicated_options).toHaveLength(2);
+      expect(result.deduplicated_options![0].id).toBe('opt1');
+      expect(result.deduplicated_options![1].id).toBe('opt3');
     });
   });
 

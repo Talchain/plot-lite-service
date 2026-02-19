@@ -1326,6 +1326,8 @@ export interface PreflightResultV3 {
   passed: boolean;
   blockers: CritiqueV3[];
   warnings: CritiqueV3[];
+  /** Deduplicated options (when IDENTICAL_OPTIONS_DEDUPED warnings emitted) */
+  deduplicated_options?: OptionV3[];
 
   /** Stats for logging */
   goal_node_exists: boolean;

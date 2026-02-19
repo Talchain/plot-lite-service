@@ -1820,7 +1820,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         let repairs: RepairRecord[] = [];
 
         // Normalize options (support both simple numbers and rich objects)
-        const normalizedOptions = normalizeOptions(body.options);
+        let normalizedOptions = normalizeOptions(body.options);
 
         try {
           const result = normaliseGraph(body.graph);
@@ -2151,8 +2151,13 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         if (!preflight.passed) {
           return reply.status(422).send(buildBlockedResponse(
             'Preflight validation failed',
-            preflight.blockers
+            [...preflight.blockers, ...preflight.warnings]
           ));
+        }
+
+        // Apply deduplication if preflight produced deduplicated options
+        if (preflight.deduplicated_options) {
+          normalizedOptions = preflight.deduplicated_options;
         }
 
         // =================================================================
