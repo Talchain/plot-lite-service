@@ -10,7 +10,7 @@
  * @see Multi-Constraint Analysis Phase 1 Spec
  */
 
-import type { EngineGraphV3, EngineNodeV3, EngineEdgeV3, GoalConstraint, RepairRecord } from '../types/engine-v3.js';
+import type { EngineGraphV3, EngineNodeV3, EngineEdgeV3, GoalConstraint, RawGoalConstraint, RepairRecord } from '../types/engine-v3.js';
 
 // -----------------------------------------------------------------------------
 // Types
@@ -222,13 +222,21 @@ export function compileConstraintNodes(
       continue;
     }
 
-    // Generate GoalConstraint entry
-    const compiledConstraint: GoalConstraint = {
+    // Generate GoalConstraint entry, preserving CEE-specific fields for the
+    // temporal constraint filter. Without these the filter cannot detect
+    // non-evaluable temporal constraints (B1-8).
+    const raw = constraintNode as unknown as Record<string, unknown>;
+    const compiledConstraint: RawGoalConstraint = {
       constraint_id: `compiled:${nodeId}`,
       node_id: targetNodeId,
       operator,
       value: threshold,
       label: constraintNode.label,
+      ...(raw.deadline_metadata !== undefined && { deadline_metadata: raw.deadline_metadata as Record<string, unknown> }),
+      ...(raw.unit !== undefined && { unit: raw.unit as string }),
+      ...(raw.source_quote !== undefined && { source_quote: raw.source_quote as string }),
+      ...(raw.confidence !== undefined && { confidence: raw.confidence as number }),
+      ...(raw.provenance !== undefined && { provenance: raw.provenance as string }),
     };
 
     compiledConstraints.push(compiledConstraint);

@@ -235,6 +235,9 @@ export function normaliseNode(
       cap: os.cap,
       factor_type: os.factor_type,
       uncertainty_drivers: os.uncertainty_drivers,
+      // For constraint nodes, preserve metadata (contains operator) so the
+      // constraint compiler can extract it via observed_state.metadata.operator.
+      ...((os as any).metadata !== undefined && { metadata: (os as any).metadata }),
     };
   } else if (node.data?.value !== undefined) {
     observedState = {
@@ -333,6 +336,27 @@ export function normaliseNode(
     }
   }
 
+  // For constraint nodes, preserve CEE-specific fields that the temporal
+  // constraint filter needs to detect non-evaluable constraints (B1-8).
+  // Fields are sourced from the raw node or its React Flow data bag.
+  const ceeConstraintFields: Record<string, unknown> = {};
+  if (normalizedKind === 'constraint') {
+    const dm = (node as any).deadline_metadata ?? (node as any).data?.deadline_metadata;
+    if (dm !== undefined) ceeConstraintFields.deadline_metadata = dm;
+
+    const u = (node as any).unit ?? (node as any).data?.unit;
+    if (u !== undefined) ceeConstraintFields.unit = u;
+
+    const sq = (node as any).source_quote ?? (node as any).data?.source_quote;
+    if (sq !== undefined) ceeConstraintFields.source_quote = sq;
+
+    const conf = (node as any).confidence ?? (node as any).data?.confidence;
+    if (conf !== undefined) ceeConstraintFields.confidence = conf;
+
+    const prov = (node as any).provenance ?? (node as any).data?.provenance;
+    if (prov !== undefined) ceeConstraintFields.provenance = prov;
+  }
+
   return {
     id: node.id,
     kind,
@@ -343,7 +367,8 @@ export function normaliseNode(
     state_space: stateSpace,
     category,
     prior,
-  };
+    ...ceeConstraintFields,
+  } as EngineNodeV3;
 }
 
 // -----------------------------------------------------------------------------

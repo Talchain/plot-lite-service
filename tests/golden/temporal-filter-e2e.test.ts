@@ -259,4 +259,70 @@ describe('Temporal Constraint Filter E2E', () => {
     expect(filteredConstraints[0].constraint_id).toBe('goal-6m');
     expect(filteredConstraints[0].reason).toBe('temporal_against_normalised_goal');
   });
+
+  it('constraint arriving via graph node with deadline_metadata → surfaced in _meta.filtered_constraints (B1-8)', async () => {
+    capturedISLRequestBody = null;
+
+    // Graph with a constraint node carrying deadline_metadata (CEE pattern).
+    // The constraint node has an incoming edge from goal, so the compiler
+    // targets goal as the constrained node.
+    const graphWithConstraintNode = {
+      nodes: [
+        { id: 'goal', kind: 'goal', label: 'Revenue' },
+        { id: 'factor-a', kind: 'factor', label: 'Marketing Spend', observed_state: { value: 0.6 } },
+        { id: 'factor-b', kind: 'factor', label: 'Churn Rate', observed_state: { value: 0.5 } },
+        // Constraint node with CEE deadline_metadata
+        {
+          id: 'deadline_constraint',
+          kind: 'constraint',
+          label: 'Delivery deadline',
+          observed_state: { value: 12, metadata: { operator: '<=' } },
+          deadline_metadata: { deadline_date: '2027-02-19' },
+          unit: 'months',
+          source_quote: 'within 12 months',
+          provenance: 'inferred',
+        },
+      ],
+      edges: [
+        { from: 'factor-a', to: 'goal', strength: { mean: 0.5, std: 0.1 } },
+        { from: 'factor-b', to: 'goal', strength: { mean: -0.5, std: 0.1 } },
+        // Edge from goal to constraint node (constraint targets goal)
+        { from: 'goal', to: 'deadline_constraint', strength: { mean: 1, std: 0 } },
+      ],
+    };
+
+    const res = await fetch(`${baseUrl}/v2/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        graph: graphWithConstraintNode,
+        options: OPTIONS,
+        goal_node_id: 'goal',
+        seed: '42',
+        // No explicit goal_constraints — constraint comes solely from graph node
+      }),
+    });
+
+    expect(res.status).toBe(200);
+
+    const body = await res.json() as any;
+    const filteredConstraints = body._meta?.filtered_constraints;
+
+    // The graph constraint node carries deadline_metadata → temporal filter
+    // should catch it and surface it in _meta.filtered_constraints
+    expect(filteredConstraints).toBeDefined();
+    expect(filteredConstraints).toHaveLength(1);
+    expect(filteredConstraints[0].constraint_id).toBe('compiled:deadline_constraint');
+    expect(filteredConstraints[0].node_id).toBe('goal');
+    expect(filteredConstraints[0].reason).toBe('temporal_deadline');
+
+    // The temporal constraint should NOT appear in ISL's goal_constraints
+    if (capturedISLRequestBody) {
+      const islConstraints = capturedISLRequestBody.goal_constraints ?? [];
+      const deadlineInISL = islConstraints.find(
+        (c: any) => c.constraint_id === 'compiled:deadline_constraint',
+      );
+      expect(deadlineInISL).toBeUndefined();
+    }
+  });
 });

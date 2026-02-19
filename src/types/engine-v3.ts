@@ -299,15 +299,22 @@ export interface GoalConstraint {
 
 /**
  * Raw goal constraint as received from CEE.
- * May carry CEE-specific fields (deadline_metadata, unit) that are not
- * forwarded to ISL. The temporal constraint filter strips non-evaluable
- * constraints and returns clean GoalConstraint[].
+ * May carry CEE-specific fields that are not forwarded to ISL.
+ * The temporal constraint filter uses deadline_metadata/unit to detect
+ * non-evaluable constraints; the remaining fields are preserved for
+ * diagnostics and audit trails.
  */
 export interface RawGoalConstraint extends GoalConstraint {
   /** CEE deadline metadata — presence indicates a temporal constraint */
   deadline_metadata?: Record<string, unknown>;
   /** Unit of the constraint value (e.g., "months", "days", "%", "currency") */
   unit?: string;
+  /** Original brief text that produced this constraint */
+  source_quote?: string;
+  /** CEE confidence in the extraction (0–1) */
+  confidence?: number;
+  /** How the constraint was derived: "explicit", "inferred", etc. */
+  provenance?: string;
 }
 
 /**
