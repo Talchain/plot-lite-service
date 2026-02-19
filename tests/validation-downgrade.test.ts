@@ -8,7 +8,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { validateM1Review, buildValidationContext } from '../src/cee/validation/m1-review-validator.js';
-import { M1ReviewFailureCodes } from '../src/cee/validation/m1-review-constants.js';
+import { M1ReviewFailureCodes, WARNING_GRADE_CODES } from '../src/cee/validation/m1-review-constants.js';
 import type { M1Review } from '../src/cee/validation/m1-review-types.js';
 
 // =============================================================================
@@ -248,11 +248,6 @@ describe('Validation Downgrade: UNGROUNDED_NUMBER', () => {
 // =============================================================================
 
 describe('Validation Downgrade: READINESS_MISALIGNMENT', () => {
-  // Warning-grade codes that can be downgraded
-  const WARNING_GRADE_CODES = new Set([
-    M1ReviewFailureCodes.UNGROUNDED_NUMBER,
-    M1ReviewFailureCodes.READINESS_MISALIGNMENT,
-  ]);
 
   function createContextWithReadiness(readiness: string, allowedNumbers: number[] = [0.74, 0.78, 0.26]) {
     return {
@@ -339,7 +334,7 @@ describe('Validation Downgrade: READINESS_MISALIGNMENT', () => {
     it('READINESS_MISALIGNMENT + hard failure → NOT downgrade-eligible', () => {
       const failureCodes = [
         M1ReviewFailureCodes.READINESS_MISALIGNMENT,
-        M1ReviewFailureCodes.MISSING_STORY_HEADLINE,
+        M1ReviewFailureCodes.MISSING_OPTION_HEADLINE,
       ];
 
       const allWarningGrade =

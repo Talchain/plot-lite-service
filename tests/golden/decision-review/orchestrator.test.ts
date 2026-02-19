@@ -17,9 +17,10 @@ import {
   type DecisionReviewInput,
 } from '../../../src/cee/decision-review-orchestrator.js';
 import { clearReviewCache, getCachedReview, setCachedReview } from '../../../src/cee/validation/review-cache.js';
-import { DecisionReviewEvents } from '../../../src/cee/validation/m1-review-constants.js';
+import { DecisionReviewEvents, M1ReviewFailureCodes, WARNING_GRADE_CODES } from '../../../src/cee/validation/m1-review-constants.js';
 import { FLAGS } from '../../../src/config/flags.js';
 import * as ceeClient from '../../../src/cee/client.js';
+import * as m1ReviewTypes from '../../../src/cee/validation/m1-review-types.js';
 import {
   BASE_BRIEF,
   BASE_GRAPH,
@@ -548,6 +549,294 @@ describe('Decision Review Orchestrator', () => {
           event: DecisionReviewEvents.DISABLED,
         })
       );
+    });
+  });
+
+  describe('Warning-Grade Codes (Phase 3)', () => {
+    const config = { baseUrl: 'https://cee.test', apiKey: 'test-key' };
+
+    beforeEach(() => {
+      vi.spyOn(FLAGS, 'DECISION_REVIEW_ENABLE', 'get').mockReturnValue(true);
+    });
+
+    it('returns complete with warnings when CONSEQUENCE_INVALID_OPTION is only failure', async () => {
+      const input = buildTestInput();
+      const review = {
+        ...VALID_READY_REVIEW,
+        scenario_contexts: {
+          'edge-3': {
+            trigger_description: 'If confidence drops below 70%, the recommendation may flip.',
+            consequence: 'Option C becomes the best choice.', // Option C doesn't exist
+          },
+        },
+      };
+
+      vi.spyOn(ceeClient, 'callDecisionReview').mockResolvedValue({
+        review, error: null, meta: { model: 'test', latency_ms: 100, tokens: 500 },
+      });
+
+      const result = await orchestrateDecisionReview(input, config);
+      expect(result.review_status).toBe('complete');
+      expect(result.m1_review).not.toBeNull();
+      expect(result.review_warnings).toContain('CONSEQUENCE_INVALID_OPTION');
+    });
+
+    it('returns complete with warnings when INVALID_SCENARIO_EDGE is only failure', async () => {
+      const input = buildTestInput();
+      const review = {
+        ...VALID_READY_REVIEW,
+        scenario_contexts: {
+          'edge-999': { // Not a fragile edge
+            trigger_description: 'If this edge changes...',
+            consequence: 'Option B becomes competitive.', // Valid option reference
+          },
+        },
+      };
+
+      vi.spyOn(ceeClient, 'callDecisionReview').mockResolvedValue({
+        review, error: null, meta: { model: 'test', latency_ms: 100, tokens: 500 },
+      });
+
+      const result = await orchestrateDecisionReview(input, config);
+      expect(result.review_status).toBe('complete');
+      expect(result.m1_review).not.toBeNull();
+      expect(result.review_warnings).toContain('INVALID_SCENARIO_EDGE');
+    });
+
+    it('returns complete with warnings when PREMORTEM_NOT_GROUNDED is only failure', async () => {
+      const input = buildTestInput();
+      const review = {
+        ...VALID_READY_REVIEW,
+        pre_mortem: {
+          failure_scenario: 'Everything fails',
+          warning_signs: ['Bad signs'],
+          mitigation: 'Do something',
+          grounded_in: [], // Empty — not grounded
+        },
+      };
+
+      vi.spyOn(ceeClient, 'callDecisionReview').mockResolvedValue({
+        review, error: null, meta: { model: 'test', latency_ms: 100, tokens: 500 },
+      });
+
+      const result = await orchestrateDecisionReview(input, config);
+      expect(result.review_status).toBe('complete');
+      expect(result.m1_review).not.toBeNull();
+      expect(result.review_warnings).toContain('PREMORTEM_NOT_GROUNDED');
+    });
+
+    it('returns complete with warnings when INVALID_GROUNDING_ID is only failure', async () => {
+      const input = buildTestInput();
+      const review = {
+        ...VALID_READY_REVIEW,
+        pre_mortem: {
+          failure_scenario: 'Market collapse',
+          warning_signs: ['Market signals'],
+          mitigation: 'Pivot plan',
+          grounded_in: ['invalid-id-999'], // Invalid ID
+        },
+      };
+
+      vi.spyOn(ceeClient, 'callDecisionReview').mockResolvedValue({
+        review, error: null, meta: { model: 'test', latency_ms: 100, tokens: 500 },
+      });
+
+      const result = await orchestrateDecisionReview(input, config);
+      expect(result.review_status).toBe('complete');
+      expect(result.m1_review).not.toBeNull();
+      expect(result.review_warnings).toContain('INVALID_GROUNDING_ID');
+    });
+
+    it('returns complete with warnings when STRUCTURAL_LIMIT_EXCEEDED is only failure', async () => {
+      // STRUCTURAL_LIMIT_EXCEEDED is unreachable through the normal orchestrator flow
+      // because Zod's .max() enforces the same array limits. To test the warning-grade
+      // downgrade, we bypass Zod by mocking safeParseM1Review to return a review
+      // with arrays exceeding structural limits.
+      const input = buildTestInput();
+      const exceedingReview = {
+        ...VALID_READY_REVIEW,
+        bias_findings: [
+          { type: 'A', source: 'structural' as const, description: 'One', affected_elements: [], linked_critique_code: 'A' },
+          { type: 'B', source: 'structural' as const, description: 'Two', affected_elements: [], linked_critique_code: 'B' },
+          { type: 'C', source: 'structural' as const, description: 'Three', affected_elements: [], linked_critique_code: 'C' },
+          { type: 'D', source: 'structural' as const, description: 'Four', affected_elements: [], linked_critique_code: 'D' },
+        ],
+      };
+
+      vi.spyOn(ceeClient, 'callDecisionReview').mockResolvedValue({
+        review: exceedingReview, error: null, meta: { model: 'test', latency_ms: 100, tokens: 500 },
+      });
+      vi.spyOn(m1ReviewTypes, 'safeParseM1Review').mockReturnValueOnce({
+        success: true, data: exceedingReview,
+      } as any);
+
+      const result = await orchestrateDecisionReview(input, config);
+      expect(result.review_status).toBe('complete');
+      expect(result.m1_review).not.toBeNull();
+      expect(result.review_warnings).toContain('STRUCTURAL_LIMIT_EXCEEDED');
+    });
+
+    it('returns complete with warnings when INVALID_PROMPT_STRUCTURE is only failure', async () => {
+      const input = buildTestInput();
+      const review = {
+        ...VALID_READY_REVIEW,
+        decision_quality_prompts: [
+          {
+            principle: '', // Empty principle
+            applies_because: 'Some reason',
+            question: 'No question mark', // Missing ?
+          },
+        ],
+      };
+
+      vi.spyOn(ceeClient, 'callDecisionReview').mockResolvedValue({
+        review, error: null, meta: { model: 'test', latency_ms: 100, tokens: 500 },
+      });
+
+      const result = await orchestrateDecisionReview(input, config);
+      expect(result.review_status).toBe('complete');
+      expect(result.m1_review).not.toBeNull();
+      expect(result.review_warnings).toContain('INVALID_PROMPT_STRUCTURE');
+    });
+
+    it('returns failed when warning-grade + blocking code both present', async () => {
+      // INVALID_SCENARIO_EDGE (warning) + MODIFIED_VALUES (blocking) → failed
+      const input = buildTestInput({ preResolvedFlipData: BASE_FLIP_THRESHOLD_DATA });
+      const review = {
+        ...VALID_READY_REVIEW,
+        scenario_contexts: {
+          'edge-999': { // Invalid edge → INVALID_SCENARIO_EDGE
+            trigger_description: 'If this edge changes...',
+            consequence: 'Option B becomes competitive.',
+          },
+        },
+        flip_thresholds: [
+          {
+            factor_id: 'factor-market',
+            factor_label: 'Market Demand',
+            current_value: 0.9, // Modified from 0.7 → MODIFIED_VALUES
+            flip_value: null,
+            direction: 'decrease',
+            plain_english: 'Market demand flip threshold.',
+          },
+        ],
+      };
+
+      vi.spyOn(ceeClient, 'callDecisionReview').mockResolvedValue({
+        review, error: null, meta: { model: 'test', latency_ms: 100, tokens: 500 },
+      });
+
+      const result = await orchestrateDecisionReview(input, config);
+      expect(result.review_status).toBe('failed');
+      expect(result.m1_review).toBeNull();
+      expect(result.review_failure_codes).toContain('INVALID_SCENARIO_EDGE');
+      expect(result.review_failure_codes).toContain('MODIFIED_VALUES');
+    });
+
+    it('returns failed when single blocking code (MODIFIED_VALUES) present', async () => {
+      const input = buildTestInput({ preResolvedFlipData: BASE_FLIP_THRESHOLD_DATA });
+      const review = {
+        ...VALID_READY_REVIEW,
+        flip_thresholds: [
+          {
+            factor_id: 'factor-market',
+            factor_label: 'Market Demand',
+            current_value: 0.9, // Modified from 0.7 → MODIFIED_VALUES
+            flip_value: null,
+            direction: 'decrease',
+            plain_english: 'Market demand flip threshold.',
+          },
+        ],
+      };
+
+      vi.spyOn(ceeClient, 'callDecisionReview').mockResolvedValue({
+        review, error: null, meta: { model: 'test', latency_ms: 100, tokens: 500 },
+      });
+
+      const result = await orchestrateDecisionReview(input, config);
+      expect(result.review_status).toBe('failed');
+      expect(result.m1_review).toBeNull();
+      expect(result.review_failure_codes).toContain('MODIFIED_VALUES');
+    });
+
+    it('WARNING_GRADE_CODES contains all 12 expected codes', () => {
+      // Verify the centralised set has all expected codes
+      expect(WARNING_GRADE_CODES.has(M1ReviewFailureCodes.UNGROUNDED_NUMBER)).toBe(true);
+      expect(WARNING_GRADE_CODES.has(M1ReviewFailureCodes.READINESS_MISALIGNMENT)).toBe(true);
+      expect(WARNING_GRADE_CODES.has(M1ReviewFailureCodes.READINESS_CONTRADICTION)).toBe(true);
+      expect(WARNING_GRADE_CODES.has(M1ReviewFailureCodes.MISSING_BRIEF_EVIDENCE)).toBe(true);
+      expect(WARNING_GRADE_CODES.has(M1ReviewFailureCodes.BRIEF_EVIDENCE_TOO_SHORT)).toBe(true);
+      expect(WARNING_GRADE_CODES.has(M1ReviewFailureCodes.BRIEF_EVIDENCE_NOT_SUBSTRING)).toBe(true);
+      expect(WARNING_GRADE_CODES.has(M1ReviewFailureCodes.CONSEQUENCE_INVALID_OPTION)).toBe(true);
+      expect(WARNING_GRADE_CODES.has(M1ReviewFailureCodes.INVALID_SCENARIO_EDGE)).toBe(true);
+      expect(WARNING_GRADE_CODES.has(M1ReviewFailureCodes.PREMORTEM_NOT_GROUNDED)).toBe(true);
+      expect(WARNING_GRADE_CODES.has(M1ReviewFailureCodes.INVALID_GROUNDING_ID)).toBe(true);
+      expect(WARNING_GRADE_CODES.has(M1ReviewFailureCodes.STRUCTURAL_LIMIT_EXCEEDED)).toBe(true);
+      expect(WARNING_GRADE_CODES.has(M1ReviewFailureCodes.INVALID_PROMPT_STRUCTURE)).toBe(true);
+      expect(WARNING_GRADE_CODES.size).toBe(12);
+
+      // Verify blocking codes are NOT in the set
+      expect(WARNING_GRADE_CODES.has(M1ReviewFailureCodes.MISSING_OPTION_HEADLINE)).toBe(false);
+      expect(WARNING_GRADE_CODES.has(M1ReviewFailureCodes.MISSING_CRITIQUE_CODE)).toBe(false);
+      expect(WARNING_GRADE_CODES.has(M1ReviewFailureCodes.MODIFIED_VALUES)).toBe(false);
+    });
+
+    it('every M1ReviewFailureCode is classified as either warning-grade or blocking', () => {
+      // Blocking codes — intentionally NOT in WARNING_GRADE_CODES
+      const BLOCKING_CODES = new Set([
+        M1ReviewFailureCodes.MISSING_OPTION_HEADLINE,
+        M1ReviewFailureCodes.MISSING_CRITIQUE_CODE,
+        M1ReviewFailureCodes.MODIFIED_VALUES,
+      ]);
+
+      // All 15 M1ReviewFailureCodes
+      const allCodes = Object.values(M1ReviewFailureCodes);
+      expect(allCodes.length).toBe(15);
+
+      for (const code of allCodes) {
+        const inWarning = WARNING_GRADE_CODES.has(code);
+        const inBlocking = BLOCKING_CODES.has(code);
+        // Each code must be in exactly one set
+        expect(inWarning || inBlocking).toBe(true);
+        expect(inWarning && inBlocking).toBe(false);
+      }
+
+      // Union must cover all codes
+      expect(WARNING_GRADE_CODES.size + BLOCKING_CODES.size).toBe(allCodes.length);
+    });
+
+    it('returns complete with all warnings when 3+ warning-grade codes fire simultaneously', async () => {
+      // Trigger INVALID_SCENARIO_EDGE + CONSEQUENCE_INVALID_OPTION + INVALID_PROMPT_STRUCTURE
+      const input = buildTestInput();
+      const review = {
+        ...VALID_READY_REVIEW,
+        scenario_contexts: {
+          'edge-999': { // Not a fragile edge → INVALID_SCENARIO_EDGE
+            trigger_description: 'If this edge changes...',
+            consequence: 'Option C becomes better.', // Invalid option → CONSEQUENCE_INVALID_OPTION
+          },
+        },
+        decision_quality_prompts: [
+          {
+            principle: '', // Empty → INVALID_PROMPT_STRUCTURE
+            applies_because: 'Some reason',
+            question: 'No question mark',
+          },
+        ],
+      };
+
+      vi.spyOn(ceeClient, 'callDecisionReview').mockResolvedValue({
+        review, error: null, meta: { model: 'test', latency_ms: 100, tokens: 500 },
+      });
+
+      const result = await orchestrateDecisionReview(input, config);
+      expect(result.review_status).toBe('complete');
+      expect(result.m1_review).not.toBeNull();
+      expect(result.review_warnings).toBeDefined();
+      expect(result.review_warnings).toContain('INVALID_SCENARIO_EDGE');
+      expect(result.review_warnings).toContain('CONSEQUENCE_INVALID_OPTION');
+      expect(result.review_warnings).toContain('INVALID_PROMPT_STRUCTURE');
+      expect(result.review_warnings!.length).toBeGreaterThanOrEqual(3);
     });
   });
 });

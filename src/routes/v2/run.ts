@@ -61,6 +61,7 @@ import { compileConstraintNodes } from '../../normalisation/constraint-compiler.
 import { filterTemporalConstraints } from '../../normalisation/constraint-filter.js';
 import type { RawGoalConstraint, FilteredConstraintRecord } from '../../types/engine-v3.js';
 import { toISLRobustnessRequest, validateISLRequest } from '../../integrations/isl/translator-v3.js';
+import { injectConstraintParameterUncertainties } from '../../integrations/isl/constraint-pu-injection.js';
 import {
   createPreflightLog,
   createISLRequestLog,
@@ -2365,51 +2366,24 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // =================================================================
         // Phase 4b+: Auto-generate ParameterUncertainty for constrained nodes
         // =================================================================
-        // ISL's SCM evaluator uses observed_state.value as sampling base only
-        // for root nodes (no incoming edges). Non-root nodes without a
-        // ParameterUncertainty entry default to base=0.0, which makes
-        // constraints trivially satisfied (all samples ≈ 0).
-        // Ensure every constrained node has a ParameterUncertainty entry so
-        // ISL samples around the observed value instead of 0.
-        if (constraintsForISL && constraintsForISL.length > 0) {
-          const existingPuNodeIds = new Set(
-            (islRequest.parameter_uncertainties ?? []).map((p) => p.node_id)
-          );
-          const augmented = [...(islRequest.parameter_uncertainties ?? [])];
-
-          for (const constraint of constraintsForISL) {
-            if (existingPuNodeIds.has(constraint.node_id)) continue;
-
-            const node = filteredGraph.nodes.find((n) => n.id === constraint.node_id);
-            if (!node || node.observed_state?.value === undefined) {
-              req.log.warn({
-                event: 'plot.constraint_no_observed_value',
-                node_id: constraint.node_id,
-                constraint_id: constraint.constraint_id,
-                message: 'Constrained node has no observed_state.value; ISL may use base=0.0',
-              });
-              continue;
-            }
-
-            const mean = node.observed_state.value;
-            augmented.push({
-              node_id: constraint.node_id,
-              distribution: 'normal' as const,
-              mean,
-              std: 0.001,
-            });
-            existingPuNodeIds.add(constraint.node_id);
-            req.log.info({
-              event: 'plot.constraint_auto_uncertainty',
-              node_id: constraint.node_id,
-              constraint_id: constraint.constraint_id,
-              observed_value: mean,
-              distribution: 'normal',
-              std: 0.001,
-            });
-          }
-
-          islRequest.parameter_uncertainties = augmented;
+        // Extracted to injectConstraintParameterUncertainties() — see
+        // src/integrations/isl/constraint-pu-injection.ts for full docs.
+        const puResult = injectConstraintParameterUncertainties(
+          islRequest,
+          constraintsForISL ?? [],
+          filteredGraph.nodes,
+          body.goal_node_id,
+          req.log,
+        );
+        for (const nodeId of puResult.injected) {
+          const node = filteredGraph.nodes.find((n) => n.id === nodeId);
+          repairs.push({
+            field: `parameter_uncertainties.${nodeId}`,
+            action: 'derived',
+            from_value: null,
+            to_value: String(node?.observed_state?.value ?? 0),
+            reason: 'constraint_parameter_injection from observed_state',
+          });
         }
 
         // === DIAGNOSTIC: Log parameter_uncertainties sent to ISL ===

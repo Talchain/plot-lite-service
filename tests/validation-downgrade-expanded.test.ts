@@ -1,37 +1,27 @@
 /**
  * Expanded Validation Downgrade Tests
  *
- * Tests for the expanded set of warning-grade failure codes:
- * - UNGROUNDED_NUMBER (existing)
- * - READINESS_MISALIGNMENT (existing)
- * - READINESS_CONTRADICTION (new)
- * - MISSING_BRIEF_EVIDENCE (new)
- * - BRIEF_EVIDENCE_TOO_SHORT (new)
- * - BRIEF_EVIDENCE_NOT_SUBSTRING (new)
+ * Tests for warning-grade failure code downgrade eligibility.
  *
- * Blocking codes that MUST remain hard failures:
- * - MISSING_OPTION_HEADLINE, CONSEQUENCE_INVALID_OPTION, MISSING_CRITIQUE_CODE,
- *   PREMORTEM_NOT_GROUNDED, INVALID_GROUNDING_ID, MODIFIED_VALUES,
- *   STRUCTURAL_LIMIT_EXCEEDED, INVALID_PROMPT_STRUCTURE
+ * WARNING_GRADE_CODES (12 codes) — imported from m1-review-constants.ts:
+ *   T2: CONSEQUENCE_INVALID_OPTION, INVALID_SCENARIO_EDGE
+ *   T3: READINESS_CONTRADICTION, READINESS_MISALIGNMENT
+ *   T4: UNGROUNDED_NUMBER
+ *   T5: MISSING_BRIEF_EVIDENCE, BRIEF_EVIDENCE_TOO_SHORT, BRIEF_EVIDENCE_NOT_SUBSTRING
+ *   T6: PREMORTEM_NOT_GROUNDED, INVALID_GROUNDING_ID
+ *   T8: STRUCTURAL_LIMIT_EXCEEDED
+ *   T9: INVALID_PROMPT_STRUCTURE
+ *
+ * Blocking codes (3 codes — hard failures):
+ *   T1: MISSING_OPTION_HEADLINE
+ *   T5: MISSING_CRITIQUE_CODE
+ *   T7: MODIFIED_VALUES
  */
 
 import { describe, it, expect } from 'vitest';
 import { validateM1Review } from '../src/cee/validation/m1-review-validator.js';
-import { M1ReviewFailureCodes } from '../src/cee/validation/m1-review-constants.js';
+import { M1ReviewFailureCodes, WARNING_GRADE_CODES } from '../src/cee/validation/m1-review-constants.js';
 import type { M1Review } from '../src/cee/validation/m1-review-types.js';
-
-// =============================================================================
-// WARNING_GRADE_CODES — mirrors the set in decision-review-orchestrator.ts
-// =============================================================================
-
-const WARNING_GRADE_CODES = new Set([
-  M1ReviewFailureCodes.UNGROUNDED_NUMBER,
-  M1ReviewFailureCodes.READINESS_MISALIGNMENT,
-  M1ReviewFailureCodes.READINESS_CONTRADICTION,
-  M1ReviewFailureCodes.MISSING_BRIEF_EVIDENCE,
-  M1ReviewFailureCodes.BRIEF_EVIDENCE_TOO_SHORT,
-  M1ReviewFailureCodes.BRIEF_EVIDENCE_NOT_SUBSTRING,
-]);
 
 // =============================================================================
 // Test Fixtures

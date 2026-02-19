@@ -25,14 +25,15 @@ export const CEE_DRAFT_GRAPH_TIMEOUT_MS = Number(
 
 /**
  * BFF proxy timeout for CEE draft-graph.
- * Set above CEE's 90s internal budget so CEE can return its own typed error first.
- * Parsed with parseInt; falls back to 105 000ms if env var is missing or invalid.
+ * Set above CEE's 120s internal budget so CEE can return its own typed error first.
+ * Timeout chain: CEE LLM (105s) < CEE budget (120s) < PLoT proxy (135s).
+ * Parsed with parseInt; falls back to 135 000ms if env var is missing or invalid.
  */
 const _parsedProxyTimeout = parseInt(process.env.CEE_PROXY_TIMEOUT_MS ?? '', 10);
 export const CEE_PROXY_TIMEOUT_MS =
   Number.isFinite(_parsedProxyTimeout) && _parsedProxyTimeout > 0
     ? _parsedProxyTimeout
-    : 105_000;
+    : 135_000;
 
 /** CEE proxy: graph-readiness */
 export const CEE_PROXY_GRAPH_READINESS_TIMEOUT_MS =

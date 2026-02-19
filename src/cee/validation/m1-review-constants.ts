@@ -48,6 +48,34 @@ export const M1ReviewFailureCodes = {
 
 export type M1ReviewFailureCode = typeof M1ReviewFailureCodes[keyof typeof M1ReviewFailureCodes];
 
+/**
+ * Warning-grade failure codes that don't block the review.
+ *
+ * When ALL failure codes in a validation result belong to this set, the review
+ * is downgraded from 'failed' to 'complete' with `review_warnings`. If any
+ * code outside this set is present, the entire result stays 'failed'.
+ *
+ * Rationale per code documented inline. Three codes are intentionally kept
+ * blocking: MISSING_OPTION_HEADLINE (structural corruption),
+ * MISSING_CRITIQUE_CODE (untraceable bias), MODIFIED_VALUES (data integrity).
+ */
+export const WARNING_GRADE_CODES: Set<string> = new Set([
+  // Existing warning-grade codes
+  M1ReviewFailureCodes.UNGROUNDED_NUMBER,
+  M1ReviewFailureCodes.READINESS_MISALIGNMENT,
+  M1ReviewFailureCodes.READINESS_CONTRADICTION,
+  M1ReviewFailureCodes.MISSING_BRIEF_EVIDENCE,
+  M1ReviewFailureCodes.BRIEF_EVIDENCE_TOO_SHORT,
+  M1ReviewFailureCodes.BRIEF_EVIDENCE_NOT_SUBSTRING,
+  // Newly added warning-grade codes (Phase 3b)
+  M1ReviewFailureCodes.CONSEQUENCE_INVALID_OPTION,    // T2: LLM paraphrases option references
+  M1ReviewFailureCodes.INVALID_SCENARIO_EDGE,          // T2: LLM references valid edges outside top-N fragile set
+  M1ReviewFailureCodes.PREMORTEM_NOT_GROUNDED,          // T6: Pre-mortem narrative useful without perfect ID grounding
+  M1ReviewFailureCodes.INVALID_GROUNDING_ID,            // T6: ID mismatch doesn't invalidate pre-mortem insight
+  M1ReviewFailureCodes.STRUCTURAL_LIMIT_EXCEEDED,       // T8: Excess items can be truncated; not data corruption
+  M1ReviewFailureCodes.INVALID_PROMPT_STRUCTURE,        // T9: Minor formatting; coaching intent still communicates
+]);
+
 // =============================================================================
 // Warning Codes (non-blocking diagnostics)
 // =============================================================================

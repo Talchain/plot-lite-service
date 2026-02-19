@@ -3,10 +3,10 @@
  *
  * Proxies draft-graph requests to CEE /assist/v1/draft-graph.
  * This endpoint allows the UI to bypass Netlify's ~50s Edge Function timeout
- * by routing through PLoT with explicit timeout above CEE's 90s budget.
+ * by routing through PLoT with explicit timeout above CEE's 120s budget.
  *
  * Authentication: CEE_API_KEY is injected server-side, never exposed to client.
- * Timeout: CEE_PROXY_TIMEOUT_MS (default 105 000ms), configurable via env var.
+ * Timeout: CEE_PROXY_TIMEOUT_MS (default 135 000ms), configurable via env var.
  *
  * Error handling:
  *   - CEE JSON errors (4xx/5xx with error field) are forwarded as-is.

@@ -6,18 +6,19 @@
  *
  * Tiers (blocking = hard failure, warning-grade = downgraded by orchestrator):
  * 1. Option Coverage (blocking) - story_headlines must match all option IDs
- * 2. Scenario Context References (blocking) - scenario_contexts must reference valid edges/options
+ * 2. Scenario Context References (warning-grade) - edges/options may be paraphrased by LLM
  * 3. Readiness Alignment (warning-grade) - narrative must align with readiness state
  * 4. Number Grounding (warning-grade) - numbers must come from input data
  * 5. Bias Evidence (mixed) - MISSING_CRITIQUE_CODE is blocking; brief_evidence codes are warning-grade
- * 6. Pre-mortem Grounding (blocking) - grounded_in must reference valid IDs
+ * 6. Pre-mortem Grounding (warning-grade) - grounding IDs useful but not critical
  * 7. Flip Threshold Integrity (blocking) - values must match PLoT-computed inputs
- * 8. Structural Limits (blocking) - arrays must respect max lengths
- * 9. Decision Quality Prompt Structure (blocking) - questions must end with ?
+ * 8. Structural Limits (warning-grade) - excess items can be truncated
+ * 9. Decision Quality Prompt Structure (warning-grade) - minor formatting issues
  *
- * Warning-grade policy is applied by the orchestrator (decision-review-orchestrator.ts),
- * not by this validator. This validator reports all findings as errors; the orchestrator
- * decides which are blocking vs warning-grade.
+ * This validator reports ALL findings as errors. The warning-grade classification
+ * is applied by the orchestrator (decision-review-orchestrator.ts) via the
+ * WARNING_GRADE_CODES set in m1-review-constants.ts. When all failure codes
+ * belong to that set, the review is downgraded to 'complete' with warnings.
  *
  * @see Brief: M2 Decision Review Integration, Task 5
  */

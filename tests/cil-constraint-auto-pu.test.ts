@@ -260,4 +260,65 @@ describe('CIL: Constraint auto-PU integration (Phase 4b+)', () => {
     const goalConstraints = capturedISLRequestBody.goal_constraints ?? [];
     expect(goalConstraints.length).toBeGreaterThanOrEqual(1);
   });
+
+  it('ISL request contains PU with CONSTRAINT_PINNED_STD and _meta.repairs_applied has injection entry', async () => {
+    capturedISLRequestBody = null;
+
+    // Use a non-factor constrained node (kind: 'outcome') with observed_state.
+    // The translator only generates PU for kind='factor', so Phase 4b+ must inject.
+    // Graph has factor-a → outcome-x → goal, options intervene on factor-a only.
+    const graphWithOutcome = {
+      nodes: [
+        { id: 'goal', kind: 'goal', label: 'Revenue' },
+        { id: 'factor-a', kind: 'factor', label: 'Marketing Spend', observed_state: { value: 0.6 } },
+        { id: 'outcome-x', kind: 'outcome', label: 'Customer Satisfaction', observed_state: { value: 0.75 } },
+      ],
+      edges: [
+        { from: 'factor-a', to: 'outcome-x', strength: { mean: 0.5, std: 0.1 } },
+        { from: 'outcome-x', to: 'goal', strength: { mean: 0.4, std: 0.1 } },
+      ],
+    };
+
+    const optionsForOutcome = [
+      { id: 'opt1', label: 'Option 1', interventions: { 'factor-a': 1.5 } },
+      { id: 'opt2', label: 'Option 2', interventions: { 'factor-a': 0.2 } },
+    ];
+
+    const res = await fetch(`${baseUrl}/v2/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        graph: graphWithOutcome,
+        options: optionsForOutcome,
+        goal_node_id: 'goal',
+        seed: '42',
+        goal_constraints: [
+          { constraint_id: 'sat-min', node_id: 'outcome-x', operator: '>=', value: 0.5 },
+        ],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(capturedISLRequestBody).not.toBeNull();
+
+    // Phase 4b+ should inject PU for 'outcome-x' with CONSTRAINT_PINNED_STD
+    const puArray = capturedISLRequestBody.parameter_uncertainties ?? [];
+    const outcomeXPU = puArray.find((p: any) => p.node_id === 'outcome-x');
+
+    expect(outcomeXPU).toBeDefined();
+    expect(outcomeXPU.distribution).toBe('normal');
+    expect(outcomeXPU.mean).toBe(0.75);
+    expect(outcomeXPU.std).toBe(0.001); // CONSTRAINT_PINNED_STD
+
+    // Response body should contain _meta.repairs_applied with injection entry
+    const body = await res.json() as any;
+    const repairs = body._meta?.repairs_applied ?? [];
+    const injectionRepair = repairs.find(
+      (r: any) => r.field === 'parameter_uncertainties.outcome-x',
+    );
+    expect(injectionRepair).toBeDefined();
+    expect(injectionRepair.action).toBe('derived');
+    expect(injectionRepair.to_value).toBe('0.75');
+    expect(injectionRepair.reason).toBe('constraint_parameter_injection from observed_state');
+  });
 });
