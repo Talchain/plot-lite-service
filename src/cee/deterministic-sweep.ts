@@ -90,8 +90,7 @@ export function fixGoalThresholdNoRaw(
   for (let i = 0; i < nodes.length; i++) {
     const node = nodes[i];
     if (node.kind !== 'goal') continue;
-    if (node.goal_threshold === undefined && node.goal_threshold === null) continue;
-    if (node.goal_threshold === undefined) continue;
+    if (node.goal_threshold === undefined || node.goal_threshold === null) continue;
 
     // goal_threshold present but goal_threshold_raw absent → strip
     if (node.goal_threshold_raw === undefined || node.goal_threshold_raw === null) {
