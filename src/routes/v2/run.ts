@@ -3088,12 +3088,17 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           } else {
             const safetyMarginMs = 1_000;
             const thresholdsTimeoutMs = Math.min(
-              remainingBudgetMs - safetyMarginMs,
+              Math.max(0, remainingBudgetMs - safetyMarginMs),
               ISL_THRESHOLDS_TIMEOUT_MS_CAP
             );
 
             const thresholdsStart = performance.now();
             try {
+              // B10.3: Native single-call threshold analysis.
+              // NOTE: The existing V1 route (analysis-thresholds.ts) calls the same
+              // ISL endpoint with { plot_request_id, sweep_results } (pre-computed sweeps).
+              // This payload shape (graph+options+seed) is prescribed by the B10.3 brief
+              // for ISL's native threshold computation mode.
               const thresholdsPayload = {
                 graph: { nodes: filteredGraph.nodes, edges: filteredGraph.edges },
                 options: normalizedOptions.map(o => ({
@@ -3139,7 +3144,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                     return {
                       option_id: optId,
                       option_label: opt?.label ?? optId,
-                      becomes_winner: true, // ISL flags all ranking-affected options
+                      becomes_winner: false, // ISL does not provide winner info; set conservatively
                     };
                   });
                   // Stable order by option_id
