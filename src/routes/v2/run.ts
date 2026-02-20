@@ -104,6 +104,8 @@ import { ReviewSkipReasons, type ReviewSkipReason } from '../../cee/validation/m
 import { getDownstreamCallsForLog } from '../../util/downstream-tracker.js';
 import { computeFactorSensitivityFromGraph } from '../../lib/factor-influence.js';
 import { NEAR_TIE_THRESHOLD } from '../../trust/result-coherence.js';
+import { assessGraphIdentifiability, toIdentifiabilityResponse } from '../../trust/identifiability-v2.js';
+import type { IdentifiabilityAssessment } from '../../types/engine-v3.js';
 import {
   normaliseOptionsForISL,
   denormaliseISLResult,
@@ -969,7 +971,8 @@ function buildResponse(
   goalConstraints?: GoalConstraint[],
   thresholdsStatus?: ThresholdsStatus,
   thresholdsMeta?: { reason?: string; duration_ms?: number },
-  thresholdAnalysis?: ThresholdResult[]
+  thresholdAnalysis?: ThresholdResult[],
+  identifiability?: IdentifiabilityAssessment
 ): RunResponseV3 {
   // Map ISL results to response format
   // ISL V2 uses 'options' field; V1 uses 'results'. Check both for compatibility.
@@ -1229,6 +1232,10 @@ function buildResponse(
       ...(thresholdsMeta && { thresholds_meta: thresholdsMeta }),
       ...(thresholdAnalysis && thresholdAnalysis.length > 0 && { threshold_analysis: thresholdAnalysis }),
     }),
+
+    // Identifiability assessment (B1.5/B1.5a) — always present.
+    // NOTE: Non-semantic metadata. Excluded from response_hash.
+    identifiability: identifiability ?? { status: 'unknown', method: 'backdoor', pairs_checked: 0, pairs_identifiable: 0 },
 
     // M2 Decision Review (LLM-generated from CEE /assist/v1/decision-review)
     // NOTE: LLM-derived, non-deterministic. Excluded from canonical hash.
@@ -2182,6 +2189,33 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         }
 
         // =================================================================
+        // Phase 2b: Identifiability Assessment (B1.5)
+        // =================================================================
+        // WARNING only — never blocks. Silent degradation on error (returns undefined).
+        // Excluded from response hash (non-semantic metadata).
+        const identifiabilityResult = assessGraphIdentifiability(
+          filteredGraph,
+          normalizedOptions,
+          body.goal_node_id
+        );
+
+        // Emit IDENTIFIABILITY_WARNING critique when any pair is not identifiable
+        if (identifiabilityResult && !identifiabilityResult.all_identifiable) {
+          const nonIdPairs = identifiabilityResult.pairs.filter((p) => !p.identifiable);
+          const pairDescs = nonIdPairs
+            .map((p) => `${p.treatment_node_id} → ${p.outcome_node_id}`)
+            .join(', ');
+          preflight.warnings.push({
+            id: randomUUID(),
+            code: 'IDENTIFIABILITY_WARNING',
+            severity: 'warning',
+            message: `${nonIdPairs.length} causal pair(s) may not be identifiable via the backdoor criterion: ${pairDescs}. Results should be interpreted with caution.`,
+            source: 'validation',
+            blocks_analysis: false,
+          });
+        }
+
+        // =================================================================
         // Phase 3: Compute Response Hash
         // =================================================================
         const responseHash = hashRequest(body, filteredGraph, seedUsed);
@@ -2256,7 +2290,11 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             undefined, // m1Coaching
             m2EarlyReturn,  // M2 Decision Review status
             undefined, // flipThresholds
-            activeGoalConstraints  // CIL C1: goal_constraints for constraint result passthrough
+            activeGoalConstraints,  // CIL C1: goal_constraints for constraint result passthrough
+            undefined, // thresholdsStatus
+            undefined, // thresholdsMeta
+            undefined, // thresholdAnalysis
+            toIdentifiabilityResponse(identifiabilityResult)  // B1.5a: always-present mapped response
           ));
         }
 
@@ -2695,7 +2733,11 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             undefined, // m1Coaching
             m2IslErrorReturn,  // M2 Decision Review status
             undefined, // flipThresholds
-            activeGoalConstraints  // CIL C1: goal_constraints for constraint result passthrough
+            activeGoalConstraints,  // CIL C1: goal_constraints for constraint result passthrough
+            undefined, // thresholdsStatus
+            undefined, // thresholdsMeta
+            undefined, // thresholdAnalysis
+            toIdentifiabilityResponse(identifiabilityResult)  // B1.5a: always-present mapped response
           ));
         }
 
@@ -2767,7 +2809,11 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             undefined, // m1Coaching
             m2IslFailedReturn,  // M2 Decision Review status
             undefined, // flipThresholds
-            activeGoalConstraints  // CIL C1: goal_constraints for constraint result passthrough
+            activeGoalConstraints,  // CIL C1: goal_constraints for constraint result passthrough
+            undefined, // thresholdsStatus
+            undefined, // thresholdsMeta
+            undefined, // thresholdAnalysis
+            toIdentifiabilityResponse(identifiabilityResult)  // B1.5a: always-present mapped response
           ));
         }
 
@@ -3361,7 +3407,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           activeGoalConstraints,  // CIL C1: goal_constraints for constraint result passthrough
           thresholdsStatus,  // B10.3: Threshold analysis status
           thresholdsMeta,    // B10.3: Threshold analysis metadata
-          thresholdAnalysis  // B10.3: Threshold analysis results
+          thresholdAnalysis, // B10.3: Threshold analysis results
+          toIdentifiabilityResponse(identifiabilityResult)  // B1.5a: always-present mapped response
         ));
       } catch (err) {
         const totalMs = performance.now() - startTime;

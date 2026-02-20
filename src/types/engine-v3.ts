@@ -569,6 +569,59 @@ export type ThresholdsStatus =
   | 'computed';        // success
 
 /**
+ * Per-pair identifiability status (B1.5 / B1.5a contracted interface).
+ */
+export type IdentifiabilityPairStatus =
+  | 'identifiable'
+  | 'not_backdoor_identifiable'
+  | 'unknown';
+
+/**
+ * Detail for a single (treatment, outcome) identifiability pair.
+ * Contracted interface for UI / schema v2.9 consumption.
+ */
+export interface IdentifiabilityPairDetail {
+  /** Intervention node ID (treatment) */
+  treatment_node_id: string;
+  /** Goal node ID (outcome) */
+  outcome_node_id: string;
+  /** Per-pair identifiability status */
+  status: IdentifiabilityPairStatus;
+  /** Common ancestors that create backdoor paths (sorted alphabetically) */
+  confounders?: string[];
+  /** Variables to condition on to block backdoor paths (sorted alphabetically) */
+  adjustment_set?: string[];
+}
+
+/**
+ * Top-level identifiability status (B1.5a contracted interface).
+ */
+export type IdentifiabilityStatus =
+  | 'identifiable'
+  | 'partially_identifiable'
+  | 'not_backdoor_identifiable'
+  | 'unknown';
+
+/**
+ * Causal identifiability assessment for the V2 pipeline (B1.5 / B1.5a).
+ * Contracted interface for UI / schema v2.9 / debug panel consumption.
+ */
+export interface IdentifiabilityAssessment {
+  /** Aggregate status across all pairs */
+  status: IdentifiabilityStatus;
+  /** Method used for identifiability check */
+  method: 'backdoor';
+  /** Number of (treatment, outcome) pairs assessed */
+  pairs_checked: number;
+  /** Number of pairs that ARE identifiable */
+  pairs_identifiable: number;
+  /** Per-pair details. Present only when at least one pair is not identifiable. */
+  details?: IdentifiabilityPairDetail[];
+  /** True when details array was truncated (capped at 20) */
+  details_truncated?: boolean;
+}
+
+/**
  * A single threshold crossing where factor change causes recommendation flip.
  */
 export interface ThresholdResult {
@@ -779,6 +832,19 @@ export interface RunResponseV3 {
    * NOTE: Excluded from response_hash (non-semantic post-analysis enrichment).
    */
   threshold_analysis?: ThresholdResult[];
+
+  // ---------------------------------------------------------------------------
+  // Identifiability Assessment (B1.5)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Causal identifiability assessment via backdoor criterion.
+   * Always present (uses status='unknown' when check could not run).
+   * WARNING only — never blocks analysis.
+   *
+   * NOTE: Non-semantic metadata. Excluded from response_hash.
+   */
+  identifiability: IdentifiabilityAssessment;
 
   // ---------------------------------------------------------------------------
   // M2 Decision Review Fields (LLM-generated review from CEE)

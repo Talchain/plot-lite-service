@@ -9,6 +9,7 @@
  * ISL validation response from /api/v1/causal/validate
  */
 export interface ISLValidationResponse {
+  /** ISL-native vocabulary — intentionally not renamed to PLoT's 'not_backdoor_identifiable' */
   status: 'identifiable' | 'partially_identifiable' | 'not_identifiable';
   adjustment_sets: string[][];
   minimal_adjustment_set: string[];
