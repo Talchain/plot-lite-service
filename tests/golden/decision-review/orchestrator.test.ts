@@ -216,13 +216,9 @@ describe('Decision Review Orchestrator', () => {
       const input = buildTestInput();
       const config = { baseUrl: 'https://cee.test', apiKey: 'test-key' };
 
-      // Return review with missing option headline (non-downgraded failure)
+      // Return structurally invalid review (missing required fields → SHAPE_VALIDATION_FAILED)
       const invalidReview = {
-        ...VALID_READY_REVIEW,
-        story_headlines: {
-          'option-a': 'Strong market positioning',
-          // Missing 'option-b' headline - causes MISSING_OPTION_HEADLINE failure
-        },
+        narrative_summary: null, // null required field → shape validation failure
       };
 
       vi.spyOn(ceeClient, 'callDecisionReview').mockResolvedValue({
@@ -726,11 +722,21 @@ describe('Decision Review Orchestrator', () => {
         review, error: null, meta: { model: 'test', latency_ms: 100, tokens: 500 },
       });
 
-      const result = await orchestrateDecisionReview(input, config);
+      const mockLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      const result = await orchestrateDecisionReview(input, config, mockLogger as any);
       expect(result.review_status).toBe('failed');
       expect(result.m1_review).toBeNull();
       expect(result.review_failure_codes).toContain('INVALID_SCENARIO_EDGE');
       expect(result.review_failure_codes).toContain('MODIFIED_VALUES');
+
+      // B1.2: Structured logging must emit blocking/warning breakdown on hard failure
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: DecisionReviewEvents.VALIDATION_FAILED,
+          blocking_codes: expect.arrayContaining(['MODIFIED_VALUES']),
+          warning_grade_codes: expect.arrayContaining(['INVALID_SCENARIO_EDGE']),
+        }),
+      );
     });
 
     it('returns failed when single blocking code (MODIFIED_VALUES) present', async () => {
@@ -773,19 +779,19 @@ describe('Decision Review Orchestrator', () => {
       expect(WARNING_GRADE_CODES.has(M1ReviewFailureCodes.INVALID_GROUNDING_ID)).toBe(true);
       expect(WARNING_GRADE_CODES.has(M1ReviewFailureCodes.STRUCTURAL_LIMIT_EXCEEDED)).toBe(true);
       expect(WARNING_GRADE_CODES.has(M1ReviewFailureCodes.INVALID_PROMPT_STRUCTURE)).toBe(true);
-      expect(WARNING_GRADE_CODES.size).toBe(12);
+      // B1.2: MISSING_OPTION_HEADLINE and MISSING_CRITIQUE_CODE now warning-grade
+      expect(WARNING_GRADE_CODES.has(M1ReviewFailureCodes.MISSING_OPTION_HEADLINE)).toBe(true);
+      expect(WARNING_GRADE_CODES.has(M1ReviewFailureCodes.MISSING_CRITIQUE_CODE)).toBe(true);
+      expect(WARNING_GRADE_CODES.size).toBe(14);
 
-      // Verify blocking codes are NOT in the set
-      expect(WARNING_GRADE_CODES.has(M1ReviewFailureCodes.MISSING_OPTION_HEADLINE)).toBe(false);
-      expect(WARNING_GRADE_CODES.has(M1ReviewFailureCodes.MISSING_CRITIQUE_CODE)).toBe(false);
+      // Only MODIFIED_VALUES remains blocking (data integrity)
       expect(WARNING_GRADE_CODES.has(M1ReviewFailureCodes.MODIFIED_VALUES)).toBe(false);
     });
 
     it('every M1ReviewFailureCode is classified as either warning-grade or blocking', () => {
       // Blocking codes — intentionally NOT in WARNING_GRADE_CODES
+      // B1.2: Only MODIFIED_VALUES remains blocking (data integrity violation)
       const BLOCKING_CODES = new Set([
-        M1ReviewFailureCodes.MISSING_OPTION_HEADLINE,
-        M1ReviewFailureCodes.MISSING_CRITIQUE_CODE,
         M1ReviewFailureCodes.MODIFIED_VALUES,
       ]);
 

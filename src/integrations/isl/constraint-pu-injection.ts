@@ -15,24 +15,43 @@ import type { GoalConstraint, EngineNodeV3 } from '../../types/engine-v3.js';
 
 /**
  * Std for constraint-target ParameterUncertainty injection.
- * Makes the constraint target effectively observed so ISL evaluates
- * the constraint against the actual threshold, not against base=0.0.
- * This is NOT modelling real uncertainty — it pins the node to its
- * observed value for constraint evaluation.
+ * Pins constrained node to its observed value for constraint evaluation.
+ * Not modelling real uncertainty — prevents ISL base=0.0 default.
  *
  * Distinct from translator std floors (≥0.1 for factors, ≥0.01 for
  * external priors) which represent genuine inference uncertainty.
  */
 export const CONSTRAINT_PINNED_STD = 0.001;
 
+/** A PU entry that was injected for a constrained node. */
+export interface InjectedPU {
+  node_id: string;
+  mean: number;
+  std: number;
+}
+
+/** A constrained node that was skipped (not injected). */
+export interface SkippedPU {
+  node_id: string;
+  reason: 'goal_node' | 'missing_node' | 'missing_observed_state';
+}
+
 /**
  * Inject ParameterUncertainty entries for constrained nodes that don't
  * already have one. Mutates `islRequest.parameter_uncertainties` in place.
  *
- * Skip rules:
- * - Nodes that already have a PU entry (inject-only-when-missing)
+ * Skip rules (each produces a SkippedPU entry):
  * - The goal node (has its own outcome distribution from inference)
- * - Nodes without `observed_state.value` (warn, no injection)
+ * - Nodes not present in the graph
+ * - Nodes without `observed_state.value`
+ * - Nodes that already have a PU entry (inject-only-when-missing) — silently skipped, not in `skipped`
+ *
+ * @param islRequest - ISL request to mutate (parameter_uncertainties array)
+ * @param constraints - Active goal constraints
+ * @param graphNodes - Filtered graph nodes
+ * @param goalNodeId - Goal node ID (skipped for injection)
+ * @param logger - Optional Fastify logger
+ * @returns Injected PU entries and skipped nodes with reasons
  */
 export function injectConstraintParameterUncertainties(
   islRequest: ISLRobustnessRequestV3,
@@ -40,35 +59,52 @@ export function injectConstraintParameterUncertainties(
   graphNodes: EngineNodeV3[],
   goalNodeId: string,
   logger?: FastifyBaseLogger,
-): { injected: string[]; warnings: string[] } {
-  const injected: string[] = [];
-  const warnings: string[] = [];
+): { injected: InjectedPU[]; skipped: SkippedPU[] } {
+  const injected: InjectedPU[] = [];
+  const skipped: SkippedPU[] = [];
 
   if (!constraints || constraints.length === 0) {
-    return { injected, warnings };
+    return { injected, skipped };
   }
 
   const existingPuNodeIds = new Set(
     (islRequest.parameter_uncertainties ?? []).map((p) => p.node_id),
   );
+  const nodeMap = new Map(graphNodes.map((n) => [n.id, n]));
   const augmented = [...(islRequest.parameter_uncertainties ?? [])];
 
   for (const constraint of constraints) {
-    // Skip goal node — it has its own outcome distribution from inference
-    if (constraint.node_id === goalNodeId) continue;
+    // Skip goal node — goal nodes get their distribution from ISL's outcome computation
+    if (constraint.node_id === goalNodeId) {
+      skipped.push({ node_id: constraint.node_id, reason: 'goal_node' });
+      continue;
+    }
 
-    // Inject-only-when-missing: skip if PU already exists
+    // Inject-only-when-missing: never override existing PU from the translator
     if (existingPuNodeIds.has(constraint.node_id)) continue;
 
-    const node = graphNodes.find((n) => n.id === constraint.node_id);
-    if (!node || node.observed_state?.value === undefined) {
-      const msg = `Constrained node ${constraint.node_id} has no observed_state.value; ISL may use base=0.0`;
-      warnings.push(msg);
+    const node = nodeMap.get(constraint.node_id);
+
+    // Skip nodes not in the graph
+    if (!node) {
+      skipped.push({ node_id: constraint.node_id, reason: 'missing_node' });
+      logger?.warn({
+        event: 'plot.constraint_missing_node',
+        node_id: constraint.node_id,
+        constraint_id: constraint.constraint_id,
+        message: `Constrained node ${constraint.node_id} not found in graph`,
+      });
+      continue;
+    }
+
+    // Skip nodes without observed_state.value (cannot fabricate a mean)
+    if (node.observed_state?.value === undefined) {
+      skipped.push({ node_id: constraint.node_id, reason: 'missing_observed_state' });
       logger?.warn({
         event: 'plot.constraint_no_observed_value',
         node_id: constraint.node_id,
         constraint_id: constraint.constraint_id,
-        message: msg,
+        message: `Constrained node ${constraint.node_id} has no observed_state.value; ISL may use base=0.0`,
       });
       continue;
     }
@@ -81,7 +117,7 @@ export function injectConstraintParameterUncertainties(
       std: CONSTRAINT_PINNED_STD,
     });
     existingPuNodeIds.add(constraint.node_id);
-    injected.push(constraint.node_id);
+    injected.push({ node_id: constraint.node_id, mean, std: CONSTRAINT_PINNED_STD });
 
     logger?.info({
       event: 'plot.constraint_auto_uncertainty',
@@ -95,5 +131,5 @@ export function injectConstraintParameterUncertainties(
 
   islRequest.parameter_uncertainties = augmented;
 
-  return { injected, warnings };
+  return { injected, skipped };
 }

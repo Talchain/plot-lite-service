@@ -3,18 +3,17 @@
  *
  * Tests for warning-grade failure code downgrade eligibility.
  *
- * WARNING_GRADE_CODES (12 codes) — imported from m1-review-constants.ts:
+ * WARNING_GRADE_CODES (14 codes) — imported from m1-review-constants.ts:
+ *   T1: MISSING_OPTION_HEADLINE (B1.2: downgraded — review still actionable)
  *   T2: CONSEQUENCE_INVALID_OPTION, INVALID_SCENARIO_EDGE
  *   T3: READINESS_CONTRADICTION, READINESS_MISALIGNMENT
  *   T4: UNGROUNDED_NUMBER
- *   T5: MISSING_BRIEF_EVIDENCE, BRIEF_EVIDENCE_TOO_SHORT, BRIEF_EVIDENCE_NOT_SUBSTRING
+ *   T5: MISSING_CRITIQUE_CODE (B1.2: downgraded), MISSING_BRIEF_EVIDENCE, BRIEF_EVIDENCE_TOO_SHORT, BRIEF_EVIDENCE_NOT_SUBSTRING
  *   T6: PREMORTEM_NOT_GROUNDED, INVALID_GROUNDING_ID
  *   T8: STRUCTURAL_LIMIT_EXCEEDED
  *   T9: INVALID_PROMPT_STRUCTURE
  *
- * Blocking codes (3 codes — hard failures):
- *   T1: MISSING_OPTION_HEADLINE
- *   T5: MISSING_CRITIQUE_CODE
+ * Blocking codes (1 code — hard failure):
  *   T7: MODIFIED_VALUES
  */
 
@@ -120,17 +119,23 @@ describe('Validation Downgrade: READINESS_CONTRADICTION', () => {
     expect(isDowngradeEligible(result.failure_codes)).toBe(true);
   });
 
-  it('READINESS_CONTRADICTION + blocking failure → NOT downgrade-eligible', () => {
+  it('READINESS_CONTRADICTION + blocking failure (MODIFIED_VALUES) → NOT downgrade-eligible', () => {
     const review = createValidReview();
     review.narrative_summary = 'This is ready to proceed with 74% certainty.';
     review.readiness_rationale = 'We are confident. Stability at 78%.';
-    review.story_headlines = { opt_a: 'Only A' }; // Missing opt_b → MISSING_OPTION_HEADLINE
+    // Trigger MODIFIED_VALUES: tamper with flip threshold current_value
+    review.flip_thresholds = [
+      { factor_id: 'factor_a', current_value: 999, flip_value: 0.5, label: 'Factor A' },
+    ];
 
     const context = createContext({ readiness: 'needs_evidence' });
+    context.flipThresholdData = [
+      { factor_id: 'factor_a', factor_label: 'Factor A', current_value: 0.5, flip_value: 0.8, direction: 'decrease' as const, flip_reason: 'found' as const, iterations_used: 5 },
+    ];
     const result = validateM1Review(review, context);
 
     expect(result.failure_codes).toContain(M1ReviewFailureCodes.READINESS_CONTRADICTION);
-    expect(result.failure_codes).toContain(M1ReviewFailureCodes.MISSING_OPTION_HEADLINE);
+    expect(result.failure_codes).toContain(M1ReviewFailureCodes.MODIFIED_VALUES);
     expect(isDowngradeEligible(result.failure_codes)).toBe(false);
   });
 });
@@ -245,7 +250,7 @@ describe('Validation Downgrade: BRIEF_EVIDENCE_NOT_SUBSTRING', () => {
 // =============================================================================
 
 describe('Blocking codes remain hard failures', () => {
-  it('MISSING_OPTION_HEADLINE → valid=false, NOT downgrade-eligible', () => {
+  it('MISSING_OPTION_HEADLINE → valid=false, IS downgrade-eligible (B1.2)', () => {
     const review = createValidReview();
     review.story_headlines = { opt_a: 'Only A' }; // Missing opt_b
 
@@ -254,7 +259,7 @@ describe('Blocking codes remain hard failures', () => {
 
     expect(result.valid).toBe(false);
     expect(result.failure_codes).toContain(M1ReviewFailureCodes.MISSING_OPTION_HEADLINE);
-    expect(isDowngradeEligible(result.failure_codes)).toBe(false);
+    expect(isDowngradeEligible(result.failure_codes)).toBe(true);
   });
 
   it('MODIFIED_VALUES → valid=false, NOT downgrade-eligible', () => {
@@ -265,7 +270,7 @@ describe('Blocking codes remain hard failures', () => {
 
     const context = createContext();
     context.flipThresholdData = [
-      { factor_id: 'factor_a', factor_label: 'Factor A', current_value: 0.5, flip_value: 0.8, flip_reason: 'test', iterations_used: 5 },
+      { factor_id: 'factor_a', factor_label: 'Factor A', current_value: 0.5, flip_value: 0.8, direction: 'decrease' as const, flip_reason: 'found' as const, iterations_used: 5 },
     ];
     const result = validateM1Review(review, context);
 
@@ -283,7 +288,7 @@ describe('Blocking codes remain hard failures', () => {
 
     const context = createContext();
     context.flipThresholdData = [
-      { factor_id: 'factor_a', factor_label: 'Factor A', current_value: 0.5, flip_value: 0.8, flip_reason: 'test', iterations_used: 5 },
+      { factor_id: 'factor_a', factor_label: 'Factor A', current_value: 0.5, flip_value: 0.8, direction: 'decrease' as const, flip_reason: 'found' as const, iterations_used: 5 },
     ];
     const result = validateM1Review(review, context);
 

@@ -315,14 +315,18 @@ export async function orchestrateDecisionReview(
       };
     }
 
-    // Other failures remain hard failures
+    // Other failures remain hard failures (at least one blocking code present)
     const latencyMs = Date.now() - startMs;
+    const warningGradeCodes = failureCodes.filter((c) => WARNING_GRADE_CODES.has(c));
+    const blockingCodes = failureCodes.filter((c) => !WARNING_GRADE_CODES.has(c));
     logger?.warn({
       event: DecisionReviewEvents.VALIDATION_FAILED,
       request_id: input.requestId,
       error_count: validationResult.errors.length,
       warning_count: validationResult.warnings.length,
       failure_codes: validationResult.failure_codes,
+      blocking_codes: blockingCodes,
+      warning_grade_codes: warningGradeCodes,
       latency_ms: latencyMs,
     });
     return {

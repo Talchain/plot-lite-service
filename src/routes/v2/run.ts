@@ -2439,14 +2439,13 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           body.goal_node_id,
           req.log,
         );
-        for (const nodeId of puResult.injected) {
-          const node = filteredGraph.nodes.find((n) => n.id === nodeId);
+        for (const entry of puResult.injected) {
           repairs.push({
-            field: `parameter_uncertainties.${nodeId}`,
+            field: `parameter_uncertainties[${entry.node_id}]`,
             action: 'derived',
             from_value: null,
-            to_value: String(node?.observed_state?.value ?? 0),
-            reason: 'constraint_parameter_injection from observed_state',
+            to_value: String(entry.mean),
+            reason: `CONSTRAINT_PU_INJECTED: Injected pinned PU (std=${entry.std}) from observed_state.value=${entry.mean}`,
           });
         }
 

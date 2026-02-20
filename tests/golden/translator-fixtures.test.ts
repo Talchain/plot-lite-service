@@ -5,6 +5,8 @@
  * 1. Simple brief (no constraints)
  * 2. Constrained brief (goal_constraints present)
  * 3. PU generation (std floors, external priors, skip rules)
+ * 4. Canonical shape verification (B1.4 Category A) — full ISL request shape
+ *    locked via canonicalCompare to catch silent regressions
  */
 
 import { describe, it, expect } from 'vitest';
@@ -12,6 +14,11 @@ import {
   toISLRobustnessRequest,
   buildParameterUncertaintiesV3,
 } from '../../src/integrations/isl/translator-v3.js';
+import {
+  injectConstraintParameterUncertainties,
+  CONSTRAINT_PINNED_STD,
+} from '../../src/integrations/isl/constraint-pu-injection.js';
+import { canonicalCompare } from '../utils/canonical-compare.js';
 import type { EngineGraphV3, EngineNodeV3, OptionV3, GoalConstraint } from '../../src/types/engine-v3.js';
 
 // =============================================================================
@@ -378,5 +385,144 @@ describe('Translator: buildParameterUncertaintiesV3', () => {
     const pus = buildParameterUncertaintiesV3(nodes)!;
     const pu = pus.find((p) => p.node_id === 'binary_flag')!;
     expect(pu.std).toBe(0.3);
+  });
+});
+
+// =============================================================================
+// 4. Category A — Canonical Shape Verification (B1.4)
+// =============================================================================
+
+describe('Translator: Canonical ISL Request Shape (B1.4 Category A)', () => {
+  it('simple brief: full ISL request matches canonical shape via canonicalCompare', () => {
+    const graph = simpleGraph();
+    const options = simpleOptions();
+    const request = toISLRobustnessRequest(graph, options, 'goal_revenue', 'req-shape-1', 5000, undefined, undefined, 'seed-42');
+
+    // Verify structural keys — ISL request must have these top-level fields
+    expect(request.request_id).toBe('req-shape-1');
+    expect(request.goal_node_id).toBe('goal_revenue');
+    expect(request.n_samples).toBe(5000);
+    expect(request.analysis_types).toEqual(['comparison', 'sensitivity', 'robustness']);
+    expect(request.seed).toBe('seed-42');
+
+    // Graph nodes: toISLNode adds intercept=0 for all nodes
+    const nodeResult = canonicalCompare(
+      request.graph.nodes,
+      [
+        { id: 'goal_revenue', kind: 'goal', label: 'Revenue', intercept: 0 },
+        { id: 'factor_price', kind: 'factor', label: 'Price', intercept: 0 },
+        { id: 'factor_demand', kind: 'factor', label: 'Demand', intercept: 0 },
+        { id: 'factor_cost', kind: 'factor', label: 'Cost', intercept: 0 },
+      ],
+      { ignoreFields: ['observed_state'], sortArraysBy: { '$': 'id' } },
+    );
+    if (!nodeResult.match) throw new Error(`Node shape mismatch: ${nodeResult.diff}`);
+
+    // Graph edges: preserved from input
+    const edgeResult = canonicalCompare(
+      request.graph.edges,
+      [
+        { from: 'factor_price', to: 'goal_revenue', exists_probability: 1, strength: { mean: 0.8, std: 0.1 } },
+        { from: 'factor_demand', to: 'goal_revenue', exists_probability: 0.9, strength: { mean: 0.6, std: 0.2 } },
+        { from: 'factor_cost', to: 'goal_revenue', exists_probability: 1, strength: { mean: -0.3, std: 0.1 } },
+      ],
+      { sortArraysBy: { '$': 'from::to' } },
+    );
+    if (!edgeResult.match) throw new Error(`Edge shape mismatch: ${edgeResult.diff}`);
+
+    // Options: interventions flattened to numbers
+    const optionResult = canonicalCompare(
+      request.options,
+      [
+        { id: 'opt_raise', label: 'Raise Price', interventions: { factor_price: 60 } },
+        { id: 'opt_lower', label: 'Lower Price', interventions: { factor_price: 40 } },
+      ],
+      { sortArraysBy: { '$': 'id' } },
+    );
+    if (!optionResult.match) throw new Error(`Option shape mismatch: ${optionResult.diff}`);
+
+    // PU array verified separately (order-insensitive)
+    const puNodeIds = (request.parameter_uncertainties ?? []).map((p) => p.node_id).sort();
+    expect(puNodeIds).toEqual(['factor_cost', 'factor_demand', 'factor_price']);
+  });
+
+  it('constrained brief: value→threshold rename + constraint shape locked', () => {
+    const graph = constrainedGraph();
+    const constraints = sampleConstraints();
+    const request = toISLRobustnessRequest(
+      graph, constrainedOptions(), 'goal_mrr', 'req-shape-2',
+      undefined, undefined, constraints, 'seed-c',
+    );
+
+    // Lock the constraint wire-format shape
+    const expectedConstraints = [
+      { constraint_id: 'c1', node_id: 'factor_churn', operator: '<=', threshold: 0.05, label: 'Keep churn under 5%' },
+      { constraint_id: 'c2', node_id: 'goal_mrr', operator: '>=', threshold: 20000, label: 'Reach £20k MRR' },
+    ];
+
+    const constraintResult = canonicalCompare(
+      request.goal_constraints,
+      expectedConstraints,
+      { sortArraysBy: { '$': 'constraint_id' } },
+    );
+    expect(constraintResult.match).toBe(true);
+
+    // "value" must NOT exist in ISL constraints
+    for (const c of request.goal_constraints!) {
+      expect((c as any).value).toBeUndefined();
+    }
+
+    // goal_threshold must be absent (XOR: constraints active)
+    expect(request.goal_threshold).toBeUndefined();
+  });
+
+  it('constraint PU injection + translator PU = combined list with no duplicates', () => {
+    const graph = constrainedGraph();
+    const constraints = sampleConstraints();
+    const request = toISLRobustnessRequest(
+      graph, constrainedOptions(), 'goal_mrr', 'req-shape-3',
+      undefined, undefined, constraints,
+    );
+
+    // Translator generates PU for factor_churn, factor_acv (both have observed_state)
+    // outcome_retention has observed_state but translator only generates PU for kind='factor'
+    const puBefore = (request.parameter_uncertainties ?? []).map((p) => p.node_id).sort();
+
+    // Phase 4b+ safety-net injection for constrained outcome_retention
+    // (translator doesn't generate PU for outcomes, but constraint c1 targets factor_churn
+    //  which already has a translator PU)
+    const puResult = injectConstraintParameterUncertainties(
+      request, constraints, graph.nodes, 'goal_mrr',
+    );
+
+    // factor_churn: already has translator PU → skipped by injection
+    // goal_mrr: goal node → skipped
+    expect(puResult.skipped).toEqual(
+      expect.arrayContaining([
+        { node_id: 'goal_mrr', reason: 'goal_node' },
+      ]),
+    );
+
+    // No duplicates: each node_id appears at most once
+    const puAfter = (request.parameter_uncertainties ?? []).map((p) => p.node_id);
+    const uniqueIds = new Set(puAfter);
+    expect(uniqueIds.size).toBe(puAfter.length);
+
+    // PU count should be >= what translator produced (injection may add, never remove)
+    expect(puAfter.length).toBeGreaterThanOrEqual(puBefore.length);
+  });
+
+  it('seed forwarding: string and number seeds both reach ISL request', () => {
+    const graph = simpleGraph();
+    const options = simpleOptions();
+
+    const reqStr = toISLRobustnessRequest(graph, options, 'goal_revenue', 'r1', undefined, undefined, undefined, 'alpha');
+    expect(reqStr.seed).toBe('alpha');
+
+    const reqNum = toISLRobustnessRequest(graph, options, 'goal_revenue', 'r2', undefined, undefined, undefined, 42);
+    expect(reqNum.seed).toBe(42);
+
+    const reqNone = toISLRobustnessRequest(graph, options, 'goal_revenue', 'r3');
+    expect(reqNone.seed).toBeUndefined();
   });
 });

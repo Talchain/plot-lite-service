@@ -55,9 +55,12 @@ export type M1ReviewFailureCode = typeof M1ReviewFailureCodes[keyof typeof M1Rev
  * is downgraded from 'failed' to 'complete' with `review_warnings`. If any
  * code outside this set is present, the entire result stays 'failed'.
  *
- * Rationale per code documented inline. Three codes are intentionally kept
- * blocking: MISSING_OPTION_HEADLINE (structural corruption),
- * MISSING_CRITIQUE_CODE (untraceable bias), MODIFIED_VALUES (data integrity).
+ * Rationale per code documented inline. Only MODIFIED_VALUES (data integrity
+ * violation — flip threshold tampering) remains blocking.
+ *
+ * Classification rule: blocking ONLY for structural invalidity or data corruption
+ * (missing required fields, schema mismatch, unparseable response). Everything
+ * else is warning-grade if the review still provides actionable guidance.
  */
 export const WARNING_GRADE_CODES: Set<string> = new Set([
   // Existing warning-grade codes
@@ -67,13 +70,16 @@ export const WARNING_GRADE_CODES: Set<string> = new Set([
   M1ReviewFailureCodes.MISSING_BRIEF_EVIDENCE,
   M1ReviewFailureCodes.BRIEF_EVIDENCE_TOO_SHORT,
   M1ReviewFailureCodes.BRIEF_EVIDENCE_NOT_SUBSTRING,
-  // Newly added warning-grade codes (Phase 3b)
+  // Phase 3b warning-grade codes
   M1ReviewFailureCodes.CONSEQUENCE_INVALID_OPTION,    // T2: LLM paraphrases option references
   M1ReviewFailureCodes.INVALID_SCENARIO_EDGE,          // T2: LLM references valid edges outside top-N fragile set
   M1ReviewFailureCodes.PREMORTEM_NOT_GROUNDED,          // T6: Pre-mortem narrative useful without perfect ID grounding
   M1ReviewFailureCodes.INVALID_GROUNDING_ID,            // T6: ID mismatch doesn't invalidate pre-mortem insight
   M1ReviewFailureCodes.STRUCTURAL_LIMIT_EXCEEDED,       // T8: Excess items can be truncated; not data corruption
   M1ReviewFailureCodes.INVALID_PROMPT_STRUCTURE,        // T9: Minor formatting; coaching intent still communicates
+  // B1.2: Downgraded — review still provides actionable guidance despite these issues
+  M1ReviewFailureCodes.MISSING_OPTION_HEADLINE,        // T1: Other option stories + narrative/robustness still useful
+  M1ReviewFailureCodes.MISSING_CRITIQUE_CODE,          // T5: Bias description still actionable without linked critique code
 ]);
 
 // =============================================================================

@@ -5,13 +5,13 @@
  * This is PLoT's trust boundary - verifies CEE output before trusting it.
  *
  * Tiers (blocking = hard failure, warning-grade = downgraded by orchestrator):
- * 1. Option Coverage (blocking) - story_headlines must match all option IDs
+ * 1. Option Coverage (warning-grade, B1.2) - story_headlines must match all option IDs
  * 2. Scenario Context References (warning-grade) - edges/options may be paraphrased by LLM
  * 3. Readiness Alignment (warning-grade) - narrative must align with readiness state
  * 4. Number Grounding (warning-grade) - numbers must come from input data
- * 5. Bias Evidence (mixed) - MISSING_CRITIQUE_CODE is blocking; brief_evidence codes are warning-grade
+ * 5. Bias Evidence (warning-grade, B1.2) - brief_evidence and critique_code codes are warning-grade
  * 6. Pre-mortem Grounding (warning-grade) - grounding IDs useful but not critical
- * 7. Flip Threshold Integrity (blocking) - values must match PLoT-computed inputs
+ * 7. Flip Threshold Integrity (blocking) - MODIFIED_VALUES must match PLoT-computed inputs
  * 8. Structural Limits (warning-grade) - excess items can be truncated
  * 9. Decision Quality Prompt Structure (warning-grade) - minor formatting issues
  *

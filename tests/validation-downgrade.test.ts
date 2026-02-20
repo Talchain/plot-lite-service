@@ -143,10 +143,10 @@ describe('Validation Downgrade: UNGROUNDED_NUMBER', () => {
       expect(isOnlyUngroundedNumber).toBe(true);
     });
 
-    it('identifies mixed failures as NOT downgrade-eligible', () => {
+    it('identifies mixed failures as NOT downgrade-eligible (single-code check)', () => {
       const failureCodes = [
         M1ReviewFailureCodes.UNGROUNDED_NUMBER,
-        M1ReviewFailureCodes.MISSING_OPTION_HEADLINE,
+        M1ReviewFailureCodes.MODIFIED_VALUES,
       ];
 
       const isOnlyUngroundedNumber =
@@ -334,7 +334,7 @@ describe('Validation Downgrade: READINESS_MISALIGNMENT', () => {
     it('READINESS_MISALIGNMENT + hard failure → NOT downgrade-eligible', () => {
       const failureCodes = [
         M1ReviewFailureCodes.READINESS_MISALIGNMENT,
-        M1ReviewFailureCodes.MISSING_OPTION_HEADLINE,
+        M1ReviewFailureCodes.MODIFIED_VALUES,
       ];
 
       const allWarningGrade =
@@ -417,24 +417,29 @@ describe('Validation Downgrade: READINESS_MISALIGNMENT', () => {
       }
     });
 
-    it('READINESS_MISALIGNMENT + hard failure → review_status: failed, m1_review: null', () => {
+    it('READINESS_MISALIGNMENT + hard failure (MODIFIED_VALUES) → review_status: failed, m1_review: null', () => {
       const review = createValidReview();
       // Trigger READINESS_MISALIGNMENT (no required phrase for needs_framing)
       // Avoid forbidden phrases
       review.narrative_summary = 'Option A wins with 74% probability.';
       review.readiness_rationale = 'We should consider this decision carefully.';
-      // Trigger hard failure: missing story headline
-      review.story_headlines = { opt_a: 'Only A headline' }; // Missing opt_b
+      // Trigger MODIFIED_VALUES: tamper with flip threshold current_value
+      review.flip_thresholds = [
+        { factor_id: 'factor_a', current_value: 999, flip_value: 0.5, label: 'Factor A' },
+      ];
 
       const context = createContextWithReadiness('needs_framing', [0.74, 0.78, 0.26]);
+      context.flipThresholdData = [
+        { factor_id: 'factor_a', factor_label: 'Factor A', current_value: 0.5, flip_value: 0.8, direction: 'decrease' as const, flip_reason: 'found' as const, iterations_used: 5 },
+      ];
       const validationResult = validateM1Review(review, context);
 
       const failureCodes = validationResult.failure_codes;
 
       // Should contain READINESS_MISALIGNMENT
       expect(failureCodes).toContain(M1ReviewFailureCodes.READINESS_MISALIGNMENT);
-      // Should contain hard failure
-      expect(failureCodes).toContain(M1ReviewFailureCodes.MISSING_OPTION_HEADLINE);
+      // Should contain hard failure (MODIFIED_VALUES — the only remaining blocking code)
+      expect(failureCodes).toContain(M1ReviewFailureCodes.MODIFIED_VALUES);
 
       // Should NOT be all warning-grade
       const allWarningGrade =

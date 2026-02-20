@@ -61,8 +61,10 @@ describe('Constraint PU Regression Lock', () => {
 
     const result = injectConstraintParameterUncertainties(request, constraints, nodes, 'goal');
 
-    expect(result.injected).toEqual(['outcome-x']);
-    expect(result.warnings).toHaveLength(0);
+    expect(result.injected).toEqual([
+      { node_id: 'outcome-x', mean: 0.85, std: CONSTRAINT_PINNED_STD },
+    ]);
+    expect(result.skipped).toHaveLength(0);
 
     const pu = request.parameter_uncertainties!.find((p) => p.node_id === 'outcome-x');
     expect(pu).toBeDefined();
@@ -81,8 +83,9 @@ describe('Constraint PU Regression Lock', () => {
     const result = injectConstraintParameterUncertainties(request, constraints, nodes, 'goal');
 
     expect(result.injected).toHaveLength(0);
-    expect(result.warnings).toHaveLength(1);
-    expect(result.warnings[0]).toContain('factor-no-obs');
+    expect(result.skipped).toEqual([
+      { node_id: 'factor-no-obs', reason: 'missing_observed_state' },
+    ]);
 
     // No PU entry created
     const pu = request.parameter_uncertainties!.find((p) => p.node_id === 'factor-no-obs');
@@ -99,7 +102,9 @@ describe('Constraint PU Regression Lock', () => {
     const result = injectConstraintParameterUncertainties(request, constraints, nodes, 'goal');
 
     expect(result.injected).toHaveLength(0);
-    expect(result.warnings).toHaveLength(0);
+    expect(result.skipped).toEqual([
+      { node_id: 'goal', reason: 'goal_node' },
+    ]);
 
     // Goal node should not appear in parameter_uncertainties
     const pu = request.parameter_uncertainties!.find((p) => p.node_id === 'goal');
@@ -124,7 +129,7 @@ describe('Constraint PU Regression Lock', () => {
 
     // Should skip because PU already exists (inject-only-when-missing)
     expect(result.injected).toHaveLength(0);
-    expect(result.warnings).toHaveLength(0);
+    expect(result.skipped).toHaveLength(0);
 
     // Original translator PU preserved
     const pus = request.parameter_uncertainties!.filter((p) => p.node_id === 'factor-a');
@@ -150,8 +155,10 @@ describe('Constraint PU Regression Lock', () => {
 
     const result = injectConstraintParameterUncertainties(request, constraints, nodes, 'goal');
 
-    expect(result.injected).toEqual(['outcome-x']);
-    expect(result.warnings).toHaveLength(1);
+    expect(result.injected).toEqual([
+      { node_id: 'outcome-x', mean: 0.85, std: CONSTRAINT_PINNED_STD },
+    ]);
+    expect(result.skipped).toHaveLength(2); // goal + no-obs
 
     // Total PUs: 1 (translator) + 1 (injected) = 2
     expect(request.parameter_uncertainties).toHaveLength(2);
