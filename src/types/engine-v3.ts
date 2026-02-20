@@ -457,6 +457,13 @@ export interface RunRequestV3 {
    * ]
    */
   goal_constraints?: GoalConstraint[];
+
+  /**
+   * When true, PLoT calls ISL's threshold analysis endpoint after the main
+   * robustness analysis completes. Budget-aware: skipped if insufficient
+   * remaining request budget. Default: false.
+   */
+  include_thresholds?: boolean;
 }
 
 // -----------------------------------------------------------------------------
@@ -549,6 +556,42 @@ export type TopLevelAnalysisStatus = 'computed' | 'partial' | 'failed' | 'blocke
  * UI vocabulary ONLY - used for option_comparison_status, robustness_status, drivers_status.
  */
 export type PerFeatureStatus = 'computed' | 'unavailable' | 'skipped' | 'error';
+
+/**
+ * Threshold analysis status.
+ * Separate vocabulary from PerFeatureStatus to capture budget/timeout semantics.
+ */
+export type ThresholdsStatus =
+  | 'not_requested'    // include_thresholds absent or false
+  | 'skipped_budget'   // insufficient remaining budget
+  | 'timeout'          // ISL threshold call timed out
+  | 'error'            // ISL threshold call failed
+  | 'computed';        // success
+
+/**
+ * A single threshold crossing where factor change causes recommendation flip.
+ */
+export interface ThresholdResult {
+  /** Factor node ID */
+  factor_id: string;
+  /** Human-readable factor label (fallback: factor_id) */
+  factor_label: string;
+  /** Factor value at which recommendation changes */
+  threshold_value: number;
+  /** Current observed value (undefined if no observed_state) */
+  current_value?: number;
+  /** Direction relative to current value: factor must go above/below threshold */
+  crossing_direction: 'above' | 'below';
+  /** Options affected by this threshold crossing */
+  affected_options: Array<{
+    option_id: string;
+    option_label: string;
+    /** True if this option becomes the winner when threshold is crossed */
+    becomes_winner: boolean;
+  }>;
+  /** Absolute distance from current_value to threshold_value (omitted when current_value missing) */
+  margin?: number;
+}
 
 /**
  * Legacy analysis status (V1 compatibility).
@@ -706,6 +749,36 @@ export interface RunResponseV3 {
    * NOTE: Deterministic (no LLM). Excluded from response_hash as non-semantic.
    */
   flip_thresholds?: DenormalisedFlipThreshold[];
+
+  // ---------------------------------------------------------------------------
+  // Threshold Analysis Fields (B10.3)
+  // Only present when include_thresholds is true in request
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Threshold analysis status.
+   * - 'not_requested': include_thresholds absent or false
+   * - 'skipped_budget': insufficient remaining budget after main ISL call
+   * - 'timeout': ISL threshold call timed out
+   * - 'error': ISL threshold call failed
+   * - 'computed': success
+   *
+   * NOTE: Never affects analysis_status (non-blocking).
+   */
+  thresholds_status?: ThresholdsStatus;
+
+  /** Threshold analysis metadata for observability */
+  thresholds_meta?: { reason?: string; duration_ms?: number };
+
+  /**
+   * Threshold analysis results from ISL.
+   * Each entry describes a factor value at which the recommendation changes.
+   * Labels enriched from graph nodes and options with deterministic fallbacks.
+   * Sorted by factor_id for stability.
+   *
+   * NOTE: Excluded from response_hash (non-semantic post-analysis enrichment).
+   */
+  threshold_analysis?: ThresholdResult[];
 
   // ---------------------------------------------------------------------------
   // M2 Decision Review Fields (LLM-generated review from CEE)

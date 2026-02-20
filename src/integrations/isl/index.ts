@@ -191,7 +191,8 @@ export interface ISLService {
   callAnalysisEndpoint<T>(
     endpoint: string,
     body: unknown,
-    requestId: string
+    requestId: string,
+    timeoutMs?: number
   ): Promise<ISLAnalysisResult<T>>;
 }
 
@@ -574,7 +575,8 @@ export function createISLService(): ISLService {
     async callAnalysisEndpoint<T>(
       endpoint: string,
       body: unknown,
-      requestId: string
+      requestId: string,
+      timeoutMs?: number
     ): Promise<ISLAnalysisResult<T>> {
       const startMs = Date.now();
 
@@ -596,6 +598,10 @@ export function createISLService(): ISLService {
       }
 
       // Create client with current config (handles dynamic env var changes)
+      // Apply per-call timeout override if provided (e.g., budget-aware threshold calls)
+      if (timeoutMs !== undefined) {
+        currentConfig.timeoutMs = timeoutMs;
+      }
       const currentClient = new ISLClient(currentConfig);
 
       try {

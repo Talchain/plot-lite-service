@@ -50,6 +50,8 @@ import type {
   ConstraintDiagnostic,
   ConditionalProbability,
   ConstraintFeatureStatus,
+  ThresholdsStatus,
+  ThresholdResult,
 } from '../../types/engine-v3.js';
 // Seed derivation: when seed omitted, derive deterministically from graph hash
 import { normaliseGraph, NormalisationError, cleanLabelAnnotation, type NormalisationWarning } from '../../normalisation/graph-normaliser.js';
@@ -60,6 +62,7 @@ import { runPreflightValidation, validateGoalConstraints } from '../../validatio
 import { compileConstraintNodes } from '../../normalisation/constraint-compiler.js';
 import { filterTemporalConstraints } from '../../normalisation/constraint-filter.js';
 import type { RawGoalConstraint, FilteredConstraintRecord } from '../../types/engine-v3.js';
+import type { IslThresholdResponse, ThresholdPoint } from '../v1/types/proxy.types.js';
 import { toISLRobustnessRequest, validateISLRequest } from '../../integrations/isl/translator-v3.js';
 import { injectConstraintParameterUncertainties } from '../../integrations/isl/constraint-pu-injection.js';
 import {
@@ -79,7 +82,13 @@ import {
 import type { RobustnessDataForCee, NormalizedEdgeInfo } from '../../integrations/isl/types/plot-types.js';
 import { orchestrateCeeReview } from '../../cee/orchestrator.js';
 import { orchestrateDecisionReview, type DecisionReviewInput, type DecisionReviewConfig } from '../../cee/decision-review-orchestrator.js';
-import { CEE_TIMEOUT_MS, CEE_DECISION_REVIEW_TIMEOUT_MS } from '../../config/timeouts.js';
+import {
+  CEE_TIMEOUT_MS,
+  CEE_DECISION_REVIEW_TIMEOUT_MS,
+  ISL_THRESHOLDS_TIMEOUT_MS_CAP,
+  THRESHOLDS_MIN_REMAINING_BUDGET_MS,
+  REQUEST_BUDGET_MS,
+} from '../../config/timeouts.js';
 import { createISLInferenceFn, resolveFlipValues } from '../../analysis/flip-thresholds.js';
 import { computeFlipThresholdData } from '../../coaching/flip-thresholds.js';
 import { denormaliseFlipThresholds, type DenormalisedFlipThreshold } from '../../lib/flip-threshold-denormaliser.js';
@@ -461,7 +470,7 @@ function normalizeOptions(
 const V2_RUN_ALLOWED_KEYS = new Set([
   'graph', 'options', 'goal_node_id',
   'seed', 'n_samples', 'detail_level', 'request_id', 'idempotency_key',
-  'goal_threshold', 'brief', 'goal_constraints',
+  'goal_threshold', 'brief', 'goal_constraints', 'include_thresholds',
 ]);
 
 const runV3Schema = {
@@ -503,6 +512,7 @@ const runV3Schema = {
         type: 'array',
         items: { type: 'object' },
       },
+      include_thresholds: { type: 'boolean' },
     },
   },
 };
@@ -956,7 +966,10 @@ function buildResponse(
     review_skip_reason?: ReviewSkipReason;
   },
   flipThresholds?: DenormalisedFlipThreshold[],
-  goalConstraints?: GoalConstraint[]
+  goalConstraints?: GoalConstraint[],
+  thresholdsStatus?: ThresholdsStatus,
+  thresholdsMeta?: { reason?: string; duration_ms?: number },
+  thresholdAnalysis?: ThresholdResult[]
 ): RunResponseV3 {
   // Map ISL results to response format
   // ISL V2 uses 'options' field; V1 uses 'results'. Check both for compatibility.
@@ -1208,6 +1221,14 @@ function buildResponse(
     // Flip thresholds (tipping points) for UI Results Panel
     // NOTE: Deterministic (no LLM), excluded from canonical hash as non-semantic metadata
     ...(flipThresholds && flipThresholds.length > 0 && { flip_thresholds: flipThresholds }),
+
+    // Threshold analysis (B10.3) — ISL native threshold endpoint
+    // NOTE: Non-semantic post-analysis enrichment, excluded from response_hash.
+    ...(thresholdsStatus && thresholdsStatus !== 'not_requested' && {
+      thresholds_status: thresholdsStatus,
+      ...(thresholdsMeta && { thresholds_meta: thresholdsMeta }),
+      ...(thresholdAnalysis && thresholdAnalysis.length > 0 && { threshold_analysis: thresholdAnalysis }),
+    }),
 
     // M2 Decision Review (LLM-generated from CEE /assist/v1/decision-review)
     // NOTE: LLM-derived, non-deterministic. Excluded from canonical hash.
@@ -3037,6 +3058,163 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           }
         }
 
+        // =================================================================
+        // Phase 6b: Threshold Analysis (B10.3, optional, non-blocking)
+        // Calls ISL's /api/v1/analysis/thresholds if include_thresholds=true
+        // and sufficient request budget remains after main ISL call.
+        // =================================================================
+        let thresholdsStatus: ThresholdsStatus = 'not_requested';
+        let thresholdsMeta: { reason?: string; duration_ms?: number } | undefined;
+        let thresholdAnalysis: ThresholdResult[] | undefined;
+
+        if (body.include_thresholds) {
+          const elapsedMs = performance.now() - startTime;
+          // Read budget dynamically to support test-time env overrides
+          const requestBudgetMs = Number(process.env.REQUEST_BUDGET_MS) || REQUEST_BUDGET_MS;
+          const remainingBudgetMs = requestBudgetMs - elapsedMs;
+
+          if (remainingBudgetMs < THRESHOLDS_MIN_REMAINING_BUDGET_MS) {
+            thresholdsStatus = 'skipped_budget';
+            thresholdsMeta = {
+              reason: `remaining_budget_ms=${Math.round(remainingBudgetMs)} < min=${THRESHOLDS_MIN_REMAINING_BUDGET_MS}`,
+            };
+            req.log.info({
+              event: 'threshold_analysis_skipped_budget',
+              request_id: requestId,
+              elapsed_ms: Math.round(elapsedMs),
+              remaining_budget_ms: Math.round(remainingBudgetMs),
+              min_required_ms: THRESHOLDS_MIN_REMAINING_BUDGET_MS,
+            });
+          } else {
+            const safetyMarginMs = 1_000;
+            const thresholdsTimeoutMs = Math.min(
+              remainingBudgetMs - safetyMarginMs,
+              ISL_THRESHOLDS_TIMEOUT_MS_CAP
+            );
+
+            const thresholdsStart = performance.now();
+            try {
+              const thresholdsPayload = {
+                graph: { nodes: filteredGraph.nodes, edges: filteredGraph.edges },
+                options: normalizedOptions.map(o => ({
+                  id: o.id,
+                  label: o.label,
+                  interventions: o.interventions,
+                })),
+                seed: seedUsed,
+                goal_node_id: body.goal_node_id,
+                request_id: requestId,
+              };
+
+              req.log.info({
+                event: 'threshold_analysis_call',
+                request_id: requestId,
+                timeout_ms: Math.round(thresholdsTimeoutMs),
+                remaining_budget_ms: Math.round(remainingBudgetMs),
+              });
+
+              const thresholdsResult = await islService.callAnalysisEndpoint<IslThresholdResponse>(
+                '/api/v1/analysis/thresholds',
+                thresholdsPayload,
+                requestId,
+                Math.round(thresholdsTimeoutMs)
+              );
+
+              const thresholdsDurationMs = performance.now() - thresholdsStart;
+
+              if (thresholdsResult.data) {
+                // Transform ISL ThresholdPoints to ThresholdResult[]
+                const islThresholds = thresholdsResult.data.thresholds ?? [];
+                thresholdAnalysis = islThresholds.map((tp: ThresholdPoint) => {
+                  // Enrich factor label from graph
+                  const factorNode = filteredGraph.nodes.find(n => n.id === tp.node_id);
+                  const factorLabel = factorNode?.label ?? tp.node_id;
+
+                  // Enrich current_value from observed_state
+                  const currentValue = factorNode?.observed_state?.value;
+
+                  // Enrich affected options with labels
+                  const affectedOptions = (tp.options_affected ?? []).map(optId => {
+                    const opt = normalizedOptions.find(o => o.id === optId);
+                    return {
+                      option_id: optId,
+                      option_label: opt?.label ?? optId,
+                      becomes_winner: true, // ISL flags all ranking-affected options
+                    };
+                  });
+                  // Stable order by option_id
+                  affectedOptions.sort((a, b) => a.option_id.localeCompare(b.option_id));
+
+                  const thresholdValue = tp.threshold_value;
+                  const margin = currentValue !== undefined
+                    ? Math.abs(thresholdValue - currentValue)
+                    : undefined;
+
+                  return {
+                    factor_id: tp.node_id,
+                    factor_label: factorLabel,
+                    threshold_value: thresholdValue,
+                    current_value: currentValue,
+                    crossing_direction: tp.crossing_type === 'rising' ? 'above' as const : 'below' as const,
+                    affected_options: affectedOptions,
+                    margin,
+                  };
+                });
+                // Stable order by factor_id
+                thresholdAnalysis.sort((a, b) => a.factor_id.localeCompare(b.factor_id));
+
+                thresholdsStatus = 'computed';
+                thresholdsMeta = { duration_ms: Math.round(thresholdsDurationMs) };
+
+                req.log.info({
+                  event: 'threshold_analysis_computed',
+                  request_id: requestId,
+                  thresholds_count: thresholdAnalysis.length,
+                  duration_ms: Math.round(thresholdsDurationMs),
+                });
+              } else if (thresholdsResult.error?.code === 'ISL_TIMEOUT') {
+                thresholdsStatus = 'timeout';
+                thresholdsMeta = {
+                  reason: thresholdsResult.error.message,
+                  duration_ms: Math.round(thresholdsDurationMs),
+                };
+                req.log.warn({
+                  event: 'threshold_analysis_timeout',
+                  request_id: requestId,
+                  duration_ms: Math.round(thresholdsDurationMs),
+                });
+              } else {
+                thresholdsStatus = 'error';
+                thresholdsMeta = {
+                  reason: thresholdsResult.error?.message ?? 'ISL threshold analysis failed',
+                  duration_ms: Math.round(thresholdsDurationMs),
+                };
+                req.log.warn({
+                  event: 'threshold_analysis_error',
+                  request_id: requestId,
+                  error_code: thresholdsResult.error?.code,
+                  error_message: thresholdsResult.error?.message,
+                  duration_ms: Math.round(thresholdsDurationMs),
+                });
+              }
+            } catch (err) {
+              const thresholdsDurationMs = performance.now() - thresholdsStart;
+              thresholdsStatus = 'error';
+              thresholdsMeta = {
+                reason: (err as Error).message,
+                duration_ms: Math.round(thresholdsDurationMs),
+              };
+              req.log.warn({
+                event: 'threshold_analysis_exception',
+                request_id: requestId,
+                error: (err as Error).message,
+                duration_ms: Math.round(thresholdsDurationMs),
+              });
+              // Continue — threshold analysis is non-blocking
+            }
+          }
+        }
+
         // M2 Decision Review (LLM-generated review from CEE)
         // Gate on DECISION_REVIEW_ENABLE flag; runs independently of legacy CEE
         let m2DecisionReview: {
@@ -3171,7 +3349,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           m1Coaching,  // M1 coaching (Phase 2)
           m2DecisionReview,  // M2 Decision Review (LLM-generated)
           flipThresholds,  // Flip thresholds (tipping points) for UI
-          activeGoalConstraints  // CIL C1: goal_constraints for constraint result passthrough
+          activeGoalConstraints,  // CIL C1: goal_constraints for constraint result passthrough
+          thresholdsStatus,  // B10.3: Threshold analysis status
+          thresholdsMeta,    // B10.3: Threshold analysis metadata
+          thresholdAnalysis  // B10.3: Threshold analysis results
         ));
       } catch (err) {
         const totalMs = performance.now() - startTime;

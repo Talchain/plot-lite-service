@@ -63,6 +63,18 @@ export const ISL_TIMEOUT_MS =
 export const ISL_HEALTH_CHECK_TIMEOUT_MS =
   Number(process.env.ISL_HEALTH_CHECK_TIMEOUT_MS) || 5_000;
 
+/** ISL threshold analysis: maximum per-call timeout cap */
+export const ISL_THRESHOLDS_TIMEOUT_MS_CAP =
+  Number(process.env.ISL_THRESHOLDS_TIMEOUT_MS_CAP) || 10_000;
+
+/** ISL threshold analysis: minimum remaining request budget to attempt call */
+export const THRESHOLDS_MIN_REMAINING_BUDGET_MS =
+  Number(process.env.THRESHOLDS_MIN_REMAINING_BUDGET_MS) || 5_000;
+
+/** Overall request budget for /v2/run (used for threshold budget gating) */
+export const REQUEST_BUDGET_MS =
+  Number(process.env.REQUEST_BUDGET_MS) || 60_000;
+
 // -----------------------------------------------------------------------------
 // Startup logging helper
 // -----------------------------------------------------------------------------
@@ -80,5 +92,8 @@ export function logResolvedTimeouts(): void {
     CEE_PROXY_PROMPTS_WARM_TIMEOUT_MS,
     ISL_TIMEOUT_MS,
     ISL_HEALTH_CHECK_TIMEOUT_MS,
+    ISL_THRESHOLDS_TIMEOUT_MS_CAP,
+    THRESHOLDS_MIN_REMAINING_BUDGET_MS,
+    REQUEST_BUDGET_MS,
   });
 }
