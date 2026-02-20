@@ -36,8 +36,8 @@ export interface BoundaryContract {
  * PLoT → ISL boundary contract.
  *
  * Derived from: src/integrations/isl/translator-v3.ts
- *               src/integrations/isl/option-filter.ts
- *               src/integrations/isl/constraint-filter.ts
+ *               src/normalisation/option-filter.ts
+ *               src/normalisation/constraint-filter.ts
  */
 export const PLOT_TO_ISL_CONTRACT: BoundaryContract = {
   name: 'plot-to-isl',
@@ -54,7 +54,9 @@ export const PLOT_TO_ISL_CONTRACT: BoundaryContract = {
   filtered: [
     'nodes[kind=option]',
     'nodes[kind=decision]',
-    'nodes[kind=constraint]',
+    // Note: constraint nodes are NOT in NON_CAUSAL_NODE_KINDS at runtime.
+    // option-filter.ts comments mention constraint, but the constant is ['option', 'decision'].
+    // If constraint filtering is added in the future, add 'nodes[kind=constraint]' here.
     'edges[incident_to_filtered_nodes]',
   ],
 

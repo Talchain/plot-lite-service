@@ -40,10 +40,9 @@ const SOURCE_FIELDS_UNDER_CONTRACT = [
   'request_id',
   'analysis_types',
   'parameter_uncertainties[].distribution',
-  // Filtered node kinds
+  // Filtered node kinds (runtime NON_CAUSAL_NODE_KINDS = ['option', 'decision'])
   'nodes[kind=option]',
   'nodes[kind=decision]',
-  'nodes[kind=constraint]',
 ];
 
 // ---------------------------------------------------------------------------

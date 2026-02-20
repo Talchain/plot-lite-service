@@ -1190,7 +1190,7 @@ export interface RationaleV3 {
 /**
  * Repair action type.
  */
-export type RepairAction = 'clamped' | 'defaulted' | 'inferred' | 'floored' | 'derived' | 'normalised';
+export type RepairAction = 'clamped' | 'defaulted' | 'inferred' | 'floored' | 'derived' | 'normalised' | 'removed';
 
 /**
  * Record of a repair applied during normalisation.

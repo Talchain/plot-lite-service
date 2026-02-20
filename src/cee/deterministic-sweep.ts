@@ -99,7 +99,7 @@ export function fixGoalThresholdNoRaw(
       stripThresholdFields(node);
       repairs.push({
         field: `nodes[${i}].goal_threshold`,
-        action: 'removed' as any,
+        action: 'removed',
         from_value: String(originalValue),
         to_value: 'stripped',
         reason: 'goal_threshold present without goal_threshold_raw — likely LLM fabrication (Step 4b)',
@@ -182,7 +182,7 @@ export function stripGoalThresholdNoDigits(
     stripThresholdFields(node);
     repairs.push({
       field: `nodes[${i}].goal_threshold`,
-      action: 'removed' as any,
+      action: 'removed',
       from_value: String(originalValue),
       to_value: 'stripped',
       reason: 'GOAL_THRESHOLD_STRIPPED_NO_DIGITS: both goal_threshold and goal_threshold_raw present, but label contains no digits — LLM fabrication (Step 4b-iii)',
