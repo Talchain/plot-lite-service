@@ -3165,8 +3165,12 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                     margin,
                   };
                 });
-                // Stable order by factor_id
-                thresholdAnalysis.sort((a, b) => a.factor_id.localeCompare(b.factor_id));
+                // Stable order: factor_id → threshold_value → crossing_direction
+                thresholdAnalysis.sort((a, b) =>
+                  a.factor_id.localeCompare(b.factor_id)
+                  || a.threshold_value - b.threshold_value
+                  || a.crossing_direction.localeCompare(b.crossing_direction)
+                );
 
                 thresholdsStatus = 'computed';
                 thresholdsMeta = { duration_ms: Math.round(thresholdsDurationMs) };

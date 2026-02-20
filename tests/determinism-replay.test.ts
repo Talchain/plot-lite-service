@@ -132,6 +132,9 @@ const IGNORE_FIELDS = [
   'timestamp', // ceeTrace.timestamp, downstream_calls timestamps
   'plot_request_id', // ceeTrace.plot_request_id (per-request UUID)
   'cee_sent_request_id', // ceeTrace.cee_sent_request_id (per-request UUID)
+  'thresholds_status',   // B10.3: depends on ISL call timing, not deterministic inputs
+  'thresholds_meta',     // B10.3: contains duration_ms (volatile timing)
+  'threshold_analysis',  // B10.3: presence depends on ISL call success/timing
 ];
 
 /** Sort arrays by their natural key so element order doesn't cause false mismatches. */

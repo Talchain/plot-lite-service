@@ -9,6 +9,7 @@
  * 5. response_hash identical with/without include_thresholds
  * 6. Label enrichment with missing labels → fallback to IDs
  * 7. affected_options stable-ordered by option_id
+ * 8. Same factor_id, different threshold_value → sorted by ascending threshold_value
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
@@ -459,5 +460,73 @@ describe('Threshold Analysis (B10.3)', () => {
     // Labels enriched from options
     expect(factorAThreshold.affected_options[0].option_label).toBe('Increase Marketing');
     expect(factorAThreshold.affected_options[1].option_label).toBe('Boost Hiring');
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 8: Same factor_id tie-broken by threshold_value (ascending)
+  // -------------------------------------------------------------------------
+  it('same factor_id → sorted by ascending threshold_value', async () => {
+    // Return two thresholds for the SAME factor with different threshold_values
+    const originalCall = mockISLService.callAnalysisEndpoint;
+    mockISLService.callAnalysisEndpoint = async function <T>(endpoint: string, body: any): Promise<any> {
+      if (endpoint === '/api/v1/analysis/thresholds') {
+        thresholdEndpointCalled = true;
+        return {
+          data: {
+            thresholds: [
+              {
+                sweep_id: 'sweep-high',
+                node_id: 'factor-a',
+                parameter: 'value',
+                threshold_value: 0.9,       // higher value, listed first
+                crossing_type: 'rising',
+                options_affected: ['opt1'],
+                description: 'High breakpoint',
+              },
+              {
+                sweep_id: 'sweep-low',
+                node_id: 'factor-a',
+                parameter: 'value',
+                threshold_value: 0.3,       // lower value, listed second
+                crossing_type: 'falling',
+                options_affected: ['opt2'],
+                description: 'Low breakpoint',
+              },
+            ],
+            sensitivity_ranking: [],
+            summary: 'Two piecewise breakpoints for same factor',
+          } as T,
+          error: null,
+          latency_ms: 10,
+        };
+      }
+      return originalCall.call(this, endpoint, body);
+    };
+
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v2/run',
+        headers: { 'Content-Type': 'application/json' },
+        payload: JSON.stringify({ ...BASE_PAYLOAD, include_thresholds: true }),
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.body);
+
+      expect(body.thresholds_status).toBe('computed');
+      expect(body.threshold_analysis).toHaveLength(2);
+
+      // Both share factor_id 'factor-a' — must be sorted by threshold_value ascending
+      expect(body.threshold_analysis[0].factor_id).toBe('factor-a');
+      expect(body.threshold_analysis[0].threshold_value).toBe(0.3);
+      expect(body.threshold_analysis[0].crossing_direction).toBe('below');
+
+      expect(body.threshold_analysis[1].factor_id).toBe('factor-a');
+      expect(body.threshold_analysis[1].threshold_value).toBe(0.9);
+      expect(body.threshold_analysis[1].crossing_direction).toBe('above');
+    } finally {
+      mockISLService.callAnalysisEndpoint = originalCall;
+    }
   });
 });
