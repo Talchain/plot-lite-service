@@ -253,8 +253,10 @@ export function canonicaliseRequest(
       nodes: [...normalizedGraph.nodes]
         .sort((a, b) => a.id.localeCompare(b.id))
         .map(canonicaliseNode),
-      // Sort edges by (from, to)
+      // Sort edges by (from, to). Exclude bidirected edges — they are trust
+      // annotations that don't affect inference results (ISL never sees them).
       edges: [...normalizedGraph.edges]
+        .filter((e) => e.edge_type !== 'bidirected')
         .sort((a, b) => a.from.localeCompare(b.from) || a.to.localeCompare(b.to))
         .map(canonicaliseEdge),
     },

@@ -43,8 +43,11 @@ export interface OptionPathResult {
 /**
  * Build an adjacency list from graph edges.
  *
- * Only includes edges with exists_probability > 0.
- * This is the foundation for BFS reachability checks.
+ * Only includes directed edges with exists_probability > 0.
+ * Bidirected edges (edge_type === 'bidirected') are excluded because they
+ * represent unmeasured confounding, not causal direction — they must not
+ * participate in cycle detection, topological ordering, or path reachability.
+ * This is the single canonical filter point for all DAG validation code.
  *
  * @param edges Graph edges
  * @returns Adjacency list (from → [to, to, ...])
@@ -53,6 +56,11 @@ export function buildAdjacencyList(edges: EngineEdgeV3[]): AdjacencyList {
   const adjacency: AdjacencyList = new Map();
 
   for (const edge of edges) {
+    // Skip bidirected edges — they are trust annotations, not causal directions
+    if (edge.edge_type === 'bidirected') {
+      continue;
+    }
+
     // Skip edges with zero existence probability
     if (edge.exists_probability <= 0) {
       continue;

@@ -708,13 +708,20 @@ export function normaliseEdge(
     }
   }
 
-  return {
+  const result: EngineEdgeV3 = {
     from,
     to,
     exists_probability: existsProbability,
     strength: { mean, std },
     label: edge.label ? cleanLabelAnnotation(edge.label) || undefined : edge.label,
   };
+
+  // 3A-trust: Preserve edge_type through normalization (bidirected edges)
+  if (edge.edge_type === 'bidirected') {
+    result.edge_type = 'bidirected';
+  }
+
+  return result;
 }
 
 // -----------------------------------------------------------------------------

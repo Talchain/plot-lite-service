@@ -380,11 +380,15 @@ export function toISLRobustnessRequest(
   // CIL 0.1: forward seed to ISL for deterministic Monte Carlo runs
   seed?: string | number
 ): ISLRobustnessRequestV3 {
+  // Bidirected edges are trust-layer only (identifiability + warnings).
+  // ISL operates on directed edges only. Phase 3A-inference will add inference semantics.
+  const directedEdges = graph.edges.filter((e) => e.edge_type !== 'bidirected');
+
   const request: ISLRobustnessRequestV3 = {
     request_id: requestId,
     graph: {
       nodes: graph.nodes.map(toISLNode),
-      edges: graph.edges.map(toISLEdge),
+      edges: directedEdges.map(toISLEdge),
     },
     options: options.map(toISLOption),
     goal_node_id: goalNodeId,

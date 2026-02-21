@@ -104,7 +104,7 @@ import { ReviewSkipReasons, type ReviewSkipReason } from '../../cee/validation/m
 import { getDownstreamCallsForLog } from '../../util/downstream-tracker.js';
 import { computeFactorSensitivityFromGraph } from '../../lib/factor-influence.js';
 import { NEAR_TIE_THRESHOLD } from '../../trust/result-coherence.js';
-import { assessGraphIdentifiability, toIdentifiabilityResponse } from '../../trust/identifiability-v2.js';
+import { assessGraphIdentifiability, toIdentifiabilityResponse, detectUnmeasuredConfounding } from '../../trust/identifiability-v2.js';
 import type { IdentifiabilityAssessment } from '../../types/engine-v3.js';
 import {
   normaliseOptionsForISL,
@@ -2213,6 +2213,25 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             source: 'validation',
             blocks_analysis: false,
           });
+
+          // 3A-trust: Emit UNMEASURED_CONFOUNDING_WARNING when bidirected edges
+          // caused pairs to become non-identifiable
+          const hasBidirectedEdges = filteredGraph.edges.some((e) => e.edge_type === 'bidirected');
+          if (hasBidirectedEdges) {
+            const affectedCount = detectUnmeasuredConfounding(
+              identifiabilityResult, filteredGraph, normalizedOptions, body.goal_node_id
+            );
+            if (affectedCount > 0) {
+              preflight.warnings.push({
+                id: randomUUID(),
+                code: 'UNMEASURED_CONFOUNDING_WARNING',
+                severity: 'warning',
+                message: `${affectedCount} treatment-outcome pair(s) may be affected by unmeasured confounding (represented by bidirected edges). The causal effect cannot be fully isolated using observed factors alone. Treat results for affected options with additional caution.`,
+                source: 'validation',
+                blocks_analysis: false,
+              });
+            }
+          }
         }
 
         // =================================================================
@@ -3144,8 +3163,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               // ISL endpoint with { plot_request_id, sweep_results } (pre-computed sweeps).
               // This payload shape (graph+options+seed) is prescribed by the B10.3 brief
               // for ISL's native threshold computation mode.
+              // Bidirected edges are trust-layer only (identifiability + warnings).
+              // ISL operates on directed edges only. Phase 3A-inference will add inference semantics.
               const thresholdsPayload = {
-                graph: { nodes: filteredGraph.nodes, edges: filteredGraph.edges },
+                graph: { nodes: filteredGraph.nodes, edges: filteredGraph.edges.filter(e => e.edge_type !== 'bidirected') },
                 options: normalizedOptions.map(o => ({
                   id: o.id,
                   label: o.label,

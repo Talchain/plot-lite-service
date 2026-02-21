@@ -387,17 +387,22 @@ export function findReachable(
  * @param dag - The directed acyclic graph
  * @param treatment - The treatment/intervention variable
  * @param outcome - The outcome variable
+ * @param excludeFromAdjustment - Optional set of node IDs to exclude from candidates
+ *   (e.g., latent nodes injected during bidirected edge expansion)
  */
 export function findBackdoorAdjustmentSet(
   dag: DAG,
   treatment: string,
-  outcome: string
+  outcome: string,
+  excludeFromAdjustment?: Set<string>
 ): string[] {
   const treatmentDescendants = findAllDescendants(dag, treatment);
 
-  // Candidate adjustment variables: all nodes except treatment, outcome, and descendants of treatment
+  // Candidate adjustment variables: all nodes except treatment, outcome, descendants of treatment,
+  // and any explicitly excluded nodes (e.g., latent nodes from bidirected edge expansion)
   const candidates = dag.nodes.filter(
     (n) => n !== treatment && n !== outcome && !treatmentDescendants.has(n)
+      && !(excludeFromAdjustment?.has(n))
   );
 
   // Start with minimal set: common ancestors (potential confounders)

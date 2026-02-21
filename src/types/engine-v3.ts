@@ -138,6 +138,10 @@ export interface UpstreamEdge {
   // Metadata
   label?: string;
   provenance?: string;
+
+  // Directionality (3A-trust)
+  /** 'directed' (default) = A→B causal edge. 'bidirected' = A↔B unmeasured confounding. */
+  edge_type?: 'directed' | 'bidirected';
 }
 
 /**
@@ -217,6 +221,8 @@ export interface EngineEdgeV3 {
   };
   /** Optional label */
   label?: string;
+  /** Edge directionality. 'directed' (default) = A→B causal edge. 'bidirected' = A↔B unmeasured confounding. */
+  edge_type?: 'directed' | 'bidirected';
 }
 
 /**

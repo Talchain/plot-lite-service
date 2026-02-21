@@ -341,6 +341,9 @@ export function createISLService(): ISLService {
       const startMs = Date.now();
       try {
         // Build ISL request payload
+        // Bidirected edges are trust-layer only (identifiability + warnings).
+        // ISL operates on directed edges only. Phase 3A-inference will add inference semantics.
+        const directedEdges = graph.edges.filter((e) => (e as any).edge_type !== 'bidirected');
         const requestPayload = {
           request_id: requestId,
           graph: {
@@ -350,7 +353,7 @@ export function createISLService(): ISLService {
               label: n.label,
               observed_state: n.observed_state,
             })),
-            edges: graph.edges.map((e) => ({
+            edges: directedEdges.map((e) => ({
               from: e.from,
               to: e.to,
               weight: e.weight,
@@ -454,6 +457,9 @@ export function createISLService(): ISLService {
         console.log(JSON.stringify(islRequestLog));
 
         // Build ISL request payload with all three analysis types
+        // Bidirected edges are trust-layer only (identifiability + warnings).
+        // ISL operates on directed edges only. Phase 3A-inference will add inference semantics.
+        const robustnessDirectedEdges = graph.edges.filter((e) => (e as any).edge_type !== 'bidirected');
         const requestPayload = {
           request_id: requestId,
           graph: {
@@ -463,7 +469,7 @@ export function createISLService(): ISLService {
               label: n.label,
               observed_state: n.observed_state,
             })),
-            edges: graph.edges.map((e) => ({
+            edges: robustnessDirectedEdges.map((e) => ({
               from: e.from,
               to: e.to,
               weight: e.weight,
@@ -652,7 +658,11 @@ export function createISLService(): ISLService {
 function graphToISLDAG(graph: Graph): ISLDAGStructure {
   return {
     nodes: graph.nodes.map((n) => n.id),
-    edges: graph.edges.map((e) => [e.from, e.to] as [string, string]),
+    // Bidirected edges are trust-layer only (identifiability + warnings).
+    // ISL operates on directed edges only. Phase 3A-inference will add inference semantics.
+    edges: graph.edges
+      .filter((e) => (e as any).edge_type !== 'bidirected')
+      .map((e) => [e.from, e.to] as [string, string]),
   };
 }
 
