@@ -125,6 +125,28 @@ const OPTIONS_DIRECTED = [
   { id: 'opt2', label: 'Option B', interventions: { 'factor-b': { value: 5, source: 'user_specified' } } },
 ];
 
+/**
+ * Graph with INVALID bidirected edge (factor↔goal).
+ * Should emit INVALID_BIDIRECTED_EDGE warning and NOT emit
+ * UNMEASURED_CONFOUNDING_WARNING (because the invalid edge is filtered
+ * before identifiability analysis).
+ */
+const INVALID_BIDIRECTED_GRAPH = {
+  nodes: [
+    { id: 'goal', kind: 'goal', label: 'Revenue' },
+    { id: 'factor-a', kind: 'factor', label: 'Marketing Spend', observed_state: { value: 0.6 } },
+  ],
+  edges: [
+    { from: 'factor-a', to: 'goal', strength: { mean: 0.5, std: 0.1 } },
+    { from: 'factor-a', to: 'goal', strength: { mean: 0.5, std: 0.1 }, edge_type: 'bidirected' },
+  ],
+};
+
+const OPTIONS_INVALID_BIDIRECTED = [
+  { id: 'opt1', label: 'Option A', interventions: { 'factor-a': { value: 10, source: 'user_specified' } } },
+  { id: 'opt2', label: 'Option B', interventions: { 'factor-a': { value: 20, source: 'user_specified' } } },
+];
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -178,6 +200,35 @@ describe('3A-trust: Route-level critique emission (T7a)', () => {
     expect(confoundWarning.severity).toBe('warning');
     expect(confoundWarning.blocks_analysis).toBe(false);
     expect(confoundWarning.message).toContain('unmeasured confounding');
+  });
+
+  it('invalid bidirected (factor↔goal) emits INVALID_BIDIRECTED_EDGE, no UNMEASURED_CONFOUNDING_WARNING', async () => {
+    const res = await fetch(`${baseUrl}/v2/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        graph: INVALID_BIDIRECTED_GRAPH,
+        options: OPTIONS_INVALID_BIDIRECTED,
+        goal_node_id: 'goal',
+        seed: '42',
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+
+    const critiques = body.critiques ?? [];
+
+    // INVALID_BIDIRECTED_EDGE warning should be present
+    const invalidWarning = critiques.find((c: any) => c.code === 'INVALID_BIDIRECTED_EDGE');
+    expect(invalidWarning).toBeDefined();
+    expect(invalidWarning.severity).toBe('warning');
+    expect(invalidWarning.blocks_analysis).toBe(false);
+    expect(invalidWarning.message).toContain('unmeasured confounding is only meaningful between factor nodes');
+
+    // UNMEASURED_CONFOUNDING_WARNING should NOT be present (invalid edge was filtered)
+    const confoundWarning = critiques.find((c: any) => c.code === 'UNMEASURED_CONFOUNDING_WARNING');
+    expect(confoundWarning).toBeUndefined();
   });
 
   it('directed-only graph does NOT emit UNMEASURED_CONFOUNDING_WARNING', async () => {

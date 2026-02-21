@@ -184,6 +184,11 @@ const MAX_DETAILS = 20;
  * Bidirected edges are internally expanded into latent nodes for
  * identifiability checking. The latent nodes are never exposed in output.
  *
+ * **Precondition:** Callers should pre-filter the graph with
+ * `filterInvalidBidirectedEdges()` so that only valid bidirected edges
+ * (factor↔factor) reach this function. This function expands ALL
+ * bidirected edges it receives without node-kind validation.
+ *
  * @returns InternalIdentifiabilityResult, or undefined on error
  */
 export function assessGraphIdentifiability(
