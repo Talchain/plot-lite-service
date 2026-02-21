@@ -44,17 +44,30 @@
  * **Migration**: ALL hashes change from v2 due to the version prefix bump (v2→v3).
  * Non-constraint requests have an identical canonical form to v2 except for
  * the version field, but still produce different hashes. Cache invalidation required.
+ *
+ * ## BREAKING CHANGE (v4)
+ *
+ * Hash version 4 adds identifiability assessment to the canonical form:
+ *
+ * 1. **identifiability inclusion**: Identifiability status now affects the hash
+ *    - Previous: Two graphs with different identifiability produced same hash
+ *    - Current:  identifiability { status, pairs_checked, pairs_identifiable } included
+ *    - Impact: ALL hashes change due to version prefix bump (v3→v4)
+ *
+ * **Migration**: ALL hashes change from v3. Cache invalidation required.
+ * Identifiability is a deterministic function of graph structure (backdoor criterion),
+ * so it does not introduce non-determinism into the hash.
  */
 
 import { createHash } from 'node:crypto';
-import type { RunRequestV3, OptionV3, EngineGraphV3, GoalConstraint } from '../types/engine-v3.js';
+import type { RunRequestV3, OptionV3, EngineGraphV3, GoalConstraint, IdentifiabilityAssessment } from '../types/engine-v3.js';
 
 // -----------------------------------------------------------------------------
 // Constants
 // -----------------------------------------------------------------------------
 
 /** Hash version to prevent collisions when canonicalisation changes */
-const HASH_VERSION = 3;
+const HASH_VERSION = 4;
 
 /** Number of decimal places for float normalisation */
 const DECIMAL_PRECISION = 12;
@@ -221,11 +234,18 @@ interface CanonicalRequest {
     edges: CanonicalEdge[];
   };
   options: CanonicalOption[];
+  /** Identifiability assessment — deterministic function of graph structure */
+  identifiability?: {
+    status: string;
+    pairs_checked: number;
+    pairs_identifiable: number;
+  };
 }
 
 /**
  * Build a canonical representation of the request.
- * Only includes semantic fields that affect inference results.
+ * Includes semantic fields that affect inference results, plus
+ * deterministic derived fields (identifiability) that are user-visible.
  *
  * Sorting rules:
  * - Nodes sorted by id
@@ -236,12 +256,14 @@ interface CanonicalRequest {
  * @param req V2 run request
  * @param normalizedGraph Normalized graph (post-normalisation)
  * @param seedUsed Seed that will be used (already normalised to string)
+ * @param identifiability Optional identifiability assessment (deterministic, included in hash)
  * @returns Canonical JSON string
  */
 export function canonicaliseRequest(
   req: RunRequestV3,
   normalizedGraph: EngineGraphV3,
-  seedUsed: string
+  seedUsed: string,
+  identifiability?: IdentifiabilityAssessment
 ): string {
   const canonical: CanonicalRequest = {
     version: HASH_VERSION,
@@ -287,6 +309,17 @@ export function canonicaliseRequest(
       }));
   }
 
+  // 3C: Identifiability is a deterministic function of graph structure.
+  // Include in hash so that graphs with different identifiability status
+  // (e.g., due to bidirected edges) produce different hashes.
+  if (identifiability) {
+    canonical.identifiability = {
+      status: identifiability.status,
+      pairs_checked: identifiability.pairs_checked,
+      pairs_identifiable: identifiability.pairs_identifiable,
+    };
+  }
+
   return JSON.stringify(canonical);
 }
 
@@ -306,13 +339,15 @@ export function computeResponseHash(canonicalised: string): string {
  * @param req V2 run request
  * @param normalizedGraph Normalized graph (post-normalisation)
  * @param seedUsed Seed that will be used (already normalised to string)
+ * @param identifiability Optional identifiability assessment
  * @returns 16-character hex hash
  */
 export function hashRequest(
   req: RunRequestV3,
   normalizedGraph: EngineGraphV3,
-  seedUsed: string
+  seedUsed: string,
+  identifiability?: IdentifiabilityAssessment
 ): string {
-  const canonical = canonicaliseRequest(req, normalizedGraph, seedUsed);
+  const canonical = canonicaliseRequest(req, normalizedGraph, seedUsed, identifiability);
   return computeResponseHash(canonical);
 }

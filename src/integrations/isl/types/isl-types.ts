@@ -196,6 +196,16 @@ export interface ISLFactorSensitivityItem {
   value_of_information?: number;
   /** Direction of impact */
   direction?: 'positive' | 'negative' | 'mixed';
+
+  // 3C stability fields (ISL bootstrap analysis)
+  /** Bootstrap standard deviation of the elasticity estimate */
+  elasticity_std?: number;
+  /** Attribution stability category */
+  attribution_stability?: 'high' | 'moderate' | 'low' | 'negligible';
+  /** Rate at which this factor's rank flips across bootstrap samples */
+  rank_flip_rate?: number;
+  /** Method used to compute stability metrics */
+  stability_method?: string;
 }
 
 /**

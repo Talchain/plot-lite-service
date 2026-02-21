@@ -848,7 +848,7 @@ export interface RunResponseV3 {
    * Always present (uses status='unknown' when check could not run).
    * WARNING only — never blocks analysis.
    *
-   * NOTE: Non-semantic metadata. Excluded from response_hash.
+   * NOTE: Deterministic function of graph structure. Included in response_hash (v3+).
    */
   identifiability: IdentifiabilityAssessment;
 
@@ -1163,6 +1163,16 @@ export interface FactorSensitivityResultV3 {
    * - 'negligible': Minimal flip risk
    */
   flip_risk_category?: 'isolated' | 'correlated' | 'negligible';
+
+  // 3C stability fields — enriched from ISL when graph-based is primary
+  /** Bootstrap standard deviation of the elasticity estimate (from ISL) */
+  elasticity_std?: number;
+  /** Attribution stability category (from ISL) */
+  attribution_stability?: 'high' | 'moderate' | 'low' | 'negligible';
+  /** Rate at which this factor's rank flips across bootstrap samples (from ISL) */
+  rank_flip_rate?: number;
+  /** Method used by ISL to compute stability metrics */
+  stability_method?: string;
 }
 
 /**

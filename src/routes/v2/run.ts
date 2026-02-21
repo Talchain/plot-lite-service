@@ -212,7 +212,7 @@ function transformFactorSensitivity(islFactorSensitivity: unknown): FactorSensit
     // Missing data means "we couldn't compute influence" which is semantically
     // different from "this factor has zero influence". Let undefined pass through.
     // Preserve ALL ISL fields - do not silently drop any.
-    return {
+    const entry: FactorSensitivityResultV3 = {
       // Core identification
       factor_id: f.node_id ?? f.factor_id,
       factor_label: f.label ?? null,
@@ -238,6 +238,57 @@ function transformFactorSensitivity(islFactorSensitivity: unknown): FactorSensit
       // Mark source as ISL
       source: 'isl' as const,
     };
+
+    // 3C stability fields — carry through when ISL provides them
+    if (f.elasticity_std !== undefined) entry.elasticity_std = f.elasticity_std;
+    if (f.attribution_stability !== undefined) entry.attribution_stability = f.attribution_stability;
+    if (f.rank_flip_rate !== undefined) entry.rank_flip_rate = f.rank_flip_rate;
+    if (f.stability_method !== undefined) entry.stability_method = f.stability_method;
+
+    return entry;
+  });
+}
+
+/**
+ * Enrich graph-based factor sensitivity entries with ISL 3C stability fields.
+ *
+ * Graph-based is primary — ISL data is used only for the 3C enrichment fields
+ * (elasticity_std, attribution_stability, rank_flip_rate, stability_method).
+ * Matching is by factor_id ↔ ISL node_id.
+ *
+ * When ISL data is unavailable or a factor has no ISL match, 3C fields are absent.
+ */
+function enrichGraphFactorsWithISL3C(
+  graphFactors: FactorSensitivityResultV3[],
+  islFactors: FactorSensitivityResultV3[] | undefined
+): FactorSensitivityResultV3[] {
+  if (!islFactors || islFactors.length === 0) return graphFactors;
+
+  // Build ISL lookup by factor_id
+  const islMap = new Map<string, FactorSensitivityResultV3>();
+  for (const f of islFactors) {
+    islMap.set(f.factor_id, f);
+  }
+
+  return graphFactors.map((gf) => {
+    const islMatch = islMap.get(gf.factor_id);
+    if (!islMatch) return gf;
+
+    // Only copy 3C fields that ISL provided (don't set undefined/null)
+    const enriched = { ...gf };
+    if (islMatch.elasticity_std !== undefined && islMatch.elasticity_std !== null) {
+      enriched.elasticity_std = islMatch.elasticity_std;
+    }
+    if (islMatch.attribution_stability !== undefined && islMatch.attribution_stability !== null) {
+      enriched.attribution_stability = islMatch.attribution_stability;
+    }
+    if (islMatch.rank_flip_rate !== undefined && islMatch.rank_flip_rate !== null) {
+      enriched.rank_flip_rate = islMatch.rank_flip_rate;
+    }
+    if (islMatch.stability_method !== undefined && islMatch.stability_method !== null) {
+      enriched.stability_method = islMatch.stability_method;
+    }
+    return enriched;
   });
 }
 
@@ -2242,7 +2293,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // =================================================================
         // Phase 3: Compute Response Hash
         // =================================================================
-        const responseHash = hashRequest(body, filteredGraph, seedUsed);
+        const responseHash = hashRequest(body, filteredGraph, seedUsed, toIdentifiabilityResponse(identifiabilityResult));
 
         // =================================================================
         // Phase 4: ISL Call
@@ -2860,9 +2911,21 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         );
         const islFactorSensitivity = transformFactorSensitivity(islResult.factor_sensitivity);
 
-        // Use graph-based if available, otherwise fall back to ISL
-        const factorSensitivity = graphBasedFactorSensitivity ?? islFactorSensitivity;
-        const factorSensitivitySource = graphBasedFactorSensitivity ? 'graph' : 'isl';
+        // Use graph-based if available, otherwise fall back to ISL.
+        // When graph is primary, enrich each entry with ISL 3C stability fields
+        // (elasticity_std, attribution_stability, rank_flip_rate, stability_method)
+        // by matching factor_id ↔ ISL node_id.
+        let factorSensitivity: FactorSensitivityResultV3[] | undefined;
+        let factorSensitivitySource: string;
+        if (graphBasedFactorSensitivity) {
+          factorSensitivity = enrichGraphFactorsWithISL3C(
+            graphBasedFactorSensitivity, islFactorSensitivity
+          );
+          factorSensitivitySource = 'graph';
+        } else {
+          factorSensitivity = islFactorSensitivity;
+          factorSensitivitySource = 'isl';
+        }
 
         // Log which source was used for factor sensitivity
         req.log.info({
