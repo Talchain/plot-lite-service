@@ -1,8 +1,9 @@
 /**
  * 3A-trust: Bidirected Edge Tests
  *
- * 14 test cases covering bidirected edge handling for identifiability,
- * ISL filtering, response hash, warnings, normalization, and DAG validators.
+ * 18 test cases covering bidirected edge handling for identifiability,
+ * ISL filtering, response hash, warnings, normalization, DAG validators,
+ * and node-kind guardrails.
  *
  * 1.  Bidirected between treatment and outcome → not_backdoor_identifiable
  * 2.  Bidirected between treatment ancestor and outcome → not_backdoor_identifiable
@@ -19,6 +20,10 @@
  * 11. Latent node ID collision guard
  * 12. DAG validators accept bidirected edges
  * 13. Normalization preserves edge_type through pipeline
+ * 14. Node-kind guardrail: valid factor↔factor → no warning
+ * 15. Node-kind guardrail: invalid option↔factor → INVALID_BIDIRECTED_EDGE warning
+ * 16. Node-kind guardrail: invalid factor↔goal → INVALID_BIDIRECTED_EDGE warning
+ * 17. Node-kind guardrail: mixed valid + invalid → valid processed, invalid warned
  */
 
 import { describe, it, expect } from 'vitest';
@@ -32,6 +37,7 @@ import { buildAdjacencyList } from '../src/validation/path-to-goal.js';
 import { toISLRobustnessRequest } from '../src/integrations/isl/translator-v3.js';
 import { normaliseEdge } from '../src/normalisation/graph-normaliser.js';
 import { canonicaliseRequest, computeResponseHash } from '../src/normalisation/canonicalise.js';
+import { runPreflightValidation, filterInvalidBidirectedEdges } from '../src/validation/preflight-v2.js';
 import type { EngineGraphV3, OptionV3, RunRequestV3, UpstreamEdge } from '../src/types/engine-v3.js';
 
 // ---------------------------------------------------------------------------
@@ -446,5 +452,127 @@ describe('3A-trust: Bidirected Edges', () => {
 
     const normalisedExplicit = normaliseEdge(explicitDirected, 2, nodeKindMap);
     expect(normalisedExplicit.edge_type).toBeUndefined();
+  });
+
+  // =========================================================================
+  // Tests 14-17: Node-kind guardrail for bidirected edges
+  // =========================================================================
+
+  const defaultStats = {
+    optionNodesFiltered: 0,
+    optionEdgesFiltered: 0,
+    nodesNormalised: 3,
+    edgesNormalised: 2,
+  };
+
+  // T14: Valid bidirected (factor↔factor) — no warning, processed by identifiability
+  it('T14: factor↔factor bidirected → no INVALID_BIDIRECTED_EDGE warning', () => {
+    const graph: EngineGraphV3 = {
+      nodes: [node('A', 'factor'), node('B', 'factor'), node('Goal', 'goal')],
+      edges: [edge('A', 'Goal'), edge('B', 'Goal'), biedge('A', 'B')],
+    };
+    const opts = [option('opt1', { A: 10 }), option('opt2', { B: 20 })];
+
+    const preflight = runPreflightValidation(graph, opts, 'Goal', defaultStats);
+
+    const invalidWarnings = preflight.warnings.filter(w => w.code === 'INVALID_BIDIRECTED_EDGE');
+    expect(invalidWarnings).toHaveLength(0);
+
+    // Edge should survive filtering and be used by identifiability
+    const filtered = filterInvalidBidirectedEdges(graph);
+    expect(filtered.edges.filter(e => e.edge_type === 'bidirected')).toHaveLength(1);
+  });
+
+  // T15: Invalid bidirected (option↔factor) — warning emitted, excluded from identifiability
+  // Note: option nodes are normally removed by filterOptionNodes before preflight,
+  // but we test the guardrail directly on the graph that reaches preflight.
+  // In practice, this guards against non-factor kinds that survive filtering
+  // (e.g., action↔factor). We use 'action' as the non-factor stand-in.
+  it('T15: action↔factor bidirected → INVALID_BIDIRECTED_EDGE warning, excluded from identifiability', () => {
+    const graph: EngineGraphV3 = {
+      nodes: [
+        node('A', 'factor'),
+        node('R', 'action'),
+        node('Goal', 'goal'),
+      ],
+      edges: [edge('A', 'Goal'), edge('R', 'Goal'), biedge('R', 'A')],
+    };
+    const opts = [option('opt1', { A: 10 }), option('opt2', { A: 20 })];
+
+    const preflight = runPreflightValidation(graph, opts, 'Goal', defaultStats);
+
+    const invalidWarnings = preflight.warnings.filter(w => w.code === 'INVALID_BIDIRECTED_EDGE');
+    expect(invalidWarnings).toHaveLength(1);
+    expect(invalidWarnings[0].message).toContain('unmeasured confounding is only meaningful between factor nodes');
+    expect(invalidWarnings[0].affected_node_ids).toEqual(['R', 'A']);
+
+    // Edge should be removed by filterInvalidBidirectedEdges
+    const filtered = filterInvalidBidirectedEdges(graph);
+    expect(filtered.edges.filter(e => e.edge_type === 'bidirected')).toHaveLength(0);
+    // Directed edges preserved
+    expect(filtered.edges.filter(e => e.edge_type !== 'bidirected')).toHaveLength(2);
+  });
+
+  // T16: Invalid bidirected (factor↔goal) — warning emitted, excluded
+  it('T16: factor↔goal bidirected → INVALID_BIDIRECTED_EDGE warning, excluded from identifiability', () => {
+    const graph: EngineGraphV3 = {
+      nodes: [node('A', 'factor'), node('Goal', 'goal')],
+      edges: [edge('A', 'Goal'), biedge('A', 'Goal')],
+    };
+    const opts = [option('opt1', { A: 10 }), option('opt2', { A: 20 })];
+
+    const preflight = runPreflightValidation(graph, opts, 'Goal', defaultStats);
+
+    const invalidWarnings = preflight.warnings.filter(w => w.code === 'INVALID_BIDIRECTED_EDGE');
+    expect(invalidWarnings).toHaveLength(1);
+    expect(invalidWarnings[0].message).toContain('unmeasured confounding is only meaningful between factor nodes');
+
+    // Edge should be removed — identifiability should see only directed A→Goal
+    const filtered = filterInvalidBidirectedEdges(graph);
+    expect(filtered.edges).toHaveLength(1);
+    expect(filtered.edges[0].edge_type).toBeUndefined();
+
+    // Identifiability should see the graph as identifiable (no bidirected edges remain)
+    const result = assessGraphIdentifiability(filtered, opts, 'Goal');
+    expect(result).toBeDefined();
+    expect(result!.all_identifiable).toBe(true);
+  });
+
+  // T17: Mixed valid and invalid — valid processed, invalid warned and excluded
+  it('T17: mixed valid + invalid bidirected → valid processed, invalid warned', () => {
+    const graph: EngineGraphV3 = {
+      nodes: [
+        node('A', 'factor'),
+        node('B', 'factor'),
+        node('Goal', 'goal'),
+      ],
+      edges: [
+        edge('A', 'Goal'),
+        edge('B', 'Goal'),
+        biedge('A', 'B'),      // valid: factor↔factor
+        biedge('A', 'Goal'),   // invalid: factor↔goal
+      ],
+    };
+    const opts = [option('opt1', { A: 10 }), option('opt2', { B: 20 })];
+
+    // Preflight: one warning for the invalid edge
+    const preflight = runPreflightValidation(graph, opts, 'Goal', defaultStats);
+    const invalidWarnings = preflight.warnings.filter(w => w.code === 'INVALID_BIDIRECTED_EDGE');
+    expect(invalidWarnings).toHaveLength(1);
+    expect(invalidWarnings[0].affected_node_ids).toEqual(['A', 'Goal']);
+
+    // Filtering: valid bidirected preserved, invalid removed
+    const filtered = filterInvalidBidirectedEdges(graph);
+    const bidirected = filtered.edges.filter(e => e.edge_type === 'bidirected');
+    expect(bidirected).toHaveLength(1);
+    expect(bidirected[0].from).toBe('A');
+    expect(bidirected[0].to).toBe('B');
+
+    // Identifiability uses only valid bidirected edges
+    const result = assessGraphIdentifiability(filtered, opts, 'Goal');
+    expect(result).toBeDefined();
+    // A↔B (factor↔factor) doesn't affect A→Goal or B→Goal identifiability
+    // (bidirected is between two treatment nodes, not treatment↔outcome)
+    expect(result!.all_identifiable).toBe(true);
   });
 });

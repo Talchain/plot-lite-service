@@ -17,6 +17,7 @@ import {
 import type {
   EngineGraphV3,
   EngineNodeV3,
+  EngineEdgeV3,
   OptionV3,
   CritiqueV3,
   PreflightResultV3,
@@ -759,6 +760,89 @@ function validateInterventionScales(options: OptionV3[]): CritiqueV3[] {
   return [];
 }
 
+/**
+ * Validate bidirected edges connect only factor-kind nodes.
+ *
+ * Unmeasured confounding (bidirected edges) is only meaningful between factor
+ * nodes. Bidirected edges involving goals, outcomes, risks, actions, or other
+ * non-factor kinds are semantically invalid and should be excluded from
+ * identifiability analysis.
+ *
+ * Returns INVALID_BIDIRECTED_EDGE warnings for each invalid edge. The edges
+ * remain in the response graph but are skipped for identifiability computation.
+ */
+function validateBidirectedEdgeKinds(graph: EngineGraphV3): CritiqueV3[] {
+  const nodeKindMap = new Map<string, string>();
+  const nodeLabelMap = new Map<string, string>();
+  for (const n of graph.nodes) {
+    nodeKindMap.set(n.id, n.kind);
+    nodeLabelMap.set(n.id, n.label || n.id);
+  }
+
+  const warnings: CritiqueV3[] = [];
+
+  for (const edge of graph.edges) {
+    if (edge.edge_type !== 'bidirected') continue;
+
+    const fromKind = nodeKindMap.get(edge.from);
+    const toKind = nodeKindMap.get(edge.to);
+
+    // Both endpoints must be factor-kind for valid bidirected edges
+    if (fromKind !== 'factor' || toKind !== 'factor') {
+      const fromLabel = nodeLabelMap.get(edge.from) ?? edge.from;
+      const toLabel = nodeLabelMap.get(edge.to) ?? edge.to;
+      warnings.push(createWarning(
+        'INVALID_BIDIRECTED_EDGE',
+        `Bidirected edge between ${fromLabel} and ${toLabel} is invalid — unmeasured confounding is only meaningful between factor nodes. This edge will be ignored for identifiability analysis.`,
+        [edge.from, edge.to]
+      ));
+    }
+  }
+
+  return warnings;
+}
+
+/**
+ * Return true when a bidirected edge is valid for identifiability analysis
+ * (both endpoints are factor-kind nodes).
+ */
+function isValidBidirectedEdge(
+  edge: EngineEdgeV3,
+  nodeKindMap: Map<string, string>
+): boolean {
+  if (edge.edge_type !== 'bidirected') return true; // directed edges always pass
+  return nodeKindMap.get(edge.from) === 'factor' && nodeKindMap.get(edge.to) === 'factor';
+}
+
+/**
+ * Filter out bidirected edges with non-factor endpoints.
+ *
+ * Returns a graph copy where invalid bidirected edges are removed. Directed
+ * edges and valid bidirected edges (factor↔factor) are preserved.
+ *
+ * Use this before passing a graph to identifiability analysis so that
+ * nonsensical bidirected edges (e.g., factor↔goal) don't trigger latent
+ * expansion or confounding warnings.
+ */
+export function filterInvalidBidirectedEdges(graph: EngineGraphV3): EngineGraphV3 {
+  const nodeKindMap = new Map<string, string>();
+  for (const n of graph.nodes) {
+    nodeKindMap.set(n.id, n.kind);
+  }
+
+  const hasBadBidirected = graph.edges.some(
+    (e) => e.edge_type === 'bidirected' && !isValidBidirectedEdge(e, nodeKindMap)
+  );
+
+  // Fast path: no invalid bidirected edges → return original (no copy)
+  if (!hasBadBidirected) return graph;
+
+  return {
+    nodes: graph.nodes,
+    edges: graph.edges.filter((e) => isValidBidirectedEdge(e, nodeKindMap)),
+  };
+}
+
 // -----------------------------------------------------------------------------
 // Main Preflight Validation
 // -----------------------------------------------------------------------------
@@ -798,6 +882,9 @@ export function runPreflightValidation(
   blockers.push(...validateEdgeEndpoints(graph));
   blockers.push(...validateGraphSize(graph));
   blockers.push(...checkCycles(graph)); // V2: cycles are blockers
+
+  // 3A-trust: Validate bidirected edges connect only factor-kind nodes
+  warnings.push(...validateBidirectedEdgeKinds(graph));
 
   // Validate goal node
   const goalCritiques = validateGoalNode(graph, goalNodeId);

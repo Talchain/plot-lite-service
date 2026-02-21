@@ -58,7 +58,7 @@ import { normaliseGraph, NormalisationError, cleanLabelAnnotation, type Normalis
 import { filterOptionNodes } from '../../normalisation/option-filter.js';
 import { hashRequest } from '../../normalisation/canonicalise.js';
 import { hashGraph, deriveSeedFromHash } from '../../sampling/graph-hash.js';
-import { runPreflightValidation, validateGoalConstraints } from '../../validation/preflight-v2.js';
+import { runPreflightValidation, validateGoalConstraints, filterInvalidBidirectedEdges } from '../../validation/preflight-v2.js';
 import { compileConstraintNodes } from '../../normalisation/constraint-compiler.js';
 import { filterTemporalConstraints } from '../../normalisation/constraint-filter.js';
 import type { RawGoalConstraint, FilteredConstraintRecord } from '../../types/engine-v3.js';
@@ -2193,8 +2193,13 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // =================================================================
         // WARNING only — never blocks. Silent degradation on error (returns undefined).
         // Excluded from response hash (non-semantic metadata).
+        //
+        // 3A-trust: Only valid bidirected edges (factor↔factor) participate in
+        // identifiability. Invalid bidirected edges (e.g., factor↔goal) were
+        // warned in preflight and are excluded here via filterInvalidBidirectedEdges.
+        const identGraph = filterInvalidBidirectedEdges(filteredGraph);
         const identifiabilityResult = assessGraphIdentifiability(
-          filteredGraph,
+          identGraph,
           normalizedOptions,
           body.goal_node_id
         );
@@ -2216,10 +2221,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
 
           // 3A-trust: Emit UNMEASURED_CONFOUNDING_WARNING when bidirected edges
           // caused pairs to become non-identifiable
-          const hasBidirectedEdges = filteredGraph.edges.some((e) => e.edge_type === 'bidirected');
+          const hasBidirectedEdges = identGraph.edges.some((e) => e.edge_type === 'bidirected');
           if (hasBidirectedEdges) {
             const affectedCount = detectUnmeasuredConfounding(
-              identifiabilityResult, filteredGraph, normalizedOptions, body.goal_node_id
+              identifiabilityResult, identGraph, normalizedOptions, body.goal_node_id
             );
             if (affectedCount > 0) {
               preflight.warnings.push({

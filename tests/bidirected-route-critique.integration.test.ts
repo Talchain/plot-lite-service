@@ -78,15 +78,27 @@ import { createServer } from '../src/createServer.js';
 // Fixtures
 // ---------------------------------------------------------------------------
 
-/** Graph with bidirected edge between treatment and outcome → non-identifiable */
+/**
+ * Graph with valid bidirected edge (factor↔factor) that causes non-identifiability.
+ *
+ * factor-a → factor-b → goal (directed chain)
+ * factor-a ↔ factor-b (bidirected = unmeasured common cause)
+ *
+ * Latent expansion: L → factor-a, L → factor-b
+ * Backdoor path: factor-a ← L → factor-b → goal
+ * factor-b is a descendant of factor-a, so cannot be used for adjustment.
+ * L is latent (excluded). → NOT identifiable.
+ */
 const BIDIRECTED_GRAPH = {
   nodes: [
     { id: 'goal', kind: 'goal', label: 'Revenue' },
     { id: 'factor-a', kind: 'factor', label: 'Marketing Spend', observed_state: { value: 0.6 } },
+    { id: 'factor-b', kind: 'factor', label: 'Brand Awareness', observed_state: { value: 0.5 } },
   ],
   edges: [
-    { from: 'factor-a', to: 'goal', strength: { mean: 0.5, std: 0.1 } },
-    { from: 'factor-a', to: 'goal', strength: { mean: 0.5, std: 0.1 }, edge_type: 'bidirected' },
+    { from: 'factor-a', to: 'factor-b', strength: { mean: 0.5, std: 0.1 } },
+    { from: 'factor-b', to: 'goal', strength: { mean: 0.5, std: 0.1 } },
+    { from: 'factor-a', to: 'factor-b', strength: { mean: 0.5, std: 0.1 }, edge_type: 'bidirected' },
   ],
 };
 
