@@ -16,7 +16,7 @@
  *   (bypasses IDENT_DSEP_ENABLE env var gating in computeIdentifiability)
  * - WARNING only, never blocks analysis
  * - Silent degradation on error (returns status: 'unknown')
- * - Results excluded from response hash (non-semantic metadata)
+ * - Results included in response hash (v4+) — deterministic function of graph structure
  *
  * B1.5a: Adds boundary mapper (toIdentifiabilityResponse) that converts
  * internal computation result to the contracted IdentifiabilityAssessment shape.

@@ -102,7 +102,7 @@ import type { M1Review } from '../../cee/validation/m1-review-types.js';
 import type { ReviewStatus } from '../../cee/validation/m1-review-constants.js';
 import { ReviewSkipReasons, type ReviewSkipReason } from '../../cee/validation/m1-review-constants.js';
 import { getDownstreamCallsForLog } from '../../util/downstream-tracker.js';
-import { computeFactorSensitivityFromGraph } from '../../lib/factor-influence.js';
+import { computeFactorSensitivityFromGraph, enrichGraphFactorsWithISL3C } from '../../lib/factor-influence.js';
 import { NEAR_TIE_THRESHOLD } from '../../trust/result-coherence.js';
 import { assessGraphIdentifiability, toIdentifiabilityResponse, detectUnmeasuredConfounding } from '../../trust/identifiability-v2.js';
 import type { IdentifiabilityAssessment } from '../../types/engine-v3.js';
@@ -246,49 +246,6 @@ function transformFactorSensitivity(islFactorSensitivity: unknown): FactorSensit
     if (f.stability_method !== undefined) entry.stability_method = f.stability_method;
 
     return entry;
-  });
-}
-
-/**
- * Enrich graph-based factor sensitivity entries with ISL 3C stability fields.
- *
- * Graph-based is primary — ISL data is used only for the 3C enrichment fields
- * (elasticity_std, attribution_stability, rank_flip_rate, stability_method).
- * Matching is by factor_id ↔ ISL node_id.
- *
- * When ISL data is unavailable or a factor has no ISL match, 3C fields are absent.
- */
-function enrichGraphFactorsWithISL3C(
-  graphFactors: FactorSensitivityResultV3[],
-  islFactors: FactorSensitivityResultV3[] | undefined
-): FactorSensitivityResultV3[] {
-  if (!islFactors || islFactors.length === 0) return graphFactors;
-
-  // Build ISL lookup by factor_id
-  const islMap = new Map<string, FactorSensitivityResultV3>();
-  for (const f of islFactors) {
-    islMap.set(f.factor_id, f);
-  }
-
-  return graphFactors.map((gf) => {
-    const islMatch = islMap.get(gf.factor_id);
-    if (!islMatch) return gf;
-
-    // Only copy 3C fields that ISL provided (don't set undefined/null)
-    const enriched = { ...gf };
-    if (islMatch.elasticity_std !== undefined && islMatch.elasticity_std !== null) {
-      enriched.elasticity_std = islMatch.elasticity_std;
-    }
-    if (islMatch.attribution_stability !== undefined && islMatch.attribution_stability !== null) {
-      enriched.attribution_stability = islMatch.attribution_stability;
-    }
-    if (islMatch.rank_flip_rate !== undefined && islMatch.rank_flip_rate !== null) {
-      enriched.rank_flip_rate = islMatch.rank_flip_rate;
-    }
-    if (islMatch.stability_method !== undefined && islMatch.stability_method !== null) {
-      enriched.stability_method = islMatch.stability_method;
-    }
-    return enriched;
   });
 }
 
@@ -1285,7 +1242,7 @@ function buildResponse(
     }),
 
     // Identifiability assessment (B1.5/B1.5a) — always present.
-    // NOTE: Non-semantic metadata. Excluded from response_hash.
+    // NOTE: Deterministic function of graph structure. Included in response_hash (v4+).
     identifiability: identifiability ?? { status: 'unknown', method: 'backdoor', pairs_checked: 0, pairs_identifiable: 0 },
 
     // M2 Decision Review (LLM-generated from CEE /assist/v1/decision-review)
@@ -2243,7 +2200,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // Phase 2b: Identifiability Assessment (B1.5)
         // =================================================================
         // WARNING only — never blocks. Silent degradation on error (returns undefined).
-        // Excluded from response hash (non-semantic metadata).
+        // Included in response hash (v4+) — deterministic function of graph structure.
         //
         // 3A-trust: Only valid bidirected edges (factor↔factor) participate in
         // identifiability. Invalid bidirected edges (e.g., factor↔goal) were

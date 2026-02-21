@@ -558,3 +558,50 @@ export function computeFactorSensitivityFromGraph(
     flip_risk_category: computeFlipRiskCategory(f.factor_id, fragileEdges),
   }));
 }
+
+// -----------------------------------------------------------------------------
+// 3C: Enrich graph-based factors with ISL stability fields
+// -----------------------------------------------------------------------------
+
+/**
+ * Enrich graph-based factor sensitivity entries with ISL 3C stability fields.
+ *
+ * Graph-based is primary — ISL data is used only for the 3C enrichment fields
+ * (elasticity_std, attribution_stability, rank_flip_rate, stability_method).
+ * Matching is by factor_id ↔ ISL node_id.
+ *
+ * When ISL data is unavailable or a factor has no ISL match, 3C fields are absent.
+ */
+export function enrichGraphFactorsWithISL3C(
+  graphFactors: FactorSensitivityResultV3[],
+  islFactors: FactorSensitivityResultV3[] | undefined
+): FactorSensitivityResultV3[] {
+  if (!islFactors || islFactors.length === 0) return graphFactors;
+
+  // Build ISL lookup by factor_id
+  const islMap = new Map<string, FactorSensitivityResultV3>();
+  for (const f of islFactors) {
+    islMap.set(f.factor_id, f);
+  }
+
+  return graphFactors.map((gf) => {
+    const islMatch = islMap.get(gf.factor_id);
+    if (!islMatch) return gf;
+
+    // Only copy 3C fields that ISL provided (don't set undefined/null)
+    const enriched = { ...gf };
+    if (islMatch.elasticity_std !== undefined && islMatch.elasticity_std !== null) {
+      enriched.elasticity_std = islMatch.elasticity_std;
+    }
+    if (islMatch.attribution_stability !== undefined && islMatch.attribution_stability !== null) {
+      enriched.attribution_stability = islMatch.attribution_stability;
+    }
+    if (islMatch.rank_flip_rate !== undefined && islMatch.rank_flip_rate !== null) {
+      enriched.rank_flip_rate = islMatch.rank_flip_rate;
+    }
+    if (islMatch.stability_method !== undefined && islMatch.stability_method !== null) {
+      enriched.stability_method = islMatch.stability_method;
+    }
+    return enriched;
+  });
+}

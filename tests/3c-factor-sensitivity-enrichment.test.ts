@@ -12,7 +12,8 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { canonicaliseRequest, computeResponseHash } from '../src/normalisation/canonicalise.js';
-import type { RunRequestV3, EngineGraphV3, IdentifiabilityAssessment } from '../src/types/engine-v3.js';
+import { enrichGraphFactorsWithISL3C } from '../src/lib/factor-influence.js';
+import type { RunRequestV3, EngineGraphV3, IdentifiabilityAssessment, FactorSensitivityResultV3 } from '../src/types/engine-v3.js';
 
 // ---------------------------------------------------------------------------
 // Fixtures for unit tests (T1–T5)
@@ -49,104 +50,163 @@ function makeRequest(overrides: Partial<RunRequestV3> = {}): RunRequestV3 {
 // T1–T3: enrichGraphFactorsWithISL3C unit tests
 // ---------------------------------------------------------------------------
 
-// Import the enrichment function. It's not exported from run.ts, so we test
-// it indirectly through the public module or replicate its logic here.
-// Since it's a private function in run.ts, we test it via the route-level
-// integration test (T6) and test the transform function directly here.
+/** Minimal graph factor for testing */
+function graphFactor(id: string, overrides: Partial<FactorSensitivityResultV3> = {}): FactorSensitivityResultV3 {
+  return {
+    factor_id: id,
+    factor_label: id,
+    sensitivity_score: 0.5,
+    influence_score: 0.5,
+    elasticity: 0.5,
+    direction: 'positive',
+    importance_rank: 1,
+    influence_rank: 1,
+    confidence: 0.7,
+    value_of_information: 0,
+    source: 'graph',
+    ...overrides,
+  };
+}
 
-describe('3C: Factor sensitivity enrichment', () => {
-  describe('T1: ISL 3C fields map correctly via transformFactorSensitivity', () => {
-    it('carries through all 4 stability fields from ISL response', async () => {
-      // Dynamically import the run module to access transformFactorSensitivity
-      // Since it's not exported, we test via the integration test (T6).
-      // Here we test the ISL type compatibility and canonical form instead.
+/** Minimal ISL factor for testing */
+function islFactor(id: string, overrides: Partial<FactorSensitivityResultV3> = {}): FactorSensitivityResultV3 {
+  return {
+    factor_id: id,
+    factor_label: id,
+    sensitivity_score: 0.5,
+    influence_score: null as any,
+    elasticity: null as any,
+    direction: 'positive',
+    importance_rank: 1,
+    influence_rank: null as any,
+    confidence: null as any,
+    value_of_information: null as any,
+    source: 'isl',
+    ...overrides,
+  };
+}
 
-      // Verify the ISL response shape with 3C fields can round-trip
-      const islFactorWithAll3C = {
-        node_id: 'factor-a',
-        sensitivity_score: 0.5,
-        direction: 'positive',
-        elasticity_std: 0.05,
-        attribution_stability: 'high' as const,
-        rank_flip_rate: 0.08,
-        stability_method: 'bootstrap_1000',
-      };
-
-      // All 3C fields should be present
-      expect(islFactorWithAll3C.elasticity_std).toBe(0.05);
-      expect(islFactorWithAll3C.attribution_stability).toBe('high');
-      expect(islFactorWithAll3C.rank_flip_rate).toBe(0.08);
-      expect(islFactorWithAll3C.stability_method).toBe('bootstrap_1000');
-    });
-  });
-
-  describe('T2: Backward compatibility — ISL without 3C fields', () => {
-    it('ISL entry without 3C fields has no null/undefined 3C properties', () => {
-      // Simulate an ISL factor response without 3C fields (pre-3C ISL)
-      const islFactorWithout3C = {
-        node_id: 'factor-a',
-        sensitivity_score: 0.5,
-        direction: 'positive',
-      };
-
-      // 3C fields should not exist at all (not even as undefined)
-      expect('elasticity_std' in islFactorWithout3C).toBe(false);
-      expect('attribution_stability' in islFactorWithout3C).toBe(false);
-      expect('rank_flip_rate' in islFactorWithout3C).toBe(false);
-      expect('stability_method' in islFactorWithout3C).toBe(false);
-    });
-  });
-
-  describe('T3: Graph-only entries are unaffected by ISL enrichment', () => {
-    it('graph factor with no ISL match retains only graph fields', () => {
-      // Graph-based factor (source: 'graph')
-      const graphFactor = {
-        factor_id: 'factor-c',
-        factor_label: 'Customer Retention',
-        sensitivity_score: 0.3,
-        influence_score: 0.4,
-        elasticity: 0.4,
-        direction: 'positive' as const,
-        importance_rank: 3,
-        influence_rank: 3,
-        confidence: 0.7,
-        value_of_information: 0,
-        source: 'graph' as const,
-      };
-
-      // ISL factors only have factor-a and factor-b — factor-c has no match
-      const islFactors = [
-        {
-          factor_id: 'factor-a',
-          factor_label: 'Marketing Spend',
-          sensitivity_score: 0.5,
-          influence_score: null,
-          influence_rank: null,
-          elasticity: null,
-          direction: 'positive' as const,
-          importance_rank: 1,
-          interpretation: null,
-          value_of_information: null,
-          confidence: null,
-          zero_reason: null,
-          source: 'isl' as const,
-          elasticity_std: 0.05,
-          attribution_stability: 'high' as const,
-          rank_flip_rate: 0.08,
+describe('3C: Factor sensitivity enrichment (enrichGraphFactorsWithISL3C)', () => {
+  describe('T1: All 4 ISL 3C stability fields are enriched onto graph factors', () => {
+    it('copies elasticity_std, attribution_stability, rank_flip_rate, stability_method from ISL match', () => {
+      const graph = [graphFactor('factor-a'), graphFactor('factor-b')];
+      const isl = [
+        islFactor('factor-a', {
+          elasticity_std: 0.042,
+          attribution_stability: 'high',
+          rank_flip_rate: 0.03,
           stability_method: 'bootstrap_1000',
-        },
+        }),
+        islFactor('factor-b', {
+          elasticity_std: 0.11,
+          attribution_stability: 'moderate',
+          rank_flip_rate: 0.15,
+          stability_method: 'bootstrap_1000',
+        }),
       ];
 
-      // Simulate enrichment: factor-c has no ISL match → should be returned as-is
-      const islMap = new Map(islFactors.map(f => [f.factor_id, f]));
-      const islMatch = islMap.get(graphFactor.factor_id);
+      const enriched = enrichGraphFactorsWithISL3C(graph, isl);
 
-      expect(islMatch).toBeUndefined();
-      // No 3C fields should be present on the graph factor
-      expect('elasticity_std' in graphFactor).toBe(false);
-      expect('attribution_stability' in graphFactor).toBe(false);
-      expect('rank_flip_rate' in graphFactor).toBe(false);
-      expect('stability_method' in graphFactor).toBe(false);
+      expect(enriched).toHaveLength(2);
+
+      // factor-a enriched
+      expect(enriched[0].source).toBe('graph'); // source preserved
+      expect(enriched[0].elasticity_std).toBe(0.042);
+      expect(enriched[0].attribution_stability).toBe('high');
+      expect(enriched[0].rank_flip_rate).toBe(0.03);
+      expect(enriched[0].stability_method).toBe('bootstrap_1000');
+
+      // factor-b enriched
+      expect(enriched[1].elasticity_std).toBe(0.11);
+      expect(enriched[1].attribution_stability).toBe('moderate');
+      expect(enriched[1].rank_flip_rate).toBe(0.15);
+      expect(enriched[1].stability_method).toBe('bootstrap_1000');
+    });
+
+    it('preserves all original graph fields (scores, direction, source)', () => {
+      const graph = [graphFactor('factor-a', { sensitivity_score: 0.9, direction: 'negative', confidence: 0.85 })];
+      const isl = [islFactor('factor-a', { elasticity_std: 0.05, attribution_stability: 'high' })];
+
+      const enriched = enrichGraphFactorsWithISL3C(graph, isl);
+
+      expect(enriched[0].sensitivity_score).toBe(0.9);
+      expect(enriched[0].direction).toBe('negative');
+      expect(enriched[0].confidence).toBe(0.85);
+      expect(enriched[0].source).toBe('graph');
+    });
+  });
+
+  describe('T2: Backward compat — ISL without 3C fields → clean omission', () => {
+    it('returns graph factors unchanged when ISL provides no 3C fields', () => {
+      const graph = [graphFactor('factor-a')];
+      const isl = [islFactor('factor-a')]; // no 3C fields
+
+      const enriched = enrichGraphFactorsWithISL3C(graph, isl);
+
+      expect(enriched).toHaveLength(1);
+      expect(enriched[0].source).toBe('graph');
+      // 3C fields should not be present (not even as undefined)
+      expect('elasticity_std' in enriched[0]).toBe(false);
+      expect('attribution_stability' in enriched[0]).toBe(false);
+      expect('rank_flip_rate' in enriched[0]).toBe(false);
+      expect('stability_method' in enriched[0]).toBe(false);
+    });
+
+    it('returns graph factors unchanged when ISL array is undefined', () => {
+      const graph = [graphFactor('factor-a')];
+
+      const enriched = enrichGraphFactorsWithISL3C(graph, undefined);
+
+      // Should return same array reference (short-circuit)
+      expect(enriched).toBe(graph);
+    });
+
+    it('returns graph factors unchanged when ISL array is empty', () => {
+      const graph = [graphFactor('factor-a')];
+
+      const enriched = enrichGraphFactorsWithISL3C(graph, []);
+
+      expect(enriched).toBe(graph);
+    });
+
+    it('copies only the 3C fields that ISL provides (sparse)', () => {
+      const graph = [graphFactor('factor-a')];
+      const isl = [islFactor('factor-a', { elasticity_std: 0.05 })]; // only one 3C field
+
+      const enriched = enrichGraphFactorsWithISL3C(graph, isl);
+
+      expect(enriched[0].elasticity_std).toBe(0.05);
+      expect('attribution_stability' in enriched[0]).toBe(false);
+      expect('rank_flip_rate' in enriched[0]).toBe(false);
+      expect('stability_method' in enriched[0]).toBe(false);
+    });
+  });
+
+  describe('T3: Graph-only entries unaffected (no ISL match)', () => {
+    it('unmatched graph factor has no 3C fields', () => {
+      const graph = [graphFactor('factor-a'), graphFactor('factor-c')];
+      const isl = [
+        islFactor('factor-a', {
+          elasticity_std: 0.05,
+          attribution_stability: 'high',
+          rank_flip_rate: 0.03,
+          stability_method: 'bootstrap_1000',
+        }),
+      ];
+
+      const enriched = enrichGraphFactorsWithISL3C(graph, isl);
+
+      // factor-a: enriched
+      expect(enriched[0].elasticity_std).toBe(0.05);
+      expect(enriched[0].attribution_stability).toBe('high');
+
+      // factor-c: no ISL match → no 3C fields, original graph data preserved
+      expect(enriched[1].factor_id).toBe('factor-c');
+      expect(enriched[1].source).toBe('graph');
+      expect('elasticity_std' in enriched[1]).toBe(false);
+      expect('attribution_stability' in enriched[1]).toBe(false);
+      expect('rank_flip_rate' in enriched[1]).toBe(false);
+      expect('stability_method' in enriched[1]).toBe(false);
     });
   });
 });
