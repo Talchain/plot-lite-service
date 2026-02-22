@@ -52,6 +52,7 @@ import type {
   ConstraintFeatureStatus,
   ThresholdsStatus,
   ThresholdResult,
+  FactorStabilityEntry,
 } from '../../types/engine-v3.js';
 // Seed derivation: when seed omitted, derive deterministically from graph hash
 import { normaliseGraph, NormalisationError, cleanLabelAnnotation, type NormalisationWarning } from '../../normalisation/graph-normaliser.js';
@@ -102,7 +103,7 @@ import type { M1Review } from '../../cee/validation/m1-review-types.js';
 import type { ReviewStatus } from '../../cee/validation/m1-review-constants.js';
 import { ReviewSkipReasons, type ReviewSkipReason } from '../../cee/validation/m1-review-constants.js';
 import { getDownstreamCallsForLog } from '../../util/downstream-tracker.js';
-import { computeFactorSensitivityFromGraph } from '../../lib/factor-influence.js';
+import { computeFactorSensitivityFromGraph, buildFactorStability } from '../../lib/factor-influence.js';
 import { NEAR_TIE_THRESHOLD } from '../../trust/result-coherence.js';
 import { assessGraphIdentifiability, toIdentifiabilityResponse, detectUnmeasuredConfounding } from '../../trust/identifiability-v2.js';
 import type { IdentifiabilityAssessment } from '../../types/engine-v3.js';
@@ -980,7 +981,8 @@ function buildResponse(
   thresholdsStatus?: ThresholdsStatus,
   thresholdsMeta?: { reason?: string; duration_ms?: number },
   thresholdAnalysis?: ThresholdResult[],
-  identifiability?: IdentifiabilityAssessment
+  identifiability?: IdentifiabilityAssessment,
+  factorStability?: FactorStabilityEntry[]
 ): RunResponseV3 {
   // Map ISL results to response format
   // ISL V2 uses 'options' field; V1 uses 'results'. Check both for compatibility.
@@ -1222,6 +1224,9 @@ function buildResponse(
     option_comparison: optionComparison,
     edge_sensitivity: edgeSensitivity,
     factor_sensitivity: factorSensitivity,
+    // ISL stability assessment per factor (3C bootstrap analysis)
+    // NOTE: Deterministic ISL output. Included in response_hash (v5+).
+    factor_stability: factorStability ?? [],
     // Factor enrichments from CEE /assist/v1/review (undefined when unavailable)
     // NOTE: Non-deterministic (LLM-derived), excluded from canonical hash
     ...(factorEnrichments && { factor_enrichments: factorEnrichments }),
@@ -2248,9 +2253,12 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         }
 
         // =================================================================
-        // Phase 3: Compute Response Hash
+        // Phase 3: Compute Response Hash (base — without ISL-derived fields)
         // =================================================================
-        const responseHash = hashRequest(body, filteredGraph, seedUsed, toIdentifiabilityResponse(identifiabilityResult));
+        // Base hash used for early-return paths (ISL not enabled, ISL error).
+        // On the success path, this is recomputed after ISL returns to include
+        // factor_stability (deterministic ISL output, added in v5).
+        let responseHash = hashRequest(body, filteredGraph, seedUsed, toIdentifiabilityResponse(identifiabilityResult));
 
         // =================================================================
         // Phase 4: ISL Call
@@ -2899,6 +2907,15 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           })),
         });
 
+        // Build factor_stability from ISL's raw factor_sensitivity (3C bootstrap fields).
+        // Independent of factor_sensitivity source — always derived from ISL when available.
+        const factorStability = buildFactorStability(islResult.factor_sensitivity, filteredGraph);
+
+        // Recompute response hash to include factor_stability (v5).
+        // factor_stability is deterministic ISL output — including it ensures
+        // that different stability results produce different hashes.
+        responseHash = hashRequest(body, filteredGraph, seedUsed, toIdentifiabilityResponse(identifiabilityResult), factorStability);
+
         const sensitivityData: SensitivityData = { edgeSensitivity, factorSensitivity };
 
         // Use hasNonEmptyArray on the FINAL transformed arrays (single source of truth)
@@ -3452,7 +3469,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           thresholdsStatus,  // B10.3: Threshold analysis status
           thresholdsMeta,    // B10.3: Threshold analysis metadata
           thresholdAnalysis, // B10.3: Threshold analysis results
-          toIdentifiabilityResponse(identifiabilityResult)  // B1.5a: always-present mapped response
+          toIdentifiabilityResponse(identifiabilityResult),  // B1.5a: always-present mapped response
+          factorStability  // 3C: ISL stability assessment per factor
         ));
       } catch (err) {
         const totalMs = performance.now() - startTime;

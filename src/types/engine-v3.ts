@@ -778,6 +778,15 @@ export interface RunResponseV3 {
   factor_sensitivity?: FactorSensitivityResultV3[];
 
   /**
+   * ISL stability assessment per factor.
+   * Populated from ISL's 3C bootstrap analysis — independent of factor_sensitivity source.
+   * Empty array when ISL does not provide stability data.
+   *
+   * NOTE: Deterministic ISL output. Included in response_hash (v5+).
+   */
+  factor_stability?: FactorStabilityEntry[];
+
+  /**
    * Factor enrichments from CEE /assist/v1/review.
    * Provides human-readable insights for UI factor cards.
    * Undefined if CEE unavailable, timed out, or failed.
@@ -1164,7 +1173,8 @@ export interface FactorSensitivityResultV3 {
    */
   flip_risk_category?: 'isolated' | 'correlated' | 'negligible';
 
-  // 3C stability fields — enriched from ISL when graph-based is primary
+  // 3C stability fields — valid for ISL-sourced entries only.
+  // Graph-derived and ISL elasticity use different scales; do not cross-attach.
   /** Bootstrap standard deviation of the elasticity estimate (from ISL) */
   elasticity_std?: number;
   /** Attribution stability category (from ISL) */
@@ -1173,6 +1183,26 @@ export interface FactorSensitivityResultV3 {
   rank_flip_rate?: number;
   /** Method used by ISL to compute stability metrics */
   stability_method?: string;
+}
+
+/**
+ * ISL stability assessment for a single factor.
+ * Populated from ISL's 3C bootstrap analysis.
+ * All four fields are required — entries with partial data are skipped.
+ */
+export interface FactorStabilityEntry {
+  /** Factor node ID */
+  factor_id: string;
+  /** Factor label for display */
+  factor_label: string;
+  /** Bootstrap standard deviation of the elasticity estimate */
+  elasticity_std: number;
+  /** Attribution stability category */
+  attribution_stability: 'high' | 'moderate' | 'low' | 'negligible';
+  /** Rate at which this factor's rank flips across bootstrap samples */
+  rank_flip_rate: number;
+  /** Method used by ISL to compute stability metrics */
+  stability_method: string;
 }
 
 /**

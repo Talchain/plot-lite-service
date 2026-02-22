@@ -12,7 +12,7 @@
  * @see Schema D.5 - Factor influence derived from edge-level data
  */
 
-import type { EngineGraphV3, EngineEdgeV3, EngineNodeV3, FactorSensitivityResultV3 } from '../types/engine-v3.js';
+import type { EngineGraphV3, EngineEdgeV3, EngineNodeV3, FactorSensitivityResultV3, FactorStabilityEntry } from '../types/engine-v3.js';
 
 /**
  * Minimal fragile edge interface for VOI and flip risk computation.
@@ -559,25 +559,51 @@ export function computeFactorSensitivityFromGraph(
   }));
 }
 
-// -----------------------------------------------------------------------------
-// 3C: ISL stability fields — source-scoping guard
-// -----------------------------------------------------------------------------
+const VALID_ATTRIBUTION_STABILITY = new Set(['high', 'moderate', 'low', 'negligible']);
 
 /**
- * @deprecated No longer called — 3C stability fields are only valid for
- * ISL-sourced sensitivity entries. Graph-derived and ISL elasticity use
- * different scales — mixing them produces contradictory output
- * (e.g., elasticity=1.0 with attribution_stability="negligible").
- *
- * Retained as a no-op guard to prevent future reintroduction.
- * If you need 3C fields on graph entries, the underlying elasticity
- * definitions must first be reconciled (ISL perturbation-based vs
- * graph structural influence).
+ * Build factor_stability array from ISL's raw factor_sensitivity response.
+ * Emits a FactorStabilityEntry for each ISL entry that has ALL four 3C fields
+ * with valid types. Entries missing any field, with invalid types, or with
+ * duplicate factor keys are skipped (first-wins deduplication).
+ * Returns empty array when no ISL entries qualify or input is absent.
  */
-export function enrichGraphFactorsWithISL3C(
-  graphFactors: FactorSensitivityResultV3[],
-  _islFactors: FactorSensitivityResultV3[] | undefined
-): FactorSensitivityResultV3[] {
-  // Guard: never attach ISL 3C fields to non-ISL-source entries.
-  return graphFactors;
+export function buildFactorStability(
+  islFactorSensitivity: unknown,
+  graph: EngineGraphV3
+): FactorStabilityEntry[] {
+  if (!Array.isArray(islFactorSensitivity) || islFactorSensitivity.length === 0) return [];
+
+  const nodeLabelMap = new Map(graph.nodes.map((n) => [n.id, n.label ?? n.id]));
+  const result: FactorStabilityEntry[] = [];
+  const seen = new Set<string>();
+
+  for (const f of islFactorSensitivity) {
+    // All four 3C fields must be present with valid types
+    if (
+      !Number.isFinite(f.elasticity_std) ||
+      !VALID_ATTRIBUTION_STABILITY.has(f.attribution_stability) ||
+      !Number.isFinite(f.rank_flip_rate) ||
+      typeof f.stability_method !== 'string' || f.stability_method === ''
+    ) continue;
+
+    const factorId = f.node_id ?? f.factor_id;
+    if (!factorId) continue;
+
+    // Deduplicate by factor key (first-wins)
+    if (seen.has(factorId)) continue;
+    seen.add(factorId);
+
+    result.push({
+      factor_id: factorId,
+      factor_label: f.label ?? nodeLabelMap.get(factorId) ?? factorId,
+      elasticity_std: f.elasticity_std,
+      attribution_stability: f.attribution_stability,
+      rank_flip_rate: f.rank_flip_rate,
+      stability_method: f.stability_method,
+    });
+  }
+
+  return result;
 }
+

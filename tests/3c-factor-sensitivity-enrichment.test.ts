@@ -1,20 +1,27 @@
 /**
- * 3C: Factor Sensitivity Source-Scoping + Identifiability Hash Policy
+ * 3C: Factor Sensitivity Source-Scoping + Identifiability Hash Policy + Factor Stability
  *
- * T1: enrichGraphFactorsWithISL3C is a no-op — 3C fields NOT copied to graph entries
- * T2: Backward compat — ISL without 3C fields → clean omission, no nulls
- * T3: Graph entries never carry 3C fields, even when ISL match exists
+ * T1: Graph-primary path — graph-source entries do NOT carry ISL 3C fields
+ * T2: ISL-fallback path with 3C available — ISL-source entries carry 3C fields
+ * T3: ISL-fallback backward compat — when ISL omits 3C fields, output omits them
  * T-inv: Invariant — attribution_stability="negligible" requires |elasticity| < 0.01
  * T4: Hash insensitive to 3C changes (factor_sensitivity not in hash)
  * T5: Hash includes identifiability (different status → different hash)
- * T6: Route-level — /v2/run graph-based entries do NOT carry ISL 3C fields
+ * T6: Route-level source-scoping checks
+ *
+ * FS1: factor_stability populated from ISL when 3C fields present
+ * FS2: factor_stability empty when ISL omits 3C fields
+ * FS3: factor_stability skips entries with partial 3C fields
+ * FS4: factor_sensitivity is NOT affected by factor_stability extraction
+ * FS5: Hash includes factor_stability (different stability → different hash)
+ * FS6: Route-level factor_stability integration
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { canonicaliseRequest, computeResponseHash } from '../src/normalisation/canonicalise.js';
-import { enrichGraphFactorsWithISL3C } from '../src/lib/factor-influence.js';
-import type { RunRequestV3, EngineGraphV3, IdentifiabilityAssessment, FactorSensitivityResultV3 } from '../src/types/engine-v3.js';
+import type { RunRequestV3, EngineGraphV3, IdentifiabilityAssessment, FactorSensitivityResultV3, FactorStabilityEntry } from '../src/types/engine-v3.js';
+import { buildFactorStability } from '../src/lib/factor-influence.js';
 
 // ---------------------------------------------------------------------------
 // Fixtures for unit tests (T1–T5)
@@ -48,7 +55,7 @@ function makeRequest(overrides: Partial<RunRequestV3> = {}): RunRequestV3 {
 }
 
 // ---------------------------------------------------------------------------
-// T1–T3: enrichGraphFactorsWithISL3C — now a no-op guard
+// Helpers for invariant tests
 // ---------------------------------------------------------------------------
 
 /** Minimal graph factor for testing */
@@ -88,116 +95,6 @@ function islFactor(id: string, overrides: Partial<FactorSensitivityResultV3> = {
 }
 
 const THREE_C_FIELDS = ['elasticity_std', 'attribution_stability', 'rank_flip_rate', 'stability_method'] as const;
-
-describe('3C: Factor sensitivity source-scoping (enrichGraphFactorsWithISL3C is no-op)', () => {
-  describe('T1: 3C fields are NOT copied from ISL to graph entries', () => {
-    it('graph entries remain clean even when ISL provides all 4 stability fields', () => {
-      const graph = [graphFactor('factor-a'), graphFactor('factor-b')];
-      const isl = [
-        islFactor('factor-a', {
-          elasticity_std: 0.042,
-          attribution_stability: 'high',
-          rank_flip_rate: 0.03,
-          stability_method: 'bootstrap_1000',
-        }),
-        islFactor('factor-b', {
-          elasticity_std: 0.11,
-          attribution_stability: 'moderate',
-          rank_flip_rate: 0.15,
-          stability_method: 'bootstrap_1000',
-        }),
-      ];
-
-      const result = enrichGraphFactorsWithISL3C(graph, isl);
-
-      expect(result).toHaveLength(2);
-
-      // Neither factor should have 3C fields
-      for (const entry of result) {
-        expect(entry.source).toBe('graph');
-        for (const field of THREE_C_FIELDS) {
-          expect(field in entry).toBe(false);
-        }
-      }
-    });
-
-    it('preserves all original graph fields (scores, direction, source)', () => {
-      const graph = [graphFactor('factor-a', { sensitivity_score: 0.9, direction: 'negative', confidence: 0.85 })];
-      const isl = [islFactor('factor-a', { elasticity_std: 0.05, attribution_stability: 'high' })];
-
-      const result = enrichGraphFactorsWithISL3C(graph, isl);
-
-      expect(result[0].sensitivity_score).toBe(0.9);
-      expect(result[0].direction).toBe('negative');
-      expect(result[0].confidence).toBe(0.85);
-      expect(result[0].source).toBe('graph');
-      // 3C fields NOT present
-      for (const field of THREE_C_FIELDS) {
-        expect(field in result[0]).toBe(false);
-      }
-    });
-  });
-
-  describe('T2: Backward compat — ISL without 3C fields → clean omission', () => {
-    it('returns graph factors unchanged when ISL provides no 3C fields', () => {
-      const graph = [graphFactor('factor-a')];
-      const isl = [islFactor('factor-a')]; // no 3C fields
-
-      const result = enrichGraphFactorsWithISL3C(graph, isl);
-
-      expect(result).toHaveLength(1);
-      expect(result[0].source).toBe('graph');
-      for (const field of THREE_C_FIELDS) {
-        expect(field in result[0]).toBe(false);
-      }
-    });
-
-    it('returns graph factors unchanged when ISL array is undefined', () => {
-      const graph = [graphFactor('factor-a')];
-
-      const result = enrichGraphFactorsWithISL3C(graph, undefined);
-
-      // Should return same array reference (short-circuit)
-      expect(result).toBe(graph);
-    });
-
-    it('returns graph factors unchanged when ISL array is empty', () => {
-      const graph = [graphFactor('factor-a')];
-
-      const result = enrichGraphFactorsWithISL3C(graph, []);
-
-      expect(result).toBe(graph);
-    });
-  });
-
-  describe('T3: Graph entries never carry 3C fields, even when ISL match exists', () => {
-    it('matched and unmatched graph factors both lack 3C fields', () => {
-      const graph = [graphFactor('factor-a'), graphFactor('factor-c')];
-      const isl = [
-        islFactor('factor-a', {
-          elasticity_std: 0.05,
-          attribution_stability: 'high',
-          rank_flip_rate: 0.03,
-          stability_method: 'bootstrap_1000',
-        }),
-      ];
-
-      const result = enrichGraphFactorsWithISL3C(graph, isl);
-
-      // Both factors: no 3C fields
-      for (const entry of result) {
-        expect(entry.source).toBe('graph');
-        for (const field of THREE_C_FIELDS) {
-          expect(field in entry).toBe(false);
-        }
-      }
-
-      // Original data preserved
-      expect(result[0].factor_id).toBe('factor-a');
-      expect(result[1].factor_id).toBe('factor-c');
-    });
-  });
-});
 
 // ---------------------------------------------------------------------------
 // T-inv: Scale mismatch invariant
@@ -262,7 +159,7 @@ describe('3C: Response hash policy', () => {
     });
   });
 
-  describe('T5: Hash includes identifiability (v4)', () => {
+  describe('T5: Hash includes identifiability (v5)', () => {
     it('different identifiability status produces different hash', () => {
       const req = makeRequest();
 
@@ -318,10 +215,10 @@ describe('3C: Response hash policy', () => {
       expect(hashWithIdent).not.toBe(hashWithout);
     });
 
-    it('hash version is 4', () => {
+    it('hash version is 5', () => {
       const req = makeRequest();
       const canonical = JSON.parse(canonicaliseRequest(req, GRAPH, '42'));
-      expect(canonical.version).toBe(4);
+      expect(canonical.version).toBe(5);
     });
   });
 });
@@ -344,7 +241,8 @@ const mockISLService = {
   async analyseSensitivity() {
     return { overall_robustness: 'robust', sensitive_parameters: [], recommendations: [], source: 'isl' };
   },
-  async analyseRobustness(_graph: any, _goalNodeId: string, options: any[]) {
+  async analyseRobustness(_graph: any, goalNodeId: string, options: any[]) {
+    const include3C = goalNodeId !== 'goal-no-3c';
     return {
       options: options.map((opt: any, idx: number) => ({
         option_id: opt.id,
@@ -359,19 +257,23 @@ const mockISLService = {
           node_id: 'factor-a',
           sensitivity_score: 0.5,
           direction: 'positive',
-          elasticity_std: 0.042,
-          attribution_stability: 'high',
-          rank_flip_rate: 0.03,
-          stability_method: 'bootstrap_1000',
+          ...(include3C ? {
+            elasticity_std: 0.042,
+            attribution_stability: 'high',
+            rank_flip_rate: 0.03,
+            stability_method: 'bootstrap_1000',
+          } : {}),
         },
         {
           node_id: 'factor-b',
           sensitivity_score: 0.7,
           direction: 'positive',
-          elasticity_std: 0.11,
-          attribution_stability: 'moderate',
-          rank_flip_rate: 0.15,
-          stability_method: 'bootstrap_1000',
+          ...(include3C ? {
+            elasticity_std: 0.11,
+            attribution_stability: 'moderate',
+            rank_flip_rate: 0.15,
+            stability_method: 'bootstrap_1000',
+          } : {}),
         },
       ],
       factors: [], value_of_information: [],
@@ -386,6 +288,7 @@ const mockISLService = {
   },
   async computeCounterfactual(): Promise<never> { throw new Error('not called'); },
   async callAnalysisEndpoint<T>(_endpoint: string, body: any): Promise<{ data: T | null; error: string | null; isl_echoed_request_id?: string }> {
+    const include3C = body.goal_node_id !== 'goal-no-3c';
     const options = body.options || [];
     return {
       data: {
@@ -401,19 +304,23 @@ const mockISLService = {
             node_id: 'factor-a',
             sensitivity_score: 0.5,
             direction: 'positive',
-            elasticity_std: 0.042,
-            attribution_stability: 'high',
-            rank_flip_rate: 0.03,
-            stability_method: 'bootstrap_1000',
+            ...(include3C ? {
+              elasticity_std: 0.042,
+              attribution_stability: 'high',
+              rank_flip_rate: 0.03,
+              stability_method: 'bootstrap_1000',
+            } : {}),
           },
           {
             node_id: 'factor-b',
             sensitivity_score: 0.7,
             direction: 'positive',
-            elasticity_std: 0.11,
-            attribution_stability: 'moderate',
-            rank_flip_rate: 0.15,
-            stability_method: 'bootstrap_1000',
+            ...(include3C ? {
+              elasticity_std: 0.11,
+              attribution_stability: 'moderate',
+              rank_flip_rate: 0.15,
+              stability_method: 'bootstrap_1000',
+            } : {}),
           },
         ],
         overall_robustness: 'robust', robustness_score: 0.8,
@@ -491,6 +398,80 @@ describe('T6: Route-level 3C source-scoping via /v2/run', () => {
     }
   });
 
+  it('ISL-fallback entries carry 3C fields when ISL provides them', async () => {
+    const res = await fetch(`${baseUrl}/v2/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        graph: {
+          nodes: [
+            { id: 'goal', kind: 'goal', label: 'Revenue' },
+            { id: 'action-a', kind: 'action', label: 'Action A' },
+          ],
+          edges: [
+            { from: 'action-a', to: 'goal', exists_probability: 0.8, strength: { mean: 0.5, std: 0.1 } },
+          ],
+        },
+        options: [
+          { id: 'opt1', label: 'Option A', interventions: { 'action-a': { value: 10, source: 'user_specified' } } },
+          { id: 'opt2', label: 'Option B', interventions: { 'action-a': { value: 20, source: 'user_specified' } } },
+        ],
+        goal_node_id: 'goal',
+        seed: '42',
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    const factors = body.factor_sensitivity ?? [];
+
+    expect(factors.length).toBeGreaterThan(0);
+    expect(factors.every((f: any) => f.source === 'isl')).toBe(true);
+
+    const factorA = factors.find((f: any) => f.factor_id === 'factor-a');
+    expect(factorA).toBeDefined();
+    expect(factorA.elasticity_std).toBe(0.042);
+    expect(factorA.attribution_stability).toBe('high');
+    expect(factorA.rank_flip_rate).toBe(0.03);
+    expect(factorA.stability_method).toBe('bootstrap_1000');
+  });
+
+  it('ISL-fallback omits 3C fields cleanly when ISL does not provide them', async () => {
+    const res = await fetch(`${baseUrl}/v2/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        graph: {
+          nodes: [
+            { id: 'goal-no-3c', kind: 'goal', label: 'Revenue' },
+            { id: 'action-a', kind: 'action', label: 'Action A' },
+          ],
+          edges: [
+            { from: 'action-a', to: 'goal-no-3c', exists_probability: 0.8, strength: { mean: 0.5, std: 0.1 } },
+          ],
+        },
+        options: [
+          { id: 'opt1', label: 'Option A', interventions: { 'action-a': { value: 10, source: 'user_specified' } } },
+          { id: 'opt2', label: 'Option B', interventions: { 'action-a': { value: 20, source: 'user_specified' } } },
+        ],
+        goal_node_id: 'goal-no-3c',
+        seed: '42',
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    const factors = body.factor_sensitivity ?? [];
+
+    expect(factors.length).toBeGreaterThan(0);
+    expect(factors.every((f: any) => f.source === 'isl')).toBe(true);
+    for (const factor of factors) {
+      for (const field of THREE_C_FIELDS) {
+        expect(field in factor).toBe(false);
+      }
+    }
+  });
+
   it('response includes identifiability and response_hash', async () => {
     const res = await fetch(`${baseUrl}/v2/run`, {
       method: 'POST',
@@ -515,5 +496,258 @@ describe('T6: Route-level 3C source-scoping via /v2/run', () => {
     const hash = body.model_card?.response_hash ?? body.response_hash;
     expect(hash).toBeDefined();
     expect(hash).toMatch(/^[0-9a-f]{16}$/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FS1–FS4: factor_stability unit tests (buildFactorStability)
+// ---------------------------------------------------------------------------
+
+describe('3C: factor_stability (buildFactorStability)', () => {
+  const ISL_WITH_3C = [
+    {
+      node_id: 'factor-a', label: 'Marketing Spend',
+      sensitivity_score: 0.5, direction: 'positive',
+      elasticity_std: 0.042, attribution_stability: 'high',
+      rank_flip_rate: 0.03, stability_method: 'bootstrap_1000',
+    },
+    {
+      node_id: 'factor-b', label: 'Brand Awareness',
+      sensitivity_score: 0.7, direction: 'positive',
+      elasticity_std: 0.11, attribution_stability: 'moderate',
+      rank_flip_rate: 0.15, stability_method: 'bootstrap_1000',
+    },
+  ];
+
+  const ISL_WITHOUT_3C = [
+    { node_id: 'factor-a', sensitivity_score: 0.5, direction: 'positive' },
+    { node_id: 'factor-b', sensitivity_score: 0.7, direction: 'positive' },
+  ];
+
+  it('FS1: populated from ISL when all four 3C fields present', () => {
+    const result = buildFactorStability(ISL_WITH_3C, GRAPH);
+
+    expect(result).toHaveLength(2);
+    expect(result[0]).toEqual({
+      factor_id: 'factor-a',
+      factor_label: 'Marketing Spend',
+      elasticity_std: 0.042,
+      attribution_stability: 'high',
+      rank_flip_rate: 0.03,
+      stability_method: 'bootstrap_1000',
+    });
+    expect(result[1]).toEqual({
+      factor_id: 'factor-b',
+      factor_label: 'Brand Awareness',
+      elasticity_std: 0.11,
+      attribution_stability: 'moderate',
+      rank_flip_rate: 0.15,
+      stability_method: 'bootstrap_1000',
+    });
+  });
+
+  it('FS2: empty array when ISL omits 3C fields', () => {
+    const result = buildFactorStability(ISL_WITHOUT_3C, GRAPH);
+    expect(result).toEqual([]);
+  });
+
+  it('FS3: skips entries with partial 3C fields', () => {
+    const partial = [
+      {
+        node_id: 'factor-a', sensitivity_score: 0.5,
+        elasticity_std: 0.042, attribution_stability: 'high',
+        // missing rank_flip_rate and stability_method
+      },
+      {
+        node_id: 'factor-b', sensitivity_score: 0.7,
+        elasticity_std: 0.11, attribution_stability: 'moderate',
+        rank_flip_rate: 0.15, stability_method: 'bootstrap_1000',
+      },
+    ];
+
+    const result = buildFactorStability(partial, GRAPH);
+
+    // Only factor-b has all four fields
+    expect(result).toHaveLength(1);
+    expect(result[0].factor_id).toBe('factor-b');
+  });
+
+  it('FS3a: skips entries with null or invalid-type 3C fields', () => {
+    const invalid = [
+      { node_id: 'f1', elasticity_std: null, attribution_stability: 'high', rank_flip_rate: 0.03, stability_method: 'bootstrap_1000' },
+      { node_id: 'f2', elasticity_std: 0.1, attribution_stability: 'invalid_value', rank_flip_rate: 0.03, stability_method: 'bootstrap_1000' },
+      { node_id: 'f3', elasticity_std: 0.1, attribution_stability: 'high', rank_flip_rate: 'not_a_number', stability_method: 'bootstrap_1000' },
+      { node_id: 'f4', elasticity_std: 0.1, attribution_stability: 'high', rank_flip_rate: 0.03, stability_method: '' },
+      { node_id: 'f5', elasticity_std: 0.1, attribution_stability: 'high', rank_flip_rate: 0.03, stability_method: 'bootstrap_1000' }, // valid
+    ];
+
+    const result = buildFactorStability(invalid, GRAPH);
+    expect(result).toHaveLength(1);
+    expect(result[0].factor_id).toBe('f5');
+  });
+
+  it('FS3b: deduplicates by factor key (first-wins)', () => {
+    const dupes = [
+      { node_id: 'factor-a', elasticity_std: 0.042, attribution_stability: 'high', rank_flip_rate: 0.03, stability_method: 'bootstrap_1000' },
+      { node_id: 'factor-a', elasticity_std: 0.99, attribution_stability: 'low', rank_flip_rate: 0.5, stability_method: 'bootstrap_500' },
+    ];
+
+    const result = buildFactorStability(dupes, GRAPH);
+    expect(result).toHaveLength(1);
+    expect(result[0].elasticity_std).toBe(0.042); // first-wins
+  });
+
+  it('FS4: factor_sensitivity is NOT affected by factor_stability extraction', () => {
+    // buildFactorStability reads from the raw ISL array (not the transformed factor_sensitivity)
+    // Verify the ISL input array is not mutated
+    const islCopy = JSON.parse(JSON.stringify(ISL_WITH_3C));
+    buildFactorStability(islCopy, GRAPH);
+
+    // Input array is unchanged
+    expect(islCopy).toEqual(ISL_WITH_3C);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FS5: Hash includes factor_stability
+// ---------------------------------------------------------------------------
+
+describe('3C: Hash includes factor_stability (v5)', () => {
+  it('FS5: different factor_stability produces different hash', () => {
+    const req = makeRequest();
+    const ident: IdentifiabilityAssessment = {
+      status: 'identifiable', method: 'backdoor',
+      pairs_checked: 2, pairs_identifiable: 2,
+    };
+
+    const stabilityA: FactorStabilityEntry[] = [
+      { factor_id: 'factor-a', factor_label: 'A', elasticity_std: 0.042, attribution_stability: 'high', rank_flip_rate: 0.03, stability_method: 'bootstrap_1000' },
+    ];
+    const stabilityB: FactorStabilityEntry[] = [
+      { factor_id: 'factor-a', factor_label: 'A', elasticity_std: 0.99, attribution_stability: 'low', rank_flip_rate: 0.5, stability_method: 'bootstrap_1000' },
+    ];
+
+    const hashA = computeResponseHash(canonicaliseRequest(req, GRAPH, '42', ident, stabilityA));
+    const hashB = computeResponseHash(canonicaliseRequest(req, GRAPH, '42', ident, stabilityB));
+
+    expect(hashA).not.toBe(hashB);
+  });
+
+  it('factor_stability is included in canonical form', () => {
+    const req = makeRequest();
+    const stability: FactorStabilityEntry[] = [
+      { factor_id: 'factor-b', factor_label: 'B', elasticity_std: 0.1, attribution_stability: 'moderate', rank_flip_rate: 0.15, stability_method: 'bootstrap_1000' },
+      { factor_id: 'factor-a', factor_label: 'A', elasticity_std: 0.04, attribution_stability: 'high', rank_flip_rate: 0.03, stability_method: 'bootstrap_1000' },
+    ];
+
+    const canonical = JSON.parse(canonicaliseRequest(req, GRAPH, '42', undefined, stability));
+
+    expect(canonical.factor_stability).toBeDefined();
+    expect(canonical.factor_stability).toHaveLength(2);
+    // Sorted by factor_id
+    expect(canonical.factor_stability[0].factor_id).toBe('factor-a');
+    expect(canonical.factor_stability[1].factor_id).toBe('factor-b');
+  });
+
+  it('empty factor_stability still included in canonical form', () => {
+    const req = makeRequest();
+    const canonical = JSON.parse(canonicaliseRequest(req, GRAPH, '42', undefined, []));
+    expect(canonical.factor_stability).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FS6: Route-level factor_stability integration
+// ---------------------------------------------------------------------------
+
+describe('FS6: Route-level factor_stability via /v2/run', () => {
+  let app: FastifyInstance;
+  let baseUrl: string;
+
+  beforeAll(async () => {
+    process.env.RATE_LIMIT_ENABLED = '0';
+    process.env.CEE_ORCHESTRATOR_ENABLE = '0';
+
+    app = await createServer();
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    const addr = app.server.address();
+    const port = typeof addr === 'object' && addr ? addr.port : 0;
+    baseUrl = `http://127.0.0.1:${port}`;
+  });
+
+  afterAll(async () => {
+    await app?.close();
+    delete process.env.RATE_LIMIT_ENABLED;
+    delete process.env.CEE_ORCHESTRATOR_ENABLE;
+  });
+
+  it('factor_stability populated when ISL provides 3C fields', async () => {
+    const res = await fetch(`${baseUrl}/v2/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        graph: GRAPH,
+        options: OPTIONS,
+        goal_node_id: 'goal',
+        seed: '42',
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+
+    // factor_stability should be populated from ISL 3C fields
+    expect(body.factor_stability).toBeDefined();
+    expect(Array.isArray(body.factor_stability)).toBe(true);
+    expect(body.factor_stability.length).toBe(2);
+
+    const stabA = body.factor_stability.find((f: any) => f.factor_id === 'factor-a');
+    const stabB = body.factor_stability.find((f: any) => f.factor_id === 'factor-b');
+
+    expect(stabA).toBeDefined();
+    expect(stabA.elasticity_std).toBe(0.042);
+    expect(stabA.attribution_stability).toBe('high');
+    expect(stabA.rank_flip_rate).toBe(0.03);
+    expect(stabA.stability_method).toBe('bootstrap_1000');
+
+    expect(stabB).toBeDefined();
+    expect(stabB.elasticity_std).toBe(0.11);
+    expect(stabB.attribution_stability).toBe('moderate');
+    expect(stabB.rank_flip_rate).toBe(0.15);
+    expect(stabB.stability_method).toBe('bootstrap_1000');
+
+    // factor_sensitivity should still be present and unaffected
+    expect(body.factor_sensitivity).toBeDefined();
+    expect(body.factor_sensitivity.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('factor_stability is empty array when ISL omits 3C fields', async () => {
+    const res = await fetch(`${baseUrl}/v2/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        graph: {
+          nodes: [
+            { id: 'goal-no-3c', kind: 'goal', label: 'Revenue' },
+            { id: 'action-a', kind: 'action', label: 'Action A' },
+          ],
+          edges: [
+            { from: 'action-a', to: 'goal-no-3c', exists_probability: 0.8, strength: { mean: 0.5, std: 0.1 } },
+          ],
+        },
+        options: [
+          { id: 'opt1', label: 'Option A', interventions: { 'action-a': { value: 10, source: 'user_specified' } } },
+          { id: 'opt2', label: 'Option B', interventions: { 'action-a': { value: 20, source: 'user_specified' } } },
+        ],
+        goal_node_id: 'goal-no-3c',
+        seed: '42',
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+
+    expect(body.factor_stability).toBeDefined();
+    expect(body.factor_stability).toEqual([]);
   });
 });

@@ -57,17 +57,31 @@
  * **Migration**: ALL hashes change from v3. Cache invalidation required.
  * Identifiability is a deterministic function of graph structure (backdoor criterion),
  * so it does not introduce non-determinism into the hash.
+ *
+ * ## BREAKING CHANGE (v5)
+ *
+ * Hash version 5 adds `factor_stability` to the canonical form:
+ *
+ * 1. **factor_stability inclusion**: ISL stability assessment per factor (3C bootstrap)
+ *    - Sorted by factor_id for determinism
+ *    - Includes elasticity_std, attribution_stability, rank_flip_rate, stability_method
+ *    - Empty array when ISL provides no 3C data (still included in canonical form)
+ *    - Impact: ALL hashes change due to version prefix bump (v4→v5)
+ *
+ * **Migration**: ALL hashes change from v4. Cache invalidation required.
+ * factor_stability is deterministic ISL output (bootstrap analysis),
+ * so it does not introduce non-determinism into the hash.
  */
 
 import { createHash } from 'node:crypto';
-import type { RunRequestV3, OptionV3, EngineGraphV3, GoalConstraint, IdentifiabilityAssessment } from '../types/engine-v3.js';
+import type { RunRequestV3, OptionV3, EngineGraphV3, GoalConstraint, IdentifiabilityAssessment, FactorStabilityEntry } from '../types/engine-v3.js';
 
 // -----------------------------------------------------------------------------
 // Constants
 // -----------------------------------------------------------------------------
 
 /** Hash version to prevent collisions when canonicalisation changes */
-const HASH_VERSION = 4;
+const HASH_VERSION = 5;
 
 /** Number of decimal places for float normalisation */
 const DECIMAL_PRECISION = 12;
@@ -240,6 +254,14 @@ interface CanonicalRequest {
     pairs_checked: number;
     pairs_identifiable: number;
   };
+  /** ISL stability assessment per factor — deterministic bootstrap output (v5) */
+  factor_stability?: Array<{
+    factor_id: string;
+    elasticity_std: number;
+    attribution_stability: string;
+    rank_flip_rate: number;
+    stability_method: string;
+  }>;
 }
 
 /**
@@ -257,13 +279,15 @@ interface CanonicalRequest {
  * @param normalizedGraph Normalized graph (post-normalisation)
  * @param seedUsed Seed that will be used (already normalised to string)
  * @param identifiability Optional identifiability assessment (deterministic, included in hash)
+ * @param factorStability Optional ISL stability assessment per factor (deterministic, included in hash v5+)
  * @returns Canonical JSON string
  */
 export function canonicaliseRequest(
   req: RunRequestV3,
   normalizedGraph: EngineGraphV3,
   seedUsed: string,
-  identifiability?: IdentifiabilityAssessment
+  identifiability?: IdentifiabilityAssessment,
+  factorStability?: FactorStabilityEntry[]
 ): string {
   const canonical: CanonicalRequest = {
     version: HASH_VERSION,
@@ -320,6 +344,18 @@ export function canonicaliseRequest(
     };
   }
 
+  // 3C: factor_stability is deterministic ISL output (bootstrap analysis).
+  // Sort by factor_id for determinism. Always include (empty array when absent).
+  canonical.factor_stability = [...(factorStability ?? [])]
+    .sort((a, b) => a.factor_id.localeCompare(b.factor_id))
+    .map((f) => ({
+      factor_id: f.factor_id,
+      elasticity_std: canonicaliseNumber(f.elasticity_std),
+      attribution_stability: f.attribution_stability,
+      rank_flip_rate: canonicaliseNumber(f.rank_flip_rate),
+      stability_method: f.stability_method,
+    }));
+
   return JSON.stringify(canonical);
 }
 
@@ -340,14 +376,16 @@ export function computeResponseHash(canonicalised: string): string {
  * @param normalizedGraph Normalized graph (post-normalisation)
  * @param seedUsed Seed that will be used (already normalised to string)
  * @param identifiability Optional identifiability assessment
+ * @param factorStability Optional ISL stability assessment per factor
  * @returns 16-character hex hash
  */
 export function hashRequest(
   req: RunRequestV3,
   normalizedGraph: EngineGraphV3,
   seedUsed: string,
-  identifiability?: IdentifiabilityAssessment
+  identifiability?: IdentifiabilityAssessment,
+  factorStability?: FactorStabilityEntry[]
 ): string {
-  const canonical = canonicaliseRequest(req, normalizedGraph, seedUsed, identifiability);
+  const canonical = canonicaliseRequest(req, normalizedGraph, seedUsed, identifiability, factorStability);
   return computeResponseHash(canonical);
 }
