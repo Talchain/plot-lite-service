@@ -251,6 +251,27 @@ function transformFactorSensitivity(islFactorSensitivity: unknown): FactorSensit
   });
 }
 
+/**
+ * Validate and extract stability_thresholds from ISL response.
+ * Returns undefined if absent or malformed.
+ */
+function extractStabilityThresholds(islResult: any): StabilityThresholds | undefined {
+  const st = islResult?.stability_thresholds;
+  if (!st || typeof st !== 'object') return undefined;
+  if (
+    !Number.isFinite(st.high_moderate_boundary) ||
+    !Number.isFinite(st.moderate_low_boundary) ||
+    typeof st.version !== 'string' || st.version === '' ||
+    typeof st.provisional !== 'boolean'
+  ) return undefined;
+  return {
+    high_moderate_boundary: st.high_moderate_boundary,
+    moderate_low_boundary: st.moderate_low_boundary,
+    version: st.version,
+    provisional: st.provisional,
+  };
+}
+
 // -----------------------------------------------------------------------------
 // Build ID (for deployment verification)
 // -----------------------------------------------------------------------------
@@ -1231,7 +1252,7 @@ function buildResponse(
     // ISL stability threshold configuration (boundaries for attribution_stability categories)
     // NOTE: Configuration metadata, NOT in response_hash. The categorical labels it
     // influences (attribution_stability in factor_stability) are already in the hash.
-    ...(islResult?.stability_thresholds && { stability_thresholds: islResult.stability_thresholds as StabilityThresholds }),
+    ...((() => { const st = extractStabilityThresholds(islResult); return st ? { stability_thresholds: st } : {}; })()),
     // Factor enrichments from CEE /assist/v1/review (undefined when unavailable)
     // NOTE: Non-deterministic (LLM-derived), excluded from canonical hash
     ...(factorEnrichments && { factor_enrichments: factorEnrichments }),

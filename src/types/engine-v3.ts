@@ -1429,7 +1429,9 @@ export type SourcePath = 'isl' | 'graph_fallback';
 
 /**
  * Canonical metadata for response auditability.
- * Only included when UI_CANONICAL_META feature flag is enabled.
+ * Base fields (source_path, repairs_applied, request_id, plot_build, hash_version)
+ * are always included. Extended fields (builds, payloads) are gated behind
+ * the UI_CANONICAL_META feature flag.
  *
  * @see docs/audits/PLOT_LEDGER_SPEC.md
  */

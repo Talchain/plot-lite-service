@@ -51,11 +51,11 @@ function makeRequest(overrides: Partial<RunRequestV3> = {}): RunRequestV3 {
 }
 
 // ---------------------------------------------------------------------------
-// ST3: Hash unit test — stability_thresholds NOT in hash
+// ST3: Hash unit test — stability_thresholds NOT in hash (canonical form proof)
 // ---------------------------------------------------------------------------
 
 describe('ST3: stability_thresholds NOT in response_hash', () => {
-  it('hashes are identical with and without stability_thresholds', () => {
+  it('canonical form does not contain stability_thresholds', () => {
     const req = makeRequest();
     const ident: IdentifiabilityAssessment = {
       status: 'identifiable', method: 'backdoor',
@@ -65,13 +65,6 @@ describe('ST3: stability_thresholds NOT in response_hash', () => {
       { factor_id: 'factor-a', factor_label: 'A', elasticity_std: 0.042, attribution_stability: 'high', rank_flip_rate: 0.03, stability_method: 'bootstrap_1000' },
     ];
 
-    // Hash is computed from canonicaliseRequest — stability_thresholds is NOT a parameter
-    const hash1 = computeResponseHash(canonicaliseRequest(req, GRAPH, '42', ident, stability));
-    const hash2 = computeResponseHash(canonicaliseRequest(req, GRAPH, '42', ident, stability));
-
-    expect(hash1).toBe(hash2);
-
-    // Verify canonical form does NOT contain stability_thresholds
     const canonical = JSON.parse(canonicaliseRequest(req, GRAPH, '42', ident, stability));
     expect(canonical).not.toHaveProperty('stability_thresholds');
   });
@@ -80,6 +73,9 @@ describe('ST3: stability_thresholds NOT in response_hash', () => {
 // ---------------------------------------------------------------------------
 // ISL mock — includes stability_thresholds conditionally
 // ---------------------------------------------------------------------------
+
+// Toggle for ST3 differential test: when true, mock omits thresholds regardless of goal_node_id
+let forceOmitThresholds = false;
 
 const mockISLService = {
   isEnabled(): boolean { return true; },
@@ -121,7 +117,7 @@ const mockISLService = {
   },
   async computeCounterfactual(): Promise<never> { throw new Error('not called'); },
   async callAnalysisEndpoint<T>(_endpoint: string, body: any): Promise<{ data: T | null; error: string | null; isl_echoed_request_id?: string }> {
-    const includeThresholds = body.goal_node_id !== 'goal-no-thresholds';
+    const includeThresholds = !forceOmitThresholds && body.goal_node_id !== 'goal-no-thresholds';
     const options = body.options || [];
     return {
       data: {
@@ -230,6 +226,45 @@ describe('stability_thresholds passthrough + hash_version in _meta', () => {
 
     // Field should be absent (not null, not undefined key)
     expect('stability_thresholds' in body).toBe(false);
+  });
+
+  it('ST3-route: same request produces identical response_hash with/without stability_thresholds', async () => {
+    const payload = JSON.stringify({
+      graph: GRAPH,
+      options: OPTIONS,
+      goal_node_id: 'goal',
+      seed: '42',
+    });
+
+    // Request WITH stability_thresholds
+    forceOmitThresholds = false;
+    const res1 = await fetch(`${baseUrl}/v2/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: payload,
+    });
+    expect(res1.status).toBe(200);
+    const body1 = await res1.json() as any;
+    expect(body1.stability_thresholds).toBeDefined();
+
+    // Request WITHOUT stability_thresholds (same semantic payload)
+    forceOmitThresholds = true;
+    const res2 = await fetch(`${baseUrl}/v2/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: payload,
+    });
+    expect(res2.status).toBe(200);
+    const body2 = await res2.json() as any;
+    expect('stability_thresholds' in body2).toBe(false);
+
+    // Reset flag
+    forceOmitThresholds = false;
+
+    // response_hash must be identical — stability_thresholds is NOT in hash
+    expect(body1.response_hash).toBeDefined();
+    expect(body2.response_hash).toBeDefined();
+    expect(body1.response_hash).toBe(body2.response_hash);
   });
 
   it('ST4: _meta.hash_version matches HASH_VERSION constant', async () => {
