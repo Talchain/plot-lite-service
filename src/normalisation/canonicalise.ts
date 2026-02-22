@@ -81,7 +81,7 @@ import type { RunRequestV3, OptionV3, EngineGraphV3, GoalConstraint, Identifiabi
 // -----------------------------------------------------------------------------
 
 /** Hash version to prevent collisions when canonicalisation changes */
-const HASH_VERSION = 5;
+export const HASH_VERSION = 5;
 
 /** Number of decimal places for float normalisation */
 const DECIMAL_PRECISION = 12;

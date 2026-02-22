@@ -53,11 +53,12 @@ import type {
   ThresholdsStatus,
   ThresholdResult,
   FactorStabilityEntry,
+  StabilityThresholds,
 } from '../../types/engine-v3.js';
 // Seed derivation: when seed omitted, derive deterministically from graph hash
 import { normaliseGraph, NormalisationError, cleanLabelAnnotation, type NormalisationWarning } from '../../normalisation/graph-normaliser.js';
 import { filterOptionNodes } from '../../normalisation/option-filter.js';
-import { hashRequest } from '../../normalisation/canonicalise.js';
+import { hashRequest, HASH_VERSION } from '../../normalisation/canonicalise.js';
 import { hashGraph, deriveSeedFromHash } from '../../sampling/graph-hash.js';
 import { runPreflightValidation, validateGoalConstraints, filterInvalidBidirectedEdges } from '../../validation/preflight-v2.js';
 import { compileConstraintNodes } from '../../normalisation/constraint-compiler.js';
@@ -1227,6 +1228,10 @@ function buildResponse(
     // ISL stability assessment per factor (3C bootstrap analysis)
     // NOTE: Deterministic ISL output. Included in response_hash (v5+).
     factor_stability: factorStability ?? [],
+    // ISL stability threshold configuration (boundaries for attribution_stability categories)
+    // NOTE: Configuration metadata, NOT in response_hash. The categorical labels it
+    // influences (attribution_stability in factor_stability) are already in the hash.
+    ...(islResult?.stability_thresholds && { stability_thresholds: islResult.stability_thresholds as StabilityThresholds }),
     // Factor enrichments from CEE /assist/v1/review (undefined when unavailable)
     // NOTE: Non-deterministic (LLM-derived), excluded from canonical hash
     ...(factorEnrichments && { factor_enrichments: factorEnrichments }),
@@ -1294,6 +1299,7 @@ function buildResponse(
         repairs_applied: meta.repairs ?? [],
         request_id: requestId,
         plot_build: meta.build ?? 'unknown',
+        hash_version: HASH_VERSION,
       };
 
       // Extended _meta fields only when feature flag enabled

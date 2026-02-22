@@ -787,6 +787,16 @@ export interface RunResponseV3 {
   factor_stability?: FactorStabilityEntry[];
 
   /**
+   * ISL stability threshold configuration (boundaries for attribution_stability categories).
+   * Present only when ISL provides bootstrap stability analysis.
+   *
+   * NOTE: Configuration metadata, NOT included in response_hash.
+   * The categorical labels it influences (attribution_stability in factor_stability)
+   * are already captured in the hash.
+   */
+  stability_thresholds?: StabilityThresholds;
+
+  /**
    * Factor enrichments from CEE /assist/v1/review.
    * Provides human-readable insights for UI factor cards.
    * Undefined if CEE unavailable, timed out, or failed.
@@ -1206,6 +1216,22 @@ export interface FactorStabilityEntry {
 }
 
 /**
+ * ISL stability threshold configuration.
+ * Defines the boundaries used by ISL to categorise attribution_stability.
+ * Passthrough from ISL response — configuration metadata, NOT included in response_hash.
+ */
+export interface StabilityThresholds {
+  /** Boundary between 'high' and 'moderate' stability (elasticity_std threshold) */
+  high_moderate_boundary: number;
+  /** Boundary between 'moderate' and 'low' stability (elasticity_std threshold) */
+  moderate_low_boundary: number;
+  /** Threshold configuration version */
+  version: string;
+  /** True when thresholds are provisional (pending scientific review) */
+  provisional: boolean;
+}
+
+/**
  * Normalized edge info for robustness assessment.
  * Consistent object shape regardless of ISL format.
  * Enriched with human-readable labels per Decision Model Schema v2.6.
@@ -1453,6 +1479,8 @@ export interface CanonicalMeta {
   filtered_constraints?: FilteredConstraintRecord[];
   /** Source of each constraint (e.g., 'auto_from_goal_threshold') */
   constraint_sources?: Record<string, string>;
+  /** Hash version used for response_hash computation (audit trail) */
+  hash_version?: number;
 }
 
 /**
