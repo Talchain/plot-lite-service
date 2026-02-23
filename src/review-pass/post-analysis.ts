@@ -11,8 +11,8 @@
  *
  * TRUNCATION POLICY (UX decision, not just implementation):
  * - Max 5 cards per review phase
- * - Priority order: severity (critical > high > medium > low)
- * - Secondary: importance_rank for drivers, chronological for critiques
+ * - Sort: (priority ASC, card_type bytewise ASC, card_id bytewise ASC)
+ * - Higher-priority cards (lower number) sort first
  * - truncated: true + total_candidates shown to user
  */
 
@@ -21,9 +21,8 @@ import type {
   ReviewPassEnvelopeV1,
   SupportingRef,
   CitationRole,
-  PriorityBand,
 } from './types.js';
-import { REVIEW_PASS_SCHEMA_VERSION, PRIORITY_TO_BAND } from './types.js';
+import { REVIEW_PASS_SCHEMA_VERSION, lookupBand } from './types.js';
 import { sortCards } from './sort.js';
 import type {
   FactObjectV1,
@@ -104,7 +103,7 @@ function buildCritiqueCard(fact: FactObjectV1, data: CritiqueFactData): Proposal
     supporting_refs: [ref],
     ...(data.affected_node_ids?.length && { affected_node_ids: data.affected_node_ids }),
     priority: 2,
-    priority_band: PRIORITY_TO_BAND[2] as PriorityBand,
+    priority_band: lookupBand(2),
     suggested_action: 'review',
     provenance: { source: 'isl' as const, origin_id: fact.fact_id },
   };
@@ -129,7 +128,7 @@ function buildLowStabilityCard(
     supporting_refs: [ref],
     affected_node_ids: [data.node_id],
     priority: 1,
-    priority_band: PRIORITY_TO_BAND[1] as PriorityBand,
+    priority_band: lookupBand(1),
     suggested_action: 'add_evidence',
     provenance: { source: 'isl' as const, origin_id: fact.fact_id },
   };
@@ -154,7 +153,7 @@ function buildTopDriverCard(
     supporting_refs: [ref],
     affected_node_ids: [data.node_id],
     priority: 2,
-    priority_band: PRIORITY_TO_BAND[2] as PriorityBand,
+    priority_band: lookupBand(2),
     suggested_action: 'review',
     provenance: { source: 'isl' as const, origin_id: fact.fact_id },
   };

@@ -17,8 +17,10 @@
  *
  * Non-breaking (no version bump):
  * - Adding optional fields
- * - Adding new card_type values
  * - Extending allow-list patterns
+ *
+ * Potentially breaking for strict/generated clients (coordinate with consumers):
+ * - Adding new card_type values (OpenAPI enum expansion)
  */
 
 export const REVIEW_PASS_SCHEMA_VERSION = 1;
@@ -61,6 +63,15 @@ export const PRIORITY_TO_BAND: Record<number, PriorityBand> = {
   3: 'medium',
   4: 'low',
 };
+
+/** Lookup priority band with fail-fast for unmapped priorities. */
+export function lookupBand(priority: number): PriorityBand {
+  const band = PRIORITY_TO_BAND[priority];
+  if (!band) {
+    throw new Error(`Unmapped priority ${priority} — update PRIORITY_TO_BAND`);
+  }
+  return band;
+}
 
 /** Provenance tracking — which subsystem produced this card. */
 export interface CardProvenance {

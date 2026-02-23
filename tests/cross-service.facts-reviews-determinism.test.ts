@@ -4,6 +4,8 @@
  * Runs the same payload twice through a real server and asserts that all
  * output components (facts, pre/post analysis reviews, response_hash) are
  * stable across identical requests.
+ *
+ * Each test is driven by the assertions declared in the golden fixture.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -17,6 +19,7 @@ const golden = JSON.parse(
     'utf8',
   ),
 );
+const assertions = golden.assertions;
 
 describe('cross-service determinism: facts + reviews', () => {
   let server: ServerHandle;
@@ -42,7 +45,25 @@ describe('cross-service determinism: facts + reviews', () => {
     return res.json();
   }
 
-  it('facts order is stable across identical requests', async () => {
+  it('fixture declares all expected assertion keys', () => {
+    // Guard: fixture must declare all assertion keys the test checks
+    const requiredKeys = [
+      'facts_key_order_stable',
+      'pre_analysis_card_ids_stable',
+      'post_analysis_card_ids_stable',
+      'response_hash_stable',
+      'priority_band_present',
+      'provenance_present',
+      'full_tuple_stable',
+    ];
+    for (const key of requiredKeys) {
+      expect(assertions[key]).toBe(true);
+    }
+  });
+
+  it('facts key order is stable across identical requests (fixture: facts_key_order_stable)', async () => {
+    expect(assertions.facts_key_order_stable).toBe(true);
+
     const data1 = await runBundle();
     const data2 = await runBundle();
 
@@ -55,7 +76,9 @@ describe('cross-service determinism: facts + reviews', () => {
     expect(keys1).toEqual(keys2);
   });
 
-  it('pre_analysis card IDs are stable', async () => {
+  it('pre_analysis card IDs are stable (fixture: pre_analysis_card_ids_stable)', async () => {
+    expect(assertions.pre_analysis_card_ids_stable).toBe(true);
+
     const data1 = await runBundle();
     const data2 = await runBundle();
 
@@ -66,7 +89,9 @@ describe('cross-service determinism: facts + reviews', () => {
     }
   });
 
-  it('post_analysis card IDs are stable', async () => {
+  it('post_analysis card IDs are stable (fixture: post_analysis_card_ids_stable)', async () => {
+    expect(assertions.post_analysis_card_ids_stable).toBe(true);
+
     const data1 = await runBundle();
     const data2 = await runBundle();
 
@@ -77,7 +102,9 @@ describe('cross-service determinism: facts + reviews', () => {
     }
   });
 
-  it('response_hash is stable', async () => {
+  it('response_hash is stable (fixture: response_hash_stable)', async () => {
+    expect(assertions.response_hash_stable).toBe(true);
+
     const data1 = await runBundle();
     const data2 = await runBundle();
 
@@ -85,41 +112,59 @@ describe('cross-service determinism: facts + reviews', () => {
     expect(data1.model_card.response_hash).toBe(data2.model_card.response_hash);
   });
 
-  it('review cards include priority_band field', async () => {
+  it('review cards include priority_band field (fixture: priority_band_present)', async () => {
+    expect(assertions.priority_band_present).toBe(true);
+
     const data = await runBundle();
     const validBands = ['critical', 'high', 'medium', 'low'];
 
-    if (data.pre_analysis_review) {
-      for (const card of data.pre_analysis_review.cards) {
-        expect(card.priority_band).toBeDefined();
-        expect(validBands).toContain(card.priority_band);
-      }
-    }
-
-    if (data.post_analysis_review) {
-      for (const card of data.post_analysis_review.cards) {
-        expect(card.priority_band).toBeDefined();
-        expect(validBands).toContain(card.priority_band);
+    for (const phase of ['pre_analysis_review', 'post_analysis_review'] as const) {
+      if (data[phase]) {
+        for (const card of data[phase].cards) {
+          expect(card.priority_band).toBeDefined();
+          expect(validBands).toContain(card.priority_band);
+        }
       }
     }
   });
 
-  it('review cards include provenance field', async () => {
-    const data = await runBundle();
+  it('review cards include provenance field (fixture: provenance_present)', async () => {
+    expect(assertions.provenance_present).toBe(true);
 
-    if (data.pre_analysis_review) {
-      for (const card of data.pre_analysis_review.cards) {
-        expect(card.provenance).toBeDefined();
-        expect(card.provenance.source).toBe('validate');
-        expect(card.provenance.origin_id).toBeDefined();
+    const data = await runBundle();
+    const sourceByPhase: Record<string, string> = {
+      pre_analysis_review: 'validate',
+      post_analysis_review: 'isl',
+    };
+
+    for (const [phase, expectedSource] of Object.entries(sourceByPhase)) {
+      if (data[phase]) {
+        for (const card of data[phase].cards) {
+          expect(card.provenance).toBeDefined();
+          expect(card.provenance.source).toBe(expectedSource);
+          expect(typeof card.provenance.origin_id).toBe('string');
+        }
       }
     }
+  });
 
-    if (data.post_analysis_review) {
-      for (const card of data.post_analysis_review.cards) {
-        expect(card.provenance).toBeDefined();
-        expect(card.provenance.source).toBe('isl');
-        expect(card.provenance.origin_id).toBeDefined();
+  it('full card tuples are stable across identical requests (fixture: full_tuple_stable)', async () => {
+    expect(assertions.full_tuple_stable).toBe(true);
+
+    const data1 = await runBundle();
+    const data2 = await runBundle();
+
+    for (const phase of ['pre_analysis_review', 'post_analysis_review'] as const) {
+      if (data1[phase] && data2[phase]) {
+        const tuples1 = data1[phase].cards.map((c: any) => [
+          c.priority, c.card_type, c.card_id, c.priority_band,
+          c.provenance?.source, c.provenance?.origin_id,
+        ]);
+        const tuples2 = data2[phase].cards.map((c: any) => [
+          c.priority, c.card_type, c.card_id, c.priority_band,
+          c.provenance?.source, c.provenance?.origin_id,
+        ]);
+        expect(tuples1).toEqual(tuples2);
       }
     }
   });

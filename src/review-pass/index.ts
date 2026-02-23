@@ -13,6 +13,7 @@
 export {
   REVIEW_PASS_SCHEMA_VERSION,
   PRIORITY_TO_BAND,
+  lookupBand,
   type CitationRole,
   type Citation,
   type FactRef,

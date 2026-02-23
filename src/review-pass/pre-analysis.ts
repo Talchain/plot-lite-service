@@ -11,8 +11,8 @@
  *
  * TRUNCATION POLICY (UX decision, not just implementation):
  * - Max 5 cards per review phase
- * - Priority order: severity (critical > high > medium > low)
- * - Secondary: card_type (bytewise), then card_id (bytewise)
+ * - Sort: (priority ASC, card_type bytewise ASC, card_id bytewise ASC)
+ * - Higher-severity violations (error > warning > info) sort first
  * - truncated: true + total_candidates shown to user
  */
 
@@ -23,9 +23,8 @@ import type {
   CardType,
   SupportingRef,
   SuggestedAction,
-  PriorityBand,
 } from './types.js';
-import { REVIEW_PASS_SCHEMA_VERSION, PRIORITY_TO_BAND } from './types.js';
+import { REVIEW_PASS_SCHEMA_VERSION, lookupBand } from './types.js';
 import { cmp, sortCards } from './sort.js';
 
 const MAX_CARDS = 5;
@@ -136,7 +135,7 @@ export function generatePreAnalysisReview(
       ...(nodeIds.length > 0 && { affected_node_ids: nodeIds }),
       ...(edgeIds.length > 0 && { affected_edge_ids: edgeIds }),
       priority,
-      priority_band: PRIORITY_TO_BAND[priority] ?? ('low' as PriorityBand),
+      priority_band: lookupBand(priority),
       suggested_action: severityToAction(severity),
       provenance: { source: 'validate' as const, origin_id: v.code },
     };

@@ -19,11 +19,13 @@
     "seed": 4242
   },
   "assertions": {
-    "facts_order_stable": true,
+    "facts_key_order_stable": true,
+    "fact_id_determinism_note": "fact_id includes per-request isl_request_id (UUID) for lineage tracing, so it varies across requests. Determinism contract: same lineage → same fact_id. Cross-request stability is asserted on fact_key ordering only.",
     "pre_analysis_card_ids_stable": true,
     "post_analysis_card_ids_stable": true,
     "response_hash_stable": true,
     "priority_band_present": true,
-    "provenance_present": true
+    "provenance_present": true,
+    "full_tuple_stable": true
   }
 }
