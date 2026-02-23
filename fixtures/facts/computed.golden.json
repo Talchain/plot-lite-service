@@ -1,0 +1,79 @@
+{
+  "description": "Golden fixture: full ISL response (computed) → expected FactsEnvelope",
+  "input": {
+    "isl_response": {
+      "analysis_status": "computed",
+      "options": [
+        {
+          "option_id": "opt_low_price",
+          "label": "Low Price",
+          "outcome": { "p10": 80, "p50": 100, "p90": 120, "mean": 100 }
+        },
+        {
+          "option_id": "opt_high_price",
+          "label": "High Price",
+          "outcome": { "p10": 90, "p50": 110, "p90": 140, "mean": 113.3 }
+        }
+      ],
+      "factor_sensitivity": [
+        {
+          "node_id": "market_demand",
+          "label": "Market Demand",
+          "sensitivity_score": 0.85,
+          "importance_score": 0.85,
+          "importance_rank": 1,
+          "elasticity": 0.72,
+          "direction": "positive",
+          "confidence": 0.9,
+          "attribution_stability": "high"
+        },
+        {
+          "node_id": "competitor_price",
+          "label": "Competitor Price",
+          "sensitivity_score": 0.65,
+          "importance_score": 0.65,
+          "importance_rank": 2,
+          "elasticity": -0.45,
+          "direction": "negative",
+          "confidence": 0.8,
+          "attribution_stability": "moderate"
+        }
+      ],
+      "critiques": [
+        {
+          "id": "crit_001",
+          "code": "MISSING_EVIDENCE",
+          "severity": "warning",
+          "message": "No evidence provided for market_demand node",
+          "suggestion": "Add market research data as evidence",
+          "affected_node_ids": ["market_demand"]
+        }
+      ],
+      "robustness": {
+        "label": "moderate",
+        "score": 0.65
+      }
+    },
+    "lineage": {
+      "graph_hash": "a1b2c3d4e5f6a7b8",
+      "seed": 4242,
+      "config_version": "1",
+      "isl_request_id": "req-golden-001"
+    }
+  },
+  "expected": {
+    "facts_schema_version": 1,
+    "analysis_status": "computed",
+    "fact_count": 6,
+    "fact_types": ["probability", "probability", "factor_sensitivity", "factor_sensitivity", "critique", "robustness"],
+    "fact_type_counts": {
+      "probability": 2,
+      "factor_sensitivity": 2,
+      "critique": 1,
+      "robustness": 1
+    },
+    "ordering_stable": true,
+    "all_fact_ids_unique": true,
+    "all_content_hashes_present": true
+  }
+}

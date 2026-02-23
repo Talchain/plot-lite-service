@@ -76,4 +76,14 @@ export const FLAGS = {
   get DECISION_REVIEW_ENABLE() {
     return process.env.DECISION_REVIEW_ENABLE === '1' || process.env.DECISION_REVIEW_ENABLE === 'true';
   },
+
+  // Stream D: FactObject assembly
+  /** Enable FactObjectV1 facts assembly in run_bundle response (default: true for staging/test) */
+  get ENABLE_FACTS_ASSEMBLY() {
+    const raw = process.env.ENABLE_FACTS_ASSEMBLY;
+    if (raw === '0' || raw === 'false') return false;
+    // Default on for test/staging, off for production unless explicitly enabled
+    if (raw === '1' || raw === 'true') return true;
+    return process.env.NODE_ENV === 'test' || process.env.RENDER_SERVICE_NAME?.includes('staging') === true;
+  },
 } as const;

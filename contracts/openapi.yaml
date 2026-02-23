@@ -3068,6 +3068,65 @@ paths:
                           type: object
                           description: 'Additional context data (e.g., affected edge IDs)'
                           additionalProperties: true
+                  facts:
+                    type: object
+                    description: 'Optional FactObjectV1 envelope. Present when ENABLE_FACTS_ASSEMBLY=1 (Stream D). Backward-compatible — omitted when disabled.'
+                    properties:
+                      facts_schema_version:
+                        type: integer
+                        description: 'Schema version for FactObjectV1 (currently 1)'
+                        example: 1
+                      facts:
+                        type: array
+                        description: 'Array of structured fact objects'
+                        items:
+                          type: object
+                          required: [fact_id, fact_key, fact_type, data, lineage, content_hash]
+                          properties:
+                            fact_id:
+                              type: string
+                              pattern: '^[0-9a-f]{16}$'
+                              description: 'Deterministic ID: hash(fact_key + lineage)'
+                            fact_key:
+                              type: object
+                              description: 'Structured key for content-addressable identification'
+                              required: [type]
+                              properties:
+                                type:
+                                  type: string
+                                  enum: [probability, factor_sensitivity, critique, robustness]
+                                node_id: { type: string }
+                                edge_id: { type: string }
+                                option_id: { type: string }
+                                metric: { type: string }
+                            fact_type:
+                              type: string
+                              enum: [probability, factor_sensitivity, critique, robustness]
+                            data:
+                              type: object
+                              description: 'Raw data from inference. Shape varies by fact_type.'
+                              properties:
+                                type: { type: string }
+                              additionalProperties: true
+                            lineage:
+                              type: object
+                              description: 'Lineage for reproducibility'
+                              required: [graph_hash, seed, config_version, isl_request_id]
+                              properties:
+                                graph_hash: { type: string }
+                                seed: { type: integer }
+                                config_version: { type: string }
+                                isl_request_id: { type: string }
+                                plan_id: { type: string }
+                                plan_hash: { type: string }
+                            content_hash:
+                              type: string
+                              pattern: '^[0-9a-f]{16}$'
+                              description: 'Hash of canonical JSON of data payload'
+                      analysis_status:
+                        type: string
+                        enum: [computed, partial, failed]
+                        description: 'Status of the analysis that produced these facts'
                   # baseline_label moved to meta (single source of truth)
                   model_card:
                     type: object

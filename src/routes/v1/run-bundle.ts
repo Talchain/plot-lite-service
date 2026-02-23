@@ -45,6 +45,9 @@ import {
   shouldAnalyzeEdgeFunctionSensitivity,
 } from '../../engine/edge-function-sensitivity.js';
 import { MAX_NODES, MAX_EDGES, MAX_OPTIONS } from '../../constants/limits.js';
+import { FLAGS } from '../../config/flags.js';
+import { assembleFactsFromBundleResults } from '../../facts/index.js';
+import type { FactsEnvelope, FactLineage } from '../../facts/types.js';
 
 interface GraphDelta {
   label: string;
@@ -745,6 +748,24 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
       });
     }
 
+    // Stream D: FactObjectV1 assembly (feature-flagged, backward-compatible)
+    let factsEnvelope: FactsEnvelope | undefined;
+    if (FLAGS.ENABLE_FACTS_ASSEMBLY) {
+      const graphHashForLineage = createHash('sha256')
+        .update(JSON.stringify({ nodes: body.base_graph.nodes, edges: baseEdges }))
+        .digest('hex')
+        .slice(0, 16);
+
+      const lineage: FactLineage = {
+        graph_hash: graphHashForLineage,
+        seed,
+        config_version: '1',
+        isl_request_id: String(req.id),
+      };
+
+      factsEnvelope = assembleFactsFromBundleResults(results, lineage);
+    }
+
     const response: any = {
       schema: 'run_bundle.v1',
       results,
@@ -762,6 +783,8 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
       ...(coherenceWarnings.length > 0 && { coherence_warnings: coherenceWarnings }),
       // Phase 3: Edge function sensitivity warnings (separate from coherence for schema clarity)
       ...(edgeFunctionWarnings.length > 0 && { edge_function_warnings: edgeFunctionWarnings }),
+      // Stream D: Optional FactObjectV1 envelope (backward-compatible)
+      ...(factsEnvelope && { facts: factsEnvelope }),
       // baseline_label in meta only (single source of truth)
       model_card: {
         seed,
