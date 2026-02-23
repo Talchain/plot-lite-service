@@ -1378,11 +1378,15 @@ function buildResponse(
 
       // Surface auto-constraint source metadata so UI can differentiate copy:
       // "Success target: X%" (auto-generated) vs "Meeting all targets: X%" (CEE-extracted)
+      // Uses in-memory `source` field (set during Phase 1c+ synthesis) rather than
+      // matching on constraint_id, so user-supplied constraints with the same ID
+      // are never misclassified as auto-generated.
       if (goalConstraints?.length) {
         const sources: Record<string, string> = {};
         for (const c of goalConstraints) {
-          if (c.constraint_id === 'auto_goal_threshold') {
-            sources[c.constraint_id] = 'auto_from_goal_threshold';
+          const src = (c as any).source;
+          if (typeof src === 'string' && src.length > 0) {
+            sources[c.constraint_id] = src;
           }
         }
         if (Object.keys(sources).length > 0) {
@@ -2621,8 +2625,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               seedUsed = String(islResult.seed_used);
             }
 
-            // Warn if goal_threshold was provided but ISL didn't return probability_of_goal
-            if (goalThreshold !== undefined) {
+            // Warn if goal_threshold is active but ISL didn't return probability_of_goal.
+            // Gate on effectiveGoalThreshold (not original goalThreshold) because
+            // multi-constraint precedence routing intentionally clears the threshold.
+            if (effectiveGoalThreshold !== undefined) {
               const optionData = islResult?.options ?? islResult?.results;
               const optionsWithoutProbGoal = optionData?.filter(
                 (opt: any) => opt.probability_of_goal === undefined || opt.probability_of_goal === null
@@ -2630,7 +2636,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               if (optionsWithoutProbGoal && optionsWithoutProbGoal.length > 0) {
                 req.log.warn({
                   event: 'goal_threshold_no_probability',
-                  goal_threshold: goalThreshold,
+                  goal_threshold: effectiveGoalThreshold,
                   options_missing_probability: optionsWithoutProbGoal.length,
                 });
               }

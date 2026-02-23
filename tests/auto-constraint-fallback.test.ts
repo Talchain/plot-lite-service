@@ -615,6 +615,42 @@ describe('T6: Auto-constraint fallback via /v2/run', () => {
     expect(constraintSources).toBeDefined();
     expect(constraintSources?.auto_goal_threshold).toBe('auto_from_goal_threshold');
   });
+
+  // T9: User-supplied constraint with the same ID as auto-generated should NOT
+  // produce constraint_sources metadata (no false provenance classification).
+  it('T9: user-supplied constraint_id auto_goal_threshold is NOT mislabelled as auto-generated', async () => {
+    vi.resetModules();
+    server = await spawnServer({ env: ENV });
+
+    const { status, data } = await requestJSON(`${server.baseUrl}/v2/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        graph: VALID_GRAPH,
+        options: VALID_OPTIONS,
+        goal_node_id: 'goal',
+        goal_threshold: 0.7,
+        // User explicitly sends a constraint using the same ID as auto-generated
+        goal_constraints: [
+          { constraint_id: 'auto_goal_threshold', node_id: 'goal', operator: '>=', value: 0.5 },
+        ],
+      }),
+    });
+
+    expect(status).toBe(200);
+
+    // No auto-constraint repair — user supplied the constraint explicitly
+    const repairs = data?._meta?.repairs_applied as Array<{ field: string; action: string; reason: string }>;
+    const autoRepair = repairs?.find(
+      (r) => r.field === 'goal_constraints' && r.action === 'derived' && r.reason?.includes('auto-generated')
+    );
+    expect(autoRepair).toBeUndefined();
+
+    // Critical: constraint_sources should NOT be present because the user-supplied
+    // constraint has no `source` field — only auto-generated constraints carry it.
+    const constraintSources = (data?._meta as any)?.constraint_sources;
+    expect(constraintSources).toBeUndefined();
+  });
 });
 
 // =============================================================================
@@ -829,6 +865,61 @@ describe('T7: Log assertions for auto-constraint events', () => {
     expect(autoLog).toBeDefined();
     expect(autoLog.action).toBe('skipped');
     expect(autoLog.reason).toBe('no_goal_threshold');
+
+    vi.restoreAllMocks();
+  });
+
+  it('T10: no goal_threshold_no_probability warning when multi-constraint path clears effectiveGoalThreshold', async () => {
+    // When explicit goal_constraints are present AND goal_threshold is set,
+    // precedence routing clears effectiveGoalThreshold. The warning check
+    // should NOT fire because the threshold path was intentionally disabled.
+    const logCalls: any[] = [];
+    const warnCalls: any[] = [];
+    const originalChildLogger = app.log.child.bind(app.log);
+    vi.spyOn(app.log, 'child').mockImplementation((...args: any[]) => {
+      const child = originalChildLogger(...args);
+      const originalInfo = child.info.bind(child);
+      const originalWarn = child.warn.bind(child);
+      child.info = (...infoArgs: any[]) => {
+        logCalls.push(infoArgs[0]);
+        return originalInfo(...infoArgs);
+      };
+      child.warn = (...warnArgs: any[]) => {
+        warnCalls.push(warnArgs[0]);
+        return originalWarn(...warnArgs);
+      };
+      return child;
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v2/run',
+      payload: {
+        graph: GRAPH,
+        options: OPTIONS,
+        goal_node_id: 'goal',
+        goal_threshold: 0.7,
+        goal_constraints: [
+          { constraint_id: 'c1', node_id: 'factor-a', operator: '>=', value: 0.6 },
+        ],
+        seed: '42',
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+
+    // Verify multi-constraint path activated (threshold was cleared)
+    const multiLog = logCalls.find(
+      (c: any) => c?.event === 'multi_constraint_path_activated'
+    );
+    expect(multiLog).toBeDefined();
+
+    // Critical: goal_threshold_no_probability warning must NOT appear
+    // because effectiveGoalThreshold was cleared by precedence routing
+    const thresholdWarning = warnCalls.find(
+      (c: any) => c?.event === 'goal_threshold_no_probability'
+    );
+    expect(thresholdWarning).toBeUndefined();
 
     vi.restoreAllMocks();
   });

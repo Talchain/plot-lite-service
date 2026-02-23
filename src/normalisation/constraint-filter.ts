@@ -152,7 +152,8 @@ export function filterTemporalConstraints(
       });
     }
 
-    // Strip CEE-specific fields, keep only GoalConstraint fields for ISL
+    // Strip CEE-specific fields, keep only GoalConstraint fields for ISL.
+    // Preserve PLoT-internal `source` field for provenance tracking in _meta.
     const clean: GoalConstraint = {
       constraint_id: constraint.constraint_id,
       node_id: constraint.node_id,
@@ -160,6 +161,7 @@ export function filterTemporalConstraints(
       value: constraint.value,
       ...(constraint.label !== undefined && { label: constraint.label }),
       ...(constraint.weight !== undefined && { weight: constraint.weight }),
+      ...((constraint as any).source !== undefined && { source: (constraint as any).source }),
     };
     passed.push(clean);
   }
