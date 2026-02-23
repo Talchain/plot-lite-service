@@ -2029,6 +2029,16 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // Compile any constraint nodes from the graph into GoalConstraint entries
         // This runs BEFORE constraint validation to allow graph-defined constraints
         // Note: CEE is responsible for NLP extraction; PLoT operates on structured graph data
+
+        // Strip _internal from client-supplied constraints — this namespace is
+        // server-private (set only by Phase 1c+ auto-synthesis). Prevents clients
+        // from spoofing provenance metadata in _meta.constraint_sources.
+        if (body.goal_constraints?.length) {
+          for (const c of body.goal_constraints) {
+            delete (c as any)._internal;
+          }
+        }
+
         const constraintCompilation = compileConstraintNodes(
           normalizedGraph,  // Use normalizedGraph (before filtering) to access constraint nodes
           body.goal_constraints

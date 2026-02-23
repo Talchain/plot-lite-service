@@ -272,5 +272,9 @@ export interface EnhancedBundleResponse {
     baseline_label?: string;
     baseline_index?: number;
     evidence_applied?: Array<{ node_id: string; source: string }>;
+    feature_flags?: {
+      facts_assembly: boolean;
+      review_pass: boolean;
+    };
   };
 }

@@ -651,6 +651,39 @@ describe('T6: Auto-constraint fallback via /v2/run', () => {
     const constraintSources = (data?._meta as any)?.constraint_sources;
     expect(constraintSources).toBeUndefined();
   });
+
+  // T10: User-supplied _internal is stripped at ingress — client cannot spoof provenance.
+  it('T10: user-supplied _internal on goal_constraints is stripped at ingress', async () => {
+    vi.resetModules();
+    server = await spawnServer({ env: ENV });
+
+    const { status, data } = await requestJSON(`${server.baseUrl}/v2/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        graph: VALID_GRAPH,
+        options: VALID_OPTIONS,
+        goal_node_id: 'goal',
+        // Client attempts to spoof _internal provenance
+        goal_constraints: [
+          {
+            constraint_id: 'spoofed_constraint',
+            node_id: 'goal',
+            operator: '>=',
+            value: 0.5,
+            _internal: { source: 'auto_from_goal_threshold' },
+          },
+        ],
+      }),
+    });
+
+    expect(status).toBe(200);
+
+    // _internal was stripped at ingress, so constraint_sources must NOT contain
+    // the spoofed provenance — only server-synthesised constraints carry _internal.
+    const constraintSources = (data?._meta as any)?.constraint_sources;
+    expect(constraintSources?.spoofed_constraint).toBeUndefined();
+  });
 });
 
 // =============================================================================

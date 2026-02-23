@@ -3162,6 +3162,13 @@ paths:
                         type: integer
                         description: "Index of the baseline scenario in results array"
                       evidence_applied: { type: array, items: { type: object } }
+                      feature_flags:
+                        type: object
+                        description: "Feature flags indicating which experimental features are active"
+                        required: [facts_assembly, review_pass]
+                        properties:
+                          facts_assembly: { type: boolean }
+                          review_pass: { type: boolean }
         '400':
           description: Bad input
           content:

@@ -176,6 +176,35 @@ describe('POST /v1/run_bundle - Contract Tests', () => {
     });
   });
 
+  describe('meta.feature_flags', () => {
+    it('returns feature_flags with facts_assembly and review_pass booleans', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/run_bundle',
+        payload: {
+          base_graph: {
+            nodes: [
+              { id: 'A', label: 'Driver', value: 0.5 },
+              { id: 'B', label: 'Outcome' },
+            ],
+            edges: [{ from: 'A', to: 'B' }],
+          },
+          deltas: [
+            { label: 'Test', nodes: [] },
+          ],
+          seed: 4242,
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.payload);
+
+      expect(body.meta.feature_flags).toBeDefined();
+      expect(typeof body.meta.feature_flags.facts_assembly).toBe('boolean');
+      expect(typeof body.meta.feature_flags.review_pass).toBe('boolean');
+    });
+  });
+
   describe('edge type inference fields', () => {
     it('returns edge_type_inference summary', async () => {
       const res = await app.inject({
