@@ -48,6 +48,9 @@ import { MAX_NODES, MAX_EDGES, MAX_OPTIONS } from '../../constants/limits.js';
 import { FLAGS } from '../../config/flags.js';
 import { assembleFactsFromBundleResults } from '../../facts/index.js';
 import type { FactsEnvelope, FactLineage } from '../../facts/types.js';
+import { generatePreAnalysisReview, generatePostAnalysisReview } from '../../review-pass/index.js';
+import type { ReviewPassEnvelopeV1 } from '../../review-pass/types.js';
+import { computeGraphViolations } from '../../lib/graph-violations.js';
 
 interface GraphDelta {
   label: string;
@@ -766,6 +769,27 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
       factsEnvelope = assembleFactsFromBundleResults(results, lineage);
     }
 
+    // Stream D: Review pass — deterministic cards (feature-flagged, backward-compatible)
+    let preAnalysisReview: ReviewPassEnvelopeV1 | undefined;
+    let postAnalysisReview: ReviewPassEnvelopeV1 | undefined;
+    if (FLAGS.ENABLE_REVIEW_PASS) {
+      // Pre-analysis: normalize first (map confidence/probability→belief) to match /v1/validate
+      const normalizedBase = normalizeGraph(
+        { nodes: body.base_graph.nodes, edges: baseEdges },
+        false,
+      );
+      const graphViolations = computeGraphViolations(
+        normalizedBase.nodes,
+        normalizedBase.edges,
+      );
+      preAnalysisReview = generatePreAnalysisReview(graphViolations);
+
+      // Post-analysis: map facts to cards (requires facts assembly)
+      if (factsEnvelope) {
+        postAnalysisReview = generatePostAnalysisReview(factsEnvelope.facts);
+      }
+    }
+
     const response: any = {
       schema: 'run_bundle.v1',
       results,
@@ -785,6 +809,9 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
       ...(edgeFunctionWarnings.length > 0 && { edge_function_warnings: edgeFunctionWarnings }),
       // Stream D: Optional FactObjectV1 envelope (backward-compatible)
       ...(factsEnvelope && { facts: factsEnvelope }),
+      // Stream D: Optional review pass envelopes (backward-compatible)
+      ...(preAnalysisReview && preAnalysisReview.cards.length > 0 && { pre_analysis_review: preAnalysisReview }),
+      ...(postAnalysisReview && postAnalysisReview.cards.length > 0 && { post_analysis_review: postAnalysisReview }),
       // baseline_label in meta only (single source of truth)
       model_card: {
         seed,

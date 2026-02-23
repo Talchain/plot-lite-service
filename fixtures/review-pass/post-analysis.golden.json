@@ -1,0 +1,38 @@
+{
+  "description": "Golden fixture: FactObjects → post-analysis review cards",
+  "input": {
+    "facts_summary": {
+      "analysis_status": "computed",
+      "fact_types": [
+        { "type": "critique", "severity": "warning", "id": "crit_001", "code": "MISSING_EVIDENCE" },
+        { "type": "factor_sensitivity", "node_id": "market_demand", "importance_rank": 1, "attribution_stability": "high" },
+        { "type": "factor_sensitivity", "node_id": "competitor_price", "importance_rank": 2, "attribution_stability": "low" },
+        { "type": "factor_sensitivity", "node_id": "brand_loyalty", "importance_rank": 3, "attribution_stability": "moderate" },
+        { "type": "factor_sensitivity", "node_id": "supply_chain", "importance_rank": 4, "attribution_stability": "low" }
+      ]
+    },
+    "card_generation_logic": {
+      "critique (warning)": "1 warning card (priority 2, card_type warning, role supports)",
+      "market_demand (rank 1, high stability)": "1 top-driver card (priority 2, challenge, derived_from)",
+      "competitor_price (rank 2, low stability)": "2 cards: low-stability (priority 1, challenge, explains) + top-driver (priority 2, challenge, derived_from)",
+      "brand_loyalty (rank 3, moderate stability)": "1 top-driver card (priority 2, challenge, derived_from)",
+      "supply_chain (rank 4, low stability)": "1 low-stability card (priority 1, challenge, explains)",
+      "total_candidates": "1 + 1 + 2 + 1 + 1 = 6"
+    }
+  },
+  "expected": {
+    "review_pass_schema_version": 1,
+    "phase": "post_analysis",
+    "card_count": 5,
+    "truncated": true,
+    "total_candidates": 6,
+    "card_type_counts": {
+      "challenge": 5
+    },
+    "citation_roles_present": ["explains", "derived_from"],
+    "all_card_ids_start_with_post": true,
+    "ordering_stable": true,
+    "priority_order": [1, 1, 2, 2, 2],
+    "truncation_note": "The critique warning card (supports) is 6th and gets truncated by max-5 limit"
+  }
+}

@@ -3127,6 +3127,10 @@ paths:
                         type: string
                         enum: [computed, partial, failed]
                         description: 'Status of the analysis that produced these facts'
+                  pre_analysis_review:
+                    $ref: '#/components/schemas/ReviewPassEnvelopeV1'
+                  post_analysis_review:
+                    $ref: '#/components/schemas/ReviewPassEnvelopeV1'
                   # baseline_label moved to meta (single source of truth)
                   model_card:
                     type: object
@@ -3907,6 +3911,105 @@ paths:
 
 components:
   schemas:
+    # Review pass envelope (Stream D — deterministic review cards)
+    ReviewPassEnvelopeV1:
+      type: object
+      description: 'Optional review pass envelope. Deterministic cards from facts and validation. Present when ENABLE_REVIEW_PASS=1.'
+      required: [review_pass_schema_version, phase, cards, truncated, total_candidates]
+      properties:
+        review_pass_schema_version:
+          type: integer
+          description: 'Schema version (currently 1)'
+          example: 1
+        phase:
+          type: string
+          enum: [pre_analysis, post_analysis]
+          description: 'Review phase that produced these cards'
+        cards:
+          type: array
+          description: 'Proposal cards (max 5 per phase)'
+          items:
+            $ref: '#/components/schemas/ProposalCardV1'
+        truncated:
+          type: boolean
+          description: 'True if candidates exceeded max 5 and were truncated'
+        total_candidates:
+          type: integer
+          description: 'Total candidate cards before truncation'
+    ProposalCardV1:
+      type: object
+      required: [card_id, card_type, review_phase, what, why, supporting_refs, priority]
+      properties:
+        card_id:
+          type: string
+          description: 'Deterministic ID: pre_{code}_{hash} or post_{type}_{id}'
+        card_type:
+          type: string
+          enum: [challenge, gap, fragile, warning, structural]
+        review_phase:
+          type: string
+          enum: [pre_analysis, post_analysis]
+        what:
+          type: string
+          description: 'What the card is about'
+        why:
+          type: string
+          description: 'Why the card was generated'
+        impact:
+          type: string
+          description: 'Optional impact description'
+        supporting_refs:
+          type: array
+          items:
+            $ref: '#/components/schemas/SupportingRef'
+        affected_node_ids:
+          type: array
+          items: { type: string }
+        affected_edge_ids:
+          type: array
+          items: { type: string }
+        priority:
+          type: integer
+          description: 'Priority (1 = highest)'
+        suggested_action:
+          type: string
+          enum: [review, update_belief, add_evidence, dismiss]
+    SupportingRef:
+      description: 'Discriminated ref: facts require role, violations/critiques do not.'
+      oneOf:
+        - $ref: '#/components/schemas/FactRef'
+        - $ref: '#/components/schemas/ViolationRef'
+    FactRef:
+      type: object
+      description: 'Fact reference — role is required.'
+      required: [kind, id, role]
+      properties:
+        kind:
+          type: string
+          enum: [fact]
+        id:
+          type: string
+          description: 'fact_id of the referenced FactObjectV1'
+        role:
+          type: string
+          enum: [supports, explains, derived_from]
+          description: 'Citation role (required for fact refs)'
+    ViolationRef:
+      type: object
+      description: 'Violation/critique reference — role is optional.'
+      required: [kind, id]
+      properties:
+        kind:
+          type: string
+          enum: [violation, critique]
+        id:
+          type: string
+          description: 'Violation code or critique ID'
+        role:
+          type: string
+          enum: [supports, explains, derived_from]
+          description: 'Optional citation role'
+
     # v1 error envelope (runtime validation and BAD_INPUT taxonomy)
     # Note: errorV1 is the shared error envelope across v1 routes
     # (run/counterfactual/critique/draft/stream/health/version) for

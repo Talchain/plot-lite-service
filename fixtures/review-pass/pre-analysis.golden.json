@@ -1,0 +1,42 @@
+{
+  "description": "Golden fixture: /validate violations → pre-analysis review cards",
+  "input": {
+    "violations": [
+      {
+        "code": "SCHEMA_VALIDATION_FAILED",
+        "severity": "error",
+        "reason": "Invalid graph schema"
+      },
+      {
+        "code": "MISSING_BELIEF_ON_OUTCOME_EDGE",
+        "severity": "warning",
+        "at": { "from": "price", "to": "revenue" },
+        "suggestion": "Add belief 0..1 to edges into outcomes"
+      },
+      {
+        "code": "WEIGHT_MAGNITUDE_HIGH",
+        "severity": "warning",
+        "at": { "from": "demand", "to": "revenue", "weight": 5 },
+        "suggestion": "Consider rescaling weights to [-3, +3]"
+      },
+      {
+        "code": "DECISION_NO_OUTGOING",
+        "severity": "warning",
+        "at": { "node": "decision_1" },
+        "suggestion": "Decision nodes should have outgoing edges"
+      }
+    ]
+  },
+  "expected": {
+    "review_pass_schema_version": 1,
+    "phase": "pre_analysis",
+    "card_count": 4,
+    "truncated": false,
+    "total_candidates": 4,
+    "card_types": ["structural", "warning", "warning", "warning"],
+    "priorities": [1, 2, 2, 2],
+    "all_card_ids_start_with_pre": true,
+    "all_supporting_refs_kind_violation": true,
+    "ordering_stable": true
+  }
+}

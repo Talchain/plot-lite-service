@@ -86,4 +86,13 @@ export const FLAGS = {
     if (raw === '1' || raw === 'true') return true;
     return process.env.NODE_ENV === 'test' || process.env.RENDER_SERVICE_NAME?.includes('staging') === true;
   },
+
+  // Stream D: Review pass (deterministic cards from facts + validation)
+  /** Enable review pass cards in run_bundle response (default: true for staging/test) */
+  get ENABLE_REVIEW_PASS() {
+    const raw = process.env.ENABLE_REVIEW_PASS;
+    if (raw === '0' || raw === 'false') return false;
+    if (raw === '1' || raw === 'true') return true;
+    return process.env.NODE_ENV === 'test' || process.env.RENDER_SERVICE_NAME?.includes('staging') === true;
+  },
 } as const;

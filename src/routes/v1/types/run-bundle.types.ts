@@ -14,6 +14,8 @@ import type {
   CoherenceWarning,
   ConstraintViolation,
 } from '../../../trust/result-coherence.js';
+import type { FactsEnvelope } from '../../../facts/types.js';
+import type { ReviewPassEnvelopeV1 } from '../../../review-pass/types.js';
 
 // Re-export for convenience
 export type { ConstraintStatus, CoherenceWarning, ConstraintViolation };
@@ -247,6 +249,12 @@ export interface EnhancedBundleResponse {
   coherence_warnings?: CoherenceWarning[];
   /** Edge function sensitivity warnings (Phase 3, Task 4.3) - separate from coherence for schema clarity */
   edge_function_warnings?: CoherenceWarning[];
+  /** Stream D: FactObjectV1 envelope (backward-compatible, feature-flagged) */
+  facts?: FactsEnvelope;
+  /** Stream D: Pre-analysis review pass (backward-compatible, feature-flagged) */
+  pre_analysis_review?: ReviewPassEnvelopeV1;
+  /** Stream D: Post-analysis review pass (backward-compatible, feature-flagged) */
+  post_analysis_review?: ReviewPassEnvelopeV1;
   // baseline_label moved to meta (single source of truth)
   model_card: {
     seed: number;
