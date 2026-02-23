@@ -154,7 +154,7 @@ function mapFactorSensitivity(
       importance_score: f.importance_score ?? f.sensitivity_score ?? 0,
       importance_rank: f.importance_rank ?? idx + 1,
       elasticity: f.elasticity ?? f.sensitivity_score ?? 0,
-      direction: f.direction === 'mixed' ? 'positive' : (f.direction ?? 'positive'),
+      direction: f.direction ?? 'positive',
       confidence: f.confidence ?? 0.5,
       attribution_stability: f.attribution_stability ?? 'moderate',
     };
@@ -211,25 +211,32 @@ const TYPE_ORDER: Record<FactType, number> = {
   robustness: 3,
 };
 
+/** Byte-order string comparison (locale-independent). */
+function cmpStr(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 /**
  * Compare two fact keys for deterministic sort:
  * type → option_id → node_id → edge_id → metric
+ *
+ * Uses byte-order comparison (not localeCompare) for cross-environment determinism.
  */
 export function compareFactKeys(a: FactKey, b: FactKey): number {
   const typeA = TYPE_ORDER[a.type] ?? 99;
   const typeB = TYPE_ORDER[b.type] ?? 99;
   if (typeA !== typeB) return typeA - typeB;
 
-  const cmpOption = (a.option_id ?? '').localeCompare(b.option_id ?? '');
+  const cmpOption = cmpStr(a.option_id ?? '', b.option_id ?? '');
   if (cmpOption !== 0) return cmpOption;
 
-  const cmpNode = (a.node_id ?? '').localeCompare(b.node_id ?? '');
+  const cmpNode = cmpStr(a.node_id ?? '', b.node_id ?? '');
   if (cmpNode !== 0) return cmpNode;
 
-  const cmpEdge = (a.edge_id ?? '').localeCompare(b.edge_id ?? '');
+  const cmpEdge = cmpStr(a.edge_id ?? '', b.edge_id ?? '');
   if (cmpEdge !== 0) return cmpEdge;
 
-  return (a.metric ?? '').localeCompare(b.metric ?? '');
+  return cmpStr(a.metric ?? '', b.metric ?? '');
 }
 
 // ---------------------------------------------------------------------------

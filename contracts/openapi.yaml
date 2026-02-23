@@ -3111,12 +3111,17 @@ paths:
                             lineage:
                               type: object
                               description: 'Lineage for reproducibility'
-                              required: [graph_hash, seed, config_version, isl_request_id]
+                              required: [graph_hash, seed, config_version]
                               properties:
                                 graph_hash: { type: string }
                                 seed: { type: integer }
                                 config_version: { type: string }
-                                isl_request_id: { type: string }
+                                isl_request_id:
+                                  type: string
+                                  description: 'ISL request ID (present for ISL-backed paths only)'
+                                request_id:
+                                  type: string
+                                  description: 'HTTP request ID (present for local-inference paths)'
                                 plan_id: { type: string }
                                 plan_hash: { type: string }
                             content_hash:

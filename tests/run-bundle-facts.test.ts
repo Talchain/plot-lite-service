@@ -125,7 +125,7 @@ describe('run_bundle facts integration (ENABLE_FACTS_ASSEMBLY=1)', () => {
     expect(data.meta.total_scenarios).toBe(2);
   });
 
-  it('facts field NOT included in response_hash (stable hash)', async () => {
+  it('lineage uses request_id (not isl_request_id) for run_bundle', async () => {
     const res = await fetch(`${server.baseUrl}/v1/run_bundle`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -133,9 +133,47 @@ describe('run_bundle facts integration (ENABLE_FACTS_ASSEMBLY=1)', () => {
     });
     const data = await res.json();
 
-    // response_hash should be the same whether facts are present or not
-    // (it's based on results, not facts)
-    expect(data.model_card.response_hash).toMatch(/^[0-9a-f]{16}$/);
+    const lineage = data.facts.facts[0].lineage;
+    expect(lineage.request_id).toBeDefined();
+    expect(lineage.isl_request_id).toBeUndefined();
+  });
+});
+
+describe('run_bundle facts: response_hash stability across flag toggle', () => {
+  let serverOn: ServerHandle;
+  let serverOff: ServerHandle;
+
+  beforeAll(async () => {
+    [serverOn, serverOff] = await Promise.all([
+      spawnServer({ env: { ENABLE_FACTS_ASSEMBLY: '1' } }),
+      spawnServer({ env: { ENABLE_FACTS_ASSEMBLY: '0' } }),
+    ]);
+  });
+  afterAll(async () => {
+    await Promise.all([serverOn.kill(), serverOff.kill()]);
+  });
+
+  it('response_hash is identical whether ENABLE_FACTS_ASSEMBLY is on or off', async () => {
+    const body = JSON.stringify(BASIC_PAYLOAD);
+    const [resOn, resOff] = await Promise.all([
+      fetch(`${serverOn.baseUrl}/v1/run_bundle`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+      }),
+      fetch(`${serverOff.baseUrl}/v1/run_bundle`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+      }),
+    ]);
+    const dataOn = await resOn.json();
+    const dataOff = await resOff.json();
+
+    expect(dataOn.facts).toBeDefined();
+    expect(dataOff.facts).toBeUndefined();
+    expect(dataOn.model_card.response_hash).toMatch(/^[0-9a-f]{16}$/);
+    expect(dataOn.model_card.response_hash).toBe(dataOff.model_card.response_hash);
   });
 });
 

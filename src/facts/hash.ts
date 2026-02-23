@@ -42,7 +42,8 @@ function sha256(input: string): string {
  */
 export function generateFactId(factKey: FactKey, lineage: FactLineage): string {
   const keyPayload = canonicalJson(factKey);
-  const lineagePayload = `${lineage.graph_hash}:${lineage.seed}:${lineage.config_version}:${lineage.isl_request_id}`;
+  const reqId = lineage.isl_request_id ?? lineage.request_id ?? '';
+  const lineagePayload = `${lineage.graph_hash}:${lineage.seed}:${lineage.config_version}:${reqId}`;
   return sha256(`${keyPayload}:${lineagePayload}`).slice(0, 16);
 }
 

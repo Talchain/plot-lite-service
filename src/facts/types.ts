@@ -81,13 +81,13 @@ export interface FactorSensitivityFactData {
   type: 'factor_sensitivity';
   node_id: string;
   label: string;
-  sensitivity_score: number;      // 0-1
-  importance_score: number;       // 0-1
+  sensitivity_score: number;      // 0-1. Synthesized default: 0 when ISL omits.
+  importance_score: number;       // 0-1. Synthesized default: sensitivity_score when ISL omits.
   importance_rank: number;
-  elasticity: number;
-  direction: 'positive' | 'negative';
-  confidence: number;             // 0-1
-  attribution_stability: 'high' | 'moderate' | 'low' | 'negligible';
+  elasticity: number;             // Synthesized default: sensitivity_score when ISL omits.
+  direction: 'positive' | 'negative' | 'mixed';  // Synthesized default: 'positive' when ISL omits.
+  confidence: number;             // 0-1. Synthesized default: 0.5 when ISL omits.
+  attribution_stability: 'high' | 'moderate' | 'low' | 'negligible';  // Synthesized default: 'moderate' when ISL omits.
 }
 
 export interface CritiqueFactData {
@@ -113,7 +113,10 @@ export interface FactLineage {
   graph_hash: string;
   seed: number;
   config_version: string;
-  isl_request_id: string;
+  /** ISL request ID when facts are produced via ISL. Omitted for local-inference paths (e.g. run_bundle SCM-lite). */
+  isl_request_id?: string;
+  /** HTTP request ID for non-ISL paths. */
+  request_id?: string;
   /** From CEE checkpoint, if available */
   plan_id?: string;
   plan_hash?: string;

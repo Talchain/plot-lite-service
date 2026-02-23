@@ -751,8 +751,14 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
     // Stream D: FactObjectV1 assembly (feature-flagged, backward-compatible)
     let factsEnvelope: FactsEnvelope | undefined;
     if (FLAGS.ENABLE_FACTS_ASSEMBLY) {
+      const sortedNodes = [...body.base_graph.nodes].sort((a: any, b: any) =>
+        a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+      );
+      const sortedEdges = [...baseEdges].sort((a: any, b: any) =>
+        a.from < b.from ? -1 : a.from > b.from ? 1 : a.to < b.to ? -1 : a.to > b.to ? 1 : 0,
+      );
       const graphHashForLineage = createHash('sha256')
-        .update(JSON.stringify({ nodes: body.base_graph.nodes, edges: baseEdges }))
+        .update(JSON.stringify({ nodes: sortedNodes, edges: sortedEdges }))
         .digest('hex')
         .slice(0, 16);
 
@@ -760,7 +766,7 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
         graph_hash: graphHashForLineage,
         seed,
         config_version: '1',
-        isl_request_id: String(req.id),
+        request_id: String(req.id),
       };
 
       factsEnvelope = assembleFactsFromBundleResults(results, lineage);

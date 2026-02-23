@@ -292,6 +292,21 @@ describe('assembleFactObjects', () => {
     }
   });
 
+  it('preserves direction: mixed from ISL (no coercion)', () => {
+    const input: ISLResponseInput = {
+      analysis_status: 'computed',
+      factor_sensitivity: [
+        { node_id: 'n1', label: 'N1', sensitivity_score: 0.8, importance_rank: 1, direction: 'mixed' },
+        { node_id: 'n2', label: 'N2', sensitivity_score: 0.6, importance_rank: 2, direction: 'positive' },
+        { node_id: 'n3', label: 'N3', sensitivity_score: 0.4, importance_rank: 3, direction: 'negative' },
+      ],
+    };
+
+    const result = assembleFactObjects(input, LINEAGE);
+    const directions = result.facts.map((f) => (f.data as any).direction);
+    expect(directions).toEqual(['mixed', 'positive', 'negative']);
+  });
+
   it('limits factor_sensitivity to top 5', () => {
     const factors = Array.from({ length: 10 }, (_, i) => ({
       node_id: `n${i}`,
