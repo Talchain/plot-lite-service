@@ -39,6 +39,11 @@ function sha256(input: string): string {
  *
  * Uses `canonicalJson(factKey) + ":" + lineage fields` as the pre-image,
  * then SHA-256 truncated to 16 hex chars.
+ *
+ * Note: All production call sites must supply either `isl_request_id` (ISL paths)
+ * or `request_id` (local-inference paths). If neither is present, reqId falls
+ * back to '' — fact_id uniqueness then depends solely on graph_hash + seed +
+ * config_version, which is weaker but acceptable for test/fixture contexts.
  */
 export function generateFactId(factKey: FactKey, lineage: FactLineage): string {
   const keyPayload = canonicalJson(factKey);

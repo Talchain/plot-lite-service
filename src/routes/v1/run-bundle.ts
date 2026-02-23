@@ -46,7 +46,7 @@ import {
 } from '../../engine/edge-function-sensitivity.js';
 import { MAX_NODES, MAX_EDGES, MAX_OPTIONS } from '../../constants/limits.js';
 import { FLAGS } from '../../config/flags.js';
-import { assembleFactsFromBundleResults } from '../../facts/index.js';
+import { assembleFactsFromBundleResults, canonicalJson } from '../../facts/index.js';
 import type { FactsEnvelope, FactLineage } from '../../facts/types.js';
 
 interface GraphDelta {
@@ -754,11 +754,18 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
       const sortedNodes = [...body.base_graph.nodes].sort((a: any, b: any) =>
         a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
       );
-      const sortedEdges = [...baseEdges].sort((a: any, b: any) =>
-        a.from < b.from ? -1 : a.from > b.from ? 1 : a.to < b.to ? -1 : a.to > b.to ? 1 : 0,
-      );
+      const sortedEdges = [...baseEdges].sort((a: any, b: any) => {
+        if (a.from < b.from) return -1;
+        if (a.from > b.from) return 1;
+        if (a.to < b.to) return -1;
+        if (a.to > b.to) return 1;
+        // Tie-breaker for parallel edges: weight (default 1)
+        return (a.weight ?? 1) - (b.weight ?? 1);
+      });
+      // canonicalJson sorts object keys recursively, making the hash
+      // independent of property insertion order within each node/edge.
       const graphHashForLineage = createHash('sha256')
-        .update(JSON.stringify({ nodes: sortedNodes, edges: sortedEdges }))
+        .update(canonicalJson({ nodes: sortedNodes, edges: sortedEdges }))
         .digest('hex')
         .slice(0, 16);
 
