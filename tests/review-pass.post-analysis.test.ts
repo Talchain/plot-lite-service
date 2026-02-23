@@ -300,4 +300,33 @@ describe('generatePostAnalysisReview', () => {
     expect(result.cards[0].card_id).toBe('post_factor_importance_a_node');
     expect(result.cards[1].card_id).toBe('post_factor_importance_z_node');
   });
+
+  it('cards include priority_band matching priority', () => {
+    const facts = [
+      makeSensitivityFact({ node_id: 'a', label: 'A', importance_rank: 1, attribution_stability: 'low' }),
+      makeCritiqueFact({ severity: 'warning' }),
+    ];
+    const result = generatePostAnalysisReview(facts);
+
+    // low-stability card: priority 1 → critical
+    expect(result.cards[0].priority_band).toBe('critical');
+    // top-driver and critique cards: priority 2 → high
+    const highBands = result.cards.filter((c) => c.priority === 2);
+    expect(highBands.every((c) => c.priority_band === 'high')).toBe(true);
+  });
+
+  it('cards include provenance with source=isl and fact_id as origin_id', () => {
+    const facts = [
+      makeSensitivityFact({ node_id: 'x', label: 'X', importance_rank: 1, attribution_stability: 'low' }),
+    ];
+    const result = generatePostAnalysisReview(facts);
+
+    // Low stability card
+    expect(result.cards[0].provenance.source).toBe('isl');
+    expect(result.cards[0].provenance.origin_id).toBe('fact_x');
+
+    // Top driver card
+    expect(result.cards[1].provenance.source).toBe('isl');
+    expect(result.cards[1].provenance.origin_id).toBe('fact_x');
+  });
 });

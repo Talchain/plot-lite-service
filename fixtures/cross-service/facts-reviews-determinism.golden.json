@@ -1,0 +1,29 @@
+{
+  "description": "Same inputs → stable facts, reviews, and response_hash across identical requests",
+  "input": {
+    "base_graph": {
+      "nodes": [
+        { "id": "demand", "label": "Demand", "kind": "factor", "value": 0.7 },
+        { "id": "price", "label": "Price", "kind": "factor", "value": 0.5 },
+        { "id": "revenue", "label": "Revenue", "kind": "outcome", "value": 0.6 }
+      ],
+      "edges": [
+        { "from": "demand", "to": "revenue", "weight": 0.8 },
+        { "from": "price", "to": "revenue", "weight": 0.6 }
+      ]
+    },
+    "deltas": [
+      { "label": "Low Price", "nodes": [{ "id": "price", "value": 0.3 }] },
+      { "label": "High Price", "nodes": [{ "id": "price", "value": 0.8 }] }
+    ],
+    "seed": 4242
+  },
+  "assertions": {
+    "facts_order_stable": true,
+    "pre_analysis_card_ids_stable": true,
+    "post_analysis_card_ids_stable": true,
+    "response_hash_stable": true,
+    "priority_band_present": true,
+    "provenance_present": true
+  }
+}

@@ -86,6 +86,11 @@ describe('review-pass contract (ENABLE_REVIEW_PASS=1, ENABLE_FACTS_ASSEMBLY=1)',
         expect(card.why).toBeDefined();
         expect(Array.isArray(card.supporting_refs)).toBe(true);
         expect(typeof card.priority).toBe('number');
+        // v1 polish: priority_band and provenance
+        expect(['critical', 'high', 'medium', 'low']).toContain(card.priority_band);
+        expect(card.provenance).toBeDefined();
+        expect(card.provenance.source).toBe('validate');
+        expect(typeof card.provenance.origin_id).toBe('string');
       }
     }
 
@@ -104,6 +109,11 @@ describe('review-pass contract (ENABLE_REVIEW_PASS=1, ENABLE_FACTS_ASSEMBLY=1)',
         expect(card.why).toBeDefined();
         expect(Array.isArray(card.supporting_refs)).toBe(true);
         expect(typeof card.priority).toBe('number');
+        // v1 polish: priority_band and provenance
+        expect(['critical', 'high', 'medium', 'low']).toContain(card.priority_band);
+        expect(card.provenance).toBeDefined();
+        expect(card.provenance.source).toBe('isl');
+        expect(typeof card.provenance.origin_id).toBe('string');
       }
     }
   });

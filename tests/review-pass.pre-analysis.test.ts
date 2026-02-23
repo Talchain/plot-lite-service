@@ -200,4 +200,30 @@ describe('generatePreAnalysisReview', () => {
     // ViolationRef.role is optional — should be absent
     expect(ref.role).toBeUndefined();
   });
+
+  it('cards include priority_band matching priority', () => {
+    const violations: ViolationInput[] = [
+      { code: 'E1', severity: 'error', reason: 'Error' },
+      { code: 'W1', severity: 'warning', reason: 'Warning' },
+      { code: 'I1', severity: 'info', reason: 'Info' },
+    ];
+    const result = generatePreAnalysisReview(violations);
+
+    expect(result.cards[0].priority_band).toBe('critical'); // priority 1
+    expect(result.cards[1].priority_band).toBe('high');     // priority 2
+    expect(result.cards[2].priority_band).toBe('medium');   // priority 3
+  });
+
+  it('cards include provenance with source=validate', () => {
+    const violations: ViolationInput[] = [
+      { code: 'MISSING_BELIEF_ON_OUTCOME_EDGE', severity: 'warning', reason: 'test' },
+    ];
+    const result = generatePreAnalysisReview(violations);
+    const card = result.cards[0];
+
+    expect(card.provenance).toEqual({
+      source: 'validate',
+      origin_id: 'MISSING_BELIEF_ON_OUTCOME_EDGE',
+    });
+  });
 });

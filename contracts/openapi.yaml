@@ -3938,7 +3938,7 @@ components:
           description: 'Total candidate cards before truncation'
     ProposalCardV1:
       type: object
-      required: [card_id, card_type, review_phase, what, why, supporting_refs, priority]
+      required: [card_id, card_type, review_phase, what, why, supporting_refs, priority, priority_band, provenance]
       properties:
         card_id:
           type: string
@@ -3971,9 +3971,27 @@ components:
         priority:
           type: integer
           description: 'Priority (1 = highest)'
+        priority_band:
+          type: string
+          enum: [critical, high, medium, low]
+          description: 'UI-friendly priority label derived from numeric priority'
         suggested_action:
           type: string
           enum: [review, update_belief, add_evidence, dismiss]
+        provenance:
+          $ref: '#/components/schemas/CardProvenance'
+    CardProvenance:
+      type: object
+      required: [source, origin_id]
+      description: 'Source provenance for auditability — which subsystem produced this card.'
+      properties:
+        source:
+          type: string
+          enum: [validate, isl]
+          description: 'Source subsystem: validate for pre-analysis, isl for post-analysis'
+        origin_id:
+          type: string
+          description: 'Origin identifier: violation.code or fact.fact_id'
     SupportingRef:
       description: 'Discriminated ref: facts require role, violations/critiques do not.'
       oneOf:

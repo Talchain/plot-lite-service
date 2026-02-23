@@ -12,6 +12,7 @@
 
 export {
   REVIEW_PASS_SCHEMA_VERSION,
+  PRIORITY_TO_BAND,
   type CitationRole,
   type Citation,
   type FactRef,
@@ -20,6 +21,8 @@ export {
   type CardType,
   type ReviewPhase,
   type SuggestedAction,
+  type PriorityBand,
+  type CardProvenance,
   type ProposalCardV1,
   type ReviewPassEnvelopeV1,
 } from './types.js';

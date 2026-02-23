@@ -6,6 +6,19 @@
  * - Cards cite facts via SupportingRef with explicit roles
  * - Bytewise sorting for stable ordering
  * - Max 5 cards per phase, truncation tracked
+ *
+ * REVIEW PASS CONTRACT v1
+ *
+ * Breaking changes require version bump:
+ * - Adding/removing required fields
+ * - Changing card_id generation logic
+ * - Changing sort order (priority, card_type, card_id)
+ * - Changing truncation limit (currently 5)
+ *
+ * Non-breaking (no version bump):
+ * - Adding optional fields
+ * - Adding new card_type values
+ * - Extending allow-list patterns
  */
 
 export const REVIEW_PASS_SCHEMA_VERSION = 1;
@@ -38,6 +51,25 @@ export type CardType = 'challenge' | 'gap' | 'fragile' | 'warning' | 'structural
 export type ReviewPhase = 'pre_analysis' | 'post_analysis';
 export type SuggestedAction = 'review' | 'update_belief' | 'add_evidence' | 'dismiss';
 
+/** UI-friendly priority label derived from numeric priority. */
+export type PriorityBand = 'critical' | 'high' | 'medium' | 'low';
+
+/** Maps numeric priority → UI-friendly band. */
+export const PRIORITY_TO_BAND: Record<number, PriorityBand> = {
+  1: 'critical',
+  2: 'high',
+  3: 'medium',
+  4: 'low',
+};
+
+/** Provenance tracking — which subsystem produced this card. */
+export interface CardProvenance {
+  /** Source subsystem: 'validate' for pre-analysis, 'isl' for post-analysis. */
+  source: 'validate' | 'isl';
+  /** Origin identifier: violation.code or fact.fact_id. */
+  origin_id: string;
+}
+
 export interface ProposalCardV1 {
   card_id: string;
   card_type: CardType;
@@ -53,7 +85,11 @@ export interface ProposalCardV1 {
   affected_edge_ids?: string[];
 
   priority: number;
+  /** UI-friendly priority label. */
+  priority_band: PriorityBand;
   suggested_action?: SuggestedAction;
+  /** Source provenance for auditability. */
+  provenance: CardProvenance;
 }
 
 export interface ReviewPassEnvelopeV1 {

@@ -27,6 +27,8 @@ const ALLOWED_PATTERNS: RegExp[] = [
   /\b\d+\s+(options?|factors?|nodes?|edges?)\b/i, // 3 options
   /\bstep\s+\d+\b/i,                             // step 1, step 2
   /\bv\d+(\.\d+)?\b/i,                           // v1, v2.0
+  /\b(opt|node|edge|crit|fact)_\d+\b/i,          // IDs: opt_001, node_123
+  /\b\d+\s+of\s+\d+\b/i,                         // "3 of 5"
 ];
 
 /**

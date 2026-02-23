@@ -97,6 +97,36 @@ describe('containsNumericClaim', () => {
     expect(containsNumericClaim('v2.0 release')).toBe(false);
   });
 
+  // --- IDs and fractions (Task 6 allow-list extensions) ---
+
+  it('does NOT detect entity IDs: "opt_001"', () => {
+    expect(containsNumericClaim('Affected opt_001 in graph')).toBe(false);
+  });
+
+  it('does NOT detect entity IDs: "node_123"', () => {
+    expect(containsNumericClaim('See node_123 for details')).toBe(false);
+  });
+
+  it('does NOT detect entity IDs: "edge_42"', () => {
+    expect(containsNumericClaim('Edge edge_42 is suspect')).toBe(false);
+  });
+
+  it('does NOT detect entity IDs: "crit_007"', () => {
+    expect(containsNumericClaim('Critique crit_007 flagged')).toBe(false);
+  });
+
+  it('does NOT detect entity IDs: "fact_99"', () => {
+    expect(containsNumericClaim('Linked to fact_99')).toBe(false);
+  });
+
+  it('does NOT detect fraction: "3 of 5"', () => {
+    expect(containsNumericClaim('3 of 5 scenarios failed')).toBe(false);
+  });
+
+  it('does NOT detect fraction: "1 of 10"', () => {
+    expect(containsNumericClaim('1 of 10 options selected')).toBe(false);
+  });
+
   // --- Edge cases ---
 
   it('detects claim mixed with allowed: "top 3 factors with 73% confidence"', () => {
