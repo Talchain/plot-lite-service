@@ -829,6 +829,11 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
         // Enhanced meta fields
         baseline_label: baselineResult?.label,
         baseline_index: baselineIndex,
+        // Stream D feature flags — lets consumers know which optional features are active
+        feature_flags: {
+          facts_assembly: FLAGS.ENABLE_FACTS_ASSEMBLY,
+          review_pass: FLAGS.ENABLE_REVIEW_PASS,
+        },
       },
     };
 

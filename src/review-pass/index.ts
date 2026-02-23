@@ -6,7 +6,7 @@
  *  - generatePostAnalysisReview() — facts → cards
  *  - containsNumericClaim()       — numeric claim detection
  *  - validateCitations()          — citation validation
- *  - cmp(), sortCards()           — deterministic ordering
+ *  - cmp(), sortCards(), cardSortKey(), factSortKey() — deterministic ordering
  *  - Types: ProposalCardV1, ReviewPassEnvelopeV1, Citation, SupportingRef, etc.
  */
 
@@ -45,4 +45,6 @@ export {
 export {
   cmp,
   sortCards,
+  cardSortKey,
+  factSortKey,
 } from './sort.js';

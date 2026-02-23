@@ -304,6 +304,16 @@ export interface GoalConstraint {
 }
 
 /**
+ * PLoT-internal metadata carried on constraint objects through the pipeline.
+ * Survives all PLoT transforms (filter, validation, merge) but is stripped
+ * at wire boundaries (ISL translator). Not part of the GoalConstraint schema.
+ */
+export interface InternalMetadata {
+  /** How this constraint was created: auto-generated, from request, or from model */
+  source?: 'auto_from_goal_threshold' | 'request' | 'model';
+}
+
+/**
  * Raw goal constraint as received from CEE.
  * May carry CEE-specific fields that are not forwarded to ISL.
  * The temporal constraint filter uses deadline_metadata/unit to detect

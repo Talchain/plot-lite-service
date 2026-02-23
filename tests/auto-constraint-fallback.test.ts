@@ -244,16 +244,16 @@ describe('T4: ISL translation of synthesised constraint', () => {
     expect(islRequest.goal_constraints![0]).not.toHaveProperty('value');
   });
 
-  it('strips unknown fields (e.g., source) during ISL translation', () => {
+  it('strips unknown fields (e.g., _internal) during ISL translation', () => {
     const graph = createTestGraph();
-    // Simulate a constraint with extra source field
-    const autoConstraint: GoalConstraint & { source?: string } = {
+    // Simulate a constraint with _internal namespace
+    const autoConstraint: GoalConstraint & { _internal?: { source: string } } = {
       constraint_id: 'auto_goal_threshold',
       node_id: 'goal_node',
       operator: '>=',
       value: 0.2,
       label: 'Goal target',
-      source: 'auto_from_goal_threshold',
+      _internal: { source: 'auto_from_goal_threshold' },
     };
 
     const islRequest = toISLRobustnessRequest(
@@ -266,8 +266,8 @@ describe('T4: ISL translation of synthesised constraint', () => {
       [autoConstraint as GoalConstraint]
     );
 
-    // source must NOT appear in ISL wire format
-    expect(islRequest.goal_constraints![0]).not.toHaveProperty('source');
+    // _internal must NOT appear in ISL wire format
+    expect(islRequest.goal_constraints![0]).not.toHaveProperty('_internal');
     // Only known fields present
     expect(Object.keys(islRequest.goal_constraints![0]).sort()).toEqual(
       ['constraint_id', 'label', 'node_id', 'operator', 'threshold'].sort()
@@ -647,7 +647,7 @@ describe('T6: Auto-constraint fallback via /v2/run', () => {
     expect(autoRepair).toBeUndefined();
 
     // Critical: constraint_sources should NOT be present because the user-supplied
-    // constraint has no `source` field — only auto-generated constraints carry it.
+    // constraint has no `_internal` namespace — only auto-generated constraints carry it.
     const constraintSources = (data?._meta as any)?.constraint_sources;
     expect(constraintSources).toBeUndefined();
   });

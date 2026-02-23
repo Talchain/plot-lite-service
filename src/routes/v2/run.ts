@@ -65,7 +65,7 @@ import { hashGraph, deriveSeedFromHash } from '../../sampling/graph-hash.js';
 import { runPreflightValidation, validateGoalConstraints, filterInvalidBidirectedEdges } from '../../validation/preflight-v2.js';
 import { compileConstraintNodes } from '../../normalisation/constraint-compiler.js';
 import { filterTemporalConstraints } from '../../normalisation/constraint-filter.js';
-import type { RawGoalConstraint, FilteredConstraintRecord } from '../../types/engine-v3.js';
+import type { RawGoalConstraint, FilteredConstraintRecord, InternalMetadata } from '../../types/engine-v3.js';
 import type { IslThresholdResponse, ThresholdPoint } from '../v1/types/proxy.types.js';
 import { toISLRobustnessRequest, validateISLRequest } from '../../integrations/isl/translator-v3.js';
 import { injectConstraintParameterUncertainties } from '../../integrations/isl/constraint-pu-injection.js';
@@ -1378,15 +1378,15 @@ function buildResponse(
 
       // Surface auto-constraint source metadata so UI can differentiate copy:
       // "Success target: X%" (auto-generated) vs "Meeting all targets: X%" (CEE-extracted)
-      // Uses in-memory `source` field (set during Phase 1c+ synthesis) rather than
+      // Uses the _internal namespace (set during Phase 1c+ synthesis) rather than
       // matching on constraint_id, so user-supplied constraints with the same ID
       // are never misclassified as auto-generated.
       if (goalConstraints?.length) {
         const sources: Record<string, string> = {};
         for (const c of goalConstraints) {
-          const src = (c as any).source;
-          if (typeof src === 'string' && src.length > 0) {
-            sources[c.constraint_id] = src;
+          const internal = (c as any)._internal as InternalMetadata | undefined;
+          if (internal?.source) {
+            sources[c.constraint_id] = internal.source;
           }
         }
         if (Object.keys(sources).length > 0) {
@@ -2068,17 +2068,17 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
 
           if (autoThreshold !== undefined && Number.isFinite(autoThreshold)) {
             // Synthesise a single >= constraint from goal_threshold.
-            // The `source` field is not in GoalConstraint schema but is carried
-            // in-memory for internal consumers. The ISL translator (translator-v3.ts)
-            // strips unknown fields at the wire boundary. For UI consumers, the
-            // canonical provenance signal is _meta.constraint_sources.
-            const autoConstraint: GoalConstraint & { source: string } = {
+            // The _internal namespace carries PLoT metadata through the pipeline
+            // (filter, validation, merge) and is stripped at wire boundaries
+            // (ISL translator). For UI consumers, the canonical provenance signal
+            // is _meta.constraint_sources.
+            const autoConstraint: GoalConstraint & { _internal: InternalMetadata } = {
               constraint_id: 'auto_goal_threshold',
               node_id: body.goal_node_id,
               operator: '>=',
               value: autoThreshold,
               label: 'Goal target',
-              source: 'auto_from_goal_threshold',
+              _internal: { source: 'auto_from_goal_threshold' },
             };
             constraintCompilation.constraints.push(autoConstraint as GoalConstraint);
             repairs.push({
