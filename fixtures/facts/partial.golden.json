@@ -1,0 +1,44 @@
+{
+  "description": "Golden fixture: partial analysis → subset of facts (options + critiques, no robustness)",
+  "input": {
+    "isl_response": {
+      "analysis_status": "partial",
+      "options": [
+        {
+          "option_id": "opt_a",
+          "label": "Option A",
+          "outcome": { "p10": 50, "p50": 70, "p90": 90, "mean": 70 }
+        }
+      ],
+      "factor_sensitivity": [],
+      "critiques": [
+        {
+          "id": "crit_partial_001",
+          "code": "PARTIAL_ANALYSIS",
+          "severity": "info",
+          "message": "Analysis completed partially due to timeout"
+        }
+      ],
+      "robustness": null
+    },
+    "lineage": {
+      "graph_hash": "b2c3d4e5f6a7b8c9",
+      "seed": 4242,
+      "config_version": "1",
+      "isl_request_id": "req-golden-002"
+    }
+  },
+  "expected": {
+    "facts_schema_version": 1,
+    "analysis_status": "partial",
+    "fact_count": 2,
+    "fact_types": ["probability", "critique"],
+    "fact_type_counts": {
+      "probability": 1,
+      "critique": 1
+    },
+    "ordering_stable": true,
+    "all_fact_ids_unique": true,
+    "all_content_hashes_present": true
+  }
+}

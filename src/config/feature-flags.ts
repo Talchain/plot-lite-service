@@ -48,6 +48,8 @@ export const KNOWN_FEATURE_FLAGS = [
   'CEE_ORCHESTRATOR_ENABLE',
   'CEE_ORCHESTRATOR_ENABLED',
   'DECISION_REVIEW_ENABLE',
+  // Stream D: FactObject assembly
+  'ENABLE_FACTS_ASSEMBLY',
 ] as const;
 
 export function validateFeatureFlags(logger?: any): void {

@@ -1,0 +1,62 @@
+{
+  "description": "Golden fixture: failed analysis → critiques only",
+  "input": {
+    "isl_response": {
+      "analysis_status": "failed",
+      "options": [
+        {
+          "option_id": "opt_x",
+          "label": "Option X",
+          "outcome": { "p10": 0, "p50": 0, "p90": 0, "mean": 0 }
+        }
+      ],
+      "factor_sensitivity": [
+        {
+          "node_id": "node_1",
+          "label": "Node 1",
+          "sensitivity_score": 0.5,
+          "importance_rank": 1,
+          "direction": "positive"
+        }
+      ],
+      "critiques": [
+        {
+          "id": "crit_fail_001",
+          "code": "GRAPH_CYCLE",
+          "severity": "blocker",
+          "message": "Cycle detected in graph: A -> B -> C -> A",
+          "affected_node_ids": ["A", "B", "C"]
+        },
+        {
+          "id": "crit_fail_002",
+          "code": "NO_OUTCOME_NODE",
+          "severity": "error",
+          "message": "No outcome node identified in graph"
+        }
+      ],
+      "robustness": {
+        "label": "fragile",
+        "score": 0.2
+      }
+    },
+    "lineage": {
+      "graph_hash": "c3d4e5f6a7b8c9d0",
+      "seed": 4242,
+      "config_version": "1",
+      "isl_request_id": "req-golden-003"
+    }
+  },
+  "expected": {
+    "facts_schema_version": 1,
+    "analysis_status": "failed",
+    "fact_count": 2,
+    "fact_types": ["critique", "critique"],
+    "fact_type_counts": {
+      "critique": 2
+    },
+    "ordering_stable": true,
+    "all_fact_ids_unique": true,
+    "all_content_hashes_present": true,
+    "note": "Failed analysis: options, factor_sensitivity, and robustness are NOT emitted — only critiques"
+  }
+}
