@@ -4,7 +4,7 @@ import { spawnServer, type ServerHandle } from './utils.js';
 describe('Idempotency-Key - Real Tests', () => {
   let server: ServerHandle;
 
-  beforeAll(async () => { server = await spawnServer(); });
+  beforeAll(async () => { server = await spawnServer({ env: { IDEMPOTENCY_ENABLE: '1' } }); });
   afterAll(async () => { await server.kill(); });
 
   describe('/v1/intervene', () => {
