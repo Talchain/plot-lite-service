@@ -797,6 +797,13 @@ export interface RunResponseV3 {
   stability_thresholds?: StabilityThresholds;
 
   /**
+   * Diagnostic warnings about inference metadata inconsistencies.
+   * Info-level only — never blocks the response.
+   * NOT included in response_hash (diagnostic metadata).
+   */
+  inference_warnings?: InferenceWarning[];
+
+  /**
    * Factor enrichments from CEE /assist/v1/review.
    * Provides human-readable insights for UI factor cards.
    * Undefined if CEE unavailable, timed out, or failed.
@@ -1229,6 +1236,25 @@ export interface StabilityThresholds {
   version: string;
   /** True when thresholds are provisional (pending scientific review) */
   provisional: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Inference Warnings (diagnostic metadata — NOT in response_hash)
+// ---------------------------------------------------------------------------
+
+/** Valid inference warning codes */
+export const INFERENCE_WARNING_CODES = {
+  /** ISL returned factor-level 3C fields but stability_thresholds was absent or malformed */
+  STABILITY_THRESHOLDS_MISSING: 'STABILITY_THRESHOLDS_MISSING',
+} as const;
+
+export type InferenceWarningCode = (typeof INFERENCE_WARNING_CODES)[keyof typeof INFERENCE_WARNING_CODES];
+
+/** Diagnostic warning emitted when inference metadata is inconsistent */
+export interface InferenceWarning {
+  code: InferenceWarningCode;
+  message: string;
+  severity: 'info' | 'warning';
 }
 
 /**

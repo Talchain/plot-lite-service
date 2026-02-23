@@ -76,6 +76,12 @@ describe('ST3: stability_thresholds NOT in response_hash', () => {
 
 // Toggle for ST3 differential test: when true, mock omits thresholds regardless of goal_node_id
 let forceOmitThresholds = false;
+// Toggle for IW2 test: when true, mock strips 3C fields from factor_sensitivity
+let forceStrip3CFields = false;
+// Toggle for IW3 test: when set, mock includes this value as stability_thresholds (to test malformed rejection)
+let forceMalformedThresholds: any = null;
+// Toggle for IW4 test: when set, mock returns this value as factor_sensitivity (to test non-array guard)
+let forceFactorSensitivityShape: any = undefined;
 
 const mockISLService = {
   isEnabled(): boolean { return true; },
@@ -119,6 +125,27 @@ const mockISLService = {
   async callAnalysisEndpoint<T>(_endpoint: string, body: any): Promise<{ data: T | null; error: string | null; isl_echoed_request_id?: string }> {
     const includeThresholds = !forceOmitThresholds && body.goal_node_id !== 'goal-no-thresholds';
     const options = body.options || [];
+
+    // Determine factor_sensitivity shape
+    const factorSensitivity = forceFactorSensitivityShape !== undefined
+      ? forceFactorSensitivityShape
+      : forceStrip3CFields
+        ? [
+            { node_id: 'factor-a', sensitivity_score: 0.5, direction: 'positive' },
+            { node_id: 'factor-b', sensitivity_score: 0.7, direction: 'positive' },
+          ]
+        : [
+            { node_id: 'factor-a', sensitivity_score: 0.5, direction: 'positive',
+              elasticity_std: 0.042, attribution_stability: 'high', rank_flip_rate: 0.03, stability_method: 'bootstrap_1000' },
+            { node_id: 'factor-b', sensitivity_score: 0.7, direction: 'positive',
+              elasticity_std: 0.11, attribution_stability: 'moderate', rank_flip_rate: 0.15, stability_method: 'bootstrap_1000' },
+          ];
+
+    // Determine stability_thresholds shape
+    const thresholds = forceMalformedThresholds !== null
+      ? forceMalformedThresholds
+      : includeThresholds ? STABILITY_THRESHOLDS : undefined;
+
     return {
       data: {
         options: options.map((opt: any, idx: number) => ({
@@ -127,16 +154,10 @@ const mockISLService = {
           rank: idx + 1,
         })),
         edges: [],
-        factor_sensitivity: [
-          { node_id: 'factor-a', sensitivity_score: 0.5, direction: 'positive',
-            elasticity_std: 0.042, attribution_stability: 'high', rank_flip_rate: 0.03, stability_method: 'bootstrap_1000' },
-          { node_id: 'factor-b', sensitivity_score: 0.7, direction: 'positive',
-            elasticity_std: 0.11, attribution_stability: 'moderate', rank_flip_rate: 0.15, stability_method: 'bootstrap_1000' },
-        ],
+        factor_sensitivity: factorSensitivity,
         overall_robustness: 'robust', robustness_score: 0.8,
         fragile_edges: [], robust_edges: [],
-        // Include stability_thresholds conditionally based on goal_node_id
-        ...(includeThresholds ? { stability_thresholds: STABILITY_THRESHOLDS } : {}),
+        ...(thresholds !== undefined ? { stability_thresholds: thresholds } : {}),
       } as T,
       error: null,
     };
@@ -285,5 +306,131 @@ describe('stability_thresholds passthrough + hash_version in _meta', () => {
     expect(body._meta).toBeDefined();
     expect(body._meta.hash_version).toBe(HASH_VERSION);
     expect(body._meta.hash_version).toBe(5);
+  });
+
+  // ---------------------------------------------------------------------------
+  // IW1/IW2: Inference warning — STABILITY_THRESHOLDS_MISSING diagnostic
+  // ---------------------------------------------------------------------------
+
+  it('IW1: emits STABILITY_THRESHOLDS_MISSING when ISL has 3C fields but no stability_thresholds', async () => {
+    forceOmitThresholds = true;
+    forceStrip3CFields = false;
+    try {
+      const res = await fetch(`${baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: GRAPH,
+          options: OPTIONS,
+          goal_node_id: 'goal',
+          seed: '42',
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as any;
+
+      // stability_thresholds should be absent
+      expect('stability_thresholds' in body).toBe(false);
+
+      // inference_warnings should contain the diagnostic warning
+      expect(body.inference_warnings).toBeDefined();
+      expect(body.inference_warnings).toHaveLength(1);
+      expect(body.inference_warnings[0]).toEqual({
+        code: 'STABILITY_THRESHOLDS_MISSING',
+        message: 'ISL returned factor-level stability fields but stability_thresholds metadata was absent or malformed — threshold classification context unavailable',
+        severity: 'info',
+      });
+    } finally {
+      forceOmitThresholds = false;
+    }
+  });
+
+  it('IW2: no inference warning when ISL has no 3C fields and no stability_thresholds', async () => {
+    forceOmitThresholds = true;
+    forceStrip3CFields = true;
+    try {
+      const res = await fetch(`${baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: GRAPH,
+          options: OPTIONS,
+          goal_node_id: 'goal',
+          seed: '42',
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as any;
+
+      // stability_thresholds should be absent
+      expect('stability_thresholds' in body).toBe(false);
+
+      // inference_warnings should be absent (no 3C fields → absence is expected)
+      expect('inference_warnings' in body).toBe(false);
+    } finally {
+      forceOmitThresholds = false;
+      forceStrip3CFields = false;
+    }
+  });
+
+  it('IW3: emits STABILITY_THRESHOLDS_MISSING when ISL sends malformed stability_thresholds', async () => {
+    // ISL sends thresholds but missing required `version` field → extractStabilityThresholds rejects it
+    forceMalformedThresholds = { high_moderate_boundary: 0.1, moderate_low_boundary: 0.3, provisional: true };
+    forceStrip3CFields = false;
+    try {
+      const res = await fetch(`${baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: GRAPH,
+          options: OPTIONS,
+          goal_node_id: 'goal',
+          seed: '42',
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as any;
+
+      // Malformed thresholds should be rejected (not passed through)
+      expect('stability_thresholds' in body).toBe(false);
+
+      // Warning should fire because 3C fields are present but thresholds were rejected
+      expect(body.inference_warnings).toBeDefined();
+      expect(body.inference_warnings).toHaveLength(1);
+      expect(body.inference_warnings[0].code).toBe('STABILITY_THRESHOLDS_MISSING');
+    } finally {
+      forceMalformedThresholds = null;
+    }
+  });
+
+  it('IW4: non-array factor_sensitivity does not crash the request', async () => {
+    // ISL returns factor_sensitivity as an object instead of an array — guard must prevent .some() crash
+    forceOmitThresholds = true;
+    forceFactorSensitivityShape = { broken: true };
+    try {
+      const res = await fetch(`${baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: GRAPH,
+          options: OPTIONS,
+          goal_node_id: 'goal',
+          seed: '42',
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as any;
+
+      // Should not crash — response should still be valid
+      // No 3C fields detected (non-array falls back to []), so no warning
+      expect('inference_warnings' in body).toBe(false);
+    } finally {
+      forceOmitThresholds = false;
+      forceFactorSensitivityShape = undefined;
+    }
   });
 });

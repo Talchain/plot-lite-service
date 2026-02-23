@@ -54,7 +54,9 @@ import type {
   ThresholdResult,
   FactorStabilityEntry,
   StabilityThresholds,
+  InferenceWarning,
 } from '../../types/engine-v3.js';
+import { INFERENCE_WARNING_CODES } from '../../types/engine-v3.js';
 // Seed derivation: when seed omitted, derive deterministically from graph hash
 import { normaliseGraph, NormalisationError, cleanLabelAnnotation, type NormalisationWarning } from '../../normalisation/graph-normaliser.js';
 import { filterOptionNodes } from '../../normalisation/option-filter.js';
@@ -1223,6 +1225,28 @@ function buildResponse(
   // Extract factor_enrichments from sensitivityData (if present)
   const factorEnrichments = sensitivityData?.factorEnrichments;
 
+  // Extract stability_thresholds and detect diagnostic warnings
+  const stabilityThresholdsExtracted = extractStabilityThresholds(islResult);
+  const inferenceWarnings: InferenceWarning[] = [];
+
+  // Emit warning when ISL returned factor-level 3C fields but stability_thresholds
+  // was absent or malformed — helps diagnose missing threshold classification context.
+  if (!stabilityThresholdsExtracted) {
+    const factors = Array.isArray(islResult?.factor_sensitivity)
+      ? islResult.factor_sensitivity
+      : [];
+    const has3CFields = factors.some(
+      (f: any) => f.stability_method || f.attribution_stability,
+    );
+    if (has3CFields) {
+      inferenceWarnings.push({
+        code: INFERENCE_WARNING_CODES.STABILITY_THRESHOLDS_MISSING,
+        message: 'ISL returned factor-level stability fields but stability_thresholds metadata was absent or malformed — threshold classification context unavailable',
+        severity: 'info',
+      });
+    }
+  }
+
   return {
     request_schema_version: 'v3',
     endpoint_version: 'v2/run',
@@ -1252,7 +1276,9 @@ function buildResponse(
     // ISL stability threshold configuration (boundaries for attribution_stability categories)
     // NOTE: Configuration metadata, NOT in response_hash. The categorical labels it
     // influences (attribution_stability in factor_stability) are already in the hash.
-    ...((() => { const st = extractStabilityThresholds(islResult); return st ? { stability_thresholds: st } : {}; })()),
+    ...(stabilityThresholdsExtracted ? { stability_thresholds: stabilityThresholdsExtracted } : {}),
+    // Diagnostic warnings about inference metadata inconsistencies (info-level, NOT in response_hash)
+    ...(inferenceWarnings.length > 0 && { inference_warnings: inferenceWarnings }),
     // Factor enrichments from CEE /assist/v1/review (undefined when unavailable)
     // NOTE: Non-deterministic (LLM-derived), excluded from canonical hash
     ...(factorEnrichments && { factor_enrichments: factorEnrichments }),
