@@ -307,3 +307,29 @@ describe('validate-patch contract', () => {
     expect(cascadeRepairs).toHaveLength(12);
   });
 });
+
+  // Fixture 8: Rejected — non-canonical edge field (INVALID_PATCH_FIELD)
+  it('Fixture 8: rejects patch with non-canonical edge field (belief)', async () => {
+    const res = await post({
+      graph: {
+        nodes: [
+          { id: 'a', kind: 'factor', label: 'A' },
+          { id: 'b', kind: 'goal', label: 'B' },
+        ],
+        edges: [
+          { from: 'a', to: 'b', exists_probability: 0.8, strength: { mean: 0.5, std: 0.1 } },
+        ],
+      },
+      operations: [
+        { op: 'update_edge', path: 'a->b', value: { belief: 0.7 } },
+      ],
+    });
+
+    expect(res.statusCode).toBe(422);
+    const d = JSON.parse(res.body);
+    expect(d.status).toBe('rejected');
+    expect(d.code).toBe('INVALID_PATCH_FIELD');
+    expect(d.message).toContain('belief');
+    expect(d.message).toContain('non-canonical');
+    expect(d.message).toContain('Operation 0');
+  });

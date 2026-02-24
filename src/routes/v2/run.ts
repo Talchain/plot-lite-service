@@ -118,6 +118,7 @@ import {
   type NormalisationDiagnostic,
 } from '../../lib/intervention-normaliser.js';
 import { assembleBrief } from '../../assembly/decision-brief.js';
+import { buildEvidencePriorityCard, type FactorInput } from '../../review-pass/evidence-priority.js';
 
 // -----------------------------------------------------------------------------
 // Feature Flags
@@ -1352,6 +1353,22 @@ function buildResponse(
       response_hash: responseHash,
       meta: { seed_used: meta.seedUsed },
     }),
+
+    // Review cards — evidence priority card from factor sensitivity data.
+    // Gated behind ENABLE_REVIEW_PASS. Excluded from response_hash (non-deterministic assembly metadata).
+    ...(FLAGS.ENABLE_REVIEW_PASS && (() => {
+      const epFactors: FactorInput[] = (factorSensitivity ?? []).map((fs: any) => {
+        const stabilityEntry = (factorStability ?? []).find((s: any) => s.factor_id === fs.factor_id);
+        return {
+          factor_id: fs.factor_id,
+          factor_label: fs.factor_label ?? fs.factor_id,
+          elasticity: fs.elasticity ?? fs.sensitivity_score ?? 0,
+          attribution_stability: stabilityEntry?.attribution_stability,
+        };
+      });
+      const epCard = buildEvidencePriorityCard(epFactors);
+      return epCard ? { review_cards: [epCard] } : {};
+    })()),
 
     // CIL M4: repairs_applied always included for CIL observability.
     // Other _meta fields (builds, payloads) gated behind UI_CANONICAL_META feature flag.

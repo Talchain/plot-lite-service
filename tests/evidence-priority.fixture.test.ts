@@ -110,7 +110,7 @@ describe('buildEvidencePriorityCard — fixtures', () => {
     expect(card!.items[0].score).toBeGreaterThan(EVIDENCE_PRIORITY_SUPPRESSION_THRESHOLD);
   });
 
-  it('Fixture 2: all factors below threshold returns null', () => {
+  it('Fixture 2: all factors below threshold returns null (max-score suppression)', () => {
     const factors: FactorInput[] = [
       {
         factor_id: 'tiny',
@@ -121,6 +121,7 @@ describe('buildEvidencePriorityCard — fixtures', () => {
       },
     ];
 
+    // max score = |0.01| * (1 - 0.95) = 0.0005 < 0.05 — entire card suppressed
     const card = buildEvidencePriorityCard(factors);
     expect(card).toBeNull();
   });
@@ -167,5 +168,59 @@ describe('buildEvidencePriorityCard — fixtures', () => {
     // Verify sorted by score descending
     expect(card.items[0].score).toBeGreaterThanOrEqual(card.items[1].score);
     expect(card.items[1].score).toBeGreaterThanOrEqual(card.items[2].score);
+  });
+
+  it('Fixture 5: max-score suppression — card suppressed when all scores below threshold', () => {
+    // All high-confidence factors: scores will be tiny
+    const factors: FactorInput[] = [
+      {
+        factor_id: 'stable_a',
+        factor_label: 'Stable A',
+        elasticity: 0.1,
+        attribution_stability: 'high',
+        incoming_edges: [{ exists_probability: 0.95 }],
+      },
+      {
+        factor_id: 'stable_b',
+        factor_label: 'Stable B',
+        elasticity: 0.05,
+        attribution_stability: 'high',
+        incoming_edges: [{ exists_probability: 0.9 }],
+      },
+    ];
+
+    // stable_a: |0.1| * (1 - (0.5*1.0 + 0.5*0.95)) = 0.1 * 0.025 = 0.0025
+    // stable_b: |0.05| * (1 - (0.5*1.0 + 0.5*0.9)) = 0.05 * 0.05 = 0.0025
+    // max = 0.0025 < 0.05 → null
+    const card = buildEvidencePriorityCard(factors);
+    expect(card).toBeNull();
+  });
+
+  it('Fixture 6: card includes low-score items when max-score passes threshold', () => {
+    const factors: FactorInput[] = [
+      {
+        factor_id: 'high_impact',
+        factor_label: 'High Impact',
+        elasticity: 0.9,
+        attribution_stability: 'low',
+        incoming_edges: [{ exists_probability: 0.3 }],
+      },
+      {
+        factor_id: 'low_impact',
+        factor_label: 'Low Impact',
+        elasticity: 0.02,
+        attribution_stability: 'high',
+        incoming_edges: [{ exists_probability: 0.95 }],
+      },
+    ];
+
+    // high_impact: |0.9| * (1 - 0.15) = 0.765 >= 0.05 → card not suppressed
+    // low_impact:  |0.02| * (1 - 0.975) = 0.0005 (below per-item threshold)
+    // With max-score logic: card emitted with BOTH items (top 3 by score)
+    const card = buildEvidencePriorityCard(factors);
+    expect(card).not.toBeNull();
+    expect(card!.items).toHaveLength(2);
+    expect(card!.items[0].factor_id).toBe('high_impact');
+    expect(card!.items[1].factor_id).toBe('low_impact');
   });
 });

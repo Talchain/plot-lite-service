@@ -7,6 +7,20 @@
  * Same response data → same brief content (only brief_id and created_at differ).
  */
 
+/**
+ * DecisionBriefV1 Assembly Mapping (G.1)
+ *
+ * headline:          m2_decision_review.narrative_summary → executive_summary.summary
+ * options:           option_comparison[] sorted by win_probability desc
+ * top_drivers:       factor_sensitivity[] top 5 by abs(elasticity)
+ * key_assumptions:   m1_coaching.evidence_gaps[].label → []
+ * what_would_change: robustness.fragile_edges[].label → factor_sensitivity[].label (sorted by |elasticity|)
+ * robustness:        robustness.level → 'moderate' (default)
+ * warnings:          critiques (severity>=warning) + m1_coaching.model_critiques → []
+ * lineage.response_hash: meta.response_hash (computed before brief assembly)
+ * lineage.config_version: SHA-256 hash of n_samples + feature_flags + stability_thresholds
+ */
+
 import { randomUUID, createHash } from 'node:crypto';
 import type {
   DecisionBriefV1,

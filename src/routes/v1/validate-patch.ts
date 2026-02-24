@@ -34,6 +34,44 @@ import { MAX_NODES, MAX_EDGES, DEFAULT_EXISTS_PROBABILITY } from '../../constant
 const CASCADE_WARNING_CAP = 10;
 const MIN_STD = 0.001;
 
+// Canonical field allow-lists for patch operations
+const CANONICAL_EDGE_FIELDS = new Set([
+  'from', 'to', 'strength', 'exists_probability', 'effect_direction', 'label', 'edge_type',
+]);
+const CANONICAL_NODE_FIELDS = new Set([
+  'id', 'kind', 'label', 'body', 'type', 'categories', 'category',
+  'observed_state', 'state_space', 'goal_threshold', 'goal_threshold_raw',
+  'goal_threshold_unit', 'goal_threshold_cap', 'prior',
+]);
+
+/**
+ * Validate that a patch operation value contains only canonical field names.
+ * Throws with INVALID_PATCH_FIELD details if non-canonical fields are found.
+ */
+function validateCanonicalFields(
+  value: Record<string, unknown>,
+  allowedFields: Set<string>,
+  opIndex: number,
+  entityType: 'edge' | 'node'
+): void {
+  for (const key of Object.keys(value)) {
+    if (!allowedFields.has(key)) {
+      throw new InvalidPatchFieldError(
+        `Operation ${opIndex} contains non-canonical ${entityType} field "${key}". Use canonical field names (${[...allowedFields].join(', ')}).`,
+        key
+      );
+    }
+  }
+}
+
+class InvalidPatchFieldError extends Error {
+  readonly field: string;
+  constructor(message: string, field: string) {
+    super(message);
+    this.field = field;
+  }
+}
+
 // =============================================================================
 // Graph State
 // =============================================================================
@@ -91,6 +129,7 @@ function applyOperation(
   switch (op.op) {
     case 'add_node': {
       if (!op.value) throw new Error(`Operation ${opIndex}: add_node requires 'value'`);
+      validateCanonicalFields(op.value as Record<string, unknown>, CANONICAL_NODE_FIELDS, opIndex, 'node');
       const nodeId = (op.value as EngineNodeV3).id || op.path;
       if (state.nodes.some(n => n.id === nodeId)) {
         throw new Error(`Operation ${opIndex} references node '${nodeId}' which already exists`);
@@ -101,6 +140,7 @@ function applyOperation(
 
     case 'add_edge': {
       if (!op.value) throw new Error(`Operation ${opIndex}: add_edge requires 'value'`);
+      validateCanonicalFields(op.value as Record<string, unknown>, CANONICAL_EDGE_FIELDS, opIndex, 'edge');
       const edge = op.value as EngineEdgeV3;
       const edgeKey = `${edge.from}->${edge.to}`;
       if (findEdgeIndex(state.edges, edge.from, edge.to) !== -1) {
@@ -167,6 +207,7 @@ function applyOperation(
 
     case 'update_node': {
       if (!op.value) throw new Error(`Operation ${opIndex}: update_node requires 'value'`);
+      validateCanonicalFields(op.value as Record<string, unknown>, CANONICAL_NODE_FIELDS, opIndex, 'node');
       const nodeId = op.path;
       const nodeIndex = state.nodes.findIndex(n => n.id === nodeId);
       if (nodeIndex === -1) {
@@ -178,6 +219,7 @@ function applyOperation(
 
     case 'update_edge': {
       if (!op.value) throw new Error(`Operation ${opIndex}: update_edge requires 'value'`);
+      validateCanonicalFields(op.value as Record<string, unknown>, CANONICAL_EDGE_FIELDS, opIndex, 'edge');
       const [from, to] = op.path.split('->');
       if (!from || !to) {
         throw new Error(`Operation ${opIndex}: invalid edge path '${op.path}' (expected 'from->to')`);
@@ -543,6 +585,13 @@ export async function registerValidatePatchRoute(app: FastifyInstance) {
           applyOperation(state, operations[i], i, repairs, warnings);
         }
       } catch (err) {
+        if (err instanceof InvalidPatchFieldError) {
+          return reply.code(422).send({
+            status: 'rejected',
+            code: 'INVALID_PATCH_FIELD',
+            message: err.message,
+          });
+        }
         return reply.code(422).send({
           status: 'rejected',
           code: 'INVALID_PATCH_TARGET',

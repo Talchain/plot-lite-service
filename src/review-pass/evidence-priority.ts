@@ -8,7 +8,8 @@
  * Score = |elasticity| * (1 - confidence_normalised)
  *   where confidence_normalised = 0.5 * band_score + 0.5 * mean(exists_probability)
  *
- * Factors below EVIDENCE_PRIORITY_SUPPRESSION_THRESHOLD are suppressed.
+ * Suppression: if max(score) across ALL candidates < EVIDENCE_PRIORITY_SUPPRESSION_THRESHOLD,
+ * the entire card is suppressed. Otherwise, top 3 items by score are included.
  */
 
 import type { ProposalCardV1, PriorityBand, CardProvenance } from './types.js';
@@ -87,41 +88,39 @@ export function computeConfidenceNormalised(
 /**
  * Build an EvidencePriorityCard from factor inputs.
  *
- * Returns null if no factors survive suppression.
+ * Suppression: if max(score) across ALL candidates < threshold, returns null
+ * (entire card suppressed). Otherwise returns top 3 items by score.
  */
 export function buildEvidencePriorityCard(
   factors: FactorInput[]
 ): EvidencePriorityCard | null {
-  const items: EvidencePriorityItem[] = [];
-
-  for (const f of factors) {
+  // Compute scores for ALL candidates
+  const allItems: EvidencePriorityItem[] = factors.map(f => {
     const confidence = computeConfidenceNormalised(
       f.attribution_stability,
       f.incoming_edges
     );
-    const score = Math.abs(f.elasticity) * (1 - confidence);
+    return {
+      factor_id: f.factor_id,
+      factor_label: f.factor_label,
+      score: Math.abs(f.elasticity) * (1 - confidence),
+      confidence_normalised: confidence,
+      elasticity: f.elasticity,
+    };
+  });
 
-    if (score >= EVIDENCE_PRIORITY_SUPPRESSION_THRESHOLD) {
-      items.push({
-        factor_id: f.factor_id,
-        factor_label: f.factor_label,
-        score,
-        confidence_normalised: confidence,
-        elasticity: f.elasticity,
-      });
-    }
-  }
-
-  if (items.length === 0) return null;
+  // Suppress entire card if max score < threshold
+  const maxScore = allItems.reduce((max, item) => Math.max(max, item.score), 0);
+  if (maxScore < EVIDENCE_PRIORITY_SUPPRESSION_THRESHOLD) return null;
 
   // Sort by score descending, then factor_id ascending for determinism
-  items.sort((a, b) => {
+  allItems.sort((a, b) => {
     const diff = b.score - a.score;
     if (diff !== 0) return diff;
     return a.factor_id < b.factor_id ? -1 : a.factor_id > b.factor_id ? 1 : 0;
   });
 
-  const topItems = items.slice(0, MAX_ITEMS);
+  const topItems = allItems.slice(0, MAX_ITEMS);
   const topFactorLabels = topItems.map(i => i.factor_label).join(', ');
 
   const priority = 2;
