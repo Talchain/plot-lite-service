@@ -195,6 +195,42 @@ describe('enrichFactorSensitivity', () => {
       direction: 'negative',
     });
   });
+
+  it('prefers sensitivity_score over legacy sensitivity', () => {
+    const factor = {
+      node_id: 'fac_price',
+      sensitivity_score: 0.90,
+      sensitivity: 0.85,
+      direction: 'negative' as const,
+    };
+
+    const result = enrichFactorSensitivity(factor, TEST_GRAPH);
+
+    expect(result.sensitivity).toBe(0.90);
+  });
+
+  it('uses sensitivity_score when legacy sensitivity is absent', () => {
+    const factor = {
+      node_id: 'fac_price',
+      sensitivity_score: 0.75,
+      direction: 'positive' as const,
+    };
+
+    const result = enrichFactorSensitivity(factor, TEST_GRAPH);
+
+    expect(result.sensitivity).toBe(0.75);
+  });
+
+  it('defaults to 0 when neither sensitivity_score nor sensitivity is present', () => {
+    const factor = {
+      node_id: 'fac_price',
+      direction: 'positive' as const,
+    };
+
+    const result = enrichFactorSensitivity(factor, TEST_GRAPH);
+
+    expect(result.sensitivity).toBe(0);
+  });
 });
 
 // =============================================================================

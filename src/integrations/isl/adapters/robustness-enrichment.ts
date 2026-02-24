@@ -165,7 +165,10 @@ export function enrichRobustEdge(
  * Enrich factor sensitivity with labels from the graph.
  *
  * Handles both canonical (sensitivity_score) and legacy (sensitivity) fields
- * from ISL response, matching the pattern used in V2 run transform.
+ * from ISL response. Defaults to 0 when neither is present because the
+ * output type (EnrichedFactorSensitivity) requires a numeric sensitivity
+ * value for CEE consumption. This differs from V2 run transform which
+ * preserves undefined for UI-facing responses.
  */
 export function enrichFactorSensitivity(
   factor: ISLFactorSensitivityItem,
