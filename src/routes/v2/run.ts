@@ -1361,7 +1361,7 @@ function buildResponse(
       const epFactors: FactorInput[] = (factorSensitivity ?? []).map((fs: any) => {
         const stabilityEntry = (factorStability ?? []).find((s: any) => s.factor_id === fs.factor_id);
         const incoming = graphEdges
-          .filter((e) => e.from === fs.factor_id || e.to === fs.factor_id)
+          .filter((e) => e.to === fs.factor_id)
           .map((e) => ({ exists_probability: e.exists_probability }));
         return {
           factor_id: fs.factor_id,

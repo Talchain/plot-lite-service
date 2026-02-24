@@ -183,18 +183,28 @@ describe('Review cards in /v2/run', () => {
     }
   });
 
-  it('suppresses review_cards when all factors have negligible sensitivity (max-score < threshold)', async () => {
+  it('suppresses evidence_priority card when all factors have high confidence and weak influence', async () => {
     MOCK_SCENARIO = 'high_confidence';
 
-    // Graph with very weak edge strengths — graph-based sensitivity produces tiny elasticity.
-    // Combined with high exists_probability, score = |elasticity| * (1 - confidence) stays below 0.05.
-    const WEAK_GRAPH = {
+    // Graph with outcome → factor → goal chain. Parent nodes are 'outcome' kind
+    // so they don't appear in factor sensitivity. Each factor has:
+    //   - incoming edge with high exists_probability (0.99)
+    //   - weak outgoing edge to goal (mean: 0.01)
+    //   - attribution_stability='high' via ISL mock (stability_method present)
+    // Result: confidence_normalised ≈ 0.995, elasticity tiny → score < 0.05 → suppressed.
+    const SUPPRESSED_GRAPH = {
       nodes: [
+        { id: 'ctx-a', kind: 'outcome', label: 'Context A', observed_state: { value: 80 } },
+        { id: 'ctx-b', kind: 'outcome', label: 'Context B', observed_state: { value: 60 } },
         { id: 'factor-a', kind: 'factor', label: 'Factor A', observed_state: { value: 50 } },
         { id: 'factor-b', kind: 'factor', label: 'Factor B', observed_state: { value: 30 } },
         { id: 'goal', kind: 'goal', label: 'Goal' },
       ],
       edges: [
+        // Outcome → factor: provides incoming_edges with high exists_probability
+        { from: 'ctx-a', to: 'factor-a', exists_probability: 0.99, strength: { mean: 0.5, std: 0.1 } },
+        { from: 'ctx-b', to: 'factor-b', exists_probability: 0.99, strength: { mean: 0.5, std: 0.1 } },
+        // Factor → goal: very weak — keeps graph-computed elasticity tiny
         { from: 'factor-a', to: 'goal', exists_probability: 0.99, strength: { mean: 0.01, std: 0.05 } },
         { from: 'factor-b', to: 'goal', exists_probability: 0.99, strength: { mean: -0.01, std: 0.05 } },
       ],
@@ -205,7 +215,7 @@ describe('Review cards in /v2/run', () => {
       url: '/v2/run',
       headers: { 'Content-Type': 'application/json' },
       payload: {
-        graph: WEAK_GRAPH,
+        graph: SUPPRESSED_GRAPH,
         options: OPTIONS,
         goal_node_id: 'goal',
         seed: '42',
@@ -215,9 +225,9 @@ describe('Review cards in /v2/run', () => {
     const body = JSON.parse(res.body);
     expect(res.statusCode).toBe(200);
 
-    // Very weak edges → graph-computed elasticity ≈ 0.02, exists_probability=0.99
-    // confidence_normalised ≈ 0.745, score ≈ 0.02 * 0.255 ≈ 0.005 < 0.05
-    // All scores below threshold → entire card suppressed → no review_cards
-    expect(body.review_cards).toBeUndefined();
+    // Only factor-a/b in sensitivity (outcome nodes excluded).
+    // confidence_normalised = 0.5*1.0 + 0.5*0.99 = 0.995, score ≈ 0.005 < 0.05
+    const epCard = (body.review_cards ?? []).find((c: any) => c.card_type === 'evidence_priority');
+    expect(epCard).toBeUndefined();
   });
 });

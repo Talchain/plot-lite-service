@@ -18,7 +18,7 @@
  * robustness:        robustness.level → 'moderate' (default)
  * warnings:          critiques (severity>=warning) + m1_coaching.model_critiques → []
  * lineage.response_hash: meta.response_hash (computed before brief assembly)
- * lineage.config_version: SHA-256 hash of n_samples + feature_flags + stability_thresholds
+ * lineage.config_version: SHA-256 hash of n_samples_default + review/facts flags + brief_assembly_version
  */
 
 import { randomUUID, createHash } from 'node:crypto';
