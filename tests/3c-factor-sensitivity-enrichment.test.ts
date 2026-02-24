@@ -1,8 +1,8 @@
 /**
  * 3C: Factor Sensitivity Source-Scoping + Identifiability Hash Policy + Factor Stability
  *
- * T1: Graph-primary path — graph-source entries carry ISL 3C fields via merge
- * T2: ISL-fallback path with 3C available — ISL-source entries carry 3C fields
+ * T1: Graph-primary path — graph-source entries must NOT carry 3C fields (B8-8)
+ * T2: ISL-fallback path — ISL-source entries must NOT carry 3C fields (B8-8)
  * T3: ISL-fallback backward compat — when ISL omits 3C fields, output omits them
  * T-inv: Invariant — attribution_stability="negligible" requires |elasticity| < 0.01
  * T4: Hash insensitive to 3C changes (factor_sensitivity not in hash)
@@ -359,7 +359,8 @@ describe('T6: Route-level 3C source-scoping via /v2/run', () => {
     delete process.env.CEE_ORCHESTRATOR_ENABLE;
   });
 
-  it('graph-based factor_sensitivity entries carry ISL 3C fields via merge', async () => {
+  // Regression: B8-8 — 3C field segregation. ISL stability fields must not leak into factor_sensitivity.
+  it('graph-based factor_sensitivity entries do NOT carry 3C stability fields', async () => {
     const res = await fetch(`${baseUrl}/v2/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -389,17 +390,16 @@ describe('T6: Route-level 3C source-scoping via /v2/run', () => {
     expect(factorA.source).toBe('graph');
     expect(factorB.source).toBe('graph');
 
-    // 3C fields ARE now present on graph-source entries via ISL merge
-    // (ISL bootstrap fields merged into graph entries for factors where ISL has data)
+    // 3C fields must NOT appear on factor_sensitivity entries (they belong in factor_stability)
     for (const factor of [factorA, factorB]) {
-      expect(factor.elasticity_std).toBeDefined();
-      expect(factor.attribution_stability).toBeDefined();
-      expect(factor.rank_flip_rate).toBeDefined();
-      expect(factor.stability_method).toBeDefined();
+      for (const field of THREE_C_FIELDS) {
+        expect(factor).not.toHaveProperty(field);
+      }
     }
   });
 
-  it('ISL-fallback entries carry 3C fields when ISL provides them', async () => {
+  // Regression: B8-8 — 3C field segregation. ISL stability fields must not leak into factor_sensitivity.
+  it('ISL-fallback factor_sensitivity entries do NOT carry 3C stability fields', async () => {
     const res = await fetch(`${baseUrl}/v2/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -427,14 +427,13 @@ describe('T6: Route-level 3C source-scoping via /v2/run', () => {
     const factors = body.factor_sensitivity ?? [];
 
     expect(factors.length).toBeGreaterThan(0);
-    expect(factors.every((f: any) => f.source === 'isl')).toBe(true);
 
-    const factorA = factors.find((f: any) => f.factor_id === 'factor-a');
-    expect(factorA).toBeDefined();
-    expect(factorA.elasticity_std).toBe(0.042);
-    expect(factorA.attribution_stability).toBe('high');
-    expect(factorA.rank_flip_rate).toBe(0.03);
-    expect(factorA.stability_method).toBe('bootstrap_1000');
+    // 3C fields must NOT appear on any factor_sensitivity entries
+    for (const factor of factors) {
+      for (const field of THREE_C_FIELDS) {
+        expect(factor).not.toHaveProperty(field);
+      }
+    }
   });
 
   it('ISL-fallback omits 3C fields cleanly when ISL does not provide them', async () => {
