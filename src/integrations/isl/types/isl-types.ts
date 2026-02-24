@@ -206,6 +206,8 @@ export interface ISLFactorSensitivityItem {
   rank_flip_rate?: number;
   /** Method used to compute stability metrics */
   stability_method?: string;
+  /** ISL-computed confidence from bootstrap stability (0-1) */
+  confidence?: number;
 }
 
 /**

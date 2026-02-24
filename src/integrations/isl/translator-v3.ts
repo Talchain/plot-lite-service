@@ -122,6 +122,11 @@ export interface ISLRobustnessRequestV3 {
 
 /**
  * Translate internal node to ISL format.
+ *
+ * NOTE: `category` field is intentionally excluded from ISL translation.
+ * It is PLoT-internal metadata used for M1 coaching classification and
+ * prior validation (external factors only). ISL does not consume it —
+ * its node schema has no category field. See Platform Contract §3.3.1.
  */
 export function toISLNode(node: EngineNodeV3): ISLNodeV3 {
   return {
