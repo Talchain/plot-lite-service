@@ -1,7 +1,7 @@
 /**
  * 3C: Factor Sensitivity Source-Scoping + Identifiability Hash Policy + Factor Stability
  *
- * T1: Graph-primary path — graph-source entries do NOT carry ISL 3C fields
+ * T1: Graph-primary path — graph-source entries carry ISL 3C fields via merge
  * T2: ISL-fallback path with 3C available — ISL-source entries carry 3C fields
  * T3: ISL-fallback backward compat — when ISL omits 3C fields, output omits them
  * T-inv: Invariant — attribution_stability="negligible" requires |elasticity| < 0.01

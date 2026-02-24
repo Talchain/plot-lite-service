@@ -568,7 +568,7 @@ export function computeFactorSensitivityFromGraph(
  * because 1,000 MC resamples are a stronger stability signal than
  * weighted edge path averages.
  *
- * ISL-only factors (not in graph results) are appended as-is.
+ * ISL-only factors (not in graph results) are appended with confidence_source: 'isl'.
  */
 export function mergeIslConfidenceIntoGraphFactors(
   graphFactors: FactorSensitivityResultV3[],
@@ -609,7 +609,10 @@ export function mergeIslConfidenceIntoGraphFactors(
   // Append ISL-only factors not in graph results
   for (const islF of islFactors) {
     if (!graphFactorIds.has(islF.factor_id)) {
-      merged.push(islF);
+      merged.push({
+        ...islF,
+        confidence_source: 'isl' as const,
+      });
     }
   }
 

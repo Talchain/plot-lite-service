@@ -110,6 +110,7 @@ describe('mergeIslConfidenceIntoGraphFactors', () => {
     expect(d).toBeDefined();
     expect(d.source).toBe('isl');
     expect(d.confidence).toBe(0.55);
+    expect(d.confidence_source).toBe('isl');
   });
 
   it('T4: ISL returns null confidence — graph confidence preserved', () => {
