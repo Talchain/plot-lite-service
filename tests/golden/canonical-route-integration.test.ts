@@ -177,6 +177,8 @@ const RESPONSE_IGNORE_FIELDS = [
   'thresholds_status',
   'thresholds_meta',
   'threshold_analysis',
+  'brief_id',             // decision_brief: random UUID per assembly
+  'created_at',           // decision_brief: timestamp per assembly
 ];
 
 const SORT_ARRAYS = {

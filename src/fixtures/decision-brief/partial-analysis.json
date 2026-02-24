@@ -1,0 +1,75 @@
+{
+  "description": "Partial analysis — includes PARTIAL_ANALYSIS warning, drivers may be empty",
+  "input": {
+    "analysis_status": "partial",
+    "critiques": [
+      {
+        "id": "c1",
+        "code": "ROBUSTNESS_UNAVAILABLE",
+        "severity": "warning",
+        "message": "Robustness analysis could not be completed",
+        "source": "isl",
+        "blocks_analysis": false
+      }
+    ],
+    "option_comparison": [
+      {
+        "option_id": "opt_1",
+        "option_label": "Launch Now",
+        "id": "opt_1",
+        "label": "Launch Now",
+        "win_probability": 0.55
+      },
+      {
+        "option_id": "opt_2",
+        "option_label": "Wait",
+        "id": "opt_2",
+        "label": "Wait",
+        "win_probability": 0.45
+      }
+    ],
+    "robustness": {
+      "level": "low",
+      "fragile_edges": [],
+      "robust_edges": []
+    },
+    "m1_coaching": {
+      "story_headlines": { "opt_1": "Launch Now edges ahead" },
+      "evidence_gaps": [
+        { "factor_id": "f1", "factor_label": "Market Timing", "voi_score": 0.9, "confidence": 0.4, "confidence_display": "40%", "confidence_defaulted": true, "influence": 0.8, "influence_display": "80%", "suggestion": "Research timing", "notes": [] }
+      ],
+      "model_critiques": [],
+      "next_actions": [],
+      "readiness": "needs_evidence",
+      "headline_type": "high_uncertainty",
+      "executive_summary": { "summary": "Close call between Launch Now and Wait.", "decision_statement": "Slight lean to Launch", "key_qualifier": "high uncertainty", "action_implication": "Gather timing data" },
+      "coaching_version": "1.1.0",
+      "computed_at": "2026-01-15T10:00:00Z"
+    },
+    "response_hash": "part123anal456ab",
+    "meta": { "seed_used": "123" }
+  },
+  "expected": {
+    "version": "1",
+    "graph_hash": "part123anal456ab",
+    "seed": 123,
+    "headline": "Close call between Launch Now and Wait.",
+    "options": [
+      { "option_id": "opt_1", "label": "Launch Now", "win_probability": 0.55, "rank": 1 },
+      { "option_id": "opt_2", "label": "Wait", "win_probability": 0.45, "rank": 2 }
+    ],
+    "top_drivers": [],
+    "key_assumptions": ["Market Timing"],
+    "what_would_change": [],
+    "robustness": "fragile",
+    "warnings": [
+      { "code": "PARTIAL_ANALYSIS", "message": "Some analysis features were unavailable", "severity": "warning" },
+      { "code": "M2_UNAVAILABLE", "message": "Decision review was unavailable; brief uses deterministic coaching fallback", "severity": "warning" },
+      { "code": "ROBUSTNESS_UNAVAILABLE", "message": "Robustness analysis could not be completed", "severity": "warning" }
+    ],
+    "lineage": {
+      "config_version": "1.0.0",
+      "response_hash": "part123anal456ab"
+    }
+  }
+}

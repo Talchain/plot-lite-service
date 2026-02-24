@@ -117,6 +117,7 @@ import {
   type NormalisationContext,
   type NormalisationDiagnostic,
 } from '../../lib/intervention-normaliser.js';
+import { assembleBrief } from '../../assembly/decision-brief.js';
 
 // -----------------------------------------------------------------------------
 // Feature Flags
@@ -1336,6 +1337,21 @@ function buildResponse(
     processing_time_ms: meta.latencyMs,
 
     response_hash: responseHash,
+
+    // Decision Brief — assembled from analysis results for stakeholder sharing.
+    // Contains non-deterministic fields (brief_id, created_at) — excluded from response_hash
+    // by design (hash is computed from request inputs only via hashRequest).
+    decision_brief: assembleBrief({
+      analysis_status: analysisStatus,
+      critiques,
+      option_comparison: optionComparison,
+      factor_sensitivity: factorSensitivity,
+      robustness,
+      m1_coaching: m1Coaching,
+      m1_review: m2DecisionReview?.m1_review ?? undefined,
+      response_hash: responseHash,
+      meta: { seed_used: meta.seedUsed },
+    }),
 
     // CIL M4: repairs_applied always included for CIL observability.
     // Other _meta fields (builds, payloads) gated behind UI_CANONICAL_META feature flag.

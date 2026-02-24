@@ -1,0 +1,119 @@
+{
+  "description": "Happy path: 2 options, clear winner, 5 drivers, moderate robustness, M2 headline",
+  "input": {
+    "analysis_status": "computed",
+    "critiques": [
+      {
+        "id": "c1",
+        "code": "SCALE_MISMATCH",
+        "severity": "warning",
+        "message": "Edge weights span 3 orders of magnitude",
+        "source": "validation",
+        "blocks_analysis": false
+      },
+      {
+        "id": "c2",
+        "code": "INFO_NOTE",
+        "severity": "info",
+        "message": "Informational note only",
+        "source": "validation",
+        "blocks_analysis": false
+      }
+    ],
+    "option_comparison": [
+      {
+        "option_id": "opt_b",
+        "option_label": "Option B",
+        "id": "opt_b",
+        "label": "Option B",
+        "win_probability": 0.28
+      },
+      {
+        "option_id": "opt_a",
+        "option_label": "Option A",
+        "id": "opt_a",
+        "label": "Option A",
+        "win_probability": 0.72
+      }
+    ],
+    "factor_sensitivity": [
+      { "factor_id": "f1", "factor_label": "Market Size", "elasticity": 0.85, "direction": "positive" },
+      { "factor_id": "f2", "factor_label": "Competition", "elasticity": -0.72, "direction": "negative" },
+      { "factor_id": "f3", "factor_label": "Brand Strength", "elasticity": 0.65, "direction": "positive" },
+      { "factor_id": "f4", "factor_label": "Price Sensitivity", "elasticity": -0.55, "direction": "negative" },
+      { "factor_id": "f5", "factor_label": "Distribution", "elasticity": 0.42, "direction": "positive" }
+    ],
+    "robustness": {
+      "level": "moderate",
+      "fragile_edges": [
+        {
+          "edge_id": "e1",
+          "from_id": "n1",
+          "to_id": "n2",
+          "from_label": "Market Size",
+          "to_label": "Revenue",
+          "switch_probability": 0.15,
+          "alternative_winner_id": "opt_b",
+          "alternative_winner_label": "Option B"
+        }
+      ],
+      "robust_edges": []
+    },
+    "m1_coaching": {
+      "story_headlines": { "opt_a": "Option A leads", "opt_b": "Option B trails" },
+      "evidence_gaps": [
+        { "factor_id": "f2", "factor_label": "Competition", "voi_score": 0.8, "confidence": 0.5, "confidence_display": "50%", "confidence_defaulted": true, "influence": 0.72, "influence_display": "72%", "suggestion": "Gather data on Competition", "notes": [] },
+        { "factor_id": "f4", "factor_label": "Price Sensitivity", "voi_score": 0.6, "confidence": 0.6, "confidence_display": "60%", "confidence_defaulted": false, "influence": 0.55, "influence_display": "55%", "suggestion": "Gather data on Price Sensitivity", "notes": [] }
+      ],
+      "model_critiques": [
+        { "type": "DOMINANT_FACTOR", "severity": "warning", "challenge_question": "Is Market Size really this dominant?", "suggested_action": "Review edge weights" }
+      ],
+      "next_actions": [],
+      "readiness": "ready",
+      "headline_type": "clear_winner",
+      "executive_summary": { "summary": "M1 fallback headline", "decision_statement": "Go with A", "key_qualifier": "if market holds", "action_implication": "Proceed" },
+      "coaching_version": "1.1.0",
+      "computed_at": "2026-01-15T10:00:00Z"
+    },
+    "m1_review": {
+      "narrative_summary": "Option A is the clear winner with 72% probability, driven primarily by Market Size advantages.",
+      "story_headlines": { "opt_a": "Option A leads", "opt_b": "Option B trails" },
+      "robustness_explanation": { "summary": "Moderate", "primary_risk": "Market Size dependency", "stability_factors": ["Distribution"], "fragility_factors": ["Competition"] },
+      "readiness_rationale": "Ready to proceed",
+      "evidence_enhancements": {},
+      "bias_findings": [],
+      "key_assumptions": ["Market size remains stable"],
+      "decision_quality_prompts": []
+    },
+    "response_hash": "abc123def456gh78",
+    "meta": { "seed_used": "42" }
+  },
+  "expected": {
+    "version": "1",
+    "graph_hash": "abc123def456gh78",
+    "seed": 42,
+    "headline": "Option A is the clear winner with 72% probability, driven primarily by Market Size advantages.",
+    "options": [
+      { "option_id": "opt_a", "label": "Option A", "win_probability": 0.72, "rank": 1 },
+      { "option_id": "opt_b", "label": "Option B", "win_probability": 0.28, "rank": 2 }
+    ],
+    "top_drivers": [
+      { "factor_label": "Market Size", "sensitivity": 0.85, "direction": "positive" },
+      { "factor_label": "Competition", "sensitivity": 0.72, "direction": "negative" },
+      { "factor_label": "Brand Strength", "sensitivity": 0.65, "direction": "positive" },
+      { "factor_label": "Price Sensitivity", "sensitivity": 0.55, "direction": "negative" },
+      { "factor_label": "Distribution", "sensitivity": 0.42, "direction": "positive" }
+    ],
+    "key_assumptions": ["Competition", "Price Sensitivity"],
+    "what_would_change": ["Market Size \u2192 Revenue"],
+    "robustness": "moderate",
+    "warnings": [
+      { "code": "SCALE_MISMATCH", "message": "Edge weights span 3 orders of magnitude", "severity": "warning" },
+      { "code": "DOMINANT_FACTOR", "message": "Is Market Size really this dominant?", "severity": "warning" }
+    ],
+    "lineage": {
+      "config_version": "1.0.0",
+      "response_hash": "abc123def456gh78"
+    }
+  }
+}

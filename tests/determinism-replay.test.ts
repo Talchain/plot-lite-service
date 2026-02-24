@@ -135,6 +135,8 @@ const IGNORE_FIELDS = [
   'thresholds_status',   // B10.3: depends on ISL call timing, not deterministic inputs
   'thresholds_meta',     // B10.3: contains duration_ms (volatile timing)
   'threshold_analysis',  // B10.3: presence depends on ISL call success/timing
+  'brief_id',            // decision_brief: random UUID per assembly
+  'created_at',          // decision_brief: timestamp per assembly
 ];
 
 /** Sort arrays by their natural key so element order doesn't cause false mismatches. */

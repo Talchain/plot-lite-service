@@ -1,0 +1,82 @@
+{
+  "description": "M2 decision review failed/unavailable — falls back to M1 headline, adds warning",
+  "input": {
+    "analysis_status": "computed",
+    "critiques": [],
+    "option_comparison": [
+      {
+        "option_id": "opt_x",
+        "option_label": "Strategy X",
+        "id": "opt_x",
+        "label": "Strategy X",
+        "win_probability": 0.61
+      },
+      {
+        "option_id": "opt_y",
+        "option_label": "Strategy Y",
+        "id": "opt_y",
+        "label": "Strategy Y",
+        "win_probability": 0.39
+      }
+    ],
+    "factor_sensitivity": [
+      { "factor_id": "f1", "factor_label": "Customer Retention", "elasticity": 0.55, "direction": "positive" },
+      { "factor_id": "f2", "factor_label": "Churn Rate", "elasticity": -0.48, "direction": "negative" }
+    ],
+    "robustness": {
+      "level": "moderate",
+      "fragile_edges": [
+        {
+          "edge_id": "e1",
+          "from_id": "n1",
+          "to_id": "n2",
+          "from_label": "Customer Retention",
+          "to_label": "Revenue Growth",
+          "switch_probability": 0.22,
+          "alternative_winner_id": "opt_y",
+          "alternative_winner_label": "Strategy Y"
+        }
+      ],
+      "robust_edges": []
+    },
+    "m1_coaching": {
+      "story_headlines": { "opt_x": "Strategy X edges ahead" },
+      "evidence_gaps": [
+        { "factor_id": "f2", "factor_label": "Churn Rate", "voi_score": 0.7, "confidence": 0.5, "confidence_display": "50%", "confidence_defaulted": true, "influence": 0.48, "influence_display": "48%", "suggestion": "Gather churn data", "notes": [] }
+      ],
+      "model_critiques": [],
+      "next_actions": [],
+      "readiness": "close_call",
+      "headline_type": "moderate_winner",
+      "executive_summary": { "summary": "Strategy X has a moderate lead over Strategy Y.", "decision_statement": "Lean towards X", "key_qualifier": "pending churn data", "action_implication": "Gather retention metrics" },
+      "coaching_version": "1.1.0",
+      "computed_at": "2026-01-15T10:00:00Z"
+    },
+    "response_hash": "def456abc789gh12",
+    "meta": { "seed_used": "99" }
+  },
+  "expected": {
+    "version": "1",
+    "graph_hash": "def456abc789gh12",
+    "seed": 99,
+    "headline": "Strategy X has a moderate lead over Strategy Y.",
+    "options": [
+      { "option_id": "opt_x", "label": "Strategy X", "win_probability": 0.61, "rank": 1 },
+      { "option_id": "opt_y", "label": "Strategy Y", "win_probability": 0.39, "rank": 2 }
+    ],
+    "top_drivers": [
+      { "factor_label": "Customer Retention", "sensitivity": 0.55, "direction": "positive" },
+      { "factor_label": "Churn Rate", "sensitivity": 0.48, "direction": "negative" }
+    ],
+    "key_assumptions": ["Churn Rate"],
+    "what_would_change": ["Customer Retention \u2192 Revenue Growth"],
+    "robustness": "moderate",
+    "warnings": [
+      { "code": "M2_UNAVAILABLE", "message": "Decision review was unavailable; brief uses deterministic coaching fallback", "severity": "warning" }
+    ],
+    "lineage": {
+      "config_version": "1.0.0",
+      "response_hash": "def456abc789gh12"
+    }
+  }
+}

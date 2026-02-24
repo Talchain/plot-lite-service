@@ -1,0 +1,79 @@
+{
+  "description": "Robust model — no fragile edges, what_would_change empty, robustness 'robust'",
+  "input": {
+    "analysis_status": "computed",
+    "critiques": [],
+    "option_comparison": [
+      {
+        "option_id": "opt_alpha",
+        "option_label": "Alpha Plan",
+        "id": "opt_alpha",
+        "label": "Alpha Plan",
+        "win_probability": 0.88
+      },
+      {
+        "option_id": "opt_beta",
+        "option_label": "Beta Plan",
+        "id": "opt_beta",
+        "label": "Beta Plan",
+        "win_probability": 0.12
+      }
+    ],
+    "factor_sensitivity": [
+      { "factor_id": "f1", "factor_label": "Team Capacity", "elasticity": 0.92, "direction": "positive" },
+      { "factor_id": "f2", "factor_label": "Budget", "elasticity": 0.78, "direction": "positive" },
+      { "factor_id": "f3", "factor_label": "Timeline Risk", "elasticity": -0.35, "direction": "negative" }
+    ],
+    "robustness": {
+      "level": "high",
+      "fragile_edges": [],
+      "robust_edges": []
+    },
+    "m1_coaching": {
+      "story_headlines": { "opt_alpha": "Alpha Plan dominates" },
+      "evidence_gaps": [],
+      "model_critiques": [],
+      "next_actions": [],
+      "readiness": "ready",
+      "headline_type": "clear_winner",
+      "executive_summary": { "summary": "Alpha Plan is strongly favoured.", "decision_statement": "Go with Alpha", "key_qualifier": "high confidence", "action_implication": "Proceed immediately" },
+      "coaching_version": "1.1.0",
+      "computed_at": "2026-01-15T10:00:00Z"
+    },
+    "m1_review": {
+      "narrative_summary": "Alpha Plan is the dominant choice with 88% win probability and a robust model.",
+      "story_headlines": { "opt_alpha": "Alpha Plan dominates" },
+      "robustness_explanation": { "summary": "Robust", "primary_risk": "None significant", "stability_factors": ["Team Capacity", "Budget"], "fragility_factors": [] },
+      "readiness_rationale": "Highly ready",
+      "evidence_enhancements": {},
+      "bias_findings": [],
+      "key_assumptions": [],
+      "decision_quality_prompts": []
+    },
+    "response_hash": "rob123stable456ab",
+    "meta": { "seed_used": "7" }
+  },
+  "expected": {
+    "version": "1",
+    "graph_hash": "rob123stable456ab",
+    "seed": 7,
+    "headline": "Alpha Plan is the dominant choice with 88% win probability and a robust model.",
+    "options": [
+      { "option_id": "opt_alpha", "label": "Alpha Plan", "win_probability": 0.88, "rank": 1 },
+      { "option_id": "opt_beta", "label": "Beta Plan", "win_probability": 0.12, "rank": 2 }
+    ],
+    "top_drivers": [
+      { "factor_label": "Team Capacity", "sensitivity": 0.92, "direction": "positive" },
+      { "factor_label": "Budget", "sensitivity": 0.78, "direction": "positive" },
+      { "factor_label": "Timeline Risk", "sensitivity": 0.35, "direction": "negative" }
+    ],
+    "key_assumptions": [],
+    "what_would_change": [],
+    "robustness": "robust",
+    "warnings": [],
+    "lineage": {
+      "config_version": "1.0.0",
+      "response_hash": "rob123stable456ab"
+    }
+  }
+}

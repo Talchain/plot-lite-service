@@ -31,6 +31,7 @@ import type { M1Coaching } from '../coaching/types.js';
 import type { M1Review } from '../cee/validation/m1-review-types.js';
 import type { ReviewStatus, ReviewSkipReason } from '../cee/validation/m1-review-constants.js';
 import type { DenormalisedFlipThreshold } from '../lib/flip-threshold-denormaliser.js';
+import type { DecisionBriefV1 } from './decision-brief.js';
 
 // -----------------------------------------------------------------------------
 // Node Kinds
@@ -1009,6 +1010,15 @@ export interface RunResponseV3 {
 
   /** Determinism hash of canonical request (semantic fields only) */
   response_hash?: string;
+
+  /**
+   * Decision Brief assembled from analysis results.
+   * Shareable artefact for stakeholders. Null when analysis is blocked or failed.
+   *
+   * NOTE: Contains non-deterministic fields (brief_id, created_at).
+   * Excluded from response_hash by design (hash is computed from request inputs only).
+   */
+  decision_brief?: DecisionBriefV1 | null;
 
   /**
    * Canonical metadata for UI canonicalisation layer.
