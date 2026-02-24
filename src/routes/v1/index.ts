@@ -12,6 +12,7 @@ import { registerSelfCheckRoute } from './self-check.js';
 import { registerTemplatesRoutes } from './templates.js';
 import { registerLimitsRoute } from './limits.js';
 import { registerValidateRoute } from './validate.js';
+import { registerValidatePatchRoute } from './validate-patch.js';
 import { getStreamHealthExtras, p95Ms, getLastRequestAt, getJson429Count, getSse429Count, getLastConfigReloadISO, getLastComputeMs, getEngineP95Ms, getEngineP95MsRolling, getSseOpen, getSseClosed, getSseTimeout } from '../../metrics.js';
 import { getFixtureCacheSize, getFixtureCacheStats } from '../../lib/fixtures-cache.js';
 import { registerStreamRoute } from './stream.js';
@@ -95,6 +96,7 @@ export async function registerV1Routes(app: FastifyInstance) {
   }
   
   await registerValidateRoute(app);
+  await registerValidatePatchRoute(app);
   await registerCompareRoute(app);
   await registerInspectRoute(app);
   await registerDiffRoute(app);

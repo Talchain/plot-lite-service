@@ -50,6 +50,10 @@ export const KNOWN_FEATURE_FLAGS = [
   'DECISION_REVIEW_ENABLE',
   // Stream D: FactObject assembly
   'ENABLE_FACTS_ASSEMBLY',
+  // Review pass (deterministic cards)
+  'ENABLE_REVIEW_PASS',
+  // Track A: Validate-patch endpoint
+  'ENABLE_VALIDATE_PATCH',
 ] as const;
 
 export function validateFeatureFlags(logger?: any): void {
