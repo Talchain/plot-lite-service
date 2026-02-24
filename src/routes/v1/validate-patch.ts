@@ -524,6 +524,15 @@ export async function registerValidatePatchRoute(app: FastifyInstance) {
 
       const { graph, operations } = req.body;
 
+      // Guard: graph and operations must be present
+      if (!graph || typeof graph !== 'object' || !Array.isArray(operations)) {
+        return reply.code(400).send({
+          status: 'rejected',
+          code: 'INVALID_REQUEST',
+          message: 'Request body must include "graph" (object) and "operations" (array).',
+        });
+      }
+
       // Phase 1: Apply operations sequentially
       const state = cloneGraph(graph);
       const repairs: RepairEntry[] = [];
