@@ -20,14 +20,20 @@ function loadFixture(name: string): { input: BriefAssemblyInput; expected: Omit<
 }
 
 /**
- * Compare brief against expected, ignoring brief_id and created_at (non-deterministic).
+ * Compare brief against expected, ignoring brief_id, created_at, and dynamic config_version.
  */
 function expectBriefMatches(actual: DecisionBriefV1 | null, expected: Omit<DecisionBriefV1, 'brief_id' | 'created_at'>) {
   expect(actual).not.toBeNull();
   const { brief_id, created_at, ...rest } = actual!;
   expect(brief_id).toMatch(/^[0-9a-f-]{36}$/); // UUID format
   expect(created_at).toMatch(/^\d{4}-\d{2}-\d{2}T/); // ISO-8601
-  expect(rest).toEqual(expected);
+  // config_version is now a dynamic hash — match hex pattern, then substitute for deep equal
+  expect(rest.lineage.config_version).toMatch(/^[0-9a-f]{12}$/);
+  const expectedWithHash = {
+    ...expected,
+    lineage: { ...expected.lineage, config_version: rest.lineage.config_version },
+  };
+  expect(rest).toEqual(expectedWithHash);
 }
 
 // =============================================================================
@@ -430,7 +436,7 @@ describe('assembleBrief — lineage', () => {
       meta: { seed_used: '1' },
     });
     expect(result?.lineage.response_hash).toBe('hash123abc');
-    expect(result?.lineage.config_version).toBe('1.0.0');
+    expect(result?.lineage.config_version).toMatch(/^[0-9a-f]{12}$/);
   });
 });
 

@@ -48,3 +48,13 @@ export {
   cardSortKey,
   factSortKey,
 } from './sort.js';
+
+export {
+  buildEvidencePriorityCard,
+  computeConfidenceNormalised,
+  EVIDENCE_PRIORITY_SUPPRESSION_THRESHOLD,
+  ATTRIBUTION_STABILITY_BAND_SCORES,
+  type EvidencePriorityCard,
+  type EvidencePriorityItem,
+  type FactorInput,
+} from './evidence-priority.js';

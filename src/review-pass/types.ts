@@ -49,7 +49,7 @@ export interface ViolationRef {
 /** Discriminated union: facts require role, violations/critiques don't. */
 export type SupportingRef = FactRef | ViolationRef;
 
-export type CardType = 'challenge' | 'gap' | 'fragile' | 'warning' | 'structural';
+export type CardType = 'challenge' | 'gap' | 'fragile' | 'warning' | 'structural' | 'evidence_priority';
 export type ReviewPhase = 'pre_analysis' | 'post_analysis';
 export type SuggestedAction = 'review' | 'update_belief' | 'add_evidence' | 'dismiss';
 

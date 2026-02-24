@@ -113,8 +113,8 @@ describe('CIL Phase 0.2 — seed_source metadata', () => {
   // This test verifies Platform Contract §5.2: when ISL returns a different
   // seed_used than PLoT forwarded, PLoT adopts ISL's value (not its own).
   // Implementation verified at src/routes/v2/run.ts:2648-2652
-  it.skip('adopts ISL seed_used when different from PLoT seed (TODO: ISL mock)', async () => {
-    // Requires ISL mock infrastructure to return controllable seed_used value
+  it.skip('adopts ISL seed_used when different from PLoT seed (verified at run.ts:2648-2652, needs ISL mock infra)', async () => {
+    // Requires ISL mock infrastructure to return controllable seed_used value.
     // Code path verified: run.ts lines 2648-2652 checks islResult.seed_used
     // and overwrites seedUsed if ISL returns a different value
     expect(true).toBe(true);

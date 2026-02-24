@@ -7,7 +7,7 @@
  * Same response data → same brief content (only brief_id and created_at differ).
  */
 
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import type {
   DecisionBriefV1,
   BriefOption,
@@ -27,8 +27,19 @@ const MAX_WARNINGS = 10;
 const MAX_KEY_ASSUMPTIONS = 10;
 const MAX_WHAT_WOULD_CHANGE = 10;
 
-/** PLoT config version — bump when brief assembly logic changes */
-const BRIEF_CONFIG_VERSION = '1.0.0';
+/** Compute config_version as SHA-256 hash of computation-affecting config values. */
+function computeConfigVersion(): string {
+  const configInputs = {
+    n_samples_default: 1000,
+    enable_review_pass: process.env.ENABLE_REVIEW_PASS ?? 'default',
+    enable_facts_assembly: process.env.ENABLE_FACTS_ASSEMBLY ?? 'default',
+    brief_assembly_version: '1',
+  };
+  return createHash('sha256')
+    .update(JSON.stringify(configInputs))
+    .digest('hex')
+    .slice(0, 12);
+}
 
 // =============================================================================
 // Assembly Input
@@ -198,17 +209,31 @@ function buildKeyAssumptions(input: BriefAssemblyInput): string[] {
 }
 
 function buildWhatWouldChange(input: BriefAssemblyInput): string[] {
+  // Primary: fragile edges
   const fragileEdges = input.robustness?.fragile_edges;
-  if (!fragileEdges || fragileEdges.length === 0) return [];
+  if (fragileEdges && fragileEdges.length > 0) {
+    return fragileEdges
+      .map(e => {
+        const from = e.from_label?.trim() || e.from_id;
+        const to = e.to_label?.trim() || e.to_id;
+        return `${from} → ${to}`;
+      })
+      .filter(s => s.length > 0)
+      .slice(0, MAX_WHAT_WOULD_CHANGE);
+  }
 
-  return fragileEdges
-    .map(e => {
-      const from = e.from_label?.trim() || e.from_id;
-      const to = e.to_label?.trim() || e.to_id;
-      return `${from} \u2192 ${to}`;
-    })
-    .filter(s => s.length > 0)
-    .slice(0, MAX_WHAT_WOULD_CHANGE);
+  // Fallback: factor_sensitivity labels (top drivers by |elasticity|)
+  const factors = input.factor_sensitivity;
+  if (factors && factors.length > 0) {
+    return factors
+      .filter(f => f.elasticity !== undefined && f.elasticity !== null)
+      .sort((a, b) => Math.abs(b.elasticity!) - Math.abs(a.elasticity!))
+      .map(f => f.factor_label?.trim() || f.factor_id)
+      .filter((label): label is string => !!label)
+      .slice(0, MAX_WHAT_WOULD_CHANGE);
+  }
+
+  return [];
 }
 
 function buildWarnings(input: BriefAssemblyInput, isPartial: boolean): BriefWarning[] {
@@ -260,7 +285,7 @@ function buildWarnings(input: BriefAssemblyInput, isPartial: boolean): BriefWarn
 
 function buildLineage(input: BriefAssemblyInput): BriefLineage {
   return {
-    config_version: BRIEF_CONFIG_VERSION,
+    config_version: computeConfigVersion(),
     response_hash: input.response_hash ?? '',
   };
 }

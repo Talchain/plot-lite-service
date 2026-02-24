@@ -3,6 +3,13 @@
  *
  * Applies sequential patch operations to a graph and validates the result.
  * Feature-flagged behind ENABLE_VALIDATE_PATCH.
+ *
+ * 5-phase pipeline:
+ *   1. Apply operations sequentially
+ *   2. Structural pre-check (limits, cycles, dangling refs)
+ *   3. Semantic repairs (defaults, clamping, direction inference)
+ *   4. Full schema validation
+ *   5. Compute deterministic graph hash
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
@@ -17,67 +24,19 @@ import type {
   ViolationV3,
 } from './validate-patch.types.js';
 import type { EngineNodeV3, EngineEdgeV3 } from '../../types/engine-v3.js';
-import { normalizeGraph } from '../../util/normalize.js';
-import { MAX_NODES, MAX_EDGES } from '../../constants/limits.js';
+import { FLAGS } from '../../config/flags.js';
+import { MAX_NODES, MAX_EDGES, DEFAULT_EXISTS_PROBABILITY } from '../../constants/limits.js';
 
-/**
- * Detect cycles in directed graph using DFS
- * Returns array of cycles (each cycle is array of node IDs)
- */
-function detectCycles(nodes: EngineNodeV3[], edges: EngineEdgeV3[]): string[][] {
-  const cycles: string[][] = [];
-  const adjList = new Map<string, string[]>();
+// =============================================================================
+// Constants
+// =============================================================================
 
-  // Build adjacency list
-  for (const node of nodes) {
-    adjList.set(node.id, []);
-  }
-  for (const edge of edges) {
-    const neighbors = adjList.get(edge.from);
-    if (neighbors) {
-      neighbors.push(edge.to);
-    }
-  }
-
-  const visited = new Set<string>();
-  const recStack = new Set<string>();
-  const path: string[] = [];
-
-  function dfs(nodeId: string): boolean {
-    visited.add(nodeId);
-    recStack.add(nodeId);
-    path.push(nodeId);
-
-    const neighbors = adjList.get(nodeId) || [];
-    for (const neighbor of neighbors) {
-      if (!visited.has(neighbor)) {
-        if (dfs(neighbor)) {
-          return true;
-        }
-      } else if (recStack.has(neighbor)) {
-        // Found a cycle
-        const cycleStartIndex = path.indexOf(neighbor);
-        cycles.push([...path.slice(cycleStartIndex), neighbor]);
-        return true;
-      }
-    }
-
-    path.pop();
-    recStack.delete(nodeId);
-    return false;
-  }
-
-  for (const node of nodes) {
-    if (!visited.has(node.id)) {
-      dfs(node.id);
-    }
-  }
-
-  return cycles;
-}
-
-const ENABLE_VALIDATE_PATCH = process.env.ENABLE_VALIDATE_PATCH === '1';
 const CASCADE_WARNING_CAP = 10;
+const MIN_STD = 0.001;
+
+// =============================================================================
+// Graph State
+// =============================================================================
 
 interface GraphState {
   nodes: EngineNodeV3[];
@@ -118,9 +77,10 @@ function findEdgeIndex(edges: EngineEdgeV3[], from: string, to: string): number 
   return edges.findIndex(e => e.from === from && e.to === to);
 }
 
-/**
- * Apply a single patch operation to the graph state
- */
+// =============================================================================
+// Phase 1: Apply Operations
+// =============================================================================
+
 function applyOperation(
   state: GraphState,
   op: PatchOperation,
@@ -132,12 +92,9 @@ function applyOperation(
     case 'add_node': {
       if (!op.value) throw new Error(`Operation ${opIndex}: add_node requires 'value'`);
       const nodeId = (op.value as EngineNodeV3).id || op.path;
-
-      // Check if node already exists
       if (state.nodes.some(n => n.id === nodeId)) {
         throw new Error(`Operation ${opIndex} references node '${nodeId}' which already exists`);
       }
-
       state.nodes.push({ ...op.value, id: nodeId } as EngineNodeV3);
       break;
     }
@@ -145,13 +102,10 @@ function applyOperation(
     case 'add_edge': {
       if (!op.value) throw new Error(`Operation ${opIndex}: add_edge requires 'value'`);
       const edge = op.value as EngineEdgeV3;
-
-      // Check if edge already exists
       const edgeKey = `${edge.from}->${edge.to}`;
       if (findEdgeIndex(state.edges, edge.from, edge.to) !== -1) {
         throw new Error(`Operation ${opIndex} references edge '${edgeKey}' which already exists`);
       }
-
       state.edges.push({ ...edge } as EngineEdgeV3);
       break;
     }
@@ -159,19 +113,12 @@ function applyOperation(
     case 'remove_node': {
       const nodeId = op.path;
       const nodeIndex = state.nodes.findIndex(n => n.id === nodeId);
-
       if (nodeIndex === -1) {
         throw new Error(`Operation ${opIndex} references node '${nodeId}' which does not exist after applying prior operations`);
       }
-
-      // Remove the node
       state.nodes.splice(nodeIndex, 1);
-
-      // Cascade remove connected edges
       const connectedEdges = state.edges.filter(e => e.from === nodeId || e.to === nodeId);
       state.edges = state.edges.filter(e => e.from !== nodeId && e.to !== nodeId);
-
-      // Log cascade removes
       for (const edge of connectedEdges) {
         const edgeId = `${edge.from}->${edge.to}`;
         repairs.push({
@@ -184,8 +131,6 @@ function applyOperation(
           severity: 'info',
         });
       }
-
-      // Add cascade warnings (capped at 10 individual warnings)
       const cascadeCount = connectedEdges.length;
       if (cascadeCount > 0) {
         for (let i = 0; i < Math.min(CASCADE_WARNING_CAP, cascadeCount); i++) {
@@ -196,8 +141,6 @@ function applyOperation(
             field_path: `${edge.from}->${edge.to}`,
           });
         }
-
-        // Add summary warning if more than cap
         if (cascadeCount > CASCADE_WARNING_CAP) {
           warnings.push({
             code: 'CASCADE_REMOVE_EDGE_SUMMARY',
@@ -210,17 +153,14 @@ function applyOperation(
     }
 
     case 'remove_edge': {
-      // Parse edge key from->to
       const [from, to] = op.path.split('->');
       if (!from || !to) {
         throw new Error(`Operation ${opIndex}: invalid edge path '${op.path}' (expected 'from->to')`);
       }
-
       const edgeIndex = findEdgeIndex(state.edges, from, to);
       if (edgeIndex === -1) {
         throw new Error(`Operation ${opIndex} references edge '${op.path}' which does not exist after applying prior operations`);
       }
-
       state.edges.splice(edgeIndex, 1);
       break;
     }
@@ -229,12 +169,9 @@ function applyOperation(
       if (!op.value) throw new Error(`Operation ${opIndex}: update_node requires 'value'`);
       const nodeId = op.path;
       const nodeIndex = state.nodes.findIndex(n => n.id === nodeId);
-
       if (nodeIndex === -1) {
         throw new Error(`Operation ${opIndex} references node '${nodeId}' which does not exist after applying prior operations`);
       }
-
-      // Deep merge
       state.nodes[nodeIndex] = deepMerge(state.nodes[nodeIndex], op.value);
       break;
     }
@@ -245,13 +182,10 @@ function applyOperation(
       if (!from || !to) {
         throw new Error(`Operation ${opIndex}: invalid edge path '${op.path}' (expected 'from->to')`);
       }
-
       const edgeIndex = findEdgeIndex(state.edges, from, to);
       if (edgeIndex === -1) {
         throw new Error(`Operation ${opIndex} references edge '${op.path}' which does not exist after applying prior operations`);
       }
-
-      // Deep merge
       state.edges[edgeIndex] = deepMerge(state.edges[edgeIndex], op.value);
       break;
     }
@@ -261,20 +195,62 @@ function applyOperation(
   }
 }
 
-/**
- * Validate graph structure and constraints
- */
-function validateGraph(graph: GraphState): ViolationV3[] {
+// =============================================================================
+// Phase 2: Structural Pre-Check
+// =============================================================================
+
+function detectCycles(nodes: EngineNodeV3[], edges: EngineEdgeV3[]): string[][] {
+  const cycles: string[][] = [];
+  const adjList = new Map<string, string[]>();
+  for (const node of nodes) {
+    adjList.set(node.id, []);
+  }
+  for (const edge of edges) {
+    const neighbors = adjList.get(edge.from);
+    if (neighbors) {
+      neighbors.push(edge.to);
+    }
+  }
+  const visited = new Set<string>();
+  const recStack = new Set<string>();
+  const path: string[] = [];
+
+  function dfs(nodeId: string): boolean {
+    visited.add(nodeId);
+    recStack.add(nodeId);
+    path.push(nodeId);
+    const neighbors = adjList.get(nodeId) || [];
+    for (const neighbor of neighbors) {
+      if (!visited.has(neighbor)) {
+        if (dfs(neighbor)) return true;
+      } else if (recStack.has(neighbor)) {
+        const cycleStartIndex = path.indexOf(neighbor);
+        cycles.push([...path.slice(cycleStartIndex), neighbor]);
+        return true;
+      }
+    }
+    path.pop();
+    recStack.delete(nodeId);
+    return false;
+  }
+
+  for (const node of nodes) {
+    if (!visited.has(node.id)) {
+      dfs(node.id);
+    }
+  }
+  return cycles;
+}
+
+function structuralPreCheck(graph: GraphState): ViolationV3[] {
   const violations: ViolationV3[] = [];
 
-  // Check limits
   if (graph.nodes.length > MAX_NODES) {
     violations.push({
       code: 'POC_NODE_LIMIT',
       message: `Graph exceeds maximum node limit (${graph.nodes.length} > ${MAX_NODES})`,
     });
   }
-
   if (graph.edges.length > MAX_EDGES) {
     violations.push({
       code: 'POC_EDGE_LIMIT',
@@ -282,7 +258,6 @@ function validateGraph(graph: GraphState): ViolationV3[] {
     });
   }
 
-  // Check node ID pattern
   const nodeIdPattern = /^[a-z0-9_:-]+$/;
   for (const node of graph.nodes) {
     if (!nodeIdPattern.test(node.id)) {
@@ -294,7 +269,6 @@ function validateGraph(graph: GraphState): ViolationV3[] {
     }
   }
 
-  // Check reference integrity
   const nodeIds = new Set(graph.nodes.map(n => n.id));
   for (const edge of graph.edges) {
     if (!nodeIds.has(edge.from)) {
@@ -313,7 +287,6 @@ function validateGraph(graph: GraphState): ViolationV3[] {
     }
   }
 
-  // Check for cycles
   const cycles = detectCycles(graph.nodes, graph.edges);
   if (cycles.length > 0) {
     violations.push({
@@ -322,11 +295,148 @@ function validateGraph(graph: GraphState): ViolationV3[] {
     });
   }
 
-  // Edge schema validation
+  return violations;
+}
+
+// =============================================================================
+// Phase 3: Semantic Repairs
+// =============================================================================
+
+function applySemanticRepairs(
+  graph: GraphState
+): { repairs: RepairEntry[]; warnings: ValidationWarning[] } {
+  const repairs: RepairEntry[] = [];
+  const warnings: ValidationWarning[] = [];
+
   for (const edge of graph.edges) {
     const edgeId = `${edge.from}->${edge.to}`;
 
-    // exists_probability must be in [0,1]
+    // DEFAULT_EXISTS_PROBABILITY
+    if (edge.exists_probability === undefined || edge.exists_probability === null) {
+      const before = edge.exists_probability;
+      edge.exists_probability = DEFAULT_EXISTS_PROBABILITY;
+      repairs.push({
+        code: 'DEFAULT_EXISTS_PROBABILITY',
+        layer: 'plot',
+        field_path: `${edgeId}.exists_probability`,
+        before,
+        after: DEFAULT_EXISTS_PROBABILITY,
+        reason: `Missing exists_probability, defaulted to ${DEFAULT_EXISTS_PROBABILITY}`,
+        severity: 'info',
+      });
+      warnings.push({
+        code: 'DEFAULT_EXISTS_PROBABILITY',
+        message: `Edge ${edgeId}: exists_probability defaulted to ${DEFAULT_EXISTS_PROBABILITY}`,
+        field_path: `${edgeId}.exists_probability`,
+      });
+    }
+
+    // NORMALISE_STRENGTH_RANGE — clamp mean to [-1, 1]
+    if (edge.strength?.mean !== undefined) {
+      const raw = edge.strength.mean;
+      const clamped = Math.max(-1, Math.min(1, raw));
+      if (clamped !== raw) {
+        edge.strength.mean = clamped;
+        repairs.push({
+          code: 'NORMALISE_STRENGTH_RANGE',
+          layer: 'plot',
+          field_path: `${edgeId}.strength.mean`,
+          before: raw,
+          after: clamped,
+          reason: `strength.mean clamped from ${raw} to [-1, 1]`,
+          severity: 'warn',
+        });
+        warnings.push({
+          code: 'NORMALISE_STRENGTH_RANGE',
+          message: `Edge ${edgeId}: strength.mean clamped from ${raw} to ${clamped}`,
+          field_path: `${edgeId}.strength.mean`,
+        });
+      }
+    }
+
+    // CLAMP_STD_MINIMUM — floor std to MIN_STD
+    if (edge.strength?.std !== undefined) {
+      const raw = edge.strength.std;
+      if (raw < MIN_STD) {
+        edge.strength.std = MIN_STD;
+        repairs.push({
+          code: 'CLAMP_STD_MINIMUM',
+          layer: 'plot',
+          field_path: `${edgeId}.strength.std`,
+          before: raw,
+          after: MIN_STD,
+          reason: `strength.std floored from ${raw} to ${MIN_STD}`,
+          severity: 'warn',
+        });
+        warnings.push({
+          code: 'CLAMP_STD_MINIMUM',
+          message: `Edge ${edgeId}: strength.std floored from ${raw} to ${MIN_STD}`,
+          field_path: `${edgeId}.strength.std`,
+        });
+      }
+    }
+
+    // INFER_EFFECT_DIRECTION — if strength.mean sign doesn't match direction, infer
+    if (edge.strength?.mean !== undefined) {
+      const nodeKindMap = new Map<string, string>();
+      for (const n of graph.nodes) {
+        nodeKindMap.set(n.id, n.kind);
+      }
+      const fromKind = nodeKindMap.get(edge.from);
+      if (fromKind === 'risk' && edge.strength.mean > 0) {
+        const before = edge.strength.mean;
+        edge.strength.mean = -Math.abs(edge.strength.mean);
+        repairs.push({
+          code: 'INFER_EFFECT_DIRECTION',
+          layer: 'plot',
+          field_path: `${edgeId}.strength.mean`,
+          before,
+          after: edge.strength.mean,
+          reason: `Risk node effect direction inferred as negative`,
+          severity: 'info',
+        });
+        warnings.push({
+          code: 'INFER_EFFECT_DIRECTION',
+          message: `Edge ${edgeId}: risk node effect flipped to negative`,
+          field_path: `${edgeId}.strength.mean`,
+        });
+      }
+    }
+
+    // APPLY_SIGN_FROM_DIRECTION — if direction is negative but mean > 0, apply sign
+    const direction = (edge as any).effect_direction ?? (edge as any).direction;
+    if (direction === 'negative' && edge.strength?.mean !== undefined && edge.strength.mean > 0) {
+      const before = edge.strength.mean;
+      edge.strength.mean = -Math.abs(edge.strength.mean);
+      repairs.push({
+        code: 'APPLY_SIGN_FROM_DIRECTION',
+        layer: 'plot',
+        field_path: `${edgeId}.strength.mean`,
+        before,
+        after: edge.strength.mean,
+        reason: `Applied negative sign from effect_direction`,
+        severity: 'info',
+      });
+      warnings.push({
+        code: 'APPLY_SIGN_FROM_DIRECTION',
+        message: `Edge ${edgeId}: applied negative sign from direction`,
+        field_path: `${edgeId}.strength.mean`,
+      });
+    }
+  }
+
+  return { repairs, warnings };
+}
+
+// =============================================================================
+// Phase 4: Full Schema Validation
+// =============================================================================
+
+function fullSchemaValidation(graph: GraphState): ViolationV3[] {
+  const violations: ViolationV3[] = [];
+
+  for (const edge of graph.edges) {
+    const edgeId = `${edge.from}->${edge.to}`;
     if (edge.exists_probability !== undefined) {
       if (edge.exists_probability < 0 || edge.exists_probability > 1) {
         violations.push({
@@ -336,8 +446,6 @@ function validateGraph(graph: GraphState): ViolationV3[] {
         });
       }
     }
-
-    // strength.std must be > 0
     if (edge.strength?.std !== undefined) {
       if (edge.strength.std <= 0) {
         violations.push({
@@ -347,8 +455,6 @@ function validateGraph(graph: GraphState): ViolationV3[] {
         });
       }
     }
-
-    // strength.mean must be finite
     if (edge.strength?.mean !== undefined) {
       if (!Number.isFinite(edge.strength.mean)) {
         violations.push({
@@ -363,39 +469,16 @@ function validateGraph(graph: GraphState): ViolationV3[] {
   return violations;
 }
 
-/**
- * Run semantic repairs on the graph
- * Returns repairs applied and warnings generated
- */
-function applySemanticRepairs(
-  graph: GraphState
-): { repairs: RepairEntry[]; warnings: ValidationWarning[] } {
-  // Use normalizeGraph to apply all semantic repairs
-  // This handles: clamping, defaulting, direction inference, etc.
-  const normalized = normalizeGraph(graph, false);
+// =============================================================================
+// Phase 5: Compute Graph Hash
+// =============================================================================
 
-  // Extract repairs from normalization diagnostics
-  const repairs: RepairEntry[] = [];
-  const warnings: ValidationWarning[] = [];
-
-  // Update graph in-place with normalized values
-  graph.nodes = normalized.nodes;
-  graph.edges = normalized.edges;
-
-  return { repairs, warnings };
-}
-
-/**
- * Compute deterministic canonical hash of graph
- */
 function computeGraphHash(graph: GraphState): string {
-  // Sort nodes by ID, edges by from then to (bytewise)
   const sortedNodes = [...graph.nodes].sort((a, b) => {
     if (a.id < b.id) return -1;
     if (a.id > b.id) return 1;
     return 0;
   });
-
   const sortedEdges = [...graph.edges].sort((a, b) => {
     if (a.from < b.from) return -1;
     if (a.from > b.from) return 1;
@@ -403,7 +486,6 @@ function computeGraphHash(graph: GraphState): string {
     if (a.to > b.to) return 1;
     return 0;
   });
-
   const canonical = { nodes: sortedNodes, edges: sortedEdges };
   return createHash('sha256')
     .update(JSON.stringify(canonical))
@@ -411,9 +493,10 @@ function computeGraphHash(graph: GraphState): string {
     .slice(0, 16);
 }
 
-/**
- * Register /v1/validate-patch route
- */
+// =============================================================================
+// Route Registration
+// =============================================================================
+
 export async function registerValidatePatchRoute(app: FastifyInstance) {
   app.post<{ Body: ValidatePatchRequest }>(
     '/v1/validate-patch',
@@ -421,8 +504,8 @@ export async function registerValidatePatchRoute(app: FastifyInstance) {
       req: FastifyRequest<{ Body: ValidatePatchRequest }>,
       reply: FastifyReply
     ): Promise<ValidatePatchResponse | ValidatePatchRejection> => {
-      // Feature flag check
-      if (!ENABLE_VALIDATE_PATCH) {
+      // Feature flag check (getter — not frozen)
+      if (!FLAGS.ENABLE_VALIDATE_PATCH) {
         return reply.code(501).send({
           status: 'rejected',
           code: 'FEATURE_DISABLED',
@@ -430,20 +513,27 @@ export async function registerValidatePatchRoute(app: FastifyInstance) {
         });
       }
 
+      // Body guard — Fastify needs Content-Type: application/json to parse body
+      if (!req.body || typeof req.body !== 'object') {
+        return reply.code(400).send({
+          status: 'rejected',
+          code: 'INVALID_REQUEST',
+          message: 'Request body is missing or not JSON. Ensure Content-Type: application/json header is set.',
+        });
+      }
+
       const { graph, operations } = req.body;
 
-      // Clone input graph
+      // Phase 1: Apply operations sequentially
       const state = cloneGraph(graph);
       const repairs: RepairEntry[] = [];
       const warnings: ValidationWarning[] = [];
 
-      // Apply operations sequentially
       try {
         for (let i = 0; i < operations.length; i++) {
           applyOperation(state, operations[i], i, repairs, warnings);
         }
       } catch (err) {
-        // Operation application failed
         return reply.code(422).send({
           status: 'rejected',
           code: 'INVALID_PATCH_TARGET',
@@ -451,13 +541,11 @@ export async function registerValidatePatchRoute(app: FastifyInstance) {
         });
       }
 
-      // Validate resulting graph
-      const violations = validateGraph(state);
-      if (violations.length > 0) {
-        // Determine rejection code from violations
-        const codes = violations.map(v => v.code);
+      // Phase 2: Structural pre-check
+      const structuralViolations = structuralPreCheck(state);
+      if (structuralViolations.length > 0) {
+        const codes = structuralViolations.map(v => v.code);
         let rejectionCode = 'VALIDATION_FAILED';
-
         if (codes.includes('CYCLE_DETECTED')) {
           rejectionCode = 'CYCLE_DETECTED';
         } else if (codes.includes('POC_EDGE_LIMIT')) {
@@ -465,22 +553,32 @@ export async function registerValidatePatchRoute(app: FastifyInstance) {
         } else if (codes.includes('POC_NODE_LIMIT')) {
           rejectionCode = 'POC_NODE_LIMIT';
         }
-
         return reply.code(422).send({
           status: 'rejected',
           code: rejectionCode,
-          message: violations[0].message,
-          violations,
+          message: structuralViolations[0].message,
+          violations: structuralViolations,
         });
       }
 
-      // Apply semantic repairs
+      // Phase 3: Semantic repairs
       const { repairs: semanticRepairs, warnings: semanticWarnings } =
         applySemanticRepairs(state);
       repairs.push(...semanticRepairs);
       warnings.push(...semanticWarnings);
 
-      // Compute graph hash
+      // Phase 4: Full schema validation (post-repair)
+      const schemaViolations = fullSchemaValidation(state);
+      if (schemaViolations.length > 0) {
+        return reply.code(422).send({
+          status: 'rejected',
+          code: 'VALIDATION_FAILED',
+          message: schemaViolations[0].message,
+          violations: schemaViolations,
+        });
+      }
+
+      // Phase 5: Compute graph hash
       const graphHash = computeGraphHash(state);
 
       return reply.code(200).send({

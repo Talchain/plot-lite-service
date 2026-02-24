@@ -87,6 +87,11 @@ export const FLAGS = {
     return process.env.NODE_ENV === 'test' || process.env.RENDER_SERVICE_NAME?.includes('staging') === true;
   },
 
+  // Track A: Validate-patch endpoint
+  get ENABLE_VALIDATE_PATCH() {
+    return process.env.ENABLE_VALIDATE_PATCH === '1' || process.env.ENABLE_VALIDATE_PATCH === 'true';
+  },
+
   // Stream D: Review pass (deterministic cards from facts + validation)
   /** Enable review pass cards in run_bundle response (default: true for staging/test) */
   get ENABLE_REVIEW_PASS() {

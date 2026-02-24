@@ -1,5 +1,5 @@
 {
-  "description": "Robust model — no fragile edges, what_would_change empty, robustness 'robust'",
+  "description": "Robust model — no fragile edges, what_would_change from factor_sensitivity fallback, robustness 'robust'",
   "input": {
     "analysis_status": "computed",
     "critiques": [],
@@ -68,7 +68,7 @@
       { "factor_label": "Timeline Risk", "sensitivity": 0.35, "direction": "negative" }
     ],
     "key_assumptions": [],
-    "what_would_change": [],
+    "what_would_change": ["Team Capacity", "Budget", "Timeline Risk"],
     "robustness": "robust",
     "warnings": [],
     "lineage": {
