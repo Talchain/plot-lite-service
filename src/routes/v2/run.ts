@@ -106,7 +106,7 @@ import type { M1Review } from '../../cee/validation/m1-review-types.js';
 import type { ReviewStatus } from '../../cee/validation/m1-review-constants.js';
 import { ReviewSkipReasons, type ReviewSkipReason } from '../../cee/validation/m1-review-constants.js';
 import { getDownstreamCallsForLog } from '../../util/downstream-tracker.js';
-import { computeFactorSensitivityFromGraph, buildFactorStability } from '../../lib/factor-influence.js';
+import { computeFactorSensitivityFromGraph, buildFactorStability, mergeIslConfidenceIntoGraphFactors } from '../../lib/factor-influence.js';
 import { NEAR_TIE_THRESHOLD } from '../../trust/result-coherence.js';
 import { assessGraphIdentifiability, toIdentifiabilityResponse, detectUnmeasuredConfounding } from '../../trust/identifiability-v2.js';
 import type { IdentifiabilityAssessment } from '../../types/engine-v3.js';
@@ -2961,16 +2961,17 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         );
         const islFactorSensitivity = transformFactorSensitivity(islResult.factor_sensitivity);
 
-        // Use graph-based if available, otherwise fall back to ISL.
-        // 3C stability fields (elasticity_std, attribution_stability, rank_flip_rate,
-        // stability_method) are only valid on ISL-sourced entries. Graph-derived and
-        // ISL elasticity use different scales — mixing them produces contradictory
-        // output (e.g., elasticity=1.0 with attribution_stability="negligible").
+        // Graph-based is primary for influence/sensitivity scores.
+        // When graph results exist, merge ISL bootstrap confidence into graph entries
+        // (MC stability > edge path heuristic). Falls back to ISL-only when no graph.
         let factorSensitivity: FactorSensitivityResultV3[] | undefined;
         let factorSensitivitySource: string;
         if (graphBasedFactorSensitivity) {
-          factorSensitivity = graphBasedFactorSensitivity;
-          factorSensitivitySource = 'graph';
+          factorSensitivity = mergeIslConfidenceIntoGraphFactors(
+            graphBasedFactorSensitivity,
+            islFactorSensitivity,
+          );
+          factorSensitivitySource = 'graph+isl_merge';
         } else {
           factorSensitivity = islFactorSensitivity;
           factorSensitivitySource = 'isl';
@@ -2987,6 +2988,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             factor_id: f.factor_id,
             sensitivity_score: f.sensitivity_score,
             confidence: f.confidence,
+            confidence_source: f.confidence_source,
             direction: f.direction,
             source: f.source,
           })),

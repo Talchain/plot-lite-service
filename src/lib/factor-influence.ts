@@ -545,6 +545,7 @@ export function computeFactorSensitivityFromGraph(
 
     // Confidence from edge path analysis
     confidence: f.confidence,
+    confidence_source: 'graph' as const,
 
     // Zero reason for factors with no path to goal
     zero_reason: f.influence === 0 && f.confidence === 0
@@ -557,6 +558,62 @@ export function computeFactorSensitivityFromGraph(
     // Flip risk category based on fragile edge adjacency
     flip_risk_category: computeFlipRiskCategory(f.factor_id, fragileEdges),
   }));
+}
+
+/**
+ * Merge ISL bootstrap confidence into graph-based factor sensitivity entries.
+ *
+ * Graph-based entries are primary for influence/sensitivity scores.
+ * ISL's bootstrap confidence replaces graph confidence when available,
+ * because 1,000 MC resamples are a stronger stability signal than
+ * weighted edge path averages.
+ *
+ * ISL-only factors (not in graph results) are appended as-is.
+ */
+export function mergeIslConfidenceIntoGraphFactors(
+  graphFactors: FactorSensitivityResultV3[],
+  islFactors: FactorSensitivityResultV3[] | undefined,
+): FactorSensitivityResultV3[] {
+  if (!islFactors || islFactors.length === 0) {
+    return graphFactors;
+  }
+
+  // Build lookup from ISL factors by factor_id
+  const islMap = new Map<string, FactorSensitivityResultV3>();
+  for (const f of islFactors) {
+    islMap.set(f.factor_id, f);
+  }
+
+  // Merge ISL bootstrap fields into graph entries
+  const graphFactorIds = new Set<string>();
+  const merged = graphFactors.map(gf => {
+    graphFactorIds.add(gf.factor_id);
+    const islMatch = islMap.get(gf.factor_id);
+    if (!islMatch) return gf;
+
+    // ISL confidence takes precedence when non-null
+    const useIslConfidence = islMatch.confidence != null;
+
+    return {
+      ...gf,
+      confidence: useIslConfidence ? islMatch.confidence : gf.confidence,
+      confidence_source: (useIslConfidence ? 'isl' : 'graph') as 'isl' | 'graph',
+      // Copy ISL bootstrap fields
+      ...(islMatch.attribution_stability !== undefined && { attribution_stability: islMatch.attribution_stability }),
+      ...(islMatch.elasticity_std !== undefined && { elasticity_std: islMatch.elasticity_std }),
+      ...(islMatch.rank_flip_rate !== undefined && { rank_flip_rate: islMatch.rank_flip_rate }),
+      ...(islMatch.stability_method !== undefined && { stability_method: islMatch.stability_method }),
+    };
+  });
+
+  // Append ISL-only factors not in graph results
+  for (const islF of islFactors) {
+    if (!graphFactorIds.has(islF.factor_id)) {
+      merged.push(islF);
+    }
+  }
+
+  return merged;
 }
 
 const VALID_ATTRIBUTION_STABILITY = new Set(['high', 'moderate', 'low', 'negligible']);

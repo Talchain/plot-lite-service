@@ -1202,6 +1202,8 @@ export interface FactorSensitivityResultV3 {
   zero_reason?: string;
   /** Source of this factor sensitivity data */
   source?: 'graph' | 'isl';
+  /** Which computation produced the confidence value */
+  confidence_source?: 'isl' | 'graph';
   /**
    * Flip risk category based on fragile edge adjacency.
    * - 'isolated': This factor alone can flip the recommendation (marginal_switch_probability > 0.05)

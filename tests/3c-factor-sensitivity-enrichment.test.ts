@@ -359,7 +359,7 @@ describe('T6: Route-level 3C source-scoping via /v2/run', () => {
     delete process.env.CEE_ORCHESTRATOR_ENABLE;
   });
 
-  it('graph-based factor_sensitivity entries do NOT carry ISL 3C fields', async () => {
+  it('graph-based factor_sensitivity entries carry ISL 3C fields via merge', async () => {
     const res = await fetch(`${baseUrl}/v2/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -380,7 +380,7 @@ describe('T6: Route-level 3C source-scoping via /v2/run', () => {
     expect(Array.isArray(factors)).toBe(true);
     expect(factors.length).toBeGreaterThanOrEqual(2);
 
-    // Graph-based factors should have source: 'graph' and NO 3C fields
+    // Graph-based factors should have source: 'graph'
     const factorA = factors.find((f: any) => f.factor_id === 'factor-a');
     const factorB = factors.find((f: any) => f.factor_id === 'factor-b');
 
@@ -389,12 +389,13 @@ describe('T6: Route-level 3C source-scoping via /v2/run', () => {
     expect(factorA.source).toBe('graph');
     expect(factorB.source).toBe('graph');
 
-    // 3C fields must NOT be present on graph-source entries
+    // 3C fields ARE now present on graph-source entries via ISL merge
+    // (ISL bootstrap fields merged into graph entries for factors where ISL has data)
     for (const factor of [factorA, factorB]) {
-      expect(factor.elasticity_std).toBeUndefined();
-      expect(factor.attribution_stability).toBeUndefined();
-      expect(factor.rank_flip_rate).toBeUndefined();
-      expect(factor.stability_method).toBeUndefined();
+      expect(factor.elasticity_std).toBeDefined();
+      expect(factor.attribution_stability).toBeDefined();
+      expect(factor.rank_flip_rate).toBeDefined();
+      expect(factor.stability_method).toBeDefined();
     }
   });
 
