@@ -12,6 +12,7 @@ import type {
   EnrichedFactorSensitivity,
   RobustnessDataForCee,
 } from '../types/plot-types.js';
+import type { ISLFactorSensitivityItem } from '../types/isl-types.js';
 
 // =============================================================================
 // Edge ID Parsing Helpers
@@ -93,13 +94,11 @@ export type ISLFragileEdge = string | {
 
 /**
  * ISL factor sensitivity item from response.
+ * Re-exported from isl-types.ts for backward compatibility.
+ *
+ * @deprecated Import from '../types/isl-types.js' instead.
  */
-export interface ISLFactorSensitivityItem {
-  node_id: string;
-  sensitivity: number;
-  value_of_information?: number;
-  direction?: 'positive' | 'negative' | 'mixed';
-}
+export type { ISLFactorSensitivityItem };
 
 // =============================================================================
 // Enrichment Functions
@@ -164,15 +163,22 @@ export function enrichRobustEdge(
 
 /**
  * Enrich factor sensitivity with labels from the graph.
+ *
+ * Handles both canonical (sensitivity_score) and legacy (sensitivity) fields
+ * from ISL response, matching the pattern used in V2 run transform.
  */
 export function enrichFactorSensitivity(
   factor: ISLFactorSensitivityItem,
   graph: EngineGraphV3
 ): EnrichedFactorSensitivity {
+  // Schema v2.6 canonical field is 'sensitivity_score'; legacy used 'sensitivity'
+  // Support both for backward compatibility, defaulting to 0 if neither present
+  const sensitivityValue = factor.sensitivity_score ?? factor.sensitivity ?? 0;
+
   return {
     factor_id: factor.node_id,
     factor_label: getNodeLabel(graph, factor.node_id),
-    sensitivity: factor.sensitivity,
+    sensitivity: sensitivityValue,
     value_of_information: factor.value_of_information,
     direction: factor.direction,
   };

@@ -11,10 +11,17 @@
 import { LIMITS } from '@talchain/schemas';
 export { LIMITS };
 
-// Verified 24 Feb 2026: V1 and V2 routes all enforce these limits consistently.
+// Verified 24 Feb 2026: V1 and V2 routes all enforce these canonical limits.
 // Source of truth: @talchain/schemas. See Decision Model Schema §D.1.
-// Internal validation layer (VALIDATION_MAX_NODES/EDGES) uses more permissive
-// values for non-SCM inference modes — these are NOT exposed via public API.
+//
+// Note: src/config/constants.ts re-exports these as LIMITS_MAX_NODES/EDGES
+// with env-override support (GRAPH_MAX_NODES/GRAPH_MAX_EDGES), but values
+// are capped at these canonical maximums via Math.min(). Env overrides can
+// only make limits stricter, never more permissive.
+//
+// Internal validation layer (VALIDATION_MAX_NODES/EDGES at 200/500) uses
+// more permissive values for non-SCM inference modes — NOT exposed via
+// public API endpoints.
 
 // Re-export individual constants for backwards compatibility
 export const MAX_NODES = LIMITS.MAX_NODES;
