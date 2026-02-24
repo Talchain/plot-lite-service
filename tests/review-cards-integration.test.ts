@@ -9,8 +9,21 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 
 // ---------------------------------------------------------------------------
-// ISL Mock — returns factor sensitivity with low-confidence factors
+// ISL Mock — scenario-driven factor sensitivity
 // ---------------------------------------------------------------------------
+
+/** Switch between mock scenarios per test */
+let MOCK_SCENARIO: 'low_confidence' | 'high_confidence' = 'low_confidence';
+
+const FACTOR_SENSITIVITY_LOW_CONFIDENCE = [
+  { factor_id: 'factor-a', factor_label: 'Factor A', elasticity: 0.85, direction: 'positive', attribution_stability: 'low', elasticity_std: 0.15, rank_flip_rate: 0.2 },
+  { factor_id: 'factor-b', factor_label: 'Factor B', elasticity: -0.65, direction: 'negative', attribution_stability: 'moderate', elasticity_std: 0.1, rank_flip_rate: 0.1 },
+];
+
+const FACTOR_SENSITIVITY_HIGH_CONFIDENCE = [
+  { factor_id: 'factor-a', factor_label: 'Factor A', elasticity: 0.85, direction: 'positive', attribution_stability: 'high', elasticity_std: 0.02, rank_flip_rate: 0.01, stability_method: 'bootstrap' },
+  { factor_id: 'factor-b', factor_label: 'Factor B', elasticity: -0.65, direction: 'negative', attribution_stability: 'high', elasticity_std: 0.01, rank_flip_rate: 0.01, stability_method: 'bootstrap' },
+];
 
 const mockISLService = {
   isEnabled(): boolean { return true; },
@@ -71,10 +84,9 @@ const mockISLService = {
           { node_id: 'factor-a', sensitivity: 0.5, confidence: 0.8, direction: 'positive' },
           { node_id: 'factor-b', sensitivity: -0.3, confidence: 0.7, direction: 'negative' },
         ],
-        factor_sensitivity: [
-          { factor_id: 'factor-a', factor_label: 'Factor A', elasticity: 0.85, direction: 'positive', attribution_stability: 'low', elasticity_std: 0.15, rank_flip_rate: 0.2 },
-          { factor_id: 'factor-b', factor_label: 'Factor B', elasticity: -0.65, direction: 'negative', attribution_stability: 'moderate', elasticity_std: 0.1, rank_flip_rate: 0.1 },
-        ],
+        factor_sensitivity: MOCK_SCENARIO === 'high_confidence'
+          ? FACTOR_SENSITIVITY_HIGH_CONFIDENCE
+          : FACTOR_SENSITIVITY_LOW_CONFIDENCE,
         value_of_information: [],
         overall_robustness: 'robust', robustness_score: 0.82,
         fragile_edges: [], robust_edges: [],
@@ -129,6 +141,7 @@ describe('Review cards in /v2/run', () => {
   ];
 
   it('includes evidence_priority card in review_cards when sensitivity data is present', async () => {
+    MOCK_SCENARIO = 'low_confidence';
     const res = await app.inject({
       method: 'POST',
       url: '/v2/run',
@@ -168,5 +181,43 @@ describe('Review cards in /v2/run', () => {
       expect(typeof item.confidence_normalised).toBe('number');
       expect(typeof item.elasticity).toBe('number');
     }
+  });
+
+  it('suppresses review_cards when all factors have negligible sensitivity (max-score < threshold)', async () => {
+    MOCK_SCENARIO = 'high_confidence';
+
+    // Graph with very weak edge strengths — graph-based sensitivity produces tiny elasticity.
+    // Combined with high exists_probability, score = |elasticity| * (1 - confidence) stays below 0.05.
+    const WEAK_GRAPH = {
+      nodes: [
+        { id: 'factor-a', kind: 'factor', label: 'Factor A', observed_state: { value: 50 } },
+        { id: 'factor-b', kind: 'factor', label: 'Factor B', observed_state: { value: 30 } },
+        { id: 'goal', kind: 'goal', label: 'Goal' },
+      ],
+      edges: [
+        { from: 'factor-a', to: 'goal', exists_probability: 0.99, strength: { mean: 0.01, std: 0.05 } },
+        { from: 'factor-b', to: 'goal', exists_probability: 0.99, strength: { mean: -0.01, std: 0.05 } },
+      ],
+    };
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v2/run',
+      headers: { 'Content-Type': 'application/json' },
+      payload: {
+        graph: WEAK_GRAPH,
+        options: OPTIONS,
+        goal_node_id: 'goal',
+        seed: '42',
+      },
+    });
+
+    const body = JSON.parse(res.body);
+    expect(res.statusCode).toBe(200);
+
+    // Very weak edges → graph-computed elasticity ≈ 0.02, exists_probability=0.99
+    // confidence_normalised ≈ 0.745, score ≈ 0.02 * 0.255 ≈ 0.005 < 0.05
+    // All scores below threshold → entire card suppressed → no review_cards
+    expect(body.review_cards).toBeUndefined();
   });
 });

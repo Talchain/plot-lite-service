@@ -13,8 +13,8 @@
  * headline:          m2_decision_review.narrative_summary → executive_summary.summary
  * options:           option_comparison[] sorted by win_probability desc
  * top_drivers:       factor_sensitivity[] top 5 by abs(elasticity)
- * key_assumptions:   m1_coaching.evidence_gaps[].label → []
- * what_would_change: robustness.fragile_edges[].label → factor_sensitivity[].label (sorted by |elasticity|)
+ * key_assumptions:   m1_coaching.evidence_gaps[].factor_label → []
+ * what_would_change: robustness.fragile_edges[].from_label/to_label → factor_sensitivity[].factor_label (sorted by |elasticity|)
  * robustness:        robustness.level → 'moderate' (default)
  * warnings:          critiques (severity>=warning) + m1_coaching.model_critiques → []
  * lineage.response_hash: meta.response_hash (computed before brief assembly)

@@ -1357,13 +1357,18 @@ function buildResponse(
     // Review cards — evidence priority card from factor sensitivity data.
     // Gated behind ENABLE_REVIEW_PASS. Excluded from response_hash (non-deterministic assembly metadata).
     ...(FLAGS.ENABLE_REVIEW_PASS && (() => {
+      const graphEdges = graph?.edges ?? [];
       const epFactors: FactorInput[] = (factorSensitivity ?? []).map((fs: any) => {
         const stabilityEntry = (factorStability ?? []).find((s: any) => s.factor_id === fs.factor_id);
+        const incoming = graphEdges
+          .filter((e) => e.from === fs.factor_id || e.to === fs.factor_id)
+          .map((e) => ({ exists_probability: e.exists_probability }));
         return {
           factor_id: fs.factor_id,
           factor_label: fs.factor_label ?? fs.factor_id,
           elasticity: fs.elasticity ?? fs.sensitivity_score ?? 0,
           attribution_stability: stabilityEntry?.attribution_stability,
+          ...(incoming.length > 0 ? { incoming_edges: incoming } : {}),
         };
       });
       const epCard = buildEvidencePriorityCard(epFactors);
