@@ -1194,8 +1194,9 @@ export interface FactorSensitivityResultV3 {
   value_of_information?: number;
   /**
    * Confidence in the sensitivity score (0-1).
-   * Graph-based: derived from edge exists_probability and strength.std along paths
-   * ISL: may be provided or derived from value_of_information
+   * Unified formula: 0.5 × attribution_stability_band_score
+   *   + 0.5 × mean(exists_probability of incoming edges).
+   * Defaults to 0.5 when either signal is absent.
    */
   confidence?: number;
   /** Reason why sensitivity is zero. Present when sensitivity_score = 0. */

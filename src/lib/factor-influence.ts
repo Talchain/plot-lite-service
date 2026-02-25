@@ -6,7 +6,8 @@
  *
  * Scientific Approach:
  * - Influence = Sum of path effects (product of strength.mean along each path)
- * - Confidence = Combined certainty from exists_probability and strength.std
+ * - Confidence = Unified formula: 0.5 × attribution_stability_band_score
+ *               + 0.5 × mean(exists_probability of incoming edges)
  * - Direction = Sign of total influence (positive/negative effect on goal)
  *
  * @see Schema D.5 - Factor influence derived from edge-level data
@@ -639,7 +640,8 @@ export function computeFactorSensitivityFromGraph(
  *
  *   confidence = 0.5 × band_score(attribution_stability) + 0.5 × mean(incoming edge exists_probability)
  *
- * ISL-only factors (not in graph results) are appended with confidence_source: 'isl'.
+ * ISL-only factors (not in graph results) are appended; confidence_source reflects
+ * whether attribution_stability was present ('isl') or absent ('graph').
  *
  * @param graphFactors Graph-based factor sensitivity entries (with confidence_components.structural_certainty)
  * @param islFactors ISL factor sensitivity entries (with attribution_stability)
@@ -718,10 +720,11 @@ export function mergeIslConfidenceIntoGraphFactors(
         ? (ATTRIBUTION_STABILITY_BAND_SCORES[attrStability] ?? DEFAULT_STABILITY_BAND_SCORE)
         : null;
 
+      const hasIslData = attrStability != null;
       merged.push({
         ...islF,
         confidence,
-        confidence_source: 'isl' as const,
+        confidence_source: (hasIslData ? 'isl' : 'graph') as 'isl' | 'graph',
         confidence_components: {
           structural_certainty: structuralCertainty,
           sampling_stability: bandScore,

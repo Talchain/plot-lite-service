@@ -3006,7 +3006,14 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           );
           factorSensitivitySource = 'graph+isl_merge';
         } else {
-          factorSensitivity = islFactorSensitivity;
+          // ISL-only fallback: still apply unified confidence recomputation.
+          // Pass empty graph array so all ISL factors go through the ISL-only
+          // append path, which computes unified confidence + confidence_components.
+          factorSensitivity = mergeIslConfidenceIntoGraphFactors(
+            [],
+            islFactorSensitivity,
+            filteredGraph.edges,
+          );
           factorSensitivitySource = 'isl';
         }
 
