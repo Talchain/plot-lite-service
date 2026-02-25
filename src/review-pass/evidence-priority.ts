@@ -140,6 +140,15 @@ export function buildEvidencePriorityCard(
     review_phase: 'post_analysis',
     what: `Gathering better evidence on ${topFactorLabels} could change the recommendation.`,
     why: `These factors have high sensitivity but low confidence — better data would most improve decision quality.`,
+    // NOTE (known asymmetry): These IDs are constructed placeholders
+    // (`sensitivity_{factor_id}`), not real fact_id values from assembleFactObjects().
+    // V2 /run does not assemble FactObjects — facts only exist in V1 /run_bundle.
+    // When the orchestrator's explain_results tool produces CommentaryBlocks with
+    // [fact_id] citations, those resolve against facts assembled by CEE from the
+    // V2 response, not against facts in the V2 response itself. This is an
+    // architectural boundary: PLoT V2 → CEE → FactObjects → citations.
+    // Do not spend time debugging "citation doesn't resolve" in A.8 integration
+    // testing — this is expected until V2 adopts fact assembly.
     supporting_refs: topItems.map(i => ({
       kind: 'fact' as const,
       id: `sensitivity_${i.factor_id}`,

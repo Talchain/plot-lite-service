@@ -101,6 +101,7 @@ import type { CeeReviewRequest, CeeTrace, FactorEnrichment } from '../../cee/typ
 import type { SeedSourceType } from '@talchain/schemas';
 import { factorReviewV2, type CEESchemaV2Config } from '../../cee/client.js';
 import { FLAGS } from '../../config/flags.js';
+import { getAllFeatureFlags } from '../../config/feature-flags.js';
 import { generateM1Coaching } from '../../coaching/m1-coaching.js';
 import type { M1Review } from '../../cee/validation/m1-review-types.js';
 import type { ReviewStatus } from '../../cee/validation/m1-review-constants.js';
@@ -1249,6 +1250,33 @@ function buildResponse(
     }
   }
 
+  // Pre-compute decision_brief and review_cards so _meta can reference them.
+  const assembledBrief = assembleBrief({
+    analysis_status: analysisStatus,
+    critiques,
+    option_comparison: optionComparison,
+    factor_sensitivity: factorSensitivity,
+    robustness,
+    m1_coaching: m1Coaching,
+    m1_review: m2DecisionReview?.m1_review ?? undefined,
+    response_hash: responseHash,
+    meta: { seed_used: meta.seedUsed },
+  });
+
+  // Review cards: evidence priority card from factor sensitivity data.
+  // Gated behind ENABLE_REVIEW_PASS. Excluded from response_hash.
+  const assembledReviewCards: any[] = [];
+  if (FLAGS.ENABLE_REVIEW_PASS) {
+    const epFactors: FactorInput[] = (factorSensitivity ?? []).map((fs: any) => ({
+      factor_id: fs.factor_id,
+      factor_label: fs.factor_label ?? fs.factor_id,
+      elasticity: fs.elasticity ?? fs.sensitivity_score ?? 0,
+      confidence: fs.confidence ?? undefined,
+    }));
+    const epCard = buildEvidencePriorityCard(epFactors);
+    if (epCard) assembledReviewCards.push(epCard);
+  }
+
   return {
     request_schema_version: 'v3',
     endpoint_version: 'v2/run',
@@ -1342,33 +1370,11 @@ function buildResponse(
     // Decision Brief — assembled from analysis results for stakeholder sharing.
     // Contains non-deterministic fields (brief_id, created_at) — excluded from response_hash
     // by design (hash is computed from request inputs only via hashRequest).
-    decision_brief: assembleBrief({
-      analysis_status: analysisStatus,
-      critiques,
-      option_comparison: optionComparison,
-      factor_sensitivity: factorSensitivity,
-      robustness,
-      m1_coaching: m1Coaching,
-      m1_review: m2DecisionReview?.m1_review ?? undefined,
-      response_hash: responseHash,
-      meta: { seed_used: meta.seedUsed },
-    }),
+    decision_brief: assembledBrief,
 
     // Review cards — evidence priority card from factor sensitivity data.
     // Gated behind ENABLE_REVIEW_PASS. Excluded from response_hash (non-deterministic assembly metadata).
-    ...(FLAGS.ENABLE_REVIEW_PASS && (() => {
-      const epFactors: FactorInput[] = (factorSensitivity ?? []).map((fs: any) => {
-        return {
-          factor_id: fs.factor_id,
-          factor_label: fs.factor_label ?? fs.factor_id,
-          elasticity: fs.elasticity ?? fs.sensitivity_score ?? 0,
-          // Use pre-computed unified confidence from factor_sensitivity pipeline
-          confidence: fs.confidence ?? undefined,
-        };
-      });
-      const epCard = buildEvidencePriorityCard(epFactors);
-      return epCard ? { review_cards: [epCard] } : {};
-    })()),
+    ...(assembledReviewCards.length > 0 && { review_cards: assembledReviewCards }),
 
     // CIL M4: repairs_applied always included for CIL observability.
     // Other _meta fields (builds, payloads) gated behind UI_CANONICAL_META feature flag.
@@ -1432,6 +1438,15 @@ function buildResponse(
         baseMeta.filtered_constraints = meta.filteredConstraints;
       }
 
+      // Diagnostic fields — lightweight metadata for debug panel / developer inspection.
+      // NOT consumed by UI display logic. NOT included in response_hash.
+      baseMeta.feature_flags_snapshot = getAllFeatureFlags();
+      baseMeta.decision_brief_assembled = assembledBrief !== null;
+      baseMeta.review_cards_count = assembledReviewCards.length;
+      baseMeta.evidence_priority_card_present = assembledReviewCards.some(
+        (c: any) => c.card_type === 'evidence_priority',
+      );
+
       // NOTE: _meta is response-only metadata; response_hash is computed from
       // request inputs only (hashRequest in canonicalise.ts). Additions to _meta
       // do NOT affect the hash.
@@ -1450,6 +1465,12 @@ function buildResponse(
       return Object.keys(result).length > 0 ? result : undefined;
     })(),
 
+    // NOTE (known gap): V3 Platform Contract §3.3.6 (ResponseMetaFull) specifies
+    // `feature_flags` as part of the public `meta` object. V2 was built before
+    // that contract clause and does not include it here. The diagnostic copy at
+    // `_meta.feature_flags_active` covers debug/inspection use cases.
+    // Follow-up: add `meta.feature_flags` to align with the contract if V2
+    // adopts ResponseMetaFull, tracked separately from this diagnostic brief.
     meta: {
       seed_used: meta.seedUsed,
       // CIL Phase 1: seed_source tells consumers seed origin

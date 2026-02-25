@@ -1543,6 +1543,14 @@ export interface CanonicalMeta {
   constraint_sources?: Record<string, string>;
   /** Hash version used for response_hash computation (audit trail) */
   hash_version?: number;
+  /** Snapshot of all feature flags for this run (diagnostic only) */
+  feature_flags_snapshot?: Record<string, string>;
+  /** Whether assembleBrief() returned a non-null brief (diagnostic only) */
+  decision_brief_assembled?: boolean;
+  /** Number of review cards assembled before any truncation (diagnostic only) */
+  review_cards_count?: number;
+  /** Whether the R.1 evidence_priority card was emitted (diagnostic only) */
+  evidence_priority_card_present?: boolean;
 }
 
 /**
