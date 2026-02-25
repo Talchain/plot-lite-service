@@ -1,19 +1,21 @@
 /**
  * ISL Confidence Merge Tests
  *
- * Verifies mergeIslConfidenceIntoGraphFactors:
- * T1: Merge by node_id — graph A,B,C + ISL A,B → A,B get ISL confidence; C keeps graph
- * T2: ISL confidence takes precedence over graph confidence
- * T3: ISL-only factors preserved (appended with source: 'isl')
- * T4: ISL returns null confidence — graph confidence preserved
+ * Verifies mergeIslConfidenceIntoGraphFactors with unified confidence formula:
+ * T1: Merge by node_id — graph A,B,C + ISL A,B → A,B get unified confidence; C keeps graph
+ * T2: Unified confidence blends ISL attribution_stability with incoming edge mean
+ * T3: ISL-only factors preserved (appended with confidence_source: 'isl')
+ * T4: ISL entry without attribution_stability — graph confidence preserved
  * T5: No ISL results — all factors retain graph confidence
  * T6: Determinism — same input → identical output
  * T7: Bootstrap fields copied from ISL to merged entries
+ * T8: confidence_components populated correctly
+ * T9: ISL-only factors get unified confidence from graph edges
  */
 
 import { describe, it, expect } from 'vitest';
 import { mergeIslConfidenceIntoGraphFactors } from '../src/lib/factor-influence.js';
-import type { FactorSensitivityResultV3 } from '../src/types/engine-v3.js';
+import type { FactorSensitivityResultV3, EngineEdgeV3 } from '../src/types/engine-v3.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -25,8 +27,12 @@ function makeGraphFactor(id: string, overrides?: Partial<FactorSensitivityResult
     factor_label: `Label ${id}`,
     sensitivity_score: 0.5,
     direction: 'positive',
-    confidence: 0.38,
+    confidence: 0.5, // Unified default (no ISL, no incoming edges)
     confidence_source: 'graph',
+    confidence_components: {
+      structural_certainty: 0.5,
+      sampling_stability: null,
+    },
     source: 'graph',
     importance_rank: 1,
     ...overrides,
@@ -39,7 +45,7 @@ function makeIslFactor(id: string, overrides?: Partial<FactorSensitivityResultV3
     factor_label: `Label ${id}`,
     sensitivity_score: 0.6,
     direction: 'positive',
-    confidence: 0.72,
+    confidence: 0.72, // ISL's internal confidence (not used as final value anymore)
     source: 'isl',
     attribution_stability: 'high',
     elasticity_std: 0.05,
@@ -54,99 +60,122 @@ function makeIslFactor(id: string, overrides?: Partial<FactorSensitivityResultV3
 // ---------------------------------------------------------------------------
 
 describe('mergeIslConfidenceIntoGraphFactors', () => {
-  it('T1: merges ISL confidence into matching graph factors by node_id', () => {
+  it('T1: merges ISL attribution_stability into matching graph factors and recomputes unified confidence', () => {
     const graph = [
-      makeGraphFactor('fac_a', { confidence: 0.35 }),
-      makeGraphFactor('fac_b', { confidence: 0.40 }),
-      makeGraphFactor('fac_c', { confidence: 0.33 }),
+      makeGraphFactor('fac_a', { confidence: 0.5, confidence_components: { structural_certainty: 0.5, sampling_stability: null } }),
+      makeGraphFactor('fac_b', { confidence: 0.7, confidence_components: { structural_certainty: 0.9, sampling_stability: null } }),
+      makeGraphFactor('fac_c', { confidence: 0.5, confidence_components: { structural_certainty: 0.5, sampling_stability: null } }),
     ];
     const isl = [
-      makeIslFactor('fac_a', { confidence: 0.82 }),
-      makeIslFactor('fac_b', { confidence: 0.21 }),
+      makeIslFactor('fac_a', { attribution_stability: 'high' }),   // band_score = 1.0
+      makeIslFactor('fac_b', { attribution_stability: 'low' }),    // band_score = 0.0
     ];
 
     const result = mergeIslConfidenceIntoGraphFactors(graph, isl);
 
     expect(result).toHaveLength(3);
 
-    // A and B get ISL confidence
+    // A: unified = 0.5 × 1.0 + 0.5 × 0.5 = 0.75
     const a = result.find(f => f.factor_id === 'fac_a')!;
-    expect(a.confidence).toBe(0.82);
+    expect(a.confidence).toBeCloseTo(0.75, 5);
     expect(a.confidence_source).toBe('isl');
     expect(a.sensitivity_score).toBe(0.5); // Graph influence preserved
     expect(a.source).toBe('graph'); // Still graph-based entry
 
+    // B: unified = 0.5 × 0.0 + 0.5 × 0.9 = 0.45
     const b = result.find(f => f.factor_id === 'fac_b')!;
-    expect(b.confidence).toBe(0.21);
+    expect(b.confidence).toBeCloseTo(0.45, 5);
     expect(b.confidence_source).toBe('isl');
 
-    // C retains graph confidence
+    // C retains graph confidence (no ISL match)
     const c = result.find(f => f.factor_id === 'fac_c')!;
-    expect(c.confidence).toBe(0.33);
+    expect(c.confidence).toBe(0.5);
     expect(c.confidence_source).toBe('graph');
   });
 
-  it('T2: ISL confidence takes precedence over graph confidence', () => {
-    const graph = [makeGraphFactor('fac_a', { confidence: 0.38 })];
-    const isl = [makeIslFactor('fac_a', { confidence: 0.21 })];
+  it('T2: unified confidence blends both ISL and edge signals', () => {
+    // Graph factor with incoming edges (structural_certainty = 0.8)
+    const graph = [makeGraphFactor('fac_a', {
+      confidence: 0.65, // graph-stage: 0.5×0.5 + 0.5×0.8 = 0.65
+      confidence_components: { structural_certainty: 0.8, sampling_stability: null },
+    })];
+    // ISL provides moderate stability
+    const isl = [makeIslFactor('fac_a', { attribution_stability: 'moderate' })]; // band_score = 0.5
 
     const result = mergeIslConfidenceIntoGraphFactors(graph, isl);
 
-    expect(result[0].confidence).toBe(0.21);
+    // unified = 0.5 × 0.5 + 0.5 × 0.8 = 0.65
+    expect(result[0].confidence).toBeCloseTo(0.65, 5);
     expect(result[0].confidence_source).toBe('isl');
+    expect(result[0].confidence_components).toEqual({
+      structural_certainty: 0.8,
+      sampling_stability: 0.5, // moderate → 0.5
+    });
   });
 
-  it('T3: ISL-only factors appended to result', () => {
+  it('T3: ISL-only factors appended to result with unified confidence', () => {
     const graph = [makeGraphFactor('fac_a')];
     const isl = [
-      makeIslFactor('fac_a', { confidence: 0.80 }),
-      makeIslFactor('fac_d', { confidence: 0.55, source: 'isl' }),
+      makeIslFactor('fac_a', { attribution_stability: 'high' }),
+      makeIslFactor('fac_d', { attribution_stability: 'moderate', source: 'isl' }),
     ];
 
-    const result = mergeIslConfidenceIntoGraphFactors(graph, isl);
+    // Provide graph edges so ISL-only factor fac_d can compute incoming edges
+    const graphEdges: EngineEdgeV3[] = [
+      { from: 'fac_a', to: 'fac_d', exists_probability: 0.85, strength: { mean: 0.5, std: 0.1 } },
+    ];
+
+    const result = mergeIslConfidenceIntoGraphFactors(graph, isl, graphEdges);
 
     expect(result).toHaveLength(2);
     const d = result.find(f => f.factor_id === 'fac_d')!;
     expect(d).toBeDefined();
     expect(d.source).toBe('isl');
-    expect(d.confidence).toBe(0.55);
     expect(d.confidence_source).toBe('isl');
+    // unified = 0.5 × 0.5 + 0.5 × 0.85 = 0.675
+    expect(d.confidence).toBeCloseTo(0.675, 5);
+    expect(d.confidence_components).toEqual({
+      structural_certainty: 0.85,
+      sampling_stability: 0.5, // moderate → 0.5
+    });
   });
 
-  it('T4: ISL returns null confidence — graph confidence preserved', () => {
-    const graph = [makeGraphFactor('fac_a', { confidence: 0.38 })];
-    const isl = [makeIslFactor('fac_a', { confidence: null as any })];
+  it('T4: ISL entry without attribution_stability — graph confidence preserved', () => {
+    const graph = [makeGraphFactor('fac_a', { confidence: 0.5 })];
+    const isl = [makeIslFactor('fac_a', { attribution_stability: undefined as any })];
 
     const result = mergeIslConfidenceIntoGraphFactors(graph, isl);
 
-    expect(result[0].confidence).toBe(0.38);
-    expect(result[0].confidence_source).toBe('graph');
+    // No attribution_stability → attrStability is null → uses default 0.5
+    // structural_certainty from graph = 0.5, so unified = 0.5×0.5 + 0.5×0.5 = 0.5
+    expect(result[0].confidence).toBe(0.5);
+    expect(result[0].confidence_source).toBe('graph'); // No ISL data flag
   });
 
   it('T5: no ISL results — all factors retain graph confidence', () => {
     const graph = [
-      makeGraphFactor('fac_a', { confidence: 0.35 }),
-      makeGraphFactor('fac_b', { confidence: 0.40 }),
+      makeGraphFactor('fac_a', { confidence: 0.5 }),
+      makeGraphFactor('fac_b', { confidence: 0.65 }),
     ];
 
     const resultUndefined = mergeIslConfidenceIntoGraphFactors(graph, undefined);
     expect(resultUndefined).toHaveLength(2);
-    expect(resultUndefined[0].confidence).toBe(0.35);
+    expect(resultUndefined[0].confidence).toBe(0.5);
     expect(resultUndefined[0].confidence_source).toBe('graph');
 
     const resultEmpty = mergeIslConfidenceIntoGraphFactors(graph, []);
     expect(resultEmpty).toHaveLength(2);
-    expect(resultEmpty[0].confidence).toBe(0.35);
+    expect(resultEmpty[0].confidence).toBe(0.5);
   });
 
   it('T6: determinism — same input produces identical output', () => {
     const graph = [
-      makeGraphFactor('fac_a', { confidence: 0.35 }),
-      makeGraphFactor('fac_b', { confidence: 0.40 }),
+      makeGraphFactor('fac_a', { confidence: 0.5, confidence_components: { structural_certainty: 0.5, sampling_stability: null } }),
+      makeGraphFactor('fac_b', { confidence: 0.7, confidence_components: { structural_certainty: 0.9, sampling_stability: null } }),
     ];
     const isl = [
-      makeIslFactor('fac_a', { confidence: 0.82 }),
-      makeIslFactor('fac_b', { confidence: 0.21 }),
+      makeIslFactor('fac_a', { attribution_stability: 'high' }),
+      makeIslFactor('fac_b', { attribution_stability: 'moderate' }),
     ];
 
     const result1 = mergeIslConfidenceIntoGraphFactors(graph, isl);
@@ -158,7 +187,6 @@ describe('mergeIslConfidenceIntoGraphFactors', () => {
   it('T7: bootstrap fields copied from ISL to merged entries', () => {
     const graph = [makeGraphFactor('fac_a')];
     const isl = [makeIslFactor('fac_a', {
-      confidence: 0.72,
       attribution_stability: 'moderate',
       elasticity_std: 0.08,
       rank_flip_rate: 0.15,
@@ -171,5 +199,68 @@ describe('mergeIslConfidenceIntoGraphFactors', () => {
     expect(result[0].elasticity_std).toBe(0.08);
     expect(result[0].rank_flip_rate).toBe(0.15);
     expect(result[0].stability_method).toBe('bootstrap_1000');
+  });
+
+  it('T8: confidence_components populated correctly for all scenarios', () => {
+    // Graph factor with edges, ISL with high stability
+    const graph = [makeGraphFactor('fac_a', {
+      confidence_components: { structural_certainty: 0.85, sampling_stability: null },
+    })];
+    const isl = [makeIslFactor('fac_a', { attribution_stability: 'high' })];
+
+    const result = mergeIslConfidenceIntoGraphFactors(graph, isl);
+
+    expect(result[0].confidence_components).toEqual({
+      structural_certainty: 0.85,
+      sampling_stability: 1.0, // high → 1.0
+    });
+  });
+
+  it('T9: ISL-only factor without graph edges gets default structural_certainty', () => {
+    const graph = [makeGraphFactor('fac_a')];
+    const isl = [
+      makeIslFactor('fac_a', { attribution_stability: 'high' }),
+      makeIslFactor('fac_d', { attribution_stability: 'low', source: 'isl' }),
+    ];
+
+    // No graph edges provided → ISL-only factor fac_d has no incoming edges
+    const result = mergeIslConfidenceIntoGraphFactors(graph, isl);
+
+    const d = result.find(f => f.factor_id === 'fac_d')!;
+    // unified = 0.5 × 0.0 + 0.5 × 0.5 = 0.25
+    expect(d.confidence).toBeCloseTo(0.25, 5);
+    expect(d.confidence_components).toEqual({
+      structural_certainty: 0.5,
+      sampling_stability: 0.0, // low → 0.0
+    });
+  });
+
+  it('consistent values regardless of source: same edges + same stability = same confidence', () => {
+    // Two factors with identical structural_certainty and attribution_stability
+    // should produce identical confidence regardless of whether they came from graph or ISL path
+    const graph = [
+      makeGraphFactor('fac_graph', {
+        confidence_components: { structural_certainty: 0.7, sampling_stability: null },
+      }),
+    ];
+    const isl = [
+      makeIslFactor('fac_graph', { attribution_stability: 'moderate' }),
+      makeIslFactor('fac_isl_only', { attribution_stability: 'moderate', source: 'isl' }),
+    ];
+
+    // fac_isl_only has same incoming edge profile (0.7 from graph edges)
+    const graphEdges: EngineEdgeV3[] = [
+      { from: 'other', to: 'fac_isl_only', exists_probability: 0.7, strength: { mean: 0.5, std: 0.1 } },
+    ];
+
+    const result = mergeIslConfidenceIntoGraphFactors(graph, isl, graphEdges);
+
+    const graphFactor = result.find(f => f.factor_id === 'fac_graph')!;
+    const islFactor = result.find(f => f.factor_id === 'fac_isl_only')!;
+
+    // Both: 0.5 × 0.5 + 0.5 × 0.7 = 0.6
+    expect(graphFactor.confidence).toBeCloseTo(0.6, 5);
+    expect(islFactor.confidence).toBeCloseTo(0.6, 5);
+    expect(graphFactor.confidence).toBe(islFactor.confidence);
   });
 });

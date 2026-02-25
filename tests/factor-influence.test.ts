@@ -11,6 +11,7 @@ import {
   computeFactorInfluence,
   computeFactorInfluenceWithPaths,
   computeFactorSensitivityFromGraph,
+  computeUnifiedConfidence,
   computeValueOfInformation,
   computeFlipRiskCategory,
   type FactorInfluence,
@@ -478,7 +479,14 @@ describe('computeFactorSensitivityFromGraph', () => {
       expect(factor.direction).toBe('positive');
       expect(factor.importance_rank).toBe(1);
       expect(factor.influence_rank).toBe(1);
-      expect(factor.confidence).toBeGreaterThan(0.5);
+      // Unified confidence: no incoming edges to fac_price → 0.5 default edge term
+      // No ISL data → 0.5 default stability term → confidence = 0.5
+      expect(factor.confidence).toBe(0.5);
+      // Progressive disclosure components
+      expect(factor.confidence_components).toEqual({
+        structural_certainty: 0.5,
+        sampling_stability: null,
+      });
       // When no fragile edges provided, VOI = 0
       expect(factor.value_of_information).toBe(0);
       expect(factor.source).toBe('graph');
@@ -518,14 +526,18 @@ describe('computeFactorSensitivityFromGraph', () => {
       expect(result).toHaveLength(1);
 
       // Factor exists but has no path (edge excluded due to zero probability)
+      // Unified confidence: edge from fac_a→goal has exists_probability=0, but this
+      // edge is an outgoing edge FROM fac_a, not incoming TO fac_a. fac_a has no
+      // incoming edges → confidence = 0.5 (neutral default)
       const factor = result![0];
       expect(factor.sensitivity_score).toBe(0);
-      expect(factor.confidence).toBe(0);
+      expect(factor.confidence).toBe(0.5);
       expect(factor.zero_reason).toBe('no_path_to_goal');
     });
 
-    it('includes confidence derived from edge data', () => {
-      const highConfidenceGraph: EngineGraphV3 = {
+    it('includes unified confidence from incoming edges', () => {
+      // Graph: fac_a → goal (fac_a has no incoming edges)
+      const noIncomingGraph: EngineGraphV3 = {
         nodes: [
           { id: 'fac_a', kind: 'factor', label: 'Factor A' },
           { id: 'goal', kind: 'goal', label: 'Goal' },
@@ -540,10 +552,45 @@ describe('computeFactorSensitivityFromGraph', () => {
         ],
       };
 
-      const result = computeFactorSensitivityFromGraph(highConfidenceGraph, 'goal');
-
+      const result = computeFactorSensitivityFromGraph(noIncomingGraph, 'goal');
       expect(result).not.toBeNull();
-      expect(result![0].confidence).toBeGreaterThan(0.9);
+      // No incoming edges to fac_a → confidence = 0.5 (neutral)
+      expect(result![0].confidence).toBe(0.5);
+
+      // Graph: source → fac_a → goal (fac_a has incoming edge from source)
+      const withIncomingGraph: EngineGraphV3 = {
+        nodes: [
+          { id: 'source', kind: 'factor', label: 'Source' },
+          { id: 'fac_a', kind: 'factor', label: 'Factor A' },
+          { id: 'goal', kind: 'goal', label: 'Goal' },
+        ],
+        edges: [
+          {
+            from: 'source',
+            to: 'fac_a',
+            exists_probability: 0.9,
+            strength: { mean: 0.5, std: 0.1 },
+          },
+          {
+            from: 'fac_a',
+            to: 'goal',
+            exists_probability: 0.99,
+            strength: { mean: 0.8, std: 0.01 },
+          },
+        ],
+      };
+
+      const result2 = computeFactorSensitivityFromGraph(withIncomingGraph, 'goal');
+      expect(result2).not.toBeNull();
+      const facA = result2!.find(f => f.factor_id === 'fac_a');
+      expect(facA).toBeDefined();
+      // fac_a has incoming edge with exists_probability=0.9
+      // confidence = 0.5 × 0.5 + 0.5 × 0.9 = 0.7
+      expect(facA!.confidence).toBeCloseTo(0.7, 5);
+      expect(facA!.confidence_components).toEqual({
+        structural_certainty: 0.9,
+        sampling_stability: null,
+      });
     });
   });
 
@@ -962,5 +1009,92 @@ describe('computeValueOfInformation', () => {
       // Quality is not on any fragile edge
       expect(qualityFactor!.flip_risk_category).toBe('negligible');
     });
+  });
+});
+
+// -----------------------------------------------------------------------------
+// computeUnifiedConfidence Tests
+// -----------------------------------------------------------------------------
+
+describe('computeUnifiedConfidence', () => {
+  it('returns 0.5 for no ISL data and no incoming edges', () => {
+    // 0.5 × 0.5 + 0.5 × 0.5 = 0.5
+    expect(computeUnifiedConfidence(null, undefined)).toBe(0.5);
+    expect(computeUnifiedConfidence(undefined, null)).toBe(0.5);
+    expect(computeUnifiedConfidence(null, [])).toBe(0.5);
+  });
+
+  it('returns correct value for ISL data + edges', () => {
+    // high stability (1.0), edges mean = 0.8
+    // 0.5 × 1.0 + 0.5 × 0.8 = 0.9
+    const result = computeUnifiedConfidence('high', [
+      { exists_probability: 0.8 },
+    ]);
+    expect(result).toBeCloseTo(0.9, 5);
+  });
+
+  it('returns ISL-dominated value for ISL data + no edges', () => {
+    // moderate stability (0.5), no edges → 0.5 default
+    // 0.5 × 0.5 + 0.5 × 0.5 = 0.5
+    expect(computeUnifiedConfidence('moderate', undefined)).toBe(0.5);
+
+    // high stability (1.0), no edges → 0.5 default
+    // 0.5 × 1.0 + 0.5 × 0.5 = 0.75
+    expect(computeUnifiedConfidence('high', undefined)).toBe(0.75);
+
+    // low stability (0.0), no edges → 0.5 default
+    // 0.5 × 0.0 + 0.5 × 0.5 = 0.25
+    expect(computeUnifiedConfidence('low', undefined)).toBe(0.25);
+  });
+
+  it('returns edge-dominated value for no ISL data + edges', () => {
+    // no ISL → 0.5 default, edges mean = 0.9
+    // 0.5 × 0.5 + 0.5 × 0.9 = 0.7
+    expect(computeUnifiedConfidence(null, [
+      { exists_probability: 0.9 },
+    ])).toBeCloseTo(0.7, 5);
+  });
+
+  it('uses mean of multiple incoming edges', () => {
+    // no ISL → 0.5, edges = [0.6, 0.8, 1.0] → mean = 0.8
+    // 0.5 × 0.5 + 0.5 × 0.8 = 0.65
+    const result = computeUnifiedConfidence(null, [
+      { exists_probability: 0.6 },
+      { exists_probability: 0.8 },
+      { exists_probability: 1.0 },
+    ]);
+    expect(result).toBeCloseTo(0.65, 5);
+  });
+
+  it('clamps result to [0, 1]', () => {
+    // high stability + high edge prob = 0.5×1.0 + 0.5×1.0 = 1.0
+    expect(computeUnifiedConfidence('high', [{ exists_probability: 1.0 }])).toBe(1.0);
+    // negligible stability + zero edge = 0.5×0.0 + 0.5×0.0 = 0.0
+    expect(computeUnifiedConfidence('negligible', [{ exists_probability: 0.0 }])).toBe(0.0);
+  });
+
+  it('handles unknown stability category with default', () => {
+    // unknown → default 0.5, edges mean = 0.6
+    // 0.5 × 0.5 + 0.5 × 0.6 = 0.55
+    expect(computeUnifiedConfidence('unknown_value', [
+      { exists_probability: 0.6 },
+    ])).toBeCloseTo(0.55, 5);
+  });
+
+  it('produces same result as evidence priority computeConfidenceNormalised', () => {
+    // The unified formula IS the same formula used in evidence-priority.ts
+    // Verify consistency: moderate + edges [0.4, 0.6] → mean = 0.5
+    // 0.5 × 0.5 + 0.5 × 0.5 = 0.5
+    expect(computeUnifiedConfidence('moderate', [
+      { exists_probability: 0.4 },
+      { exists_probability: 0.6 },
+    ])).toBe(0.5);
+  });
+
+  it('is deterministic: same input always produces same output', () => {
+    const edges = [{ exists_probability: 0.7 }, { exists_probability: 0.9 }];
+    const r1 = computeUnifiedConfidence('moderate', edges);
+    const r2 = computeUnifiedConfidence('moderate', edges);
+    expect(r1).toBe(r2);
   });
 });

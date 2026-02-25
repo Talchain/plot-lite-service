@@ -1372,18 +1372,13 @@ function buildResponse(
     // Review cards — evidence priority card from factor sensitivity data.
     // Gated behind ENABLE_REVIEW_PASS. Excluded from response_hash (non-deterministic assembly metadata).
     ...(FLAGS.ENABLE_REVIEW_PASS && (() => {
-      const graphEdges = graph?.edges ?? [];
       const epFactors: FactorInput[] = (factorSensitivity ?? []).map((fs: any) => {
-        const stabilityEntry = (factorStability ?? []).find((s: any) => s.factor_id === fs.factor_id);
-        const incoming = graphEdges
-          .filter((e) => e.to === fs.factor_id)
-          .map((e) => ({ exists_probability: e.exists_probability }));
         return {
           factor_id: fs.factor_id,
           factor_label: fs.factor_label ?? fs.factor_id,
           elasticity: fs.elasticity ?? fs.sensitivity_score ?? 0,
-          attribution_stability: stabilityEntry?.attribution_stability,
-          ...(incoming.length > 0 ? { incoming_edges: incoming } : {}),
+          // Use pre-computed unified confidence from factor_sensitivity pipeline
+          confidence: fs.confidence ?? undefined,
         };
       });
       const epCard = buildEvidencePriorityCard(epFactors);
@@ -2999,14 +2994,15 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         const islFactorSensitivity = transformFactorSensitivity(islResult.factor_sensitivity);
 
         // Graph-based is primary for influence/sensitivity scores.
-        // When graph results exist, merge ISL bootstrap confidence into graph entries
-        // (MC stability > edge path heuristic). Falls back to ISL-only when no graph.
+        // When graph results exist, merge ISL attribution_stability into graph entries
+        // and recompute unified confidence (0.5 × band_score + 0.5 × mean(incoming edges)).
         let factorSensitivity: FactorSensitivityResultV3[] | undefined;
         let factorSensitivitySource: string;
         if (graphBasedFactorSensitivity) {
           factorSensitivity = mergeIslConfidenceIntoGraphFactors(
             graphBasedFactorSensitivity,
             islFactorSensitivity,
+            filteredGraph.edges,
           );
           factorSensitivitySource = 'graph+isl_merge';
         } else {

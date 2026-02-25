@@ -1222,6 +1222,17 @@ export interface FactorSensitivityResultV3 {
   rank_flip_rate?: number;
   /** Method used by ISL to compute stability metrics */
   stability_method?: string;
+
+  /**
+   * Progressive disclosure: raw components of the unified confidence formula.
+   * Allows UI to expose what drives the confidence score.
+   */
+  confidence_components?: {
+    /** mean(exists_probability of incoming edges), or 0.5 if no edges */
+    structural_certainty: number;
+    /** attribution_stability_band_score, or null if no ISL data */
+    sampling_stability: number | null;
+  };
 }
 
 /**

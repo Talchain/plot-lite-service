@@ -2,11 +2,12 @@
  * Evidence Priority Card — Review Pass module
  *
  * Computes a ranked list of factors most likely to change the decision
- * if better evidence were gathered. Uses attribution stability and edge
- * existence probability as confidence signals.
+ * if better evidence were gathered.
  *
- * Score = |elasticity| * (1 - confidence_normalised)
- *   where confidence_normalised = 0.5 * band_score + 0.5 * mean(exists_probability)
+ * Score = |elasticity| * (1 - confidence)
+ *   where confidence is the unified factor confidence (pre-computed in factor_sensitivity
+ *   pipeline via computeUnifiedConfidence). Falls back to inline computation when
+ *   pre-computed confidence is not available.
  *
  * Suppression: if max(score) across ALL candidates < EVIDENCE_PRIORITY_SUPPRESSION_THRESHOLD,
  * the entire card is suppressed. Otherwise, top 3 items by score are included.
@@ -25,6 +26,8 @@ export interface FactorInput {
   elasticity: number;
   attribution_stability?: string; // 'high' | 'moderate' | 'low' | 'negligible'
   incoming_edges?: Array<{ exists_probability: number }>;
+  /** Pre-computed unified confidence. When present, used directly instead of recomputing. */
+  confidence?: number;
 }
 
 export interface EvidencePriorityItem {
@@ -95,11 +98,12 @@ export function buildEvidencePriorityCard(
   factors: FactorInput[]
 ): EvidencePriorityCard | null {
   // Compute scores for ALL candidates
+  // Use pre-computed unified confidence when available (from factor_sensitivity pipeline),
+  // falling back to inline computation for backwards compatibility.
   const allItems: EvidencePriorityItem[] = factors.map(f => {
-    const confidence = computeConfidenceNormalised(
-      f.attribution_stability,
-      f.incoming_edges
-    );
+    const confidence = f.confidence != null
+      ? f.confidence
+      : computeConfidenceNormalised(f.attribution_stability, f.incoming_edges);
     return {
       factor_id: f.factor_id,
       factor_label: f.factor_label,

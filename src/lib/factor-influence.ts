@@ -13,6 +13,7 @@
  */
 
 import type { EngineGraphV3, EngineEdgeV3, EngineNodeV3, FactorSensitivityResultV3, FactorStabilityEntry } from '../types/engine-v3.js';
+import { ATTRIBUTION_STABILITY_BAND_SCORES } from '../review-pass/evidence-priority.js';
 
 /**
  * Minimal fragile edge interface for VOI and flip risk computation.
@@ -69,6 +70,49 @@ const MAX_PATH_DEPTH = 10;
 
 /** Minimum exists_probability to consider an edge viable */
 const MIN_EXISTS_PROBABILITY = 0.01;
+
+// -----------------------------------------------------------------------------
+// Unified Confidence Formula
+// -----------------------------------------------------------------------------
+
+const DEFAULT_STABILITY_BAND_SCORE = 0.5;
+const DEFAULT_EDGE_PROBABILITY = 0.5;
+
+/**
+ * Compute unified confidence for a factor.
+ *
+ * confidence = clamp(0, 1,
+ *   0.5 × attribution_stability_band_score +
+ *   0.5 × mean(exists_probability of factor's incoming edges)
+ * )
+ *
+ * Degrades gracefully:
+ * - ISL data + edges: full signal from both
+ * - ISL data, no edges (root): ISL-dominated (edge term defaults to 0.5)
+ * - No ISL data + edges: edge-dominated (stability defaults to 0.5)
+ * - No ISL data, no edges: neutral (0.5)
+ *
+ * @param attributionStability ISL attribution_stability category, or null if absent
+ * @param incomingEdges Edges where edge.to === factor_id, with exists_probability
+ * @returns Confidence in [0, 1]
+ */
+export function computeUnifiedConfidence(
+  attributionStability: string | null | undefined,
+  incomingEdges: Array<{ exists_probability: number }> | undefined | null
+): number {
+  const bandScore = (attributionStability != null)
+    ? (ATTRIBUTION_STABILITY_BAND_SCORES[attributionStability] ?? DEFAULT_STABILITY_BAND_SCORE)
+    : DEFAULT_STABILITY_BAND_SCORE;
+
+  let meanExistsProb = DEFAULT_EDGE_PROBABILITY;
+  if (incomingEdges && incomingEdges.length > 0) {
+    const sum = incomingEdges.reduce((acc, e) => acc + e.exists_probability, 0);
+    meanExistsProb = sum / incomingEdges.length;
+  }
+
+  const raw = 0.5 * bandScore + 0.5 * meanExistsProb;
+  return Math.max(0, Math.min(1, raw));
+}
 
 // -----------------------------------------------------------------------------
 // Core Implementation
@@ -509,70 +553,102 @@ export function computeFactorSensitivityFromGraph(
     return null;
   }
 
+  // Build incoming edges lookup for unified confidence formula
+  const incomingEdgesMap = new Map<string, Array<{ exists_probability: number }>>();
+  for (const edge of graph.edges) {
+    if (!incomingEdgesMap.has(edge.to)) {
+      incomingEdgesMap.set(edge.to, []);
+    }
+    incomingEdgesMap.get(edge.to)!.push({ exists_probability: edge.exists_probability });
+  }
+
   // Map to FactorSensitivityResultV3 format
-  return influences.map((f, index) => ({
-    // Core identification
-    factor_id: f.factor_id,
-    factor_label: f.label || undefined,
+  return influences.map((f, index) => {
+    // Unified confidence: no ISL data at this stage (null stability), use incoming edges
+    const incomingEdges = incomingEdgesMap.get(f.factor_id);
+    const confidence = computeUnifiedConfidence(null, incomingEdges);
 
-    // Influence from graph calculation
-    influence_score: f.normalised_influence,
-    influence_rank: index + 1, // 1-indexed rank (already sorted by |influence|)
+    return {
+      // Core identification
+      factor_id: f.factor_id,
+      factor_label: f.label || undefined,
 
-    // Map influence to sensitivity_score (raw total causal effect)
-    sensitivity_score: f.influence,
+      // Influence from graph calculation
+      influence_score: f.normalised_influence,
+      influence_rank: index + 1, // 1-indexed rank (already sorted by |influence|)
 
-    // Elasticity is the normalized influence (same as influence_score for graph-based)
-    elasticity: f.normalised_influence,
+      // Map influence to sensitivity_score (raw total causal effect)
+      sensitivity_score: f.influence,
 
-    // Direction from sign of influence
-    direction: f.direction,
+      // Elasticity is the normalized influence (same as influence_score for graph-based)
+      elasticity: f.normalised_influence,
 
-    // Importance rank same as influence rank for graph-based
-    importance_rank: index + 1,
+      // Direction from sign of influence
+      direction: f.direction,
 
-    // Graph-based doesn't provide interpretation text
-    interpretation: undefined,
+      // Importance rank same as influence rank for graph-based
+      importance_rank: index + 1,
 
-    // Heuristic VOI proxy (v1) - not formal EVPI
-    // Formula: |sensitivity| × (1 - confidence) × decision_fragility
-    value_of_information: computeValueOfInformation(
-      f.factor_id,
-      f.normalised_influence, // Use normalised influence as sensitivity proxy
-      f.confidence,
-      fragileEdges
-    ),
+      // Graph-based doesn't provide interpretation text
+      interpretation: undefined,
 
-    // Confidence from edge path analysis
-    confidence: f.confidence,
-    confidence_source: 'graph' as const,
+      // Heuristic VOI proxy (v1) - not formal EVPI
+      // Formula: |sensitivity| × (1 - confidence) × decision_fragility
+      value_of_information: computeValueOfInformation(
+        f.factor_id,
+        f.normalised_influence, // Use normalised influence as sensitivity proxy
+        confidence,
+        fragileEdges
+      ),
 
-    // Zero reason for factors with no path to goal
-    zero_reason: f.influence === 0 && f.confidence === 0
-      ? 'no_path_to_goal'
-      : undefined,
+      // Unified confidence: 0.5 × stability_band + 0.5 × mean(incoming edge exists_probability)
+      // No ISL data at graph stage → stability defaults to 0.5
+      confidence,
+      confidence_source: 'graph' as const,
 
-    // Mark source as graph-based
-    source: 'graph' as const,
+      // Progressive disclosure: raw confidence components
+      confidence_components: {
+        structural_certainty: incomingEdges && incomingEdges.length > 0
+          ? incomingEdges.reduce((acc, e) => acc + e.exists_probability, 0) / incomingEdges.length
+          : 0.5,
+        sampling_stability: null, // No ISL data at graph stage
+      },
 
-    // Flip risk category based on fragile edge adjacency
-    flip_risk_category: computeFlipRiskCategory(f.factor_id, fragileEdges),
-  }));
+      // Zero reason for factors with no path to goal
+      // Use original path-based confidence (f.confidence) to detect truly disconnected factors
+      zero_reason: f.influence === 0 && f.confidence === 0
+        ? 'no_path_to_goal'
+        : undefined,
+
+      // Mark source as graph-based
+      source: 'graph' as const,
+
+      // Flip risk category based on fragile edge adjacency
+      flip_risk_category: computeFlipRiskCategory(f.factor_id, fragileEdges),
+    };
+  });
 }
 
 /**
- * Merge ISL bootstrap confidence into graph-based factor sensitivity entries.
+ * Merge ISL bootstrap data into graph-based factor sensitivity entries
+ * and recompute unified confidence.
  *
  * Graph-based entries are primary for influence/sensitivity scores.
- * ISL's bootstrap confidence replaces graph confidence when available,
- * because 1,000 MC resamples are a stronger stability signal than
- * weighted edge path averages.
+ * When ISL provides `attribution_stability`, the unified confidence formula
+ * blends it with incoming edge exists_probability:
+ *
+ *   confidence = 0.5 × band_score(attribution_stability) + 0.5 × mean(incoming edge exists_probability)
  *
  * ISL-only factors (not in graph results) are appended with confidence_source: 'isl'.
+ *
+ * @param graphFactors Graph-based factor sensitivity entries (with confidence_components.structural_certainty)
+ * @param islFactors ISL factor sensitivity entries (with attribution_stability)
+ * @param graphEdges Graph edges for computing incoming edges on ISL-only factors
  */
 export function mergeIslConfidenceIntoGraphFactors(
   graphFactors: FactorSensitivityResultV3[],
   islFactors: FactorSensitivityResultV3[] | undefined,
+  graphEdges?: EngineEdgeV3[],
 ): FactorSensitivityResultV3[] {
   if (!islFactors || islFactors.length === 0) {
     return graphFactors;
@@ -591,13 +667,31 @@ export function mergeIslConfidenceIntoGraphFactors(
     const islMatch = islMap.get(gf.factor_id);
     if (!islMatch) return gf;
 
-    // ISL confidence takes precedence when non-null
-    const useIslConfidence = islMatch.confidence != null;
+    // Extract attribution_stability from ISL entry
+    const attrStability = islMatch.attribution_stability ?? null;
+    const hasIslData = attrStability != null;
+
+    // Reuse structural_certainty from graph stage (already computed incoming edge mean)
+    const structuralCertainty = gf.confidence_components?.structural_certainty ?? 0.5;
+    const incomingEdgesForFormula = [{ exists_probability: structuralCertainty }];
+
+    // Recompute unified confidence with ISL attribution_stability
+    const confidence = computeUnifiedConfidence(attrStability, incomingEdgesForFormula);
+
+    // Band score for progressive disclosure
+    const bandScore = hasIslData
+      ? (ATTRIBUTION_STABILITY_BAND_SCORES[attrStability!] ?? DEFAULT_STABILITY_BAND_SCORE)
+      : null;
 
     return {
       ...gf,
-      confidence: useIslConfidence ? islMatch.confidence : gf.confidence,
-      confidence_source: (useIslConfidence ? 'isl' : 'graph') as 'isl' | 'graph',
+      confidence,
+      confidence_source: (hasIslData ? 'isl' : 'graph') as 'isl' | 'graph',
+      // Progressive disclosure: update with ISL sampling_stability
+      confidence_components: {
+        structural_certainty: structuralCertainty,
+        sampling_stability: bandScore,
+      },
       // Copy ISL bootstrap fields
       ...(islMatch.attribution_stability !== undefined && { attribution_stability: islMatch.attribution_stability }),
       ...(islMatch.elasticity_std !== undefined && { elasticity_std: islMatch.elasticity_std }),
@@ -607,11 +701,31 @@ export function mergeIslConfidenceIntoGraphFactors(
   });
 
   // Append ISL-only factors not in graph results
+  const edges = graphEdges ?? [];
   for (const islF of islFactors) {
     if (!graphFactorIds.has(islF.factor_id)) {
+      // Compute incoming edges for ISL-only factor
+      const incoming = edges
+        .filter(e => e.to === islF.factor_id)
+        .map(e => ({ exists_probability: e.exists_probability }));
+
+      const attrStability = islF.attribution_stability ?? null;
+      const confidence = computeUnifiedConfidence(attrStability, incoming.length > 0 ? incoming : undefined);
+      const structuralCertainty = incoming.length > 0
+        ? incoming.reduce((acc, e) => acc + e.exists_probability, 0) / incoming.length
+        : 0.5;
+      const bandScore = attrStability != null
+        ? (ATTRIBUTION_STABILITY_BAND_SCORES[attrStability] ?? DEFAULT_STABILITY_BAND_SCORE)
+        : null;
+
       merged.push({
         ...islF,
+        confidence,
         confidence_source: 'isl' as const,
+        confidence_components: {
+          structural_certainty: structuralCertainty,
+          sampling_stability: bandScore,
+        },
       });
     }
   }
