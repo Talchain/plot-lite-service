@@ -260,10 +260,6 @@ function transformFactorSensitivity(islFactorSensitivity: unknown): FactorSensit
  * in the API response. These fields belong exclusively in factor_stability[].
  * Regression: B8-8 — ISL stability fields must not leak into factor_sensitivity.
  */
-const STABILITY_FIELDS_TO_STRIP = new Set([
-  'elasticity_std', 'attribution_stability', 'rank_flip_rate', 'stability_method',
-]);
-
 function stripStabilityFields(
   factors: FactorSensitivityResultV3[] | undefined,
 ): FactorSensitivityResultV3[] | undefined {
