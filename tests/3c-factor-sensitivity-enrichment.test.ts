@@ -1,8 +1,8 @@
 /**
  * 3C: Factor Sensitivity Source-Scoping + Identifiability Hash Policy + Factor Stability
  *
- * T1: Graph-primary path — graph-source entries must NOT carry 3C fields (B8-8)
- * T2: ISL-fallback path — ISL-source entries must NOT carry 3C fields (B8-8)
+ * T1: Graph-primary path — 3C fields present on ISL-matched entries (confidence unification)
+ * T2: ISL-fallback path — 3C fields present when ISL provides them
  * T3: ISL-fallback backward compat — when ISL omits 3C fields, output omits them
  * T-inv: Invariant — attribution_stability="negligible" requires |elasticity| < 0.01
  * T4: Hash insensitive to 3C changes (factor_sensitivity not in hash)
@@ -251,7 +251,7 @@ const mockISLService = {
       })),
       edges: [], edges_provenance: 'isl:/api/v1/robustness/analyze/v2' as const,
       edge_sensitivity_status: 'available' as const,
-      // ISL returns factor_sensitivity WITH 3C fields — these must NOT bleed into graph-source entries
+      // ISL returns factor_sensitivity WITH 3C fields — merged onto graph entries after confidence unification
       factor_sensitivity: [
         {
           node_id: 'factor-a',
@@ -298,7 +298,7 @@ const mockISLService = {
           rank: idx + 1,
         })),
         edges: [],
-        // ISL factor_sensitivity with 3C fields — must NOT appear on graph-source entries
+        // ISL factor_sensitivity with 3C fields — merged onto graph entries after confidence unification
         factor_sensitivity: [
           {
             node_id: 'factor-a',
@@ -359,8 +359,8 @@ describe('T6: Route-level 3C source-scoping via /v2/run', () => {
     delete process.env.CEE_ORCHESTRATOR_ENABLE;
   });
 
-  // Regression: B8-8 — 3C field segregation. ISL stability fields must not leak into factor_sensitivity.
-  it('graph-based factor_sensitivity entries do NOT carry 3C stability fields', async () => {
+  // Confidence unification: ISL bootstrap fields are merged onto graph entries
+  it('graph-based factor_sensitivity entries carry 3C fields when ISL provides them', async () => {
     const res = await fetch(`${baseUrl}/v2/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -390,16 +390,19 @@ describe('T6: Route-level 3C source-scoping via /v2/run', () => {
     expect(factorA.source).toBe('graph');
     expect(factorB.source).toBe('graph');
 
-    // 3C fields must NOT appear on factor_sensitivity entries (they belong in factor_stability)
+    // After confidence unification, ISL-matched entries carry 3C fields
+    // and have confidence_source: 'isl'
     for (const factor of [factorA, factorB]) {
-      for (const field of THREE_C_FIELDS) {
-        expect(factor).not.toHaveProperty(field);
-      }
+      expect(factor.confidence_source).toBe('isl');
+      expect(typeof factor.elasticity_std).toBe('number');
+      expect(['high', 'moderate', 'low', 'negligible']).toContain(factor.attribution_stability);
+      expect(typeof factor.rank_flip_rate).toBe('number');
+      expect(typeof factor.stability_method).toBe('string');
     }
   });
 
-  // Regression: B8-8 — 3C field segregation. ISL stability fields must not leak into factor_sensitivity.
-  it('ISL-fallback factor_sensitivity entries do NOT carry 3C stability fields', async () => {
+  // Confidence unification: ISL-fallback entries carry 3C fields when ISL provides them
+  it('ISL-fallback factor_sensitivity entries carry 3C fields when ISL provides them', async () => {
     const res = await fetch(`${baseUrl}/v2/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -428,11 +431,13 @@ describe('T6: Route-level 3C source-scoping via /v2/run', () => {
 
     expect(factors.length).toBeGreaterThan(0);
 
-    // 3C fields must NOT appear on any factor_sensitivity entries
-    for (const factor of factors) {
-      for (const field of THREE_C_FIELDS) {
-        expect(factor).not.toHaveProperty(field);
-      }
+    // ISL-matched entries should carry 3C fields after confidence unification
+    const islMatched = factors.filter((f: any) => f.confidence_source === 'isl');
+    for (const factor of islMatched) {
+      expect(typeof factor.elasticity_std).toBe('number');
+      expect(['high', 'moderate', 'low', 'negligible']).toContain(factor.attribution_stability);
+      expect(typeof factor.rank_flip_rate).toBe('number');
+      expect(typeof factor.stability_method).toBe('string');
     }
   });
 

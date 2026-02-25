@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { validateFeatureFlags, getAllFeatureFlags } from '../src/config/feature-flags.js';
+import { validateFeatureFlags, getAllFeatureFlags, KNOWN_FEATURE_FLAGS } from '../src/config/feature-flags.js';
 import { createServer } from '../src/createServer.js';
 
 describe('Feature Flag Validation', () => {
@@ -37,6 +37,10 @@ describe('Feature Flag Validation', () => {
     validateFeatureFlags(mockLogger);
     
     expect(warnings.length).toBe(0);
+  });
+
+  it('ENABLE_REVIEW_PASS is a known flag', () => {
+    expect(KNOWN_FEATURE_FLAGS).toContain('ENABLE_REVIEW_PASS');
   });
 
   it('/version shows all flags', async () => {

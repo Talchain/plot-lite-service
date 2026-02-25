@@ -1,12 +1,14 @@
 /**
- * Regression: B8-8 — 3C field segregation.
- * ISL stability fields must not leak into factor_sensitivity.
+ * Regression: B8-8 — 3C field handling in factor_sensitivity.
  *
- * When ISL returns factor_sensitivity entries that include 3C stability fields
- * (elasticity_std, attribution_stability, rank_flip_rate, stability_method),
- * the PLoT /v2/run response must:
- *   - factor_sensitivity[]: NOT contain any of the four fields
- *   - factor_stability[]: DOES contain all four fields
+ * After confidence unification (d293bfd), ISL bootstrap fields
+ * (elasticity_std, attribution_stability, rank_flip_rate, stability_method)
+ * are merged onto ALL factor_sensitivity entries that have a matching ISL
+ * entry. The /v2/run response must:
+ *   - factor_sensitivity[]: 3C fields PRESENT when confidence_source === 'isl'
+ *   - factor_sensitivity[]: 3C fields MAY be present when confidence_source === 'graph'
+ *   - factor_stability[]: DOES contain all four fields (unchanged)
+ *   - All entries: confidence in [0,1], confidence_components present
  *
  * @regression
  */
@@ -15,7 +17,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 
 // ---------------------------------------------------------------------------
-// ISL Mock — returns stability fields inside factor_sensitivity (the leak scenario)
+// ISL Mock — returns stability fields inside factor_sensitivity
 // ---------------------------------------------------------------------------
 
 const STABILITY_FIELDS = {
@@ -80,7 +82,7 @@ const mockISLService = {
           { node_id: 'factor-a', sensitivity: 0.5, confidence: 0.8, direction: 'positive' },
           { node_id: 'factor-b', sensitivity: -0.3, confidence: 0.7, direction: 'negative' },
         ],
-        // KEY: ISL returns stability fields inside factor_sensitivity — the leak scenario
+        // ISL returns stability fields inside factor_sensitivity
         factor_sensitivity: [
           { factor_id: 'factor-a', factor_label: 'Factor A', elasticity: 0.85, direction: 'positive', ...STABILITY_FIELDS },
           { factor_id: 'factor-b', factor_label: 'Factor B', elasticity: -0.65, direction: 'negative', ...STABILITY_FIELDS },
@@ -105,7 +107,7 @@ import { createServer } from '../src/createServer.js';
 // Test
 // ---------------------------------------------------------------------------
 
-describe('B8-8: 3C field segregation in /v2/run response', () => {
+describe('B8-8: 3C field handling in /v2/run response', () => {
   let app: FastifyInstance;
 
   beforeAll(async () => {
@@ -138,10 +140,9 @@ describe('B8-8: 3C field segregation in /v2/run response', () => {
     { id: 'opt-b', label: 'Option B', interventions: { 'factor-b': { value: 0.7, source: 'user_specified' } } },
   ];
 
-  const LEAKED_FIELDS = ['elasticity_std', 'attribution_stability', 'rank_flip_rate', 'stability_method'];
+  const THREE_C_FIELDS = ['elasticity_std', 'attribution_stability', 'rank_flip_rate', 'stability_method'] as const;
 
-  // Regression: B8-8 — 3C field segregation. ISL stability fields must not leak into factor_sensitivity.
-  it('factor_sensitivity[] does NOT contain 3C stability fields', async () => {
+  it('factor_sensitivity[] entries with confidence_source "isl" carry 3C stability fields', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/v2/run',
@@ -154,14 +155,72 @@ describe('B8-8: 3C field segregation in /v2/run response', () => {
     expect(body.factor_sensitivity).toBeDefined();
     expect(body.factor_sensitivity.length).toBeGreaterThan(0);
 
-    for (const factor of body.factor_sensitivity) {
-      for (const field of LEAKED_FIELDS) {
-        expect(factor).not.toHaveProperty(field);
-      }
+    const islFactors = body.factor_sensitivity.filter((f: any) => f.confidence_source === 'isl');
+    expect(islFactors.length).toBeGreaterThan(0);
+
+    for (const factor of islFactors) {
+      expect(typeof factor.elasticity_std).toBe('number');
+      expect(['high', 'moderate', 'low', 'negligible']).toContain(factor.attribution_stability);
+      expect(typeof factor.rank_flip_rate).toBe('number');
+      expect(typeof factor.stability_method).toBe('string');
     }
   });
 
-  // Regression: B8-8 — 3C field segregation. ISL stability fields must not leak into factor_sensitivity.
+  it('all factor_sensitivity[] entries have unified confidence and components', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v2/run',
+      headers: { 'Content-Type': 'application/json' },
+      payload: { graph: GRAPH, options: OPTIONS, goal_node_id: 'goal', seed: '42' },
+    });
+
+    const body = JSON.parse(res.body);
+    expect(res.statusCode).toBe(200);
+
+    for (const factor of body.factor_sensitivity) {
+      // Unified confidence in [0, 1]
+      expect(typeof factor.confidence).toBe('number');
+      expect(factor.confidence).toBeGreaterThanOrEqual(0);
+      expect(factor.confidence).toBeLessThanOrEqual(1);
+
+      // Progressive disclosure components
+      expect(factor.confidence_components).toBeDefined();
+      expect(typeof factor.confidence_components.structural_certainty).toBe('number');
+      // sampling_stability is number when ISL data present, null otherwise
+      const ss = factor.confidence_components.sampling_stability;
+      expect(ss === null || typeof ss === 'number').toBe(true);
+    }
+  });
+
+  it('mixed graph/ISL entries: 3C fields present on ISL-matched entries', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v2/run',
+      headers: { 'Content-Type': 'application/json' },
+      payload: { graph: GRAPH, options: OPTIONS, goal_node_id: 'goal', seed: '42' },
+    });
+
+    const body = JSON.parse(res.body);
+    expect(res.statusCode).toBe(200);
+
+    // The mock ISL returns factor_sensitivity for factor-a and factor-b,
+    // so graph entries for these factors should be merged with ISL data
+    const factorA = body.factor_sensitivity.find((f: any) => f.factor_id === 'factor-a');
+    const factorB = body.factor_sensitivity.find((f: any) => f.factor_id === 'factor-b');
+
+    expect(factorA).toBeDefined();
+    expect(factorB).toBeDefined();
+
+    // Both should have ISL-merged 3C fields
+    for (const factor of [factorA, factorB]) {
+      expect(factor.confidence_source).toBe('isl');
+      expect(factor.attribution_stability).toBe('moderate');
+      expect(factor.elasticity_std).toBe(0.12);
+      expect(factor.rank_flip_rate).toBe(0.08);
+      expect(factor.stability_method).toBe('bootstrap');
+    }
+  });
+
   it('factor_stability[] DOES contain all 3C stability fields', async () => {
     const res = await app.inject({
       method: 'POST',

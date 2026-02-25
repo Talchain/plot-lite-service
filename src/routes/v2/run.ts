@@ -256,21 +256,6 @@ function transformFactorSensitivity(islFactorSensitivity: unknown): FactorSensit
 }
 
 /**
- * Strip 3C stability fields from factor_sensitivity entries before including
- * in the API response. These fields belong exclusively in factor_stability[].
- * Regression: B8-8 — ISL stability fields must not leak into factor_sensitivity.
- */
-function stripStabilityFields(
-  factors: FactorSensitivityResultV3[] | undefined,
-): FactorSensitivityResultV3[] | undefined {
-  if (!factors) return undefined;
-  return factors.map(f => {
-    const { elasticity_std, attribution_stability, rank_flip_rate, stability_method, ...rest } = f;
-    return rest;
-  });
-}
-
-/**
  * Validate and extract stability_thresholds from ISL response.
  * Returns undefined if absent or malformed.
  */
@@ -1286,7 +1271,7 @@ function buildResponse(
     critiques,
     option_comparison: optionComparison,
     edge_sensitivity: edgeSensitivity,
-    factor_sensitivity: stripStabilityFields(factorSensitivity),
+    factor_sensitivity: factorSensitivity,
     // ISL stability assessment per factor (3C bootstrap analysis)
     // NOTE: Deterministic ISL output. Included in response_hash (v5+).
     factor_stability: factorStability ?? [],
