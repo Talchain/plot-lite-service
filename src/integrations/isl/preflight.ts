@@ -9,6 +9,7 @@
 import type { Graph, GraphEdge, GraphNode } from '../../trust/types.js';
 import type { ISLPreflightResult } from './types/plot-types.js';
 import type { ISLParameterUncertainty } from './types/isl-types.js';
+import { DEFAULT_EXISTS_PROBABILITY } from '../../constants/limits.js';
 
 /**
  * Check if an edge has uncertainty data for sensitivity analysis
@@ -27,7 +28,7 @@ export function edgeHasUncertainty(edge: GraphEdge): boolean {
 
   // Check for existence uncertainty - support multiple field names
   // exists_probability (normalized EngineEdgeV3), belief_exists (upstream EdgeV2), belief (legacy EdgeV1)
-  const existsProb = e.exists_probability ?? e.belief_exists ?? e.belief ?? 1.0;
+  const existsProb = e.exists_probability ?? e.belief_exists ?? e.belief ?? DEFAULT_EXISTS_PROBABILITY;
   const hasExistenceUncertainty = existsProb > 0 && existsProb < 1;
 
   // Check for strength uncertainty - support nested AND flat formats

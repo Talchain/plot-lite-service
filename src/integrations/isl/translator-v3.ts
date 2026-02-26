@@ -149,7 +149,7 @@ export function toISLEdge(edge: EngineEdgeV3): ISLEdgeV3 {
   return {
     from: edge.from,
     to: edge.to,
-    // Use actual exists_probability (defaults to 1.0 if not set during normalization)
+    // Use actual exists_probability (defaults to 0.8 if not set during normalization)
     exists_probability: edge.exists_probability,
     strength: {
       mean: edge.strength.mean,

@@ -70,6 +70,7 @@ import type {
   ISLPreflightResult,
 } from './types/plot-types.js';
 import type { Graph } from '../../trust/types.js';
+import { DEFAULT_EXISTS_PROBABILITY } from '../../constants/limits.js';
 
 /**
  * Result from generic analysis endpoint calls
@@ -474,7 +475,7 @@ export function createISLService(): ISLService {
               to: e.to,
               weight: e.weight,
               // Map to ISL edge format
-              exists_probability: e.belief_exists ?? e.belief ?? 1.0,
+              exists_probability: e.belief_exists ?? e.belief ?? DEFAULT_EXISTS_PROBABILITY,
               strength: e.strength_std !== undefined
                 ? { mean: e.weight ?? 0, std: e.strength_std }
                 : e.belief_strength !== undefined

@@ -29,6 +29,7 @@ import {
   type FactorSensitivityInput,
   type OptionComparisonInput,
 } from '../coaching/flip-thresholds.js';
+import { DEFAULT_EXISTS_PROBABILITY } from '../constants/limits.js';
 
 // =============================================================================
 // Types for Input Data
@@ -199,7 +200,7 @@ function buildStrippedGraph(graph: EngineGraphV3): {
       mean: edge.strength?.mean ?? 0.5,
       std: edge.strength?.std ?? 0.2,
     },
-    exists_probability: edge.exists_probability ?? 1.0,
+    exists_probability: edge.exists_probability ?? DEFAULT_EXISTS_PROBABILITY,
   }));
 
   return { nodes, edges };

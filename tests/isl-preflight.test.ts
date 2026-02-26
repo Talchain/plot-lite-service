@@ -59,12 +59,13 @@ describe('ISL Preflight Validation', () => {
         expect(edgeHasUncertainty(edge)).toBe(false);
       });
 
-      it('returns false when no existence fields provided (defaults to 1)', () => {
+      it('returns true when no existence fields provided (defaults to 0.8)', () => {
         const edge: GraphEdge = {
           from: 'a',
           to: 'b',
         };
-        expect(edgeHasUncertainty(edge)).toBe(false);
+        // DEFAULT_EXISTS_PROBABILITY = 0.8, which is in (0, 1) → has uncertainty
+        expect(edgeHasUncertainty(edge)).toBe(true);
       });
     });
 
@@ -79,10 +80,11 @@ describe('ISL Preflight Validation', () => {
         expect(edgeHasUncertainty(edge)).toBe(true);
       });
 
-      it('returns false when nested strength.std = 0', () => {
+      it('returns false when nested strength.std = 0 and existence is certain', () => {
         const edge: GraphEdge = {
           from: 'a',
           to: 'b',
+          exists_probability: 1.0,
           strength: { mean: 0.5, std: 0 },
         };
         expect(edgeHasUncertainty(edge)).toBe(false);
@@ -100,19 +102,21 @@ describe('ISL Preflight Validation', () => {
         expect(edgeHasUncertainty(edge)).toBe(true);
       });
 
-      it('returns false when flat strength_std = 0', () => {
+      it('returns false when flat strength_std = 0 and existence is certain', () => {
         const edge = {
           from: 'a',
           to: 'b',
+          exists_probability: 1.0,
           strength_std: 0,
         } as GraphEdge;
         expect(edgeHasUncertainty(edge)).toBe(false);
       });
 
-      it('returns false when strength_std not provided', () => {
+      it('returns false when strength_std not provided and existence is certain', () => {
         const edge = {
           from: 'a',
           to: 'b',
+          exists_probability: 1.0,
           strength_mean: 0.5, // mean without std
         } as GraphEdge;
         expect(edgeHasUncertainty(edge)).toBe(false);
@@ -130,10 +134,11 @@ describe('ISL Preflight Validation', () => {
         expect(edgeHasUncertainty(edge)).toBe(true);
       });
 
-      it('returns false when belief_strength = 1', () => {
+      it('returns false when belief_strength = 1 and existence is certain', () => {
         const edge: GraphEdge = {
           from: 'a',
           to: 'b',
+          exists_probability: 1.0,
           belief_strength: 1.0,
         };
         expect(edgeHasUncertainty(edge)).toBe(false);
@@ -193,20 +198,22 @@ describe('ISL Preflight Validation', () => {
       expect(result.edge_sensitivity_status).toBe('available');
     });
 
-    it('returns skipped_missing_uncertainty when no edges have uncertainty', () => {
+    it('returns available when edges lack explicit uncertainty (defaults to 0.8)', () => {
       const graph = {
         nodes: [
           { id: 'a', kind: 'factor' as const },
           { id: 'b', kind: 'goal' as const },
         ],
         edges: [
-          { from: 'a', to: 'b' }, // no uncertainty fields
+          { from: 'a', to: 'b' }, // no explicit uncertainty → defaults to 0.8, which is uncertain
         ],
       };
 
       const result = validateBeforeISL(graph);
 
-      expect(result.edge_sensitivity_status).toBe('skipped_missing_uncertainty');
+      // DEFAULT_EXISTS_PROBABILITY = 0.8 is in (0, 1) → edge has uncertainty
+      expect(result.canCallISL).toBe(true);
+      expect(result.edge_sensitivity_status).toBe('available');
     });
 
     it('returns available when CEE V3 flat uncertainty fields provided', () => {
