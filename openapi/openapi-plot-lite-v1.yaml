@@ -99,7 +99,61 @@ paths:
           $ref: '#/components/responses/Timeout'
         '503':
           $ref: '#/components/responses/Retryable'
+  /v1/validate-patch:
+    post:
+      summary: Validate and apply patch operations to a causal graph
+      operationId: validatePatch
+      description: >
+        Applies sequential patch operations to a graph, validates the result through a 5-phase
+        pipeline (apply → structural check → semantic repairs → schema validation → hash),
+        and returns the patched graph with a deterministic hash. Feature-flagged behind
+        ENABLE_VALIDATE_PATCH. The `path` field in operations is an entity ID (node ID or
+        from→to edge key), NOT a JSON pointer.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ValidatePatchRequest'
+      responses:
+        '200':
+          description: Patch applied successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidatePatchResponse'
+        '400':
+          description: Invalid request (missing body, graph, or operations)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidatePatchRejection'
+        '422':
+          description: Patch rejected (structural violation, invalid field, or schema failure)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidatePatchRejection'
+        '501':
+          description: Feature disabled (ENABLE_VALIDATE_PATCH not set)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidatePatchRejection'
+              examples:
+                feature_disabled:
+                  value:
+                    status: rejected
+                    code: FEATURE_DISABLED
+                    message: validate-patch is not enabled
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Bearer token set via AUTH_TOKEN env var
   responses:
     BadInput:
       description: BAD_INPUT
@@ -376,3 +430,189 @@ components:
           type: array
           items: { type: string }
       required: [parse_json]
+    # =========================================================================
+    # validate-patch schemas
+    # =========================================================================
+    ValidatePatchRequest:
+      type: object
+      properties:
+        graph:
+          type: object
+          required: [nodes, edges]
+          properties:
+            nodes:
+              type: array
+              items:
+                $ref: '#/components/schemas/EngineNodeV3'
+            edges:
+              type: array
+              items:
+                $ref: '#/components/schemas/EngineEdgeV3'
+        operations:
+          type: array
+          items:
+            $ref: '#/components/schemas/PatchOperation'
+        request_id:
+          type: string
+          description: Optional client-provided request correlation ID
+      required: [graph, operations]
+    PatchOperation:
+      type: object
+      description: >
+        A single graph mutation. The `path` field is an entity ID — node ID for
+        node operations, or `from->to` edge key for edge operations. It is NOT
+        a JSON pointer.
+      properties:
+        op:
+          type: string
+          enum: [add_node, add_edge, remove_node, remove_edge, update_node, update_edge]
+        path:
+          type: string
+          description: Entity ID (node ID or from->to edge key)
+        value:
+          type: object
+          description: Node or edge value (required for add/update operations)
+        previous:
+          type: object
+          description: Previous value for undo support (reserved, not yet implemented)
+      required: [op, path]
+    EngineNodeV3:
+      type: object
+      properties:
+        id:
+          type: string
+          pattern: '^[a-z0-9_:-]+$'
+        kind:
+          type: string
+          enum: [goal, factor, outcome, decision, risk, action, option]
+        label:
+          type: string
+        observed_state:
+          type: object
+          properties:
+            value: { type: number }
+            std: { type: number }
+        state_space:
+          type: object
+          properties:
+            range:
+              type: object
+              properties:
+                min: { type: number }
+                max: { type: number }
+        category:
+          type: string
+          enum: [controllable, observable, external]
+      required: [id, kind, label]
+    EngineEdgeV3:
+      type: object
+      properties:
+        from:
+          type: string
+          description: Source node ID
+        to:
+          type: string
+          description: Target node ID
+        exists_probability:
+          type: number
+          minimum: 0
+          maximum: 1
+        strength:
+          type: object
+          required: [mean, std]
+          properties:
+            mean:
+              type: number
+              description: Signed effect size
+            std:
+              type: number
+              exclusiveMinimum: 0
+              description: Standard deviation (must be > 0)
+        label:
+          type: string
+        edge_type:
+          type: string
+          enum: [directed, bidirected]
+        effect_direction:
+          type: string
+          enum: [positive, negative]
+      required: [from, to, exists_probability, strength]
+    ValidatePatchResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [applied]
+        graph:
+          type: object
+          properties:
+            nodes:
+              type: array
+              items:
+                $ref: '#/components/schemas/EngineNodeV3'
+            edges:
+              type: array
+              items:
+                $ref: '#/components/schemas/EngineEdgeV3'
+        graph_hash:
+          type: string
+          pattern: '^[0-9a-f]{16}$'
+          description: Deterministic SHA-256 hash (16-char hex) of the canonical graph
+        repairs_applied:
+          type: array
+          items:
+            $ref: '#/components/schemas/RepairEntry'
+        warnings:
+          type: array
+          description: >
+            Warning codes: DEFAULT_EXISTS_PROBABILITY, NORMALISE_STRENGTH_RANGE,
+            CLAMP_STD_MINIMUM, INFER_EFFECT_DIRECTION, APPLY_SIGN_FROM_DIRECTION,
+            CASCADE_REMOVE_EDGE, CASCADE_REMOVE_EDGE_SUMMARY
+          items:
+            $ref: '#/components/schemas/ValidationWarning'
+      required: [status, graph, graph_hash, repairs_applied, warnings]
+    ValidatePatchRejection:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [rejected]
+        code:
+          type: string
+          description: >
+            Rejection codes: FEATURE_DISABLED, INVALID_REQUEST, INVALID_PATCH_FIELD,
+            INVALID_PATCH_TARGET, CYCLE_DETECTED, POC_EDGE_LIMIT, POC_NODE_LIMIT,
+            INVALID_NODE_KIND, VALIDATION_FAILED
+        message:
+          type: string
+        violations:
+          type: array
+          items:
+            $ref: '#/components/schemas/ViolationV3'
+      required: [status, code, message]
+    RepairEntry:
+      type: object
+      properties:
+        code: { type: string }
+        layer: { type: string, enum: [plot] }
+        field_path: { type: string }
+        before: {}
+        after: {}
+        reason: { type: string }
+        severity: { type: string, enum: [info, warn] }
+      required: [code, layer, field_path, reason, severity]
+    ValidationWarning:
+      type: object
+      properties:
+        code: { type: string }
+        message: { type: string }
+        field_path: { type: string }
+      required: [code, message, field_path]
+    ViolationV3:
+      type: object
+      properties:
+        code: { type: string }
+        message: { type: string }
+        node_id: { type: string }
+        edge_id: { type: string }
+      required: [code, message]

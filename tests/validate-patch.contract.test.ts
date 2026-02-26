@@ -1,7 +1,7 @@
 /**
  * validate-patch Contract Tests
  *
- * 7 golden fixtures testing the 5-phase validation pipeline.
+ * 12 golden fixtures testing the 5-phase validation pipeline.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -332,4 +332,106 @@ describe('validate-patch contract', () => {
     expect(d.message).toContain('belief');
     expect(d.message).toContain('non-canonical');
     expect(d.message).toContain('Operation 0');
+  });
+
+  // =============================================================================
+  // Fixture 9: add_node with valid kind passes
+  // =============================================================================
+
+  it('Fixture 9: add_node with valid kind passes', async () => {
+    const res = await post({
+      graph: {
+        nodes: [
+          { id: 'goal', kind: 'goal', label: 'Goal' },
+        ],
+        edges: [],
+      },
+      operations: [
+        { op: 'add_node', path: 'r1', value: { id: 'r1', kind: 'risk', label: 'Risk 1' } },
+      ],
+    });
+
+    expect(res.statusCode).toBe(200);
+    const d = res.json();
+    expect(d.status).toBe('applied');
+    expect(d.graph.nodes).toHaveLength(2);
+    expect(d.graph.nodes.find((n: any) => n.id === 'r1').kind).toBe('risk');
+  });
+
+  // =============================================================================
+  // Fixture 10: add_node with invalid kind rejected
+  // =============================================================================
+
+  it('Fixture 10: rejects add_node with invalid kind', async () => {
+    const res = await post({
+      graph: {
+        nodes: [
+          { id: 'goal', kind: 'goal', label: 'Goal' },
+        ],
+        edges: [],
+      },
+      operations: [
+        { op: 'add_node', path: 'bad', value: { id: 'bad', kind: 'banana', label: 'Bad' } },
+      ],
+    });
+
+    expect(res.statusCode).toBe(422);
+    const d = res.json();
+    expect(d.status).toBe('rejected');
+    expect(d.code).toBe('INVALID_NODE_KIND');
+    expect(d.message).toContain('banana');
+    expect(d.message).toContain('bad');
+    expect(d.violations).toBeDefined();
+    expect(d.violations.some((v: any) => v.code === 'INVALID_NODE_KIND' && v.node_id === 'bad')).toBe(true);
+  });
+
+  // =============================================================================
+  // Fixture 11: update_node changing kind to invalid rejected
+  // =============================================================================
+
+  it('Fixture 11: rejects update_node changing kind to invalid value', async () => {
+    const res = await post({
+      graph: {
+        nodes: [
+          { id: 'a', kind: 'factor', label: 'A' },
+          { id: 'goal', kind: 'goal', label: 'Goal' },
+        ],
+        edges: [],
+      },
+      operations: [
+        { op: 'update_node', path: 'a', value: { kind: 'unknown_type' } },
+      ],
+    });
+
+    expect(res.statusCode).toBe(422);
+    const d = res.json();
+    expect(d.status).toBe('rejected');
+    expect(d.code).toBe('INVALID_NODE_KIND');
+    expect(d.message).toContain('unknown_type');
+    expect(d.message).toContain("'a'");
+  });
+
+  // =============================================================================
+  // Fixture 12: update_node not touching kind passes (no regression)
+  // =============================================================================
+
+  it('Fixture 12: update_node not touching kind passes', async () => {
+    const res = await post({
+      graph: {
+        nodes: [
+          { id: 'a', kind: 'factor', label: 'A' },
+          { id: 'goal', kind: 'goal', label: 'Goal' },
+        ],
+        edges: [],
+      },
+      operations: [
+        { op: 'update_node', path: 'a', value: { label: 'Updated A' } },
+      ],
+    });
+
+    expect(res.statusCode).toBe(200);
+    const d = res.json();
+    expect(d.status).toBe('applied');
+    expect(d.graph.nodes.find((n: any) => n.id === 'a').label).toBe('Updated A');
+    expect(d.graph.nodes.find((n: any) => n.id === 'a').kind).toBe('factor');
   });

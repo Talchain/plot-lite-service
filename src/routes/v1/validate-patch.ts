@@ -23,7 +23,7 @@ import type {
   ValidationWarning,
   ViolationV3,
 } from './validate-patch.types.js';
-import type { EngineNodeV3, EngineEdgeV3 } from '../../types/engine-v3.js';
+import type { EngineNodeV3, EngineEdgeV3, EngineNodeKindV3 } from '../../types/engine-v3.js';
 import { FLAGS } from '../../config/flags.js';
 import { MAX_NODES, MAX_EDGES, DEFAULT_EXISTS_PROBABILITY } from '../../constants/limits.js';
 
@@ -33,6 +33,15 @@ import { MAX_NODES, MAX_EDGES, DEFAULT_EXISTS_PROBABILITY } from '../../constant
 
 const CASCADE_WARNING_CAP = 10;
 const MIN_STD = 0.001;
+
+/**
+ * Valid node kinds for validate-patch.
+ * Includes EngineNodeKindV3 values plus 'option' (present in UI graphs,
+ * filtered before analysis by /v2/run).
+ */
+const VALID_NODE_KINDS = new Set<string>([
+  'goal', 'factor', 'outcome', 'decision', 'risk', 'action', 'option',
+] satisfies (EngineNodeKindV3 | 'option')[]);
 
 // Canonical field allow-lists for patch operations
 const CANONICAL_EDGE_FIELDS = new Set([
@@ -306,6 +315,13 @@ function structuralPreCheck(graph: GraphState): ViolationV3[] {
       violations.push({
         code: 'INVALID_NODE_ID',
         message: `Node ID '${node.id}' contains invalid characters (must match ^[a-z0-9_:-]+$)`,
+        node_id: node.id,
+      });
+    }
+    if (node.kind !== undefined && !VALID_NODE_KINDS.has(node.kind)) {
+      violations.push({
+        code: 'INVALID_NODE_KIND',
+        message: `Node '${node.id}' has invalid kind '${node.kind}'. Allowed: ${[...VALID_NODE_KINDS].join(', ')}`,
         node_id: node.id,
       });
     }
@@ -610,6 +626,8 @@ export async function registerValidatePatchRoute(app: FastifyInstance) {
           rejectionCode = 'POC_EDGE_LIMIT';
         } else if (codes.includes('POC_NODE_LIMIT')) {
           rejectionCode = 'POC_NODE_LIMIT';
+        } else if (codes.includes('INVALID_NODE_KIND')) {
+          rejectionCode = 'INVALID_NODE_KIND';
         }
         return reply.code(422).send({
           status: 'rejected',

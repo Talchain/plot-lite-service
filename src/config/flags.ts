@@ -87,9 +87,13 @@ export const FLAGS = {
     return process.env.NODE_ENV === 'test' || process.env.RENDER_SERVICE_NAME?.includes('staging') === true;
   },
 
-  // Track A: Validate-patch endpoint
+  // Track A: Validate-patch endpoint (default: true for staging/test)
+  /** Enable validate-patch endpoint (default: true for staging/test, off for production unless explicit) */
   get ENABLE_VALIDATE_PATCH() {
-    return process.env.ENABLE_VALIDATE_PATCH === '1' || process.env.ENABLE_VALIDATE_PATCH === 'true';
+    const raw = process.env.ENABLE_VALIDATE_PATCH;
+    if (raw === '0' || raw === 'false') return false;
+    if (raw === '1' || raw === 'true') return true;
+    return process.env.NODE_ENV === 'test' || process.env.RENDER_SERVICE_NAME?.includes('staging') === true;
   },
 
   // Stream D: Review pass (deterministic cards from facts + validation)
