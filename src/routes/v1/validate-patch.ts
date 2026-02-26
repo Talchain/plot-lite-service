@@ -10,6 +10,8 @@
  *   3. Semantic repairs (defaults, clamping, direction inference)
  *   4. Full schema validation
  *   5. Compute deterministic graph hash
+ *
+ * @see openapi/openapi-plot-lite-v1.yaml — /v1/validate-patch path
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
