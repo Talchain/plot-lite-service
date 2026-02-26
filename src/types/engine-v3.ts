@@ -499,40 +499,74 @@ export type CritiqueSourceV3 = 'validation' | 'engine' | 'cee' | 'isl';
 
 /**
  * BLOCKER critique codes for preflight validation.
+ * The array is the single source of truth; the union type is derived from it.
  */
-export type BlockerCode =
-  | 'MISSING_GOAL_NODE'
-  | 'GOAL_NODE_NOT_IN_GRAPH'  // Canonical code for goal node validation
-  | 'GOAL_NODE_NOT_CAUSAL'    // Goal is a non-causal node (option/decision)
-  | 'NO_OPTIONS'
-  | 'TOO_MANY_OPTIONS'        // Options exceed MAX_OPTIONS limit
-  | 'EMPTY_INTERVENTIONS'
-  | 'INVALID_INTERVENTION_TARGET'
-  | 'INVALID_INTERVENTION_VALUE'
-  | 'NO_PATH_TO_GOAL'
+export const BLOCKER_CODES = [
+  'MISSING_GOAL_NODE',
+  'GOAL_NODE_NOT_IN_GRAPH',   // Canonical code for goal node validation
+  'GOAL_NODE_NOT_CAUSAL',     // Goal is a non-causal node (option/decision)
+  'NO_OPTIONS',
+  'TOO_MANY_OPTIONS',         // Options exceed MAX_OPTIONS limit
+  'EMPTY_INTERVENTIONS',
+  'INVALID_INTERVENTION_TARGET',
+  'INVALID_INTERVENTION_VALUE',
+  'NO_PATH_TO_GOAL',
   // Constraint validation blockers
-  | 'CONSTRAINT_TARGET_NOT_FOUND'      // node_id not in graph.nodes
-  | 'CONSTRAINT_TARGET_NOT_IN_INFERENCE' // Target node kind is decision, option, or constraint
-  | 'CONSTRAINT_INVALID_OPERATOR'      // Operator not >= or <=
-  | 'CONSTRAINT_DUPLICATE_ID'          // Two constraints share the same constraint_id
-  | 'IDENTICAL_OPTIONS'
-  | 'INVALID_NODE_ID_PATTERN'
-  | 'INVALID_EDGE_ENDPOINT'
-  | 'DUPLICATE_NODE_IDS'
-  | 'GRAPH_TOO_LARGE'
-  | 'IDENTIFIABILITY_ISSUE'
-  | 'GRAPH_CYCLE_DETECTED'
-  | 'ISL_CANNOT_IDENTIFY';
+  'CONSTRAINT_TARGET_NOT_FOUND',        // node_id not in graph.nodes
+  'CONSTRAINT_TARGET_NOT_IN_INFERENCE',  // Target node kind is decision, option, or constraint
+  'CONSTRAINT_INVALID_OPERATOR',        // Operator not >= or <=
+  'CONSTRAINT_DUPLICATE_ID',            // Two constraints share the same constraint_id
+  'IDENTICAL_OPTIONS',
+  'INVALID_NODE_ID_PATTERN',
+  'INVALID_EDGE_ENDPOINT',
+  'DUPLICATE_NODE_IDS',
+  'GRAPH_TOO_LARGE',
+  'IDENTIFIABILITY_ISSUE',
+  'GRAPH_CYCLE_DETECTED',
+  'ISL_CANNOT_IDENTIFY',
+] as const;
+
+export type BlockerCode = (typeof BLOCKER_CODES)[number];
 
 /**
  * WARNING critique codes for constraint validation.
  * These do not block analysis but indicate potential issues.
+ * The array is the single source of truth; the union type is derived from it.
  */
-export type ConstraintWarningCode =
-  | 'CONSTRAINT_VALUE_OUTSIDE_RANGE'  // Value outside derivable state_space.range for target node
-  | 'CONSTRAINT_MISSING_RANGE'        // Target node has no derivable range (heuristic fallback needed)
-  | 'CONSTRAINT_DUPLICATE_TARGET'     // Two constraints target same node with same operator (after dedupe)
-  | 'CONSTRAINT_TARGET_NO_OBSERVED_VALUE'; // Factor node targeted by constraint has no observed_state.value
+export const CONSTRAINT_WARNING_CODES = [
+  'CONSTRAINT_VALUE_OUTSIDE_RANGE',        // Value outside derivable state_space.range for target node
+  'CONSTRAINT_MISSING_RANGE',              // Target node has no derivable range (heuristic fallback needed)
+  'CONSTRAINT_DUPLICATE_TARGET',           // Two constraints target same node with same operator (after dedupe)
+  'CONSTRAINT_TARGET_NO_OBSERVED_VALUE',   // Factor node targeted by constraint has no observed_state.value
+] as const;
+
+export type ConstraintWarningCode = (typeof CONSTRAINT_WARNING_CODES)[number];
+
+/**
+ * Critique codes emitted inline in v2/run.ts and preflight-v2.ts
+ * (not covered by BlockerCode or ConstraintWarningCode).
+ * Used by template-coverage tests to detect drift.
+ */
+export const INLINE_CRITIQUE_CODES = [
+  // v2/run.ts
+  'NORMALIZATION_ERROR',
+  'NORMALIZATION_WARNING',
+  'IDENTIFIABILITY_WARNING',
+  'UNMEASURED_CONFOUNDING_WARNING',
+  'ISL_NOT_ENABLED',
+  'CONSTRAINT_OUT_OF_DOMAIN',
+  'CONSTRAINT_FILTERED_TEMPORAL',
+  'ISL_REQUEST_INVALID',
+  'ISL_CALL_FAILED',
+  'ISL_EMPTY_RESULTS',
+  'ISL_ERROR',
+  // preflight-v2.ts
+  'SCALE_MISMATCH_WARNING',
+  'INVALID_BIDIRECTED_EDGE',
+  'IDENTICAL_OPTIONS_DEDUPED',
+] as const;
+
+export type InlineCritiqueCode = (typeof INLINE_CRITIQUE_CODES)[number];
 
 /**
  * Actionable critique with structured metadata.
@@ -544,8 +578,10 @@ export interface CritiqueV3 {
   code: BlockerCode | string;
   /** Severity level */
   severity: CritiqueSeverityV3;
-  /** User-facing message */
+  /** Internal/debug message — not for UI display */
   message: string;
+  /** Human-readable message for UI display — no internal IDs or field paths */
+  user_message?: string;
   /** Where this critique originated */
   source: CritiqueSourceV3;
   /** Affected option IDs (for option-specific critiques) */

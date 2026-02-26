@@ -5784,7 +5784,7 @@ components:
 
     critiqueV3:
       type: object
-      required: [id, code, severity, message, source, blocks_analysis]
+      required: [id, code, severity, message, user_message, source, blocks_analysis]
       description: |
         Actionable critique with structured metadata.
         Blockers cause 422; warnings/info included in 200 responses.
@@ -5818,6 +5818,14 @@ components:
           enum: [info, warning, error, blocker]
         message:
           type: string
+          description: Internal/debug message — not for UI display. May contain raw node IDs and field paths.
+        user_message:
+          type: string
+          description: |
+            Human-readable message for UI display. Never contains raw internal IDs
+            (fac_*, opt_*, goal_*, constraint_*), field paths (observed_state.value),
+            or ISL internals (intercept=0). Generated from a deterministic template map
+            keyed by critique code. Falls back to a generic message for unrecognised codes.
         source:
           type: string
           enum: [validation, isl]

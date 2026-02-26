@@ -57,6 +57,8 @@ import type {
   InferenceWarning,
 } from '../../types/engine-v3.js';
 import { INFERENCE_WARNING_CODES } from '../../types/engine-v3.js';
+import { addUserMessages } from '../../critique-humaniser.js';
+import type { GraphForLabels } from '../../critique-humaniser.js';
 // Seed derivation: when seed omitted, derive deterministically from graph hash
 import { normaliseGraph, NormalisationError, cleanLabelAnnotation, type NormalisationWarning } from '../../normalisation/graph-normaliser.js';
 import { filterOptionNodes } from '../../normalisation/option-filter.js';
@@ -690,12 +692,14 @@ interface CeeResultsParams {
  */
 function buildBlockedResponse(
   statusReason: string,
-  critiques: CritiqueV3[]
+  critiques: CritiqueV3[],
+  graph?: GraphForLabels,
+  options?: ReadonlyArray<{ id: string; label: string }>,
 ): V2RunError {
   return {
     analysis_status: 'blocked',
     status_reason: statusReason,
-    critiques,
+    critiques: addUserMessages(critiques, graph, options),
     // CIL 0.2: maintain robustness contract on blocked responses
     robustness: {
       fragile_edges: [],
@@ -1296,7 +1300,7 @@ function buildResponse(
     isl_analysis_status: islAnalysisStatus,
     isl_status_reason: islStatusReason,
 
-    critiques,
+    critiques: addUserMessages(critiques, graph ?? { nodes: [] }, options),
     option_comparison: optionComparison,
     edge_sensitivity: edgeSensitivity,
     factor_sensitivity: factorSensitivity,
@@ -1995,7 +1999,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                 source: 'validation',
                 affected_node_ids: err.nodeId ? [err.nodeId] : undefined,
                 blocks_analysis: true,
-              }]
+              }],
+              body.graph,
             ));
           }
           throw err;
@@ -2039,7 +2044,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               message: 'Goal node is required for option comparison. Please select a goal node.',
               source: 'validation',
               blocks_analysis: true,
-            }]
+            }],
+            normalizedGraph,
           ));
         }
 
@@ -2057,7 +2063,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               source: 'validation',
               affected_node_ids: [body.goal_node_id],
               blocks_analysis: true,
-            }]
+            }],
+            normalizedGraph,
           ));
         }
 
@@ -2073,7 +2080,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               source: 'validation',
               affected_node_ids: [body.goal_node_id],
               blocks_analysis: true,
-            }]
+            }],
+            normalizedGraph,
           ));
         }
 
@@ -2218,7 +2226,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         if (constraintValidation.blockers.length > 0) {
           return reply.status(422).send(buildBlockedResponse(
             'Constraint validation failed',
-            constraintValidation.blockers
+            constraintValidation.blockers,
+            filteredGraph,
+            normalizedOptions,
           ));
         }
 
@@ -2313,7 +2323,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         if (!preflight.passed) {
           return reply.status(422).send(buildBlockedResponse(
             'Preflight validation failed',
-            [...preflight.blockers, ...preflight.warnings]
+            [...preflight.blockers, ...preflight.warnings],
+            filteredGraph,
+            normalizedOptions,
           ));
         }
 
@@ -2644,7 +2656,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               message: msg,
               source: 'validation' as const,
               blocks_analysis: true,
-            }))
+            })),
+            filteredGraph,
+            normalizedOptions,
           ));
         }
 
@@ -2832,7 +2846,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
 
           return reply.status(422).send(buildBlockedResponse(
             islError.getErrorMessage(),
-            critiques
+            critiques,
+            filteredGraph,
+            normalizedOptions,
           ));
         }
 

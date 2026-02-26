@@ -480,7 +480,8 @@ function validatePathsToGoal(
         createBlocker(
           'NO_PATH_TO_GOAL',
           `Option '${result.optionLabel}' has no causal effect on the goal. Interventions must affect variables connected to the goal.`,
-          [result.optionId]
+          [result.optionId],
+          [goalNodeId]
         )
       );
     }
