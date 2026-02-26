@@ -375,7 +375,7 @@ function applySemanticRepairs(
   for (const edge of graph.edges) {
     const edgeId = `${edge.from}->${edge.to}`;
 
-    // DEFAULT_EXISTS_PROBABILITY
+    // DEFAULT_EXISTS_PROBABILITY — @see constants/limits.ts (single source of truth)
     if (edge.exists_probability === undefined || edge.exists_probability === null) {
       const before = edge.exists_probability;
       edge.exists_probability = DEFAULT_EXISTS_PROBABILITY;
