@@ -18,6 +18,7 @@ import type {
 } from '../types/engine-v3.js';
 import { NON_CAUSAL_NODE_KINDS } from '../types/engine-v3.js';
 import { DEFAULT_EXISTS_PROBABILITY } from '../constants/limits.js';
+import { REPAIR_CODES } from './repair-codes.js';
 
 // -----------------------------------------------------------------------------
 // Error Types
@@ -176,7 +177,7 @@ export function normaliseNode(
     !NON_CAUSAL_NODE_KINDS.includes(normalizedKind as (typeof NON_CAUSAL_NODE_KINDS)[number])
   ) {
     warnings?.push({
-      code: 'UNKNOWN_NODE_KIND',
+      code: REPAIR_CODES.UNKNOWN_NODE_KIND,
       message: `Node '${node.id}' has unknown kind '${normalizedKind}'`,
       node_id: node.id,
     });
@@ -258,7 +259,7 @@ export function normaliseNode(
     // Type check: category must be a string
     if (typeof rawCategory !== 'string') {
       warnings?.push({
-        code: 'INVALID_CATEGORY',
+        code: REPAIR_CODES.INVALID_CATEGORY,
         message: `Node '${node.id}': category must be a string, got ${typeof rawCategory}`,
         node_id: node.id,
         repair: {
@@ -278,7 +279,7 @@ export function normaliseNode(
       } else {
         // Invalid category value - issue warning with repair metadata
         warnings?.push({
-          code: 'INVALID_CATEGORY',
+          code: REPAIR_CODES.INVALID_CATEGORY,
           message: `Node '${node.id}' has invalid category '${rawCategory}'. Valid values: controllable, observable, external`,
           node_id: node.id,
           repair: {
@@ -300,6 +301,22 @@ export function normaliseNode(
   const cleanedLabel = cleanLabelAnnotation(rawLabel);
   const finalLabel = cleanedLabel || node.id; // Fallback to ID if cleaning produces empty string
 
+  // Emit repair if label was modified by annotation cleaning
+  if (finalLabel !== rawLabel) {
+    warnings?.push({
+      code: REPAIR_CODES.CLEAN_LABEL_ANNOTATION,
+      message: `Node '${node.id}': label annotation stripped`,
+      node_id: node.id,
+      repair: {
+        field: 'node.label',
+        action: 'normalised',
+        from_value: rawLabel,
+        to_value: finalLabel,
+        reason: 'Scale/encoding annotation suffix stripped from label',
+      },
+    });
+  }
+
   // Validate and pass through prior field (for external factor priors from CEE)
   let prior: EngineNodeV3['prior'] | undefined;
   if (node.prior !== undefined) {
@@ -315,14 +332,14 @@ export function normaliseNode(
       // Warn if prior exists on non-external factor
       if (category !== 'external') {
         warnings?.push({
-          code: 'PRIOR_ON_NON_EXTERNAL',
+          code: REPAIR_CODES.PRIOR_ON_NON_EXTERNAL,
           message: `Node '${node.id}' has prior but category is '${category ?? 'undefined'}' (expected 'external'). Prior will be ignored.`,
           node_id: node.id,
         });
       }
     } else {
       warnings?.push({
-        code: 'INVALID_PRIOR',
+        code: REPAIR_CODES.INVALID_PRIOR,
         message: `Node '${node.id}' has malformed prior (requires distribution:string, range_min:number, range_max:number). Prior dropped.`,
         node_id: node.id,
         repair: {
@@ -447,8 +464,10 @@ export function normaliseEdge(
 
   /**
    * Push a coefficient repair warning with structured repair data.
+   * @param code Canonical repair code from REPAIR_CODES
    */
-  const pushCoefficientWarning = (
+  const pushRepairWarning = (
+    code: string,
     message: string,
     repair: {
       field: string;
@@ -459,7 +478,7 @@ export function normaliseEdge(
     }
   ) => {
     warnings?.push({
-      code: 'COEFFICIENT_REPAIRED',
+      code,
       message,
       edge_id: edgeId,
       repair,
@@ -471,7 +490,8 @@ export function normaliseEdge(
   let existsProbability: number;
   if (rawExistsProbability === undefined) {
     existsProbability = DEFAULT_EXISTS_PROBABILITY;
-    pushCoefficientWarning(
+    pushRepairWarning(
+      REPAIR_CODES.DEFAULT_EXISTS_PROBABILITY,
       `Edge ${edgeId}: exists_probability defaulted to ${DEFAULT_EXISTS_PROBABILITY}`,
       {
         field: 'edge.exists_probability',
@@ -483,7 +503,8 @@ export function normaliseEdge(
     );
   } else if (typeof rawExistsProbability !== 'number' || !Number.isFinite(rawExistsProbability)) {
     existsProbability = DEFAULT_EXISTS_PROBABILITY;
-    pushCoefficientWarning(
+    pushRepairWarning(
+      REPAIR_CODES.INVALID_EXISTS_PROBABILITY,
       `Edge ${edgeId}: exists_probability invalid, defaulted to ${DEFAULT_EXISTS_PROBABILITY}`,
       {
         field: 'edge.exists_probability',
@@ -496,7 +517,8 @@ export function normaliseEdge(
   } else {
     const clampedExistsProbability = clamp(rawExistsProbability, 0, 1);
     if (clampedExistsProbability !== rawExistsProbability) {
-      pushCoefficientWarning(
+      pushRepairWarning(
+        REPAIR_CODES.CLAMP_EXISTS_PROBABILITY,
         `Edge ${edgeId}: exists_probability clamped from ${rawExistsProbability} to ${clampedExistsProbability}`,
         {
           field: 'edge.exists_probability',
@@ -525,7 +547,8 @@ export function normaliseEdge(
       mean = rawMean;
       hasExplicitMean = true;
     } else {
-      pushCoefficientWarning(
+      pushRepairWarning(
+        REPAIR_CODES.INVALID_STRENGTH_MEAN,
         `Edge ${edgeId}: strength.mean invalid, defaulted using weight`,
         {
           field: 'edge.strength.mean',
@@ -543,7 +566,8 @@ export function normaliseEdge(
     let weight = edge.weight;
     if (weight === undefined) {
       weight = DEFAULT_WEIGHT;
-      pushCoefficientWarning(
+      pushRepairWarning(
+        REPAIR_CODES.DEFAULT_STRENGTH_MEAN,
         `Edge ${edgeId}: strength.mean defaulted using weight ${DEFAULT_WEIGHT}`,
         {
           field: 'edge.strength.mean',
@@ -556,7 +580,8 @@ export function normaliseEdge(
     } else if (typeof weight !== 'number' || !Number.isFinite(weight)) {
       const invalidWeight = weight;
       weight = DEFAULT_WEIGHT;
-      pushCoefficientWarning(
+      pushRepairWarning(
+        REPAIR_CODES.DEFAULT_STRENGTH_MEAN,
         `Edge ${edgeId}: strength.mean defaulted using weight ${DEFAULT_WEIGHT} (invalid weight)`,
         {
           field: 'edge.strength.mean',
@@ -578,7 +603,7 @@ export function normaliseEdge(
       direction = inferEffectDirection(fromKind, toKind);
       if (direction === 'negative') {
         warnings?.push({
-          code: 'DIRECTION_INFERRED',
+          code: REPAIR_CODES.INFER_EFFECT_DIRECTION,
           message: `Edge '${from}' -> '${to}': effect direction inferred as 'negative' from ${fromKind ?? 'unknown'} -> ${toKind ?? 'unknown'}`,
           edge_id: edgeId,
           repair: {
@@ -595,9 +620,32 @@ export function normaliseEdge(
     mean = direction === 'negative' ? -Math.abs(weight) : Math.abs(weight);
   }
 
+  // APPLY_SIGN_FROM_DIRECTION: When mean is explicitly provided but an explicit
+  // direction field says negative and mean is positive, flip the sign.
+  // This ensures parity with validate-patch's semantic repair.
+  if (hasExplicitMean) {
+    const explicitDirection = edge.effect_direction ?? edge.direction;
+    if (explicitDirection === 'negative' && mean > 0) {
+      const before = mean;
+      mean = -Math.abs(mean);
+      pushRepairWarning(
+        REPAIR_CODES.APPLY_SIGN_FROM_DIRECTION,
+        `Edge ${edgeId}: applied negative sign from effect_direction`,
+        {
+          field: 'edge.strength.mean',
+          action: 'inferred',
+          from_value: before,
+          to_value: mean,
+          reason: 'Applied negative sign from explicit effect_direction',
+        }
+      );
+    }
+  }
+
   const clampedMean = clamp(mean, -1, 1);
   if (clampedMean !== mean) {
-    pushCoefficientWarning(
+    pushRepairWarning(
+      REPAIR_CODES.CLAMP_STRENGTH_MEAN,
       `Edge ${edgeId}: strength.mean clamped from ${mean} to ${clampedMean}`,
       {
         field: 'edge.strength.mean',
@@ -616,7 +664,8 @@ export function normaliseEdge(
       std = rawStd;
     } else {
       std = deriveStd(mean, existsProbability);
-      pushCoefficientWarning(
+      pushRepairWarning(
+        REPAIR_CODES.INVALID_STRENGTH_STD,
         `Edge ${edgeId}: strength.std invalid, defaulted to ${std}`,
         {
           field: 'edge.strength.std',
@@ -633,7 +682,8 @@ export function normaliseEdge(
       std = (1 - edge.belief_strength) * 0.5 * Math.abs(mean) + 0.05;
     } else {
       std = deriveStd(mean, existsProbability);
-      pushCoefficientWarning(
+      pushRepairWarning(
+        REPAIR_CODES.INVALID_STRENGTH_STD,
         `Edge ${edgeId}: strength.std defaulted to ${std} (invalid belief_strength)`,
         {
           field: 'edge.strength.std',
@@ -646,7 +696,8 @@ export function normaliseEdge(
     }
   } else {
     std = deriveStd(mean, existsProbability);
-    pushCoefficientWarning(
+    pushRepairWarning(
+      REPAIR_CODES.DEFAULT_STRENGTH_STD,
       `Edge ${edgeId}: strength.std defaulted to ${std}`,
       {
         field: 'edge.strength.std',
@@ -661,7 +712,8 @@ export function normaliseEdge(
   if (!Number.isFinite(std)) {
     const prevStd = std;
     std = MIN_STD;
-    pushCoefficientWarning(
+    pushRepairWarning(
+      REPAIR_CODES.FLOOR_STRENGTH_STD,
       `Edge ${edgeId}: strength.std floored from ${prevStd} to ${MIN_STD}`,
       {
         field: 'edge.strength.std',
@@ -678,7 +730,8 @@ export function normaliseEdge(
     const effectiveMinStd = isStructural ? STRUCTURAL_STD_MIN : STD_RANGE_MIN;
     const clampedStd = clamp(std, effectiveMinStd, STD_RANGE_MAX);
     if (clampedStd !== std) {
-      pushCoefficientWarning(
+      pushRepairWarning(
+        REPAIR_CODES.CLAMP_STRENGTH_STD,
         `Edge ${edgeId}: strength.std clamped from ${std} to ${clampedStd}`,
         {
           field: 'edge.strength.std',
@@ -695,7 +748,8 @@ export function normaliseEdge(
     if (std <= 0) {
       const prevStd = std;
       std = MIN_STD;
-      pushCoefficientWarning(
+      pushRepairWarning(
+        REPAIR_CODES.FLOOR_STRENGTH_STD,
         `Edge ${edgeId}: strength.std floored from ${prevStd} to ${MIN_STD}`,
         {
           field: 'edge.strength.std',
@@ -744,7 +798,7 @@ export interface NormalisationWarning {
    */
   repair?: {
     field: string;
-    action: 'clamped' | 'defaulted' | 'inferred' | 'floored' | 'derived';
+    action: 'clamped' | 'defaulted' | 'inferred' | 'floored' | 'derived' | 'normalised';
     from_value: number | string | null;
     to_value: number | string;
     reason: string;

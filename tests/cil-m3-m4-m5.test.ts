@@ -147,8 +147,9 @@ describe('CIL M4: repairs_applied unconditionally present', () => {
     expect(Array.isArray(body._meta.repairs_applied)).toBe(true);
 
     // Should contain the defaulted exists_probability repair
+    // field_path is now entity-prefixed (e.g., 'factor-a->goal.exists_probability')
     const epRepair = body._meta.repairs_applied.find(
-      (r: any) => r.field === 'edge.exists_probability' && r.action === 'defaulted'
+      (r: any) => r.field.endsWith('.exists_probability') && r.action === 'defaulted'
     );
     expect(epRepair).toBeDefined();
     expect(epRepair.to_value).toBe(0.8);

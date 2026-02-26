@@ -60,7 +60,8 @@ import { INFERENCE_WARNING_CODES } from '../../types/engine-v3.js';
 import { addUserMessages } from '../../critique-humaniser.js';
 import type { GraphForLabels } from '../../critique-humaniser.js';
 // Seed derivation: when seed omitted, derive deterministically from graph hash
-import { normaliseGraph, NormalisationError, cleanLabelAnnotation, type NormalisationWarning } from '../../normalisation/graph-normaliser.js';
+import { NormalisationError, cleanLabelAnnotation, type NormalisationWarning } from '../../normalisation/graph-normaliser.js';
+import { normaliseGraphWithRepairs } from '../../normalisation/normalise-and-repair.js';
 import { filterOptionNodes } from '../../normalisation/option-filter.js';
 import { hashRequest, HASH_VERSION } from '../../normalisation/canonicalise.js';
 import { hashGraph, deriveSeedFromHash } from '../../sampling/graph-hash.js';
@@ -150,27 +151,6 @@ function hasNonEmptyArray(value: unknown): boolean {
 // -----------------------------------------------------------------------------
 // Repair Extraction
 // -----------------------------------------------------------------------------
-
-/**
- * Extract RepairRecords from normalisation warnings.
- * Only warnings with a `repair` object are included.
- *
- * @param warnings Normalisation warnings from normaliseGraph()
- * @returns Array of RepairRecords for _meta.repairs_applied
- */
-function extractRepairsFromWarnings(warnings: NormalisationWarning[]): RepairRecord[] {
-  return warnings
-    .filter((w): w is NormalisationWarning & { repair: NonNullable<NormalisationWarning['repair']> } =>
-      w.repair !== undefined
-    )
-    .map((w) => ({
-      field: w.repair.field,
-      action: w.repair.action,
-      from_value: w.repair.from_value,
-      to_value: w.repair.to_value,
-      reason: w.repair.reason,
-    }));
-}
 
 /**
  * Transform ISL sensitivity array to edge sensitivity response format.
@@ -1311,8 +1291,10 @@ function buildResponse(
     // NOTE: Configuration metadata, NOT in response_hash. The categorical labels it
     // influences (attribution_stability in factor_stability) are already in the hash.
     ...(stabilityThresholdsExtracted ? { stability_thresholds: stabilityThresholdsExtracted } : {}),
-    // Diagnostic warnings about inference metadata inconsistencies (info-level, NOT in response_hash)
-    ...(inferenceWarnings.length > 0 && { inference_warnings: inferenceWarnings }),
+    // Sentinel contract: inference_warnings is ALWAYS present ([] when empty, never absent).
+    // Consumers can distinguish "no warnings assessed" (field absent on old builds)
+    // from "warnings assessed, none found" (empty array).
+    inference_warnings: inferenceWarnings,
     // Factor enrichments from CEE /assist/v1/review (undefined when unavailable)
     // NOTE: Non-deterministic (LLM-derived), excluded from canonical hash
     ...(factorEnrichments && { factor_enrichments: factorEnrichments }),
@@ -1979,13 +1961,19 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         let normalizedOptions = normalizeOptions(body.options);
 
         try {
-          const result = normaliseGraph(body.graph);
-          normalizedGraph = result.graph;
-          nodesNormalised = result.nodesNormalised;
-          edgesNormalised = result.edgesNormalised;
-          normWarnings = result.warnings;
-          // Extract structured repair records for _meta
-          repairs = extractRepairsFromWarnings(normWarnings);
+          const normResult = normaliseGraphWithRepairs(body.graph);
+          normalizedGraph = normResult.graph;
+          nodesNormalised = normResult.nodesNormalised;
+          edgesNormalised = normResult.edgesNormalised;
+          normWarnings = normResult.warnings;
+          // Convert canonical RepairEntry[] → RepairRecord[] for _meta compatibility
+          repairs = normResult.repairs.map(r => ({
+            field: r.field_path,
+            action: r.action,
+            from_value: r.before as number | string | null,
+            to_value: r.after as number | string,
+            reason: r.reason,
+          }));
         } catch (err) {
           if (err instanceof NormalisationError) {
             // Return 422 with V2RunError for normalization failures

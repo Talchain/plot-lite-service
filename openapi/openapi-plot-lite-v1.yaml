@@ -104,6 +104,66 @@ paths:
           $ref: '#/components/responses/Timeout'
         '503':
           $ref: '#/components/responses/Retryable'
+  /v2/run:
+    post:
+      summary: Run causal inference analysis with option comparison
+      operationId: v2Run
+      description: >
+        Primary analysis endpoint. Takes a causal graph, two or more options (with interventions),
+        and runs ISL inference to compare outcomes. Pre-ISL normalisation is performed by the same
+        shared normaliser used by /v1/validate-patch, ensuring normalisation parity.
+        Returns option comparison results, sensitivity analysis, robustness assessment,
+        and diagnostic metadata.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: X-Request-Id
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Client correlation ID. Echoed in response as request_id.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/V2RunRequest'
+      responses:
+        '200':
+          description: Analysis completed (computed or partial)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/V2RunResponse'
+        '400':
+          description: Invalid request (unknown fields, missing required fields)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode: { type: integer, enum: [400] }
+                  error: { type: string, enum: ['Bad Request'] }
+                  message: { type: string }
+                required: [statusCode, error, message]
+        '422':
+          description: Validation blocked (preflight failures, graph issues)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/V2RunError'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode: { type: integer, enum: [500] }
+                  error: { type: string, enum: ['Internal Server Error'] }
+                  message: { type: string }
+                required: [statusCode, error, message]
   /v1/validate-patch:
     post:
       summary: Validate and apply patch operations to a causal graph
@@ -550,6 +610,22 @@ components:
           enum: [applied]
         graph:
           type: object
+          description: Input graph after patch operations (pre-normalisation)
+          properties:
+            nodes:
+              type: array
+              items:
+                $ref: '#/components/schemas/EngineNodeV3'
+            edges:
+              type: array
+              items:
+                $ref: '#/components/schemas/EngineEdgeV3'
+        normalised_graph:
+          type: object
+          description: >
+            Normalised graph — the canonical form the UI should adopt after
+            patch acceptance. Produced by the same shared normaliser used by
+            /v2/run, ensuring normalisation parity.
           properties:
             nodes:
               type: array
@@ -562,7 +638,7 @@ components:
         graph_hash:
           type: string
           pattern: '^[0-9a-f]{16}$'
-          description: Deterministic SHA-256 hash (16-char hex) of the canonical graph
+          description: Deterministic SHA-256 hash (16-char hex) of the normalised graph
         repairs_applied:
           type: array
           items:
@@ -570,12 +646,15 @@ components:
         warnings:
           type: array
           description: >
-            Warning codes: DEFAULT_EXISTS_PROBABILITY, NORMALISE_STRENGTH_RANGE,
-            CLAMP_STD_MINIMUM, INFER_EFFECT_DIRECTION, APPLY_SIGN_FROM_DIRECTION,
-            CASCADE_REMOVE_EDGE, CASCADE_REMOVE_EDGE_SUMMARY
+            Warning codes from shared normaliser (canonical REPAIR_CODES):
+            DEFAULT_EXISTS_PROBABILITY, CLAMP_EXISTS_PROBABILITY,
+            CLAMP_STRENGTH_MEAN, CLAMP_STRENGTH_STD, FLOOR_STRENGTH_STD,
+            INFER_EFFECT_DIRECTION, APPLY_SIGN_FROM_DIRECTION,
+            CLEAN_LABEL_ANNOTATION, CASCADE_REMOVE_EDGE,
+            CASCADE_REMOVE_EDGE_SUMMARY
           items:
             $ref: '#/components/schemas/ValidationWarning'
-      required: [status, graph, graph_hash, repairs_applied, warnings]
+      required: [status, graph, normalised_graph, graph_hash, repairs_applied, warnings]
     ValidatePatchRejection:
       type: object
       properties:
@@ -597,15 +676,33 @@ components:
       required: [status, code, message]
     RepairEntry:
       type: object
+      description: >
+        Canonical repair entry from the shared normaliser. Uses codes from
+        REPAIR_CODES enum in normalisation/repair-codes.ts (SSOT).
       properties:
-        code: { type: string }
+        code:
+          type: string
+          description: >
+            Canonical repair code. See repair-codes.ts for full catalogue:
+            DEFAULT_EXISTS_PROBABILITY, CLAMP_EXISTS_PROBABILITY,
+            DEFAULT_STRENGTH_MEAN, CLAMP_STRENGTH_MEAN,
+            DEFAULT_STRENGTH_STD, CLAMP_STRENGTH_STD, FLOOR_STRENGTH_STD,
+            INFER_EFFECT_DIRECTION, APPLY_SIGN_FROM_DIRECTION,
+            INVALID_CATEGORY, INVALID_PRIOR, UNKNOWN_NODE_KIND,
+            CLEAN_LABEL_ANNOTATION, CASCADE_REMOVE_EDGE
         layer: { type: string, enum: [plot] }
-        field_path: { type: string }
+        field_path:
+          type: string
+          description: Entity-prefixed dotted path (e.g., 'a->goal.exists_probability')
         before: {}
         after: {}
         reason: { type: string }
         severity: { type: string, enum: [info, warn] }
-      required: [code, layer, field_path, reason, severity]
+        action:
+          type: string
+          enum: [clamped, defaulted, inferred, floored, derived, normalised, removed]
+          description: Type of repair action applied
+      required: [code, layer, field_path, reason, severity, action]
     ValidationWarning:
       type: object
       properties:
@@ -620,4 +717,291 @@ components:
         message: { type: string }
         node_id: { type: string }
         edge_id: { type: string }
+      required: [code, message]
+    # =========================================================================
+    # /v2/run schemas
+    # =========================================================================
+    V2RunRequest:
+      type: object
+      properties:
+        graph:
+          type: object
+          description: Causal graph to analyse
+          required: [nodes, edges]
+          properties:
+            nodes:
+              type: array
+              items:
+                $ref: '#/components/schemas/EngineNodeV3'
+            edges:
+              type: array
+              items:
+                $ref: '#/components/schemas/EngineEdgeV3'
+        options:
+          type: array
+          description: Two or more options with interventions to compare
+          minItems: 2
+          items:
+            $ref: '#/components/schemas/OptionV3'
+        goal_node_id:
+          type: string
+          description: ID of the goal node for outcome comparison
+        seed:
+          oneOf:
+            - type: string
+            - type: number
+          description: Determinism seed. Accepts string or number; normalised to string internally.
+        n_samples:
+          type: integer
+          minimum: 100
+          maximum: 10000
+          default: 1000
+          description: Number of Monte Carlo samples for inference
+        goal_threshold:
+          type: number
+          nullable: true
+          description: Success threshold for the goal node. Enables probability_of_goal in response.
+        goal_constraints:
+          type: array
+          description: Multi-constraint analysis targets
+          items:
+            $ref: '#/components/schemas/GoalConstraint'
+        include_thresholds:
+          type: boolean
+          default: false
+          description: When true, run threshold (tipping-point) analysis
+        brief:
+          type: string
+          maxLength: 10000
+          description: Decision description for CEE enrichment
+        request_id:
+          type: string
+          description: Client-provided request correlation ID
+        idempotency_key:
+          type: string
+          description: Idempotency key for duplicate request detection
+        detail_level:
+          type: string
+          enum: [quick, standard, deep]
+          default: standard
+      required: [graph, options, goal_node_id]
+    OptionV3:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Unique option identifier
+        label:
+          type: string
+          description: Human-readable option label
+        interventions:
+          type: object
+          description: Map of node_id → intervention value. Must be non-empty.
+          additionalProperties:
+            $ref: '#/components/schemas/InterventionValueV3'
+      required: [id, label, interventions]
+    InterventionValueV3:
+      type: object
+      properties:
+        value:
+          type: number
+          description: Intervention value (scaled 0-1)
+        source:
+          type: string
+          enum: [brief_extraction, user_specified, cee_hypothesis]
+      required: [value, source]
+    GoalConstraint:
+      type: object
+      properties:
+        constraint_id:
+          type: string
+          description: Unique per request
+        node_id:
+          type: string
+          description: Target node (must exist in graph)
+        operator:
+          type: string
+          enum: ['>=', '<=']
+          description: Comparison operator (ASCII only)
+        value:
+          type: number
+          description: Threshold value in user units
+        label:
+          type: string
+          description: UI display label
+        weight:
+          type: number
+          description: Reserved for future weighted constraints
+      required: [constraint_id, node_id, operator, value]
+    V2RunResponse:
+      type: object
+      description: >
+        Successful analysis response. The analysis_status field indicates whether
+        inference completed fully ('computed') or partially ('partial').
+      properties:
+        request_schema_version:
+          type: string
+          enum: ['v3']
+        endpoint_version:
+          type: string
+          enum: ['v2/run']
+        analysis_status:
+          type: string
+          enum: [computed, partial, failed, blocked]
+          description: Top-level analysis outcome
+        status_reason:
+          type: string
+          description: Human-readable reason when analysis_status is not 'computed'
+        request_id:
+          type: string
+          description: Echoed from X-Request-Id header or request body
+        critiques:
+          type: array
+          description: Validation critiques (blockers and non-blockers). Always present.
+          items:
+            $ref: '#/components/schemas/CritiqueV3'
+        option_comparison:
+          type: array
+          description: Per-option outcome comparison results
+          items:
+            $ref: '#/components/schemas/OptionComparisonResultV3'
+        edge_sensitivity:
+          type: array
+          description: Edge sensitivity analysis. Always present (may be empty).
+          items:
+            $ref: '#/components/schemas/EdgeSensitivityV3'
+        inference_warnings:
+          type: array
+          description: >
+            Sentinel contract: ALWAYS present. [] = assessed, no warnings.
+            Absence means "not assessed" (old builds only).
+          items:
+            $ref: '#/components/schemas/InferenceWarning'
+        identifiability:
+          type: object
+          description: Graph identifiability assessment
+        robustness:
+          type: object
+          description: Robustness assessment (sensitivity to edge removal)
+        option_comparison_status:
+          type: string
+          enum: [computed, unavailable, skipped, error]
+        robustness_status:
+          type: string
+          enum: [computed, unavailable, skipped, error]
+        drivers_status:
+          type: string
+          enum: [computed, unavailable, skipped, error]
+        response_hash:
+          type: string
+          description: Deterministic hash of semantic response fields
+        processing_time_ms:
+          type: number
+        meta:
+          type: object
+          description: Processing metadata
+          properties:
+            seed_used: { type: string }
+            seed_source: { type: string, enum: [client_generated, server_generated] }
+            n_samples: { type: integer }
+            detail_level: { type: string }
+            latency_ms: { type: number }
+      required:
+        - analysis_status
+        - critiques
+        - edge_sensitivity
+        - inference_warnings
+        - identifiability
+        - meta
+    V2RunError:
+      type: object
+      description: >
+        422 response when preflight validation blocks analysis.
+        Contains blocker critiques explaining why analysis cannot proceed.
+      properties:
+        analysis_status:
+          type: string
+          enum: [blocked, failed]
+        status_reason:
+          type: string
+          description: Human-readable blocker summary
+        critiques:
+          type: array
+          items:
+            $ref: '#/components/schemas/CritiqueV3'
+        robustness:
+          type: object
+          description: Empty robustness object (CIL 0.2 contract)
+      required: [analysis_status, status_reason, critiques]
+    CritiqueV3:
+      type: object
+      properties:
+        id: { type: string }
+        code:
+          type: string
+          description: >
+            Blocker codes include: MISSING_GOAL_NODE, GOAL_NODE_NOT_IN_GRAPH,
+            NO_OPTIONS, TOO_MANY_OPTIONS, EMPTY_INTERVENTIONS,
+            INVALID_INTERVENTION_TARGET, NO_PATH_TO_GOAL, IDENTICAL_OPTIONS,
+            GRAPH_TOO_LARGE, GRAPH_CYCLE_DETECTED, ISL_CANNOT_IDENTIFY
+        severity:
+          type: string
+          enum: [info, warning, error, blocker]
+        message: { type: string, description: Internal/debug message }
+        user_message: { type: string, description: UI-friendly message (no IDs) }
+        source:
+          type: string
+          enum: [validation, engine, cee, isl]
+        blocks_analysis: { type: boolean }
+        suggestion: { type: string }
+        affected_option_ids:
+          type: array
+          items: { type: string }
+        affected_node_ids:
+          type: array
+          items: { type: string }
+      required: [id, code, severity, message, source, blocks_analysis]
+    OptionComparisonResultV3:
+      type: object
+      properties:
+        option_id: { type: string }
+        option_label: { type: string }
+        outcome:
+          type: object
+          properties:
+            mean: { type: number }
+            std: { type: number }
+            p10: { type: number, description: 10th percentile }
+            p50: { type: number, description: Median }
+            p90: { type: number, description: 90th percentile }
+        probability_of_goal:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Present when goal_threshold is in request
+        win_probability:
+          type: number
+          minimum: 0
+          maximum: 1
+        status:
+          type: string
+          enum: [computed, skipped, error]
+      required: [option_id, option_label]
+    EdgeSensitivityV3:
+      type: object
+      properties:
+        edge_id: { type: string, description: 'Format: from::to' }
+        from: { type: string }
+        to: { type: string }
+        sensitivity_type: { type: string, enum: [existence, magnitude] }
+        elasticity: { type: number }
+        importance_rank: { type: integer, minimum: 1 }
+        interpretation: { type: string }
+      required: [edge_id, from, to, sensitivity_type, elasticity, importance_rank]
+    InferenceWarning:
+      type: object
+      properties:
+        code: { type: string }
+        message: { type: string }
+        severity: { type: string, enum: [info, warning, error] }
       required: [code, message]

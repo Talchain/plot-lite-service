@@ -13,6 +13,7 @@ import {
   normaliseEdge,
   deriveStd,
 } from '../../../src/normalisation/graph-normaliser.js';
+import { REPAIR_CODES } from '../../../src/normalisation/repair-codes.js';
 import type { EngineGraphV3 } from '../../../src/types/engine-v3.js';
 
 // -----------------------------------------------------------------------------
@@ -287,7 +288,7 @@ describe('INV-NORM-05: Normalisation idempotency', () => {
 // INV-NORM-06: Repair warnings emitted
 // -----------------------------------------------------------------------------
 describe('INV-NORM-06: Repair warnings are emitted', () => {
-  it('emits COEFFICIENT_REPAIRED for clamped exists_probability', () => {
+  it('emits CLAMP_EXISTS_PROBABILITY for clamped exists_probability', () => {
     const warnings: any[] = [];
     normaliseEdge(
       { from: 'A', to: 'B', exists_probability: 1.5, weight: 0.5 },
@@ -296,12 +297,12 @@ describe('INV-NORM-06: Repair warnings are emitted', () => {
       warnings
     );
 
-    const repairWarning = warnings.find(w => w.code === 'COEFFICIENT_REPAIRED');
+    const repairWarning = warnings.find(w => w.code === REPAIR_CODES.CLAMP_EXISTS_PROBABILITY);
     expect(repairWarning).toBeDefined();
     expect(repairWarning.message).toContain('clamped');
   });
 
-  it('emits COEFFICIENT_REPAIRED for defaulted strength.std', () => {
+  it('emits DEFAULT_STRENGTH_STD for defaulted strength.std', () => {
     const warnings: any[] = [];
     normaliseEdge(
       { from: 'A', to: 'B', weight: 0.5 },
@@ -311,12 +312,12 @@ describe('INV-NORM-06: Repair warnings are emitted', () => {
     );
 
     const repairWarning = warnings.find(w =>
-      w.code === 'COEFFICIENT_REPAIRED' && w.message.includes('strength.std')
+      w.code === REPAIR_CODES.DEFAULT_STRENGTH_STD && w.message.includes('strength.std')
     );
     expect(repairWarning).toBeDefined();
   });
 
-  it('emits DIRECTION_INFERRED for risk→goal edge', () => {
+  it('emits INFER_EFFECT_DIRECTION for risk→goal edge', () => {
     const warnings: any[] = [];
     const nodeKindMap = new Map([
       ['risk_node', 'risk'],
@@ -330,7 +331,7 @@ describe('INV-NORM-06: Repair warnings are emitted', () => {
       warnings
     );
 
-    const inferWarning = warnings.find(w => w.code === 'DIRECTION_INFERRED');
+    const inferWarning = warnings.find(w => w.code === REPAIR_CODES.INFER_EFFECT_DIRECTION);
     expect(inferWarning).toBeDefined();
     expect(inferWarning.message).toContain('negative');
   });
@@ -377,7 +378,7 @@ describe('INV-NORM-08: Repair records contain correct structure', () => {
     );
 
     const repairWarning = warnings.find(w =>
-      w.code === 'COEFFICIENT_REPAIRED' &&
+      w.code === REPAIR_CODES.CLAMP_EXISTS_PROBABILITY &&
       w.repair?.field === 'edge.exists_probability'
     );
     expect(repairWarning).toBeDefined();
@@ -400,7 +401,7 @@ describe('INV-NORM-08: Repair records contain correct structure', () => {
     );
 
     const repairWarning = warnings.find(w =>
-      w.code === 'COEFFICIENT_REPAIRED' &&
+      w.code === REPAIR_CODES.CLAMP_STRENGTH_MEAN &&
       w.repair?.field === 'edge.strength.mean'
     );
     expect(repairWarning).toBeDefined();
@@ -423,7 +424,7 @@ describe('INV-NORM-08: Repair records contain correct structure', () => {
     );
 
     const repairWarning = warnings.find(w =>
-      w.code === 'COEFFICIENT_REPAIRED' &&
+      w.code === REPAIR_CODES.CLAMP_STRENGTH_STD &&
       w.repair?.field === 'edge.strength.std'
     );
     expect(repairWarning).toBeDefined();
@@ -446,7 +447,7 @@ describe('INV-NORM-08: Repair records contain correct structure', () => {
     );
 
     const repairWarning = warnings.find(w =>
-      w.code === 'COEFFICIENT_REPAIRED' &&
+      w.code === REPAIR_CODES.DEFAULT_STRENGTH_STD &&
       w.repair?.field === 'edge.strength.std' &&
       w.repair?.action === 'derived'
     );
@@ -471,7 +472,7 @@ describe('INV-NORM-08: Repair records contain correct structure', () => {
       warnings
     );
 
-    const inferWarning = warnings.find(w => w.code === 'DIRECTION_INFERRED');
+    const inferWarning = warnings.find(w => w.code === REPAIR_CODES.INFER_EFFECT_DIRECTION);
     expect(inferWarning).toBeDefined();
     expect(inferWarning.repair).toEqual({
       field: 'edge.effect_direction',

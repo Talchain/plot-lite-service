@@ -156,7 +156,7 @@ describe('validate-patch contract', () => {
   // Fixture 4: Valid with repairs
   // =============================================================================
 
-  it('Fixture 4: applies semantic repairs (DEFAULT_EXISTS_PROBABILITY, CLAMP_STD_MINIMUM)', async () => {
+  it('Fixture 4: applies semantic repairs (DEFAULT_EXISTS_PROBABILITY, CLAMP_STRENGTH_STD)', async () => {
     const body = {
       graph: {
         nodes: [
@@ -171,7 +171,7 @@ describe('validate-patch contract', () => {
           path: 'a->goal',
           value: { from: 'a', to: 'goal', strength: { mean: 0.5, std: 0.0001 } },
           // No exists_probability → should get DEFAULT_EXISTS_PROBABILITY repair
-          // std 0.0001 < MIN_STD 0.001 → should get CLAMP_STD_MINIMUM repair
+          // std 0.0001 < STD_RANGE_MIN → should get CLAMP_STRENGTH_STD repair
         },
       ],
     };
@@ -183,12 +183,13 @@ describe('validate-patch contract', () => {
 
     const repairCodes = d.repairs_applied.map((r: any) => r.code);
     expect(repairCodes).toContain('DEFAULT_EXISTS_PROBABILITY');
-    expect(repairCodes).toContain('CLAMP_STD_MINIMUM');
+    expect(repairCodes).toContain('CLAMP_STRENGTH_STD');
 
-    // Verify repaired edge values
-    const edge = d.graph.edges.find((e: any) => e.from === 'a' && e.to === 'goal');
+    // Verify repaired edge values in normalised_graph (canonical form)
+    const edge = d.normalised_graph.edges.find((e: any) => e.from === 'a' && e.to === 'goal');
     expect(edge.exists_probability).toBe(0.8);
-    expect(edge.strength.std).toBe(0.001);
+    // Shared normaliser clamps std to [STD_RANGE_MIN, STD_RANGE_MAX] (0.05–0.4)
+    expect(edge.strength.std).toBeGreaterThanOrEqual(0.05);
   });
 
   // =============================================================================

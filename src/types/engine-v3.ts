@@ -847,8 +847,12 @@ export interface RunResponseV3 {
    * Diagnostic warnings about inference metadata inconsistencies.
    * Info-level only — never blocks the response.
    * NOT included in response_hash (diagnostic metadata).
+   *
+   * Sentinel contract: ALWAYS present as [] (never absent).
+   * Consumers can distinguish "not assessed" (field absent on old builds)
+   * from "assessed, none found" (empty array).
    */
-  inference_warnings?: InferenceWarning[];
+  inference_warnings: InferenceWarning[];
 
   /**
    * Factor enrichments from CEE /assist/v1/review.

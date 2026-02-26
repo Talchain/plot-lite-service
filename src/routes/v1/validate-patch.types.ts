@@ -5,6 +5,10 @@
  */
 
 import type { EngineNodeV3, EngineEdgeV3 } from '../../types/engine-v3.js';
+import type { RepairEntry } from '../../normalisation/repair-codes.js';
+
+// Re-export RepairEntry so existing imports from this file still work
+export type { RepairEntry } from '../../normalisation/repair-codes.js';
 
 // =============================================================================
 // Request Types
@@ -41,7 +45,10 @@ export interface PatchOperation {
 
 export interface ValidatePatchResponse {
   status: 'applied';
+  /** Input graph after patch operations (pre-normalisation) */
   graph: { nodes: EngineNodeV3[]; edges: EngineEdgeV3[] };
+  /** Normalised graph — the canonical form the UI should adopt after patch acceptance */
+  normalised_graph: { nodes: EngineNodeV3[]; edges: EngineEdgeV3[] };
   graph_hash: string;
   repairs_applied: RepairEntry[];
   warnings: ValidationWarning[];
@@ -58,16 +65,6 @@ export interface ValidationWarning {
   code: string;
   message: string;
   field_path: string;
-}
-
-export interface RepairEntry {
-  code: string;
-  layer: 'plot';
-  field_path: string;
-  before: unknown;
-  after: unknown;
-  reason: string;
-  severity: 'info' | 'warn';
 }
 
 export interface ViolationV3 {

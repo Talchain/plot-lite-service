@@ -367,8 +367,8 @@ describe('stability_thresholds passthrough + hash_version in _meta', () => {
       // stability_thresholds should be absent
       expect('stability_thresholds' in body).toBe(false);
 
-      // inference_warnings should be absent (no 3C fields → absence is expected)
-      expect('inference_warnings' in body).toBe(false);
+      // inference_warnings should be empty array (sentinel contract: always present)
+      expect(body.inference_warnings).toEqual([]);
     } finally {
       forceOmitThresholds = false;
       forceStrip3CFields = false;
@@ -426,8 +426,8 @@ describe('stability_thresholds passthrough + hash_version in _meta', () => {
       const body = await res.json() as any;
 
       // Should not crash — response should still be valid
-      // No 3C fields detected (non-array falls back to []), so no warning
-      expect('inference_warnings' in body).toBe(false);
+      // No 3C fields detected (non-array falls back to []), so empty array
+      expect(body.inference_warnings).toEqual([]);
     } finally {
       forceOmitThresholds = false;
       forceFactorSensitivityShape = undefined;

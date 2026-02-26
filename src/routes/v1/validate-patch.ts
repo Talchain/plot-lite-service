@@ -21,20 +21,20 @@ import type {
   ValidatePatchResponse,
   ValidatePatchRejection,
   PatchOperation,
-  RepairEntry,
   ValidationWarning,
   ViolationV3,
 } from './validate-patch.types.js';
 import type { EngineNodeV3, EngineEdgeV3, EngineNodeKindV3 } from '../../types/engine-v3.js';
 import { FLAGS } from '../../config/flags.js';
-import { MAX_NODES, MAX_EDGES, DEFAULT_EXISTS_PROBABILITY } from '../../constants/limits.js';
+import { MAX_NODES, MAX_EDGES } from '../../constants/limits.js';
+import { normaliseGraphWithRepairs, NormalisationError, REPAIR_CODES } from '../../normalisation/normalise-and-repair.js';
+import type { RepairEntry } from '../../normalisation/repair-codes.js';
 
 // =============================================================================
 // Constants
 // =============================================================================
 
 const CASCADE_WARNING_CAP = 10;
-const MIN_STD = 0.001;
 
 /**
  * Valid node kinds for validate-patch.
@@ -177,13 +177,14 @@ function applyOperation(
       for (const edge of connectedEdges) {
         const edgeId = `${edge.from}->${edge.to}`;
         repairs.push({
-          code: 'CASCADE_REMOVE_EDGE',
+          code: REPAIR_CODES.CASCADE_REMOVE_EDGE,
           layer: 'plot',
           field_path: edgeId,
           before: { id: edgeId, from: edge.from, to: edge.to },
           after: null,
           reason: `Edge removed because connected node ${nodeId} was removed`,
           severity: 'info',
+          action: 'removed',
         });
       }
       const cascadeCount = connectedEdges.length;
@@ -363,136 +364,6 @@ function structuralPreCheck(graph: GraphState): ViolationV3[] {
 }
 
 // =============================================================================
-// Phase 3: Semantic Repairs
-// =============================================================================
-
-function applySemanticRepairs(
-  graph: GraphState
-): { repairs: RepairEntry[]; warnings: ValidationWarning[] } {
-  const repairs: RepairEntry[] = [];
-  const warnings: ValidationWarning[] = [];
-
-  for (const edge of graph.edges) {
-    const edgeId = `${edge.from}->${edge.to}`;
-
-    // DEFAULT_EXISTS_PROBABILITY — @see constants/limits.ts (single source of truth)
-    if (edge.exists_probability === undefined || edge.exists_probability === null) {
-      const before = edge.exists_probability;
-      edge.exists_probability = DEFAULT_EXISTS_PROBABILITY;
-      repairs.push({
-        code: 'DEFAULT_EXISTS_PROBABILITY',
-        layer: 'plot',
-        field_path: `${edgeId}.exists_probability`,
-        before,
-        after: DEFAULT_EXISTS_PROBABILITY,
-        reason: `Missing exists_probability, defaulted to ${DEFAULT_EXISTS_PROBABILITY}`,
-        severity: 'info',
-      });
-      warnings.push({
-        code: 'DEFAULT_EXISTS_PROBABILITY',
-        message: `Edge ${edgeId}: exists_probability defaulted to ${DEFAULT_EXISTS_PROBABILITY}`,
-        field_path: `${edgeId}.exists_probability`,
-      });
-    }
-
-    // NORMALISE_STRENGTH_RANGE — clamp mean to [-1, 1]
-    if (edge.strength?.mean !== undefined) {
-      const raw = edge.strength.mean;
-      const clamped = Math.max(-1, Math.min(1, raw));
-      if (clamped !== raw) {
-        edge.strength.mean = clamped;
-        repairs.push({
-          code: 'NORMALISE_STRENGTH_RANGE',
-          layer: 'plot',
-          field_path: `${edgeId}.strength.mean`,
-          before: raw,
-          after: clamped,
-          reason: `strength.mean clamped from ${raw} to [-1, 1]`,
-          severity: 'warn',
-        });
-        warnings.push({
-          code: 'NORMALISE_STRENGTH_RANGE',
-          message: `Edge ${edgeId}: strength.mean clamped from ${raw} to ${clamped}`,
-          field_path: `${edgeId}.strength.mean`,
-        });
-      }
-    }
-
-    // CLAMP_STD_MINIMUM — floor std to MIN_STD
-    if (edge.strength?.std !== undefined) {
-      const raw = edge.strength.std;
-      if (raw < MIN_STD) {
-        edge.strength.std = MIN_STD;
-        repairs.push({
-          code: 'CLAMP_STD_MINIMUM',
-          layer: 'plot',
-          field_path: `${edgeId}.strength.std`,
-          before: raw,
-          after: MIN_STD,
-          reason: `strength.std floored from ${raw} to ${MIN_STD}`,
-          severity: 'warn',
-        });
-        warnings.push({
-          code: 'CLAMP_STD_MINIMUM',
-          message: `Edge ${edgeId}: strength.std floored from ${raw} to ${MIN_STD}`,
-          field_path: `${edgeId}.strength.std`,
-        });
-      }
-    }
-
-    // INFER_EFFECT_DIRECTION — if strength.mean sign doesn't match direction, infer
-    if (edge.strength?.mean !== undefined) {
-      const nodeKindMap = new Map<string, string>();
-      for (const n of graph.nodes) {
-        nodeKindMap.set(n.id, n.kind);
-      }
-      const fromKind = nodeKindMap.get(edge.from);
-      if (fromKind === 'risk' && edge.strength.mean > 0) {
-        const before = edge.strength.mean;
-        edge.strength.mean = -Math.abs(edge.strength.mean);
-        repairs.push({
-          code: 'INFER_EFFECT_DIRECTION',
-          layer: 'plot',
-          field_path: `${edgeId}.strength.mean`,
-          before,
-          after: edge.strength.mean,
-          reason: `Risk node effect direction inferred as negative`,
-          severity: 'info',
-        });
-        warnings.push({
-          code: 'INFER_EFFECT_DIRECTION',
-          message: `Edge ${edgeId}: risk node effect flipped to negative`,
-          field_path: `${edgeId}.strength.mean`,
-        });
-      }
-    }
-
-    // APPLY_SIGN_FROM_DIRECTION — if direction is negative but mean > 0, apply sign
-    const direction = (edge as any).effect_direction ?? (edge as any).direction;
-    if (direction === 'negative' && edge.strength?.mean !== undefined && edge.strength.mean > 0) {
-      const before = edge.strength.mean;
-      edge.strength.mean = -Math.abs(edge.strength.mean);
-      repairs.push({
-        code: 'APPLY_SIGN_FROM_DIRECTION',
-        layer: 'plot',
-        field_path: `${edgeId}.strength.mean`,
-        before,
-        after: edge.strength.mean,
-        reason: `Applied negative sign from effect_direction`,
-        severity: 'info',
-      });
-      warnings.push({
-        code: 'APPLY_SIGN_FROM_DIRECTION',
-        message: `Edge ${edgeId}: applied negative sign from direction`,
-        field_path: `${edgeId}.strength.mean`,
-      });
-    }
-  }
-
-  return { repairs, warnings };
-}
-
-// =============================================================================
 // Phase 4: Full Schema Validation
 // =============================================================================
 
@@ -643,14 +514,36 @@ export async function registerValidatePatchRoute(app: FastifyInstance) {
         });
       }
 
-      // Phase 3: Semantic repairs
-      const { repairs: semanticRepairs, warnings: semanticWarnings } =
-        applySemanticRepairs(state);
-      repairs.push(...semanticRepairs);
-      warnings.push(...semanticWarnings);
+      // Phase 3: Shared normaliser (parity with /v2/run)
+      // Runs the SAME normalisation pipeline used by /v2/run, ensuring
+      // "accepted" means "this is the canonical form the UI should adopt."
+      let normalisedGraph: GraphState;
+      try {
+        const normResult = normaliseGraphWithRepairs(state);
+        normalisedGraph = normResult.graph;
+        repairs.push(...normResult.repairs);
 
-      // Phase 4: Full schema validation (post-repair)
-      const schemaViolations = fullSchemaValidation(state);
+        // Convert informational warnings to ValidationWarning format
+        for (const w of normResult.warnings) {
+          warnings.push({
+            code: w.code,
+            message: w.message,
+            field_path: w.node_id ?? w.edge_id ?? '',
+          });
+        }
+      } catch (err) {
+        if (err instanceof NormalisationError) {
+          return reply.code(422).send({
+            status: 'rejected',
+            code: 'VALIDATION_FAILED',
+            message: `Normalisation failed: ${err.message}`,
+          });
+        }
+        throw err;
+      }
+
+      // Phase 4: Full schema validation (post-normalisation)
+      const schemaViolations = fullSchemaValidation(normalisedGraph);
       if (schemaViolations.length > 0) {
         return reply.code(422).send({
           status: 'rejected',
@@ -660,12 +553,14 @@ export async function registerValidatePatchRoute(app: FastifyInstance) {
         });
       }
 
-      // Phase 5: Compute graph hash
-      const graphHash = computeGraphHash(state);
+      // Phase 5: Compute graph hash (on normalised graph)
+      const graphHash = computeGraphHash(normalisedGraph);
 
       return reply.code(200).send({
         status: 'applied',
         graph: state,
+        // Contract: normalised_graph is the canonical form the UI should adopt after patch acceptance.
+        normalised_graph: normalisedGraph,
         graph_hash: graphHash,
         repairs_applied: repairs,
         warnings,
