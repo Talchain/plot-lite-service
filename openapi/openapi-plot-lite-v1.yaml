@@ -5,6 +5,11 @@ info:
   description: >
     Deterministic natural-language-to-causal-draft and critique service for the Scenario Sandbox PoC.
     Same inputs + seed => byte-identical outputs. No logging of parse_text (caller-side redaction recommended).
+
+    This OpenAPI spec is the authoritative contract documentation within the PLoT repo.
+    It is hand-authored and not auto-generated from code.
+    If consuming systems (e.g. CEE) maintain separate API docs, they should
+    link to or import this spec to keep contracts aligned.
 servers:
   - url: https://api.warp.olumi/plot-lite
 paths:

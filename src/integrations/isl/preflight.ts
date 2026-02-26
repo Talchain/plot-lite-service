@@ -205,7 +205,7 @@ export function validateBeforeISL(
   } else if (!hasEdgeUncertainty) {
     edgeStatus = 'skipped_missing_uncertainty';
     skipReasons.push(
-      `No edges with uncertainty (${graph.edges.length} edges, 0 with belief_exists < 1 or strength_std)`
+      `No edges with uncertainty (${graph.edges.length} edges, 0 with exists_probability < 1 or strength_std)`
     );
   } else {
     edgeStatus = 'available';

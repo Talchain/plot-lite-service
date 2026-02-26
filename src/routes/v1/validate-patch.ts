@@ -38,6 +38,10 @@ const MIN_STD = 0.001;
  * Valid node kinds for validate-patch.
  * Includes EngineNodeKindV3 values plus 'option' (present in UI graphs,
  * filtered before analysis by /v2/run).
+ *
+ * Cross-layer note: validate-patch operates on UI-layer graphs (pre-analysis-filter).
+ * 'option' is a valid UI node kind, stripped by /v2/run before inference.
+ * Included here to prevent false rejections on graphs that haven't been filtered yet.
  */
 const VALID_NODE_KINDS = new Set<string>([
   'goal', 'factor', 'outcome', 'decision', 'risk', 'action', 'option',

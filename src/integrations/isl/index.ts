@@ -447,7 +447,9 @@ export function createISLService(): ISLService {
           goal_node_id: goalNodeId,
           options_count: options.length,
           edges_total: graph.edges.length,
-          edges_with_uncertainty: graph.edges.filter(
+          // Counts raw edges with explicitly provided uncertainty — uses fallback 1 (not DEFAULT_EXISTS_PROBABILITY) intentionally,
+          // because this measures how many edges arrived with uncertainty data, not the effective uncertainty after defaulting.
+          edges_with_explicit_uncertainty: graph.edges.filter(
             (e) => (e.belief_exists ?? e.belief ?? 1) < 1 || e.strength_std !== undefined || e.belief_strength !== undefined
           ).length,
           parameter_uncertainties_count: parameterUncertainties.length,
