@@ -123,6 +123,7 @@ import {
 } from '../../lib/intervention-normaliser.js';
 import { assembleBrief } from '../../assembly/decision-brief.js';
 import { buildEvidencePriorityCard, type FactorInput } from '../../review-pass/evidence-priority.js';
+import type { ProposalCardV1 } from '../../review-pass/types.js';
 
 // -----------------------------------------------------------------------------
 // Feature Flags
@@ -1249,13 +1250,17 @@ function buildResponse(
 
   // Review cards: evidence priority card from factor sensitivity data.
   // Gated behind ENABLE_REVIEW_PASS. Excluded from response_hash.
-  const assembledReviewCards: any[] = [];
+  const assembledReviewCards: ProposalCardV1[] = [];
   if (FLAGS.ENABLE_REVIEW_PASS) {
     const epFactors: FactorInput[] = (factorSensitivity ?? []).map((fs: any) => ({
       factor_id: fs.factor_id,
       factor_label: fs.factor_label ?? fs.factor_id,
       elasticity: fs.elasticity ?? fs.sensitivity_score ?? 0,
       confidence: fs.confidence ?? undefined,
+      attribution_stability: fs.attribution_stability ?? undefined,
+      incoming_edges: graph
+        ? graph.edges.filter((e) => e.to === fs.factor_id).map((e) => ({ exists_probability: e.exists_probability }))
+        : undefined,
     }));
     const epCard = buildEvidencePriorityCard(epFactors);
     if (epCard) assembledReviewCards.push(epCard);
@@ -1430,7 +1435,7 @@ function buildResponse(
       baseMeta.decision_brief_assembled = assembledBrief !== null;
       baseMeta.review_cards_count = assembledReviewCards.length;
       baseMeta.evidence_priority_card_present = assembledReviewCards.some(
-        (c: any) => c.card_type === 'evidence_priority',
+        (c) => c.card_type === 'evidence_priority',
       );
 
       // NOTE: _meta is response-only metadata; response_hash is computed from

@@ -180,6 +180,13 @@ describe('Review cards in /v2/run', () => {
       expect(typeof item.score).toBe('number');
       expect(typeof item.confidence_normalised).toBe('number');
       expect(typeof item.elasticity).toBe('number');
+      // New EP item fields (R.1)
+      expect(item.node_id).toBe(item.factor_id);
+      expect(typeof item.sensitivity_rank).toBe('number');
+      expect(item.sensitivity_rank).toBeGreaterThanOrEqual(1);
+      expect(typeof item.sensitivity_value).toBe('number');
+      expect(item.sensitivity_value).toBeGreaterThanOrEqual(0);
+      expect(typeof item.suggested_evidence).toBe('string');
     }
   });
 

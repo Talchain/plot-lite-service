@@ -110,6 +110,10 @@ export function assembleBrief(input: BriefAssemblyInput): DecisionBriefV1 | null
   // 'blocked' is not a standard TopLevelAnalysisStatus but guard defensively
   if ((analysis_status as string) === 'blocked') return null;
 
+  // No brief when option_comparison is absent — analysis is incomplete
+  const optionComparison = input.option_comparison;
+  if (!optionComparison || optionComparison.length === 0) return null;
+
   const isPartial = analysis_status === 'partial';
 
   // --- Headline ---

@@ -31,10 +31,21 @@ export interface FactorInput {
 }
 
 export interface EvidencePriorityItem {
+  /** Node ID in graph (same as factor_id). @source factor_sensitivity[].factor_id */
+  node_id: string;
   factor_id: string;
   factor_label: string;
-  score: number;
+  /** Position in abs(elasticity) ranking (1-indexed). @source factor_sensitivity sorted by abs(elasticity) desc */
+  sensitivity_rank: number;
+  /** abs(elasticity). @source factor_sensitivity[].elasticity */
+  sensitivity_value: number;
+  /** 0–1, computed per confidence formula. @source 0.5 × attribution_stability_band_score + 0.5 × mean(exists_prob) */
   confidence_normalised: number;
+  /** sensitivity_value × (1 - confidence_normalised). @source computed */
+  score: number;
+  /** Deterministic template based on confidence band. @source computed */
+  suggested_evidence: string;
+  /** Raw elasticity (signed). @source factor_sensitivity[].elasticity */
   elasticity: number;
 }
 
@@ -89,26 +100,57 @@ export function computeConfidenceNormalised(
 }
 
 /**
+ * Generate suggested evidence text based on confidence level.
+ * Items with confidence >= 0.7 are suppressed (not worth investigating).
+ */
+function suggestedEvidenceText(factorLabel: string, confidence: number): string | null {
+  if (confidence >= 0.7) return null; // suppress — high confidence
+  if (confidence < 0.4) {
+    return `Gather evidence on how ${factorLabel} affects the goal — this factor is highly sensitive but your confidence in its strength is low.`;
+  }
+  return `Gather evidence on how ${factorLabel} affects the goal — this factor is highly sensitive but your confidence in its strength is medium.`;
+}
+
+/**
  * Build an EvidencePriorityCard from factor inputs.
  *
- * Suppression: if max(score) across ALL candidates < threshold, returns null
- * (entire card suppressed). Otherwise returns top 3 items by score.
+ * Suppression:
+ * - Per-item: items with confidence_normalised >= 0.7 are excluded (not worth investigating).
+ * - Card-level: if max(score) across ALL candidates < threshold, returns null.
+ * - Card-level: if all top-3 candidates have confidence >= 0.7, returns null.
+ *
+ * Returns top 3 items by score after per-item suppression.
  */
 export function buildEvidencePriorityCard(
   factors: FactorInput[]
 ): EvidencePriorityCard | null {
+  // Build sensitivity ranking (all factors sorted by abs(elasticity) desc)
+  const sensitivityRanked = [...factors].sort((a, b) => {
+    const diff = Math.abs(b.elasticity) - Math.abs(a.elasticity);
+    if (diff !== 0) return diff;
+    return a.factor_id < b.factor_id ? -1 : a.factor_id > b.factor_id ? 1 : 0;
+  });
+  const sensitivityRankMap = new Map<string, number>();
+  sensitivityRanked.forEach((f, i) => sensitivityRankMap.set(f.factor_id, i + 1));
+
   // Compute scores for ALL candidates
   // Use pre-computed unified confidence when available (from factor_sensitivity pipeline),
   // falling back to inline computation for backwards compatibility.
   const allItems: EvidencePriorityItem[] = factors.map(f => {
     const confidence = f.confidence != null
-      ? f.confidence
+      ? Math.max(0, Math.min(1, f.confidence))
       : computeConfidenceNormalised(f.attribution_stability, f.incoming_edges);
+    const sensitivityValue = Math.abs(f.elasticity);
+    const suggested = suggestedEvidenceText(f.factor_label, confidence);
     return {
+      node_id: f.factor_id,
       factor_id: f.factor_id,
       factor_label: f.factor_label,
-      score: Math.abs(f.elasticity) * (1 - confidence),
+      sensitivity_rank: sensitivityRankMap.get(f.factor_id) ?? 0,
+      sensitivity_value: sensitivityValue,
       confidence_normalised: confidence,
+      score: sensitivityValue * (1 - confidence),
+      suggested_evidence: suggested ?? '',
       elasticity: f.elasticity,
     };
   });
@@ -124,7 +166,13 @@ export function buildEvidencePriorityCard(
     return a.factor_id < b.factor_id ? -1 : a.factor_id > b.factor_id ? 1 : 0;
   });
 
-  const topItems = allItems.slice(0, MAX_ITEMS);
+  // Per-item suppression: exclude items with confidence >= 0.7 (not worth investigating)
+  const eligible = allItems.filter(i => i.confidence_normalised < 0.7);
+
+  // Card suppression: if all candidates are high-confidence, suppress entire card
+  if (eligible.length === 0) return null;
+
+  const topItems = eligible.slice(0, MAX_ITEMS);
   const topFactorLabels = topItems.map(i => i.factor_label).join(', ');
 
   const priority = 2;

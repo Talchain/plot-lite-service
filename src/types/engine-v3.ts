@@ -1061,6 +1061,14 @@ export interface RunResponseV3 {
   decision_brief?: DecisionBriefV1 | null;
 
   /**
+   * Review cards assembled from analysis results (evidence priority, etc.).
+   * Gated behind ENABLE_REVIEW_PASS feature flag. Excluded from response_hash.
+   *
+   * @see src/review-pass/evidence-priority.ts — Evidence Priority card (R.1)
+   */
+  review_cards?: import('../review-pass/types.js').ProposalCardV1[];
+
+  /**
    * Canonical metadata for UI canonicalisation layer.
    * Only included when UI_CANONICAL_META feature flag is enabled.
    * Contains repair records, source path, and build info.

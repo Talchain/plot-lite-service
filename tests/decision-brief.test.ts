@@ -36,6 +36,12 @@ function expectBriefMatches(actual: DecisionBriefV1 | null, expected: Omit<Decis
   expect(rest).toEqual(expectedWithHash);
 }
 
+/** Minimal option_comparison required for non-null brief assembly. */
+const MINIMAL_OPTIONS = [
+  { option_id: 'opt_a', option_label: 'Option A', id: 'opt_a', label: 'Option A', win_probability: 0.6 },
+  { option_id: 'opt_b', option_label: 'Option B', id: 'opt_b', label: 'Option B', win_probability: 0.4 },
+] as any[];
+
 // =============================================================================
 // Golden Fixture Tests
 // =============================================================================
@@ -74,6 +80,7 @@ describe('assembleBrief — null returns', () => {
   const minimalInput: BriefAssemblyInput = {
     analysis_status: 'computed',
     critiques: [],
+    option_comparison: MINIMAL_OPTIONS,
     meta: { seed_used: '1' },
   };
 
@@ -86,6 +93,25 @@ describe('assembleBrief — null returns', () => {
     const result = assembleBrief({ ...minimalInput, analysis_status: 'blocked' as any });
     expect(result).toBeNull();
   });
+
+  it('returns null when option_comparison is missing (incomplete analysis)', () => {
+    const result = assembleBrief({
+      analysis_status: 'computed',
+      critiques: [],
+      meta: { seed_used: '1' },
+    });
+    expect(result).toBeNull();
+  });
+
+  it('returns null when option_comparison is empty array', () => {
+    const result = assembleBrief({
+      analysis_status: 'computed',
+      critiques: [],
+      option_comparison: [],
+      meta: { seed_used: '1' },
+    });
+    expect(result).toBeNull();
+  });
 });
 
 // =============================================================================
@@ -96,6 +122,7 @@ describe('assembleBrief — headline fallback chain', () => {
   const base: BriefAssemblyInput = {
     analysis_status: 'computed',
     critiques: [],
+    option_comparison: MINIMAL_OPTIONS,
     meta: { seed_used: '1' },
   };
 
@@ -176,6 +203,7 @@ describe('assembleBrief — options', () => {
   const base: BriefAssemblyInput = {
     analysis_status: 'computed',
     critiques: [],
+    option_comparison: MINIMAL_OPTIONS,
     meta: { seed_used: '1' },
   };
 
@@ -193,11 +221,6 @@ describe('assembleBrief — options', () => {
       { option_id: 'b', label: 'B', win_probability: 0.3, rank: 2 },
       { option_id: 'c', label: 'C', win_probability: 0.1, rank: 3 },
     ]);
-  });
-
-  it('returns empty options when option_comparison is missing', () => {
-    const result = assembleBrief(base);
-    expect(result?.options).toEqual([]);
   });
 
   it('uses option_id as deterministic tie-breaker when win_probability is equal', () => {
@@ -224,6 +247,7 @@ describe('assembleBrief — top_drivers', () => {
   const base: BriefAssemblyInput = {
     analysis_status: 'computed',
     critiques: [],
+    option_comparison: MINIMAL_OPTIONS,
     meta: { seed_used: '1' },
   };
 
@@ -273,6 +297,7 @@ describe('assembleBrief — robustness mapping', () => {
   const base: BriefAssemblyInput = {
     analysis_status: 'computed',
     critiques: [],
+    option_comparison: MINIMAL_OPTIONS,
     meta: { seed_used: '1' },
   };
 
@@ -311,6 +336,7 @@ describe('assembleBrief — warnings', () => {
   const base: BriefAssemblyInput = {
     analysis_status: 'computed',
     critiques: [],
+    option_comparison: MINIMAL_OPTIONS,
     meta: { seed_used: '1' },
   };
 
@@ -389,7 +415,7 @@ describe('assembleBrief — warnings', () => {
 });
 
 // =============================================================================
-// Missing Optional Fields
+// Missing Optional Fields (with option_comparison present)
 // =============================================================================
 
 describe('assembleBrief — missing optional fields', () => {
@@ -397,13 +423,13 @@ describe('assembleBrief — missing optional fields', () => {
     const result = assembleBrief({
       analysis_status: 'computed',
       critiques: [],
+      option_comparison: MINIMAL_OPTIONS,
       meta: { seed_used: '42' },
     });
     expect(result).not.toBeNull();
     expect(result?.top_drivers).toEqual([]);
     expect(result?.key_assumptions).toEqual([]);
     expect(result?.what_would_change).toEqual([]);
-    expect(result?.options).toEqual([]);
   });
 });
 
@@ -416,6 +442,7 @@ describe('assembleBrief — seed parsing', () => {
     const result = assembleBrief({
       analysis_status: 'computed',
       critiques: [],
+      option_comparison: MINIMAL_OPTIONS,
       meta: { seed_used: '12345' },
     });
     expect(result?.seed).toBe(12345);
@@ -432,6 +459,7 @@ describe('assembleBrief — lineage', () => {
     const result = assembleBrief({
       analysis_status: 'computed',
       critiques: [],
+      option_comparison: MINIMAL_OPTIONS,
       response_hash: 'hash123abc',
       meta: { seed_used: '1' },
     });
@@ -490,6 +518,7 @@ describe('assembleBrief — key_assumptions', () => {
     const result = assembleBrief({
       analysis_status: 'computed',
       critiques: [],
+      option_comparison: MINIMAL_OPTIONS,
       m1_coaching: {
         story_headlines: {},
         evidence_gaps,
@@ -503,6 +532,16 @@ describe('assembleBrief — key_assumptions', () => {
       meta: { seed_used: '1' },
     });
     expect(result?.key_assumptions).toHaveLength(10);
+  });
+
+  it('returns empty array when evidence_gaps is empty', () => {
+    const result = assembleBrief({
+      analysis_status: 'computed',
+      critiques: [],
+      option_comparison: MINIMAL_OPTIONS,
+      meta: { seed_used: '1' },
+    });
+    expect(result?.key_assumptions).toEqual([]);
   });
 });
 
@@ -525,17 +564,19 @@ describe('assembleBrief — what_would_change', () => {
     const result = assembleBrief({
       analysis_status: 'computed',
       critiques: [],
+      option_comparison: MINIMAL_OPTIONS,
       robustness: { level: 'fragile', fragile_edges, robust_edges: [] } as any,
       meta: { seed_used: '1' },
     });
     expect(result?.what_would_change).toHaveLength(10);
-    expect(result?.what_would_change[0]).toBe('From 0 \u2192 To 0');
+    expect(result?.what_would_change[0]).toBe('From 0 → To 0');
   });
 
   it('uses from_id/to_id as fallback when labels missing', () => {
     const result = assembleBrief({
       analysis_status: 'computed',
       critiques: [],
+      option_comparison: MINIMAL_OPTIONS,
       robustness: {
         level: 'fragile',
         fragile_edges: [{
@@ -552,6 +593,32 @@ describe('assembleBrief — what_would_change', () => {
       } as any,
       meta: { seed_used: '1' },
     });
-    expect(result?.what_would_change[0]).toBe('node_a \u2192 node_b');
+    expect(result?.what_would_change[0]).toBe('node_a → node_b');
+  });
+
+  it('falls back to factor_sensitivity labels when no fragile edges', () => {
+    const result = assembleBrief({
+      analysis_status: 'computed',
+      critiques: [],
+      option_comparison: MINIMAL_OPTIONS,
+      robustness: { level: 'moderate', fragile_edges: [], robust_edges: [] } as any,
+      factor_sensitivity: [
+        { factor_id: 'f1', factor_label: 'Market Size', elasticity: 0.9, direction: 'positive' },
+        { factor_id: 'f2', factor_label: 'Competition', elasticity: -0.7, direction: 'negative' },
+      ] as any[],
+      meta: { seed_used: '1' },
+    });
+    expect(result?.what_would_change).toEqual(['Market Size', 'Competition']);
+  });
+
+  it('returns empty when no fragile edges and no factor_sensitivity', () => {
+    const result = assembleBrief({
+      analysis_status: 'computed',
+      critiques: [],
+      option_comparison: MINIMAL_OPTIONS,
+      robustness: { level: 'moderate', fragile_edges: [], robust_edges: [] } as any,
+      meta: { seed_used: '1' },
+    });
+    expect(result?.what_would_change).toEqual([]);
   });
 });
