@@ -13,7 +13,7 @@ describe('Secret Strength Guard (PR-F)', () => {
       process.env.PRINCIPAL_HMAC_SECRET = 'weak-secret'; // Only 11 chars
       
       // Import will trigger the guard
-      import('./src/middleware/circuitBreaker.js');
+      import('./dist/middleware/circuitBreaker.js');
     `;
     
     const proc = spawn('node', ['--input-type=module', '--eval', testScript], {
@@ -48,7 +48,7 @@ describe('Secret Strength Guard (PR-F)', () => {
       process.env.PRINCIPAL_HMAC_SECRET = '${strongSecret}';
       
       // Import should succeed
-      await import('./src/middleware/circuitBreaker.js');
+      await import('./dist/middleware/circuitBreaker.js');
       console.log('SUCCESS');
     `;
     
@@ -80,7 +80,7 @@ describe('Secret Strength Guard (PR-F)', () => {
       process.env.PRINCIPAL_HMAC_SECRET = 'weak-secret';
       
       // Import should succeed (breaker disabled)
-      await import('./src/middleware/circuitBreaker.js');
+      await import('./dist/middleware/circuitBreaker.js');
       console.log('SUCCESS');
     `;
     

@@ -78,8 +78,8 @@ const seedOverrideMockISL = {
   },
 };
 
-vi.mock('../src/integrations/isl/index.js', async () => {
-  const actual = await vi.importActual<any>('../src/integrations/isl/index.js');
+vi.mock('../src/integrations/isl/index.ts', async () => {
+  const actual = await vi.importActual<any>('../src/integrations/isl/index.ts');
   return { ...actual, getISLService: () => seedOverrideMockISL, islService: seedOverrideMockISL };
 });
 
@@ -200,7 +200,7 @@ describe('CIL Phase 0.2 — X.1.3 seed adoption', () => {
 
   beforeAll(async () => {
     process.env.RATE_LIMIT_ENABLED = '0';
-    process.env.CEE_ORCHESTRATOR_ENABLE = '0';
+    process.env.CEE_ORCHESTRATOR_ENABLED = '0';
     process.env.DECISION_REVIEW_ENABLE = '0';
     app = await createServer();
     await app.ready();

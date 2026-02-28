@@ -114,8 +114,8 @@ const mockISLService = {
   },
 };
 
-vi.mock('../src/integrations/isl/index.js', async () => {
-  const actual = await vi.importActual<any>('../src/integrations/isl/index.js');
+vi.mock('../src/integrations/isl/index.ts', async () => {
+  const actual = await vi.importActual<any>('../src/integrations/isl/index.ts');
   return {
     ...actual,
     getISLService: () => mockISLService,
@@ -164,7 +164,7 @@ describe('CIL: Constraint auto-PU integration (Phase 4b+)', () => {
 
   beforeAll(async () => {
     process.env.RATE_LIMIT_ENABLED = '0';
-    process.env.CEE_ORCHESTRATOR_ENABLE = '0';
+    process.env.CEE_ORCHESTRATOR_ENABLED = '0';
 
     app = await createServer();
     await app.listen({ port: 0, host: '127.0.0.1' });
@@ -176,7 +176,7 @@ describe('CIL: Constraint auto-PU integration (Phase 4b+)', () => {
   afterAll(async () => {
     await app?.close();
     delete process.env.RATE_LIMIT_ENABLED;
-    delete process.env.CEE_ORCHESTRATOR_ENABLE;
+    delete process.env.CEE_ORCHESTRATOR_ENABLED;
     capturedISLRequestBody = null;
   });
 

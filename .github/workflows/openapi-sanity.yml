@@ -2,12 +2,16 @@ name: OpenAPI Spec Sanity
 
 on:
   push:
-    branches: [main]
+    branches: [main, staging]
     paths:
       - 'contracts/openapi.yaml'
+      - 'contracts/openapi-*.yaml'
+      - 'tools/spectral.rules.yaml'
   pull_request:
     paths:
       - 'contracts/openapi.yaml'
+      - 'contracts/openapi-*.yaml'
+      - 'tools/spectral.rules.yaml'
 
 jobs:
   validate-structure:
@@ -26,5 +30,8 @@ jobs:
       - name: Validate OpenAPI structure
         run: node tools/validate-openapi-structure.js
       
-      - name: Validate OpenAPI schema
+      - name: Validate OpenAPI schema (Redocly)
         run: npx @redocly/cli lint contracts/openapi.yaml --skip-rule=no-unused-components
+
+      - name: Validate OpenAPI schema (Spectral)
+        run: npm run openapi:lint

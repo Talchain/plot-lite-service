@@ -3884,6 +3884,7 @@ paths:
                         code: "GOAL_NODE_NOT_IN_GRAPH"
                         severity: "blocker"
                         message: "Goal node \"nonexistent\" not found in graph. Select an existing node as the goal, or add the goal node to the graph."
+                        user_message: "The selected goal node was not found in the graph. Please select an existing node as the goal."
                         source: "validation"
                         affected_node_ids: ["nonexistent"]
                         blocks_analysis: true
@@ -3897,6 +3898,7 @@ paths:
                         code: "GOAL_NODE_NOT_CAUSAL"
                         severity: "blocker"
                         message: "Goal node \"my_decision\" is a decision node, which cannot be used as an analysis target. Select a factor, outcome, risk, or goal node as the analysis target."
+                        user_message: "The selected goal node is a decision node and cannot be used as an analysis target. Please select a different node."
                         source: "validation"
                         affected_node_ids: ["my_decision"]
                         blocks_analysis: true
@@ -3910,6 +3912,7 @@ paths:
                         code: "INVALID_INTERVENTION_TARGET"
                         severity: "blocker"
                         message: "Option 'Bad Option' intervenes on node 'nonexistent_node' which does not exist."
+                        user_message: "One of your options targets a node that doesn't exist in the graph. Please check your intervention targets."
                         source: "validation"
                         affected_option_ids: ["option_bad"]
                         affected_node_ids: ["nonexistent_node"]
@@ -4948,7 +4951,7 @@ components:
                   description: 'Whether Monte Carlo sampling has converged'
         ceeReview:
           type: object
-          description: 'CEE Decision Review payload (optional; only present when CEE_ORCHESTRATOR_ENABLE=1 and Idempotency-Key header provided)'
+          description: 'CEE Decision Review payload (optional; only present when CEE_ORCHESTRATOR_ENABLED=1 and Idempotency-Key header provided)'
           properties:
             schema:
               type: string
@@ -5781,6 +5784,97 @@ components:
               type: number
             isl_ms:
               type: number
+            feature_flags:
+              type: object
+              description: |
+                V3 Platform Contract §3.3.6: active feature flags.
+                Configuration metadata — excluded from response_hash.
+              additionalProperties:
+                type: string
+        review_cards:
+          type: array
+          description: |
+            Evidence-quality review cards assembled from factor sensitivity data.
+            Gated behind ENABLE_REVIEW_PASS feature flag.
+            When flag ON: always present (may be empty []). When flag OFF: key absent.
+            Excluded from response_hash.
+          items:
+            type: object
+            properties:
+              card_type:
+                type: string
+              title:
+                type: string
+              summary:
+                type: string
+              factors:
+                type: array
+                items:
+                  type: object
+        fact_objects:
+          type: array
+          description: |
+            Structured FactObjectV1 instances assembled from analysis results.
+            Gated behind ENABLE_FACTS_ASSEMBLY feature flag.
+            When flag ON: always present (may be empty []). When flag OFF: key absent.
+            Excluded from response_hash (contains per-request UUIDs in fact_id).
+          items:
+            $ref: '#/components/schemas/factObjectV1'
+
+    factObjectV1:
+      type: object
+      required: [fact_id, fact_key, fact_type, data, lineage, content_hash]
+      description: |
+        Structured fact from ISL/inference for UI rendering.
+        Content-addressable via fact_key. Deterministic ordering by fact_key.
+      properties:
+        fact_id:
+          type: string
+          description: Deterministic ID — hash(fact_key + lineage). Stable for same content + same analysis run.
+        fact_key:
+          type: object
+          required: [type]
+          description: Structured key for content-addressable fact identification.
+          properties:
+            type:
+              type: string
+              enum: [probability, factor_sensitivity, critique, robustness]
+            node_id:
+              type: string
+            edge_id:
+              type: string
+            option_id:
+              type: string
+            metric:
+              type: string
+        fact_type:
+          type: string
+          enum: [probability, factor_sensitivity, critique, robustness]
+        data:
+          type: object
+          description: Raw data from ISL/inference. Shape varies by fact_type.
+        lineage:
+          type: object
+          required: [graph_hash, seed, config_version, isl_request_id]
+          description: Provenance for reproducibility.
+          properties:
+            graph_hash:
+              type: string
+              pattern: '^[0-9a-f]{16}$'
+            seed:
+              type: number
+            config_version:
+              type: string
+            isl_request_id:
+              type: string
+            plan_id:
+              type: string
+            plan_hash:
+              type: string
+        content_hash:
+          type: string
+          pattern: '^[0-9a-f]{16}$'
+          description: Hash of canonical JSON of the fact's data payload.
 
     critiqueV3:
       type: object

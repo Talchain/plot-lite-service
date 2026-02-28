@@ -184,4 +184,48 @@ describe('_meta diagnostic fields (debug output audit)', () => {
       expect(data.decision_brief.lineage.response_hash).toBe(data.response_hash);
     }
   });
+
+  // -------------------------------------------------------------------------
+  // 7. meta.feature_flags (P.4 — V3 Platform Contract §3.3.6)
+  // -------------------------------------------------------------------------
+
+  it('meta.feature_flags is present and is an object with known flag keys', async () => {
+    const data = await postV2Run();
+
+    expect(data.meta).toBeDefined();
+    expect(data.meta.feature_flags).toBeDefined();
+    expect(typeof data.meta.feature_flags).toBe('object');
+
+    const flagKeys = Object.keys(data.meta.feature_flags);
+    expect(flagKeys.length).toBeGreaterThan(0);
+
+    // Every key should be from the known set
+    for (const key of flagKeys) {
+      expect(
+        (KNOWN_FEATURE_FLAGS as readonly string[]).includes(key),
+      ).toBe(true);
+    }
+  });
+
+  it('meta.feature_flags matches _meta.feature_flags_snapshot', async () => {
+    const data = await postV2Run();
+
+    const publicFlags = data.meta?.feature_flags;
+    const snapshotFlags = data._meta?.feature_flags_snapshot;
+
+    expect(publicFlags).toBeDefined();
+    expect(snapshotFlags).toBeDefined();
+    expect(publicFlags).toEqual(snapshotFlags);
+  });
+
+  it('response_hash is unaffected by meta.feature_flags presence', async () => {
+    // Same request twice → identical hash, proving feature_flags (which is
+    // configuration metadata) is excluded from response_hash
+    const data1 = await postV2Run();
+    const data2 = await postV2Run();
+
+    expect(data1.response_hash).toBe(data2.response_hash);
+    expect(data1.meta.feature_flags).toBeDefined();
+    expect(data2.meta.feature_flags).toBeDefined();
+  });
 });

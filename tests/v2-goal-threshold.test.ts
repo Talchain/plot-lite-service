@@ -9,6 +9,8 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { toISLRobustnessRequest } from '../src/integrations/isl/translator-v3.ts';
+import { canonicaliseRequest, computeResponseHash } from '../src/normalisation/canonicalise.ts';
 
 describe('Goal Threshold - Request Validation', () => {
   describe('Accepted Values', () => {
@@ -109,8 +111,6 @@ describe('Goal Threshold - Request Validation', () => {
 });
 
 describe('Goal Threshold - ISL Translation', () => {
-  // Import the translator
-  const { toISLRobustnessRequest } = require('../src/integrations/isl/translator-v3.js');
 
   const mockGraph = {
     nodes: [
@@ -292,8 +292,6 @@ describe('Goal Threshold - Response Mapping', () => {
 });
 
 describe('Goal Threshold - Contract Hashing', () => {
-  // Import the hashing function
-  const { canonicaliseRequest, computeResponseHash } = require('../src/normalisation/canonicalise.js');
 
   const baseRequest = {
     graph: {

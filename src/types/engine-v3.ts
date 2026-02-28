@@ -1069,6 +1069,13 @@ export interface RunResponseV3 {
   review_cards?: import('../review-pass/types.js').ProposalCardV1[];
 
   /**
+   * Stream D: Structured facts derived from analysis results.
+   * Gated behind ENABLE_FACTS_ASSEMBLY. Excluded from response_hash.
+   * When flag ON: always present (may be []). When flag OFF: omitted.
+   */
+  fact_objects?: import('../facts/types.js').FactObjectV1[];
+
+  /**
    * Canonical metadata for UI canonicalisation layer.
    * Only included when UI_CANONICAL_META feature flag is enabled.
    * Contains repair records, source path, and build info.
@@ -1121,6 +1128,11 @@ export interface RunResponseV3 {
       /** true ONLY when all four are non-null */
       chain_complete: boolean;
     };
+    /**
+     * V3 Platform Contract §3.3.6: active feature flags.
+     * Configuration metadata — excluded from response_hash.
+     */
+    feature_flags?: Record<string, string>;
   };
 }
 
@@ -1155,9 +1167,17 @@ export interface OptionComparisonResultV3 {
   // CIL 0.1: populate id/label from option_id/option_label for UI consumers
   id: string;
   label: string;
-  /** @deprecated Use outcome.mean instead */
+  /**
+   * @deprecated V1 legacy — removed from V2 /run response output (P.5).
+   * Still present in ISL raw response and V1 endpoints.
+   * V2 consumers: use outcome.mean instead.
+   */
   expected_outcome?: number;
-  /** @deprecated Use [outcome.p10, outcome.p90] instead */
+  /**
+   * @deprecated V1 legacy — removed from V2 /run response output (P.5).
+   * Still present in ISL raw response and V1 endpoints.
+   * V2 consumers: use [outcome.p10, outcome.p90] instead.
+   */
   confidence_interval?: [number, number];
   /** Full outcome statistics from ISL */
   outcome?: OutcomeStatsV3;

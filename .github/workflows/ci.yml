@@ -9,17 +9,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Check for src/*.js files (should not exist)
-        run: |
-          JS_FILES=$(find src -name "*.js" -not -path "src/scripts/*" | head -20)
-          if [ -n "$JS_FILES" ]; then
-            echo "ERROR: Found .js files in src/ that should not exist:"
-            echo "$JS_FILES"
-            echo ""
-            echo "These are likely build artifacts. Run: find src -name '*.js' -not -path 'src/scripts/*' -delete"
-            exit 1
-          fi
-          echo "✓ No stray .js files in src/"
+      - name: Check for stale .js files in src/
+        run: bash scripts/check-no-stale-js.sh
       - uses: actions/setup-node@v4
         with:
           node-version: '20'

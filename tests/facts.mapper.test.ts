@@ -406,6 +406,71 @@ describe('assembleFactsFromBundleResults', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Cross-path parity: assembleFactObjects vs assembleFactsFromBundleResults
+// ---------------------------------------------------------------------------
+
+describe('cross-path parity', () => {
+  it('probability facts from both paths have identical FactObjectV1 structure', () => {
+    // Equivalent probability inputs through both assembly paths
+    const islInput: ISLResponseInput = {
+      analysis_status: 'computed',
+      options: [
+        { option_id: 'opt_a', label: 'Option A', outcome: { p10: 80, p50: 100, p90: 120, mean: 100 } },
+      ],
+    };
+
+    const bundleInput: BundleResultInput[] = [
+      { label: 'Option A', summary: { p10: 80, p50: 100, p90: 120 } },
+    ];
+
+    const islResult = assembleFactObjects(islInput, LINEAGE);
+    const bundleResult = assembleFactsFromBundleResults(bundleInput, LINEAGE);
+
+    // Both produce probability facts
+    expect(islResult.facts.length).toBe(1);
+    expect(bundleResult.facts.length).toBe(1);
+
+    const islFact = islResult.facts[0];
+    const bundleFact = bundleResult.facts[0];
+
+    // Same FactObjectV1 shape: all required fields present
+    for (const fact of [islFact, bundleFact]) {
+      expect(fact.fact_id).toBeDefined();
+      expect(fact.fact_key).toBeDefined();
+      expect(fact.fact_key.type).toBe('probability');
+      expect(fact.fact_type).toBe('probability');
+      expect(fact.data).toBeDefined();
+      expect(fact.lineage).toEqual(LINEAGE);
+      expect(fact.content_hash).toMatch(/^[0-9a-f]{16}$/);
+    }
+
+    // Same data shape: all ProbabilityFactData fields present
+    const islData = islFact.data as any;
+    const bundleData = bundleFact.data as any;
+    for (const key of ['type', 'option_id', 'option_label', 'p10', 'p50', 'p90', 'mean']) {
+      expect(islData).toHaveProperty(key);
+      expect(bundleData).toHaveProperty(key);
+    }
+
+    // p10/p50/p90 values match
+    expect(islData.p10).toBe(bundleData.p10);
+    expect(islData.p50).toBe(bundleData.p50);
+    expect(islData.p90).toBe(bundleData.p90);
+  });
+
+  it('both paths produce valid FactsEnvelope with consistent schema version', () => {
+    const islResult = assembleFactObjects(
+      { analysis_status: 'computed', options: [] },
+      LINEAGE,
+    );
+    const bundleResult = assembleFactsFromBundleResults([], LINEAGE);
+
+    expect(islResult.facts_schema_version).toBe(bundleResult.facts_schema_version);
+    expect(islResult.facts_schema_version).toBe(FACTS_SCHEMA_VERSION);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Golden fixture validation
 // ---------------------------------------------------------------------------
 

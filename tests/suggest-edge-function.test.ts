@@ -81,7 +81,7 @@ describe('POST /v1/suggest/edge-function', () => {
     beforeEach(() => {
       // Ensure CEE is disabled
       delete process.env.CEE_EDGE_FUNCTION_ENABLE;
-      delete process.env.CEE_ORCHESTRATOR_ENABLE;
+      delete process.env.CEE_ORCHESTRATOR_ENABLED;
     });
 
     it('returns linear fallback when CEE is disabled', async () => {
@@ -129,7 +129,7 @@ describe('POST /v1/suggest/edge-function', () => {
   describe('node enrichment from graph', () => {
     beforeEach(() => {
       delete process.env.CEE_EDGE_FUNCTION_ENABLE;
-      delete process.env.CEE_ORCHESTRATOR_ENABLE;
+      delete process.env.CEE_ORCHESTRATOR_ENABLED;
     });
 
     it('enriches source_node label from graph', async () => {

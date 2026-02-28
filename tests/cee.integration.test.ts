@@ -18,7 +18,7 @@ describe('CEE Integration', () => {
 
   describe('CEE disabled (default)', () => {
     beforeAll(async () => {
-      process.env.CEE_ORCHESTRATOR_ENABLE = '0';
+      process.env.CEE_ORCHESTRATOR_ENABLED = '0';
       process.env.RATE_LIMIT_ENABLED = '0';
       app = await createServer();
       await app.listen({ port: 0, host: '127.0.0.1' });
@@ -29,7 +29,7 @@ describe('CEE Integration', () => {
 
     afterAll(async () => {
       await app?.close();
-      delete process.env.CEE_ORCHESTRATOR_ENABLE;
+      delete process.env.CEE_ORCHESTRATOR_ENABLED;
       delete process.env.RATE_LIMIT_ENABLED;
     });
 
@@ -99,7 +99,7 @@ describe('CEE Integration', () => {
 
   describe('CEE enabled with healthy service', () => {
     beforeAll(async () => {
-      process.env.CEE_ORCHESTRATOR_ENABLE = '1';
+      process.env.CEE_ORCHESTRATOR_ENABLED = '1';
       process.env.CEE_REVIEW_ENABLED = '1';
       process.env.CEE_BASE_URL = 'http://localhost:9999';
       process.env.CEE_API_KEY = 'test-api-key-12345';
@@ -114,7 +114,7 @@ describe('CEE Integration', () => {
 
     afterAll(async () => {
       await app?.close();
-      delete process.env.CEE_ORCHESTRATOR_ENABLE;
+      delete process.env.CEE_ORCHESTRATOR_ENABLED;
       delete process.env.CEE_REVIEW_ENABLED;
       delete process.env.CEE_BASE_URL;
       delete process.env.CEE_API_KEY;
@@ -190,7 +190,7 @@ describe('CEE Integration', () => {
 
   describe('CEE graceful degradation', () => {
     beforeAll(async () => {
-      process.env.CEE_ORCHESTRATOR_ENABLE = '1';
+      process.env.CEE_ORCHESTRATOR_ENABLED = '1';
       process.env.CEE_REVIEW_ENABLED = '1';
       process.env.CEE_BASE_URL = 'http://localhost:1';
       process.env.CEE_API_KEY = 'test-api-key-degraded';
@@ -205,7 +205,7 @@ describe('CEE Integration', () => {
 
     afterAll(async () => {
       await app?.close();
-      delete process.env.CEE_ORCHESTRATOR_ENABLE;
+      delete process.env.CEE_ORCHESTRATOR_ENABLED;
       delete process.env.CEE_REVIEW_ENABLED;
       delete process.env.CEE_BASE_URL;
       delete process.env.CEE_API_KEY;
@@ -252,7 +252,7 @@ describe('CEE Integration', () => {
 
   describe('CEE response hash stability', () => {
     beforeAll(async () => {
-      process.env.CEE_ORCHESTRATOR_ENABLE = '1';
+      process.env.CEE_ORCHESTRATOR_ENABLED = '1';
       process.env.CEE_REVIEW_ENABLED = '1';
       process.env.CEE_BASE_URL = 'http://localhost:9999';
       process.env.CEE_API_KEY = 'test-api-key-hash-stability';
@@ -266,7 +266,7 @@ describe('CEE Integration', () => {
 
     afterAll(async () => {
       await app?.close();
-      delete process.env.CEE_ORCHESTRATOR_ENABLE;
+      delete process.env.CEE_ORCHESTRATOR_ENABLED;
       delete process.env.CEE_REVIEW_ENABLED;
       delete process.env.CEE_BASE_URL;
       delete process.env.CEE_API_KEY;

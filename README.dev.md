@@ -102,7 +102,7 @@ curl http://localhost:3500/metrics
 
 ### CEE Severity Classification
 
-- CEE Decision Review is gated by `CEE_ORCHESTRATOR_ENABLE` and Idempotency-Key on `/v1/run`.
+- CEE Decision Review is gated by `CEE_ORCHESTRATOR_ENABLED` and Idempotency-Key on `/v1/run`.
 - The CEE client normalises error codes into semantic severities:
   - `error` – blocking issues (e.g. `LIMIT_EXCEEDED`, `CIRCULAR_DEPENDENCY`).
   - `warning` – non-blocking issues worth review (e.g. `MISSING_EVIDENCE`, `LOW_CONFIDENCE`).

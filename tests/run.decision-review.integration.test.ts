@@ -4,7 +4,7 @@ import { createServer } from '../src/createServer.js';
 
 // Focused /v1/run + CEE Decision Review integration tests using the SDK port shim.
 // Verifies:
-// - Gating on CEE_ORCHESTRATOR_ENABLE + Idempotency-Key.
+// - Gating on CEE_ORCHESTRATOR_ENABLED + Idempotency-Key.
 // - Best-effort behaviour when CEE is unreachable.
 //
 // /v2/run + M2 Decision Review integration tests.
@@ -18,7 +18,7 @@ describe('/v1/run CEE Decision Review integration (SDK port shim)', () => {
   let baseUrl: string;
 
   beforeAll(async () => {
-    process.env.CEE_ORCHESTRATOR_ENABLE = '1';
+    process.env.CEE_ORCHESTRATOR_ENABLED = '1';
     process.env.CEE_BASE_URL = 'http://127.0.0.1:1'; // unreachable → forces degraded path
     process.env.CEE_API_KEY = 'test-decision-review-key';
     process.env.CEE_TIMEOUT_MS = '100';
@@ -33,7 +33,7 @@ describe('/v1/run CEE Decision Review integration (SDK port shim)', () => {
 
   afterAll(async () => {
     await app?.close();
-    delete process.env.CEE_ORCHESTRATOR_ENABLE;
+    delete process.env.CEE_ORCHESTRATOR_ENABLED;
     delete process.env.CEE_BASE_URL;
     delete process.env.CEE_API_KEY;
     delete process.env.CEE_TIMEOUT_MS;

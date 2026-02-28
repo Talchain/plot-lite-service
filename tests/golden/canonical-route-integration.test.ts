@@ -129,8 +129,8 @@ const mockISLService = {
   },
 };
 
-vi.mock('../../src/integrations/isl/index.js', async () => {
-  const actual = await vi.importActual<any>('../../src/integrations/isl/index.js');
+vi.mock('../../src/integrations/isl/index.ts', async () => {
+  const actual = await vi.importActual<any>('../../src/integrations/isl/index.ts');
   return { ...actual, getISLService: () => mockISLService, islService: mockISLService };
 });
 
@@ -179,6 +179,7 @@ const RESPONSE_IGNORE_FIELDS = [
   'threshold_analysis',
   'brief_id',             // decision_brief: random UUID per assembly
   'created_at',           // decision_brief: timestamp per assembly
+  'fact_objects',         // F.7: fact_objects contain per-request IDs (fact_id, isl_request_id, content_hash); tested separately
 ];
 
 const SORT_ARRAYS = {
@@ -198,7 +199,7 @@ describe('Canonical route integration (B1.4 Category B)', () => {
 
   beforeAll(async () => {
     process.env.RATE_LIMIT_ENABLED = '0';
-    process.env.CEE_ORCHESTRATOR_ENABLE = '0';
+    process.env.CEE_ORCHESTRATOR_ENABLED = '0';
     networkCallDetected = false;
     networkCallUrl = '';
 
@@ -209,7 +210,7 @@ describe('Canonical route integration (B1.4 Category B)', () => {
   afterAll(async () => {
     await app?.close();
     delete process.env.RATE_LIMIT_ENABLED;
-    delete process.env.CEE_ORCHESTRATOR_ENABLE;
+    delete process.env.CEE_ORCHESTRATOR_ENABLED;
     capturedISLBody = null;
     capturedRobustnessBody = null;
   });

@@ -80,8 +80,8 @@ const mockISLService = {
   },
 };
 
-vi.mock('../src/integrations/isl/index.js', async () => {
-  const actual = await vi.importActual<any>('../src/integrations/isl/index.js');
+vi.mock('../src/integrations/isl/index.ts', async () => {
+  const actual = await vi.importActual<any>('../src/integrations/isl/index.ts');
   return { ...actual, getISLService: () => mockISLService, islService: mockISLService };
 });
 
@@ -102,11 +102,11 @@ describe('HTTP normalisation parity: /v2/run vs /v1/validate-patch', () => {
 
   beforeAll(async () => {
     // Save previous values so afterAll restores (not clobbers) them
-    for (const key of ['RATE_LIMIT_ENABLED', 'CEE_ORCHESTRATOR_ENABLE', 'ENABLE_VALIDATE_PATCH']) {
+    for (const key of ['RATE_LIMIT_ENABLED', 'CEE_ORCHESTRATOR_ENABLED', 'ENABLE_VALIDATE_PATCH']) {
       savedEnv[key] = process.env[key];
     }
     process.env.RATE_LIMIT_ENABLED = '0';
-    process.env.CEE_ORCHESTRATOR_ENABLE = '0';
+    process.env.CEE_ORCHESTRATOR_ENABLED = '0';
     process.env.ENABLE_VALIDATE_PATCH = '1';
 
     // Full server for /v2/run (needs ISL mock, full middleware stack)

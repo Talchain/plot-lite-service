@@ -18,7 +18,7 @@ import { Writable } from 'node:stream';
 // ── BFF Proxy Tests ──────────────────────────────────────────────────────────
 
 // Mock the timeout module to use a short timeout for tests
-vi.mock('../src/config/timeouts.js', async (importOriginal) => {
+vi.mock('../src/config/timeouts.ts', async (importOriginal) => {
   const original = (await importOriginal()) as Record<string, unknown>;
   return {
     ...original,

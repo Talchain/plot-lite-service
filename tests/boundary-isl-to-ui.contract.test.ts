@@ -151,8 +151,8 @@ const mockISLService = {
   },
 };
 
-vi.mock('../src/integrations/isl/index.js', async () => {
-  const actual = await vi.importActual<any>('../src/integrations/isl/index.js');
+vi.mock('../src/integrations/isl/index.ts', async () => {
+  const actual = await vi.importActual<any>('../src/integrations/isl/index.ts');
   return { ...actual, getISLService: () => mockISLService, islService: mockISLService };
 });
 
@@ -186,7 +186,7 @@ describe('ISL → UI boundary contract (B4.5)', () => {
 
   beforeAll(async () => {
     process.env.RATE_LIMIT_ENABLED = '0';
-    process.env.CEE_ORCHESTRATOR_ENABLE = '0';
+    process.env.CEE_ORCHESTRATOR_ENABLED = '0';
 
     app = await createServer();
     await app.ready();
@@ -195,7 +195,7 @@ describe('ISL → UI boundary contract (B4.5)', () => {
   afterAll(async () => {
     await app?.close();
     delete process.env.RATE_LIMIT_ENABLED;
-    delete process.env.CEE_ORCHESTRATOR_ENABLE;
+    delete process.env.CEE_ORCHESTRATOR_ENABLED;
   });
 
   // Helper to get response body

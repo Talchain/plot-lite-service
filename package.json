@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "tsx watch src/main.ts",
     "dev:local": "tsx watch --env-file=.env.local src/main.ts",
-    "build": "npx tsc -p tsconfig.json && npx tsc -p tsconfig.tools.json",
+    "build": "npx tsc -p tsconfig.json && npx tsc -p tsconfig.tools.json && bash scripts/check-no-stale-js.sh --clean",
     "start": "node dist/main.js",
     "test": "node tools/run-all-tests.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -67,7 +67,8 @@
     "bench:rollout": "node tools/rollout-bench.mjs",
     "dev:engine": "node tools/dev-shell.mjs",
     "smoke:staging": "node tools/smoke.mjs",
-    "check:sources": "node tools/ci-check-sources.mjs"
+    "check:sources": "node tools/ci-check-sources.mjs",
+    "check:no-stale-js": "bash scripts/check-no-stale-js.sh"
   },
   "keywords": [],
   "author": "",

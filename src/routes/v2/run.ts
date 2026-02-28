@@ -18,7 +18,7 @@
  * @see P0-PLOT Workstream
  */
 
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type {
@@ -124,6 +124,8 @@ import {
 import { assembleBrief } from '../../assembly/decision-brief.js';
 import { buildEvidencePriorityCard, type FactorInput } from '../../review-pass/evidence-priority.js';
 import type { ProposalCardV1 } from '../../review-pass/types.js';
+import { assembleFactObjects, type ISLResponseInput } from '../../facts/index.js';
+import type { FactObjectV1, FactLineage } from '../../facts/types.js';
 
 // -----------------------------------------------------------------------------
 // Feature Flags
@@ -1021,27 +1023,18 @@ function buildResponse(
         }
       : undefined;
 
-    // Derive legacy fields for backward compatibility
-    const expectedOutcome = hasOutcomeObject
-      ? outcomeData.mean ?? outcomeData.p50
-      : r.expected_outcome;
-    const confidenceInterval: [number, number] = hasOutcomeObject
-      ? [outcomeData.p10 ?? 0, outcomeData.p90 ?? 0]
-      : r.confidence_interval ?? [0, 0];
-
     const resolvedOptionLabel = option?.label ?? r.label ?? optionId;
 
     // Build result object - only include optional fields if present
+    // NOTE: expected_outcome and confidence_interval (V1 legacy) removed from V2 response.
+    // Use outcome.mean and [outcome.p10, outcome.p90] instead.
     const result: any = {
       option_id: optionId,
       option_label: resolvedOptionLabel,
       // CIL 0.1: populate id/label from option_id/option_label for UI consumers
       id: r.id ?? optionId,
       label: r.label ?? resolvedOptionLabel,
-      // Legacy fields (deprecated but kept for backward compatibility)
-      expected_outcome: expectedOutcome,
-      confidence_interval: confidenceInterval,
-      // Full outcome stats (new V2 format)
+      // Full outcome stats (V2 format)
       outcome,
       // Status fields
       status: r.status,
@@ -1266,6 +1259,60 @@ function buildResponse(
     if (epCard) assembledReviewCards.push(epCard);
   }
 
+  // Stream D: FactObjectV1 assembly (F.7) — mirrors /v1/run_bundle pattern.
+  // Gated behind ENABLE_FACTS_ASSEMBLY. Excluded from response_hash.
+  let assembledFactObjects: FactObjectV1[] | undefined;
+  if (FLAGS.ENABLE_FACTS_ASSEMBLY) {
+    const graphForHash = graph ?? { nodes: [], edges: [] };
+    const graphHashForLineage = createHash('sha256')
+      .update(JSON.stringify({ nodes: graphForHash.nodes, edges: graphForHash.edges }))
+      .digest('hex')
+      .slice(0, 16);
+
+    const lineage: FactLineage = {
+      graph_hash: graphHashForLineage,
+      seed: Number(meta.seedUsed) || 0,
+      config_version: '1',
+      isl_request_id: requestId,
+    };
+
+    // Map V2 analysis data to ISLResponseInput shape
+    const islInput: ISLResponseInput = {
+      analysis_status: analysisStatus === 'blocked' ? 'failed' : analysisStatus,
+      options: optionComparison?.map((oc: Record<string, unknown>) => ({
+        option_id: oc.option_id as string,
+        label: oc.label as string | undefined,
+        outcome: oc.outcome as { p10?: number; p50?: number; p90?: number; mean?: number } | undefined,
+      })),
+      factor_sensitivity: factorSensitivity?.map((fs, idx) => ({
+        node_id: fs.factor_id,
+        label: fs.factor_label ?? undefined,
+        sensitivity_score: fs.elasticity ?? 0,
+        importance_rank: idx + 1,
+        elasticity: fs.elasticity,
+        direction: fs.direction === 'unknown' ? undefined : fs.direction,
+        confidence: fs.confidence,
+        attribution_stability: fs.attribution_stability,
+      })),
+      critiques: critiques?.map((c) => ({
+        id: c.id ?? c.code,
+        code: c.code,
+        severity: c.severity,
+        message: c.message ?? '',
+        suggestion: c.suggestion,
+        affected_option_ids: c.affected_option_ids,
+        affected_node_ids: c.affected_node_ids,
+      })),
+      robustness: robustness ? {
+        label: robustness.label,
+        score: robustness.score,
+      } : undefined,
+    };
+
+    const envelope = assembleFactObjects(islInput, lineage);
+    assembledFactObjects = envelope.facts;
+  }
+
   return {
     request_schema_version: 'v3',
     endpoint_version: 'v2/run',
@@ -1365,7 +1412,12 @@ function buildResponse(
 
     // Review cards — evidence priority card from factor sensitivity data.
     // Gated behind ENABLE_REVIEW_PASS. Excluded from response_hash (non-deterministic assembly metadata).
-    ...(assembledReviewCards.length > 0 && { review_cards: assembledReviewCards }),
+    // When flag ON: always include (may be []). When flag OFF: omit key entirely.
+    ...(FLAGS.ENABLE_REVIEW_PASS && { review_cards: assembledReviewCards }),
+
+    // Stream D: FactObjectV1 assembly (F.7). Excluded from response_hash.
+    // Sentinel: flag ON → always include (may be []). Flag OFF → omit key entirely.
+    ...(FLAGS.ENABLE_FACTS_ASSEMBLY && { fact_objects: assembledFactObjects ?? [] }),
 
     // CIL M4: repairs_applied always included for CIL observability.
     // Other _meta fields (builds, payloads) gated behind UI_CANONICAL_META feature flag.
@@ -1456,12 +1508,8 @@ function buildResponse(
       return Object.keys(result).length > 0 ? result : undefined;
     })(),
 
-    // NOTE (known gap): V3 Platform Contract §3.3.6 (ResponseMetaFull) specifies
-    // `feature_flags` as part of the public `meta` object. V2 was built before
-    // that contract clause and does not include it here. The diagnostic copy at
-    // `_meta.feature_flags_active` covers debug/inspection use cases.
-    // Follow-up: add `meta.feature_flags` to align with the contract if V2
-    // adopts ResponseMetaFull, tracked separately from this diagnostic brief.
+    // V3 Platform Contract §3.3.6 (ResponseMetaFull): public `meta` object.
+    // feature_flags is configuration metadata — excluded from response_hash.
     meta: {
       seed_used: meta.seedUsed,
       // CIL Phase 1: seed_source tells consumers seed origin
@@ -1477,6 +1525,7 @@ function buildResponse(
       build: meta.build,
       computed_at: meta.computedAt,
       ...(meta.requestIdChain && { request_id_chain: meta.requestIdChain }),
+      feature_flags: getAllFeatureFlags(),
     },
   };
 }
@@ -1538,8 +1587,7 @@ function getCeeEnv(): { baseUrl?: string; apiKey?: string; timeoutMs?: number } 
  * Check if CEE integration is enabled.
  */
 function isCeeEnabled(): boolean {
-  // Prefer CEE_ORCHESTRATOR_ENABLED (matches Render config)
-  const enabled = process.env.CEE_ORCHESTRATOR_ENABLED ?? process.env.CEE_ORCHESTRATOR_ENABLE;
+  const enabled = process.env.CEE_ORCHESTRATOR_ENABLED;
   return enabled === '1' || enabled === 'true';
 }
 

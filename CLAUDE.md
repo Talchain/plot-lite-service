@@ -83,15 +83,54 @@ A `PreToolUse` hook in `.claude/settings.json` intercepts `git push` Bash comman
 
 ---
 
-## Testing Commands
+## Testing — Three-Tier Process
+
+Testing uses a tiered approach to avoid heavy resource usage on the local machine.
+The full suite runs in the pre-push hook and CI — not after every code change.
+
+### Tier 1: Smoke (after every code change)
+
+Run **only** after making changes, before reporting the task as done.
+Targets changed files and their direct dependents — fast and light.
 
 ```bash
-npm test                                    # All tests
+npx tsc --noEmit                                       # type checking
+npx vitest run --changed --bail=1                      # only tests affected by changes
+```
+
+If `--changed` finds no related tests, skip the vitest step — typecheck alone is sufficient.
+Report: "Typecheck passed. N related tests passed." (or "No related tests for this change.")
+
+### Tier 2: Pre-commit validation
+
+Run before committing. Still lightweight — no full test suite.
+
+```bash
+npx tsc --noEmit
+```
+
+### Tier 3: Full gate (before pushing to staging only)
+
+Run **only** when the user explicitly says to push to staging.
+The pre-push hook (`scripts/pre-push-validate.sh`) handles this automatically.
+
+```bash
+git push origin staging    # triggers pre-push hook which runs full suite
+```
+
+### Testing commands reference
+
+```bash
+npm test                                    # All tests (Tier 3 only)
 npm test -- --run tests/FILE.test.ts       # Specific file
 npm test -- --grep "pattern"               # Pattern match
 ```
 
-After any code changes, run the full test suite and typecheck (`npx tsc --noEmit`) before committing. Report the exact number of passing/failing tests.
+### Important rules
+
+- **Never run `npm test` (full suite) after every code change** — save it for the pre-push gate.
+- The pre-push hook runs typecheck, tests, and all other checks automatically.
+- CI is the authoritative gate — local testing is a fast feedback loop, not a replacement.
 
 ---
 
@@ -116,26 +155,18 @@ Report the output. Confirm the branch is correct for the task before starting an
 
 ## Task completion checklist
 
-Before reporting ANY task as complete, run and show the output of all five checks:
+Before reporting ANY task as complete, run the **Tier 1 smoke checks** (not the full suite):
 
 ```bash
-# 1. Correct branch?
-git branch --show-current
-
-# 2. Clean state? (no accidental uncommitted changes)
-git status
-
-# 3. Recent commits match the work just done?
-git log --oneline -5
-
-# 4. All tests pass?
-npm test
-
-# 5. TypeScript compiles cleanly?
-npx tsc --noEmit
+git branch --show-current                              # Correct branch?
+git status                                             # Clean state?
+npx tsc --noEmit                                       # TypeScript compiles?
+npx vitest run --changed --bail=1                      # Related tests pass?
 ```
 
-If any check fails, fix it before reporting completion. Do not report "done" with failing tests or uncommitted changes unless explicitly discussed with the user.
+If typecheck or related tests fail, fix before reporting completion.
+Do NOT run `npm test` (full suite) here — that runs in the pre-push hook when the user
+decides to push, and again in CI. See "Testing — Three-Tier Process" above.
 
 ---
 

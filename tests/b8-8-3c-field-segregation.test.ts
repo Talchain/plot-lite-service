@@ -96,8 +96,8 @@ const mockISLService = {
   },
 };
 
-vi.mock('../src/integrations/isl/index.js', async () => {
-  const actual = await vi.importActual<any>('../src/integrations/isl/index.js');
+vi.mock('../src/integrations/isl/index.ts', async () => {
+  const actual = await vi.importActual<any>('../src/integrations/isl/index.ts');
   return { ...actual, getISLService: () => mockISLService, islService: mockISLService };
 });
 
@@ -112,7 +112,7 @@ describe('B8-8: 3C field handling in /v2/run response', () => {
 
   beforeAll(async () => {
     process.env.RATE_LIMIT_ENABLED = '0';
-    process.env.CEE_ORCHESTRATOR_ENABLE = '0';
+    process.env.CEE_ORCHESTRATOR_ENABLED = '0';
     process.env.DECISION_REVIEW_ENABLE = '0';
     process.env.ENABLE_REVIEW_PASS = '0';
     app = await createServer();

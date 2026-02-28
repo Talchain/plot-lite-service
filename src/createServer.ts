@@ -51,6 +51,8 @@ export async function createServer(opts: ServerOpts = {}) {
   const { validateFeatureFlags } = await import('./config/feature-flags.js');
   validateFeatureFlags();
 
+  const { FLAGS: _bootFlags } = await import('./config/flags.js');
+
   // Bounded idempotency cache (C1)
   const { BoundedLRU } = await import('./lib/BoundedLRU.js');
   const { PrincipalQuotas } = await import('./lib/PrincipalQuotas.js');
@@ -203,6 +205,14 @@ export async function createServer(opts: ServerOpts = {}) {
       (app as any).log = enforceNoPayloadLogging(app.log as any);
     } catch { /* ignore */ }
   }
+
+  // Log key feature flag states for ops verification
+  app.log.info({
+    event: 'feature_flags_boot',
+    ENABLE_VALIDATE_PATCH: _bootFlags.ENABLE_VALIDATE_PATCH,
+    ENABLE_FACTS_ASSEMBLY: _bootFlags.ENABLE_FACTS_ASSEMBLY,
+    ENABLE_REVIEW_PASS: _bootFlags.ENABLE_REVIEW_PASS,
+  });
 
   // Echo X-Request-Id back to client
   app.addHook('onSend', async (request, reply) => {

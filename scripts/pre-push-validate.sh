@@ -171,15 +171,28 @@ run_check_5() {
 }
 
 # ---------------------------------------------------------------------------
-# Check 6: OpenAPI freshness
-# This repo has no OpenAPI generation script — contracts/openapi.yaml is hand-authored.
-# Only linting exists: npm run openapi:lint (spectral lint).
-# When a generation script is added, replace this with:
-#   npm run openapi:generate && git diff --exit-code contracts/openapi.yaml
+# Check 6: OpenAPI spec validation
+# Validates contracts/openapi.yaml syntax and $ref resolution via Spectral.
+# Catches: invalid YAML, unresolvable $ref, schema violations.
 # ---------------------------------------------------------------------------
 run_check_6() {
   CHECKS_RUN=$((CHECKS_RUN + 1))
-  skip "6/7" "OpenAPI freshness (no generation script; spec is hand-authored)"
+  if ! command -v npx >/dev/null 2>&1; then
+    fail "6/7" "npx not found. Install Node.js >= 20."
+    return 1
+  fi
+  if [ ! -f contracts/openapi.yaml ]; then
+    skip "6/7" "OpenAPI spec (contracts/openapi.yaml not found)"
+    return 0
+  fi
+  echo "    Running: spectral lint contracts/openapi.yaml ..."
+  local lint_output
+  lint_output="$(npx spectral lint contracts/openapi.yaml --ruleset tools/spectral.rules.yaml 2>&1)" || {
+    echo "$lint_output"
+    fail "6/7" "OpenAPI spec validation failed. Run: npm run openapi:lint"
+    return 1
+  }
+  pass "6/7" "OpenAPI spec validation (spectral lint)"
 }
 
 # ---------------------------------------------------------------------------

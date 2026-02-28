@@ -88,8 +88,8 @@ const mockISLService = {
   },
 };
 
-vi.mock('../src/integrations/isl/index.js', async () => {
-  const actual = await vi.importActual<any>('../src/integrations/isl/index.js');
+vi.mock('../src/integrations/isl/index.ts', async () => {
+  const actual = await vi.importActual<any>('../src/integrations/isl/index.ts');
   return { ...actual, getISLService: () => mockISLService, islService: mockISLService };
 });
 
@@ -137,6 +137,7 @@ const IGNORE_FIELDS = [
   'threshold_analysis',  // B10.3: presence depends on ISL call success/timing
   'brief_id',            // decision_brief: random UUID per assembly
   'created_at',          // decision_brief: timestamp per assembly
+  'fact_objects',        // F.7: fact_objects contain per-request IDs (fact_id, isl_request_id, content_hash); tested separately
 ];
 
 /** Sort arrays by their natural key so element order doesn't cause false mismatches. */
@@ -156,7 +157,7 @@ describe('Determinism replay (B4.6)', () => {
 
   beforeAll(async () => {
     process.env.RATE_LIMIT_ENABLED = '0';
-    process.env.CEE_ORCHESTRATOR_ENABLE = '0';
+    process.env.CEE_ORCHESTRATOR_ENABLED = '0';
 
     app = await createServer();
     await app.ready();
@@ -165,7 +166,7 @@ describe('Determinism replay (B4.6)', () => {
   afterAll(async () => {
     await app?.close();
     delete process.env.RATE_LIMIT_ENABLED;
-    delete process.env.CEE_ORCHESTRATOR_ENABLE;
+    delete process.env.CEE_ORCHESTRATOR_ENABLED;
   });
 
   it('same seed + same payload → canonicalCompare match, identical response_hash', async () => {

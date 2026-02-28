@@ -23,7 +23,7 @@ import type { NormalisationWarning } from '../src/normalisation/graph-normaliser
 // Mock ISLClient to capture the request body sent by analyseRobustness
 let capturedBody: any = null;
 
-vi.mock('../src/integrations/isl/client.js', () => ({
+vi.mock('../src/integrations/isl/client.ts', () => ({
   ISLClient: class {
     async request(opts: any) {
       capturedBody = opts.body;
@@ -49,7 +49,7 @@ vi.mock('../src/integrations/isl/client.js', () => ({
 }));
 
 // Stub metrics to avoid side effects
-vi.mock('../src/metrics/registry.js', () => ({
+vi.mock('../src/metrics/registry.ts', () => ({
   recordIslValidation: vi.fn(),
   recordIslSensitivity: vi.fn(),
   recordIslFactorSensitivity: vi.fn(),

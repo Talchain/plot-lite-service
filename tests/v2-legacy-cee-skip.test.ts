@@ -117,8 +117,8 @@ const mockISLService = {
 };
 
 // Mock the ISL module BEFORE importing createServer
-vi.mock('../src/integrations/isl/index.js', async () => {
-  const actual = await vi.importActual<any>('../src/integrations/isl/index.js');
+vi.mock('../src/integrations/isl/index.ts', async () => {
+  const actual = await vi.importActual<any>('../src/integrations/isl/index.ts');
   return {
     ...actual,
     getISLService: () => mockISLService,
@@ -224,7 +224,7 @@ describe('/v2/run Legacy CEE Skip Behavior', () => {
       // M2 disabled - legacy CEE path should be preserved
       process.env.DECISION_REVIEW_ENABLE = 'false';
       // Enable legacy CEE orchestrator (required for legacy path to be taken)
-      process.env.CEE_ORCHESTRATOR_ENABLE = '1';
+      process.env.CEE_ORCHESTRATOR_ENABLED = '1';
       process.env.CEE_BASE_URL = 'http://127.0.0.1:1'; // unreachable → forces degraded
       process.env.CEE_API_KEY = 'test-legacy-preserved-key';
       process.env.CEE_TIMEOUT_MS = '100';
@@ -240,7 +240,7 @@ describe('/v2/run Legacy CEE Skip Behavior', () => {
     afterAll(async () => {
       await app?.close();
       delete process.env.DECISION_REVIEW_ENABLE;
-      delete process.env.CEE_ORCHESTRATOR_ENABLE;
+      delete process.env.CEE_ORCHESTRATOR_ENABLED;
       delete process.env.CEE_BASE_URL;
       delete process.env.CEE_API_KEY;
       delete process.env.CEE_TIMEOUT_MS;

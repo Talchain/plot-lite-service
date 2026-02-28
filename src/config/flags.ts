@@ -66,8 +66,7 @@ export const FLAGS = {
   // CEE Integration flags (M1 CEE Orchestrator)
   /** Enable CEE orchestrator integration for decision review */
   get CEE_ORCHESTRATOR_ENABLED() {
-    // Prefer CEE_ORCHESTRATOR_ENABLED (matches Render config), fall back to CEE_ORCHESTRATOR_ENABLE
-    const raw = process.env.CEE_ORCHESTRATOR_ENABLED ?? process.env.CEE_ORCHESTRATOR_ENABLE;
+    const raw = process.env.CEE_ORCHESTRATOR_ENABLED;
     return raw === '1' || raw === 'true';
   },
 

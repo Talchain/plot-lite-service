@@ -57,6 +57,9 @@ export async function registerLimitsRoute(app: FastifyInstance) {
       warning_edges: LIMITS_WARNING_EDGES,
       flags: {
         scm_lite: FLAGS.SCM_LITE_ENABLE ? 1 : 0,
+        validate_patch: FLAGS.ENABLE_VALIDATE_PATCH ? 1 : 0,
+        facts_assembly: FLAGS.ENABLE_FACTS_ASSEMBLY ? 1 : 0,
+        review_pass: FLAGS.ENABLE_REVIEW_PASS ? 1 : 0,
       },
     };
     

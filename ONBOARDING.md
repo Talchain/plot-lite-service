@@ -5,7 +5,7 @@
 - **Run it:** `npm ci && npm run build && npm start`, then hit `/v1/health` on the logged port.
 - **Main endpoints:** `/v1/run`, `/v1/limits`, `/v1/health`, `/v1/openapi.json`.
 - **Key files:** `src/createServer.ts`, `src/routes/v1/run.ts`, `src/middleware/{rate-limit,idempotency}.ts`, `src/cee/client.ts`, `contracts/openapi.yaml`.
-- **Limits & CEE:** Limits in `src/config/constants.ts`; CEE gated by `CEE_ORCHESTRATOR_ENABLE` + `Idempotency-Key` and attached after hashing.
+- **Limits & CEE:** Limits in `src/config/constants.ts`; CEE gated by `CEE_ORCHESTRATOR_ENABLED` + `Idempotency-Key` and attached after hashing.
 - **Next:** Skim `DEPLOYING.md` and the sections below when you need more detail.
 
 This document is a **quick-start guide** for engineers joining the PLoT Engine codebase.
@@ -116,7 +116,7 @@ Render / production-specific configuration is documented in **`DEPLOYING.md`**.
 - `src/cee/types.ts` – CEE payload and error/trace types.
 - `src/cee/ceePort.ts` – SDK port shim used by the adapter.
 - `src/cee/client.ts` – CEE adapter used by `/v1/run`:
-  - Env-driven (`CEE_ORCHESTRATOR_ENABLE`, `CEE_BASE_URL`, `CEE_API_KEY`, `CEE_TIMEOUT_MS`).
+  - Env-driven (`CEE_ORCHESTRATOR_ENABLED`, `CEE_BASE_URL`, `CEE_API_KEY`, `CEE_TIMEOUT_MS`).
   - Uses health probe + fixture fallback.
   - Never throws; returns structured degraded results.
 
@@ -137,7 +137,7 @@ Render / production-specific configuration is documented in **`DEPLOYING.md`**.
 
 - `/v1/run`:
   - Builds the full response object and stamps `result.response_hash` first.
-  - If `CEE_ORCHESTRATOR_ENABLE` is on **and** `Idempotency-Key` is present, it calls `callDecisionReviewFromEngine`.
+  - If `CEE_ORCHESTRATOR_ENABLED` is on **and** `Idempotency-Key` is present, it calls `callDecisionReviewFromEngine`.
   - Attaches `ceeReview`, `ceeTrace`, `ceeError` **after hashing**, so they do not affect determinism.
 - Adapter behaviour (`callDecisionReviewFromEngine`):
   - Disabled flag → immediate degraded result (`CEE_DISABLED`).

@@ -8,6 +8,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { enrichFragileEdge, enrichRobustEdge } from '../src/integrations/isl/adapters/robustness-enrichment.ts';
 
 // Import the shape validation function and transformation functions
 // These are private to run.ts, so we'll test via integration or extract them
@@ -294,8 +295,6 @@ describe('ISL V2 Response Mapping Contract', () => {
   });
 
   describe('Fragile Edge Label Enrichment', () => {
-    // Import the enrichment functions
-    const { enrichFragileEdge, enrichRobustEdge } = require('../src/integrations/isl/adapters/robustness-enrichment.js');
 
     // Mock graph with labeled nodes
     const mockGraph = {

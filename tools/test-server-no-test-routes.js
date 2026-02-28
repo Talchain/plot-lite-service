@@ -1,4 +1,4 @@
-import { createServer } from '../src/createServer.js';
+import { createServer } from '../dist/createServer.js';
 const port = Number(process.env.TEST_PORT || 4314);
 const start = async () => {
   const app = await createServer({ enableTestRoutes: false });

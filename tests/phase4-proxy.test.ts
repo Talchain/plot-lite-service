@@ -256,7 +256,7 @@ describe('POST /v1/recommend/generate', () => {
 
   beforeEach(() => {
     delete process.env.CEE_GENERATE_RECOMMENDATION_ENABLE;
-    delete process.env.CEE_ORCHESTRATOR_ENABLE;
+    delete process.env.CEE_ORCHESTRATOR_ENABLED;
   });
 
   it('returns 400 when analysis_results is missing', async () => {
@@ -312,7 +312,7 @@ describe('POST /v1/narrate/conditions', () => {
 
   beforeEach(() => {
     delete process.env.CEE_NARRATE_CONDITIONS_ENABLE;
-    delete process.env.CEE_ORCHESTRATOR_ENABLE;
+    delete process.env.CEE_ORCHESTRATOR_ENABLED;
   });
 
   it('returns 400 when conditions are missing', async () => {
@@ -384,7 +384,7 @@ describe('POST /v1/explain/policy', () => {
 
   beforeEach(() => {
     delete process.env.CEE_EXPLAIN_POLICY_ENABLE;
-    delete process.env.CEE_ORCHESTRATOR_ENABLE;
+    delete process.env.CEE_ORCHESTRATOR_ENABLED;
   });
 
   it('returns 400 when policy_tree is missing', async () => {

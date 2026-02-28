@@ -1301,7 +1301,7 @@ export async function registerRunRoute(app: FastifyInstance) {
 
     // CEE gate: {idk}:{flag}:{status}:{code}
     const idkHeader = String((req.headers as any)['idempotency-key'] || (req.headers as any)['Idempotency-Key'] || '').trim();
-    const ceeEnabled = isFlagOn(process.env.CEE_ORCHESTRATOR_ENABLED ?? process.env.CEE_ORCHESTRATOR_ENABLE);
+    const ceeEnabled = isFlagOn(process.env.CEE_ORCHESTRATOR_ENABLED);
     const baseUrl = String(process.env.CEE_BASE_URL ?? '').trim();
     const apiKey = String(process.env.CEE_API_KEY ?? '').trim();
     const hasConfig = baseUrl.length > 0 && apiKey.length > 0;

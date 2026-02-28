@@ -100,7 +100,7 @@ In-memory circuit breaker protects against cascading CEE failures:
 ### Configuration Variables
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CEE_ORCHESTRATOR_ENABLE` | `0` | Master gate to enable CEE |
+| `CEE_ORCHESTRATOR_ENABLED` | `0` | Master gate to enable CEE |
 | `CEE_BASE_URL` | (required) | CEE service base URL |
 | `CEE_API_KEY` | (required) | API key for authentication |
 | `CEE_TIMEOUT_MS` | `2000` | Request timeout (500-30000ms) |
@@ -110,7 +110,7 @@ In-memory circuit breaker protects against cascading CEE failures:
 ### Activation Gates
 CEE is only called when ALL conditions are met:
 1. `Idempotency-Key` header present (saved runs only)
-2. `CEE_ORCHESTRATOR_ENABLE=1`
+2. `CEE_ORCHESTRATOR_ENABLED=1`
 3. Both `CEE_BASE_URL` and `CEE_API_KEY` configured
 4. `detail_level` is not `quick`
 5. Circuit breaker allows call
@@ -343,7 +343,7 @@ Exposed at `/metrics` (requires `PROMETHEUS_ENABLE=1`):
 ### CEE Integration
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CEE_ORCHESTRATOR_ENABLE` | 0 | Enable CEE integration |
+| `CEE_ORCHESTRATOR_ENABLED` | 0 | Enable CEE integration |
 | `CEE_BASE_URL` | - | CEE service URL |
 | `CEE_API_KEY` | - | CEE API key |
 | `CEE_TIMEOUT_MS` | 2000 | Request timeout |

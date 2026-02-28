@@ -18,7 +18,7 @@ import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 
 // Mock timeouts to use short values for fast tests
-vi.mock('../src/config/timeouts.js', async (importOriginal) => {
+vi.mock('../src/config/timeouts.ts', async (importOriginal) => {
   const original = (await importOriginal()) as Record<string, unknown>;
   return {
     ...original,
@@ -575,7 +575,7 @@ describe('Full-app route availability — critical chain', () => {
     process.env.RATE_LIMIT_ENABLED = '0';
     process.env.ISL_ENABLE = '0';
     process.env.AUTH_ENABLED = '0';
-    process.env.CEE_ORCHESTRATOR_ENABLE = '0';
+    process.env.CEE_ORCHESTRATOR_ENABLED = '0';
 
     const { createServer } = await import('../src/createServer.js');
     app = await createServer();
@@ -590,7 +590,7 @@ describe('Full-app route availability — critical chain', () => {
     delete process.env.RATE_LIMIT_ENABLED;
     delete process.env.ISL_ENABLE;
     delete process.env.AUTH_ENABLED;
-    delete process.env.CEE_ORCHESTRATOR_ENABLE;
+    delete process.env.CEE_ORCHESTRATOR_ENABLED;
   });
 
   beforeEach(() => {

@@ -197,7 +197,7 @@ Output format:
 |----------|---------|-------------|
 | `CEE_BASE_URL` | - | CEE service URL |
 | `CEE_API_KEY` | - | CEE API key |
-| `CEE_ORCHESTRATOR_ENABLE` | 0 | Enable CEE |
+| `CEE_ORCHESTRATOR_ENABLED` | 0 | Enable CEE |
 
 ## Debugging
 

@@ -331,8 +331,8 @@ const mockISLService = {
   },
 };
 
-vi.mock('../src/integrations/isl/index.js', async () => {
-  const actual = await vi.importActual<any>('../src/integrations/isl/index.js');
+vi.mock('../src/integrations/isl/index.ts', async () => {
+  const actual = await vi.importActual<any>('../src/integrations/isl/index.ts');
   return { ...actual, getISLService: () => mockISLService, islService: mockISLService };
 });
 
@@ -344,7 +344,7 @@ describe('T6: Route-level 3C source-scoping via /v2/run', () => {
 
   beforeAll(async () => {
     process.env.RATE_LIMIT_ENABLED = '0';
-    process.env.CEE_ORCHESTRATOR_ENABLE = '0';
+    process.env.CEE_ORCHESTRATOR_ENABLED = '0';
 
     app = await createServer();
     await app.listen({ port: 0, host: '127.0.0.1' });
@@ -356,7 +356,7 @@ describe('T6: Route-level 3C source-scoping via /v2/run', () => {
   afterAll(async () => {
     await app?.close();
     delete process.env.RATE_LIMIT_ENABLED;
-    delete process.env.CEE_ORCHESTRATOR_ENABLE;
+    delete process.env.CEE_ORCHESTRATOR_ENABLED;
   });
 
   // Confidence unification: ISL bootstrap fields are merged onto graph entries
@@ -671,7 +671,7 @@ describe('FS6: Route-level factor_stability via /v2/run', () => {
 
   beforeAll(async () => {
     process.env.RATE_LIMIT_ENABLED = '0';
-    process.env.CEE_ORCHESTRATOR_ENABLE = '0';
+    process.env.CEE_ORCHESTRATOR_ENABLED = '0';
 
     app = await createServer();
     await app.listen({ port: 0, host: '127.0.0.1' });
@@ -683,7 +683,7 @@ describe('FS6: Route-level factor_stability via /v2/run', () => {
   afterAll(async () => {
     await app?.close();
     delete process.env.RATE_LIMIT_ENABLED;
-    delete process.env.CEE_ORCHESTRATOR_ENABLE;
+    delete process.env.CEE_ORCHESTRATOR_ENABLED;
   });
 
   it('factor_stability populated when ISL provides 3C fields', async () => {

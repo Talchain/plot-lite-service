@@ -96,8 +96,8 @@ const mockISLService = {
   },
 };
 
-vi.mock('../src/integrations/isl/index.js', async () => {
-  const actual = await vi.importActual<any>('../src/integrations/isl/index.js');
+vi.mock('../src/integrations/isl/index.ts', async () => {
+  const actual = await vi.importActual<any>('../src/integrations/isl/index.ts');
   return { ...actual, getISLService: () => mockISLService, islService: mockISLService };
 });
 
@@ -112,7 +112,7 @@ describe('Review cards in /v2/run', () => {
 
   beforeAll(async () => {
     process.env.RATE_LIMIT_ENABLED = '0';
-    process.env.CEE_ORCHESTRATOR_ENABLE = '0';
+    process.env.CEE_ORCHESTRATOR_ENABLED = '0';
     process.env.DECISION_REVIEW_ENABLE = '0';
     process.env.ENABLE_REVIEW_PASS = '1';
     app = await createServer();
@@ -234,7 +234,53 @@ describe('Review cards in /v2/run', () => {
 
     // Only factor-a/b in sensitivity (outcome nodes excluded).
     // confidence_normalised = 0.5*1.0 + 0.5*0.99 = 0.995, score ≈ 0.005 < 0.05
-    const epCard = (body.review_cards ?? []).find((c: any) => c.card_type === 'evidence_priority');
+    // H.1 sentinel: review_cards key is always present (as []) when ENABLE_REVIEW_PASS=1
+    expect(body).toHaveProperty('review_cards');
+    expect(Array.isArray(body.review_cards)).toBe(true);
+    expect(body.review_cards).toEqual([]);
+    const epCard = body.review_cards.find((c: any) => c.card_type === 'evidence_priority');
     expect(epCard).toBeUndefined();
+  });
+
+  it('response_hash is stable when review_cards is [] (H.1 hash-regression proof)', async () => {
+    // Same request twice with no qualifying review cards → response_hash must be identical.
+    // Proves that review_cards: [] (vs the old absent-key behavior) does not alter the hash,
+    // because response_hash is computed from request inputs only (hashRequest in canonicalise.ts).
+    const suppressedGraph = {
+      nodes: [
+        { id: 'ctx-a', kind: 'outcome', label: 'Context A', observed_state: { value: 80 } },
+        { id: 'ctx-b', kind: 'outcome', label: 'Context B', observed_state: { value: 60 } },
+        { id: 'factor-a', kind: 'factor', label: 'Factor A', observed_state: { value: 50 } },
+        { id: 'factor-b', kind: 'factor', label: 'Factor B', observed_state: { value: 30 } },
+        { id: 'goal', kind: 'goal', label: 'Goal' },
+      ],
+      edges: [
+        { from: 'ctx-a', to: 'factor-a', exists_probability: 0.99, strength: { mean: 0.5, std: 0.1 } },
+        { from: 'ctx-b', to: 'factor-b', exists_probability: 0.99, strength: { mean: 0.5, std: 0.1 } },
+        { from: 'factor-a', to: 'goal', exists_probability: 0.99, strength: { mean: 0.01, std: 0.05 } },
+        { from: 'factor-b', to: 'goal', exists_probability: 0.99, strength: { mean: -0.01, std: 0.05 } },
+      ],
+    };
+    const payload = {
+      graph: suppressedGraph,
+      options: OPTIONS,
+      goal_node_id: 'goal',
+      seed: '42',
+    };
+    const res1 = await app.inject({ method: 'POST', url: '/v2/run', headers: { 'Content-Type': 'application/json' }, payload });
+    const res2 = await app.inject({ method: 'POST', url: '/v2/run', headers: { 'Content-Type': 'application/json' }, payload });
+    const body1 = JSON.parse(res1.body);
+    const body2 = JSON.parse(res2.body);
+
+    expect(res1.statusCode).toBe(200);
+    expect(res2.statusCode).toBe(200);
+
+    // review_cards is [] on both (below threshold)
+    expect(body1.review_cards).toEqual([]);
+    expect(body2.review_cards).toEqual([]);
+
+    // Hash stability proof
+    expect(body1.response_hash).toBeDefined();
+    expect(body1.response_hash).toBe(body2.response_hash);
   });
 });

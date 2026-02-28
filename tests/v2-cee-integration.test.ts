@@ -11,9 +11,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 // Mock the CEE orchestrator before importing the module
 const mockOrchestrateCeeReview = vi.fn();
-vi.mock('../src/cee/orchestrator.js', () => ({
+vi.mock('../src/cee/orchestrator.ts', () => ({
   orchestrateCeeReview: mockOrchestrateCeeReview,
 }));
+
+// vi.mock is hoisted, so this import sees the mocked orchestrator
+const { extractCeeResultsFromResponse } = await import('../src/routes/v2/run.ts') as any;
 
 describe('CEE Integration in V2 Response', () => {
   beforeEach(() => {
@@ -25,8 +28,6 @@ describe('CEE Integration in V2 Response', () => {
   });
 
   describe('extractCeeResultsFromResponse', () => {
-    // Import the function after mocking
-    const { extractCeeResultsFromResponse } = require('../src/routes/v2/run.js') as any;
 
     // Note: extractCeeResultsFromResponse is not exported, so we test via integration
     // These tests verify the expected behavior through response structure

@@ -86,7 +86,7 @@ function buildTestInput(overrides: Partial<DecisionReviewInput> = {}): DecisionR
 // =============================================================================
 
 // Mock FLAGS
-vi.mock('../../../src/config/flags.js', () => ({
+vi.mock('../../../src/config/flags.ts', () => ({
   FLAGS: {
     DECISION_REVIEW_ENABLE: true,
   },
