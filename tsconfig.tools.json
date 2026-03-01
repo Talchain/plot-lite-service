@@ -21,9 +21,6 @@
     "lib/canonical-json.ts",
     "scripts/mock-server.ts",
     "scripts/staging-smoke.ts",
-    "scripts/dsk-lint.ts",
-    "scripts/dsk-hash.ts",
-    "scripts/dsk-init-registry.ts",
     "sdk/node/index.ts",
     "sdk/node/example.ts"
   ],
