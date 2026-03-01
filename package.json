@@ -68,7 +68,10 @@
     "dev:engine": "node tools/dev-shell.mjs",
     "smoke:staging": "node tools/smoke.mjs",
     "check:sources": "node tools/ci-check-sources.mjs",
-    "check:no-stale-js": "bash scripts/check-no-stale-js.sh"
+    "check:no-stale-js": "bash scripts/check-no-stale-js.sh",
+    "dsk:lint": "tsx scripts/dsk-lint.ts data/dsk/v1.json",
+    "dsk:init": "tsx scripts/dsk-init-registry.ts",
+    "dsk:hash": "tsx scripts/dsk-hash.ts data/dsk/v1.json"
   },
   "keywords": [],
   "author": "",
