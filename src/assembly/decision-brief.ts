@@ -4,7 +4,7 @@
  * Pure function that assembles a DecisionBriefV1 from existing run_bundle response data.
  * No service calls, no LLM calls — deterministic assembly from computed fields.
  *
- * Same response data → same brief content (only brief_id and created_at differ).
+ * Same response data → same brief (including deterministic brief_id).
  */
 
 /**
@@ -21,7 +21,7 @@
  * lineage.config_version: SHA-256 hash of n_samples_default + review/facts flags + brief_assembly_version
  */
 
-import { randomUUID, createHash } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import type {
   DecisionBriefV1,
   BriefOption,
@@ -40,6 +40,30 @@ const MAX_TOP_DRIVERS = 5;
 const MAX_WARNINGS = 10;
 const MAX_KEY_ASSUMPTIONS = 10;
 const MAX_WHAT_WOULD_CHANGE = 10;
+
+/**
+ * Deterministic brief_id: SHA-256 of `graph_hash:seed:config_version`,
+ * first 16 bytes formatted as UUID v4 layout (version + variant bits set).
+ */
+function computeBriefId(graphHash: string, seed: number, configVersion: string): string {
+  const digest = createHash('sha256')
+    .update(`${graphHash}:${seed}:${configVersion}`)
+    .digest();
+  // Take first 16 bytes and format as UUID v4
+  const bytes = Buffer.from(digest.subarray(0, 16));
+  // Set version (4) in byte 6
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  // Set variant (10xx) in byte 8
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.toString('hex');
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    hex.slice(12, 16),
+    hex.slice(16, 20),
+    hex.slice(20, 32),
+  ].join('-');
+}
 
 /** Compute config_version as SHA-256 hash of computation-affecting config values. */
 function computeConfigVersion(): string {
@@ -110,9 +134,10 @@ export function assembleBrief(input: BriefAssemblyInput): DecisionBriefV1 | null
   // 'blocked' is not a standard TopLevelAnalysisStatus but guard defensively
   if ((analysis_status as string) === 'blocked') return null;
 
-  // No brief when option_comparison is absent — analysis is incomplete
+  // No brief when required source data is absent — analysis is incomplete
   const optionComparison = input.option_comparison;
   if (!optionComparison || optionComparison.length === 0) return null;
+  if (!input.robustness) return null;
 
   const isPartial = analysis_status === 'partial';
 
@@ -143,9 +168,10 @@ export function assembleBrief(input: BriefAssemblyInput): DecisionBriefV1 | null
   // --- Snapshot identity ---
   const graphHash = input.response_hash ?? '';
   const seed = Number(input.meta.seed_used);
+  const briefId = computeBriefId(graphHash, seed, lineage.config_version);
 
   return {
-    brief_id: randomUUID(),
+    brief_id: briefId,
     version: DECISION_BRIEF_VERSION,
     graph_hash: graphHash,
     seed,
@@ -203,16 +229,21 @@ function buildTopDrivers(input: BriefAssemblyInput): BriefDriver[] {
   const factors = input.factor_sensitivity;
   if (!factors || factors.length === 0) return [];
 
-  // Sort by absolute elasticity descending, take top 5
+  // Sort by absolute elasticity descending, ties broken by factor_id (node_id) bytewise ascending
   const withElasticity = factors
     .filter(f => f.elasticity !== undefined && f.elasticity !== null)
-    .sort((a, b) => Math.abs(b.elasticity!) - Math.abs(a.elasticity!))
+    .sort((a, b) => {
+      const diff = Math.abs(b.elasticity!) - Math.abs(a.elasticity!);
+      if (diff !== 0) return diff;
+      return a.factor_id < b.factor_id ? -1 : a.factor_id > b.factor_id ? 1 : 0;
+    })
     .slice(0, MAX_TOP_DRIVERS);
 
+  // Direction derived from sign of elasticity (spec: sign(elasticity))
   return withElasticity.map(f => ({
     factor_label: f.factor_label?.trim() || f.factor_id,
     sensitivity: Math.abs(f.elasticity!),
-    direction: f.direction === 'negative' ? 'negative' : 'positive',
+    direction: (f.elasticity! < 0 ? 'negative' : 'positive') as 'positive' | 'negative',
   }));
 }
 
@@ -297,8 +328,26 @@ function buildWarnings(input: BriefAssemblyInput, isPartial: boolean): BriefWarn
     }
   }
 
+  // Dedup on code (keep first occurrence)
+  const seen = new Set<string>();
+  const deduped: BriefWarning[] = [];
+  for (const w of warnings) {
+    if (!seen.has(w.code)) {
+      seen.add(w.code);
+      deduped.push(w);
+    }
+  }
+
+  // Sort: severity desc (error > warning > info), then code bytewise ascending
+  const severityOrder: Record<string, number> = { error: 0, warning: 1, info: 2 };
+  deduped.sort((a, b) => {
+    const sevDiff = (severityOrder[a.severity] ?? 2) - (severityOrder[b.severity] ?? 2);
+    if (sevDiff !== 0) return sevDiff;
+    return a.code < b.code ? -1 : a.code > b.code ? 1 : 0;
+  });
+
   // Cap at MAX_WARNINGS
-  return warnings.slice(0, MAX_WARNINGS);
+  return deduped.slice(0, MAX_WARNINGS);
 }
 
 function buildLineage(input: BriefAssemblyInput): BriefLineage {

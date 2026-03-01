@@ -81,6 +81,7 @@ describe('assembleBrief — null returns', () => {
     analysis_status: 'computed',
     critiques: [],
     option_comparison: MINIMAL_OPTIONS,
+    robustness: { level: 'moderate', fragile_edges: [], robust_edges: [] } as any,
     meta: { seed_used: '1' },
   };
 
@@ -123,6 +124,7 @@ describe('assembleBrief — headline fallback chain', () => {
     analysis_status: 'computed',
     critiques: [],
     option_comparison: MINIMAL_OPTIONS,
+    robustness: { level: 'moderate', fragile_edges: [], robust_edges: [] } as any,
     meta: { seed_used: '1' },
   };
 
@@ -204,6 +206,7 @@ describe('assembleBrief — options', () => {
     analysis_status: 'computed',
     critiques: [],
     option_comparison: MINIMAL_OPTIONS,
+    robustness: { level: 'moderate', fragile_edges: [], robust_edges: [] } as any,
     meta: { seed_used: '1' },
   };
 
@@ -248,6 +251,7 @@ describe('assembleBrief — top_drivers', () => {
     analysis_status: 'computed',
     critiques: [],
     option_comparison: MINIMAL_OPTIONS,
+    robustness: { level: 'moderate', fragile_edges: [], robust_edges: [] } as any,
     meta: { seed_used: '1' },
   };
 
@@ -298,6 +302,7 @@ describe('assembleBrief — robustness mapping', () => {
     analysis_status: 'computed',
     critiques: [],
     option_comparison: MINIMAL_OPTIONS,
+    robustness: { level: 'moderate', fragile_edges: [], robust_edges: [] } as any,
     meta: { seed_used: '1' },
   };
 
@@ -322,9 +327,10 @@ describe('assembleBrief — robustness mapping', () => {
     expect(result?.robustness).toBe('moderate');
   });
 
-  it('defaults to "moderate" when robustness is not provided', () => {
-    const result = assembleBrief(base);
-    expect(result?.robustness).toBe('moderate');
+  it('returns null when robustness is not provided', () => {
+    const { robustness: _, ...baseWithoutRobustness } = base;
+    const result = assembleBrief(baseWithoutRobustness as any);
+    expect(result).toBeNull();
   });
 });
 
@@ -337,6 +343,7 @@ describe('assembleBrief — warnings', () => {
     analysis_status: 'computed',
     critiques: [],
     option_comparison: MINIMAL_OPTIONS,
+    robustness: { level: 'moderate', fragile_edges: [], robust_edges: [] } as any,
     meta: { seed_used: '1' },
   };
 
@@ -424,6 +431,7 @@ describe('assembleBrief — missing optional fields', () => {
       analysis_status: 'computed',
       critiques: [],
       option_comparison: MINIMAL_OPTIONS,
+      robustness: { level: 'moderate', fragile_edges: [], robust_edges: [] } as any,
       meta: { seed_used: '42' },
     });
     expect(result).not.toBeNull();
@@ -443,6 +451,7 @@ describe('assembleBrief — seed parsing', () => {
       analysis_status: 'computed',
       critiques: [],
       option_comparison: MINIMAL_OPTIONS,
+      robustness: { level: 'moderate', fragile_edges: [], robust_edges: [] } as any,
       meta: { seed_used: '12345' },
     });
     expect(result?.seed).toBe(12345);
@@ -460,6 +469,7 @@ describe('assembleBrief — lineage', () => {
       analysis_status: 'computed',
       critiques: [],
       option_comparison: MINIMAL_OPTIONS,
+      robustness: { level: 'moderate', fragile_edges: [], robust_edges: [] } as any,
       response_hash: 'hash123abc',
       meta: { seed_used: '1' },
     });
@@ -469,17 +479,18 @@ describe('assembleBrief — lineage', () => {
 });
 
 // =============================================================================
-// Determinism (brief_id varies, content doesn't)
+// Determinism (brief_id is deterministic — same inputs → identical brief_id)
 // =============================================================================
 
 describe('assembleBrief — determinism', () => {
-  it('same input produces same content (only brief_id and created_at differ)', () => {
+  it('same input produces identical brief including brief_id', () => {
     const input: BriefAssemblyInput = {
       analysis_status: 'computed',
       critiques: [],
       option_comparison: [
         { option_id: 'a', option_label: 'A', id: 'a', label: 'A', win_probability: 0.7 },
       ] as any[],
+      robustness: { level: 'moderate', fragile_edges: [], robust_edges: [] } as any,
       response_hash: 'det123',
       meta: { seed_used: '42' },
     };
@@ -487,13 +498,66 @@ describe('assembleBrief — determinism', () => {
     const result1 = assembleBrief(input)!;
     const result2 = assembleBrief(input)!;
 
-    // brief_id should differ (random UUID)
-    expect(result1.brief_id).not.toBe(result2.brief_id);
+    // brief_id should be deterministic (same inputs → same UUID)
+    expect(result1.brief_id).toBe(result2.brief_id);
+    expect(result1.brief_id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
 
-    // Content should be identical
-    const { brief_id: _, created_at: __, ...content1 } = result1;
-    const { brief_id: _2, created_at: __2, ...content2 } = result2;
+    // All content except created_at should be identical
+    const { created_at: _, ...content1 } = result1;
+    const { created_at: _2, ...content2 } = result2;
     expect(content1).toEqual(content2);
+  });
+
+  it('brief_id changes when graph_hash changes', () => {
+    const base: BriefAssemblyInput = {
+      analysis_status: 'computed',
+      critiques: [],
+      option_comparison: [
+        { option_id: 'a', option_label: 'A', id: 'a', label: 'A', win_probability: 0.7 },
+      ] as any[],
+      robustness: { level: 'moderate', fragile_edges: [], robust_edges: [] } as any,
+      response_hash: 'hash_a',
+      meta: { seed_used: '42' },
+    };
+
+    const result1 = assembleBrief(base)!;
+    const result2 = assembleBrief({ ...base, response_hash: 'hash_b' })!;
+    expect(result1.brief_id).not.toBe(result2.brief_id);
+  });
+
+  it('brief_id changes when seed changes', () => {
+    const base: BriefAssemblyInput = {
+      analysis_status: 'computed',
+      critiques: [],
+      option_comparison: [
+        { option_id: 'a', option_label: 'A', id: 'a', label: 'A', win_probability: 0.7 },
+      ] as any[],
+      robustness: { level: 'moderate', fragile_edges: [], robust_edges: [] } as any,
+      response_hash: 'hash_a',
+      meta: { seed_used: '42' },
+    };
+
+    const result1 = assembleBrief(base)!;
+    const result2 = assembleBrief({ ...base, meta: { seed_used: '99' } })!;
+    expect(result1.brief_id).not.toBe(result2.brief_id);
+  });
+
+  it('response_hash is deterministic for same input', () => {
+    const input: BriefAssemblyInput = {
+      analysis_status: 'computed',
+      critiques: [],
+      option_comparison: [
+        { option_id: 'a', option_label: 'A', id: 'a', label: 'A', win_probability: 0.7 },
+      ] as any[],
+      robustness: { level: 'moderate', fragile_edges: [], robust_edges: [] } as any,
+      response_hash: 'resp_hash_123',
+      meta: { seed_used: '42' },
+    };
+
+    const result1 = assembleBrief(input)!;
+    const result2 = assembleBrief(input)!;
+    expect(result1.lineage.response_hash).toBe(result2.lineage.response_hash);
+    expect(result1.lineage.response_hash).toBe('resp_hash_123');
   });
 });
 
@@ -519,6 +583,7 @@ describe('assembleBrief — key_assumptions', () => {
       analysis_status: 'computed',
       critiques: [],
       option_comparison: MINIMAL_OPTIONS,
+      robustness: { level: 'moderate', fragile_edges: [], robust_edges: [] } as any,
       m1_coaching: {
         story_headlines: {},
         evidence_gaps,
@@ -539,6 +604,7 @@ describe('assembleBrief — key_assumptions', () => {
       analysis_status: 'computed',
       critiques: [],
       option_comparison: MINIMAL_OPTIONS,
+      robustness: { level: 'moderate', fragile_edges: [], robust_edges: [] } as any,
       meta: { seed_used: '1' },
     });
     expect(result?.key_assumptions).toEqual([]);
@@ -620,5 +686,149 @@ describe('assembleBrief — what_would_change', () => {
       meta: { seed_used: '1' },
     });
     expect(result?.what_would_change).toEqual([]);
+  });
+});
+
+// =============================================================================
+// Missing robustness → null
+// =============================================================================
+
+describe('assembleBrief — robustness required', () => {
+  it('returns null when robustness is missing (even with option_comparison present)', () => {
+    const result = assembleBrief({
+      analysis_status: 'computed',
+      critiques: [],
+      option_comparison: MINIMAL_OPTIONS,
+      meta: { seed_used: '1' },
+    });
+    expect(result).toBeNull();
+  });
+});
+
+// =============================================================================
+// Warning dedup and sort
+// =============================================================================
+
+describe('assembleBrief — warning dedup and sort', () => {
+  it('dedupes warnings on code (keeps first occurrence)', () => {
+    const result = assembleBrief({
+      analysis_status: 'computed',
+      critiques: [
+        { id: 'c1', code: 'DUPE_CODE', severity: 'warning', message: 'First occurrence', source: 'validation', blocks_analysis: false },
+      ] as any[],
+      option_comparison: MINIMAL_OPTIONS,
+      robustness: { level: 'moderate', fragile_edges: [], robust_edges: [] } as any,
+      m1_coaching: {
+        story_headlines: {},
+        evidence_gaps: [],
+        model_critiques: [
+          { type: 'DUPE_CODE', severity: 'warning', challenge_question: 'Second occurrence (should be deduped)', suggested_action: '' },
+        ],
+        next_actions: [],
+        readiness: 'ready',
+        headline_type: 'clear_winner',
+        coaching_version: '1.1.0',
+        computed_at: '2026-01-01T00:00:00Z',
+      },
+      meta: { seed_used: '1' },
+    });
+
+    const dupeWarnings = result?.warnings.filter(w => w.code === 'DUPE_CODE');
+    expect(dupeWarnings).toHaveLength(1);
+    expect(dupeWarnings![0].message).toBe('First occurrence');
+  });
+
+  it('sorts warnings by severity desc (error > warning > info) then code bytewise', () => {
+    const result = assembleBrief({
+      analysis_status: 'computed',
+      critiques: [
+        { id: 'c1', code: 'Z_WARNING', severity: 'warning', message: 'W1', source: 'validation', blocks_analysis: false },
+        { id: 'c2', code: 'A_BLOCKER', severity: 'blocker', message: 'E1', source: 'validation', blocks_analysis: true },
+      ] as any[],
+      option_comparison: MINIMAL_OPTIONS,
+      robustness: { level: 'moderate', fragile_edges: [], robust_edges: [] } as any,
+      m1_coaching: {
+        story_headlines: {},
+        evidence_gaps: [],
+        model_critiques: [
+          { type: 'B_INFO', severity: 'info', challenge_question: 'Info note', suggested_action: '' },
+        ],
+        next_actions: [],
+        readiness: 'ready',
+        headline_type: 'clear_winner',
+        coaching_version: '1.1.0',
+        computed_at: '2026-01-01T00:00:00Z',
+      },
+      m1_review: {
+        narrative_summary: 'Summary',
+        story_headlines: {},
+        robustness_explanation: { summary: '', primary_risk: '', stability_factors: [], fragility_factors: [] },
+        readiness_rationale: '',
+        evidence_enhancements: {},
+        bias_findings: [],
+        key_assumptions: [],
+        decision_quality_prompts: [],
+      },
+      meta: { seed_used: '1' },
+    });
+
+    // Expected order: error first, then warning, then info
+    // A_BLOCKER (error), Z_WARNING (warning), B_INFO (info)
+    expect(result?.warnings[0].code).toBe('A_BLOCKER');
+    expect(result?.warnings[0].severity).toBe('error');
+    expect(result?.warnings[1].code).toBe('Z_WARNING');
+    expect(result?.warnings[1].severity).toBe('warning');
+    expect(result?.warnings[2].code).toBe('B_INFO');
+    expect(result?.warnings[2].severity).toBe('info');
+  });
+});
+
+// =============================================================================
+// Top drivers tie-breaking and direction
+// =============================================================================
+
+describe('assembleBrief — top_drivers direction from elasticity sign', () => {
+  it('derives direction from sign of elasticity (positive elasticity → positive)', () => {
+    const result = assembleBrief({
+      analysis_status: 'computed',
+      critiques: [],
+      option_comparison: MINIMAL_OPTIONS,
+      robustness: { level: 'moderate', fragile_edges: [], robust_edges: [] } as any,
+      factor_sensitivity: [
+        { factor_id: 'f1', factor_label: 'Factor A', elasticity: 0.5 },
+      ] as any[],
+      meta: { seed_used: '1' },
+    });
+    expect(result?.top_drivers[0].direction).toBe('positive');
+  });
+
+  it('derives direction from sign of elasticity (negative elasticity → negative)', () => {
+    const result = assembleBrief({
+      analysis_status: 'computed',
+      critiques: [],
+      option_comparison: MINIMAL_OPTIONS,
+      robustness: { level: 'moderate', fragile_edges: [], robust_edges: [] } as any,
+      factor_sensitivity: [
+        { factor_id: 'f1', factor_label: 'Factor A', elasticity: -0.5 },
+      ] as any[],
+      meta: { seed_used: '1' },
+    });
+    expect(result?.top_drivers[0].direction).toBe('negative');
+  });
+
+  it('breaks ties by factor_id bytewise ascending', () => {
+    const result = assembleBrief({
+      analysis_status: 'computed',
+      critiques: [],
+      option_comparison: MINIMAL_OPTIONS,
+      robustness: { level: 'moderate', fragile_edges: [], robust_edges: [] } as any,
+      factor_sensitivity: [
+        { factor_id: 'z_factor', factor_label: 'Z', elasticity: 0.5 },
+        { factor_id: 'a_factor', factor_label: 'A', elasticity: 0.5 },
+        { factor_id: 'm_factor', factor_label: 'M', elasticity: 0.5 },
+      ] as any[],
+      meta: { seed_used: '1' },
+    });
+    expect(result?.top_drivers.map(d => d.factor_label)).toEqual(['A', 'M', 'Z']);
   });
 });

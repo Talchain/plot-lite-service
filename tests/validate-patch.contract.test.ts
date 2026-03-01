@@ -1,7 +1,7 @@
 /**
  * validate-patch Contract Tests
  *
- * 12 golden fixtures testing the 5-phase validation pipeline.
+ * 24 golden fixtures testing the 5-phase validation pipeline.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -87,9 +87,11 @@ describe('validate-patch contract', () => {
         nodes: [
           { id: 'a', kind: 'factor', label: 'A' },
           { id: 'b', kind: 'factor', label: 'B' },
+          { id: 'goal', kind: 'goal', label: 'Goal' },
         ],
         edges: [
           { from: 'a', to: 'b', exists_probability: 0.8, strength: { mean: 0.5, std: 0.1 } },
+          { from: 'b', to: 'goal', exists_probability: 0.8, strength: { mean: 0.5, std: 0.1 } },
         ],
       },
       operations: [
@@ -263,7 +265,7 @@ describe('validate-patch contract', () => {
     expect(res.statusCode).toBe(422);
     const d = res.json();
     expect(d.status).toBe('rejected');
-    expect(d.code).toBe('INVALID_PATCH_TARGET');
+    expect(d.code).toBe('TARGET_NOT_FOUND');
     expect(d.message).toContain('Operation 0');
   });
 
@@ -276,14 +278,18 @@ describe('validate-patch contract', () => {
       id: `s${i}`, kind: 'factor', label: `Spoke ${i}`,
     }));
     const hub = { id: 'hub', kind: 'factor', label: 'Hub' };
+    const goal = { id: 'goal', kind: 'goal', label: 'Goal' };
 
-    const edges = spokes.map(s => ({
-      from: s.id, to: 'hub', exists_probability: 0.8, strength: { mean: 0.5, std: 0.1 },
-    }));
+    const edges = [
+      ...spokes.map(s => ({
+        from: s.id, to: 'hub', exists_probability: 0.8, strength: { mean: 0.5, std: 0.1 },
+      })),
+      { from: 'hub', to: 'goal', exists_probability: 0.8, strength: { mean: 0.5, std: 0.1 } },
+    ];
 
     const body = {
       graph: {
-        nodes: [...spokes, hub],
+        nodes: [...spokes, hub, goal],
         edges,
       },
       operations: [
@@ -297,15 +303,16 @@ describe('validate-patch contract', () => {
     expect(d.status).toBe('applied');
 
     // Should have CASCADE_REMOVE_EDGE warnings capped at 10 + 1 summary
+    // 12 spoke→hub edges + 1 hub→goal edge = 13 cascade removes total
     const cascadeWarnings = d.warnings.filter((w: any) => w.code === 'CASCADE_REMOVE_EDGE');
     const summaryWarnings = d.warnings.filter((w: any) => w.code === 'CASCADE_REMOVE_EDGE_SUMMARY');
     expect(cascadeWarnings).toHaveLength(10);
     expect(summaryWarnings).toHaveLength(1);
-    expect(summaryWarnings[0].message).toContain('12');
+    expect(summaryWarnings[0].message).toContain('13');
 
-    // Repairs should have all 12
+    // Repairs should have all 13
     const cascadeRepairs = d.repairs_applied.filter((r: any) => r.code === 'CASCADE_REMOVE_EDGE');
-    expect(cascadeRepairs).toHaveLength(12);
+    expect(cascadeRepairs).toHaveLength(13);
   });
 });
 
@@ -435,4 +442,309 @@ describe('validate-patch contract', () => {
     expect(d.status).toBe('applied');
     expect(d.graph.nodes.find((n: any) => n.id === 'a').label).toBe('Updated A');
     expect(d.graph.nodes.find((n: any) => n.id === 'a').kind).toBe('factor');
+  });
+
+  // =============================================================================
+  // Fixture 13: Empty operations array → normaliser runs, returns canonical graph
+  // =============================================================================
+
+  it('Fixture 13: empty operations runs normaliser and returns canonicalised graph with hash', async () => {
+    const body = {
+      graph: {
+        nodes: [
+          { id: 'a', kind: 'factor', label: 'A' },
+          { id: 'goal', kind: 'goal', label: 'Goal' },
+        ],
+        edges: [
+          { from: 'a', to: 'goal', strength: { mean: 0.5, std: 0.0001 } },
+        ],
+      },
+      operations: [],
+    };
+
+    const res = await post(body);
+    expect(res.statusCode).toBe(200);
+    const d = res.json();
+    expect(d.status).toBe('applied');
+    expect(d.graph_hash).toMatch(/^[0-9a-f]{16}$/);
+    // Normaliser should have applied repairs (e.g. DEFAULT_EXISTS_PROBABILITY, CLAMP_STRENGTH_STD)
+    expect(d.repairs_applied.length).toBeGreaterThan(0);
+    expect(d.normalised_graph).toBeDefined();
+  });
+
+  // =============================================================================
+  // Fixture 14: previous field accepted but not used in validation
+  // =============================================================================
+
+  it('Fixture 14: previous field is accepted but does not affect validation', async () => {
+    const body = {
+      graph: {
+        nodes: [
+          { id: 'a', kind: 'factor', label: 'A' },
+          { id: 'goal', kind: 'goal', label: 'Goal' },
+        ],
+        edges: [
+          { from: 'a', to: 'goal', exists_probability: 0.8, strength: { mean: 0.5, std: 0.1 } },
+        ],
+      },
+      operations: [
+        {
+          op: 'update_edge',
+          path: 'a->goal',
+          value: { strength: { mean: 0.7 } },
+          previous: { strength: { mean: 0.5 } },
+        },
+      ],
+    };
+
+    const res = await post(body);
+    expect(res.statusCode).toBe(200);
+    const d = res.json();
+    expect(d.status).toBe('applied');
+    // Merged value should be 0.7, previous is ignored
+    expect(d.graph.edges[0].strength.mean).toBe(0.7);
+  });
+
+  // =============================================================================
+  // Fixture 15: Missing graph → 400
+  // =============================================================================
+
+  it('Fixture 15: request with missing graph returns 400', async () => {
+    const res = await post({ operations: [] });
+    expect(res.statusCode).toBe(400);
+    const d = res.json();
+    expect(d.status).toBe('rejected');
+    expect(d.code).toBe('INVALID_REQUEST');
+  });
+
+  // =============================================================================
+  // Fixture 16: Invalid op value → 422 (caught during apply phase)
+  // =============================================================================
+
+  it('Fixture 16: request with invalid op value returns 422', async () => {
+    const body = {
+      graph: {
+        nodes: [
+          { id: 'a', kind: 'factor', label: 'A' },
+          { id: 'goal', kind: 'goal', label: 'Goal' },
+        ],
+        edges: [],
+      },
+      operations: [
+        { op: 'invalid_op', path: 'a', value: {} },
+      ],
+    };
+
+    const res = await post(body);
+    expect(res.statusCode).toBe(422);
+    const d = res.json();
+    expect(d.status).toBe('rejected');
+    expect(d.message).toContain('unknown operation');
+  });
+
+  // =============================================================================
+  // Fixture 17: Add node with existing ID → TARGET_ALREADY_EXISTS
+  // =============================================================================
+
+  it('Fixture 17: add_node with existing ID returns TARGET_ALREADY_EXISTS', async () => {
+    const body = {
+      graph: {
+        nodes: [
+          { id: 'a', kind: 'factor', label: 'A' },
+          { id: 'goal', kind: 'goal', label: 'Goal' },
+        ],
+        edges: [],
+      },
+      operations: [
+        { op: 'add_node', path: 'a', value: { id: 'a', kind: 'factor', label: 'Duplicate A' } },
+      ],
+    };
+
+    const res = await post(body);
+    expect(res.statusCode).toBe(422);
+    const d = res.json();
+    expect(d.status).toBe('rejected');
+    expect(d.code).toBe('TARGET_ALREADY_EXISTS');
+    expect(d.message).toContain('already exists');
+  });
+
+  // =============================================================================
+  // Fixture 18: Add edge with existing key → TARGET_ALREADY_EXISTS
+  // =============================================================================
+
+  it('Fixture 18: add_edge with existing key returns TARGET_ALREADY_EXISTS', async () => {
+    const body = {
+      graph: {
+        nodes: [
+          { id: 'a', kind: 'factor', label: 'A' },
+          { id: 'goal', kind: 'goal', label: 'Goal' },
+        ],
+        edges: [
+          { from: 'a', to: 'goal', exists_probability: 0.8, strength: { mean: 0.5, std: 0.1 } },
+        ],
+      },
+      operations: [
+        { op: 'add_edge', path: 'a->goal', value: { from: 'a', to: 'goal', exists_probability: 0.9, strength: { mean: 0.6, std: 0.1 } } },
+      ],
+    };
+
+    const res = await post(body);
+    expect(res.statusCode).toBe(422);
+    const d = res.json();
+    expect(d.status).toBe('rejected');
+    expect(d.code).toBe('TARGET_ALREADY_EXISTS');
+  });
+
+  // =============================================================================
+  // Fixture 19: Deep merge — update_node top-level field replaces
+  // =============================================================================
+
+  it('Fixture 19: update_node with top-level field replaces that field', async () => {
+    const body = {
+      graph: {
+        nodes: [
+          { id: 'a', kind: 'factor', label: 'Original Label', body: 'Original Body' },
+          { id: 'goal', kind: 'goal', label: 'Goal' },
+        ],
+        edges: [],
+      },
+      operations: [
+        { op: 'update_node', path: 'a', value: { label: 'New Label' } },
+      ],
+    };
+
+    const res = await post(body);
+    expect(res.statusCode).toBe(200);
+    const d = res.json();
+    expect(d.status).toBe('applied');
+    const node = d.graph.nodes.find((n: any) => n.id === 'a');
+    expect(node.label).toBe('New Label');
+    // body should be preserved (not touched by the update)
+    expect(node.body).toBe('Original Body');
+  });
+
+  // =============================================================================
+  // Fixture 20: MISSING_GOAL_NODE rejection
+  // =============================================================================
+
+  it('Fixture 20: graph without goal node returns MISSING_GOAL_NODE', async () => {
+    const body = {
+      graph: {
+        nodes: [
+          { id: 'a', kind: 'factor', label: 'A' },
+          { id: 'b', kind: 'factor', label: 'B' },
+        ],
+        edges: [
+          { from: 'a', to: 'b', exists_probability: 0.8, strength: { mean: 0.5, std: 0.1 } },
+        ],
+      },
+      operations: [],
+    };
+
+    const res = await post(body);
+    expect(res.statusCode).toBe(422);
+    const d = res.json();
+    expect(d.status).toBe('rejected');
+    expect(d.code).toBe('MISSING_GOAL_NODE');
+  });
+
+  // =============================================================================
+  // Fixture 21: Multiple operations applied in sequence
+  // =============================================================================
+
+  it('Fixture 21: multiple operations applied in order, validation on final state', async () => {
+    const body = {
+      graph: {
+        nodes: [
+          { id: 'goal', kind: 'goal', label: 'Goal' },
+        ],
+        edges: [],
+      },
+      operations: [
+        { op: 'add_node', path: 'x', value: { id: 'x', kind: 'factor', label: 'X' } },
+        { op: 'add_edge', path: 'x->goal', value: { from: 'x', to: 'goal', exists_probability: 0.8, strength: { mean: 0.5, std: 0.1 } } },
+        { op: 'add_node', path: 'y', value: { id: 'y', kind: 'factor', label: 'Y' } },
+        { op: 'add_edge', path: 'y->goal', value: { from: 'y', to: 'goal', exists_probability: 0.7, strength: { mean: 0.3, std: 0.1 } } },
+      ],
+    };
+
+    const res = await post(body);
+    expect(res.statusCode).toBe(200);
+    const d = res.json();
+    expect(d.status).toBe('applied');
+    expect(d.graph.nodes).toHaveLength(3);
+    expect(d.graph.edges).toHaveLength(2);
+  });
+
+  // =============================================================================
+  // Fixture 22: Remove non-existent edge → TARGET_NOT_FOUND
+  // =============================================================================
+
+  it('Fixture 22: remove non-existent edge returns TARGET_NOT_FOUND', async () => {
+    const body = {
+      graph: {
+        nodes: [
+          { id: 'a', kind: 'factor', label: 'A' },
+          { id: 'goal', kind: 'goal', label: 'Goal' },
+        ],
+        edges: [],
+      },
+      operations: [
+        { op: 'remove_edge', path: 'a->goal' },
+      ],
+    };
+
+    const res = await post(body);
+    expect(res.statusCode).toBe(422);
+    const d = res.json();
+    expect(d.status).toBe('rejected');
+    expect(d.code).toBe('TARGET_NOT_FOUND');
+  });
+
+  // =============================================================================
+  // Fixture 23: POC_NODE_LIMIT rejection
+  // =============================================================================
+
+  it('Fixture 23: exceeding MAX_NODES returns POC_NODE_LIMIT', async () => {
+    const nodes = Array.from({ length: 50 }, (_, i) => ({
+      id: `n${i}`, kind: 'factor', label: `N${i}`,
+    }));
+    nodes.push({ id: 'goal', kind: 'goal', label: 'Goal' });
+
+    const body = {
+      graph: { nodes, edges: [] },
+      operations: [
+        { op: 'add_node', path: 'overflow', value: { id: 'overflow', kind: 'factor', label: 'Over' } },
+      ],
+    };
+
+    const res = await post(body);
+    expect(res.statusCode).toBe(422);
+    const d = res.json();
+    expect(d.status).toBe('rejected');
+    expect(d.code).toBe('POC_NODE_LIMIT');
+  });
+
+  // =============================================================================
+  // Fixture 24: INVALID_NODE_ID rejection
+  // =============================================================================
+
+  it('Fixture 24: node with invalid ID characters returns INVALID_NODE_ID', async () => {
+    const body = {
+      graph: {
+        nodes: [
+          { id: 'Valid Node!', kind: 'factor', label: 'Bad' },
+          { id: 'goal', kind: 'goal', label: 'Goal' },
+        ],
+        edges: [],
+      },
+      operations: [],
+    };
+
+    const res = await post(body);
+    expect(res.statusCode).toBe(422);
+    const d = res.json();
+    expect(d.status).toBe('rejected');
+    const violation = d.violations?.find((v: any) => v.code === 'INVALID_NODE_ID');
+    expect(violation).toBeDefined();
   });

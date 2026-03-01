@@ -125,16 +125,18 @@ describe('validate-patch integration', () => {
   // -------------------------------------------------------------------------
 
   it('patch creating a cycle is rejected with CYCLE_DETECTED', async () => {
-    // Graph: A -> B -> C (linear chain)
+    // Graph: A -> B -> C -> Goal (linear chain with goal)
     const graph = {
       nodes: [
         { id: 'a', kind: 'factor', label: 'A' },
         { id: 'b', kind: 'factor', label: 'B' },
         { id: 'c', kind: 'factor', label: 'C' },
+        { id: 'goal', kind: 'goal', label: 'Goal' },
       ],
       edges: [
         { from: 'a', to: 'b', exists_probability: 0.8, strength: { mean: 0.5, std: 0.1 } },
         { from: 'b', to: 'c', exists_probability: 0.8, strength: { mean: 0.5, std: 0.1 } },
+        { from: 'c', to: 'goal', exists_probability: 0.8, strength: { mean: 0.5, std: 0.1 } },
       ],
     };
 

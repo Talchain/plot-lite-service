@@ -11,7 +11,7 @@
 // =============================================================================
 
 export interface DecisionBriefV1 {
-  /** Unique brief identifier (crypto.randomUUID()) */
+  /** Deterministic brief identifier: SHA-256 of graph_hash:seed:config_version formatted as UUID v4 */
   brief_id: string;
   /** Schema version for migration */
   version: '1';

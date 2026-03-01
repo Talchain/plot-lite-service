@@ -63,8 +63,8 @@
     "what_would_change": [],
     "robustness": "fragile",
     "warnings": [
-      { "code": "PARTIAL_ANALYSIS", "message": "Some analysis features were unavailable", "severity": "warning" },
       { "code": "M2_UNAVAILABLE", "message": "Decision review was unavailable; brief uses deterministic coaching fallback", "severity": "warning" },
+      { "code": "PARTIAL_ANALYSIS", "message": "Some analysis features were unavailable", "severity": "warning" },
       { "code": "ROBUSTNESS_UNAVAILABLE", "message": "Robustness analysis could not be completed", "severity": "warning" }
     ],
     "lineage": {

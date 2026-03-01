@@ -135,7 +135,7 @@ const IGNORE_FIELDS = [
   'thresholds_status',   // B10.3: depends on ISL call timing, not deterministic inputs
   'thresholds_meta',     // B10.3: contains duration_ms (volatile timing)
   'threshold_analysis',  // B10.3: presence depends on ISL call success/timing
-  'brief_id',            // decision_brief: random UUID per assembly
+  'brief_id',            // decision_brief: deterministic SHA-256-derived UUID (excluded for backwards compat with existing snapshots)
   'created_at',          // decision_brief: timestamp per assembly
   'fact_objects',        // F.7: fact_objects contain per-request IDs (fact_id, isl_request_id, content_hash); tested separately
 ];

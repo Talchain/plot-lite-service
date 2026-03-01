@@ -87,6 +87,18 @@ class InvalidPatchFieldError extends Error {
   }
 }
 
+class TargetNotFoundError extends Error {
+  constructor(message: string) {
+    super(message);
+  }
+}
+
+class TargetAlreadyExistsError extends Error {
+  constructor(message: string) {
+    super(message);
+  }
+}
+
 // =============================================================================
 // Graph State
 // =============================================================================
@@ -147,7 +159,7 @@ function applyOperation(
       validateCanonicalFields(op.value as Record<string, unknown>, CANONICAL_NODE_FIELDS, opIndex, 'node');
       const nodeId = (op.value as EngineNodeV3).id || op.path;
       if (state.nodes.some(n => n.id === nodeId)) {
-        throw new Error(`Operation ${opIndex} references node '${nodeId}' which already exists`);
+        throw new TargetAlreadyExistsError(`Operation ${opIndex} references node '${nodeId}' which already exists`);
       }
       state.nodes.push({ ...op.value, id: nodeId } as EngineNodeV3);
       break;
@@ -159,7 +171,7 @@ function applyOperation(
       const edge = op.value as EngineEdgeV3;
       const edgeKey = `${edge.from}->${edge.to}`;
       if (findEdgeIndex(state.edges, edge.from, edge.to) !== -1) {
-        throw new Error(`Operation ${opIndex} references edge '${edgeKey}' which already exists`);
+        throw new TargetAlreadyExistsError(`Operation ${opIndex} references edge '${edgeKey}' which already exists`);
       }
       state.edges.push({ ...edge } as EngineEdgeV3);
       break;
@@ -169,7 +181,7 @@ function applyOperation(
       const nodeId = op.path;
       const nodeIndex = state.nodes.findIndex(n => n.id === nodeId);
       if (nodeIndex === -1) {
-        throw new Error(`Operation ${opIndex} references node '${nodeId}' which does not exist after applying prior operations`);
+        throw new TargetNotFoundError(`Operation ${opIndex} references node '${nodeId}' which does not exist after applying prior operations`);
       }
       state.nodes.splice(nodeIndex, 1);
       const connectedEdges = state.edges.filter(e => e.from === nodeId || e.to === nodeId);
@@ -215,7 +227,7 @@ function applyOperation(
       }
       const edgeIndex = findEdgeIndex(state.edges, from, to);
       if (edgeIndex === -1) {
-        throw new Error(`Operation ${opIndex} references edge '${op.path}' which does not exist after applying prior operations`);
+        throw new TargetNotFoundError(`Operation ${opIndex} references edge '${op.path}' which does not exist after applying prior operations`);
       }
       state.edges.splice(edgeIndex, 1);
       break;
@@ -227,7 +239,7 @@ function applyOperation(
       const nodeId = op.path;
       const nodeIndex = state.nodes.findIndex(n => n.id === nodeId);
       if (nodeIndex === -1) {
-        throw new Error(`Operation ${opIndex} references node '${nodeId}' which does not exist after applying prior operations`);
+        throw new TargetNotFoundError(`Operation ${opIndex} references node '${nodeId}' which does not exist after applying prior operations`);
       }
       state.nodes[nodeIndex] = deepMerge(state.nodes[nodeIndex], op.value);
       break;
@@ -242,7 +254,7 @@ function applyOperation(
       }
       const edgeIndex = findEdgeIndex(state.edges, from, to);
       if (edgeIndex === -1) {
-        throw new Error(`Operation ${opIndex} references edge '${op.path}' which does not exist after applying prior operations`);
+        throw new TargetNotFoundError(`Operation ${opIndex} references edge '${op.path}' which does not exist after applying prior operations`);
       }
       state.edges[edgeIndex] = deepMerge(state.edges[edgeIndex], op.value);
       break;
@@ -352,6 +364,54 @@ function structuralPreCheck(graph: GraphState): ViolationV3[] {
     }
   }
 
+  // Goal node existence check
+  const goalNodes = graph.nodes.filter(n => n.kind === 'goal');
+  if (goalNodes.length === 0) {
+    violations.push({
+      code: 'MISSING_GOAL_NODE',
+      message: 'Graph must contain at least one goal node',
+    });
+  }
+
+  // Reachability: every non-goal node must have a path to a goal node
+  if (goalNodes.length > 0 && graph.edges.length > 0) {
+    const goalIds = new Set(goalNodes.map(n => n.id));
+    // Build reverse adjacency list (to → from) so we can BFS backwards from goals
+    const reverseAdj = new Map<string, string[]>();
+    for (const node of graph.nodes) {
+      reverseAdj.set(node.id, []);
+    }
+    for (const edge of graph.edges) {
+      const arr = reverseAdj.get(edge.to);
+      if (arr) arr.push(edge.from);
+    }
+    // BFS from all goal nodes backwards to find all nodes that can reach a goal
+    const canReachGoal = new Set<string>(goalIds);
+    const queue = [...goalIds];
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      for (const pred of (reverseAdj.get(current) || [])) {
+        if (!canReachGoal.has(pred)) {
+          canReachGoal.add(pred);
+          queue.push(pred);
+        }
+      }
+    }
+    // Check all non-goal, non-option nodes with outgoing edges can reach a goal
+    for (const node of graph.nodes) {
+      if (goalIds.has(node.id)) continue;
+      if ((node.kind as string) === 'option' || (node.kind as string) === 'decision') continue;
+      const hasOutgoingEdge = graph.edges.some(e => e.from === node.id);
+      if (hasOutgoingEdge && !canReachGoal.has(node.id)) {
+        violations.push({
+          code: 'NO_PATH_TO_GOAL',
+          message: `Node '${node.id}' has no path to any goal node`,
+          node_id: node.id,
+        });
+      }
+    }
+  }
+
   const cycles = detectCycles(graph.nodes, graph.edges);
   if (cycles.length > 0) {
     violations.push({
@@ -458,6 +518,7 @@ export async function registerValidatePatchRoute(app: FastifyInstance) {
       }
 
       const { graph, operations } = req.body;
+      // request_id is accepted but ignored in v1 — reserved for future idempotency.
 
       // Guard: graph and operations must be present
       if (!graph || typeof graph !== 'object' || !Array.isArray(operations)) {
@@ -485,6 +546,20 @@ export async function registerValidatePatchRoute(app: FastifyInstance) {
             message: err.message,
           });
         }
+        if (err instanceof TargetAlreadyExistsError) {
+          return reply.code(422).send({
+            status: 'rejected',
+            code: 'TARGET_ALREADY_EXISTS',
+            message: err.message,
+          });
+        }
+        if (err instanceof TargetNotFoundError) {
+          return reply.code(422).send({
+            status: 'rejected',
+            code: 'TARGET_NOT_FOUND',
+            message: err.message,
+          });
+        }
         return reply.code(422).send({
           status: 'rejected',
           code: 'INVALID_PATCH_TARGET',
@@ -496,15 +571,23 @@ export async function registerValidatePatchRoute(app: FastifyInstance) {
       const structuralViolations = structuralPreCheck(state);
       if (structuralViolations.length > 0) {
         const codes = structuralViolations.map(v => v.code);
+        // Pick the most specific rejection code from the violations
         let rejectionCode = 'VALIDATION_FAILED';
-        if (codes.includes('CYCLE_DETECTED')) {
-          rejectionCode = 'CYCLE_DETECTED';
-        } else if (codes.includes('POC_EDGE_LIMIT')) {
-          rejectionCode = 'POC_EDGE_LIMIT';
-        } else if (codes.includes('POC_NODE_LIMIT')) {
-          rejectionCode = 'POC_NODE_LIMIT';
-        } else if (codes.includes('INVALID_NODE_KIND')) {
-          rejectionCode = 'INVALID_NODE_KIND';
+        const codePriority = [
+          'CYCLE_DETECTED',
+          'POC_NODE_LIMIT',
+          'POC_EDGE_LIMIT',
+          'MISSING_GOAL_NODE',
+          'NO_PATH_TO_GOAL',
+          'DANGLING_EDGE',
+          'INVALID_NODE_ID',
+          'INVALID_NODE_KIND',
+        ];
+        for (const code of codePriority) {
+          if (codes.includes(code)) {
+            rejectionCode = code;
+            break;
+          }
         }
         return reply.code(422).send({
           status: 'rejected',
