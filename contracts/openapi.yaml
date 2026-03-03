@@ -857,6 +857,140 @@ paths:
                     code: BAD_INPUT
                     message: Graph validation failed
   
+  /v1/validate-patch:
+    post:
+      summary: Apply and validate graph patch operations
+      operationId: validatePatch
+      tags: [v1, validation]
+      description: |
+        Applies sequential patch operations to a graph and validates the result.
+        Returns the patched graph, its canonical normalised form, a graph hash, and any repairs applied.
+
+        **Feature flag**: When `ENABLE_VALIDATE_PATCH=0`, returns HTTP 501 with `FEATURE_DISABLED` envelope.
+        Callers should detect this via the response code, not by parsing the message string.
+        Response will not include graph, graph_hash, repairs_applied, or warnings fields.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [graph, operations]
+              properties:
+                graph:
+                  type: object
+                  required: [nodes, edges]
+                  properties:
+                    nodes:
+                      type: array
+                      items: {}
+                    edges:
+                      type: array
+                      items: {}
+                operations:
+                  type: array
+                  description: Ordered list of patch operations to apply
+                  items:
+                    type: object
+                    required: [op, path]
+                    properties:
+                      op:
+                        type: string
+                        enum: [add_node, add_edge, remove_node, remove_edge, update_node, update_edge]
+                      path:
+                        type: string
+                        description: Entity ID (node ID or edge key "from->to")
+                      value:
+                        type: object
+                        description: Value to add or merge (for add/update operations)
+                      previous:
+                        type: object
+                        description: Previous value for undo support
+                request_id:
+                  type: string
+      responses:
+        '200':
+          description: Patch applied successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, graph, normalised_graph, graph_hash, repairs_applied, warnings]
+                properties:
+                  status:
+                    type: string
+                    enum: [applied]
+                  graph:
+                    type: object
+                    description: Input graph after patch operations (pre-normalisation)
+                  normalised_graph:
+                    type: object
+                    description: Canonical form the UI should adopt after patch acceptance
+                  graph_hash:
+                    type: string
+                    description: 16-char hex hash of the normalised graph
+                  repairs_applied:
+                    type: array
+                    items:
+                      type: object
+                  warnings:
+                    type: array
+                    items:
+                      type: object
+        '400':
+          description: Invalid request or patch rejected (validation failure)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, code, message]
+                properties:
+                  status:
+                    type: string
+                    enum: [rejected]
+                  code:
+                    type: string
+                  message:
+                    type: string
+                  violations:
+                    type: array
+                    items:
+                      type: object
+              examples:
+                patch_rejected:
+                  value:
+                    status: rejected
+                    code: PATCH_FAILED
+                    message: add_node failed — node already exists
+                bad_input:
+                  value:
+                    schema: error.v1
+                    status: rejected
+                    code: BAD_INPUT
+                    message: Request body is missing or not JSON
+        '501':
+          description: Feature disabled (ENABLE_VALIDATE_PATCH=0)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, code, message]
+                properties:
+                  status:
+                    type: string
+                    enum: [rejected]
+                  code:
+                    type: string
+                    enum: [FEATURE_DISABLED]
+                  message:
+                    type: string
+              examples:
+                feature_disabled:
+                  value:
+                    status: rejected
+                    code: FEATURE_DISABLED
+                    message: validate-patch is not enabled
+
   /v1/counterfactual:
     post:
       summary: Counterfactual analysis
@@ -3824,6 +3958,8 @@ paths:
                         expected_outcome: 220000
                         confidence_interval: [180000, 260000]
                         probability_of_goal: 0.85
+                    fact_objects: []
+                    review_cards: []
                     response_hash: "a1b2c3d4e5f67890"
                     meta:
                       seed_used: "42"
@@ -3849,6 +3985,8 @@ paths:
                         expected_outcome: 150000
                         confidence_interval: [120000, 180000]
                         probability_of_goal: 0.72
+                    fact_objects: []
+                    review_cards: []
                     response_hash: "a1b2c3d4e5f67890"
                     meta:
                       seed_used: "42"
@@ -5575,7 +5713,7 @@ components:
 
     runResponseV3:
       type: object
-      required: [request_schema_version, endpoint_version, preflight_version, request_id, analysis_status, option_comparison_status, robustness_status, drivers_status, critiques, meta]
+      required: [request_schema_version, endpoint_version, preflight_version, request_id, analysis_status, option_comparison_status, robustness_status, drivers_status, critiques, meta, review_cards, fact_objects]
       properties:
         request_schema_version:
           type: string
@@ -5789,14 +5927,18 @@ components:
               description: |
                 V3 Platform Contract §3.3.6: active feature flags.
                 Configuration metadata — excluded from response_hash.
+                String values: raw env var values for named flags.
+                Boolean values: named aliases (e.g. facts_assembly, review_pass).
               additionalProperties:
-                type: string
+                oneOf:
+                  - type: string
+                  - type: boolean
         review_cards:
           type: array
           description: |
             Evidence-quality review cards assembled from factor sensitivity data.
             Gated behind ENABLE_REVIEW_PASS feature flag.
-            When flag ON: always present (may be empty []). When flag OFF: key absent.
+            Always present as a required field. When flag ON: populated (may be []). When flag OFF: always [].
             Excluded from response_hash.
           items:
             type: object
@@ -5816,7 +5958,7 @@ components:
           description: |
             Structured FactObjectV1 instances assembled from analysis results.
             Gated behind ENABLE_FACTS_ASSEMBLY feature flag.
-            When flag ON: always present (may be empty []). When flag OFF: key absent.
+            Always present as a required field. When flag ON: populated (may be []). When flag OFF: always [].
             Excluded from response_hash (contains per-request UUIDs in fact_id).
           items:
             $ref: '#/components/schemas/factObjectV1'

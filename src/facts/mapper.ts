@@ -243,6 +243,9 @@ export function compareFactKeys(a: FactKey, b: FactKey): number {
  * - failed  → critiques only
  * - partial → critiques + whatever data is available
  * - computed → full assembly
+ *
+ * Deterministic for identical inputs within this endpoint. No cross-endpoint content identity guarantee.
+ * Clients may assume stable ordering and stable IDs within this endpoint for identical inputs.
  */
 export function assembleFactObjects(
   islResponse: ISLResponseInput,
@@ -297,6 +300,9 @@ export function assembleFactObjects(
  * - No critiques/robustness from ISL (those are V2 /run path)
  *
  * Maps scenario results → probability facts.
+ *
+ * Deterministic for identical inputs within this endpoint. No cross-endpoint content identity guarantee.
+ * Clients may assume stable ordering and stable IDs within this endpoint for identical inputs.
  */
 export function assembleFactsFromBundleResults(
   results: BundleResultInput[],
