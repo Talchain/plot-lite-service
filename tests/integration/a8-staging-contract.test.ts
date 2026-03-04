@@ -310,6 +310,54 @@ describe.skipIf(!ENABLED)('A.8: Staging contract integration tests', () => {
       expect(typeof data.code).toBe('string');
       expect(typeof data.message).toBe('string');
     }, TIMEOUT_MS + 5_000);
+
+    it('rejects cyclic graph with CYCLE_DETECTED code', async () => {
+      // Add an edge that creates a cycle: factor-a → goal → factor-a
+      const { status, data } = await postValidatePatch({
+        graph: {
+          nodes: [
+            { id: 'goal', kind: 'goal', label: 'Revenue' },
+            { id: 'factor-a', kind: 'factor', label: 'Factor A', observed_state: { value: 50 } },
+          ],
+          edges: [
+            { from: 'factor-a', to: 'goal', exists_probability: 0.8, strength: { mean: 0.5, std: 0.1 } },
+          ],
+        },
+        operations: [
+          {
+            op: 'add_edge',
+            path: 'goal->factor-a',
+            value: { from: 'goal', to: 'factor-a', exists_probability: 0.7, strength: { mean: 0.4, std: 0.1 } },
+          },
+        ],
+      });
+
+      expect(status).toBe(422);
+      expect(data.status).toBe('rejected');
+      expect(data.code).toBe('CYCLE_DETECTED');
+    }, TIMEOUT_MS + 5_000);
+
+    it('validate-patch success shape includes all required fields', async () => {
+      const { status, data } = await postValidatePatch({
+        graph: PATCH_GRAPH,
+        operations: [
+          {
+            op: 'add_node',
+            path: 'factor-new',
+            value: { id: 'factor-new', kind: 'factor', label: 'New Factor', observed_state: { value: 30 } },
+          },
+        ],
+      });
+
+      expect(status).toBe(200);
+      // V.1 success shape: status, graph, graph_hash, repairs_applied, warnings
+      expect(data.status).toBe('applied');
+      expect(data.graph).toBeDefined();
+      expect(typeof data.graph_hash).toBe('string');
+      expect(data.graph_hash.length).toBeGreaterThan(0);
+      expect(Array.isArray(data.repairs_applied)).toBe(true);
+      expect(Array.isArray(data.warnings)).toBe(true);
+    }, TIMEOUT_MS + 5_000);
   });
 
   // -----------------------------------------------------------------------

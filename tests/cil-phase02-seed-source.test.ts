@@ -227,7 +227,7 @@ describe('CIL Phase 0.2 — X.1.3 seed adoption', () => {
     { id: 'opt-b', label: 'Option B', interventions: { 'factor-b': { value: 0.7, source: 'user_specified' } } },
   ];
 
-  it('adopts ISL seed_used when different from PLoT seed', async () => {
+  it('PLoT is seed authority — ISL returned seed_used is ignored', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/v2/run',
@@ -242,9 +242,9 @@ describe('CIL Phase 0.2 — X.1.3 seed adoption', () => {
 
     const body = JSON.parse(res.body);
     expect(res.statusCode).toBe(200);
-    // PLoT sent seed 42 but ISL returned seed_used: 999
-    // Platform Contract §5.2: PLoT must adopt ISL's value
-    expect(body.meta.seed_used).toBe(ISL_OVERRIDE_SEED);
+    // PLoT sent seed 42 but ISL returned seed_used: 999 (ISL_OVERRIDE_SEED).
+    // V3 Platform Contract v3.4.2a: PLoT is seed authority — response must echo PLoT's seed.
+    expect(body.meta.seed_used).toBe('42');  // PLoT's seed, not ISL's '999'
     expect(body.meta.seed_source).toBe('client_generated');
   });
 });

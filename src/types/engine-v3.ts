@@ -710,18 +710,26 @@ export type AnalysisStatus =
   | 'failed';
 
 /**
- * V2 Run Error response - returned on HTTP 422.
- * NOT wrapped in error.v1 envelope (documented PoC exception).
+ * V2 Run Error response - returned for blocked (HTTP 422) and failed responses.
+ * NOT wrapped in error.v1 envelope.
+ * V3 Platform Contract v3.4.2a: ResponseMetaMinimal included for all error shapes.
  */
 export interface V2RunError {
-  /** Always 'blocked' for 422 responses */
-  analysis_status: 'blocked';
-  /** Reason for blocking */
+  /** 'blocked' for 422 preflight failures; 'failed' for ISL/internal failures */
+  analysis_status: 'blocked' | 'failed';
+  /** Reason for blocking or failure */
   status_reason: string;
   /** Structured critiques explaining the block */
   critiques: CritiqueV3[];
   /** CIL 0.2: Robustness with empty arrays maintained on blocked responses */
   robustness: RobustnessAssessmentV3;
+  /** V3 Platform Contract v3.4.2a: Whether the client should retry */
+  retryable: boolean;
+  /** V3 Platform Contract v3.4.2a: ResponseMetaMinimal */
+  meta: {
+    request_id: string;
+    computed_at: string;
+  };
 }
 
 /**
@@ -1062,18 +1070,21 @@ export interface RunResponseV3 {
 
   /**
    * Review cards assembled from analysis results (evidence priority, etc.).
-   * Gated behind ENABLE_REVIEW_PASS feature flag. Excluded from response_hash.
+   * Excluded from response_hash. Required field — always [] when ENABLE_REVIEW_PASS is OFF.
+   * Semantics: [] + meta.feature_flags.review_pass === false → feature was off
+   *            [] + meta.feature_flags.review_pass === true  → feature ran, nothing to emit
+   *            [...] + meta.feature_flags.review_pass === true → cards produced
    *
    * @see src/review-pass/evidence-priority.ts — Evidence Priority card (R.1)
    */
-  review_cards?: import('../review-pass/types.js').ProposalCardV1[];
+  review_cards: import('../review-pass/types.js').ProposalCardV1[];
 
   /**
    * Stream D: Structured facts derived from analysis results.
-   * Gated behind ENABLE_FACTS_ASSEMBLY. Excluded from response_hash.
-   * When flag ON: always present (may be []). When flag OFF: omitted.
+   * Excluded from response_hash. Required field — always [] when ENABLE_FACTS_ASSEMBLY is OFF.
+   * UI uses meta.feature_flags.facts_assembly to gate FactCard rendering.
    */
-  fact_objects?: import('../facts/types.js').FactObjectV1[];
+  fact_objects: import('../facts/types.js').FactObjectV1[];
 
   /**
    * Canonical metadata for UI canonicalisation layer.
@@ -1131,8 +1142,9 @@ export interface RunResponseV3 {
     /**
      * V3 Platform Contract §3.3.6: active feature flags.
      * Configuration metadata — excluded from response_hash.
+     * Named booleans (facts_assembly, review_pass) are included for UI consumers.
      */
-    feature_flags?: Record<string, string>;
+    feature_flags?: Record<string, string | boolean>;
   };
 }
 

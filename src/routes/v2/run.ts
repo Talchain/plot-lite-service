@@ -670,25 +670,75 @@ interface CeeResultsParams {
 }
 
 /**
+ * Canonical builder for all V2RunError responses.
+ * Ensures field consistency across blocked (422) and failed error shapes.
+ */
+function buildV2RunError({
+  analysisStatus,
+  statusReason,
+  retryable,
+  requestId,
+  computedAt,
+  critiques = [],
+}: {
+  analysisStatus: 'blocked' | 'failed';
+  statusReason: string;
+  retryable: boolean;
+  requestId: string;
+  computedAt: string;
+  critiques?: CritiqueV3[];
+}): V2RunError {
+  return {
+    analysis_status: analysisStatus,
+    status_reason: statusReason,
+    critiques,
+    // CIL 0.2: maintain robustness contract on error responses
+    robustness: {
+      fragile_edges: [],
+      robust_edges: [],
+    },
+    retryable,
+    meta: {
+      request_id: requestId,
+      computed_at: computedAt,
+    },
+  };
+}
+
+/**
  * Build a 422 blocked response (V2RunError).
+ * V2 contract: blocked = 422, communicates failure via analysis_status.
  * NOT wrapped in error.v1 envelope.
  */
 function buildBlockedResponse(
   statusReason: string,
   critiques: CritiqueV3[],
-  graph?: GraphForLabels,
-  options?: ReadonlyArray<{ id: string; label: string }>,
+  graph: GraphForLabels | undefined,
+  options: ReadonlyArray<{ id: string; label: string }> | undefined,
+  requestId: string,
+  computedAt: string,
 ): V2RunError {
-  return {
-    analysis_status: 'blocked',
-    status_reason: statusReason,
+  // V2 contract: blocked = 422, communicates failure via analysis_status
+  return buildV2RunError({
+    analysisStatus: 'blocked',
+    statusReason,
+    retryable: false,
+    requestId,
+    computedAt,
     critiques: addUserMessages(critiques, graph, options),
-    // CIL 0.2: maintain robustness contract on blocked responses
-    robustness: {
-      fragile_edges: [],
-      robust_edges: [],
-    },
-  };
+  });
+}
+
+/**
+ * Determine retryability from ISL HTTP status code.
+ * V2 contract: failed = 200, communicates failure via analysis_status.
+ */
+function retryableFromIslStatus(status?: number): boolean {
+  if (!status) return true;          // network/timeout/no response
+  if (status === 401) return false;  // auth failure — client must fix credentials
+  if (status === 429) return true;   // rate-limited — retry after back-off
+  if (status >= 400 && status < 500) return false;  // other client errors
+  return true;                       // 5xx, unknown → retry
 }
 
 // Pre-computed sensitivity data to ensure status/response alignment
@@ -996,7 +1046,8 @@ function buildResponse(
   thresholdsMeta?: { reason?: string; duration_ms?: number },
   thresholdAnalysis?: ThresholdResult[],
   identifiability?: IdentifiabilityAssessment,
-  factorStability?: FactorStabilityEntry[]
+  factorStability?: FactorStabilityEntry[],
+  logger?: { info: (obj: object, msg?: string) => void }
 ): RunResponseV3 {
   // Map ISL results to response format
   // ISL V2 uses 'options' field; V1 uses 'results'. Check both for compatibility.
@@ -1311,6 +1362,8 @@ function buildResponse(
 
     const envelope = assembleFactObjects(islInput, lineage);
     assembledFactObjects = envelope.facts;
+    // Log fact_objects.length at assembly time to spot payload explosions early in staging.
+    logger?.info({ evt: 'fact_objects_assembled', count: assembledFactObjects.length, request_id: requestId }, 'fact_objects assembled');
   }
 
   return {
@@ -1411,13 +1464,15 @@ function buildResponse(
     decision_brief: assembledBrief,
 
     // Review cards — evidence priority card from factor sensitivity data.
-    // Gated behind ENABLE_REVIEW_PASS. Excluded from response_hash (non-deterministic assembly metadata).
-    // When flag ON: always include (may be []). When flag OFF: omit key entirely.
-    ...(FLAGS.ENABLE_REVIEW_PASS && { review_cards: assembledReviewCards }),
+    // Excluded from response_hash. Required field: always [] when flag OFF, populated when ON.
+    // Semantics: review_cards: [] + feature_flags.review_pass: false → feature was off
+    //            review_cards: [] + feature_flags.review_pass: true  → feature ran, nothing to emit
+    //            review_cards: [...]  + feature_flags.review_pass: true  → cards produced
+    review_cards: assembledReviewCards,
 
     // Stream D: FactObjectV1 assembly (F.7). Excluded from response_hash.
-    // Sentinel: flag ON → always include (may be []). Flag OFF → omit key entirely.
-    ...(FLAGS.ENABLE_FACTS_ASSEMBLY && { fact_objects: assembledFactObjects ?? [] }),
+    // Required field: always [] when flag OFF, populated when ON.
+    fact_objects: assembledFactObjects ?? [],
 
     // CIL M4: repairs_applied always included for CIL observability.
     // Other _meta fields (builds, payloads) gated behind UI_CANONICAL_META feature flag.
@@ -1525,7 +1580,13 @@ function buildResponse(
       build: meta.build,
       computed_at: meta.computedAt,
       ...(meta.requestIdChain && { request_id_chain: meta.requestIdChain }),
-      feature_flags: getAllFeatureFlags(),
+      feature_flags: {
+        ...getAllFeatureFlags(),
+        // Named booleans for UI consumers (mirrors /v1/run_bundle meta.feature_flags shape).
+        // UI uses facts_assembly to gate FactCard rendering.
+        facts_assembly: FLAGS.ENABLE_FACTS_ASSEMBLY,
+        review_pass: FLAGS.ENABLE_REVIEW_PASS,
+      },
     },
   };
 }
@@ -1972,7 +2033,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
       if (requestId !== String(req.id)) {
         (req as any).id = requestId;
       }
-      // Note: seedUsed is resolved AFTER graph normalization for determinism
+      // Note: plotSeedUsed is resolved AFTER graph normalization for determinism
       // When seed is omitted, we derive it from the normalized graph hash
       const providedSeed = body.seed;  // May be undefined - will resolve after normalization
       const nSamples = body.n_samples ?? DEFAULT_N_SAMPLES;
@@ -1997,6 +2058,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
       let normalizationMs = 0;
       let validationMs = 0;
       let islMs = 0;
+      // Single timestamp for this request — used in all error/blocked responses
+      // so every response for the same request shares the same computed_at value.
+      const requestComputedAt = new Date().toISOString();
 
       try {
         // =================================================================
@@ -2042,6 +2106,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                 blocks_analysis: true,
               }],
               body.graph,
+              undefined,
+              requestId,
+              requestComputedAt,
             ));
           }
           throw err;
@@ -2056,8 +2123,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // =================================================================
         // Resolve seed: use provided value or derive from normalized graph hash
         // This ensures identical requests (same graph, no seed) produce identical results
-        // CIL Phase 1: Use let instead of const to allow ISL's seed_used to override
-        let seedUsed = resolveSeed(providedSeed, filteredGraph);
+        // PLoT is seed authority — plotSeedUsed is never overridden by ISL's seed_used.
+        const plotSeedUsed = resolveSeed(providedSeed, filteredGraph);
 
         // Log if option nodes were filtered
         if (filterResult.removedNodeIds.size > 0) {
@@ -2087,6 +2154,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               blocks_analysis: true,
             }],
             normalizedGraph,
+            undefined,
+            requestId,
+            requestComputedAt,
           ));
         }
 
@@ -2106,6 +2176,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               blocks_analysis: true,
             }],
             normalizedGraph,
+            undefined,
+            requestId,
+            requestComputedAt,
           ));
         }
 
@@ -2123,6 +2196,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               blocks_analysis: true,
             }],
             normalizedGraph,
+            undefined,
+            requestId,
+            requestComputedAt,
           ));
         }
 
@@ -2270,6 +2346,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             constraintValidation.blockers,
             filteredGraph,
             normalizedOptions,
+            requestId,
+            requestComputedAt,
           ));
         }
 
@@ -2367,6 +2445,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             [...preflight.blockers, ...preflight.warnings],
             filteredGraph,
             normalizedOptions,
+            requestId,
+            requestComputedAt,
           ));
         }
 
@@ -2432,7 +2512,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // Base hash used for early-return paths (ISL not enabled, ISL error).
         // On the success path, this is recomputed after ISL returns to include
         // factor_stability (deterministic ISL output, added in v5).
-        let responseHash = hashRequest(body, filteredGraph, seedUsed, toIdentifiabilityResponse(identifiabilityResult));
+        let responseHash = hashRequest(body, filteredGraph, plotSeedUsed, toIdentifiabilityResponse(identifiabilityResult));
 
         // =================================================================
         // Phase 4: ISL Call
@@ -2476,7 +2556,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             'unavailable',
             islNotEnabledCritiques,
             {
-              seedUsed,
+              seedUsed: plotSeedUsed,
               seedSource: providedSeed !== undefined ? 'client_generated' : 'server_generated',
               nSamples,
               detailLevel,
@@ -2487,7 +2567,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               repairs,
               sourcePath: 'graph_fallback',
               uiBuild,
-              computedAt: new Date().toISOString(),
+              computedAt: requestComputedAt,
               requestIdChain: chain,
               filteredConstraints: filteredConstraintRecords,
             },
@@ -2508,7 +2588,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             undefined, // thresholdsStatus
             undefined, // thresholdsMeta
             undefined, // thresholdAnalysis
-            toIdentifiabilityResponse(identifiabilityResult)  // B1.5a: always-present mapped response
+            toIdentifiabilityResponse(identifiabilityResult),  // B1.5a: always-present mapped response
+            undefined,  // factorStability
+            req.log  // logger for fact_objects assembly logging
           ));
         }
 
@@ -2627,7 +2709,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           nSamples,
           effectiveGoalThreshold,  // Use effective threshold (undefined if multi-constraint)
           constraintsForISL,       // Raw constraint values (undefined if not using multi-constraint)
-          seedUsed  // Always forward effective seed (either user-provided or server-generated)
+          plotSeedUsed  // Always forward PLoT's seed (PLoT is seed authority)
         );
 
         // CIL Phase 0: Invariant check — ISL request must always include seed for determinism
@@ -2635,7 +2717,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           req.log.error({
             event: 'seed_determinism_invariant_violation',
             request_id: requestId,
-            seed_used: seedUsed,
+            seed_used: plotSeedUsed,
             seed_source: providedSeed !== undefined ? 'client_generated' : 'server_generated',
             message: 'INVARIANT VIOLATION: ISL request missing seed',
           });
@@ -2700,6 +2782,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             })),
             filteredGraph,
             normalizedOptions,
+            requestId,
+            requestComputedAt,
           ));
         }
 
@@ -2721,6 +2805,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         let islFallbackExecuted = false;
         let computedAt: string | undefined;
         let islEchoedRequestId: string | null = null;
+        // Retryability from ISL response (service-computed, status-aware)
+        let islResponseRetryable: boolean | undefined;
 
         try {
           const response = await islService.callAnalysisEndpoint<any>(
@@ -2738,10 +2824,16 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             // Use ISL's computed_at if provided, otherwise capture now
             computedAt = islResult?.computed_at ?? new Date().toISOString();
 
-            // CIL Phase 1: If ISL returns seed_used, use that (ISL's actual seed)
-            // Otherwise fall back to PLoT's seedUsed (what we sent to ISL)
-            if (islResult?.seed_used !== undefined && islResult?.seed_used !== null) {
-              seedUsed = String(islResult.seed_used);
+            // PLoT is seed authority: ignore ISL's returned seed_used.
+            // Log mismatch at DEBUG level for observability (no side effects).
+            if (islResult?.seed_used !== undefined && islResult?.seed_used !== null
+                && String(islResult.seed_used) !== plotSeedUsed) {
+              req.log.debug({
+                event: 'isl_seed_mismatch',
+                plot_seed: plotSeedUsed,
+                isl_seed: String(islResult.seed_used),
+                request_id: requestId,
+              });
             }
 
             // Warn if goal_threshold is active but ISL didn't return probability_of_goal.
@@ -2787,6 +2879,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             islStatusCode = 500;
             islFallbackExecuted = true;
             islEchoedRequestId = response.isl_echoed_request_id ?? null;
+            islResponseRetryable = response.error?.retryable;
             req.log.error({
               event: 'isl_call_failed',
               error: response.error?.message ?? 'Unknown error',
@@ -2841,7 +2934,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           event: 'isl_response_summary',
           isl_response_summary: buildISLResponseSummary(
             requestId,
-            seedUsed,
+            plotSeedUsed,
             islResult,
             islMs,
             islSuccess,
@@ -2890,74 +2983,34 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             critiques,
             filteredGraph,
             normalizedOptions,
+            requestId,
+            computedAt ?? requestComputedAt,
           ));
         }
 
         // Handle ISL failure (non-422)
         if (!islSuccess) {
-          critiques.push({
-            id: randomUUID(),
-            code: 'ISL_CALL_FAILED',
-            severity: 'error',
-            message: 'ISL analysis failed. Please try again.',
-            source: 'isl',
-            blocks_analysis: false,
-          });
-
-          // M2: Set status for early return (disabled or skipped)
-          const m2IslErrorReturn = {
-            m1_review: null as M1Review | null,
-            review_status: (FLAGS.DECISION_REVIEW_ENABLE ? 'skipped' : 'disabled') as ReviewStatus,
-            review_skip_reason: FLAGS.DECISION_REVIEW_ENABLE ? ReviewSkipReasons.ISL_ERROR : undefined,
-          };
-
           const chain = buildRequestIdChain(hasExplicitRequestId, requestId, true, islEchoedRequestId);
           reply.header('X-Olumi-Request-Id-Chain', buildRequestIdChainHeader(chain)!);
 
-          return reply.send(buildResponse(
+          // V2 contract: failed = 200, communicates failure via analysis_status
+          // Use service-computed retryable if available; fall back to status-based logic.
+          const islRetryable = islResponseRetryable ?? retryableFromIslStatus(islStatusCode || undefined);
+          return reply.send(buildV2RunError({
+            analysisStatus: 'failed',
+            statusReason: 'ISL analysis failed',
+            retryable: islRetryable,
             requestId,
-            'failed',
-            'ISL analysis failed',
-            'error',
-            'error',
-            'error',
-            critiques,
-            {
-              seedUsed,
-              seedSource: providedSeed !== undefined ? 'client_generated' : 'server_generated',
-              nSamples,
-              detailLevel,
-              latencyMs: totalMs,
-              normalizationMs,
-              validationMs,
-              islMs,
-              build: getBuildId(),
-              repairs,
-              sourcePath: 'isl',
-              uiBuild,
-              computedAt: computedAt ?? new Date().toISOString(),
-              requestIdChain: chain,
-              filteredConstraints: filteredConstraintRecords,
-            },
-            responseHash,
-            undefined, // islResult
-            undefined, // options
-            undefined, // graph
-            undefined, // islAnalysisStatus
-            undefined, // islStatusReason
-            undefined, // robustnessSynthesis
-            undefined, // ceeResults
-            undefined, // ceeTrace
-            undefined, // sensitivityData
-            undefined, // m1Coaching
-            m2IslErrorReturn,  // M2 Decision Review status
-            undefined, // flipThresholds
-            activeGoalConstraints,  // CIL C1: goal_constraints for constraint result passthrough
-            undefined, // thresholdsStatus
-            undefined, // thresholdsMeta
-            undefined, // thresholdAnalysis
-            toIdentifiabilityResponse(identifiabilityResult)  // B1.5a: always-present mapped response
-          ));
+            computedAt: computedAt ?? requestComputedAt,
+            critiques: [...critiques, {
+              id: randomUUID(),
+              code: 'ISL_CALL_FAILED',
+              severity: 'error' as const,
+              message: 'ISL analysis failed. Please try again.',
+              source: 'isl' as const,
+              blocks_analysis: false,
+            }],
+          }));
         }
 
         // =================================================================
@@ -2980,60 +3033,18 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         const islStatusReason = processedIslResult.status_reason;
 
         if (islAnalysisStatus === 'failed') {
-          // M2: Set status for early return (disabled or skipped)
-          const m2IslFailedReturn = {
-            m1_review: null as M1Review | null,
-            review_status: (FLAGS.DECISION_REVIEW_ENABLE ? 'skipped' : 'disabled') as ReviewStatus,
-            review_skip_reason: FLAGS.DECISION_REVIEW_ENABLE ? ReviewSkipReasons.ISL_ANALYSIS_FAILED : undefined,
-          };
-
           const chain = buildRequestIdChain(hasExplicitRequestId, requestId, true, islEchoedRequestId);
           reply.header('X-Olumi-Request-Id-Chain', buildRequestIdChainHeader(chain)!);
 
-          return reply.send(buildResponse(
+          // V2 contract: failed = 200, communicates failure via analysis_status
+          return reply.send(buildV2RunError({
+            analysisStatus: 'failed',
+            statusReason: islStatusReason || 'ISL analysis failed',
+            retryable: true, // ISL HTTP 200 with failed analysis_status → transient; retry
             requestId,
-            'failed',
-            islStatusReason || 'ISL analysis failed',
-            'error',
-            'error',
-            'error',
+            computedAt: computedAt ?? requestComputedAt,
             critiques,
-            {
-              seedUsed,
-              seedSource: providedSeed !== undefined ? 'client_generated' : 'server_generated',
-              nSamples,
-              detailLevel,
-              latencyMs: totalMs,
-              normalizationMs,
-              validationMs,
-              islMs,
-              build: getBuildId(),
-              repairs,
-              sourcePath: 'isl',
-              uiBuild,
-              computedAt,
-              requestIdChain: chain,
-              filteredConstraints: filteredConstraintRecords,
-            },
-            responseHash,
-            processedIslResult,
-            normalizedOptions,
-            undefined, // graph (not needed for failed status)
-            islAnalysisStatus,
-            islStatusReason,
-            undefined, // robustnessSynthesis
-            undefined, // ceeResults
-            undefined, // ceeTrace
-            undefined, // sensitivityData
-            undefined, // m1Coaching
-            m2IslFailedReturn,  // M2 Decision Review status
-            undefined, // flipThresholds
-            activeGoalConstraints,  // CIL C1: goal_constraints for constraint result passthrough
-            undefined, // thresholdsStatus
-            undefined, // thresholdsMeta
-            undefined, // thresholdAnalysis
-            toIdentifiabilityResponse(identifiabilityResult)  // B1.5a: always-present mapped response
-          ));
+          }));
         }
 
         // =================================================================
@@ -3104,7 +3115,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // Recompute response hash to include factor_stability (v5).
         // factor_stability is deterministic ISL output — including it ensures
         // that different stability results produce different hashes.
-        responseHash = hashRequest(body, filteredGraph, seedUsed, toIdentifiabilityResponse(identifiabilityResult), factorStability);
+        responseHash = hashRequest(body, filteredGraph, plotSeedUsed, toIdentifiabilityResponse(identifiabilityResult), factorStability);
 
         const sensitivityData: SensitivityData = { edgeSensitivity, factorSensitivity };
 
@@ -3403,7 +3414,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                   label: o.label,
                   interventions: o.interventions,
                 })),
-                seed: seedUsed,
+                seed: plotSeedUsed,
                 goal_node_id: body.goal_node_id,
                 request_id: requestId,
               };
@@ -3624,7 +3635,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           driversStatus,
           critiques,
           {
-            seedUsed,
+            seedUsed: plotSeedUsed,
             seedSource: providedSeed !== undefined ? 'client_generated' : 'server_generated',
             nSamples,
             detailLevel,
@@ -3660,26 +3671,26 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           thresholdsMeta,    // B10.3: Threshold analysis metadata
           thresholdAnalysis, // B10.3: Threshold analysis results
           toIdentifiabilityResponse(identifiabilityResult),  // B1.5a: always-present mapped response
-          factorStability  // 3C: ISL stability assessment per factor
+          factorStability,  // 3C: ISL stability assessment per factor
+          req.log  // logger for fact_objects assembly logging
         ));
       } catch (err) {
-        const totalMs = performance.now() - startTime;
-
         req.log.error({
           event: 'v2_run_error',
           error: (err as Error).message,
           stack: (err as Error).stack,
         });
 
-        // Internal errors return 500 with error.v1 envelope (NOT 422 V2RunError)
-        // This distinguishes client validation errors (422) from server errors (500)
-        return reply.status(500).send({
-          schema: 'error.v1',
-          code: 'INTERNAL',
-          message: 'Internal server error',
-          request_id: requestId,
+        // Outermost safety net: guarantee V2RunError on any unexpected throw.
+        // error.v1 must never leak from this endpoint.
+        // V2 contract: failed = 200, communicates failure via analysis_status
+        return reply.send(buildV2RunError({
+          analysisStatus: 'failed',
+          statusReason: 'Internal server error',
           retryable: true,
-        });
+          requestId,
+          computedAt: requestComputedAt,
+        }));
       }
     }
   );

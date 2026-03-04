@@ -199,15 +199,28 @@ describe('_meta diagnostic fields (debug output audit)', () => {
     const flagKeys = Object.keys(data.meta.feature_flags);
     expect(flagKeys.length).toBeGreaterThan(0);
 
-    // Every key should be from the known set
+    // Named boolean aliases for UI consumers (F.7/H.1): not in KNOWN_FEATURE_FLAGS
+    // because they are semantic aliases (facts_assembly, review_pass), not raw env var names.
+    const NAMED_BOOLEAN_ALIASES = ['facts_assembly', 'review_pass'];
+
+    // Every key should be from the known set OR be a named boolean alias
     for (const key of flagKeys) {
-      expect(
-        (KNOWN_FEATURE_FLAGS as readonly string[]).includes(key),
-      ).toBe(true);
+      const isKnown = (KNOWN_FEATURE_FLAGS as readonly string[]).includes(key);
+      const isAlias = NAMED_BOOLEAN_ALIASES.includes(key);
+      expect(isKnown || isAlias, `unexpected key in meta.feature_flags: ${key}`).toBe(true);
     }
   });
 
-  it('meta.feature_flags matches _meta.feature_flags_snapshot', async () => {
+  it('meta.feature_flags contains named boolean aliases facts_assembly and review_pass', async () => {
+    const data = await postV2Run();
+    // F.7/H.1: UI uses meta.feature_flags.facts_assembly to gate FactCard rendering.
+    expect(typeof data.meta.feature_flags.facts_assembly).toBe('boolean');
+    expect(typeof data.meta.feature_flags.review_pass).toBe('boolean');
+  });
+
+  it('_meta.feature_flags_snapshot contains raw env var keys (subset of meta.feature_flags)', async () => {
+    // _meta snapshot is raw getAllFeatureFlags() output (env var key names like ENABLE_FACTS_ASSEMBLY).
+    // meta.feature_flags adds named boolean aliases on top of the raw keys.
     const data = await postV2Run();
 
     const publicFlags = data.meta?.feature_flags;
@@ -215,7 +228,12 @@ describe('_meta diagnostic fields (debug output audit)', () => {
 
     expect(publicFlags).toBeDefined();
     expect(snapshotFlags).toBeDefined();
-    expect(publicFlags).toEqual(snapshotFlags);
+
+    // All snapshot keys must be present in the public flags
+    for (const key of Object.keys(snapshotFlags)) {
+      expect(publicFlags).toHaveProperty(key);
+      expect(publicFlags[key]).toBe(snapshotFlags[key]);
+    }
   });
 
   it('response_hash is unaffected by meta.feature_flags presence', async () => {

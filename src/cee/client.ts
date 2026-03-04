@@ -815,6 +815,9 @@ const DEFAULT_TIMEOUT_MS = CENTRAL_CEE_TIMEOUT_MS;
 export async function runDecisionReview(opts: RunDecisionReviewOptions): Promise<CeeDecisionReviewResult> {
   const { context, requestId, logger } = opts;
 
+  // DEPRECATED 2026-03-03: CEE_REVIEW_ENABLED is superseded by DECISION_REVIEW_ENABLE.
+  // No environment sets CEE_REVIEW_ENABLED. Remove when confirmed dead.
+  // See: docs/orchestrator-flag-audit.md
   const legacyOn = isFlagOn(process.env.CEE_REVIEW_ENABLED);
   const orchestratorOn = isFlagOn(
     process.env.CEE_ORCHESTRATOR_ENABLED,
