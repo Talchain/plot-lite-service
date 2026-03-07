@@ -25,8 +25,15 @@ export const CEE_DRAFT_GRAPH_TIMEOUT_MS = Number(
 
 /**
  * BFF proxy timeout for CEE draft-graph.
- * Set above CEE's 120s internal budget so CEE can return its own typed error first.
- * Timeout chain: CEE LLM (105s) < CEE budget (120s) < PLoT proxy (135s).
+ * Set above CEE_DRAFT_GRAPH_TIMEOUT_MS (120s) so CEE can return its own
+ * typed error before PLoT's proxy timer fires.
+ *
+ * Timeout hierarchy (defaults — all env-var overridable):
+ *   CEE_TIMEOUT_MS:             60 000ms — general CEE calls
+ *   CEE_DRAFT_GRAPH_TIMEOUT_MS: 120 000ms — LLM draft-graph budget
+ *   CEE_PROXY_TIMEOUT_MS:       135 000ms — BFF proxy wrapper (must exceed CEE budget)
+ *
+ * Production values must satisfy: LLM budget < proxy timeout.
  * Parsed with parseInt; falls back to 135 000ms if env var is missing or invalid.
  */
 const _parsedProxyTimeout = parseInt(process.env.CEE_PROXY_TIMEOUT_MS ?? '', 10);

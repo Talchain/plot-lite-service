@@ -3,13 +3,13 @@
 # NOTE: Render dashboard config is authoritative; blueprint may differ by environment.
 
 services:
-  # Staging: auto-deploys on every merge to main
+  # Staging: auto-deploys on every push to staging
   - type: web
     name: plot-lite-service-staging
     env: node
     plan: starter
     region: oregon
-    branch: main
+    branch: staging
     autoDeploy: true
     healthCheckPath: /v1/health
     buildCommand: npm ci && npm run build
