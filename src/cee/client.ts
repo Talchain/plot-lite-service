@@ -1257,8 +1257,9 @@ export async function callDecisionReviewFromEngine(opts: {
           usedFixture: true,
         };
       }
-    } catch {
-      // ignore fixture errors and fall through to degraded
+    } catch (err) {
+      // Fixture fallback failed — fall through to degraded response
+      console.warn('[cee-client] fixture fallback failed during health-check degradation:', err);
     }
 
     return degraded('CEE_UNAVAILABLE', 'retry', false, 'CEE health check failed and fixture fallback unavailable');

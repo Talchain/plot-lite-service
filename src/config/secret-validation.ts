@@ -35,6 +35,25 @@ export function validateHMACSecrets(): void {
 }
 
 /**
+ * P0: Demo Mode Production Guard (Fail-Fast at Startup)
+ * Prevents DEMO_MODE_ENABLED from being set in production.
+ * Demo mode bypasses auth and input validation — must never run in production.
+ */
+export function validateDemoModeDisabled(): void {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const isTest = process.env.NODE_ENV === 'test' || process.env.VITEST === 'true';
+
+  if (!isProduction || isTest) return;
+
+  const flag = process.env.DEMO_MODE_ENABLED;
+  if (flag === 'true' || flag === '1') {
+    console.error('\n[FATAL] DEMO_MODE_ENABLED must not be set in production.');
+    console.error('Demo mode bypasses authentication and input validation.\n');
+    process.exit(1);
+  }
+}
+
+/**
  * P0: External Service URL Validation (Fail-Fast at Startup)
  * Ensures CEE and ISL base URLs use HTTPS in production.
  */

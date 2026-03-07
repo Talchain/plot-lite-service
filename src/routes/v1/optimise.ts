@@ -45,8 +45,9 @@ async function evaluateUtility(graph: any, objective: any, seed: number): Promis
       const res = await runKernel(dag, target, { seed });
       const p50 = res?.quantiles?.p50 ?? 0;
       total += p50 * (typeof weight === 'number' ? weight : 0);
-    } catch {
-      // Log but continue with other targets
+    } catch (err) {
+      // Kernel failure for one target is non-fatal; skip and continue with remaining targets
+      console.warn('[optimise] evaluateUtility: kernel failed for target', target, err);
     }
   }
   return total;

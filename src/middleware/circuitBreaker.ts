@@ -28,6 +28,10 @@ interface CircuitStats {
 }
 
 // Config from env with safe defaults
+// Recommended: set RL_CB_ENABLE=1 in staging and production for rate-limit resilience.
+// When enabled, the circuit breaker opens after RL_CB_FAILURE_THRESHOLD (default 50)
+// 429 responses within RL_CB_WINDOW_MS (default 10s) per principal.
+// Set via Render env vars. Default 0 for backward compatibility.
 const CONFIG = {
   enabled: process.env.RL_CB_ENABLE === '1',
   qpsThreshold: parseInt(process.env.RL_CB_QPS || '100', 10),
