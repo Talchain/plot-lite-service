@@ -488,7 +488,7 @@ describe('B4: Next Actions', () => {
   it('computes readiness as "needs_framing" when NARROW_FRAMING critique exists', () => {
     const readiness = computeReadiness(
       'moderate_winner',
-      [{ type: 'NARROW_FRAMING', severity: 'concern', challenge_question: '', suggested_action: '' }],
+      [{ type: 'NARROW_FRAMING', severity: 'blocker', challenge_question: '', suggested_action: '' }],
       [],
       getThresholds()
     );
@@ -554,7 +554,7 @@ describe('B4: Next Actions', () => {
     const actions = generateNextActions(
       inputs,
       'close_call',
-      [{ type: 'NARROW_FRAMING', severity: 'concern', challenge_question: '', suggested_action: '' }],
+      [{ type: 'NARROW_FRAMING', severity: 'blocker', challenge_question: '', suggested_action: '' }],
       [{ factor_id: 'f1', factor_label: 'Cost', voi_score: 0.5, confidence: 0.3, influence: 0.8 }]
     );
 
@@ -573,7 +573,7 @@ describe('B4: Next Actions', () => {
     const actions = generateNextActions(
       inputs,
       'moderate_winner',
-      [{ type: 'NARROW_FRAMING', severity: 'concern', challenge_question: '', suggested_action: '' }],
+      [{ type: 'NARROW_FRAMING', severity: 'blocker', challenge_question: '', suggested_action: '' }],
       []
     );
 
@@ -961,7 +961,7 @@ describe('NextAction Targeting Fields', () => {
     const actions = generateNextActions(
       inputs,
       'moderate_winner',
-      [{ type: 'NARROW_FRAMING', severity: 'concern', challenge_question: '', suggested_action: '' }],
+      [{ type: 'NARROW_FRAMING', severity: 'blocker', challenge_question: '', suggested_action: '' }],
       []
     );
 
@@ -969,5 +969,374 @@ describe('NextAction Targeting Fields', () => {
     expect(framingAction?.target_type).toBeUndefined();
     expect(framingAction?.target_id).toBeUndefined();
     expect(framingAction?.target_label).toBeUndefined();
+  });
+});
+
+// =============================================================================
+// Task 1: Joint Probability Gate
+// =============================================================================
+
+describe('Task 1: Joint Probability Gate', () => {
+  const createConstrainedGraph = (): EngineGraphV3 => ({
+    nodes: [
+      { id: 'goal', kind: 'goal', label: 'Revenue', observed_state: { value: 100 } },
+      { id: 'f1', kind: 'factor', label: 'Cost', category: 'controllable', observed_state: { value: 500 } },
+      { id: 'f2', kind: 'factor', label: 'Market Risk', category: 'external', observed_state: { value: 0.3 } },
+    ],
+    edges: [
+      { from: 'f1', to: 'goal', strength: { mean: 0.8, std: 0.1 } },
+      { from: 'f2', to: 'goal', strength: { mean: -0.6, std: 0.15 } },
+    ],
+  });
+
+  // 3 options including status quo to avoid NARROW_FRAMING
+  const optionsWithBaseline: OptionV3[] = [
+    { id: 'opt1', label: 'Option A', winProbability: 0.75, expectedOutcome: 120 },
+    { id: 'opt2', label: 'Option B', winProbability: 0.15, expectedOutcome: 80 },
+    { id: 'opt3', label: 'Status Quo', winProbability: 0.10, expectedOutcome: 70 },
+  ];
+
+  const baseGoalConstraints = [
+    { constraint_id: 'c1', node_id: 'goal', operator: '>=' as const, value: 100, label: 'Revenue >= 100' },
+  ];
+
+  const createISLWithJointProbs = (probs: number[]) => ({
+    ...createMinimalISLResult(),
+    options: [
+      { id: 'opt1', label: 'Option A', win_probability: 0.75, outcome: { mean: 120, p10: 100, p90: 140 },
+        constraint_analysis: { joint_probability: probs[0] } },
+      { id: 'opt2', label: 'Option B', win_probability: 0.15, outcome: { mean: 80, p10: 60, p90: 100 },
+        constraint_analysis: { joint_probability: probs[1] ?? probs[0] } },
+      { id: 'opt3', label: 'Status Quo', win_probability: 0.10, outcome: { mean: 70, p10: 50, p90: 90 },
+        constraint_analysis: { joint_probability: probs[2] ?? probs[0] } },
+    ],
+  });
+
+  it('caps readiness to needs_evidence when max joint probability is 0.0', () => {
+    const islResult = createISLWithJointProbs([0.0, 0.0, 0.0]);
+
+    const coaching = generateM1Coaching(
+      createConstrainedGraph(), optionsWithBaseline, islResult,
+      undefined, undefined, undefined, baseGoalConstraints
+    );
+
+    expect(coaching).toBeDefined();
+    expect(coaching!.readiness).toBe('needs_evidence');
+    const feasibilityCritique = coaching!.model_critiques.find(c => c.type === 'GOAL_FEASIBILITY_LOW');
+    expect(feasibilityCritique).toBeDefined();
+    expect(feasibilityCritique!.severity).toBe('warn');
+  });
+
+  it('caps readiness to close_call when max joint probability is 0.15', () => {
+    const islResult = {
+      ...createISLWithJointProbs([0.15, 0.02, 0.01]),
+      // High-confidence factors to avoid evidence gaps triggering needs_evidence
+      factor_sensitivity: [
+        { node_id: 'f1', label: 'Cost', importance_rank: 1, elasticity: 0.45, influence_score: 0.85, confidence: 0.9, direction: 'positive' },
+        { node_id: 'f2', label: 'Market Risk', importance_rank: 2, elasticity: -0.35, influence_score: 0.65, confidence: 0.9, direction: 'negative' },
+      ],
+    };
+
+    const coaching = generateM1Coaching(
+      createConstrainedGraph(), optionsWithBaseline, islResult,
+      undefined, undefined, undefined, baseGoalConstraints
+    );
+
+    expect(coaching).toBeDefined();
+    // Base readiness would be 'ready' (clear winner with high confidence), capped to close_call
+    expect(coaching!.readiness).toBe('close_call');
+  });
+
+  it('does not downgrade readiness when max joint probability is 0.60', () => {
+    const islResult = createISLWithJointProbs([0.60, 0.40, 0.30]);
+
+    const coaching = generateM1Coaching(
+      createConstrainedGraph(), optionsWithBaseline, islResult,
+      undefined, undefined, undefined, baseGoalConstraints
+    );
+
+    expect(coaching).toBeDefined();
+    const feasibilityCritique = coaching!.model_critiques.find(c => c.type === 'GOAL_FEASIBILITY_LOW');
+    expect(feasibilityCritique).toBeUndefined();
+  });
+
+  it('has no effect when goal_constraints are absent', () => {
+    const islResult = createISLWithJointProbs([0.0, 0.0, 0.0]);
+
+    // No goalConstraints passed — gate should not apply
+    const coaching = generateM1Coaching(
+      createConstrainedGraph(), optionsWithBaseline, islResult
+    );
+
+    expect(coaching).toBeDefined();
+    const feasibilityCritique = coaching!.model_critiques.find(c => c.type === 'GOAL_FEASIBILITY_LOW');
+    expect(feasibilityCritique).toBeUndefined();
+  });
+
+  it('has no effect when MCA data is absent from ISL response', () => {
+    // Options without constraint_analysis — use base ISL result + 3 options
+    const islResult = {
+      ...createMinimalISLResult(),
+      options: [
+        { id: 'opt1', label: 'Option A', win_probability: 0.75, outcome: { mean: 120, p10: 100, p90: 140 } },
+        { id: 'opt2', label: 'Option B', win_probability: 0.15, outcome: { mean: 80, p10: 60, p90: 100 } },
+        { id: 'opt3', label: 'Status Quo', win_probability: 0.10, outcome: { mean: 70, p10: 50, p90: 90 } },
+      ],
+    };
+
+    const coaching = generateM1Coaching(
+      createConstrainedGraph(), optionsWithBaseline, islResult,
+      undefined, undefined, undefined, baseGoalConstraints
+    );
+
+    expect(coaching).toBeDefined();
+    const feasibilityCritique = coaching!.model_critiques.find(c => c.type === 'GOAL_FEASIBILITY_LOW');
+    expect(feasibilityCritique).toBeUndefined();
+  });
+
+  it('does not upgrade readiness that is already lower than cap', () => {
+    const islResult = {
+      ...createMinimalISLResult(),
+      // Force needs_evidence by removing stability
+      robustness: {},
+      factor_sensitivity: [],
+      options: [
+        { id: 'opt1', label: 'Option A', win_probability: 0.75, outcome: { mean: 120, p10: 100, p90: 140 },
+          constraint_analysis: { joint_probability: 0.15 } },
+        { id: 'opt2', label: 'Option B', win_probability: 0.15, outcome: { mean: 80, p10: 60, p90: 100 },
+          constraint_analysis: { joint_probability: 0.10 } },
+        { id: 'opt3', label: 'Status Quo', win_probability: 0.10, outcome: { mean: 70, p10: 50, p90: 90 },
+          constraint_analysis: { joint_probability: 0.05 } },
+      ],
+    };
+
+    const coaching = generateM1Coaching(
+      createConstrainedGraph(), optionsWithBaseline, islResult,
+      undefined, undefined, undefined, baseGoalConstraints
+    );
+
+    expect(coaching).toBeDefined();
+    // Base readiness is needs_evidence (no stability), which is lower than close_call cap
+    expect(coaching!.readiness).toBe('needs_evidence');
+  });
+});
+
+// =============================================================================
+// Task 3: Constraint Grounding Check
+// =============================================================================
+
+describe('Task 3: Constraint Grounding Check', () => {
+  const baseGoalConstraints = [
+    { constraint_id: 'c1', node_id: 'f1', operator: '>=' as const, value: 400, label: 'Cost >= 400' },
+  ];
+
+  // 3 options including status quo to avoid NARROW_FRAMING
+  const optionsWithBaseline: OptionV3[] = [
+    { id: 'opt1', label: 'Option A', winProbability: 0.75, expectedOutcome: 120 },
+    { id: 'opt2', label: 'Option B', winProbability: 0.15, expectedOutcome: 80 },
+    { id: 'opt3', label: 'Status Quo', winProbability: 0.10, expectedOutcome: 70 },
+  ];
+
+  const islResultWithBaseline = () => ({
+    ...createMinimalISLResult(),
+    options: [
+      { id: 'opt1', label: 'Option A', win_probability: 0.75, outcome: { mean: 120, p10: 100, p90: 140 } },
+      { id: 'opt2', label: 'Option B', win_probability: 0.15, outcome: { mean: 80, p10: 60, p90: 100 } },
+      { id: 'opt3', label: 'Status Quo', win_probability: 0.10, outcome: { mean: 70, p10: 50, p90: 90 } },
+    ],
+  });
+
+  it('emits no critique when constrained node has observed_state.value', () => {
+    const graph: EngineGraphV3 = {
+      nodes: [
+        { id: 'goal', kind: 'goal', label: 'Revenue' },
+        { id: 'f1', kind: 'factor', label: 'Cost', category: 'controllable', observed_state: { value: 500 } },
+      ],
+      edges: [{ from: 'f1', to: 'goal', strength: { mean: 0.8, std: 0.1 } }],
+    };
+
+    const coaching = generateM1Coaching(
+      graph, optionsWithBaseline, islResultWithBaseline(),
+      undefined, undefined, undefined, baseGoalConstraints
+    );
+
+    expect(coaching).toBeDefined();
+    const ungrounded = coaching!.model_critiques.find(c => c.type === 'CONSTRAINT_UNGROUNDED');
+    expect(ungrounded).toBeUndefined();
+  });
+
+  it('emits CONSTRAINT_UNGROUNDED when constrained node has observed_state: null', () => {
+    const graph: EngineGraphV3 = {
+      nodes: [
+        { id: 'goal', kind: 'goal', label: 'Revenue' },
+        { id: 'f1', kind: 'factor', label: 'Cost', category: 'controllable', observed_state: null as any },
+      ],
+      edges: [{ from: 'f1', to: 'goal', strength: { mean: 0.8, std: 0.1 } }],
+    };
+
+    const coaching = generateM1Coaching(
+      graph, optionsWithBaseline, islResultWithBaseline(),
+      undefined, undefined, undefined, baseGoalConstraints
+    );
+
+    expect(coaching).toBeDefined();
+    const ungrounded = coaching!.model_critiques.find(c => c.type === 'CONSTRAINT_UNGROUNDED');
+    expect(ungrounded).toBeDefined();
+    expect(ungrounded!.severity).toBe('warn');
+    expect(ungrounded!.challenge_question).toContain('Cost');
+    expect(ungrounded!.targets).toEqual(['f1']);
+    expect(coaching!.readiness).toBe('needs_evidence');
+  });
+
+  it('emits one critique per ungrounded constraint, caps readiness once', () => {
+    const graph: EngineGraphV3 = {
+      nodes: [
+        { id: 'goal', kind: 'goal', label: 'Revenue' },
+        { id: 'f1', kind: 'factor', label: 'Cost', category: 'controllable', observed_state: { value: 500 } },
+        { id: 'f2', kind: 'factor', label: 'Market Risk', category: 'external' },
+      ],
+      edges: [
+        { from: 'f1', to: 'goal', strength: { mean: 0.8, std: 0.1 } },
+        { from: 'f2', to: 'goal', strength: { mean: -0.6, std: 0.15 } },
+      ],
+    };
+
+    const constraints = [
+      { constraint_id: 'c1', node_id: 'f1', operator: '>=' as const, value: 400 },
+      { constraint_id: 'c2', node_id: 'f2', operator: '<=' as const, value: 0.5 },
+    ];
+
+    const coaching = generateM1Coaching(
+      graph, optionsWithBaseline, islResultWithBaseline(),
+      undefined, undefined, undefined, constraints
+    );
+
+    expect(coaching).toBeDefined();
+    const ungrounded = coaching!.model_critiques.filter(c => c.type === 'CONSTRAINT_UNGROUNDED');
+    // f1 has observed_state.value=500 (grounded), f2 has no observed_state (ungrounded)
+    expect(ungrounded).toHaveLength(1);
+    expect(ungrounded[0].targets).toEqual(['f2']);
+  });
+
+  it('skips entirely when no goal_constraints', () => {
+    const graph: EngineGraphV3 = {
+      nodes: [
+        { id: 'goal', kind: 'goal', label: 'Revenue' },
+        { id: 'f1', kind: 'factor', label: 'Cost', category: 'controllable' },
+      ],
+      edges: [{ from: 'f1', to: 'goal', strength: { mean: 0.8, std: 0.1 } }],
+    };
+
+    const coaching = generateM1Coaching(
+      graph, createMinimalOptions(), createMinimalISLResult()
+    );
+
+    expect(coaching).toBeDefined();
+    const ungrounded = coaching!.model_critiques.find(c => c.type === 'CONSTRAINT_UNGROUNDED');
+    expect(ungrounded).toBeUndefined();
+  });
+});
+
+// =============================================================================
+// Task 4: Severity Triage
+// =============================================================================
+
+describe('Task 4: Severity Triage', () => {
+  it('DOMINANT_FACTOR has severity warn', () => {
+    const graph = createMinimalGraph();
+    graph.nodes[1] = { id: 'f1', kind: 'factor', label: 'Cost', category: 'controllable' };
+
+    const inputs: CoachingInputs = {
+      graph,
+      options: createMinimalOptions(),
+      factorSensitivity: [
+        { node_id: 'f1', label: 'Cost', importance_rank: 1, elasticity: 0.9, influence_score: 0.9, confidence: 0.8 },
+        { node_id: 'f2', label: 'Risk', importance_rank: 2, elasticity: 0.1, influence_score: 0.1, confidence: 0.5 },
+      ],
+      fragileEdges: [],
+      robustness: {},
+    };
+
+    const critiques = generateCritiques(inputs);
+    const dominant = critiques.find(c => c.type === 'DOMINANT_FACTOR');
+    expect(dominant?.severity).toBe('warn');
+  });
+
+  it('MISSING_RISK_PATHWAY has severity warn', () => {
+    const inputs: CoachingInputs = {
+      graph: createMinimalGraph(),
+      options: createMinimalOptions(),
+      factorSensitivity: [
+        { node_id: 'f1', label: 'Cost', importance_rank: 1, elasticity: 0.5, influence_score: 0.5, direction: 'positive' },
+      ],
+      fragileEdges: [],
+      robustness: {},
+    };
+
+    const critiques = generateCritiques(inputs);
+    const missing = critiques.find(c => c.type === 'MISSING_RISK_PATHWAY');
+    expect(missing?.severity).toBe('warn');
+  });
+
+  it('NARROW_FRAMING has severity blocker', () => {
+    const inputs: CoachingInputs = {
+      graph: createMinimalGraph(),
+      options: createMinimalOptions(),
+      factorSensitivity: [],
+      fragileEdges: [],
+      robustness: {},
+    };
+
+    const critiques = generateCritiques(inputs);
+    const narrow = critiques.find(c => c.type === 'NARROW_FRAMING');
+    expect(narrow?.severity).toBe('blocker');
+  });
+
+  it('GOAL_FEASIBILITY_LOW from Task 1 has severity warn', () => {
+    const graph: EngineGraphV3 = {
+      nodes: [
+        { id: 'goal', kind: 'goal', label: 'Revenue' },
+        { id: 'f1', kind: 'factor', label: 'Cost', category: 'controllable', observed_state: { value: 500 } },
+      ],
+      edges: [{ from: 'f1', to: 'goal', strength: { mean: 0.8, std: 0.1 } }],
+    };
+
+    const islResult = {
+      ...createMinimalISLResult(),
+      options: [
+        { id: 'opt1', label: 'Option A', win_probability: 0.75, outcome: { mean: 120 },
+          constraint_analysis: { joint_probability: 0.0 } },
+        { id: 'opt2', label: 'Option B', win_probability: 0.25, outcome: { mean: 80 },
+          constraint_analysis: { joint_probability: 0.0 } },
+      ],
+    };
+
+    const coaching = generateM1Coaching(
+      graph, createMinimalOptions(), islResult,
+      undefined, undefined, undefined,
+      [{ constraint_id: 'c1', node_id: 'goal', operator: '>=' as const, value: 100 }]
+    );
+
+    const feasibility = coaching!.model_critiques.find(c => c.type === 'GOAL_FEASIBILITY_LOW');
+    expect(feasibility?.severity).toBe('warn');
+  });
+
+  it('CONSTRAINT_UNGROUNDED from Task 3 has severity warn', () => {
+    const graph: EngineGraphV3 = {
+      nodes: [
+        { id: 'goal', kind: 'goal', label: 'Revenue' },
+        { id: 'f1', kind: 'factor', label: 'Cost', category: 'controllable' },
+      ],
+      edges: [{ from: 'f1', to: 'goal', strength: { mean: 0.8, std: 0.1 } }],
+    };
+
+    const coaching = generateM1Coaching(
+      graph, createMinimalOptions(), createMinimalISLResult(),
+      undefined, undefined, undefined,
+      [{ constraint_id: 'c1', node_id: 'f1', operator: '>=' as const, value: 400 }]
+    );
+
+    const ungrounded = coaching!.model_critiques.find(c => c.type === 'CONSTRAINT_UNGROUNDED');
+    expect(ungrounded?.severity).toBe('warn');
   });
 });

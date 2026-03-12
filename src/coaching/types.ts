@@ -107,9 +107,11 @@ export type CritiqueType =
   | 'INFLUENTIAL_EXTERNALS'
   | 'NARROW_FRAMING'
   | 'ANCHORING_RISK'
-  | 'OVERCONFIDENCE';
+  | 'OVERCONFIDENCE'
+  | 'GOAL_FEASIBILITY_LOW'
+  | 'CONSTRAINT_UNGROUNDED';
 
-export type Severity = 'info' | 'warning' | 'concern';
+export type Severity = 'info' | 'warn' | 'blocker';
 
 export interface Critique {
   type: CritiqueType;

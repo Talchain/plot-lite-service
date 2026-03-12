@@ -37,6 +37,10 @@ export interface CoachingThresholds {
   // C3: Readiness Signals
   readiness_high_evidence_gap_count: number;
   readiness_high_voi_threshold: number;
+
+  // C4: Joint Probability Gate (Task 1)
+  readiness_joint_prob_floor: number;
+  readiness_joint_prob_close_call: number;
 }
 
 /**
@@ -75,6 +79,10 @@ export const DEFAULT_THRESHOLDS: CoachingThresholds = {
   // C3: Readiness Signals
   readiness_high_evidence_gap_count: 2,
   readiness_high_voi_threshold: 0.40,
+
+  // C4: Joint Probability Gate
+  readiness_joint_prob_floor: 0.05,
+  readiness_joint_prob_close_call: 0.30,
 };
 
 /**
@@ -199,6 +207,16 @@ export function getThresholds(): CoachingThresholds {
     readiness_high_voi_threshold: parseEnvFloat(
       'M1_THRESHOLD_READINESS_HIGH_VOI',
       DEFAULT_THRESHOLDS.readiness_high_voi_threshold
+    ),
+
+    // C4: Joint Probability Gate
+    readiness_joint_prob_floor: parseEnvFloat(
+      'READINESS_JOINT_PROB_FLOOR',
+      DEFAULT_THRESHOLDS.readiness_joint_prob_floor
+    ),
+    readiness_joint_prob_close_call: parseEnvFloat(
+      'READINESS_JOINT_PROB_CLOSE_CALL',
+      DEFAULT_THRESHOLDS.readiness_joint_prob_close_call
     ),
   };
 }

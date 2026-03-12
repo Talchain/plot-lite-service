@@ -63,6 +63,7 @@ export interface ISLResultInput {
     elasticity?: number;
     confidence?: number;
     direction?: string;
+    zero_reason?: string;
   }>;
   robustness?: {
     recommendation_stability?: number;
@@ -235,12 +236,15 @@ function extractOptionComparison(
 function extractFactorSensitivity(islResult: ISLResultInput): FactorSensitivityData[] {
   const factorSensitivity = islResult.factor_sensitivity ?? [];
 
-  return factorSensitivity.map((f) => ({
-    factor_id: f.factor_id,
-    factor_label: f.factor_label ?? f.factor_id,
-    elasticity: f.elasticity ?? 0,
-    confidence: f.confidence ?? 0.5,
-  }));
+  // Task 2: Filter out intervention_override factors — decision levers, not uncertainty drivers
+  return factorSensitivity
+    .filter((f) => f.zero_reason !== 'intervention_override')
+    .map((f) => ({
+      factor_id: f.factor_id,
+      factor_label: f.factor_label ?? f.factor_id,
+      elasticity: f.elasticity ?? 0,
+      confidence: f.confidence ?? 0.5,
+    }));
 }
 
 /**

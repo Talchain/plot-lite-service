@@ -54,7 +54,7 @@ function checkDominantFactor(inputs: CoachingInputs, thresholds: ReturnType<type
 
   return {
     type: 'DOMINANT_FACTOR',
-    severity: 'warning',
+    severity: 'warn',
     challenge_question: `One factor dominates. What would change if ${dominant.label} had less influence?`,
     suggested_action: `Consider whether ${dominant.label}'s importance is evidence-based or assumed`,
     targets: [dominant.node_id],
@@ -72,7 +72,7 @@ function checkMissingRiskPathway(inputs: CoachingInputs): Critique | null {
   if (negativeFactors.length === 0 || materialNegativeFactors.length === 0) {
     return {
       type: 'MISSING_RISK_PATHWAY',
-      severity: 'concern',
+      severity: 'warn',
       challenge_question: 'No risk factors materially affect your goal. What could go wrong?',
       suggested_action: 'Add factors with negative effects that could reduce your outcome',
     };
@@ -97,7 +97,7 @@ function checkInfluentialExternals(inputs: CoachingInputs, thresholds: ReturnTyp
 
   return {
     type: 'INFLUENTIAL_EXTERNALS',
-    severity: 'warning',
+    severity: 'warn',
     challenge_question: `External factors ${factorLabels} significantly affect your outcome but are inherently uncertain. How might you bound these?`,
     suggested_action:
       'Consider converting to observable (if you can estimate baseline) or add proxy factors with explicit 0-1 scales',
@@ -117,7 +117,7 @@ function checkNarrowFraming(inputs: CoachingInputs, thresholds: ReturnType<typeo
   if (options.length <= thresholds.critique_narrow_framing_max_options && !hasStatusQuo) {
     return {
       type: 'NARROW_FRAMING',
-      severity: 'concern',
+      severity: 'blocker',
       challenge_question: `Only ${options.length} options without a baseline. Are you missing alternatives?`,
       suggested_action: "Consider adding 'Status Quo' to anchor comparisons",
       context: { count: options.length },
@@ -145,7 +145,7 @@ function checkAnchoringRisk(inputs: CoachingInputs, thresholds: ReturnType<typeo
 
   return {
     type: 'ANCHORING_RISK',
-    severity: 'warning',
+    severity: 'warn',
     challenge_question:
       "High-influence factors have 0.5 baseline values — a common 'I don't know' default. Are these estimates or evidence?",
     suggested_action: `Validate assumptions for: ${factorLabels}`,
@@ -165,7 +165,7 @@ function checkOverconfidence(inputs: CoachingInputs, thresholds: ReturnType<type
   if (avgConfidence > thresholds.critique_overconfidence_threshold) {
     return {
       type: 'OVERCONFIDENCE',
-      severity: 'warning',
+      severity: 'warn',
       challenge_question: `Average confidence is ${Math.round(avgConfidence * 100)}%. Is this justified?`,
       suggested_action: 'Review whether high-confidence assumptions have supporting evidence',
       context: { average: avgConfidence },
