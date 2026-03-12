@@ -323,7 +323,7 @@ function buildWarnings(input: BriefAssemblyInput, isPartial: boolean): BriefWarn
       warnings.push({
         code: mc.type,
         message: mc.challenge_question,
-        severity: mc.severity === 'blocker' ? 'warning' : mc.severity === 'warn' ? 'warning' : 'info',
+        severity: mc.severity === 'blocker' ? 'error' : mc.severity === 'warn' ? 'warning' : 'info',
       });
     }
   }
