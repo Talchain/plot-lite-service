@@ -241,8 +241,9 @@ function applyJointProbabilityGate(
   thresholds: { readiness_joint_prob_floor: number; readiness_joint_prob_close_call: number },
   modelCritiques: Critique[]
 ): Readiness {
-  // Extract per-option joint probabilities from ISL constraint_analysis
-  const islOptions: any[] = islResult?.options ?? [];
+  // Extract per-option joint probabilities from ISL constraint_analysis.
+  // Read from options ?? results for V1/legacy ISL payload compatibility.
+  const islOptions: any[] = islResult?.options ?? islResult?.results ?? [];
   const jointProbs: number[] = [];
   for (const opt of islOptions) {
     const jp = opt?.constraint_analysis?.joint_probability
@@ -258,24 +259,31 @@ function applyJointProbabilityGate(
   const maxJointProb = Math.max(...jointProbs);
   let readiness = currentReadiness;
 
+  // Dedupe: only emit GOAL_FEASIBILITY_LOW if not already present
+  const alreadyEmitted = modelCritiques.some((c) => c.type === 'GOAL_FEASIBILITY_LOW');
+
   if (maxJointProb < thresholds.readiness_joint_prob_floor) {
     // Very low joint probability — cap at needs_evidence
     readiness = capReadiness(readiness, 'needs_evidence');
-    modelCritiques.push({
-      type: 'GOAL_FEASIBILITY_LOW',
-      severity: 'warn',
-      challenge_question: 'No option has a strong probability of meeting all stated constraints. The best available option may not achieve the target.',
-      suggested_action: 'Review whether your constraints are realistic, or gather more evidence on the factors that most affect feasibility.',
-    });
+    if (!alreadyEmitted) {
+      modelCritiques.push({
+        type: 'GOAL_FEASIBILITY_LOW',
+        severity: 'warn',
+        challenge_question: 'No option has a strong probability of meeting all stated constraints. The best available option may not achieve the target.',
+        suggested_action: 'Review whether your constraints are realistic, or gather more evidence on the factors that most affect feasibility.',
+      });
+    }
   } else if (maxJointProb < thresholds.readiness_joint_prob_close_call) {
     // Moderate joint probability — cap at close_call
     readiness = capReadiness(readiness, 'close_call');
-    modelCritiques.push({
-      type: 'GOAL_FEASIBILITY_LOW',
-      severity: 'warn',
-      challenge_question: 'No option has a strong probability of meeting all stated constraints. The best available option may not achieve the target.',
-      suggested_action: 'Review whether your constraints are realistic, or gather more evidence on the factors that most affect feasibility.',
-    });
+    if (!alreadyEmitted) {
+      modelCritiques.push({
+        type: 'GOAL_FEASIBILITY_LOW',
+        severity: 'warn',
+        challenge_question: 'No option has a strong probability of meeting all stated constraints. The best available option may not achieve the target.',
+        suggested_action: 'Review whether your constraints are realistic, or gather more evidence on the factors that most affect feasibility.',
+      });
+    }
   }
 
   return readiness;

@@ -110,6 +110,8 @@ export const DEFAULT_THRESHOLDS: CoachingThresholds = {
  * - M1_THRESHOLD_ACTION_HIGH_VOI
  * - M1_THRESHOLD_READINESS_HIGH_GAP_COUNT
  * - M1_THRESHOLD_READINESS_HIGH_VOI
+ * - READINESS_JOINT_PROB_FLOOR (default: 0.05 — joint probability below this caps readiness at needs_evidence)
+ * - READINESS_JOINT_PROB_CLOSE_CALL (default: 0.30 — joint probability below this caps readiness at close_call)
  *
  * @returns CoachingThresholds object with resolved values
  */

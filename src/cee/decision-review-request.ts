@@ -10,6 +10,7 @@
 import { createHash } from 'node:crypto';
 import type { EngineGraphV3, OptionV3 } from '../types/engine-v3.js';
 import type { M1Coaching, EvidenceGap, Critique } from '../coaching/types.js';
+import { filterInterventionOverrides } from '../coaching/sensitivity-filter.js';
 import type {
   DecisionReviewRequest,
   DecisionReviewNode,
@@ -233,13 +234,11 @@ function extractOptionComparison(
 /**
  * Extract factor sensitivity data from ISL result.
  */
-function extractFactorSensitivity(islResult: ISLResultInput): FactorSensitivityData[] {
+export function extractFactorSensitivity(islResult: ISLResultInput): FactorSensitivityData[] {
   const factorSensitivity = islResult.factor_sensitivity ?? [];
 
-  // Task 2: Filter out intervention_override factors — decision levers, not uncertainty drivers
-  return factorSensitivity
-    .filter((f) => f.zero_reason !== 'intervention_override')
-    .map((f) => ({
+  // Task 2: Filter out intervention_override factors (decision levers, not uncertainty drivers)
+  return filterInterventionOverrides(factorSensitivity).map((f) => ({
       factor_id: f.factor_id,
       factor_label: f.factor_label ?? f.factor_id,
       elasticity: f.elasticity ?? 0,

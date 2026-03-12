@@ -106,6 +106,7 @@ import { factorReviewV2, type CEESchemaV2Config } from '../../cee/client.js';
 import { FLAGS } from '../../config/flags.js';
 import { getAllFeatureFlags } from '../../config/feature-flags.js';
 import { generateM1Coaching } from '../../coaching/m1-coaching.js';
+import { filterInterventionOverrides } from '../../coaching/sensitivity-filter.js';
 import type { M1Review } from '../../cee/validation/m1-review-types.js';
 import type { ReviewStatus } from '../../cee/validation/m1-review-constants.js';
 import { ReviewSkipReasons, type ReviewSkipReason } from '../../cee/validation/m1-review-constants.js';
@@ -185,11 +186,9 @@ function transformEdgeSensitivity(islSensitivity: unknown): EdgeSensitivityResul
  */
 function transformFactorSensitivity(islFactorSensitivity: unknown): FactorSensitivityResultV3[] | undefined {
   if (!hasNonEmptyArray(islFactorSensitivity)) return undefined;
-  // Task 2: Filter out intervention_override factors — these are decision levers,
-  // not uncertainty drivers, and should not appear in sensitivity output.
-  return (islFactorSensitivity as any[])
-    .filter((f: any) => f.zero_reason !== 'intervention_override')
-    .map((f: any) => {
+  // Task 2: Filter out intervention_override factors (decision levers, not uncertainty drivers)
+  const filtered = filterInterventionOverrides(islFactorSensitivity as any[]);
+  return filtered.map((f: any) => {
     // Schema v2.6 canonical field is 'sensitivity_score'; legacy used 'sensitivity'
     // Support both for backward compatibility
     const sensitivityValue = f.sensitivity_score ?? f.sensitivity;
