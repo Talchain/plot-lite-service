@@ -185,7 +185,11 @@ function transformEdgeSensitivity(islSensitivity: unknown): EdgeSensitivityResul
  */
 function transformFactorSensitivity(islFactorSensitivity: unknown): FactorSensitivityResultV3[] | undefined {
   if (!hasNonEmptyArray(islFactorSensitivity)) return undefined;
-  return (islFactorSensitivity as any[]).map((f: any) => {
+  // Task 2: Filter out intervention_override factors — these are decision levers,
+  // not uncertainty drivers, and should not appear in sensitivity output.
+  return (islFactorSensitivity as any[])
+    .filter((f: any) => f.zero_reason !== 'intervention_override')
+    .map((f: any) => {
     // Schema v2.6 canonical field is 'sensitivity_score'; legacy used 'sensitivity'
     // Support both for backward compatibility
     const sensitivityValue = f.sensitivity_score ?? f.sensitivity;
@@ -3280,7 +3284,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             processedIslResult,
             req.log,
             repairsForCoaching,  // Phase 3: normaliser repairs for assumptions ledger
-            []                   // Phase 3: CEE critiques (empty for now, can be extended)
+            [],                  // Phase 3: CEE critiques (empty for now, can be extended)
+            activeGoalConstraints  // Task 1+3: goal constraints for joint-prob gate & grounding check
           );
         } catch (err) {
           req.log.warn({

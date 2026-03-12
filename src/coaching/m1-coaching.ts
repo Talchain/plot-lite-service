@@ -5,8 +5,8 @@
  * Fully deterministic, no LLM calls, < 100ms computation budget.
  */
 
-import type { M1Coaching } from './types.js';
-import type { EngineGraphV3, OptionV3 } from '../types/engine-v3.js';
+import type { M1Coaching, Critique, Readiness } from './types.js';
+import type { EngineGraphV3, OptionV3, GoalConstraint } from '../types/engine-v3.js';
 import { normaliseCoachingInputs } from './normalise-inputs.js';
 import { generateHeadlines, getFragileEdgeContext } from './headlines.js';
 import { computeEvidenceGaps } from './evidence-gaps.js';
@@ -45,7 +45,8 @@ export function generateM1Coaching(
     type: string;
     message: string;
     severity?: string;
-  }>
+  }>,
+  goalConstraints?: GoalConstraint[]
 ): M1Coaching | null {
   const startTime = performance.now();
 
@@ -73,7 +74,22 @@ export function generateM1Coaching(
     );
 
     // Compute readiness
-    const readiness = computeReadiness(headlineType, modelCritiques, evidenceGaps, thresholds);
+    let readiness = computeReadiness(headlineType, modelCritiques, evidenceGaps, thresholds);
+
+    // Post-readiness gate: Joint constraint probability (Task 1)
+    if (goalConstraints && goalConstraints.length > 0) {
+      const jointProbGate = applyJointProbabilityGate(
+        readiness, islResult, thresholds, modelCritiques
+      );
+      readiness = jointProbGate;
+    }
+
+    // Post-readiness gate: Constraint grounding check (Task 3)
+    if (goalConstraints && goalConstraints.length > 0) {
+      readiness = applyConstraintGroundingCheck(
+        readiness, goalConstraints, inputs.graph, modelCritiques
+      );
+    }
 
     // Get fragile edge context if relevant
     const topFragileEdge = getFragileEdgeContext(inputs.fragileEdges);
@@ -189,4 +205,124 @@ function detectHeadlineType(inputs: any): any {
   if (winProbDelta < 0.10) return 'close_call';
 
   return 'needs_evidence';
+}
+
+// =============================================================================
+// Readiness Priority Helper
+// =============================================================================
+
+const READINESS_PRIORITY: Record<Readiness, number> = {
+  needs_framing: 0,
+  needs_evidence: 1,
+  close_call: 2,
+  ready: 3,
+};
+
+/**
+ * Cap readiness to a maximum level. Never upgrades readiness (only downgrades).
+ */
+function capReadiness(current: Readiness, cap: Readiness): Readiness {
+  return READINESS_PRIORITY[current] > READINESS_PRIORITY[cap] ? cap : current;
+}
+
+// =============================================================================
+// Task 1: Joint Probability Gate
+// =============================================================================
+
+/**
+ * Gate readiness on joint constraint probability from ISL's MCA output.
+ *
+ * If goal_constraints exist and the max probability_of_joint_goal across all
+ * options is below thresholds, cap readiness and emit a critique.
+ */
+function applyJointProbabilityGate(
+  currentReadiness: Readiness,
+  islResult: any,
+  thresholds: { readiness_joint_prob_floor: number; readiness_joint_prob_close_call: number },
+  modelCritiques: Critique[]
+): Readiness {
+  // Extract per-option joint probabilities from ISL constraint_analysis
+  const islOptions: any[] = islResult?.options ?? [];
+  const jointProbs: number[] = [];
+  for (const opt of islOptions) {
+    const jp = opt?.constraint_analysis?.joint_probability
+      ?? opt?.constraint_analysis?.probability_of_joint_goal;
+    if (typeof jp === 'number') {
+      jointProbs.push(jp);
+    }
+  }
+
+  // If MCA data is absent (ISL didn't run MCA), skip gate
+  if (jointProbs.length === 0) return currentReadiness;
+
+  const maxJointProb = Math.max(...jointProbs);
+  let readiness = currentReadiness;
+
+  if (maxJointProb < thresholds.readiness_joint_prob_floor) {
+    // Very low joint probability — cap at needs_evidence
+    readiness = capReadiness(readiness, 'needs_evidence');
+    modelCritiques.push({
+      type: 'GOAL_FEASIBILITY_LOW',
+      severity: 'warn',
+      challenge_question: 'No option has a strong probability of meeting all stated constraints. The best available option may not achieve the target.',
+      suggested_action: 'Review whether your constraints are realistic, or gather more evidence on the factors that most affect feasibility.',
+    });
+  } else if (maxJointProb < thresholds.readiness_joint_prob_close_call) {
+    // Moderate joint probability — cap at close_call
+    readiness = capReadiness(readiness, 'close_call');
+    modelCritiques.push({
+      type: 'GOAL_FEASIBILITY_LOW',
+      severity: 'warn',
+      challenge_question: 'No option has a strong probability of meeting all stated constraints. The best available option may not achieve the target.',
+      suggested_action: 'Review whether your constraints are realistic, or gather more evidence on the factors that most affect feasibility.',
+    });
+  }
+
+  return readiness;
+}
+
+// =============================================================================
+// Task 3: Constraint Grounding Check
+// =============================================================================
+
+/**
+ * Check whether constrained nodes have observed baseline values.
+ *
+ * When a goal_constraint targets a node without observed_state.value,
+ * the constraint analysis is based on defaults rather than evidence.
+ */
+function applyConstraintGroundingCheck(
+  currentReadiness: Readiness,
+  goalConstraints: GoalConstraint[],
+  graph: EngineGraphV3,
+  modelCritiques: Critique[]
+): Readiness {
+  let readiness = currentReadiness;
+  let hasUngrounded = false;
+
+  for (const constraint of goalConstraints) {
+    const node = graph.nodes.find((n) => n.id === constraint.node_id);
+    // Skip if node not found in graph (schema violation caught elsewhere)
+    if (!node) continue;
+
+    const observedValue = node.observed_state?.value;
+    if (observedValue === null || observedValue === undefined) {
+      hasUngrounded = true;
+      const nodeLabel = node.label ?? constraint.label ?? constraint.node_id;
+      modelCritiques.push({
+        type: 'CONSTRAINT_UNGROUNDED',
+        severity: 'warn',
+        challenge_question: `Constraint on "${nodeLabel}" lacks a baseline value. The feasibility assessment for this constraint is based on defaults rather than evidence.`,
+        suggested_action: `Provide a current observed value for ${nodeLabel} to strengthen the constraint analysis.`,
+        targets: [constraint.node_id],
+      });
+    }
+  }
+
+  // Cap readiness once if any constraints are ungrounded
+  if (hasUngrounded) {
+    readiness = capReadiness(readiness, 'needs_evidence');
+  }
+
+  return readiness;
 }
