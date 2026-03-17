@@ -969,10 +969,12 @@ function buildConstraintFields(
   const islConstraints: any[] = analysis.constraints ?? [];
 
   // Resolve a constraint_id from ISL's echoed result back to the input constraint.
-  // Match on (node_id, operator, threshold≈value) to handle duplicate-target edge cases.
+  // Match on (node_id, operator, value) to handle duplicate-target edge cases.
+  // F-20: ISL may return canonical "value" or legacy "threshold" — accept both.
   const resolveConstraintId = (islC: any): string => {
+    const islValue = islC.value ?? islC.threshold;
     const match = goalConstraints.find(
-      gc => gc.node_id === islC.node_id && gc.operator === islC.operator && gc.value === islC.threshold
+      gc => gc.node_id === islC.node_id && gc.operator === islC.operator && gc.value === islValue
     ) ?? goalConstraints.find(
       gc => gc.node_id === islC.node_id && gc.operator === islC.operator
     );
@@ -980,12 +982,12 @@ function buildConstraintFields(
   };
 
   // Map ISL constraint results to Schema v2.7 ConstraintResult[]
-  // ISL uses "threshold" where the contract uses "value"
+  // F-20: ISL may return canonical "value" or legacy "threshold" — accept both.
   const constraintResults: ConstraintResult[] = islConstraints.map((c: any) => ({
     constraint_id: resolveConstraintId(c),
     node_id: c.node_id,
     operator: c.operator as '>=' | '<=',
-    value: c.threshold,  // ISL's "threshold" → contract's "value"
+    value: c.value ?? c.threshold,
     probability: c.prob_satisfied,
   }));
 
@@ -1168,10 +1170,11 @@ function buildResponse(
         const constraintProbs: Record<string, number> = {};
         for (let i = 0; i < constraintAnalysis.constraints.length; i++) {
           const c = constraintAnalysis.constraints[i];
-          // Resolve constraint_id: match by (node_id, operator, threshold≈value)
-          // to handle duplicate-target edge cases
+          // Resolve constraint_id: match by (node_id, operator, value)
+          // F-20: ISL may return canonical "value" or legacy "threshold" — accept both.
+          const islValue = c.value ?? c.threshold;
           const match = goalConstraints?.find(
-            gc => gc.node_id === c.node_id && gc.operator === c.operator && gc.value === c.threshold
+            gc => gc.node_id === c.node_id && gc.operator === c.operator && gc.value === islValue
           ) ?? goalConstraints?.find(
             gc => gc.node_id === c.node_id && gc.operator === c.operator
           );

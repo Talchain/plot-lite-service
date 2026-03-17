@@ -5,7 +5,7 @@
  * mapped and passed through to the PLoT response:
  *   - constraint_results, constraint_diagnostics, conditional_probabilities
  *   - constraints_status lifecycle: absent | unavailable | computed
- *   - Field name mapping: ISL threshold → contract value, joint_probability → probability_of_joint_goal
+ *   - Field name mapping: ISL value passthrough, joint_probability → probability_of_joint_goal
  *   - Per-option constraint_probabilities and probability_of_joint_goal
  *
  * Uses vi.mock to mock ISL service with constraint_analysis data.
@@ -196,11 +196,11 @@ describe('CIL C1: Constraint Results Passthrough', () => {
   });
 
   it('passes through constraint_results with correct field mapping when ISL returns constraint_analysis', async () => {
-    // ISL returns constraint_analysis per-option
+    // ISL returns constraint_analysis per-option (canonical "value" field)
     mockConstraintAnalysis = {
       constraints: [
-        { node_id: 'goal', operator: '>=', threshold: 20000, prob_satisfied: 0.85, failure_margin_median: 1200, near_miss_fraction: 0.12, binding: true },
-        { node_id: 'factor-b', operator: '<=', threshold: 5000, prob_satisfied: 0.92, failure_margin_median: 400, near_miss_fraction: 0.05, binding: false },
+        { node_id: 'goal', operator: '>=', value: 20000, prob_satisfied: 0.85, failure_margin_median: 1200, near_miss_fraction: 0.12, binding: true },
+        { node_id: 'factor-b', operator: '<=', value: 5000, prob_satisfied: 0.92, failure_margin_median: 400, near_miss_fraction: 0.05, binding: false },
       ],
       joint_probability: 0.78,
       conditional_probabilities: [
@@ -222,10 +222,10 @@ describe('CIL C1: Constraint Results Passthrough', () => {
     expect(body.constraint_results).toBeDefined();
     expect(body.constraint_results).toHaveLength(2);
 
-    // Field name mapping: ISL's threshold → contract's value
+    // Canonical "value" field passed through from ISL
     const cr0 = body.constraint_results[0];
     expect(cr0.constraint_id).toBe('revenue-min');
-    expect(cr0.value).toBe(20000);         // ISL "threshold" mapped to "value"
+    expect(cr0.value).toBe(20000);
     expect(cr0.probability).toBe(0.85);    // ISL "prob_satisfied" mapped to "probability"
     expect(cr0.node_id).toBe('goal');
     expect(cr0.operator).toBe('>=');
@@ -255,10 +255,10 @@ describe('CIL C1: Constraint Results Passthrough', () => {
     expect(opt0.constraint_probabilities['retention-max']).toBe(0.92);
   });
 
-  it('maps ISL field names correctly: threshold→value, joint_probability→probability_of_joint_goal', async () => {
+  it('maps ISL field names correctly: value passthrough, joint_probability→probability_of_joint_goal', async () => {
     mockConstraintAnalysis = {
       constraints: [
-        { node_id: 'goal', operator: '>=', threshold: 99999, prob_satisfied: 0.55 },
+        { node_id: 'goal', operator: '>=', value: 99999, prob_satisfied: 0.55 },
       ],
       joint_probability: 0.55,
     };
@@ -277,9 +277,9 @@ describe('CIL C1: Constraint Results Passthrough', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
 
-    // Top-level: ISL's threshold → value
+    // Top-level: canonical "value" field passed through
     expect(body.constraint_results[0].value).toBe(99999);
-    // Should NOT have a "threshold" field
+    // Legacy "threshold" must NOT appear in UI response
     expect(body.constraint_results[0].threshold).toBeUndefined();
 
     // Per-option: ISL's joint_probability → probability_of_joint_goal
@@ -287,13 +287,48 @@ describe('CIL C1: Constraint Results Passthrough', () => {
     expect(opt?.probability_of_joint_goal).toBe(0.55);
   });
 
+  it('F-20: handles ISL returning canonical "value" field (no legacy "threshold")', async () => {
+    // ISL returns "value" instead of "threshold" — canonical field name
+    mockConstraintAnalysis = {
+      constraints: [
+        { node_id: 'goal', operator: '>=', value: 20000, prob_satisfied: 0.85 },
+        { node_id: 'factor-b', operator: '<=', value: 5000, prob_satisfied: 0.92 },
+      ],
+      joint_probability: 0.78,
+    };
+
+    const res = await fetch(`${baseUrl}/v2/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...BASE_PAYLOAD, goal_constraints: GOAL_CONSTRAINTS }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    // constraint_results populated with correct values from "value" field
+    expect(body.constraint_results).toBeDefined();
+    expect(body.constraint_results).toHaveLength(2);
+    expect(body.constraint_results[0].value).toBe(20000);
+    expect(body.constraint_results[1].value).toBe(5000);
+
+    // constraint_id correctly resolved via value matching
+    expect(body.constraint_results[0].constraint_id).toBe('revenue-min');
+    expect(body.constraint_results[1].constraint_id).toBe('retention-max');
+
+    // Per-option constraint_probabilities populated
+    const opt = body.option_comparison?.[0];
+    expect(opt?.constraint_probabilities?.['revenue-min']).toBe(0.85);
+    expect(opt?.constraint_probabilities?.['retention-max']).toBe(0.92);
+  });
+
   it('maps constraint_id correctly when ISL returns results in reversed order', async () => {
     // Input: revenue-min (goal, >=, 20000) then retention-max (factor-b, <=, 5000)
     // ISL returns them reversed: factor-b first, goal second
     mockConstraintAnalysis = {
       constraints: [
-        { node_id: 'factor-b', operator: '<=', threshold: 5000, prob_satisfied: 0.92 },
-        { node_id: 'goal', operator: '>=', threshold: 20000, prob_satisfied: 0.85 },
+        { node_id: 'factor-b', operator: '<=', value: 5000, prob_satisfied: 0.92 },
+        { node_id: 'goal', operator: '>=', value: 20000, prob_satisfied: 0.85 },
       ],
       joint_probability: 0.78,
       conditional_probabilities: [
@@ -342,7 +377,7 @@ describe('CIL C1: Constraint Results Passthrough', () => {
     // ISL will only receive one constraint (the stricter one), so mock only one result
     mockConstraintAnalysis = {
       constraints: [
-        { node_id: 'goal', operator: '>=', threshold: 30000, prob_satisfied: 0.40 },
+        { node_id: 'goal', operator: '>=', value: 30000, prob_satisfied: 0.40 },
       ],
       joint_probability: 0.40,
     };
