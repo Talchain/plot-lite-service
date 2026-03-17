@@ -108,8 +108,8 @@
     "what_would_change": ["Market Size \u2192 Revenue"],
     "robustness": "moderate",
     "warnings": [
-      { "code": "DOMINANT_FACTOR", "message": "Is Market Size really this dominant?", "severity": "warning" },
-      { "code": "SCALE_MISMATCH", "message": "Edge weights span 3 orders of magnitude", "severity": "warning" }
+      { "code": "SCALE_MISMATCH", "message": "Edge weights span 3 orders of magnitude", "severity": "warning" },
+      { "code": "DOMINANT_FACTOR", "message": "Is Market Size really this dominant?", "severity": "info" }
     ],
     "lineage": {
       "config_version": "1.0.0",
