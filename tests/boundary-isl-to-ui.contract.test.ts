@@ -71,7 +71,7 @@ const mockISLService = {
         constraint_analysis: {
           joint_probability: 0.85,
           constraints: [
-            { node_id: 'goal', operator: '>=', threshold: 0.5, prob_satisfied: 0.9 },
+            { node_id: 'goal', operator: '>=', value: 0.5, prob_satisfied: 0.9 },
           ],
         },
       })),
@@ -122,7 +122,7 @@ const mockISLService = {
           constraint_analysis: {
             joint_probability: 0.85,
             constraints: [
-              { node_id: 'goal', operator: '>=', threshold: 0.5, prob_satisfied: 0.9 },
+              { node_id: 'goal', operator: '>=', value: 0.5, prob_satisfied: 0.9 },
             ],
           },
         })),

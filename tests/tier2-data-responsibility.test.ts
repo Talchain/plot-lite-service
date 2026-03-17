@@ -67,7 +67,7 @@ const mockISLService = {
             constraints: goalConstraints.map((c: any) => ({
               node_id: c.node_id,
               operator: c.operator,
-              threshold: c.threshold ?? c.value,
+              value: c.value ?? c.threshold,
               prob_satisfied: 0.6,
             })),
           },
