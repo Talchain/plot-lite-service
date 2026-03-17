@@ -214,7 +214,7 @@ describe('toISLRobustnessRequest strips _internal at wire boundary', () => {
     expect(islRequest.goal_constraints![0]).not.toHaveProperty('_internal');
     // Only ISL-known fields
     expect(Object.keys(islRequest.goal_constraints![0]).sort()).toEqual(
-      ['constraint_id', 'label', 'node_id', 'operator', 'threshold'].sort()
+      ['constraint_id', 'label', 'node_id', 'operator', 'value'].sort()
     );
   });
 });

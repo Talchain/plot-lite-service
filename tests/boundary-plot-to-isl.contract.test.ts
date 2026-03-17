@@ -137,16 +137,16 @@ describe('PLoT → ISL boundary contract (B4.5)', () => {
 
   // ----- Renames -----
 
-  it('goal_constraints[].value → threshold rename applied with correct value', () => {
+  it('goal_constraints[].value passed through as canonical field (F-20)', () => {
     // Source used value: 0.7
     expect(islRequest.goal_constraints).toBeDefined();
     const c = islRequest.goal_constraints![0];
 
-    // Target field "threshold" present with correct value
-    expect(c.threshold).toBe(0.7);
+    // Canonical field "value" present with correct value
+    expect(c.value).toBe(0.7);
 
-    // Source field "value" absent
-    expect(c).not.toHaveProperty('value');
+    // Legacy field "threshold" absent
+    expect(c).not.toHaveProperty('threshold');
   });
 
   // ----- Transforms -----
@@ -206,34 +206,14 @@ describe('PLoT → ISL boundary contract (B4.5)', () => {
 
   // ----- Harness sanity -----
 
-  it('harness detects incomplete contract (missing rename)', () => {
-    // Deliberately create an incomplete contract and verify harness logic catches it
-    const incomplete: BoundaryContract = {
-      ...PLOT_TO_ISL_CONTRACT,
-      renames: [], // Removed the value→threshold rename
-    };
-
-    // The actual transform still applies value→threshold.
-    // An enforcement harness SHOULD detect that threshold is in output
-    // but NOT declared in renames. Simulate this check.
+  it('harness validates no undeclared renames in output (F-20: threshold removed)', () => {
+    // F-20: value→threshold rename was removed. Verify "threshold" is NOT in output.
     const c = islRequest.goal_constraints![0];
-    const thresholdPresent = 'threshold' in c;
-    const declaredInRenames = incomplete.renames.some(
-      r => r.to === 'goal_constraints[].threshold'
-    );
+    expect('threshold' in c).toBe(false);
+    expect('value' in c).toBe(true);
 
-    // threshold IS present in output but NOT declared in incomplete contract
-    expect(thresholdPresent).toBe(true);
-    expect(declaredInRenames).toBe(false);
-
-    // Harness would throw: "Undeclared rename: goal_constraints[].threshold present but not in contract.renames"
-    expect(() => {
-      if (thresholdPresent && !declaredInRenames) {
-        throw new Error(
-          'Undeclared rename: goal_constraints[].threshold present in output but not declared in contract.renames'
-        );
-      }
-    }).toThrow('Undeclared rename');
+    // Contract renames array is now empty (no renames at this boundary)
+    expect(PLOT_TO_ISL_CONTRACT.renames).toHaveLength(0);
   });
 
   // ----- No undeclared field disappearance -----

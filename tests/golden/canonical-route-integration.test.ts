@@ -304,12 +304,12 @@ describe('Canonical route integration (B1.4 Category B)', () => {
     expect(cr.probability).toBeGreaterThan(0);
     expect(cr.probability).toBeLessThan(1);
 
-    // Verify ISL robustness call received "threshold" not "value"
+    // F-20: Verify ISL robustness call received canonical "value" field
     expect(capturedRobustnessBody).not.toBeNull();
     const islConstraints = capturedRobustnessBody.goal_constraints ?? [];
     expect(islConstraints.length).toBeGreaterThanOrEqual(1);
-    expect(islConstraints[0].threshold).toBe(0.4);
-    expect(islConstraints[0].value).toBeUndefined();
+    expect(islConstraints[0].value).toBe(0.4);
+    expect(islConstraints[0].threshold).toBeUndefined();
   });
 
   // -----------------------------------------------------------------------

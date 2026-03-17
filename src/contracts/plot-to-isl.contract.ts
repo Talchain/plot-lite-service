@@ -60,13 +60,8 @@ export const PLOT_TO_ISL_CONTRACT: BoundaryContract = {
     'edges[incident_to_filtered_nodes]',
   ],
 
-  /** WHY renamed: ISL's canonical schema uses different field names. */
-  renames: [
-    {
-      from: 'goal_constraints[].value',
-      to: 'goal_constraints[].threshold',
-    },
-  ],
+  /** F-20: value→threshold rename removed — ISL canonical field is now "value". */
+  renames: [],
 
   transforms: [
     {

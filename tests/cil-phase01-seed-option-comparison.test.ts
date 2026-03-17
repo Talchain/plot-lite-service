@@ -246,8 +246,8 @@ describe('CIL — Task 3: constraint forwarding (value → threshold)', () => {
 
     expect(result.goal_constraints).toHaveLength(1);
     const c = result.goal_constraints![0];
-    expect(c.threshold).toBe(0.5);
-    expect(c).not.toHaveProperty('value');
+    expect(c.value).toBe(0.5);
+    expect(c).not.toHaveProperty('threshold');
   });
 
   it('forwards operator exactly without normalisation', () => {
@@ -265,7 +265,7 @@ describe('CIL — Task 3: constraint forwarding (value → threshold)', () => {
     expect(result.goal_constraints![1].operator).toBe('<=');
   });
 
-  it('exactly one of threshold/value present in outgoing payload (threshold only)', () => {
+  it('exactly one of threshold/value present in outgoing payload (value only, F-20)', () => {
     const constraints: GoalConstraint[] = [
       { constraint_id: 'c1', node_id: 'n1', operator: '>=', value: 42 },
     ];
@@ -276,8 +276,8 @@ describe('CIL — Task 3: constraint forwarding (value → threshold)', () => {
     );
 
     const payload = result.goal_constraints![0];
-    expect(payload).toHaveProperty('threshold');
-    expect(payload).not.toHaveProperty('value');
+    expect(payload).toHaveProperty('value');
+    expect(payload).not.toHaveProperty('threshold');
   });
 
   it('forwards constraint_id and node_id', () => {

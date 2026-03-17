@@ -126,7 +126,7 @@ describe('T1: Auto-constraint fallback triggers', () => {
       constraint_id: 'auto_goal_threshold',
       node_id: 'goal_node',
       operator: '>=',
-      threshold: 0.2, // value→threshold mapping applied
+      value: 0.2, // F-20: canonical "value" field
       label: 'Goal target',
     });
     // goal_threshold should NOT be set (cleared by precedence routing)
@@ -239,9 +239,9 @@ describe('T4: ISL translation of synthesised constraint', () => {
       [autoConstraint]
     );
 
-    // ISL wire format uses "threshold" not "value"
-    expect(islRequest.goal_constraints![0].threshold).toBe(0.2);
-    expect(islRequest.goal_constraints![0]).not.toHaveProperty('value');
+    // F-20: ISL wire format uses canonical "value" field
+    expect(islRequest.goal_constraints![0].value).toBe(0.2);
+    expect(islRequest.goal_constraints![0]).not.toHaveProperty('threshold');
   });
 
   it('strips unknown fields (e.g., _internal) during ISL translation', () => {
@@ -270,7 +270,7 @@ describe('T4: ISL translation of synthesised constraint', () => {
     expect(islRequest.goal_constraints![0]).not.toHaveProperty('_internal');
     // Only known fields present
     expect(Object.keys(islRequest.goal_constraints![0]).sort()).toEqual(
-      ['constraint_id', 'label', 'node_id', 'operator', 'threshold'].sort()
+      ['constraint_id', 'label', 'node_id', 'operator', 'value'].sort()
     );
   });
 });

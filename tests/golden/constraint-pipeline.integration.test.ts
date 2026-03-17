@@ -196,10 +196,10 @@ describe('Constraint Pipeline Integration', () => {
   });
 
   // -------------------------------------------------------------------------
-  // 3. Rename verification: PLoT "value" → ISL "threshold"
+  // 3. Field verification: ISL uses canonical "value" field (F-20)
   // -------------------------------------------------------------------------
 
-  it('ISL goal_constraints use "threshold" field, not "value"', async () => {
+  it('ISL goal_constraints use canonical "value" field, not legacy "threshold" (F-20)', async () => {
     capturedISLRequestBody = null;
 
     const res = await fetch(`${baseUrl}/v2/run`, {
@@ -218,18 +218,18 @@ describe('Constraint Pipeline Integration', () => {
     expect(capturedISLRequestBody).not.toBeNull();
 
     for (const constraint of capturedISLRequestBody.goal_constraints) {
-      // ISL wire format uses "threshold"
-      expect(constraint.threshold).toBeDefined();
-      expect(typeof constraint.threshold).toBe('number');
-      // PLoT's "value" should NOT appear in ISL format
-      expect(constraint.value).toBeUndefined();
+      // F-20: ISL wire format uses canonical "value"
+      expect(constraint.value).toBeDefined();
+      expect(typeof constraint.value).toBe('number');
+      // Legacy "threshold" field must NOT appear
+      expect(constraint.threshold).toBeUndefined();
     }
 
     // Verify the actual values were mapped correctly
     const churnCap = capturedISLRequestBody.goal_constraints.find(
       (c: any) => c.constraint_id === 'churn-cap',
     );
-    expect(churnCap?.threshold).toBe(0.04);
+    expect(churnCap?.value).toBe(0.04);
   });
 
   // -------------------------------------------------------------------------

@@ -65,15 +65,15 @@ export interface ISLOptionV3 {
 
 /**
  * ISL constraint format.
- * ISL uses "threshold" as the canonical field name for the constraint value.
- * PLoT's GoalConstraint uses "value"; this type is the ISL wire format.
+ * ISL's canonical field is "value" (the legacy "threshold" alias is coerced server-side
+ * by _coerce_legacy_threshold). PLoT and ISL now use the same field name.
  */
 export interface ISLGoalConstraint {
   constraint_id: string;
   node_id: string;
   operator: '>=' | '<=';
-  /** ISL's canonical name for the constraint value (PLoT GoalConstraint uses "value") */
-  threshold: number;
+  /** Constraint value — ISL's canonical field (F-20: was legacy "threshold") */
+  value: number;
   label?: string;
   weight?: number;
 }
@@ -108,7 +108,7 @@ export interface ISLRobustnessRequestV3 {
    * Multiple success constraints for joint evaluation.
    * When provided, ISL evaluates joint satisfaction across all constraints.
    * Takes precedence over goal_threshold if both are provided.
-   * Uses ISL's "threshold" field (mapped from PLoT's "value").
+   * Uses ISL's canonical "value" field (same as PLoT's GoalConstraint.value).
    */
   goal_constraints?: ISLGoalConstraint[];
 
@@ -408,13 +408,13 @@ export function toISLRobustnessRequest(
   }
 
   // Only include goal_constraints if provided and non-empty (omit entirely when absent).
-  // Map PLoT's "value" field to ISL's canonical "threshold" field at the forwarding boundary.
+  // F-20: Send canonical "value" field (was legacy "threshold").
   if (goalConstraints && goalConstraints.length > 0) {
     request.goal_constraints = goalConstraints.map((c) => ({
       constraint_id: c.constraint_id,
       node_id: c.node_id,
       operator: c.operator,
-      threshold: c.value,
+      value: c.value,
       ...(c.label !== undefined && { label: c.label }),
       ...(c.weight !== undefined && { weight: c.weight }),
     }));

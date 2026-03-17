@@ -188,7 +188,7 @@ describe('Translator: Simple Brief (no constraints)', () => {
 // =============================================================================
 
 describe('Translator: Constrained Brief', () => {
-  it('maps PLoT "value" to ISL "threshold" in goal_constraints', () => {
+  it('sends canonical "value" field to ISL in goal_constraints (F-20)', () => {
     const graph = constrainedGraph();
     const constraints = sampleConstraints();
     const request = toISLRobustnessRequest(
@@ -206,12 +206,12 @@ describe('Translator: Constrained Brief', () => {
 
     const c1 = request.goal_constraints!.find((c) => c.constraint_id === 'c1');
     expect(c1).toBeDefined();
-    expect(c1!.threshold).toBe(0.05);
+    expect(c1!.value).toBe(0.05);
     expect(c1!.node_id).toBe('factor_churn');
     expect(c1!.operator).toBe('<=');
 
-    // Ensure "value" field is NOT in ISL format (only "threshold")
-    expect((c1 as any).value).toBeUndefined();
+    // F-20: legacy "threshold" field must NOT be present
+    expect((c1 as any).threshold).toBeUndefined();
   });
 
   it('omits goal_threshold when constraints are present', () => {
@@ -446,7 +446,7 @@ describe('Translator: Canonical ISL Request Shape (B1.4 Category A)', () => {
     expect(puNodeIds).toEqual(['factor_cost', 'factor_demand', 'factor_price']);
   });
 
-  it('constrained brief: value→threshold rename + constraint shape locked', () => {
+  it('constrained brief: canonical "value" field + constraint shape locked (F-20)', () => {
     const graph = constrainedGraph();
     const constraints = sampleConstraints();
     const request = toISLRobustnessRequest(
@@ -454,10 +454,10 @@ describe('Translator: Canonical ISL Request Shape (B1.4 Category A)', () => {
       undefined, undefined, constraints, 'seed-c',
     );
 
-    // Lock the constraint wire-format shape
+    // Lock the constraint wire-format shape — F-20: uses "value" not "threshold"
     const expectedConstraints = [
-      { constraint_id: 'c1', node_id: 'factor_churn', operator: '<=', threshold: 0.05, label: 'Keep churn under 5%' },
-      { constraint_id: 'c2', node_id: 'goal_mrr', operator: '>=', threshold: 20000, label: 'Reach £20k MRR' },
+      { constraint_id: 'c1', node_id: 'factor_churn', operator: '<=', value: 0.05, label: 'Keep churn under 5%' },
+      { constraint_id: 'c2', node_id: 'goal_mrr', operator: '>=', value: 20000, label: 'Reach £20k MRR' },
     ];
 
     const constraintResult = canonicalCompare(
@@ -467,9 +467,9 @@ describe('Translator: Canonical ISL Request Shape (B1.4 Category A)', () => {
     );
     expect(constraintResult.match).toBe(true);
 
-    // "value" must NOT exist in ISL constraints
+    // F-20: legacy "threshold" must NOT exist in ISL constraints
     for (const c of request.goal_constraints!) {
-      expect((c as any).value).toBeUndefined();
+      expect((c as any).threshold).toBeUndefined();
     }
 
     // goal_threshold must be absent (XOR: constraints active)

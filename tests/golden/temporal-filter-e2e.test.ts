@@ -173,7 +173,7 @@ describe('Temporal Constraint Filter E2E', () => {
       (c: any) => c.constraint_id === 'churn-cap',
     );
     expect(normalInISL).toBeDefined();
-    expect(normalInISL.threshold).toBe(0.04); // value → threshold rename
+    expect(normalInISL.value).toBe(0.04); // F-20: canonical "value" field
 
     // Response _meta should contain filtered_constraints
     const body = await res.json() as any;
