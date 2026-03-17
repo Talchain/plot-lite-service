@@ -13,6 +13,7 @@ import { authGuard } from './middleware/auth-guard.js';
 import { sanitizeUrl } from './lib/log-sanitizer.js';
 import inflightPlugin from './plugins/inflight.js';
 import type {} from './types/fastify.js';
+import { FASTIFY_REQUEST_TIMEOUT_MS } from './config/timeouts.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { computeOlumiHash } from './util/canonical.js';
 import { initDownstreamTracking, clearDownstreamTracking, formatDownstreamHeader, getDownstreamCallsForLog } from './util/downstream-tracker.js';
@@ -183,9 +184,9 @@ export async function createServer(opts: ServerOpts = {}) {
       redact: { paths: ['parse_text', 'body.parse_text', 'request.body.parse_text'], remove: true },
     },
     bodyLimit: 128 * 1024,
-    // P0.1: Increased from 5s to 60s to allow large request bodies
-    // Note: This is for receiving request body, not response duration
-    requestTimeout: Number(process.env.REQUEST_TIMEOUT_MS || 60000),
+    // F-64: requestTimeout must exceed longest downstream proxy timeout (CEE_PROXY_TIMEOUT_MS=135s).
+    // Chain: CEE LLM call < CEE route timeout < PLoT proxy timeout < Fastify requestTimeout < Render gateway.
+    requestTimeout: FASTIFY_REQUEST_TIMEOUT_MS,
     disableRequestLogging: true,
     trustProxy: process.env.TRUST_PROXY === '1',
     requestIdHeader: 'x-request-id',

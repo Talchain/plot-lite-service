@@ -19,11 +19,11 @@ export function validateEnv(): void {
     errors.push(`Invalid PORT: ${portStr} (must be 1-65535)`);
   }
 
-  // REQUEST_TIMEOUT_MS validation
-  if (process.env.REQUEST_TIMEOUT_MS) {
-    const timeout = Number(process.env.REQUEST_TIMEOUT_MS);
-    if (isNaN(timeout) || timeout < 100) {
-      errors.push(`Invalid REQUEST_TIMEOUT_MS: ${process.env.REQUEST_TIMEOUT_MS} (must be >= 100)`);
+  // FASTIFY_REQUEST_TIMEOUT_MS validation (must sit above CEE_PROXY_TIMEOUT_MS in the timeout chain)
+  if (process.env.FASTIFY_REQUEST_TIMEOUT_MS) {
+    const timeout = Number(process.env.FASTIFY_REQUEST_TIMEOUT_MS);
+    if (isNaN(timeout) || timeout < 1000 || timeout > 600000) {
+      errors.push(`Invalid FASTIFY_REQUEST_TIMEOUT_MS: ${process.env.FASTIFY_REQUEST_TIMEOUT_MS} (must be 1000-600000)`);
     }
   }
 

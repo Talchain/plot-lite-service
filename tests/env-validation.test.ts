@@ -57,14 +57,14 @@ describe('Environment Validation', () => {
     expect(result.stderr).toContain('Invalid PORT');
   }, 10000);
 
-  it('fails with invalid REQUEST_TIMEOUT_MS', async () => {
+  it('fails with invalid FASTIFY_REQUEST_TIMEOUT_MS', async () => {
     const result = await startServerWithEnv({
-      REQUEST_TIMEOUT_MS: '50', // Too low
+      FASTIFY_REQUEST_TIMEOUT_MS: '50', // Too low (must be >= 1000)
       PORT: '4341',
     });
 
     expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain('Invalid REQUEST_TIMEOUT_MS');
+    expect(result.stderr).toContain('Invalid FASTIFY_REQUEST_TIMEOUT_MS');
   }, 10000);
 
   it('fails with invalid RATE_LIMIT_RPM', async () => {
@@ -90,7 +90,7 @@ describe('Environment Validation', () => {
   it('succeeds with valid environment', async () => {
     const result = await startServerWithEnv({
       PORT: '4344',
-      REQUEST_TIMEOUT_MS: '5000',
+      FASTIFY_REQUEST_TIMEOUT_MS: '180000',
       RATE_LIMIT_RPM: '60',
       CORS_ORIGINS: 'http://localhost:3000,https://example.com',
     });

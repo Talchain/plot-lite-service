@@ -29,11 +29,12 @@ export const CEE_DRAFT_GRAPH_TIMEOUT_MS = Number(
  * typed error before PLoT's proxy timer fires.
  *
  * Timeout hierarchy (defaults — all env-var overridable):
- *   CEE_TIMEOUT_MS:             60 000ms — general CEE calls
- *   CEE_DRAFT_GRAPH_TIMEOUT_MS: 120 000ms — LLM draft-graph budget
- *   CEE_PROXY_TIMEOUT_MS:       135 000ms — BFF proxy wrapper (must exceed CEE budget)
+ *   CEE_TIMEOUT_MS:                60 000ms — general CEE calls
+ *   CEE_DRAFT_GRAPH_TIMEOUT_MS:   120 000ms — LLM draft-graph budget
+ *   CEE_PROXY_TIMEOUT_MS:         135 000ms — BFF proxy wrapper (must exceed CEE budget)
+ *   FASTIFY_REQUEST_TIMEOUT_MS:   180 000ms — Fastify connection timeout (must exceed proxy)
  *
- * Production values must satisfy: LLM budget < proxy timeout.
+ * Production values must satisfy: DRAFT_GRAPH < PROXY < FASTIFY_REQUEST.
  * Parsed with parseInt; falls back to 135 000ms if env var is missing or invalid.
  */
 const _parsedProxyTimeout = parseInt(process.env.CEE_PROXY_TIMEOUT_MS ?? '', 10);
@@ -83,12 +84,28 @@ export const REQUEST_BUDGET_MS =
   Number(process.env.REQUEST_BUDGET_MS) || 60_000;
 
 // -----------------------------------------------------------------------------
-// Startup logging helper
+// Fastify server timeout
+// -----------------------------------------------------------------------------
+
+/**
+ * Fastify requestTimeout — the outermost timeout in the chain.
+ * Must exceed CEE_PROXY_TIMEOUT_MS so proxy routes can return typed errors
+ * before Fastify kills the connection.
+ *
+ * Chain: CEE LLM call < CEE route timeout < PLoT proxy timeout < Fastify requestTimeout < Render gateway
+ */
+export const FASTIFY_REQUEST_TIMEOUT_MS = Number(
+  process.env.FASTIFY_REQUEST_TIMEOUT_MS || 180_000,
+);
+
+// -----------------------------------------------------------------------------
+// Startup logging & validation
 // -----------------------------------------------------------------------------
 
 /** Log all resolved timeout values. Call once at startup. */
 export function logResolvedTimeouts(): void {
   console.log('[STARTUP] Resolved timeouts (ms):', {
+    FASTIFY_REQUEST_TIMEOUT_MS,
     CEE_TIMEOUT_MS,
     CEE_DECISION_REVIEW_TIMEOUT_MS,
     CEE_DRAFT_GRAPH_TIMEOUT_MS,
@@ -103,4 +120,41 @@ export function logResolvedTimeouts(): void {
     THRESHOLDS_MIN_REMAINING_BUDGET_MS,
     REQUEST_BUDGET_MS,
   });
+}
+
+/**
+ * Validate the timeout chain ordering invariant at startup.
+ * Logs warnings for violations — does NOT block startup.
+ *
+ * Required chain: FASTIFY_REQUEST_TIMEOUT_MS > CEE_PROXY_TIMEOUT_MS > CEE_DRAFT_GRAPH_TIMEOUT_MS
+ */
+export function validateTimeoutChain(): boolean {
+  const violations: string[] = [];
+
+  if (FASTIFY_REQUEST_TIMEOUT_MS <= CEE_PROXY_TIMEOUT_MS) {
+    violations.push(
+      `FASTIFY_REQUEST_TIMEOUT_MS (${FASTIFY_REQUEST_TIMEOUT_MS}) must be > CEE_PROXY_TIMEOUT_MS (${CEE_PROXY_TIMEOUT_MS})`,
+    );
+  }
+
+  if (CEE_PROXY_TIMEOUT_MS <= CEE_DRAFT_GRAPH_TIMEOUT_MS) {
+    violations.push(
+      `CEE_PROXY_TIMEOUT_MS (${CEE_PROXY_TIMEOUT_MS}) must be > CEE_DRAFT_GRAPH_TIMEOUT_MS (${CEE_DRAFT_GRAPH_TIMEOUT_MS})`,
+    );
+  }
+
+  if (violations.length > 0) {
+    console.warn('[STARTUP] ⚠ Timeout chain violation(s):');
+    for (const v of violations) {
+      console.warn(`  - ${v}`);
+    }
+    return false;
+  }
+
+  console.log('[STARTUP] ✓ Timeout chain valid:', {
+    FASTIFY_REQUEST_TIMEOUT_MS,
+    CEE_PROXY_TIMEOUT_MS,
+    CEE_DRAFT_GRAPH_TIMEOUT_MS,
+  });
+  return true;
 }

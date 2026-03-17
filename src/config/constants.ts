@@ -6,6 +6,7 @@ export const SSE_SLOT_MAX_MS = Number(process.env.SSE_MAX_MS || 120000); // C3: 
 
 // Body size limits (bytes)
 export const BODY_LIMIT_BYTES = 96 * 1024; // 96 KiB for /v1/run
+export const CEE_PROXY_BODY_LIMIT = 1_048_576; // 1 MiB — matches CEE's accepted body size (F-70)
 
 // Service-level graph limits exposed via /v1/limits (SSOT from src/constants/limits.ts)
 // Environment overrides are supported but CAPPED at canonical values to ensure consistency

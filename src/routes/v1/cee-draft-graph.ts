@@ -19,6 +19,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { replyWithAppError } from '../../errors.js';
 import { CEE_PROXY_TIMEOUT_MS } from '../../config/timeouts.js';
+import { CEE_PROXY_BODY_LIMIT } from '../../config/constants.js';
 // CIL Phase 1: Shared error schemas from @talchain/schemas
 import {
   CeeTypedErrorSchema,
@@ -34,8 +35,10 @@ export async function registerCeeDraftGraphRoute(app: FastifyInstance) {
     timeout_ms: CEE_PROXY_TIMEOUT_MS,
   });
 
+  // F-70: CEE accepts 1MB; override global 128KB limit for proxy routes
   app.post(
     '/v1/cee/draft-graph',
+    { bodyLimit: CEE_PROXY_BODY_LIMIT },
     async (req: FastifyRequest, reply: FastifyReply) => {
       const requestId = String(req.id);
       const correlationId = (req.headers['x-correlation-id'] ||

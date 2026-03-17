@@ -281,21 +281,25 @@ X-RateLimit-Reset, X-Request-Id, X-CEE-Debug, X-Build-Tag
 
 ### Timeout Hierarchy
 ```
-Netlify Proxy: 26s (hard limit)
+Render Gateway: ~300s
     │
-    ├─► Server Request: 60s (REQUEST_TIMEOUT_MS)
+    ├─► Fastify requestTimeout: 180s (FASTIFY_REQUEST_TIMEOUT_MS)
     │
-    ├─► ISL: 15s × 3 retries = 45s worst-case
+    ├─► CEE BFF Proxy: 135s (CEE_PROXY_TIMEOUT_MS)
     │
-    ├─► CEE: 2s default (CEE_TIMEOUT_MS)
+    ├─► CEE Draft-Graph LLM: 120s (CEE_DRAFT_GRAPH_TIMEOUT_MS)
+    │
+    ├─► CEE General: 60s (CEE_TIMEOUT_MS)
+    │
+    ├─► ISL: 30s × 3 retries = 90s worst-case
     │
     └─► Compute: 10s default (MAX_COMPUTE_MS)
 ```
 
-**Boot-time validation**: Combined ISL + CEE + compute timeouts are validated against proxy budget to avoid misconfiguration.
+**Boot-time validation**: Timeout chain ordering (`FASTIFY > PROXY > DRAFT_GRAPH`) is validated at startup. Combined ISL + CEE + compute timeouts are validated against proxy budget to avoid misconfiguration.
 
 ### Resource Controls
-- **Body size limit**: 96 KiB
+- **Body size limit**: 128 KiB global, 1 MiB for CEE proxy routes
 - **Graph size limits**: Exposed via `/v1/limits`
 - **Rate limiting**: In-service + gateway-level
 - **Idempotency cache**: Bounded (`MAX_IDEM_ENTRIES`)
@@ -336,7 +340,7 @@ Exposed at `/metrics` (requires `PROMETHEUS_ENABLE=1`):
 | `PORT` | 4311 | Server port |
 | `AUTH_ENABLED` | 0 | Enable bearer token auth |
 | `RATE_LIMIT_ENABLED` | 1 | Enable rate limiting |
-| `REQUEST_TIMEOUT_MS` | 60000 | Server request timeout |
+| `FASTIFY_REQUEST_TIMEOUT_MS` | 180000 | Fastify request timeout (must exceed CEE_PROXY_TIMEOUT_MS) |
 | `PROMETHEUS_ENABLE` | 0 | Enable Prometheus metrics |
 | `TEST_ROUTES` | 0 | Enable test-only routes |
 
@@ -346,7 +350,9 @@ Exposed at `/metrics` (requires `PROMETHEUS_ENABLE=1`):
 | `CEE_ORCHESTRATOR_ENABLED` | 0 | Enable CEE integration |
 | `CEE_BASE_URL` | - | CEE service URL |
 | `CEE_API_KEY` | - | CEE API key |
-| `CEE_TIMEOUT_MS` | 2000 | Request timeout |
+| `CEE_TIMEOUT_MS` | 60000 | General CEE request timeout |
+| `CEE_DRAFT_GRAPH_TIMEOUT_MS` | 120000 | CEE draft-graph LLM call timeout |
+| `CEE_PROXY_TIMEOUT_MS` | 135000 | BFF proxy timeout (must exceed CEE_DRAFT_GRAPH_TIMEOUT_MS) |
 | `CEE_CB_FAILURE_THRESHOLD` | 5 | Circuit breaker threshold |
 | `CEE_CB_COOLDOWN_MS` | 30000 | Circuit breaker cooldown |
 

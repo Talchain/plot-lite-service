@@ -29,6 +29,7 @@ import {
   CEE_PROXY_SENSITIVITY_COACH_TIMEOUT_MS,
   CEE_PROXY_PROMPTS_WARM_TIMEOUT_MS,
 } from '../../config/timeouts.js';
+import { CEE_PROXY_BODY_LIMIT } from '../../config/constants.js';
 
 // Timeout configurations per endpoint — sourced from central config
 const TIMEOUTS = {
@@ -276,7 +277,7 @@ function createCeeProxyHandler(endpoint: CeeEndpoint) {
 
 export async function registerCeeProxyRoutes(app: FastifyInstance) {
   // POST /v1/cee/graph-readiness
-  app.post('/v1/cee/graph-readiness', createCeeProxyHandler('graph-readiness'));
+  app.post('/v1/cee/graph-readiness', { bodyLimit: CEE_PROXY_BODY_LIMIT }, createCeeProxyHandler('graph-readiness'));
   app.log.info({
     evt: 'route_registered',
     route: 'POST /v1/cee/graph-readiness',
@@ -284,7 +285,7 @@ export async function registerCeeProxyRoutes(app: FastifyInstance) {
   });
 
   // POST /v1/cee/bias-check
-  app.post('/v1/cee/bias-check', createCeeProxyHandler('bias-check'));
+  app.post('/v1/cee/bias-check', { bodyLimit: CEE_PROXY_BODY_LIMIT }, createCeeProxyHandler('bias-check'));
   app.log.info({
     evt: 'route_registered',
     route: 'POST /v1/cee/bias-check',
@@ -292,7 +293,7 @@ export async function registerCeeProxyRoutes(app: FastifyInstance) {
   });
 
   // POST /v1/cee/sensitivity-coach
-  app.post('/v1/cee/sensitivity-coach', createCeeProxyHandler('sensitivity-coach'));
+  app.post('/v1/cee/sensitivity-coach', { bodyLimit: CEE_PROXY_BODY_LIMIT }, createCeeProxyHandler('sensitivity-coach'));
   app.log.info({
     evt: 'route_registered',
     route: 'POST /v1/cee/sensitivity-coach',
@@ -300,7 +301,7 @@ export async function registerCeeProxyRoutes(app: FastifyInstance) {
   });
 
   // POST /v1/cee/prompts/warm
-  app.post('/v1/cee/prompts/warm', createCeeProxyHandler('prompts/warm'));
+  app.post('/v1/cee/prompts/warm', { bodyLimit: CEE_PROXY_BODY_LIMIT }, createCeeProxyHandler('prompts/warm'));
   app.log.info({
     evt: 'route_registered',
     route: 'POST /v1/cee/prompts/warm',
