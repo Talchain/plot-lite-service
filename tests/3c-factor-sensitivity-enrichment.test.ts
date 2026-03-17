@@ -159,8 +159,8 @@ describe('3C: Response hash policy', () => {
     });
   });
 
-  describe('T5: Hash includes identifiability (v5)', () => {
-    it('different identifiability status produces different hash', () => {
+  describe('T5: identifiability excluded from hash (v6)', () => {
+    it('different identifiability status produces SAME hash (v6: ISL-derived fields excluded)', () => {
       const req = makeRequest();
 
       const identIdentifiable: IdentifiabilityAssessment = {
@@ -180,10 +180,11 @@ describe('3C: Response hash policy', () => {
       const hashA = computeResponseHash(canonicaliseRequest(req, GRAPH, '42', identIdentifiable));
       const hashB = computeResponseHash(canonicaliseRequest(req, GRAPH, '42', identNotIdentifiable));
 
-      expect(hashA).not.toBe(hashB);
+      // v6: identifiability is ISL-derived and no longer included in hash
+      expect(hashA).toBe(hashB);
     });
 
-    it('identifiability is included in canonical form', () => {
+    it('identifiability is NOT included in canonical form (v6)', () => {
       const req = makeRequest();
       const ident: IdentifiabilityAssessment = {
         status: 'identifiable',
@@ -194,13 +195,11 @@ describe('3C: Response hash policy', () => {
 
       const canonical = JSON.parse(canonicaliseRequest(req, GRAPH, '42', ident));
 
-      expect(canonical.identifiability).toBeDefined();
-      expect(canonical.identifiability.status).toBe('identifiable');
-      expect(canonical.identifiability.pairs_checked).toBe(2);
-      expect(canonical.identifiability.pairs_identifiable).toBe(2);
+      // Guard: identifiability must not be present in hash input
+      expect(canonical.identifiability).toBeUndefined();
     });
 
-    it('absent identifiability produces different hash from present', () => {
+    it('absent and present identifiability produce the SAME hash (v6)', () => {
       const req = makeRequest();
       const ident: IdentifiabilityAssessment = {
         status: 'identifiable',
@@ -212,13 +211,14 @@ describe('3C: Response hash policy', () => {
       const hashWithIdent = computeResponseHash(canonicaliseRequest(req, GRAPH, '42', ident));
       const hashWithout = computeResponseHash(canonicaliseRequest(req, GRAPH, '42'));
 
-      expect(hashWithIdent).not.toBe(hashWithout);
+      // v6: identifiability excluded → hashes are identical
+      expect(hashWithIdent).toBe(hashWithout);
     });
 
-    it('hash version is 5', () => {
+    it('hash version is 6', () => {
       const req = makeRequest();
       const canonical = JSON.parse(canonicaliseRequest(req, GRAPH, '42'));
-      expect(canonical.version).toBe(5);
+      expect(canonical.version).toBe(6);
     });
   });
 });
@@ -617,8 +617,8 @@ describe('3C: factor_stability (buildFactorStability)', () => {
 // FS5: Hash includes factor_stability
 // ---------------------------------------------------------------------------
 
-describe('3C: Hash includes factor_stability (v5)', () => {
-  it('FS5: different factor_stability produces different hash', () => {
+describe('3C: factor_stability excluded from hash (v6)', () => {
+  it('FS5: different factor_stability produces SAME hash (v6: ISL-derived fields excluded)', () => {
     const req = makeRequest();
     const ident: IdentifiabilityAssessment = {
       status: 'identifiable', method: 'backdoor',
@@ -635,10 +635,11 @@ describe('3C: Hash includes factor_stability (v5)', () => {
     const hashA = computeResponseHash(canonicaliseRequest(req, GRAPH, '42', ident, stabilityA));
     const hashB = computeResponseHash(canonicaliseRequest(req, GRAPH, '42', ident, stabilityB));
 
-    expect(hashA).not.toBe(hashB);
+    // v6: factor_stability is ISL-derived and no longer included in hash
+    expect(hashA).toBe(hashB);
   });
 
-  it('factor_stability is included in canonical form', () => {
+  it('factor_stability is NOT included in canonical form (v6)', () => {
     const req = makeRequest();
     const stability: FactorStabilityEntry[] = [
       { factor_id: 'factor-b', factor_label: 'B', elasticity_std: 0.1, attribution_stability: 'moderate', rank_flip_rate: 0.15, stability_method: 'bootstrap_1000' },
@@ -647,17 +648,15 @@ describe('3C: Hash includes factor_stability (v5)', () => {
 
     const canonical = JSON.parse(canonicaliseRequest(req, GRAPH, '42', undefined, stability));
 
-    expect(canonical.factor_stability).toBeDefined();
-    expect(canonical.factor_stability).toHaveLength(2);
-    // Sorted by factor_id
-    expect(canonical.factor_stability[0].factor_id).toBe('factor-a');
-    expect(canonical.factor_stability[1].factor_id).toBe('factor-b');
+    // Guard: factor_stability must not be present in hash input
+    expect(canonical.factor_stability).toBeUndefined();
   });
 
-  it('empty factor_stability still included in canonical form', () => {
+  it('factor_stability absent and present produce the SAME hash (v6)', () => {
     const req = makeRequest();
     const canonical = JSON.parse(canonicaliseRequest(req, GRAPH, '42', undefined, []));
-    expect(canonical.factor_stability).toEqual([]);
+    // Guard: factor_stability must not be present
+    expect(canonical.factor_stability).toBeUndefined();
   });
 });
 

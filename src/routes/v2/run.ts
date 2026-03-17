@@ -68,6 +68,8 @@ import { hashGraph, deriveSeedFromHash } from '../../sampling/graph-hash.js';
 import { runPreflightValidation, validateGoalConstraints, filterInvalidBidirectedEdges } from '../../validation/preflight-v2.js';
 import { compileConstraintNodes } from '../../normalisation/constraint-compiler.js';
 import { filterTemporalConstraints } from '../../normalisation/constraint-filter.js';
+import { REPAIR_CODES } from '../../normalisation/repair-codes.js';
+import { MAX_CONSTRAINTS } from '../../constants/limits.js';
 import type { RawGoalConstraint, FilteredConstraintRecord, InternalMetadata } from '../../types/engine-v3.js';
 import type { IslThresholdResponse, ThresholdPoint } from '../v1/types/proxy.types.js';
 import { toISLRobustnessRequest, validateISLRequest } from '../../integrations/isl/translator-v3.js';
@@ -150,6 +152,52 @@ function isCanonicalMetaEnabled(): boolean {
  */
 function hasNonEmptyArray(value: unknown): boolean {
   return Array.isArray(value) && value.length > 0;
+}
+
+// -----------------------------------------------------------------------------
+// F.6 Data Responsibility — Repair Append Helper
+// -----------------------------------------------------------------------------
+
+/**
+ * Append a canonical F.5 repair entry to the repairs array.
+ *
+ * Only appends when `before !== after` (delta exists). Validates required fields.
+ * Layer is always 'plot' for PLoT transforms.
+ *
+ * Ordering convention (enforced at call sites):
+ *   1. Compilation-strip entries (STRIP_RAW_CONSTRAINT_FIELDS) — before ISL field pass
+ *   2. Temporal-filter entries (FILTER_TEMPORAL_CONSTRAINT) — after compilation
+ */
+function appendRepair(
+  repairs: RepairRecord[],
+  entry: {
+    code: string;
+    field_path: string;
+    before: unknown;
+    after: unknown;
+    reason: string;
+    severity: 'info' | 'warn';
+  }
+): void {
+  // Validate required fields
+  if (!entry.code || !entry.field_path) return;
+  // Only append when a delta exists
+  if (JSON.stringify(entry.before) === JSON.stringify(entry.after)) return;
+  repairs.push({
+    // Legacy RepairRecord fields (required by type)
+    field: entry.field_path,
+    action: 'removed',
+    from_value: typeof entry.before === 'string' || typeof entry.before === 'number' ? entry.before : JSON.stringify(entry.before),
+    to_value: entry.after === null ? 'null' : (typeof entry.after === 'string' || typeof entry.after === 'number' ? entry.after : JSON.stringify(entry.after)),
+    reason: entry.reason,
+    // F.5 canonical fields
+    code: entry.code,
+    layer: 'plot',
+    field_path: entry.field_path,
+    before: entry.before,
+    after: entry.after,
+    severity: entry.severity,
+  });
 }
 
 // -----------------------------------------------------------------------------
@@ -1393,7 +1441,7 @@ function buildResponse(
     edge_sensitivity: edgeSensitivity,
     factor_sensitivity: factorSensitivity,
     // ISL stability assessment per factor (3C bootstrap analysis)
-    // NOTE: Deterministic ISL output. Included in response_hash (v5+).
+    // NOTE: Deterministic ISL output. Excluded from response_hash since v6.
     factor_stability: factorStability ?? [],
     // ISL stability threshold configuration (boundaries for attribution_stability categories)
     // NOTE: Configuration metadata, NOT in response_hash. The categorical labels it
@@ -1423,7 +1471,7 @@ function buildResponse(
     }),
 
     // Identifiability assessment (B1.5/B1.5a) — always present.
-    // NOTE: Deterministic function of graph structure. Included in response_hash (v4+).
+    // NOTE: Deterministic function of graph structure. Excluded from response_hash since v6.
     identifiability: identifiability ?? { status: 'unknown', method: 'backdoor', pairs_checked: 0, pairs_identifiable: 0 },
 
     // M2 Decision Review (LLM-generated from CEE /assist/v1/decision-review)
@@ -2206,6 +2254,30 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         }
 
         // =================================================================
+        // Phase 1b+: Constraint Count Guard (DoS protection)
+        // =================================================================
+        // MAX_CONSTRAINTS enforced on raw input count. Temporal filtering may reduce
+        // the count further, but the limit applies before any compilation or filtering.
+        // ISL evaluates each constraint via Monte Carlo — unbounded arrays are a DoS vector.
+        if (Array.isArray(body.goal_constraints) && body.goal_constraints.length > MAX_CONSTRAINTS) {
+          return reply.status(422).send(buildBlockedResponse(
+            `Too many constraints: ${body.goal_constraints.length} (max ${MAX_CONSTRAINTS})`,
+            [{
+              id: randomUUID(),
+              code: 'TOO_MANY_CONSTRAINTS',
+              severity: 'error',
+              message: `Maximum ${MAX_CONSTRAINTS} constraints per request (received ${body.goal_constraints.length})`,
+              source: 'validation',
+              blocks_analysis: true,
+            }],
+            normalizedGraph,
+            normalizedOptions,
+            requestId,
+            requestComputedAt,
+          ));
+        }
+
+        // =================================================================
         // Phase 1c: Constraint Node Compilation
         // =================================================================
         // Compile any constraint nodes from the graph into GoalConstraint entries
@@ -2228,6 +2300,28 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
 
         // Add compilation repairs to repairs_applied
         repairs = repairs.concat(constraintCompilation.repairs);
+
+        // F.6: Log non-canonical field stripping (STRIP_RAW_CONSTRAINT_FIELDS).
+        // Ordering: compilation-strip entries appear before temporal-filter entries.
+        // Checks each compiled constraint for CEE-specific fields that will be
+        // stripped before the ISL boundary. Only logs when a delta exists.
+        for (const c of constraintCompilation.constraints as RawGoalConstraint[]) {
+          const strippedFields: Record<string, unknown> = {};
+          if ((c as RawGoalConstraint).unit !== undefined) strippedFields.unit = c.unit;
+          if ((c as RawGoalConstraint).confidence !== undefined) strippedFields.confidence = c.confidence;
+          if ((c as RawGoalConstraint).source_quote !== undefined) strippedFields.source_quote = c.source_quote;
+          if ((c as RawGoalConstraint).deadline_metadata !== undefined) strippedFields.deadline_metadata = c.deadline_metadata;
+          if (Object.keys(strippedFields).length > 0) {
+            appendRepair(repairs, {
+              code: REPAIR_CODES.STRIP_RAW_CONSTRAINT_FIELDS,
+              field_path: `goal_constraints[constraint_id=${c.constraint_id}]`,
+              before: strippedFields,
+              after: null,
+              reason: `Non-canonical fields stripped before ISL: ${Object.keys(strippedFields).join(', ')}`,
+              severity: 'info',
+            });
+          }
+        }
 
         // Log skipped constraint nodes
         if (constraintCompilation.skipped.length > 0) {
@@ -2330,6 +2424,20 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             filtered_count: filteredConstraintRecords.length,
             remaining_count: constraintCompilation.constraints.length,
             filtered: filteredConstraintRecords,
+          });
+        }
+
+        // F.6: Log temporal constraint filtering (FILTER_TEMPORAL_CONSTRAINT).
+        // Ordering: temporal-filter entries appear after compilation-strip entries.
+        // _meta.filtered_constraints is unchanged — it still stores the full records.
+        for (const record of filteredConstraintRecords) {
+          appendRepair(repairs, {
+            code: REPAIR_CODES.FILTER_TEMPORAL_CONSTRAINT,
+            field_path: `goal_constraints[constraint_id=${record.constraint_id}]`,
+            before: { constraint_id: record.constraint_id, reason: record.reason },
+            after: null,
+            reason: 'Temporal constraint filtered: deadline-based constraints not supported by ISL',
+            severity: 'info',
           });
         }
 
@@ -2513,8 +2621,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // Phase 3: Compute Response Hash (base — without ISL-derived fields)
         // =================================================================
         // Base hash used for early-return paths (ISL not enabled, ISL error).
-        // On the success path, this is recomputed after ISL returns to include
-        // factor_stability (deterministic ISL output, added in v5).
+        // On the success path, this is recomputed after ISL returns (v6: ISL-derived
+        // fields are excluded from the hash — see canonicalise.ts BREAKING CHANGE v6).
         let responseHash = hashRequest(body, filteredGraph, plotSeedUsed, toIdentifiabilityResponse(identifiabilityResult));
 
         // =================================================================
@@ -3115,9 +3223,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // Independent of factor_sensitivity source — always derived from ISL when available.
         const factorStability = buildFactorStability(islResult.factor_sensitivity, filteredGraph);
 
-        // Recompute response hash to include factor_stability (v5).
-        // factor_stability is deterministic ISL output — including it ensures
-        // that different stability results produce different hashes.
+        // Recompute response hash (v6: ISL-derived fields excluded — identifiability
+        // and factor_stability are passed for API backwards compat but ignored by
+        // canonicaliseRequest; see canonicalise.ts BREAKING CHANGE v6).
         responseHash = hashRequest(body, filteredGraph, plotSeedUsed, toIdentifiabilityResponse(identifiabilityResult), factorStability);
 
         const sensitivityData: SensitivityData = { edgeSensitivity, factorSensitivity };

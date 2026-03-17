@@ -553,6 +553,7 @@ export const INLINE_CRITIQUE_CODES = [
   'NORMALIZATION_WARNING',
   'IDENTIFIABILITY_WARNING',
   'UNMEASURED_CONFOUNDING_WARNING',
+  'TOO_MANY_CONSTRAINTS',         // goal_constraints.length > MAX_CONSTRAINTS (P.8 DoS guard)
   'ISL_NOT_ENABLED',
   'CONSTRAINT_OUT_OF_DOMAIN',
   'CONSTRAINT_FILTERED_TEMPORAL',
@@ -837,7 +838,8 @@ export interface RunResponseV3 {
    * Populated from ISL's 3C bootstrap analysis — independent of factor_sensitivity source.
    * Empty array when ISL does not provide stability data.
    *
-   * NOTE: Deterministic ISL output. Included in response_hash (v5+).
+   * NOTE: Deterministic ISL output. Excluded from response_hash since v6
+   * (was included in v5; removed because ISL bootstrap internals can change).
    */
   factor_stability?: FactorStabilityEntry[];
 
@@ -933,7 +935,8 @@ export interface RunResponseV3 {
    * Always present (uses status='unknown' when check could not run).
    * WARNING only — never blocks analysis.
    *
-   * NOTE: Deterministic function of graph structure. Included in response_hash (v3+).
+   * NOTE: Deterministic function of graph structure. Excluded from response_hash since v6
+   * (was included in v3–v5; removed because ISL bootstrap internals can change).
    */
   identifiability: IdentifiabilityAssessment;
 
@@ -1560,6 +1563,19 @@ export interface RepairRecord {
   to_value: number | string;
   /** Human-readable reason for the repair */
   reason: string;
+  // F.5 canonical fields — present on new-style repair entries (F.6 compliance)
+  /** Canonical repair code (F.5) */
+  code?: string;
+  /** Originating layer (F.5) */
+  layer?: 'plot' | 'cee' | 'isl';
+  /** JSONPath-style field path (F.5) — preferred over `field` for new entries */
+  field_path?: string;
+  /** Value before repair (F.5) — preferred over `from_value` for new entries */
+  before?: unknown;
+  /** Value after repair (F.5) — preferred over `to_value` for new entries */
+  after?: unknown;
+  /** Severity (F.5) */
+  severity?: 'info' | 'warn';
 }
 
 /**

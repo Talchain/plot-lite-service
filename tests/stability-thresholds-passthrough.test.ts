@@ -305,7 +305,7 @@ describe('stability_thresholds passthrough + hash_version in _meta', () => {
 
     expect(body._meta).toBeDefined();
     expect(body._meta.hash_version).toBe(HASH_VERSION);
-    expect(body._meta.hash_version).toBe(5);
+    expect(body._meta.hash_version).toBe(6);
   });
 
   // ---------------------------------------------------------------------------

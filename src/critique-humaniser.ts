@@ -115,6 +115,9 @@ export const TEMPLATE_MAP: Record<string, TemplateEntry> = {
   TOO_MANY_OPTIONS:
     'Too many options provided. Reduce the number of options to stay within the limit.',
 
+  TOO_MANY_CONSTRAINTS:
+    'Too many constraints provided. Reduce the number of constraints to stay within the limit.',
+
   EMPTY_INTERVENTIONS: (c, g, opts) => {
     const label = resolveOptionLabel(c.affected_option_ids?.[0], opts, g);
     return `${label} has no effects defined. Each option needs at least one connection to a factor.`;

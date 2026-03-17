@@ -71,6 +71,21 @@
  * **Migration**: ALL hashes change from v4. Cache invalidation required.
  * factor_stability is deterministic ISL output (bootstrap analysis),
  * so it does not introduce non-determinism into the hash.
+ *
+ * ## BREAKING CHANGE (v6)
+ *
+ * Hash version 6 removes ISL-derived fields from the canonical form:
+ *
+ * 1. **identifiability removed**: Was ISL bootstrap output — same request can produce
+ *    different identifiability if ISL changes bootstrap internals. Excluding it ensures
+ *    the hash is deterministic from the request alone.
+ * 2. **factor_stability removed**: Same reason — ISL bootstrap output, not request-derived.
+ *    - Impact: ALL hashes change due to version prefix bump (v5→v6)
+ *
+ * **Migration**: ALL hashes change from v5. Cache invalidation required.
+ * The `identifiability` and `factorStability` parameters are retained in
+ * `canonicaliseRequest` and `hashRequest` for API backwards compatibility
+ * but are no longer included in the hash input.
  */
 
 import { createHash } from 'node:crypto';
@@ -81,7 +96,7 @@ import type { RunRequestV3, OptionV3, EngineGraphV3, GoalConstraint, Identifiabi
 // -----------------------------------------------------------------------------
 
 /** Hash version to prevent collisions when canonicalisation changes */
-export const HASH_VERSION = 5;
+export const HASH_VERSION = 6;
 
 /** Number of decimal places for float normalisation */
 const DECIMAL_PRECISION = 12;
@@ -248,26 +263,15 @@ interface CanonicalRequest {
     edges: CanonicalEdge[];
   };
   options: CanonicalOption[];
-  /** Identifiability assessment — deterministic function of graph structure */
-  identifiability?: {
-    status: string;
-    pairs_checked: number;
-    pairs_identifiable: number;
-  };
-  /** ISL stability assessment per factor — deterministic bootstrap output (v5) */
-  factor_stability?: Array<{
-    factor_id: string;
-    elasticity_std: number;
-    attribution_stability: string;
-    rank_flip_rate: number;
-    stability_method: string;
-  }>;
+  // NOTE (v6): identifiability and factor_stability removed from hash input.
+  // These are ISL-derived fields — the same request + same seed can produce different
+  // values if ISL changes its bootstrap internals. Excluding them ensures the hash
+  // is deterministic from the request alone.
 }
 
 /**
  * Build a canonical representation of the request.
- * Includes semantic fields that affect inference results, plus
- * deterministic derived fields (identifiability) that are user-visible.
+ * Includes only request-derived semantic fields that affect inference results.
  *
  * Sorting rules:
  * - Nodes sorted by id
@@ -278,16 +282,16 @@ interface CanonicalRequest {
  * @param req V2 run request
  * @param normalizedGraph Normalized graph (post-normalisation)
  * @param seedUsed Seed that will be used (already normalised to string)
- * @param identifiability Optional identifiability assessment (deterministic, included in hash)
- * @param factorStability Optional ISL stability assessment per factor (deterministic, included in hash v5+)
+ * @param _identifiability Unused since v6 — retained for API backwards compatibility
+ * @param _factorStability Unused since v6 — retained for API backwards compatibility
  * @returns Canonical JSON string
  */
 export function canonicaliseRequest(
   req: RunRequestV3,
   normalizedGraph: EngineGraphV3,
   seedUsed: string,
-  identifiability?: IdentifiabilityAssessment,
-  factorStability?: FactorStabilityEntry[]
+  _identifiability?: IdentifiabilityAssessment,
+  _factorStability?: FactorStabilityEntry[]
 ): string {
   const canonical: CanonicalRequest = {
     version: HASH_VERSION,
@@ -333,28 +337,9 @@ export function canonicaliseRequest(
       }));
   }
 
-  // 3C: Identifiability is a deterministic function of graph structure.
-  // Include in hash so that graphs with different identifiability status
-  // (e.g., due to bidirected edges) produce different hashes.
-  if (identifiability) {
-    canonical.identifiability = {
-      status: identifiability.status,
-      pairs_checked: identifiability.pairs_checked,
-      pairs_identifiable: identifiability.pairs_identifiable,
-    };
-  }
-
-  // 3C: factor_stability is deterministic ISL output (bootstrap analysis).
-  // Sort by factor_id for determinism. Always include (empty array when absent).
-  canonical.factor_stability = [...(factorStability ?? [])]
-    .sort((a, b) => a.factor_id.localeCompare(b.factor_id))
-    .map((f) => ({
-      factor_id: f.factor_id,
-      elasticity_std: canonicaliseNumber(f.elasticity_std),
-      attribution_stability: f.attribution_stability,
-      rank_flip_rate: canonicaliseNumber(f.rank_flip_rate),
-      stability_method: f.stability_method,
-    }));
+  // NOTE (v6): identifiability and factor_stability are NOT included in the hash.
+  // They are ISL-derived fields that can vary independently of the request.
+  // Excluding them ensures hash determinism from request alone.
 
   return JSON.stringify(canonical);
 }

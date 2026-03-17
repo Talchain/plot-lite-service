@@ -35,6 +35,10 @@
  *
  * ### Structural repairs
  * - CASCADE_REMOVE_EDGE: Edge removed because connected node was deleted
+ *
+ * ### Constraint transforms (F.6 Data Responsibility)
+ * - STRIP_RAW_CONSTRAINT_FIELDS: Non-canonical CEE fields stripped before ISL
+ * - FILTER_TEMPORAL_CONSTRAINT: Temporal constraint removed before ISL
  */
 
 // -----------------------------------------------------------------------------
@@ -75,6 +79,10 @@ export const REPAIR_CODES = {
 
   // -- Structural --
   CASCADE_REMOVE_EDGE: 'CASCADE_REMOVE_EDGE',
+
+  // -- Constraint transforms (F.6 Data Responsibility) --
+  STRIP_RAW_CONSTRAINT_FIELDS: 'STRIP_RAW_CONSTRAINT_FIELDS',
+  FILTER_TEMPORAL_CONSTRAINT: 'FILTER_TEMPORAL_CONSTRAINT',
 } as const;
 
 export type RepairCode = (typeof REPAIR_CODES)[keyof typeof REPAIR_CODES];
