@@ -23,6 +23,7 @@
  * - INVALID_STRENGTH_STD: Non-numeric `strength.std` replaced with derived value
  * - CLAMP_STRENGTH_STD: `strength.std` outside [floor, 0.4], clamped
  * - FLOOR_STRENGTH_STD: `strength.std` below ISL minimum, floored
+ * - DERIVE_STD_FROM_BELIEF_STRENGTH: `strength.std` derived from `belief_strength`
  * - INFER_EFFECT_DIRECTION: Effect direction inferred from source node kind
  * - APPLY_SIGN_FROM_DIRECTION: Sign applied to mean from explicit direction field
  *
@@ -65,6 +66,7 @@ export const REPAIR_CODES = {
   INVALID_STRENGTH_STD: 'INVALID_STRENGTH_STD',
   CLAMP_STRENGTH_STD: 'CLAMP_STRENGTH_STD',
   FLOOR_STRENGTH_STD: 'FLOOR_STRENGTH_STD',
+  DERIVE_STD_FROM_BELIEF_STRENGTH: 'DERIVE_STD_FROM_BELIEF_STRENGTH',
 
   // -- Edge: direction --
   INFER_EFFECT_DIRECTION: 'INFER_EFFECT_DIRECTION',

@@ -215,6 +215,33 @@ describe('Repair code coverage', () => {
     expect(codes).toContain(REPAIR_CODES.DEFAULT_STRENGTH_STD);
   });
 
+  it('DERIVE_STD_FROM_BELIEF_STRENGTH: edge with belief_strength but no std', () => {
+    const graph = {
+      nodes: [
+        { id: 'a', kind: 'factor', label: 'A' },
+        { id: 'goal', kind: 'goal', label: 'Goal' },
+      ],
+      edges: [
+        { from: 'a', to: 'goal', exists_probability: 0.8, weight: 0.7, belief_strength: 0.8 },
+      ],
+    };
+
+    const result = normaliseGraphWithRepairs(graph);
+    const codes = result.repairs.map(r => r.code);
+    expect(codes).toContain(REPAIR_CODES.DERIVE_STD_FROM_BELIEF_STRENGTH);
+
+    const repair = result.repairs.find(r => r.code === REPAIR_CODES.DERIVE_STD_FROM_BELIEF_STRENGTH);
+    expect(repair!.field_path).toBe('a::goal.strength.std');
+    expect(repair!.reason).toBe('Derived from belief_strength');
+    expect(repair!.action).toBe('derived');
+    expect(repair!.severity).toBe('info');
+    expect(repair!.before).toBeNull();
+    expect(repair!.after).toBeGreaterThan(0);
+
+    // Exclusivity: DEFAULT_STRENGTH_STD must NOT fire when belief_strength drives derivation
+    expect(codes).not.toContain(REPAIR_CODES.DEFAULT_STRENGTH_STD);
+  });
+
   it('CLEAN_LABEL_ANNOTATION: label with (0-1) suffix', () => {
     const graph = {
       nodes: [

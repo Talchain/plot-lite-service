@@ -680,6 +680,17 @@ export function normaliseEdge(
     if (typeof edge.belief_strength === 'number' && Number.isFinite(edge.belief_strength)) {
       // Higher belief_strength = lower uncertainty
       std = (1 - edge.belief_strength) * 0.5 * Math.abs(mean) + 0.05;
+      pushRepairWarning(
+        REPAIR_CODES.DERIVE_STD_FROM_BELIEF_STRENGTH,
+        `Edge ${edgeId}: strength.std derived from belief_strength=${edge.belief_strength}`,
+        {
+          field: 'edge.strength.std',
+          action: 'derived',
+          from_value: null,
+          to_value: std,
+          reason: 'Derived from belief_strength',
+        }
+      );
     } else {
       std = deriveStd(mean, existsProbability);
       pushRepairWarning(

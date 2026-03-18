@@ -317,6 +317,42 @@ describe('INV-NORM-06: Repair warnings are emitted', () => {
     expect(repairWarning).toBeDefined();
   });
 
+  it('emits DERIVE_STD_FROM_BELIEF_STRENGTH when belief_strength derives std', () => {
+    const warnings: any[] = [];
+    normaliseEdge(
+      { from: 'A', to: 'B', weight: 0.7, belief_strength: 0.8 },
+      0,
+      new Map(),
+      warnings
+    );
+
+    const repairWarning = warnings.find(w =>
+      w.code === REPAIR_CODES.DERIVE_STD_FROM_BELIEF_STRENGTH
+    );
+    expect(repairWarning).toBeDefined();
+    expect(repairWarning.message).toContain('belief_strength');
+    expect(repairWarning.repair.field).toBe('edge.strength.std');
+    expect(repairWarning.repair.action).toBe('derived');
+    expect(repairWarning.repair.from_value).toBeNull();
+    expect(repairWarning.repair.to_value).toBeGreaterThan(0);
+    expect(repairWarning.repair.reason).toBe('Derived from belief_strength');
+  });
+
+  it('explicit strength.std takes precedence over belief_strength', () => {
+    const warnings: any[] = [];
+    normaliseEdge(
+      { from: 'A', to: 'B', strength: { mean: 0.7, std: 0.15 }, belief_strength: 0.8 },
+      0,
+      new Map(),
+      warnings
+    );
+
+    const derivedWarning = warnings.find(w =>
+      w.code === REPAIR_CODES.DERIVE_STD_FROM_BELIEF_STRENGTH
+    );
+    expect(derivedWarning).toBeUndefined();
+  });
+
   it('emits INFER_EFFECT_DIRECTION for risk→goal edge', () => {
     const warnings: any[] = [];
     const nodeKindMap = new Map([
