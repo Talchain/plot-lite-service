@@ -4,7 +4,7 @@
  * End-to-end verification of the constraint pipeline:
  * 1. Constraint PU end-to-end (non-factor node → CONSTRAINT_PINNED_STD)
  * 2. XOR enforcement (goal_threshold + goal_constraints → constraints win)
- * 3. Rename verification (PLoT "value" → ISL "threshold")
+ * 3. Rename verification (ISL returns both "threshold" and "value"; PLoT reads value ?? threshold)
  * 4. Translator PU not overridden by Phase 4b+ injection
  *
  * Uses vi.mock to intercept ISL and capture the request body.

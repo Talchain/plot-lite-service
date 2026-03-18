@@ -276,12 +276,14 @@ export interface ISLOutcomeStats {
 
 /**
  * Single constraint evaluation result from ISL.
- * ISL uses "threshold" where PLoT input uses "value".
+ * ISL returns both "threshold" (primary) and "value" (computed).
+ * PLoT reads value ?? threshold.
  */
 export interface ISLConstraintResult {
   node_id: string;
   operator: string;
   threshold: number;
+  value?: number;
   prob_satisfied: number;
   failure_margin_median?: number;
   near_miss_fraction?: number;

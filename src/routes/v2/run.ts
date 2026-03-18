@@ -89,6 +89,7 @@ import {
   normalizeRobustEdges,
 } from '../../integrations/isl/adapters/robustness-analysis.js';
 import type { RobustnessDataForCee, NormalizedEdgeInfo } from '../../integrations/isl/types/plot-types.js';
+import type { ISLConstraintResult } from '../../integrations/isl/types/isl-types.js';
 import { orchestrateCeeReview } from '../../cee/orchestrator.js';
 import { orchestrateDecisionReview, type DecisionReviewInput, type DecisionReviewConfig } from '../../cee/decision-review-orchestrator.js';
 import {
@@ -966,12 +967,12 @@ function buildConstraintFields(
   }
 
   const analysis = firstOptionWithConstraints.constraint_analysis;
-  const islConstraints: any[] = analysis.constraints ?? [];
+  const islConstraints: ISLConstraintResult[] = analysis.constraints ?? [];
 
   // Resolve a constraint_id from ISL's echoed result back to the input constraint.
   // Match on (node_id, operator, value) to handle duplicate-target edge cases.
-  // F-20: ISL may return canonical "value" or legacy "threshold" — accept both.
-  const resolveConstraintId = (islC: any): string => {
+  // F-20: ISL returns both "value" (computed) and "threshold" (primary) — accept both.
+  const resolveConstraintId = (islC: ISLConstraintResult): string => {
     const islValue = islC.value ?? islC.threshold;
     const match = goalConstraints.find(
       gc => gc.node_id === islC.node_id && gc.operator === islC.operator && gc.value === islValue
@@ -982,8 +983,8 @@ function buildConstraintFields(
   };
 
   // Map ISL constraint results to Schema v2.7 ConstraintResult[]
-  // F-20: ISL may return canonical "value" or legacy "threshold" — accept both.
-  const constraintResults: ConstraintResult[] = islConstraints.map((c: any) => ({
+  // F-20: ISL returns both "value" (computed) and "threshold" (primary) — accept both.
+  const constraintResults: ConstraintResult[] = islConstraints.map((c) => ({
     constraint_id: resolveConstraintId(c),
     node_id: c.node_id,
     operator: c.operator as '>=' | '<=',
@@ -993,8 +994,8 @@ function buildConstraintFields(
 
   // Extract diagnostics from ISL constraint results
   const constraintDiagnostics: ConstraintDiagnostic[] = islConstraints
-    .filter((c: any) => c.failure_margin_median !== undefined || c.near_miss_fraction !== undefined || c.binding !== undefined)
-    .map((c: any) => ({
+    .filter((c) => c.failure_margin_median !== undefined || c.near_miss_fraction !== undefined || c.binding !== undefined)
+    .map((c) => ({
       constraint_id: resolveConstraintId(c),
       failure_margin_median: c.failure_margin_median ?? 0,
       near_miss_fraction: c.near_miss_fraction ?? 0,
@@ -1169,9 +1170,9 @@ function buildResponse(
       if (Array.isArray(constraintAnalysis.constraints) && constraintAnalysis.constraints.length > 0) {
         const constraintProbs: Record<string, number> = {};
         for (let i = 0; i < constraintAnalysis.constraints.length; i++) {
-          const c = constraintAnalysis.constraints[i];
+          const c = constraintAnalysis.constraints[i] as ISLConstraintResult;
           // Resolve constraint_id: match by (node_id, operator, value)
-          // F-20: ISL may return canonical "value" or legacy "threshold" — accept both.
+          // F-20: ISL returns both "value" (computed) and "threshold" (primary) — accept both.
           const islValue = c.value ?? c.threshold;
           const match = goalConstraints?.find(
             gc => gc.node_id === c.node_id && gc.operator === c.operator && gc.value === islValue

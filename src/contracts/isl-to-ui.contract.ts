@@ -43,7 +43,7 @@ export const ISL_TO_UI_CONTRACT: BoundaryContract = {
     { from: 'factor_sensitivity[].label', to: 'factor_sensitivity[].factor_label' },
     /** Per-option constraint probability: ISL nests as joint_probability. */
     { from: 'constraint_analysis.joint_probability', to: 'probability_of_joint_goal' },
-    /** Top-level constraint value: ISL uses threshold, UI uses value. */
+    /** Top-level constraint value: ISL returns both threshold (primary) and value (computed); UI uses value. */
     { from: 'constraint_results[].threshold', to: 'constraint_results[].value' },
     /** Top-level constraint probability: ISL uses prob_satisfied, UI uses probability. */
     { from: 'constraint_results[].prob_satisfied', to: 'constraint_results[].probability' },
