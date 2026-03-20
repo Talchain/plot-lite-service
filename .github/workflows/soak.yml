@@ -9,7 +9,7 @@ jobs:
       - name: Soak 10 minutes @ ~1.5 RPS
         run: |
           set -euo pipefail
-          BASE="https://plot-lite-service.onrender.com"
+          BASE="https://plot-lite-service-staging.onrender.com"
           END=$(( $(date +%s) + 600 ))
           OK=0; ERR=0
           while [ $(date +%s) -lt $END ]; do

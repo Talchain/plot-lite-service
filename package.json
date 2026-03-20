@@ -1,11 +1,9 @@
 {
   "name": "plot-lite-service",
   "version": "1.5.0",
-  "main": "index.js",
-  "directories": {
-    "doc": "docs",
-    "lib": "lib"
-  },
+  "description": "Lightweight causal inference engine with trust signals, optional ISL/CEE integration",
+  "author": "Olumi",
+  "main": "dist/main.js",
   "scripts": {
     "dev": "tsx watch src/main.ts",
     "dev:local": "tsx watch --env-file=.env.local src/main.ts",
