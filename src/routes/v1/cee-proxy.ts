@@ -232,7 +232,7 @@ function createCeeProxyHandler(endpoint: CeeEndpoint) {
         // Provider timeout — CEE did not respond in time
         // Determine timeoutPhase: if signal was already aborted before fetch
         // started, it's "pre_aborted"; otherwise it's "body" (waiting for response)
-        const timeoutPhase = elapsedMs < 5 ? 'pre_aborted' : 'body';
+        const timeoutPhase = elapsedMs < 50 ? 'pre_aborted' : 'body';
 
         req.log.warn({
           evt: 'bff.cee_proxy.timeout',
