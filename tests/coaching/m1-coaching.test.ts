@@ -375,6 +375,70 @@ describe('B3: Model Critiques', () => {
     expect(missingRisk?.challenge_question).toContain('What could go wrong');
   });
 
+  it('does NOT fire MISSING_RISK_PATHWAY when risk node has negative edge to goal (false-positive guard)', () => {
+    // Regression test: risk_overhead → goal_productivity with negative edge is a valid
+    // risk pathway and must NOT trigger MISSING_RISK_PATHWAY.
+    const graph: EngineGraphV3 = {
+      nodes: [
+        { id: 'goal_productivity', kind: 'goal', label: 'Productivity' },
+        { id: 'risk_overhead', kind: 'risk', label: 'Overhead Risk' },
+        { id: 'fac_budget', kind: 'factor', label: 'Budget', category: 'controllable' },
+      ],
+      edges: [
+        // Risk node → goal with negative direction — valid risk pathway
+        { from: 'risk_overhead', to: 'goal_productivity', strength: { mean: -0.4, std: 0.1 }, effect_direction: 'negative' },
+        { from: 'fac_budget', to: 'goal_productivity', strength: { mean: 0.6, std: 0.1 } },
+      ],
+    };
+
+    const inputs: CoachingInputs = {
+      graph,
+      options: createMinimalOptions(),
+      // factorSensitivity has only the budget factor (ISL may not surface risk nodes here)
+      // direction field absent — simulating the ISL gap that was causing the false-positive
+      factorSensitivity: [
+        {
+          node_id: 'fac_budget',
+          label: 'Budget',
+          importance_rank: 1,
+          elasticity: 0.6,
+          influence_score: 0.6,
+          direction: 'positive',
+        },
+      ],
+      fragileEdges: [],
+      robustness: {},
+    };
+
+    const critiques = generateCritiques(inputs);
+    const missingRisk = critiques.find((c) => c.type === 'MISSING_RISK_PATHWAY');
+    expect(missingRisk, 'MISSING_RISK_PATHWAY should NOT fire when risk→goal negative edge exists').toBeUndefined();
+  });
+
+  it('does NOT fire MISSING_RISK_PATHWAY when ISL reports negative elasticity (no direction field)', () => {
+    // Regression test: ISL sometimes omits direction but negative elasticity implies risk pathway.
+    const inputs: CoachingInputs = {
+      graph: createMinimalGraph(),
+      options: createMinimalOptions(),
+      factorSensitivity: [
+        {
+          node_id: 'f2',
+          label: 'Market Risk',
+          importance_rank: 1,
+          elasticity: -0.35,  // negative elasticity, no direction field
+          influence_score: 0.5,
+          direction: undefined,
+        },
+      ],
+      fragileEdges: [],
+      robustness: {},
+    };
+
+    const critiques = generateCritiques(inputs);
+    const missingRisk = critiques.find((c) => c.type === 'MISSING_RISK_PATHWAY');
+    expect(missingRisk, 'MISSING_RISK_PATHWAY should NOT fire when elasticity is negative').toBeUndefined();
+  });
+
   it('detects INFLUENTIAL_EXTERNALS when external in top quartile', () => {
     const graph = createMinimalGraph();
     const inputs: CoachingInputs = {

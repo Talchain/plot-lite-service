@@ -232,3 +232,135 @@ describe('PLoT → ISL boundary contract (B4.5)', () => {
     expect(islRequest.goal_constraints![0].constraint_id).toBe('c1');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Golden-path contracts: ISL request boundary (T5a)
+// ---------------------------------------------------------------------------
+
+describe('ISL request contract — golden-path (T5a)', () => {
+  const GRAPH_WITH_FACTORS: EngineGraphV3 = {
+    nodes: [
+      { id: 'goal', kind: 'goal', label: 'Revenue' },
+      { id: 'fac-a', kind: 'factor', label: 'Marketing', observed_state: { value: 0.7 } },
+      { id: 'fac-b', kind: 'factor', label: 'Retention', observed_state: { value: 0.4 } },
+    ],
+    edges: [
+      { from: 'fac-a', to: 'goal', strength: { mean: 0.6, std: 0.1 } },
+      { from: 'fac-b', to: 'goal', strength: { mean: 0.4, std: 0.1 } },
+    ],
+  };
+
+  const OPTIONS_GP: OptionV3[] = [
+    { id: 'opt1', label: 'Boost Marketing', interventions: { 'fac-a': { value: 0.9, source: 'user_specified' } } },
+    { id: 'opt2', label: 'Retain Customers', interventions: { 'fac-b': { value: 0.8, source: 'user_specified' } } },
+  ];
+
+  const CONSTRAINTS_GP: GoalConstraint[] = [
+    { constraint_id: 'gp-c1', node_id: 'goal', operator: '>=', value: 0.65 },
+    { constraint_id: 'gp-c2', node_id: 'fac-a', operator: '>=', value: 0.5, label: 'Min spend' },
+  ];
+
+  const req = toISLRobustnessRequest(
+    GRAPH_WITH_FACTORS,
+    OPTIONS_GP,
+    'goal',
+    'req-golden',
+    500,
+    undefined,
+    CONSTRAINTS_GP,
+    'seed-gp'
+  );
+
+  // F-20: goal_constraints[].value is the field sent to ISL — never threshold
+  it('F-20: goal_constraints send "value" field, not "threshold"', () => {
+    expect(req.goal_constraints).toBeDefined();
+    expect(req.goal_constraints!.length).toBe(2);
+
+    for (const c of req.goal_constraints!) {
+      expect(c).toHaveProperty('value');
+      expect(c).not.toHaveProperty('threshold');
+      expect(typeof c.value).toBe('number');
+    }
+
+    // Spot-check exact values
+    expect(req.goal_constraints![0].value).toBe(0.65);
+    expect(req.goal_constraints![1].value).toBe(0.5);
+  });
+
+  // Optional label is forwarded; optional weight is absent when not provided
+  it('F-20: constraint optional fields forwarded correctly', () => {
+    const c1 = req.goal_constraints!.find(c => c.constraint_id === 'gp-c1')!;
+    const c2 = req.goal_constraints!.find(c => c.constraint_id === 'gp-c2')!;
+
+    // c1 has no label — must not appear in request
+    expect(c1).not.toHaveProperty('label');
+    // c2 has label — must be forwarded
+    expect(c2.label).toBe('Min spend');
+
+    // Neither has weight — must not appear
+    expect(c1).not.toHaveProperty('weight');
+    expect(c2).not.toHaveProperty('weight');
+  });
+
+  // parameter_uncertainties present when factor nodes have observed_state.value
+  it('parameter_uncertainties present when factor nodes have observed_state.value', () => {
+    expect(req.parameter_uncertainties).toBeDefined();
+    expect(req.parameter_uncertainties!.length).toBeGreaterThanOrEqual(2);
+
+    const puA = req.parameter_uncertainties!.find(p => p.node_id === 'fac-a')!;
+    const puB = req.parameter_uncertainties!.find(p => p.node_id === 'fac-b')!;
+
+    expect(puA).toBeDefined();
+    expect(puA.distribution).toBe('normal');
+    expect(puA.mean).toBe(0.7);
+    expect(puA.std).toBeGreaterThan(0);
+
+    expect(puB).toBeDefined();
+    expect(puB.distribution).toBe('normal');
+    expect(puB.mean).toBe(0.4);
+    expect(puB.std).toBeGreaterThan(0);
+
+    // Goal node must NOT get a parameter_uncertainty entry
+    const puGoal = req.parameter_uncertainties!.find(p => p.node_id === 'goal');
+    expect(puGoal).toBeUndefined();
+  });
+
+  // std floor: min 0.1 for factor nodes
+  it('parameter_uncertainties std is at least 0.1 for all factor entries', () => {
+    expect(req.parameter_uncertainties).toBeDefined();
+    for (const pu of req.parameter_uncertainties!) {
+      expect(pu.std).toBeGreaterThanOrEqual(0.1);
+    }
+  });
+
+  // analysis_types hardcoded to all three required values
+  it('analysis_types includes comparison, sensitivity, robustness', () => {
+    expect(req.analysis_types).toBeDefined();
+    expect(req.analysis_types).toContain('comparison');
+    expect(req.analysis_types).toContain('sensitivity');
+    expect(req.analysis_types).toContain('robustness');
+    expect(req.analysis_types).toHaveLength(3);
+  });
+
+  // No parameter_uncertainties when factor nodes have no observed_state
+  it('parameter_uncertainties absent when no factor nodes have observed_state', () => {
+    const sparseGraph: EngineGraphV3 = {
+      nodes: [
+        { id: 'goal', kind: 'goal', label: 'Goal' },
+        { id: 'fac-x', kind: 'factor', label: 'Factor X' }, // no observed_state
+      ],
+      edges: [{ from: 'fac-x', to: 'goal', strength: { mean: 0.5, std: 0.1 } }],
+    };
+    const sparseReq = toISLRobustnessRequest(
+      sparseGraph,
+      [{ id: 'o1', label: 'O1', interventions: { 'fac-x': { value: 0.5, source: 'user_specified' } } },
+       { id: 'o2', label: 'O2', interventions: { 'fac-x': { value: 0.3, source: 'user_specified' } } }],
+      'goal',
+      'req-sparse',
+      500
+    );
+    // Either undefined or empty array — no entries
+    const puCount = sparseReq.parameter_uncertainties?.length ?? 0;
+    expect(puCount).toBe(0);
+  });
+});

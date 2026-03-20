@@ -122,18 +122,24 @@ function isValidExtractedRange(range: [number, number] | undefined): range is [n
 /**
  * Derive normalisation range for a factor node.
  *
- * Priority chain (per Schema v2.6 §B.8):
- * 1. Explicit state_space.range (highest priority)
- * 1.5. CE extracted_range (from intervention_hints)
- * 1.75. Intervention spread (min/max of intervention values + 20% padding)
- * 2. Inferred from baseline and current value
- * 3. Inferred from current value only
- * 4. Default [0, 1]
+ * 6-tier priority chain (per Schema v2.6 §B.8):
+ *
+ * | Priority | Source label       | Formula / Rule                                            |
+ * |----------|--------------------|-----------------------------------------------------------|
+ * | 1        | `explicit`         | `state_space.range` (user-confirmed). Requires max > min. |
+ * | 1.5      | `extracted`        | `intervention_hints.extracted_range` from CE extraction.  |
+ * | 1.75     | `inferred_spread`  | min/max of intervention values across options + 20%       |
+ * |          |                    | padding. Requires ≥2 values with variation.               |
+ * |          |                    | Outlier guard: skipped if maxVal > minVal × 100.          |
+ * |          |                    | Lower bound clamped to 0 when all values non-negative.    |
+ * | 2        | `inferred_baseline`| `[0, 2 × max(|baseline|, |value|)]`.                     |
+ * | 3        | `inferred_value`   | `[0, 2 × |value|]`. Falls through if value is 0.          |
+ * | 4        | `default`          | `[0, 1]`. Used when value is 0, missing, or unavailable.  |
  *
  * @param node Factor node
  * @param hints Optional intervention hints from CE
  * @param interventionValues Optional array of intervention values for this factor across options
- * @returns Normalisation range with source indicator
+ * @returns Normalisation range with source indicator (see RangeSource type)
  */
 export function deriveRange(
   node: EngineNodeV3,

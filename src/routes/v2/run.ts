@@ -65,7 +65,7 @@ import { normaliseGraphWithRepairs } from '../../normalisation/normalise-and-rep
 import { filterOptionNodes } from '../../normalisation/option-filter.js';
 import { hashRequest, HASH_VERSION } from '../../normalisation/canonicalise.js';
 import { hashGraph, deriveSeedFromHash } from '../../sampling/graph-hash.js';
-import { runPreflightValidation, validateGoalConstraints, filterInvalidBidirectedEdges } from '../../validation/preflight-v2.js';
+import { runPreflightValidation, validateGoalConstraints, filterInvalidBidirectedEdges, validateInboundStrengthSum } from '../../validation/preflight-v2.js';
 import { compileConstraintNodes } from '../../normalisation/constraint-compiler.js';
 import { filterTemporalConstraints } from '../../normalisation/constraint-filter.js';
 import { REPAIR_CODES } from '../../normalisation/repair-codes.js';
@@ -198,6 +198,46 @@ function appendRepair(
     before: entry.before,
     after: entry.after,
     severity: entry.severity,
+  });
+}
+
+// -----------------------------------------------------------------------------
+// Repair Compatibility Adapter
+// -----------------------------------------------------------------------------
+
+/**
+ * Upcast a mixed RepairRecord[] to uniform F.5 canonical shape.
+ *
+ * RepairRecord entries created before F.5 (constraint compiler, auto-threshold,
+ * goal_threshold conflict, PU injection paths) only carry the legacy fields:
+ * { field, action, from_value, to_value, reason }.
+ *
+ * Entries created via appendRepair() or normaliseGraphWithRepairs() already
+ * carry all F.5 fields. This function fills in the missing fields for legacy
+ * entries so that _meta.repairs_applied is a uniform array.
+ *
+ * Mapping rules for legacy entries (those lacking `code`):
+ *   code       ← REPAIR_CODES.LEGACY_REPAIR
+ *   layer      ← 'plot'
+ *   field_path ← entry.field
+ *   before     ← entry.from_value
+ *   after      ← entry.to_value (null when to_value is the string 'null')
+ *   severity   ← 'info'
+ *
+ * Entries that already have `code` are returned unchanged.
+ */
+function normaliseRepairsForMeta(repairs: RepairRecord[]): RepairRecord[] {
+  return repairs.map((r) => {
+    if (r.code) return r; // already F.5 canonical
+    return {
+      ...r,
+      code: REPAIR_CODES.LEGACY_REPAIR,
+      layer: 'plot' as const,
+      field_path: r.field,
+      before: r.from_value,
+      after: r.to_value === 'null' ? null : r.to_value,
+      severity: 'info' as const,
+    };
   });
 }
 
@@ -708,6 +748,8 @@ interface MetaParams {
   };
   /** Filtered constraint records for _meta.filtered_constraints */
   filteredConstraints?: import('../../types/engine-v3.js').FilteredConstraintRecord[];
+  /** Per-factor range derivation source (maps factor_id → derivation tier) */
+  rangeDerivationSources?: Record<string, string>;
 }
 
 /**
@@ -1532,13 +1574,15 @@ function buildResponse(
     // CIL M4: repairs_applied always included for CIL observability.
     // Other _meta fields (builds, payloads) gated behind UI_CANONICAL_META feature flag.
     _meta: (() => {
-      // Base _meta: always include repairs_applied and source_path
+      // Base _meta: always include repairs_applied and source_path.
+      // Normalise to uniform F.5 canonical shape before exposing to consumers.
       const baseMeta: CanonicalMeta = {
         source_path: meta.sourcePath,
-        repairs_applied: meta.repairs ?? [],
+        repairs_applied: normaliseRepairsForMeta(meta.repairs ?? []),
         request_id: requestId,
         plot_build: meta.build ?? 'unknown',
         hash_version: HASH_VERSION,
+        response_hash: responseHash,
       };
 
       // Extended _meta fields only when feature flag enabled
@@ -1589,6 +1633,11 @@ function buildResponse(
       // Surface filtered constraints (non-evaluable temporal constraints dropped before ISL)
       if (meta.filteredConstraints && meta.filteredConstraints.length > 0) {
         baseMeta.filtered_constraints = meta.filteredConstraints;
+      }
+
+      // Per-factor range derivation sources (diagnostic — shows which tier each factor used)
+      if (meta.rangeDerivationSources && Object.keys(meta.rangeDerivationSources).length > 0) {
+        baseMeta.range_derivation_sources = meta.rangeDerivationSources;
       }
 
       // Diagnostic fields — lightweight metadata for debug panel / developer inspection.
@@ -2754,6 +2803,29 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           });
         }
 
+        // Mixed range derivation tier warning:
+        // If factors used different derivation tiers, surface this so users
+        // and the coaching layer know the normalisation quality is uneven.
+        if (normalisationContext && normalisationContext.factors.size > 0) {
+          const distinctSources = new Set<string>();
+          const affectedFactorIds: string[] = [];
+          for (const [factorId, ctx] of normalisationContext.factors) {
+            distinctSources.add(ctx.range.source);
+            affectedFactorIds.push(factorId);
+          }
+          if (distinctSources.size >= 2) {
+            preflight.warnings.push({
+              id: randomUUID(),
+              code: 'MIXED_RANGE_DERIVATION',
+              severity: 'info',
+              message: `Factors use ${distinctSources.size} different range derivation tiers. Normalisation quality may vary.`,
+              source: 'validation',
+              affected_node_ids: affectedFactorIds.sort(),
+              blocks_analysis: false,
+            });
+          }
+        }
+
         // =================================================================
         // Phase 4b: Constraint pass-through (no normalisation)
         // =================================================================
@@ -2810,6 +2882,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             blocks_analysis: false,
           });
         }
+
+        // Range discipline: warn when inbound |strength.mean| sum > 1.0
+        // Runs on normalized graph so edge strengths are in canonical form.
+        preflight.warnings.push(...validateInboundStrengthSum(filteredGraph));
 
         // Build ISL request (using normalised options and constraints)
         // CIL Phase 1: ALWAYS forward seed to ISL for deterministic Monte Carlo runs.
@@ -3768,6 +3844,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             computedAt,
             requestIdChain: chain,
             filteredConstraints: filteredConstraintRecords,
+            rangeDerivationSources: normalisationContext
+              ? Object.fromEntries([...normalisationContext.factors].map(([id, ctx]) => [id, ctx.range.source]))
+              : undefined,
           },
           responseHash,
           processedIslResult,

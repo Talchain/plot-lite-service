@@ -40,6 +40,11 @@
  * ### Constraint transforms (F.6 Data Responsibility)
  * - STRIP_RAW_CONSTRAINT_FIELDS: Non-canonical CEE fields stripped before ISL
  * - FILTER_TEMPORAL_CONSTRAINT: Temporal constraint removed before ISL
+ *
+ * ### Compatibility
+ * - LEGACY_REPAIR: Placeholder code assigned by the repair compatibility adapter
+ *   to RepairRecord entries created before F.5 canonical fields were introduced.
+ *   Consumers should treat this as an opaque historical entry.
  */
 
 // -----------------------------------------------------------------------------
@@ -85,6 +90,11 @@ export const REPAIR_CODES = {
   // -- Constraint transforms (F.6 Data Responsibility) --
   STRIP_RAW_CONSTRAINT_FIELDS: 'STRIP_RAW_CONSTRAINT_FIELDS',
   FILTER_TEMPORAL_CONSTRAINT: 'FILTER_TEMPORAL_CONSTRAINT',
+
+  // -- Compatibility: legacy entries without a canonical code --
+  // Applied by the repair compatibility adapter when upcasting RepairRecord
+  // entries that were created before F.5 canonical fields were introduced.
+  LEGACY_REPAIR: 'LEGACY_REPAIR',
 } as const;
 
 export type RepairCode = (typeof REPAIR_CODES)[keyof typeof REPAIR_CODES];

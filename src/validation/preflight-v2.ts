@@ -968,6 +968,92 @@ export function runPreflightValidation(
   };
 }
 
+// -----------------------------------------------------------------------------
+// Post-Normalization Validation
+// -----------------------------------------------------------------------------
+
+/**
+ * Validate that effective inbound causal influence does not exceed 1.0
+ * for nodes with known bounded ranges.
+ *
+ * Effective influence per edge = |strength.mean| × exists_probability.
+ * This accounts for uncertain edges contributing less influence than certain ones.
+ *
+ * Only checks nodes with explicit scale bounds (state_space.range set),
+ * not all inference-participating nodes, to avoid scientific false alarms
+ * on nodes whose values have no known bounded range.
+ *
+ * Structural edges (decision→option, option→factor) and bidirected edges
+ * are excluded from the sum.
+ *
+ * Must be called AFTER graph normalization on the filtered graph (non-causal
+ * nodes already removed, edges have canonical strength values).
+ *
+ * @param graph Normalized, filtered graph (post-normaliseGraphWithRepairs + filterOptionNodes)
+ * @returns Warning critiques for bounded nodes with excessive inbound influence
+ */
+export function validateInboundStrengthSum(graph: EngineGraphV3): CritiqueV3[] {
+  const nodeKindMap = new Map<string, string>();
+  const nodeLabelMap = new Map<string, string>();
+  for (const n of graph.nodes) {
+    nodeKindMap.set(n.id, n.kind);
+    nodeLabelMap.set(n.id, n.label || n.id);
+  }
+
+  const warnings: CritiqueV3[] = [];
+
+  for (const node of graph.nodes) {
+    // Only check nodes with explicit bounded range (state_space.range)
+    const range = node.state_space?.range;
+    if (!range || typeof range.min !== 'number' || typeof range.max !== 'number') continue;
+
+    const inboundEdges: Array<{ from: string; effective: number }> = [];
+    let sum = 0;
+
+    for (const edge of graph.edges) {
+      if (edge.to !== node.id) continue;
+
+      // Skip structural edges (decision→option, option→factor)
+      const fromKind = nodeKindMap.get(edge.from);
+      if (fromKind === 'decision' || fromKind === 'option') continue;
+
+      // Skip bidirected edges (confounders, not causal influence)
+      if (edge.edge_type === 'bidirected') continue;
+
+      const absMean = Math.abs(edge.strength?.mean ?? 0);
+      const existsProb = edge.exists_probability ?? 1.0;
+      const effective = absMean * existsProb;
+      if (effective > 0) {
+        inboundEdges.push({ from: edge.from, effective });
+        sum += effective;
+      }
+    }
+
+    if (sum > 1.0) {
+      // Sort by effective influence descending for stable output
+      const sorted = inboundEdges.sort((a, b) => b.effective - a.effective);
+      const edgeDescs = sorted
+        .map((e) => `${nodeLabelMap.get(e.from) ?? e.from} (${e.effective.toFixed(2)})`)
+        .join(', ');
+
+      warnings.push({
+        id: randomUUID(),
+        code: 'INBOUND_STRENGTH_SUM_EXCEEDED',
+        severity: 'warning',
+        message: `"${nodeLabelMap.get(node.id) ?? node.id}" has effective inbound influence of ${sum.toFixed(2)} (exceeds 1.0). Contributors: ${edgeDescs}.`,
+        source: 'validation',
+        affected_node_ids: [node.id],
+        blocks_analysis: false,
+      });
+    }
+  }
+
+  // Sort by node ID for deterministic output order
+  warnings.sort((a, b) => (a.affected_node_ids?.[0] ?? '').localeCompare(b.affected_node_ids?.[0] ?? ''));
+
+  return warnings;
+}
+
 /**
  * Quick check if preflight would pass.
  *

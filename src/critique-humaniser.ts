@@ -332,6 +332,14 @@ export const TEMPLATE_MAP: Record<string, TemplateEntry> = {
     return `${optLabel} pushes ${factorLabel} beyond its observed range. Results are extrapolated.`;
   },
 
+  INBOUND_STRENGTH_SUM_EXCEEDED: (c, g) => {
+    const label = resolveNodeLabel(c.affected_node_ids?.[0], g);
+    return `${label} receives more combined influence than its range can absorb. Consider reducing edge strengths or reviewing the model structure.`;
+  },
+
+  MIXED_RANGE_DERIVATION:
+    'Factors use different methods to determine their value ranges. Normalisation quality may vary.',
+
   // =========================================================================
   // Forward-compatibility (from brief — not yet emitted by codebase)
   // =========================================================================

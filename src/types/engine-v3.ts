@@ -1639,6 +1639,10 @@ export interface CanonicalMeta {
   constraint_sources?: Record<string, string>;
   /** Hash version used for response_hash computation (audit trail) */
   hash_version?: number;
+  /** Determinism hash of canonical request (semantic fields only) */
+  response_hash?: string;
+  /** Per-factor range derivation source (maps factor_id → derivation tier) */
+  range_derivation_sources?: Record<string, string>;
   /** Snapshot of all feature flags for this run (diagnostic only) */
   feature_flags_snapshot?: Record<string, string>;
   /** Whether assembleBrief() returned a non-null brief (diagnostic only) */
