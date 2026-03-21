@@ -131,6 +131,9 @@ export async function registerV1Routes(app: FastifyInstance) {
   await registerSimulateBatchRoute(app);
   await registerAuditTestRoute(app);
   await registerGovernanceRoute(app);
+  // Pre-analysis sensitivity & EVOI
+  await registerPreAnalysisSensitivityRoute(app);
+  await registerEVOIRoute(app);
   // CEE Proxy Routes - bypass Netlify timeout for long-running CEE calls
   await registerCeeDraftGraphRoute(app);
   await registerCeeProxyRoutes(app);
@@ -283,6 +286,9 @@ import { registerExplainPolicyRoute } from './explain-policy.js';
 import { registerAnalysisOptimiseRoute } from './analysis-optimise.js';
 // Brief 8: Sampling Engine & Caching
 import { registerSimulateBatchRoute } from './simulate-batch.js';
+// Pre-analysis sensitivity & EVOI
+import { registerPreAnalysisSensitivityRoute } from './pre-analysis-sensitivity.js';
+import { registerEVOIRoute } from './evoi.js';
 // CEE Proxy Routes
 import { registerCeeDraftGraphRoute } from './cee-draft-graph.js';
 import { registerCeeProxyRoutes } from './cee-proxy.js';

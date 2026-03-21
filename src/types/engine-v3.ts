@@ -1760,6 +1760,59 @@ export const NON_CAUSAL_NODE_KINDS = ['option', 'decision'] as const;
 export const MIN_STRENGTH_STD = 1e-6;
 
 // -----------------------------------------------------------------------------
+// Pre-Analysis Sensitivity & EVOI
+// -----------------------------------------------------------------------------
+
+/**
+ * Pre-analysis factor and edge influence computed via linear path approximation.
+ * Used by the UI to rank factors before full MC analysis.
+ */
+export interface PreAnalysisSensitivity {
+  /** Factor influence: factor_id → normalised influence [0, 1] */
+  factor_influence: Record<string, number>;
+  /** Edge influence: edge_id ("from::to") → normalised influence [0, 1] */
+  edge_influence: Record<string, number>;
+  /** Method used for computation */
+  method: 'linear' | 'reduced_mc';
+  /** Wall-clock computation time in milliseconds */
+  computation_ms: number;
+}
+
+/**
+ * A contested edge with divergent strength estimates from two CEE passes.
+ */
+export interface ContestedEdgeInput {
+  /** Edge ID in "from::to" format */
+  edge_id: string;
+  /** Strength from first pass */
+  pass1_strength: number;
+  /** Strength from second pass */
+  pass2_strength: number;
+}
+
+/**
+ * EVOI result for a single contested edge.
+ */
+export interface EVOIEdgeResult {
+  /** Edge ID in "from::to" format */
+  edge_id: string;
+  /** Expected value of information impact (percentage points of goal probability) */
+  evoi_impact: number;
+  /** Rank: 1 = highest EVOI impact */
+  evoi_rank: number;
+}
+
+/**
+ * EVOI computation result for all contested edges.
+ */
+export interface EVOIResult {
+  /** Per-edge EVOI results, sorted by evoi_rank */
+  edges: EVOIEdgeResult[];
+  /** Wall-clock computation time in milliseconds */
+  computation_ms: number;
+}
+
+// -----------------------------------------------------------------------------
 // CIL Phase 1: Re-export schema wire types for API boundary consumers
 // Internal engine types (EngineNodeV3, EngineEdgeV3, EngineGraphV3) remain
 // PLoT-specific for the richer post-normalization representation.

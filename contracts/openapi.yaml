@@ -3814,6 +3814,145 @@ paths:
                       request_id: "abc-123"
                       latency_ms: 120000
 
+  /v1/pre-analysis-sensitivity:
+    post:
+      summary: Pre-analysis factor & edge influence (linear approximation)
+      operationId: preAnalysisSensitivity
+      tags: [v1, analysis]
+      description: |
+        Computes approximate factor and edge influence via linear path approximation
+        without running a full MC simulation. Used by the UI pre-analysis tab to
+        sort factors by importance and show "Drives N%" labels.
+
+        Method: For each factor, finds all directed paths to the goal node and
+        computes the product of edge strength.mean along each path. Returns
+        normalised [0,1] influence values.
+
+        Performance target: <500ms for graphs up to 20 nodes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [graph, goal_node_id]
+              properties:
+                graph:
+                  $ref: '#/components/schemas/graph'
+                goal_node_id:
+                  type: string
+                  description: Target goal node ID
+      responses:
+        '200':
+          description: Pre-analysis sensitivity result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [factor_influence, edge_influence, method, computation_ms]
+                properties:
+                  factor_influence:
+                    type: object
+                    additionalProperties:
+                      type: number
+                      minimum: 0
+                      maximum: 1
+                    description: "factor_id → normalised influence [0,1]"
+                  edge_influence:
+                    type: object
+                    additionalProperties:
+                      type: number
+                      minimum: 0
+                      maximum: 1
+                    description: "edge_id (from::to) → normalised influence [0,1]"
+                  method:
+                    type: string
+                    enum: [linear, reduced_mc]
+                  computation_ms:
+                    type: number
+                    description: Wall-clock computation time in milliseconds
+        '400':
+          description: Bad request (invalid graph or missing goal_node_id)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+
+  /v1/evoi:
+    post:
+      summary: Expected Value of Information for contested edges
+      operationId: evoi
+      tags: [v1, analysis]
+      description: |
+        Computes EVOI for edges where CEE validation found disagreement between
+        passes. Ranks which contested edge disagreements matter most to the
+        decision outcome.
+
+        Method: evoi_impact ≈ edge_influence × |pass1_strength - pass2_strength|,
+        using linear path approximation for edge influence.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [graph, goal_node_id, contested_edges]
+              properties:
+                graph:
+                  $ref: '#/components/schemas/graph'
+                goal_node_id:
+                  type: string
+                  description: Target goal node ID
+                contested_edges:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [edge_id, pass1_strength, pass2_strength]
+                    properties:
+                      edge_id:
+                        type: string
+                        description: "Edge ID in from::to format"
+                      pass1_strength:
+                        type: number
+                        description: Strength from first CEE pass
+                      pass2_strength:
+                        type: number
+                        description: Strength from second CEE pass
+      responses:
+        '200':
+          description: EVOI result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [edges, computation_ms]
+                properties:
+                  edges:
+                    type: array
+                    items:
+                      type: object
+                      required: [edge_id, evoi_impact, evoi_rank]
+                      properties:
+                        edge_id:
+                          type: string
+                        evoi_impact:
+                          type: number
+                          description: Percentage points of goal probability
+                        evoi_rank:
+                          type: integer
+                          minimum: 1
+                          description: "1 = highest EVOI impact"
+                  computation_ms:
+                    type: number
+                    description: Wall-clock computation time in milliseconds
+        '400':
+          description: Bad request (invalid graph, missing goal_node_id, or invalid contested_edges)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+
   # =============================================================================
   # V2 API - Option Comparison Mode
   # =============================================================================
