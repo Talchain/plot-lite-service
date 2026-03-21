@@ -3877,6 +3877,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/errorV1'
+              examples:
+                missing_goal:
+                  value:
+                    schema: error.v1
+                    code: BAD_INPUT
+                    message: goal_node_id is required
 
   /v1/evoi:
     post:
@@ -3952,6 +3958,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/errorV1'
+              examples:
+                missing_contested_edges:
+                  value:
+                    schema: error.v1
+                    code: BAD_INPUT
+                    message: "contested_edges[] is required and must be non-empty"
 
   # =============================================================================
   # V2 API - Option Comparison Mode
