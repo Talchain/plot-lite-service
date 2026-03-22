@@ -43,13 +43,16 @@ export function edgeHasUncertainty(edge: GraphEdge): boolean {
 }
 
 /**
- * Check if a node is a factor with observed state
+ * Check if a node is a factor with a finite numeric observed value.
+ * Non-finite values (NaN, Infinity) are excluded to prevent poisoning
+ * ISL Monte Carlo analysis with invalid means.
  */
 function isFactorWithValue(node: GraphNode): boolean {
   return (
     node.kind === 'factor' &&
     node.observed_state !== undefined &&
-    node.observed_state.value !== undefined
+    node.observed_state.value !== undefined &&
+    Number.isFinite(node.observed_state.value)
   );
 }
 
@@ -223,7 +226,7 @@ export function validateBeforeISL(
   if (factorsWithValues.length === 0) {
     factorStatus = 'skipped_no_factor_values';
     skipReasons.push(
-      `No factor nodes with observed_state (${factorNodes.length} factor nodes, 0 with values)`
+      `No factor nodes with finite observed_state.value (${factorNodes.length} factor nodes, 0 with usable values)`
     );
   } else if (uncertainties.length === 0) {
     factorStatus = 'skipped_no_parameter_uncertainties';

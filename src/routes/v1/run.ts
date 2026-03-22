@@ -154,7 +154,7 @@ function transformSensitivityToEnrichment(
  */
 function extractParameterUncertainties(graph: { nodes: any[]; edges: any[] }): ISLParameterUncertainty[] {
   return graph.nodes
-    .filter((n: any) => n.kind === 'factor' && n.observed_state?.value !== undefined)
+    .filter((n: any) => n.kind === 'factor' && n.observed_state?.value !== undefined && Number.isFinite(n.observed_state.value))
     .map((n: any) => ({
       node_id: n.id,
       distribution: 'normal' as const,
@@ -165,10 +165,10 @@ function extractParameterUncertainties(graph: { nodes: any[]; edges: any[] }): I
 }
 
 /**
- * Check if graph has factor nodes with observed_state values
+ * Check if graph has factor nodes with finite observed_state values
  */
 function hasParameterUncertainties(graph: { nodes: any[]; edges: any[] }): boolean {
-  return graph.nodes.some((n: any) => n.kind === 'factor' && n.observed_state?.value !== undefined);
+  return graph.nodes.some((n: any) => n.kind === 'factor' && n.observed_state?.value !== undefined && Number.isFinite(n.observed_state.value));
 }
 
 /**
@@ -377,7 +377,7 @@ export async function registerRunRoute(app: FastifyInstance) {
           (e: any) => e.strength_std !== undefined
         ).length,
         factors_with_observed_state: (rawGraph.nodes ?? []).filter(
-          (n: any) => n.kind === 'factor' && n.observed_state?.value !== undefined
+          (n: any) => n.kind === 'factor' && n.observed_state?.value !== undefined && Number.isFinite(n.observed_state.value)
         ).length,
       };
 

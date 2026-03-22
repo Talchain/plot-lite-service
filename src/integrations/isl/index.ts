@@ -72,6 +72,8 @@ import type {
 import type { Graph } from '../../trust/types.js';
 import { DEFAULT_EXISTS_PROBABILITY } from '../../constants/limits.js';
 
+const ISL_DEBUG = (process.env.LOG_LEVEL || 'info').toLowerCase() === 'debug';
+
 /**
  * Result from generic analysis endpoint calls
  * Used by /v1/analysis/* routes that call ISL /api/v1/analysis/* endpoints
@@ -372,6 +374,18 @@ export function createISLService(): ISLService {
           parameter_uncertainties: parameterUncertainties,
         };
 
+        if (ISL_DEBUG) {
+          console.log(JSON.stringify({
+            level: 'debug', time: Date.now(),
+            event: 'isl_parameter_uncertainties_passthrough',
+            msg: `Sending ${parameterUncertainties.length} parameter_uncertainties to ISL`,
+            request_id: requestId,
+            call_site: 'analyseFactorSensitivity',
+            count: parameterUncertainties.length,
+            node_ids: parameterUncertainties.map((p) => p.node_id),
+          }));
+        }
+
         const { data: response } = await client.request<ISLFactorSensitivityResponse>({
           endpoint: '/api/v1/robustness/analyze/v2',
           body: requestPayload,
@@ -496,6 +510,19 @@ export function createISLService(): ISLService {
           // Include parameter uncertainties for factor sensitivity
           parameter_uncertainties: parameterUncertainties.length > 0 ? parameterUncertainties : undefined,
         };
+
+        if (ISL_DEBUG) {
+          console.log(JSON.stringify({
+            level: 'debug', time: Date.now(),
+            event: 'isl_parameter_uncertainties_passthrough',
+            msg: `Sending ${parameterUncertainties.length} parameter_uncertainties to ISL`,
+            request_id: requestId,
+            call_site: 'analyseRobustness',
+            count: parameterUncertainties.length,
+            sent: parameterUncertainties.length > 0,
+            node_ids: parameterUncertainties.map((p) => p.node_id),
+          }));
+        }
 
         const { data: response } = await client.request<ISLRobustnessAnalyzeV2Response>({
           endpoint: '/api/v1/robustness/analyze/v2',

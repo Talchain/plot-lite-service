@@ -217,7 +217,7 @@ export function buildParameterUncertaintiesV3(
   const uncertainties: NonNullable<ISLRobustnessRequestV3['parameter_uncertainties']> = [];
 
   for (const node of nodes) {
-    if (node.kind === 'factor' && node.observed_state?.value !== undefined) {
+    if (node.kind === 'factor' && node.observed_state?.value !== undefined && Number.isFinite(node.observed_state.value)) {
       const value = node.observed_state.value;
       const observedStd = node.observed_state.std;
       const range = node.state_space?.range;

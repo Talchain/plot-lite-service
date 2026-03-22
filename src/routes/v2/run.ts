@@ -2949,7 +2949,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           })),
           factor_nodes_in_graph: filteredGraph.nodes.filter((n) => n.kind === 'factor').length,
           factors_with_observed_value: filteredGraph.nodes.filter(
-            (n) => n.kind === 'factor' && n.observed_state?.value !== undefined
+            (n) => n.kind === 'factor' && n.observed_state?.value !== undefined && Number.isFinite(n.observed_state.value)
           ).length,
         });
 
