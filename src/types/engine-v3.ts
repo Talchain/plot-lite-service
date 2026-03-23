@@ -561,10 +561,12 @@ export const INLINE_CRITIQUE_CODES = [
   'ISL_CALL_FAILED',
   'ISL_EMPTY_RESULTS',
   'ISL_ERROR',
+  'MIXED_RANGE_DERIVATION',           // factors use 2+ different derivation tiers
   // preflight-v2.ts
   'SCALE_MISMATCH_WARNING',
   'INVALID_BIDIRECTED_EDGE',
   'IDENTICAL_OPTIONS_DEDUPED',
+  'INBOUND_STRENGTH_SUM_EXCEEDED',    // inbound |strength.mean| sum > 1.0
 ] as const;
 
 export type InlineCritiqueCode = (typeof INLINE_CRITIQUE_CODES)[number];
