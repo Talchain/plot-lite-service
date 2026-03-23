@@ -80,30 +80,38 @@ const DEFAULT_STABILITY_BAND_SCORE = 0.5;
 const DEFAULT_EDGE_PROBABILITY = 0.5;
 
 /**
+ * Rich incoming edge info for the improved confidence fallback.
+ * When strength data is available, the fallback uses coefficient of variation
+ * to produce differentiated confidence values instead of uniform 0.5.
+ */
+interface RichEdgeInfo {
+  exists_probability: number;
+  strength_mean?: number;
+  strength_std?: number;
+}
+
+/**
  * Compute unified confidence for a factor.
  *
- * confidence = clamp(0, 1,
- *   0.5 × attribution_stability_band_score +
- *   0.5 × mean(exists_probability of factor's incoming edges)
- * )
+ * When ISL bootstrap data IS available (attributionStability is not null):
+ *   confidence = 0.5 × band_score(attributionStability) + 0.5 × mean(exists_probability)
  *
- * Degrades gracefully:
- * - ISL data + edges: full signal from both
- * - ISL data, no edges (root): ISL-dominated (edge term defaults to 0.5)
- * - No ISL data + edges: edge-dominated (stability defaults to 0.5)
- * - No ISL data, no edges: neutral (0.5)
+ * When ISL bootstrap data is NOT available and rich edge data IS available:
+ *   confidence = mean(exists_probability) × (1 - mean_cv)
+ *   where mean_cv = mean of |strength.std / strength.mean| across inbound edges
+ *   This produces differentiated values based on structural certainty.
+ *
+ * When neither is available: 0.5 (neutral).
  *
  * @param attributionStability ISL attribution_stability category, or null if absent
- * @param incomingEdges Edges where edge.to === factor_id, with exists_probability
+ * @param incomingEdges Edges where edge.to === factor_id
  * @returns Confidence in [0, 1]
  */
 export function computeUnifiedConfidence(
   attributionStability: string | null | undefined,
-  incomingEdges: Array<{ exists_probability: number }> | undefined | null
+  incomingEdges: Array<RichEdgeInfo> | undefined | null
 ): number {
-  const bandScore = (attributionStability != null)
-    ? (ATTRIBUTION_STABILITY_BAND_SCORES[attributionStability] ?? DEFAULT_STABILITY_BAND_SCORE)
-    : DEFAULT_STABILITY_BAND_SCORE;
+  const hasBootstrap = attributionStability != null;
 
   let meanExistsProb = DEFAULT_EDGE_PROBABILITY;
   if (incomingEdges && incomingEdges.length > 0) {
@@ -111,7 +119,35 @@ export function computeUnifiedConfidence(
     meanExistsProb = sum / incomingEdges.length;
   }
 
-  const raw = 0.5 * bandScore + 0.5 * meanExistsProb;
+  if (hasBootstrap) {
+    // Standard formula: blend ISL band score with structural certainty
+    const bandScore = ATTRIBUTION_STABILITY_BAND_SCORES[attributionStability!] ?? DEFAULT_STABILITY_BAND_SCORE;
+    const raw = 0.5 * bandScore + 0.5 * meanExistsProb;
+    return Math.max(0, Math.min(1, raw));
+  }
+
+  // Improved fallback: when no bootstrap, use edge strength variation
+  // to differentiate confidence instead of uniform 0.5 default
+  if (incomingEdges && incomingEdges.length > 0) {
+    const cvValues: number[] = [];
+    for (const e of incomingEdges) {
+      if (
+        e.strength_mean !== undefined &&
+        e.strength_std !== undefined &&
+        Math.abs(e.strength_mean) > 1e-9
+      ) {
+        cvValues.push(Math.abs(e.strength_std / e.strength_mean));
+      }
+    }
+    if (cvValues.length > 0) {
+      const meanCv = Math.min(1, cvValues.reduce((a, b) => a + b, 0) / cvValues.length);
+      const raw = meanExistsProb * (1 - meanCv);
+      return Math.max(0, Math.min(1, raw));
+    }
+  }
+
+  // No bootstrap, no rich edges: fall back to the 50/50 formula with defaults
+  const raw = 0.5 * DEFAULT_STABILITY_BAND_SCORE + 0.5 * meanExistsProb;
   return Math.max(0, Math.min(1, raw));
 }
 
@@ -554,13 +590,17 @@ export function computeFactorSensitivityFromGraph(
     return null;
   }
 
-  // Build incoming edges lookup for unified confidence formula
-  const incomingEdgesMap = new Map<string, Array<{ exists_probability: number }>>();
+  // Build incoming edges lookup for unified confidence formula (includes strength for improved fallback)
+  const incomingEdgesMap = new Map<string, Array<{ exists_probability: number; strength_mean?: number; strength_std?: number }>>();
   for (const edge of graph.edges) {
     if (!incomingEdgesMap.has(edge.to)) {
       incomingEdgesMap.set(edge.to, []);
     }
-    incomingEdgesMap.get(edge.to)!.push({ exists_probability: edge.exists_probability });
+    incomingEdgesMap.get(edge.to)!.push({
+      exists_probability: edge.exists_probability,
+      strength_mean: edge.strength?.mean,
+      strength_std: edge.strength?.std,
+    });
   }
 
   // Map to FactorSensitivityResultV3 format
@@ -662,6 +702,21 @@ export function mergeIslConfidenceIntoGraphFactors(
     islMap.set(f.factor_id, f);
   }
 
+  // Build incoming edges lookup with strength data for the CV-based fallback.
+  // When ISL provides attribution_stability, computeUnifiedConfidence uses the band score path.
+  // When ISL lacks attribution_stability, the function needs rich edge data (strength_mean/std)
+  // to compute differentiated confidence via CV instead of a uniform 0.5 default.
+  const allEdges = graphEdges ?? [];
+  const richIncomingMap = new Map<string, Array<{ exists_probability: number; strength_mean?: number; strength_std?: number }>>();
+  for (const e of allEdges) {
+    if (!richIncomingMap.has(e.to)) richIncomingMap.set(e.to, []);
+    richIncomingMap.get(e.to)!.push({
+      exists_probability: e.exists_probability,
+      strength_mean: e.strength?.mean,
+      strength_std: e.strength?.std,
+    });
+  }
+
   // Merge ISL bootstrap fields into graph entries
   const graphFactorIds = new Set<string>();
   const merged = graphFactors.map(gf => {
@@ -673,9 +728,13 @@ export function mergeIslConfidenceIntoGraphFactors(
     const attrStability = islMatch.attribution_stability ?? null;
     const hasIslData = attrStability != null;
 
-    // Reuse structural_certainty from graph stage (already computed incoming edge mean)
+    // Use actual graph edges with strength data so the CV-based fallback can activate
+    // when ISL lacks attribution_stability. Falls back to synthetic edge if no graph edges.
     const structuralCertainty = gf.confidence_components?.structural_certainty ?? 0.5;
-    const incomingEdgesForFormula = [{ exists_probability: structuralCertainty }];
+    const richIncoming = richIncomingMap.get(gf.factor_id);
+    const incomingEdgesForFormula = richIncoming && richIncoming.length > 0
+      ? richIncoming
+      : [{ exists_probability: structuralCertainty }];
 
     // Recompute unified confidence with ISL attribution_stability
     const confidence = computeUnifiedConfidence(attrStability, incomingEdgesForFormula);
@@ -706,10 +765,14 @@ export function mergeIslConfidenceIntoGraphFactors(
   const edges = graphEdges ?? [];
   for (const islF of islFactors) {
     if (!graphFactorIds.has(islF.factor_id)) {
-      // Compute incoming edges for ISL-only factor
+      // Compute incoming edges for ISL-only factor (include strength for improved fallback)
       const incoming = edges
         .filter(e => e.to === islF.factor_id)
-        .map(e => ({ exists_probability: e.exists_probability }));
+        .map(e => ({
+          exists_probability: e.exists_probability,
+          strength_mean: e.strength?.mean,
+          strength_std: e.strength?.std,
+        }));
 
       const attrStability = islF.attribution_stability ?? null;
       const confidence = computeUnifiedConfidence(attrStability, incoming.length > 0 ? incoming : undefined);

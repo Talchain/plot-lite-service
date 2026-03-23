@@ -230,6 +230,58 @@ export interface ISLEdgeSensitivityItem {
 }
 
 /**
+ * ISL edge E-value from robustness analysis.
+ * Measures evidence strength for each edge's causal effect direction.
+ */
+export interface ISLEdgeEValue {
+  /** Edge ID in ISL format (e.g., "from->to") */
+  edge_id: string;
+  /** E-value (evidence strength) */
+  e_value: number;
+  /** Direction the edge would need to flip to change the recommendation */
+  flip_direction: 'positive_to_negative' | 'negative_to_positive' | 'removal';
+  /** Current mean effect of this edge */
+  current_mean: number;
+  /** Mean effect at the flip point */
+  flip_mean: number;
+}
+
+/**
+ * ISL conditional winner analysis per factor.
+ * Shows how the winning option changes conditional on factor value buckets.
+ */
+export interface ISLConditionalWinner {
+  /** Factor node ID */
+  factor_id: string;
+  /** Factor label */
+  factor_label?: string;
+  /** Value at which the split occurs */
+  split_value: number;
+  /** Unit for the split value */
+  split_unit?: string;
+  /** Low bucket: option outcomes below the split */
+  low_bucket: ISLConditionalBucket;
+  /** High bucket: option outcomes above the split */
+  high_bucket: ISLConditionalBucket;
+  /** Whether the winning option flips between buckets */
+  winner_flips: boolean;
+}
+
+/**
+ * A bucket in the conditional winner analysis.
+ */
+export interface ISLConditionalBucket {
+  /** Winning option ID in this bucket */
+  winner_id: string;
+  /** Runner-up option ID in this bucket */
+  runner_up_id?: string;
+  /** Win probability of the winner in this bucket */
+  win_probability: number;
+  /** Mean outcome for the winner in this bucket */
+  mean_outcome?: number;
+}
+
+/**
  * ISL fragile edge info from robustness analysis.
  * Returned in robustness.fragile_edges array.
  */
@@ -415,6 +467,28 @@ export interface ISLRobustnessAnalyzeV2Response {
 
   /** Confidence in the validation assessment */
   validation_confidence?: 'high' | 'medium' | 'low';
+
+  /**
+   * Edge E-values measuring evidence strength for each edge's causal direction.
+   * Present when ISL provides E-value analysis.
+   */
+  edge_e_values?: ISLEdgeEValue[];
+
+  /**
+   * Conditional winner analysis per factor.
+   * Shows how the winning option changes conditional on factor value buckets.
+   */
+  conditional_winners?: ISLConditionalWinner[];
+
+  /**
+   * Inference warnings from ISL.
+   * Forwarded into PLoT's inference_warnings array in the response.
+   */
+  inference_warnings?: Array<{
+    code: string;
+    message: string;
+    severity?: 'info' | 'warning';
+  }>;
 
   /** Analysis metadata */
   metadata?: {

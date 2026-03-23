@@ -48,6 +48,8 @@ import type {
   GoalConstraint,
   ConstraintResult,
   ConstraintDiagnostic,
+  EnrichedEdgeEValue,
+  ConditionalWinner,
   ConditionalProbability,
   ConstraintFeatureStatus,
   ThresholdsStatus,
@@ -89,7 +91,7 @@ import {
   normalizeRobustEdges,
 } from '../../integrations/isl/adapters/robustness-analysis.js';
 import type { RobustnessDataForCee, NormalizedEdgeInfo } from '../../integrations/isl/types/plot-types.js';
-import type { ISLConstraintResult } from '../../integrations/isl/types/isl-types.js';
+import type { ISLConstraintResult, ISLEdgeEValue, ISLConditionalWinner } from '../../integrations/isl/types/isl-types.js';
 import { orchestrateCeeReview } from '../../cee/orchestrator.js';
 import { orchestrateDecisionReview, type DecisionReviewInput, type DecisionReviewConfig } from '../../cee/decision-review-orchestrator.js';
 import {
@@ -248,20 +250,105 @@ function normaliseRepairsForMeta(repairs: RepairRecord[]): RepairRecord[] {
 /**
  * Transform ISL sensitivity array to edge sensitivity response format.
  * Always returns an array (empty if no data).
+ * Enriches with from_label/to_label from graph node labels (same pattern as fragile edge enrichment).
  *
  * Edge ID format: `from::to` (double-colon separator)
  * @see docs/UI_Handoff_PLoT_v1.md for format specification
  */
-function transformEdgeSensitivity(islSensitivity: unknown): EdgeSensitivityResultV3[] {
+function transformEdgeSensitivity(islSensitivity: unknown, nodeLabelMap?: Map<string, string>): EdgeSensitivityResultV3[] {
   if (!hasNonEmptyArray(islSensitivity)) return [];
   return (islSensitivity as any[]).map((s: any) => ({
     edge_id: `${s.edge_from}::${s.edge_to}`,  // Double-colon separator (canonical format)
     from: s.edge_from,
     to: s.edge_to,
+    from_label: nodeLabelMap?.get(s.edge_from) ?? s.edge_from,
+    to_label: nodeLabelMap?.get(s.edge_to) ?? s.edge_to,
     sensitivity_type: s.sensitivity_type as 'existence' | 'magnitude',
     elasticity: s.elasticity,
     importance_rank: s.importance_rank,
     interpretation: s.interpretation,
+  }));
+}
+
+/**
+ * Transform ISL edge_e_values to enriched response format with labels.
+ * Returns undefined if input is not a non-empty array.
+ * Edge IDs are normalised to double-colon format.
+ */
+function transformEdgeEValues(
+  islEdgeEValues: ISLEdgeEValue[] | undefined,
+  nodeLabelMap?: Map<string, string>,
+): EnrichedEdgeEValue[] | undefined {
+  if (!islEdgeEValues || islEdgeEValues.length === 0) return undefined;
+  return islEdgeEValues.map(e => {
+    // Parse ISL edge_id ("from->to" or "from::to") to get node IDs.
+    // Fallback: if neither separator found, use entire edge_id as both from and to
+    // (matches parseEdgeId pattern in robustness-analysis.ts).
+    let fromId: string;
+    let toId: string;
+    if (e.edge_id.includes('::')) {
+      [fromId = e.edge_id, toId = e.edge_id] = e.edge_id.split('::');
+    } else if (e.edge_id.includes('->')) {
+      [fromId = e.edge_id, toId = e.edge_id] = e.edge_id.split('->');
+    } else {
+      fromId = e.edge_id;
+      toId = e.edge_id;
+    }
+    return {
+      edge_id: `${fromId}::${toId}`,
+      from_id: fromId,
+      to_id: toId,
+      from_label: nodeLabelMap?.get(fromId) ?? fromId,
+      to_label: nodeLabelMap?.get(toId) ?? toId,
+      e_value: e.e_value,
+      flip_direction: e.flip_direction,
+      current_mean: e.current_mean,
+      flip_mean: e.flip_mean,
+    };
+  });
+}
+
+/**
+ * Transform ISL conditional_winners to enriched response format with labels.
+ * Returns undefined if input is not a non-empty array.
+ * Enriches option IDs in buckets with human-readable labels.
+ */
+function transformConditionalWinners(
+  islConditionalWinners: ISLConditionalWinner[] | undefined,
+  nodeLabelMap?: Map<string, string>,
+  optionLabelMap?: Map<string, string>,
+): ConditionalWinner[] | undefined {
+  if (!islConditionalWinners || islConditionalWinners.length === 0) return undefined;
+
+  const resolveOptionLabel = (id: string): string => optionLabelMap?.get(id) ?? id;
+  const resolveNodeLabel = (id: string): string => nodeLabelMap?.get(id) ?? id;
+
+  return islConditionalWinners.map(cw => ({
+    factor_id: cw.factor_id,
+    factor_label: cw.factor_label ?? resolveNodeLabel(cw.factor_id),
+    split_value: cw.split_value,
+    ...(cw.split_unit !== undefined && { split_unit: cw.split_unit }),
+    low_bucket: {
+      winner_id: cw.low_bucket.winner_id,
+      winner_label: resolveOptionLabel(cw.low_bucket.winner_id),
+      ...(cw.low_bucket.runner_up_id !== undefined && {
+        runner_up_id: cw.low_bucket.runner_up_id,
+        runner_up_label: resolveOptionLabel(cw.low_bucket.runner_up_id!),
+      }),
+      win_probability: cw.low_bucket.win_probability,
+      ...(cw.low_bucket.mean_outcome !== undefined && { mean_outcome: cw.low_bucket.mean_outcome }),
+    },
+    high_bucket: {
+      winner_id: cw.high_bucket.winner_id,
+      winner_label: resolveOptionLabel(cw.high_bucket.winner_id),
+      ...(cw.high_bucket.runner_up_id !== undefined && {
+        runner_up_id: cw.high_bucket.runner_up_id,
+        runner_up_label: resolveOptionLabel(cw.high_bucket.runner_up_id!),
+      }),
+      win_probability: cw.high_bucket.win_probability,
+      ...(cw.high_bucket.mean_outcome !== undefined && { mean_outcome: cw.high_bucket.mean_outcome }),
+    },
+    winner_flips: cw.winner_flips,
   }));
 }
 
@@ -840,6 +927,8 @@ interface SensitivityData {
   edgeSensitivity: ReturnType<typeof transformEdgeSensitivity>;
   factorSensitivity: ReturnType<typeof transformFactorSensitivity>;
   factorEnrichments?: FactorEnrichment[];
+  edgeEValues?: EnrichedEdgeEValue[];
+  conditionalWinners?: ConditionalWinner[];
 }
 
 /**
@@ -1233,10 +1322,36 @@ function buildResponse(
 
   // Use pre-computed sensitivity data if provided (for status/response alignment)
   // Fall back to computing from islResult for backward compatibility
+  // Build fallback label maps from graph/options if pre-computed data not available
+  const needsFallback = !sensitivityData?.edgeSensitivity;
+  const fallbackNodeLabelMap = (() => {
+    if (!needsFallback) return undefined;
+    const map = new Map<string, string>();
+    if (graph?.nodes) {
+      for (const node of graph.nodes) map.set(node.id, node.label);
+    }
+    return map;
+  })();
+  const fallbackOptionLabelMap = (() => {
+    if (!needsFallback) return undefined;
+    const map = new Map<string, string>();
+    if (options) {
+      for (const opt of options) {
+        const cleaned = cleanLabelAnnotation(opt.label);
+        map.set(opt.id, cleaned || opt.id);
+      }
+    }
+    return map;
+  })();
   const edgeSensitivity = sensitivityData?.edgeSensitivity
-    ?? transformEdgeSensitivity(islResult?.sensitivity);
+    ?? transformEdgeSensitivity(islResult?.sensitivity, fallbackNodeLabelMap);
   const factorSensitivity = sensitivityData?.factorSensitivity
     ?? transformFactorSensitivity(islResult?.factor_sensitivity);
+  // Fallback transforms for edge_e_values and conditional_winners when sensitivityData not pre-computed
+  const edgeEValues = sensitivityData?.edgeEValues
+    ?? transformEdgeEValues(islResult?.edge_e_values, fallbackNodeLabelMap);
+  const conditionalWinners = sensitivityData?.conditionalWinners
+    ?? transformConditionalWinners(islResult?.conditional_winners, fallbackNodeLabelMap, fallbackOptionLabelMap);
 
   // Normalize robustness edges to consistent object format
   // ISL returns fragile_edges as objects, robust_edges as strings - normalize both
@@ -1376,6 +1491,23 @@ function buildResponse(
     }
   }
 
+  // Merge ISL-originated inference_warnings into the PLoT array.
+  // ISL may return warnings like MISSING_ROOT_VALUE that PLoT forwards as-is.
+  // Deduplicate by code to prevent equivalent warnings from both sources.
+  if (Array.isArray(islResult?.inference_warnings)) {
+    const existingCodes = new Set(inferenceWarnings.map(w => w.code));
+    for (const w of islResult.inference_warnings) {
+      if (w && typeof w.code === 'string' && typeof w.message === 'string' && !existingCodes.has(w.code)) {
+        inferenceWarnings.push({
+          code: w.code,
+          message: w.message,
+          severity: w.severity === 'warning' ? 'warning' : 'info',
+        });
+        existingCodes.add(w.code);
+      }
+    }
+  }
+
   // Pre-compute decision_brief and review_cards so _meta can reference them.
   const assembledBrief = assembleBrief({
     analysis_status: analysisStatus,
@@ -1485,7 +1617,21 @@ function buildResponse(
     critiques: addUserMessages(critiques, graph ?? { nodes: [] }, options),
     option_comparison: optionComparison,
     edge_sensitivity: edgeSensitivity,
-    factor_sensitivity: factorSensitivity,
+    // Edge E-values from ISL (when present) — enriched with labels. Excluded from response_hash.
+    ...(edgeEValues && edgeEValues.length > 0 && {
+      edge_e_values: edgeEValues,
+    }),
+    // Conditional winners from ISL (when present) — enriched with labels. Excluded from response_hash.
+    ...(conditionalWinners && conditionalWinners.length > 0 && {
+      conditional_winners: conditionalWinners,
+    }),
+    // Enrich factor_sensitivity with range_derivation_source from _meta (Task 7)
+    factor_sensitivity: factorSensitivity && meta.rangeDerivationSources
+      ? factorSensitivity.map(f => {
+          const rds = meta.rangeDerivationSources![f.factor_id];
+          return rds ? { ...f, range_derivation_source: rds } : f;
+        })
+      : factorSensitivity,
     // ISL stability assessment per factor (3C bootstrap analysis)
     // NOTE: Deterministic ISL output. Excluded from response_hash since v6.
     factor_stability: factorStability ?? [],
@@ -3241,9 +3387,34 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // =================================================================
         // Compute per-feature statuses
         // =================================================================
+        // Build label maps for enrichment (reused by edge sensitivity, E-values, conditional winners)
+        const earlyNodeLabelMap = new Map<string, string>();
+        if (filteredGraph?.nodes) {
+          for (const node of filteredGraph.nodes) {
+            earlyNodeLabelMap.set(node.id, node.label);
+          }
+        }
+        const earlyOptionLabelMap = new Map<string, string>();
+        if (body.options) {
+          for (const opt of body.options) {
+            const cleaned = cleanLabelAnnotation(opt.label);
+            earlyOptionLabelMap.set(opt.id, cleaned || opt.id);
+          }
+        }
+
         // Transform sensitivity arrays FIRST - these are the final arrays that will be returned
         // Status check must use the SAME arrays to prevent status/response misalignment
-        const edgeSensitivity = transformEdgeSensitivity(islResult.sensitivity);
+        const edgeSensitivity = transformEdgeSensitivity(islResult.sensitivity, earlyNodeLabelMap);
+
+        // Transform ISL edge_e_values (when present) with label enrichment
+        const edgeEValues = transformEdgeEValues(islResult.edge_e_values, earlyNodeLabelMap);
+
+        // Transform ISL conditional_winners (when present) with label enrichment
+        const conditionalWinners = transformConditionalWinners(
+          islResult.conditional_winners,
+          earlyNodeLabelMap,
+          earlyOptionLabelMap,
+        );
 
         // Factor sensitivity: Graph-based is PRIMARY, ISL is FALLBACK
         // Graph-based uses edge path analysis (Schema D.5) - no dependency on parameter_uncertainties
@@ -3308,7 +3479,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // canonicaliseRequest; see canonicalise.ts BREAKING CHANGE v6).
         responseHash = hashRequest(body, filteredGraph, plotSeedUsed, toIdentifiabilityResponse(identifiabilityResult), factorStability);
 
-        const sensitivityData: SensitivityData = { edgeSensitivity, factorSensitivity };
+        const sensitivityData: SensitivityData = { edgeSensitivity, factorSensitivity, edgeEValues, conditionalWinners };
 
         // Use hasNonEmptyArray on the FINAL transformed arrays (single source of truth)
         const hasEdgeSensitivity = hasNonEmptyArray(edgeSensitivity);

@@ -854,6 +854,21 @@ export interface RunResponseV3 {
   stability_thresholds?: StabilityThresholds;
 
   /**
+   * Edge E-values measuring evidence strength for each edge's causal direction.
+   * Enriched with human-readable labels from graph nodes.
+   * Present when ISL provides E-value analysis. Excluded from response_hash.
+   */
+  edge_e_values?: EnrichedEdgeEValue[];
+
+  /**
+   * Conditional winner analysis per factor.
+   * Shows how the winning option changes conditional on factor value buckets.
+   * Enriched with labels from graph nodes and options.
+   * Present when ISL provides conditional winner analysis. Excluded from response_hash.
+   */
+  conditional_winners?: ConditionalWinner[];
+
+  /**
    * Diagnostic warnings about inference metadata inconsistencies.
    * Info-level only — never blocks the response.
    * NOT included in response_hash (diagnostic metadata).
@@ -1234,6 +1249,10 @@ export interface EdgeSensitivityResultV3 {
   from: string;
   /** Target node ID */
   to: string;
+  /** Human-readable source node label (falls back to from if node not found) */
+  from_label: string;
+  /** Human-readable target node label (falls back to to if node not found) */
+  to_label: string;
   /** Type of sensitivity analysis */
   sensitivity_type: 'existence' | 'magnitude';
   /** Elasticity score */
@@ -1242,6 +1261,72 @@ export interface EdgeSensitivityResultV3 {
   importance_rank: number;
   /** Human-readable interpretation */
   interpretation: string;
+}
+
+/**
+ * Enriched edge E-value with human-readable labels.
+ * Measures evidence strength for each edge's causal effect direction.
+ * Label enrichment follows the same pattern as fragile edge enrichment.
+ */
+export interface EnrichedEdgeEValue {
+  /** Edge identifier. Format: `from::to` (double-colon separator) */
+  edge_id: string;
+  /** Source node ID */
+  from_id: string;
+  /** Target node ID */
+  to_id: string;
+  /** Human-readable source node label (falls back to from_id) */
+  from_label: string;
+  /** Human-readable target node label (falls back to to_id) */
+  to_label: string;
+  /** E-value (evidence strength) */
+  e_value: number;
+  /** Direction the edge would need to flip to change the recommendation */
+  flip_direction: 'positive_to_negative' | 'negative_to_positive' | 'removal';
+  /** Current mean effect of this edge */
+  current_mean: number;
+  /** Mean effect at the flip point */
+  flip_mean: number;
+}
+
+/**
+ * Enriched conditional winner analysis per factor.
+ * Shows how the winning option changes conditional on factor value buckets.
+ * Option IDs in buckets are enriched with human-readable labels.
+ */
+export interface ConditionalWinner {
+  /** Factor node ID */
+  factor_id: string;
+  /** Factor label */
+  factor_label: string;
+  /** Value at which the split occurs */
+  split_value: number;
+  /** Unit for the split value */
+  split_unit?: string;
+  /** Low bucket: option outcomes below the split */
+  low_bucket: ConditionalBucket;
+  /** High bucket: option outcomes above the split */
+  high_bucket: ConditionalBucket;
+  /** Whether the winning option flips between buckets */
+  winner_flips: boolean;
+}
+
+/**
+ * A bucket in the conditional winner analysis with enriched labels.
+ */
+export interface ConditionalBucket {
+  /** Winning option ID in this bucket */
+  winner_id: string;
+  /** Human-readable label for the winning option */
+  winner_label: string;
+  /** Runner-up option ID in this bucket */
+  runner_up_id?: string;
+  /** Human-readable label for the runner-up option */
+  runner_up_label?: string;
+  /** Win probability of the winner in this bucket */
+  win_probability: number;
+  /** Mean outcome for the winner in this bucket */
+  mean_outcome?: number;
 }
 
 /**
@@ -1317,6 +1402,15 @@ export interface FactorSensitivityResultV3 {
     /** attribution_stability_band_score, or null if no ISL data */
     sampling_stability: number | null;
   };
+
+  /**
+   * Range derivation source tier for this factor's intervention range.
+   * Indicates which priority tier was used to derive the normalisation range.
+   * Surfaced from _meta.range_derivation_sources for per-factor UI display.
+   *
+   * Values: 'explicit' | 'extracted' | 'inferred_spread' | 'inferred_baseline' | 'inferred_value' | 'default'
+   */
+  range_derivation_source?: string;
 }
 
 /**
@@ -1359,7 +1453,7 @@ export interface StabilityThresholds {
 // Inference Warnings (diagnostic metadata — NOT in response_hash)
 // ---------------------------------------------------------------------------
 
-/** Valid inference warning codes */
+/** Valid inference warning codes (PLoT-originated) */
 export const INFERENCE_WARNING_CODES = {
   /** ISL returned factor-level 3C fields but stability_thresholds was absent or malformed */
   STABILITY_THRESHOLDS_MISSING: 'STABILITY_THRESHOLDS_MISSING',
@@ -1367,9 +1461,12 @@ export const INFERENCE_WARNING_CODES = {
 
 export type InferenceWarningCode = (typeof INFERENCE_WARNING_CODES)[keyof typeof INFERENCE_WARNING_CODES];
 
-/** Diagnostic warning emitted when inference metadata is inconsistent */
+/**
+ * Diagnostic warning emitted when inference metadata is inconsistent.
+ * Code is typed as string to accept both PLoT-originated and ISL-forwarded codes.
+ */
 export interface InferenceWarning {
-  code: InferenceWarningCode;
+  code: InferenceWarningCode | string;
   message: string;
   severity: 'info' | 'warning';
 }

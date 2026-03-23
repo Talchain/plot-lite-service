@@ -870,6 +870,25 @@ components:
           description: Edge sensitivity analysis. Always present (may be empty).
           items:
             $ref: '#/components/schemas/EdgeSensitivityV3'
+        edge_e_values:
+          type: array
+          description: >
+            Edge E-values measuring evidence strength for each edge's causal direction.
+            Enriched with labels. Present when ISL provides E-value analysis.
+          items:
+            $ref: '#/components/schemas/EnrichedEdgeEValue'
+        conditional_winners:
+          type: array
+          description: >
+            Conditional winner analysis per factor. Shows how the winning option
+            changes conditional on factor value buckets. Enriched with labels.
+          items:
+            $ref: '#/components/schemas/ConditionalWinner'
+        factor_sensitivity:
+          type: array
+          description: Factor sensitivity results (when available). Entries may include range_derivation_source.
+          items:
+            $ref: '#/components/schemas/FactorSensitivityV3'
         inference_warnings:
           type: array
           description: >
@@ -993,15 +1012,75 @@ components:
         edge_id: { type: string, description: 'Format: from::to' }
         from: { type: string }
         to: { type: string }
+        from_label: { type: string, description: Human-readable source node label }
+        to_label: { type: string, description: Human-readable target node label }
         sensitivity_type: { type: string, enum: [existence, magnitude] }
         elasticity: { type: number }
         importance_rank: { type: integer, minimum: 1 }
         interpretation: { type: string }
-      required: [edge_id, from, to, sensitivity_type, elasticity, importance_rank]
+      required: [edge_id, from, to, from_label, to_label, sensitivity_type, elasticity, importance_rank]
     InferenceWarning:
       type: object
       properties:
-        code: { type: string }
+        code: { type: string, description: PLoT or ISL warning code }
         message: { type: string }
-        severity: { type: string, enum: [info, warning, error] }
+        severity: { type: string, enum: [info, warning] }
       required: [code, message]
+    EnrichedEdgeEValue:
+      type: object
+      description: Edge E-value with label enrichment
+      properties:
+        edge_id: { type: string, description: 'Format: from::to' }
+        from_id: { type: string }
+        to_id: { type: string }
+        from_label: { type: string }
+        to_label: { type: string }
+        e_value: { type: number }
+        flip_direction: { type: string, enum: [positive_to_negative, negative_to_positive, removal] }
+        current_mean: { type: number }
+        flip_mean: { type: number }
+      required: [edge_id, from_id, to_id, from_label, to_label, e_value, flip_direction, current_mean, flip_mean]
+    ConditionalWinner:
+      type: object
+      description: Conditional winner analysis per factor with label enrichment
+      properties:
+        factor_id: { type: string }
+        factor_label: { type: string }
+        split_value: { type: number }
+        split_unit: { type: string }
+        low_bucket:
+          $ref: '#/components/schemas/ConditionalBucket'
+        high_bucket:
+          $ref: '#/components/schemas/ConditionalBucket'
+        winner_flips: { type: boolean }
+      required: [factor_id, factor_label, split_value, low_bucket, high_bucket, winner_flips]
+    ConditionalBucket:
+      type: object
+      properties:
+        winner_id: { type: string }
+        winner_label: { type: string }
+        runner_up_id: { type: string }
+        runner_up_label: { type: string }
+        win_probability: { type: number, minimum: 0, maximum: 1 }
+        mean_outcome: { type: number }
+      required: [winner_id, winner_label, win_probability]
+    FactorSensitivityV3:
+      type: object
+      description: Factor sensitivity result with optional range derivation source
+      properties:
+        factor_id: { type: string }
+        factor_label: { type: string }
+        influence_score: { type: number }
+        influence_rank: { type: integer }
+        sensitivity_score: { type: number }
+        elasticity: { type: number }
+        direction: { type: string, enum: [positive, negative, mixed, unknown] }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        confidence_source: { type: string, enum: [isl, graph] }
+        source: { type: string, enum: [graph, isl] }
+        range_derivation_source:
+          type: string
+          description: >
+            Range derivation tier for this factor's intervention range.
+            Values: explicit, extracted, inferred_spread, inferred_baseline, inferred_value, default.
+      required: [factor_id]

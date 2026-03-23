@@ -584,9 +584,10 @@ describe('computeFactorSensitivityFromGraph', () => {
       expect(result2).not.toBeNull();
       const facA = result2!.find(f => f.factor_id === 'fac_a');
       expect(facA).toBeDefined();
-      // fac_a has incoming edge with exists_probability=0.9
-      // confidence = 0.5 × 0.5 + 0.5 × 0.9 = 0.7
-      expect(facA!.confidence).toBeCloseTo(0.7, 5);
+      // fac_a has incoming edge with exists_probability=0.9, strength={mean:0.5, std:0.1}
+      // No ISL bootstrap → improved fallback: mean(exists_prob) × (1 - cv)
+      // cv = |0.1 / 0.5| = 0.2, confidence = 0.9 × (1 - 0.2) = 0.72
+      expect(facA!.confidence).toBeCloseTo(0.72, 5);
       expect(facA!.confidence_components).toEqual({
         structural_certainty: 0.9,
         sampling_stability: null,
