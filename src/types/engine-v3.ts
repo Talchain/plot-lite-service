@@ -481,6 +481,14 @@ export interface RunRequestV3 {
    * remaining request budget. Default: false.
    */
   include_thresholds?: boolean;
+
+  /**
+   * Accepted for forward compatibility. Edge e-values and value-of-information
+   * are computed automatically by ISL when graph structure supports them.
+   * These flags are no-ops — PLoT does not gate ISL features on request fields.
+   */
+  include_e_values?: boolean;
+  include_voi?: boolean;
 }
 
 // -----------------------------------------------------------------------------

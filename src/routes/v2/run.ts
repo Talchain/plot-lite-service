@@ -157,6 +157,26 @@ function hasNonEmptyArray(value: unknown): boolean {
   return Array.isArray(value) && value.length > 0;
 }
 
+/**
+ * Build range derivation sources when normalisation was skipped.
+ * All intervention values are already in [0,1], so each factor's range source
+ * is 'default' (the identity range [0,1] was used implicitly).
+ */
+function buildDefaultRangeDerivationSources(options: OptionV3[]): Record<string, string> | undefined {
+  const factorIds = new Set<string>();
+  for (const opt of options) {
+    for (const factorId of Object.keys(opt.interventions)) {
+      factorIds.add(factorId);
+    }
+  }
+  if (factorIds.size === 0) return undefined;
+  const result: Record<string, string> = {};
+  for (const id of factorIds) {
+    result[id] = 'default';
+  }
+  return result;
+}
+
 // -----------------------------------------------------------------------------
 // F.6 Data Responsibility — Repair Append Helper
 // -----------------------------------------------------------------------------
@@ -353,71 +373,73 @@ function transformConditionalWinners(
 }
 
 /**
- * Transform ISL factor sensitivity array to response format.
- * Preserves ALL ISL fields including new influence_score and zero_reason fields.
- * Returns undefined if input is not a non-empty array.
+ * Map a single raw ISL factor sensitivity entry to FactorSensitivityResultV3.
+ * Shared by both filtered and unfiltered transform paths.
  *
  * Field mapping: ISL uses node_id, PLoT uses factor_id.
  * All other fields are preserved verbatim for forward compatibility.
  */
+function mapIslFactorEntry(f: any): FactorSensitivityResultV3 {
+  // Schema v2.6 canonical field is 'sensitivity_score'; legacy used 'sensitivity'
+  const sensitivityValue = f.sensitivity_score ?? f.sensitivity;
+
+  // Defensive logging: warn if no numeric sensitivity value found
+  if (sensitivityValue === undefined) {
+    console.warn('[FACTOR_SENSITIVITY_MISSING_NUMERIC]', JSON.stringify({
+      node_id: f.node_id,
+      available_keys: Object.keys(f),
+      message: 'ISL did not provide sensitivity_score — UI will show "unavailable"',
+    }));
+  }
+
+  // IMPORTANT: Do NOT default missing values to 0.
+  // Missing data means "we couldn't compute influence" which is semantically
+  // different from "this factor has zero influence". Let undefined pass through.
+  const entry: FactorSensitivityResultV3 = {
+    factor_id: f.node_id ?? f.factor_id,
+    factor_label: f.label ?? null,
+    influence_score: f.influence_score ?? null,
+    influence_rank: f.influence_rank ?? null,
+    sensitivity_score: sensitivityValue,
+    elasticity: f.elasticity ?? null,
+    direction: (f.direction as 'positive' | 'negative' | 'mixed' | 'unknown') ?? null,
+    importance_rank: f.importance_rank ?? null,
+    interpretation: f.interpretation ?? null,
+    value_of_information: f.value_of_information ?? null,
+    confidence: f.confidence ?? f.value_of_information ?? null,
+    zero_reason: f.zero_reason ?? null,
+    source: 'isl' as const,
+  };
+
+  // 3C stability fields — carry through when ISL provides them
+  if (f.elasticity_std !== undefined) entry.elasticity_std = f.elasticity_std;
+  if (f.attribution_stability !== undefined) entry.attribution_stability = f.attribution_stability;
+  if (f.rank_flip_rate !== undefined) entry.rank_flip_rate = f.rank_flip_rate;
+  if (f.stability_method !== undefined) entry.stability_method = f.stability_method;
+
+  return entry;
+}
+
+/**
+ * Transform ISL factor sensitivity array to response format.
+ * Filters out intervention_override entries (decision levers, not uncertainty drivers).
+ * Returns undefined if input is not a non-empty array.
+ */
 function transformFactorSensitivity(islFactorSensitivity: unknown): FactorSensitivityResultV3[] | undefined {
   if (!hasNonEmptyArray(islFactorSensitivity)) return undefined;
-  // Task 2: Filter out intervention_override factors (decision levers, not uncertainty drivers)
   const filtered = filterInterventionOverrides(islFactorSensitivity as any[]);
-  return filtered.map((f: any) => {
-    // Schema v2.6 canonical field is 'sensitivity_score'; legacy used 'sensitivity'
-    // Support both for backward compatibility
-    const sensitivityValue = f.sensitivity_score ?? f.sensitivity;
+  return filtered.map(mapIslFactorEntry);
+}
 
-    // Defensive logging: warn if no numeric sensitivity value found
-    // This helps identify if ISL is returning incomplete data
-    if (sensitivityValue === undefined) {
-      console.warn('[FACTOR_SENSITIVITY_MISSING_NUMERIC]', JSON.stringify({
-        node_id: f.node_id,
-        available_keys: Object.keys(f),
-        message: 'ISL did not provide sensitivity_score — UI will show "unavailable"',
-      }));
-    }
-
-    // IMPORTANT: Do NOT default missing values to 0.
-    // Missing data means "we couldn't compute influence" which is semantically
-    // different from "this factor has zero influence". Let undefined pass through.
-    // Preserve ALL ISL fields - do not silently drop any.
-    const entry: FactorSensitivityResultV3 = {
-      // Core identification
-      factor_id: f.node_id ?? f.factor_id,
-      factor_label: f.label ?? null,
-
-      // Influence fields from ISL
-      influence_score: f.influence_score ?? null,
-      influence_rank: f.influence_rank ?? null,
-
-      // Existing sensitivity fields
-      sensitivity_score: sensitivityValue,  // undefined if ISL didn't provide it
-      elasticity: f.elasticity ?? null,
-      direction: (f.direction as 'positive' | 'negative' | 'mixed' | 'unknown') ?? null,
-      importance_rank: f.importance_rank ?? null,
-      interpretation: f.interpretation ?? null,
-      value_of_information: f.value_of_information ?? null,
-
-      // Confidence: derive from value_of_information if ISL provides it
-      confidence: f.confidence ?? f.value_of_information ?? null,
-
-      // Zero reason field (when sensitivity_score = 0)
-      zero_reason: f.zero_reason ?? null,
-
-      // Mark source as ISL
-      source: 'isl' as const,
-    };
-
-    // 3C stability fields — carry through when ISL provides them
-    if (f.elasticity_std !== undefined) entry.elasticity_std = f.elasticity_std;
-    if (f.attribution_stability !== undefined) entry.attribution_stability = f.attribution_stability;
-    if (f.rank_flip_rate !== undefined) entry.rank_flip_rate = f.rank_flip_rate;
-    if (f.stability_method !== undefined) entry.stability_method = f.stability_method;
-
-    return entry;
-  });
+/**
+ * Transform ISL factor sensitivity WITHOUT filtering intervention_overrides.
+ * Used solely for the confidence merge path: controllable factors with
+ * zero_reason='intervention_override' still carry valid attribution_stability
+ * from ISL bootstrap that should feed into unified confidence computation.
+ */
+function transformFactorSensitivityUnfiltered(islFactorSensitivity: unknown): FactorSensitivityResultV3[] | undefined {
+  if (!hasNonEmptyArray(islFactorSensitivity)) return undefined;
+  return (islFactorSensitivity as any[]).map(mapIslFactorEntry);
 }
 
 /**
@@ -673,6 +695,7 @@ const V2_RUN_ALLOWED_KEYS = new Set([
   'graph', 'options', 'goal_node_id',
   'seed', 'n_samples', 'detail_level', 'request_id', 'idempotency_key',
   'goal_threshold', 'brief', 'goal_constraints', 'include_thresholds',
+  'include_e_values', 'include_voi',
 ]);
 
 const runV3Schema = {
@@ -715,6 +738,8 @@ const runV3Schema = {
         items: { type: 'object' },
       },
       include_thresholds: { type: 'boolean' },
+      include_e_values: { type: 'boolean' },
+      include_voi: { type: 'boolean' },
     },
   },
 };
@@ -1492,18 +1517,29 @@ function buildResponse(
   }
 
   // Merge ISL-originated inference_warnings into the PLoT array.
-  // ISL may return warnings like MISSING_ROOT_VALUE that PLoT forwards as-is.
+  // ISL may return warnings like ROOT_NODE_DEFAULT_VALUE that PLoT forwards as-is.
   // Deduplicate by code to prevent equivalent warnings from both sources.
+  // ISL warnings may have top-level `message` OR `detail.message` — check both.
   if (Array.isArray(islResult?.inference_warnings)) {
-    const existingCodes = new Set(inferenceWarnings.map(w => w.code));
+    // Deduplicate by code+node_id composite key to allow per-node warnings
+    // (e.g., multiple ROOT_NODE_DEFAULT_VALUE for different root nodes).
+    // Seed with PLoT-originated warnings using code: prefix (no node_id).
+    const existingKeys = new Set(inferenceWarnings.map(w => `${w.code}:`));
     for (const w of islResult.inference_warnings) {
-      if (w && typeof w.code === 'string' && typeof w.message === 'string' && !existingCodes.has(w.code)) {
+      const message = typeof w?.message === 'string'
+        ? w.message
+        : typeof w?.detail?.message === 'string'
+          ? w.detail.message
+          : undefined;
+      const nodeId = w?.detail?.node_id ?? w?.node_id ?? '';
+      const dedupKey = `${w?.code}:${nodeId}`;
+      if (w && typeof w.code === 'string' && typeof message === 'string' && !existingKeys.has(dedupKey)) {
         inferenceWarnings.push({
           code: w.code,
-          message: w.message,
+          message,
           severity: w.severity === 'warning' ? 'warning' : 'info',
         });
-        existingCodes.add(w.code);
+        existingKeys.add(dedupKey);
       }
     }
   }
@@ -3429,15 +3465,24 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         );
         const islFactorSensitivity = transformFactorSensitivity(islResult.factor_sensitivity);
 
+        // Transform ISL entries WITHOUT filtering intervention_overrides, so that
+        // attribution_stability data from controllable factors is available for the
+        // confidence merge even though those factors are excluded from sensitivity output.
+        // Without this, filterInterventionOverrides strips entries whose bootstrap data
+        // would produce differentiated confidence values (e.g., "negligible" → 0.25).
+        const islFactorSensitivityUnfiltered = transformFactorSensitivityUnfiltered(islResult.factor_sensitivity);
+
         // Graph-based is primary for influence/sensitivity scores.
         // When graph results exist, merge ISL attribution_stability into graph entries
         // and recompute unified confidence (0.5 × band_score + 0.5 × mean(incoming edges)).
+        // Use UNFILTERED ISL entries so confidence data from intervention_override factors
+        // is available for the merge (they have valid attribution_stability from ISL bootstrap).
         let factorSensitivity: FactorSensitivityResultV3[] | undefined;
         let factorSensitivitySource: string;
         if (graphBasedFactorSensitivity) {
           factorSensitivity = mergeIslConfidenceIntoGraphFactors(
             graphBasedFactorSensitivity,
-            islFactorSensitivity,
+            islFactorSensitivityUnfiltered,
             filteredGraph.edges,
           );
           factorSensitivitySource = 'graph+isl_merge';
@@ -3445,6 +3490,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           // ISL-only fallback: still apply unified confidence recomputation.
           // Pass empty graph array so all ISL factors go through the ISL-only
           // append path, which computes unified confidence + confidence_components.
+          // Use filtered entries here since ISL-only factors ARE the sensitivity output.
           factorSensitivity = mergeIslConfidenceIntoGraphFactors(
             [],
             islFactorSensitivity,
@@ -4017,7 +4063,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             filteredConstraints: filteredConstraintRecords,
             rangeDerivationSources: normalisationContext
               ? Object.fromEntries([...normalisationContext.factors].map(([id, ctx]) => [id, ctx.range.source]))
-              : undefined,
+              : buildDefaultRangeDerivationSources(normalizedOptions),
           },
           responseHash,
           processedIslResult,

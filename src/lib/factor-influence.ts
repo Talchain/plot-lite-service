@@ -761,10 +761,13 @@ export function mergeIslConfidenceIntoGraphFactors(
     };
   });
 
-  // Append ISL-only factors not in graph results
+  // Append ISL-only factors not in graph results.
+  // Skip intervention_override entries — they are decision levers, not uncertainty
+  // drivers. When unfiltered ISL entries are passed for confidence merge, we must
+  // not accidentally append them to the sensitivity output.
   const edges = graphEdges ?? [];
   for (const islF of islFactors) {
-    if (!graphFactorIds.has(islF.factor_id)) {
+    if (!graphFactorIds.has(islF.factor_id) && islF.zero_reason !== 'intervention_override') {
       // Compute incoming edges for ISL-only factor (include strength for improved fallback)
       const incoming = edges
         .filter(e => e.to === islF.factor_id)

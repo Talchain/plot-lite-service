@@ -263,4 +263,44 @@ describe('mergeIslConfidenceIntoGraphFactors', () => {
     expect(islFactor.confidence).toBeCloseTo(0.6, 5);
     expect(graphFactor.confidence).toBe(islFactor.confidence);
   });
+
+  it('T10: intervention_override ISL entries update confidence on matching graph factors but do not append', () => {
+    // When unfiltered ISL entries are passed, intervention_override entries
+    // carry valid attribution_stability for confidence recomputation but
+    // must NOT appear as new entries in the output.
+    const graph = [
+      makeGraphFactor('fac_a', { confidence: 0.5 }),
+      makeGraphFactor('fac_b', { confidence: 0.5 }),
+    ];
+    const isl = [
+      // fac_a matches graph — its attribution_stability should update confidence
+      makeIslFactor('fac_a', {
+        attribution_stability: 'negligible',
+        zero_reason: 'intervention_override',
+      }),
+      // fac_c is ISL-only AND intervention_override — must NOT be appended
+      makeIslFactor('fac_c', {
+        attribution_stability: 'negligible',
+        zero_reason: 'intervention_override',
+      }),
+    ];
+
+    const result = mergeIslConfidenceIntoGraphFactors(graph, isl);
+
+    // Only 2 entries — fac_c must not be appended
+    expect(result).toHaveLength(2);
+    expect(result.map(f => f.factor_id).sort()).toEqual(['fac_a', 'fac_b']);
+
+    // fac_a should have updated confidence from ISL attribution_stability: negligible
+    // negligible band score = 0.0, mean_ep = 0.5 (default) → 0.5×0.0 + 0.5×0.5 = 0.25
+    const facA = result.find(f => f.factor_id === 'fac_a')!;
+    expect(facA.confidence).toBeCloseTo(0.25, 5);
+    expect(facA.confidence_source).toBe('isl');
+    expect(facA.attribution_stability).toBe('negligible');
+
+    // fac_b has no ISL match — keeps default 0.5
+    const facB = result.find(f => f.factor_id === 'fac_b')!;
+    expect(facB.confidence).toBe(0.5);
+    expect(facB.confidence_source).toBe('graph');
+  });
 });
