@@ -39,6 +39,7 @@ export interface ISLNodeV3 {
     uncertainty_drivers?: string[];
   };
   intercept?: number;
+  epsilon_std?: number;
 }
 
 /**
@@ -135,6 +136,7 @@ export function toISLNode(node: EngineNodeV3): ISLNodeV3 {
     label: node.label,
     observed_state: node.observed_state,
     intercept: node.intercept ?? 0.0,
+    epsilon_std: node.epsilon_std ?? 0.0,
   };
 }
 

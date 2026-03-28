@@ -141,6 +141,7 @@ interface CanonicalNode {
   id: string;
   kind: string;
   intercept: number;
+  epsilon_std: number;
   observed_state?: {
     value: number;
     std?: number;
@@ -156,6 +157,7 @@ function canonicaliseNode(node: EngineGraphV3['nodes'][0]): CanonicalNode {
     id: node.id,
     kind: node.kind,
     intercept: canonicaliseNumber((node as any).intercept),
+    epsilon_std: (node as any).epsilon_std ?? 0,
   };
 
   if (node.observed_state && node.observed_state.value !== undefined) {

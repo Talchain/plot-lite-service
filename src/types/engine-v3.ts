@@ -65,6 +65,7 @@ export interface UpstreamNode {
   description?: string;
   body?: string; // Legacy field for description
   intercept?: number | null;
+  epsilon_std?: number | null;
   observed_state?: {
     value?: number;
     /** Standard deviation for parameter uncertainty (if known) */
@@ -97,6 +98,7 @@ export interface UpstreamNode {
     kind?: string;
     type?: string;
     intercept?: number | null;
+    epsilon_std?: number | null;
     value?: number;
     baseline?: number;
     unit?: string;
@@ -172,6 +174,8 @@ export interface EngineNodeV3 {
   description?: string;
   /** Node intercept for baseline effect */
   intercept?: number;
+  /** Per-node stochastic noise parameter for ISL simulation */
+  epsilon_std?: number;
   /** Observed state for factor nodes */
   observed_state?: {
     value: number;

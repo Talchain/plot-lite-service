@@ -792,6 +792,62 @@ describe('Graph Normalisation', () => {
       expect(os?.uncertainty_drivers).toEqual(['market_volatility']);
     });
 
+    // ----- epsilon_std extraction and validation -----
+
+    it('epsilon_std present and valid → passes through', () => {
+      const node = normaliseNode({
+        id: 'factor_a', kind: 'factor', label: 'Factor A',
+        observed_state: { value: 0.5 }, epsilon_std: 0.3,
+      });
+      expect(node.epsilon_std).toBe(0.3);
+    });
+
+    it('epsilon_std absent → undefined in EngineNodeV3', () => {
+      const node = normaliseNode({
+        id: 'factor_a', kind: 'factor', label: 'Factor A',
+        observed_state: { value: 0.5 },
+      });
+      expect(node.epsilon_std).toBeUndefined();
+    });
+
+    it('epsilon_std = 0.0 explicit → passes through', () => {
+      const node = normaliseNode({
+        id: 'factor_a', kind: 'factor', label: 'Factor A',
+        observed_state: { value: 0.5 }, epsilon_std: 0.0,
+      });
+      expect(node.epsilon_std).toBe(0.0);
+    });
+
+    it('epsilon_std null → throws NormalisationError', () => {
+      expect(() => normaliseNode({
+        id: 'factor_a', kind: 'factor', label: 'Factor A',
+        observed_state: { value: 0.5 }, epsilon_std: null,
+      })).toThrow(NormalisationError);
+    });
+
+    it('epsilon_std NaN → throws NormalisationError', () => {
+      expect(() => normaliseNode({
+        id: 'factor_a', kind: 'factor', label: 'Factor A',
+        observed_state: { value: 0.5 }, epsilon_std: NaN,
+      } as any)).toThrow(NormalisationError);
+    });
+
+    it('epsilon_std negative → throws NormalisationError', () => {
+      expect(() => normaliseNode({
+        id: 'factor_a', kind: 'factor', label: 'Factor A',
+        observed_state: { value: 0.5 }, epsilon_std: -0.1,
+      })).toThrow(NormalisationError);
+    });
+
+    it('epsilon_std in data bag (React Flow nesting) → extracted', () => {
+      const node = normaliseNode({
+        id: 'factor_a', kind: 'factor', label: 'Factor A',
+        observed_state: { value: 0.5 },
+        data: { epsilon_std: 0.2 },
+      } as any);
+      expect(node.epsilon_std).toBe(0.2);
+    });
+
     it('does not pass through arbitrary unknown fields', () => {
       const node = normaliseNode({
         id: 'factor_a',

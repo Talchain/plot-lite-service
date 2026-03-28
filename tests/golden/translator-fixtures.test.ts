@@ -409,10 +409,10 @@ describe('Translator: Canonical ISL Request Shape (B1.4 Category A)', () => {
     const nodeResult = canonicalCompare(
       request.graph.nodes,
       [
-        { id: 'goal_revenue', kind: 'goal', label: 'Revenue', intercept: 0 },
-        { id: 'factor_price', kind: 'factor', label: 'Price', intercept: 0 },
-        { id: 'factor_demand', kind: 'factor', label: 'Demand', intercept: 0 },
-        { id: 'factor_cost', kind: 'factor', label: 'Cost', intercept: 0 },
+        { id: 'goal_revenue', kind: 'goal', label: 'Revenue', intercept: 0, epsilon_std: 0 },
+        { id: 'factor_price', kind: 'factor', label: 'Price', intercept: 0, epsilon_std: 0 },
+        { id: 'factor_demand', kind: 'factor', label: 'Demand', intercept: 0, epsilon_std: 0 },
+        { id: 'factor_cost', kind: 'factor', label: 'Cost', intercept: 0, epsilon_std: 0 },
       ],
       { ignoreFields: ['observed_state'], sortArraysBy: { '$': 'id' } },
     );

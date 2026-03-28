@@ -222,6 +222,41 @@ export function normaliseNode(
     }
   }
 
+  // Extract and validate epsilon_std (per-node stochastic noise).
+  // Contract: optional; if present must be a finite non-negative number (ISL enforces ge=0.0).
+  // Same null-rejection rationale as intercept.
+  let rawEpsilonStd: unknown = undefined;
+  if (Object.prototype.hasOwnProperty.call(node, 'epsilon_std')) {
+    rawEpsilonStd = node.epsilon_std;
+  } else if (node.data && Object.prototype.hasOwnProperty.call(node.data, 'epsilon_std')) {
+    rawEpsilonStd = node.data.epsilon_std;
+  }
+
+  if (rawEpsilonStd === null) {
+    throw new NormalisationError(
+      `Node '${node.id}': epsilon_std cannot be null. ` +
+      `To use the default epsilon_std (0.0), omit the field entirely instead of setting it to null.`,
+      'epsilon_std',
+      node.id
+    );
+  }
+  if (rawEpsilonStd !== undefined) {
+    if (typeof rawEpsilonStd !== 'number' || !Number.isFinite(rawEpsilonStd)) {
+      throw new NormalisationError(
+        `Node '${node.id}': epsilon_std must be a finite number`,
+        'epsilon_std',
+        node.id
+      );
+    }
+    if (rawEpsilonStd < 0) {
+      throw new NormalisationError(
+        `Node '${node.id}': epsilon_std must be non-negative (got ${rawEpsilonStd})`,
+        'epsilon_std',
+        node.id
+      );
+    }
+  }
+
   if (node.observed_state?.value !== undefined) {
     // Explicit allowlist: core fields + V3 expansion metadata
     // This preserves V3 fields (raw_value, cap, factor_type, uncertainty_drivers)
@@ -380,6 +415,7 @@ export function normaliseNode(
     label: finalLabel,
     description: node.description ?? node.body,
     intercept: rawIntercept === undefined ? undefined : (rawIntercept as number),
+    epsilon_std: rawEpsilonStd === undefined ? undefined : (rawEpsilonStd as number),
     observed_state: observedState,
     state_space: stateSpace,
     category,

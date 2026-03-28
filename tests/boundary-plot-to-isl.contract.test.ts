@@ -13,6 +13,7 @@ import type { BoundaryContract } from '../src/contracts/plot-to-isl.contract.js'
 import {
   toISLRobustnessRequest,
   toISLInterventions,
+  toISLNode,
 } from '../src/integrations/isl/translator-v3.js';
 import type { EngineGraphV3, OptionV3, GoalConstraint } from '../src/types/engine-v3.js';
 
@@ -362,5 +363,84 @@ describe('ISL request contract — golden-path (T5a)', () => {
     // Either undefined or empty array — no entries
     const puCount = sparseReq.parameter_uncertainties?.length ?? 0;
     expect(puCount).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// epsilon_std boundary forwarding
+// ---------------------------------------------------------------------------
+
+describe('epsilon_std boundary forwarding', () => {
+  it('epsilon_std present on node → survives in ISL request', () => {
+    const graph: EngineGraphV3 = {
+      nodes: [
+        { id: 'goal', kind: 'goal', label: 'G', epsilon_std: 0.5 },
+        { id: 'fac', kind: 'factor', label: 'F', observed_state: { value: 1 }, epsilon_std: 0.3 },
+      ],
+      edges: [
+        { from: 'fac', to: 'goal', strength: { mean: 0.5, std: 0.1 }, exists_probability: 0.9 },
+      ],
+    };
+    const options: OptionV3[] = [
+      { id: 'o1', label: 'O1', interventions: { fac: { value: 0.8, source: 'user_specified' } } },
+      { id: 'o2', label: 'O2', interventions: { fac: { value: 0.5, source: 'user_specified' } } },
+    ];
+    const req = toISLRobustnessRequest(graph, options, 'goal', 'req-eps');
+    expect(req.graph.nodes.find(n => n.id === 'goal')!.epsilon_std).toBe(0.5);
+    expect(req.graph.nodes.find(n => n.id === 'fac')!.epsilon_std).toBe(0.3);
+  });
+
+  it('epsilon_std absent → defaults to 0.0', () => {
+    const req = toISLRobustnessRequest(GRAPH, OPTIONS, 'goal', 'req-eps-default');
+    for (const node of req.graph.nodes) {
+      expect(node.epsilon_std).toBe(0.0);
+    }
+  });
+
+  it('epsilon_std = 0.0 explicit → backward compatible', () => {
+    const graph: EngineGraphV3 = {
+      nodes: [
+        { id: 'goal', kind: 'goal', label: 'G', epsilon_std: 0.0 },
+        { id: 'fac', kind: 'factor', label: 'F', observed_state: { value: 1 }, epsilon_std: 0.0 },
+      ],
+      edges: [
+        { from: 'fac', to: 'goal', strength: { mean: 0.5, std: 0.1 }, exists_probability: 0.9 },
+      ],
+    };
+    const options: OptionV3[] = [
+      { id: 'o1', label: 'O1', interventions: { fac: { value: 0.8, source: 'user_specified' } } },
+      { id: 'o2', label: 'O2', interventions: { fac: { value: 0.5, source: 'user_specified' } } },
+    ];
+    const req = toISLRobustnessRequest(graph, options, 'goal', 'req-eps-zero');
+    expect(req.graph.nodes[0].epsilon_std).toBe(0.0);
+  });
+
+  it('intercept still survives alongside epsilon_std (regression)', () => {
+    const graph: EngineGraphV3 = {
+      nodes: [
+        { id: 'goal', kind: 'goal', label: 'G', intercept: 1.5, epsilon_std: 0.2 },
+        { id: 'fac', kind: 'factor', label: 'F', observed_state: { value: 1 }, intercept: 0.7 },
+      ],
+      edges: [
+        { from: 'fac', to: 'goal', strength: { mean: 0.5, std: 0.1 }, exists_probability: 0.9 },
+      ],
+    };
+    const options: OptionV3[] = [
+      { id: 'o1', label: 'O1', interventions: { fac: { value: 0.8, source: 'user_specified' } } },
+      { id: 'o2', label: 'O2', interventions: { fac: { value: 0.5, source: 'user_specified' } } },
+    ];
+    const req = toISLRobustnessRequest(graph, options, 'goal', 'req-eps-intercept');
+    expect(req.graph.nodes.find(n => n.id === 'goal')!.intercept).toBe(1.5);
+    expect(req.graph.nodes.find(n => n.id === 'goal')!.epsilon_std).toBe(0.2);
+    expect(req.graph.nodes.find(n => n.id === 'fac')!.intercept).toBe(0.7);
+    expect(req.graph.nodes.find(n => n.id === 'fac')!.epsilon_std).toBe(0.0);
+  });
+
+  it('noise_multiplier must NOT appear on translated ISL node (negative boundary)', () => {
+    const islNode = toISLNode({
+      id: 'fac', kind: 'factor', label: 'F',
+      observed_state: { value: 1 }, intercept: 0.5, epsilon_std: 0.1,
+    });
+    expect(islNode).not.toHaveProperty('noise_multiplier');
   });
 });
