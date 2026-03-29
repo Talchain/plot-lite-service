@@ -8,8 +8,8 @@
  */
 
 // CIL Phase 1: LIMITS imported from shared schema package
-import { LIMITS } from '@talchain/schemas';
-export { LIMITS };
+import { LIMITS, DEFAULT_EXISTS_PROBABILITY } from '@talchain/schemas';
+export { LIMITS, DEFAULT_EXISTS_PROBABILITY };
 
 // Verified 24 Feb 2026: V1 and V2 routes all enforce these canonical limits.
 // Source of truth: @talchain/schemas. See Decision Model Schema §D.1.
@@ -29,8 +29,7 @@ export const MAX_EDGES = LIMITS.MAX_EDGES;
 export const MAX_OPTIONS = LIMITS.MAX_OPTIONS;
 
 // CIL M5: Named constant for default edge exists_probability.
-// Not yet available in @talchain/schemas; defined here as single source of truth.
-export const DEFAULT_EXISTS_PROBABILITY = 0.8;
+// Canonical source: @talchain/schemas (re-exported above).
 
 // P.8: Maximum goal_constraints per request. Enforced on raw input count before
 // any compilation or filtering. DoS protection — ISL evaluates each constraint
