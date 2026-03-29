@@ -178,6 +178,10 @@ describe('PLoT → ISL boundary contract (B4.5)', () => {
     expect(islRequest.request_id).toBe('req-contract-test');
     expect(islRequest.analysis_types).toEqual(['comparison', 'sensitivity', 'robustness']);
 
+    // include_e_values and include_voi always true
+    expect(islRequest.include_e_values).toBe(true);
+    expect(islRequest.include_voi).toBe(true);
+
     // parameter_uncertainties[].distribution enriched
     if (islRequest.parameter_uncertainties && islRequest.parameter_uncertainties.length > 0) {
       for (const pu of islRequest.parameter_uncertainties) {

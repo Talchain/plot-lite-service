@@ -487,9 +487,10 @@ export interface RunRequestV3 {
   include_thresholds?: boolean;
 
   /**
-   * Accepted for forward compatibility. Edge e-values and value-of-information
-   * are computed automatically by ISL when graph structure supports them.
-   * These flags are no-ops — PLoT does not gate ISL features on request fields.
+   * Accepted from upstream callers. PLoT always sends include_e_values: true
+   * and include_voi: true to ISL regardless of these flags — they are
+   * unconditionally enabled in the translator to ensure E-value and EVPI
+   * analysis is always available in the response.
    */
   include_e_values?: boolean;
   include_voi?: boolean;

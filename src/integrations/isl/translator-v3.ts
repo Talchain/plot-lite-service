@@ -115,6 +115,11 @@ export interface ISLRobustnessRequestV3 {
 
   // CIL 0.1: forward seed to ISL for deterministic Monte Carlo runs
   seed?: string | number;
+
+  /** Request edge E-value analysis from ISL (evidence strength per edge). */
+  include_e_values?: boolean;
+  /** Request Value of Information (EVPI) analysis from ISL. */
+  include_voi?: boolean;
 }
 
 // -----------------------------------------------------------------------------
@@ -402,6 +407,8 @@ export function toISLRobustnessRequest(
     n_samples: nSamples,
     analysis_types: ['comparison', 'sensitivity', 'robustness'],
     parameter_uncertainties: buildParameterUncertaintiesV3(graph.nodes),
+    include_e_values: true,
+    include_voi: true,
   };
 
   // Only include goal_threshold if provided (omit entirely when absent)
