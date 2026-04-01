@@ -880,11 +880,19 @@ export function normaliseGoalConstraints(
     // Find target node
     const targetNode = nodeMap.get(node_id);
 
-    // Derive range for the target node
-    // If node not found, use default range [0,1]
-    const range = targetNode
-      ? deriveRange(targetNode)
-      : { min: 0, max: 1, source: 'default' as const };
+    // Derive range for the target node.
+    // Prefer observed_state.cap when present — this is the authoritative scale cap
+    // set by CEE for normalisation (e.g. goal node with cap=1000 means value=200 → 0.2).
+    // Falls back to deriveRange() priority chain (state_space.range → heuristics → [0,1]).
+    // If node not found, use default range [0,1].
+    let range: NormalisationRange;
+    if (!targetNode) {
+      range = { min: 0, max: 1, source: 'default' };
+    } else if (typeof targetNode.observed_state?.cap === 'number' && targetNode.observed_state.cap > 0) {
+      range = { min: 0, max: targetNode.observed_state.cap, source: 'explicit' };
+    } else {
+      range = deriveRange(targetNode);
+    }
 
     // Normalise value
     const { normalised, clamped } = normaliseValue(value, range);
@@ -923,10 +931,7 @@ export function normaliseGoalConstraints(
       used_heuristic: usedHeuristic,
     });
 
-    // Log if heuristic fallback was used
-    if (usedHeuristic) {
-      console.info(`[CONSTRAINT_NORMALISATION_HEURISTIC] constraint_id=${constraint_id} node_id=${node_id} range_source=${range.source}`);
-    }
+    // Heuristic use is captured in diagnostics[].used_heuristic and repair records.
   }
 
   return {

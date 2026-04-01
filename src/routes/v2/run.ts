@@ -124,8 +124,11 @@ import {
   normaliseOptionsForISL,
   denormaliseISLResult,
   needsNormalisation,
+  normaliseGoalConstraints,
+  constraintsNeedNormalisation,
   type NormalisationContext,
   type NormalisationDiagnostic,
+  type NormalisationRange,
 } from '../../lib/intervention-normaliser.js';
 import { assembleBrief } from '../../assembly/decision-brief.js';
 import { buildEvidencePriorityCard, type FactorInput } from '../../review-pass/evidence-priority.js';
@@ -1099,7 +1102,8 @@ export function deriveRecommendedOption(
  */
 function buildConstraintFields(
   goalConstraints: GoalConstraint[] | undefined,
-  islResult: any
+  islResult: any,
+  constraintNormRanges?: Map<string, NormalisationRange>
 ): {
   constraints_status?: ConstraintFeatureStatus;
   constraint_results?: ConstraintResult[];
@@ -1125,38 +1129,70 @@ function buildConstraintFields(
   const analysis = firstOptionWithConstraints.constraint_analysis;
   const islConstraints: ISLConstraintResult[] = analysis.constraints ?? [];
 
-  // Resolve a constraint_id from ISL's echoed result back to the input constraint.
-  // Match on (node_id, operator, value) to handle duplicate-target edge cases.
-  // F-20: ISL returns both "value" (computed) and "threshold" (primary) — accept both.
-  const resolveConstraintId = (islC: ISLConstraintResult): string => {
-    const islValue = islC.value ?? islC.threshold;
-    const match = goalConstraints.find(
-      gc => gc.node_id === islC.node_id && gc.operator === islC.operator && gc.value === islValue
-    ) ?? goalConstraints.find(
+  // Build an index-position lookup from ISL response ordinal → input constraint_id.
+  // ISL preserves insertion order and does not echo constraint_id, so positional
+  // mapping is the only stable identity. Value-based matching breaks after normalisation
+  // (ISL echoes normalised values; input has raw user-unit values).
+  const islIndexToConstraintId: string[] = islConstraints.map((islC, idx) => {
+    const byIndex = goalConstraints[idx];
+    if (byIndex && byIndex.node_id === islC.node_id && byIndex.operator === islC.operator) {
+      return byIndex.constraint_id;
+    }
+    // Fallback: (node_id, operator) scan — handles ISL reordering edge case
+    const byNodeOp = goalConstraints.find(
       gc => gc.node_id === islC.node_id && gc.operator === islC.operator
     );
-    return match?.constraint_id ?? `${islC.node_id}_${islC.operator}`;
-  };
+    return byNodeOp?.constraint_id ?? `${islC.node_id}_${islC.operator}`;
+  });
+  const resolveConstraintId = (_islC: ISLConstraintResult, idx: number): string =>
+    islIndexToConstraintId[idx] ?? `${_islC.node_id}_${_islC.operator}`;
 
   // Map ISL constraint results to Schema v2.7 ConstraintResult[]
   // F-20: ISL returns both "value" (computed) and "threshold" (primary) — accept both.
-  const constraintResults: ConstraintResult[] = islConstraints.map((c) => ({
-    constraint_id: resolveConstraintId(c),
-    node_id: c.node_id,
-    operator: c.operator as '>=' | '<=',
-    value: c.value ?? c.threshold,
-    probability: c.prob_satisfied,
-  }));
+  // When constraints were normalised for ISL, echo the original user-unit value
+  // (from activeGoalConstraints, which is never mutated) rather than the normalised ISL echo.
+  const constraintResults: ConstraintResult[] = islConstraints.map((c, idx) => {
+    const constraintId = resolveConstraintId(c, idx);
+    const islValue = c.value ?? c.threshold;
+    // Prefer original user-unit value from input constraints
+    const originalConstraint = goalConstraints!.find(gc => gc.constraint_id === constraintId);
+    return {
+      constraint_id: constraintId,
+      node_id: c.node_id,
+      operator: c.operator as '>=' | '<=',
+      value: originalConstraint?.value ?? islValue,
+      probability: c.prob_satisfied,
+    };
+  });
 
   // Extract diagnostics from ISL constraint results
-  const constraintDiagnostics: ConstraintDiagnostic[] = islConstraints
-    .filter((c) => c.failure_margin_median !== undefined || c.near_miss_fraction !== undefined || c.binding !== undefined)
-    .map((c) => ({
-      constraint_id: resolveConstraintId(c),
-      failure_margin_median: c.failure_margin_median ?? 0,
+  // When constraints were normalised, denormalise failure_margin_median back to user units.
+  // failure_margin_median is a distance (delta), so scale by range width (same as std).
+  // Use flatMap to preserve index for stable constraint_id resolution while filtering.
+  const constraintDiagnostics: ConstraintDiagnostic[] = islConstraints.flatMap((c, idx) => {
+    if (c.failure_margin_median === undefined && c.near_miss_fraction === undefined && c.binding === undefined) {
+      return [];
+    }
+    const constraintId = resolveConstraintId(c, idx);
+    let failureMarginMedian = c.failure_margin_median ?? 0;
+
+    if (constraintNormRanges) {
+      const range = constraintNormRanges.get(constraintId);
+      if (range) {
+        const rangeWidth = range.max - range.min;
+        if (rangeWidth > 0) {
+          failureMarginMedian = failureMarginMedian * rangeWidth;
+        }
+      }
+    }
+
+    return [{
+      constraint_id: constraintId,
+      failure_margin_median: failureMarginMedian,
       near_miss_fraction: c.near_miss_fraction ?? 0,
       binding: c.binding ?? false,
-    }));
+    }];
+  });
 
   // Map ISL conditional probabilities (index-based → constraint_id-based)
   let conditionalProbabilities: ConditionalProbability[] | undefined;
@@ -1170,8 +1206,8 @@ function buildConstraintFields(
         const givenConstraint = islConstraints[cp.given_constraint_index];
         const targetConstraint = islConstraints[cp.target_constraint_index];
         return {
-          given_constraint_id: resolveConstraintId(givenConstraint),
-          target_constraint_id: resolveConstraintId(targetConstraint),
+          given_constraint_id: resolveConstraintId(givenConstraint, cp.given_constraint_index),
+          target_constraint_id: resolveConstraintId(targetConstraint, cp.target_constraint_index),
           probability: cp.probability,
           effective_sample_size: cp.effective_sample_size ?? 0,
         };
@@ -1252,6 +1288,7 @@ function buildResponse(
   },
   flipThresholds?: DenormalisedFlipThreshold[],
   goalConstraints?: GoalConstraint[],
+  constraintNormRanges?: Map<string, NormalisationRange>,
   thresholdsStatus?: ThresholdsStatus,
   thresholdsMeta?: { reason?: string; duration_ms?: number },
   thresholdAnalysis?: ThresholdResult[],
@@ -1322,20 +1359,25 @@ function buildResponse(
       }
 
       // Map ISL's per-constraint prob_satisfied to constraint_probabilities map
-      // Uses goal_constraints input to resolve constraint_id from index position
+      // Uses index-position mapping (same as buildConstraintFields): ISL preserves insertion
+      // order but does NOT echo constraint_id. Value-based matching breaks after normalisation
+      // because ISL echoes normalised values while goalConstraints holds raw user-unit values.
       if (Array.isArray(constraintAnalysis.constraints) && constraintAnalysis.constraints.length > 0) {
         const constraintProbs: Record<string, number> = {};
-        for (let i = 0; i < constraintAnalysis.constraints.length; i++) {
-          const c = constraintAnalysis.constraints[i] as ISLConstraintResult;
-          // Resolve constraint_id: match by (node_id, operator, value)
-          // F-20: ISL returns both "value" (computed) and "threshold" (primary) — accept both.
-          const islValue = c.value ?? c.threshold;
-          const match = goalConstraints?.find(
-            gc => gc.node_id === c.node_id && gc.operator === c.operator && gc.value === islValue
-          ) ?? goalConstraints?.find(
-            gc => gc.node_id === c.node_id && gc.operator === c.operator
+        const islConstraintsHere = constraintAnalysis.constraints as ISLConstraintResult[];
+        const indexToId: string[] = islConstraintsHere.map((islC, idx) => {
+          const byIndex = goalConstraints?.[idx];
+          if (byIndex && byIndex.node_id === islC.node_id && byIndex.operator === islC.operator) {
+            return byIndex.constraint_id;
+          }
+          const byNodeOp = goalConstraints?.find(
+            gc => gc.node_id === islC.node_id && gc.operator === islC.operator
           );
-          const constraintId = match?.constraint_id ?? `${c.node_id}_${c.operator}`;
+          return byNodeOp?.constraint_id ?? `${islC.node_id}_${islC.operator}`;
+        });
+        for (let i = 0; i < islConstraintsHere.length; i++) {
+          const c = islConstraintsHere[i];
+          const constraintId = indexToId[i] ?? `${c.node_id}_${c.operator}`;
           constraintProbs[constraintId] = c.prob_satisfied;
         }
         result.constraint_probabilities = constraintProbs;
@@ -1645,7 +1687,7 @@ function buildResponse(
     drivers_status: driversStatus,
 
     // CIL C1: Multi-constraint analysis fields
-    ...buildConstraintFields(goalConstraints, islResult),
+    ...buildConstraintFields(goalConstraints, islResult, constraintNormRanges),
 
     isl_analysis_status: islAnalysisStatus,
     isl_status_reason: islStatusReason,
@@ -2931,6 +2973,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             m2EarlyReturn,  // M2 Decision Review status
             undefined, // flipThresholds
             activeGoalConstraints,  // CIL C1: goal_constraints for constraint result passthrough
+            undefined, // constraintNormRanges (no ISL call on this path)
             undefined, // thresholdsStatus
             undefined, // thresholdsMeta
             undefined, // thresholdAnalysis
@@ -2948,6 +2991,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         let optionsForISL = normalizedOptions;
         let normalisationContext: NormalisationContext | undefined;
         let normalisationDiagnostics: NormalisationDiagnostic[] = [];
+        let constraintNormalisationRanges: Map<string, NormalisationRange> | undefined;
 
         if (needsNormalisation(normalizedOptions)) {
           const normResult = normaliseOptionsForISL(
@@ -3009,26 +3053,51 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         }
 
         // =================================================================
-        // Phase 4b: Constraint pass-through (no normalisation)
+        // Phase 4b: Constraint Normalisation
         // =================================================================
-        // ISL compares raw sampled values against raw constraint values.
-        // Normalising the constraint but not the samples produces wrong
-        // probabilities. Pass constraints through as-is, matching
-        // goal_threshold behaviour.
+        // ISL operates in normalised [0,1] space (Phase 4a normalises interventions).
+        // Constraint values must also be normalised so ISL compares normalised
+        // samples against normalised thresholds.
         let constraintsForISL: GoalConstraint[] | undefined;
 
         if (activeGoalConstraints && activeGoalConstraints.length > 0) {
-          constraintsForISL = activeGoalConstraints;
-          req.log.debug({
-            event: 'constraint_passthrough',
-            constraint_count: activeGoalConstraints.length,
-            sample: activeGoalConstraints.slice(0, 3).map(c => ({
-              constraint_id: c.constraint_id,
-              node_id: c.node_id,
-              operator: c.operator,
-              value: c.value,
-            })),
-          });
+          if (constraintsNeedNormalisation(activeGoalConstraints)) {
+            const constraintNormResult = normaliseGoalConstraints(
+              activeGoalConstraints,
+              filteredGraph.nodes
+            );
+            constraintsForISL = constraintNormResult.constraints;
+
+            // Store ranges for denormalisation of failure_margin_median in response
+            constraintNormalisationRanges = new Map(
+              constraintNormResult.diagnostics.map(d => [d.constraint_id, d.range])
+            );
+
+            // Add constraint normalisation repairs to repairs_applied[]
+            repairs = repairs.concat(constraintNormResult.repairs);
+
+            req.log.info({
+              event: 'constraint_normalisation',
+              normalised: true,
+              diagnostics_count: constraintNormResult.diagnostics.length,
+              repairs_count: constraintNormResult.repairs.length,
+              sample: constraintNormResult.diagnostics.slice(0, 3).map(d => ({
+                constraint_id: d.constraint_id,
+                node_id: d.node_id,
+                original: d.original_value,
+                normalised: d.normalised_value,
+                range_source: d.range.source,
+              })),
+            });
+          } else {
+            constraintsForISL = activeGoalConstraints;
+            req.log.debug({
+              event: 'constraint_normalisation',
+              normalised: false,
+              reason: 'All constraint values already in [0,1] range',
+              constraint_count: activeGoalConstraints.length,
+            });
+          }
         }
 
         // Add constraint validation warnings to preflight warnings
@@ -3081,7 +3150,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           requestId,
           nSamples,
           effectiveGoalThreshold,  // Use effective threshold (undefined if multi-constraint)
-          constraintsForISL,       // Raw constraint values (undefined if not using multi-constraint)
+          constraintsForISL,       // Normalised constraint values (undefined if not using multi-constraint)
           plotSeedUsed  // Always forward PLoT's seed (PLoT is seed authority)
         );
 
@@ -4079,6 +4148,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           m2DecisionReview,  // M2 Decision Review (LLM-generated)
           flipThresholds,  // Flip thresholds (tipping points) for UI
           activeGoalConstraints,  // CIL C1: goal_constraints for constraint result passthrough
+          constraintNormalisationRanges,  // Per-constraint ranges for failure_margin_median denorm
           thresholdsStatus,  // B10.3: Threshold analysis status
           thresholdsMeta,    // B10.3: Threshold analysis metadata
           thresholdAnalysis, // B10.3: Threshold analysis results

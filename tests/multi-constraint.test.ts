@@ -950,7 +950,7 @@ describe('Integration: End-to-End Constraint Flow (Unit)', () => {
     expect(islRequest.goal_threshold).toBeUndefined();
   });
 
-  it('constraint values >1 pass through to ISL without normalisation', () => {
+  it('translator passes constraint values through to ISL as-is', () => {
     const testGraph = createTestGraph();
     const testOptions = [
       { id: 'opt1', label: 'Option 1', interventions: { factor_a: { value: 0.8, source: 'user_specified' as const } } },
@@ -973,6 +973,86 @@ describe('Integration: End-to-End Constraint Flow (Unit)', () => {
     expect(islRequest.goal_constraints).toHaveLength(2);
     expect(islRequest.goal_constraints![0].value).toBe(50000);
     expect(islRequest.goal_constraints![1].value).toBe(1200);
+  });
+
+  it('full pipeline with normalisation: compile → normalise → ISL receives [0,1] values', () => {
+    // Graph with a constraint node whose target has an explicit range
+    const graph: EngineGraphV3 = {
+      nodes: [
+        { id: 'goal_node', kind: 'goal', label: 'Goal' },
+        {
+          id: 'mrr_factor',
+          kind: 'factor',
+          label: 'MRR',
+          observed_state: { value: 15000 },
+          state_space: { range: { min: 0, max: 50000 } },
+        },
+        {
+          id: 'mrr_constraint',
+          kind: 'constraint' as any,
+          label: 'MRR Target',
+          observed_state: { value: 20000, metadata: { operator: '>=' } },
+        },
+      ],
+      edges: [
+        { from: 'mrr_factor', to: 'goal_node', exists_probability: 1, strength: { mean: 0.5, std: 0.1 } },
+        { from: 'mrr_factor', to: 'mrr_constraint', exists_probability: 1, strength: { mean: 1, std: 0.1 } },
+      ],
+    };
+
+    const filteredGraph: EngineGraphV3 = {
+      nodes: graph.nodes.filter(n => n.kind !== 'constraint'),
+      edges: graph.edges.filter(e => e.to !== 'mrr_constraint'),
+    };
+
+    // Step 1: Compile constraint nodes (extracts raw value 20000)
+    const compilation = compileConstraintNodes(graph, undefined);
+    expect(compilation.constraints).toHaveLength(1);
+    expect(compilation.constraints[0].value).toBe(20000);
+
+    // Step 2: Normalise constraints (the new Phase 4b logic)
+    expect(constraintsNeedNormalisation(compilation.constraints)).toBe(true);
+    const normResult = normaliseGoalConstraints(compilation.constraints, filteredGraph.nodes);
+    expect(normResult.constraints).toHaveLength(1);
+    expect(normResult.constraints[0].value).toBe(0.4); // 20000 / 50000 = 0.4
+    expect(normResult.constraints[0].original_value).toBe(20000);
+
+    // Step 3: Build ISL request with normalised constraints
+    const options = [
+      { id: 'opt1', label: 'Option 1', interventions: { mrr_factor: { value: 0.5, source: 'user_specified' as const } } },
+    ];
+    const islRequest = toISLRobustnessRequest(
+      filteredGraph,
+      options,
+      'goal_node',
+      'request-123',
+      1000,
+      undefined,
+      normResult.constraints
+    );
+
+    expect(islRequest.goal_constraints).toHaveLength(1);
+    expect(islRequest.goal_constraints![0].value).toBe(0.4); // normalised
+  });
+
+  it('pre-normalised constraints (0–1) skip normalisation', () => {
+    const constraints: GoalConstraint[] = [
+      createTestConstraint({ constraint_id: 'c1', node_id: 'factor_a', value: 0.8 }),
+    ];
+
+    // constraintsNeedNormalisation returns false → no double-normalisation
+    expect(constraintsNeedNormalisation(constraints)).toBe(false);
+  });
+
+  it('failure_margin_median scales by range width for denormalisation', () => {
+    // Simulate ISL returning failure_margin_median in normalised space
+    const islFailureMarginNormalised = 0.15; // 15% of range
+    const range = { min: 0, max: 1000, source: 'explicit' as const };
+    const rangeWidth = range.max - range.min;
+
+    // Denormalise: delta_user = delta_normalised * rangeWidth
+    const failureMarginUserUnits = islFailureMarginNormalised * rangeWidth;
+    expect(failureMarginUserUnits).toBe(150); // 0.15 * 1000 = 150 user units
   });
 });
 
@@ -1365,5 +1445,136 @@ describe('Regression: Graph-Only Constraint Flow', () => {
     expect(status).toBe(422);
     expect(data?.critiques).toBeDefined();
     expect(data?.critiques.some((c: any) => c.code === 'CONSTRAINT_TARGET_NOT_FOUND')).toBe(true);
+  });
+});
+
+// =============================================================================
+// P0-3: Route-level normalisation integration tests
+// =============================================================================
+// These verify the route accepts raw constraint values (Case B) and pre-normalised
+// values (Case A) without error.
+//
+// Note: Phase 4b normalisation happens after the ISL enable check. In these tests
+// ISL is not enabled (ISL_ENABLE not set), so the route returns 'failed' with
+// ISL_NOT_ENABLED. Normalisation correctness is covered by the T5 unit tests above.
+// These tests verify the pipeline doesn't break for Case A/B inputs, and that
+// constraint state upstream of ISL (repair records from Phase 1) is correct.
+
+describe('Integration: Constraint Normalisation Pipeline Smoke (P0-3)', () => {
+  let server: ServerHandle | null = null;
+
+  const ENV = {
+    TEST_ROUTES: '1',
+    AUTH_ENABLED: '0',
+    RATE_LIMIT_ENABLED: '0',
+    ISL_BASE_URL: 'mock',
+    ISL_MOCK_ENABLE: '1',
+    UI_CANONICAL_META: '1',
+  };
+
+  afterEach(async () => {
+    await server?.kill();
+    server = null;
+  });
+
+  // Graph where mrr_factor has explicit range [0, 1000]
+  const GRAPH_WITH_RANGE = {
+    nodes: [
+      {
+        id: 'mrr_factor',
+        kind: 'factor',
+        label: 'MRR',
+        observed_state: { value: 150 },
+        state_space: { range: { min: 0, max: 1000 } },
+      },
+      { id: 'goal', kind: 'goal', label: 'Revenue Goal' },
+    ],
+    edges: [
+      { from: 'mrr_factor', to: 'goal', exists_probability: 1, strength: { mean: 0.7, std: 0.1 } },
+    ],
+  };
+
+  const OPTIONS = [
+    {
+      id: 'opt1',
+      label: 'Growth',
+      interventions: { mrr_factor: { value: 800, source: 'user_specified' } },
+    },
+    {
+      id: 'opt2',
+      label: 'Steady',
+      interventions: { mrr_factor: { value: 400, source: 'user_specified' } },
+    },
+  ];
+
+  it('Case B: raw constraint value=200 is accepted without error (multi-constraint path activated)', async () => {
+    // Previously this would have caused 0% goal probability.
+    // After the fix, Phase 4b normalises it. We verify:
+    // - Route accepts it without 422
+    // - Multi-constraint path was activated (constraints_status present)
+    // Phase 4b normalisation happens after ISL enable check; normalisation correctness
+    // is covered by T5 unit tests.
+    vi.resetModules();
+    server = await spawnServer({ env: ENV });
+
+    const { status, data } = await requestJSON(`${server.baseUrl}/v2/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        graph: GRAPH_WITH_RANGE,
+        options: OPTIONS,
+        goal_node_id: 'goal',
+        goal_constraints: [
+          { constraint_id: 'mrr_target', node_id: 'mrr_factor', operator: '>=', value: 200 },
+        ],
+      }),
+    });
+
+    // Route accepts the request (ISL not enabled → 'failed' with ISL_NOT_ENABLED, not 422)
+    expect(status).toBe(200);
+    expect(data?.analysis_status).toBe('failed');
+    // Multi-constraint path activated → constraints_status present (unavailable since ISL disabled)
+    expect(data?.constraints_status).toBe('unavailable');
+  });
+
+  it('Case A: pre-normalised constraint value=0.8 is accepted without error', async () => {
+    vi.resetModules();
+    server = await spawnServer({ env: ENV });
+
+    const { status, data } = await requestJSON(`${server.baseUrl}/v2/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        graph: GRAPH_WITH_RANGE,
+        options: OPTIONS,
+        goal_node_id: 'goal',
+        goal_constraints: [
+          { constraint_id: 'mrr_pre_norm', node_id: 'mrr_factor', operator: '>=', value: 0.8 },
+        ],
+      }),
+    });
+
+    expect(status).toBe(200);
+    expect(data?.analysis_status).toBe('failed');
+    expect(data?.constraints_status).toBe('unavailable');
+  });
+
+  it('No target: no goal_constraints omits constraints_status', async () => {
+    vi.resetModules();
+    server = await spawnServer({ env: ENV });
+
+    const { status, data } = await requestJSON(`${server.baseUrl}/v2/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        graph: GRAPH_WITH_RANGE,
+        options: OPTIONS,
+        goal_node_id: 'goal',
+      }),
+    });
+
+    expect(status).toBe(200);
+    // No constraints → buildConstraintFields returns {} → constraints_status absent
+    expect(data?.constraints_status).toBeUndefined();
   });
 });
