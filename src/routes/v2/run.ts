@@ -123,6 +123,7 @@ import type { IdentifiabilityAssessment } from '../../types/engine-v3.js';
 import {
   normaliseOptionsForISL,
   denormaliseISLResult,
+  denormaliseValue,
   needsNormalisation,
   normaliseGoalConstraints,
   constraintsNeedNormalisation,
@@ -278,19 +279,46 @@ function normaliseRepairsForMeta(repairs: RepairRecord[]): RepairRecord[] {
  * Edge ID format: `from::to` (double-colon separator)
  * @see docs/UI_Handoff_PLoT_v1.md for format specification
  */
-function transformEdgeSensitivity(islSensitivity: unknown, nodeLabelMap?: Map<string, string>): EdgeSensitivityResultV3[] {
+function transformEdgeSensitivity(
+  islSensitivity: unknown,
+  nodeLabelMap?: Map<string, string>,
+  normContext?: NormalisationContext,
+): EdgeSensitivityResultV3[] {
   if (!hasNonEmptyArray(islSensitivity)) return [];
-  return (islSensitivity as any[]).map((s: any) => ({
-    edge_id: `${s.edge_from}::${s.edge_to}`,  // Double-colon separator (canonical format)
-    from: s.edge_from,
-    to: s.edge_to,
-    from_label: nodeLabelMap?.get(s.edge_from) ?? s.edge_from,
-    to_label: nodeLabelMap?.get(s.edge_to) ?? s.edge_to,
-    sensitivity_type: s.sensitivity_type as 'existence' | 'magnitude',
-    elasticity: s.elasticity,
-    importance_rank: s.importance_rank,
-    interpretation: s.interpretation,
-  }));
+  const goalRange = normContext?.goal_context?.range;
+
+  return (islSensitivity as any[]).map((s: any) => {
+    let elasticity = s.elasticity;
+    let elasticityNormalised: boolean | undefined;
+
+    // Denormalise elasticity when normalisation was active.
+    // Edge elasticity = ∂(goal outcome) / ∂(edge parameter). Edge parameters
+    // (strength, exists_probability) are dimensionless [0,1] — they are NOT scaled
+    // by intervention normalisation. Only the output (goal outcome) needs rescaling.
+    if (normContext && goalRange && typeof elasticity === 'number') {
+      const goalWidth = goalRange.max - goalRange.min;
+      if (goalWidth > 0) {
+        elasticity = elasticity * goalWidth;
+      }
+    } else if (normContext && typeof elasticity === 'number') {
+      // normContext exists (normalisation was active) but goal range unavailable —
+      // value remains in normalised space; flag for consumers.
+      elasticityNormalised = true;
+    }
+
+    return {
+      edge_id: `${s.edge_from}::${s.edge_to}`,  // Double-colon separator (canonical format)
+      from: s.edge_from,
+      to: s.edge_to,
+      from_label: nodeLabelMap?.get(s.edge_from) ?? s.edge_from,
+      to_label: nodeLabelMap?.get(s.edge_to) ?? s.edge_to,
+      sensitivity_type: s.sensitivity_type as 'existence' | 'magnitude',
+      elasticity,
+      ...(elasticityNormalised !== undefined && { _normalised: elasticityNormalised }),
+      importance_rank: s.importance_rank,
+      interpretation: s.interpretation,
+    };
+  });
 }
 
 /**
@@ -301,8 +329,11 @@ function transformEdgeSensitivity(islSensitivity: unknown, nodeLabelMap?: Map<st
 function transformEdgeEValues(
   islEdgeEValues: ISLEdgeEValue[] | undefined,
   nodeLabelMap?: Map<string, string>,
+  normContext?: NormalisationContext,
 ): EnrichedEdgeEValue[] | undefined {
   if (!islEdgeEValues || islEdgeEValues.length === 0) return undefined;
+  const goalRange = normContext?.goal_context?.range;
+
   return islEdgeEValues.map(e => {
     // Parse ISL edge_id ("from->to" or "from::to") to get node IDs.
     // Fallback: if neither separator found, use entire edge_id as both from and to
@@ -317,6 +348,24 @@ function transformEdgeEValues(
       fromId = e.edge_id;
       toId = e.edge_id;
     }
+
+    // current_mean and flip_mean are edge effects in outcome space — denormalise
+    // using goal node range when normalisation was active.
+    let currentMean = e.current_mean;
+    let flipMean = e.flip_mean;
+    let eValueNormalised: boolean | undefined;
+    if (normContext && goalRange) {
+      if (typeof currentMean === 'number') {
+        currentMean = denormaliseValue(currentMean, goalRange);
+      }
+      if (typeof flipMean === 'number') {
+        flipMean = denormaliseValue(flipMean, goalRange);
+      }
+    } else if (normContext) {
+      // Normalisation was active but goal range unavailable — flag
+      eValueNormalised = true;
+    }
+
     return {
       edge_id: `${fromId}::${toId}`,
       from_id: fromId,
@@ -325,8 +374,9 @@ function transformEdgeEValues(
       to_label: nodeLabelMap?.get(toId) ?? toId,
       e_value: e.e_value,
       flip_direction: e.flip_direction,
-      current_mean: e.current_mean,
-      flip_mean: e.flip_mean,
+      current_mean: currentMean,
+      flip_mean: flipMean,
+      ...(eValueNormalised !== undefined && { _normalised: eValueNormalised }),
     };
   });
 }
@@ -340,39 +390,65 @@ function transformConditionalWinners(
   islConditionalWinners: ISLConditionalWinner[] | undefined,
   nodeLabelMap?: Map<string, string>,
   optionLabelMap?: Map<string, string>,
+  normContext?: NormalisationContext,
 ): ConditionalWinner[] | undefined {
   if (!islConditionalWinners || islConditionalWinners.length === 0) return undefined;
+  const goalRange = normContext?.goal_context?.range;
 
   const resolveOptionLabel = (id: string): string => optionLabelMap?.get(id) ?? id;
   const resolveNodeLabel = (id: string): string => nodeLabelMap?.get(id) ?? id;
 
-  return islConditionalWinners.map(cw => ({
-    factor_id: cw.factor_id,
-    factor_label: cw.factor_label ?? resolveNodeLabel(cw.factor_id),
-    split_value: cw.split_value,
-    ...(cw.split_unit !== undefined && { split_unit: cw.split_unit }),
-    low_bucket: {
-      winner_id: cw.low_bucket.winner_id,
-      winner_label: resolveOptionLabel(cw.low_bucket.winner_id),
-      ...(cw.low_bucket.runner_up_id !== undefined && {
-        runner_up_id: cw.low_bucket.runner_up_id,
-        runner_up_label: resolveOptionLabel(cw.low_bucket.runner_up_id!),
-      }),
-      win_probability: cw.low_bucket.win_probability,
-      ...(cw.low_bucket.mean_outcome !== undefined && { mean_outcome: cw.low_bucket.mean_outcome }),
-    },
-    high_bucket: {
-      winner_id: cw.high_bucket.winner_id,
-      winner_label: resolveOptionLabel(cw.high_bucket.winner_id),
-      ...(cw.high_bucket.runner_up_id !== undefined && {
-        runner_up_id: cw.high_bucket.runner_up_id,
-        runner_up_label: resolveOptionLabel(cw.high_bucket.runner_up_id!),
-      }),
-      win_probability: cw.high_bucket.win_probability,
-      ...(cw.high_bucket.mean_outcome !== undefined && { mean_outcome: cw.high_bucket.mean_outcome }),
-    },
-    winner_flips: cw.winner_flips,
-  }));
+  return islConditionalWinners.map(cw => {
+    // split_value is in the factor's units — denormalise using factor range
+    let splitValue = cw.split_value;
+    let cwNormalised: boolean | undefined;
+    if (normContext && typeof splitValue === 'number') {
+      const factorRange = normContext.factors.get(cw.factor_id)?.range;
+      if (factorRange) {
+        splitValue = denormaliseValue(splitValue, factorRange);
+      } else {
+        // Factor range unavailable — split_value remains normalised
+        cwNormalised = true;
+      }
+    }
+
+    // mean_outcome is in goal node units — denormalise using goal range
+    if (normContext && !goalRange) cwNormalised = true; // goal range missing → can't denorm outcomes
+    const denormMeanOutcome = (val: number | undefined): number | undefined => {
+      if (val === undefined || !goalRange) return val;
+      return denormaliseValue(val, goalRange);
+    };
+
+    const result: ConditionalWinner = {
+      factor_id: cw.factor_id,
+      factor_label: cw.factor_label ?? resolveNodeLabel(cw.factor_id),
+      split_value: splitValue,
+      ...(cw.split_unit !== undefined && { split_unit: cw.split_unit }),
+      low_bucket: {
+        winner_id: cw.low_bucket.winner_id,
+        winner_label: resolveOptionLabel(cw.low_bucket.winner_id),
+        ...(cw.low_bucket.runner_up_id !== undefined && {
+          runner_up_id: cw.low_bucket.runner_up_id,
+          runner_up_label: resolveOptionLabel(cw.low_bucket.runner_up_id!),
+        }),
+        win_probability: cw.low_bucket.win_probability,
+        ...(cw.low_bucket.mean_outcome !== undefined && { mean_outcome: denormMeanOutcome(cw.low_bucket.mean_outcome) }),
+      },
+      high_bucket: {
+        winner_id: cw.high_bucket.winner_id,
+        winner_label: resolveOptionLabel(cw.high_bucket.winner_id),
+        ...(cw.high_bucket.runner_up_id !== undefined && {
+          runner_up_id: cw.high_bucket.runner_up_id,
+          runner_up_label: resolveOptionLabel(cw.high_bucket.runner_up_id!),
+        }),
+        win_probability: cw.high_bucket.win_probability,
+        ...(cw.high_bucket.mean_outcome !== undefined && { mean_outcome: denormMeanOutcome(cw.high_bucket.mean_outcome) }),
+      },
+      winner_flips: cw.winner_flips,
+    };
+    if (cwNormalised) result._normalised = true;
+    return result;
+  });
 }
 
 /**
@@ -382,9 +458,9 @@ function transformConditionalWinners(
  * Field mapping: ISL uses node_id, PLoT uses factor_id.
  * All other fields are preserved verbatim for forward compatibility.
  */
-function mapIslFactorEntry(f: any): FactorSensitivityResultV3 {
+function mapIslFactorEntry(f: any, normContext?: NormalisationContext): FactorSensitivityResultV3 {
   // Schema v2.6 canonical field is 'sensitivity_score'; legacy used 'sensitivity'
-  const sensitivityValue = f.sensitivity_score ?? f.sensitivity;
+  let sensitivityValue = f.sensitivity_score ?? f.sensitivity;
 
   // Defensive logging: warn if no numeric sensitivity value found
   if (sensitivityValue === undefined) {
@@ -395,11 +471,46 @@ function mapIslFactorEntry(f: any): FactorSensitivityResultV3 {
     }));
   }
 
+  const factorId: string = f.node_id ?? f.factor_id;
+
+  // Denormalise sensitivity_score and elasticity_std when normalisation was active.
+  // sensitivity_score is an elasticity-like measure (Δoutcome / Δfactor); scale by
+  // goalRangeWidth / factorRangeWidth. elasticity_std is a spread measure; same scaling.
+  let elasticityStd: number | undefined = f.elasticity_std;
+  let sensitivityNormalised: boolean | undefined;
+  const goalRange = normContext?.goal_context?.range;
+  if (normContext && goalRange) {
+    const factorRange = normContext.factors.get(factorId)?.range;
+    if (factorRange) {
+      const goalWidth = goalRange.max - goalRange.min;
+      const factorWidth = factorRange.max - factorRange.min;
+      if (factorWidth > 0) {
+        const scale = goalWidth / factorWidth;
+        if (typeof sensitivityValue === 'number') {
+          sensitivityValue = sensitivityValue * scale;
+        }
+        if (typeof elasticityStd === 'number') {
+          elasticityStd = elasticityStd * scale;
+        }
+      } else {
+        // Zero-width factor range — cannot denormalise; flag for consumers
+        sensitivityNormalised = true;
+      }
+    } else {
+      // normContext exists (normalisation was active) but factor range unavailable —
+      // value remains in normalised space; flag for consumers.
+      sensitivityNormalised = true;
+    }
+  } else if (normContext && !goalRange) {
+    // Goal range unavailable — cannot denormalise
+    sensitivityNormalised = true;
+  }
+
   // IMPORTANT: Do NOT default missing values to 0.
   // Missing data means "we couldn't compute influence" which is semantically
   // different from "this factor has zero influence". Let undefined pass through.
   const entry: FactorSensitivityResultV3 = {
-    factor_id: f.node_id ?? f.factor_id,
+    factor_id: factorId,
     factor_label: f.label ?? null,
     influence_score: f.influence_score ?? null,
     influence_rank: f.influence_rank ?? null,
@@ -408,6 +519,9 @@ function mapIslFactorEntry(f: any): FactorSensitivityResultV3 {
     direction: (f.direction as 'positive' | 'negative' | 'mixed' | 'unknown') ?? null,
     importance_rank: f.importance_rank ?? null,
     interpretation: f.interpretation ?? null,
+    // VOI is a dimensionless decision-readiness score (EVPI proxy, clamped [0,1]).
+    // It does NOT require denormalisation — it measures "how valuable would perfect
+    // information about this factor be" as a normalised fraction, not outcome-space units.
     value_of_information: f.value_of_information ?? null,
     confidence: f.confidence ?? f.value_of_information ?? null,
     zero_reason: f.zero_reason ?? null,
@@ -415,10 +529,13 @@ function mapIslFactorEntry(f: any): FactorSensitivityResultV3 {
   };
 
   // 3C stability fields — carry through when ISL provides them
-  if (f.elasticity_std !== undefined) entry.elasticity_std = f.elasticity_std;
+  if (elasticityStd !== undefined) entry.elasticity_std = elasticityStd;
   if (f.attribution_stability !== undefined) entry.attribution_stability = f.attribution_stability;
   if (f.rank_flip_rate !== undefined) entry.rank_flip_rate = f.rank_flip_rate;
   if (f.stability_method !== undefined) entry.stability_method = f.stability_method;
+
+  // Flag when normalisation was active but ranges unavailable for denorm
+  if (sensitivityNormalised) entry._normalised = true;
 
   return entry;
 }
@@ -428,10 +545,10 @@ function mapIslFactorEntry(f: any): FactorSensitivityResultV3 {
  * Filters out intervention_override entries (decision levers, not uncertainty drivers).
  * Returns undefined if input is not a non-empty array.
  */
-function transformFactorSensitivity(islFactorSensitivity: unknown): FactorSensitivityResultV3[] | undefined {
+function transformFactorSensitivity(islFactorSensitivity: unknown, normContext?: NormalisationContext): FactorSensitivityResultV3[] | undefined {
   if (!hasNonEmptyArray(islFactorSensitivity)) return undefined;
   const filtered = filterInterventionOverrides(islFactorSensitivity as any[]);
-  return filtered.map(mapIslFactorEntry);
+  return filtered.map(f => mapIslFactorEntry(f, normContext));
 }
 
 /**
@@ -440,9 +557,9 @@ function transformFactorSensitivity(islFactorSensitivity: unknown): FactorSensit
  * zero_reason='intervention_override' still carry valid attribution_stability
  * from ISL bootstrap that should feed into unified confidence computation.
  */
-function transformFactorSensitivityUnfiltered(islFactorSensitivity: unknown): FactorSensitivityResultV3[] | undefined {
+function transformFactorSensitivityUnfiltered(islFactorSensitivity: unknown, normContext?: NormalisationContext): FactorSensitivityResultV3[] | undefined {
   if (!hasNonEmptyArray(islFactorSensitivity)) return undefined;
-  return (islFactorSensitivity as any[]).map(mapIslFactorEntry);
+  return (islFactorSensitivity as any[]).map(f => mapIslFactorEntry(f, normContext));
 }
 
 /**
@@ -3509,16 +3626,17 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
 
         // Transform sensitivity arrays FIRST - these are the final arrays that will be returned
         // Status check must use the SAME arrays to prevent status/response misalignment
-        const edgeSensitivity = transformEdgeSensitivity(islResult.sensitivity, earlyNodeLabelMap);
+        const edgeSensitivity = transformEdgeSensitivity(islResult.sensitivity, earlyNodeLabelMap, normalisationContext);
 
         // Transform ISL edge_e_values (when present) with label enrichment
-        const edgeEValues = transformEdgeEValues(islResult.edge_e_values, earlyNodeLabelMap);
+        const edgeEValues = transformEdgeEValues(islResult.edge_e_values, earlyNodeLabelMap, normalisationContext);
 
         // Transform ISL conditional_winners (when present) with label enrichment
         const conditionalWinners = transformConditionalWinners(
           islResult.conditional_winners,
           earlyNodeLabelMap,
           earlyOptionLabelMap,
+          normalisationContext,
         );
 
         // Factor sensitivity: Graph-based is PRIMARY, ISL is FALLBACK
@@ -3532,14 +3650,14 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           body.goal_node_id,
           fragileEdgesForVoi
         );
-        const islFactorSensitivity = transformFactorSensitivity(islResult.factor_sensitivity);
+        const islFactorSensitivity = transformFactorSensitivity(islResult.factor_sensitivity, normalisationContext);
 
         // Transform ISL entries WITHOUT filtering intervention_overrides, so that
         // attribution_stability data from controllable factors is available for the
         // confidence merge even though those factors are excluded from sensitivity output.
         // Without this, filterInterventionOverrides strips entries whose bootstrap data
         // would produce differentiated confidence values (e.g., "negligible" → 0.25).
-        const islFactorSensitivityUnfiltered = transformFactorSensitivityUnfiltered(islResult.factor_sensitivity);
+        const islFactorSensitivityUnfiltered = transformFactorSensitivityUnfiltered(islResult.factor_sensitivity, normalisationContext);
 
         // Graph-based is primary for influence/sensitivity scores.
         // When graph results exist, merge ISL attribution_stability into graph entries

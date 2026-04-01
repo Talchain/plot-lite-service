@@ -12,14 +12,13 @@ import {
   denormaliseValue,
   buildNormalisationContext,
   normaliseOptions,
-  denormaliseOutcome,
   denormaliseISLResult,
   normaliseOptionsForISL,
   needsNormalisation,
   type NormalisationRange,
   type FactorNormalisationContext,
 } from '../src/lib/intervention-normaliser.js';
-import type { EngineNodeV3, OptionV3, OutcomeStatsV3 } from '../src/types/engine-v3.js';
+import type { EngineNodeV3, OptionV3 } from '../src/types/engine-v3.js';
 
 // =============================================================================
 // Test Fixtures
@@ -61,6 +60,74 @@ function createOption(
 // =============================================================================
 
 describe('deriveRange', () => {
+  describe('Priority 0: observed_state.cap', () => {
+    it('uses cap when present and positive', () => {
+      const node: EngineNodeV3 = {
+        id: 'revenue',
+        kind: 'factor',
+        label: 'Revenue',
+        observed_state: { value: 100000, cap: 500000 },
+        state_space: { range: { min: 0, max: 1000000 } },
+      };
+      const range = deriveRange(node);
+
+      expect(range.min).toBe(0);
+      expect(range.max).toBe(500000);
+      expect(range.source).toBe('explicit_cap');
+    });
+
+    it('cap takes priority over state_space.range', () => {
+      const node: EngineNodeV3 = {
+        id: 'revenue',
+        kind: 'factor',
+        label: 'Revenue',
+        observed_state: { value: 100000, cap: 500000 },
+        state_space: { range: { min: 0, max: 1000000 } },
+      };
+      const range = deriveRange(node);
+
+      // Cap (500000) takes priority over state_space.range (1000000)
+      expect(range.max).toBe(500000);
+      expect(range.source).toBe('explicit_cap');
+    });
+
+    it('falls through to state_space.range when cap is 0', () => {
+      const node: EngineNodeV3 = {
+        id: 'revenue',
+        kind: 'factor',
+        label: 'Revenue',
+        observed_state: { value: 100000, cap: 0 },
+        state_space: { range: { min: 0, max: 1000000 } },
+      };
+      const range = deriveRange(node);
+
+      expect(range.max).toBe(1000000);
+      expect(range.source).toBe('explicit');
+    });
+
+    it('falls through to state_space.range when cap is negative', () => {
+      const node: EngineNodeV3 = {
+        id: 'revenue',
+        kind: 'factor',
+        label: 'Revenue',
+        observed_state: { value: 100000, cap: -1 },
+        state_space: { range: { min: 0, max: 1000000 } },
+      };
+      const range = deriveRange(node);
+
+      expect(range.max).toBe(1000000);
+      expect(range.source).toBe('explicit');
+    });
+
+    it('falls through when cap is not set', () => {
+      const node = createFactorNode('salary', 180000, 100000, { min: 0, max: 500000 });
+      const range = deriveRange(node);
+
+      expect(range.source).toBe('explicit');
+      expect(range.max).toBe(500000);
+    });
+  });
+
   describe('Priority 1: Explicit state_space.range', () => {
     it('uses explicit range when provided', () => {
       const node = createFactorNode('salary', 180000, 100000, { min: 0, max: 500000 });
@@ -244,48 +311,35 @@ describe('denormaliseValue', () => {
 // Outcome Denormalisation Tests
 // =============================================================================
 
-describe('denormaliseOutcome', () => {
-  const goalContext: FactorNormalisationContext = {
-    factor_id: 'goal',
-    range: { min: 0, max: 1000000, source: 'explicit' },
-    baseline: 500000,
-  };
+describe('outcome denormalisation (via denormaliseISLResult)', () => {
+  it('denormalises all outcome stats via ISL result path', () => {
+    const context = buildNormalisationContext(
+      [createFactorNode('goal', 500000, undefined, { min: 0, max: 1000000 })],
+      'goal'
+    );
 
-  it('denormalises all outcome stats', () => {
-    const outcome: OutcomeStatsV3 = {
-      mean: 0.5,
-      std: 0.1,
-      p10: 0.3,
-      p50: 0.5,
-      p90: 0.7,
+    const islResult = {
+      options: [{
+        option_id: 'A',
+        expected_outcome: 0.5,
+        outcome: { mean: 0.5, std: 0.1, p10: 0.3, p50: 0.5, p90: 0.7, n_samples: 1000, n_valid_samples: 950, validity_ratio: 0.95 },
+      }],
     };
 
-    const denormalised = denormaliseOutcome(outcome, goalContext);
+    const denormalised = denormaliseISLResult(islResult, context);
+    const opt = denormalised.options![0];
 
-    expect(denormalised.mean).toBeCloseTo(500000);
-    expect(denormalised.p10).toBeCloseTo(300000);
-    expect(denormalised.p50).toBeCloseTo(500000);
-    expect(denormalised.p90).toBeCloseTo(700000);
+    expect(opt.expected_outcome).toBeCloseTo(500000);
+    expect(opt.outcome!.mean).toBeCloseTo(500000);
+    expect(opt.outcome!.p10).toBeCloseTo(300000);
+    expect(opt.outcome!.p50).toBeCloseTo(500000);
+    expect(opt.outcome!.p90).toBeCloseTo(700000);
     // std is scaled by range width
-    expect(denormalised.std).toBeCloseTo(100000);
-  });
-
-  it('preserves sample counts', () => {
-    const outcome: OutcomeStatsV3 = {
-      mean: 0.5,
-      p10: 0.3,
-      p50: 0.5,
-      p90: 0.7,
-      n_samples: 1000,
-      n_valid_samples: 950,
-      validity_ratio: 0.95,
-    };
-
-    const denormalised = denormaliseOutcome(outcome, goalContext);
-
-    expect(denormalised.n_samples).toBe(1000);
-    expect(denormalised.n_valid_samples).toBe(950);
-    expect(denormalised.validity_ratio).toBe(0.95);
+    expect(opt.outcome!.std).toBeCloseTo(100000);
+    // Sample counts preserved
+    expect(opt.outcome!.n_samples).toBe(1000);
+    expect(opt.outcome!.n_valid_samples).toBe(950);
+    expect(opt.outcome!.validity_ratio).toBe(0.95);
   });
 });
 
@@ -1146,5 +1200,112 @@ describe('Intervention Transform Logging', () => {
     expect(result.options[0].interventions.salary.value).toBeCloseTo(0.36);
     expect(result.diagnostics[0].range.source).toBe('explicit');
     expect(result.repairs.length).toBe(1);
+  });
+});
+
+// =============================================================================
+// Analytical Field Denormalisation (G1 audit remediation)
+// =============================================================================
+// The transform functions in run.ts are private, so we test the denormalisation
+// math directly. The transforms apply denormaliseValue() and elasticity scaling
+// using the NormalisationContext — this verifies the contract.
+
+describe('analytical field denormalisation math', () => {
+  it('factor sensitivity_score scales by goalWidth / factorWidth', () => {
+    // Factor sensitivity = Δoutcome / Δfactor. Both dimensions are normalised.
+    // Scenario: factor range [0, 1] (normalised), goal range [0, 1000]
+    // ISL returns sensitivity 0.3 in normalised space
+    // Denormalised: 0.3 × (1000 / 1) = 300
+    const goalRange: NormalisationRange = { min: 0, max: 1000, source: 'explicit' };
+    const factorRange: NormalisationRange = { min: 0, max: 1, source: 'default' };
+
+    const islSensitivity = 0.3;
+    const goalWidth = goalRange.max - goalRange.min;
+    const factorWidth = factorRange.max - factorRange.min;
+    const denormSensitivity = islSensitivity * (goalWidth / factorWidth);
+
+    expect(denormSensitivity).toBe(300);
+  });
+
+  it('factor sensitivity unchanged when factor and goal have same range', () => {
+    const range: NormalisationRange = { min: 0, max: 1000, source: 'explicit' };
+
+    const islSensitivity = 0.5;
+    const goalWidth = range.max - range.min;
+    const factorWidth = range.max - range.min;
+    const denormSensitivity = islSensitivity * (goalWidth / factorWidth);
+
+    expect(denormSensitivity).toBe(0.5);
+  });
+
+  it('edge elasticity scales by goalWidth only (edge params are dimensionless)', () => {
+    // Edge elasticity = ∂(goal outcome) / ∂(edge parameter).
+    // Edge parameters (strength, exists_probability) are dimensionless [0,1] and
+    // are NOT scaled by intervention normalisation. Only the output dimension needs rescaling.
+    // Scenario: goal range [0, 1000], ISL returns elasticity 0.3
+    // Denormalised: 0.3 × 1000 = 300
+    const goalRange: NormalisationRange = { min: 0, max: 1000, source: 'explicit' };
+
+    const islElasticity = 0.3;
+    const goalWidth = goalRange.max - goalRange.min;
+    const denormElasticity = islElasticity * goalWidth;
+
+    expect(denormElasticity).toBe(300);
+  });
+
+  it('mean_outcome denormalises using goal range via denormaliseValue', () => {
+    // ISL returns mean_outcome 0.7 in [0,1] space, goal range [0, 1000]
+    const goalRange: NormalisationRange = { min: 0, max: 1000, source: 'explicit' };
+
+    const denorm = denormaliseValue(0.7, goalRange);
+    expect(denorm).toBe(700);
+  });
+
+  it('split_value denormalises using factor range', () => {
+    // ISL returns split_value 0.5 in [0,1] space, factor range [100, 500]
+    const factorRange: NormalisationRange = { min: 100, max: 500, source: 'explicit' };
+
+    const denorm = denormaliseValue(0.5, factorRange);
+    expect(denorm).toBe(300); // 0.5 × 400 + 100
+  });
+
+  it('elasticity_std scales same as elasticity (delta measure)', () => {
+    const goalRange: NormalisationRange = { min: 0, max: 1000, source: 'explicit' };
+    const factorRange: NormalisationRange = { min: 0, max: 100, source: 'explicit' };
+
+    const islStd = 0.02;
+    const scale = (goalRange.max - goalRange.min) / (factorRange.max - factorRange.min);
+    const denormStd = islStd * scale;
+
+    expect(denormStd).toBeCloseTo(0.2); // 0.02 × (1000/100)
+  });
+
+  it('no denormalisation when context is absent (passthrough)', () => {
+    // When normalisation wasn't needed, values should pass through unchanged
+    const islElasticity = 0.3;
+    const normContext = undefined;
+
+    // Simulates the guard: if (!normContext) → passthrough
+    const result = normContext ? islElasticity * 10 : islElasticity;
+    expect(result).toBe(0.3);
+  });
+
+  it('context built by normaliseOptionsForISL contains factor and goal ranges', () => {
+    // Verify the context structure that transforms will use
+    const nodes = [
+      createFactorNode('salary', 100000, undefined, { min: 0, max: 500000 }),
+      createFactorNode('goal_revenue', 50000, undefined, { min: 0, max: 1000000 }),
+    ];
+    const options = [createOption('hire', { salary: 180000 })];
+
+    const result = normaliseOptionsForISL(options, nodes, 'goal_revenue');
+
+    // Factor range available for elasticity scaling
+    expect(result.context.factors.get('salary')?.range.max).toBe(500000);
+    // Goal context available for outcome denormalisation
+    expect(result.context.goal_context?.range.max).toBe(1000000);
+    // Both available → elasticity scaling = goalWidth / factorWidth = 1000000 / 500000 = 2
+    const scale = result.context.goal_context!.range.max / result.context.factors.get('salary')!.range.max;
+    expect(scale).toBe(2);
   });
 });

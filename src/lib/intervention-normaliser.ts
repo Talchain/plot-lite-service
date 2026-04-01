@@ -21,9 +21,9 @@ import type { EngineNodeV3, OptionV3, InterventionValueV3, OutcomeStatsV3, Repai
 
 /**
  * Range source for normalisation.
- * Priority order: explicit > extracted > inferred_spread > inferred_baseline > inferred_value > default
+ * Priority order: explicit_cap > explicit > extracted > inferred_spread > inferred_baseline > inferred_value > default
  */
-export type RangeSource = 'explicit' | 'extracted' | 'inferred_spread' | 'inferred_baseline' | 'inferred_value' | 'default';
+export type RangeSource = 'explicit_cap' | 'explicit' | 'extracted' | 'inferred_spread' | 'inferred_baseline' | 'inferred_value' | 'default';
 
 /**
  * Range for normalisation.
@@ -122,10 +122,12 @@ function isValidExtractedRange(range: [number, number] | undefined): range is [n
 /**
  * Derive normalisation range for a factor node.
  *
- * 6-tier priority chain (per Schema v2.6 §B.8):
+ * 7-tier priority chain (per Schema v2.6 §B.8, extended):
  *
  * | Priority | Source label       | Formula / Rule                                            |
  * |----------|--------------------|-----------------------------------------------------------|
+ * | 0        | `explicit_cap`     | `observed_state.cap` (CEE-set authoritative scale cap).   |
+ * |          |                    | Range: [0, cap]. Requires cap > 0.                       |
  * | 1        | `explicit`         | `state_space.range` (user-confirmed). Requires max > min. |
  * | 1.5      | `extracted`        | `intervention_hints.extracted_range` from CE extraction.  |
  * | 1.75     | `inferred_spread`  | min/max of intervention values across options + 20%       |
@@ -148,6 +150,14 @@ export function deriveRange(
 ): NormalisationRange {
   const stateSpace = node.state_space;
   const observedState = node.observed_state;
+
+  // Priority 0: Explicit cap from observed_state
+  // Authoritative scale cap set by CEE (e.g., goal node with cap=1000 means value=200 → 0.2).
+  // Takes precedence over state_space.range to ensure consistent normalisation
+  // across both intervention (Phase 4a) and constraint (Phase 4b) paths.
+  if (typeof observedState?.cap === 'number' && observedState.cap > 0) {
+    return { min: 0, max: observedState.cap, source: 'explicit_cap' };
+  }
 
   // Priority 1: Explicit state_space.range
   if (stateSpace?.range) {
@@ -584,7 +594,8 @@ export function normaliseOptions(
  * @param goalContext Goal node normalisation context
  * @returns Denormalised outcome stats
  */
-export function denormaliseOutcome(
+/** @internal Not used in runtime — denormaliseISLResult handles this via denormaliseOptionResult. */
+function denormaliseOutcome(
   outcome: OutcomeStatsV3,
   goalContext: FactorNormalisationContext
 ): OutcomeStatsV3 {
@@ -611,7 +622,8 @@ export function denormaliseOutcome(
  * @param goalContext Goal node normalisation context
  * @returns Denormalised expected outcome
  */
-export function denormaliseExpectedOutcome(
+/** @internal Not used in runtime — denormaliseISLResult handles this via denormaliseOptionResult. */
+function denormaliseExpectedOutcome(
   expectedOutcome: number,
   goalContext: FactorNormalisationContext
 ): number {
@@ -625,7 +637,8 @@ export function denormaliseExpectedOutcome(
  * @param goalContext Goal node normalisation context
  * @returns Denormalised confidence interval
  */
-export function denormaliseConfidenceInterval(
+/** @internal Not used in runtime — denormaliseISLResult handles this via denormaliseOptionResult. */
+function denormaliseConfidenceInterval(
   interval: [number, number],
   goalContext: FactorNormalisationContext
 ): [number, number] {
@@ -881,24 +894,17 @@ export function normaliseGoalConstraints(
     const targetNode = nodeMap.get(node_id);
 
     // Derive range for the target node.
-    // Prefer observed_state.cap when present — this is the authoritative scale cap
-    // set by CEE for normalisation (e.g. goal node with cap=1000 means value=200 → 0.2).
-    // Falls back to deriveRange() priority chain (state_space.range → heuristics → [0,1]).
-    // If node not found, use default range [0,1].
-    let range: NormalisationRange;
-    if (!targetNode) {
-      range = { min: 0, max: 1, source: 'default' };
-    } else if (typeof targetNode.observed_state?.cap === 'number' && targetNode.observed_state.cap > 0) {
-      range = { min: 0, max: targetNode.observed_state.cap, source: 'explicit' };
-    } else {
-      range = deriveRange(targetNode);
-    }
+    // deriveRange() handles observed_state.cap as priority 0 (explicit_cap), then
+    // state_space.range → heuristics → [0,1]. If node not found, use default [0,1].
+    const range: NormalisationRange = targetNode
+      ? deriveRange(targetNode)
+      : { min: 0, max: 1, source: 'default' };
 
     // Normalise value
     const { normalised, clamped } = normaliseValue(value, range);
 
     // Track if we used a heuristic (non-explicit range)
-    const usedHeuristic = range.source !== 'explicit';
+    const usedHeuristic = range.source !== 'explicit' && range.source !== 'explicit_cap';
 
     // Create normalised constraint
     const normalisedConstraint: NormalisedGoalConstraint = {

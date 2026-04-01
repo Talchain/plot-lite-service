@@ -1082,5 +1082,5 @@ components:
           type: string
           description: >
             Range derivation tier for this factor's intervention range.
-            Values: explicit, extracted, inferred_spread, inferred_baseline, inferred_value, default.
+            Values: explicit_cap, explicit, extracted, inferred_spread, inferred_baseline, inferred_value, default.
       required: [factor_id]

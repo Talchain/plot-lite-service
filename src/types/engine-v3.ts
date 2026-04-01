@@ -1276,6 +1276,8 @@ export interface EdgeSensitivityResultV3 {
   importance_rank: number;
   /** Human-readable interpretation */
   interpretation: string;
+  /** True when normalisation was active but denormalisation ranges were unavailable */
+  _normalised?: boolean;
 }
 
 /**
@@ -1302,6 +1304,8 @@ export interface EnrichedEdgeEValue {
   current_mean: number;
   /** Mean effect at the flip point */
   flip_mean: number;
+  /** True when normalisation was active but denormalisation ranges were unavailable */
+  _normalised?: boolean;
 }
 
 /**
@@ -1324,6 +1328,8 @@ export interface ConditionalWinner {
   high_bucket: ConditionalBucket;
   /** Whether the winning option flips between buckets */
   winner_flips: boolean;
+  /** True when normalisation was active but denormalisation ranges were unavailable */
+  _normalised?: boolean;
 }
 
 /**
@@ -1423,9 +1429,11 @@ export interface FactorSensitivityResultV3 {
    * Indicates which priority tier was used to derive the normalisation range.
    * Surfaced from _meta.range_derivation_sources for per-factor UI display.
    *
-   * Values: 'explicit' | 'extracted' | 'inferred_spread' | 'inferred_baseline' | 'inferred_value' | 'default'
+   * Values: 'explicit_cap' | 'explicit' | 'extracted' | 'inferred_spread' | 'inferred_baseline' | 'inferred_value' | 'default'
    */
   range_derivation_source?: string;
+  /** True when normalisation was active but denormalisation ranges were unavailable */
+  _normalised?: boolean;
 }
 
 /**
