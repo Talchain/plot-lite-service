@@ -6003,6 +6003,17 @@ components:
                 description: Normalized importance score bounded to [0,1] for UI display
               value_of_information:
                 type: number
+              evpi_percentage_points:
+                type: number
+                minimum: 0
+                description: >-
+                  Estimated EVPI in percentage points of win probability.
+                  Heuristic approximation: VOI × win probability spread × 100.
+                  Present only when both VOI and win probabilities are available.
+              evpi_method:
+                type: string
+                enum: [heuristic, counterfactual]
+                description: Method used to compute evpi_percentage_points
               direction:
                 type: string
         robustness:

@@ -214,6 +214,31 @@ describe('/v2/run Legacy CEE Skip Behavior', () => {
       expect(body.ceeTrace.reason).toContain('M2');
       expect(body.ceeTrace.degraded).toBe(false);
     });
+
+    it('skips M2 review when brief is missing (analysis + M1 coaching still present)', async () => {
+      const { brief: _omit, ...payloadWithoutBrief } = v2Payload;
+
+      const res = await fetch(`${baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payloadWithoutBrief),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+
+      // Analysis still runs normally
+      expect(body.analysis_status).toBeDefined();
+      expect(body.response_hash).toBeDefined();
+
+      // M1 coaching still present (deterministic layer doesn't need brief)
+      expect(body.m1_coaching).toBeDefined();
+
+      // M2 review skipped with BRIEF_MISSING reason
+      expect(body.review_status).toBe('skipped');
+      expect(body.review_skip_reason).toBe('BRIEF_MISSING');
+      expect(body.m1_review).toBeNull();
+    });
   });
 
   describe('when DECISION_REVIEW_ENABLE=false', () => {

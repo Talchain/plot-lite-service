@@ -1469,6 +1469,9 @@ function buildResponse(
     // CIL C1: Pass through per-option constraint analysis from ISL
     // ISL nests this as constraint_analysis per-option when goal_constraints were sent
     const constraintAnalysis = r.constraint_analysis;
+    if (!constraintAnalysis && goalConstraints && goalConstraints.length > 0) {
+      logger?.info({ event: 'constraint_analysis_absent', option_id: optionId });
+    }
     if (constraintAnalysis) {
       // Map ISL's joint_probability to Schema v2.7 probability_of_joint_goal
       if (constraintAnalysis.joint_probability !== undefined) {
@@ -1498,6 +1501,7 @@ function buildResponse(
           constraintProbs[constraintId] = c.prob_satisfied;
         }
         result.constraint_probabilities = constraintProbs;
+        logger?.info({ event: 'constraint_probs_mapped', option_id: optionId, count: Object.keys(constraintProbs).length });
       }
     }
 
@@ -3686,6 +3690,27 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           factorSensitivitySource = 'isl';
         }
 
+        // Enrich factor sensitivity with EVPI percentage points heuristic.
+        // Heuristic approximation: VOI × win probability spread × 100.
+        // Not true counterfactual EVPI. To be replaced when ISL supports
+        // per-factor counterfactual EVPI.
+        if (factorSensitivity) {
+          const islOptions = processedIslResult?.options ?? processedIslResult?.results ?? [];
+          const winProbs = (islOptions as any[])
+            .map((o: any) => o.win_probability as number | undefined)
+            .filter((wp): wp is number => wp != null)
+            .sort((a, b) => b - a);
+          const winProbSpread = winProbs.length >= 2 ? winProbs[0] - winProbs[1] : 0;
+          if (winProbSpread > 0) {
+            for (const f of factorSensitivity) {
+              if (f.value_of_information != null) {
+                f.evpi_percentage_points = Math.round(f.value_of_information * winProbSpread * 100 * 10) / 10;
+                f.evpi_method = 'heuristic';
+              }
+            }
+          }
+        }
+
         // Log which source was used for factor sensitivity
         req.log.info({
           event: 'factor_sensitivity_source',
@@ -4140,9 +4165,22 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         } | undefined;
 
         if (FLAGS.DECISION_REVIEW_ENABLE && m1Coaching) {
-          try {
+          // Skip M2 review when brief is missing — review needs context to be useful.
+          // Analysis and M1 coaching still proceed; the user just won't get M2 narrative.
+          if (!body.brief) {
+            req.log.warn({
+              event: 'decision_review_brief_missing',
+              request_id: requestId,
+              message: 'Skipping M2 decision review: brief not provided in request',
+            });
+            m2DecisionReview = {
+              m1_review: null,
+              review_status: 'skipped',
+              review_skip_reason: ReviewSkipReasons.BRIEF_MISSING,
+            };
+          } else try {
             const decisionReviewInput: DecisionReviewInput = {
-              brief: body.brief ?? '',
+              brief: body.brief,
               graph: filteredGraph,
               options: normalizedOptions,
               islResult: processedIslResult,

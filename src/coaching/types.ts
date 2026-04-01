@@ -95,6 +95,14 @@ export interface EvidenceGap {
   influence_display: string;     // "73%" (formatted)
   suggestion: string;            // "Gather data on {factor_label} to reduce uncertainty"
   notes: string[];               // ["Confidence defaulted to 50%"] if applicable
+  // Observed state from graph node (when available)
+  value?: number;                // Normalised factor value (0-1)
+  raw_value?: number;            // Original unscaled value for UI display
+  unit?: string;                 // Factor unit (e.g. "USD", "users")
+  cap?: number;                  // Normalisation scale cap
+  // EVPI heuristic (when win probabilities available)
+  evpi_percentage_points?: number;  // VOI × win probability spread × 100
+  evpi_method?: 'heuristic' | 'counterfactual';
 }
 
 // =============================================================================

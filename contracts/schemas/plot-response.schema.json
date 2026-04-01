@@ -260,6 +260,16 @@
             "minimum": 0,
             "maximum": 1
           },
+          "evpi_percentage_points": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Estimated EVPI in percentage points of win probability (heuristic: VOI × win prob spread × 100)"
+          },
+          "evpi_method": {
+            "type": "string",
+            "enum": ["heuristic", "counterfactual"],
+            "description": "Method used to compute evpi_percentage_points"
+          },
           "confidence": {
             "type": "number",
             "minimum": 0,
@@ -341,7 +351,13 @@
               "notes": {
                 "type": "array",
                 "items": { "type": "string" }
-              }
+              },
+              "value": { "type": "number", "description": "Normalised factor value (0-1)" },
+              "raw_value": { "type": "number", "description": "Original unscaled value for UI display" },
+              "unit": { "type": "string", "description": "Factor unit (e.g. USD, users)" },
+              "cap": { "type": "number", "description": "Normalisation scale cap" },
+              "evpi_percentage_points": { "type": "number", "minimum": 0, "description": "Estimated EVPI in percentage points of win probability" },
+              "evpi_method": { "type": "string", "enum": ["heuristic", "counterfactual"], "description": "Method used to compute evpi_percentage_points" }
             }
           }
         },

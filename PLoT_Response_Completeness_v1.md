@@ -441,7 +441,7 @@ Top-level field: `meta` — **always present**. run.ts:1672-1694.
 | `edge_e_values[]` | **IMPLEMENTED** | Optional, present when ISL returns E-value analysis. Enriched with `from_label`/`to_label`. Excluded from response_hash. |
 | `conditional_winners[]` | **IMPLEMENTED** | Optional, present when ISL returns conditional winner analysis. Enriched with factor and option labels. Excluded from response_hash. |
 | `inference_warnings[]` | **EXISTS + ISL MERGE** | Always present as `[]` sentinel. Now merges ISL-originated warnings (e.g., `MISSING_ROOT_VALUE`) alongside PLoT-originated ones. |
-| `evpi` / `evpi_percentage_points` on VoI entries | **NOT ON VoI ENTRIES** | Separate `/v1/evoi` endpoint returns `evoi_impact` + `evoi_rank` per edge, but not integrated into `/v2/run` response |
+| `evpi_percentage_points` + `evpi_method` on factor sensitivity | **IMPLEMENTED (heuristic)** | On each `FactorSensitivityResultV3` and `EvidenceGap` when VOI and win probabilities available. Heuristic: VOI × win prob spread × 100. `evpi_method: 'heuristic'`. Separate `/v1/evoi` endpoint still provides edge-level EVOI. |
 | `range_derivation_source` per factor | **ON factor_sensitivity + `_meta`** | Now surfaced as `range_derivation_source` on each `FactorSensitivityResultV3` entry AND in `_meta.range_derivation_sources`. |
 
 ---

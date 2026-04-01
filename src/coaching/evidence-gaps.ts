@@ -39,16 +39,37 @@ export function computeEvidenceGaps(inputs: CoachingInputs): EvidenceGap[] {
     .sort((a, b) => b.voi - a.voi)
     .slice(0, thresholds.evidence_gap_cap); // Cap from thresholds
 
-  return gaps.map((f) => ({
-    factor_id: f.node_id,
-    factor_label: f.label,
-    voi_score: f.voi,
-    confidence: f.confidence,
-    confidence_display: `${Math.round(f.confidence * 100)}%`,
-    confidence_defaulted: f.confidenceDefaulted,
-    influence: f.normalisedImpact,
-    influence_display: `${Math.round(f.normalisedImpact * 100)}%`,
-    suggestion: `Gather data on "${f.label}" to reduce uncertainty`,
-    notes: f.confidenceDefaulted ? ['Confidence defaulted to 50% (not provided by ISL)'] : [],
-  }));
+  // Compute win probability spread for EVPI heuristic.
+  // Heuristic approximation: VOI × win probability spread × 100.
+  // Not true counterfactual EVPI. To be replaced when ISL supports
+  // per-factor counterfactual EVPI.
+  const sortedOptions = [...inputs.options].sort((a, b) => b.winProbability - a.winProbability);
+  const winProbSpread = sortedOptions.length >= 2
+    ? sortedOptions[0].winProbability - sortedOptions[1].winProbability
+    : 0;
+
+  return gaps.map((f) => {
+    const node = inputs.graph.nodes.find(n => n.id === f.node_id);
+    const os = node?.observed_state;
+    const evpiPp = winProbSpread > 0
+      ? Math.round(f.voi * winProbSpread * 100 * 10) / 10
+      : undefined;
+    return {
+      factor_id: f.node_id,
+      factor_label: f.label,
+      voi_score: f.voi,
+      confidence: f.confidence,
+      confidence_display: `${Math.round(f.confidence * 100)}%`,
+      confidence_defaulted: f.confidenceDefaulted,
+      influence: f.normalisedImpact,
+      influence_display: `${Math.round(f.normalisedImpact * 100)}%`,
+      suggestion: `Gather data on "${f.label}" to reduce uncertainty`,
+      notes: f.confidenceDefaulted ? ['Confidence defaulted to 50% (not provided by ISL)'] : [],
+      ...(os?.value !== undefined && { value: os.value }),
+      ...(os?.raw_value !== undefined && { raw_value: os.raw_value }),
+      ...(os?.unit !== undefined && { unit: os.unit }),
+      ...(os?.cap !== undefined && { cap: os.cap }),
+      ...(evpiPp !== undefined && { evpi_percentage_points: evpiPp, evpi_method: 'heuristic' as const }),
+    };
+  });
 }

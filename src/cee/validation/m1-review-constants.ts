@@ -233,6 +233,8 @@ export const ReviewSkipReasons = {
   CEE_ERROR: 'CEE_ERROR',
   /** M1 coaching data not available (prerequisite for M2 review) */
   NO_M1_COACHING: 'NO_M1_COACHING',
+  /** User's decision brief text not provided — review requires context */
+  BRIEF_MISSING: 'BRIEF_MISSING',
 } as const;
 
 export type ReviewSkipReason = typeof ReviewSkipReasons[keyof typeof ReviewSkipReasons];

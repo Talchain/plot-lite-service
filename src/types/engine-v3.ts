@@ -1382,6 +1382,16 @@ export interface FactorSensitivityResultV3 {
   /** Value of information from ISL */
   value_of_information?: number;
   /**
+   * Estimated EVPI in percentage points of win probability.
+   * Heuristic approximation: VOI × win probability spread × 100.
+   * Not true counterfactual EVPI. To be replaced when ISL supports
+   * per-factor counterfactual EVPI.
+   * Present only when both VOI and win probabilities are available.
+   */
+  evpi_percentage_points?: number;
+  /** Method used to compute evpi_percentage_points */
+  evpi_method?: 'heuristic' | 'counterfactual';
+  /**
    * Confidence in the sensitivity score (0-1).
    * Unified formula: 0.5 × attribution_stability_band_score
    *   + 0.5 × mean(exists_probability of incoming edges).
