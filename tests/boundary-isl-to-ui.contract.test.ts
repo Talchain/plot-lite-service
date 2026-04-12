@@ -34,10 +34,13 @@ const SOURCE_FIELDS_UNDER_CONTRACT = [
   'fragile_edges[].from_label',
   'fragile_edges[].to_label',
   'fragile_edges[].alternative_winner_label',
+  'fragile_edges[].severity',
   'factor_sensitivity[].source',
   'recommended_option_id',
   'recommended_option_label',
   'near_tie',
+  'confidence_tier',
+  'dominant_factor',
   // Dropped
   'metadata.n_samples',
   'recommendation_confidence',

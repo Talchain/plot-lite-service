@@ -75,11 +75,14 @@ export const ISL_TO_UI_CONTRACT: BoundaryContract = {
     'fragile_edges[].from_label',
     'fragile_edges[].to_label',
     'fragile_edges[].alternative_winner_label',
+    'fragile_edges[].severity',          // B1: classified from switch_probability (>0.7→critical, >0.5→error, ≤0.5→warning)
     'robust_edges[].from_label',
     'robust_edges[].to_label',
     'factor_sensitivity[].source',       // Constant: 'isl'
     'recommended_option_id',
     'recommended_option_label',
     'near_tie',
+    'confidence_tier',                   // B1: derived from m1_coaching.readiness (ready→strong, close_call→fair, else→needs_work)
+    'dominant_factor',                   // B1: detected from factor_sensitivity (influence >0.5 AND ratio >2:1)
   ],
 } as const;
