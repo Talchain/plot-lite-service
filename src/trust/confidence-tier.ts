@@ -5,9 +5,9 @@
  * Vocabulary matches UI useResultsSectionData.ts `mapReadinessLevel()`.
  */
 
-export type ConfidenceTier = 'strong' | 'fair' | 'needs_work';
+import type { Readiness } from '../coaching/types.js';
 
-type Readiness = 'ready' | 'close_call' | 'needs_evidence' | 'needs_framing';
+export type ConfidenceTier = 'strong' | 'fair' | 'needs_work';
 
 /**
  * Derive UI confidence tier from M1 coaching readiness state.

@@ -27,7 +27,7 @@ interface FactorEntry {
  * 1. Its influence_score > 0.5 (accounts for >50% of influence)
  * 2. Its influence_score is >2x the second factor's score (OR it's the only factor with influence)
  *
- * Factors must be sorted by influence_score descending (highest first).
+ * Input order does not matter — factors are sorted internally.
  */
 export function detectDominantFactor(factors: FactorEntry[] | undefined): DominantFactor | undefined {
   if (!factors || factors.length === 0) return undefined;
