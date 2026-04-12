@@ -39,6 +39,7 @@ const FRAGILE_EDGE_V2_OPTIONAL_KEYS = [
   'alternative_winner_id',
   'alternative_winner_label',
   'marginal_switch_probability',
+  'severity',
 ] as const;
 
 /**

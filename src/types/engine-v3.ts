@@ -916,6 +916,29 @@ export interface RunResponseV3 {
   m1_coaching?: M1Coaching;
 
   /**
+   * Confidence tier derived from M1 coaching readiness (B1).
+   * Maps readiness to UI-facing vocabulary:
+   *   ready → 'strong', close_call → 'fair',
+   *   needs_evidence | needs_framing → 'needs_work'.
+   * Absent when M1 coaching is unavailable.
+   *
+   * NOTE: Deterministic. Excluded from response_hash (derived from coaching).
+   */
+  confidence_tier?: 'strong' | 'fair' | 'needs_work';
+
+  /**
+   * Dominant factor detection (B1).
+   * Present when one factor has disproportionate influence (>50% influence AND >2:1 ratio
+   * vs. second factor). Absent when no dominance detected or factor sensitivity unavailable.
+   *
+   * NOTE: Deterministic. Excluded from response_hash.
+   */
+  dominant_factor?: {
+    factor_id: string;
+    factor_label: string;
+  };
+
+  /**
    * Flip thresholds (tipping points) for the most sensitive factors.
    * Shows at what value each factor would cause the recommended option to change.
    * Values denormalised to user units (not [0,1] normalised space).
@@ -1518,6 +1541,12 @@ export interface NormalizedEdgeInfoV3 {
   /** Human-readable target node label (falls back to to_id if node not found) */
   to_label: string;
   switch_probability: number;
+  /**
+   * Severity classification derived from switch_probability.
+   * Thresholds: >0.7 → 'critical', >0.5 → 'error', ≤0.5 → 'warning'.
+   * Present on fragile_edges (switch_probability < 1); omitted on robust_edges.
+   */
+  severity?: 'critical' | 'error' | 'warning';
   /** Marginal probability of recommendation switch for this edge */
   marginal_switch_probability?: number;
   /** Option that would win if this edge changes (from ISL) */
@@ -1569,7 +1598,13 @@ export interface RobustnessAssessmentV3 {
   recommendation_stability?: number;
   /** Boolean robustness flag from ISL V2/Option C format */
   is_robust?: boolean;
-  /** Robustness level from ISL V2/Option C format */
+  /**
+   * Robustness level from ISL V2/Option C format.
+   * Optional — only present when ISL returns a level. When absent, consumers
+   * should derive from `recommendation_stability` or fall back to `label`
+   * with vocabulary mapping (robust→high, moderate→moderate, fragile→low).
+   * Note: ISL sends `'medium'`; the UI normalises this to `'moderate'`.
+   */
   level?: 'high' | 'medium' | 'low' | 'very_low';
   /** Robustness confidence from ISL (0-1) V2/Option C format */
   confidence?: number;

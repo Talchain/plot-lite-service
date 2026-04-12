@@ -119,6 +119,9 @@ import { getDownstreamCallsForLog } from '../../util/downstream-tracker.js';
 import { computeFactorSensitivityFromGraph, buildFactorStability, mergeIslConfidenceIntoGraphFactors } from '../../lib/factor-influence.js';
 import { NEAR_TIE_THRESHOLD } from '../../trust/result-coherence.js';
 import { assessGraphIdentifiability, toIdentifiabilityResponse, detectUnmeasuredConfounding } from '../../trust/identifiability-v2.js';
+import { classifyEdgeSeverity } from '../../trust/edge-severity.js';
+import { deriveConfidenceTier } from '../../trust/confidence-tier.js';
+import { detectDominantFactor } from '../../trust/factor-dominance.js';
 import type { IdentifiabilityAssessment } from '../../types/engine-v3.js';
 import {
   normaliseOptionsForISL,
@@ -1583,11 +1586,14 @@ function buildResponse(
     }
 
     // Enrich fragile edges with labels (Schema v2.6: from_label, to_label, alternative_winner_label)
+    // and severity classification (B1: ported from UI thresholds unchanged)
     const enrichedFragileEdges: NormalizedEdgeInfoV3[] = fragileResult.edges.map(edge => ({
       ...edge,
       // from_label and to_label from graph lookup, fall back to node ID if not found
       from_label: nodeLabelMap.get(edge.from_id) ?? edge.from_id,
       to_label: nodeLabelMap.get(edge.to_id) ?? edge.to_id,
+      // Severity classification from switch_probability (B1)
+      severity: classifyEdgeSeverity(edge.switch_probability),
       // Resolve alternative_winner_label from option ID (null when no alternative winner)
       alternative_winner_id: edge.alternative_winner_id ?? null,
       alternative_winner_label: edge.alternative_winner_id
@@ -1848,6 +1854,17 @@ function buildResponse(
     // M1 Coaching (Phase 2 deterministic coaching layer)
     // NOTE: Deterministic (no LLM), but excluded from canonical hash as non-semantic metadata
     ...(m1Coaching && { m1_coaching: m1Coaching }),
+
+    // Confidence tier derived from M1 coaching readiness (B1)
+    // NOTE: Deterministic. Excluded from response_hash (derived from coaching).
+    ...(m1Coaching?.readiness && { confidence_tier: deriveConfidenceTier(m1Coaching.readiness) }),
+
+    // Dominant factor detection (B1) — computed from factor_sensitivity
+    // NOTE: Deterministic. Excluded from response_hash.
+    ...(() => {
+      const df = detectDominantFactor(factorSensitivity);
+      return df ? { dominant_factor: df } : {};
+    })(),
 
     // Flip thresholds (tipping points) for UI Results Panel
     // NOTE: Deterministic (no LLM), excluded from canonical hash as non-semantic metadata
