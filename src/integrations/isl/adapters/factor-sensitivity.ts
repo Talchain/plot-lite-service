@@ -42,10 +42,11 @@ export function adaptFactorSensitivityResponse(
   // Sort by sensitivity descending (most sensitive first)
   factors.sort((a, b) => Math.abs(b.sensitivity_score) - Math.abs(a.sensitivity_score));
 
-  // Transform value of information entries
-  // Filter items that have valid numeric value_of_information > 0
+  // Transform value of information entries.
+  // Include VOI = 0 (valid result: "perfect info wouldn't change the recommendation").
+  // Exclude negatives (sampling artefacts) and non-finite values (NaN / null / undefined).
   const value_of_information: VOIEntry[] = isl.factor_sensitivity
-    .filter((item) => typeof item.value_of_information === 'number' && item.value_of_information > 0)
+    .filter((item) => Number.isFinite(item.value_of_information) && (item.value_of_information as number) >= 0)
     .map((item) => ({
       factor_id: item.node_id,
       voi: item.value_of_information as number,

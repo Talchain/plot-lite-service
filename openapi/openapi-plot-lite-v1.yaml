@@ -1076,7 +1076,7 @@ components:
         elasticity: { type: number }
         direction: { type: string, enum: [positive, negative, mixed, unknown] }
         confidence: { type: number, minimum: 0, maximum: 1 }
-        confidence_source: { type: string, enum: [isl, graph] }
+        confidence_source: { type: string, enum: [isl, graph, fallback_degenerate] }
         source: { type: string, enum: [graph, isl] }
         range_derivation_source:
           type: string

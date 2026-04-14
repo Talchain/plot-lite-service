@@ -91,26 +91,46 @@ interface RichEdgeInfo {
 }
 
 /**
+ * Provenance tag for a computed confidence value.
+ *
+ * - `'isl'`             — bootstrap path (attribution_stability supplied).
+ * - `'graph'`           — edge-derived path (no bootstrap; used coefficient of
+ *                         variation from incoming edge strengths).
+ * - `'fallback_degenerate'` — neither bootstrap nor rich edge strength data;
+ *                         value is the uniform default (0.5 × DEFAULT_STABILITY_BAND_SCORE
+ *                         + 0.5 × meanExistsProb) and is not differentiating.
+ *                         Emit telemetry when this branch fires.
+ */
+export type ConfidenceSource = 'isl' | 'graph' | 'fallback_degenerate';
+
+export interface UnifiedConfidence {
+  confidence: number;
+  source: ConfidenceSource;
+}
+
+/**
  * Compute unified confidence for a factor.
  *
  * When ISL bootstrap data IS available (attributionStability is not null):
  *   confidence = 0.5 × band_score(attributionStability) + 0.5 × mean(exists_probability)
+ *   → source: 'isl'
  *
  * When ISL bootstrap data is NOT available and rich edge data IS available:
  *   confidence = mean(exists_probability) × (1 - mean_cv)
  *   where mean_cv = mean of |strength.std / strength.mean| across inbound edges
- *   This produces differentiated values based on structural certainty.
+ *   → source: 'graph'
  *
- * When neither is available: 0.5 (neutral).
+ * When neither is available: falls through to the 50/50 formula with defaults
+ *   → source: 'fallback_degenerate' (value may not be meaningful)
  *
  * @param attributionStability ISL attribution_stability category, or null if absent
  * @param incomingEdges Edges where edge.to === factor_id
- * @returns Confidence in [0, 1]
+ * @returns { confidence: [0, 1], source: ConfidenceSource }
  */
 export function computeUnifiedConfidence(
   attributionStability: string | null | undefined,
   incomingEdges: Array<RichEdgeInfo> | undefined | null
-): number {
+): UnifiedConfidence {
   const hasBootstrap = attributionStability != null;
 
   let meanExistsProb = DEFAULT_EDGE_PROBABILITY;
@@ -123,7 +143,7 @@ export function computeUnifiedConfidence(
     // Standard formula: blend ISL band score with structural certainty
     const bandScore = ATTRIBUTION_STABILITY_BAND_SCORES[attributionStability!] ?? DEFAULT_STABILITY_BAND_SCORE;
     const raw = 0.5 * bandScore + 0.5 * meanExistsProb;
-    return Math.max(0, Math.min(1, raw));
+    return { confidence: Math.max(0, Math.min(1, raw)), source: 'isl' };
   }
 
   // Improved fallback: when no bootstrap, use edge strength variation
@@ -142,13 +162,14 @@ export function computeUnifiedConfidence(
     if (cvValues.length > 0) {
       const meanCv = Math.min(1, cvValues.reduce((a, b) => a + b, 0) / cvValues.length);
       const raw = meanExistsProb * (1 - meanCv);
-      return Math.max(0, Math.min(1, raw));
+      return { confidence: Math.max(0, Math.min(1, raw)), source: 'graph' };
     }
   }
 
-  // No bootstrap, no rich edges: fall back to the 50/50 formula with defaults
+  // No bootstrap, no rich edges: uniform 50/50 default — not differentiating.
+  // Tag as 'fallback_degenerate' so the assembly layer can emit telemetry.
   const raw = 0.5 * DEFAULT_STABILITY_BAND_SCORE + 0.5 * meanExistsProb;
-  return Math.max(0, Math.min(1, raw));
+  return { confidence: Math.max(0, Math.min(1, raw)), source: 'fallback_degenerate' };
 }
 
 // -----------------------------------------------------------------------------
@@ -607,7 +628,7 @@ export function computeFactorSensitivityFromGraph(
   return influences.map((f, index) => {
     // Unified confidence: no ISL data at this stage (null stability), use incoming edges
     const incomingEdges = incomingEdgesMap.get(f.factor_id);
-    const confidence = computeUnifiedConfidence(null, incomingEdges);
+    const { confidence, source: confidenceSource } = computeUnifiedConfidence(null, incomingEdges);
 
     return {
       // Core identification
@@ -643,9 +664,11 @@ export function computeFactorSensitivityFromGraph(
       ),
 
       // Unified confidence: 0.5 × stability_band + 0.5 × mean(incoming edge exists_probability)
-      // No ISL data at graph stage → stability defaults to 0.5
+      // No ISL data at graph stage → stability defaults to 0.5.
+      // source reflects whether the CV-based path ('graph') or the uniform
+      // default ('fallback_degenerate') was used.
       confidence,
-      confidence_source: 'graph' as const,
+      confidence_source: confidenceSource,
 
       // Progressive disclosure: raw confidence components
       confidence_components: {
@@ -737,7 +760,7 @@ export function mergeIslConfidenceIntoGraphFactors(
       : [{ exists_probability: structuralCertainty }];
 
     // Recompute unified confidence with ISL attribution_stability
-    const confidence = computeUnifiedConfidence(attrStability, incomingEdgesForFormula);
+    const { confidence, source: confidenceSource } = computeUnifiedConfidence(attrStability, incomingEdgesForFormula);
 
     // Band score for progressive disclosure
     const bandScore = hasIslData
@@ -747,7 +770,7 @@ export function mergeIslConfidenceIntoGraphFactors(
     return {
       ...gf,
       confidence,
-      confidence_source: (hasIslData ? 'isl' : 'graph') as 'isl' | 'graph',
+      confidence_source: confidenceSource,
       // Progressive disclosure: update with ISL sampling_stability
       confidence_components: {
         structural_certainty: structuralCertainty,
@@ -778,7 +801,10 @@ export function mergeIslConfidenceIntoGraphFactors(
         }));
 
       const attrStability = islF.attribution_stability ?? null;
-      const confidence = computeUnifiedConfidence(attrStability, incoming.length > 0 ? incoming : undefined);
+      const { confidence, source: confidenceSource } = computeUnifiedConfidence(
+        attrStability,
+        incoming.length > 0 ? incoming : undefined,
+      );
       const structuralCertainty = incoming.length > 0
         ? incoming.reduce((acc, e) => acc + e.exists_probability, 0) / incoming.length
         : 0.5;
@@ -786,11 +812,10 @@ export function mergeIslConfidenceIntoGraphFactors(
         ? (ATTRIBUTION_STABILITY_BAND_SCORES[attrStability] ?? DEFAULT_STABILITY_BAND_SCORE)
         : null;
 
-      const hasIslData = attrStability != null;
       merged.push({
         ...islF,
         confidence,
-        confidence_source: (hasIslData ? 'isl' : 'graph') as 'isl' | 'graph',
+        confidence_source: confidenceSource,
         confidence_components: {
           structural_certainty: structuralCertainty,
           sampling_stability: bandScore,

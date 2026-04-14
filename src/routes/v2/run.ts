@@ -326,15 +326,16 @@ function transformEdgeSensitivity(
 
 /**
  * Transform ISL edge_e_values to enriched response format with labels.
- * Returns undefined if input is not a non-empty array.
+ * Returns [] when input is empty/absent so consumers see "computed, empty"
+ * rather than "not computed".
  * Edge IDs are normalised to double-colon format.
  */
 function transformEdgeEValues(
   islEdgeEValues: ISLEdgeEValue[] | undefined,
   nodeLabelMap?: Map<string, string>,
   normContext?: NormalisationContext,
-): EnrichedEdgeEValue[] | undefined {
-  if (!islEdgeEValues || islEdgeEValues.length === 0) return undefined;
+): EnrichedEdgeEValue[] {
+  if (!islEdgeEValues || islEdgeEValues.length === 0) return [];
   const goalRange = normContext?.goal_context?.range;
 
   return islEdgeEValues.map(e => {
@@ -386,7 +387,8 @@ function transformEdgeEValues(
 
 /**
  * Transform ISL conditional_winners to enriched response format with labels.
- * Returns undefined if input is not a non-empty array.
+ * Returns [] when input is empty/absent so consumers see "computed, empty"
+ * rather than "not computed".
  * Enriches option IDs in buckets with human-readable labels.
  */
 function transformConditionalWinners(
@@ -394,8 +396,8 @@ function transformConditionalWinners(
   nodeLabelMap?: Map<string, string>,
   optionLabelMap?: Map<string, string>,
   normContext?: NormalisationContext,
-): ConditionalWinner[] | undefined {
-  if (!islConditionalWinners || islConditionalWinners.length === 0) return undefined;
+): ConditionalWinner[] {
+  if (!islConditionalWinners || islConditionalWinners.length === 0) return [];
   const goalRange = normContext?.goal_context?.range;
 
   const resolveOptionLabel = (id: string): string => optionLabelMap?.get(id) ?? id;
@@ -1338,7 +1340,7 @@ function buildConstraintFields(
     constraints_status: 'computed',
     constraint_results: constraintResults.length > 0 ? constraintResults : undefined,
     constraint_diagnostics: constraintDiagnostics.length > 0 ? constraintDiagnostics : undefined,
-    conditional_probabilities: conditionalProbabilities,
+    conditional_probabilities: conditionalProbabilities ?? [],
   };
 }
 
@@ -1822,14 +1824,13 @@ function buildResponse(
     critiques: addUserMessages(critiques, graph ?? { nodes: [] }, options),
     option_comparison: optionComparison,
     edge_sensitivity: edgeSensitivity,
-    // Edge E-values from ISL (when present) — enriched with labels. Excluded from response_hash.
-    ...(edgeEValues && edgeEValues.length > 0 && {
-      edge_e_values: edgeEValues,
-    }),
-    // Conditional winners from ISL (when present) — enriched with labels. Excluded from response_hash.
-    ...(conditionalWinners && conditionalWinners.length > 0 && {
-      conditional_winners: conditionalWinners,
-    }),
+    // Edge E-values from ISL — enriched with labels. Always emitted ([] when empty
+    // or ISL omitted the field) so consumers can distinguish computed-empty from
+    // absent; PLoT always requests include_e_values: true. Excluded from response_hash.
+    edge_e_values: edgeEValues ?? [],
+    // Conditional winners from ISL — enriched with labels. Always emitted ([] when
+    // empty or absent). Excluded from response_hash.
+    conditional_winners: conditionalWinners ?? [],
     // Enrich factor_sensitivity with range_derivation_source from _meta (Task 7)
     factor_sensitivity: factorSensitivity && meta.rangeDerivationSources
       ? factorSensitivity.map(f => {
@@ -1866,9 +1867,10 @@ function buildResponse(
       return df ? { dominant_factor: df } : {};
     })(),
 
-    // Flip thresholds (tipping points) for UI Results Panel
-    // NOTE: Deterministic (no LLM), excluded from canonical hash as non-semantic metadata
-    ...(flipThresholds && flipThresholds.length > 0 && { flip_thresholds: flipThresholds }),
+    // Flip thresholds (tipping points) for UI Results Panel.
+    // Always emitted ([] when empty or absent) so consumers can distinguish
+    // computed-empty from absent. Excluded from canonical hash.
+    flip_thresholds: flipThresholds ?? [],
 
     // Threshold analysis (B10.3) — ISL native threshold endpoint
     // NOTE: Non-semantic post-analysis enrichment, excluded from response_hash.
@@ -3744,6 +3746,25 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             source: f.source,
           })),
         });
+
+        // Telemetry: count how many factors hit the degenerate confidence branch.
+        // When the degenerate branch fires, the returned confidence is the uniform
+        // 0.5 × band_default + 0.5 × exists_prob default — not differentiating.
+        // Emit a single aggregated event (not per-factor) when any factor is affected
+        // so operators can spot when ISL bootstrap + rich edge strengths are both absent.
+        if (Array.isArray(factorSensitivity) && factorSensitivity.length > 0) {
+          const degenerate = factorSensitivity.filter(f => f.confidence_source === 'fallback_degenerate');
+          if (degenerate.length > 0) {
+            req.log.info({
+              event: 'plot.confidence_fallback_degenerate',
+              factor_count: degenerate.length,
+              total_factors: factorSensitivity.length,
+              sample_value: degenerate[0].confidence,
+              sample_factor_ids: degenerate.slice(0, 3).map(f => f.factor_id),
+              msg: 'Confidence fallback produced degenerate uniform value',
+            });
+          }
+        }
 
         // Build factor_stability from ISL's raw factor_sensitivity (3C bootstrap fields).
         // Independent of factor_sensitivity source — always derived from ISL when available.

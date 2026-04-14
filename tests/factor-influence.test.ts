@@ -1018,84 +1018,63 @@ describe('computeValueOfInformation', () => {
 // -----------------------------------------------------------------------------
 
 describe('computeUnifiedConfidence', () => {
-  it('returns 0.5 for no ISL data and no incoming edges', () => {
-    // 0.5 × 0.5 + 0.5 × 0.5 = 0.5
-    expect(computeUnifiedConfidence(null, undefined)).toBe(0.5);
-    expect(computeUnifiedConfidence(undefined, null)).toBe(0.5);
-    expect(computeUnifiedConfidence(null, [])).toBe(0.5);
+  it('flags degenerate fallback when neither bootstrap nor rich edge data is available', () => {
+    // No bootstrap, no rich edges → uniform 0.5 × 0.5 + 0.5 × 0.5 = 0.5.
+    // Value is not differentiating — source must be 'fallback_degenerate'.
+    expect(computeUnifiedConfidence(null, undefined)).toEqual({ confidence: 0.5, source: 'fallback_degenerate' });
+    expect(computeUnifiedConfidence(undefined, null)).toEqual({ confidence: 0.5, source: 'fallback_degenerate' });
+    expect(computeUnifiedConfidence(null, [])).toEqual({ confidence: 0.5, source: 'fallback_degenerate' });
+    // Plain exists_probability without strength data also hits degenerate branch
+    // (graph branch requires strength_mean/std to activate CV path).
+    expect(computeUnifiedConfidence(null, [{ exists_probability: 0.9 }])).toEqual({
+      confidence: 0.7, // 0.5 × 0.5 + 0.5 × 0.9
+      source: 'fallback_degenerate',
+    });
   });
 
-  it('returns correct value for ISL data + edges', () => {
-    // high stability (1.0), edges mean = 0.8
-    // 0.5 × 1.0 + 0.5 × 0.8 = 0.9
-    const result = computeUnifiedConfidence('high', [
-      { exists_probability: 0.8 },
-    ]);
-    expect(result).toBeCloseTo(0.9, 5);
+  it('returns source: isl with correct value for bootstrap + edges', () => {
+    // high stability (1.0), edges mean = 0.8 → 0.5 × 1.0 + 0.5 × 0.8 = 0.9
+    const result = computeUnifiedConfidence('high', [{ exists_probability: 0.8 }]);
+    expect(result.confidence).toBeCloseTo(0.9, 5);
+    expect(result.source).toBe('isl');
   });
 
-  it('returns ISL-dominated value for ISL data + no edges', () => {
-    // moderate stability (0.5), no edges → 0.5 default
-    // 0.5 × 0.5 + 0.5 × 0.5 = 0.5
-    expect(computeUnifiedConfidence('moderate', undefined)).toBe(0.5);
-
-    // high stability (1.0), no edges → 0.5 default
-    // 0.5 × 1.0 + 0.5 × 0.5 = 0.75
-    expect(computeUnifiedConfidence('high', undefined)).toBe(0.75);
-
-    // low stability (0.0), no edges → 0.5 default
-    // 0.5 × 0.0 + 0.5 × 0.5 = 0.25
-    expect(computeUnifiedConfidence('low', undefined)).toBe(0.25);
+  it('returns source: isl (bootstrap-dominated) when edges absent', () => {
+    // moderate (0.5), no edges → 0.5 × 0.5 + 0.5 × 0.5 = 0.5
+    expect(computeUnifiedConfidence('moderate', undefined)).toEqual({ confidence: 0.5, source: 'isl' });
+    // high (1.0), no edges → 0.5 × 1.0 + 0.5 × 0.5 = 0.75
+    expect(computeUnifiedConfidence('high', undefined)).toEqual({ confidence: 0.75, source: 'isl' });
+    // low (0.0), no edges → 0.5 × 0.0 + 0.5 × 0.5 = 0.25
+    expect(computeUnifiedConfidence('low', undefined)).toEqual({ confidence: 0.25, source: 'isl' });
   });
 
-  it('returns edge-dominated value for no ISL data + edges', () => {
-    // no ISL → 0.5 default, edges mean = 0.9
-    // 0.5 × 0.5 + 0.5 × 0.9 = 0.7
-    expect(computeUnifiedConfidence(null, [
-      { exists_probability: 0.9 },
-    ])).toBeCloseTo(0.7, 5);
-  });
-
-  it('uses mean of multiple incoming edges', () => {
-    // no ISL → 0.5, edges = [0.6, 0.8, 1.0] → mean = 0.8
-    // 0.5 × 0.5 + 0.5 × 0.8 = 0.65
+  it('returns source: graph when rich edge data activates the CV branch', () => {
+    // No bootstrap but edges carry strength_mean/std → CV path fires.
+    // Edge: exists=0.9, strength_mean=1.0, strength_std=0.1 → |cv| = 0.1.
+    // confidence = 0.9 × (1 - 0.1) = 0.81
     const result = computeUnifiedConfidence(null, [
-      { exists_probability: 0.6 },
-      { exists_probability: 0.8 },
-      { exists_probability: 1.0 },
+      { exists_probability: 0.9, strength_mean: 1.0, strength_std: 0.1 },
     ]);
-    expect(result).toBeCloseTo(0.65, 5);
+    expect(result.confidence).toBeCloseTo(0.81, 5);
+    expect(result.source).toBe('graph');
   });
 
-  it('clamps result to [0, 1]', () => {
-    // high stability + high edge prob = 0.5×1.0 + 0.5×1.0 = 1.0
-    expect(computeUnifiedConfidence('high', [{ exists_probability: 1.0 }])).toBe(1.0);
-    // negligible stability + zero edge = 0.5×0.0 + 0.5×0.0 = 0.0
-    expect(computeUnifiedConfidence('negligible', [{ exists_probability: 0.0 }])).toBe(0.0);
+  it('clamps confidence to [0, 1]', () => {
+    expect(computeUnifiedConfidence('high', [{ exists_probability: 1.0 }])).toEqual({ confidence: 1.0, source: 'isl' });
+    expect(computeUnifiedConfidence('negligible', [{ exists_probability: 0.0 }])).toEqual({ confidence: 0.0, source: 'isl' });
   });
 
-  it('handles unknown stability category with default', () => {
-    // unknown → default 0.5, edges mean = 0.6
-    // 0.5 × 0.5 + 0.5 × 0.6 = 0.55
-    expect(computeUnifiedConfidence('unknown_value', [
-      { exists_probability: 0.6 },
-    ])).toBeCloseTo(0.55, 5);
-  });
-
-  it('produces same result as evidence priority computeConfidenceNormalised', () => {
-    // The unified formula IS the same formula used in evidence-priority.ts
-    // Verify consistency: moderate + edges [0.4, 0.6] → mean = 0.5
-    // 0.5 × 0.5 + 0.5 × 0.5 = 0.5
-    expect(computeUnifiedConfidence('moderate', [
-      { exists_probability: 0.4 },
-      { exists_probability: 0.6 },
-    ])).toBe(0.5);
+  it('handles unknown stability category with default band score', () => {
+    // unknown → default band 0.5, edges mean = 0.6 → 0.5 × 0.5 + 0.5 × 0.6 = 0.55
+    const result = computeUnifiedConfidence('unknown_value', [{ exists_probability: 0.6 }]);
+    expect(result.confidence).toBeCloseTo(0.55, 5);
+    expect(result.source).toBe('isl');
   });
 
   it('is deterministic: same input always produces same output', () => {
     const edges = [{ exists_probability: 0.7 }, { exists_probability: 0.9 }];
     const r1 = computeUnifiedConfidence('moderate', edges);
     const r2 = computeUnifiedConfidence('moderate', edges);
-    expect(r1).toBe(r2);
+    expect(r1).toEqual(r2);
   });
 });

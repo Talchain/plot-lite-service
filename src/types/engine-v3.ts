@@ -1425,8 +1425,14 @@ export interface FactorSensitivityResultV3 {
   zero_reason?: string;
   /** Source of this factor sensitivity data */
   source?: 'graph' | 'isl';
-  /** Which computation produced the confidence value */
-  confidence_source?: 'isl' | 'graph';
+  /**
+   * Which computation produced the confidence value.
+   * - 'isl': ISL bootstrap path (attribution_stability supplied).
+   * - 'graph': edge-derived CV path (no bootstrap; used incoming edge strengths).
+   * - 'fallback_degenerate': uniform 0.5-default branch fired; confidence value
+   *   is not differentiating. Emit telemetry when this value is present.
+   */
+  confidence_source?: 'isl' | 'graph' | 'fallback_degenerate';
   /**
    * Flip risk category based on fragile edge adjacency.
    * - 'isolated': This factor alone can flip the recommendation (marginal_switch_probability > 0.05)

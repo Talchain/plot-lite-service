@@ -140,16 +140,18 @@ describe('mergeIslConfidenceIntoGraphFactors', () => {
     });
   });
 
-  it('T4: ISL entry without attribution_stability — graph confidence preserved', () => {
+  it('T4: ISL entry without attribution_stability — degenerate fallback surfaces via confidence_source', () => {
     const graph = [makeGraphFactor('fac_a', { confidence: 0.5 })];
     const isl = [makeIslFactor('fac_a', { attribution_stability: undefined as any })];
 
+    // No graphEdges passed → merge synthesises a single exists_probability edge
+    // from structural_certainty; that stripped edge has no strength_mean/std, so
+    // the CV (graph) path cannot fire and the degenerate branch is the correct
+    // tag here. The confidence value stays 0.5 (uniform default).
     const result = mergeIslConfidenceIntoGraphFactors(graph, isl);
 
-    // No attribution_stability → attrStability is null → uses default 0.5
-    // structural_certainty from graph = 0.5, so unified = 0.5×0.5 + 0.5×0.5 = 0.5
     expect(result[0].confidence).toBe(0.5);
-    expect(result[0].confidence_source).toBe('graph'); // No ISL data flag
+    expect(result[0].confidence_source).toBe('fallback_degenerate');
   });
 
   it('T5: no ISL results — all factors retain graph confidence', () => {

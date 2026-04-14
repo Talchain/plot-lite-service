@@ -56,16 +56,24 @@ describe('Factor Sensitivity Adapter', () => {
     expect(result.source).toBe('isl');
   });
 
-  it('adaptFactorSensitivityResponse filters out zero VOI entries', async () => {
+  it('adaptFactorSensitivityResponse preserves zero VOI entries and rejects non-finite / negative VOI', async () => {
+    // VOI = 0 is a valid computed result ("perfect info wouldn't change the recommendation").
+    // It must be preserved so the UI can distinguish "computed zero" from "not computed / absent".
+    // Negatives are sampling artefacts; null/undefined/NaN are not numbers. All must be excluded.
     const { adaptFactorSensitivityResponse } = await import(
       '../src/integrations/isl/adapters/factor-sensitivity.js'
     );
 
     const islResponse = {
       factor_sensitivity: [
-        { node_id: 'factor_a', sensitivity: 0.5, value_of_information: 0.3 },
-        { node_id: 'factor_b', sensitivity: 0.4, value_of_information: 0 }, // Zero VOI
-        { node_id: 'factor_c', sensitivity: 0.3, value_of_information: 0.1 },
+        { node_id: 'factor_pos', sensitivity: 0.5, value_of_information: 0.3 },
+        { node_id: 'factor_zero', sensitivity: 0.4, value_of_information: 0 }, // included (valid 0)
+        { node_id: 'factor_exact_zero_float', sensitivity: 0.35, value_of_information: 0.0 }, // boundary
+        { node_id: 'factor_small_pos', sensitivity: 0.3, value_of_information: 0.1 },
+        { node_id: 'factor_neg', sensitivity: 0.2, value_of_information: -0.003 }, // excluded (artefact)
+        { node_id: 'factor_null', sensitivity: 0.15, value_of_information: null as unknown as number }, // excluded
+        { node_id: 'factor_undef', sensitivity: 0.1 }, // excluded (undefined)
+        { node_id: 'factor_nan', sensitivity: 0.05, value_of_information: Number.NaN }, // excluded
       ],
       robustness: {
         score: 0.6,
@@ -76,12 +84,26 @@ describe('Factor Sensitivity Adapter', () => {
 
     const result = adaptFactorSensitivityResponse(islResponse, 150);
 
-    // All factors should be present
-    expect(result.factors).toHaveLength(3);
+    const ids = result.value_of_information.map((v) => v.factor_id);
+    expect(ids).toEqual(expect.arrayContaining(['factor_pos', 'factor_zero', 'factor_exact_zero_float', 'factor_small_pos']));
+    expect(ids).not.toContain('factor_neg');
+    expect(ids).not.toContain('factor_null');
+    expect(ids).not.toContain('factor_undef');
+    expect(ids).not.toContain('factor_nan');
+    expect(result.value_of_information).toHaveLength(4);
 
-    // Only non-zero VOI entries should be present
-    expect(result.value_of_information).toHaveLength(2);
-    expect(result.value_of_information.find((v) => v.factor_id === 'factor_b')).toBeUndefined();
+    // Zero factors appear with voi: 0 (not dropped, not coerced)
+    const zero = result.value_of_information.find((v) => v.factor_id === 'factor_zero');
+    expect(zero?.voi).toBe(0);
+    const exactZero = result.value_of_information.find((v) => v.factor_id === 'factor_exact_zero_float');
+    expect(exactZero?.voi).toBe(0);
+
+    // Positive VOI still works (regression)
+    const pos = result.value_of_information.find((v) => v.factor_id === 'factor_pos');
+    expect(pos?.voi).toBe(0.3);
+
+    // Sort order is VOI descending — zero values go to the end
+    expect(result.value_of_information[result.value_of_information.length - 1].voi).toBe(0);
   });
 
   it('createFallbackFactorSensitivity returns unavailable result', async () => {
