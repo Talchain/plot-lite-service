@@ -873,15 +873,19 @@ components:
         edge_e_values:
           type: array
           description: >
-            Edge E-values measuring evidence strength for each edge's causal direction.
-            Enriched with labels. Present when ISL provides E-value analysis.
+            Edge E-values measuring evidence strength for each edge's causal direction,
+            enriched with labels. Always present — [] when ISL omits the field or
+            returns no entries (computed-empty). Consumers should treat presence as
+            guaranteed and use array length to detect emptiness.
           items:
             $ref: '#/components/schemas/EnrichedEdgeEValue'
         conditional_winners:
           type: array
           description: >
-            Conditional winner analysis per factor. Shows how the winning option
-            changes conditional on factor value buckets. Enriched with labels.
+            Conditional winner analysis per factor, enriched with labels. Always
+            present — [] when ISL omits the field or returns no entries
+            (computed-empty). Consumers should treat presence as guaranteed and
+            use array length to detect emptiness.
           items:
             $ref: '#/components/schemas/ConditionalWinner'
         factor_sensitivity:

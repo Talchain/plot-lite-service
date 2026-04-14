@@ -3759,7 +3759,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               event: 'plot.confidence_fallback_degenerate',
               factor_count: degenerate.length,
               total_factors: factorSensitivity.length,
-              sample_value: degenerate[0].confidence,
+              confidence_value: degenerate[0].confidence,
               sample_factor_ids: degenerate.slice(0, 3).map(f => f.factor_id),
               msg: 'Confidence fallback produced degenerate uniform value',
             });

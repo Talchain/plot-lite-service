@@ -71,12 +71,31 @@ const mockISLService = {
   async computeCounterfactual(): Promise<never> { throw new Error('not called'); },
   async callAnalysisEndpoint<T>(_endpoint: string, body: any): Promise<{ data: T | null; error: string | null; isl_echoed_request_id?: string }> {
     const options = body.options || [];
+    const hasConstraints = Array.isArray(body.goal_constraints) && body.goal_constraints.length > 0;
     return {
       data: {
         options: options.map((opt: any, idx: number) => ({
           option_id: opt.id,
           outcome: { mean: 0.7 + idx * 0.1, std: 0.1, p10: 0.5, p50: 0.7, p90: 0.9, n_samples: 1000, n_valid_samples: 1000, validity_ratio: 1.0 },
           rank: idx + 1,
+          // When the caller supplies goal_constraints, ISL echoes a minimal
+          // constraint_analysis block so PLoT's buildConstraintFields proceeds.
+          // We intentionally OMIT conditional_probabilities so the `?? []`
+          // default path is exercised.
+          ...(hasConstraints
+            ? {
+                constraint_analysis: {
+                  constraints: body.goal_constraints.map((c: any) => ({
+                    node_id: c.node_id,
+                    operator: c.operator,
+                    value: c.value,
+                    failure_margin_median: 0.1,
+                    near_miss_fraction: 0.0,
+                    binding: false,
+                  })),
+                },
+              }
+            : {}),
         })),
         edges: [],
         factor_sensitivity: [
@@ -231,6 +250,49 @@ describe('enrichment emission contract (route-level mixed-case fixture)', () => 
     expect(evt.factor_count).toBe(1);
     expect(evt.total_factors).toBe(factors.length);
     expect(evt.sample_factor_ids).toContain('factor-b');
-    expect(typeof evt.sample_value).toBe('number');
+    expect(typeof evt.confidence_value).toBe('number');
+  });
+
+  it('emits conditional_probabilities as [] when goal_constraints are supplied but ISL returns none', async () => {
+    // Separate case: exercising the constraint-assembly path in buildConstraintFields.
+    // The ISL mock above does not return conditional_probabilities, and we pass
+    // a single goal_constraint to activate the constraints block. Expected shape:
+    // constraint_results present, conditional_probabilities present as [].
+    capturedEvents = [];
+
+    const res = await fetch(`${baseUrl}/v2/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        graph: {
+          nodes: [
+            { id: 'goal', kind: 'goal', label: 'Revenue' },
+            { id: 'factor-a', kind: 'factor', label: 'Marketing Spend', observed_state: { value: 0.6 } },
+            { id: 'factor-b', kind: 'factor', label: 'Brand Awareness', observed_state: { value: 0.5 } },
+          ],
+          edges: [
+            { from: 'factor-b', to: 'factor-a', exists_probability: 0.8, strength: { mean: 0.5, std: 0.1 } },
+            { from: 'factor-a', to: 'goal', exists_probability: 0.9, strength: { mean: 0.7, std: 0.1 } },
+            { from: 'factor-b', to: 'goal', exists_probability: 0.9, strength: { mean: 0.6, std: 0.1 } },
+          ],
+        },
+        options: [
+          { id: 'opt1', label: 'Option A', interventions: { 'factor-a': { value: 10, source: 'user_specified' } } },
+          { id: 'opt2', label: 'Option B', interventions: { 'factor-b': { value: 5, source: 'user_specified' } } },
+        ],
+        goal_node_id: 'goal',
+        goal_constraints: [
+          { constraint_id: 'c1', node_id: 'goal', operator: '>=', value: 0.5 },
+        ],
+        seed: '42',
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as any;
+
+    // The constraints block must be present and conditional_probabilities must
+    // surface as [] (not absent), so consumers see "computed-empty".
+    expect(body.conditional_probabilities).toEqual([]);
   });
 });
