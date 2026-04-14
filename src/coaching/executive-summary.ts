@@ -80,7 +80,7 @@ function generateDecisionStatement(
 
   switch (headlineType) {
     case 'clear_winner':
-      return `${winner.label} is the clear winner with a ${marginPoints}-point advantage.`;
+      return `${winner.label} is the clear leading option with a ${marginPoints}-point advantage.`;
     case 'moderate_winner':
       return `${winner.label} leads by ${marginPoints} points.`;
     case 'close_call':
