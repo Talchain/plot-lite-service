@@ -888,6 +888,24 @@ components:
             use array length to detect emptiness.
           items:
             $ref: '#/components/schemas/ConditionalWinner'
+        flip_thresholds:
+          type: array
+          description: >
+            Tipping-point analysis per factor — the intervention value at which
+            the recommended option would flip. Values denormalised into user
+            units. Always present — [] when not computed or no flips found
+            (computed-empty).
+          items:
+            $ref: '#/components/schemas/DenormalisedFlipThreshold'
+        conditional_probabilities:
+          type: array
+          description: >
+            Pairwise conditional probabilities between goal constraints:
+            P(target | given is satisfied). Only surfaced when goal_constraints
+            are supplied and constraints_status is 'computed'; in that case
+            always present — [] when ISL returns no pairs (computed-empty).
+          items:
+            $ref: '#/components/schemas/ConditionalProbability'
         factor_sensitivity:
           type: array
           description: Factor sensitivity results (when available). Entries may include range_derivation_source.
@@ -1068,6 +1086,48 @@ components:
         win_probability: { type: number, minimum: 0, maximum: 1 }
         mean_outcome: { type: number }
       required: [winner_id, winner_label, win_probability]
+    DenormalisedFlipThreshold:
+      type: object
+      description: >
+        Flip threshold (tipping point) for a factor, in user units. Reports the
+        intervention value at which the current recommendation would flip, plus
+        which option would win post-flip.
+      properties:
+        factor_id: { type: string }
+        factor_label: { type: string }
+        current_value:
+          type: number
+          description: Current value in user units.
+        flip_value:
+          type: [number, 'null']
+          description: Value at which the recommendation flips (user units). Null when no flip was found.
+        direction: { type: string, enum: [increase, decrease] }
+        unit:
+          type: string
+          description: Unit string from observed_state (e.g., "GBP", "%", "months").
+        alternative_winner_id:
+          type: [string, 'null']
+          description: Option that would win after the flip. Null when no flip found.
+        alternative_winner_label:
+          type: [string, 'null']
+        flip_reason:
+          type: string
+          description: Reason for the flip_value result (e.g., "flip_found", "no_flip_in_range").
+        iterations_used:
+          type: integer
+          description: Number of ISL inference iterations used to locate the threshold.
+      required: [factor_id, factor_label, current_value, flip_value, direction, alternative_winner_id, alternative_winner_label, flip_reason]
+    ConditionalProbability:
+      type: object
+      description: >
+        Pairwise conditional probability between goal constraints:
+        P(target_constraint | given_constraint is satisfied).
+      properties:
+        given_constraint_id: { type: string }
+        target_constraint_id: { type: string }
+        probability: { type: number, minimum: 0, maximum: 1 }
+        effective_sample_size: { type: integer, minimum: 0 }
+      required: [given_constraint_id, target_constraint_id, probability, effective_sample_size]
     FactorSensitivityV3:
       type: object
       description: Factor sensitivity result with optional range derivation source

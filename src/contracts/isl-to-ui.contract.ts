@@ -79,10 +79,23 @@ export const ISL_TO_UI_CONTRACT: BoundaryContract = {
     'robust_edges[].from_label',
     'robust_edges[].to_label',
     'factor_sensitivity[].source',       // Constant: 'isl'
+    'factor_sensitivity[].confidence_source', // B (tier-B): 'isl' | 'graph' | 'fallback_degenerate' — provenance tag for computed confidence
     'recommended_option_id',
     'recommended_option_label',
     'near_tie',
     'confidence_tier',                   // B1: derived from m1_coaching.readiness (ready→strong, close_call→fair, else→needs_work)
     'dominant_factor',                   // B1: detected from factor_sensitivity (influence >0.5 AND ratio >2:1)
+    // Tier-B always-emit contract: the following enrichment arrays are always
+    // present on the response ([] when ISL returns empty or omits the field),
+    // and their entries are label-enriched beyond the ISL source shape.
+    'edge_e_values',                     // Always-emit: [] when absent/empty from ISL. Entries enriched with from_label, to_label, double-colon edge_id.
+    'edge_e_values[].from_label',
+    'edge_e_values[].to_label',
+    'conditional_winners',               // Always-emit: [] when absent/empty from ISL. Entries enriched with factor_label, bucket winner_label.
+    'conditional_winners[].factor_label',
+    'conditional_winners[].low_bucket.winner_label',
+    'conditional_winners[].high_bucket.winner_label',
+    'flip_thresholds',                   // Always-emit: [] when absent/empty from ISL. Entries denormalised into factor/outcome units.
+    'conditional_probabilities',         // Always-emit: [] when absent/empty (in constraint-analysis block). Index-based refs resolved to constraint_id strings.
   ],
 } as const;
