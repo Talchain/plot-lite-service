@@ -2701,6 +2701,16 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // This runs BEFORE constraint validation to allow graph-defined constraints
         // Note: CEE is responsible for NLP extraction; PLoT operates on structured graph data
 
+        req.log.info(
+          {
+            event: 'constraint-trace.received',
+            goal_constraints_count: body.goal_constraints?.length ?? 0,
+            goal_threshold_present: body.goal_threshold !== undefined,
+            constraint_ids: body.goal_constraints?.map((c) => c.constraint_id) ?? [],
+          },
+          'Constraint trace: request received',
+        );
+
         // Strip _internal from client-supplied constraints — this namespace is
         // server-private (set only by Phase 1c+ auto-synthesis). Prevents clients
         // from spoofing provenance metadata in _meta.constraint_sources.
@@ -2756,6 +2766,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // nor graph constraint nodes), but a goal_threshold exists, synthesise
         // a single constraint so ISL produces constraint_analysis output.
         // This is a deterministic computation — no LLM call (F.6: PLoT = compute).
+        let autoSynthesisFired = false;
         if (constraintCompilation.constraints.length === 0) {
           // Resolve threshold: prefer request-level goal_threshold (already parsed),
           // fall back to goal_threshold on the raw upstream goal node (CEE may set
@@ -2784,6 +2795,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               _internal: { source: 'auto_from_goal_threshold' },
             };
             constraintCompilation.constraints.push(autoConstraint as GoalConstraint);
+            autoSynthesisFired = true;
             repairs.push({
               field: 'goal_constraints',
               action: 'derived',
@@ -2815,6 +2827,17 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             constraint_count: constraintCompilation.constraints.length,
           });
         }
+
+        req.log.info(
+          {
+            event: 'constraint-trace.compiled',
+            source: autoSynthesisFired ? 'auto_synthesis' : 'explicit',
+            compiled_count: constraintCompilation.constraints.length,
+            constraint_ids: constraintCompilation.constraints.map((c) => c.constraint_id),
+            auto_synthesis_fired: autoSynthesisFired,
+          },
+          'Constraint trace: compilation complete',
+        );
 
         // =================================================================
         // Phase 1c++: Temporal Constraint Filter
@@ -3292,6 +3315,18 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           effectiveGoalThreshold,  // Use effective threshold (undefined if multi-constraint)
           constraintsForISL,       // Normalised constraint values (undefined if not using multi-constraint)
           plotSeedUsed  // Always forward PLoT's seed (PLoT is seed authority)
+        );
+
+        req.log.info(
+          {
+            event: 'constraint-trace.isl-forward',
+            constraint_count: islRequest.goal_constraints?.length ?? 0,
+            has_value_field: islRequest.goal_constraints?.every(
+              (c) => 'value' in c,
+            ) ?? true,
+            constraint_ids: islRequest.goal_constraints?.map((c) => c.constraint_id) ?? [],
+          },
+          'Constraint trace: forwarded to ISL',
         );
 
         // CIL Phase 0: Invariant check — ISL request must always include seed for determinism
