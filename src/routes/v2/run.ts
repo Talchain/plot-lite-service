@@ -2828,11 +2828,20 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           });
         }
 
+        const clientConstraintCount = body.goal_constraints?.length ?? 0;
+        const compiledSource = autoSynthesisFired
+          ? 'auto_synthesis'
+          : clientConstraintCount > 0
+            ? 'client'
+            : constraintCompilation.constraints.length > 0
+              ? 'graph_node'
+              : 'none';
         req.log.info(
           {
             event: 'constraint-trace.compiled',
-            source: autoSynthesisFired ? 'auto_synthesis' : 'explicit',
+            source: compiledSource,
             compiled_count: constraintCompilation.constraints.length,
+            client_supplied_count: clientConstraintCount,
             constraint_ids: constraintCompilation.constraints.map((c) => c.constraint_id),
             auto_synthesis_fired: autoSynthesisFired,
           },
