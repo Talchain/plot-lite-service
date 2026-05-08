@@ -1,0 +1,18 @@
+{
+  "graph": {
+    "nodes": [
+      { "id": "fac_market", "kind": "factor", "label": "Target market (UK/US/EU)", "observed_state": { "value": 0, "std": 1.0 } },
+      { "id": "outcome",    "kind": "goal",   "label": "Revenue" }
+    ],
+    "edges": [
+      { "from": "fac_market", "to": "outcome", "exists_probability": 0.9, "strength": { "mean": 0.5, "std": 0.1 } }
+    ]
+  },
+  "options": [
+    { "id": "opt_uk", "label": "UK", "interventions": { "fac_market": { "value": 0, "raw_value": "UK", "value_type": "categorical", "source": "user_specified" } } },
+    { "id": "opt_us", "label": "US", "interventions": { "fac_market": { "value": 1, "raw_value": "US", "value_type": "categorical", "source": "user_specified" } } },
+    { "id": "opt_eu", "label": "EU", "interventions": { "fac_market": { "value": 2, "raw_value": "EU", "value_type": "categorical", "source": "user_specified" } } }
+  ],
+  "goal_node_id": "outcome",
+  "seed": 42
+}

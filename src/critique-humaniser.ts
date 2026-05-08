@@ -354,7 +354,32 @@ export const TEMPLATE_MAP: Record<string, TemplateEntry> = {
     const label = resolveOptionLabel(
       c.affected_option_ids?.[0] ?? c.affected_node_ids?.[0], opts, g,
     );
-    return `${label} targets a categorical factor, which isn't supported yet. Reframe as a numeric estimate.`;
+    // Audit C1-A. Existing canonical wording preserved. One concrete sentence
+    // appended per correction #2 (minimal edit). Longer pedagogical copy is
+    // proposed in the implementation final report for Paul to dispatch separately.
+    return `${label} targets a categorical factor, which isn't supported yet. Reframe as a numeric estimate. Replace this factor with one binary indicator per category, with each option setting exactly one indicator to 1.`;
+  },
+
+  // Categorical integrity (audit C1-A). Generic copy per correction #1: do NOT
+  // echo raw user values into critique messages. Labels are resolved via the
+  // existing label-resolution helper which strips ID prefixes.
+  CATEGORICAL_DECOMPOSED: (c, g) => {
+    const factorIds = c.affected_node_ids ?? [];
+    if (factorIds.length === 0) {
+      return 'A one-hot encoded categorical was detected. Indicators in this group are treated as a mutually exclusive set.';
+    }
+    const labels = factorIds.map((id) => resolveNodeLabel(id, g));
+    return `Detected a one-hot encoded categorical group: ${labels.join(', ')}. These indicators are treated as mutually exclusive across options.`;
+  },
+
+  ONE_HOT_MUTEX_VIOLATION: (c, g, opts) => {
+    const optionLabel = resolveOptionLabel(c.affected_option_ids?.[0], opts, g);
+    return `${optionLabel} sets the wrong number of indicators in a categorical group. Exactly one indicator must be set to 1; the rest must be 0.`;
+  },
+
+  STRIPPED_FIELD_WARNING: (c, g) => {
+    const factorLabel = resolveNodeLabel(c.affected_node_ids?.[0], g);
+    return `Some metadata on factor "${factorLabel}" was dropped during normalisation. The factor was treated as a numeric value; if the dropped fields encoded categorical, unit, or scale semantics, the analysis may not match your intent.`;
   },
 
   POC_NODE_LIMIT:

@@ -514,7 +514,10 @@ describe('humaniseCritique — template map', () => {
     expect(msg).toContain('20-constraint limit');
   });
 
-  it('NOMINAL_INTERVENTION_NOT_SUPPORTED resolves option label', () => {
+  it('NOMINAL_INTERVENTION_NOT_SUPPORTED resolves option label and surfaces the actionable reframe', () => {
+    // The route-level integration test in v2-run.categorical.integration.test.ts
+    // exercises this critique through the live /v2/run handler (audit C1-A;
+    // brief implementation requirement #7 — wire the dead test path).
     const msg = humaniseCritique(
       makeCritique({ code: 'NOMINAL_INTERVENTION_NOT_SUPPORTED', affected_option_ids: ['opt_build_product'] }),
       mockGraph,
@@ -522,6 +525,45 @@ describe('humaniseCritique — template map', () => {
     );
     expect(msg).toContain('Build Product');
     expect(msg).toContain('categorical factor');
+    // Brief correction #2: minimal copy edit appended one concrete sentence.
+    expect(msg).toContain('binary indicator per category');
+    expect(msg).toContain('exactly one indicator to 1');
+  });
+
+  it('CATEGORICAL_DECOMPOSED resolves group factor labels (forward-compat)', () => {
+    const msg = humaniseCritique(
+      makeCritique({ code: 'CATEGORICAL_DECOMPOSED', affected_node_ids: ['fac_market_uk', 'fac_market_us'] }),
+      { nodes: [
+        { id: 'fac_market_uk', label: 'Market UK' },
+        { id: 'fac_market_us', label: 'Market US' },
+      ] },
+    );
+    expect(msg).toContain('Market UK');
+    expect(msg).toContain('Market US');
+    expect(msg).toContain('mutually exclusive');
+  });
+
+  it('ONE_HOT_MUTEX_VIOLATION names the offending option and the rule', () => {
+    const msg = humaniseCritique(
+      makeCritique({ code: 'ONE_HOT_MUTEX_VIOLATION', affected_option_ids: ['opt_violation'] }),
+      mockGraph,
+      [{ id: 'opt_violation', label: 'Violation' }],
+    );
+    expect(msg).toContain('Violation');
+    expect(msg.toLowerCase()).toContain('exactly one');
+  });
+
+  it('STRIPPED_FIELD_WARNING is generic and does not echo raw user values', () => {
+    const msg = humaniseCritique(
+      makeCritique({ code: 'STRIPPED_FIELD_WARNING', affected_node_ids: ['fac_flag'] }),
+      { nodes: [{ id: 'fac_flag', label: 'Flag' }] },
+    );
+    expect(msg).toContain('Flag');
+    expect(msg).toContain('dropped during normalisation');
+    // Generic copy — must not echo internal field names.
+    expect(msg).not.toContain('value_type');
+    expect(msg).not.toContain('encoding_map');
+    expect(msg).not.toContain('raw_value');
   });
 });
 

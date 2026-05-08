@@ -68,6 +68,10 @@ import { filterOptionNodes } from '../../normalisation/option-filter.js';
 import { hashRequest, HASH_VERSION } from '../../normalisation/canonicalise.js';
 import { hashGraph, deriveSeedFromHash } from '../../sampling/graph-hash.js';
 import { runPreflightValidation, validateGoalConstraints, filterInvalidBidirectedEdges, validateInboundStrengthSum } from '../../validation/preflight-v2.js';
+import {
+  detectCategoricalIssues,
+  type CategoricalDetectionResult,
+} from '../../validation/categorical-detector.js';
 import { compileConstraintNodes } from '../../normalisation/constraint-compiler.js';
 import { filterTemporalConstraints } from '../../normalisation/constraint-filter.js';
 import { REPAIR_CODES } from '../../normalisation/repair-codes.js';
@@ -150,6 +154,21 @@ import type { FactObjectV1, FactLineage } from '../../facts/types.js';
  */
 function isCanonicalMetaEnabled(): boolean {
   return process.env.UI_CANONICAL_META === '1';
+}
+
+/**
+ * Check if CATEGORICAL_INTEGRITY_ENFORCEMENT feature flag is enabled.
+ *
+ * When enabled, PLoT runs categorical-integrity detection at request parse —
+ * blocking nominal categoricals before normalisation/ISL and emitting
+ * targeted critiques. Audit C1-A motivation.
+ *
+ * Default: OFF when env var is absent. Render dashboard sets `=1` for
+ * staging/production rollout. Kill-switch property preserved for in-flight
+ * pilot sessions per audit risk #2.
+ */
+function isCategoricalEnforcementEnabled(): boolean {
+  return process.env.CATEGORICAL_INTEGRITY_ENFORCEMENT === '1';
 }
 
 // -----------------------------------------------------------------------------
@@ -2532,6 +2551,112 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
 
       try {
         // =================================================================
+        // Phase 0: Categorical Integrity Detection (audit C1-A)
+        //
+        // Runs BEFORE normalisation and BEFORE any ISL call. Reads raw
+        // body.options (still carrying value_type, raw_value, encoding_map
+        // metadata that normalizeInterventions() strips). Either:
+        //   (a) raises NOMINAL_INTERVENTION_NOT_SUPPORTED (or
+        //       ONE_HOT_MUTEX_VIOLATION) and returns 422 — no normalisation,
+        //       no preflight, no ISL; or
+        //   (b) accumulates info CATEGORICAL_DECOMPOSED / warning
+        //       STRIPPED_FIELD_WARNING critiques into preDetectionCritiques
+        //       which merge into the success-path response at the
+        //       critiques aggregation site (~line 3580).
+        //
+        // Gated by CATEGORICAL_INTEGRITY_ENFORCEMENT env flag (default OFF
+        // when unset; staging/prod set `=1` via Render dashboard).
+        // =================================================================
+        const preDetectionCritiques: CritiqueV3[] = [];
+        if (isCategoricalEnforcementEnabled()) {
+          const detection: CategoricalDetectionResult = detectCategoricalIssues(body.options ?? []);
+          // Build critiques from detection result.
+          const detectionBlockers: CritiqueV3[] = [];
+          for (const blocked of detection.blocked_factors) {
+            detectionBlockers.push({
+              id: randomUUID(),
+              code: 'NOMINAL_INTERVENTION_NOT_SUPPORTED',
+              severity: 'blocker',
+              // Internal/debug message — does NOT echo raw user values.
+              // raw_values_sample is held in the detection result for trace only.
+              message: `Factor "${blocked.factor_id}" detected as nominal categorical (trigger: ${blocked.trigger}; ${blocked.distinct_value_count} distinct values across ${blocked.options_referencing_factor.length} options).`,
+              source: 'validation',
+              affected_node_ids: [blocked.factor_id],
+              affected_option_ids: [...blocked.options_referencing_factor],
+              blocks_analysis: true,
+            });
+          }
+          for (const violation of detection.one_hot_mutex_violations) {
+            detectionBlockers.push({
+              id: randomUUID(),
+              code: 'ONE_HOT_MUTEX_VIOLATION',
+              severity: 'blocker',
+              message: `One-hot group "${violation.group_id}" violation on option "${violation.option_id}": ${violation.reason}`,
+              source: 'validation',
+              affected_option_ids: [violation.option_id],
+              blocks_analysis: true,
+            });
+          }
+          if (detectionBlockers.length > 0) {
+            // Extract id+label pairs from raw options for label resolution.
+            // Untyped pass — narrow inline. Empty array is fine; humaniser
+            // falls back to humaniseId(option_id).
+            const optionLabels: Array<{ id: string; label: string }> = [];
+            if (Array.isArray(body.options)) {
+              for (const o of body.options) {
+                if (typeof o === 'object' && o !== null) {
+                  const opt = o as { id?: unknown; label?: unknown };
+                  if (typeof opt.id === 'string') {
+                    optionLabels.push({
+                      id: opt.id,
+                      label: typeof opt.label === 'string' ? opt.label : opt.id,
+                    });
+                  }
+                }
+              }
+            }
+            return reply.status(422).send(buildBlockedResponse(
+              'Categorical integrity check failed',
+              detectionBlockers,
+              body.graph,
+              optionLabels,
+              requestId,
+              requestComputedAt,
+            ));
+          }
+          // Non-blocker critiques accumulate for the success-path response.
+          for (const group of detection.one_hot_validated_groups) {
+            preDetectionCritiques.push({
+              id: randomUUID(),
+              code: 'CATEGORICAL_DECOMPOSED',
+              severity: 'info',
+              message: `One-hot group "${group.group_id}" validated across ${group.factor_ids.length} indicators.`,
+              source: 'validation',
+              affected_node_ids: [...group.factor_ids],
+              blocks_analysis: false,
+            });
+          }
+          // STRIPPED_FIELD_WARNING — dedupe per (factor_id, field) so a multi-
+          // option request emits at most one warning per (factor, field) pair.
+          // Bounded linear-time per the brief's perf rule.
+          const seenStripped = new Set<string>();
+          for (const stripped of detection.stripped_meaningful_fields) {
+            const key = `${stripped.factor_id}::${stripped.field}`;
+            if (seenStripped.has(key)) continue;
+            seenStripped.add(key);
+            preDetectionCritiques.push({
+              id: randomUUID(),
+              code: 'STRIPPED_FIELD_WARNING',
+              severity: 'warning',
+              message: `Factor "${stripped.factor_id}" field "${stripped.field}" stripped during normalisation.`,
+              source: 'validation',
+              affected_node_ids: [stripped.factor_id],
+              blocks_analysis: false,
+            });
+          }
+        }
+
+        // =================================================================
         // Phase 1: Normalization
         // =================================================================
         const normStart = performance.now();
@@ -3084,8 +3209,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         if (!islService.isEnabled()) {
           const totalMs = performance.now() - startTime;
 
-          // Include preflight warnings (e.g., scale mismatch) alongside ISL_NOT_ENABLED
+          // Include preflight warnings (e.g., scale mismatch) and any Phase 0
+          // categorical-detection critiques alongside ISL_NOT_ENABLED.
           const islNotEnabledCritiques: CritiqueV3[] = [
+            ...preDetectionCritiques,
             ...preflight.warnings,
             {
               id: randomUUID(),
@@ -3571,7 +3698,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
 
         // Build response
         const totalMs = performance.now() - startTime;
-        const critiques: CritiqueV3[] = [...preflight.warnings];
+        // Phase 0 pre-detection critiques (audit C1-A) merge first so they
+        // appear before preflight warnings in the response — they describe
+        // request-shape issues that preceded all other validation.
+        const critiques: CritiqueV3[] = [...preDetectionCritiques, ...preflight.warnings];
 
         // Log normalization warnings with structured context for telemetry
         if (normWarnings.length > 0) {

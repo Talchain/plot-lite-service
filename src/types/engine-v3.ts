@@ -537,6 +537,9 @@ export const BLOCKER_CODES = [
   'IDENTIFIABILITY_ISSUE',
   'GRAPH_CYCLE_DETECTED',
   'ISL_CANNOT_IDENTIFY',
+  // Categorical integrity blockers (audit C1-A; see categorical-detector.ts)
+  'NOMINAL_INTERVENTION_NOT_SUPPORTED',  // unordered categorical factor cannot be encoded as a single numeric scale
+  'ONE_HOT_MUTEX_VIOLATION',             // explicitly grouped one-hot indicators violate "exactly one set to 1"
 ] as const;
 
 export type BlockerCode = (typeof BLOCKER_CODES)[number];
@@ -580,6 +583,9 @@ export const INLINE_CRITIQUE_CODES = [
   'INVALID_BIDIRECTED_EDGE',
   'IDENTICAL_OPTIONS_DEDUPED',
   'INBOUND_STRENGTH_SUM_EXCEEDED',    // inbound |strength.mean| sum > 1.0
+  // Categorical integrity (audit C1-A; see categorical-detector.ts)
+  'CATEGORICAL_DECOMPOSED',           // info: a one-hot indicator group was validated as safe
+  'STRIPPED_FIELD_WARNING',           // warning: scientifically-meaningful field was stripped on a passed-through factor
 ] as const;
 
 export type InlineCritiqueCode = (typeof INLINE_CRITIQUE_CODES)[number];
