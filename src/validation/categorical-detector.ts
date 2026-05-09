@@ -23,20 +23,33 @@
  *      `raw_value` is a non-numeric string). Value-shape alone is INSUFFICIENT.
  *   4. (Future) Known categorical field names emitted by CEE — currently empty;
  *      see `detectByCEEFieldNames` below for the wiring point.
+ *   5. Explicit nominal markers — `type: "nominal"` or non-empty `categories[]`.
+ *      No binary-categorical bypass: the LLM is asserting "this factor IS nominal"
+ *      regardless of how the values are encoded. The conservative contract treats
+ *      it as a deliberate declaration that the factor cannot be analysed on a
+ *      single numeric scale. Bypassed only by explicit ordinal markers or
+ *      validated one-hot grouping.
  *
  * Ordinal pass condition: explicit type:"ordinal", ordered_categories[], or
  * ordinal_scale: true. None of these markers exist in CEE today; the check is
  * implemented as a wiring point for when CEE adds ordinal support.
  *
  * One-hot validation: a group of indicators is treated as safe one-hot only when
- * grouped by EXPLICIT shared metadata (e.g. categorical_group_id). This grouping
- * field does not exist in CEE today. Until CEE follow-up adds it,
- * `validateOneHotGrouping` ACTIVELY returns no validated groups, causing the
- * detection result to flow into the block path. This is NOT a no-op: it is an
- * active conservative block of any multi-option categorical until structural
- * grouping exists. Naming-pattern inference (e.g. fac_market_uk + fac_market_us)
- * is intentionally NOT supported (would re-introduce the silent-strip class of
- * bug this guard prevents).
+ * grouped by EXPLICIT shared metadata (`categorical_group_id`) AND every option
+ * explicitly sets every indicator in the group to 0 or 1, with exactly one set
+ * to 1. Options that omit any group member raise ONE_HOT_MUTEX_VIOLATION
+ * (kind: missing_indicator_in_option). Options that omit the group entirely
+ * are also treated as a violation: status-quo or unrelated options must
+ * declare their position on the categorical explicitly via observed_state on
+ * the node, not via selective omission.
+ *
+ * Inconsistent group_id metadata across options (different IDs on the same
+ * factor, or some options omit it while others don't) raises
+ * ONE_HOT_GROUPING_INCONSISTENT. Naming-pattern inference is intentionally
+ * NOT supported. The grouping field does not exist in CEE today; CEE follow-up
+ * brief lands the metadata. Until then, `validateOneHotGrouping` actively
+ * returns no validated groups and any multi-option categorical flows into the
+ * block path via rules 1–5.
  *
  * STRIPPED_FIELD_WARNING is emitted only when scientifically-meaningful fields
  * were dropped on a passed-through (non-blocked) factor. Triggers:
@@ -483,21 +496,16 @@ function validateOneHotGrouping(options: ReadonlyArray<NarrowedOption>): {
 
   // -- Step 4: For each group, validate per-option mutex AND completeness:
   //    every option must explicitly set every group member to 0 or 1, with
-  //    exactly one set to 1. Missing indicator = violation (audit P1 #1).
+  //    exactly one set to 1. Missing indicator = violation. Options that omit
+  //    the group entirely are also a violation — selective omission is not
+  //    treated as "I'm not in this group" because that creates structural
+  //    ambiguity (which value does the factor take for that option?). The
+  //    expected pattern for a status-quo or unrelated option is: explicitly
+  //    set every indicator to its baseline value, OR encode the baseline via
+  //    `observed_state.value` on the node (not through intervention omission).
   const mutexViolations: OneHotMutexViolation[] = [];
   for (const [groupId, members] of groupMembers) {
     for (const opt of options) {
-      // Only consider options that intervene on at least one group member —
-      // a totally absent option may legitimately not touch this group.
-      let touchesGroup = false;
-      for (const factorId of members) {
-        if (opt.interventions.has(factorId)) {
-          touchesGroup = true;
-          break;
-        }
-      }
-      if (!touchesGroup) continue;
-
       let onesCount = 0;
       let nonBinarySeen = false;
       let missingSeen = false;

@@ -26,20 +26,30 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // =============================================================================
-// ISL spy — throws on any method call. Tests that expect a successful ISL
-// path are NOT in this file (categorical detection blocks before ISL on every
-// case here). When detection passes, ISL_ENABLE='0' takes over the path.
+// ISL spy. Two counters:
+//   - `islCallEndpointInvocations`: counts only `callAnalysisEndpoint` calls
+//     (the actual ISL-side analysis). Success-path tests in this file expect
+//     this to be 0 because the route exits via ISL_NOT_ENABLED (the spy
+//     reports isEnabled=false, by design).
+//   - `islMethodTouches`: counts EVERY method call on the spy. Blocker-path
+//     tests assert this is 0 — the request must return 422 before any ISL
+//     client method is touched.
+// Both counters reset at the start of each test.
 // =============================================================================
-let islInvocations = 0;
+let islCallEndpointInvocations = 0;
+let islMethodTouches = 0;
 const islSpy = {
   isEnabled(): boolean {
-    return false; // ISL_ENABLE='0' default — categorical detection runs before this anyway
+    islMethodTouches += 1;
+    return false; // categorical detection should run before this anyway
   },
   async callAnalysisEndpoint(): Promise<never> {
-    islInvocations += 1;
+    islCallEndpointInvocations += 1;
+    islMethodTouches += 1;
     throw new Error('ISL.callAnalysisEndpoint should not be called when categorical block fires');
   },
   async isAvailable(): Promise<boolean> {
+    islMethodTouches += 1;
     return false;
   },
 };
@@ -86,7 +96,7 @@ describe('/v2/run categorical integrity (audit C1-A)', () => {
   // C1 fixture regression test (correction #5)
   // ---------------------------------------------------------------------------
   it('C1 audit fixture: blocks with NOMINAL_INTERVENTION_NOT_SUPPORTED and never invokes ISL', async () => {
-    islInvocations = 0;
+    islCallEndpointInvocations = 0; islMethodTouches = 0;
 
     const fixturePath = join(__dirname, 'fixtures', 'c1-categorical-direct.json');
     const payload = JSON.parse(readFileSync(fixturePath, 'utf-8'));
@@ -132,8 +142,10 @@ describe('/v2/run categorical integrity (audit C1-A)', () => {
     // responses do not carry `option_comparison`.
     expect(body.option_comparison).toBeUndefined();
 
-    // ISL spy: zero invocations.
-    expect(islInvocations).toBe(0);
+    // ISL spy: zero invocations on ANY method — the request must return 422
+    // before the route ever touches the ISL client.
+    expect(islCallEndpointInvocations).toBe(0);
+    expect(islMethodTouches).toBe(0);
   });
 
   // ---------------------------------------------------------------------------
@@ -141,7 +153,7 @@ describe('/v2/run categorical integrity (audit C1-A)', () => {
   // even when option labels are textually distinct from raw_values.
   // ---------------------------------------------------------------------------
   it('user_message does not echo raw_value strings (verified with disjoint label/raw_value strings)', async () => {
-    islInvocations = 0;
+    islCallEndpointInvocations = 0; islMethodTouches = 0;
     const payload = {
       graph: {
         nodes: [
@@ -178,14 +190,15 @@ describe('/v2/run categorical integrity (audit C1-A)', () => {
     expect(msg).not.toContain('GZQXR1');
     expect(msg).not.toContain('WRMVT2');
     expect(msg).not.toContain('KPDLN3');
-    expect(islInvocations).toBe(0);
+    expect(islCallEndpointInvocations).toBe(0);
+    expect(islMethodTouches).toBe(0);
   });
 
   // ---------------------------------------------------------------------------
   // Pass-through: properly-decomposed one-hot (current CEE prompt-compliant shape)
   // ---------------------------------------------------------------------------
   it('properly-decomposed one-hot graph (3 separate factors, binary values) does NOT block on categorical grounds', async () => {
-    islInvocations = 0;
+    islCallEndpointInvocations = 0; islMethodTouches = 0;
 
     // Three per-category factors. Each factor only has values {0,1} across
     // options. No categorical metadata. Detection must not fire.
@@ -238,14 +251,14 @@ describe('/v2/run categorical integrity (audit C1-A)', () => {
     expect(critiques.find((c) => c.code === 'NOMINAL_INTERVENTION_NOT_SUPPORTED')).toBeUndefined();
     expect(critiques.find((c) => c.code === 'ONE_HOT_MUTEX_VIOLATION')).toBeUndefined();
     // ISL spy still not called (it's disabled, not invoked).
-    expect(islInvocations).toBe(0);
+    expect(islCallEndpointInvocations).toBe(0);
   });
 
   // ---------------------------------------------------------------------------
   // Forward-compat: explicit categorical_group_id with mutex-clean indicators
   // ---------------------------------------------------------------------------
   it('explicitly-grouped one-hot with categorical_group_id produces CATEGORICAL_DECOMPOSED info critique', async () => {
-    islInvocations = 0;
+    islCallEndpointInvocations = 0; islMethodTouches = 0;
     const groupTag = 'market_group';
     const payload = {
       graph: {
@@ -313,14 +326,14 @@ describe('/v2/run categorical integrity (audit C1-A)', () => {
     expect(decomposed).toBeDefined();
     expect(decomposed!.severity).toBe('info');
     // ISL never invoked.
-    expect(islInvocations).toBe(0);
+    expect(islCallEndpointInvocations).toBe(0);
   });
 
   // ---------------------------------------------------------------------------
   // Mutex violation: explicitly grouped, two indicators set to 1 in one option
   // ---------------------------------------------------------------------------
   it('mutex violation in explicit one-hot group raises ONE_HOT_MUTEX_VIOLATION blocker and never invokes ISL', async () => {
-    islInvocations = 0;
+    islCallEndpointInvocations = 0; islMethodTouches = 0;
     const groupTag = 'group_x';
     const payload = {
       graph: {
@@ -371,14 +384,15 @@ describe('/v2/run categorical integrity (audit C1-A)', () => {
     expect(violation).toBeDefined();
     expect(violation!.severity).toBe('blocker');
     expect(violation!.affected_option_ids).toContain('opt_violation');
-    expect(islInvocations).toBe(0);
+    expect(islCallEndpointInvocations).toBe(0);
+    expect(islMethodTouches).toBe(0);
   });
 
   // ---------------------------------------------------------------------------
   // ONE_HOT_GROUPING_INCONSISTENT: conflicting group_id across options blocks
   // ---------------------------------------------------------------------------
   it('conflicting categorical_group_id across options raises ONE_HOT_GROUPING_INCONSISTENT and never invokes ISL', async () => {
-    islInvocations = 0;
+    islCallEndpointInvocations = 0; islMethodTouches = 0;
     const payload = {
       graph: {
         nodes: [
@@ -418,14 +432,15 @@ describe('/v2/run categorical integrity (audit C1-A)', () => {
     expect(inconsistency!.user_message).not.toContain('group_one');
     expect(inconsistency!.user_message).not.toContain('group_two');
 
-    expect(islInvocations).toBe(0);
+    expect(islCallEndpointInvocations).toBe(0);
+    expect(islMethodTouches).toBe(0);
   });
 
   // ---------------------------------------------------------------------------
   // ONE_HOT_GROUPING_INCONSISTENT: partial group_id coverage blocks
   // ---------------------------------------------------------------------------
   it('partial categorical_group_id coverage (some options omit) raises ONE_HOT_GROUPING_INCONSISTENT', async () => {
-    islInvocations = 0;
+    islCallEndpointInvocations = 0; islMethodTouches = 0;
     const payload = {
       graph: {
         nodes: [
@@ -454,14 +469,15 @@ describe('/v2/run categorical integrity (audit C1-A)', () => {
     const body = await res.json() as Record<string, unknown>;
     const critiques = body.critiques as Array<{ code: string; severity: string }>;
     expect(critiques.find((c) => c.code === 'ONE_HOT_GROUPING_INCONSISTENT')).toBeDefined();
-    expect(islInvocations).toBe(0);
+    expect(islCallEndpointInvocations).toBe(0);
+    expect(islMethodTouches).toBe(0);
   });
 
   // ---------------------------------------------------------------------------
   // ONE_HOT_MUTEX_VIOLATION: missing indicator in option blocks
   // ---------------------------------------------------------------------------
   it('missing indicator in one option of an explicitly grouped one-hot raises ONE_HOT_MUTEX_VIOLATION', async () => {
-    islInvocations = 0;
+    islCallEndpointInvocations = 0; islMethodTouches = 0;
     const groupTag = 'g_market';
     const payload = {
       graph: {
@@ -501,14 +517,15 @@ describe('/v2/run categorical integrity (audit C1-A)', () => {
     const violation = critiques.find((c) => c.code === 'ONE_HOT_MUTEX_VIOLATION');
     expect(violation).toBeDefined();
     expect(violation!.affected_option_ids).toContain('opt_incomplete');
-    expect(islInvocations).toBe(0);
+    expect(islCallEndpointInvocations).toBe(0);
+    expect(islMethodTouches).toBe(0);
   });
 
   // ---------------------------------------------------------------------------
   // type:"nominal" and categories field block (forward-compat detection rule 5)
   // ---------------------------------------------------------------------------
   it('type:"nominal" with multiple distinct values raises NOMINAL_INTERVENTION_NOT_SUPPORTED', async () => {
-    islInvocations = 0;
+    islCallEndpointInvocations = 0; islMethodTouches = 0;
     const payload = {
       graph: {
         nodes: [
@@ -534,11 +551,12 @@ describe('/v2/run categorical integrity (audit C1-A)', () => {
     const body = await res.json() as Record<string, unknown>;
     const critiques = body.critiques as Array<{ code: string }>;
     expect(critiques.find((c) => c.code === 'NOMINAL_INTERVENTION_NOT_SUPPORTED')).toBeDefined();
-    expect(islInvocations).toBe(0);
+    expect(islCallEndpointInvocations).toBe(0);
+    expect(islMethodTouches).toBe(0);
   });
 
   it('non-empty categories[] field raises NOMINAL_INTERVENTION_NOT_SUPPORTED', async () => {
-    islInvocations = 0;
+    islCallEndpointInvocations = 0; islMethodTouches = 0;
     const payload = {
       graph: {
         nodes: [
@@ -569,14 +587,15 @@ describe('/v2/run categorical integrity (audit C1-A)', () => {
     expect(blocker!.user_message).not.toContain('red');
     expect(blocker!.user_message).not.toContain('green');
     expect(blocker!.user_message).not.toContain('blue');
-    expect(islInvocations).toBe(0);
+    expect(islCallEndpointInvocations).toBe(0);
+    expect(islMethodTouches).toBe(0);
   });
 
   // ---------------------------------------------------------------------------
   // STRIPPED_FIELD_WARNING fires for binary-categorical-with-metadata pass-through
   // ---------------------------------------------------------------------------
   it('binary categorical (value_type:"categorical" with {0,1} values) passes but emits STRIPPED_FIELD_WARNING', async () => {
-    islInvocations = 0;
+    islCallEndpointInvocations = 0; islMethodTouches = 0;
     // Binary categorical bypasses block via rule 1's binary bypass; metadata
     // gets stripped by normalisation, so STRIPPED_FIELD_WARNING fires for
     // value_type and (paired) raw_value.
@@ -613,7 +632,7 @@ describe('/v2/run categorical integrity (audit C1-A)', () => {
     const stripped = critiques.find((c) => c.code === 'STRIPPED_FIELD_WARNING');
     expect(stripped).toBeDefined();
     expect(stripped!.severity).toBe('warning');
-    expect(islInvocations).toBe(0);
+    expect(islCallEndpointInvocations).toBe(0);
   });
 });
 
@@ -648,7 +667,7 @@ describe('/v2/run categorical integrity — default-enabled when env unset (fail
   });
 
   it('with CATEGORICAL_INTEGRITY_ENFORCEMENT unset, the C1 fixture STILL blocks (audit C1-A fix is the shipping default)', async () => {
-    islInvocations = 0;
+    islCallEndpointInvocations = 0; islMethodTouches = 0;
 
     const fixturePath = join(__dirname, 'fixtures', 'c1-categorical-direct.json');
     const payload = JSON.parse(readFileSync(fixturePath, 'utf-8'));
@@ -666,7 +685,8 @@ describe('/v2/run categorical integrity — default-enabled when env unset (fail
     const blocker = critiques.find((c) => c.code === 'NOMINAL_INTERVENTION_NOT_SUPPORTED');
     expect(blocker).toBeDefined();
     expect(blocker!.severity).toBe('blocker');
-    expect(islInvocations).toBe(0);
+    expect(islCallEndpointInvocations).toBe(0);
+    expect(islMethodTouches).toBe(0);
   });
 });
 
@@ -701,7 +721,7 @@ describe('/v2/run categorical integrity — kill switch (CATEGORICAL_INTEGRITY_E
   });
 
   it('with CATEGORICAL_INTEGRITY_ENFORCEMENT=0, no new categorical critiques fire (kill switch)', async () => {
-    islInvocations = 0;
+    islCallEndpointInvocations = 0; islMethodTouches = 0;
 
     const fixturePath = join(__dirname, 'fixtures', 'c1-categorical-direct.json');
     const payload = JSON.parse(readFileSync(fixturePath, 'utf-8'));
@@ -721,5 +741,105 @@ describe('/v2/run categorical integrity — kill switch (CATEGORICAL_INTEGRITY_E
     expect(critiques.find((c) => c.code === 'ONE_HOT_GROUPING_INCONSISTENT')).toBeUndefined();
     expect(critiques.find((c) => c.code === 'CATEGORICAL_DECOMPOSED')).toBeUndefined();
     expect(critiques.find((c) => c.code === 'STRIPPED_FIELD_WARNING')).toBeUndefined();
+  });
+});
+
+// =============================================================================
+// Kill-switch ergonomics: the disable signal accepts multiple operationally
+// common values (case-insensitive). Typos (e.g. `=fasle`) fall through to
+// default-enabled, preserving fail-closed semantics.
+// =============================================================================
+describe.each([
+  { label: '=false', value: 'false' },
+  { label: '=off', value: 'off' },
+  { label: '=disabled', value: 'disabled' },
+  { label: '=NO (uppercase)', value: 'NO' },
+  { label: '=False (mixed-case)', value: 'False' },
+])('/v2/run categorical integrity — kill switch alias $label', ({ value }) => {
+  let app: FastifyInstance;
+  let baseUrl: string;
+
+  beforeAll(async () => {
+    process.env.RATE_LIMIT_ENABLED = '0';
+    process.env.CEE_ORCHESTRATOR_ENABLED = '0';
+    process.env.AUTH_ENABLED = '0';
+    process.env.CATEGORICAL_INTEGRITY_ENFORCEMENT = value;
+
+    app = await createServer();
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    const addr = app.server.address();
+    const port = typeof addr === 'object' && addr ? addr.port : 0;
+    baseUrl = `http://127.0.0.1:${port}`;
+  });
+
+  afterAll(async () => {
+    await app?.close();
+    delete process.env.RATE_LIMIT_ENABLED;
+    delete process.env.CEE_ORCHESTRATOR_ENABLED;
+    delete process.env.AUTH_ENABLED;
+    delete process.env.CATEGORICAL_INTEGRITY_ENFORCEMENT;
+  });
+
+  it('disables enforcement (no new categorical critiques on the C1 fixture)', async () => {
+    const fixturePath = join(__dirname, 'fixtures', 'c1-categorical-direct.json');
+    const payload = JSON.parse(readFileSync(fixturePath, 'utf-8'));
+
+    const res = await fetch(`${baseUrl}/v2/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    const body = await res.json() as Record<string, unknown>;
+    const critiques = (body.critiques as Array<{ code: string }> | undefined) ?? [];
+    expect(critiques.find((c) => c.code === 'NOMINAL_INTERVENTION_NOT_SUPPORTED')).toBeUndefined();
+  });
+});
+
+// =============================================================================
+// Typo defaults to enabled (fail-closed for unrecognised values).
+// =============================================================================
+describe('/v2/run categorical integrity — typo in disable value defaults to ENABLED (fail-closed)', () => {
+  let app: FastifyInstance;
+  let baseUrl: string;
+
+  beforeAll(async () => {
+    process.env.RATE_LIMIT_ENABLED = '0';
+    process.env.CEE_ORCHESTRATOR_ENABLED = '0';
+    process.env.AUTH_ENABLED = '0';
+    // 'fasle' is an unrecognised value (typo of 'false') — must fall through
+    // to default-enabled, NOT silently disable. Any operator typo produces
+    // safe behaviour.
+    process.env.CATEGORICAL_INTEGRITY_ENFORCEMENT = 'fasle';
+
+    app = await createServer();
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    const addr = app.server.address();
+    const port = typeof addr === 'object' && addr ? addr.port : 0;
+    baseUrl = `http://127.0.0.1:${port}`;
+  });
+
+  afterAll(async () => {
+    await app?.close();
+    delete process.env.RATE_LIMIT_ENABLED;
+    delete process.env.CEE_ORCHESTRATOR_ENABLED;
+    delete process.env.AUTH_ENABLED;
+    delete process.env.CATEGORICAL_INTEGRITY_ENFORCEMENT;
+  });
+
+  it('typo "fasle" still blocks the C1 fixture (unrecognised value defaults to enabled)', async () => {
+    const fixturePath = join(__dirname, 'fixtures', 'c1-categorical-direct.json');
+    const payload = JSON.parse(readFileSync(fixturePath, 'utf-8'));
+
+    const res = await fetch(`${baseUrl}/v2/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    expect(res.status).toBe(422);
+    const body = await res.json() as Record<string, unknown>;
+    const critiques = body.critiques as Array<{ code: string }>;
+    expect(critiques.find((c) => c.code === 'NOMINAL_INTERVENTION_NOT_SUPPORTED')).toBeDefined();
   });
 });

@@ -561,10 +561,13 @@ describe('detectCategoricalIssues — missing-indicator mutex violation (P1 feed
     expect(result.one_hot_validated_groups).toHaveLength(0);
   });
 
-  it('options that do not touch any group member are not penalised', () => {
-    // A graph may have options that legitimately do not intervene on a
-    // group at all (e.g. an unrelated decision lever). Those must not
-    // trigger missing-indicator violations.
+  it('options that omit the group entirely raise ONE_HOT_MUTEX_VIOLATION (conservative-block contract)', () => {
+    // Critical regression test (review feedback P0): an option that does NOT
+    // intervene on any member of the group is structurally ambiguous — what
+    // value does the categorical take for that option? The conservative-block
+    // contract requires every option to explicitly participate. Status-quo or
+    // unrelated options must encode their position via `observed_state.value`
+    // on the node, NOT via selective intervention omission.
     const groupTag = 'g_split2';
     const result = detectCategoricalIssues([
       opt('opt_market_uk', {
@@ -576,11 +579,41 @@ describe('detectCategoricalIssues — missing-indicator mutex violation (P1 feed
         fac_us: { value: 1, categorical_group_id: groupTag },
       }),
       opt('opt_unrelated', {
+        // Touches nothing in the market group — must fail mutex.
         fac_other: { value: 0.5 },
       }),
     ]);
-    expect(result.one_hot_mutex_violations).toHaveLength(0);
-    expect(result.one_hot_validated_groups).toHaveLength(1);
+    // Group must NOT validate; opt_unrelated raises missing_indicator_in_option.
+    expect(result.one_hot_validated_groups).toHaveLength(0);
+    const violation = result.one_hot_mutex_violations.find((v) => v.option_id === 'opt_unrelated');
+    expect(violation).toBeDefined();
+    expect(violation!.kind).toBe('missing_indicator_in_option');
+  });
+
+  it('grouped one-hot complete for two options but entirely absent from a third raises ONE_HOT_MUTEX_VIOLATION (review-feedback regression)', () => {
+    // Direct regression case from review feedback. Previously this case
+    // emitted CATEGORICAL_DECOMPOSED because the third option was skipped.
+    // After the fix: validated_groups is empty, mutex_violations names the
+    // third option.
+    const groupTag = 'g_3opts';
+    const result = detectCategoricalIssues([
+      opt('opt_a', {
+        fac_x: { value: 1, categorical_group_id: groupTag },
+        fac_y: { value: 0, categorical_group_id: groupTag },
+      }),
+      opt('opt_b', {
+        fac_x: { value: 0, categorical_group_id: groupTag },
+        fac_y: { value: 1, categorical_group_id: groupTag },
+      }),
+      opt('opt_c', {
+        // No group members touched.
+        fac_unrelated: { value: 0.5 },
+      }),
+    ]);
+    expect(result.one_hot_validated_groups).toHaveLength(0);
+    const violation = result.one_hot_mutex_violations.find((v) => v.option_id === 'opt_c');
+    expect(violation).toBeDefined();
+    expect(violation!.kind).toBe('missing_indicator_in_option');
   });
 });
 

@@ -379,7 +379,7 @@ export const TEMPLATE_MAP: Record<string, TemplateEntry> = {
 
   ONE_HOT_GROUPING_INCONSISTENT: (c, g) => {
     const factorLabel = resolveNodeLabel(c.affected_node_ids?.[0], g);
-    return `Factor "${factorLabel}" has inconsistent one-hot grouping metadata across options. Either every option must declare the same group, or none should declare it. Mixed or conflicting group metadata cannot be validated.`;
+    return `Factor "${factorLabel}" has inconsistent one-hot grouping metadata across options. To validate as a safe one-hot group, every option must place every indicator in the same group. Otherwise, remove the categorical encoding entirely so the factor is analysed as a regular numeric factor.`;
   },
 
   STRIPPED_FIELD_WARNING: (c, g) => {

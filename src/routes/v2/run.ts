@@ -157,19 +157,38 @@ function isCanonicalMetaEnabled(): boolean {
 }
 
 /**
+ * Recognised disable values for the categorical-integrity kill switch.
+ * Exported for visibility in tests and operational runbooks. Match is
+ * case-insensitive; any value not in this set (including unset and typos)
+ * leaves enforcement enabled — fail-closed semantics for the audit C1-A fix.
+ */
+export const CATEGORICAL_ENFORCEMENT_DISABLE_VALUES = new Set([
+  '0',
+  'false',
+  'off',
+  'no',
+  'disabled',
+]);
+
+/**
  * Check if CATEGORICAL_INTEGRITY_ENFORCEMENT feature flag is enabled.
  *
  * Fail-closed semantics (audit C1-A is a P0 — the fix must apply by default):
- *   - Unset, '1', 'true', or any other value → ENABLED (detection runs).
- *   - Exact value '0' → DISABLED (kill switch for ops emergencies).
+ *   - Unset, '1', 'true', any unrecognised value (incl. typos) → ENABLED.
+ *   - One of {'0', 'false', 'off', 'no', 'disabled'} (case-insensitive)
+ *     → DISABLED (kill switch for ops emergencies).
  *
  * The kill switch lets operations disable enforcement immediately if the new
  * blocker fires unexpectedly on real pilot traffic, without rolling back the
- * deployment. Setting `=0` is an explicit, visible decision; the default
- * shipping state is enforcement ON so the C1-A fix is not a dark feature.
+ * deployment. Setting an explicit disable value is a visible decision; the
+ * default shipping state is enforcement ON so the C1-A fix is not a dark
+ * feature. Typos in the disable value (e.g. "fasle") fall through to the
+ * default — enabled — which is the safe state.
  */
 function isCategoricalEnforcementEnabled(): boolean {
-  return process.env.CATEGORICAL_INTEGRITY_ENFORCEMENT !== '0';
+  const raw = process.env.CATEGORICAL_INTEGRITY_ENFORCEMENT;
+  if (raw === undefined) return true;
+  return !CATEGORICAL_ENFORCEMENT_DISABLE_VALUES.has(raw.toLowerCase());
 }
 
 // -----------------------------------------------------------------------------
