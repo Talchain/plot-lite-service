@@ -63,6 +63,8 @@ describe('/v2/run categorical integrity (audit C1-A)', () => {
     process.env.RATE_LIMIT_ENABLED = '0';
     process.env.CEE_ORCHESTRATOR_ENABLED = '0';
     process.env.AUTH_ENABLED = '0';
+    // Detection is enabled by default (fail-closed). Explicitly setting `=1`
+    // is equivalent here; the explicit set documents intent within the test.
     process.env.CATEGORICAL_INTEGRITY_ENFORCEMENT = '1';
 
     app = await createServer();
@@ -373,6 +375,204 @@ describe('/v2/run categorical integrity (audit C1-A)', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // ONE_HOT_GROUPING_INCONSISTENT: conflicting group_id across options blocks
+  // ---------------------------------------------------------------------------
+  it('conflicting categorical_group_id across options raises ONE_HOT_GROUPING_INCONSISTENT and never invokes ISL', async () => {
+    islInvocations = 0;
+    const payload = {
+      graph: {
+        nodes: [
+          { id: 'fac_x', kind: 'factor', label: 'X', observed_state: { value: 0, std: 0.3 } },
+          { id: 'outcome', kind: 'goal', label: 'Outcome' },
+        ],
+        edges: [
+          { from: 'fac_x', to: 'outcome', exists_probability: 0.9, strength: { mean: 0.5, std: 0.1 } },
+        ],
+      },
+      options: [
+        { id: 'opt_a', label: 'A', interventions: { fac_x: { value: 1, categorical_group_id: 'group_one', source: 'user_specified' } } },
+        { id: 'opt_b', label: 'B', interventions: { fac_x: { value: 1, categorical_group_id: 'group_two', source: 'user_specified' } } },
+      ],
+      goal_node_id: 'outcome',
+      seed: 42,
+    };
+
+    const res = await fetch(`${baseUrl}/v2/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    expect(res.status).toBe(422);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.analysis_status).toBe('blocked');
+
+    const critiques = body.critiques as Array<{ code: string; severity: string; user_message?: string; message?: string }>;
+    const inconsistency = critiques.find((c) => c.code === 'ONE_HOT_GROUPING_INCONSISTENT');
+    expect(inconsistency).toBeDefined();
+    expect(inconsistency!.severity).toBe('blocker');
+
+    // Sanitised message: must not echo the user-supplied group IDs.
+    expect(inconsistency!.message).not.toContain('group_one');
+    expect(inconsistency!.message).not.toContain('group_two');
+    expect(inconsistency!.user_message).not.toContain('group_one');
+    expect(inconsistency!.user_message).not.toContain('group_two');
+
+    expect(islInvocations).toBe(0);
+  });
+
+  // ---------------------------------------------------------------------------
+  // ONE_HOT_GROUPING_INCONSISTENT: partial group_id coverage blocks
+  // ---------------------------------------------------------------------------
+  it('partial categorical_group_id coverage (some options omit) raises ONE_HOT_GROUPING_INCONSISTENT', async () => {
+    islInvocations = 0;
+    const payload = {
+      graph: {
+        nodes: [
+          { id: 'fac_x', kind: 'factor', label: 'X', observed_state: { value: 0, std: 0.3 } },
+          { id: 'outcome', kind: 'goal', label: 'Outcome' },
+        ],
+        edges: [
+          { from: 'fac_x', to: 'outcome', exists_probability: 0.9, strength: { mean: 0.5, std: 0.1 } },
+        ],
+      },
+      options: [
+        { id: 'opt_a', label: 'A', interventions: { fac_x: { value: 1, categorical_group_id: 'group_one', source: 'user_specified' } } },
+        { id: 'opt_b', label: 'B', interventions: { fac_x: { value: 0, source: 'user_specified' } } }, // no group_id
+      ],
+      goal_node_id: 'outcome',
+      seed: 42,
+    };
+
+    const res = await fetch(`${baseUrl}/v2/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    expect(res.status).toBe(422);
+    const body = await res.json() as Record<string, unknown>;
+    const critiques = body.critiques as Array<{ code: string; severity: string }>;
+    expect(critiques.find((c) => c.code === 'ONE_HOT_GROUPING_INCONSISTENT')).toBeDefined();
+    expect(islInvocations).toBe(0);
+  });
+
+  // ---------------------------------------------------------------------------
+  // ONE_HOT_MUTEX_VIOLATION: missing indicator in option blocks
+  // ---------------------------------------------------------------------------
+  it('missing indicator in one option of an explicitly grouped one-hot raises ONE_HOT_MUTEX_VIOLATION', async () => {
+    islInvocations = 0;
+    const groupTag = 'g_market';
+    const payload = {
+      graph: {
+        nodes: [
+          { id: 'fac_uk', kind: 'factor', label: 'UK', observed_state: { value: 0, std: 0.3 } },
+          { id: 'fac_us', kind: 'factor', label: 'US', observed_state: { value: 0, std: 0.3 } },
+          { id: 'outcome', kind: 'goal', label: 'Outcome' },
+        ],
+        edges: [
+          { from: 'fac_uk', to: 'outcome', exists_probability: 0.9, strength: { mean: 0.5, std: 0.1 } },
+          { from: 'fac_us', to: 'outcome', exists_probability: 0.9, strength: { mean: 0.5, std: 0.1 } },
+        ],
+      },
+      options: [
+        { id: 'opt_complete', label: 'Complete', interventions: {
+          fac_uk: { value: 1, categorical_group_id: groupTag, source: 'user_specified' },
+          fac_us: { value: 0, categorical_group_id: groupTag, source: 'user_specified' },
+        } },
+        { id: 'opt_incomplete', label: 'Incomplete', interventions: {
+          fac_uk: { value: 1, categorical_group_id: groupTag, source: 'user_specified' },
+          // fac_us missing — must violate
+        } },
+      ],
+      goal_node_id: 'outcome',
+      seed: 42,
+    };
+
+    const res = await fetch(`${baseUrl}/v2/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    expect(res.status).toBe(422);
+    const body = await res.json() as Record<string, unknown>;
+    const critiques = body.critiques as Array<{ code: string; affected_option_ids?: string[] }>;
+    const violation = critiques.find((c) => c.code === 'ONE_HOT_MUTEX_VIOLATION');
+    expect(violation).toBeDefined();
+    expect(violation!.affected_option_ids).toContain('opt_incomplete');
+    expect(islInvocations).toBe(0);
+  });
+
+  // ---------------------------------------------------------------------------
+  // type:"nominal" and categories field block (forward-compat detection rule 5)
+  // ---------------------------------------------------------------------------
+  it('type:"nominal" with multiple distinct values raises NOMINAL_INTERVENTION_NOT_SUPPORTED', async () => {
+    islInvocations = 0;
+    const payload = {
+      graph: {
+        nodes: [
+          { id: 'fac_x', kind: 'factor', label: 'X', observed_state: { value: 0, std: 0.3 } },
+          { id: 'outcome', kind: 'goal', label: 'Outcome' },
+        ],
+        edges: [
+          { from: 'fac_x', to: 'outcome', exists_probability: 0.9, strength: { mean: 0.5, std: 0.1 } },
+        ],
+      },
+      options: [
+        { id: 'opt_a', label: 'A', interventions: { fac_x: { value: 0, type: 'nominal', source: 'user_specified' } } },
+        { id: 'opt_b', label: 'B', interventions: { fac_x: { value: 1, type: 'nominal', source: 'user_specified' } } },
+        { id: 'opt_c', label: 'C', interventions: { fac_x: { value: 2, type: 'nominal', source: 'user_specified' } } },
+      ],
+      goal_node_id: 'outcome',
+      seed: 42,
+    };
+    const res = await fetch(`${baseUrl}/v2/run`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    });
+    expect(res.status).toBe(422);
+    const body = await res.json() as Record<string, unknown>;
+    const critiques = body.critiques as Array<{ code: string }>;
+    expect(critiques.find((c) => c.code === 'NOMINAL_INTERVENTION_NOT_SUPPORTED')).toBeDefined();
+    expect(islInvocations).toBe(0);
+  });
+
+  it('non-empty categories[] field raises NOMINAL_INTERVENTION_NOT_SUPPORTED', async () => {
+    islInvocations = 0;
+    const payload = {
+      graph: {
+        nodes: [
+          { id: 'fac_colour', kind: 'factor', label: 'Colour', observed_state: { value: 0, std: 0.3 } },
+          { id: 'outcome', kind: 'goal', label: 'Outcome' },
+        ],
+        edges: [
+          { from: 'fac_colour', to: 'outcome', exists_probability: 0.9, strength: { mean: 0.5, std: 0.1 } },
+        ],
+      },
+      options: [
+        { id: 'opt_red', label: 'Red', interventions: { fac_colour: { value: 0, categories: ['red', 'green', 'blue'], source: 'user_specified' } } },
+        { id: 'opt_green', label: 'Green', interventions: { fac_colour: { value: 1, categories: ['red', 'green', 'blue'], source: 'user_specified' } } },
+        { id: 'opt_blue', label: 'Blue', interventions: { fac_colour: { value: 2, categories: ['red', 'green', 'blue'], source: 'user_specified' } } },
+      ],
+      goal_node_id: 'outcome',
+      seed: 42,
+    };
+    const res = await fetch(`${baseUrl}/v2/run`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    });
+    expect(res.status).toBe(422);
+    const body = await res.json() as Record<string, unknown>;
+    const critiques = body.critiques as Array<{ code: string; user_message?: string }>;
+    const blocker = critiques.find((c) => c.code === 'NOMINAL_INTERVENTION_NOT_SUPPORTED');
+    expect(blocker).toBeDefined();
+    // Security: category values must not echo into user-facing copy.
+    expect(blocker!.user_message).not.toContain('red');
+    expect(blocker!.user_message).not.toContain('green');
+    expect(blocker!.user_message).not.toContain('blue');
+    expect(islInvocations).toBe(0);
+  });
+
+  // ---------------------------------------------------------------------------
   // STRIPPED_FIELD_WARNING fires for binary-categorical-with-metadata pass-through
   // ---------------------------------------------------------------------------
   it('binary categorical (value_type:"categorical" with {0,1} values) passes but emits STRIPPED_FIELD_WARNING', async () => {
@@ -418,10 +618,11 @@ describe('/v2/run categorical integrity (audit C1-A)', () => {
 });
 
 // =============================================================================
-// Feature-flag OFF: kill switch preserves prior silent-strip behaviour
-// (separate describe to allow independent server with the flag unset).
+// Default-enabled (fail-closed): with CATEGORICAL_INTEGRITY_ENFORCEMENT unset,
+// detection MUST run. This is the audit C1-A fix's shipping default — the
+// previous off-by-default rollout would have made the fix a dark feature.
 // =============================================================================
-describe('/v2/run categorical integrity — feature flag OFF (kill switch)', () => {
+describe('/v2/run categorical integrity — default-enabled when env unset (fail-closed)', () => {
   let app: FastifyInstance;
   let baseUrl: string;
 
@@ -429,6 +630,7 @@ describe('/v2/run categorical integrity — feature flag OFF (kill switch)', () 
     process.env.RATE_LIMIT_ENABLED = '0';
     process.env.CEE_ORCHESTRATOR_ENABLED = '0';
     process.env.AUTH_ENABLED = '0';
+    // Deliberately NOT set — default-enabled semantics under test.
     delete process.env.CATEGORICAL_INTEGRITY_ENFORCEMENT;
 
     app = await createServer();
@@ -445,7 +647,60 @@ describe('/v2/run categorical integrity — feature flag OFF (kill switch)', () 
     delete process.env.AUTH_ENABLED;
   });
 
-  it('with CATEGORICAL_INTEGRITY_ENFORCEMENT unset, the C1 fixture does NOT trigger the new blocker', async () => {
+  it('with CATEGORICAL_INTEGRITY_ENFORCEMENT unset, the C1 fixture STILL blocks (audit C1-A fix is the shipping default)', async () => {
+    islInvocations = 0;
+
+    const fixturePath = join(__dirname, 'fixtures', 'c1-categorical-direct.json');
+    const payload = JSON.parse(readFileSync(fixturePath, 'utf-8'));
+
+    const res = await fetch(`${baseUrl}/v2/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    expect(res.status).toBe(422);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.analysis_status).toBe('blocked');
+    const critiques = body.critiques as Array<{ code: string; severity: string }>;
+    const blocker = critiques.find((c) => c.code === 'NOMINAL_INTERVENTION_NOT_SUPPORTED');
+    expect(blocker).toBeDefined();
+    expect(blocker!.severity).toBe('blocker');
+    expect(islInvocations).toBe(0);
+  });
+});
+
+// =============================================================================
+// Kill switch: explicit `=0` value disables enforcement. Operations escape
+// hatch — if the new blocker fires unexpectedly on real pilot traffic, ops
+// can flip to `=0` without rolling back the deployment.
+// =============================================================================
+describe('/v2/run categorical integrity — kill switch (CATEGORICAL_INTEGRITY_ENFORCEMENT=0)', () => {
+  let app: FastifyInstance;
+  let baseUrl: string;
+
+  beforeAll(async () => {
+    process.env.RATE_LIMIT_ENABLED = '0';
+    process.env.CEE_ORCHESTRATOR_ENABLED = '0';
+    process.env.AUTH_ENABLED = '0';
+    process.env.CATEGORICAL_INTEGRITY_ENFORCEMENT = '0';
+
+    app = await createServer();
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    const addr = app.server.address();
+    const port = typeof addr === 'object' && addr ? addr.port : 0;
+    baseUrl = `http://127.0.0.1:${port}`;
+  });
+
+  afterAll(async () => {
+    await app?.close();
+    delete process.env.RATE_LIMIT_ENABLED;
+    delete process.env.CEE_ORCHESTRATOR_ENABLED;
+    delete process.env.AUTH_ENABLED;
+    delete process.env.CATEGORICAL_INTEGRITY_ENFORCEMENT;
+  });
+
+  it('with CATEGORICAL_INTEGRITY_ENFORCEMENT=0, no new categorical critiques fire (kill switch)', async () => {
     islInvocations = 0;
 
     const fixturePath = join(__dirname, 'fixtures', 'c1-categorical-direct.json');
@@ -459,12 +714,12 @@ describe('/v2/run categorical integrity — feature flag OFF (kill switch)', () 
 
     const body = await res.json() as Record<string, unknown>;
     const critiques = (body.critiques as Array<{ code: string }> | undefined) ?? [];
-    // No new categorical critiques fire.
+    // None of the new categorical critiques fire — the kill switch preserves
+    // the prior (audit-flagged-but-currently-shipped) silent-strip behaviour.
     expect(critiques.find((c) => c.code === 'NOMINAL_INTERVENTION_NOT_SUPPORTED')).toBeUndefined();
     expect(critiques.find((c) => c.code === 'ONE_HOT_MUTEX_VIOLATION')).toBeUndefined();
+    expect(critiques.find((c) => c.code === 'ONE_HOT_GROUPING_INCONSISTENT')).toBeUndefined();
     expect(critiques.find((c) => c.code === 'CATEGORICAL_DECOMPOSED')).toBeUndefined();
     expect(critiques.find((c) => c.code === 'STRIPPED_FIELD_WARNING')).toBeUndefined();
-    // ISL spy still not invoked because ISL_ENABLE is unset (irrelevant to feature-flag test).
-    expect(islInvocations).toBe(0);
   });
 });

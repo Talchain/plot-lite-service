@@ -159,16 +159,17 @@ function isCanonicalMetaEnabled(): boolean {
 /**
  * Check if CATEGORICAL_INTEGRITY_ENFORCEMENT feature flag is enabled.
  *
- * When enabled, PLoT runs categorical-integrity detection at request parse —
- * blocking nominal categoricals before normalisation/ISL and emitting
- * targeted critiques. Audit C1-A motivation.
+ * Fail-closed semantics (audit C1-A is a P0 — the fix must apply by default):
+ *   - Unset, '1', 'true', or any other value → ENABLED (detection runs).
+ *   - Exact value '0' → DISABLED (kill switch for ops emergencies).
  *
- * Default: OFF when env var is absent. Render dashboard sets `=1` for
- * staging/production rollout. Kill-switch property preserved for in-flight
- * pilot sessions per audit risk #2.
+ * The kill switch lets operations disable enforcement immediately if the new
+ * blocker fires unexpectedly on real pilot traffic, without rolling back the
+ * deployment. Setting `=0` is an explicit, visible decision; the default
+ * shipping state is enforcement ON so the C1-A fix is not a dark feature.
  */
 function isCategoricalEnforcementEnabled(): boolean {
-  return process.env.CATEGORICAL_INTEGRITY_ENFORCEMENT === '1';
+  return process.env.CATEGORICAL_INTEGRITY_ENFORCEMENT !== '0';
 }
 
 // -----------------------------------------------------------------------------
@@ -2571,15 +2572,20 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         if (isCategoricalEnforcementEnabled()) {
           const detection: CategoricalDetectionResult = detectCategoricalIssues(body.options ?? []);
           // Build critiques from detection result.
+          //
+          // Critique `message` fields are kept generic: structural counts and
+          // internal trigger/kind enums only. User-controlled identifiers
+          // (factor_id, option_id, group_id) are carried in
+          // `affected_node_ids`/`affected_option_ids` (structured) and never
+          // interpolated into the message text — telemetry, debug-bundle
+          // exports, and downstream consumers all read the message field.
           const detectionBlockers: CritiqueV3[] = [];
           for (const blocked of detection.blocked_factors) {
             detectionBlockers.push({
               id: randomUUID(),
               code: 'NOMINAL_INTERVENTION_NOT_SUPPORTED',
               severity: 'blocker',
-              // Internal/debug message — does NOT echo raw user values.
-              // raw_values_sample is held in the detection result for trace only.
-              message: `Factor "${blocked.factor_id}" detected as nominal categorical (trigger: ${blocked.trigger}; ${blocked.distinct_value_count} distinct values across ${blocked.options_referencing_factor.length} options).`,
+              message: `Nominal categorical detected (trigger=${blocked.trigger}; distinct_values=${blocked.distinct_value_count}; options=${blocked.options_referencing_factor.length}).`,
               source: 'validation',
               affected_node_ids: [blocked.factor_id],
               affected_option_ids: [...blocked.options_referencing_factor],
@@ -2591,9 +2597,21 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               id: randomUUID(),
               code: 'ONE_HOT_MUTEX_VIOLATION',
               severity: 'blocker',
-              message: `One-hot group "${violation.group_id}" violation on option "${violation.option_id}": ${violation.reason}`,
+              message: `One-hot mutex violation (kind=${violation.kind}).`,
               source: 'validation',
               affected_option_ids: [violation.option_id],
+              blocks_analysis: true,
+            });
+          }
+          for (const inconsistency of detection.one_hot_grouping_inconsistencies) {
+            detectionBlockers.push({
+              id: randomUUID(),
+              code: 'ONE_HOT_GROUPING_INCONSISTENT',
+              severity: 'blocker',
+              message: `One-hot grouping is inconsistent across options (kind=${inconsistency.kind}).`,
+              source: 'validation',
+              affected_node_ids: [inconsistency.factor_id],
+              affected_option_ids: [...inconsistency.options_referencing_factor],
               blocks_analysis: true,
             });
           }
@@ -2625,12 +2643,13 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             ));
           }
           // Non-blocker critiques accumulate for the success-path response.
+          // Messages are generic; structural data lives in affected_*_ids.
           for (const group of detection.one_hot_validated_groups) {
             preDetectionCritiques.push({
               id: randomUUID(),
               code: 'CATEGORICAL_DECOMPOSED',
               severity: 'info',
-              message: `One-hot group "${group.group_id}" validated across ${group.factor_ids.length} indicators.`,
+              message: `One-hot categorical group validated (indicators=${group.factor_ids.length}).`,
               source: 'validation',
               affected_node_ids: [...group.factor_ids],
               blocks_analysis: false,
@@ -2648,7 +2667,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               id: randomUUID(),
               code: 'STRIPPED_FIELD_WARNING',
               severity: 'warning',
-              message: `Factor "${stripped.factor_id}" field "${stripped.field}" stripped during normalisation.`,
+              message: `Field "${stripped.field}" stripped during normalisation on a passed-through factor.`,
               source: 'validation',
               affected_node_ids: [stripped.factor_id],
               blocks_analysis: false,

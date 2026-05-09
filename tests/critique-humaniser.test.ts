@@ -553,6 +553,19 @@ describe('humaniseCritique — template map', () => {
     expect(msg.toLowerCase()).toContain('exactly one');
   });
 
+  it('ONE_HOT_GROUPING_INCONSISTENT names the offending factor and explains the consistency rule', () => {
+    const msg = humaniseCritique(
+      makeCritique({ code: 'ONE_HOT_GROUPING_INCONSISTENT', affected_node_ids: ['fac_market'] }),
+      { nodes: [{ id: 'fac_market', label: 'Market' }] },
+    );
+    expect(msg).toContain('Market');
+    expect(msg.toLowerCase()).toContain('inconsistent');
+    expect(msg.toLowerCase()).toContain('group');
+    // Generic copy — must not echo internal grouping field names or IDs.
+    expect(msg).not.toContain('categorical_group_id');
+    expect(msg).not.toContain('fac_market');
+  });
+
   it('STRIPPED_FIELD_WARNING is generic and does not echo raw user values', () => {
     const msg = humaniseCritique(
       makeCritique({ code: 'STRIPPED_FIELD_WARNING', affected_node_ids: ['fac_flag'] }),

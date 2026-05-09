@@ -62,7 +62,16 @@
 export type CategoricalTrigger =
   | 'value_type_categorical'
   | 'encoding_map_size_3plus'
-  | 'integer_coded_3plus_with_categorical_metadata';
+  | 'integer_coded_3plus_with_categorical_metadata'
+  | 'explicit_nominal_type'
+  | 'explicit_categories_field';
+
+export type GroupingViolation =
+  | 'mutex_count_not_one'
+  | 'non_binary_indicator_value'
+  | 'missing_indicator_in_option'
+  | 'inconsistent_group_id_across_options'
+  | 'partial_group_id_coverage';
 
 export type StrippedFieldName = 'value_type' | 'raw_value' | 'encoding_map';
 
@@ -86,8 +95,28 @@ export interface CategoricalFactorDetection {
 export interface OneHotMutexViolation {
   group_id: string;
   option_id: string;
+  /** Which sub-rule fired. Internal — keep out of user-facing copy. */
+  kind: GroupingViolation;
   /** Internal-only diagnostic; not echoed to user copy verbatim. */
   reason: string;
+}
+
+/**
+ * A factor whose `categorical_group_id` is inconsistent across options
+ * (different IDs on different options, or some options omit it). Conservative
+ * contract: any inconsistency blocks. Distinct from per-option mutex
+ * violations within an already-consistent group.
+ */
+export interface OneHotGroupingInconsistency {
+  factor_id: string;
+  kind: 'inconsistent_group_id_across_options' | 'partial_group_id_coverage';
+  /**
+   * Internal trace: the distinct group_id values seen on this factor across
+   * options (or 'undefined' for options that omitted it). User-facing copy
+   * must NOT echo these values.
+   */
+  observed_group_ids: ReadonlyArray<string | null>;
+  options_referencing_factor: ReadonlyArray<string>;
 }
 
 export interface OneHotValidatedGroup {
@@ -104,10 +133,12 @@ export interface StrippedFieldRecord {
 export interface CategoricalDetectionResult {
   /** Factors that must block analysis. */
   blocked_factors: ReadonlyArray<CategoricalFactorDetection>;
-  /** Explicitly grouped one-hot factor groups that passed validation (empty today). */
+  /** Explicitly grouped one-hot factor groups that passed validation. */
   one_hot_validated_groups: ReadonlyArray<OneHotValidatedGroup>;
-  /** Mutex violations within explicit groups (empty today; wiring for future). */
+  /** Mutex violations within explicit groups (per-option). */
   one_hot_mutex_violations: ReadonlyArray<OneHotMutexViolation>;
+  /** Factors whose group_id metadata is inconsistent across options (block). */
+  one_hot_grouping_inconsistencies: ReadonlyArray<OneHotGroupingInconsistency>;
   /** Scientifically-meaningful fields that will be silently stripped on passed-through factors. */
   stripped_meaningful_fields: ReadonlyArray<StrippedFieldRecord>;
 }
@@ -134,15 +165,24 @@ interface NarrowedIntervention {
   raw_value: unknown;
   encoding_map: Record<string, unknown> | undefined;
   /**
-   * Reserved future field — explicit one-hot grouping metadata. Does not exist
-   * in CEE today. When a non-empty string lands here, it ties this intervention
-   * to a categorical_group via the `validateOneHotGrouping` function.
+   * Explicit one-hot grouping metadata. Does not exist in CEE today; CEE
+   * follow-up brief will populate it. When set on every option's intervention
+   * for a given factor (uniformly), `validateOneHotGrouping` validates the
+   * group as safe one-hot.
    */
   categorical_group_id: string | undefined;
   /**
-   * Reserved future ordinal markers — none exist in CEE today.
+   * Explicit factor type. Two values are recognised:
+   *   - 'nominal' → triggers nominal-categorical block (no binary bypass)
+   *   - 'ordinal' → bypasses block (factor declares an ordered scale)
+   * Any other value is ignored.
    */
   type: string | undefined;
+  /**
+   * Explicit list of categorical values. Non-empty → nominal categorical
+   * (block) unless explicitly ordinal or in a validated one-hot group.
+   */
+  categories: ReadonlyArray<unknown> | undefined;
   ordered_categories: ReadonlyArray<unknown> | undefined;
   ordinal_scale: boolean | undefined;
 }
@@ -156,6 +196,7 @@ function narrowIntervention(raw: unknown): NarrowedIntervention | undefined {
       encoding_map: undefined,
       categorical_group_id: undefined,
       type: undefined,
+      categories: undefined,
       ordered_categories: undefined,
       ordinal_scale: undefined,
     };
@@ -167,6 +208,7 @@ function narrowIntervention(raw: unknown): NarrowedIntervention | undefined {
   const encoding_map = isObject(raw.encoding_map) ? raw.encoding_map : undefined;
   const categorical_group_id = asStringOrUndefined(raw.categorical_group_id);
   const type = asStringOrUndefined(raw.type);
+  const categories = Array.isArray(raw.categories) ? raw.categories : undefined;
   const ordered_categories = Array.isArray(raw.ordered_categories) ? raw.ordered_categories : undefined;
   const ordinal_scale = typeof raw.ordinal_scale === 'boolean' ? raw.ordinal_scale : undefined;
   return {
@@ -176,6 +218,7 @@ function narrowIntervention(raw: unknown): NarrowedIntervention | undefined {
     encoding_map,
     categorical_group_id,
     type,
+    categories,
     ordered_categories,
     ordinal_scale,
   };
@@ -318,6 +361,25 @@ function detectByCEEFieldNames(_agg: FactorAggregate): CategoricalTrigger | unde
   return undefined;
 }
 
+/**
+ * Rule 5 — explicit nominal markers: `type: "nominal"` or non-empty
+ * `categories` array. Stronger semantic claim than `value_type:"categorical"`
+ * — the LLM is asserting "this factor IS a nominal variable", regardless of
+ * how the values are encoded. No binary-categorical bypass: the conservative
+ * contract treats this as a deliberate declaration that the factor cannot be
+ * compared on a single numeric scale.
+ *
+ * Bypassed only by the explicit ordinal pass condition (handled at the call
+ * site) or by validated one-hot grouping (also handled at the call site).
+ */
+function rule5ExplicitNominal(agg: FactorAggregate): CategoricalTrigger | undefined {
+  for (const { intervention } of agg.per_option) {
+    if (intervention.type === 'nominal') return 'explicit_nominal_type';
+    if (intervention.categories && intervention.categories.length > 0) return 'explicit_categories_field';
+  }
+  return undefined;
+}
+
 // -----------------------------------------------------------------------------
 // One-hot grouping
 // -----------------------------------------------------------------------------
@@ -325,81 +387,170 @@ function detectByCEEFieldNames(_agg: FactorAggregate): CategoricalTrigger | unde
 /**
  * Validate explicitly-grouped one-hot indicator factors.
  *
- * Returns groups that pass validation (each option sets exactly one indicator
- * to 1, others to 0) and any mutex violations.
+ * Returns:
+ *   - `groups`: groups that pass full validation (consistent group_id across
+ *              every option that mentions any group member, every option
+ *              explicitly sets every member to 0 or 1, with exactly one 1).
+ *   - `mutex_violations`: per-option mutex failures within an otherwise-
+ *              consistent group (count != 1, non-binary values, or missing
+ *              member).
+ *   - `inconsistencies`: factors whose `categorical_group_id` is inconsistent
+ *              across options (different IDs, or some options omit it).
+ *              Distinct from mutex violations: the structural grouping itself
+ *              is malformed.
  *
- * IMPORTANT: this function actively returns no validated groups today because
- * CEE does not emit `categorical_group_id` (or any equivalent grouping
- * metadata). This is an active conservative block, not a no-op: any
- * multi-option categorical without explicit grouping flows into the block
- * path via the absence of a validated group. Naming-pattern inference
- * (e.g. fac_market_uk + fac_market_us) is intentionally not supported.
+ * Conservative-block contract: any inconsistency or violation prevents
+ * validation. Without a validated group, multi-option categoricals fall into
+ * the block path via rules 1–5.
  *
- * When CEE follow-up adds `categorical_group_id` to interventions, this
- * function honours it without any other code change.
+ * Naming-pattern inference (e.g. `fac_market_uk` + `fac_market_us`) is
+ * intentionally NOT supported — it would re-introduce the silent-strip class
+ * of bug this guard prevents (audit C1-A).
+ *
+ * No CEE emit site populates `categorical_group_id` today. CEE follow-up
+ * brief lands the metadata; this function honours it without any other
+ * code change.
  */
-function validateOneHotGrouping(
-  options: ReadonlyArray<NarrowedOption>,
-): { groups: ReadonlyArray<OneHotValidatedGroup>; violations: ReadonlyArray<OneHotMutexViolation> } {
-  // Collect grouping metadata: factor_id → group_id
-  const factorToGroup = new Map<string, string>();
+function validateOneHotGrouping(options: ReadonlyArray<NarrowedOption>): {
+  groups: ReadonlyArray<OneHotValidatedGroup>;
+  mutex_violations: ReadonlyArray<OneHotMutexViolation>;
+  inconsistencies: ReadonlyArray<OneHotGroupingInconsistency>;
+} {
+  // -- Step 1: Collect, per factor, the group_id observed on each option that
+  //    mentions that factor. `null` means "option mentions the factor but does
+  //    not set categorical_group_id". This lets us detect both inconsistency
+  //    (different IDs) and partial coverage (some options set, some don't).
+  type GroupIdObservation = { option_id: string; group_id: string | null };
+  const factorObservations = new Map<string, GroupIdObservation[]>();
   for (const opt of options) {
     for (const [factorId, intervention] of opt.interventions) {
       const gid = intervention.categorical_group_id;
-      if (gid !== undefined && gid.length > 0) {
-        // First-wins: a factor cannot belong to two groups.
-        if (!factorToGroup.has(factorId)) factorToGroup.set(factorId, gid);
-      }
+      const observation: GroupIdObservation = {
+        option_id: opt.id,
+        group_id: gid !== undefined && gid.length > 0 ? gid : null,
+      };
+      const arr = factorObservations.get(factorId) ?? [];
+      arr.push(observation);
+      factorObservations.set(factorId, arr);
     }
   }
-  if (factorToGroup.size === 0) {
-    // No grouping metadata anywhere → no validated groups. Multi-option
-    // categoricals (if any) flow into the block path via rules 1–4.
-    return { groups: [], violations: [] };
+
+  // -- Step 2: Classify each factor's grouping consistency.
+  //    Three terminal states:
+  //      - "no_grouping": no option sets group_id → factor not part of any
+  //                       validated group; falls through to per-rule checks.
+  //      - "consistent":  every observation sets the SAME non-null group_id →
+  //                       factor is a candidate for one-hot validation.
+  //      - "inconsistent" / "partial": block (emit OneHotGroupingInconsistency).
+  const factorToConsistentGroup = new Map<string, string>();
+  const inconsistencies: OneHotGroupingInconsistency[] = [];
+  for (const [factorId, observations] of factorObservations) {
+    const distinctIds = new Set<string | null>();
+    for (const obs of observations) distinctIds.add(obs.group_id);
+    // No grouping anywhere — factor doesn't participate in one-hot validation.
+    if (distinctIds.size === 1 && distinctIds.has(null)) continue;
+    // Consistent grouping — every option sets the same non-null group_id.
+    if (distinctIds.size === 1) {
+      const onlyId = [...distinctIds][0];
+      if (onlyId !== null) {
+        factorToConsistentGroup.set(factorId, onlyId);
+        continue;
+      }
+    }
+    // Otherwise: ambiguous — either conflicting IDs or partial coverage.
+    const observedIds = Array.from(distinctIds);
+    const partial = observedIds.includes(null) && observedIds.some((id) => id !== null);
+    inconsistencies.push({
+      factor_id: factorId,
+      kind: partial ? 'partial_group_id_coverage' : 'inconsistent_group_id_across_options',
+      observed_group_ids: observedIds,
+      options_referencing_factor: observations.map((o) => o.option_id),
+    });
   }
 
-  // Group factors by group_id
+  if (factorToConsistentGroup.size === 0) {
+    // Either no grouping anywhere, or every grouping attempt was ambiguous.
+    return { groups: [], mutex_violations: [], inconsistencies };
+  }
+
+  // -- Step 3: Group consistent factors by their group_id.
   const groupMembers = new Map<string, Set<string>>();
-  for (const [factorId, groupId] of factorToGroup) {
+  for (const [factorId, groupId] of factorToConsistentGroup) {
     const set = groupMembers.get(groupId) ?? new Set<string>();
     set.add(factorId);
     groupMembers.set(groupId, set);
   }
 
-  // Validate mutual exclusivity per option per group
-  const violations: OneHotMutexViolation[] = [];
-  for (const [groupId, factors] of groupMembers) {
+  // -- Step 4: For each group, validate per-option mutex AND completeness:
+  //    every option must explicitly set every group member to 0 or 1, with
+  //    exactly one set to 1. Missing indicator = violation (audit P1 #1).
+  const mutexViolations: OneHotMutexViolation[] = [];
+  for (const [groupId, members] of groupMembers) {
     for (const opt of options) {
+      // Only consider options that intervene on at least one group member —
+      // a totally absent option may legitimately not touch this group.
+      let touchesGroup = false;
+      for (const factorId of members) {
+        if (opt.interventions.has(factorId)) {
+          touchesGroup = true;
+          break;
+        }
+      }
+      if (!touchesGroup) continue;
+
       let onesCount = 0;
-      let unexpectedValues = false;
-      for (const factorId of factors) {
+      let nonBinarySeen = false;
+      let missingSeen = false;
+      for (const factorId of members) {
         const intervention = opt.interventions.get(factorId);
-        if (!intervention) continue;
+        if (!intervention) {
+          missingSeen = true;
+          continue;
+        }
         const v = intervention.value;
         if (v === 1) onesCount += 1;
-        else if (v !== 0 && v !== undefined) unexpectedValues = true;
+        else if (v === 0) {
+          // OK — explicit zero.
+        } else {
+          // Either undefined (no value) or a non-{0,1} number.
+          nonBinarySeen = true;
+        }
       }
-      if (onesCount !== 1 || unexpectedValues) {
-        violations.push({
+
+      if (missingSeen) {
+        mutexViolations.push({
           group_id: groupId,
           option_id: opt.id,
-          reason: unexpectedValues
-            ? `Option set non-binary values on indicators in this group; expected 0/1 only.`
-            : `Option set ${onesCount} indicators to 1; expected exactly 1.`,
+          kind: 'missing_indicator_in_option',
+          reason: 'Option does not explicitly set every indicator in the group; missing indicators must be 0.',
+        });
+      } else if (nonBinarySeen) {
+        mutexViolations.push({
+          group_id: groupId,
+          option_id: opt.id,
+          kind: 'non_binary_indicator_value',
+          reason: 'Option set a non-binary value on an indicator; expected 0 or 1 only.',
+        });
+      } else if (onesCount !== 1) {
+        mutexViolations.push({
+          group_id: groupId,
+          option_id: opt.id,
+          kind: 'mutex_count_not_one',
+          reason: `Option set ${onesCount} indicators to 1; expected exactly 1.`,
         });
       }
     }
   }
 
+  // -- Step 5: A group is validated iff zero mutex violations on any option.
   const groups: OneHotValidatedGroup[] = [];
-  for (const [groupId, factors] of groupMembers) {
-    // Only a clean group (no violations on any option) counts as validated.
-    const groupHasViolation = violations.some((v) => v.group_id === groupId);
+  for (const [groupId, members] of groupMembers) {
+    const groupHasViolation = mutexViolations.some((v) => v.group_id === groupId);
     if (!groupHasViolation) {
-      groups.push({ group_id: groupId, factor_ids: Array.from(factors) });
+      groups.push({ group_id: groupId, factor_ids: Array.from(members) });
     }
   }
-  return { groups, violations };
+  return { groups, mutex_violations: mutexViolations, inconsistencies };
 }
 
 // -----------------------------------------------------------------------------
@@ -474,10 +625,16 @@ export function detectCategoricalIssues(rawOptions: ReadonlyArray<unknown>): Cat
 
   const factors = aggregateFactors(options);
 
-  // One-hot validation runs first so its results inform the per-rule detection
-  // (validated groups bypass rule 1 binary-bypass logic; today the result is
-  // empty per the conservative-block design).
-  const { groups: validatedGroups, violations: mutexViolations } = validateOneHotGrouping(options);
+  // One-hot grouping runs first so:
+  //   - validated groups bypass per-rule detection
+  //   - inconsistencies (conflict/partial coverage) become their own blockers
+  //   - mutex violations are surfaced separately
+  const {
+    groups: validatedGroups,
+    mutex_violations: mutexViolations,
+    inconsistencies: groupingInconsistencies,
+  } = validateOneHotGrouping(options);
+
   const validatedFactorIds = new Set<string>();
   for (const g of validatedGroups) {
     for (const fid of g.factor_ids) validatedFactorIds.add(fid);
@@ -494,7 +651,8 @@ export function detectCategoricalIssues(rawOptions: ReadonlyArray<unknown>): Cat
       rule1ValueTypeCategorical(agg) ??
       rule2EncodingMap(agg) ??
       rule3IntegerCodedWithMetadata(agg) ??
-      detectByCEEFieldNames(agg);
+      detectByCEEFieldNames(agg) ??
+      rule5ExplicitNominal(agg);
     if (!trigger) continue;
 
     const distinct = distinctValues(agg.per_option);
@@ -515,12 +673,17 @@ export function detectCategoricalIssues(rawOptions: ReadonlyArray<unknown>): Cat
   }
 
   const blockedIds = new Set(blocked.map((b) => b.factor_id));
+  // Inconsistent grouping factors are not in `blocked` (they're in their own
+  // bucket) — exclude them from stripped-field warnings to avoid double-
+  // signalling on the same factor.
+  for (const inc of groupingInconsistencies) blockedIds.add(inc.factor_id);
   const stripped = detectStrippedFields(options, blockedIds, validatedFactorIds);
 
   return {
     blocked_factors: blocked,
     one_hot_validated_groups: validatedGroups,
     one_hot_mutex_violations: mutexViolations,
+    one_hot_grouping_inconsistencies: groupingInconsistencies,
     stripped_meaningful_fields: stripped,
   };
 }

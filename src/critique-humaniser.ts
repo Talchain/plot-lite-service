@@ -374,7 +374,12 @@ export const TEMPLATE_MAP: Record<string, TemplateEntry> = {
 
   ONE_HOT_MUTEX_VIOLATION: (c, g, opts) => {
     const optionLabel = resolveOptionLabel(c.affected_option_ids?.[0], opts, g);
-    return `${optionLabel} sets the wrong number of indicators in a categorical group. Exactly one indicator must be set to 1; the rest must be 0.`;
+    return `${optionLabel} does not satisfy mutual exclusivity within a categorical group. Each option must explicitly set every indicator in the group to 0 or 1, with exactly one indicator set to 1.`;
+  },
+
+  ONE_HOT_GROUPING_INCONSISTENT: (c, g) => {
+    const factorLabel = resolveNodeLabel(c.affected_node_ids?.[0], g);
+    return `Factor "${factorLabel}" has inconsistent one-hot grouping metadata across options. Either every option must declare the same group, or none should declare it. Mixed or conflicting group metadata cannot be validated.`;
   },
 
   STRIPPED_FIELD_WARNING: (c, g) => {

@@ -540,6 +540,7 @@ export const BLOCKER_CODES = [
   // Categorical integrity blockers (audit C1-A; see categorical-detector.ts)
   'NOMINAL_INTERVENTION_NOT_SUPPORTED',  // unordered categorical factor cannot be encoded as a single numeric scale
   'ONE_HOT_MUTEX_VIOLATION',             // explicitly grouped one-hot indicators violate "exactly one set to 1"
+  'ONE_HOT_GROUPING_INCONSISTENT',       // categorical_group_id metadata is conflicting or partial across options
 ] as const;
 
 export type BlockerCode = (typeof BLOCKER_CODES)[number];

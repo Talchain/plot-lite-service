@@ -401,6 +401,189 @@ describe('detectCategoricalIssues — input narrowing (malformed shapes)', () =>
   });
 });
 
+describe('detectCategoricalIssues — Rule 5: explicit nominal markers (P0 feedback)', () => {
+  it('FIRES on type:"nominal" with multiple distinct values', () => {
+    const result = detectCategoricalIssues([
+      opt('opt_a', { fac_x: { value: 0, type: 'nominal' } }),
+      opt('opt_b', { fac_x: { value: 1, type: 'nominal' } }),
+      opt('opt_c', { fac_x: { value: 2, type: 'nominal' } }),
+    ]);
+    expect(result.blocked_factors).toHaveLength(1);
+    expect(result.blocked_factors[0].trigger).toBe('explicit_nominal_type');
+  });
+
+  it('FIRES on type:"nominal" even with binary {0,1} values (no binary bypass for explicit nominal)', () => {
+    // Stronger semantic claim than value_type:"categorical": the LLM is
+    // declaring "this factor IS a nominal variable", and binary encoding
+    // doesn't change that. Conservative-block contract requires firing.
+    const result = detectCategoricalIssues([
+      opt('opt_yes', { fac_flag: { value: 1, type: 'nominal' } }),
+      opt('opt_no', { fac_flag: { value: 0, type: 'nominal' } }),
+    ]);
+    expect(result.blocked_factors).toHaveLength(1);
+    expect(result.blocked_factors[0].trigger).toBe('explicit_nominal_type');
+  });
+
+  it('FIRES on non-empty categories array', () => {
+    const result = detectCategoricalIssues([
+      opt('opt_a', { fac_colour: { value: 0, categories: ['red', 'green', 'blue'] } }),
+      opt('opt_b', { fac_colour: { value: 1, categories: ['red', 'green', 'blue'] } }),
+      opt('opt_c', { fac_colour: { value: 2, categories: ['red', 'green', 'blue'] } }),
+    ]);
+    expect(result.blocked_factors).toHaveLength(1);
+    expect(result.blocked_factors[0].trigger).toBe('explicit_categories_field');
+  });
+
+  it('does NOT fire on empty categories array', () => {
+    const result = detectCategoricalIssues([
+      opt('opt_a', { fac_x: { value: 1, categories: [] } }),
+      opt('opt_b', { fac_x: { value: 0, categories: [] } }),
+    ]);
+    expect(result.blocked_factors).toHaveLength(0);
+  });
+
+  it('type:"ordinal" overrides type:"nominal" if both are set across options (ordinal wins)', () => {
+    // The ordinal pass condition is checked before per-rule detection.
+    const result = detectCategoricalIssues([
+      opt('opt_a', { fac_x: { value: 0, type: 'ordinal' } }),
+      opt('opt_b', { fac_x: { value: 1, type: 'nominal' } }),
+      opt('opt_c', { fac_x: { value: 2, type: 'nominal' } }),
+    ]);
+    // Even one ordinal marker on the factor disables the nominal block.
+    expect(result.blocked_factors).toHaveLength(0);
+  });
+
+  it('explicit nominal can be unblocked by validated one-hot grouping', () => {
+    // If the LLM marks per-category indicators as type:"nominal" but also
+    // provides consistent categorical_group_id with mutex-clean values, the
+    // validated group bypasses the block.
+    const groupTag = 'g1';
+    const result = detectCategoricalIssues([
+      opt('opt_a', {
+        fac_a: { value: 1, type: 'nominal', categorical_group_id: groupTag },
+        fac_b: { value: 0, type: 'nominal', categorical_group_id: groupTag },
+      }),
+      opt('opt_b', {
+        fac_a: { value: 0, type: 'nominal', categorical_group_id: groupTag },
+        fac_b: { value: 1, type: 'nominal', categorical_group_id: groupTag },
+      }),
+    ]);
+    expect(result.blocked_factors).toHaveLength(0);
+    expect(result.one_hot_validated_groups).toHaveLength(1);
+  });
+});
+
+describe('detectCategoricalIssues — grouping inconsistencies (P0 feedback)', () => {
+  it('detects conflicting group_id values on the same factor across options', () => {
+    const result = detectCategoricalIssues([
+      opt('opt_a', { fac_x: { value: 1, categorical_group_id: 'group_one' } }),
+      opt('opt_b', { fac_x: { value: 1, categorical_group_id: 'group_two' } }),
+    ]);
+    // No first-wins: factor enters the inconsistencies bucket.
+    expect(result.one_hot_grouping_inconsistencies).toHaveLength(1);
+    expect(result.one_hot_grouping_inconsistencies[0].factor_id).toBe('fac_x');
+    expect(result.one_hot_grouping_inconsistencies[0].kind).toBe('inconsistent_group_id_across_options');
+    // Not in validated groups, not in mutex violations.
+    expect(result.one_hot_validated_groups).toHaveLength(0);
+    expect(result.one_hot_mutex_violations).toHaveLength(0);
+  });
+
+  it('detects partial group coverage (some options set group_id, others omit)', () => {
+    const result = detectCategoricalIssues([
+      opt('opt_a', { fac_x: { value: 1, categorical_group_id: 'group_one' } }),
+      opt('opt_b', { fac_x: { value: 0 } }), // omits group_id
+    ]);
+    expect(result.one_hot_grouping_inconsistencies).toHaveLength(1);
+    expect(result.one_hot_grouping_inconsistencies[0].kind).toBe('partial_group_id_coverage');
+    expect(result.one_hot_validated_groups).toHaveLength(0);
+  });
+
+  it('does not flag inconsistency when no option sets group_id (no grouping = no-grouping; falls through to per-rule checks)', () => {
+    const result = detectCategoricalIssues([
+      opt('opt_a', { fac_x: { value: 1 } }),
+      opt('opt_b', { fac_x: { value: 0 } }),
+    ]);
+    expect(result.one_hot_grouping_inconsistencies).toHaveLength(0);
+    expect(result.one_hot_validated_groups).toHaveLength(0);
+  });
+
+  it('inconsistency record carries the observed group_ids in trace (not user-facing)', () => {
+    const result = detectCategoricalIssues([
+      opt('opt_a', { fac_x: { value: 1, categorical_group_id: 'g_alpha' } }),
+      opt('opt_b', { fac_x: { value: 1, categorical_group_id: 'g_beta' } }),
+      opt('opt_c', { fac_x: { value: 0, categorical_group_id: 'g_alpha' } }),
+    ]);
+    const inc = result.one_hot_grouping_inconsistencies[0];
+    expect(inc.observed_group_ids).toContain('g_alpha');
+    expect(inc.observed_group_ids).toContain('g_beta');
+    expect(inc.options_referencing_factor.sort()).toEqual(['opt_a', 'opt_b', 'opt_c'].sort());
+  });
+});
+
+describe('detectCategoricalIssues — missing-indicator mutex violation (P1 feedback)', () => {
+  it('raises mutex violation when an option does not set every group member', () => {
+    const groupTag = 'g_partial';
+    const result = detectCategoricalIssues([
+      opt('opt_complete', {
+        fac_a: { value: 1, categorical_group_id: groupTag },
+        fac_b: { value: 0, categorical_group_id: groupTag },
+        fac_c: { value: 0, categorical_group_id: groupTag },
+      }),
+      opt('opt_incomplete', {
+        fac_a: { value: 1, categorical_group_id: groupTag },
+        // fac_b and fac_c are missing — must violate
+        // (cannot infer "missing means 0"; conservative contract)
+      }),
+    ]);
+    const violation = result.one_hot_mutex_violations.find((v) => v.option_id === 'opt_incomplete');
+    expect(violation).toBeDefined();
+    expect(violation!.kind).toBe('missing_indicator_in_option');
+    // Group must NOT validate when any option has a violation.
+    expect(result.one_hot_validated_groups).toHaveLength(0);
+  });
+
+  it('does NOT validate a group whose only "complete" option is the one explicitly listing every member', () => {
+    // Two options, both reference different subsets of the group → both
+    // count as touching the group; both must list every member; neither does.
+    const groupTag = 'g_split';
+    const result = detectCategoricalIssues([
+      opt('opt_a', {
+        fac_a: { value: 1, categorical_group_id: groupTag },
+        fac_b: { value: 0, categorical_group_id: groupTag },
+      }),
+      opt('opt_b', {
+        fac_a: { value: 0, categorical_group_id: groupTag },
+        fac_c: { value: 1, categorical_group_id: groupTag },
+        // fac_b missing in opt_b
+      }),
+    ]);
+    expect(result.one_hot_mutex_violations.length).toBeGreaterThan(0);
+    expect(result.one_hot_validated_groups).toHaveLength(0);
+  });
+
+  it('options that do not touch any group member are not penalised', () => {
+    // A graph may have options that legitimately do not intervene on a
+    // group at all (e.g. an unrelated decision lever). Those must not
+    // trigger missing-indicator violations.
+    const groupTag = 'g_split2';
+    const result = detectCategoricalIssues([
+      opt('opt_market_uk', {
+        fac_uk: { value: 1, categorical_group_id: groupTag },
+        fac_us: { value: 0, categorical_group_id: groupTag },
+      }),
+      opt('opt_market_us', {
+        fac_uk: { value: 0, categorical_group_id: groupTag },
+        fac_us: { value: 1, categorical_group_id: groupTag },
+      }),
+      opt('opt_unrelated', {
+        fac_other: { value: 0.5 },
+      }),
+    ]);
+    expect(result.one_hot_mutex_violations).toHaveLength(0);
+    expect(result.one_hot_validated_groups).toHaveLength(1);
+  });
+});
+
 describe('detectCategoricalIssues — security: raw user values not in critique-bound output', () => {
   it('raw_values_sample is populated for trace ONLY (consumers must not echo into user_message)', () => {
     const result = detectCategoricalIssues([
