@@ -2584,12 +2584,40 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         //       which merge into the success-path response at the
         //       critiques aggregation site (~line 3580).
         //
-        // Gated by CATEGORICAL_INTEGRITY_ENFORCEMENT env flag (default OFF
-        // when unset; staging/prod set `=1` via Render dashboard).
+        // Gated by CATEGORICAL_INTEGRITY_ENFORCEMENT env flag. Fail-closed:
+        // default-enabled when unset; explicit disable values (0/false/off/no/
+        // disabled, case-insensitive) are the kill switch for ops emergencies.
         // =================================================================
         const preDetectionCritiques: CritiqueV3[] = [];
         if (isCategoricalEnforcementEnabled()) {
           const detection: CategoricalDetectionResult = detectCategoricalIssues(body.options ?? []);
+
+          // Telemetry: single structural log per request that ran detection.
+          // Lets us verify post-deploy the fix is doing what we expect AND
+          // detect over-blocking quickly. No PII: only counts and internal
+          // enum values (trigger, violation_kind, inconsistency_kind). All
+          // user-controlled identifiers (factor_id, option_id, group_id)
+          // are intentionally OMITTED.
+          const detectionBlocked =
+            detection.blocked_factors.length > 0 ||
+            detection.one_hot_mutex_violations.length > 0 ||
+            detection.one_hot_grouping_inconsistencies.length > 0;
+          req.log.info({
+            event: 'categorical_integrity_detection',
+            request_id: requestId,
+            outcome: detectionBlocked ? 'blocked' : 'passed',
+            blocked_factor_count: detection.blocked_factors.length,
+            mutex_violation_count: detection.one_hot_mutex_violations.length,
+            grouping_inconsistency_count: detection.one_hot_grouping_inconsistencies.length,
+            validated_group_count: detection.one_hot_validated_groups.length,
+            stripped_field_count: detection.stripped_meaningful_fields.length,
+            triggers: detection.blocked_factors.map((b) => b.trigger),
+            mutex_violation_kinds: detection.one_hot_mutex_violations.map((v) => v.kind),
+            inconsistency_kinds: detection.one_hot_grouping_inconsistencies.map((i) => i.kind),
+            stripped_fields: detection.stripped_meaningful_fields.map((s) => s.field),
+            option_count: Array.isArray(body.options) ? body.options.length : 0,
+          });
+
           // Build critiques from detection result.
           //
           // Critique `message` fields are kept generic: structural counts and
