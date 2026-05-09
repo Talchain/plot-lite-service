@@ -120,8 +120,11 @@ describe('/v2/run categorical integrity (audit C1-A)', () => {
     expect(blocker!.severity).toBe('blocker');
     expect(blocker!.source).toBe('validation');
 
-    // Humanised user_message: contains the appended actionable sentence.
-    expect(blocker!.user_message).toContain('binary indicator per category');
+    // Humanised user_message: factor-framed reframe copy.
+    expect(blocker!.user_message).toContain('binary factor per category');
+    expect(blocker!.user_message!.toLowerCase()).toContain('unordered categor');
+    // Must not front the option label as if it were the factor.
+    expect(blocker!.user_message).not.toMatch(/^UK |^US |^EU /);
 
     // Security check (correction #1): user_message must not echo any encoded
     // structural data (encoding_map, raw_value JSON shapes, factor-id prefixes
@@ -584,9 +587,13 @@ describe('/v2/run categorical integrity (audit C1-A)', () => {
     const blocker = critiques.find((c) => c.code === 'NOMINAL_INTERVENTION_NOT_SUPPORTED');
     expect(blocker).toBeDefined();
     // Security: category values must not echo into user-facing copy.
-    expect(blocker!.user_message).not.toContain('red');
-    expect(blocker!.user_message).not.toContain('green');
-    expect(blocker!.user_message).not.toContain('blue');
+    // Word-boundary check — substrings inside unrelated words (e.g. "red"
+    // inside "unordered") are coincidental and not a security issue. The
+    // intent is "user-supplied category values must not appear as
+    // standalone words".
+    expect(blocker!.user_message).not.toMatch(/\bred\b/i);
+    expect(blocker!.user_message).not.toMatch(/\bgreen\b/i);
+    expect(blocker!.user_message).not.toMatch(/\bblue\b/i);
     expect(islCallEndpointInvocations).toBe(0);
     expect(islMethodTouches).toBe(0);
   });

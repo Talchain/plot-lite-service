@@ -514,20 +514,31 @@ describe('humaniseCritique — template map', () => {
     expect(msg).toContain('20-constraint limit');
   });
 
-  it('NOMINAL_INTERVENTION_NOT_SUPPORTED resolves option label and surfaces the actionable reframe', () => {
+  it('NOMINAL_INTERVENTION_NOT_SUPPORTED uses factor-framed copy with a single consistent reframe path', () => {
     // The route-level integration test in v2-run.categorical.integration.test.ts
     // exercises this critique through the live /v2/run handler (audit C1-A;
     // brief implementation requirement #7 — wire the dead test path).
+    //
+    // Copy is factor-framed (does NOT front the option label) per the
+    // post-merge review: prior copy "UK targets a categorical factor..."
+    // read as if UK were the factor. New copy describes the encoding
+    // problem and gives one reframe path.
     const msg = humaniseCritique(
       makeCritique({ code: 'NOMINAL_INTERVENTION_NOT_SUPPORTED', affected_option_ids: ['opt_build_product'] }),
       mockGraph,
       mockOptions,
     );
-    expect(msg).toContain('Build Product');
-    expect(msg).toContain('categorical factor');
-    // Brief correction #2: minimal copy edit appended one concrete sentence.
-    expect(msg).toContain('binary indicator per category');
-    expect(msg).toContain('exactly one indicator to 1');
+    // Must NOT front any option label — the copy describes the factor.
+    expect(msg).not.toMatch(/^Build Product/);
+    expect(msg).not.toMatch(/^[A-Z][a-z]+ targets/);
+    // Identifies the encoding problem.
+    expect(msg.toLowerCase()).toContain('numeric scale');
+    expect(msg.toLowerCase()).toContain('unordered categor');
+    // Single consistent reframe path — no "reframe as a numeric estimate"
+    // contradiction with the binary-indicator instruction.
+    expect(msg).not.toContain('numeric estimate');
+    expect(msg).toContain('binary factor per category');
+    expect(msg.toLowerCase()).toContain('exactly one to 1');
   });
 
   it('CATEGORICAL_DECOMPOSED resolves group factor labels (forward-compat)', () => {

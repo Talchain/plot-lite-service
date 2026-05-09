@@ -350,14 +350,15 @@ export const TEMPLATE_MAP: Record<string, TemplateEntry> = {
   MISSING_OUTCOME_OR_RISK:
     'No outcome or risk factors found. Add at least one to your model.',
 
-  NOMINAL_INTERVENTION_NOT_SUPPORTED: (c, g, opts) => {
-    const label = resolveOptionLabel(
-      c.affected_option_ids?.[0] ?? c.affected_node_ids?.[0], opts, g,
-    );
-    // Audit C1-A. Existing canonical wording preserved. One concrete sentence
-    // appended per correction #2 (minimal edit). Longer pedagogical copy is
-    // proposed in the implementation final report for Paul to dispatch separately.
-    return `${label} targets a categorical factor, which isn't supported yet. Reframe as a numeric estimate. Replace this factor with one binary indicator per category, with each option setting exactly one indicator to 1.`;
+  NOMINAL_INTERVENTION_NOT_SUPPORTED: () => {
+    // Audit C1-A. Factor-framed copy: previous version fronted the option
+    // label (e.g. "UK targets a categorical factor…") which read as if the
+    // option were the factor. New copy describes the factor's encoding
+    // problem and gives a single consistent reframe path. The factor's
+    // identity is carried structurally on `affected_node_ids`; the UI
+    // critique panel can render the factor label adjacent to this message
+    // without coupling the copy to the resolver.
+    return 'This factor is being treated as a numeric scale, but its values are unordered categories. That makes one category appear stronger just because of its number. Replace it with one binary factor per category, with each option setting exactly one to 1.';
   },
 
   // Categorical integrity (audit C1-A). Generic copy per correction #1: do NOT
