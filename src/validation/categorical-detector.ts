@@ -93,16 +93,15 @@ export interface CategoricalFactorDetection {
   factor_id: string;
   /** Which rule fired. */
   trigger: CategoricalTrigger;
-  /**
-   * Trace-only sample of raw_values seen across options for this factor.
-   * NEVER threaded into user-facing critique copy (security: do not log raw
-   * user input in critique messages).
-   */
-  raw_values_sample: ReadonlyArray<unknown>;
   /** Distinct intervention values across options for this factor. */
   distinct_value_count: number;
   /** Option ids that intervened on this factor. */
   options_referencing_factor: ReadonlyArray<string>;
+  // Note: a `raw_values_sample` field used to live here for trace/debug.
+  // Removed (post-merge review P2): it was unused by every consumer and
+  // was a footgun for future telemetry — populating raw user input on a
+  // public type invites accidental logging. Keep raw_value content out
+  // of detector outputs entirely.
 }
 
 export interface OneHotMutexViolation {
@@ -172,6 +171,21 @@ function asStringOrUndefined(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
+/**
+ * Normalise a known-enum metadata string for case-insensitive comparison.
+ * Returns trimmed lowercase form, or undefined if input isn't a string.
+ *
+ * Used for `value_type`, `type`, and similar enum-shaped fields where
+ * upstream variants ("Categorical", "NOMINAL", " ordinal ") should match
+ * the canonical lowercase form. Free-text fields (raw_value, labels) are
+ * NOT normalised — those are user content, not enums.
+ */
+function asNormalisedEnum(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length === 0 ? undefined : trimmed.toLowerCase();
+}
+
 interface NarrowedIntervention {
   value: number | undefined;
   value_type: string | undefined;
@@ -216,11 +230,20 @@ function narrowIntervention(raw: unknown): NarrowedIntervention | undefined {
   }
   if (!isObject(raw)) return undefined;
   const value = isFiniteNumber(raw.value) ? raw.value : undefined;
-  const value_type = asStringOrUndefined(raw.value_type);
+  // value_type and type are enum-shaped — normalise for case-insensitive
+  // comparison (post-merge review P2: future schema variants like
+  // "Categorical" / "NOMINAL" / " ordinal " should not false-negative).
+  const value_type = asNormalisedEnum(raw.value_type);
+  const type = asNormalisedEnum(raw.type);
+  // raw_value is free-form user content — NEVER normalise.
   const raw_value = raw.raw_value;
   const encoding_map = isObject(raw.encoding_map) ? raw.encoding_map : undefined;
-  const categorical_group_id = asStringOrUndefined(raw.categorical_group_id);
-  const type = asStringOrUndefined(raw.type);
+  // categorical_group_id is an opaque identifier; trim only (preserve case
+  // so equality across options matches what the producer wrote).
+  const groupRaw = asStringOrUndefined(raw.categorical_group_id);
+  const categorical_group_id = groupRaw !== undefined && groupRaw.trim().length > 0
+    ? groupRaw.trim()
+    : undefined;
   const categories = Array.isArray(raw.categories) ? raw.categories : undefined;
   const ordered_categories = Array.isArray(raw.ordered_categories) ? raw.ordered_categories : undefined;
   const ordinal_scale = typeof raw.ordinal_scale === 'boolean' ? raw.ordinal_scale : undefined;
@@ -288,32 +311,59 @@ function distinctValues(per_option: ReadonlyArray<{ intervention: NarrowedInterv
   return Array.from(set);
 }
 
-function isExplicitOrdinal(per_option: ReadonlyArray<{ intervention: NarrowedIntervention }>): boolean {
-  // Reserved for future CEE ordinal emit. None of these markers exist in CEE today.
+/**
+ * True when the factor has consistent ordinal metadata AND no contradicting
+ * nominal metadata. Mixed ordinal+nominal is treated as ambiguous and falls
+ * through to nominal detection (which will block).
+ *
+ * Hardened (post-merge review P1): the previous version returned true if ANY
+ * option declared ordinal, ignoring nominal markers on other options. That
+ * let an LLM accidentally bypass the categorical block by setting
+ * `type:"ordinal"` on one option even when other options for the same
+ * factor declared `type:"nominal"` or `categories[]`. Conservative-block
+ * contract requires ambiguity to block.
+ */
+function isUnambiguouslyOrdinal(per_option: ReadonlyArray<{ intervention: NarrowedIntervention }>): boolean {
+  let hasOrdinalMarker = false;
+  let hasNominalMarker = false;
   for (const { intervention } of per_option) {
-    if (intervention.type === 'ordinal') return true;
-    if (intervention.ordinal_scale === true) return true;
-    if (intervention.ordered_categories && intervention.ordered_categories.length > 0) return true;
+    if (intervention.type === 'ordinal') hasOrdinalMarker = true;
+    if (intervention.ordinal_scale === true) hasOrdinalMarker = true;
+    if (intervention.ordered_categories && intervention.ordered_categories.length > 0) hasOrdinalMarker = true;
+    if (intervention.type === 'nominal') hasNominalMarker = true;
+    if (intervention.categories && intervention.categories.length > 0) hasNominalMarker = true;
+    // value_type:"categorical" is treated as nominal-leaning for this check
+    // (it asserts the data type is unordered-categorical, which contradicts
+    // an ordinal claim on the same factor).
+    if (intervention.value_type === 'categorical') hasNominalMarker = true;
   }
-  return false;
+  return hasOrdinalMarker && !hasNominalMarker;
 }
 
 /**
- * Rule 1 — explicit `value_type: "categorical"`. BYPASSED for binary categorical.
+ * Rule 1 — explicit `value_type: "categorical"`. BYPASSED only for the
+ * canonical safe-binary-indicator pattern (distinct ⊆ {0,1}).
  * Returns trigger if rule fires; undefined otherwise.
  */
 function rule1ValueTypeCategorical(agg: FactorAggregate): CategoricalTrigger | undefined {
   const hasCategoricalMarker = agg.per_option.some(({ intervention }) => intervention.value_type === 'categorical');
   if (!hasCategoricalMarker) return undefined;
   const distinct = distinctValues(agg.per_option);
-  // Binary categorical bypass: ≤2 distinct values AND any encoding_map seen has size ≤2.
-  // This guards the case where CEE marks per-category one-hot indicators as
-  // value_type:"categorical" with binary {0,1} values.
+  // Binary categorical bypass — safety carve-out for the case where CEE
+  // marks per-category one-hot indicators as `value_type:"categorical"`
+  // with strictly binary {0, 1} values. Tightened (post-merge review P1 #4):
+  // the previous version accepted "≤ 2 distinct values" which would let
+  // arbitrary 2-value nominal encodings ({0, 2}, {1, 2}, ...) bypass.
+  // Now require every distinct value to be exactly 0 or 1, so only the
+  // canonical safe-binary-indicator shape passes.
   const maxEncodingMapSize = agg.per_option.reduce((acc, { intervention }) => {
     const size = intervention.encoding_map ? Object.keys(intervention.encoding_map).length : 0;
     return Math.max(acc, size);
   }, 0);
-  if (distinct.length <= 2 && maxEncodingMapSize <= 2) return undefined;
+  const allValuesAreCanonicalBinary = distinct.length > 0 && distinct.every((v) => v === 0 || v === 1);
+  if (allValuesAreCanonicalBinary && distinct.length <= 2 && maxEncodingMapSize <= 2) {
+    return undefined;
+  }
   return 'value_type_categorical';
 }
 
@@ -652,8 +702,10 @@ export function detectCategoricalIssues(rawOptions: ReadonlyArray<unknown>): Cat
   for (const agg of factors) {
     // Validated one-hot members are NOT blocked.
     if (validatedFactorIds.has(agg.factor_id)) continue;
-    // Explicit ordinal pass condition (vacuous today; reserved for future CEE).
-    if (isExplicitOrdinal(agg.per_option)) continue;
+    // Explicit ordinal pass condition: ordinal markers present AND no
+    // contradicting nominal markers on the same factor (post-merge review
+    // P1 #3 — mixed ordinal+nominal must not silently let ordinal win).
+    if (isUnambiguouslyOrdinal(agg.per_option)) continue;
 
     const trigger =
       rule1ValueTypeCategorical(agg) ??
@@ -664,17 +716,9 @@ export function detectCategoricalIssues(rawOptions: ReadonlyArray<unknown>): Cat
     if (!trigger) continue;
 
     const distinct = distinctValues(agg.per_option);
-    const sample: unknown[] = [];
-    for (const { intervention } of agg.per_option) {
-      if (intervention.raw_value !== undefined) {
-        sample.push(intervention.raw_value);
-        if (sample.length >= 5) break;
-      }
-    }
     blocked.push({
       factor_id: agg.factor_id,
       trigger,
-      raw_values_sample: sample,
       distinct_value_count: distinct.length,
       options_referencing_factor: agg.per_option.map((p) => p.option_id),
     });

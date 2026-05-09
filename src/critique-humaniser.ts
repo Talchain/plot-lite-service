@@ -361,32 +361,31 @@ export const TEMPLATE_MAP: Record<string, TemplateEntry> = {
     return 'This factor is being treated as a numeric scale, but its values are unordered categories. That makes one category appear stronger just because of its number. Replace it with one binary factor per category, with each option setting exactly one to 1.';
   },
 
-  // Categorical integrity (audit C1-A). Generic copy per correction #1: do NOT
-  // echo raw user values into critique messages. Labels are resolved via the
-  // existing label-resolution helper which strips ID prefixes.
-  CATEGORICAL_DECOMPOSED: (c, g) => {
-    const factorIds = c.affected_node_ids ?? [];
-    if (factorIds.length === 0) {
-      return 'A one-hot encoded categorical was detected. Indicators in this group are treated as a mutually exclusive set.';
-    }
-    const labels = factorIds.map((id) => resolveNodeLabel(id, g));
-    return `Detected a one-hot encoded categorical group: ${labels.join(', ')}. These indicators are treated as mutually exclusive across options.`;
-  },
+  // Categorical integrity (audit C1-A). Generic, label-free copy.
+  //
+  // Rationale (post-merge review): the brief's "no raw user input in
+  // critique messages" rule extends to this family because in CEE-driven
+  // flows a factor or option label can be the category name verbatim
+  // (e.g. an LLM may set the factor's label to "UK" rather than "Region").
+  // Echoing labels via resolveNodeLabel/resolveOptionLabel would leak
+  // the same content the brief forbids.
+  //
+  // Identifiers stay structural — `affected_node_ids` and
+  // `affected_option_ids` carry the IDs for UI lookup. Other blocker
+  // families (EMPTY_INTERVENTIONS, INVALID_INTERVENTION_TARGET, etc.)
+  // continue to use the resolver pattern; this hardening is scoped to
+  // the categorical-blocker family only.
+  CATEGORICAL_DECOMPOSED: () =>
+    'A one-hot encoded categorical group was detected. Its indicators are treated as a mutually exclusive set across options.',
 
-  ONE_HOT_MUTEX_VIOLATION: (c, g, opts) => {
-    const optionLabel = resolveOptionLabel(c.affected_option_ids?.[0], opts, g);
-    return `${optionLabel} does not satisfy mutual exclusivity within a categorical group. Each option must explicitly set every indicator in the group to 0 or 1, with exactly one indicator set to 1.`;
-  },
+  ONE_HOT_MUTEX_VIOLATION: () =>
+    'An option does not satisfy mutual exclusivity within a categorical group. Each option must explicitly set every indicator in the group to 0 or 1, with exactly one indicator set to 1.',
 
-  ONE_HOT_GROUPING_INCONSISTENT: (c, g) => {
-    const factorLabel = resolveNodeLabel(c.affected_node_ids?.[0], g);
-    return `Factor "${factorLabel}" has inconsistent one-hot grouping metadata across options. To validate as a safe one-hot group, every option must place every indicator in the same group. Otherwise, remove the categorical encoding entirely so the factor is analysed as a regular numeric factor.`;
-  },
+  ONE_HOT_GROUPING_INCONSISTENT: () =>
+    'A factor has inconsistent one-hot grouping metadata across options. To validate as a safe one-hot group, every option must place every indicator in the same group. Otherwise, remove the categorical encoding entirely so the factor is analysed as a regular numeric factor.',
 
-  STRIPPED_FIELD_WARNING: (c, g) => {
-    const factorLabel = resolveNodeLabel(c.affected_node_ids?.[0], g);
-    return `Some metadata on factor "${factorLabel}" was dropped during normalisation. The factor was treated as a numeric value; if the dropped fields encoded categorical, unit, or scale semantics, the analysis may not match your intent.`;
-  },
+  STRIPPED_FIELD_WARNING: () =>
+    'Meaningful intervention metadata was stripped during normalisation on a passed-through factor. The factor was treated as a numeric value; if the dropped fields encoded categorical, unit, or scale semantics, the analysis may not match your intent.',
 
   POC_NODE_LIMIT:
     'Model exceeds the 50-factor limit. Simplify by merging or removing less important factors.',

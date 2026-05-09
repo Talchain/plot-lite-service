@@ -2729,7 +2729,12 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               id: randomUUID(),
               code: 'STRIPPED_FIELD_WARNING',
               severity: 'warning',
-              message: `Field "${stripped.field}" stripped during normalisation on a passed-through factor.`,
+              // Generic message — internal field names (`raw_value`,
+              // `value_type`, `encoding_map`) must not appear in `message`
+              // per the brief's no-raw-user-input rule. The specific
+              // stripped field is on the structured telemetry record at
+              // line ~2613 (`stripped_fields` array) for operator query.
+              message: 'Meaningful intervention metadata was stripped during normalisation on a passed-through factor.',
               source: 'validation',
               affected_node_ids: [stripped.factor_id],
               blocks_analysis: false,

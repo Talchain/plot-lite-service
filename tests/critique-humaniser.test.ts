@@ -541,50 +541,70 @@ describe('humaniseCritique — template map', () => {
     expect(msg.toLowerCase()).toContain('exactly one to 1');
   });
 
-  it('CATEGORICAL_DECOMPOSED resolves group factor labels (forward-compat)', () => {
+  // Categorical-blocker family: post-merge review P1 #1 hardening — copy is
+  // generic, label-free. Identifiers stay structural on `affected_*_ids`.
+  // Rationale: in CEE-driven flows the LLM may set a factor or option label
+  // to the category name verbatim ("UK" instead of "Region"), in which case
+  // echoing labels via resolveNodeLabel/resolveOptionLabel would leak the
+  // same content the brief forbids in `message`/`user_message`.
+
+  it('CATEGORICAL_DECOMPOSED is generic and does NOT echo factor labels', () => {
     const msg = humaniseCritique(
       makeCritique({ code: 'CATEGORICAL_DECOMPOSED', affected_node_ids: ['fac_market_uk', 'fac_market_us'] }),
       { nodes: [
-        { id: 'fac_market_uk', label: 'Market UK' },
-        { id: 'fac_market_us', label: 'Market US' },
+        { id: 'fac_market_uk', label: 'UK' },           // label = category name (worst case)
+        { id: 'fac_market_us', label: 'US' },
       ] },
     );
-    expect(msg).toContain('Market UK');
-    expect(msg).toContain('Market US');
-    expect(msg).toContain('mutually exclusive');
-  });
-
-  it('ONE_HOT_MUTEX_VIOLATION names the offending option and the rule', () => {
-    const msg = humaniseCritique(
-      makeCritique({ code: 'ONE_HOT_MUTEX_VIOLATION', affected_option_ids: ['opt_violation'] }),
-      mockGraph,
-      [{ id: 'opt_violation', label: 'Violation' }],
-    );
-    expect(msg).toContain('Violation');
-    expect(msg.toLowerCase()).toContain('exactly one');
-  });
-
-  it('ONE_HOT_GROUPING_INCONSISTENT names the offending factor and explains the consistency rule', () => {
-    const msg = humaniseCritique(
-      makeCritique({ code: 'ONE_HOT_GROUPING_INCONSISTENT', affected_node_ids: ['fac_market'] }),
-      { nodes: [{ id: 'fac_market', label: 'Market' }] },
-    );
-    expect(msg).toContain('Market');
-    expect(msg.toLowerCase()).toContain('inconsistent');
-    expect(msg.toLowerCase()).toContain('group');
-    // Generic copy — must not echo internal grouping field names or IDs.
-    expect(msg).not.toContain('categorical_group_id');
+    // Conveys the structural fact …
+    expect(msg.toLowerCase()).toContain('one-hot');
+    expect(msg.toLowerCase()).toContain('mutually exclusive');
+    // … without echoing labels (which could be category names).
+    expect(msg).not.toContain('UK');
+    expect(msg).not.toContain('US');
+    expect(msg).not.toContain('Market UK');
+    expect(msg).not.toContain('Market US');
     expect(msg).not.toContain('fac_market');
   });
 
-  it('STRIPPED_FIELD_WARNING is generic and does not echo raw user values', () => {
+  it('ONE_HOT_MUTEX_VIOLATION is generic and does NOT echo option labels', () => {
+    const msg = humaniseCritique(
+      makeCritique({ code: 'ONE_HOT_MUTEX_VIOLATION', affected_option_ids: ['opt_violation'] }),
+      mockGraph,
+      [{ id: 'opt_violation', label: 'UK' }],            // worst case: option label = category name
+    );
+    expect(msg.toLowerCase()).toContain('mutual exclusivity');
+    expect(msg.toLowerCase()).toContain('exactly one');
+    expect(msg).not.toContain('UK');
+    expect(msg).not.toContain('Violation');
+    expect(msg).not.toContain('opt_violation');
+  });
+
+  it('ONE_HOT_GROUPING_INCONSISTENT is generic and does NOT echo factor labels', () => {
+    const msg = humaniseCritique(
+      makeCritique({ code: 'ONE_HOT_GROUPING_INCONSISTENT', affected_node_ids: ['fac_market'] }),
+      { nodes: [{ id: 'fac_market', label: 'UK' }] },    // worst case
+    );
+    expect(msg.toLowerCase()).toContain('inconsistent');
+    expect(msg.toLowerCase()).toContain('group');
+    expect(msg).not.toContain('UK');
+    expect(msg).not.toContain('Market');
+    expect(msg).not.toContain('fac_market');
+    expect(msg).not.toContain('categorical_group_id');
+  });
+
+  it('STRIPPED_FIELD_WARNING is generic and does NOT echo factor labels or internal field names', () => {
     const msg = humaniseCritique(
       makeCritique({ code: 'STRIPPED_FIELD_WARNING', affected_node_ids: ['fac_flag'] }),
-      { nodes: [{ id: 'fac_flag', label: 'Flag' }] },
+      { nodes: [{ id: 'fac_flag', label: 'UK' }] },      // worst case
     );
-    expect(msg).toContain('Flag');
-    expect(msg).toContain('dropped during normalisation');
-    // Generic copy — must not echo internal field names.
+    expect(msg.toLowerCase()).toContain('metadata');
+    expect(msg.toLowerCase()).toContain('stripped');
+    // No factor label
+    expect(msg).not.toContain('UK');
+    expect(msg).not.toContain('Flag');
+    expect(msg).not.toContain('fac_flag');
+    // No internal field names (P1 #2 — same hardening applies at the route)
     expect(msg).not.toContain('value_type');
     expect(msg).not.toContain('encoding_map');
     expect(msg).not.toContain('raw_value');

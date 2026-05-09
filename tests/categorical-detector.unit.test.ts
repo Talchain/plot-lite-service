@@ -187,32 +187,65 @@ describe('detectCategoricalIssues — pass-through cases (must NOT block)', () =
   });
 });
 
-describe('detectCategoricalIssues — ordinal pass condition (vacuous today; reserved for future CEE)', () => {
-  it('Explicit type:"ordinal" bypasses block even with 3+ distinct values', () => {
+describe('detectCategoricalIssues — ordinal pass condition (unambiguous only; vacuous today)', () => {
+  it('Explicit type:"ordinal" alone bypasses block even with 3+ distinct values', () => {
+    // Unambiguously ordinal — no value_type:"categorical" or other nominal
+    // markers anywhere on this factor. Bypasses the categorical block.
     const result = detectCategoricalIssues([
-      opt('opt_low', { fac_severity: { value: 0, type: 'ordinal', value_type: 'categorical' } }),
-      opt('opt_mid', { fac_severity: { value: 1, type: 'ordinal', value_type: 'categorical' } }),
-      opt('opt_hi', { fac_severity: { value: 2, type: 'ordinal', value_type: 'categorical' } }),
+      opt('opt_low', { fac_severity: { value: 0, type: 'ordinal' } }),
+      opt('opt_mid', { fac_severity: { value: 1, type: 'ordinal' } }),
+      opt('opt_hi', { fac_severity: { value: 2, type: 'ordinal' } }),
     ]);
     expect(result.blocked_factors).toHaveLength(0);
   });
 
-  it('ordered_categories non-empty bypasses', () => {
+  it('ordered_categories non-empty (alone) bypasses', () => {
     const result = detectCategoricalIssues([
-      opt('opt_a', { fac_x: { value: 0, value_type: 'categorical', ordered_categories: ['low', 'mid', 'hi'] } }),
-      opt('opt_b', { fac_x: { value: 1, value_type: 'categorical', ordered_categories: ['low', 'mid', 'hi'] } }),
-      opt('opt_c', { fac_x: { value: 2, value_type: 'categorical', ordered_categories: ['low', 'mid', 'hi'] } }),
+      opt('opt_a', { fac_x: { value: 0, ordered_categories: ['low', 'mid', 'hi'] } }),
+      opt('opt_b', { fac_x: { value: 1, ordered_categories: ['low', 'mid', 'hi'] } }),
+      opt('opt_c', { fac_x: { value: 2, ordered_categories: ['low', 'mid', 'hi'] } }),
     ]);
     expect(result.blocked_factors).toHaveLength(0);
   });
 
-  it('ordinal_scale: true bypasses', () => {
+  it('ordinal_scale: true (alone) bypasses', () => {
     const result = detectCategoricalIssues([
-      opt('opt_a', { fac_x: { value: 0, value_type: 'categorical', ordinal_scale: true } }),
-      opt('opt_b', { fac_x: { value: 1, value_type: 'categorical', ordinal_scale: true } }),
-      opt('opt_c', { fac_x: { value: 2, value_type: 'categorical', ordinal_scale: true } }),
+      opt('opt_a', { fac_x: { value: 0, ordinal_scale: true } }),
+      opt('opt_b', { fac_x: { value: 1, ordinal_scale: true } }),
+      opt('opt_c', { fac_x: { value: 2, ordinal_scale: true } }),
     ]);
     expect(result.blocked_factors).toHaveLength(0);
+  });
+
+  // Hardening (post-merge review P1 #3): ambiguous mixed ordinal+nominal
+  // markers on the same factor MUST block. Previously a single ordinal
+  // marker silently overrode all nominal markers — that allowed an LLM
+  // to accidentally bypass categorical detection.
+  it('BLOCKS when ordinal and value_type:"categorical" coexist on the same factor (mixed = ambiguous)', () => {
+    const result = detectCategoricalIssues([
+      opt('opt_a', { fac_x: { value: 0, type: 'ordinal', value_type: 'categorical' } }),
+      opt('opt_b', { fac_x: { value: 1, type: 'ordinal', value_type: 'categorical' } }),
+      opt('opt_c', { fac_x: { value: 2, type: 'ordinal', value_type: 'categorical' } }),
+    ]);
+    expect(result.blocked_factors).toHaveLength(1);
+  });
+
+  it('BLOCKS when one option declares ordinal and another declares nominal on the same factor', () => {
+    const result = detectCategoricalIssues([
+      opt('opt_a', { fac_x: { value: 0, type: 'ordinal' } }),
+      opt('opt_b', { fac_x: { value: 1, type: 'nominal' } }),
+      opt('opt_c', { fac_x: { value: 2, type: 'nominal' } }),
+    ]);
+    expect(result.blocked_factors).toHaveLength(1);
+    expect(result.blocked_factors[0].trigger).toBe('explicit_nominal_type');
+  });
+
+  it('BLOCKS when ordinal_scale coexists with non-empty categories[]', () => {
+    const result = detectCategoricalIssues([
+      opt('opt_a', { fac_x: { value: 0, ordinal_scale: true, categories: ['a', 'b', 'c'] } }),
+      opt('opt_b', { fac_x: { value: 1, ordinal_scale: true, categories: ['a', 'b', 'c'] } }),
+    ]);
+    expect(result.blocked_factors).toHaveLength(1);
   });
 });
 
@@ -442,15 +475,18 @@ describe('detectCategoricalIssues — Rule 5: explicit nominal markers (P0 feedb
     expect(result.blocked_factors).toHaveLength(0);
   });
 
-  it('type:"ordinal" overrides type:"nominal" if both are set across options (ordinal wins)', () => {
-    // The ordinal pass condition is checked before per-rule detection.
+  it('mixed type:"ordinal" + type:"nominal" across options BLOCKS (post-merge P1 #3 hardening)', () => {
+    // Pre-merge behaviour: any ordinal marker silently overrode nominal
+    // markers on the same factor — let an LLM bypass categorical detection
+    // by tagging one option ordinal. Post-merge: mixed ordinal+nominal is
+    // ambiguous and the conservative-block contract requires firing.
     const result = detectCategoricalIssues([
       opt('opt_a', { fac_x: { value: 0, type: 'ordinal' } }),
       opt('opt_b', { fac_x: { value: 1, type: 'nominal' } }),
       opt('opt_c', { fac_x: { value: 2, type: 'nominal' } }),
     ]);
-    // Even one ordinal marker on the factor disables the nominal block.
-    expect(result.blocked_factors).toHaveLength(0);
+    expect(result.blocked_factors).toHaveLength(1);
+    expect(result.blocked_factors[0].trigger).toBe('explicit_nominal_type');
   });
 
   it('explicit nominal can be unblocked by validated one-hot grouping', () => {
@@ -617,19 +653,118 @@ describe('detectCategoricalIssues — missing-indicator mutex violation (P1 feed
   });
 });
 
-describe('detectCategoricalIssues — security: raw user values not in critique-bound output', () => {
-  it('raw_values_sample is populated for trace ONLY (consumers must not echo into user_message)', () => {
+describe('detectCategoricalIssues — security: detector result is structural-only (post-merge P2 #2)', () => {
+  it('CategoricalFactorDetection contains no raw_value content even when raw_value is supplied', () => {
     const result = detectCategoricalIssues([
       opt('opt_a', { fac_market: { value: 0, value_type: 'categorical', raw_value: 'UK' } }),
       opt('opt_b', { fac_market: { value: 1, value_type: 'categorical', raw_value: 'US' } }),
       opt('opt_c', { fac_market: { value: 2, value_type: 'categorical', raw_value: 'EU' } }),
     ]);
     expect(result.blocked_factors).toHaveLength(1);
-    // Sample is populated (trace).
-    expect(result.blocked_factors[0].raw_values_sample.length).toBeGreaterThan(0);
-    // Sample is bounded (≤5).
-    expect(result.blocked_factors[0].raw_values_sample.length).toBeLessThanOrEqual(5);
-    // The route-layer test asserts user_message does NOT echo these values
-    // (see v2-run.categorical.integration.test.ts).
+    const blocked = result.blocked_factors[0];
+    // Structural fields only — raw_values_sample was removed (footgun for
+    // future telemetry). Factor IDs and option IDs are structural — they
+    // belong on a critique's affected_*_ids fields, not echoed into copy.
+    const serialised = JSON.stringify(blocked);
+    expect(serialised).not.toContain('"UK"');
+    expect(serialised).not.toContain('"US"');
+    expect(serialised).not.toContain('"EU"');
+    // Confirm only the expected structural keys are present.
+    expect(Object.keys(blocked).sort()).toEqual(
+      ['distinct_value_count', 'factor_id', 'options_referencing_factor', 'trigger'].sort(),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Post-merge review hardening tests (P1 #4 + P2 #1)
+// ---------------------------------------------------------------------------
+
+describe('detectCategoricalIssues — Rule 1 binary bypass tightening (P1 #4)', () => {
+  it('BLOCKS value_type:"categorical" with values {0, 2} (non-canonical binary)', () => {
+    // Pre-hardening: distinct.length <= 2 was the only check, so {0, 2}
+    // passed silently as "binary categorical". That allows arbitrary
+    // 2-value nominal encodings. Post-hardening requires distinct ⊆ {0,1}.
+    const result = detectCategoricalIssues([
+      opt('opt_a', { fac_x: { value: 0, value_type: 'categorical' } }),
+      opt('opt_b', { fac_x: { value: 2, value_type: 'categorical' } }),
+    ]);
+    expect(result.blocked_factors).toHaveLength(1);
+    expect(result.blocked_factors[0].trigger).toBe('value_type_categorical');
+  });
+
+  it('BLOCKS value_type:"categorical" with values {1, 2}', () => {
+    const result = detectCategoricalIssues([
+      opt('opt_a', { fac_x: { value: 1, value_type: 'categorical' } }),
+      opt('opt_b', { fac_x: { value: 2, value_type: 'categorical' } }),
+    ]);
+    expect(result.blocked_factors).toHaveLength(1);
+  });
+
+  it('BYPASSES value_type:"categorical" with values strictly in {0, 1}', () => {
+    // The canonical safe-binary-indicator pattern continues to bypass.
+    const result = detectCategoricalIssues([
+      opt('opt_yes', { fac_flag: { value: 1, value_type: 'categorical' } }),
+      opt('opt_no', { fac_flag: { value: 0, value_type: 'categorical' } }),
+    ]);
+    expect(result.blocked_factors).toHaveLength(0);
+  });
+
+  it('BYPASSES value_type:"categorical" with single value {1} (degenerate but in {0,1})', () => {
+    const result = detectCategoricalIssues([
+      opt('opt_a', { fac_flag: { value: 1, value_type: 'categorical' } }),
+      opt('opt_b', { fac_flag: { value: 1, value_type: 'categorical' } }),
+    ]);
+    expect(result.blocked_factors).toHaveLength(0);
+  });
+
+  it('BLOCKS value_type:"categorical" with single value {2} (single value but not in {0,1})', () => {
+    const result = detectCategoricalIssues([
+      opt('opt_a', { fac_x: { value: 2, value_type: 'categorical' } }),
+      opt('opt_b', { fac_x: { value: 2, value_type: 'categorical' } }),
+    ]);
+    expect(result.blocked_factors).toHaveLength(1);
+  });
+});
+
+describe('detectCategoricalIssues — case-insensitive metadata enums (P2 #1)', () => {
+  it('matches value_type:"Categorical" (capitalised) the same as "categorical"', () => {
+    const result = detectCategoricalIssues([
+      opt('opt_a', { fac_x: { value: 0, value_type: 'Categorical' } }),
+      opt('opt_b', { fac_x: { value: 1, value_type: 'Categorical' } }),
+      opt('opt_c', { fac_x: { value: 2, value_type: 'Categorical' } }),
+    ]);
+    expect(result.blocked_factors).toHaveLength(1);
+  });
+
+  it('matches type:"NOMINAL" (uppercase) and " ordinal " (whitespace-padded)', () => {
+    // NOMINAL: should fire rule 5
+    const r1 = detectCategoricalIssues([
+      opt('opt_a', { fac_x: { value: 0, type: 'NOMINAL' } }),
+      opt('opt_b', { fac_x: { value: 1, type: 'NOMINAL' } }),
+      opt('opt_c', { fac_x: { value: 2, type: 'NOMINAL' } }),
+    ]);
+    expect(r1.blocked_factors).toHaveLength(1);
+    expect(r1.blocked_factors[0].trigger).toBe('explicit_nominal_type');
+
+    // " ordinal ": should pass through (unambiguously ordinal)
+    const r2 = detectCategoricalIssues([
+      opt('opt_a', { fac_x: { value: 0, type: ' ordinal ' } }),
+      opt('opt_b', { fac_x: { value: 1, type: ' ordinal ' } }),
+      opt('opt_c', { fac_x: { value: 2, type: ' ordinal ' } }),
+    ]);
+    expect(r2.blocked_factors).toHaveLength(0);
+  });
+
+  it('does NOT match unrelated values like "category" or "Category"', () => {
+    // The known enums are "categorical", "nominal", "ordinal". Other strings
+    // (typos, near-matches) must not silently pattern-match.
+    const result = detectCategoricalIssues([
+      opt('opt_a', { fac_x: { value: 0, value_type: 'category' } }),
+      opt('opt_b', { fac_x: { value: 1, value_type: 'category' } }),
+      opt('opt_c', { fac_x: { value: 2, value_type: 'category' } }),
+    ]);
+    // No rule fires (no recognised marker), so no block.
+    expect(result.blocked_factors).toHaveLength(0);
   });
 });
