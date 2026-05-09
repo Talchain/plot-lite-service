@@ -2592,31 +2592,46 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         if (isCategoricalEnforcementEnabled()) {
           const detection: CategoricalDetectionResult = detectCategoricalIssues(body.options ?? []);
 
-          // Telemetry: single structural log per request that ran detection.
+          // Telemetry: structural log emitted ONLY when detection produced a
+          // categorical signal (a blocker, warning, or info critique). Clean
+          // numeric/binary requests produce no log — keeps rollout signal
+          // high and avoids per-request noise on the dominant code path.
+          //
           // Lets us verify post-deploy the fix is doing what we expect AND
           // detect over-blocking quickly. No PII: only counts and internal
           // enum values (trigger, violation_kind, inconsistency_kind). All
           // user-controlled identifiers (factor_id, option_id, group_id)
           // are intentionally OMITTED.
-          const detectionBlocked =
-            detection.blocked_factors.length > 0 ||
-            detection.one_hot_mutex_violations.length > 0 ||
-            detection.one_hot_grouping_inconsistencies.length > 0;
-          req.log.info({
-            event: 'categorical_integrity_detection',
-            request_id: requestId,
-            outcome: detectionBlocked ? 'blocked' : 'passed',
-            blocked_factor_count: detection.blocked_factors.length,
-            mutex_violation_count: detection.one_hot_mutex_violations.length,
-            grouping_inconsistency_count: detection.one_hot_grouping_inconsistencies.length,
-            validated_group_count: detection.one_hot_validated_groups.length,
-            stripped_field_count: detection.stripped_meaningful_fields.length,
-            triggers: detection.blocked_factors.map((b) => b.trigger),
-            mutex_violation_kinds: detection.one_hot_mutex_violations.map((v) => v.kind),
-            inconsistency_kinds: detection.one_hot_grouping_inconsistencies.map((i) => i.kind),
-            stripped_fields: detection.stripped_meaningful_fields.map((s) => s.field),
-            option_count: Array.isArray(body.options) ? body.options.length : 0,
-          });
+          //
+          // Severity-bucket counts (blocker_count/warning_count/info_count)
+          // are the primary ops query targets; the trigger/kind arrays
+          // provide drill-down detail for the same record.
+          const blockerCount =
+            detection.blocked_factors.length +
+            detection.one_hot_mutex_violations.length +
+            detection.one_hot_grouping_inconsistencies.length;
+          const warningCount = detection.stripped_meaningful_fields.length;
+          const infoCount = detection.one_hot_validated_groups.length;
+          if (blockerCount + warningCount + infoCount > 0) {
+            req.log.info({
+              event: 'categorical_integrity_detection',
+              request_id: requestId,
+              outcome: blockerCount > 0 ? 'blocked' : 'passed_with_signal',
+              blocker_count: blockerCount,
+              warning_count: warningCount,
+              info_count: infoCount,
+              blocked_factor_count: detection.blocked_factors.length,
+              mutex_violation_count: detection.one_hot_mutex_violations.length,
+              grouping_inconsistency_count: detection.one_hot_grouping_inconsistencies.length,
+              validated_group_count: detection.one_hot_validated_groups.length,
+              stripped_field_count: detection.stripped_meaningful_fields.length,
+              triggers: detection.blocked_factors.map((b) => b.trigger),
+              mutex_violation_kinds: detection.one_hot_mutex_violations.map((v) => v.kind),
+              inconsistency_kinds: detection.one_hot_grouping_inconsistencies.map((i) => i.kind),
+              stripped_fields: detection.stripped_meaningful_fields.map((s) => s.field),
+              option_count: Array.isArray(body.options) ? body.options.length : 0,
+            });
+          }
 
           // Build critiques from detection result.
           //
@@ -3762,8 +3777,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           ),
         });
 
-        // Build response
-        const totalMs = performance.now() - startTime;
+        // Build response.
         // Phase 0 pre-detection critiques (audit C1-A) merge first so they
         // appear before preflight warnings in the response — they describe
         // request-shape issues that preceded all other validation.

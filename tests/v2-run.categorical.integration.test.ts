@@ -592,6 +592,143 @@ describe('/v2/run categorical integrity (audit C1-A)', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // Telemetry — `categorical_integrity_detection` log shape and silent-on-clean
+  // ---------------------------------------------------------------------------
+  // Strategy: monkey-patch `app.log.child` to wrap every per-request child
+  // logger with an `info` shim that records calls to a buffer. Reliable
+  // across pino's destination internals (sonic-boom may bypass
+  // process.stdout.write).
+  type CapturedRecord = Record<string, unknown>;
+  const capturedLogs: CapturedRecord[] = [];
+
+  beforeAll(() => {
+    const log = (app as unknown as { log: { child: (...args: unknown[]) => unknown } }).log;
+    const originalChild = log.child.bind(log);
+    log.child = (...args: unknown[]) => {
+      const child = originalChild(...args) as { info: (...args: unknown[]) => void };
+      const originalInfo = child.info.bind(child);
+      child.info = (...infoArgs: unknown[]): void => {
+        if (infoArgs[0] && typeof infoArgs[0] === 'object') {
+          capturedLogs.push(infoArgs[0] as CapturedRecord);
+        }
+        return originalInfo(...infoArgs);
+      };
+      return child;
+    };
+  });
+
+  function findTelemetryLog(): CapturedRecord | undefined {
+    return capturedLogs.find((r) => r.event === 'categorical_integrity_detection');
+  }
+
+  function clearCapturedLogs(): void {
+    capturedLogs.length = 0;
+  }
+
+  it('telemetry: blocker request emits one categorical_integrity_detection log with severity buckets and no PII', async () => {
+    clearCapturedLogs();
+    const fixturePath = join(__dirname, 'fixtures', 'c1-categorical-direct.json');
+    const payload = JSON.parse(readFileSync(fixturePath, 'utf-8'));
+
+    await fetch(`${baseUrl}/v2/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    const telemetry = findTelemetryLog();
+    expect(telemetry).toBeDefined();
+    expect(telemetry!.outcome).toBe('blocked');
+    expect(telemetry!.blocker_count).toBe(1);
+    expect(telemetry!.warning_count).toBe(0);
+    expect(telemetry!.info_count).toBe(0);
+    expect(telemetry!.blocked_factor_count).toBe(1);
+    expect(telemetry!.option_count).toBe(3);
+    expect(telemetry!.triggers).toEqual(['value_type_categorical']);
+
+    // PII check: the C1 fixture has factor "fac_market" + raw_values
+    // ["UK","US","EU"] + option labels. Telemetry must NOT contain any of
+    // these — only structural counts and internal enum values.
+    const serialised = JSON.stringify(telemetry);
+    expect(serialised).not.toContain('fac_market');
+    expect(serialised).not.toContain('opt_uk');
+    expect(serialised).not.toContain('opt_us');
+    expect(serialised).not.toContain('opt_eu');
+    // The raw_values "UK"/"US"/"EU" must not appear as JSON-quoted strings.
+    expect(serialised).not.toContain('"UK"');
+    expect(serialised).not.toContain('"US"');
+    expect(serialised).not.toContain('"EU"');
+  });
+
+  it('telemetry: clean numeric/binary request emits NO categorical_integrity_detection log', async () => {
+    clearCapturedLogs();
+    // Pure binary 0/1 graph — no categorical metadata. Detection runs
+    // (enforcement enabled) but produces zero signals → no telemetry log.
+    const payload = {
+      graph: {
+        nodes: [
+          { id: 'fac_hire', kind: 'factor', label: 'Hire', observed_state: { value: 0, std: 0.3 } },
+          { id: 'outcome', kind: 'outcome', label: 'Outcome' },
+        ],
+        edges: [
+          { from: 'fac_hire', to: 'outcome', exists_probability: 0.9, strength: { mean: 0.7, std: 0.1 } },
+        ],
+      },
+      options: [
+        { id: 'opt_hire', label: 'Hire', interventions: { fac_hire: { value: 1, source: 'user_specified' } } },
+        { id: 'opt_no_hire', label: 'No hire', interventions: { fac_hire: { value: 0, source: 'user_specified' } } },
+      ],
+      goal_node_id: 'outcome',
+      seed: 42,
+    };
+
+    await fetch(`${baseUrl}/v2/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    const telemetry = findTelemetryLog();
+    expect(telemetry).toBeUndefined();
+  });
+
+  it('telemetry: warning-only request (binary categorical bypass) emits log with warning bucket populated', async () => {
+    clearCapturedLogs();
+    // Binary value_type:"categorical" with {0,1} bypasses block but should
+    // emit STRIPPED_FIELD_WARNING (warning) → telemetry fires.
+    const payload = {
+      graph: {
+        nodes: [
+          { id: 'fac_flag', kind: 'factor', label: 'Flag', observed_state: { value: 0, std: 0.3 } },
+          { id: 'outcome', kind: 'outcome', label: 'Outcome' },
+        ],
+        edges: [
+          { from: 'fac_flag', to: 'outcome', exists_probability: 0.9, strength: { mean: 0.5, std: 0.1 } },
+        ],
+      },
+      options: [
+        { id: 'opt_a', label: 'A', interventions: { fac_flag: { value: 1, value_type: 'categorical', source: 'user_specified' } } },
+        { id: 'opt_b', label: 'B', interventions: { fac_flag: { value: 0, value_type: 'categorical', source: 'user_specified' } } },
+      ],
+      goal_node_id: 'outcome',
+      seed: 42,
+    };
+
+    await fetch(`${baseUrl}/v2/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    const telemetry = findTelemetryLog();
+    expect(telemetry).toBeDefined();
+    expect(telemetry!.outcome).toBe('passed_with_signal');
+    expect(telemetry!.blocker_count).toBe(0);
+    expect(telemetry!.warning_count).toBeGreaterThanOrEqual(1);
+    expect(telemetry!.stripped_fields).toContain('value_type');
+  });
+
+  // ---------------------------------------------------------------------------
   // STRIPPED_FIELD_WARNING fires for binary-categorical-with-metadata pass-through
   // ---------------------------------------------------------------------------
   it('binary categorical (value_type:"categorical" with {0,1} values) passes but emits STRIPPED_FIELD_WARNING', async () => {
