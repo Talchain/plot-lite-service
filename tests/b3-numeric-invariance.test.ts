@@ -247,4 +247,96 @@ describe('B3: numeric invariance under auto-noise disclosure (audit-feedback bri
       expect(opt.outcome.p90).toBe(0.85);
     }
   });
+
+  it('B3 is purely additive: only differences across auto-noise states are the two new B3 fields (and ambient per-call fields)', async () => {
+    // Audit-feedback brief-4 (P2-1): the existing engine-numeric
+    // projection above proves B3 doesn't move numbers; this test
+    // proves B3 doesn't move ANYTHING outside of the two new metadata
+    // fields. Recursively mask the legitimately-varying ambient fields
+    // (per-call UUIDs, wall-clock timings, ISO timestamps) plus the
+    // two new B3 fields, then assert the remainder is byte-for-byte
+    // identical across all three auto-noise states.
+    //
+    // What this catches that the engine-numeric projection misses:
+    // any unintended side effect outside `option_comparison` /
+    // `factor_sensitivity` / `robustness` / etc. — e.g. a stray
+    // critique, a flag, an enrichment field, an extra coaching nudge —
+    // that the B3 code path accidentally introduced. There should be
+    // exactly zero such side effects.
+    async function fullResponse(): Promise<Record<string, unknown>> {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v2/run',
+        headers: { 'Content-Type': 'application/json' },
+        payload: { graph: GRAPH, options: OPTIONS, goal_node_id: 'goal', seed: '42' },
+      });
+      expect(res.statusCode).toBe(200);
+      return JSON.parse(res.body) as Record<string, unknown>;
+    }
+
+    // Keys whose VALUES vary per-call (uuids, timestamps, wall-clock
+    // timings) and which are matched at any nesting depth. The B3 keys
+    // are the two new fields whose presence/contents are exactly what
+    // we expect to differ between states.
+    const AMBIENT_KEYS = new Set([
+      // Per-request identifiers (UUIDs).
+      'request_id',
+      'requestId',
+      'isl_request_id',
+      'fact_id',
+      'request_id_chain',
+      // Per-call ISO timestamps.
+      'computed_at',
+      'created_at',
+      'timestamp',
+      // Wall-clock timings.
+      'latency_ms',
+      'normalization_ms',
+      'validation_ms',
+      'isl_ms',
+      'cee_ms',
+      'duration_ms',
+      'processing_time_ms',
+      // ISL status text varies if ISL provides one.
+      'isl_status_reason',
+    ]);
+    const B3_KEYS = new Set(['auto_noise_applied', 'auto_noise_provenance']);
+
+    function maskAmbient(value: unknown): unknown {
+      if (value === null || typeof value !== 'object') return value;
+      if (Array.isArray(value)) return value.map(maskAmbient);
+      const out: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+        if (B3_KEYS.has(k)) continue; // exclude B3 fields entirely
+        out[k] = AMBIENT_KEYS.has(k) ? '<ambient>' : maskAmbient(v);
+      }
+      return out;
+    }
+
+    islState.autoNoiseApplied = true;
+    islState.wireKey = '_metadata';
+    const applied = maskAmbient(await fullResponse()) as Record<string, unknown>;
+
+    islState.autoNoiseApplied = false;
+    islState.wireKey = '_metadata';
+    const notApplied = maskAmbient(await fullResponse());
+
+    islState.autoNoiseApplied = undefined;
+    islState.wireKey = 'omitted';
+    const omitted = maskAmbient(await fullResponse());
+
+    // Sanity: masked response still carries the engine-output content.
+    expect(Object.keys(applied).length).toBeGreaterThan(10);
+    expect(applied).not.toHaveProperty('auto_noise_applied');
+    expect(applied).not.toHaveProperty('auto_noise_provenance');
+    // Sanity: ambient masking actually fired (proves the mask is wired).
+    expect(JSON.stringify(applied)).toContain('"<ambient>"');
+
+    // The proof: outside the two B3 fields and the ambient per-call
+    // fields, the response is byte-for-byte identical across all three
+    // auto-noise states. If this fails, the B3 code path side-effected
+    // something it shouldn't have.
+    expect(JSON.stringify(notApplied)).toBe(JSON.stringify(applied));
+    expect(JSON.stringify(omitted)).toBe(JSON.stringify(applied));
+  });
 });
