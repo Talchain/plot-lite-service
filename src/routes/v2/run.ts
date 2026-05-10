@@ -3937,8 +3937,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // Transform ISL entries WITHOUT filtering intervention_overrides, so that
         // attribution_stability data from controllable factors is available for the
         // confidence merge even though those factors are excluded from sensitivity output.
-        // Without this, filterInterventionOverrides strips entries whose bootstrap data
-        // would produce differentiated confidence values (e.g., "negligible" → 0.25).
+        // (Confidence honesty A1-SECONDARY: under formula_version plot_unified_v2, the
+        // band table distinguishes low and negligible — the previous "low/negligible
+        // collapse to 0.25" behaviour is fixed at the band table itself.)
         const islFactorSensitivityUnfiltered = transformFactorSensitivityUnfiltered(islResult.factor_sensitivity, normalisationContext);
 
         // Graph-based is primary for influence/sensitivity scores.
@@ -4001,6 +4002,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             sensitivity_score: f.sensitivity_score,
             confidence: f.confidence,
             confidence_source: f.confidence_source,
+            confidence_provenance_computation_source: f.confidence_provenance?.computation_source,
+            confidence_provenance_input_quality: f.confidence_provenance?.input_quality,
             direction: f.direction,
             source: f.source,
           })),
@@ -4009,10 +4012,13 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // Telemetry: count how many factors hit the degenerate confidence branch.
         // When the degenerate branch fires, the returned confidence is the uniform
         // 0.5 × band_default + 0.5 × exists_prob default — not differentiating.
-        // Emit a single aggregated event (not per-factor) when any factor is affected
-        // so operators can spot when ISL bootstrap + rich edge strengths are both absent.
+        // Detected via confidence_provenance.input_quality (the legacy
+        // `confidence_source: 'fallback_degenerate'` tag has been replaced by
+        // honest source labels — see audit row A1-PRIMARY).
         if (Array.isArray(factorSensitivity) && factorSensitivity.length > 0) {
-          const degenerate = factorSensitivity.filter(f => f.confidence_source === 'fallback_degenerate');
+          const degenerate = factorSensitivity.filter(
+            f => f.confidence_provenance?.input_quality === 'degenerate_fallback',
+          );
           if (degenerate.length > 0) {
             req.log.info({
               event: 'plot.confidence_fallback_degenerate',

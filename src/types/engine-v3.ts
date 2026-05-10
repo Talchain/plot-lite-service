@@ -1381,6 +1381,61 @@ export interface ConditionalBucket {
 }
 
 /**
+ * Honest provenance for the user-visible confidence value.
+ * @see truth-table row A1-PRIMARY (audit 2026-05-truth-table)
+ *
+ * - `'plot_unified_from_isl_bootstrap'` — PLoT's unified formula computed from
+ *   ISL's bootstrap stability inputs.
+ * - `'plot_unified_from_graph'` — PLoT's unified formula computed from graph
+ *   structure (no ISL bootstrap available).
+ */
+export type ConfidenceSource =
+  | 'plot_unified_from_isl_bootstrap'
+  | 'plot_unified_from_graph';
+
+/**
+ * Formula-version tag for the unified confidence computation.
+ * v2 distinguishes `low` from `negligible` in the band-score table — see
+ * truth-table row A1-SECONDARY. Single-valued at this tranche; future
+ * Jinghui-led calibration may extend.
+ */
+export type ConfidenceFormulaVersion = 'plot_unified_v2';
+
+/**
+ * Calibration status for the confidence formula. Single-valued at this tranche
+ * because the formula's coefficients and band table are operational defaults
+ * pending pilot calibration (Neil gate 1, Jinghui calibration brief).
+ */
+export type ConfidenceCalibrationStatus = 'provisional_pending_pilot_calibration';
+
+/**
+ * Quality of inputs that produced the confidence value. Preserves the audit
+ * trail of the legacy `confidence_source: 'fallback_degenerate'` tag without
+ * polluting the source-of-computation enum.
+ *
+ * - `'standard'` — bootstrap or rich-edge inputs available.
+ * - `'degenerate_fallback'` — neither ISL bootstrap nor rich edge strength
+ *   data was usable; the uniform-default branch fired. The numeric confidence
+ *   value is not differentiating in this case.
+ */
+export type ConfidenceInputQuality = 'standard' | 'degenerate_fallback';
+
+/**
+ * Confidence provenance — additive disclosure metadata, payload-only.
+ * The UI surfaces only `is_provisional` (as a single column-header marker);
+ * `formula_version` and `calibration_status` are debug fields.
+ *
+ * @see truth-table rows A1-PRIMARY, A1-SECONDARY, A1-CONFIDENCE-PROVENANCE-LOST
+ */
+export interface ConfidenceProvenance {
+  computation_source: ConfidenceSource;
+  formula_version: ConfidenceFormulaVersion;
+  is_provisional: boolean;
+  calibration_status: ConfidenceCalibrationStatus;
+  input_quality: ConfidenceInputQuality;
+}
+
+/**
  * Factor sensitivity result.
  *
  * Note: Numeric fields are optional because ISL may not always provide them.
@@ -1423,9 +1478,10 @@ export interface FactorSensitivityResultV3 {
   evpi_method?: 'heuristic' | 'counterfactual';
   /**
    * Confidence in the sensitivity score (0-1).
-   * Unified formula: 0.5 × attribution_stability_band_score
+   * Unified formula (plot_unified_v2): 0.5 × attribution_stability_band_score
    *   + 0.5 × mean(exists_probability of incoming edges).
-   * Defaults to 0.5 when either signal is absent.
+   * Always PLoT-recomputed — ISL's own `confidence` is dropped on receipt.
+   * @see truth-table row A1-PRIMARY (audit 2026-05-truth-table)
    */
   confidence?: number;
   /** Reason why sensitivity is zero. Present when sensitivity_score = 0. */
@@ -1433,13 +1489,25 @@ export interface FactorSensitivityResultV3 {
   /** Source of this factor sensitivity data */
   source?: 'graph' | 'isl';
   /**
-   * Which computation produced the confidence value.
-   * - 'isl': ISL bootstrap path (attribution_stability supplied).
-   * - 'graph': edge-derived CV path (no bootstrap; used incoming edge strengths).
-   * - 'fallback_degenerate': uniform 0.5-default branch fired; confidence value
-   *   is not differentiating. Emit telemetry when this value is present.
+   * Honest provenance label for the confidence value above.
+   * Replaces the legacy `'isl' | 'graph' | 'fallback_degenerate'` union, which
+   * misleadingly tagged PLoT-recomputed values as `'isl'` even though ISL's own
+   * confidence was discarded. See truth-table row A1-PRIMARY.
+   *
+   * - `'plot_unified_from_isl_bootstrap'` — PLoT's unified formula computed from
+   *   ISL's bootstrap stability inputs (attribution_stability supplied).
+   * - `'plot_unified_from_graph'` — PLoT's unified formula computed from graph
+   *   structure (no ISL bootstrap; uses incoming edge data, possibly the uniform
+   *   default — see `confidence_provenance.input_quality` for that signal).
    */
-  confidence_source?: 'isl' | 'graph' | 'fallback_degenerate';
+  confidence_source?: ConfidenceSource;
+  /**
+   * Additive provenance metadata for the confidence value (audit A1-PRIMARY fix).
+   * Carries computation source, formula version, provisional flag, and input
+   * quality. Single coherent disclosure object — sets the M2 disclosure pattern
+   * for follow-ups B3 (auto-noise) and C4 (prior-synthesis).
+   */
+  confidence_provenance?: ConfidenceProvenance;
   /**
    * Flip risk category based on fragile edge adjacency.
    * - 'isolated': This factor alone can flip the recommendation (marginal_switch_probability > 0.05)

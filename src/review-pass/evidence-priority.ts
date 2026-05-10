@@ -60,10 +60,23 @@ export interface EvidencePriorityCard extends ProposalCardV1 {
 
 export const EVIDENCE_PRIORITY_SUPPRESSION_THRESHOLD = 0.05;
 
+/**
+ * Attribution-stability band scores used by the unified confidence formula.
+ *
+ * v2 (formula_version `plot_unified_v2`, audit row A1-SECONDARY): `low` is
+ * lifted from 0.0 to 0.25 so that root factors with no incoming edges no
+ * longer collapse to the same numeric output as `negligible`. Geometric
+ * halving across bands (1.0 → 0.5 → 0.25 → 0.0) preserves monotonicity and
+ * keeps `negligible` at 0.0 (no information loss). High and moderate are
+ * unchanged. See truth-table row A1-SECONDARY for evidence.
+ *
+ * Coefficients are still operational defaults pending pilot calibration
+ * (Neil gate 1, Jinghui calibration brief).
+ */
 export const ATTRIBUTION_STABILITY_BAND_SCORES: Record<string, number> = {
   high: 1.0,
   moderate: 0.5,
-  low: 0.0,
+  low: 0.25,
   negligible: 0.0,
 };
 

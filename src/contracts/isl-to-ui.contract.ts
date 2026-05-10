@@ -79,7 +79,8 @@ export const ISL_TO_UI_CONTRACT: BoundaryContract = {
     'robust_edges[].from_label',
     'robust_edges[].to_label',
     'factor_sensitivity[].source',       // Constant: 'isl'
-    'factor_sensitivity[].confidence_source', // B (tier-B): 'isl' | 'graph' | 'fallback_degenerate' — provenance tag for computed confidence
+    'factor_sensitivity[].confidence_source', // B (tier-B): 'plot_unified_from_isl_bootstrap' | 'plot_unified_from_graph' — honest provenance tag (audit A1-PRIMARY)
+    'factor_sensitivity[].confidence_provenance', // B (tier-B): typed disclosure object {computation_source, formula_version, is_provisional, calibration_status, input_quality} — audit A1-PRIMARY
     'recommended_option_id',
     'recommended_option_label',
     'near_tie',

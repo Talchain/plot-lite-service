@@ -1018,37 +1018,65 @@ describe('computeValueOfInformation', () => {
 // -----------------------------------------------------------------------------
 
 describe('computeUnifiedConfidence', () => {
-  it('flags degenerate fallback when neither bootstrap nor rich edge data is available', () => {
+  it('flags degenerate fallback via input_quality when neither bootstrap nor rich edge data is available', () => {
     // No bootstrap, no rich edges → uniform 0.5 × 0.5 + 0.5 × 0.5 = 0.5.
-    // Value is not differentiating — source must be 'fallback_degenerate'.
-    expect(computeUnifiedConfidence(null, undefined)).toEqual({ confidence: 0.5, source: 'fallback_degenerate' });
-    expect(computeUnifiedConfidence(undefined, null)).toEqual({ confidence: 0.5, source: 'fallback_degenerate' });
-    expect(computeUnifiedConfidence(null, [])).toEqual({ confidence: 0.5, source: 'fallback_degenerate' });
+    // Value is not differentiating — input_quality must be 'degenerate_fallback'.
+    // Source remains 'plot_unified_from_graph' (audit A1-PRIMARY: source enum
+    // tags COMPUTATION origin; degeneracy moved to input_quality).
+    expect(computeUnifiedConfidence(null, undefined)).toEqual({
+      confidence: 0.5, source: 'plot_unified_from_graph', input_quality: 'degenerate_fallback',
+    });
+    expect(computeUnifiedConfidence(undefined, null)).toEqual({
+      confidence: 0.5, source: 'plot_unified_from_graph', input_quality: 'degenerate_fallback',
+    });
+    expect(computeUnifiedConfidence(null, [])).toEqual({
+      confidence: 0.5, source: 'plot_unified_from_graph', input_quality: 'degenerate_fallback',
+    });
     // Plain exists_probability without strength data also hits degenerate branch
     // (graph branch requires strength_mean/std to activate CV path).
     expect(computeUnifiedConfidence(null, [{ exists_probability: 0.9 }])).toEqual({
       confidence: 0.7, // 0.5 × 0.5 + 0.5 × 0.9
-      source: 'fallback_degenerate',
+      source: 'plot_unified_from_graph',
+      input_quality: 'degenerate_fallback',
     });
   });
 
-  it('returns source: isl with correct value for bootstrap + edges', () => {
+  it('returns source: plot_unified_from_isl_bootstrap with correct value for bootstrap + edges', () => {
     // high stability (1.0), edges mean = 0.8 → 0.5 × 1.0 + 0.5 × 0.8 = 0.9
     const result = computeUnifiedConfidence('high', [{ exists_probability: 0.8 }]);
     expect(result.confidence).toBeCloseTo(0.9, 5);
-    expect(result.source).toBe('isl');
+    expect(result.source).toBe('plot_unified_from_isl_bootstrap');
+    expect(result.input_quality).toBe('standard');
   });
 
-  it('returns source: isl (bootstrap-dominated) when edges absent', () => {
+  it('returns source: plot_unified_from_isl_bootstrap (bootstrap-dominated) when edges absent', () => {
     // moderate (0.5), no edges → 0.5 × 0.5 + 0.5 × 0.5 = 0.5
-    expect(computeUnifiedConfidence('moderate', undefined)).toEqual({ confidence: 0.5, source: 'isl' });
+    expect(computeUnifiedConfidence('moderate', undefined)).toEqual({
+      confidence: 0.5, source: 'plot_unified_from_isl_bootstrap', input_quality: 'standard',
+    });
     // high (1.0), no edges → 0.5 × 1.0 + 0.5 × 0.5 = 0.75
-    expect(computeUnifiedConfidence('high', undefined)).toEqual({ confidence: 0.75, source: 'isl' });
-    // low (0.0), no edges → 0.5 × 0.0 + 0.5 × 0.5 = 0.25
-    expect(computeUnifiedConfidence('low', undefined)).toEqual({ confidence: 0.25, source: 'isl' });
+    expect(computeUnifiedConfidence('high', undefined)).toEqual({
+      confidence: 0.75, source: 'plot_unified_from_isl_bootstrap', input_quality: 'standard',
+    });
   });
 
-  it('returns source: graph when rich edge data activates the CV branch', () => {
+  it('distinguishes low and negligible at root factors (audit A1-SECONDARY, plot_unified_v2)', () => {
+    // Under v2 band table {high:1.0, moderate:0.5, low:0.25, negligible:0.0}:
+    // low (0.25), no edges → 0.5 × 0.25 + 0.5 × 0.5 = 0.375
+    expect(computeUnifiedConfidence('low', undefined)).toEqual({
+      confidence: 0.375, source: 'plot_unified_from_isl_bootstrap', input_quality: 'standard',
+    });
+    // negligible (0.0), no edges → 0.5 × 0.0 + 0.5 × 0.5 = 0.25
+    expect(computeUnifiedConfidence('negligible', undefined)).toEqual({
+      confidence: 0.25, source: 'plot_unified_from_isl_bootstrap', input_quality: 'standard',
+    });
+    // Critical regression: outputs MUST be distinct (was 0.25 for both pre-v2)
+    const lowOut = computeUnifiedConfidence('low', undefined).confidence;
+    const negOut = computeUnifiedConfidence('negligible', undefined).confidence;
+    expect(lowOut).not.toEqual(negOut);
+  });
+
+  it('returns source: plot_unified_from_graph when rich edge data activates the CV branch', () => {
     // No bootstrap but edges carry strength_mean/std → CV path fires.
     // Edge: exists=0.9, strength_mean=1.0, strength_std=0.1 → |cv| = 0.1.
     // confidence = 0.9 × (1 - 0.1) = 0.81
@@ -1056,19 +1084,25 @@ describe('computeUnifiedConfidence', () => {
       { exists_probability: 0.9, strength_mean: 1.0, strength_std: 0.1 },
     ]);
     expect(result.confidence).toBeCloseTo(0.81, 5);
-    expect(result.source).toBe('graph');
+    expect(result.source).toBe('plot_unified_from_graph');
+    expect(result.input_quality).toBe('standard');
   });
 
   it('clamps confidence to [0, 1]', () => {
-    expect(computeUnifiedConfidence('high', [{ exists_probability: 1.0 }])).toEqual({ confidence: 1.0, source: 'isl' });
-    expect(computeUnifiedConfidence('negligible', [{ exists_probability: 0.0 }])).toEqual({ confidence: 0.0, source: 'isl' });
+    expect(computeUnifiedConfidence('high', [{ exists_probability: 1.0 }])).toEqual({
+      confidence: 1.0, source: 'plot_unified_from_isl_bootstrap', input_quality: 'standard',
+    });
+    expect(computeUnifiedConfidence('negligible', [{ exists_probability: 0.0 }])).toEqual({
+      confidence: 0.0, source: 'plot_unified_from_isl_bootstrap', input_quality: 'standard',
+    });
   });
 
   it('handles unknown stability category with default band score', () => {
     // unknown → default band 0.5, edges mean = 0.6 → 0.5 × 0.5 + 0.5 × 0.6 = 0.55
     const result = computeUnifiedConfidence('unknown_value', [{ exists_probability: 0.6 }]);
     expect(result.confidence).toBeCloseTo(0.55, 5);
-    expect(result.source).toBe('isl');
+    expect(result.source).toBe('plot_unified_from_isl_bootstrap');
+    expect(result.input_quality).toBe('standard');
   });
 
   it('is deterministic: same input always produces same output', () => {

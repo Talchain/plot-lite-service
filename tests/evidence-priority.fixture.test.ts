@@ -29,9 +29,17 @@ describe('computeConfidenceNormalised', () => {
     expect(c).toBe(0.75);
   });
 
-  it('returns 0.25 for low stability with no edges', () => {
-    // 0.5 * 0.0 + 0.5 * 0.5 = 0.25
+  it('returns 0.375 for low stability with no edges (v2 band table, audit A1-SECONDARY)', () => {
+    // v2 band score for 'low' lifted from 0.0 to 0.25 to distinguish from
+    // 'negligible' at root factors. 0.5 * 0.25 + 0.5 * 0.5 = 0.375.
     const c = computeConfidenceNormalised('low', undefined);
+    expect(c).toBe(0.375);
+  });
+
+  it('returns 0.25 for negligible stability with no edges (v2 band table — distinct from low)', () => {
+    // v2 band score for 'negligible' remains 0.0 (no information loss).
+    // 0.5 * 0.0 + 0.5 * 0.5 = 0.25 — distinct from low's 0.375.
+    const c = computeConfidenceNormalised('negligible', undefined);
     expect(c).toBe(0.25);
   });
 
@@ -58,11 +66,11 @@ describe('computeConfidenceNormalised', () => {
     expect(c).toBe(0.5);
   });
 
-  it('uses 0.5 default for root node (no incoming edges)', () => {
-    // low stability → band_score = 0.0, no edges → mean = 0.5
-    // 0.5 * 0.0 + 0.5 * 0.5 = 0.25
+  it('uses 0.5 default for root node (no incoming edges; v2 band table)', () => {
+    // v2: low stability → band_score = 0.25 (was 0.0), no edges → mean = 0.5
+    // 0.5 * 0.25 + 0.5 * 0.5 = 0.375 (audit A1-SECONDARY).
     const c = computeConfidenceNormalised('low', []);
-    expect(c).toBe(0.25);
+    expect(c).toBe(0.375);
   });
 });
 
@@ -75,13 +83,15 @@ describe('evidence priority constants', () => {
     expect(EVIDENCE_PRIORITY_SUPPRESSION_THRESHOLD).toBe(0.05);
   });
 
-  it('band scores match expected values', () => {
+  it('band scores match v2 values (audit A1-SECONDARY: low and negligible distinguished)', () => {
     expect(ATTRIBUTION_STABILITY_BAND_SCORES).toEqual({
       high: 1.0,
       moderate: 0.5,
-      low: 0.0,
+      low: 0.25,
       negligible: 0.0,
     });
+    // Critical regression: low must NOT collapse to negligible.
+    expect(ATTRIBUTION_STABILITY_BAND_SCORES.low).not.toBe(ATTRIBUTION_STABILITY_BAND_SCORES.negligible);
   });
 });
 
@@ -362,8 +372,9 @@ describe('buildEvidencePriorityCard — edge cases', () => {
     ];
 
     const card = buildEvidencePriorityCard(factors)!;
-    // confidence = 0.5*0.0 + 0.5*0.5 = 0.25
-    expect(card.items[0].confidence_normalised).toBeCloseTo(0.25, 5);
+    // v2 (audit A1-SECONDARY): low → 0.25 band score, no edges → 0.5 default.
+    // confidence = 0.5*0.25 + 0.5*0.5 = 0.375 (was 0.25 pre-v2).
+    expect(card.items[0].confidence_normalised).toBeCloseTo(0.375, 5);
   });
 
   it('single dominant factor produces 1 item', () => {

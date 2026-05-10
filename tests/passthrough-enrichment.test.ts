@@ -204,7 +204,7 @@ describe('confidence fallback with CV-based differentiation', () => {
     // Incoming edge to fac_a: exists_prob=0.9, CV = |0.1/0.5| = 0.2
     // confidence = 0.9 * (1 - 0.2) = 0.72
     expect(facA.confidence).toBeCloseTo(0.72, 2);
-    expect(facA.confidence_source).toBe('graph'); // no ISL bootstrap → graph
+    expect(facA.confidence_source).toBe('plot_unified_from_graph'); // no ISL bootstrap → graph
   });
 
   it('matched graph+ISL factors WITH bootstrap use standard formula', () => {
@@ -237,7 +237,7 @@ describe('confidence fallback with CV-based differentiation', () => {
     // Standard formula: 0.5 × band_score(high=1.0) + 0.5 × mean(exists_prob of incoming=0.9)
     // = 0.5 × 1.0 + 0.5 × 0.9 = 0.95
     expect(facA.confidence).toBeCloseTo(0.95, 2);
-    expect(facA.confidence_source).toBe('isl');
+    expect(facA.confidence_source).toBe('plot_unified_from_isl_bootstrap');
   });
 });
 

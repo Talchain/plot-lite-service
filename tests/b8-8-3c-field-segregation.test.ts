@@ -142,7 +142,7 @@ describe('B8-8: 3C field handling in /v2/run response', () => {
 
   const THREE_C_FIELDS = ['elasticity_std', 'attribution_stability', 'rank_flip_rate', 'stability_method'] as const;
 
-  it('factor_sensitivity[] entries with confidence_source "isl" carry 3C stability fields', async () => {
+  it('factor_sensitivity[] entries with ISL-bootstrap provenance carry 3C stability fields', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/v2/run',
@@ -155,7 +155,11 @@ describe('B8-8: 3C field handling in /v2/run response', () => {
     expect(body.factor_sensitivity).toBeDefined();
     expect(body.factor_sensitivity.length).toBeGreaterThan(0);
 
-    const islFactors = body.factor_sensitivity.filter((f: any) => f.confidence_source === 'isl');
+    // Audit A1-PRIMARY: legacy 'isl' value replaced by honest
+    // 'plot_unified_from_isl_bootstrap' — value is PLoT-recomputed.
+    const islFactors = body.factor_sensitivity.filter(
+      (f: any) => f.confidence_source === 'plot_unified_from_isl_bootstrap',
+    );
     expect(islFactors.length).toBeGreaterThan(0);
 
     for (const factor of islFactors) {
@@ -211,9 +215,10 @@ describe('B8-8: 3C field handling in /v2/run response', () => {
     expect(factorA).toBeDefined();
     expect(factorB).toBeDefined();
 
-    // Both should have ISL-merged 3C fields
+    // Both should have ISL-merged 3C fields. Audit A1-PRIMARY: source value
+    // updated from legacy 'isl' to honest 'plot_unified_from_isl_bootstrap'.
     for (const factor of [factorA, factorB]) {
-      expect(factor.confidence_source).toBe('isl');
+      expect(factor.confidence_source).toBe('plot_unified_from_isl_bootstrap');
       expect(factor.attribution_stability).toBe('moderate');
       expect(factor.elasticity_std).toBe(0.12);
       expect(factor.rank_flip_rate).toBe(0.08);

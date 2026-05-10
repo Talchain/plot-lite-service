@@ -391,9 +391,12 @@ describe('T6: Route-level 3C source-scoping via /v2/run', () => {
     expect(factorB.source).toBe('graph');
 
     // After confidence unification, ISL-matched entries carry 3C fields
-    // and have confidence_source: 'isl'
+    // and report honest provenance (audit A1-PRIMARY: 'isl' replaced by
+    // 'plot_unified_from_isl_bootstrap' to reflect that PLoT — not ISL —
+    // produced the displayed confidence value).
     for (const factor of [factorA, factorB]) {
-      expect(factor.confidence_source).toBe('isl');
+      expect(factor.confidence_source).toBe('plot_unified_from_isl_bootstrap');
+      expect(factor.confidence_provenance?.computation_source).toBe('plot_unified_from_isl_bootstrap');
       expect(typeof factor.elasticity_std).toBe('number');
       expect(['high', 'moderate', 'low', 'negligible']).toContain(factor.attribution_stability);
       expect(typeof factor.rank_flip_rate).toBe('number');
@@ -432,7 +435,8 @@ describe('T6: Route-level 3C source-scoping via /v2/run', () => {
     expect(factors.length).toBeGreaterThan(0);
 
     // ISL-matched entries should carry 3C fields after confidence unification
-    const islMatched = factors.filter((f: any) => f.confidence_source === 'isl');
+    // (audit A1-PRIMARY: source value updated to honest provenance label).
+    const islMatched = factors.filter((f: any) => f.confidence_source === 'plot_unified_from_isl_bootstrap');
     for (const factor of islMatched) {
       expect(typeof factor.elasticity_std).toBe('number');
       expect(['high', 'moderate', 'low', 'negligible']).toContain(factor.attribution_stability);

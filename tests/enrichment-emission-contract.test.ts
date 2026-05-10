@@ -232,16 +232,20 @@ describe('enrichment emission contract (route-level mixed-case fixture)', () => 
     // VOI = 0 must appear in the factor's value_of_information field (not filtered).
     expect(factorB.value_of_information).toBe(0);
 
-    // --- Task 3: confidence_source + telemetry ---
-    // factor-b has no rich incoming edge strengths → fallback_degenerate.
-    // factor-a has rich incoming strength → 'graph' (CV path).
+    // --- Task 3: confidence_source + telemetry (audit A1-PRIMARY) ---
+    // factor-b has no rich incoming edge strengths → degenerate_fallback
+    // (surfaced via input_quality, not source enum).
+    // factor-a has rich incoming strength → standard input_quality.
     const factorA = factors.find((f: any) => f.factor_id === 'factor-a');
     expect(factorA).toBeDefined();
 
-    expect(factorB.confidence_source).toBe('fallback_degenerate');
+    // Both honest source enum values are graph-side here.
+    expect(factorB.confidence_source).toBe('plot_unified_from_graph');
+    expect(factorB.confidence_provenance?.input_quality).toBe('degenerate_fallback');
     // At least one factor must be non-degenerate so the telemetry event is
     // genuinely per-request-aggregated (not "everything is degenerate").
-    expect(['isl', 'graph']).toContain(factorA.confidence_source);
+    expect(['plot_unified_from_isl_bootstrap', 'plot_unified_from_graph']).toContain(factorA.confidence_source);
+    expect(factorA.confidence_provenance?.input_quality).toBe('standard');
 
     // Telemetry event fires exactly ONCE per request when any factor is degenerate.
     const degenerateEvents = capturedEvents.filter((e) => e.event === 'plot.confidence_fallback_degenerate');
