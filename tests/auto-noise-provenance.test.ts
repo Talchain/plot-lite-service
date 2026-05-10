@@ -113,8 +113,8 @@ describe('extractIslAutoNoiseApplied', () => {
   it('does NOT silently fall through from a malformed canonical `_metadata` to `metadata` or top-level', () => {
     // Audit-feedback Imp-2: if the canonical payload location is present
     // but corrupt, do not coincidentally rescue using a lower-precedence
-    // value. The committed-on-object semantics surface the corruption
-    // as 'missing' so the caller can emit an observability warning.
+    // value. Commitment is on own-key presence so the corruption surfaces
+    // as 'missing' for the caller to emit an observability warning.
     expect(
       extractIslAutoNoiseApplied({
         _metadata: { auto_noise_applied: 'not-a-boolean' },
@@ -125,7 +125,7 @@ describe('extractIslAutoNoiseApplied', () => {
 
     expect(
       extractIslAutoNoiseApplied({
-        _metadata: {}, // empty canonical object — committed on object presence
+        _metadata: {}, // empty canonical object — committed on key presence
         metadata: { auto_noise_applied: true },
       } as any),
     ).toEqual({ applied: null, source: 'missing' });
@@ -138,6 +138,54 @@ describe('extractIslAutoNoiseApplied', () => {
         auto_noise_applied: true,
       } as any),
     ).toEqual({ applied: null, source: 'missing' });
+  });
+
+  it('does NOT silently fall through when a non-object canonical key is present (audit-feedback P2)', () => {
+    // Reviewer's P2 finding: previously the extractor type-checked
+    // `_metadata` as object before committing, so `_metadata: "bad"`
+    // skipped the canonical block and rescued via `metadata`/top-level.
+    // The own-key-presence rule now treats "key exists, wrong type" the
+    // same as "key exists, malformed contents" — both surface as
+    // 'missing', preserving the corruption signal.
+    for (const corrupt of ['bad', 42, true, [], null]) {
+      expect(
+        extractIslAutoNoiseApplied({
+          _metadata: corrupt,
+          metadata: { auto_noise_applied: true },
+          auto_noise_applied: true,
+        } as any),
+      ).toEqual({ applied: null, source: 'missing' });
+    }
+
+    // Same rule for `metadata` when the canonical key is absent.
+    for (const corrupt of ['bad', 42, true, []]) {
+      expect(
+        extractIslAutoNoiseApplied({
+          metadata: corrupt,
+          auto_noise_applied: true,
+        } as any),
+      ).toEqual({ applied: null, source: 'missing' });
+    }
+
+    // And for top-level: own-key-presence with a non-boolean value
+    // returns missing rather than silently coercing.
+    expect(
+      extractIslAutoNoiseApplied({
+        auto_noise_applied: 'true',
+      } as any),
+    ).toEqual({ applied: null, source: 'missing' });
+  });
+
+  it('explicit `_metadata: undefined` still commits the canonical tier (own-key, not value-truthy)', () => {
+    // Edge case worth pinning: setting a key to undefined is unusual but
+    // possible (Object.assign with explicit undefined). `'_metadata' in obj`
+    // and `Object.hasOwn` both report true; the helper commits and
+    // returns 'missing' because the value is not a usable object.
+    const corrupt: Record<string, unknown> = {};
+    Object.defineProperty(corrupt, '_metadata', { value: undefined, enumerable: true });
+    corrupt.metadata = { auto_noise_applied: true };
+    expect(extractIslAutoNoiseApplied(corrupt as any))
+      .toEqual({ applied: null, source: 'missing' });
   });
 });
 

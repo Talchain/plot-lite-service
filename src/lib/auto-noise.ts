@@ -65,15 +65,19 @@ export type ExtractedAutoNoiseFlag =
  *
  * Precedence (strict, no silent fall-through on corruption):
  * 1. `_metadata.auto_noise_applied` — the canonical ISL wire location.
- *    Reached via `_metadata` being any object: at this point we are
- *    committed to the canonical path. If the field is missing, present
- *    but non-boolean, or any other malformed shape, return
- *    `{ applied: null, source: 'missing' }` — we do NOT silently fall
- *    through to the secondary locations, since that would mask a corrupt
- *    canonical payload behind a coincident lower-precedence value.
- * 2. Else if `metadata` is an object, same rule against that key.
- * 3. Else fall back to a top-level boolean (cached / legacy payloads).
+ * 2. Else `metadata.auto_noise_applied` — Pydantic field-name alternate.
+ * 3. Else top-level `auto_noise_applied` — legacy cached payloads.
  * 4. Else `{ applied: null, source: 'missing' }`.
+ *
+ * Commitment rule: tier resolution is on **own-key presence** (via
+ * `Object.hasOwn`), not value shape. Once a tier's key exists on the
+ * response, the search stops there — even if the value is the wrong
+ * type (e.g. `_metadata: "bad"`) or the inner field is missing or
+ * non-boolean, the helper returns `{ applied: null, source: 'missing' }`
+ * rather than silently rescuing via a coincident lower-precedence key.
+ * That keeps corruption visible (paired with the
+ * `auto_noise_flag_missing_from_isl` warn log at the route layer)
+ * instead of hiding it behind whichever fallback happens to be present.
  */
 export function extractIslAutoNoiseApplied(
   islResult: Pick<ISLRobustnessAnalyzeV2Response, '_metadata' | 'metadata'>
@@ -84,30 +88,49 @@ export function extractIslAutoNoiseApplied(
   if (islResult == null || typeof islResult !== 'object') {
     return { applied: null, source: 'missing' };
   }
+  const r = islResult as Record<string, unknown>;
 
-  // Precedence-1: canonical `_metadata` (Pydantic alias). Once the
-  // `_metadata` key resolves to an object we commit — any malformation
-  // beneath it surfaces as 'missing', not silent fall-through.
-  if (islResult._metadata != null && typeof islResult._metadata === 'object') {
-    const v = islResult._metadata.auto_noise_applied;
-    return typeof v === 'boolean'
-      ? { applied: v, source: '_metadata' }
-      : { applied: null, source: 'missing' };
+  // Precedence-1: canonical `_metadata` (Pydantic alias). Committed on
+  // own-key presence — a non-object or null value here is corruption,
+  // not a cue to fall through.
+  if (Object.hasOwn(r, '_metadata')) {
+    return readNestedFlag(r._metadata, '_metadata');
   }
 
-  // Precedence-2: field-name fallback. Same commit-on-object rule.
-  if (islResult.metadata != null && typeof islResult.metadata === 'object') {
-    const v = islResult.metadata.auto_noise_applied;
-    return typeof v === 'boolean'
-      ? { applied: v, source: 'metadata' }
-      : { applied: null, source: 'missing' };
+  // Precedence-2: field-name alternate.
+  if (Object.hasOwn(r, 'metadata')) {
+    return readNestedFlag(r.metadata, 'metadata');
   }
 
-  // Precedence-3: legacy top-level passthrough (cached payloads).
-  const fromTopLevel = (islResult as { auto_noise_applied?: unknown }).auto_noise_applied;
-  if (typeof fromTopLevel === 'boolean') return { applied: fromTopLevel, source: 'top_level' };
+  // Precedence-3: legacy top-level. Committed on own-key presence too;
+  // same defensive principle.
+  if (Object.hasOwn(r, 'auto_noise_applied')) {
+    const v = r.auto_noise_applied;
+    return typeof v === 'boolean'
+      ? { applied: v, source: 'top_level' }
+      : { applied: null, source: 'missing' };
+  }
 
   return { applied: null, source: 'missing' };
+}
+
+/**
+ * Resolve a flag from a nested-metadata candidate. The candidate may be
+ * any unknown value because the caller has already committed on the
+ * outer key's presence; this function decides whether the *value* is a
+ * usable shape.
+ */
+function readNestedFlag(
+  candidate: unknown,
+  source: '_metadata' | 'metadata',
+): ExtractedAutoNoiseFlag {
+  if (candidate == null || typeof candidate !== 'object') {
+    return { applied: null, source: 'missing' };
+  }
+  const v = (candidate as Record<string, unknown>).auto_noise_applied;
+  return typeof v === 'boolean'
+    ? { applied: v, source }
+    : { applied: null, source: 'missing' };
 }
 
 /**
