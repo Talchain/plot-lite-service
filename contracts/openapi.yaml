@@ -5896,6 +5896,55 @@ components:
           type: string
           enum: [computed, unavailable, skipped, error]
           description: Per-feature status (UI vocabulary)
+        auto_noise_applied:
+          type: boolean
+          nullable: true
+          description: |
+            Whether ISL applied its operational auto-noise heuristic to outcome
+            and risk distributions on this run. Echoes ISL's `auto_noise_applied`
+            verbatim; `null` when ISL omits the field. Present on analysis_status
+            in {computed, partial}; absent on {blocked, failed}. See audit B3.
+        auto_noise_provenance:
+          type: object
+          description: |
+            Analysis-level disclosure metadata for the auto-noise variance
+            adjustment. Always carries full formula provenance, including when
+            applied=false. Present on analysis_status in {computed, partial};
+            absent on {blocked, failed}. UI surfaces only `applied && is_provisional`;
+            other fields are payload-only debug metadata.
+          required:
+            - applied
+            - effect
+            - formula_version
+            - multiplier
+            - noise_distribution
+            - filter_scope
+            - is_provisional
+            - calibration_status
+          properties:
+            applied:
+              type: boolean
+              description: Mirrors top-level `auto_noise_applied` for self-contained payloads.
+            effect:
+              type: string
+              enum: [widens_outcome_and_risk_uncertainty]
+            formula_version:
+              type: string
+              enum: [plot_auto_v1]
+            multiplier:
+              type: number
+              description: Magnitude factor on outcome std. Fixed at 1.0 — Neil heuristic, Jinghui calibration pending.
+            noise_distribution:
+              type: string
+              enum: [normal_zero_mean_outcome_std]
+            filter_scope:
+              type: string
+              enum: [outcome_and_risk_nodes]
+            is_provisional:
+              type: boolean
+            calibration_status:
+              type: string
+              enum: [provisional_pending_pilot_calibration]
         isl_analysis_status:
           type: string
           description: ISL status echoed for debugging

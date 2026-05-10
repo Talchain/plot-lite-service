@@ -481,6 +481,19 @@ export interface ISLRobustnessAnalyzeV2Response {
   conditional_winners?: ISLConditionalWinner[];
 
   /**
+   * Whether ISL applied its operational auto-noise heuristic
+   * (`_apply_auto_scaled_noise` at `robustness_analyzer_v2.py:1113`)
+   * to outcome/risk distributions on this run. `false` when the goal
+   * node kind is not in {outcome, risk} or when sample std is 0.
+   *
+   * Forwarded onto PLoT's V3 response as `auto_noise_applied` and
+   * captured in the structured `auto_noise_provenance` block.
+   *
+   * @see truth-table row B3 (P0 disclosure).
+   */
+  auto_noise_applied?: boolean;
+
+  /**
    * Inference warnings from ISL.
    * Forwarded into PLoT's inference_warnings array in the response.
    */

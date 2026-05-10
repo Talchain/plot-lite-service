@@ -121,6 +121,7 @@ import type { ReviewStatus } from '../../cee/validation/m1-review-constants.js';
 import { ReviewSkipReasons, type ReviewSkipReason } from '../../cee/validation/m1-review-constants.js';
 import { getDownstreamCallsForLog } from '../../util/downstream-tracker.js';
 import { computeFactorSensitivityFromGraph, buildFactorStability, mergeIslConfidenceIntoGraphFactors } from '../../lib/factor-influence.js';
+import { buildAutoNoiseProvenance } from '../../lib/auto-noise.js';
 import { NEAR_TIE_THRESHOLD } from '../../trust/result-coherence.js';
 import { assessGraphIdentifiability, toIdentifiabilityResponse, detectUnmeasuredConfounding } from '../../trust/identifiability-v2.js';
 import { classifyEdgeSeverity } from '../../trust/edge-severity.js';
@@ -1883,6 +1884,23 @@ function buildResponse(
 
     // CIL C1: Multi-constraint analysis fields
     ...buildConstraintFields(goalConstraints, islResult, constraintNormRanges),
+
+    // Auto-noise disclosure (audit B3, P0). `auto_noise_applied` echoes
+    // ISL's flag verbatim; `auto_noise_provenance` is the structured
+    // metadata carrying the formula, multiplier, and calibration status.
+    // Both omitted on `analysis_status: 'failed'` since no analysis ran;
+    // `'blocked'` paths use `buildBlockedResponse` and never reach here.
+    ...((analysisStatus === 'computed' || analysisStatus === 'partial')
+      ? {
+          auto_noise_applied:
+            typeof islResult?.auto_noise_applied === 'boolean'
+              ? islResult.auto_noise_applied
+              : null,
+          auto_noise_provenance: buildAutoNoiseProvenance(
+            islResult?.auto_noise_applied === true,
+          ),
+        }
+      : {}),
 
     isl_analysis_status: islAnalysisStatus,
     isl_status_reason: islStatusReason,

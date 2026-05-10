@@ -831,6 +831,27 @@ export interface RunResponseV3 {
   conditional_probabilities?: ConditionalProbability[];
 
   /**
+   * Whether ISL applied auto-noise to outcome/risk distributions on this run
+   * (`auto_scaled_noise` heuristic at `robustness_analyzer_v2.py:1113`).
+   *
+   * Present on `analysis_status` ∈ {'computed', 'partial'}; absent on
+   * 'blocked' / 'failed'. `null` when ISL omitted the field. See
+   * `auto_noise_provenance` for the structured disclosure metadata.
+   *
+   * @see truth-table row B3 (P0 disclosure).
+   */
+  auto_noise_applied?: boolean | null;
+
+  /**
+   * Auto-noise disclosure metadata (audit B3). Always carries full formula
+   * provenance, including when `applied: false`. Absent on 'blocked' /
+   * 'failed' analysis states. UI surfaces only `applied && is_provisional`.
+   *
+   * @see AutoNoiseProvenance JSDoc.
+   */
+  auto_noise_provenance?: AutoNoiseProvenance;
+
+  /**
    * ISL status echoed for debugging.
    */
   isl_analysis_status?: string;
@@ -1433,6 +1454,65 @@ export interface ConfidenceProvenance {
   is_provisional: boolean;
   calibration_status: ConfidenceCalibrationStatus;
   input_quality: ConfidenceInputQuality;
+}
+
+// ─── Auto-noise provenance (audit B3) ───────────────────────────────────────
+//
+// Disclosure metadata for the operational variance adjustment ISL applies in
+// `_apply_auto_scaled_noise` (robustness_analyzer_v2.py:1113). Per Monte Carlo
+// sample ISL adds N(0, outcome_std) to outcome and risk node draws, which
+// roughly doubles outcome variance (~√2 on SD). Magnitude is fixed at
+// `multiplier: 1.0` per Neil-approved heuristic; Jinghui calibration pending.
+//
+// Mirrors the A1 ConfidenceProvenance pattern but is analysis-level
+// (per-run), not per factor: auto-noise affects every outcome/risk
+// distribution globally for the run.
+//
+// @see truth-table rows B3 (P0), F2-AUTO-NOISE-SILENCE (P1), U-015.
+
+/** Effect of auto-noise on the outcome and risk distributions. */
+export type AutoNoiseEffect = 'widens_outcome_and_risk_uncertainty';
+
+/**
+ * Formula version for the auto-noise computation. Single-valued at this
+ * tranche; future Jinghui calibration may extend.
+ */
+export type AutoNoiseFormulaVersion = 'plot_auto_v1';
+
+/** Distribution shape applied per Monte Carlo sample (mirrors ISL `rng.normal(0, outcome_std)`). */
+export type AutoNoiseDistribution = 'normal_zero_mean_outcome_std';
+
+/** Node-kind filter that gates which distributions receive noise (ISL: `node_kind in {"outcome","risk"}`). */
+export type AutoNoiseFilterScope = 'outcome_and_risk_nodes';
+
+/**
+ * Calibration status. Single-valued at this tranche because the multiplier
+ * is a Neil-approved PoC heuristic pending pilot calibration.
+ */
+export type AutoNoiseCalibrationStatus = 'provisional_pending_pilot_calibration';
+
+/**
+ * Auto-noise provenance — additive, payload-only disclosure metadata.
+ *
+ * Present on the V3 response when analysis ran (`analysis_status` is
+ * `'computed'` or `'partial'`); absent on `'blocked'` / `'failed'`.
+ * Always carries full formula metadata even when `applied: false`.
+ *
+ * The UI surfaces a single inline marker conditional on
+ * `applied && is_provisional`; all other fields are payload-only debug
+ * metadata and must NEVER be rendered as user-facing text.
+ */
+export interface AutoNoiseProvenance {
+  /** Whether ISL applied auto-noise on this run. Mirrors `auto_noise_applied`. */
+  applied: boolean;
+  effect: AutoNoiseEffect;
+  formula_version: AutoNoiseFormulaVersion;
+  /** Magnitude factor on outcome std. Fixed at 1.0 (Neil heuristic) — calibration pending. */
+  multiplier: number;
+  noise_distribution: AutoNoiseDistribution;
+  filter_scope: AutoNoiseFilterScope;
+  is_provisional: boolean;
+  calibration_status: AutoNoiseCalibrationStatus;
 }
 
 /**
