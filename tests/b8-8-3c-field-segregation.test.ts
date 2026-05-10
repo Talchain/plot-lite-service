@@ -1,14 +1,17 @@
 /**
  * Regression: B8-8 — 3C field handling in factor_sensitivity.
  *
- * After confidence unification (d293bfd), ISL bootstrap fields
- * (elasticity_std, attribution_stability, rank_flip_rate, stability_method)
- * are merged onto ALL factor_sensitivity entries that have a matching ISL
- * entry. The /v2/run response must:
- *   - factor_sensitivity[]: 3C fields PRESENT when confidence_source === 'isl'
- *   - factor_sensitivity[]: 3C fields MAY be present when confidence_source === 'graph'
+ * After confidence unification (d293bfd) and audit A1-PRIMARY (commit 064a6b4),
+ * ISL bootstrap fields (elasticity_std, attribution_stability, rank_flip_rate,
+ * stability_method) are merged onto ALL factor_sensitivity entries that have
+ * a matching ISL entry. The /v2/run response must:
+ *   - factor_sensitivity[]: 3C fields PRESENT when
+ *       confidence_source === 'plot_unified_from_isl_bootstrap'
+ *   - factor_sensitivity[]: 3C fields MAY be present when
+ *       confidence_source === 'plot_unified_from_graph'
  *   - factor_stability[]: DOES contain all four fields (unchanged)
- *   - All entries: confidence in [0,1], confidence_components present
+ *   - All entries: confidence in [0,1], confidence_components present,
+ *       confidence_provenance present (audit A1-PRIMARY)
  *
  * @regression
  */

@@ -129,8 +129,11 @@ describe('buildEvidencePriorityCard — fixtures', () => {
     expect(card).not.toBeNull();
     expect(card!.card_type).toBe('evidence_priority');
     expect(card!.items).toHaveLength(3);
-    // All 3 factors have low confidence → survive per-item suppression
-    expect(card!.items[0].factor_id).toBe('competition'); // highest score: |0.7| * (1 - 0.15) = 0.595
+    // All 3 factors have low confidence → survive per-item suppression.
+    // Score-ordering is locked by the explicit > threshold assertion below;
+    // exact pre-v2 values (e.g. 0.595) shifted slightly under formula_version
+    // plot_unified_v2 (audit A1-SECONDARY) but the rank ordering is unchanged.
+    expect(card!.items[0].factor_id).toBe('competition');
     expect(card!.items[0].score).toBeGreaterThan(EVIDENCE_PRIORITY_SUPPRESSION_THRESHOLD);
   });
 
@@ -411,5 +414,133 @@ describe('buildEvidencePriorityCard — edge cases', () => {
     const card1 = buildEvidencePriorityCard(factors)!;
     const card2 = buildEvidencePriorityCard(factors)!;
     expect(card1).toEqual(card2);
+  });
+});
+
+// =============================================================================
+// Audit A1-SECONDARY: v2 band-table downstream-threshold proof
+// =============================================================================
+// Pin the actual classifier-bucket and suppression-bucket outcomes for the
+// v2 band table change (low: 0.0 → 0.25). Brief instruction:
+// "If any downstream consumer buckets on the previous 0.25 collapse, surface
+//  in the final report — do not silently fix."
+// These tests document and pin every bucket-boundary case. If a future
+// change crosses a threshold differently, the test fails and surfaces it.
+
+describe('A1-SECONDARY: v2 band table threshold-impact proof', () => {
+  // Per evidence-priority.ts:
+  //   confidence < 0.4   → "low confidence" copy (suggestedEvidenceText)
+  //   0.4 <= confidence < 0.7 → "medium confidence" copy
+  //   confidence >= 0.7  → suppressed (no copy emitted, item dropped)
+  //   max(score) < 0.05  → entire card suppressed (returns null)
+  // where score = |elasticity| × (1 - confidence).
+
+  describe('text classifier (< 0.4 boundary)', () => {
+    it('low @ root: pre-v2 0.25 → post-v2 0.375; STAYS in "low" bucket', () => {
+      // Both pre-v2 and post-v2 outputs are < 0.4 → same "low" message.
+      const factors: FactorInput[] = [{
+        factor_id: 'low_root', factor_label: 'Low Root', elasticity: 0.8,
+        attribution_stability: 'low',
+        // No incoming_edges → meanExistsProb defaults to 0.5
+      }];
+      const card = buildEvidencePriorityCard(factors)!;
+      expect(card.items[0].confidence_normalised).toBeCloseTo(0.375, 5);
+      expect(card.items[0].suggested_evidence).toMatch(/your confidence in its strength is low/);
+    });
+
+    it('negligible @ root: 0.25 unchanged; "low" copy unchanged', () => {
+      const factors: FactorInput[] = [{
+        factor_id: 'neg_root', factor_label: 'Neg Root', elasticity: 0.8,
+        attribution_stability: 'negligible',
+      }];
+      const card = buildEvidencePriorityCard(factors)!;
+      expect(card.items[0].confidence_normalised).toBeCloseTo(0.25, 5);
+      expect(card.items[0].suggested_evidence).toMatch(/your confidence in its strength is low/);
+    });
+
+    it('low + edge_mean ≈ 0.55: post-v2 reaches 0.4 — bucket SHIFTS "low" → "medium"', () => {
+      // 0.5 × 0.25 + 0.5 × 0.55 = 0.4 (boundary; `< 0.4` evaluates false → "medium").
+      // Pre-v2 same input: 0.5 × 0.0 + 0.5 × 0.55 = 0.275 → "low".
+      // Documented bucket shift — intentional consequence of distinguishing
+      // low from negligible. This test pins the post-v2 behaviour.
+      const factors: FactorInput[] = [{
+        factor_id: 'low_high_edge', factor_label: 'Low + High Edge', elasticity: 0.8,
+        attribution_stability: 'low',
+        incoming_edges: [{ exists_probability: 0.55 }],
+      }];
+      const card = buildEvidencePriorityCard(factors)!;
+      expect(card.items[0].confidence_normalised).toBeCloseTo(0.4, 5);
+      // At exactly 0.4 the `< 0.4` branch is false → "medium" copy.
+      expect(card.items[0].suggested_evidence).toMatch(/your confidence in its strength is medium/);
+    });
+  });
+
+  describe('per-item suppression (>= 0.7 boundary)', () => {
+    it('low band cannot reach 0.7 even at saturated edges', () => {
+      // Maximum post-v2 confidence for low: 0.5 × 0.25 + 0.5 × 1.0 = 0.625 < 0.7.
+      // So no `low` factor is ever suppressed by the per-item filter.
+      const factors: FactorInput[] = [{
+        factor_id: 'low_saturated', factor_label: 'Low Saturated', elasticity: 0.8,
+        attribution_stability: 'low',
+        incoming_edges: [{ exists_probability: 1.0 }],
+      }];
+      const card = buildEvidencePriorityCard(factors)!;
+      expect(card).not.toBeNull();
+      expect(card!.items).toHaveLength(1);
+      expect(card!.items[0].confidence_normalised).toBeCloseTo(0.625, 5);
+    });
+
+    it('moderate band can reach 0.7 at saturated edges (boundary)', () => {
+      // 0.5 × 0.5 + 0.5 × 1.0 = 0.75 → suppressed (>= 0.7).
+      // Use a high-elasticity factor so card-level isn't suppressed alongside.
+      const factors: FactorInput[] = [{
+        factor_id: 'mod_saturated', factor_label: 'Mod Saturated', elasticity: 0.8,
+        attribution_stability: 'moderate',
+        incoming_edges: [{ exists_probability: 1.0 }],
+      }];
+      const card = buildEvidencePriorityCard(factors);
+      // Single high-confidence factor → all eligible items filtered → null card.
+      expect(card).toBeNull();
+    });
+  });
+
+  describe('low/negligible distinction at root (audit A1-SECONDARY heart of fix)', () => {
+    it('low and negligible produce DISTINCT confidence_normalised at root', () => {
+      const lowOnly: FactorInput[] = [{
+        factor_id: 'low_only', factor_label: 'L', elasticity: 0.8, attribution_stability: 'low',
+      }];
+      const negOnly: FactorInput[] = [{
+        factor_id: 'neg_only', factor_label: 'N', elasticity: 0.8, attribution_stability: 'negligible',
+      }];
+      const lowConf = buildEvidencePriorityCard(lowOnly)!.items[0].confidence_normalised;
+      const negConf = buildEvidencePriorityCard(negOnly)!.items[0].confidence_normalised;
+      // Pre-v2: both 0.25 (collapse). Post-v2: distinct.
+      expect(lowConf).not.toEqual(negConf);
+      expect(lowConf).toBeCloseTo(0.375, 5);
+      expect(negConf).toBeCloseTo(0.25, 5);
+    });
+  });
+
+  describe('card-level suppression (max score < 0.05)', () => {
+    it('low band with tiny elasticity: post-v2 score still above suppression floor', () => {
+      // |elasticity| × (1 - 0.375) = 0.5 × |elasticity|. Threshold 0.05 → need |e| > 0.08.
+      const factors: FactorInput[] = [{
+        factor_id: 'small_low', factor_label: 'Small Low', elasticity: 0.1,
+        attribution_stability: 'low',
+      }];
+      const card = buildEvidencePriorityCard(factors);
+      // 0.1 × (1 - 0.375) = 0.0625 > 0.05 → card emitted.
+      expect(card).not.toBeNull();
+    });
+
+    it('low band at near-zero elasticity: card suppressed (no false positives from band lift)', () => {
+      const factors: FactorInput[] = [{
+        factor_id: 'tiny_low', factor_label: 'Tiny Low', elasticity: 0.05,
+        attribution_stability: 'low',
+      }];
+      // 0.05 × (1 - 0.375) = 0.03125 < 0.05 → card suppressed.
+      const card = buildEvidencePriorityCard(factors);
+      expect(card).toBeNull();
+    });
   });
 });

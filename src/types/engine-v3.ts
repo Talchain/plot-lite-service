@@ -1499,15 +1499,24 @@ export interface FactorSensitivityResultV3 {
    * - `'plot_unified_from_graph'` — PLoT's unified formula computed from graph
    *   structure (no ISL bootstrap; uses incoming edge data, possibly the uniform
    *   default — see `confidence_provenance.input_quality` for that signal).
+   *
+   * REQUIRED on every entry the public `factor_sensitivity[]` response emits
+   * (audit A1-PRIMARY: the public contract is "no factor without honest source
+   * provenance"). Pinned by the `mergeIslConfidenceIntoGraphFactors` step,
+   * `computeFactorSensitivityFromGraph`, and the placeholder in
+   * `mapIslFactorEntry` (which the merge always overrides). Regression-pinned
+   * by tests T11/T11b in tests/isl-confidence-merge.test.ts.
    */
-  confidence_source?: ConfidenceSource;
+  confidence_source: ConfidenceSource;
   /**
    * Additive provenance metadata for the confidence value (audit A1-PRIMARY fix).
    * Carries computation source, formula version, provisional flag, and input
    * quality. Single coherent disclosure object — sets the M2 disclosure pattern
    * for follow-ups B3 (auto-noise) and C4 (prior-synthesis).
+   *
+   * REQUIRED — see `confidence_source` above for the same provenance invariant.
    */
-  confidence_provenance?: ConfidenceProvenance;
+  confidence_provenance: ConfidenceProvenance;
   /**
    * Flip risk category based on fragile edge adjacency.
    * - 'isolated': This factor alone can flip the recommendation (marginal_switch_probability > 0.05)

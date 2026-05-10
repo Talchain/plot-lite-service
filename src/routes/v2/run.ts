@@ -560,8 +560,15 @@ function mapIslFactorEntry(f: any, normContext?: NormalisationContext): FactorSe
   // both `confidence` and `confidence_source` from every ISL entry before
   // forming the public `factor_sensitivity[]`. ISL's labels (e.g.
   // `confidence_source: "bootstrap_sampling"`) likewise never propagate.
-  // This is an architectural invariant, regression-pinned by tests T11/T11b
-  // in tests/isl-confidence-merge.test.ts.
+  //
+  // `confidence_source` and `confidence_provenance` are TYPE-REQUIRED on the
+  // public type. We populate placeholder values here purely so the
+  // intermediate satisfies the type contract; the merge unconditionally
+  // overwrites them with the honest values on the way out. If anything ever
+  // emits `mapIslFactorEntry` output directly to the public response without
+  // going through the merge, these placeholders would surface — that's a bug
+  // and the integration test in tests/b8-8-3c-field-segregation.test.ts pins
+  // the boundary contract.
   const entry: FactorSensitivityResultV3 = {
     factor_id: factorId,
     factor_label: f.label ?? null,
@@ -579,6 +586,17 @@ function mapIslFactorEntry(f: any, normContext?: NormalisationContext): FactorSe
     confidence: f.confidence ?? f.value_of_information ?? null,
     zero_reason: f.zero_reason ?? null,
     source: 'isl' as const,
+    // Placeholder — overwritten by mergeIslConfidenceIntoGraphFactors. If this
+    // value ever reaches the public response, the merge step was bypassed and
+    // the integration boundary test will fail.
+    confidence_source: 'plot_unified_from_graph',
+    confidence_provenance: {
+      computation_source: 'plot_unified_from_graph',
+      formula_version: 'plot_unified_v2',
+      is_provisional: true,
+      calibration_status: 'provisional_pending_pilot_calibration',
+      input_quality: 'degenerate_fallback',
+    },
   };
 
   // 3C stability fields — carry through when ISL provides them
