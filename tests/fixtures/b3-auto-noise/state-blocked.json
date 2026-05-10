@@ -1,0 +1,7 @@
+{
+  "analysis_status": "blocked",
+  "status_reason": "Goal node 'goal-does-not-exist' not present in graph",
+  "critiques": [
+    { "code": "GOAL_NODE_NOT_IN_GRAPH", "severity": "blocker" }
+  ]
+}

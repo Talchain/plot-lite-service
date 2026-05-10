@@ -1,0 +1,14 @@
+{
+  "analysis_status": "computed",
+  "auto_noise_applied": false,
+  "auto_noise_provenance": {
+    "applied": false,
+    "effect": "widens_outcome_and_risk_uncertainty",
+    "formula_version": "plot_auto_v1",
+    "multiplier": 1.0,
+    "noise_distribution": "normal_zero_mean_outcome_std",
+    "filter_scope": "outcome_and_risk_nodes",
+    "is_provisional": true,
+    "calibration_status": "provisional_pending_pilot_calibration"
+  }
+}
