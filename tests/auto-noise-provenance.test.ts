@@ -10,6 +10,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildAutoNoiseProvenance,
+  extractIslAutoNoiseApplied,
   isAutoNoiseProvenance,
 } from '../src/lib/auto-noise.js';
 
@@ -45,6 +46,66 @@ describe('buildAutoNoiseProvenance', () => {
   it('pins multiplier at 1.0 — Neil-approved heuristic, Jinghui calibration pending', () => {
     expect(buildAutoNoiseProvenance(true).multiplier).toBe(1.0);
     expect(buildAutoNoiseProvenance(false).multiplier).toBe(1.0);
+  });
+});
+
+describe('extractIslAutoNoiseApplied', () => {
+  // ISL's actual wire shape is `_metadata.auto_noise_applied`
+  // (Pydantic alias). `metadata.*` accepted as Pydantic field-name
+  // alternative; top-level accepted as a backward-compat passthrough.
+  it('reads from `_metadata.auto_noise_applied` (live ISL alias)', () => {
+    expect(extractIslAutoNoiseApplied({ _metadata: { auto_noise_applied: true } } as any))
+      .toEqual({ applied: true, source: '_metadata' });
+    expect(extractIslAutoNoiseApplied({ _metadata: { auto_noise_applied: false } } as any))
+      .toEqual({ applied: false, source: '_metadata' });
+  });
+
+  it('reads from `metadata.auto_noise_applied` (field-name alternative)', () => {
+    expect(extractIslAutoNoiseApplied({ metadata: { auto_noise_applied: true } } as any))
+      .toEqual({ applied: true, source: 'metadata' });
+  });
+
+  it('falls back to top-level `auto_noise_applied` when both metadata keys are missing', () => {
+    expect(extractIslAutoNoiseApplied({ auto_noise_applied: true } as any))
+      .toEqual({ applied: true, source: 'top_level' });
+  });
+
+  it('precedence: `_metadata` > `metadata` > top_level', () => {
+    expect(
+      extractIslAutoNoiseApplied({
+        _metadata: { auto_noise_applied: true },
+        metadata: { auto_noise_applied: false },
+        auto_noise_applied: false,
+      } as any),
+    ).toEqual({ applied: true, source: '_metadata' });
+    expect(
+      extractIslAutoNoiseApplied({
+        metadata: { auto_noise_applied: true },
+        auto_noise_applied: false,
+      } as any),
+    ).toEqual({ applied: true, source: 'metadata' });
+  });
+
+  it('returns missing for null/undefined/non-object input', () => {
+    expect(extractIslAutoNoiseApplied(null)).toEqual({ applied: null, source: 'missing' });
+    expect(extractIslAutoNoiseApplied(undefined)).toEqual({ applied: null, source: 'missing' });
+  });
+
+  it('returns missing when ISL omits the flag entirely', () => {
+    expect(extractIslAutoNoiseApplied({} as any)).toEqual({ applied: null, source: 'missing' });
+    expect(extractIslAutoNoiseApplied({ _metadata: {} } as any))
+      .toEqual({ applied: null, source: 'missing' });
+    expect(extractIslAutoNoiseApplied({ metadata: { n_samples: 1000 } } as any))
+      .toEqual({ applied: null, source: 'missing' });
+  });
+
+  it('treats non-boolean values as missing (never coerces)', () => {
+    expect(extractIslAutoNoiseApplied({ _metadata: { auto_noise_applied: 'true' } } as any))
+      .toEqual({ applied: null, source: 'missing' });
+    expect(extractIslAutoNoiseApplied({ _metadata: { auto_noise_applied: 1 } } as any))
+      .toEqual({ applied: null, source: 'missing' });
+    expect(extractIslAutoNoiseApplied({ _metadata: { auto_noise_applied: null } } as any))
+      .toEqual({ applied: null, source: 'missing' });
   });
 });
 

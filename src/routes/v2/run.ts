@@ -121,7 +121,7 @@ import type { ReviewStatus } from '../../cee/validation/m1-review-constants.js';
 import { ReviewSkipReasons, type ReviewSkipReason } from '../../cee/validation/m1-review-constants.js';
 import { getDownstreamCallsForLog } from '../../util/downstream-tracker.js';
 import { computeFactorSensitivityFromGraph, buildFactorStability, mergeIslConfidenceIntoGraphFactors } from '../../lib/factor-influence.js';
-import { buildAutoNoiseProvenance } from '../../lib/auto-noise.js';
+import { buildAutoNoiseProvenance, extractIslAutoNoiseApplied } from '../../lib/auto-noise.js';
 import { NEAR_TIE_THRESHOLD } from '../../trust/result-coherence.js';
 import { assessGraphIdentifiability, toIdentifiabilityResponse, detectUnmeasuredConfounding } from '../../trust/identifiability-v2.js';
 import { classifyEdgeSeverity } from '../../trust/edge-severity.js';
@@ -1869,6 +1869,37 @@ function buildResponse(
     logger?.info({ evt: 'fact_objects_assembled', count: assembledFactObjects.length, request_id: requestId }, 'fact_objects assembled');
   }
 
+  // Audit B3 (P0): extract `auto_noise_applied` from ISL's `_metadata`
+  // (Pydantic alias) or `metadata` (field-name) sub-object. ISL emits the
+  // wire shape `_metadata.auto_noise_applied` per RobustnessResponseV2's
+  // `populate_by_name=True` + `by_alias=True` config. The helper returns
+  // `{ applied: null, source: 'missing' }` so we can emit observability
+  // when ISL omits the flag on a computed/partial response (audit-feedback
+  // P1-2) instead of silently falling back to `false`.
+  const autoNoiseExtraction =
+    analysisStatus === 'computed' || analysisStatus === 'partial'
+      ? extractIslAutoNoiseApplied(
+          islResult as Parameters<typeof extractIslAutoNoiseApplied>[0],
+        )
+      : null;
+  if (autoNoiseExtraction?.applied === null) {
+    logger?.info(
+      {
+        evt: 'auto_noise_flag_missing_from_isl',
+        request_id: requestId,
+        analysis_status: analysisStatus,
+        // The ISL response shape is unexpected: a computed/partial run
+        // should always carry `_metadata.auto_noise_applied`. Emitting
+        // this signals contract drift (e.g. an old ISL build, a cached
+        // payload, or a serialisation regression) without crashing the
+        // disclosure surface — provenance still emits with `applied: false`
+        // per the brief contract that provenance is present whenever
+        // analysis ran.
+      },
+      'auto_noise flag absent from ISL metadata on computed/partial response',
+    );
+  }
+
   return {
     request_schema_version: 'v3',
     endpoint_version: 'v2/run',
@@ -1886,18 +1917,19 @@ function buildResponse(
     ...buildConstraintFields(goalConstraints, islResult, constraintNormRanges),
 
     // Auto-noise disclosure (audit B3, P0). `auto_noise_applied` echoes
-    // ISL's flag verbatim; `auto_noise_provenance` is the structured
-    // metadata carrying the formula, multiplier, and calibration status.
-    // Both omitted on `analysis_status: 'failed'` since no analysis ran;
-    // `'blocked'` paths use `buildBlockedResponse` and never reach here.
-    ...((analysisStatus === 'computed' || analysisStatus === 'partial')
+    // ISL's flag verbatim (or `null` when ISL's `_metadata` omits the
+    // field — see `extractIslAutoNoiseApplied`); `auto_noise_provenance`
+    // is the structured metadata carrying the formula, multiplier, and
+    // calibration status. Both omitted on `analysis_status: 'failed'`
+    // since no analysis ran; `'blocked'` paths use `buildBlockedResponse`
+    // and never reach here. When ISL omits the flag the provenance still
+    // emits (per brief contract) with `applied: false` and a warning is
+    // logged above so contract drift is observable.
+    ...(autoNoiseExtraction != null
       ? {
-          auto_noise_applied:
-            typeof islResult?.auto_noise_applied === 'boolean'
-              ? islResult.auto_noise_applied
-              : null,
+          auto_noise_applied: autoNoiseExtraction.applied,
           auto_noise_provenance: buildAutoNoiseProvenance(
-            islResult?.auto_noise_applied === true,
+            autoNoiseExtraction.applied === true,
           ),
         }
       : {}),

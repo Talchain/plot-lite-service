@@ -20,6 +20,7 @@ import type {
   AutoNoiseFormulaVersion,
   AutoNoiseProvenance,
 } from '../types/engine-v3.js';
+import type { ISLRobustnessAnalyzeV2Response } from '../integrations/isl/types/isl-types.js';
 
 // Single-valued enum literals captured once so the builder and the guard
 // agree on the allowed surface. New enum members must be added in both
@@ -39,6 +40,54 @@ const ALLOWED_FILTER_SCOPE: ReadonlySet<AutoNoiseFilterScope> = new Set([
 const ALLOWED_CALIBRATION_STATUS: ReadonlySet<AutoNoiseCalibrationStatus> = new Set([
   'provisional_pending_pilot_calibration',
 ]);
+
+/**
+ * Result of extracting `auto_noise_applied` from an ISL V2 response.
+ *
+ * - `applied: true | false` — ISL emitted the flag explicitly.
+ * - `applied: null, source: 'missing'` — ISL omitted the metadata field.
+ *   Distinguishes "engine didn't tell us" from "engine said no" so the
+ *   caller can emit observability and choose a conservative default
+ *   without silently losing the signal (audit-feedback P1-2).
+ */
+export type ExtractedAutoNoiseFlag =
+  | { applied: boolean; source: '_metadata' | 'metadata' | 'top_level' }
+  | { applied: null; source: 'missing' };
+
+/**
+ * Read `auto_noise_applied` from an ISL V2 response. ISL's Pydantic model
+ * declares the field on `ResponseMetadataV2` with `alias="_metadata"` and
+ * serialises with `by_alias=True`, so the live wire shape is
+ * `_metadata.auto_noise_applied`. Fixtures captured via Pydantic's
+ * field-name mode (`populate_by_name=True`) may use `metadata.*` instead.
+ * We also accept a top-level field for backward-compat with any cached
+ * payloads that pre-date this disclosure work.
+ *
+ * Precedence: `_metadata` (wire alias) → `metadata` (field name) →
+ * top-level → missing. Any non-boolean value (including null) at a
+ * resolved location is treated as missing rather than coerced.
+ */
+export function extractIslAutoNoiseApplied(
+  islResult: Pick<ISLRobustnessAnalyzeV2Response, '_metadata' | 'metadata'>
+    & { auto_noise_applied?: unknown }
+    | null
+    | undefined,
+): ExtractedAutoNoiseFlag {
+  if (islResult == null || typeof islResult !== 'object') {
+    return { applied: null, source: 'missing' };
+  }
+
+  const fromAlias = islResult._metadata?.auto_noise_applied;
+  if (typeof fromAlias === 'boolean') return { applied: fromAlias, source: '_metadata' };
+
+  const fromFieldName = islResult.metadata?.auto_noise_applied;
+  if (typeof fromFieldName === 'boolean') return { applied: fromFieldName, source: 'metadata' };
+
+  const fromTopLevel = (islResult as { auto_noise_applied?: unknown }).auto_noise_applied;
+  if (typeof fromTopLevel === 'boolean') return { applied: fromTopLevel, source: 'top_level' };
+
+  return { applied: null, source: 'missing' };
+}
 
 /**
  * Build the analysis-level auto-noise provenance object. Always carries

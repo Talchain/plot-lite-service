@@ -21,9 +21,21 @@ import type { FastifyInstance } from 'fastify';
 // ---------------------------------------------------------------------------
 // ISL Mock — auto_noise_applied is parameterised via a shared variable so
 // each test can flip ISL's flag without rewriting the mock.
+//
+// `wireKey` mirrors the real ISL serialisation: ISL's RobustnessResponseV2
+// declares the metadata object with `alias="_metadata"` and serialises
+// with `by_alias=True`, so the wire shape is `_metadata.auto_noise_applied`.
+// Pydantic also accepts `metadata.auto_noise_applied` inbound
+// (`populate_by_name=True`); some fixtures use that. We test both keys
+// plus a top-level fallback so the read site exercises every branch of
+// `extractIslAutoNoiseApplied`.
 // ---------------------------------------------------------------------------
 
-const islState = { autoNoiseApplied: true as boolean | undefined };
+type AutoNoiseWireKey = '_metadata' | 'metadata' | 'top_level' | 'omitted';
+const islState = {
+  autoNoiseApplied: true as boolean | undefined,
+  wireKey: '_metadata' as AutoNoiseWireKey,
+};
 
 const mockISLService = {
   isEnabled(): boolean { return true; },
@@ -80,8 +92,18 @@ const mockISLService = {
       fragile_edges: [],
       robust_edges: [],
     };
-    if (islState.autoNoiseApplied !== undefined) {
-      data.auto_noise_applied = islState.autoNoiseApplied;
+    if (islState.autoNoiseApplied !== undefined && islState.wireKey !== 'omitted') {
+      const flag = { auto_noise_applied: islState.autoNoiseApplied };
+      if (islState.wireKey === '_metadata') {
+        // Real ISL wire shape (Pydantic alias + by_alias=True).
+        data._metadata = flag;
+      } else if (islState.wireKey === 'metadata') {
+        // Fixture/older capture using the field name (populate_by_name).
+        data.metadata = flag;
+      } else if (islState.wireKey === 'top_level') {
+        // Backward-compat passthrough — accepted but not the canonical shape.
+        data.auto_noise_applied = islState.autoNoiseApplied;
+      }
     }
     return { data: data as T, error: null };
   },
@@ -154,8 +176,9 @@ describe('B3: auto-noise disclosure on /v2/run response', () => {
     return { status: res.statusCode, body: JSON.parse(res.body) };
   }
 
-  it('analysis_status=computed with applied=true: provenance present, all enums match', async () => {
+  it('analysis_status=computed with applied=true (live ISL `_metadata` wire shape): provenance present, all enums match', async () => {
     islState.autoNoiseApplied = true;
+    islState.wireKey = '_metadata';
     const { status, body } = await runOnce();
     expect(status).toBe(200);
     expect(['computed', 'partial']).toContain(body.analysis_status);
@@ -174,8 +197,9 @@ describe('B3: auto-noise disclosure on /v2/run response', () => {
     expect(body.auto_noise_provenance.calibration_status).toBe('provisional_pending_pilot_calibration');
   });
 
-  it('applied=false: provenance still present with full formula metadata intact', async () => {
+  it('applied=false (under `_metadata`): provenance still present with full formula metadata intact', async () => {
     islState.autoNoiseApplied = false;
+    islState.wireKey = '_metadata';
     const { status, body } = await runOnce();
     expect(status).toBe(200);
 
@@ -192,8 +216,27 @@ describe('B3: auto-noise disclosure on /v2/run response', () => {
     expect(body.auto_noise_provenance.calibration_status).toBe('provisional_pending_pilot_calibration');
   });
 
-  it('ISL omits auto_noise_applied: top-level field is null but provenance is still present', async () => {
+  it('reads `metadata.auto_noise_applied` (Pydantic field-name alias) as well as `_metadata.*`', async () => {
+    islState.autoNoiseApplied = true;
+    islState.wireKey = 'metadata';
+    const { status, body } = await runOnce();
+    expect(status).toBe(200);
+    expect(body.auto_noise_applied).toBe(true);
+    expect(body.auto_noise_provenance.applied).toBe(true);
+  });
+
+  it('reads top-level `auto_noise_applied` for backward-compat with cached payloads', async () => {
+    islState.autoNoiseApplied = true;
+    islState.wireKey = 'top_level';
+    const { status, body } = await runOnce();
+    expect(status).toBe(200);
+    expect(body.auto_noise_applied).toBe(true);
+    expect(body.auto_noise_provenance.applied).toBe(true);
+  });
+
+  it('ISL omits the flag entirely: top-level is null, provenance present with `applied: false`', async () => {
     islState.autoNoiseApplied = undefined;
+    islState.wireKey = 'omitted';
     const { status, body } = await runOnce();
     expect(status).toBe(200);
 
@@ -232,6 +275,7 @@ describe('B3: auto-noise disclosure on /v2/run response', () => {
 
   it('payload-only fields never appear inside critiques or status_reason text', async () => {
     islState.autoNoiseApplied = true;
+    islState.wireKey = '_metadata';
     const { body } = await runOnce();
     const serialised = JSON.stringify({
       critiques: body.critiques,

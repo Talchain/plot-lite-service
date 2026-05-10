@@ -3,6 +3,24 @@
 Captured via `tests/b3-auto-noise-disclosure.test.ts` to document the
 public-response shape across the four `analysis_status` states.
 
+**Note on ISL wire shape.** ISL's `RobustnessResponseV2` declares the
+metadata object with `alias="_metadata"` (Pydantic) and serialises with
+`by_alias=True`, so the live wire shape is:
+
+```jsonc
+{
+  "_metadata": { "auto_noise_applied": true, ... },
+  "results": [...],
+  "robustness": {...}
+}
+```
+
+PLoT extracts via `extractIslAutoNoiseApplied` (precedence:
+`_metadata` → `metadata` → top-level → missing) and re-emits the flag at
+the top level of its V3 response, alongside the structured
+`auto_noise_provenance` block. The fixtures below show **PLoT's outbound
+shape**, not ISL's inbound shape.
+
 | State | File | Purpose |
 | --- | --- | --- |
 | `computed`, `applied: true` | `state-applied.json` | Happy path — provenance present, all enums match v1. |

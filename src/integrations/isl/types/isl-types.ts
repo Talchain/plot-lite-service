@@ -481,19 +481,6 @@ export interface ISLRobustnessAnalyzeV2Response {
   conditional_winners?: ISLConditionalWinner[];
 
   /**
-   * Whether ISL applied its operational auto-noise heuristic
-   * (`_apply_auto_scaled_noise` at `robustness_analyzer_v2.py:1113`)
-   * to outcome/risk distributions on this run. `false` when the goal
-   * node kind is not in {outcome, risk} or when sample std is 0.
-   *
-   * Forwarded onto PLoT's V3 response as `auto_noise_applied` and
-   * captured in the structured `auto_noise_provenance` block.
-   *
-   * @see truth-table row B3 (P0 disclosure).
-   */
-  auto_noise_applied?: boolean;
-
-  /**
    * Inference warnings from ISL.
    * Forwarded into PLoT's inference_warnings array in the response.
    */
@@ -503,13 +490,44 @@ export interface ISLRobustnessAnalyzeV2Response {
     severity?: 'info' | 'warning';
   }>;
 
-  /** Analysis metadata */
-  metadata?: {
-    /** Number of samples used */
-    n_samples?: number;
-    /** Analysis duration in milliseconds */
-    duration_ms?: number;
-  };
+  /**
+   * Analysis metadata. ISL serialises this as `_metadata` on the wire
+   * (Pydantic `alias="_metadata"`, `by_alias=True`) but accepts both keys
+   * inbound (`populate_by_name=True`). We type both defensively because
+   * fixtures and older captures may use either; the read site
+   * `extractIslAutoNoiseApplied` coalesces the two.
+   *
+   * Carries `auto_noise_applied` (audit B3) — the operational flag
+   * indicating whether ISL applied auto-scaled noise to outcome/risk
+   * distributions on this run.
+   *
+   * @see ISL `RobustnessResponseV2.metadata` (alias `_metadata`) and
+   *      `ResponseMetadataV2.auto_noise_applied`.
+   */
+  _metadata?: ISLResponseMetadataV2;
+  metadata?: ISLResponseMetadataV2;
+}
+
+/**
+ * Subset of ISL's `ResponseMetadataV2` that PLoT consumes today. Other
+ * fields (clamp_metrics, config_fingerprint, tie_count, tie_rate,
+ * seed_hash_version, n_defaulted_root_nodes, n_samples, duration_ms)
+ * exist on the wire but are not currently propagated through PLoT.
+ */
+export interface ISLResponseMetadataV2 {
+  /**
+   * Whether ISL applied its operational auto-noise heuristic
+   * (`_apply_auto_scaled_noise` at `robustness_analyzer_v2.py:1113`)
+   * to outcome/risk distributions on this run. `false` when the goal
+   * node kind is not in {outcome, risk} or when sample std is 0.
+   *
+   * @see truth-table row B3 (P0 disclosure).
+   */
+  auto_noise_applied?: boolean;
+  /** Number of Monte Carlo samples (legacy field, kept for compat). */
+  n_samples?: number;
+  /** Analysis duration in milliseconds (legacy field, kept for compat). */
+  duration_ms?: number;
 }
 
 /** @deprecated Use ISLRobustnessAnalyzeV2Response instead */
