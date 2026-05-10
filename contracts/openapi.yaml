@@ -5924,7 +5924,15 @@ components:
           properties:
             applied:
               type: boolean
-              description: Mirrors top-level `auto_noise_applied` for self-contained payloads.
+              description: |
+                Whether ISL applied auto-noise on this run. Equals the top-level
+                `auto_noise_applied` boolean WHEN ISL emitted the flag. The two
+                diverge on the missing-flag path: when ISL omits
+                `_metadata.auto_noise_applied` on a computed/partial response,
+                the top-level field is `null` while this nested `applied` defaults
+                to `false` so the provenance object remains a complete boolean
+                shape. Pair `auto_noise_applied === null` with the
+                `auto_noise_flag_missing_from_isl` log to disambiguate.
             effect:
               type: string
               enum: [widens_outcome_and_risk_uncertainty]

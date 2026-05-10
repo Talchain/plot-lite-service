@@ -63,9 +63,17 @@ export type ExtractedAutoNoiseFlag =
  * We also accept a top-level field for backward-compat with any cached
  * payloads that pre-date this disclosure work.
  *
- * Precedence: `_metadata` (wire alias) → `metadata` (field name) →
- * top-level → missing. Any non-boolean value (including null) at a
- * resolved location is treated as missing rather than coerced.
+ * Precedence (strict, no silent fall-through on corruption):
+ * 1. `_metadata.auto_noise_applied` — the canonical ISL wire location.
+ *    Reached via `_metadata` being any object: at this point we are
+ *    committed to the canonical path. If the field is missing, present
+ *    but non-boolean, or any other malformed shape, return
+ *    `{ applied: null, source: 'missing' }` — we do NOT silently fall
+ *    through to the secondary locations, since that would mask a corrupt
+ *    canonical payload behind a coincident lower-precedence value.
+ * 2. Else if `metadata` is an object, same rule against that key.
+ * 3. Else fall back to a top-level boolean (cached / legacy payloads).
+ * 4. Else `{ applied: null, source: 'missing' }`.
  */
 export function extractIslAutoNoiseApplied(
   islResult: Pick<ISLRobustnessAnalyzeV2Response, '_metadata' | 'metadata'>
@@ -77,16 +85,72 @@ export function extractIslAutoNoiseApplied(
     return { applied: null, source: 'missing' };
   }
 
-  const fromAlias = islResult._metadata?.auto_noise_applied;
-  if (typeof fromAlias === 'boolean') return { applied: fromAlias, source: '_metadata' };
+  // Precedence-1: canonical `_metadata` (Pydantic alias). Once the
+  // `_metadata` key resolves to an object we commit — any malformation
+  // beneath it surfaces as 'missing', not silent fall-through.
+  if (islResult._metadata != null && typeof islResult._metadata === 'object') {
+    const v = islResult._metadata.auto_noise_applied;
+    return typeof v === 'boolean'
+      ? { applied: v, source: '_metadata' }
+      : { applied: null, source: 'missing' };
+  }
 
-  const fromFieldName = islResult.metadata?.auto_noise_applied;
-  if (typeof fromFieldName === 'boolean') return { applied: fromFieldName, source: 'metadata' };
+  // Precedence-2: field-name fallback. Same commit-on-object rule.
+  if (islResult.metadata != null && typeof islResult.metadata === 'object') {
+    const v = islResult.metadata.auto_noise_applied;
+    return typeof v === 'boolean'
+      ? { applied: v, source: 'metadata' }
+      : { applied: null, source: 'missing' };
+  }
 
+  // Precedence-3: legacy top-level passthrough (cached payloads).
   const fromTopLevel = (islResult as { auto_noise_applied?: unknown }).auto_noise_applied;
   if (typeof fromTopLevel === 'boolean') return { applied: fromTopLevel, source: 'top_level' };
 
   return { applied: null, source: 'missing' };
+}
+
+/**
+ * Logger shape used by `logAutoNoiseFlagMissingFromIsl`. Compatible with
+ * Pino / Fastify's `req.log`. Callers without a logger pass `undefined`
+ * and the call is a no-op.
+ */
+export interface AutoNoiseDriftLogger {
+  warn: (obj: object, msg?: string) => void;
+}
+
+/**
+ * Standard event name for the contract-drift signal emitted when
+ * `extractIslAutoNoiseApplied` reports `source: 'missing'` on a
+ * computed/partial response. Pinned as a constant so log consumers
+ * (Splunk / Grafana queries, alerts) and tests share one source of
+ * truth.
+ */
+export const AUTO_NOISE_FLAG_MISSING_EVENT = 'auto_noise_flag_missing_from_isl' as const;
+
+/**
+ * Emit a structured warning when ISL omits `auto_noise_applied` on a
+ * computed/partial response. This is contract drift — a healthy ISL
+ * always populates `_metadata.auto_noise_applied` — so the signal
+ * deserves `warn` severity, not `info`. The repo-standard `event:` key
+ * (mirrors run.ts:2605, 2630, 4697) is used so existing log search
+ * predicates pick it up.
+ *
+ * No-op when `logger` is undefined so the helper is safe to call from
+ * any code path (including ones without a per-request logger).
+ */
+export function logAutoNoiseFlagMissingFromIsl(
+  logger: AutoNoiseDriftLogger | undefined,
+  context: { requestId: string; analysisStatus: 'computed' | 'partial' },
+): void {
+  logger?.warn(
+    {
+      event: AUTO_NOISE_FLAG_MISSING_EVENT,
+      request_id: context.requestId,
+      analysis_status: context.analysisStatus,
+    },
+    'auto_noise flag absent from ISL metadata on computed/partial response',
+  );
 }
 
 /**

@@ -1503,7 +1503,18 @@ export type AutoNoiseCalibrationStatus = 'provisional_pending_pilot_calibration'
  * metadata and must NEVER be rendered as user-facing text.
  */
 export interface AutoNoiseProvenance {
-  /** Whether ISL applied auto-noise on this run. Mirrors `auto_noise_applied`. */
+  /**
+   * Whether ISL applied auto-noise on this run.
+   *
+   * Equals the top-level `auto_noise_applied` boolean **when ISL emitted
+   * the flag**. The two diverge on the missing-flag path: when ISL omits
+   * `_metadata.auto_noise_applied` on a computed/partial response, the
+   * top-level field is `null` (preserving the "engine didn't tell us"
+   * signal) while this nested `applied` defaults to `false` so the
+   * provenance object remains a complete boolean shape. Always pair
+   * `auto_noise_applied === null` with the
+   * `auto_noise_flag_missing_from_isl` log to disambiguate.
+   */
   applied: boolean;
   effect: AutoNoiseEffect;
   formula_version: AutoNoiseFormulaVersion;

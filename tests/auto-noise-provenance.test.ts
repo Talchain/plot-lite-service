@@ -7,11 +7,13 @@
  * pending) — pinned by both shape and direct numeric assertion.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
+  AUTO_NOISE_FLAG_MISSING_EVENT,
   buildAutoNoiseProvenance,
   extractIslAutoNoiseApplied,
   isAutoNoiseProvenance,
+  logAutoNoiseFlagMissingFromIsl,
 } from '../src/lib/auto-noise.js';
 
 describe('buildAutoNoiseProvenance', () => {
@@ -106,6 +108,83 @@ describe('extractIslAutoNoiseApplied', () => {
       .toEqual({ applied: null, source: 'missing' });
     expect(extractIslAutoNoiseApplied({ _metadata: { auto_noise_applied: null } } as any))
       .toEqual({ applied: null, source: 'missing' });
+  });
+
+  it('does NOT silently fall through from a malformed canonical `_metadata` to `metadata` or top-level', () => {
+    // Audit-feedback Imp-2: if the canonical payload location is present
+    // but corrupt, do not coincidentally rescue using a lower-precedence
+    // value. The committed-on-object semantics surface the corruption
+    // as 'missing' so the caller can emit an observability warning.
+    expect(
+      extractIslAutoNoiseApplied({
+        _metadata: { auto_noise_applied: 'not-a-boolean' },
+        metadata: { auto_noise_applied: true },
+        auto_noise_applied: true,
+      } as any),
+    ).toEqual({ applied: null, source: 'missing' });
+
+    expect(
+      extractIslAutoNoiseApplied({
+        _metadata: {}, // empty canonical object — committed on object presence
+        metadata: { auto_noise_applied: true },
+      } as any),
+    ).toEqual({ applied: null, source: 'missing' });
+
+    // Same rule one tier down: malformed `metadata` doesn't fall through
+    // to top-level when the canonical `_metadata` is absent.
+    expect(
+      extractIslAutoNoiseApplied({
+        metadata: { auto_noise_applied: 0 },
+        auto_noise_applied: true,
+      } as any),
+    ).toEqual({ applied: null, source: 'missing' });
+  });
+});
+
+describe('logAutoNoiseFlagMissingFromIsl', () => {
+  // Audit-feedback P1-2: capture the contract-drift log so the event
+  // name + severity are pinned by tests, not just by code inspection.
+  it('emits via `warn` severity (contract drift, not info chatter)', () => {
+    const warn = vi.fn();
+    const info = vi.fn();
+    logAutoNoiseFlagMissingFromIsl(
+      { warn, info } as any,
+      { requestId: 'req-1', analysisStatus: 'partial' },
+    );
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(info).not.toHaveBeenCalled();
+  });
+
+  it('uses the standard `event:` key (matches repo log-search convention)', () => {
+    const warn = vi.fn();
+    logAutoNoiseFlagMissingFromIsl(
+      { warn },
+      { requestId: 'req-2', analysisStatus: 'computed' },
+    );
+    const [obj, msg] = warn.mock.calls[0];
+    expect(obj).toMatchObject({
+      event: AUTO_NOISE_FLAG_MISSING_EVENT,
+      request_id: 'req-2',
+      analysis_status: 'computed',
+    });
+    // Field name pinned: `event`, not `evt` (a previous draft used the
+    // wrong key — this regression-pins the convention).
+    expect(obj).not.toHaveProperty('evt');
+    expect(typeof msg).toBe('string');
+    expect(msg).toMatch(/auto_noise/);
+  });
+
+  it('exports a stable event-name constant for log-search consumers', () => {
+    expect(AUTO_NOISE_FLAG_MISSING_EVENT).toBe('auto_noise_flag_missing_from_isl');
+  });
+
+  it('is a no-op when the logger is undefined (safe to call on every code path)', () => {
+    expect(() =>
+      logAutoNoiseFlagMissingFromIsl(undefined, {
+        requestId: 'req-3',
+        analysisStatus: 'partial',
+      }),
+    ).not.toThrow();
   });
 });
 

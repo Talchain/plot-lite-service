@@ -15,7 +15,7 @@
  * @regression
  */
 
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 
 // ---------------------------------------------------------------------------
@@ -35,6 +35,12 @@ type AutoNoiseWireKey = '_metadata' | 'metadata' | 'top_level' | 'omitted';
 const islState = {
   autoNoiseApplied: true as boolean | undefined,
   wireKey: '_metadata' as AutoNoiseWireKey,
+  /**
+   * When set, ISL's `callAnalysisEndpoint` returns `{ data: null, error }`
+   * to drive PLoT's `failed` analysis_status path (see route handler at
+   * src/routes/v2/run.ts:3910). Reset to `null` between tests.
+   */
+  forceIslFailureMode: null as null | string,
 };
 
 const mockISLService = {
@@ -74,6 +80,11 @@ const mockISLService = {
   },
   async computeCounterfactual(): Promise<never> { throw new Error('not called'); },
   async callAnalysisEndpoint<T>(_endpoint: string, body: { options?: Array<{ id: string }> }): Promise<{ data: T | null; error: string | null; isl_echoed_request_id?: string }> {
+    if (islState.forceIslFailureMode != null) {
+      // Route-level path: `data: null` + non-null `error` → PLoT builds
+      // a V2RunError with analysis_status='failed'. See run.ts:3910.
+      return { data: null, error: islState.forceIslFailureMode };
+    }
     const options = body.options ?? [];
     const data: Record<string, unknown> = {
       options: options.map((opt, idx) => ({
@@ -166,6 +177,13 @@ describe('B3: auto-noise disclosure on /v2/run response', () => {
     await app.close();
   });
 
+  beforeEach(() => {
+    // Reset shared mock state between tests to avoid order-dependence.
+    islState.autoNoiseApplied = true;
+    islState.wireKey = '_metadata';
+    islState.forceIslFailureMode = null;
+  });
+
   async function runOnce() {
     const res = await app.inject({
       method: 'POST',
@@ -176,12 +194,18 @@ describe('B3: auto-noise disclosure on /v2/run response', () => {
     return { status: res.statusCode, body: JSON.parse(res.body) };
   }
 
-  it('analysis_status=computed with applied=true (live ISL `_metadata` wire shape): provenance present, all enums match', async () => {
+  it('analysis_status=partial with applied=true (live ISL `_metadata` wire shape): provenance present, all enums match', async () => {
+    // The minimal mock graph + ISL response trips one sub-feature to
+    // 'unavailable' (factor sensitivity is degenerate), so the route
+    // settles on 'partial'. This is the dominant production code path
+    // for B3 — most real runs will land here, not 'computed' — and pinning
+    // the value (rather than accepting either) prevents drift from
+    // silently flipping which state we're actually exercising.
     islState.autoNoiseApplied = true;
     islState.wireKey = '_metadata';
     const { status, body } = await runOnce();
     expect(status).toBe(200);
-    expect(['computed', 'partial']).toContain(body.analysis_status);
+    expect(body.analysis_status).toBe('partial');
 
     expect(body.auto_noise_applied).toBe(true);
     expect(body.auto_noise_provenance).toBeDefined();
@@ -271,6 +295,21 @@ describe('B3: auto-noise disclosure on /v2/run response', () => {
     expect(body.analysis_status).toBe('blocked');
     expect(body.auto_noise_provenance).toBeUndefined();
     expect(body.auto_noise_applied).toBeUndefined();
+  });
+
+  it('analysis_status=failed (ISL endpoint returns error): provenance and applied both omitted', async () => {
+    // Drives the route's ISL-failure path (run.ts:3910) where PLoT
+    // returns a V2RunError shape. The error type by definition cannot
+    // carry auto_noise_* fields; this test pins the runtime behaviour
+    // alongside the type-level guarantee.
+    islState.forceIslFailureMode = 'mocked ISL endpoint failure';
+    const { status, body } = await runOnce();
+    // Failed responses are HTTP 200 (V2 contract: failure communicated
+    // via analysis_status, not status code).
+    expect(status).toBe(200);
+    expect(body.analysis_status).toBe('failed');
+    expect(body.auto_noise_applied).toBeUndefined();
+    expect(body.auto_noise_provenance).toBeUndefined();
   });
 
   it('payload-only fields never appear inside critiques or status_reason text', async () => {

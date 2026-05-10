@@ -121,7 +121,7 @@ import type { ReviewStatus } from '../../cee/validation/m1-review-constants.js';
 import { ReviewSkipReasons, type ReviewSkipReason } from '../../cee/validation/m1-review-constants.js';
 import { getDownstreamCallsForLog } from '../../util/downstream-tracker.js';
 import { computeFactorSensitivityFromGraph, buildFactorStability, mergeIslConfidenceIntoGraphFactors } from '../../lib/factor-influence.js';
-import { buildAutoNoiseProvenance, extractIslAutoNoiseApplied } from '../../lib/auto-noise.js';
+import { buildAutoNoiseProvenance, extractIslAutoNoiseApplied, logAutoNoiseFlagMissingFromIsl } from '../../lib/auto-noise.js';
 import { NEAR_TIE_THRESHOLD } from '../../trust/result-coherence.js';
 import { assessGraphIdentifiability, toIdentifiabilityResponse, detectUnmeasuredConfounding } from '../../trust/identifiability-v2.js';
 import { classifyEdgeSeverity } from '../../trust/edge-severity.js';
@@ -1483,7 +1483,7 @@ function buildResponse(
   thresholdAnalysis?: ThresholdResult[],
   identifiability?: IdentifiabilityAssessment,
   factorStability?: FactorStabilityEntry[],
-  logger?: { info: (obj: object, msg?: string) => void }
+  logger?: { info: (obj: object, msg?: string) => void; warn: (obj: object, msg?: string) => void }
 ): RunResponseV3 {
   // Map ISL results to response format
   // ISL V2 uses 'options' field; V1 uses 'results'. Check both for compatibility.
@@ -1882,22 +1882,20 @@ function buildResponse(
           islResult as Parameters<typeof extractIslAutoNoiseApplied>[0],
         )
       : null;
-  if (autoNoiseExtraction?.applied === null) {
-    logger?.info(
-      {
-        evt: 'auto_noise_flag_missing_from_isl',
-        request_id: requestId,
-        analysis_status: analysisStatus,
-        // The ISL response shape is unexpected: a computed/partial run
-        // should always carry `_metadata.auto_noise_applied`. Emitting
-        // this signals contract drift (e.g. an old ISL build, a cached
-        // payload, or a serialisation regression) without crashing the
-        // disclosure surface — provenance still emits with `applied: false`
-        // per the brief contract that provenance is present whenever
-        // analysis ran.
-      },
-      'auto_noise flag absent from ISL metadata on computed/partial response',
-    );
+  if (
+    autoNoiseExtraction?.applied === null &&
+    (analysisStatus === 'computed' || analysisStatus === 'partial')
+  ) {
+    // Contract drift: a healthy ISL always populates
+    // `_metadata.auto_noise_applied` on computed/partial responses. The
+    // helper centralises the event name + severity so log-search
+    // predicates (Splunk / Grafana) and tests share one source of truth.
+    // Provenance still emits with `applied: false` per the brief contract
+    // that provenance is present whenever analysis ran.
+    logAutoNoiseFlagMissingFromIsl(logger, {
+      requestId,
+      analysisStatus,
+    });
   }
 
   return {
