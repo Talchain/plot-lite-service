@@ -553,6 +553,15 @@ function mapIslFactorEntry(f: any, normContext?: NormalisationContext): FactorSe
   // IMPORTANT: Do NOT default missing values to 0.
   // Missing data means "we couldn't compute influence" which is semantically
   // different from "this factor has zero influence". Let undefined pass through.
+  //
+  // Confidence honesty (audit A1-PRIMARY): the `confidence` value emitted here
+  // is ISL's own value — it MUST NOT reach the public response. The merge
+  // step (`mergeIslConfidenceIntoGraphFactors` in factor-influence.ts) strips
+  // both `confidence` and `confidence_source` from every ISL entry before
+  // forming the public `factor_sensitivity[]`. ISL's labels (e.g.
+  // `confidence_source: "bootstrap_sampling"`) likewise never propagate.
+  // This is an architectural invariant, regression-pinned by tests T11/T11b
+  // in tests/isl-confidence-merge.test.ts.
   const entry: FactorSensitivityResultV3 = {
     factor_id: factorId,
     factor_label: f.label ?? null,

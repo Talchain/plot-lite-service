@@ -170,6 +170,40 @@ describe('B8-8: 3C field handling in /v2/run response', () => {
     }
   });
 
+  // Audit A1-PRIMARY: public-vs-debug payload boundary regression. ISL's own
+  // labels and confidence value may live inside internal _meta debug objects
+  // but MUST NOT appear on the public factor_sensitivity[] entries.
+  it('public factor_sensitivity[] never carries legacy or ISL-side confidence_source labels (audit A1-PRIMARY)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v2/run',
+      headers: { 'Content-Type': 'application/json' },
+      payload: { graph: GRAPH, options: OPTIONS, goal_node_id: 'goal', seed: '42' },
+    });
+
+    const body = JSON.parse(res.body);
+    expect(res.statusCode).toBe(200);
+    expect(Array.isArray(body.factor_sensitivity)).toBe(true);
+    expect(body.factor_sensitivity.length).toBeGreaterThan(0);
+
+    const FORBIDDEN = ['isl', 'graph', 'fallback_degenerate', 'bootstrap_sampling'] as const;
+    const HONEST = ['plot_unified_from_isl_bootstrap', 'plot_unified_from_graph'] as const;
+
+    for (const factor of body.factor_sensitivity) {
+      // Heart of the fix: no legacy or upstream-ISL source labels in public output.
+      for (const forbidden of FORBIDDEN) {
+        expect(factor.confidence_source).not.toBe(forbidden);
+      }
+      // The honest enum value must be present.
+      expect(HONEST).toContain(factor.confidence_source);
+      // Provenance object populated and well-formed (audit A1-PRIMARY).
+      expect(factor.confidence_provenance).toBeDefined();
+      expect(typeof factor.confidence_provenance.is_provisional).toBe('boolean');
+      expect(factor.confidence_provenance.formula_version).toBe('plot_unified_v2');
+      expect(HONEST).toContain(factor.confidence_provenance.computation_source);
+    }
+  });
+
   it('all factor_sensitivity[] entries have unified confidence and components', async () => {
     const res = await app.inject({
       method: 'POST',

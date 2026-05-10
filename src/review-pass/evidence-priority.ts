@@ -115,6 +115,19 @@ export function computeConfidenceNormalised(
 /**
  * Generate suggested evidence text based on confidence level.
  * Items with confidence >= 0.7 are suppressed (not worth investigating).
+ *
+ * Audit A1-SECONDARY threshold-impact note (`plot_unified_v2`): the band
+ * table now distinguishes `low` (0.25) from `negligible` (0.0). For root
+ * factors with no incoming edges, this means:
+ *   pre-v2:  low / negligible both → confidence 0.25 → "low confidence" copy
+ *   post-v2: low → 0.375 (still "low confidence", < 0.4)
+ *            negligible → 0.25 (still "low confidence", < 0.4)
+ * No factor crosses the 0.4 / 0.7 threshold solely from the v2 band-table
+ * change for any input where the previous output was 0.25. The text-classifier
+ * bucket is unchanged for those cases. Higher-edge-probability inputs paired
+ * with `low` may shift "low" → "medium" copy at edge_mean ~ 0.55 (post-v2:
+ * 0.5 × 0.25 + 0.5 × 0.55 = 0.4) — this is the intended consequence of
+ * distinguishing the two bands and is documented in the brief's final report.
  */
 function suggestedEvidenceText(factorLabel: string, confidence: number): string | null {
   if (confidence >= 0.7) return null; // suppress — high confidence
