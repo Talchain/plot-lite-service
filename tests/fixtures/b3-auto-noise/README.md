@@ -1,7 +1,13 @@
 # B3 Auto-noise disclosure — replay fixtures
 
 Captured via `tests/b3-auto-noise-disclosure.test.ts` to document the
-public-response shape across the four `analysis_status` states.
+public-response shape across four auto-noise disclosure variants — three
+under `analysis_status ∈ {computed, partial}` (applied=true, applied=false,
+ISL flag omitted) and one under `analysis_status = blocked`. The
+`analysis_status = failed` path is covered by the test itself (ISL returns
+`{ data: null, error }` → PLoT builds `V2RunError`, which carries no
+`auto_noise_*` slots at the type level) rather than by a fixture — a
+fixture for that state would be tautological.
 
 **Note on ISL wire shape.** ISL's `RobustnessResponseV2` declares the
 metadata object with `alias="_metadata"` (Pydantic) and serialises with
