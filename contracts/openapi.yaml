@@ -6065,16 +6065,22 @@ components:
                 minimum: 0
                 description: >-
                   Estimated EVPI in percentage points of win probability.
-                  Heuristic approximation: VOI × win-probability spread × 100,
-                  clamped to ≥ 0. Present only when both VOI and win
-                  probabilities are available. EVPI is non-negative by
-                  definition (information cannot harm a rational decision-
-                  maker on average — Howard 1966); negative values returned
-                  by Monte Carlo VOI estimators are sampling artefacts, not
-                  meaningful decision signals, and are collapsed to 0 here
-                  so consumers never see a negative percentage that would
-                  falsely imply learning more about the factor worsens the
-                  decision.
+                  Heuristic approximation: VOI × win-probability spread × 100.
+                  Present only when both VOI and win probabilities are
+                  available. EVPI is non-negative by definition
+                  (information cannot harm a rational decision-maker on
+                  average — Howard 1966); negative values returned by Monte
+                  Carlo VOI estimators are sampling artefacts, not
+                  meaningful decision signals.
+                  Two-tier enforcement: (1) negative upstream VOI is
+                  treated as unavailable at the integration boundary, so
+                  `evpi_percentage_points` is OMITTED entirely for the
+                  affected factor (preserving the missing-vs-zero
+                  distinction the rest of the response contract relies
+                  on); (2) any negative computed EVPI that nevertheless
+                  reaches the emitter is defensively clamped to `0`
+                  (belt-and-braces for future producers using a different
+                  VOI formula). When present, this field is always ≥ 0.
               evpi_method:
                 type: string
                 enum: [heuristic, counterfactual]
