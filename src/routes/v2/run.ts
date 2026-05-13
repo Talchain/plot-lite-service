@@ -122,6 +122,7 @@ import { ReviewSkipReasons, type ReviewSkipReason } from '../../cee/validation/m
 import { getDownstreamCallsForLog } from '../../util/downstream-tracker.js';
 import { computeFactorSensitivityFromGraph, buildFactorStability, mergeIslConfidenceIntoGraphFactors } from '../../lib/factor-influence.js';
 import { buildAutoNoiseProvenance, extractIslAutoNoiseApplied, logAutoNoiseFlagMissingFromIsl } from '../../lib/auto-noise.js';
+import { sanitiseIslVoi, computeEvpiPercentagePoints } from '../../lib/evpi-emission.js';
 import { NEAR_TIE_THRESHOLD } from '../../trust/result-coherence.js';
 import { assessGraphIdentifiability, toIdentifiabilityResponse, detectUnmeasuredConfounding } from '../../trust/identifiability-v2.js';
 import { classifyEdgeSeverity } from '../../trust/edge-severity.js';
@@ -570,6 +571,13 @@ function mapIslFactorEntry(f: any, normContext?: NormalisationContext): FactorSe
   // going through the merge, these placeholders would surface — that's a bug
   // and the integration test in tests/b8-8-3c-field-segregation.test.ts pins
   // the boundary contract.
+  //
+  // Pre-computed once so the VOI guard logic lives in one place and is
+  // reused for both the `value_of_information` field and the `confidence`
+  // fallback chain below. See `src/lib/evpi-emission.ts` for the full
+  // contract rationale (Howard 1966 non-negativity, MC sampling artefacts).
+  const sanitisedVoi = sanitiseIslVoi(f.value_of_information);
+
   const entry: FactorSensitivityResultV3 = {
     factor_id: factorId,
     factor_label: f.label ?? null,
@@ -583,8 +591,23 @@ function mapIslFactorEntry(f: any, normContext?: NormalisationContext): FactorSe
     // VOI is a dimensionless decision-readiness score (EVPI proxy, clamped [0,1]).
     // It does NOT require denormalisation — it measures "how valuable would perfect
     // information about this factor be" as a normalised fraction, not outcome-space units.
-    value_of_information: f.value_of_information ?? null,
-    confidence: f.confidence ?? f.value_of_information ?? null,
+    //
+    // Boundary guard (Howard 1966 EVPI non-negativity): ISL emits VOI via a
+    // Monte Carlo estimator which can drift slightly negative from sampling
+    // noise around zero — a well-known artefact, not a real signal. Negative
+    // and non-finite values are filtered to null here so downstream
+    // `evpi_percentage_points` emission (`run.ts` near line 4060) honours the
+    // OpenAPI `minimum: 0` contract and never surfaces "learning more would
+    // make the decision worse" to the user. Mirrors the existing convention
+    // in the sibling ISL adapter at
+    // `src/integrations/isl/adapters/factor-sensitivity.ts:49` which already
+    // filters `value_of_information` by `>= 0` on the CEE-facing surface.
+    value_of_information: sanitisedVoi,
+    // Confidence retains the legacy passthrough fallback chain. Use the
+    // already-sanitised VOI so the fallback path can't surface a negative /
+    // non-finite value that the boundary guard explicitly rejected for the
+    // VOI field itself.
+    confidence: f.confidence ?? sanitisedVoi,
     zero_reason: f.zero_reason ?? null,
     source: 'isl' as const,
     // Placeholder — overwritten by mergeIslConfidenceIntoGraphFactors. If this
@@ -4045,9 +4068,11 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         }
 
         // Enrich factor sensitivity with EVPI percentage points heuristic.
-        // Heuristic approximation: VOI × win probability spread × 100.
-        // Not true counterfactual EVPI. To be replaced when ISL supports
-        // per-factor counterfactual EVPI.
+        // Heuristic approximation: VOI × win probability spread × 100,
+        // clamped to ≥ 0. Not true counterfactual EVPI. To be replaced
+        // when ISL supports per-factor counterfactual EVPI. See
+        // `src/lib/evpi-emission.ts` for the non-negative contract
+        // rationale (Howard 1966; OpenAPI `evpi_percentage_points.minimum: 0`).
         if (factorSensitivity) {
           const islOptions = processedIslResult?.options ?? processedIslResult?.results ?? [];
           const winProbs = (islOptions as any[])
@@ -4057,8 +4082,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           const winProbSpread = winProbs.length >= 2 ? winProbs[0] - winProbs[1] : 0;
           if (winProbSpread > 0) {
             for (const f of factorSensitivity) {
-              if (f.value_of_information != null) {
-                f.evpi_percentage_points = Math.round(f.value_of_information * winProbSpread * 100 * 10) / 10;
+              const evpiPp = computeEvpiPercentagePoints(f.value_of_information, winProbSpread);
+              if (evpiPp !== undefined) {
+                f.evpi_percentage_points = evpiPp;
                 f.evpi_method = 'heuristic';
               }
             }
