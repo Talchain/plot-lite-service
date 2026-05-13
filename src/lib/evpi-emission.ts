@@ -52,10 +52,11 @@ export function sanitiseIslVoi(value: unknown): number | undefined {
  * the result is the rounded product clamped to `>= 0`.
  *
  * The `Math.max(0, ...)` is belt-and-braces: when `sanitiseIslVoi` has run
- * at the boundary, `voi` should already be non-negative or `null`, but
- * defensive clamping here keeps the contract intact if a future producer
- * slips a negative past the boundary (e.g. PLoT-side compute path that
- * derives VOI by a different formula).
+ * at the boundary, `voi` should already be non-negative or `undefined`,
+ * but defensive clamping here keeps the contract intact if a future
+ * producer slips a negative past the boundary (e.g. a PLoT-side compute
+ * path that derives VOI by a different formula, like the coaching
+ * surface's `normalisedImpact × (1 - confidence)`).
  */
 export function computeEvpiPercentagePoints(
   voi: number | null | undefined,
