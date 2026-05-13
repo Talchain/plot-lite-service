@@ -7,6 +7,7 @@
 import type { CoachingInputs, EvidenceGap } from './types.js';
 import { computeNormalisedImpact } from './normalise-inputs.js';
 import { getThresholds } from './thresholds.js';
+import { computeEvpiPercentagePoints } from '../lib/evpi-emission.js';
 
 export function computeEvidenceGaps(inputs: CoachingInputs): EvidenceGap[] {
   const { factorSensitivity } = inputs;
@@ -51,9 +52,11 @@ export function computeEvidenceGaps(inputs: CoachingInputs): EvidenceGap[] {
   return gaps.map((f) => {
     const node = inputs.graph.nodes.find(n => n.id === f.node_id);
     const os = node?.observed_state;
-    const evpiPp = winProbSpread > 0
-      ? Math.round(f.voi * winProbSpread * 100 * 10) / 10
-      : undefined;
+    // Non-negative EVPI contract — see `src/lib/evpi-emission.ts` for the
+    // shared helper and the Howard-1966 rationale. The helper returns
+    // `undefined` when either input is missing or non-finite, matching the
+    // pre-existing conditional-inclusion pattern below.
+    const evpiPp = computeEvpiPercentagePoints(f.voi, winProbSpread);
     return {
       factor_id: f.node_id,
       factor_label: f.label,
