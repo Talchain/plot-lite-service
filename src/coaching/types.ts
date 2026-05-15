@@ -55,6 +55,17 @@ export interface CoachingInputs {
   options: NormalisedOption[];
   graph: EngineGraphV3;
   robustness: NormalisedRobustness;
+  /**
+   * Factor IDs that are directly set by one or more options' interventions
+   * (i.e. decision levers, not background uncertainties). Sourced from
+   * `options[i].interventions` keys — NOT from raw ISL `zero_reason`. Used by
+   * `computeEvidenceGaps` to exclude levers from the "what to validate next"
+   * list. Empty/omitted in unit tests that bypass `normaliseCoachingInputs`.
+   *
+   * Levers may still surface in a separate "option assumptions" bucket in a
+   * future PR — see follow-up note in the PR description.
+   */
+  interventionTargetIds?: Set<string>;
 }
 
 // =============================================================================

@@ -6,7 +6,12 @@
  */
 
 import type { M1Coaching, Critique, Readiness } from './types.js';
-import type { EngineGraphV3, OptionV3, GoalConstraint } from '../types/engine-v3.js';
+import type {
+  EngineGraphV3,
+  FactorSensitivityResultV3,
+  GoalConstraint,
+  OptionV3,
+} from '../types/engine-v3.js';
 import { normaliseCoachingInputs } from './normalise-inputs.js';
 import { generateHeadlines, getFragileEdgeContext } from './headlines.js';
 import { computeEvidenceGaps } from './evidence-gaps.js';
@@ -27,6 +32,15 @@ import { generateExecutiveSummary } from './executive-summary.js';
  * @param logger Optional logger for warnings
  * @param repairsApplied Optional repairs from normaliser (_meta.repairs_applied)
  * @param ceeCritiques Optional critiques from CEE review
+ * @param goalConstraints Optional active goal constraints
+ * @param factorSensitivityEnriched Public/enriched `factor_sensitivity[]` array
+ *   (graph-merged influence, PLoT-recomputed confidence). When provided,
+ *   coaching consumes this as the canonical factor signal instead of raw ISL
+ *   `factor_sensitivity`. This keeps `m1_coaching.evidence_gaps` aligned with
+ *   the public payload's provenance — same confidence/influence values, same
+ *   intervention-override filtering. Falls back to raw ISL when omitted to
+ *   preserve backward-compatible behaviour for unit tests that mock ISL
+ *   responses directly.
  * @returns M1Coaching object or null if generation fails
  */
 export function generateM1Coaching(
@@ -46,7 +60,8 @@ export function generateM1Coaching(
     message: string;
     severity?: string;
   }>,
-  goalConstraints?: GoalConstraint[]
+  goalConstraints?: GoalConstraint[],
+  factorSensitivityEnriched?: FactorSensitivityResultV3[]
 ): M1Coaching | null {
   const startTime = performance.now();
 
@@ -55,7 +70,7 @@ export function generateM1Coaching(
     const thresholds = getThresholds();
 
     // Normalize inputs (required for all components)
-    const inputs = normaliseCoachingInputs(graph, options, islResult);
+    const inputs = normaliseCoachingInputs(graph, options, islResult, factorSensitivityEnriched);
 
     // Phase 2: Core Coaching (B1-B4)
     const storyHeadlines = safeCompute(() => generateHeadlines(inputs), {}, logger, 'headlines');

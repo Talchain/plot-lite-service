@@ -14,35 +14,60 @@ import type {
   NormalisedOption,
   NormalisedRobustness,
 } from './types.js';
-import type { EngineGraphV3, OptionV3 } from '../types/engine-v3.js';
+import type {
+  EngineGraphV3,
+  FactorSensitivityResultV3,
+  OptionV3,
+} from '../types/engine-v3.js';
 
 /**
  * Normalise ISL response data for coaching consumption.
  *
  * Handles missing fields, builds label lookups, and formats display strings.
+ *
+ * @param enrichedFactorSensitivity When provided, factor signals are normalised
+ *   from the public/enriched `factor_sensitivity[]` array (graph-merged
+ *   influence, PLoT-recomputed confidence). When omitted, falls back to raw
+ *   `islResult.factor_sensitivity` for backward compatibility with tests that
+ *   build coaching inputs directly from a mocked ISL response. Production
+ *   callers should always pass the enriched array to keep coaching provenance
+ *   aligned with the public payload.
  */
 export function normaliseCoachingInputs(
   graph: EngineGraphV3,
   options: OptionV3[],
-  islResult: any
+  islResult: any,
+  enrichedFactorSensitivity?: FactorSensitivityResultV3[]
 ): CoachingInputs {
   // Build node label lookup from graph
   const nodeLabelMap = new Map<string, string>(
     graph.nodes.map((n) => [n.id, n.label])
   );
 
-  // Normalise factor sensitivity
-  const factorSensitivity: NormalisedFactorSensitivity[] =
-    (islResult.factor_sensitivity ?? []).map((f: any) => ({
-      node_id: f.node_id,
-      label: nodeLabelMap.get(f.node_id) ?? f.node_id,
-      elasticity: f.elasticity,
-      importance_rank: f.importance_rank ?? 999,
-      confidence: f.confidence,
-      direction: f.direction,
-      influence_score: f.influence_score,
-      zero_reason: f.zero_reason,
-    }));
+  const factorSensitivity: NormalisedFactorSensitivity[] = enrichedFactorSensitivity
+    ? enrichedFactorSensitivity.map((f) => ({
+        node_id: f.factor_id,
+        label: nodeLabelMap.get(f.factor_id) ?? f.factor_label ?? f.factor_id,
+        elasticity: f.elasticity,
+        importance_rank: f.importance_rank ?? f.influence_rank ?? 999,
+        confidence: f.confidence,
+        direction:
+          f.direction === 'positive' || f.direction === 'negative'
+            ? f.direction
+            : undefined,
+        influence_score: f.influence_score ?? f.sensitivity_score,
+        zero_reason: f.zero_reason,
+      }))
+    : (islResult.factor_sensitivity ?? []).map((f: any) => ({
+        node_id: f.node_id,
+        label: nodeLabelMap.get(f.node_id) ?? f.node_id,
+        elasticity: f.elasticity,
+        importance_rank: f.importance_rank ?? 999,
+        confidence: f.confidence,
+        direction: f.direction,
+        influence_score: f.influence_score,
+        zero_reason: f.zero_reason,
+      }));
 
   // Normalise fragile edges with human-readable labels
   // Prefer switch_probability (UI field) with fallback to marginal_switch_probability
@@ -97,12 +122,29 @@ export function normaliseCoachingInputs(
     isRobust: islResult.robustness?.is_robust,
   };
 
+  // Derive intervention-target factor IDs from option interventions.
+  // These are decision levers the user controls — not background uncertainties
+  // to "gather evidence on". `computeEvidenceGaps` excludes them from the
+  // current "what to validate next" list. Source of truth is the request-side
+  // `options[i].interventions` map, NOT raw ISL `zero_reason`, because ISL's
+  // zero_reason is a downstream symptom rather than the canonical definition.
+  const interventionTargetIds = new Set<string>();
+  for (const opt of options) {
+    const interventions = (opt as any).interventions;
+    if (interventions && typeof interventions === 'object') {
+      for (const factorId of Object.keys(interventions)) {
+        interventionTargetIds.add(factorId);
+      }
+    }
+  }
+
   return {
     factorSensitivity,
     fragileEdges,
     options: normalisedOptions,
     graph,
     robustness,
+    interventionTargetIds,
   };
 }
 
