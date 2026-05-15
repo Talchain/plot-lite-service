@@ -368,6 +368,20 @@ describe('evidence_gaps intervention-target filter — F1a refined', () => {
     expect(gaps.find((g) => g.factor_id === 'f1')).toBeUndefined();
   });
 
+  it('malformed interventions (array, null, primitive) are silently ignored — no spurious lever keys', () => {
+    // Defence-in-depth: route schema enforces a plain object in production,
+    // but bad inputs shouldn't pollute the lever set with positional indices
+    // (e.g. Object.keys([…]) yields "0","1",…) or string indices.
+    const malformedOptions: OptionV3[] = [
+      { id: 'opt1', label: 'A', winProbability: 0.5, expectedOutcome: 100, interventions: ['f1', 'f2'] as any },
+      { id: 'opt2', label: 'B', winProbability: 0.5, expectedOutcome: 100, interventions: null as any },
+      { id: 'opt3', label: 'C', winProbability: 0.5, expectedOutcome: 100, interventions: 'nope' as any },
+      { id: 'opt4', label: 'D', winProbability: 0.5, expectedOutcome: 100, interventions: 42 as any },
+    ];
+    const inputs = normaliseCoachingInputs(graph, malformedOptions, islResult(), enriched());
+    expect([...(inputs.interventionTargetIds ?? [])]).toEqual([]);
+  });
+
   it('multiple options contribute to the lever set via union of intervention keys', () => {
     const optionsMulti: OptionV3[] = [
       { id: 'opt1', label: 'A', winProbability: 0.5, expectedOutcome: 100, interventions: { f1: 0.3 } as any },

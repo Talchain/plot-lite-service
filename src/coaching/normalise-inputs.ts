@@ -28,10 +28,18 @@ import type {
  * @param enrichedFactorSensitivity When provided, factor signals are normalised
  *   from the public/enriched `factor_sensitivity[]` array (graph-merged
  *   influence, PLoT-recomputed confidence). When omitted, falls back to raw
- *   `islResult.factor_sensitivity` for backward compatibility with tests that
- *   build coaching inputs directly from a mocked ISL response. Production
- *   callers should always pass the enriched array to keep coaching provenance
- *   aligned with the public payload.
+ *   `islResult.factor_sensitivity`. Production callers should always pass the
+ *   enriched array to keep coaching provenance aligned with the public
+ *   payload.
+ *
+ *   Fallback compatibility note: the legacy path preserves the *shape* of
+ *   raw-ISL coaching inputs (so unit tests that build `CoachingInputs` directly
+ *   from a mocked ISL response continue to type-check and run). Numeric
+ *   *semantics* may differ from pre-refactor behaviour for inputs that supply
+ *   both `elasticity` and `influence_score` with different values, because the
+ *   `computeNormalisedImpact` helper now globally prefers `influence_score`
+ *   (canonical PLoT signal) over `elasticity` (raw ISL). This is intentional
+ *   and matches the public `factor_sensitivity[]` contract.
  */
 export function normaliseCoachingInputs(
   graph: EngineGraphV3,
@@ -131,7 +139,15 @@ export function normaliseCoachingInputs(
   const interventionTargetIds = new Set<string>();
   for (const opt of options) {
     const interventions = (opt as any).interventions;
-    if (interventions && typeof interventions === 'object') {
+    // Plain-object guard: arrays are objects too and `Object.keys([])` returns
+    // `["0","1",…]`, which would pollute the lever set with positional indices
+    // for malformed inputs. The route schema enforces an object shape in
+    // production, but this is cheap defence-in-depth.
+    if (
+      interventions &&
+      typeof interventions === 'object' &&
+      !Array.isArray(interventions)
+    ) {
       for (const factorId of Object.keys(interventions)) {
         interventionTargetIds.add(factorId);
       }
