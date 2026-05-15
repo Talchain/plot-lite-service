@@ -5962,6 +5962,22 @@ components:
         response_hash:
           type: string
           description: 16-char hex hash of canonical request (semantic fields only)
+        flip_thresholds_status:
+          type: string
+          enum: [computed, all_no_effect, partial_no_effect, unresolved, unavailable]
+          description: |
+            Display-honesty classification of `flip_thresholds[]`, computed at
+            the post-denormalised response-assembly boundary. Lets UI consumers
+            render the all-no-effect / partial / unresolved cases honestly
+            without re-deriving the picture from individual `flip_reason`
+            strings. Excluded from `response_hash`. UI vocabulary; values
+            never user-facing.
+        flip_thresholds_status_reason:
+          type: string
+          description: |
+            First-seen `flip_reason` string when `flip_thresholds_status` is
+            `unresolved` (e.g. `timeout`, `error`, `insufficient_precision`).
+            Payload-only debug metadata; never user-facing copy.
         critiques:
           type: array
           items:

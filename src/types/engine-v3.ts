@@ -977,6 +977,36 @@ export interface RunResponseV3 {
    */
   flip_thresholds?: DenormalisedFlipThreshold[];
 
+  /**
+   * High-level classification of `flip_thresholds[]`, computed at the
+   * post-denormalised response-assembly boundary so consumers can render
+   * the all-no-effect / partial / unresolved cases honestly without
+   * re-deriving the picture from individual `flip_reason` strings.
+   *
+   * - 'computed'         : every entry has a flip_value (or only computed +
+   *                        unresolved entries — actionable insight present)
+   * - 'all_no_effect'    : every entry is no_effect_within_bounds
+   * - 'partial_no_effect': mix of computed and no_effect_within_bounds
+   * - 'unresolved'       : no entry has a flip_value, and at least one entry
+   *                        is timeout/error/insufficient_precision/etc.
+   * - 'unavailable'      : flip_thresholds[] empty or absent
+   *
+   * NOTE: Deterministic. Excluded from response_hash as non-semantic.
+   * @see classifyFlipThresholdsStatus in src/lib/flip-threshold-status.ts
+   */
+  flip_thresholds_status?:
+    | 'computed'
+    | 'all_no_effect'
+    | 'partial_no_effect'
+    | 'unresolved'
+    | 'unavailable';
+
+  /**
+   * First-seen `flip_reason` string when `flip_thresholds_status` is
+   * 'unresolved'. Payload-only debug metadata; never user-facing copy.
+   */
+  flip_thresholds_status_reason?: string;
+
   // ---------------------------------------------------------------------------
   // Threshold Analysis Fields (B10.3)
   // Only present when include_thresholds is true in request
