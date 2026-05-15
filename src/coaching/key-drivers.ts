@@ -32,18 +32,25 @@ export function computeKeyDrivers(inputs: CoachingInputs): KeyDriver[] {
   // Use centralized normalised impact (same as evidence gaps)
   const normalisedImpactMap = computeNormalisedImpact(inputs.factorSensitivity);
 
-  // Sort by absolute influence score descending
-  const sorted = [...inputs.factorSensitivity].sort((a, b) => {
-    const aInfluence = Math.abs(a.elasticity ?? a.influence_score ?? 0);
-    const bInfluence = Math.abs(b.elasticity ?? b.influence_score ?? 0);
-    return bInfluence - aInfluence;
-  });
+  // Sort by absolute influence score descending.
+  // Provenance: prefer `influence_score` (canonical, graph-merged PLoT signal)
+  // over `elasticity` (raw ISL value) — same precedence as
+  // `computeNormalisedImpact`, so the published `rank`, `influence_score`, and
+  // `normalised_impact` fields are internally consistent. For graph-source
+  // enriched entries the two are equal; for ISL-only-append entries
+  // influence_score is the correct canonical signal.
+  const impactMagnitude = (f: typeof inputs.factorSensitivity[number]): number =>
+    Math.abs(f.influence_score ?? f.elasticity ?? 0);
+
+  const sorted = [...inputs.factorSensitivity].sort(
+    (a, b) => impactMagnitude(b) - impactMagnitude(a),
+  );
 
   // Take top 5
   const top5 = sorted.slice(0, 5);
 
   return top5.map((factor, index) => {
-    const influence = Math.abs(factor.elasticity ?? factor.influence_score ?? 0);
+    const influence = impactMagnitude(factor);
     const normalisedImpact = normalisedImpactMap.get(factor.node_id) ?? 0;
 
     return {

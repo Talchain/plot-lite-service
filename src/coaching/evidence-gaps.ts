@@ -12,6 +12,7 @@ import { computeEvpiPercentagePoints } from '../lib/evpi-emission.js';
 export function computeEvidenceGaps(inputs: CoachingInputs): EvidenceGap[] {
   const { factorSensitivity } = inputs;
   const thresholds = getThresholds();
+  const interventionTargetIds = inputs.interventionTargetIds ?? new Set<string>();
 
   if (factorSensitivity.length === 0) {
     return [];
@@ -33,10 +34,25 @@ export function computeEvidenceGaps(inputs: CoachingInputs): EvidenceGap[] {
     voi: f.normalisedImpact * (1 - (f.confidence ?? 0.5)),
   }));
 
-  // Top quartile with min floor from thresholds
-  const k = Math.min(Math.max(Math.ceil(factorSensitivity.length / 4), thresholds.evidence_gap_floor), factorSensitivity.length);
-  const gaps = withVoI
-    .filter((f) => f.importance_rank <= k && f.confidence < 0.7 && f.voi >= thresholds.evidence_gap_min_voi)
+  // Intervention-target factors are decision levers (set directly by options),
+  // not background uncertainties to validate, so they are excluded BEFORE the
+  // rank/quartile gate. Applying eligibility first prevents levers from
+  // consuming the top-k slots and hiding valid non-lever factors that ranked
+  // below them in the enriched importance order. Source of truth for lever
+  // identity is `options[i].interventions` keys (via
+  // `inputs.interventionTargetIds`), NOT raw ISL `zero_reason`. A future
+  // "option assumptions to validate" bucket may surface levers separately —
+  // documented follow-up; not in this PR.
+  const nonLevers = withVoI.filter((f) => !interventionTargetIds.has(f.node_id));
+  const k = Math.min(
+    Math.max(Math.ceil(nonLevers.length / 4), thresholds.evidence_gap_floor),
+    nonLevers.length,
+  );
+  const topByImportance = [...nonLevers]
+    .sort((a, b) => a.importance_rank - b.importance_rank)
+    .slice(0, k);
+  const gaps = topByImportance
+    .filter((f) => f.confidence < 0.7 && f.voi >= thresholds.evidence_gap_min_voi)
     .sort((a, b) => b.voi - a.voi)
     .slice(0, thresholds.evidence_gap_cap); // Cap from thresholds
 

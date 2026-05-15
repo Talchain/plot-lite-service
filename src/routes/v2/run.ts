@@ -4305,7 +4305,11 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             req.log,
             repairsForCoaching,  // Phase 3: normaliser repairs for assumptions ledger
             [],                  // Phase 3: CEE critiques (empty for now, can be extended)
-            activeGoalConstraints  // Task 1+3: goal constraints for joint-prob gate & grounding check
+            activeGoalConstraints,  // Task 1+3: goal constraints for joint-prob gate & grounding check
+            factorSensitivity,   // Provenance fix: coaching consumes the same enriched
+                                 // factor_sensitivity array we publish, so evidence_gaps
+                                 // confidence/influence match the public payload (audit
+                                 // A1-PRIMARY: no raw-ISL signal under coaching field names).
           );
         } catch (err) {
           req.log.warn({
