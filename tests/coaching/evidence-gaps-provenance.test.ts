@@ -462,3 +462,54 @@ describe('evidence_gaps intervention-target filter — F1a refined', () => {
     expect(gaps.find((g) => g.factor_id === 'f1')).toBeDefined();
   });
 });
+
+describe('key_drivers internal provenance consistency — reviewer round-2 P1', () => {
+  // Locks the contract: within a single `key_drivers[]` entry,
+  //   `rank`, `influence_score`, and `normalised_impact` must all agree on the
+  //   same impact signal. Pre-fix, sorting used `elasticity ?? influence_score`
+  //   while `normalised_impact` (via `computeNormalisedImpact`) used the new
+  //   `influence_score ?? elasticity` precedence, so the same entry could ship
+  //   an elasticity-ordered rank alongside an influence-score-ordered impact
+  //   display. Post-fix, all three derive from the same precedence.
+  it('rank ordering follows influence_score precedence, not elasticity', () => {
+    // f1 wins on influence_score (0.9 > 0.3); f2 would win on elasticity (0.8 > 0.05).
+    const enrichedInvert: FactorSensitivityResultV3[] = [
+      { factor_id: 'f1', factor_label: 'High graph influence', elasticity: 0.05, influence_score: 0.9, sensitivity_score: 0.9, direction: 'positive', importance_rank: 1, confidence: 0.4, confidence_source: 'plot_unified_from_isl_bootstrap', confidence_provenance: { computation_source: 'plot_unified_from_isl_bootstrap', formula_version: 'plot_unified_v2', provisional: false, input_quality: 'ok' } as any, source: 'graph' },
+      { factor_id: 'f2', factor_label: 'High raw elasticity', elasticity: 0.8, influence_score: 0.3, sensitivity_score: 0.3, direction: 'positive', importance_rank: 2, confidence: 0.4, confidence_source: 'plot_unified_from_isl_bootstrap', confidence_provenance: { computation_source: 'plot_unified_from_isl_bootstrap', formula_version: 'plot_unified_v2', provisional: false, input_quality: 'ok' } as any, source: 'graph' },
+    ];
+    const coaching = generateM1Coaching(
+      graph, options, islResult(),
+      undefined, undefined, undefined, undefined,
+      enrichedInvert,
+    );
+    const drivers = coaching!.key_drivers!;
+    expect(drivers[0].factor_id).toBe('f1');     // rank 1 = highest influence_score
+    expect(drivers[1].factor_id).toBe('f2');
+  });
+
+  it('within a single key_drivers entry, influence_score and normalised_impact agree on the same source', () => {
+    // f1: elasticity=0.05, influence_score=0.9. Published influence_score must
+    // reflect 0.9 (rounded), and normalised_impact must reflect (0.9 / 0.9) = 1.
+    // Pre-fix the published influence_score was 0.05 (elasticity) while
+    // normalised_impact was 1.0 (helper) — internal contradiction.
+    const enrichedInvert: FactorSensitivityResultV3[] = [
+      { factor_id: 'f1', factor_label: 'Cost', elasticity: 0.05, influence_score: 0.9, sensitivity_score: 0.9, direction: 'positive', importance_rank: 1, confidence: 0.4, confidence_source: 'plot_unified_from_isl_bootstrap', confidence_provenance: { computation_source: 'plot_unified_from_isl_bootstrap', formula_version: 'plot_unified_v2', provisional: false, input_quality: 'ok' } as any, source: 'graph' },
+      { factor_id: 'f2', factor_label: 'Market Risk', elasticity: 0.8, influence_score: 0.3, sensitivity_score: 0.3, direction: 'negative', importance_rank: 2, confidence: 0.4, confidence_source: 'plot_unified_from_isl_bootstrap', confidence_provenance: { computation_source: 'plot_unified_from_isl_bootstrap', formula_version: 'plot_unified_v2', provisional: false, input_quality: 'ok' } as any, source: 'graph' },
+    ];
+    const coaching = generateM1Coaching(
+      graph, options, islResult(),
+      undefined, undefined, undefined, undefined,
+      enrichedInvert,
+    );
+    const f1Driver = coaching!.key_drivers!.find((d) => d.factor_id === 'f1');
+    expect(f1Driver).toBeDefined();
+    expect(f1Driver!.influence_score).toBe(0.9);  // canonical, not elasticity=0.05
+    expect(f1Driver!.normalised_impact).toBe(1);   // 0.9 / max(0.9, 0.3) = 1
+    expect(f1Driver!.rank).toBe(1);                // highest of the two
+    // Cross-check: a key_drivers entry whose influence_score is the max must
+    // have normalised_impact === 1.0; the two cannot disagree.
+    const maxInfluence = Math.max(...coaching!.key_drivers!.map((d) => d.influence_score));
+    const maxByImpact = coaching!.key_drivers!.find((d) => d.normalised_impact === 1);
+    expect(maxByImpact!.influence_score).toBe(maxInfluence);
+  });
+});
