@@ -152,6 +152,15 @@ export function normaliseCoachingInputs(
  * Compute normalised impact scores for factors (0-1 scale).
  * Used by both evidence gaps and key drivers to ensure consistency.
  *
+ * Provenance: prefer `influence_score` (canonical, graph-merged signal carried
+ * on enriched FactorSensitivityResultV3 entries) over `elasticity` (raw ISL
+ * value preserved on enriched ISL-only-append entries and on legacy raw-ISL
+ * inputs). For graph-source enriched entries `influence_score === elasticity`
+ * so the choice is moot; for ISL-only-append entries the two can differ and
+ * influence_score is the right canonical signal to propagate into the public
+ * `m1_coaching.evidence_gaps[].influence` field — matching the same provenance
+ * promise the public `factor_sensitivity[].influence_score` carries.
+ *
  * @param factors Factor sensitivity data
  * @returns Map of factor ID to normalised impact (0-1)
  */
@@ -162,15 +171,10 @@ export function computeNormalisedImpact(
     return new Map();
   }
 
-  const maxImpact = Math.max(
-    ...factors.map((f) => Math.abs(f.elasticity ?? f.influence_score ?? 0)),
-    0.001
-  );
+  const impactOf = (f: NormalisedFactorSensitivity): number =>
+    Math.abs(f.influence_score ?? f.elasticity ?? 0);
 
-  return new Map(
-    factors.map((f) => [
-      f.node_id,
-      Math.abs(f.elasticity ?? f.influence_score ?? 0) / maxImpact,
-    ])
-  );
+  const maxImpact = Math.max(...factors.map(impactOf), 0.001);
+
+  return new Map(factors.map((f) => [f.node_id, impactOf(f) / maxImpact]));
 }

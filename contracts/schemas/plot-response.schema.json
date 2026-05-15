@@ -334,7 +334,7 @@
         },
         "evidence_gaps": {
           "type": "array",
-          "description": "Top 3 factors where gathering evidence would most impact the decision",
+          "description": "Top background-uncertainty factors where gathering evidence would most reduce decision uncertainty (capped at 3). Excludes factors that are decision levers (i.e. any factor present in `options[i].interventions` keys); levers may be surfaced separately in a future `option_assumptions` bucket. The `confidence` and `influence` values published here are sourced from the same PLoT-recomputed signals used for the public `factor_sensitivity[]` array (plot_unified_v2 confidence; graph-merged `influence_score`) — never raw ISL `confidence` or `elasticity`.",
           "items": {
             "type": "object",
             "required": ["factor_id", "factor_label", "voi_score", "confidence", "influence"],

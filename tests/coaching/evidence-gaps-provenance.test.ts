@@ -109,6 +109,93 @@ describe('evidence_gaps provenance — uses enriched factor_sensitivity, not raw
     expect(f1?.influence_score).not.toBe(0.05);
   });
 
+  it('end-to-end gap.influence is computed from enriched influence_score, not raw-ISL elasticity', () => {
+    // Direct impact-provenance assertion (reviewer P1 follow-up):
+    // enriched entry carries elasticity=0.05 alongside influence_score=0.9.
+    // After computeNormalisedImpact + computeEvidenceGaps, the gap's `influence`
+    // field must be derived from influence_score (the canonical PLoT signal),
+    // not from raw-ISL elasticity. Locks the provenance promise that the
+    // public response makes: same value, same source, same scale.
+    const enrichedConflict: FactorSensitivityResultV3[] = [
+      {
+        factor_id: 'f1',
+        factor_label: 'Cost',
+        elasticity: 0.05,   // raw-ISL value preserved on the enriched entry
+        influence_score: 0.9, // canonical graph-merged signal
+        sensitivity_score: 0.9,
+        direction: 'positive',
+        importance_rank: 1,
+        confidence: 0.4,    // low enough to pass the < 0.7 gate
+        confidence_source: 'plot_unified_from_isl_bootstrap',
+        confidence_provenance: {
+          computation_source: 'plot_unified_from_isl_bootstrap',
+          formula_version: 'plot_unified_v2',
+          provisional: false,
+          input_quality: 'ok',
+        } as any,
+        source: 'graph',
+      },
+    ];
+    const coaching = generateM1Coaching(
+      graph,
+      options,
+      islResult(),
+      undefined, undefined, undefined, undefined,
+      enrichedConflict,
+    );
+    const gap = coaching!.evidence_gaps.find((g) => g.factor_id === 'f1');
+    expect(gap).toBeDefined();
+    // With only one factor, max(|influence_score|) = 0.9, so normalised
+    // impact = 0.9 / 0.9 = 1.0 — the published `influence` field.
+    expect(gap!.influence).toBe(1);
+    // Sanity: would have been 1 if computed from elasticity (max=0.05) too,
+    // since there's only one factor — both normalise to 1. So also verify the
+    // raw VOI magnitude: voi = normalisedImpact × (1 − confidence) = 1 × 0.6.
+    expect(gap!.voi_score).toBeCloseTo(0.6, 4);
+    // The display string is rounded to integer percent: 100%.
+    expect(gap!.influence_display).toBe('100%');
+  });
+
+  it('with two enriched factors whose elasticity-vs-influence_score orderings differ, ranking follows influence_score', () => {
+    // Stronger provenance test (reviewer P1 follow-up): two factors where the
+    // elasticity-based ranking would invert the influence_score-based ranking.
+    // The published `influence` magnitudes must reflect influence_score order,
+    // and the evidence_gap with higher influence_score must publish a higher
+    // `influence` value.
+    const enrichedTwo: FactorSensitivityResultV3[] = [
+      // f1: HIGH influence_score (0.9), LOW elasticity (0.05) — should win on influence
+      {
+        factor_id: 'f1', factor_label: 'High graph influence',
+        elasticity: 0.05, influence_score: 0.9, sensitivity_score: 0.9,
+        direction: 'positive', importance_rank: 1, confidence: 0.4,
+        confidence_source: 'plot_unified_from_isl_bootstrap',
+        confidence_provenance: { computation_source: 'plot_unified_from_isl_bootstrap', formula_version: 'plot_unified_v2', provisional: false, input_quality: 'ok' } as any,
+        source: 'graph',
+      },
+      // f2: LOW influence_score (0.3), HIGH elasticity (0.8) — would win under elasticity-based ranking
+      {
+        factor_id: 'f2', factor_label: 'High raw elasticity',
+        elasticity: 0.8, influence_score: 0.3, sensitivity_score: 0.3,
+        direction: 'positive', importance_rank: 2, confidence: 0.4,
+        confidence_source: 'plot_unified_from_isl_bootstrap',
+        confidence_provenance: { computation_source: 'plot_unified_from_isl_bootstrap', formula_version: 'plot_unified_v2', provisional: false, input_quality: 'ok' } as any,
+        source: 'graph',
+      },
+    ];
+    const coaching = generateM1Coaching(
+      graph, options, islResult(),
+      undefined, undefined, undefined, undefined,
+      enrichedTwo,
+    );
+    const f1Gap = coaching!.evidence_gaps.find((g) => g.factor_id === 'f1');
+    const f2Gap = coaching!.evidence_gaps.find((g) => g.factor_id === 'f2');
+    expect(f1Gap?.influence).toBe(1);                  // max = 0.9 / 0.9
+    expect(f2Gap?.influence).toBeCloseTo(0.3 / 0.9, 4); // 0.333…
+    // VOI orders: f1 voi = 1 × 0.6 = 0.6; f2 voi = (0.3/0.9) × 0.6 = 0.2.
+    // Therefore f1 must rank ahead of f2 (top-1).
+    expect(coaching!.evidence_gaps[0].factor_id).toBe('f1');
+  });
+
   it('coaching evidence_gaps output reflects enriched confidence, not raw ISL', () => {
     const coaching = generateM1Coaching(
       graph,
