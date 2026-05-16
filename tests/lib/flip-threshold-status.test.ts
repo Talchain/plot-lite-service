@@ -86,13 +86,37 @@ describe('classifyFlipThresholdsStatus()', () => {
       expect(classifyFlipThresholdsStatus(entries)).toEqual({ status: 'partial_no_effect' });
     });
 
-    it('still returns partial_no_effect when unresolved entries are mixed in alongside computed and no_effect', () => {
+    it('still returns partial_no_effect when unresolved entries are mixed in alongside computed and no_effect — and surfaces first unresolved reason so UI can soften copy', () => {
       const entries = [
         makeEntry({ flip_value: 0.3, flip_reason: 'found' }),
         makeEntry({ factor_id: 'f2', flip_value: null, flip_reason: 'no_effect_within_bounds' }),
         makeEntry({ factor_id: 'f3', flip_value: null, flip_reason: 'timeout' }),
       ];
+      expect(classifyFlipThresholdsStatus(entries)).toEqual({
+        status: 'partial_no_effect',
+        status_reason: 'timeout',
+      });
+    });
+
+    it('omits status_reason on partial_no_effect when there are no unresolved entries (pure computed + no_effect mix)', () => {
+      const entries = [
+        makeEntry({ flip_value: 0.3, flip_reason: 'found' }),
+        makeEntry({ factor_id: 'f2', flip_value: null, flip_reason: 'no_effect_within_bounds' }),
+      ];
       expect(classifyFlipThresholdsStatus(entries)).toEqual({ status: 'partial_no_effect' });
+    });
+
+    it('records the FIRST unresolved reason on partial_no_effect when several unresolved kinds are present', () => {
+      const entries = [
+        makeEntry({ flip_value: 0.3, flip_reason: 'found' }),
+        makeEntry({ factor_id: 'f2', flip_value: null, flip_reason: 'no_effect_within_bounds' }),
+        makeEntry({ factor_id: 'f3', flip_value: null, flip_reason: 'insufficient_precision' }),
+        makeEntry({ factor_id: 'f4', flip_value: null, flip_reason: 'timeout' }),
+      ];
+      expect(classifyFlipThresholdsStatus(entries)).toEqual({
+        status: 'partial_no_effect',
+        status_reason: 'insufficient_precision',
+      });
     });
   });
 

@@ -98,7 +98,19 @@ export function classifyFlipThresholdsStatus(
   }
 
   if (computedCount > 0 && noEffectCount > 0) {
-    return { status: 'partial_no_effect' };
+    // When unresolved entries (timeout / error / insufficient_precision)
+    // are also present, surface the first-seen unresolved reason so UI
+    // consumers can soften copy that would otherwise imply every
+    // non-computed factor was a harmless no_effect_within_bounds case.
+    // The base status stays 'partial_no_effect' so existing consumers
+    // continue to render the same broad UX; status_reason is purely
+    // additive metadata. Field is payload-only — never user-facing copy.
+    return {
+      status: 'partial_no_effect',
+      ...(unresolvedCount > 0 && firstUnresolvedReason
+        ? { status_reason: firstUnresolvedReason }
+        : {}),
+    };
   }
   if (computedCount > 0) {
     // Known scope choice (follow-up tracked separately): when a mix of
