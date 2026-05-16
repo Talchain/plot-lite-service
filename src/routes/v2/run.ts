@@ -108,6 +108,7 @@ import {
 import { createISLInferenceFn, resolveFlipValues } from '../../analysis/flip-thresholds.js';
 import { computeFlipThresholdData } from '../../coaching/flip-thresholds.js';
 import { denormaliseFlipThresholds, type DenormalisedFlipThreshold } from '../../lib/flip-threshold-denormaliser.js';
+import { classifyFlipThresholdsStatus } from '../../lib/flip-threshold-status.js';
 import type { CeeReviewRequest, CeeTrace, FactorEnrichment } from '../../cee/types.js';
 // CIL Phase 1: Shared types from @talchain/schemas
 import type { SeedSourceType } from '@talchain/schemas';
@@ -2008,6 +2009,19 @@ function buildResponse(
     // Always emitted ([] when empty or absent) so consumers can distinguish
     // computed-empty from absent. Excluded from canonical hash.
     flip_thresholds: flipThresholds ?? [],
+
+    // Display-honesty: high-level classification of the post-denormalised
+    // flip_thresholds[] array. Always emitted alongside flip_thresholds so
+    // UI consumers can render the all-no-effect / partial / unresolved
+    // cases honestly without re-deriving from individual flip_reason strings.
+    // Excluded from canonical hash (display-only enrichment).
+    ...(() => {
+      const result = classifyFlipThresholdsStatus(flipThresholds);
+      return {
+        flip_thresholds_status: result.status,
+        ...(result.status_reason && { flip_thresholds_status_reason: result.status_reason }),
+      };
+    })(),
 
     // Threshold analysis (B10.3) — ISL native threshold endpoint
     // NOTE: Non-semantic post-analysis enrichment, excluded from response_hash.
