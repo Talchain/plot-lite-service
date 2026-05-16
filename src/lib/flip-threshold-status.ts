@@ -101,6 +101,15 @@ export function classifyFlipThresholdsStatus(
     return { status: 'partial_no_effect' };
   }
   if (computedCount > 0) {
+    // Known scope choice (follow-up tracked separately): when a mix of
+    // computed and unresolved entries is present (no no_effect entries),
+    // we report 'computed' because at least one factor produced a flip
+    // value, and the UI treats the result as actionable. This silently
+    // absorbs the unresolved entries. A future revision may emit a
+    // dedicated 'partial_unresolved' status (or add an `unresolved_count`
+    // counter) so timeout / error / insufficient_precision entries are
+    // surfaced even when one factor has a flip value. Deliberately out
+    // of scope for the initial display-honesty workstream.
     return { status: 'computed' };
   }
   if (noEffectCount > 0 && unresolvedCount === 0) {
