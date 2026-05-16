@@ -1006,8 +1006,11 @@ export interface RunResponseV3 {
    * `insufficient_precision`).
    *
    * Emitted in TWO cases:
-   *  - `flip_thresholds_status === 'unresolved'` — every entry was
-   *    unresolved (no computed flip and no no_effect_within_bounds).
+   *  - `flip_thresholds_status === 'unresolved'` — no computed flip and
+   *    at least one unresolved entry. `no_effect_within_bounds` entries
+   *    may also be present in this case (a pure mix of no_effect +
+   *    unresolved still classifies as `'unresolved'` because the
+   *    unresolved signal is the actionable one).
    *  - `flip_thresholds_status === 'partial_no_effect'` AND at least one
    *    unresolved entry is present alongside computed + no_effect ones.
    *    Lets UI consumers soften copy that would otherwise imply every
