@@ -1002,8 +1002,19 @@ export interface RunResponseV3 {
     | 'unavailable';
 
   /**
-   * First-seen `flip_reason` string when `flip_thresholds_status` is
-   * 'unresolved'. Payload-only debug metadata; never user-facing copy.
+   * First-seen unresolved `flip_reason` string (e.g. `timeout`, `error`,
+   * `insufficient_precision`).
+   *
+   * Emitted in TWO cases:
+   *  - `flip_thresholds_status === 'unresolved'` — every entry was
+   *    unresolved (no computed flip and no no_effect_within_bounds).
+   *  - `flip_thresholds_status === 'partial_no_effect'` AND at least one
+   *    unresolved entry is present alongside computed + no_effect ones.
+   *    Lets UI consumers soften copy that would otherwise imply every
+   *    non-computed factor was a harmless no_effect_within_bounds case.
+   *
+   * Payload-only debug metadata; never user-facing copy.
+   * @see classifyFlipThresholdsStatus in src/lib/flip-threshold-status.ts
    */
   flip_thresholds_status_reason?: string;
 
