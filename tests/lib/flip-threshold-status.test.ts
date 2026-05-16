@@ -75,6 +75,17 @@ describe('classifyFlipThresholdsStatus()', () => {
       ];
       expect(classifyFlipThresholdsStatus(entries)).toEqual({ status: 'computed' });
     });
+
+    it('treats flip_value === 0 as a valid computed flip (must not be silently demoted via truthiness)', () => {
+      // Guards against a future regression that changes the null-check to
+      // a truthiness check (`if (entry.flip_value)`), which would treat a
+      // legitimate zero-valued flip threshold (e.g. a factor whose flip
+      // point lands at zero cost) as unresolved.
+      const entries = [
+        makeEntry({ flip_value: 0, flip_reason: 'found' }),
+      ];
+      expect(classifyFlipThresholdsStatus(entries)).toEqual({ status: 'computed' });
+    });
   });
 
   describe('partial_no_effect', () => {
