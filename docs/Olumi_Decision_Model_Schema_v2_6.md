@@ -90,7 +90,7 @@ type NodeKind =
 
 interface ObservedState {
   value: number;                           // Current observed value (required)
-  std?: number;                            // Uncertainty in observed value (PoC: not consumed)
+  std?: number;                            // Uncertainty in observed value — propagated to ISL parameter_uncertainties (V3+); see §D.5
   baseline?: number;                       // Reference value for comparison
   unit?: string;                           // Display unit ('£', '%', 'users')
   source?: string;                         // Data provenance (free text, e.g., "Q3 Analytics Report")
@@ -736,7 +736,7 @@ const std = Math.max(0.001, cv * Math.abs(strength_mean));
 
 ## D.5 Factor Sensitivity (PoC)
 
-**PoC Mechanism:** Factor sensitivity is derived from **edge uncertainty** parameters (`strength.std`, `exists_probability`), not node-level parameter uncertainties. This is an edge-uncertainty-driven proxy — true factor/parameter uncertainty analysis requires explicit `parameter_uncertainties` input (post-PoC scope).
+**PoC Mechanism:** Factor sensitivity is derived from **edge uncertainty** parameters (`strength.std`, `exists_probability`) **and**, when supplied, node-level `observed_state.std`. The V3 translator (`buildParameterUncertaintiesV3`) propagates user-supplied `observed_state.std` into ISL `parameter_uncertainties`, so explicit node-level uncertainty now feeds sensitivity / EVPI / robustness. See "Node-level uncertainty" below for the propagation rules.
 
 | Condition | `drivers_status` | UI Treatment |
 |-----------|------------------|--------------|
@@ -746,7 +746,7 @@ const std = Math.max(0.001, cv * Math.abs(strength_mean));
 
 **Note:** `skipped` is not a computation failure — it indicates the preconditions for factor sensitivity were not met. Values of zero are valid when computed; do not treat zeros as failures.
 
-**Node-level uncertainty:** `observed_state.std`, if present, is **not consumed** by inference or sensitivity in PoC. Uncertainty modelling is edge-level only. Future use of node-level uncertainty must apply normalisation consistently.
+**Node-level uncertainty:** `observed_state.std`, when finite and positive, **is consumed**: it is propagated into ISL `parameter_uncertainties[].std` by the V3 translator and the V2 preflight builder, clamped to `[1e-4, 2.0]` for numerical safety. Synthesised defaults (binary / value-based / fallback) are floored at `0.1`, but user-supplied values are honoured below that floor — small user stds (e.g. `0.001`) reach ISL unchanged and tighten sensitivity / EVPI / robustness estimates accordingly. Zero, negative, and non-finite `observed_state.std` are treated as missing.
 
 ---
 
@@ -853,6 +853,7 @@ const STRUCTURAL_INVARIANTS = [
 | v2.4 | 15 Jan 2026 | Added Option ID consistency invariant, `OPTION_ID_MISMATCH` critique code, ISL/PLoT enrichment architecture note, and D.5 Factor Sensitivity (PoC) clarification |
 | v2.5 | 15 Jan 2026 | Clarified D.5: factor sensitivity is edge-uncertainty-driven proxy (not node-level parameter uncertainty); zeros are valid computed values |
 | **v2.6** | **15 Jan 2026** | Added `observed_state.std` to schema (PoC: not consumed); clarified node-level uncertainty is not used in PoC inference/sensitivity |
+| **v2.6.1** | **17 May 2026** | `observed_state.std` is now consumed: V3 translator and V2 preflight propagate it into ISL `parameter_uncertainties` (clamped to `[1e-4, 2.0]`); synthesised defaults still floored at `0.1`. Supersedes the v2.6 "not consumed" statement in §D.5 and the `ObservedState` interface comment. |
 
 ---
 
