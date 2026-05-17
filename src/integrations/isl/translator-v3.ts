@@ -15,6 +15,14 @@ import type {
   InterventionValueV3,
   GoalConstraint,
 } from '../../types/engine-v3.js';
+import {
+  MIN_USER_STD,
+  MAX_USER_STD,
+  DEFAULT_STD_FLOOR,
+  BINARY_DEFAULT_STD,
+  VALUE_BASED_STD_FRACTION,
+  FALLBACK_STD,
+} from './parameter-uncertainty-bounds.js';
 
 // -----------------------------------------------------------------------------
 // ISL Wire Format Types
@@ -208,12 +216,19 @@ export function toISLOption(option: OptionV3): ISLOptionV3 {
  * specification for ISL. This enables ISL to compute factor_sensitivity scores.
  *
  * Standard deviation calculation priority:
- * 1. Use observed_state.std if present and > 0
- * 2. For binary factors (0/1 range): use 0.3
- * 3. Use 15% of |observed_state.value| if value != 0
- * 4. Fallback: 0.5
+ * 1. Finite positive `observed_state.std` → clamped to [MIN_USER_STD, MAX_USER_STD].
+ *    The user value is honoured down to MIN_USER_STD; the default floor below
+ *    does NOT apply.
+ * 2. Binary factors (0/1 range or labelled yes/no) → BINARY_DEFAULT_STD.
+ * 3. Non-zero continuous factors → |value| × VALUE_BASED_STD_FRACTION.
+ * 4. Zero-valued continuous factors → FALLBACK_STD.
  *
- * All std values have a floor of 0.1 to ensure meaningful sensitivity.
+ * The DEFAULT_STD_FLOOR is applied ONLY to priorities 2–4 (synthesised defaults),
+ * never to user-supplied values. This is the fix for the silent-widening bug
+ * where `observed_state.std = 0.001` was being floored to 0.1.
+ *
+ * Non-finite, zero, and negative `observed_state.std` are treated as missing
+ * and fall through to default synthesis.
  *
  * @param nodes Graph nodes
  * @returns Parameter uncertainties for ISL
@@ -227,36 +242,28 @@ export function buildParameterUncertaintiesV3(
     if (node.kind === 'factor' && node.observed_state?.value !== undefined && Number.isFinite(node.observed_state.value)) {
       const value = node.observed_state.value;
       const observedStd = node.observed_state.std;
-      const range = node.state_space?.range;
-
-      // Detect binary factors using strong signals only
-      const isBinary = isBinaryFactor(node);
+      const hasUserStd = observedStd !== undefined && Number.isFinite(observedStd) && observedStd > 0;
 
       let std: number;
 
-      // Priority 1: Use observed_state.std if present and meaningful
-      // Cap at 2.0 to prevent extreme values from destabilizing ISL
-      if (observedStd !== undefined && observedStd > 0) {
-        std = Math.min(observedStd, 2.0);
-        if (observedStd > 2.0) {
-          console.warn(`[PARAMETER_UNCERTAINTY] node_id=${node.id} observed_state.std=${observedStd} capped to 2.0`);
+      if (hasUserStd) {
+        // Priority 1: Honour user-supplied std, clamped to safe numerical bounds.
+        // The DEFAULT_STD_FLOOR is intentionally NOT applied here — small user
+        // values (e.g. 0.001) must propagate to ISL as-is so sensitivity / EVPI /
+        // robustness reflect what the user actually told us.
+        std = Math.min(Math.max(observedStd as number, MIN_USER_STD), MAX_USER_STD);
+      } else {
+        // Priorities 2–4: synthesised defaults, with DEFAULT_STD_FLOOR applied.
+        const isBinary = isBinaryFactor(node);
+        if (isBinary) {
+          std = BINARY_DEFAULT_STD;
+        } else if (value !== 0) {
+          std = Math.abs(value) * VALUE_BASED_STD_FRACTION;
+        } else {
+          std = FALLBACK_STD;
         }
+        std = Math.max(DEFAULT_STD_FLOOR, std);
       }
-      // Priority 2: Binary factors get std = 0.3
-      else if (isBinary) {
-        std = 0.3;
-      }
-      // Priority 3: 15% of absolute value for non-zero values
-      else if (value !== 0) {
-        std = Math.abs(value) * 0.15;
-      }
-      // Priority 4: Fallback for zero-valued continuous factors
-      else {
-        std = 0.5;
-      }
-
-      // Floor at 0.1 to ensure meaningful sensitivity
-      std = Math.max(0.1, std);
 
       uncertainties.push({
         node_id: node.id,

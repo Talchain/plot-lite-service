@@ -18,8 +18,14 @@ import type { GoalConstraint, EngineNodeV3 } from '../../types/engine-v3.js';
  * Pins constrained node to its observed value for constraint evaluation.
  * Not modelling real uncertainty — prevents ISL base=0.0 default.
  *
- * Distinct from translator std floors (≥0.1 for factors, ≥0.01 for
- * external priors) which represent genuine inference uncertainty.
+ * Distinct from the translator's user-uncertainty and default paths:
+ *   - User-supplied `observed_state.std` is clamped to [MIN_USER_STD, MAX_USER_STD]
+ *     (see `parameter-uncertainty-bounds.ts`).
+ *   - Synthesised defaults (binary / value-based / fallback) are floored at
+ *     DEFAULT_STD_FLOOR.
+ *   - External priors are floored at 0.01.
+ * This constant only applies to constrained nodes that arrive at the injection
+ * step without an existing PU entry.
  */
 export const CONSTRAINT_PINNED_STD = 0.001;
 
