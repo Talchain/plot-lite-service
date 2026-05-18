@@ -359,34 +359,3 @@ describe('POST /v1/run factor sensitivity enrichment', () => {
   });
 });
 
-describe('Parameter Uncertainties Extraction', () => {
-  /**
-   * Test the extractParameterUncertainties helper function
-   */
-  it('extracts parameter uncertainties from factor nodes', async () => {
-    // We test this indirectly by checking that the ISL call receives correct data
-    // when run against a real server (the extraction happens in run.ts)
-
-    const graph = {
-      nodes: [
-        { id: 'factor_a', kind: 'factor', observed_state: { value: 100 } },
-        { id: 'factor_b', kind: 'factor', observed_state: { value: 50 } },
-        { id: 'factor_c', kind: 'factor' }, // No observed_state - should be excluded
-        { id: 'option_1', kind: 'option', observed_state: { value: 10 } }, // Not a factor
-        { id: 'goal', kind: 'goal' },
-      ],
-      edges: [
-        { from: 'factor_a', to: 'goal', weight: 1 },
-        { from: 'factor_b', to: 'goal', weight: 0.5 },
-      ],
-    };
-
-    // The helper function should extract only factor nodes with observed_state.value
-    // Each should get distribution: 'normal', mean: value, std: max(|value|*0.2, 0.1)
-
-    // We can test this by importing the function directly
-    // Note: This is an integration test - the function is in run.ts but we test via the endpoint
-
-    expect(graph.nodes.filter((n) => n.kind === 'factor' && n.observed_state?.value !== undefined)).toHaveLength(2);
-  });
-});
