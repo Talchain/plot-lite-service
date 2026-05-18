@@ -253,14 +253,18 @@ describe('Constraint Pipeline Integration', () => {
     expect(res.status).toBe(200);
     expect(capturedISLRequestBody).not.toBeNull();
 
-    // factor-b is kind='factor' with observed_state.value=0.5.
-    // The translator (buildParameterUncertaintiesV3) creates PU with std >= 0.1.
+    // factor-b is kind='factor' with observed_state.value=0.5 and no user-supplied
+    // std, so the translator (buildParameterUncertaintiesV3) creates an existing PU
+    // via the synthesised default path (floored at 0.1).
     // Phase 4b+ should see the existing PU entry and SKIP (inject-only-when-missing).
+    // (If factor-b had observed_state.std < 0.1, the translator would honour it and
+    // the entry could legitimately be below 0.1 — this fixture deliberately omits std
+    // to exercise the synthesised-default branch.)
     const puArray = capturedISLRequestBody.parameter_uncertainties ?? [];
     const factorBPU = puArray.find((p: any) => p.node_id === 'factor-b');
 
     expect(factorBPU).toBeDefined();
-    // std should be from translator (>= 0.1), NOT from Phase 4b+ (0.001)
+    // std comes from the synthesised default (floored at 0.1), NOT from Phase 4b+ (0.001).
     expect(factorBPU.std).toBeGreaterThanOrEqual(0.1);
     expect(factorBPU.std).not.toBe(CONSTRAINT_PINNED_STD);
 

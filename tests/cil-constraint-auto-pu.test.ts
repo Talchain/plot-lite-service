@@ -5,7 +5,9 @@
  * a ParameterUncertainty entry in the ISL request. Two layers provide this:
  *
  * 1. Translator: buildParameterUncertaintiesV3 generates PU for all factor
- *    nodes with observed_state.value (std >= 0.1 floor).
+ *    nodes with observed_state.value. Synthesised default std is floored at 0.1;
+ *    user-supplied observed_state.std is honoured (clamped to [1e-4, 2.0]) and
+ *    may legitimately be below 0.1.
  * 2. Phase 4b+ safety net: for constrained nodes the translator misses,
  *    auto-generates { distribution: 'normal', mean: observed_value, std: 0.001 }.
  *
@@ -198,8 +200,10 @@ describe('CIL: Constraint auto-PU integration (Phase 4b+)', () => {
     expect(capturedISLRequestBody).not.toBeNull();
 
     // The constrained node (factor-b) MUST have a PU entry in the ISL request.
-    // The translator generates it with mean=observed_state.value and std>=0.1.
-    // Phase 4b+ acts as a safety net for nodes the translator might miss.
+    // The translator generates it from observed_state.value. Here factor-b has
+    // no user-supplied std, so it goes through the synthesised default path
+    // (value-based, floored at 0.1). Phase 4b+ acts as a safety net for nodes
+    // the translator might miss.
     const puArray = capturedISLRequestBody.parameter_uncertainties ?? [];
     const factorBPU = puArray.find((p: any) => p.node_id === 'factor-b');
 

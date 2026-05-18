@@ -10,6 +10,13 @@ import type { Graph, GraphEdge, GraphNode } from '../../trust/types.js';
 import type { ISLPreflightResult } from './types/plot-types.js';
 import type { ISLParameterUncertainty } from './types/isl-types.js';
 import { DEFAULT_EXISTS_PROBABILITY } from '../../constants/limits.js';
+import {
+  DEFAULT_STD_FLOOR,
+  BINARY_DEFAULT_STD,
+  VALUE_BASED_STD_FRACTION,
+  FALLBACK_STD,
+  resolveUserSuppliedStd,
+} from './parameter-uncertainty-bounds.js';
 
 /**
  * Check if an edge has uncertainty data for sensitivity analysis
@@ -57,18 +64,21 @@ function isFactorWithValue(node: GraphNode): boolean {
 }
 
 /**
- * Build parameter uncertainties from graph factor nodes
+ * Build parameter uncertainties from graph factor nodes.
  *
- * Creates uncertainty specifications for factor nodes that have observed_state.
- * This enables ISL to compute factor_sensitivity scores.
+ * Mirrors `buildParameterUncertaintiesV3` in translator-v3.ts. Shared bounds
+ * and defaults live in `./parameter-uncertainty-bounds.ts`.
  *
  * Standard deviation calculation priority:
- * 1. Use observed_state.std if present and > 0
- * 2. For binary factors (0/1 range): use 0.3
- * 3. Use 15% of |observed_state.value| if value != 0
- * 4. Fallback: 0.5
+ * 1. Finite positive `observed_state.std` → clamped to [MIN_USER_STD, MAX_USER_STD].
+ *    User value is honoured down to MIN_USER_STD; the default floor does NOT apply.
+ * 2. Binary factors → BINARY_DEFAULT_STD.
+ * 3. Non-zero continuous factors → |value| × VALUE_BASED_STD_FRACTION.
+ * 4. Zero-valued continuous factors → FALLBACK_STD.
  *
- * All std values have a floor of 0.1 to ensure meaningful sensitivity.
+ * DEFAULT_STD_FLOOR is applied ONLY to priorities 2–4. Small user-supplied
+ * values (e.g. 0.001) propagate to ISL as-is — fixed: previously the floor
+ * silently widened them.
  */
 export function buildParameterUncertainties(graph: Graph): ISLParameterUncertainty[] {
   const uncertainties: ISLParameterUncertainty[] = [];
@@ -76,36 +86,26 @@ export function buildParameterUncertainties(graph: Graph): ISLParameterUncertain
   for (const node of graph.nodes) {
     if (isFactorWithValue(node)) {
       const value = node.observed_state!.value;
-      const observedStd = node.observed_state!.std;
-
-      // Detect binary factors using strong signals only
-      const isBinary = isBinaryFactorNode(node);
+      const userStd = resolveUserSuppliedStd(node.observed_state!.std);
 
       let std: number;
 
-      // Priority 1: Use observed_state.std if present and meaningful
-      // Cap at 2.0 to prevent extreme values from destabilizing ISL
-      if (observedStd !== undefined && observedStd > 0) {
-        std = Math.min(observedStd, 2.0);
-        if (observedStd > 2.0) {
-          console.warn(`[PARAMETER_UNCERTAINTY] node_id=${node.id} observed_state.std=${observedStd} capped to 2.0`);
+      if (userStd !== null) {
+        // Priority 1: honour user-supplied std (already clamped to
+        // [MIN_USER_STD, MAX_USER_STD] by the shared helper).
+        std = userStd;
+      } else {
+        // Priorities 2–4: synthesised defaults, with DEFAULT_STD_FLOOR applied.
+        const isBinary = isBinaryFactorNode(node);
+        if (isBinary) {
+          std = BINARY_DEFAULT_STD;
+        } else if (value !== 0) {
+          std = Math.abs(value) * VALUE_BASED_STD_FRACTION;
+        } else {
+          std = FALLBACK_STD;
         }
+        std = Math.max(DEFAULT_STD_FLOOR, std);
       }
-      // Priority 2: Binary factors get std = 0.3
-      else if (isBinary) {
-        std = 0.3;
-      }
-      // Priority 3: 15% of absolute value for non-zero values
-      else if (value !== 0) {
-        std = Math.abs(value) * 0.15;
-      }
-      // Priority 4: Fallback for zero-valued continuous factors
-      else {
-        std = 0.5;
-      }
-
-      // Floor at 0.1 to ensure meaningful sensitivity
-      std = Math.max(0.1, std);
 
       uncertainties.push({
         node_id: node.id,

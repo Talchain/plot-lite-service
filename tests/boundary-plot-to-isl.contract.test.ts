@@ -330,11 +330,51 @@ describe('ISL request contract — golden-path (T5a)', () => {
     expect(puGoal).toBeUndefined();
   });
 
-  // std floor: min 0.1 for factor nodes
-  it('parameter_uncertainties std is at least 0.1 for all factor entries', () => {
+  // std contract:
+  //   - User-supplied observed_state.std is honoured, clamped to [1e-4, 2.0].
+  //   - Synthesised defaults (binary / value-based / fallback) are floored at 0.1.
+  // The fixture for this `req` uses fac-a (value=0.7, no std) and fac-b (value=0.4, no std),
+  // both of which go through default synthesis, so every entry here is >= 0.1.
+  it('parameter_uncertainties std respects bounds (defaults floored at 0.1; absolute bounds [1e-4, 2.0])', () => {
     expect(req.parameter_uncertainties).toBeDefined();
     for (const pu of req.parameter_uncertainties!) {
+      // Default synthesis path → floor at 0.1.
       expect(pu.std).toBeGreaterThanOrEqual(0.1);
+      // Absolute upper bound for all paths.
+      expect(pu.std).toBeLessThanOrEqual(2.0);
+    }
+  });
+
+  it('user-supplied observed_state.std below 0.1 is preserved (not silently widened)', () => {
+    // Separate fixture: small user-supplied std must propagate to ISL as-is.
+    const graphWithSmallStd: EngineGraphV3 = {
+      nodes: [
+        { id: 'goal', kind: 'goal', label: 'Goal', observed_state: { value: 100 } },
+        { id: 'fac-small', kind: 'factor', label: 'Small Std', observed_state: { value: 0.6, std: 0.001 } },
+      ],
+      edges: [
+        { from: 'fac-small', to: 'goal', exists_probability: 0.8, strength: { mean: 0.5, std: 0.1 } },
+      ],
+    };
+    const reqSmall = toISLRobustnessRequest(
+      graphWithSmallStd,
+      [{ id: 'o1', label: 'O1', interventions: { 'fac-small': { value: 0.5, source: 'user_specified' } } }],
+      'goal',
+      'req-small-std',
+      500
+    );
+    const pu = reqSmall.parameter_uncertainties!.find((p: any) => p.node_id === 'fac-small');
+    expect(pu).toBeDefined();
+    // The fix: user-supplied std must NOT be floored to 0.1.
+    expect(pu!.std).toBe(0.001);
+
+    // Outbound shape unchanged: exactly one entry (only the factor with an
+    // observed_state.value is emitted — the goal node never appears) and each
+    // entry has only the four contract fields. Asserts the change is purely
+    // additive to `std`, not the entry count or field set.
+    expect(reqSmall.parameter_uncertainties!.length).toBe(1);
+    for (const entry of reqSmall.parameter_uncertainties!) {
+      expect(Object.keys(entry).sort()).toEqual(['distribution', 'mean', 'node_id', 'std']);
     }
   });
 
