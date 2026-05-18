@@ -38,3 +38,26 @@ export const VALUE_BASED_STD_FRACTION = 0.15;
 
 /** Fallback std when no user value, not binary, and value is exactly 0. */
 export const FALLBACK_STD = 0.5;
+
+/**
+ * Returns the resolved user-supplied std, or `null` if `observedStd` is not a
+ * meaningful user value (missing, zero, negative, NaN, Infinity, non-numeric).
+ *
+ * Finite positive values are clamped to `[MIN_USER_STD, MAX_USER_STD]`:
+ *   - `0 < std < MIN_USER_STD` → `MIN_USER_STD`
+ *   - `std > MAX_USER_STD`     → `MAX_USER_STD`
+ *   - otherwise                → `std` unchanged
+ *
+ * Callers must fall back to synthesised defaults (DEFAULT_STD_FLOOR /
+ * BINARY_DEFAULT_STD / VALUE_BASED_STD_FRACTION / FALLBACK_STD) when this
+ * returns `null`. Centralising the rule here keeps `translator-v3.ts` and
+ * `preflight.ts` from drifting.
+ */
+export function resolveUserSuppliedStd(observedStd: unknown): number | null {
+  if (typeof observedStd !== 'number') return null;
+  if (!Number.isFinite(observedStd)) return null;
+  if (observedStd <= 0) return null;
+  if (observedStd < MIN_USER_STD) return MIN_USER_STD;
+  if (observedStd > MAX_USER_STD) return MAX_USER_STD;
+  return observedStd;
+}

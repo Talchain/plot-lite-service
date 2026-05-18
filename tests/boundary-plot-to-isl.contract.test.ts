@@ -367,6 +367,15 @@ describe('ISL request contract — golden-path (T5a)', () => {
     expect(pu).toBeDefined();
     // The fix: user-supplied std must NOT be floored to 0.1.
     expect(pu!.std).toBe(0.001);
+
+    // Outbound shape unchanged: exactly one entry (only the factor with an
+    // observed_state.value is emitted — the goal node never appears) and each
+    // entry has only the four contract fields. Asserts the change is purely
+    // additive to `std`, not the entry count or field set.
+    expect(reqSmall.parameter_uncertainties!.length).toBe(1);
+    for (const entry of reqSmall.parameter_uncertainties!) {
+      expect(Object.keys(entry).sort()).toEqual(['distribution', 'mean', 'node_id', 'std']);
+    }
   });
 
   // analysis_types hardcoded to all three required values

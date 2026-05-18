@@ -16,12 +16,11 @@ import type {
   GoalConstraint,
 } from '../../types/engine-v3.js';
 import {
-  MIN_USER_STD,
-  MAX_USER_STD,
   DEFAULT_STD_FLOOR,
   BINARY_DEFAULT_STD,
   VALUE_BASED_STD_FRACTION,
   FALLBACK_STD,
+  resolveUserSuppliedStd,
 } from './parameter-uncertainty-bounds.js';
 
 // -----------------------------------------------------------------------------
@@ -241,17 +240,15 @@ export function buildParameterUncertaintiesV3(
   for (const node of nodes) {
     if (node.kind === 'factor' && node.observed_state?.value !== undefined && Number.isFinite(node.observed_state.value)) {
       const value = node.observed_state.value;
-      const observedStd = node.observed_state.std;
-      const hasUserStd = observedStd !== undefined && Number.isFinite(observedStd) && observedStd > 0;
+      const userStd = resolveUserSuppliedStd(node.observed_state.std);
 
       let std: number;
 
-      if (hasUserStd) {
-        // Priority 1: Honour user-supplied std, clamped to safe numerical bounds.
-        // The DEFAULT_STD_FLOOR is intentionally NOT applied here — small user
-        // values (e.g. 0.001) must propagate to ISL as-is so sensitivity / EVPI /
-        // robustness reflect what the user actually told us.
-        std = Math.min(Math.max(observedStd as number, MIN_USER_STD), MAX_USER_STD);
+      if (userStd !== null) {
+        // Priority 1: honour user-supplied std (already clamped to
+        // [MIN_USER_STD, MAX_USER_STD]). DEFAULT_STD_FLOOR intentionally does
+        // not apply — small user values must reach ISL as-is.
+        std = userStd;
       } else {
         // Priorities 2–4: synthesised defaults, with DEFAULT_STD_FLOOR applied.
         const isBinary = isBinaryFactor(node);

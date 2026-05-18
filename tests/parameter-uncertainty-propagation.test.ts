@@ -95,6 +95,23 @@ describe('buildParameterUncertaintiesV3 — user-supplied std propagation', () =
       const result = buildParameterUncertaintiesV3([factor('f', 50, 2.0)])!;
       expect(result[0].std).toBe(2.0);
     });
+
+    // Exact MIN_USER_STD boundary trio — pins the clamp inflection point.
+    it('user std = MIN_USER_STD (1e-4) passes through unchanged', () => {
+      const result = buildParameterUncertaintiesV3([factor('f', 0.5, 1e-4)])!;
+      expect(result[0].std).toBe(1e-4);
+    });
+
+    it('user std = 0.99e-4 (just below MIN) is clamped up to 1e-4', () => {
+      const result = buildParameterUncertaintiesV3([factor('f', 0.5, 0.99e-4)])!;
+      expect(result[0].std).toBe(MIN_USER_STD);
+      expect(result[0].std).toBe(1e-4);
+    });
+
+    it('user std = 1.01e-4 (just above MIN) passes through unchanged', () => {
+      const result = buildParameterUncertaintiesV3([factor('f', 0.5, 1.01e-4)])!;
+      expect(result[0].std).toBe(1.01e-4);
+    });
   });
 
   describe('invalid / missing user std falls through to default synthesis', () => {
@@ -209,6 +226,22 @@ describe('buildParameterUncertainties (preflight) — mirrors V3 translator', ()
     expect(result[0].std).toBe(MAX_USER_STD);
   });
 
+  // Exact MIN_USER_STD boundary trio (mirrors translator block above).
+  it('std = MIN_USER_STD (1e-4) → unchanged', () => {
+    const result = buildParameterUncertainties(buildGraph(0.5, 1e-4));
+    expect(result[0].std).toBe(1e-4);
+  });
+
+  it('std = 0.99e-4 → clamped up to MIN_USER_STD', () => {
+    const result = buildParameterUncertainties(buildGraph(0.5, 0.99e-4));
+    expect(result[0].std).toBe(MIN_USER_STD);
+  });
+
+  it('std = 1.01e-4 → unchanged', () => {
+    const result = buildParameterUncertainties(buildGraph(0.5, 1.01e-4));
+    expect(result[0].std).toBe(1.01e-4);
+  });
+
   it('std = 0 treated as missing → value-based default, floored', () => {
     const result = buildParameterUncertainties(buildGraph(0.5, 0));
     expect(result[0].std).toBe(DEFAULT_STD_FLOOR);
@@ -237,6 +270,9 @@ describe('translator vs preflight parity for std derivation', () => {
     { name: 'medium user std', value: 0.5, std: 0.05 },
     { name: 'large user std', value: 50, std: 1.5 },
     { name: 'sub-min user std', value: 0.5, std: 1e-8 },
+    { name: 'at-min user std (1e-4)', value: 0.5, std: 1e-4 },
+    { name: 'just-below-min user std (0.99e-4)', value: 0.5, std: 0.99e-4 },
+    { name: 'just-above-min user std (1.01e-4)', value: 0.5, std: 1.01e-4 },
     { name: 'over-max user std', value: 50, std: 3.0 },
     { name: 'zero user std', value: 0.5, std: 0 },
     { name: 'negative user std', value: 10, std: -0.1 },
