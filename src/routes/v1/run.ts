@@ -152,16 +152,18 @@ function transformSensitivityToEnrichment(
  * Extract parameter uncertainties from graph factor nodes.
  *
  * NOTE: this helper is currently **dead code**. The result is assigned to a
- * local `parameterUncertainties` in the `/v1/run` handler but is not passed
- * into `islService.analyseRobustness(...)`; the ISL service builds its own
- * `parameter_uncertainties` via the shared V3 translator
- * (`buildParameterUncertaintiesV3`) and V2 preflight builder
- * (`buildParameterUncertainties`) — both of which honour user-supplied
- * `observed_state.std`. Active V1 outbound behaviour is therefore governed
- * by the shared preflight/translator path, not by this helper.
+ * local `parameterUncertainties` in the `/v1/run` handler but is never passed
+ * into `islService.analyseRobustness(...)`. Active V1 outbound
+ * `parameter_uncertainties` is built inside `islService.analyseRobustness`
+ * (see `src/integrations/isl/index.ts`) via the preflight builder
+ * `buildParameterUncertainties`, which honours user-supplied
+ * `observed_state.std`. (The V3 translator `buildParameterUncertaintiesV3`
+ * services a separate path — direct ISL request construction by V2 — and
+ * uses the same shared bounds module, so behaviour is identical across
+ * paths.)
  *
  * Kept for now to avoid widening this PR's scope. Slated for removal (or
- * replacement with a call to the shared builders) in a follow-up cleanup.
+ * replacement with a call to `buildParameterUncertainties`) in a follow-up.
  */
 function extractParameterUncertainties(graph: { nodes: any[]; edges: any[] }): ISLParameterUncertainty[] {
   return graph.nodes
