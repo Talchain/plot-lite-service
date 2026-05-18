@@ -31,7 +31,7 @@ import { generateInsights } from '../../trust/insights.js';
 import { analyseEvidence } from '../../trust/evidence-analysis.js';
 import { computeFullSensitivity } from '../../trust/sensitivity-full.js';
 import { calculateCalibratedConfidence, compareConfidence } from '../../trust/confidence-calibrated.js';
-import { getISLService, type PLoTValidationResult, type PLoTSensitivityResult, type PLoTFactorSensitivityResult, type ISLParameterUncertainty } from '../../integrations/isl/index.js';
+import { getISLService, type PLoTValidationResult, type PLoTSensitivityResult, type PLoTFactorSensitivityResult } from '../../integrations/isl/index.js';
 import { recordEngineComputeMs } from '../../metrics.js';
 import { CEE_TIMEOUT_MS } from '../../config/timeouts.js';
 import {
@@ -146,35 +146,6 @@ function transformSensitivityToEnrichment(
     fragile_edges: fragileEdges.length > 0 ? fragileEdges : undefined,
     recommendations: sensitivity.recommendations.length > 0 ? sensitivity.recommendations : undefined,
   };
-}
-
-/**
- * Extract parameter uncertainties from graph factor nodes.
- *
- * NOTE: this helper is currently **dead code**. The result is assigned to a
- * local `parameterUncertainties` in the `/v1/run` handler but is never passed
- * into `islService.analyseRobustness(...)`. Active V1 outbound
- * `parameter_uncertainties` is built inside `islService.analyseRobustness`
- * (see `src/integrations/isl/index.ts`) via the preflight builder
- * `buildParameterUncertainties`, which honours user-supplied
- * `observed_state.std`. (The V3 translator `buildParameterUncertaintiesV3`
- * services a separate path — direct ISL request construction by V2 — and
- * uses the same shared bounds module, so behaviour is identical across
- * paths.)
- *
- * Kept for now to avoid widening this PR's scope. Slated for removal (or
- * replacement with a call to `buildParameterUncertainties`) in a follow-up.
- */
-function extractParameterUncertainties(graph: { nodes: any[]; edges: any[] }): ISLParameterUncertainty[] {
-  return graph.nodes
-    .filter((n: any) => n.kind === 'factor' && n.observed_state?.value !== undefined && Number.isFinite(n.observed_state.value))
-    .map((n: any) => ({
-      node_id: n.id,
-      distribution: 'normal' as const,
-      mean: n.observed_state.value,
-      // Default uncertainty: ±20% of value, minimum 0.1
-      std: Math.max(Math.abs(n.observed_state.value) * 0.2, 0.1),
-    }));
 }
 
 /**
@@ -964,8 +935,6 @@ export async function registerRunRoute(app: FastifyInstance) {
     if (islService.isEnabled() && detail_level !== 'quick') {
       const islStartTime = Date.now();
       try {
-        // Extract parameter uncertainties for factor sensitivity analysis
-        const parameterUncertainties = extractParameterUncertainties(graph);
         const optionNodes = extractOptionNodes(graph);
 
         // Run ISL calls in parallel for efficiency
