@@ -1460,11 +1460,22 @@ export type ConfidenceSource =
 
 /**
  * Formula-version tag for the unified confidence computation.
- * v2 distinguishes `low` from `negligible` in the band-score table — see
- * truth-table row A1-SECONDARY. Single-valued at this tranche; future
- * Jinghui-led calibration may extend.
+ *
+ * - `'plot_unified_v2'` — 0.5 × attribution_stability_band_score + 0.5 × mean(exists_probability).
+ *   The band score is a 4-bucket map of ISL's `attribution_stability` category.
+ * - `'plot_unified_v3'` — 0.5 × ISL_continuous_bootstrap_confidence + 0.5 × mean(exists_probability).
+ *   Replaces the 4-bucket band with ISL's already-continuous bootstrap-derived
+ *   confidence value (rounded to 4 decimals on the ISL side). Used when ISL
+ *   emits a finite confidence in [0, 1] alongside a non-null
+ *   `attribution_stability`. Falls back to v2 when ISL confidence is absent
+ *   or invalid. Preserves `confidence_source` and the 50/50 blend; the
+ *   only material difference is the granularity of the stability term.
+ *
+ * Future Jinghui-led calibration may extend further. DGAI's debug hook
+ * validates this field with `/^plot_unified_v\d+$/` — extensions must keep
+ * to that family.
  */
-export type ConfidenceFormulaVersion = 'plot_unified_v2';
+export type ConfidenceFormulaVersion = 'plot_unified_v2' | 'plot_unified_v3';
 
 /**
  * Calibration status for the confidence formula. Single-valued at this tranche
@@ -1613,9 +1624,22 @@ export interface FactorSensitivityResultV3 {
   evpi_method?: 'heuristic' | 'counterfactual';
   /**
    * Confidence in the sensitivity score (0-1).
-   * Unified formula (plot_unified_v2): 0.5 × attribution_stability_band_score
-   *   + 0.5 × mean(exists_probability of incoming edges).
-   * Always PLoT-recomputed — ISL's own `confidence` is dropped on receipt.
+   *
+   * Always PLoT-recomputed; never a raw passthrough of ISL's own `confidence`
+   * label. The merge step writes one of:
+   *
+   * - `plot_unified_v3` (when ISL emits a finite continuous `confidence` and a
+   *   non-null `attribution_stability`):
+   *     0.5 × ISL_continuous_bootstrap_confidence + 0.5 × mean(exists_probability)
+   *   ISL's continuous value is consumed as the stability input; the public
+   *   value remains PLoT-computed (the 50/50 blend + clamp is the PLoT step).
+   *
+   * - `plot_unified_v2` (fallback when ISL continuous confidence is absent or
+   *   invalid):
+   *     0.5 × band_score(attribution_stability) + 0.5 × mean(exists_probability)
+   *   The 4-bucket band collapses ISL's stability category to {0, 0.25, 0.5, 1.0}.
+   *
+   * The active formula is disclosed via `confidence_provenance.formula_version`.
    * @see truth-table row A1-PRIMARY (audit 2026-05-truth-table)
    */
   confidence?: number;

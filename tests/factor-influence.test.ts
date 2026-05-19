@@ -1024,13 +1024,13 @@ describe('computeUnifiedConfidence', () => {
     // Source remains 'plot_unified_from_graph' (audit A1-PRIMARY: source enum
     // tags COMPUTATION origin; degeneracy moved to input_quality).
     expect(computeUnifiedConfidence(null, undefined)).toEqual({
-      confidence: 0.5, source: 'plot_unified_from_graph', input_quality: 'degenerate_fallback',
+      confidence: 0.5, source: 'plot_unified_from_graph', input_quality: 'degenerate_fallback', formula_version: 'plot_unified_v2',
     });
     expect(computeUnifiedConfidence(undefined, null)).toEqual({
-      confidence: 0.5, source: 'plot_unified_from_graph', input_quality: 'degenerate_fallback',
+      confidence: 0.5, source: 'plot_unified_from_graph', input_quality: 'degenerate_fallback', formula_version: 'plot_unified_v2',
     });
     expect(computeUnifiedConfidence(null, [])).toEqual({
-      confidence: 0.5, source: 'plot_unified_from_graph', input_quality: 'degenerate_fallback',
+      confidence: 0.5, source: 'plot_unified_from_graph', input_quality: 'degenerate_fallback', formula_version: 'plot_unified_v2',
     });
     // Plain exists_probability without strength data also hits degenerate branch
     // (graph branch requires strength_mean/std to activate CV path).
@@ -1038,6 +1038,7 @@ describe('computeUnifiedConfidence', () => {
       confidence: 0.7, // 0.5 × 0.5 + 0.5 × 0.9
       source: 'plot_unified_from_graph',
       input_quality: 'degenerate_fallback',
+      formula_version: 'plot_unified_v2',
     });
   });
 
@@ -1050,25 +1051,27 @@ describe('computeUnifiedConfidence', () => {
   });
 
   it('returns source: plot_unified_from_isl_bootstrap (bootstrap-dominated) when edges absent', () => {
-    // moderate (0.5), no edges → 0.5 × 0.5 + 0.5 × 0.5 = 0.5
+    // moderate (0.5), no edges, no ISL continuous confidence → v2 band path:
+    //   0.5 × 0.5 + 0.5 × 0.5 = 0.5
     expect(computeUnifiedConfidence('moderate', undefined)).toEqual({
-      confidence: 0.5, source: 'plot_unified_from_isl_bootstrap', input_quality: 'standard',
+      confidence: 0.5, source: 'plot_unified_from_isl_bootstrap', input_quality: 'standard', formula_version: 'plot_unified_v2',
     });
     // high (1.0), no edges → 0.5 × 1.0 + 0.5 × 0.5 = 0.75
     expect(computeUnifiedConfidence('high', undefined)).toEqual({
-      confidence: 0.75, source: 'plot_unified_from_isl_bootstrap', input_quality: 'standard',
+      confidence: 0.75, source: 'plot_unified_from_isl_bootstrap', input_quality: 'standard', formula_version: 'plot_unified_v2',
     });
   });
 
-  it('distinguishes low and negligible at root factors (audit A1-SECONDARY, plot_unified_v2)', () => {
+  it('distinguishes low and negligible at root factors (audit A1-SECONDARY, plot_unified_v2 fallback)', () => {
+    // No ISL continuous confidence supplied → falls through to v2 band path.
     // Under v2 band table {high:1.0, moderate:0.5, low:0.25, negligible:0.0}:
     // low (0.25), no edges → 0.5 × 0.25 + 0.5 × 0.5 = 0.375
     expect(computeUnifiedConfidence('low', undefined)).toEqual({
-      confidence: 0.375, source: 'plot_unified_from_isl_bootstrap', input_quality: 'standard',
+      confidence: 0.375, source: 'plot_unified_from_isl_bootstrap', input_quality: 'standard', formula_version: 'plot_unified_v2',
     });
     // negligible (0.0), no edges → 0.5 × 0.0 + 0.5 × 0.5 = 0.25
     expect(computeUnifiedConfidence('negligible', undefined)).toEqual({
-      confidence: 0.25, source: 'plot_unified_from_isl_bootstrap', input_quality: 'standard',
+      confidence: 0.25, source: 'plot_unified_from_isl_bootstrap', input_quality: 'standard', formula_version: 'plot_unified_v2',
     });
     // Critical regression: outputs MUST be distinct (was 0.25 for both pre-v2)
     const lowOut = computeUnifiedConfidence('low', undefined).confidence;
@@ -1090,10 +1093,10 @@ describe('computeUnifiedConfidence', () => {
 
   it('clamps confidence to [0, 1]', () => {
     expect(computeUnifiedConfidence('high', [{ exists_probability: 1.0 }])).toEqual({
-      confidence: 1.0, source: 'plot_unified_from_isl_bootstrap', input_quality: 'standard',
+      confidence: 1.0, source: 'plot_unified_from_isl_bootstrap', input_quality: 'standard', formula_version: 'plot_unified_v2',
     });
     expect(computeUnifiedConfidence('negligible', [{ exists_probability: 0.0 }])).toEqual({
-      confidence: 0.0, source: 'plot_unified_from_isl_bootstrap', input_quality: 'standard',
+      confidence: 0.0, source: 'plot_unified_from_isl_bootstrap', input_quality: 'standard', formula_version: 'plot_unified_v2',
     });
   });
 

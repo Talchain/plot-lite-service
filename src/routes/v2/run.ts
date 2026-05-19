@@ -558,11 +558,16 @@ function mapIslFactorEntry(f: any, normContext?: NormalisationContext): FactorSe
   // different from "this factor has zero influence". Let undefined pass through.
   //
   // Confidence honesty (audit A1-PRIMARY): the `confidence` value emitted here
-  // is ISL's own value — it MUST NOT reach the public response. The merge
-  // step (`mergeIslConfidenceIntoGraphFactors` in factor-influence.ts) strips
-  // both `confidence` and `confidence_source` from every ISL entry before
-  // forming the public `factor_sensitivity[]`. ISL's labels (e.g.
-  // `confidence_source: "bootstrap_sampling"`) likewise never propagate.
+  // is ISL's own value — it MUST NOT reach the public response as the final
+  // displayed confidence. The merge step (`mergeIslConfidenceIntoGraphFactors`
+  // in factor-influence.ts) always recomputes the public value:
+  //   - Under v3, ISL's `confidence` is consumed as the stability input to a
+  //     50/50 blend with the edge component; PLoT's blend + clamp + provenance
+  //     tag are what reach the response.
+  //   - Under v2, ISL's `confidence` is dropped entirely and the 4-bucket
+  //     band of `attribution_stability` is used instead.
+  // Either way, ISL's `confidence_source` label (e.g. `"bootstrap_sampling"`)
+  // is stripped before merge.
   //
   // `confidence_source` and `confidence_provenance` are TYPE-REQUIRED on the
   // public type. We populate placeholder values here purely so the
