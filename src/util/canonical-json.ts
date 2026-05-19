@@ -93,12 +93,30 @@ export function normaliseReport(report: unknown): unknown {
 
   // Remove request_id at root level (varies per-request, not deterministic)
   delete normalised.request_id;
-  
+
+  // Additive margin-sensitivity diagnostic — excluded from response_hash so
+  // that adding this enrichment does not perturb existing canonical hashes.
+  //  - Top-level: flip_thresholds_margin_status, flip_thresholds_margin_coverage
+  //  - Per-entry: flip_thresholds[].margin_sensitivity
+  delete normalised.flip_thresholds_margin_status;
+  delete normalised.flip_thresholds_margin_coverage;
+  const flipThresholds = normalised.flip_thresholds;
+  if (Array.isArray(flipThresholds)) {
+    normalised.flip_thresholds = flipThresholds.map((entry) => {
+      if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
+        const copy = { ...(entry as Record<string, unknown>) };
+        delete copy.margin_sensitivity;
+        return copy;
+      }
+      return entry;
+    });
+  }
+
   // Normalize critique to array
   if ('critique' in normalised) {
     normalised.critique = normaliseCritique(normalised.critique);
   }
-  
+
   return normalised;
 }
 

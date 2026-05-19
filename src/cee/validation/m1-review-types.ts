@@ -12,6 +12,7 @@
 
 import { z } from 'zod';
 import { M1_REVIEW_LIMITS, type ReviewStatus, type ReviewSkipReason } from './m1-review-constants.js';
+import type { MarginSensitivity } from '../../analysis/margin-sensitivity.js';
 
 // =============================================================================
 // M1Review — What CEE Returns
@@ -295,6 +296,12 @@ export interface FlipThresholdInputData {
   alternative_winner_id?: string | null;
   /** Factor unit from observed_state (e.g., "GBP", "%") */
   unit?: string;
+  /**
+   * Additive lead-margin diagnostic computed from the Step-0 flip-search probes.
+   * Optional — omitted on entries that did not complete the probe phase
+   * (pre-probe timeout, non-finite baseline, probe exception, heuristic path).
+   */
+  margin_sensitivity?: MarginSensitivity;
 }
 
 /**

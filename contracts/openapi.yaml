@@ -5989,6 +5989,57 @@ components:
                 otherwise imply every non-computed factor was a harmless
                 no_effect_within_bounds case.
             Payload-only debug metadata; never user-facing copy.
+        flip_thresholds_margin_status:
+          type: string
+          enum: [computed, partial_movement, all_none, unavailable]
+          description: |
+            Additive lead-margin classification across `flip_thresholds[]`.
+            Distinct from `flip_thresholds_status` (which is strict-flip
+            oriented). Surfaces whether the tested factor range
+            materially weakens, strengthens, or flips the leading
+            option's lead margin, even when no strict winner flip
+            occurs. Diagnostic only; PR exposes for future DGAI /
+            debug consumption. Excluded from `response_hash`. UI
+            vocabulary; values never user-facing.
+
+            Classification:
+              - `computed`         : ≥1 entry has movement ∈
+                                     {flipped, weakened, strengthened},
+                                     no entry-with-margin has movement
+                                     === 'none'
+              - `partial_movement` : ≥1 entry has movement, ≥1 entry
+                                     -with-margin has movement === 'none'
+              - `all_none`         : every entry-with-margin has movement
+                                     === 'none'
+              - `unavailable`      : no entry carries `margin_sensitivity`
+                                     (or array empty)
+
+            Entries lacking `margin_sensitivity` are excluded from the
+            classification — see `flip_thresholds_margin_coverage` for
+            honest counts.
+        flip_thresholds_margin_coverage:
+          type: object
+          description: |
+            Honest counters for `margin_sensitivity` coverage across
+            `flip_thresholds[]`. Some entries (pre-probe timeout,
+            non-finite baseline, heuristic-only) lack margin evidence;
+            this object surfaces that explicitly so consumers do not
+            assume universal margin coverage. Excluded from
+            `response_hash`. Diagnostic only.
+          properties:
+            total:
+              type: integer
+              minimum: 0
+              description: Total entries in `flip_thresholds[]`.
+            with_margin:
+              type: integer
+              minimum: 0
+              description: Entries that carry `margin_sensitivity`.
+            without_margin:
+              type: integer
+              minimum: 0
+              description: Entries that do not carry `margin_sensitivity`.
+          required: [total, with_margin, without_margin]
         critiques:
           type: array
           items:

@@ -16,6 +16,7 @@
  */
 
 import type { FlipThresholdInputData } from '../cee/validation/m1-review-types.js';
+import { computeMarginSensitivity, type MarginSensitivity } from './margin-sensitivity.js';
 
 // =============================================================================
 // Types
@@ -87,6 +88,12 @@ export interface FlipDiagnostics {
   flip_reason: string;
   flip_value: number | null;
   alternative_winner_id: string | null;
+  /**
+   * Additive lead-margin diagnostic computed from the Step-0 probes.
+   * Omitted on entries where probes did not complete (pre-probe timeout,
+   * non-finite baseline, or exception during the parallel probe phase).
+   */
+  margin_sensitivity?: MarginSensitivity;
 }
 
 // =============================================================================
@@ -210,12 +217,24 @@ async function searchFlipForFactor(
     diag.winner_at_min = W_min;
     diag.winner_at_max = W_max;
 
+    // Margin-sensitivity diagnostic — computed once from the three already-fetched
+    // probe results. Strict-flip detected iff either bound's argmax differs from
+    // baseline's argmax. Attached to every probe-completed return below.
+    const strictFlipDetected = W_min !== W0 || W_max !== W0;
+    const marginSensitivity = computeMarginSensitivity({
+      baseline: baselineResult,
+      min: minResult,
+      max: maxResult,
+      strictFlipDetected,
+    });
+    diag.margin_sensitivity = marginSensitivity;
+
     // Step 1: If winner is the same at baseline and both bounds → factor cannot flip
     if (W_min === W0 && W_max === W0) {
       diag.flip_reason = 'no_effect_within_bounds';
       diag.iterations_used = 0;
       return {
-        result: { ...candidate, flip_value: null, flip_reason: 'no_effect_within_bounds', iterations_used: 0, alternative_winner_id: null },
+        result: { ...candidate, flip_value: null, flip_reason: 'no_effect_within_bounds', iterations_used: 0, alternative_winner_id: null, margin_sensitivity: marginSensitivity },
         diagnostics: diag,
       };
     }
@@ -276,7 +295,7 @@ async function searchFlipForFactor(
         diag.flip_value = flipValue;
         diag.alternative_winner_id = farWinner;
         return {
-          result: { ...candidate, flip_value: flipValue, flip_reason: 'timeout', iterations_used: iterations, alternative_winner_id: farWinner },
+          result: { ...candidate, flip_value: flipValue, flip_reason: 'timeout', iterations_used: iterations, alternative_winner_id: farWinner, margin_sensitivity: marginSensitivity },
           diagnostics: diag,
         };
       }
@@ -300,7 +319,7 @@ async function searchFlipForFactor(
       } else {
         // Non-monotonic: a third option became the winner. Fall back to grid scan.
         return await gridFallback(
-          candidate, inferenceFn, originalWinnerId, 0, 1, config, factorDeadline, iterations, diag
+          candidate, inferenceFn, originalWinnerId, 0, 1, config, factorDeadline, iterations, diag, marginSensitivity
         );
       }
     }
@@ -317,14 +336,14 @@ async function searchFlipForFactor(
     if (precisionAchieved > config.precisionTarget) {
       diag.flip_reason = 'insufficient_precision';
       return {
-        result: { ...candidate, flip_value: flipValue, flip_reason: 'insufficient_precision', iterations_used: iterations, alternative_winner_id: farWinner },
+        result: { ...candidate, flip_value: flipValue, flip_reason: 'insufficient_precision', iterations_used: iterations, alternative_winner_id: farWinner, margin_sensitivity: marginSensitivity },
         diagnostics: diag,
       };
     }
 
     diag.flip_reason = 'found';
     return {
-      result: { ...candidate, flip_value: flipValue, flip_reason: 'found', iterations_used: iterations, alternative_winner_id: farWinner },
+      result: { ...candidate, flip_value: flipValue, flip_reason: 'found', iterations_used: iterations, alternative_winner_id: farWinner, margin_sensitivity: marginSensitivity },
       diagnostics: diag,
     };
   } catch (err) {
@@ -353,7 +372,8 @@ async function gridFallback(
   config: FlipSearchConfig,
   deadline: number,
   iterationsSoFar: number,
-  diag: FlipDiagnostics
+  diag: FlipDiagnostics,
+  marginSensitivity: MarginSensitivity
 ): Promise<{ result: FlipThresholdInputData; diagnostics: FlipDiagnostics }> {
   let iterations = iterationsSoFar;
   const step = (high - low) / (config.maxGridPoints - 1);
@@ -363,7 +383,7 @@ async function gridFallback(
       diag.iterations_used = iterations;
       diag.flip_reason = 'timeout';
       return {
-        result: { ...candidate, flip_value: null, flip_reason: 'timeout', iterations_used: iterations, alternative_winner_id: null },
+        result: { ...candidate, flip_value: null, flip_reason: 'timeout', iterations_used: iterations, alternative_winner_id: null, margin_sensitivity: marginSensitivity },
         diagnostics: diag,
       };
     }
@@ -382,7 +402,7 @@ async function gridFallback(
         diag.flip_value = flipValue;
         diag.alternative_winner_id = winner;
         return {
-          result: { ...candidate, flip_value: flipValue, flip_reason: 'non_monotonic_grid', iterations_used: iterations, alternative_winner_id: winner },
+          result: { ...candidate, flip_value: flipValue, flip_reason: 'non_monotonic_grid', iterations_used: iterations, alternative_winner_id: winner, margin_sensitivity: marginSensitivity },
           diagnostics: diag,
         };
       }
@@ -396,7 +416,7 @@ async function gridFallback(
   diag.iterations_used = iterations;
   diag.flip_reason = 'no_effect_within_bounds';
   return {
-    result: { ...candidate, flip_value: null, flip_reason: 'no_effect_within_bounds', iterations_used: iterations, alternative_winner_id: null },
+    result: { ...candidate, flip_value: null, flip_reason: 'no_effect_within_bounds', iterations_used: iterations, alternative_winner_id: null, margin_sensitivity: marginSensitivity },
     diagnostics: diag,
   };
 }
