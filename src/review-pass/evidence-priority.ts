@@ -70,6 +70,13 @@ export const EVIDENCE_PRIORITY_SUPPRESSION_THRESHOLD = 0.05;
  * keeps `negligible` at 0.0 (no information loss). High and moderate are
  * unchanged. See truth-table row A1-SECONDARY for evidence.
  *
+ * v3 (formula_version `plot_unified_v3`): the unified formula prefers ISL's
+ * continuous bootstrap confidence to the band collapse; this table is used
+ * only as the v2 fallback when ISL's continuous confidence is absent or
+ * out-of-range. Sampling_stability progressive disclosure still derives
+ * from this table on every entry where ISL emits `attribution_stability`,
+ * regardless of which formula version produced the public `confidence`.
+ *
  * Coefficients are still operational defaults pending pilot calibration
  * (Neil gate 1, Jinghui calibration brief).
  */
