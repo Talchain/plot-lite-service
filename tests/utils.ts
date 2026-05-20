@@ -203,6 +203,40 @@ export function writeTestConfig(dir: string, config: Record<string, any>): strin
 }
 
 /**
+ * Per-test isolated runtime-config file for spawned-subprocess tests.
+ *
+ * Each call creates a unique `artifact/<prefix>-<id>/` directory and writes
+ * the initial config to `runtime-config.json` inside it. The spawned server
+ * is pointed at it via the `RUNTIME_CONFIG_PATH` env var (consumed by
+ * `src/main.ts` on SIGHUP, with the historical hardcoded path as fallback).
+ *
+ * Multi-threaded vitest pools can therefore run rate-limit / SSE / config-
+ * reload tests concurrently without racing on a single shared on-disk file.
+ *
+ * Use `rewrite(next)` for mid-test config changes (e.g. SIGHUP-driven
+ * hot-reload tests). Always call `cleanup()` in `finally{}` to remove the
+ * temp directory.
+ */
+export interface IsolatedRuntimeConfig {
+  path: string;
+  rewrite: (next: Record<string, any>) => void;
+  cleanup: () => void;
+}
+
+export function makeIsolatedRuntimeConfig(
+  prefix: string,
+  initial: Record<string, any>,
+): IsolatedRuntimeConfig {
+  const dir = createTestArtifactDir(prefix);
+  const path = writeTestConfig(dir.path, initial);
+  return {
+    path,
+    rewrite: (next) => writeTestConfig(dir.path, next),
+    cleanup: dir.cleanup,
+  };
+}
+
+/**
  * Consume response body to prevent ECONNRESET errors
  * Must be called before assertions to ensure connection is fully closed
  */
