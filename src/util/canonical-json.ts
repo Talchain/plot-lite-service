@@ -104,9 +104,10 @@ export function normaliseReport(report: unknown): unknown {
   if (Array.isArray(flipThresholds)) {
     normalised.flip_thresholds = flipThresholds.map((entry) => {
       if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
-        const copy = { ...(entry as Record<string, unknown>) };
-        delete copy.margin_sensitivity;
-        return copy;
+        // Destructure-discard is idiomatic and avoids the `delete` operator,
+        // which deoptimises object shape in V8.
+        const { margin_sensitivity: _omitted, ...rest } = entry as Record<string, unknown>;
+        return rest;
       }
       return entry;
     });
