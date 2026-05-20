@@ -6016,7 +6016,8 @@ components:
 
             Entries lacking `margin_sensitivity` are excluded from the
             classification — see `flip_thresholds_margin_coverage` for
-            honest counts.
+            honest counts. The per-entry `margin_sensitivity` object's
+            shape is declared at `#/components/schemas/MarginSensitivity`.
         flip_thresholds_margin_coverage:
           type: object
           description: |
@@ -6412,3 +6413,138 @@ components:
         trace_id:
           type: string
           description: 'Optional client-provided trace identifier echoed from X-Trace-Id when TRACE_ID_PASSTHROUGH=1'
+
+    # =========================================================================
+    # MarginSensitivity — additive per-entry lead-margin diagnostic surfaced
+    # on each `flip_thresholds[]` entry. Declared here as a standalone schema
+    # so DGAI generated clients can $ref a concrete type; the surrounding
+    # per-entry `flip_thresholds[]` shape itself remains undeclared (consistent
+    # with the rest of `flip_thresholds[]` today). Excluded from response_hash.
+    # =========================================================================
+    MarginSensitivity:
+      type: object
+      description: |
+        Additive lead-margin diagnostic computed from the Step-0 flip-search
+        probes (baseline / lower-bound / upper-bound). Surfaces whether the
+        tested factor range materially weakens, strengthens, or flips the
+        baseline-leading option's win-probability margin over the strongest
+        alternative.
+
+        Display-ready fields (`strongest_delta`, `strongest_delta_abs`,
+        `strongest_delta_percentage_points`, `display_value_available`) let
+        DGAI render copy directly without re-deriving from the raw deltas.
+
+        Notes:
+          - `strongest_probe_value` is the tested bound (or `null` when the
+            strict flip was found inside the interval by binary search). It
+            is NOT the exact flip threshold — that remains `flip_value` on
+            the surrounding flip_thresholds entry.
+          - `display_value_available` is `true` only when
+            `strongest_probe_value` is finite AND has been denormalised to
+            display units (`value_scale === 'display'`). DGAI must not
+            render `strongest_probe_value` unless this is `true`.
+          - `min_probe_delta` and `max_probe_delta` are raw diagnostics, not
+            the field DGAI should display.
+          - Excluded from `response_hash`.
+      required:
+        - movement
+        - threshold
+        - baseline_leading_option_id
+        - baseline_runner_up_option_id
+        - baseline_margin
+        - min_probe_margin
+        - max_probe_margin
+        - min_probe_delta
+        - max_probe_delta
+        - strongest_direction
+        - strongest_probe_value
+        - value_scale
+        - strongest_delta
+        - strongest_delta_abs
+        - strongest_delta_percentage_points
+        - display_value_available
+      properties:
+        movement:
+          type: string
+          enum: [none, weakened, strengthened, flipped]
+          description: |
+            'flipped'      = strict flip (winner identity changes, or a bound
+                             probe shows the baseline leader is no longer the
+                             strongest);
+            'weakened'     = lead margin compresses by >= `threshold` at one
+                             or both bounds (no strict flip);
+            'strengthened' = lead margin grows by >= `threshold` at one or
+                             both bounds (no strict flip);
+            'none'         = no material movement and no flip.
+        threshold:
+          type: number
+          description: |
+            Provisional minimum signed lead-margin movement (in probability
+            decimals) required to classify a probe as material. Default 0.05
+            = 5 percentage points. Documented as provisional, not calibrated.
+        baseline_leading_option_id:
+          type: string
+          nullable: true
+          description: Option_id of the baseline-leading option, or null when fewer than 2 valid options were available at baseline.
+        baseline_runner_up_option_id:
+          type: string
+          nullable: true
+          description: Option_id of the baseline runner-up (deterministic tie-break - lexicographic option_id ascending).
+        baseline_margin:
+          type: number
+          nullable: true
+          description: 'Baseline leader''s win_probability minus runner-up''s win_probability. Decimals in [0, 1].'
+        min_probe_margin:
+          type: number
+          nullable: true
+          description: Lead margin at the lower factor bound, for the baseline leader. Negative when the baseline leader is no longer the strongest at this probe (a bound-level flip).
+        max_probe_margin:
+          type: number
+          nullable: true
+          description: Lead margin at the upper factor bound, for the baseline leader.
+        min_probe_delta:
+          type: number
+          nullable: true
+          description: 'min_probe_margin - baseline_margin. Negative = lead margin weakened toward the lower bound.'
+        max_probe_delta:
+          type: number
+          nullable: true
+          description: 'max_probe_margin - baseline_margin. Negative = lead margin weakened toward the upper bound.'
+        strongest_direction:
+          type: string
+          enum: [towards_min, towards_max, both, none]
+          description: |
+            Direction of the strongest material movement.
+            'both' when both bounds exceed threshold with opposite signs.
+            'none' when no material movement, or for strict-flip-via-interior-binary-search (where neither bound flipped on its own).
+        strongest_probe_value:
+          type: number
+          nullable: true
+          description: |
+            Tested bound corresponding to `strongest_direction` (in normalised [0, 1] until denormalised). NOT the exact flip threshold - see `flip_value` on the surrounding entry. Null when `strongest_direction === 'none'` or no finite probe value applies.
+        value_scale:
+          type: string
+          enum: [normalised, display]
+          description: |
+            'normalised' when `strongest_probe_value` is in [0, 1] (helper output, or no factor context available for denormalisation).
+            'display' when `strongest_probe_value` has been converted to the factor's display units.
+        strongest_delta:
+          type: number
+          nullable: true
+          description: |
+            Signed decimal of the selected delta. Negative = baseline leader's margin weakened; positive = strengthened. Null when movement === 'none' or no finite delta is available.
+        strongest_delta_abs:
+          type: number
+          nullable: true
+          minimum: 0
+          description: '|strongest_delta|. Null when strongest_delta is null.'
+        strongest_delta_percentage_points:
+          type: number
+          nullable: true
+          minimum: 0
+          description: |
+            `strongest_delta_abs * 100`. The display-ready percentage-point value DGAI should render. Not aggressively rounded - house style applies the final rounding. Null when strongest_delta_abs is null.
+        display_value_available:
+          type: boolean
+          description: |
+            True ONLY when `strongest_probe_value` is finite AND `value_scale === 'display'`. DGAI must not render `strongest_probe_value` unless true.
