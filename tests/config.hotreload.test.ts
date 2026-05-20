@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { spawn } from 'node:child_process';
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { makeIsolatedRuntimeConfig } from './utils.js';
 
 function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
 function nextPort() { return 22600 + Math.floor(Math.random() * 500); }
@@ -18,9 +18,15 @@ describe('runtime config hot-reload', () => {
   it('SIGHUP reload increases sse_per_ip_max from 1 to 2', async () => {
     const PORT = nextPort();
     const BASE = `http://127.0.0.1:${PORT}`;
-    try { mkdirSync('artifact', { recursive: true }); } catch {}
-    writeFileSync('artifact/runtime-config.json', JSON.stringify({ sse_per_ip_max: 1, sse_global_max: 100, rate_limit_rpm: 60 }, null, 2));
-    const env = { ...process.env, PORT: String(PORT), TEST_ROUTES: '1', AUTH_ENABLED: '0', SSE_PER_IP_MAX: '1' } as any;
+    const cfg = makeIsolatedRuntimeConfig('config-hotreload', { sse_per_ip_max: 1, sse_global_max: 100, rate_limit_rpm: 60 });
+    const env = {
+      ...process.env,
+      PORT: String(PORT),
+      TEST_ROUTES: '1',
+      AUTH_ENABLED: '0',
+      SSE_PER_IP_MAX: '1',
+      RUNTIME_CONFIG_PATH: cfg.path,
+    } as any;
     const ps = spawn(process.execPath, ['dist/main.js'], { env, stdio: 'ignore' });
     try {
       const up = await waitHealth(BASE);
@@ -30,7 +36,7 @@ describe('runtime config hot-reload', () => {
       await sleep(150);
       const r429 = await fetch(`${BASE}/v1/stream?latency_ms=10`);
       expect(r429.status).toBe(429);
-      writeFileSync('artifact/runtime-config.json', JSON.stringify({ sse_per_ip_max: 2, sse_global_max: 100, rate_limit_rpm: 60 }, null, 2));
+      cfg.rewrite({ sse_per_ip_max: 2, sse_global_max: 100, rate_limit_rpm: 60 });
       try { ps.kill('SIGHUP'); } catch {}
       await sleep(250);
       const r200 = await fetch(`${BASE}/v1/stream?latency_ms=10`);
@@ -38,6 +44,7 @@ describe('runtime config hot-reload', () => {
       try { ac1.abort(); } catch {}
     } finally {
       try { ps.kill('SIGTERM'); } catch {}
+      cfg.cleanup();
     }
   }, 15000);
 });

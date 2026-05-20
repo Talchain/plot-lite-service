@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { spawn } from 'node:child_process';
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { makeIsolatedRuntimeConfig } from './utils.js';
 
 function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
 function nextPort() { return 22800 + Math.floor(Math.random() * 500); }
@@ -22,9 +22,15 @@ describe('429 clarity headers', () => {
   it('JSON route 429 includes Retry-After and X-RateLimit-Reason; 2xx has no X-RateLimit-Reason', async () => {
     const PORT = nextPort();
     const BASE = `http://127.0.0.1:${PORT}`;
-    try { mkdirSync('artifact', { recursive: true }); } catch {}
-    writeFileSync('artifact/runtime-config.json', JSON.stringify({ sse_per_ip_max: 2, sse_global_max: 100, rate_limit_rpm: 1 }, null, 2));
-    const env = { ...process.env, PORT: String(PORT), TEST_ROUTES: '1', AUTH_ENABLED: '0', RATE_LIMIT_ENABLED: '1' } as any;
+    const cfg = makeIsolatedRuntimeConfig('rate-limit-clarity-json', { sse_per_ip_max: 2, sse_global_max: 100, rate_limit_rpm: 1 });
+    const env = {
+      ...process.env,
+      PORT: String(PORT),
+      TEST_ROUTES: '1',
+      AUTH_ENABLED: '0',
+      RATE_LIMIT_ENABLED: '1',
+      RUNTIME_CONFIG_PATH: cfg.path,
+    } as any;
     const ps = spawn(process.execPath, ['dist/main.js'], { env, stdio: 'ignore' });
     try {
       const up = await waitHealth(BASE);
@@ -43,15 +49,22 @@ describe('429 clarity headers', () => {
       expect(r2.headers.get('X-RateLimit-Reason')).toBe('per_ip');
     } finally {
       try { ps.kill('SIGTERM'); } catch {}
+      cfg.cleanup();
     }
   }, 15000);
 
   it('SSE 429 includes Retry-After and X-RateLimit-Reason', async () => {
     const PORT = nextPort();
     const BASE = `http://127.0.0.1:${PORT}`;
-    try { mkdirSync('artifact', { recursive: true }); } catch {}
-    writeFileSync('artifact/runtime-config.json', JSON.stringify({ sse_per_ip_max: 1, sse_global_max: 100, rate_limit_rpm: 60 }, null, 2));
-    const env = { ...process.env, PORT: String(PORT), TEST_ROUTES: '1', AUTH_ENABLED: '0', RATE_LIMIT_ENABLED: '1' } as any;
+    const cfg = makeIsolatedRuntimeConfig('rate-limit-clarity-sse', { sse_per_ip_max: 1, sse_global_max: 100, rate_limit_rpm: 60 });
+    const env = {
+      ...process.env,
+      PORT: String(PORT),
+      TEST_ROUTES: '1',
+      AUTH_ENABLED: '0',
+      RATE_LIMIT_ENABLED: '1',
+      RUNTIME_CONFIG_PATH: cfg.path,
+    } as any;
     const ps = spawn(process.execPath, ['dist/main.js'], { env, stdio: 'ignore' });
     try {
       const up = await waitHealth(BASE);
@@ -72,6 +85,7 @@ describe('429 clarity headers', () => {
       await p1; // settle
     } finally {
       try { ps.kill('SIGTERM'); } catch {}
+      cfg.cleanup();
     }
   }, 15000);
 });

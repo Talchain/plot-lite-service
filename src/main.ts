@@ -51,10 +51,14 @@ async function start() {
     rate_limit_rpm: rpm
   }, 'server started');
 
-  // Hot-reload knobs on SIGHUP (safe subset)
+  // Hot-reload knobs on SIGHUP (safe subset).
+  // RUNTIME_CONFIG_PATH lets tests (and any deployment that needs a non-default
+  // location) point at an isolated runtime-config file. Defaults to the
+  // historical hardcoded path so production behaviour is unchanged.
+  const RUNTIME_CONFIG_PATH = process.env.RUNTIME_CONFIG_PATH || 'artifact/runtime-config.json';
   process.on('SIGHUP', () => {
     try {
-      const cfg = loadFromFile('artifact/runtime-config.json');
+      const cfg = loadFromFile(RUNTIME_CONFIG_PATH);
       app.log.info({ cfg }, 'runtime-config reloaded');
       // Record last successful reload timestamp
       (async () => { try { const { setLastConfigReloadISO } = await import('./metrics.js'); setLastConfigReloadISO(new Date().toISOString()); } catch (err) {
