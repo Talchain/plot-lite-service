@@ -1021,6 +1021,48 @@ export interface RunResponseV3 {
    */
   flip_thresholds_status_reason?: string;
 
+  /**
+   * Aggregate margin-sensitivity classification across `flip_thresholds[]`.
+   * Additive diagnostic, separate from `flip_thresholds_status`.
+   *
+   * - 'computed'         : at least one entry has movement ∈
+   *                        {flipped, weakened, strengthened}
+   * - 'partial_movement' : at least one entry has movement, at least one
+   *                        entry has movement === 'none'
+   * - 'all_none'         : every entry that carries margin_sensitivity has
+   *                        movement === 'none'
+   * - 'unavailable'      : no entry carries margin_sensitivity (or array
+   *                        empty/absent)
+   *
+   * Entries missing `margin_sensitivity` do NOT count toward `all_none`;
+   * they are excluded from classification.
+   *
+   * NOTE: Deterministic. Excluded from `response_hash` as non-semantic.
+   * @see classifyFlipThresholdsMarginStatus in src/lib/flip-thresholds-margin-status.ts
+   */
+  flip_thresholds_margin_status?:
+    | 'computed'
+    | 'partial_movement'
+    | 'all_none'
+    | 'unavailable';
+
+  /**
+   * Per-array coverage counters for margin-sensitivity. Honest counter so
+   * downstream consumers can tell when only a subset of flip-threshold
+   * entries carry margin evidence.
+   *
+   *  - total          : total entries in `flip_thresholds[]`
+   *  - with_margin    : entries that carry `margin_sensitivity`
+   *  - without_margin : total - with_margin
+   *
+   * Excluded from `response_hash`. Additive diagnostic.
+   */
+  flip_thresholds_margin_coverage?: {
+    total: number;
+    with_margin: number;
+    without_margin: number;
+  };
+
   // ---------------------------------------------------------------------------
   // Threshold Analysis Fields (B10.3)
   // Only present when include_thresholds is true in request

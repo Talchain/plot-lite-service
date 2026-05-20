@@ -109,6 +109,10 @@ import { createISLInferenceFn, resolveFlipValues } from '../../analysis/flip-thr
 import { computeFlipThresholdData } from '../../coaching/flip-thresholds.js';
 import { denormaliseFlipThresholds, type DenormalisedFlipThreshold } from '../../lib/flip-threshold-denormaliser.js';
 import { classifyFlipThresholdsStatus } from '../../lib/flip-threshold-status.js';
+import {
+  classifyFlipThresholdsMarginStatus,
+  computeFlipThresholdsMarginCoverage,
+} from '../../lib/flip-thresholds-margin-status.js';
 import type { CeeReviewRequest, CeeTrace, FactorEnrichment } from '../../cee/types.js';
 // CIL Phase 1: Shared types from @talchain/schemas
 import type { SeedSourceType } from '@talchain/schemas';
@@ -2025,6 +2029,20 @@ function buildResponse(
       return {
         flip_thresholds_status: result.status,
         ...(result.status_reason && { flip_thresholds_status_reason: result.status_reason }),
+      };
+    })(),
+
+    // Additive margin-sensitivity classification + coverage counters.
+    // Separate from flip_thresholds_status (PR #167). Diagnostic only;
+    // excluded from response_hash by normaliseReport(). Surfaces lead-
+    // margin movement (weakened / strengthened / flipped) without
+    // changing PR #167's strict-flip semantics.
+    ...(() => {
+      const marginStatus = classifyFlipThresholdsMarginStatus(flipThresholds);
+      const marginCoverage = computeFlipThresholdsMarginCoverage(flipThresholds);
+      return {
+        flip_thresholds_margin_status: marginStatus.status,
+        flip_thresholds_margin_coverage: marginCoverage,
       };
     })(),
 

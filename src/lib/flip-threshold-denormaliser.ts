@@ -9,8 +9,9 @@
  */
 
 import type { FlipThresholdInputData } from '../cee/validation/m1-review-types.js';
-import type { NormalisationContext } from './intervention-normaliser.js';
+import type { NormalisationContext, NormalisationRange } from './intervention-normaliser.js';
 import { denormaliseValue } from './intervention-normaliser.js';
+import type { MarginSensitivity } from '../analysis/margin-sensitivity.js';
 
 // =============================================================================
 // Types
@@ -38,6 +39,16 @@ export interface DenormalisedFlipThreshold {
   flip_reason: string;
   /** Number of ISL inference iterations used */
   iterations_used?: number;
+  /**
+   * Additive lead-margin diagnostic. Omitted on entries whose flip-search
+   * Step-0 probes did not complete (pre-probe timeout, non-finite baseline,
+   * exception during probe phase, heuristic-only entries).
+   *
+   * `value_scale` is `'display'` only when `strongest_probe_value` has been
+   * denormalised here against a valid factor context. Otherwise it stays
+   * `'normalised'` and the value is preserved as emitted by the helper.
+   */
+  margin_sensitivity?: MarginSensitivity;
 }
 
 // =============================================================================
@@ -82,6 +93,9 @@ export function denormaliseFlipThresholds(
       alternative_winner_label: resolveLabel(flip.alternative_winner_id, options),
       flip_reason: flip.flip_reason ?? 'heuristic',
       iterations_used: flip.iterations_used,
+      ...(flip.margin_sensitivity
+        ? { margin_sensitivity: denormaliseMarginSensitivity(flip.margin_sensitivity, factorContext.range) }
+        : {}),
     };
   });
 }
@@ -109,6 +123,36 @@ function enrichWithLabels(
     alternative_winner_label: resolveLabel(flip.alternative_winner_id, options),
     flip_reason: flip.flip_reason ?? 'heuristic',
     iterations_used: flip.iterations_used,
+    // No factor context for denormalisation. Pass margin_sensitivity through
+    // untouched: `value_scale` stays `'normalised'` for honesty.
+    ...(flip.margin_sensitivity ? { margin_sensitivity: flip.margin_sensitivity } : {}),
+  };
+}
+
+/**
+ * Denormalise `strongest_probe_value` against the factor's range and stamp
+ * `value_scale: 'display'`. Sets `display_value_available` = true ONLY when
+ * the denormalised probe value is itself finite — so DGAI can render
+ * `strongest_probe_value` exactly when this boolean is true.
+ *
+ * Probability fields (margins, deltas, percentage-points) are scale-
+ * independent and pass through unchanged.
+ */
+function denormaliseMarginSensitivity(
+  margin: MarginSensitivity,
+  range: NormalisationRange,
+): MarginSensitivity {
+  const probeIsFinite =
+    margin.strongest_probe_value !== null && Number.isFinite(margin.strongest_probe_value);
+  const denormProbe = probeIsFinite
+    ? denormaliseValue(margin.strongest_probe_value as number, range)
+    : null;
+  const denormProbeFinite = denormProbe !== null && Number.isFinite(denormProbe);
+  return {
+    ...margin,
+    strongest_probe_value: denormProbeFinite ? denormProbe : null,
+    value_scale: 'display',
+    display_value_available: denormProbeFinite,
   };
 }
 

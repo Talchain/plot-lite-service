@@ -627,3 +627,112 @@ describe('createISLInferenceFn()', () => {
     expect(originalPU[0].mean).toBe(0.7);
   });
 });
+
+// =============================================================================
+// Margin Sensitivity Integration
+// =============================================================================
+
+describe('resolveFlipValues() margin_sensitivity integration', () => {
+  /**
+   * Mock that keeps the same winner at every probe but compresses the lead
+   * margin at the lower bound. baseline: a=0.65 b=0.30 c=0.05 (margin 0.35),
+   * min (factor=0): a=0.55 b=0.40 c=0.05 (margin 0.15 → delta -0.20),
+   * max (factor=1): a=0.66 b=0.29 c=0.05 (margin 0.37 → delta +0.02).
+   */
+  function createMarginCompressionAtMinMock(): ISLInferenceFn {
+    return async (_factorId: string, overrideMean: number): Promise<FlipInferenceResult> => {
+      if (overrideMean <= 0) {
+        return {
+          options: [
+            { option_id: 'opt-a', win_probability: 0.55 },
+            { option_id: 'opt-b', win_probability: 0.40 },
+            { option_id: 'opt-c', win_probability: 0.05 },
+          ],
+        };
+      }
+      if (overrideMean >= 1) {
+        return {
+          options: [
+            { option_id: 'opt-a', win_probability: 0.66 },
+            { option_id: 'opt-b', win_probability: 0.29 },
+            { option_id: 'opt-c', win_probability: 0.05 },
+          ],
+        };
+      }
+      return {
+        options: [
+          { option_id: 'opt-a', win_probability: 0.65 },
+          { option_id: 'opt-b', win_probability: 0.30 },
+          { option_id: 'opt-c', win_probability: 0.05 },
+        ],
+      };
+    };
+  }
+
+  it("emits margin_sensitivity 'weakened' alongside flip_reason 'no_effect_within_bounds' (iterations_used: 0 can coexist with non-none margin movement)", async () => {
+    const mock = createMarginCompressionAtMinMock();
+    const candidate = makeCandidate({ current_value: 0.5, direction: 'decrease' });
+
+    const { results } = await resolveFlipValues([candidate], mock, 'opt-a');
+
+    expect(results).toHaveLength(1);
+    expect(results[0].flip_reason).toBe('no_effect_within_bounds');
+    expect(results[0].iterations_used).toBe(0);
+    expect(results[0].flip_value).toBeNull();
+    expect(results[0].alternative_winner_id).toBeNull();
+
+    expect(results[0].margin_sensitivity).toBeDefined();
+    const ms = results[0].margin_sensitivity!;
+    expect(ms.movement).toBe('weakened');
+    expect(ms.baseline_leading_option_id).toBe('opt-a');
+    expect(ms.baseline_runner_up_option_id).toBe('opt-b');
+    expect(ms.strongest_direction).toBe('towards_min');
+    expect(ms.strongest_probe_value).toBe(0);
+    expect(ms.value_scale).toBe('normalised');
+  });
+
+  it("emits margin_sensitivity 'flipped' alongside found flip without disturbing existing fields", async () => {
+    const mock = createMonotonicMock(0.35, 'opt-a', 'opt-b', 'decrease');
+    const candidate = makeCandidate({ current_value: 0.7, direction: 'decrease' });
+
+    const { results } = await resolveFlipValues([candidate], mock, 'opt-a');
+
+    expect(results[0].flip_reason).toBe('found');
+    expect(results[0].flip_value).not.toBeNull();
+    expect(results[0].alternative_winner_id).toBe('opt-b');
+    expect(results[0].margin_sensitivity?.movement).toBe('flipped');
+  });
+
+  it("emits margin_sensitivity 'none' for a genuinely flat factor", async () => {
+    const mock = createNeverFlipMock('opt-a');
+    const candidate = makeCandidate({ current_value: 0.5 });
+
+    const { results } = await resolveFlipValues([candidate], mock, 'opt-a');
+
+    expect(results[0].flip_reason).toBe('no_effect_within_bounds');
+    expect(results[0].margin_sensitivity).toBeDefined();
+    expect(results[0].margin_sensitivity!.movement).toBe('none');
+    expect(results[0].margin_sensitivity!.strongest_direction).toBe('none');
+    expect(results[0].margin_sensitivity!.strongest_probe_value).toBeNull();
+  });
+
+  it('omits margin_sensitivity when the probe phase fails with an exception', async () => {
+    const mock = createErrorMock();
+    const candidate = makeCandidate({ current_value: 0.5 });
+
+    const { results } = await resolveFlipValues([candidate], mock, 'opt-a');
+
+    expect(results[0].flip_reason).toBe('error');
+    expect(results[0].margin_sensitivity).toBeUndefined();
+  });
+
+  it('omits margin_sensitivity when current_value is non-finite (skips probes entirely)', async () => {
+    const mock = createNeverFlipMock();
+    const candidate = makeCandidate({ current_value: Number.NaN });
+
+    const { results } = await resolveFlipValues([candidate], mock, 'opt-a');
+
+    expect(results[0].flip_reason).toBe('error');
+    expect(results[0].margin_sensitivity).toBeUndefined();
+  });
+});
