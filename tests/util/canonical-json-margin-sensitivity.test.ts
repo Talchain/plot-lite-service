@@ -52,6 +52,11 @@ function reportWithMargin() {
           strongest_direction: 'towards_min',
           strongest_probe_value: 0,
           value_scale: 'normalised',
+          // Display-ready fields — also must be excluded from response_hash.
+          strongest_delta: -0.2,
+          strongest_delta_abs: 0.2,
+          strongest_delta_percentage_points: 20,
+          display_value_available: false,
         },
       },
     ],

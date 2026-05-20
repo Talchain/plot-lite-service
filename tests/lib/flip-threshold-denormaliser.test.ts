@@ -196,4 +196,87 @@ describe('denormaliseFlipThresholds()', () => {
       expect(result[0].alternative_winner_label).toBeNull();
     });
   });
+
+  // ===========================================================================
+  // Margin sensitivity — display_value_available reflects whether
+  // strongest_probe_value has actually been denormalised.
+  // ===========================================================================
+
+  describe('margin_sensitivity display_value_available', () => {
+    function makeMarginInput(strongestProbeValue: number | null) {
+      return {
+        movement: 'weakened' as const,
+        threshold: 0.05,
+        baseline_leading_option_id: 'opt-a',
+        baseline_runner_up_option_id: 'opt-b',
+        baseline_margin: 0.3,
+        min_probe_margin: 0.1,
+        max_probe_margin: 0.32,
+        min_probe_delta: -0.2,
+        max_probe_delta: 0.02,
+        strongest_direction: 'towards_min' as const,
+        strongest_probe_value: strongestProbeValue,
+        value_scale: 'normalised' as const,
+        strongest_delta: -0.2,
+        strongest_delta_abs: 0.2,
+        strongest_delta_percentage_points: 20,
+        display_value_available: false,
+      };
+    }
+
+    it('sets display_value_available=true and value_scale=display when factor context exists and probe value is finite', () => {
+      const flip = makeFlip({
+        flip_value: 0.3,
+        current_value: 0.7,
+        margin_sensitivity: makeMarginInput(0),
+      });
+      // Range 0..100 GBP — denormalises 0 to 0.
+      const context = makeContext('f1', 0, 100);
+
+      const result = denormaliseFlipThresholds([flip], context, OPTIONS);
+
+      expect(result[0].margin_sensitivity).toBeDefined();
+      expect(result[0].margin_sensitivity!.value_scale).toBe('display');
+      expect(result[0].margin_sensitivity!.display_value_available).toBe(true);
+      expect(result[0].margin_sensitivity!.strongest_probe_value).toBe(0);
+      // Diagnostic fields pass through unchanged (probability scale).
+      expect(result[0].margin_sensitivity!.min_probe_delta).toBeCloseTo(-0.2, 10);
+      expect(result[0].margin_sensitivity!.strongest_delta_percentage_points).toBeCloseTo(20, 6);
+    });
+
+    it("leaves display_value_available=false and value_scale=normalised when there is NO factor context", () => {
+      const flip = makeFlip({ margin_sensitivity: makeMarginInput(0) });
+
+      // No context → enrichWithLabels path, margin passed through untouched.
+      const result = denormaliseFlipThresholds([flip], undefined, OPTIONS);
+
+      expect(result[0].margin_sensitivity).toBeDefined();
+      expect(result[0].margin_sensitivity!.value_scale).toBe('normalised');
+      expect(result[0].margin_sensitivity!.display_value_available).toBe(false);
+    });
+
+    it('sets display_value_available=false when strongest_probe_value is null even with factor context', () => {
+      // Strict-flip via interior binary search emits strongest_probe_value=null
+      // (no bound flip). Denormalising null yields null.
+      const flip = makeFlip({
+        margin_sensitivity: { ...makeMarginInput(null), movement: 'flipped' },
+      });
+      const context = makeContext('f1', 0, 100);
+
+      const result = denormaliseFlipThresholds([flip], context, OPTIONS);
+
+      expect(result[0].margin_sensitivity!.value_scale).toBe('display');
+      expect(result[0].margin_sensitivity!.strongest_probe_value).toBeNull();
+      expect(result[0].margin_sensitivity!.display_value_available).toBe(false);
+    });
+
+    it('omits margin_sensitivity on entries that did not carry it', () => {
+      const flip = makeFlip({ margin_sensitivity: undefined });
+      const context = makeContext('f1', 0, 100);
+
+      const result = denormaliseFlipThresholds([flip], context, OPTIONS);
+
+      expect(result[0].margin_sensitivity).toBeUndefined();
+    });
+  });
 });

@@ -131,21 +131,28 @@ function enrichWithLabels(
 
 /**
  * Denormalise `strongest_probe_value` against the factor's range and stamp
- * `value_scale: 'display'`. Probability fields (margins, deltas) are
- * scale-independent and pass through.
+ * `value_scale: 'display'`. Sets `display_value_available` = true ONLY when
+ * the denormalised probe value is itself finite — so DGAI can render
+ * `strongest_probe_value` exactly when this boolean is true.
+ *
+ * Probability fields (margins, deltas, percentage-points) are scale-
+ * independent and pass through unchanged.
  */
 function denormaliseMarginSensitivity(
   margin: MarginSensitivity,
   range: NormalisationRange,
 ): MarginSensitivity {
-  const denormProbe =
-    margin.strongest_probe_value !== null && Number.isFinite(margin.strongest_probe_value)
-      ? denormaliseValue(margin.strongest_probe_value, range)
-      : null;
+  const probeIsFinite =
+    margin.strongest_probe_value !== null && Number.isFinite(margin.strongest_probe_value);
+  const denormProbe = probeIsFinite
+    ? denormaliseValue(margin.strongest_probe_value as number, range)
+    : null;
+  const denormProbeFinite = denormProbe !== null && Number.isFinite(denormProbe);
   return {
     ...margin,
-    strongest_probe_value: denormProbe,
+    strongest_probe_value: denormProbeFinite ? denormProbe : null,
     value_scale: 'display',
+    display_value_available: denormProbeFinite,
   };
 }
 

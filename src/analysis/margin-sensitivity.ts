@@ -10,6 +10,29 @@
  *
  * Probability convention: decimals in [0, 1]. `MARGIN_MOVEMENT_THRESHOLD` is
  * provisional (5 percentage points, decimal 0.05) — not calibrated.
+ *
+ * ## Display-ready fields (architecture principle)
+ *
+ * DGAI is a thin display layer. PLoT owns scientific meaning. To stop DGAI
+ * deriving percentage-point copy from raw `min_probe_delta` / `max_probe_delta`,
+ * PLoT emits four display-ready fields directly:
+ *
+ *  - `strongest_delta`                    — signed decimal of the selected delta
+ *  - `strongest_delta_abs`                — absolute value of the above
+ *  - `strongest_delta_percentage_points`  — `abs * 100`, what DGAI shows
+ *  - `display_value_available`            — true ONLY when `strongest_probe_value`
+ *                                           is finite and has been denormalised
+ *                                           to display units (value_scale ===
+ *                                           'display'). DGAI must not render
+ *                                           `strongest_probe_value` unless true.
+ *
+ * `min_probe_delta` and `max_probe_delta` remain for diagnostics; they are NOT
+ * the field DGAI should display.
+ *
+ * Important: `strongest_probe_value` is the tested bound (or null when the
+ * strict flip was found inside the interval by binary search). It is NOT the
+ * exact flip threshold. The exact flip threshold remains `flip_value` on the
+ * surrounding `flip_thresholds[]` entry.
  */
 
 import type { FlipInferenceResult } from './flip-thresholds.js';
@@ -31,13 +54,44 @@ export interface MarginSensitivity {
   baseline_leading_option_id: string | null;
   baseline_runner_up_option_id: string | null;
   baseline_margin: number | null;
+  /** Raw diagnostic: lead margin at min bound. NOT for direct UI display. */
   min_probe_margin: number | null;
+  /** Raw diagnostic: lead margin at max bound. NOT for direct UI display. */
   max_probe_margin: number | null;
+  /** Raw diagnostic: min_probe_margin - baseline_margin. NOT for direct UI display. */
   min_probe_delta: number | null;
+  /** Raw diagnostic: max_probe_margin - baseline_margin. NOT for direct UI display. */
   max_probe_delta: number | null;
   strongest_direction: MarginStrongestDirection;
+  /**
+   * Tested bound (or null) corresponding to `strongest_direction`. NOT the
+   * exact flip threshold — that lives on `flip_value`. In normalised [0, 1]
+   * until the denormaliser converts it to display units.
+   */
   strongest_probe_value: number | null;
   value_scale: MarginValueScale;
+
+  /**
+   * Signed decimal margin delta corresponding to the selected strongest probe.
+   * Negative ⇒ baseline leading option's margin weakened.
+   * Positive ⇒ baseline leading option's margin strengthened.
+   * Null when `movement === 'none'` or no finite delta is available.
+   */
+  strongest_delta: number | null;
+  /** Absolute value of `strongest_delta`. Null when above is null. */
+  strongest_delta_abs: number | null;
+  /**
+   * `strongest_delta_abs * 100`. The display-ready percentage-point value
+   * DGAI should render. Finite or null. Not aggressively rounded here —
+   * UI house style does the rounding.
+   */
+  strongest_delta_percentage_points: number | null;
+  /**
+   * True ONLY when `strongest_probe_value` is finite AND `value_scale ===
+   * 'display'` (i.e. the denormaliser converted it against a valid factor
+   * context). DGAI must not render `strongest_probe_value` unless true.
+   */
+  display_value_available: boolean;
 }
 
 export interface ComputeMarginSensitivityArgs {
@@ -117,21 +171,117 @@ function marginAtProbeForLeader(
   return { margin: leaderProb - strongestOtherProb, leaderProb, strongestOtherId };
 }
 
-function emptyResult(): MarginSensitivity {
+/**
+ * Select the signed strongest delta given movement, direction, and the raw
+ * min/max deltas. Returns null when no finite signal exists.
+ *
+ * Selection rules (mirrors `strongest_direction` / `strongest_probe_value`):
+ *  - 'none'        → null  (movement is 'none')
+ *  - 'towards_min' → min_probe_delta when finite, else null
+ *  - 'towards_max' → max_probe_delta when finite, else null
+ *  - 'both'        → side with the larger |delta| (ties → min for determinism)
+ *
+ * For `movement === 'flipped'` with `strongest_direction === 'none'` (strict
+ * flip found inside the interval by binary search — neither bound probe
+ * flipped on its own), still pick the larger-|delta| finite bound if any, so
+ * DGAI has a useful magnitude. This does NOT imply the exact flip threshold.
+ */
+function selectStrongestSignedDelta(
+  movement: MarginMovement,
+  direction: MarginStrongestDirection,
+  minDelta: number | null,
+  maxDelta: number | null,
+): number | null {
+  if (movement === 'none') return null;
+
+  const haveMin = isFiniteNumber(minDelta);
+  const haveMax = isFiniteNumber(maxDelta);
+
+  if (direction === 'towards_min') return haveMin ? minDelta : null;
+  if (direction === 'towards_max') return haveMax ? maxDelta : null;
+
+  if (direction === 'both') {
+    if (haveMin && haveMax) {
+      return Math.abs(minDelta as number) >= Math.abs(maxDelta as number)
+        ? (minDelta as number)
+        : (maxDelta as number);
+    }
+    if (haveMin) return minDelta;
+    if (haveMax) return maxDelta;
+    return null;
+  }
+
+  // direction === 'none' — only reachable for movement === 'flipped' via
+  // interior binary-search strict flip. Pick the larger-|delta| finite bound.
+  if (movement === 'flipped') {
+    if (haveMin && haveMax) {
+      return Math.abs(minDelta as number) >= Math.abs(maxDelta as number)
+        ? (minDelta as number)
+        : (maxDelta as number);
+    }
+    if (haveMin) return minDelta;
+    if (haveMax) return maxDelta;
+  }
+  return null;
+}
+
+function buildResult(args: {
+  movement: MarginMovement;
+  leaderId: string | null;
+  runnerUpId: string | null;
+  baselineMargin: number | null;
+  minMargin: number | null;
+  maxMargin: number | null;
+  minDelta: number | null;
+  maxDelta: number | null;
+  direction: MarginStrongestDirection;
+  probeValue: number | null;
+}): MarginSensitivity {
+  const strongestDelta = selectStrongestSignedDelta(
+    args.movement,
+    args.direction,
+    args.minDelta,
+    args.maxDelta,
+  );
+  const strongestDeltaAbs = strongestDelta !== null ? Math.abs(strongestDelta) : null;
+  const strongestDeltaPp = strongestDeltaAbs !== null ? strongestDeltaAbs * 100 : null;
+
   return {
-    movement: 'none',
+    movement: args.movement,
     threshold: MARGIN_MOVEMENT_THRESHOLD,
-    baseline_leading_option_id: null,
-    baseline_runner_up_option_id: null,
-    baseline_margin: null,
-    min_probe_margin: null,
-    max_probe_margin: null,
-    min_probe_delta: null,
-    max_probe_delta: null,
-    strongest_direction: 'none',
-    strongest_probe_value: null,
+    baseline_leading_option_id: args.leaderId,
+    baseline_runner_up_option_id: args.runnerUpId,
+    baseline_margin: args.baselineMargin,
+    min_probe_margin: args.minMargin,
+    max_probe_margin: args.maxMargin,
+    min_probe_delta: args.minDelta,
+    max_probe_delta: args.maxDelta,
+    strongest_direction: args.direction,
+    strongest_probe_value: args.probeValue,
+    // The helper always emits 'normalised'. The denormaliser may stamp
+    // 'display' (and set display_value_available=true) if it converts
+    // strongest_probe_value against a valid factor context.
     value_scale: 'normalised',
+    strongest_delta: strongestDelta,
+    strongest_delta_abs: strongestDeltaAbs,
+    strongest_delta_percentage_points: strongestDeltaPp,
+    display_value_available: false,
   };
+}
+
+function emptyResult(movementOverride?: MarginMovement): MarginSensitivity {
+  return buildResult({
+    movement: movementOverride ?? 'none',
+    leaderId: null,
+    runnerUpId: null,
+    baselineMargin: null,
+    minMargin: null,
+    maxMargin: null,
+    minDelta: null,
+    maxDelta: null,
+    direction: 'none',
+    probeValue: null,
+  });
 }
 
 /**
@@ -152,9 +302,7 @@ export function computeMarginSensitivity(args: ComputeMarginSensitivityArgs): Ma
   if (!baselineTop) {
     // Cannot identify a baseline leader / runner-up. Still surface flip status
     // (when known) so downstream classifier behaves correctly.
-    const out = emptyResult();
-    if (args.strictFlipDetected) out.movement = 'flipped';
-    return out;
+    return emptyResult(args.strictFlipDetected ? 'flipped' : 'none');
   }
 
   const leaderId = baselineTop.leader.id;
@@ -191,23 +339,22 @@ export function computeMarginSensitivity(args: ComputeMarginSensitivityArgs): Ma
     } else {
       // strictFlipDetected set by caller (binary-search/grid-fallback path).
       // Direction is recorded elsewhere on the FlipDiagnostics; leave 'none'.
+      // strongest_delta still populated from larger-|delta| bound below.
       direction = 'none';
       probeValue = null;
     }
-    return {
+    return buildResult({
       movement: 'flipped',
-      threshold: MARGIN_MOVEMENT_THRESHOLD,
-      baseline_leading_option_id: leaderId,
-      baseline_runner_up_option_id: runnerUpId,
-      baseline_margin: baselineMargin,
-      min_probe_margin: minMargin,
-      max_probe_margin: maxMargin,
-      min_probe_delta: minDelta,
-      max_probe_delta: maxDelta,
-      strongest_direction: direction,
-      strongest_probe_value: probeValue,
-      value_scale: 'normalised',
-    };
+      leaderId,
+      runnerUpId,
+      baselineMargin,
+      minMargin,
+      maxMargin,
+      minDelta,
+      maxDelta,
+      direction,
+      probeValue,
+    });
   }
 
   // Non-flip classification: compare |min_delta|, |max_delta| against threshold.
@@ -244,18 +391,16 @@ export function computeMarginSensitivity(args: ComputeMarginSensitivityArgs): Ma
     }
   }
 
-  return {
+  return buildResult({
     movement,
-    threshold: MARGIN_MOVEMENT_THRESHOLD,
-    baseline_leading_option_id: leaderId,
-    baseline_runner_up_option_id: runnerUpId,
-    baseline_margin: baselineMargin,
-    min_probe_margin: minMargin,
-    max_probe_margin: maxMargin,
-    min_probe_delta: minDelta,
-    max_probe_delta: maxDelta,
-    strongest_direction: direction,
-    strongest_probe_value: probeValue,
-    value_scale: 'normalised',
-  };
+    leaderId,
+    runnerUpId,
+    baselineMargin,
+    minMargin,
+    maxMargin,
+    minDelta,
+    maxDelta,
+    direction,
+    probeValue,
+  });
 }
