@@ -735,4 +735,72 @@ describe('resolveFlipValues() margin_sensitivity integration', () => {
     expect(results[0].flip_reason).toBe('error');
     expect(results[0].margin_sensitivity).toBeUndefined();
   });
+
+  // =========================================================================
+  // Argmax tie-handling — must match topTwo()'s lexicographic tie-break so a
+  // baseline/bound exact tie cannot produce a spurious 'flipped' movement
+  // purely from ISL option-array order.
+  // =========================================================================
+
+  describe('exact tie handling in getArgmaxOption (via no-flip-on-tie)', () => {
+    /**
+     * Mock that returns the same two equal-probability options at every probe,
+     * but rotates the *order* of options[] in the returned array. Under a
+     * naive first-wins argmax, baseline 'a-first' vs min 'b-first' would
+     * register a spurious winner change (W0='a', W_min='b') and trigger
+     * strict-flip detection. With deterministic lex tie-break, both probes
+     * return 'a' (lexicographically smaller) and no flip is detected.
+     */
+    function createTieRotatingMock(): ISLInferenceFn {
+      let n = 0;
+      return async (): Promise<FlipInferenceResult> => {
+        const flip = n++ % 2 === 0;
+        return {
+          options: flip
+            ? [
+                { option_id: 'a', win_probability: 0.5 },
+                { option_id: 'b', win_probability: 0.5 },
+              ]
+            : [
+                { option_id: 'b', win_probability: 0.5 },
+                { option_id: 'a', win_probability: 0.5 },
+              ],
+        };
+      };
+    }
+
+    it('treats exact ties consistently regardless of ISL options[] order (no spurious flip)', async () => {
+      const mock = createTieRotatingMock();
+      const candidate = makeCandidate({ current_value: 0.5 });
+
+      const { results } = await resolveFlipValues([candidate], mock, 'a');
+
+      // With tie-broken argmax, W0 === W_min === W_max === 'a' → no_effect.
+      expect(results[0].flip_reason).toBe('no_effect_within_bounds');
+      expect(results[0].flip_value).toBeNull();
+      expect(results[0].iterations_used).toBe(0);
+      expect(results[0].alternative_winner_id).toBeNull();
+      // Margin-sensitivity should report 'none' — both leader and runner-up
+      // are tied, margins are zero, no movement.
+      expect(results[0].margin_sensitivity?.movement).toBe('none');
+      expect(results[0].margin_sensitivity?.baseline_leading_option_id).toBe('a');
+      expect(results[0].margin_sensitivity?.baseline_runner_up_option_id).toBe('b');
+    });
+
+    it('picks lexicographically-smaller option_id on exact win_probability ties', async () => {
+      // Single-probe sanity check: order does not change the result.
+      const mockBFirst: ISLInferenceFn = async () => ({
+        options: [
+          { option_id: 'b', win_probability: 0.6 },
+          { option_id: 'a', win_probability: 0.6 },
+        ],
+      });
+      const candidate = makeCandidate({ current_value: 0.5 });
+      const { results } = await resolveFlipValues([candidate], mockBFirst, 'a');
+      // Baseline leader from topTwo and strict-flip W0 should both pick 'a'
+      // (deterministic lex order), not 'b' (first-in-array under naive argmax).
+      expect(results[0].flip_reason).toBe('no_effect_within_bounds');
+      expect(results[0].margin_sensitivity?.baseline_leading_option_id).toBe('a');
+    });
+  });
 });

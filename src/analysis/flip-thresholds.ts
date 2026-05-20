@@ -427,12 +427,23 @@ async function gridFallback(
 
 /**
  * Get the option_id with the highest win_probability (argmax).
+ *
+ * Deterministic tie-break: when two options share the highest win_probability,
+ * the lexicographically-smaller `option_id` wins. This matches the tie-break
+ * used by `topTwo()` in `./margin-sensitivity.ts` so that strict-flip
+ * detection (`W0 !== W_min || W0 !== W_max`) cannot disagree with the
+ * margin-sensitivity diagnostic on exact ties. Without this, ISL option-
+ * array order could produce a spurious `movement: 'flipped'` classification
+ * for a non-flip.
  */
 function getArgmaxOption(result: FlipInferenceResult): string {
   let maxProb = -Infinity;
   let maxId = '';
   for (const opt of result.options) {
-    if (opt.win_probability > maxProb) {
+    if (
+      opt.win_probability > maxProb ||
+      (opt.win_probability === maxProb && maxId !== '' && opt.option_id < maxId)
+    ) {
       maxProb = opt.win_probability;
       maxId = opt.option_id;
     }
