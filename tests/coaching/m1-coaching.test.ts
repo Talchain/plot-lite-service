@@ -993,7 +993,7 @@ describe('NextAction Targeting Fields', () => {
     expect(tieBreaker?.target_label).toBe('Option A');
   });
 
-  it('populates target_type and target_id for "Proceed with" actions', () => {
+  it('populates target_type and target_id for the ready-branch action', () => {
     const inputs: CoachingInputs = {
       graph: createMinimalGraph(),
       options: [
@@ -1007,10 +1007,12 @@ describe('NextAction Targeting Fields', () => {
 
     const actions = generateNextActions(inputs, 'clear_winner', [], []);
 
-    const proceedAction = actions.find((a) => a.action.includes('Proceed with'));
-    expect(proceedAction?.target_type).toBe('option');
-    expect(proceedAction?.target_id).toBe('opt1');
-    expect(proceedAction?.target_label).toBe('Option A');
+    // Priority 7 is the ready-branch action; wording is tone-gated and may use
+    // "Move forward with", "Validate the key assumptions before acting on", etc.
+    const readyAction = actions.find((a) => a.priority === 7);
+    expect(readyAction?.target_type).toBe('option');
+    expect(readyAction?.target_id).toBe('opt1');
+    expect(readyAction?.target_label).toBe('Option A');
   });
 
   it('omits targeting fields for narrow framing actions (no specific target)', () => {
