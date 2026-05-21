@@ -108,7 +108,7 @@ export function generateNextActions(
       evidenceGaps,
       thresholds,
     );
-    const reasonSummary = summariseTopReason(reasons);
+    const reasonSummary = summariseTopReason(reasons, { evidenceGapCount: evidenceGaps.length });
 
     let action: string;
     let rationale: string;
@@ -184,12 +184,11 @@ export function computeReadiness(
   return 'needs_evidence';
 }
 
-const REASON_PHRASES: Record<ReadinessToneReason, string> = {
+const REASON_PHRASES: Record<Exclude<ReadinessToneReason, 'EVIDENCE_GAPS'>, string> = {
   NOT_ROBUST: 'the recommendation is not yet robust',
   LOW_ROBUSTNESS: 'robustness is below the confident threshold',
   LOW_STABILITY: 'stability is below the confident threshold',
   MATERIAL_FRAGILE_EDGE: 'a fragile edge could flip the result',
-  EVIDENCE_GAPS: 'multiple evidence gaps remain',
   LOW_DRIVER_CONFIDENCE: 'the top driver has low confidence',
   NEAR_TIE: 'the margin is near a tie',
   INSUFFICIENT_SIGNALS: 'key signals are not yet available',
@@ -208,11 +207,24 @@ const REASON_DISPLAY_ORDER: ReadinessToneReason[] = [
   'INSUFFICIENT_SIGNALS',
 ];
 
-function summariseTopReason(reasons: ReadinessToneReason[]): string | null {
+interface ReasonContext {
+  evidenceGapCount: number;
+}
+
+function summariseTopReason(reasons: ReadinessToneReason[], ctx: ReasonContext): string | null {
   if (reasons.length === 0) return null;
   const reasonSet = new Set(reasons);
   for (const r of REASON_DISPLAY_ORDER) {
-    if (reasonSet.has(r)) return REASON_PHRASES[r];
+    if (!reasonSet.has(r)) continue;
+    if (r === 'EVIDENCE_GAPS') {
+      // EVIDENCE_GAPS fires for either ≥2 gaps OR a single gap above the
+      // high-VoI threshold. Match the wording to which one applies so the
+      // user-facing rationale doesn't falsely claim "multiple" for a single gap.
+      return ctx.evidenceGapCount <= 1
+        ? 'a decision-relevant evidence gap remains'
+        : 'multiple evidence gaps remain';
+    }
+    return REASON_PHRASES[r];
   }
   return null;
 }

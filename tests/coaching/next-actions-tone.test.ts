@@ -104,6 +104,43 @@ describe('B4 Next Actions — Priority 5 tone gate', () => {
     }
   });
 
+  it('single high-VoI evidence gap: action is validation-first and rationale uses singular wording', () => {
+    const inputs = cleanInputs();
+    const gaps = [
+      {
+        factor_id: 'f1', factor_label: 'Cost', voi_score: 0.6, confidence: 0.4,
+        confidence_display: '40%', confidence_defaulted: false, influence: 1,
+        influence_display: '100%', suggestion: '', notes: [],
+      },
+    ];
+    const actions = generateNextActions(inputs, 'clear_winner', [], gaps);
+    const priority5 = actions.find((a) => a.priority === 7);
+    expect(priority5).toBeDefined();
+    // Validation-first action, never the bare imperative.
+    expect(priority5!.action).toMatch(/Validate the key assumptions before acting on/);
+    expect(priority5!.action).not.toMatch(/^Proceed with/);
+    expect(priority5!.action).not.toMatch(/^Move forward/);
+    // Singular wording — must not falsely claim "multiple evidence gaps".
+    expect(priority5!.rationale.toLowerCase()).not.toContain('multiple evidence gaps');
+    expect(priority5!.rationale).toContain('a decision-relevant evidence gap remains');
+  });
+
+  it('two-plus low-VoI evidence gaps: rationale uses plural wording', () => {
+    // Two gaps with VoI below the high-VoI threshold (0.40) keep
+    // computeReadiness at 'ready' so Priority 5 fires; the tone classifier
+    // still flags EVIDENCE_GAPS via count, so the rationale must use plural.
+    const inputs = cleanInputs();
+    const gaps = [
+      { factor_id: 'f1', factor_label: 'Cost', voi_score: 0.3, confidence: 0.4, confidence_display: '40%', confidence_defaulted: false, influence: 1, influence_display: '100%', suggestion: '', notes: [] },
+      { factor_id: 'f2', factor_label: 'Other', voi_score: 0.2, confidence: 0.5, confidence_display: '50%', confidence_defaulted: false, influence: 0.5, influence_display: '50%', suggestion: '', notes: [] },
+    ];
+    const actions = generateNextActions(inputs, 'clear_winner', [], gaps);
+    const priority5 = actions.find((a) => a.priority === 7);
+    expect(priority5).toBeDefined();
+    expect(priority5!.rationale).toContain('multiple evidence gaps remain');
+    expect(priority5!.rationale).not.toContain('a decision-relevant evidence gap remains');
+  });
+
   it('Priority 4 (close call) does not use the word "winner"', () => {
     const inputs = cleanInputs({
       options: [
