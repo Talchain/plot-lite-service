@@ -2,9 +2,9 @@
  * B4: Next Actions
  *
  * Generates prioritized action list (max 3) with required rationales.
- * Priority 5 wording is gated by the D2-tone classifier so the imperative
- * "Proceed with {option}" only appears when robustness / fragility / evidence
- * signals support a confident tone.
+ * Priority 5 wording is gated by the D2-tone classifier: confident tone emits
+ * a forward-leaning action; tempered/caution swap in validation-first actions
+ * so we never issue an imperative the evidence does not support.
  */
 
 import type { CoachingInputs, Critique, NextAction, Readiness, HeadlineType, EvidenceGap } from './types.js';

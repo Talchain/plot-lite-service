@@ -106,11 +106,31 @@ describe('deriveReadinessTone', () => {
   it('flags EVIDENCE_GAPS when evidence-gap count meets the readiness threshold', () => {
     const inputs = cleanInputs();
     const evidenceGaps = [
-      { factor_id: 'f1', factor_label: 'Cost', voi_score: 0.5, confidence: 0.4, confidence_display: '40%', confidence_defaulted: false, influence: 1, influence_display: '100%', suggestion: '', notes: [] },
-      { factor_id: 'f2', factor_label: 'Other', voi_score: 0.3, confidence: 0.5, confidence_display: '50%', confidence_defaulted: false, influence: 0.5, influence_display: '50%', suggestion: '', notes: [] },
+      { factor_id: 'f1', factor_label: 'Cost', voi_score: 0.3, confidence: 0.4, confidence_display: '40%', confidence_defaulted: false, influence: 1, influence_display: '100%', suggestion: '', notes: [] },
+      { factor_id: 'f2', factor_label: 'Other', voi_score: 0.2, confidence: 0.5, confidence_display: '50%', confidence_defaulted: false, influence: 0.5, influence_display: '50%', suggestion: '', notes: [] },
     ];
     const result = deriveReadinessTone(inputs, 'ready', 'clear_winner', cleanKeyDrivers(), evidenceGaps, getThresholds());
     expect(result.reasons).toContain('EVIDENCE_GAPS');
+  });
+
+  it('flags EVIDENCE_GAPS when a single gap exceeds the high-VoI threshold', () => {
+    const inputs = cleanInputs();
+    const evidenceGaps = [
+      { factor_id: 'f1', factor_label: 'Cost', voi_score: 0.6, confidence: 0.4, confidence_display: '40%', confidence_defaulted: false, influence: 1, influence_display: '100%', suggestion: '', notes: [] },
+    ];
+    const result = deriveReadinessTone(inputs, 'ready', 'clear_winner', cleanKeyDrivers(), evidenceGaps, getThresholds());
+    expect(result.reasons).toContain('EVIDENCE_GAPS');
+    expect(result.tone).toBe('tempered');
+  });
+
+  it('does not flag EVIDENCE_GAPS for a single low-VoI gap', () => {
+    const inputs = cleanInputs();
+    const evidenceGaps = [
+      { factor_id: 'f1', factor_label: 'Cost', voi_score: 0.3, confidence: 0.6, confidence_display: '60%', confidence_defaulted: false, influence: 0.5, influence_display: '50%', suggestion: '', notes: [] },
+    ];
+    const result = deriveReadinessTone(inputs, 'ready', 'clear_winner', cleanKeyDrivers(), evidenceGaps, getThresholds());
+    expect(result.reasons).not.toContain('EVIDENCE_GAPS');
+    expect(result.tone).toBe('confident');
   });
 
   it('flags LOW_DRIVER_CONFIDENCE when the top driver has confidence at or below the ceiling', () => {

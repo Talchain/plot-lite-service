@@ -70,7 +70,13 @@ export function deriveReadinessTone(
     reasons.push('MATERIAL_FRAGILE_EDGE');
   }
 
-  if (evidenceGaps.length >= thresholds.readiness_high_evidence_gap_count) {
+  // Evidence gaps temper the tone if the count is at-or-above the readiness
+  // threshold OR if even a single gap has VoI above the existing high-VoI
+  // threshold (one decision-relevant gap is enough to disqualify confident tone).
+  const topVoi = evidenceGaps.reduce((max, g) => (g.voi_score > max ? g.voi_score : max), 0);
+  const hasGapCountIssue = evidenceGaps.length >= thresholds.readiness_high_evidence_gap_count;
+  const hasHighVoiGap = evidenceGaps.length >= 1 && topVoi > thresholds.readiness_high_voi_threshold;
+  if (hasGapCountIssue || hasHighVoiGap) {
     reasons.push('EVIDENCE_GAPS');
   }
 

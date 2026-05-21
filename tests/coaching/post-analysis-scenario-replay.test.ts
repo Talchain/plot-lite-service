@@ -140,11 +140,13 @@ describe('Scenario B — Tech Lead (strong lead, low-confidence drivers / eviden
     expect(summary.action_implication).not.toBe('Proceed with implementation.');
   });
 
-  it('with low-confidence top driver, copy is tempered (not confident)', () => {
+  it('with low-confidence top driver and a high-VoI gap, copy is not confident', () => {
     const summary = generateExecutiveSummary(techLeadInputs, 'ready', 'clear_winner', keyDrivers, gaps);
-    // Low driver confidence + evidence gap of 1 (below threshold) ⇒ at least one hard reason fires
-    // ⇒ tempered.
+    // LOW_DRIVER_CONFIDENCE + EVIDENCE_GAPS (single gap, VoI 0.5 > 0.4 threshold)
+    // ⇒ two hard reasons ⇒ caution. Both tempered and caution decision_statements
+    // contain "currently leads", so we assert on that shared substring.
     expect(summary.summary).toContain('currently leads');
+    expect(summary.summary).not.toContain('strong current lead');
   });
 
   it('all-clean Tech Lead variant: confident copy permitted', () => {
