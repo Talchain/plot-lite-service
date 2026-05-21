@@ -2,10 +2,15 @@
  * B4: Next Actions
  *
  * Generates prioritized action list (max 3) with required rationales.
+ * Priority 5 wording is gated by the D2-tone classifier so the imperative
+ * "Proceed with {option}" only appears when robustness / fragility / evidence
+ * signals support a confident tone.
  */
 
 import type { CoachingInputs, Critique, NextAction, Readiness, HeadlineType, EvidenceGap } from './types.js';
 import { getThresholds } from './thresholds.js';
+import { computeKeyDrivers } from './key-drivers.js';
+import { deriveReadinessTone, type ReadinessToneReason } from './readiness-tone.js';
 
 export function generateNextActions(
   inputs: CoachingInputs,
@@ -15,7 +20,7 @@ export function generateNextActions(
 ): NextAction[] {
   const thresholds = getThresholds();
 
-  // Compute readiness
+  // Compute readiness (unchanged semantics — downstream consumers depend on it).
   const readiness = computeReadiness(headlineType, critiques, evidenceGaps, thresholds);
 
   // Build context for action interpolation
@@ -41,7 +46,6 @@ export function generateNextActions(
       action: 'Reconsider framing — add alternatives or Status Quo baseline',
       rationale: `With only ${context.optionCount} options and no baseline, comparisons may be misleading`,
       related_critique: 'NARROW_FRAMING',
-      // No specific target - framing issue affects entire decision
     });
   }
 
@@ -75,30 +79,67 @@ export function generateNextActions(
 
   // Priority 4: Close call
   if (headlineType === 'close_call' && actions.length < 3) {
-    const winnerLabel = context.winner?.label ?? 'winning option';
+    const leadingLabel = context.winner?.label ?? 'the leading option';
     const delta = context.winner ? Math.round((context.winner.winProbability - (inputs.options[1]?.winProbability ?? 0)) * 100) : 0;
     actions.push({
       priority: 4,
       action: 'Define tie-breaker criteria — margin is too close to call',
-      rationale: `Winner leads by only ${delta} points; within model uncertainty`,
+      rationale: `${leadingLabel} leads by only ${delta} points; within model uncertainty`,
       target_type: 'option',
       target_id: context.winner?.id,
-      target_label: winnerLabel,
+      target_label: leadingLabel,
     });
   }
 
-  // Priority 5: Ready to proceed
+  // Priority 5: Ready — tone-gated wording.
+  // Confident tone allows a forward-leaning action; tempered/caution swap in
+  // a validation-first action so we don't issue an imperative the evidence
+  // doesn't support.
   if (readiness === 'ready' && actions.length < 3) {
-    const winnerLabel = context.winner?.label ?? 'top option';
+    const leadingLabel = context.winner?.label ?? 'the leading option';
     const delta = context.winner ? Math.round((context.winner.winProbability - (inputs.options[1]?.winProbability ?? 0)) * 100) : 0;
-    const stabilityDisplay = context.stability ? Math.round(context.stability * 100) : 0;
+    const stabilityDisplay = context.stability !== undefined ? Math.round(context.stability * 100) : 0;
+    const keyDrivers = computeKeyDrivers(inputs);
+    const { tone, reasons } = deriveReadinessTone(
+      inputs,
+      readiness,
+      headlineType,
+      keyDrivers,
+      evidenceGaps,
+      thresholds,
+    );
+    const reasonSummary = summariseTopReason(reasons);
+
+    let action: string;
+    let rationale: string;
+    if (tone === 'confident') {
+      action = `Move forward with ${leadingLabel} while validating the key assumptions`;
+      rationale = context.stability !== undefined
+        ? `${leadingLabel} has a strong current lead by ${delta} points with ${stabilityDisplay}% recommendation stability`
+        : `${leadingLabel} has a strong current lead by ${delta} points`;
+    } else if (tone === 'caution') {
+      action = `Validate the fragile assumptions before treating ${leadingLabel} as a decision`;
+      rationale = reasonSummary
+        ? `${leadingLabel} currently leads by ${delta} points, but ${reasonSummary}`
+        : `${leadingLabel} currently leads by ${delta} points, but the model is not yet strong enough for an unqualified decision`;
+    } else {
+      action = `Validate the key assumptions before acting on ${leadingLabel}`;
+      rationale = context.stability !== undefined
+        ? (reasonSummary
+            ? `${leadingLabel} currently leads by ${delta} points with ${stabilityDisplay}% recommendation stability, but ${reasonSummary}`
+            : `${leadingLabel} currently leads by ${delta} points with ${stabilityDisplay}% recommendation stability`)
+        : (reasonSummary
+            ? `${leadingLabel} currently leads by ${delta} points, but ${reasonSummary}`
+            : `${leadingLabel} currently leads by ${delta} points`);
+    }
+
     actions.push({
       priority: 7,
-      action: `Proceed with ${winnerLabel}`,
-      rationale: `Decision is robust: ${delta}-point margin with ${stabilityDisplay}% stability`,
+      action,
+      rationale,
       target_type: 'option',
       target_id: context.winner?.id,
-      target_label: winnerLabel,
+      target_label: leadingLabel,
     });
   }
 
@@ -108,11 +149,10 @@ export function generateNextActions(
       priority: 99,
       action: 'Review model assumptions',
       rationale: 'Unable to generate specific guidance',
-      // No specific target - general fallback
     });
   }
 
-  return actions.slice(0, 3); // Max 3
+  return actions.slice(0, 3);
 }
 
 export function computeReadiness(
@@ -142,4 +182,37 @@ export function computeReadiness(
   }
 
   return 'needs_evidence';
+}
+
+const REASON_PHRASES: Record<ReadinessToneReason, string> = {
+  NOT_ROBUST: 'the recommendation is not yet robust',
+  LOW_ROBUSTNESS: 'robustness is below the confident threshold',
+  LOW_STABILITY: 'stability is below the confident threshold',
+  MATERIAL_FRAGILE_EDGE: 'a fragile edge could flip the result',
+  EVIDENCE_GAPS: 'multiple evidence gaps remain',
+  LOW_DRIVER_CONFIDENCE: 'the top driver has low confidence',
+  NEAR_TIE: 'the margin is near a tie',
+  INSUFFICIENT_SIGNALS: 'key signals are not yet available',
+};
+
+// Reasons are surfaced in display priority order so the rationale leads with
+// the most decision-relevant signal failure.
+const REASON_DISPLAY_ORDER: ReadinessToneReason[] = [
+  'NOT_ROBUST',
+  'MATERIAL_FRAGILE_EDGE',
+  'EVIDENCE_GAPS',
+  'LOW_ROBUSTNESS',
+  'LOW_STABILITY',
+  'LOW_DRIVER_CONFIDENCE',
+  'NEAR_TIE',
+  'INSUFFICIENT_SIGNALS',
+];
+
+function summariseTopReason(reasons: ReadinessToneReason[]): string | null {
+  if (reasons.length === 0) return null;
+  const reasonSet = new Set(reasons);
+  for (const r of REASON_DISPLAY_ORDER) {
+    if (reasonSet.has(r)) return REASON_PHRASES[r];
+  }
+  return null;
 }

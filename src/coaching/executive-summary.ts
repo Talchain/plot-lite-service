@@ -4,11 +4,16 @@
  * One-paragraph summary (2-3 sentences) of decision quality and recommendation.
  * CRITICAL: Never use "confidence" for composite scores (only for probabilities).
  * Use "readiness", "stability", "robustness" instead.
+ *
+ * Wording is gated by the D2-tone classifier so confident phrasing only appears
+ * when robustness / fragility / evidence signals all support it.
  */
 
 import type { CoachingInputs, Readiness, HeadlineType } from './types.js';
 import type { KeyDriver } from './key-drivers.js';
 import type { EvidenceGap } from './types.js';
+import { deriveReadinessTone, type ReadinessTone, type ReadinessToneResult } from './readiness-tone.js';
+import { getThresholds } from './thresholds.js';
 
 export interface ExecutiveSummary {
   summary: string;
@@ -17,16 +22,6 @@ export interface ExecutiveSummary {
   action_implication: string;
 }
 
-/**
- * Generate executive summary from coaching components.
- *
- * @param inputs Normalised coaching inputs
- * @param readiness Overall readiness
- * @param headlineType Headline type from B1
- * @param keyDrivers Top drivers from D1
- * @param evidenceGaps Evidence gaps from B2
- * @returns ExecutiveSummary with structured text
- */
 export function generateExecutiveSummary(
   inputs: CoachingInputs,
   readiness: Readiness,
@@ -36,23 +31,27 @@ export function generateExecutiveSummary(
 ): ExecutiveSummary {
   const winner = inputs.options[0];
   const runnerUp = inputs.options[1];
+  const thresholds = getThresholds();
+  const toneResult = deriveReadinessTone(
+    inputs,
+    readiness,
+    headlineType,
+    keyDrivers,
+    evidenceGaps,
+    thresholds,
+  );
 
-  // Decision statement
-  const decisionStatement = generateDecisionStatement(winner, runnerUp, headlineType);
-
-  // Key qualifier (based on readiness and headline type)
+  const decisionStatement = generateDecisionStatement(winner, runnerUp, headlineType, toneResult.tone);
   const keyQualifier = generateKeyQualifier(
     readiness,
     headlineType,
     inputs,
     keyDrivers,
-    evidenceGaps
+    evidenceGaps,
+    toneResult.tone,
   );
+  const actionImplication = generateActionImplication(readiness, evidenceGaps, inputs, toneResult.tone);
 
-  // Action implication
-  const actionImplication = generateActionImplication(readiness, evidenceGaps, inputs);
-
-  // Combine into summary
   const summary = `${decisionStatement} ${keyQualifier} ${actionImplication}`;
 
   return {
@@ -63,13 +62,11 @@ export function generateExecutiveSummary(
   };
 }
 
-/**
- * Generate decision statement (who wins and by how much).
- */
 function generateDecisionStatement(
   winner: { label: string; winProbability: number } | undefined,
   runnerUp: { label: string; winProbability: number } | undefined,
-  headlineType: HeadlineType
+  headlineType: HeadlineType,
+  tone: ReadinessTone,
 ): string {
   if (!winner) {
     return 'Decision analysis incomplete.';
@@ -80,9 +77,18 @@ function generateDecisionStatement(
 
   switch (headlineType) {
     case 'clear_winner':
-      return `${winner.label} is the clear leading option with a ${marginPoints}-point advantage.`;
+      if (tone === 'confident') {
+        return `${winner.label} has a strong current lead with a ${marginPoints}-point advantage.`;
+      }
+      if (tone === 'caution') {
+        return `${winner.label} currently leads by ${marginPoints} points, but the model is not yet strong enough for an unqualified decision.`;
+      }
+      return `${winner.label} currently leads by ${marginPoints} points on the current model.`;
     case 'moderate_winner':
-      return `${winner.label} leads by ${marginPoints} points.`;
+      if (tone === 'caution') {
+        return `${winner.label} currently leads by ${marginPoints} points, but the model is not yet strong enough for an unqualified decision.`;
+      }
+      return `${winner.label} currently leads by ${marginPoints} points on the current model.`;
     case 'close_call':
       return `${winner.label} edges ahead by ${marginPoints} points.`;
     case 'high_uncertainty':
@@ -90,20 +96,17 @@ function generateDecisionStatement(
     case 'needs_evidence':
       return 'The decision is unclear based on current evidence.';
     default:
-      return `${winner.label} is the top option.`;
+      return `${winner.label} is the top option on the current model.`;
   }
 }
 
-/**
- * Generate key qualifier (what affects reliability).
- * CRITICAL: Use "stability", "robustness", "readiness" - NEVER "confidence" for composite scores.
- */
 function generateKeyQualifier(
   readiness: Readiness,
-  headlineType: HeadlineType,
+  _headlineType: HeadlineType,
   inputs: CoachingInputs,
   keyDrivers: KeyDriver[],
-  evidenceGaps: EvidenceGap[]
+  evidenceGaps: EvidenceGap[],
+  tone: ReadinessTone,
 ): string {
   const stability = inputs.robustness.recommendationStability;
   const topDriver = keyDrivers[0];
@@ -111,14 +114,20 @@ function generateKeyQualifier(
 
   switch (readiness) {
     case 'ready':
-      if (stability !== undefined && stability >= 0.75) {
-        return `The recommendation has high stability (${Math.round(stability * 100)}%) and is ready to proceed.`;
+      if (tone === 'confident') {
+        if (stability !== undefined) {
+          return `The current model favours this option on the strongest combination of signals (${Math.round(stability * 100)}% recommendation stability).`;
+        }
+        return 'The current model favours this option on the strongest combination of signals.';
       }
-      return 'The recommendation is robust and ready to proceed.';
+      if (tone === 'caution') {
+        return 'Treat this as a provisional lead until the fragile assumptions are checked.';
+      }
+      return 'This option leads on the current model, with important caveats.';
 
     case 'close_call':
       if (stability !== undefined) {
-        return `However, the ${Math.round(stability * 100)}% stability score indicates the decision could shift with new information.`;
+        return `However, the ${Math.round(stability * 100)}% recommendation stability indicates the decision could shift with new information.`;
       }
       return 'However, the outcome is within model uncertainty.';
 
@@ -139,17 +148,21 @@ function generateKeyQualifier(
   }
 }
 
-/**
- * Generate action implication (what to do next).
- */
 function generateActionImplication(
   readiness: Readiness,
   evidenceGaps: EvidenceGap[],
-  inputs: CoachingInputs
+  _inputs: CoachingInputs,
+  tone: ReadinessTone,
 ): string {
   switch (readiness) {
     case 'ready':
-      return 'Proceed with implementation.';
+      if (tone === 'confident') {
+        return 'It is reasonable to move forward while validating the key assumptions.';
+      }
+      if (tone === 'caution') {
+        return 'Validate the fragile assumptions before treating this as a decision.';
+      }
+      return 'Before acting, validate the assumptions most likely to change the result.';
 
     case 'close_call':
       return 'Define tie-breaker criteria or gather additional evidence.';
@@ -167,4 +180,14 @@ function generateActionImplication(
     default:
       return 'Review assumptions before proceeding.';
   }
+}
+
+export function deriveExecutiveSummaryTone(
+  inputs: CoachingInputs,
+  readiness: Readiness,
+  headlineType: HeadlineType,
+  keyDrivers: KeyDriver[],
+  evidenceGaps: EvidenceGap[],
+): ReadinessToneResult {
+  return deriveReadinessTone(inputs, readiness, headlineType, keyDrivers, evidenceGaps, getThresholds());
 }

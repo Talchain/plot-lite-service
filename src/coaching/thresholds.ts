@@ -41,6 +41,10 @@ export interface CoachingThresholds {
   // C4: Joint Probability Gate (Task 1)
   readiness_joint_prob_floor: number;
   readiness_joint_prob_close_call: number;
+
+  // D2-tone: Readiness-tone classifier (post-analysis wording honesty)
+  tone_confident_stability_min: number;
+  tone_low_driver_confidence_max: number;
 }
 
 /**
@@ -83,6 +87,12 @@ export const DEFAULT_THRESHOLDS: CoachingThresholds = {
   // C4: Joint Probability Gate
   readiness_joint_prob_floor: 0.05,
   readiness_joint_prob_close_call: 0.30,
+
+  // D2-tone: Readiness-tone classifier
+  // confident requires recommendationStability >= this value
+  tone_confident_stability_min: 0.75,
+  // top-driver confidence at-or-below this counts as "low / negligible"
+  tone_low_driver_confidence_max: 0.5,
 };
 
 /**
@@ -219,6 +229,16 @@ export function getThresholds(): CoachingThresholds {
     readiness_joint_prob_close_call: parseEnvFloat(
       'READINESS_JOINT_PROB_CLOSE_CALL',
       DEFAULT_THRESHOLDS.readiness_joint_prob_close_call
+    ),
+
+    // D2-tone: Readiness-tone classifier
+    tone_confident_stability_min: parseEnvFloat(
+      'M1_THRESHOLD_TONE_CONFIDENT_STABILITY_MIN',
+      DEFAULT_THRESHOLDS.tone_confident_stability_min
+    ),
+    tone_low_driver_confidence_max: parseEnvFloat(
+      'M1_THRESHOLD_TONE_LOW_DRIVER_CONFIDENCE_MAX',
+      DEFAULT_THRESHOLDS.tone_low_driver_confidence_max
     ),
   };
 }
