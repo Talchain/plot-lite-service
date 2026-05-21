@@ -89,4 +89,84 @@ describe('assembleBrief — driver direction regression', () => {
       expect(d.sensitivity).toBeGreaterThanOrEqual(0);
     }
   });
+
+  // -------------------------------------------------------------------------
+  // Production-shape regressions
+  //
+  // Real factor_sensitivity inputs reaching assembleBrief never carry a signed
+  // `elasticity`. The graph path sets `elasticity = normalised_influence`
+  // (always >= 0); the ISL path sets `elasticity = null`. The signed signal
+  // lives on the `direction` field instead. These cases lock in that
+  // buildTopDrivers honours that upstream signal.
+  // -------------------------------------------------------------------------
+
+  it('production shape: direction=negative with positive (magnitude) elasticity preserves negative', () => {
+    // Mirrors the staging-bundle bug: Annual Salary Cost arrives from the
+    // graph path with normalised_influence ≈ 0.85 (positive magnitude) and
+    // direction = 'negative'. decision_brief.top_drivers must report negative.
+    const result = assembleBrief({
+      ...baseInput,
+      factor_sensitivity: [
+        { factor_id: 'annual_salary_cost', factor_label: 'Annual Salary Cost', elasticity: 0.85, direction: 'negative' },
+        { factor_id: 'team_maturity', factor_label: 'Team Technical Maturity', elasticity: 0.6, direction: 'positive' },
+      ] as any[],
+    } as any);
+
+    const cost = result?.top_drivers.find((d) => d.factor_label === 'Annual Salary Cost');
+    expect(cost).toBeDefined();
+    expect(cost!.direction).toBe('negative');
+    expect(cost!.sensitivity).toBeCloseTo(0.85, 5);
+
+    const maturity = result?.top_drivers.find((d) => d.factor_label === 'Team Technical Maturity');
+    expect(maturity!.direction).toBe('positive');
+    expect(maturity!.sensitivity).toBeCloseTo(0.6, 5);
+  });
+
+  it('direction-vs-sign disagreement: upstream direction wins over elasticity sign', () => {
+    // Documents the contract: when upstream sets direction explicitly,
+    // buildTopDrivers respects it regardless of elasticity sign.
+    const result = assembleBrief({
+      ...baseInput,
+      factor_sensitivity: [
+        { factor_id: 'brand', factor_label: 'Brand awareness', elasticity: -0.7, direction: 'positive' },
+        { factor_id: 'cost', factor_label: 'Campaign cost', elasticity: 0.5, direction: 'negative' },
+      ] as any[],
+    } as any);
+
+    expect(result?.top_drivers.find((d) => d.factor_label === 'Brand awareness')?.direction).toBe('positive');
+    expect(result?.top_drivers.find((d) => d.factor_label === 'Campaign cost')?.direction).toBe('negative');
+  });
+
+  it('mixed direction with positive elasticity falls back to positive (documented limitation)', () => {
+    // BriefDriver.direction is the narrow union 'positive' | 'negative'.
+    // Upstream 'mixed' / 'unknown' / missing must collapse to one of those.
+    // The fallback is sign(elasticity); unsigned magnitudes therefore land on
+    // 'positive'. This is the unavoidable narrowing the workstream brief
+    // allows — known signed signals (above) take precedence over it.
+    const result = assembleBrief({
+      ...baseInput,
+      factor_sensitivity: [
+        { factor_id: 'mixed_factor', factor_label: 'Mixed-direction factor', elasticity: 0.6, direction: 'mixed' },
+        { factor_id: 'unknown_factor', factor_label: 'Unknown-direction factor', elasticity: 0.5, direction: 'unknown' },
+        { factor_id: 'missing_factor', factor_label: 'No-direction factor', elasticity: 0.4 },
+      ] as any[],
+    } as any);
+
+    expect(result?.top_drivers.find((d) => d.factor_label === 'Mixed-direction factor')?.direction).toBe('positive');
+    expect(result?.top_drivers.find((d) => d.factor_label === 'Unknown-direction factor')?.direction).toBe('positive');
+    expect(result?.top_drivers.find((d) => d.factor_label === 'No-direction factor')?.direction).toBe('positive');
+  });
+
+  it('mixed/unknown direction with negative elasticity falls back to negative', () => {
+    const result = assembleBrief({
+      ...baseInput,
+      factor_sensitivity: [
+        { factor_id: 'mixed_neg', factor_label: 'Mixed negative magnitude', elasticity: -0.5, direction: 'mixed' },
+        { factor_id: 'missing_neg', factor_label: 'No direction negative magnitude', elasticity: -0.3 },
+      ] as any[],
+    } as any);
+
+    expect(result?.top_drivers.find((d) => d.factor_label === 'Mixed negative magnitude')?.direction).toBe('negative');
+    expect(result?.top_drivers.find((d) => d.factor_label === 'No direction negative magnitude')?.direction).toBe('negative');
+  });
 });
