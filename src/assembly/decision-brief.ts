@@ -239,20 +239,20 @@ function buildTopDrivers(input: BriefAssemblyInput): BriefDriver[] {
     })
     .slice(0, MAX_TOP_DRIVERS);
 
-  // Direction prefers the upstream signed `direction` field (the canonical
-  // source aligned with factor_sensitivity[*].direction and
-  // m1_coaching.key_drivers[*].direction). Falling back to sign(elasticity)
-  // would mislabel negative drivers as positive because production paths
-  // (graph: normalised_influence; ISL: null) emit `elasticity` as unsigned
-  // magnitude. Output type `BriefDriver.direction` is the narrow union
-  // 'positive' | 'negative', so 'mixed' / 'unknown' / missing must fall back
-  // to elasticity-sign and ultimately default to 'positive' when magnitude.
+  // Direction prefers the upstream signed `direction` field — the canonical
+  // source already used by factor_sensitivity[*].direction and
+  // m1_coaching.key_drivers[*].direction. Deriving from sign(elasticity)
+  // mislabels negative drivers as positive in production because no real
+  // path emits a signed elasticity: the graph path sets
+  // `elasticity = normalised_influence` (always >= 0) and the ISL path
+  // sets it to null. Output `BriefDriver.direction` is the narrow union
+  // 'positive' | 'negative', so 'mixed' / 'unknown' / missing fall back to
+  // sign(elasticity) — which yields 'positive' for unsigned magnitudes.
   return withElasticity.map(f => {
-    const upstream = (f as { direction?: string }).direction;
     let direction: 'positive' | 'negative';
-    if (upstream === 'positive') {
+    if (f.direction === 'positive') {
       direction = 'positive';
-    } else if (upstream === 'negative') {
+    } else if (f.direction === 'negative') {
       direction = 'negative';
     } else {
       direction = f.elasticity! < 0 ? 'negative' : 'positive';
