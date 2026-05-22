@@ -239,12 +239,30 @@ function buildTopDrivers(input: BriefAssemblyInput): BriefDriver[] {
     })
     .slice(0, MAX_TOP_DRIVERS);
 
-  // Direction derived from sign of elasticity (spec: sign(elasticity))
-  return withElasticity.map(f => ({
-    factor_label: f.factor_label?.trim() || f.factor_id,
-    sensitivity: Math.abs(f.elasticity!),
-    direction: (f.elasticity! < 0 ? 'negative' : 'positive') as 'positive' | 'negative',
-  }));
+  // Direction prefers the upstream signed `direction` field — the canonical
+  // source already used by factor_sensitivity[*].direction and
+  // m1_coaching.key_drivers[*].direction. Deriving from sign(elasticity)
+  // mislabels negative drivers as positive in production because no real
+  // path emits a signed elasticity: the graph path sets
+  // `elasticity = normalised_influence` (always >= 0) and the ISL path
+  // sets it to null. Output `BriefDriver.direction` is the narrow union
+  // 'positive' | 'negative', so 'mixed' / 'unknown' / missing fall back to
+  // sign(elasticity) — which yields 'positive' for unsigned magnitudes.
+  return withElasticity.map(f => {
+    let direction: 'positive' | 'negative';
+    if (f.direction === 'positive') {
+      direction = 'positive';
+    } else if (f.direction === 'negative') {
+      direction = 'negative';
+    } else {
+      direction = f.elasticity! < 0 ? 'negative' : 'positive';
+    }
+    return {
+      factor_label: f.factor_label?.trim() || f.factor_id,
+      sensitivity: Math.abs(f.elasticity!),
+      direction,
+    };
+  });
 }
 
 function buildKeyAssumptions(input: BriefAssemblyInput): string[] {
