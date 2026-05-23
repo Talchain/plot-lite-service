@@ -98,7 +98,26 @@ export interface StoryHeadlines {
 export interface EvidenceGap {
   factor_id: string;
   factor_label: string;
-  voi_score: number;             // Normalised VoI (0-1)
+  /**
+   * Coaching-internal prioritisation score for evidence-gap selection.
+   *
+   * Formula (see `src/coaching/evidence-gaps.ts`):
+   *   `voi_score = normalisedImpact × (1 - confidence)`
+   * where `normalisedImpact = |influence_score| / max(|influence_score|)`.
+   *
+   * **Distinct from `factor_sensitivity[*].value_of_information`.** The
+   * coaching score never consults fragile edges, so it can be non-zero
+   * even when the same factor's `factor_sensitivity[*].value_of_information`
+   * is 0 (e.g. when the factor has no adjacent fragile edge in the graph
+   * fallback path). The two surfaces measure related but different
+   * quantities — see `tests/voi-surface-divergence.test.ts` for the
+   * regression pin and `src/types/engine-v3.ts:FactorSensitivityResultV3.value_of_information`
+   * jsdoc for the public-surface formula.
+   *
+   * Used only for coaching prioritisation (gap selection + ordering),
+   * NOT comparable across surfaces. Range: 0-1.
+   */
+  voi_score: number;
   confidence: number;            // 0-1 (raw)
   confidence_display: string;    // "50%" (formatted)
   confidence_defaulted: boolean; // True if confidence was missing
@@ -111,8 +130,14 @@ export interface EvidenceGap {
   raw_value?: number;            // Original unscaled value for UI display
   unit?: string;                 // Factor unit (e.g. "USD", "users")
   cap?: number;                  // Normalisation scale cap
-  // EVPI heuristic (when win probabilities available)
-  evpi_percentage_points?: number;  // VOI × win probability spread × 100
+  /**
+   * EVPI heuristic (when win probabilities available).
+   * Formula: `voi_score × win_probability_spread × 100`.
+   * Inherits the coaching-internal nature of `voi_score` — NOT comparable
+   * to `factor_sensitivity[*].evpi_percentage_points`, which is derived
+   * from the public-surface VOI (see the latter's jsdoc).
+   */
+  evpi_percentage_points?: number;
   evpi_method?: 'heuristic' | 'counterfactual';
 }
 

@@ -1652,7 +1652,32 @@ export interface FactorSensitivityResultV3 {
   importance_rank?: number;
   /** Human-readable interpretation from ISL */
   interpretation?: string;
-  /** Value of information from ISL */
+  /**
+   * Value of information for this factor on the public response surface.
+   *
+   * Provenance is path-dependent:
+   *   - **ISL path:** sourced from ISL's Monte Carlo VOI estimator and
+   *     sanitised non-negative via `sanitiseIslVoi`
+   *     (`src/lib/evpi-emission.ts`) per the Howard 1966 EVPI contract.
+   *   - **Graph fallback path:** computed by `computeValueOfInformation` in
+   *     `src/lib/factor-influence.ts` as
+   *     `|sensitivity| × (1 - confidence) × decision_fragility`, where
+   *     `decision_fragility` is the max `marginal_switch_probability`
+   *     across adjacent fragile edges.
+   *
+   * **May legitimately be 0** when:
+   *   - the factor has no adjacent fragile edge in the graph-fallback path
+   *     (decision_fragility = 0 → product = 0); or
+   *   - ISL emitted a non-positive VOI value (sampling artefact) which the
+   *     non-negativity sanitiser collapsed.
+   *
+   * This is a **different quantity** from
+   * `m1_coaching.evidence_gaps[*].voi_score`, which is a coaching-internal
+   * impact × uncertainty score that does not consult fragile edges. The
+   * two surfaces can legitimately disagree on the same factor — see
+   * `tests/voi-surface-divergence.test.ts` for a regression pin and
+   * `src/coaching/types.ts:EvidenceGap.voi_score` for the coaching formula.
+   */
   value_of_information?: number;
   /**
    * Estimated EVPI in percentage points of win probability.
