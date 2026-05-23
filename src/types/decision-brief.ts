@@ -39,7 +39,27 @@ export interface DecisionBriefV1 {
   /** What would need to change to flip the recommendation (max 10) */
   what_would_change: string[];
 
-  /** Overall robustness assessment */
+  /**
+   * Graph perturbation stability — a direct projection of ISL
+   * `robustness.level` via `mapRobustnessLevel` in `src/assembly/decision-brief.ts`.
+   *
+   * **This field is NOT an action-readiness assessment.** It does not
+   * consult fragile edges, evidence gaps, low driver confidence, or
+   * `recommendation_stability`. A brief can carry `robustness: 'robust'`
+   * while simultaneously containing material fragile edges and high-VoI
+   * evidence gaps — in that case the underlying decision surface is
+   * structurally stable to small perturbations, but the wider scientific
+   * picture is more cautious.
+   *
+   * Consumers wanting action-readiness signals should also check:
+   *   - `warnings` (PARTIAL_ANALYSIS, model critiques);
+   *   - `key_assumptions` (high-VoI evidence gaps);
+   *   - `what_would_change` (fragile edges and top drivers);
+   *   - `headline` (which is tone-gated by PR #174 `deriveReadinessTone` in
+   *     `src/coaching/readiness-tone.ts` against the broader signal set —
+   *     fragile edges, robustness level, recommendation stability, evidence
+   *     gaps, low driver confidence, near-tie status).
+   */
   robustness: 'robust' | 'moderate' | 'fragile';
 
   /** Merged warnings from critiques and model critiques (max 10) */

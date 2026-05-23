@@ -103,6 +103,25 @@ export type BriefAssemblyInput = Pick<RunResponseV3, 'analysis_status' | 'critiq
 // Robustness Level Mapping
 // =============================================================================
 
+/**
+ * Pure projection of ISL `robustness.level` onto the
+ * `DecisionBriefV1.robustness` field (narrow union
+ * `'robust' | 'moderate' | 'fragile'`).
+ *
+ * **This is NOT a synthesis.** It does not consult fragile edges, evidence
+ * gaps, low driver confidence, or `recommendation_stability`. Those signals
+ * are surfaced separately:
+ *   - fragile edges → `what_would_change` and (via PR #174 tone gate) the
+ *     `headline` wording;
+ *   - evidence gaps → `key_assumptions` and (via tone gate) `headline`;
+ *   - low driver confidence and near-tie status → tone gate `headline`.
+ *
+ * The semantic mapping is "graph perturbation stability under ISL's
+ * robustness analysis" — `high → 'robust'`, `moderate → 'moderate'`,
+ * `low | very_low → 'fragile'`. See `src/types/decision-brief.ts` jsdoc
+ * for the consumer-facing contract and the readiness-widening follow-up
+ * for the longer-term action-readiness surface.
+ */
 function mapRobustnessLevel(level: string | undefined): 'robust' | 'moderate' | 'fragile' {
   switch (level) {
     case 'high': return 'robust';
