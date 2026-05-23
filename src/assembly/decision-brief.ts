@@ -104,8 +104,9 @@ export type BriefAssemblyInput = Pick<RunResponseV3, 'analysis_status' | 'critiq
 // =============================================================================
 
 /**
- * Pure projection of ISL `robustness.level` into the `BriefDriver`-adjacent
- * narrow union surfaced on `DecisionBriefV1.robustness`.
+ * Pure projection of ISL `robustness.level` onto the
+ * `DecisionBriefV1.robustness` field (narrow union
+ * `'robust' | 'moderate' | 'fragile'`).
  *
  * **This is NOT a synthesis.** It does not consult fragile edges, evidence
  * gaps, low driver confidence, or `recommendation_stability`. Those signals

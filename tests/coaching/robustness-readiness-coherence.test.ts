@@ -176,7 +176,12 @@ describe('Robustness / readiness coherence — known semantic tension', () => {
     // This is the scientific-presentation debt documented in the workstream
     // plan and addressed by the Priority 1 follow-up (schema-versioned
     // readiness widening with DGAI/UI coordination).
-
+    //
+    // The brief fixture below carries the same fragile edge present in
+    // `coherenceInputs.fragileEdges` so the "same inputs" narrative is
+    // literal, not just directional. The outcome is unchanged either way —
+    // `mapRobustnessLevel` only reads `level` — but the fixture parity
+    // makes the documentary value of the pin honest.
     const briefInput: BriefAssemblyInput = {
       analysis_status: 'computed',
       critiques: [],
@@ -184,7 +189,19 @@ describe('Robustness / readiness coherence — known semantic tension', () => {
         { option_id: 'opt_a', option_label: 'Option A', id: 'opt_a', label: 'Option A', win_probability: 0.7 },
         { option_id: 'opt_b', option_label: 'Option B', id: 'opt_b', label: 'Option B', win_probability: 0.3 },
       ] as any,
-      robustness: { level: 'high', fragile_edges: [], robust_edges: [] } as any,
+      robustness: {
+        level: 'high',
+        fragile_edges: [
+          {
+            from_id: 'f_cost',
+            to_id: 'goal',
+            from_label: 'Campaign cost',
+            to_label: 'Revenue',
+            switch_probability: 0.34,
+          },
+        ],
+        robust_edges: [],
+      } as any,
       meta: { seed_used: '1' },
     } as any;
     const brief = assembleBrief(briefInput);
