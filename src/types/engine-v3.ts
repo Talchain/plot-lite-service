@@ -1681,10 +1681,19 @@ export interface FactorSensitivityResultV3 {
   value_of_information?: number;
   /**
    * Estimated EVPI in percentage points of win probability.
-   * Heuristic approximation: VOI × win probability spread × 100.
+   * Heuristic approximation: `value_of_information × win_probability_spread × 100`.
    * Not true counterfactual EVPI. To be replaced when ISL supports
    * per-factor counterfactual EVPI.
    * Present only when both VOI and win probabilities are available.
+   *
+   * **Derived from this field's own `value_of_information`** — inherits its
+   * public-surface provenance (ISL Monte Carlo or graph fallback with
+   * fragile-edge dependency). **NOT comparable to
+   * `m1_coaching.evidence_gaps[*].evpi_percentage_points`**, which is
+   * derived from the coaching-internal `voi_score`. The two EVPI fields
+   * legitimately diverge wherever the underlying VOI fields do — see
+   * `tests/voi-surface-divergence.test.ts` for the regression pin and
+   * `src/coaching/types.ts:EvidenceGap` for the coaching formula.
    */
   evpi_percentage_points?: number;
   /** Method used to compute evpi_percentage_points */
