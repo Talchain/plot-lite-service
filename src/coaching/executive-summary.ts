@@ -27,18 +27,21 @@ export function generateExecutiveSummary(
   readiness: Readiness,
   headlineType: HeadlineType,
   keyDrivers: KeyDriver[],
-  evidenceGaps: EvidenceGap[]
+  evidenceGaps: EvidenceGap[],
+  precomputedTone?: ReadinessToneResult,
 ): ExecutiveSummary {
   const winner = inputs.options[0];
   const runnerUp = inputs.options[1];
-  const thresholds = getThresholds();
-  const toneResult = deriveReadinessTone(
+  // Reuse the orchestrator-precomputed tone when threaded in so the structured
+  // m1_coaching.readiness_tone and this prose share one classification.
+  // Direct callers (unit tests) may omit it; we then recompute locally.
+  const toneResult = precomputedTone ?? deriveReadinessTone(
     inputs,
     readiness,
     headlineType,
     keyDrivers,
     evidenceGaps,
-    thresholds,
+    getThresholds(),
   );
 
   const decisionStatement = generateDecisionStatement(winner, runnerUp, headlineType, toneResult.tone);

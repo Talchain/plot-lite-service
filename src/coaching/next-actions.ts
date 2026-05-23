@@ -10,13 +10,14 @@
 import type { CoachingInputs, Critique, NextAction, Readiness, HeadlineType, EvidenceGap } from './types.js';
 import { getThresholds } from './thresholds.js';
 import { computeKeyDrivers } from './key-drivers.js';
-import { deriveReadinessTone, type ReadinessToneReason } from './readiness-tone.js';
+import { deriveReadinessTone, type ReadinessToneReason, type ReadinessToneResult } from './readiness-tone.js';
 
 export function generateNextActions(
   inputs: CoachingInputs,
   headlineType: HeadlineType,
   critiques: Critique[],
-  evidenceGaps: EvidenceGap[]
+  evidenceGaps: EvidenceGap[],
+  precomputedTone?: ReadinessToneResult,
 ): NextAction[] {
   const thresholds = getThresholds();
 
@@ -100,7 +101,10 @@ export function generateNextActions(
     const delta = context.winner ? Math.round((context.winner.winProbability - (inputs.options[1]?.winProbability ?? 0)) * 100) : 0;
     const stabilityDisplay = context.stability !== undefined ? Math.round(context.stability * 100) : 0;
     const keyDrivers = computeKeyDrivers(inputs);
-    const { tone, reasons } = deriveReadinessTone(
+    // Reuse the orchestrator-precomputed tone when threaded in so the structured
+    // m1_coaching.readiness_tone and this prose share one classification.
+    // Direct callers (unit tests) may omit it; we then recompute locally.
+    const { tone, reasons } = precomputedTone ?? deriveReadinessTone(
       inputs,
       readiness,
       headlineType,

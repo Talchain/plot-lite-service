@@ -412,6 +412,28 @@
             "switch_probability": { "type": "number" }
           }
         },
+        "readiness_tone": {
+          "type": "string",
+          "enum": ["confident", "tempered", "caution"],
+          "description": "Broader action-readiness tone derived from robustness (isRobust + level), recommendation stability, fragile-edge switch probability, evidence-gap count/VOI, top-driver confidence, and near-tie margin. Recommended source for user-facing readiness tiering. Distinct from the legacy `readiness` field, which is a narrower model-readiness signal that continues to drive `confidence_tier`. Optional purely for backwards compatibility with consumers built against coaching_version <= 1.1.0; emitted on every successful M1 coaching run from coaching_version >= 1.2.0."
+        },
+        "readiness_reasons": {
+          "type": "array",
+          "description": "Deterministic reason codes underlying `readiness_tone`. Empty when tone is `confident`. Stable additive vocabulary. Optional purely for backwards compatibility; emitted on every successful M1 coaching run from coaching_version >= 1.2.0.",
+          "items": {
+            "type": "string",
+            "enum": [
+              "NOT_ROBUST",
+              "LOW_ROBUSTNESS",
+              "LOW_STABILITY",
+              "MATERIAL_FRAGILE_EDGE",
+              "EVIDENCE_GAPS",
+              "LOW_DRIVER_CONFIDENCE",
+              "NEAR_TIE",
+              "INSUFFICIENT_SIGNALS"
+            ]
+          }
+        },
         "coaching_version": { "type": "string" },
         "computed_at": { "type": "string", "format": "date-time" }
       }

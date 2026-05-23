@@ -268,6 +268,15 @@ Top-level field: `m1_coaching?` — undefined if ISL unavailable or generation f
 | `readiness_signals` | `{overall, overall_score, dimensions, signals[]}?` | Conditional |
 | `key_drivers` | `Array<{factor_id, factor_label, influence_score, normalised_impact, impact_display, direction, rank}>?` | Conditional |
 | `executive_summary` | `{summary, decision_statement, key_qualifier, action_implication}?` | Conditional |
+| `readiness_tone` | `'confident' \| 'tempered' \| 'caution'` | Always when M1 coaching is generated (coaching_version >= 1.2.0) |
+| `readiness_reasons` | `ReadinessToneReason[]` | Always when M1 coaching is generated; `[]` when tone is `confident` (coaching_version >= 1.2.0) |
+
+**Readiness vs readiness_tone** — two distinct signals on `m1_coaching`:
+
+- `readiness` (legacy) is a **narrow model-readiness / completeness** signal driven by `headline_type`, `NARROW_FRAMING`, and a high-VOI evidence-gap gate. It continues to drive the legacy `confidence_tier` derivation in `src/routes/v2/run.ts`.
+- `readiness_tone` (added in `coaching_version` 1.2.0) is a **broader action-readiness tone** that also considers `isRobust`, robustness level, recommendation stability, fragile-edge switch probability, top-driver confidence, and near-tie margin. It is the recommended source for user-facing readiness tiering once consumers migrate.
+
+Both new fields (`readiness_tone`, `readiness_reasons`) are typed optional purely for backwards compatibility with consumers built against `coaching_version` <= 1.1.0; they are emitted on every successful M1 coaching run from `coaching_version` >= 1.2.0.
 
 ---
 

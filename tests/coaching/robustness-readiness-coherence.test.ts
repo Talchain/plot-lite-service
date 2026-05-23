@@ -171,6 +171,26 @@ describe('Robustness / readiness coherence — known semantic tension', () => {
     expect(summary.decision_statement).toMatch(/not yet strong enough|currently leads/);
   });
 
+  it('structured m1_coaching.readiness_tone surfaces the broad-signal answer (additive, coaching_version 1.2.0)', () => {
+    // Same coherenceInputs/Gaps/KeyDrivers as the rest of this suite — assert
+    // that the new structured emission carries the broad-signal answer
+    // (tone='caution', reasons include MATERIAL_FRAGILE_EDGE + EVIDENCE_GAPS)
+    // while legacy readiness stays 'ready'. Documents PR P1 (additive
+    // readiness_tone / readiness_reasons) without relaxing the legacy
+    // readiness pin above.
+    const tone = deriveReadinessTone(
+      coherenceInputs,
+      'ready',
+      'clear_winner',
+      coherenceKeyDrivers,
+      coherenceGaps,
+      getThresholds(),
+    );
+    expect(tone.tone).toBe('caution');
+    expect(tone.reasons).toContain('MATERIAL_FRAGILE_EDGE');
+    expect(tone.reasons).toContain('EVIDENCE_GAPS');
+  });
+
   it('the three surfaces disagree by design — robustness=robust + readiness=ready + tone=caution', () => {
     // The headline pin: same inputs, three surfaces, three different "answers".
     // This is the scientific-presentation debt documented in the workstream

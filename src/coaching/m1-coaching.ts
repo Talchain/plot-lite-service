@@ -22,6 +22,7 @@ import { buildAssumptionsLedger } from './assumptions-ledger.js';
 import { computeReadinessSignals } from './readiness-signals.js';
 import { computeKeyDrivers } from './key-drivers.js';
 import { generateExecutiveSummary } from './executive-summary.js';
+import { deriveReadinessTone, type ReadinessToneResult } from './readiness-tone.js';
 
 /**
  * Generate M1 coaching output from ISL response data.
@@ -80,15 +81,7 @@ export function generateM1Coaching(
     // Get headline type from first option (for readiness computation)
     const headlineType = inputs.options.length > 0 ? detectHeadlineType(inputs) : 'needs_evidence';
 
-    // Generate next actions (depends on other components)
-    const nextActions = safeCompute(
-      () => generateNextActions(inputs, headlineType, modelCritiques, evidenceGaps),
-      [],
-      logger,
-      'next_actions'
-    );
-
-    // Compute readiness
+    // Compute readiness (must be available before tone computation)
     let readiness = computeReadiness(headlineType, modelCritiques, evidenceGaps, thresholds);
 
     // Post-readiness gate: Joint constraint probability (Task 1)
@@ -132,8 +125,31 @@ export function generateM1Coaching(
       'key_drivers'
     );
 
+    // D2-tone: compute the readiness-tone classifier exactly once so the
+    // structured emission (`readiness_tone` / `readiness_reasons`) and the
+    // tone-gated prose in executive_summary / next_actions all consume the
+    // same result. Not wrapped in safeCompute: a tone failure would also
+    // break the prose path, so failure handling stays at the outer
+    // try/catch which nulls the whole m1_coaching block.
+    const toneResult: ReadinessToneResult = deriveReadinessTone(
+      inputs,
+      readiness,
+      headlineType,
+      keyDrivers,
+      evidenceGaps,
+      thresholds,
+    );
+
+    // Generate next actions (depends on critiques, evidence gaps, and tone)
+    const nextActions = safeCompute(
+      () => generateNextActions(inputs, headlineType, modelCritiques, evidenceGaps, toneResult),
+      [],
+      logger,
+      'next_actions'
+    );
+
     const executiveSummary = safeCompute(
-      () => generateExecutiveSummary(inputs, readiness, headlineType, keyDrivers, evidenceGaps),
+      () => generateExecutiveSummary(inputs, readiness, headlineType, keyDrivers, evidenceGaps, toneResult),
       undefined,
       logger,
       'executive_summary'
@@ -171,8 +187,13 @@ export function generateM1Coaching(
       key_drivers: keyDrivers,
       executive_summary: executiveSummary,
 
+      // D2-tone structured emission (additive; consumers SHOULD prefer
+      // these over the legacy `readiness` field for user-facing tiering).
+      readiness_tone: toneResult.tone,
+      readiness_reasons: toneResult.reasons,
+
       // Metadata
-      coaching_version: '1.1.0',
+      coaching_version: '1.2.0',
       computed_at: new Date().toISOString(),
     };
   } catch (err) {

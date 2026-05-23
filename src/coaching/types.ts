@@ -5,6 +5,7 @@
  */
 
 import type { EngineGraphV3, OptionV3 } from '../types/engine-v3.js';
+import type { ReadinessTone, ReadinessToneReason } from './readiness-tone.js';
 
 // =============================================================================
 // Input Normalisation
@@ -171,9 +172,17 @@ export interface Critique {
 // =============================================================================
 
 /**
- * Readiness State
+ * Readiness State — narrow model-readiness / completeness signal.
  *
  * Indicates how ready the decision is to proceed based on model quality and evidence.
+ * Drives the legacy `confidence_tier` derivation in `src/routes/v2/run.ts`.
+ *
+ * NOTE: This is intentionally NARROW — it does not consider robustness level,
+ * recommendation stability, fragile-edge switch probability, top-driver
+ * confidence, or near-tie margins. For the broader action-readiness tone that
+ * does take those signals into account, see `M1Coaching.readiness_tone` and
+ * `deriveReadinessTone` in `src/coaching/readiness-tone.ts`.
+ *
  * States are evaluated in priority order (first match wins):
  *
  * 1. **needs_framing** (highest priority)
@@ -311,7 +320,36 @@ export interface M1Coaching {
     action_implication: string;
   };
 
+  /**
+   * Broader action-readiness tone derived from robustness (`isRobust` + level),
+   * recommendation stability, fragile-edge switch probability, evidence-gap
+   * count/VOI, top-driver confidence, and near-tie margin. Source of truth is
+   * `deriveReadinessTone` (see `src/coaching/readiness-tone.ts`). Recommended
+   * source for user-facing readiness tiering once consumers migrate.
+   *
+   * Distinct from the legacy `readiness` field above, which is a narrower
+   * model-readiness / completeness signal and continues to drive the legacy
+   * `confidence_tier`.
+   *
+   * Optional purely for backwards compatibility with consumers built against
+   * coaching_version <= 1.1.0 — emitted on every successful M1 coaching run
+   * from coaching_version >= 1.2.0.
+   */
+  readiness_tone?: ReadinessTone;
+
+  /**
+   * Deterministic reason codes that produced `readiness_tone`. Empty array
+   * when tone is `'confident'`; otherwise contains the triggered hard reasons
+   * plus an optional `INSUFFICIENT_SIGNALS` marker. Stable additive
+   * vocabulary defined in `src/coaching/readiness-tone.ts`.
+   *
+   * Optional purely for backwards compatibility with consumers built against
+   * coaching_version <= 1.1.0 — emitted on every successful M1 coaching run
+   * from coaching_version >= 1.2.0.
+   */
+  readiness_reasons?: ReadinessToneReason[];
+
   // Metadata
-  coaching_version: string;  // "1.1.0" (Phase 3-4)
+  coaching_version: string;  // "1.2.0" (adds readiness_tone + readiness_reasons)
   computed_at: string;       // ISO timestamp
 }
