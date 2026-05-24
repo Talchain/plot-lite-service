@@ -2,18 +2,22 @@
  * Structural emission of `m1_coaching.readiness_tone` and
  * `m1_coaching.readiness_reasons` (coaching_version >= 1.2.0).
  *
- * Covers:
+ * Covers the happy path:
  *   1. Confident emission (no hard reasons, reasons === [])
  *   2. Tempered emission (one hard reason)
  *   3. Caution emission (two hard reasons)
  *   4. Emitted fields exactly match deriveReadinessTone on the same inputs
- *   5. Legacy `m1_coaching.readiness` and `coaching_version` invariants
+ *   5. Legacy `m1_coaching.readiness`, `coaching_version`, and
+ *      `confidence_tier` derivation invariants
  *   6. Fallback recomputation when `precomputedTone` is omitted by a direct
  *      unit-test caller of generateExecutiveSummary / generateNextActions
  *
- * NOTE: No mocked-throw safe-failure test. If deriveReadinessTone throws, the
- * existing top-level try/catch in generateM1Coaching nulls the whole
- * m1_coaching block — that is the shared fallback and is unchanged by this PR.
+ * The classifier-failure path lives in a sibling file
+ * (`m1-readiness-tone-failure.test.ts`) because the `vi.mock` of
+ * readiness-tone.js is hoisted to module top and would corrupt the happy-path
+ * tests here. That file pins the safeCompute behavior: a tone throw leaves
+ * the rest of m1_coaching emitting, with `readiness_tone` /
+ * `readiness_reasons` absent (not own-properties with value undefined).
  */
 
 import { describe, it, expect } from 'vitest';

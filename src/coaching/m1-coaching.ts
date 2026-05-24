@@ -195,10 +195,13 @@ export function generateM1Coaching(
 
       // D2-tone structured emission (additive; consumers SHOULD prefer
       // these over the legacy `readiness` field for user-facing tiering).
-      // Both keys spread to `undefined` (i.e. absent) only when the safeCompute
-      // wrapper above caught a classifier error.
-      readiness_tone: toneResult?.tone,
-      readiness_reasons: toneResult?.reasons,
+      // Conditionally spread so both keys are genuinely ABSENT on the
+      // runtime object when the safeCompute wrapper above caught a
+      // classifier error — matching the `readiness_tone?` / `readiness_reasons?`
+      // optional-absent contract, not "present with value undefined".
+      ...(toneResult
+        ? { readiness_tone: toneResult.tone, readiness_reasons: toneResult.reasons }
+        : {}),
 
       // Metadata
       coaching_version: '1.2.0',
