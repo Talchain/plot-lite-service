@@ -415,11 +415,11 @@
         "readiness_tone": {
           "type": "string",
           "enum": ["confident", "tempered", "caution"],
-          "description": "Broader action-readiness tone derived from robustness (isRobust + level), recommendation stability, fragile-edge switch probability, evidence-gap count/VOI, top-driver confidence, and near-tie margin. Recommended source for user-facing readiness tiering. Distinct from the legacy `readiness` field, which is a narrower model-readiness signal that continues to drive `confidence_tier`. Optional purely for backwards compatibility with consumers built against coaching_version <= 1.1.0; emitted on every successful M1 coaching run from coaching_version >= 1.2.0."
+          "description": "Broader action-readiness tone derived from robustness (isRobust + level), recommendation stability, fragile-edge switch probability, evidence-gap count/VOI, top-driver confidence, and near-tie margin. Recommended source for user-facing readiness tiering. Distinct from the legacy `readiness` field, which is a narrower model-readiness signal that continues to drive `confidence_tier`. Optional: (1) for backwards compatibility with consumers built against coaching_version <= 1.1.0, and (2) wrapped in the shared `safeCompute` graceful-degradation pattern — absent only when the classifier itself genuinely throws (rare; the rest of `m1_coaching` still emits)."
         },
         "readiness_reasons": {
           "type": "array",
-          "description": "Deterministic reason codes underlying `readiness_tone`. Empty when tone is `confident`. Stable additive vocabulary. Optional purely for backwards compatibility; emitted on every successful M1 coaching run from coaching_version >= 1.2.0.",
+          "description": "Deterministic reason codes underlying `readiness_tone`. Empty when tone is `confident`. Stable additive vocabulary. Optional for the same reasons as `readiness_tone` — backwards compatibility with coaching_version <= 1.1.0 consumers and absent only when the classifier itself genuinely throws via the shared safeCompute graceful-degradation path.",
           "items": {
             "type": "string",
             "enum": [

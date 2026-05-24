@@ -331,9 +331,11 @@ export interface M1Coaching {
    * model-readiness / completeness signal and continues to drive the legacy
    * `confidence_tier`.
    *
-   * Optional purely for backwards compatibility with consumers built against
-   * coaching_version <= 1.1.0 — emitted on every successful M1 coaching run
-   * from coaching_version >= 1.2.0.
+   * Optional for two reasons: (1) backwards compatibility with consumers
+   * built against coaching_version <= 1.1.0, and (2) the field is wrapped in
+   * the same `safeCompute` graceful-degradation pattern as every other
+   * Phase 3-4 field — absent only when the classifier itself genuinely
+   * throws (rare; the rest of `m1_coaching` still emits).
    */
   readiness_tone?: ReadinessTone;
 
@@ -343,9 +345,10 @@ export interface M1Coaching {
    * plus an optional `INSUFFICIENT_SIGNALS` marker. Stable additive
    * vocabulary defined in `src/coaching/readiness-tone.ts`.
    *
-   * Optional purely for backwards compatibility with consumers built against
-   * coaching_version <= 1.1.0 — emitted on every successful M1 coaching run
-   * from coaching_version >= 1.2.0.
+   * Optional for the same reasons as `readiness_tone` above: backwards
+   * compatibility with coaching_version <= 1.1.0 consumers, and absent only
+   * when the classifier itself genuinely throws via the shared safeCompute
+   * graceful-degradation path.
    */
   readiness_reasons?: ReadinessToneReason[];
 

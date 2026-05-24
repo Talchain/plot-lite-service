@@ -128,16 +128,22 @@ export function generateM1Coaching(
     // D2-tone: compute the readiness-tone classifier exactly once so the
     // structured emission (`readiness_tone` / `readiness_reasons`) and the
     // tone-gated prose in executive_summary / next_actions all consume the
-    // same result. Not wrapped in safeCompute: a tone failure would also
-    // break the prose path, so failure handling stays at the outer
-    // try/catch which nulls the whole m1_coaching block.
-    const toneResult: ReadinessToneResult = deriveReadinessTone(
-      inputs,
-      readiness,
-      headlineType,
-      keyDrivers,
-      evidenceGaps,
-      thresholds,
+    // same result.
+    //
+    // Wrapped in safeCompute for graceful-degradation parity with every other
+    // Phase 3-4 field. If the classifier throws here we fall back to
+    // `undefined`; both downstream prose generators are themselves wrapped in
+    // safeCompute, so their fallback recomputation (when precomputedTone is
+    // undefined) is caught at their own boundary — net effect on a tone
+    // failure is `readiness_tone`/`readiness_reasons` absent, next_actions →
+    // [], executive_summary → undefined, and every other m1_coaching field
+    // still emits. Without this wrapper, a tone throw would propagate to the
+    // outer try/catch and null the entire m1_coaching block.
+    const toneResult = safeCompute<ReadinessToneResult | undefined>(
+      () => deriveReadinessTone(inputs, readiness, headlineType, keyDrivers, evidenceGaps, thresholds),
+      undefined,
+      logger,
+      'readiness_tone'
     );
 
     // Generate next actions (depends on critiques, evidence gaps, and tone)
@@ -189,8 +195,10 @@ export function generateM1Coaching(
 
       // D2-tone structured emission (additive; consumers SHOULD prefer
       // these over the legacy `readiness` field for user-facing tiering).
-      readiness_tone: toneResult.tone,
-      readiness_reasons: toneResult.reasons,
+      // Both keys spread to `undefined` (i.e. absent) only when the safeCompute
+      // wrapper above caught a classifier error.
+      readiness_tone: toneResult?.tone,
+      readiness_reasons: toneResult?.reasons,
 
       // Metadata
       coaching_version: '1.2.0',

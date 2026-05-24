@@ -25,7 +25,8 @@ import { deriveReadinessTone } from '../../src/coaching/readiness-tone.js';
 import { computeKeyDrivers } from '../../src/coaching/key-drivers.js';
 import { computeEvidenceGaps } from '../../src/coaching/evidence-gaps.js';
 import { getThresholds } from '../../src/coaching/thresholds.js';
-import type { EngineGraphV3, OptionV3 } from '../../src/coaching/types.js';
+import { deriveConfidenceTier } from '../../src/trust/confidence-tier.js';
+import type { EngineGraphV3, OptionV3 } from '../../src/types/engine-v3.js';
 
 // ---------------------------------------------------------------------------
 // Fixture builders — each shapes ISL data so the derived tone is predictable.
@@ -233,6 +234,17 @@ describe('m1_coaching — legacy field invariants under tone emission', () => {
     const m1 = generateM1Coaching(baseGraphForTone(), baseOptionsForTone(), islResult());
     expect(m1).not.toBeNull();
     expect(m1!.coaching_version).toBe('1.2.0');
+  });
+
+  it('confidence_tier derivation from legacy readiness is unchanged ("ready" → "strong")', () => {
+    // Confidence-tier preservation invariant: this PR adds readiness_tone /
+    // readiness_reasons but must NOT alter the legacy `readiness` →
+    // `confidence_tier` mapping consumed by DGAI/UI today (see
+    // src/routes/v2/run.ts:2008 and src/trust/confidence-tier.ts).
+    const m1 = generateM1Coaching(baseGraphForTone(), baseOptionsForTone(), islResult());
+    expect(m1).not.toBeNull();
+    expect(m1!.readiness).toBe('ready');
+    expect(deriveConfidenceTier(m1!.readiness)).toBe('strong');
   });
 });
 
