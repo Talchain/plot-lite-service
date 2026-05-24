@@ -22,6 +22,7 @@ import { buildAssumptionsLedger } from './assumptions-ledger.js';
 import { computeReadinessSignals } from './readiness-signals.js';
 import { computeKeyDrivers } from './key-drivers.js';
 import { generateExecutiveSummary } from './executive-summary.js';
+import { deriveReadinessTone, type ReadinessToneResult } from './readiness-tone.js';
 
 /**
  * Generate M1 coaching output from ISL response data.
@@ -80,15 +81,7 @@ export function generateM1Coaching(
     // Get headline type from first option (for readiness computation)
     const headlineType = inputs.options.length > 0 ? detectHeadlineType(inputs) : 'needs_evidence';
 
-    // Generate next actions (depends on other components)
-    const nextActions = safeCompute(
-      () => generateNextActions(inputs, headlineType, modelCritiques, evidenceGaps),
-      [],
-      logger,
-      'next_actions'
-    );
-
-    // Compute readiness
+    // Compute readiness (must be available before tone computation)
     let readiness = computeReadiness(headlineType, modelCritiques, evidenceGaps, thresholds);
 
     // Post-readiness gate: Joint constraint probability (Task 1)
@@ -132,8 +125,37 @@ export function generateM1Coaching(
       'key_drivers'
     );
 
+    // D2-tone: compute the readiness-tone classifier exactly once so the
+    // structured emission (`readiness_tone` / `readiness_reasons`) and the
+    // tone-gated prose in executive_summary / next_actions all consume the
+    // same result.
+    //
+    // Wrapped in safeCompute for graceful-degradation parity with every other
+    // Phase 3-4 field. If the classifier throws here we fall back to
+    // `undefined`; both downstream prose generators are themselves wrapped in
+    // safeCompute, so their fallback recomputation (when precomputedTone is
+    // undefined) is caught at their own boundary — net effect on a tone
+    // failure is `readiness_tone`/`readiness_reasons` absent, next_actions →
+    // [], executive_summary → undefined, and every other m1_coaching field
+    // still emits. Without this wrapper, a tone throw would propagate to the
+    // outer try/catch and null the entire m1_coaching block.
+    const toneResult = safeCompute<ReadinessToneResult | undefined>(
+      () => deriveReadinessTone(inputs, readiness, headlineType, keyDrivers, evidenceGaps, thresholds),
+      undefined,
+      logger,
+      'readiness_tone'
+    );
+
+    // Generate next actions (depends on critiques, evidence gaps, and tone)
+    const nextActions = safeCompute(
+      () => generateNextActions(inputs, headlineType, modelCritiques, evidenceGaps, toneResult),
+      [],
+      logger,
+      'next_actions'
+    );
+
     const executiveSummary = safeCompute(
-      () => generateExecutiveSummary(inputs, readiness, headlineType, keyDrivers, evidenceGaps),
+      () => generateExecutiveSummary(inputs, readiness, headlineType, keyDrivers, evidenceGaps, toneResult),
       undefined,
       logger,
       'executive_summary'
@@ -171,8 +193,18 @@ export function generateM1Coaching(
       key_drivers: keyDrivers,
       executive_summary: executiveSummary,
 
+      // D2-tone structured emission (additive; consumers SHOULD prefer
+      // these over the legacy `readiness` field for user-facing tiering).
+      // Conditionally spread so both keys are genuinely ABSENT on the
+      // runtime object when the safeCompute wrapper above caught a
+      // classifier error — matching the `readiness_tone?` / `readiness_reasons?`
+      // optional-absent contract, not "present with value undefined".
+      ...(toneResult
+        ? { readiness_tone: toneResult.tone, readiness_reasons: toneResult.reasons }
+        : {}),
+
       // Metadata
-      coaching_version: '1.1.0',
+      coaching_version: '1.2.0',
       computed_at: new Date().toISOString(),
     };
   } catch (err) {

@@ -171,6 +171,28 @@ describe('Robustness / readiness coherence — known semantic tension', () => {
     expect(summary.decision_statement).toMatch(/not yet strong enough|currently leads/);
   });
 
+  it('classifier on the coherence fixture pins both expected hard reasons (MATERIAL_FRAGILE_EDGE + EVIDENCE_GAPS)', () => {
+    // Direct-classifier sister-pin to the test above: re-runs deriveReadinessTone
+    // on the same fixture and explicitly asserts both hard-reason codes appear
+    // by name, so any future refactor that loses one reason is caught here.
+    //
+    // NOTE: this does NOT exercise structured emission via generateM1Coaching —
+    // see tests/coaching/m1-readiness-tone-emission.test.ts for the full
+    // m1_coaching.readiness_tone / readiness_reasons emission coverage
+    // (added in PR P1, coaching_version 1.2.0).
+    const tone = deriveReadinessTone(
+      coherenceInputs,
+      'ready',
+      'clear_winner',
+      coherenceKeyDrivers,
+      coherenceGaps,
+      getThresholds(),
+    );
+    expect(tone.tone).toBe('caution');
+    expect(tone.reasons).toContain('MATERIAL_FRAGILE_EDGE');
+    expect(tone.reasons).toContain('EVIDENCE_GAPS');
+  });
+
   it('the three surfaces disagree by design — robustness=robust + readiness=ready + tone=caution', () => {
     // The headline pin: same inputs, three surfaces, three different "answers".
     // This is the scientific-presentation debt documented in the workstream
