@@ -284,6 +284,18 @@
           },
           "zero_reason": {
             "type": "string"
+          },
+          "value_source": {
+            "type": "string",
+            "description": "Track S: provenance of this factor's input value (ISL FactorSensitivityV2 passthrough). Distinct from `source` (producing engine). Absent on older ISL responses."
+          },
+          "value_extraction_type": {
+            "type": "string",
+            "description": "Track S: how the factor value was extracted/derived (ISL passthrough). Absent on older ISL responses."
+          },
+          "value_defaulted": {
+            "type": "boolean",
+            "description": "Track S: true when ISL substituted a default for the factor value. Absent means not reported / older ISL response; never coerced to false."
           }
         }
       }

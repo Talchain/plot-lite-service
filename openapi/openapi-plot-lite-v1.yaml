@@ -1147,4 +1147,18 @@ components:
           description: >
             Range derivation tier for this factor's intervention range.
             Values: explicit_cap, explicit, extracted, inferred_spread, inferred_baseline, inferred_value, default.
+        value_source:
+          type: string
+          description: >
+            Track S: provenance of this factor's input value (additive passthrough
+            from ISL FactorSensitivityV2). Distinct from `source`, which records the
+            producing engine. Absent on older ISL responses.
+        value_extraction_type:
+          type: string
+          description: 'Track S: how the factor value was extracted/derived (ISL passthrough). Absent on older ISL responses.'
+        value_defaulted:
+          type: boolean
+          description: >
+            Track S: true when ISL substituted a default for the factor value.
+            Absent means "not reported / older ISL response" and is never coerced to false.
       required: [factor_id]

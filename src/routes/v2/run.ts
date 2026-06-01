@@ -639,6 +639,14 @@ function mapIslFactorEntry(f: any, normContext?: NormalisationContext): FactorSe
   if (f.rank_flip_rate !== undefined) entry.rank_flip_rate = f.rank_flip_rate;
   if (f.stability_method !== undefined) entry.stability_method = f.stability_method;
 
+  // Track S: ISL factor value provenance — carry through when ISL provides them.
+  // Preserve-only-when-present: absent value_defaulted MUST NOT be coerced to
+  // false (absent can mean "older ISL response" or "not reported", which is
+  // distinct from an explicit false). Mirrors the 3C stability carry above.
+  if (f.value_source !== undefined) entry.value_source = f.value_source;
+  if (f.value_extraction_type !== undefined) entry.value_extraction_type = f.value_extraction_type;
+  if (f.value_defaulted !== undefined) entry.value_defaulted = f.value_defaulted;
+
   // Flag when normalisation was active but ranges unavailable for denorm
   if (sensitivityNormalised) entry._normalised = true;
 

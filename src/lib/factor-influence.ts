@@ -920,6 +920,14 @@ export function mergeIslConfidenceIntoGraphFactors(
       ...(islMatch.elasticity_std !== undefined && { elasticity_std: islMatch.elasticity_std }),
       ...(islMatch.rank_flip_rate !== undefined && { rank_flip_rate: islMatch.rank_flip_rate }),
       ...(islMatch.stability_method !== undefined && { stability_method: islMatch.stability_method }),
+      // Track S: carry ISL factor value provenance onto the merged graph factor.
+      // The graph factor (`gf`) never carries these — they originate from ISL —
+      // so without this the common graph+ISL merge path would drop them.
+      // Preserve-only-when-present: absent value_defaulted stays absent (the
+      // ISL-only append branch below preserves them via the `...islFCleaned` spread).
+      ...(islMatch.value_source !== undefined && { value_source: islMatch.value_source }),
+      ...(islMatch.value_extraction_type !== undefined && { value_extraction_type: islMatch.value_extraction_type }),
+      ...(islMatch.value_defaulted !== undefined && { value_defaulted: islMatch.value_defaulted }),
     };
   });
 

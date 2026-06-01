@@ -208,6 +208,15 @@ export interface ISLFactorSensitivityItem {
   stability_method?: string;
   /** ISL-computed confidence from bootstrap stability (0-1) */
   confidence?: number;
+
+  // Track S: factor value provenance (additive fields on ISL FactorSensitivityV2).
+  // Optional — absent on older ISL responses. PLoT preserves these verbatim.
+  /** Provenance of the factor's input value (where the value came from). */
+  value_source?: string;
+  /** How the factor value was extracted/derived. */
+  value_extraction_type?: string;
+  /** True when ISL substituted a default for the factor value. Absent ≠ false. */
+  value_defaulted?: boolean;
 }
 
 /**

@@ -286,3 +286,126 @@ describe('new fields excluded from response_hash', () => {
     expect(partial.conditional_winners).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Track S: factor value provenance passthrough
+// (value_source / value_extraction_type / value_defaulted)
+// ---------------------------------------------------------------------------
+
+describe('Track S provenance passthrough — mergeIslConfidenceIntoGraphFactors', () => {
+  const GRAPH: EngineGraphV3 = {
+    nodes: [
+      { id: 'root', kind: 'factor', label: 'Root' },
+      { id: 'fac_a', kind: 'factor', label: 'Factor A' },
+      { id: 'goal', kind: 'goal', label: 'Goal' },
+    ],
+    edges: [
+      { from: 'root', to: 'fac_a', exists_probability: 0.9, strength: { mean: 0.5, std: 0.1 } },
+      { from: 'fac_a', to: 'goal', exists_probability: 0.99, strength: { mean: 0.8, std: 0.01 } },
+    ],
+  };
+
+  it('graph+ISL match carries value_source / value_extraction_type / value_defaulted onto the merged graph factor', () => {
+    const graphFactors = computeFactorSensitivityFromGraph(GRAPH, 'goal')!;
+    const islFactors: FactorSensitivityResultV3[] = [{
+      factor_id: 'fac_a',
+      factor_label: 'Factor A',
+      sensitivity_score: 0.6,
+      source: 'isl',
+      attribution_stability: 'high',
+      value_source: 'user_input',
+      value_extraction_type: 'explicit',
+      value_defaulted: true,
+    }];
+
+    const merged = mergeIslConfidenceIntoGraphFactors(graphFactors, islFactors, GRAPH.edges);
+    const facA = merged.find(f => f.factor_id === 'fac_a')!;
+
+    expect(facA.value_source).toBe('user_input');
+    expect(facA.value_extraction_type).toBe('explicit');
+    expect(facA.value_defaulted).toBe(true);
+    // Confidence is still PLoT-recomputed (provenance carry must not disturb it).
+    expect(facA.confidence_source).toBe('plot_unified_from_isl_bootstrap');
+  });
+
+  it('absent value_defaulted stays absent (never coerced to false) on the merge path', () => {
+    const graphFactors = computeFactorSensitivityFromGraph(GRAPH, 'goal')!;
+    const islFactors: FactorSensitivityResultV3[] = [{
+      factor_id: 'fac_a',
+      factor_label: 'Factor A',
+      sensitivity_score: 0.6,
+      source: 'isl',
+      attribution_stability: 'high',
+      value_source: 'calibrated_estimate',
+      // value_defaulted intentionally absent (e.g. older ISL response)
+    }];
+
+    const merged = mergeIslConfidenceIntoGraphFactors(graphFactors, islFactors, GRAPH.edges);
+    const facA = merged.find(f => f.factor_id === 'fac_a')!;
+
+    expect(facA.value_source).toBe('calibrated_estimate');
+    expect(facA.value_defaulted).toBeUndefined();
+    expect(facA).not.toHaveProperty('value_defaulted'); // absent ≠ false
+  });
+
+  it('ISL-only factor (not in graph) preserves provenance via the spread branch; explicit false is kept', () => {
+    const graphFactors = computeFactorSensitivityFromGraph(GRAPH, 'goal')!;
+    // 'orphan' is NOT a graph node → exercises the ISL-only append branch
+    const islFactors: FactorSensitivityResultV3[] = [{
+      factor_id: 'orphan',
+      factor_label: 'Orphan Factor',
+      sensitivity_score: 0.4,
+      source: 'isl',
+      value_source: 'historical_default',
+      value_extraction_type: 'inferred',
+      value_defaulted: false,
+    }];
+
+    const merged = mergeIslConfidenceIntoGraphFactors(graphFactors, islFactors, GRAPH.edges);
+    const orphan = merged.find(f => f.factor_id === 'orphan')!;
+
+    expect(orphan).toBeDefined();
+    expect(orphan.value_source).toBe('historical_default');
+    expect(orphan.value_extraction_type).toBe('inferred');
+    expect(orphan.value_defaulted).toBe(false); // explicit false preserved (distinct from absent)
+  });
+});
+
+describe('Track S provenance type contract', () => {
+  it('FactorSensitivityResultV3 accepts value_source / value_extraction_type / value_defaulted', () => {
+    const entry: FactorSensitivityResultV3 = {
+      factor_id: 'price',
+      factor_label: 'Price',
+      source: 'isl',
+      value_source: 'user_input',
+      value_extraction_type: 'explicit',
+      value_defaulted: true,
+    };
+    expect(entry.value_source).toBe('user_input');
+    expect(entry.value_extraction_type).toBe('explicit');
+    expect(entry.value_defaulted).toBe(true);
+  });
+
+  it('the three provenance fields are optional on FactorSensitivityResultV3', () => {
+    const entry: FactorSensitivityResultV3 = {
+      factor_id: 'price',
+      factor_label: 'Price',
+      source: 'isl',
+    };
+    expect(entry.value_source).toBeUndefined();
+    expect(entry.value_extraction_type).toBeUndefined();
+    expect(entry.value_defaulted).toBeUndefined();
+  });
+
+  it('ISLFactorSensitivityItem accepts the three provenance fields', () => {
+    const item: import('../src/integrations/isl/types/isl-types.js').ISLFactorSensitivityItem = {
+      node_id: 'fac_a',
+      sensitivity_score: 0.5,
+      value_source: 'user_input',
+      value_extraction_type: 'explicit',
+      value_defaulted: false,
+    };
+    expect(item.value_source).toBe('user_input');
+    expect(item.value_defaulted).toBe(false);
+  });
+});
