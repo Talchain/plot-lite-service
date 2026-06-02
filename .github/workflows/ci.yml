@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+  packages: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -16,6 +20,8 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Lint (ESLint)
         run: npx eslint src tests --ext .ts --max-warnings 29
       - name: Validate contracts
