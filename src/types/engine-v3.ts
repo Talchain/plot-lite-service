@@ -1771,6 +1771,23 @@ export interface FactorSensitivityResultV3 {
   /** Method used by ISL to compute stability metrics */
   stability_method?: string;
 
+  // Track S: ISL factor value provenance (additive passthrough from ISL
+  // FactorSensitivityV2). Distinct from `source` above: `source` records which
+  // engine produced the row (graph vs ISL); these record where the factor's
+  // *input value* came from. Carried verbatim from ISL when present; absent on
+  // older ISL responses.
+  /** Provenance of the factor's input value (where the value came from). */
+  value_source?: string;
+  /** How the factor value was extracted/derived. */
+  value_extraction_type?: string;
+  /**
+   * True when ISL substituted a default for the factor value.
+   * Absent ≠ false: absent means "older ISL response or not reported" and is
+   * never coerced to false — see mapIslFactorEntry and
+   * mergeIslConfidenceIntoGraphFactors.
+   */
+  value_defaulted?: boolean;
+
   /**
    * Progressive disclosure: raw components of the unified confidence formula.
    * Allows UI to expose what drives the confidence score.
