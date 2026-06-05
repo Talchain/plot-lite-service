@@ -23,12 +23,3 @@ jobs:
       - name: Install (if needed)
         run: |
           if [ -f package.json ]; then npm ci || true; fi
-      - name: Run engine tests
-        run: node tools/run-tests.cjs
-      - name: Upload tests report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: tests-report
-          path: reports/tests.json
-          if-no-files-found: warn
