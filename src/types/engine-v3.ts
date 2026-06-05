@@ -80,6 +80,10 @@ export interface UpstreamNode {
     factor_type?: string;
     /** V3 expansion: sources of uncertainty */
     uncertainty_drivers?: string[];
+    /** Track S: value provenance — where the value came from (e.g. 'brief_extraction', 'cee_inference'). */
+    source?: string;
+    /** Track S: value provenance — how the value was extracted (e.g. 'explicit', 'inferred'). camelCase matches CEE/ISL — do not rename. */
+    extractionType?: string;
   };
   /** State space bounds for the factor (used for uncertainty calculation) */
   state_space?: {
@@ -191,6 +195,10 @@ export interface EngineNodeV3 {
     factor_type?: string;
     /** V3 expansion: sources of uncertainty */
     uncertainty_drivers?: string[];
+    /** Track S: value provenance — where the value came from (e.g. 'brief_extraction', 'cee_inference'). */
+    source?: string;
+    /** Track S: value provenance — how the value was extracted (e.g. 'explicit', 'inferred'). camelCase matches CEE/ISL — do not rename. */
+    extractionType?: string;
   };
   /** State space bounds for the factor (used for uncertainty calculation) */
   state_space?: {

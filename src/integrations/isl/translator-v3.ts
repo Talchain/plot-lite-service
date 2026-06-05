@@ -44,6 +44,9 @@ export interface ISLNodeV3 {
     cap?: number;
     factor_type?: string;
     uncertainty_drivers?: string[];
+    /** Track S: value provenance forwarded to ISL (echoed back as value_source / value_extraction_type). camelCase matches CEE/ISL — do not rename. */
+    source?: string;
+    extractionType?: string;
   };
   intercept?: number;
   epsilon_std?: number;

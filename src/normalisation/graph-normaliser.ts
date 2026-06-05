@@ -258,9 +258,10 @@ export function normaliseNode(
   }
 
   if (node.observed_state?.value !== undefined) {
-    // Explicit allowlist: core fields + V3 expansion metadata
+    // Explicit allowlist: core fields + V3 expansion metadata + Track S provenance
     // This preserves V3 fields (raw_value, cap, factor_type, uncertainty_drivers)
-    // without passing through arbitrary upstream garbage.
+    // and value provenance (source, extractionType) without passing through
+    // arbitrary upstream garbage.
     const os = node.observed_state;
     observedState = {
       value: node.observed_state.value, // use narrowed path (TS knows !== undefined)
@@ -271,6 +272,13 @@ export function normaliseNode(
       cap: os.cap,
       factor_type: os.factor_type,
       uncertainty_drivers: os.uncertainty_drivers,
+      // Track S: forward value provenance to the ISL request (request-side
+      // forwarding). Copied verbatim so request-side casing matches CEE emit /
+      // ISL receive — do not rename to extraction_type / value_source, which are
+      // ISL's response-side echo names. JSON.stringify drops these when undefined,
+      // so absent provenance is preserved-when-present, not invented.
+      source: os.source,
+      extractionType: os.extractionType,
       // For constraint nodes, preserve metadata (contains operator) so the
       // constraint compiler can extract it via observed_state.metadata.operator.
       ...((os as any).metadata !== undefined && { metadata: (os as any).metadata }),
