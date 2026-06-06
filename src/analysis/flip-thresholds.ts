@@ -83,6 +83,14 @@ export interface FlipDiagnostics {
   bracket_low: number;
   bracket_high: number;
   iterations_used: number;
+  /**
+   * Total probe evaluations executed for this factor: the 3 Step-0 probes
+   * (baseline + both bounds) plus any bisection/grid midpoint probes. 0 when
+   * the probe phase never ran (pre-probe timeout, non-finite baseline). Lets
+   * `iterations_used: 0` be disambiguated: 3 means probes ran but bisection
+   * did not; 0 means no probes ran at all.
+   */
+  probes_used: number;
   precision_target: number;
   precision_achieved: number;
   flip_reason: string;
@@ -177,6 +185,7 @@ async function searchFlipForFactor(
     bracket_low: 0,
     bracket_high: 0,
     iterations_used: 0,
+    probes_used: 0,
     precision_target: config.precisionTarget,
     precision_achieved: Infinity,
     flip_reason: '',
@@ -184,11 +193,16 @@ async function searchFlipForFactor(
     alternative_winner_id: null,
   };
 
+  // Probe-evaluation counter. Incremented as each ISL inference completes:
+  // +3 after the Step-0 probes, +1 per bisection/grid midpoint. Declared
+  // outside the try so the catch path can report the count that did complete.
+  let probes = 0;
+
   // Guard: skip binary search if current_value is not a finite number
   if (!Number.isFinite(baseline)) {
     diag.flip_reason = 'error';
     return {
-      result: { ...candidate, flip_value: null, flip_reason: 'error', iterations_used: 0, alternative_winner_id: null },
+      result: { ...candidate, flip_value: null, flip_reason: 'error', iterations_used: 0, probes_used: 0, alternative_winner_id: null },
       diagnostics: diag,
     };
   }
@@ -198,7 +212,7 @@ async function searchFlipForFactor(
     if (Date.now() >= factorDeadline) {
       diag.flip_reason = 'timeout';
       return {
-        result: { ...candidate, flip_value: null, flip_reason: 'timeout', iterations_used: 0, alternative_winner_id: null },
+        result: { ...candidate, flip_value: null, flip_reason: 'timeout', iterations_used: 0, probes_used: 0, alternative_winner_id: null },
         diagnostics: diag,
       };
     }
@@ -208,6 +222,7 @@ async function searchFlipForFactor(
       inferenceFn(candidate.factor_id, 0),
       inferenceFn(candidate.factor_id, 1),
     ]);
+    probes += 3; // Step-0 probes completed: baseline, lower bound, upper bound
 
     const W0 = getArgmaxOption(baselineResult);
     const W_min = getArgmaxOption(minResult);
@@ -233,8 +248,9 @@ async function searchFlipForFactor(
     if (W_min === W0 && W_max === W0) {
       diag.flip_reason = 'no_effect_within_bounds';
       diag.iterations_used = 0;
+      diag.probes_used = probes;
       return {
-        result: { ...candidate, flip_value: null, flip_reason: 'no_effect_within_bounds', iterations_used: 0, alternative_winner_id: null, margin_sensitivity: marginSensitivity },
+        result: { ...candidate, flip_value: null, flip_reason: 'no_effect_within_bounds', iterations_used: 0, probes_used: probes, alternative_winner_id: null, margin_sensitivity: marginSensitivity },
         diagnostics: diag,
       };
     }
@@ -290,12 +306,13 @@ async function searchFlipForFactor(
       if (Date.now() >= factorDeadline) {
         const flipValue = roundTo4(midpoint(searchLow, searchHigh));
         diag.iterations_used = iterations;
+        diag.probes_used = probes;
         diag.precision_achieved = Math.abs(searchHigh - searchLow);
         diag.flip_reason = 'timeout';
         diag.flip_value = flipValue;
         diag.alternative_winner_id = farWinner;
         return {
-          result: { ...candidate, flip_value: flipValue, flip_reason: 'timeout', iterations_used: iterations, alternative_winner_id: farWinner, margin_sensitivity: marginSensitivity },
+          result: { ...candidate, flip_value: flipValue, flip_reason: 'timeout', iterations_used: iterations, probes_used: probes, alternative_winner_id: farWinner, margin_sensitivity: marginSensitivity },
           diagnostics: diag,
         };
       }
@@ -307,6 +324,7 @@ async function searchFlipForFactor(
       const mid = midpoint(searchLow, searchHigh);
       const midResult = await inferenceFn(candidate.factor_id, mid);
       iterations++;
+      probes++; // bisection midpoint probe completed
 
       const midWinner = getArgmaxOption(midResult);
 
@@ -319,7 +337,7 @@ async function searchFlipForFactor(
       } else {
         // Non-monotonic: a third option became the winner. Fall back to grid scan.
         return await gridFallback(
-          candidate, inferenceFn, originalWinnerId, 0, 1, config, factorDeadline, iterations, diag, marginSensitivity
+          candidate, inferenceFn, originalWinnerId, 0, 1, config, factorDeadline, iterations, probes, diag, marginSensitivity
         );
       }
     }
@@ -329,6 +347,7 @@ async function searchFlipForFactor(
     const flipValue = roundTo4(midpoint(searchLow, searchHigh));
 
     diag.iterations_used = iterations;
+    diag.probes_used = probes;
     diag.precision_achieved = precisionAchieved;
     diag.flip_value = flipValue;
     diag.alternative_winner_id = farWinner;
@@ -336,20 +355,21 @@ async function searchFlipForFactor(
     if (precisionAchieved > config.precisionTarget) {
       diag.flip_reason = 'insufficient_precision';
       return {
-        result: { ...candidate, flip_value: flipValue, flip_reason: 'insufficient_precision', iterations_used: iterations, alternative_winner_id: farWinner, margin_sensitivity: marginSensitivity },
+        result: { ...candidate, flip_value: flipValue, flip_reason: 'insufficient_precision', iterations_used: iterations, probes_used: probes, alternative_winner_id: farWinner, margin_sensitivity: marginSensitivity },
         diagnostics: diag,
       };
     }
 
     diag.flip_reason = 'found';
     return {
-      result: { ...candidate, flip_value: flipValue, flip_reason: 'found', iterations_used: iterations, alternative_winner_id: farWinner, margin_sensitivity: marginSensitivity },
+      result: { ...candidate, flip_value: flipValue, flip_reason: 'found', iterations_used: iterations, probes_used: probes, alternative_winner_id: farWinner, margin_sensitivity: marginSensitivity },
       diagnostics: diag,
     };
   } catch (err) {
     diag.flip_reason = 'error';
+    diag.probes_used = probes;
     return {
-      result: { ...candidate, flip_value: null, flip_reason: 'error', iterations_used: 0, alternative_winner_id: null },
+      result: { ...candidate, flip_value: null, flip_reason: 'error', iterations_used: 0, probes_used: probes, alternative_winner_id: null },
       diagnostics: diag,
     };
   }
@@ -372,18 +392,21 @@ async function gridFallback(
   config: FlipSearchConfig,
   deadline: number,
   iterationsSoFar: number,
+  probesSoFar: number,
   diag: FlipDiagnostics,
   marginSensitivity: MarginSensitivity
 ): Promise<{ result: FlipThresholdInputData; diagnostics: FlipDiagnostics }> {
   let iterations = iterationsSoFar;
+  let probes = probesSoFar;
   const step = (high - low) / (config.maxGridPoints - 1);
 
   for (let i = 0; i < config.maxGridPoints; i++) {
     if (Date.now() >= deadline) {
       diag.iterations_used = iterations;
+      diag.probes_used = probes;
       diag.flip_reason = 'timeout';
       return {
-        result: { ...candidate, flip_value: null, flip_reason: 'timeout', iterations_used: iterations, alternative_winner_id: null, margin_sensitivity: marginSensitivity },
+        result: { ...candidate, flip_value: null, flip_reason: 'timeout', iterations_used: iterations, probes_used: probes, alternative_winner_id: null, margin_sensitivity: marginSensitivity },
         diagnostics: diag,
       };
     }
@@ -393,30 +416,33 @@ async function gridFallback(
     try {
       const result = await inferenceFn(candidate.factor_id, probeValue);
       iterations++;
+      probes++; // grid probe completed
 
       const winner = getArgmaxOption(result);
       if (winner !== originalWinnerId) {
         const flipValue = roundTo4(probeValue);
         diag.iterations_used = iterations;
+        diag.probes_used = probes;
         diag.flip_reason = 'non_monotonic_grid';
         diag.flip_value = flipValue;
         diag.alternative_winner_id = winner;
         return {
-          result: { ...candidate, flip_value: flipValue, flip_reason: 'non_monotonic_grid', iterations_used: iterations, alternative_winner_id: winner, margin_sensitivity: marginSensitivity },
+          result: { ...candidate, flip_value: flipValue, flip_reason: 'non_monotonic_grid', iterations_used: iterations, probes_used: probes, alternative_winner_id: winner, margin_sensitivity: marginSensitivity },
           diagnostics: diag,
         };
       }
     } catch {
-      // Skip failed points in grid scan
+      // Skip failed points in grid scan (probe did not complete — not counted)
       iterations++;
     }
   }
 
   // No flip found in grid
   diag.iterations_used = iterations;
+  diag.probes_used = probes;
   diag.flip_reason = 'no_effect_within_bounds';
   return {
-    result: { ...candidate, flip_value: null, flip_reason: 'no_effect_within_bounds', iterations_used: iterations, alternative_winner_id: null, margin_sensitivity: marginSensitivity },
+    result: { ...candidate, flip_value: null, flip_reason: 'no_effect_within_bounds', iterations_used: iterations, probes_used: probes, alternative_winner_id: null, margin_sensitivity: marginSensitivity },
     diagnostics: diag,
   };
 }

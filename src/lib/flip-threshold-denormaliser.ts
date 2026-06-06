@@ -40,6 +40,11 @@ export interface DenormalisedFlipThreshold {
   /** Number of ISL inference iterations used */
   iterations_used?: number;
   /**
+   * Total probe evaluations executed (3 Step-0 probes plus any bisection/grid
+   * midpoints). 0 when no probes ran. Disambiguates iterations_used:0.
+   */
+  probes_used?: number;
+  /**
    * Additive lead-margin diagnostic. Omitted on entries whose flip-search
    * Step-0 probes did not complete (pre-probe timeout, non-finite baseline,
    * exception during probe phase, heuristic-only entries).
@@ -93,6 +98,7 @@ export function denormaliseFlipThresholds(
       alternative_winner_label: resolveLabel(flip.alternative_winner_id, options),
       flip_reason: flip.flip_reason ?? 'heuristic',
       iterations_used: flip.iterations_used,
+      probes_used: flip.probes_used,
       ...(flip.margin_sensitivity
         ? { margin_sensitivity: denormaliseMarginSensitivity(flip.margin_sensitivity, factorContext.range) }
         : {}),
@@ -123,6 +129,7 @@ function enrichWithLabels(
     alternative_winner_label: resolveLabel(flip.alternative_winner_id, options),
     flip_reason: flip.flip_reason ?? 'heuristic',
     iterations_used: flip.iterations_used,
+    probes_used: flip.probes_used,
     // No factor context for denormalisation. Pass margin_sensitivity through
     // untouched: `value_scale` stays `'normalised'` for honesty.
     ...(flip.margin_sensitivity ? { margin_sensitivity: flip.margin_sensitivity } : {}),

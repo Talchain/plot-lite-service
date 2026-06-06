@@ -163,6 +163,7 @@ export async function orchestrateDecisionReview(
           flip_reason: f.flip_reason,
           flip_value: f.flip_value,
           iterations_used: f.iterations_used,
+          probes_used: f.probes_used,
         })),
       });
     } catch (err) {

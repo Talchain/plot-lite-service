@@ -472,6 +472,87 @@ describe('resolveFlipValues()', () => {
   });
 });
 
+// =============================================================================
+// probes_used telemetry — distinguishes "no probes ran" from
+// "probes ran but no bisection ran" (iterations_used: 0 is otherwise ambiguous).
+// =============================================================================
+
+describe('resolveFlipValues() — probes_used telemetry', () => {
+  it('no-bisection three-probe path reports probes_used: 3 with iterations_used: 0', async () => {
+    const mock = createNeverFlipMock('opt-a');
+    const candidate = makeCandidate({ current_value: 0.7, direction: 'decrease' });
+
+    const { results } = await resolveFlipValues([candidate], mock, 'opt-a');
+
+    expect(results[0].flip_reason).toBe('no_effect_within_bounds');
+    expect(results[0].iterations_used).toBe(0);
+    expect(results[0].probes_used).toBe(3); // baseline + min bound + max bound, no bisection
+  });
+
+  it('iterations_used: 0 no longer implies no probes ran (probes_used disambiguates)', async () => {
+    const mock = createNeverFlipMock('opt-a');
+    const candidate = makeCandidate({ current_value: 0.5 });
+
+    const { results } = await resolveFlipValues([candidate], mock, 'opt-a');
+
+    expect(results[0].iterations_used).toBe(0);
+    expect(results[0].probes_used).toBe(3);
+    expect(results[0].probes_used).toBeGreaterThan(0);
+  });
+
+  it('bisection path counts initial probes plus midpoint probes (3 + iterations_used)', async () => {
+    const mock = createMonotonicMock(0.35, 'opt-a', 'opt-b', 'decrease');
+    const candidate = makeCandidate({ current_value: 0.7, direction: 'decrease' });
+
+    const { results } = await resolveFlipValues([candidate], mock, 'opt-a');
+
+    expect(results[0].flip_reason).toBe('found');
+    expect(results[0].iterations_used).toBeGreaterThan(0);
+    expect(results[0].probes_used).toBe(3 + results[0].iterations_used!);
+  });
+
+  it('does not fabricate probes_used when the probe phase never runs (non-finite baseline)', async () => {
+    const mock = createNeverFlipMock('opt-a');
+    const candidate = makeCandidate({ current_value: NaN });
+
+    const { results } = await resolveFlipValues([candidate], mock, 'opt-a');
+
+    expect(results[0].flip_reason).toBe('error');
+    expect(results[0].probes_used).toBe(0); // honest: no probes executed
+  });
+
+  it('reports probes_used: 0 when the probe phase throws before any probe completes', async () => {
+    const mock = createErrorMock();
+    const candidate = makeCandidate({ current_value: 0.5 });
+
+    const { results } = await resolveFlipValues([candidate], mock, 'opt-a');
+
+    expect(results[0].flip_reason).toBe('error');
+    expect(results[0].probes_used).toBe(0);
+  });
+
+  it('leaves existing free/non-overridden factor behaviour unchanged (flip found, probes_used > 3)', async () => {
+    const mock = createMonotonicMock(0.85, 'opt-a', 'opt-b', 'increase');
+    const candidate = makeCandidate({ current_value: 0.6, direction: 'increase' });
+
+    const { results } = await resolveFlipValues([candidate], mock, 'opt-a');
+
+    expect(results[0].flip_reason).toBe('found');
+    expect(results[0].flip_value!).toBeCloseTo(0.85, 1);
+    expect(results[0].probes_used).toBeGreaterThan(3); // 3 Step-0 probes + bisection midpoints
+  });
+
+  it('diagnostics carry probes_used alongside iterations_used', async () => {
+    const mock = createNeverFlipMock('opt-a');
+    const candidate = makeCandidate({ current_value: 0.5 });
+
+    const { diagnostics } = await resolveFlipValues([candidate], mock, 'opt-a');
+
+    expect(diagnostics[0].probes_used).toBe(3);
+    expect(diagnostics[0].iterations_used).toBe(0);
+  });
+});
+
 describe('createISLInferenceFn()', () => {
   it('overrides the target factor mean in parameter_uncertainties', async () => {
     let capturedBody: any = null;
