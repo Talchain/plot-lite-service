@@ -592,4 +592,43 @@ describe('CEE Decision Review Contract', () => {
       expect(result.success).toBe(true);
     });
   });
+
+  // ===========================================================================
+  // Flip-threshold selection guard on the legacy assembly path. The contract
+  // schema only validates shape/presence, so this exercises the by-all-options
+  // exclusion behaviour directly.
+  // ===========================================================================
+  describe('flip-threshold overridden-by-all exclusion', () => {
+    // The shared testGraph omits observed_state.value, which would skip every factor
+    // during flip-threshold selection. Give the factors values so they are genuinely
+    // eligible, then assert the guard removes only the fully-overridden one.
+    const graphWithValues: EngineGraphV3 = {
+      nodes: [
+        { id: 'goal', kind: 'goal', label: 'Maximize Revenue' },
+        { id: 'factor_a', kind: 'factor', label: 'Market Size', observed_state: { value: 0.5, belief: 0.8 } },
+        { id: 'factor_b', kind: 'factor', label: 'Competition', observed_state: { value: 0.5, belief: 0.7 } },
+      ],
+      edges: testGraph.edges,
+    };
+
+    it('excludes a factor overridden by EVERY option, preserves one overridden by only SOME', () => {
+      // testOptions: opt_a → {factor_a}; opt_b → {factor_a, factor_b}.
+      //   factor_a is overridden by every option → excluded from assumption-threshold probing.
+      //   factor_b is overridden by only opt_b → preserved.
+      // testIslResult.factor_sensitivity carries both factor_a (0.45) and factor_b (0.25)
+      // with no intervention_override zero_reason, so the by-all guard (not the ISL
+      // zero_reason filter) is what removes factor_a.
+      const request = buildDecisionReviewRequest(
+        'Flip-threshold exclusion unit test',
+        graphWithValues,
+        testOptions,
+        testIslResult,
+        testM1Coaching,
+      );
+
+      const flipFactorIds = request.flip_threshold_data.map((f) => f.factor_id);
+      expect(flipFactorIds).toContain('factor_b');     // partially intervened → eligible
+      expect(flipFactorIds).not.toContain('factor_a'); // overridden by all → excluded
+    });
+  });
 });

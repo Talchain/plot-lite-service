@@ -552,11 +552,10 @@ describe('resolveFlipValues() — probes_used telemetry', () => {
     expect(diagnostics[0].iterations_used).toBe(0);
   });
 
-  it('counts only COMPLETED Step-0 probes on partial failure (not 0)', async () => {
-    // baseline (0.5) and lower bound (0) resolve immediately; the upper bound (1)
-    // rejects after a tick, so the other two definitely complete first. Under a
-    // flat `probes += 3` after Promise.all this would wrongly report 0.
-    const partialFailMock: ISLInferenceFn = async (_id, mean) => {
+  it('counts COMPLETED Step-0 probes on partial failure (failure settles LAST)', async () => {
+    // baseline (0.5) and lower bound (0) fulfil immediately; the upper bound (1)
+    // rejects after a tick (settles last).
+    const failLastMock: ISLInferenceFn = async (_id, mean) => {
       if (mean >= 1) {
         await new Promise((r) => setTimeout(r, 5));
         throw new Error('upper-bound probe failed');
@@ -570,11 +569,35 @@ describe('resolveFlipValues() — probes_used telemetry', () => {
     };
     const candidate = makeCandidate({ current_value: 0.5 });
 
-    const { results } = await resolveFlipValues([candidate], partialFailMock, 'opt-a');
+    const { results } = await resolveFlipValues([candidate], failLastMock, 'opt-a');
 
     expect(results[0].flip_reason).toBe('error');
-    // 2 of 3 Step-0 probes completed before the upper-bound rejection.
-    expect(results[0].probes_used).toBe(2);
+    expect(results[0].probes_used).toBe(2); // baseline + lower bound fulfilled
+  });
+
+  it('counts COMPLETED Step-0 probes order-independently (failure rejects FIRST)', async () => {
+    // The upper-bound probe rejects IMMEDIATELY (first to settle); baseline and lower
+    // bound fulfil afterwards. With Promise.all this returns probes_used: 0 (catch
+    // reads the count before the siblings resolve, and they complete after emission).
+    // allSettled waits for all three to settle, so the honest count is 2 regardless.
+    const failFirstMock: ISLInferenceFn = async (_id, mean) => {
+      if (mean >= 1) {
+        throw new Error('upper-bound probe failed immediately');
+      }
+      await new Promise((r) => setTimeout(r, 5));
+      return {
+        options: [
+          { option_id: 'opt-a', win_probability: 0.6 },
+          { option_id: 'opt-b', win_probability: 0.4 },
+        ],
+      };
+    };
+    const candidate = makeCandidate({ current_value: 0.5 });
+
+    const { results } = await resolveFlipValues([candidate], failFirstMock, 'opt-a');
+
+    expect(results[0].flip_reason).toBe('error');
+    expect(results[0].probes_used).toBe(2); // both siblings completed; NOT 0
   });
 
   it('keeps iterations_used bisection-only on the grid-fallback path (grid probes only in probes_used)', async () => {

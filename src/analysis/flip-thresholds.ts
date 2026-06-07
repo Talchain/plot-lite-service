@@ -220,22 +220,40 @@ async function searchFlipForFactor(
       };
     }
 
-    // Probe baseline + both bounds. Each call increments `probes` as it COMPLETES
-    // (via the wrapper), so a partial Step-0 failure still reports the number of
-    // probes that actually completed: Promise.all rejects on the first error, but
-    // siblings that already resolved have already counted. A flat `probes += 3`
-    // after the await would instead report 0 on any rejection — dishonest when one
-    // or two of the three probes had in fact completed.
-    const runProbe = (mean: number): Promise<FlipInferenceResult> =>
-      inferenceFn(candidate.factor_id, mean).then((r) => {
-        probes++;
-        return r;
-      });
-    const [baselineResult, minResult, maxResult] = await Promise.all([
-      runProbe(baseline),
-      runProbe(0),
-      runProbe(1),
+    // Step-0: probe baseline + both bounds. Use allSettled (NOT Promise.all) so the
+    // completed-probe count is ORDER-INDEPENDENT. Promise.all rejects on the first
+    // failure and returns immediately, leaving the sibling probes in flight — they
+    // complete *after* the result is emitted, so a reject-first ordering would
+    // report probes_used: 0 even though two probes do complete. allSettled waits for
+    // all three to settle, so probes_used is exactly the number that fulfilled and
+    // no probe completes after emission.
+    //
+    // We deliberately do NOT race a per-probe timeout here: abandoning a probe would
+    // let it complete in the background after emission, reintroducing the same
+    // dishonesty. Boundedness relies on ISL's own HTTP-layer timeout (each probe
+    // settles fulfilled or rejected); true in-flight bounding would require request
+    // cancellation (AbortController), which is out of scope for this telemetry fix.
+    const settled = await Promise.allSettled([
+      inferenceFn(candidate.factor_id, baseline),
+      inferenceFn(candidate.factor_id, 0),
+      inferenceFn(candidate.factor_id, 1),
     ]);
+    probes += settled.filter((s) => s.status === 'fulfilled').length;
+
+    // Any Step-0 probe failing → error, with the honest count of probes that did
+    // complete. (margin_sensitivity is intentionally omitted, as on the catch path.)
+    if (settled.some((s) => s.status === 'rejected')) {
+      diag.flip_reason = 'error';
+      diag.probes_used = probes;
+      return {
+        result: { ...candidate, flip_value: null, flip_reason: 'error', iterations_used: 0, probes_used: probes, alternative_winner_id: null },
+        diagnostics: diag,
+      };
+    }
+
+    const [baselineResult, minResult, maxResult] = (
+      settled as PromiseFulfilledResult<FlipInferenceResult>[]
+    ).map((s) => s.value);
 
     const W0 = getArgmaxOption(baselineResult);
     const W_min = getArgmaxOption(minResult);
