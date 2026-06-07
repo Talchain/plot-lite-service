@@ -207,8 +207,9 @@ export function computeFlipThresholdData(
  * Return the set of factor (node) IDs that EVERY compared option intervenes on.
  *
  * A factor overridden by every option is inert for assumption-threshold probing:
- * the flip probe varies `parameter_uncertainties[].mean`, but each option applies a
- * do()-intervention that fixes the factor, severing it from its prior. Probing such
+ * the flip probe varies the factor's graph `observed_state.value` (keeping
+ * `parameter_uncertainties[].mean` aligned), but each option applies a do()-
+ * intervention that fixes the factor, severing it from its prior. Probing such
  * a factor can never change any option's outcome, so it always yields
  * `no_effect_within_bounds` and wastes probe budget. Feed the result to
  * {@link computeFlipThresholdData} as `overriddenFactorIds` to exclude them.

@@ -783,6 +783,209 @@ describe('createISLInferenceFn()', () => {
     // Original should be unchanged
     expect(originalPU[0].mean).toBe(0.7);
   });
+
+  // ===========================================================================
+  // Branch A fix: the probe must mutate the graph node observed_state.value (the
+  // field ISL's comparison reads as the sampling mean), not only PU mean.
+  // ===========================================================================
+
+  function makeGraphRequest() {
+    return {
+      graph: {
+        nodes: [
+          { id: 'factor-x', kind: 'factor', label: 'X', observed_state: { value: 0.7, std: 0.1, raw_value: 70, cap: 100, unit: 'pct', baseline: 0.6 } },
+          { id: 'factor-y', kind: 'factor', label: 'Y', observed_state: { value: 0.3, std: 0.1 } },
+          { id: 'goal', kind: 'goal', label: 'Goal' },
+        ],
+        edges: [],
+      },
+      options: [
+        { id: 'opt-a', interventions: { 'factor-y': 0.5 } },
+        { id: 'opt-b', interventions: { 'factor-y': 0.2 } },
+      ],
+      goal_node_id: 'goal',
+      parameter_uncertainties: [
+        { node_id: 'factor-x', distribution: 'normal', mean: 0.7, std: 0.1 },
+        { node_id: 'factor-y', distribution: 'normal', mean: 0.3, std: 0.1 },
+      ],
+    };
+  }
+
+  it('sets the target graph node observed_state.value to the probe value (and aligns PU mean)', async () => {
+    let captured: any = null;
+    const mockCallAnalysis = async (_ep: string, body: unknown) => {
+      captured = body;
+      return { data: { results: [{ option_id: 'opt-a', win_probability: 1.0 }] } };
+    };
+    const fn = createISLInferenceFn(mockCallAnalysis, makeGraphRequest(), 'req-1');
+
+    await fn('factor-x', 0.25);
+
+    const targetNode = (captured.graph.nodes as any[]).find((n) => n.id === 'factor-x');
+    expect(targetNode.observed_state.value).toBe(0.25);              // graph value = probe value
+    const puX = (captured.parameter_uncertainties as any[]).find((p) => p.node_id === 'factor-x');
+    expect(puX.mean).toBe(0.25);                                     // PU mean aligned
+    // Display/denormalisation metadata + uncertainty width preserved
+    expect(targetNode.observed_state.std).toBe(0.1);
+    expect(targetNode.observed_state.raw_value).toBe(70);
+    expect(targetNode.observed_state.cap).toBe(100);
+    expect(targetNode.observed_state.unit).toBe('pct');
+    expect(targetNode.observed_state.baseline).toBe(0.6);
+  });
+
+  it('leaves non-target graph nodes and options unchanged', async () => {
+    let captured: any = null;
+    const mockCallAnalysis = async (_ep: string, body: unknown) => {
+      captured = body;
+      return { data: { results: [{ option_id: 'opt-a', win_probability: 1.0 }] } };
+    };
+    const req = makeGraphRequest();
+    const fn = createISLInferenceFn(mockCallAnalysis, req, 'req-1');
+
+    await fn('factor-x', 0.9);
+
+    const otherNode = (captured.graph.nodes as any[]).find((n) => n.id === 'factor-y');
+    expect(otherNode.observed_state.value).toBe(0.3);               // untouched
+    expect(captured.options).toEqual(req.options);                  // options unchanged
+  });
+
+  it('does not mutate the original request graph (probe-local clone)', async () => {
+    const mockCallAnalysis = async () => ({ data: { results: [{ option_id: 'opt-a', win_probability: 1.0 }] } });
+    const req = makeGraphRequest();
+    const fn = createISLInferenceFn(mockCallAnalysis, req, 'req-1');
+
+    await fn('factor-x', 0.0);
+
+    const origTarget = (req.graph.nodes as any[]).find((n) => n.id === 'factor-x');
+    expect(origTarget.observed_state.value).toBe(0.7);             // original unchanged
+  });
+
+  it('concurrent probes each carry their own observed_state.value (no leakage)', async () => {
+    const captured: any[] = [];
+    const mockCallAnalysis = async (_ep: string, body: unknown) => {
+      captured.push(body);
+      return { data: { results: [{ option_id: 'opt-a', win_probability: 1.0 }] } };
+    };
+    const fn = createISLInferenceFn(mockCallAnalysis, makeGraphRequest(), 'req-1');
+
+    // Run baseline/min/max concurrently, as resolveFlipValues' Step-0 does.
+    await Promise.all([fn('factor-x', 0.7), fn('factor-x', 0), fn('factor-x', 1)]);
+
+    const values = captured
+      .map((b) => (b.graph.nodes as any[]).find((n) => n.id === 'factor-x').observed_state.value)
+      .sort((a: number, b: number) => a - b);
+    expect(values).toEqual([0, 0.7, 1]);                           // each probe its own value
+  });
+
+  it('handles a target factor absent from the graph (no crash; graph unchanged; PU inserted)', async () => {
+    // Defensive only: production selection prevents this (current_value comes from the
+    // graph, so a flip candidate is always a graph node).
+    let captured: any = null;
+    const mockCallAnalysis = async (_ep: string, body: unknown) => {
+      captured = body;
+      return { data: { results: [{ option_id: 'opt-a', win_probability: 1.0 }] } };
+    };
+    const req = makeGraphRequest();
+    const fn = createISLInferenceFn(mockCallAnalysis, req, 'req-1');
+
+    await fn('factor-missing', 0.42);
+
+    // No spurious node added; existing graph nodes/values intact.
+    expect((captured.graph.nodes as any[]).map((n) => n.id)).toEqual(['factor-x', 'factor-y', 'goal']);
+    expect((captured.graph.nodes as any[]).find((n) => n.id === 'factor-x').observed_state.value).toBe(0.7);
+    // PU still gets the factor inserted (existing fallback behaviour for non-graph factors).
+    const puMissing = (captured.parameter_uncertainties as any[]).find((p) => p.node_id === 'factor-missing');
+    expect(puMissing.mean).toBe(0.42);
+  });
+});
+
+// =============================================================================
+// Contract-faithful comparison — proves the probe now moves the field ISL reads
+// =============================================================================
+
+describe('resolveFlipValues() with a contract-faithful comparison (observed_state.value-driven)', () => {
+  /**
+   * Mock ISL comparison that derives the winner SOLELY from the target factor's
+   * graph observed_state.value — the field ISL's comparison reads as the sampling
+   * mean — and IGNORES parameter_uncertainties.mean entirely. This mirrors the
+   * staging finding that comparison samples Normal(observed_state.value, PU.std).
+   *
+   * Under the previous PU-mean-only probe (which left observed_state.value
+   * unchanged), this comparison returns the same winner at every probe → no_effect.
+   * With the fix (probe mutates observed_state.value), low/high probes produce
+   * different winners → a real flip is detected.
+   */
+  function contractFaithfulMock(factorId: string, flipThreshold: number) {
+    return async (_ep: string, body: any) => {
+      const node = (body.graph.nodes as any[]).find((n) => n.id === factorId);
+      const v = node?.observed_state?.value ?? 0; // comparison reads the GRAPH value, not PU mean
+      const aWins = v >= flipThreshold;
+      return {
+        data: {
+          results: [
+            { option_id: 'opt-a', win_probability: aWins ? 0.7 : 0.3 },
+            { option_id: 'opt-b', win_probability: aWins ? 0.3 : 0.7 },
+          ],
+        },
+      };
+    };
+  }
+
+  function graphReq(targetValue: number) {
+    return {
+      graph: {
+        nodes: [
+          { id: 'delivery_gap', kind: 'factor', observed_state: { value: targetValue, std: 0.1, cap: 10, raw_value: targetValue * 10, unit: 'story_points' } },
+          { id: 'cost', kind: 'factor', observed_state: { value: 0.5, std: 0.1, cap: 50000, raw_value: 25000, unit: 'GBP' } },
+          { id: 'goal', kind: 'goal' },
+        ],
+        edges: [],
+      },
+      // delivery_gap is intervened on by ONLY opt-a (partially overridden), so the
+      // PR #183 selection guard would NOT exclude it — i.e. a factor that legitimately
+      // reaches probing in production. (The contract-faithful mock ignores options; this
+      // is for fixture realism / coherence with the real selection flow.)
+      options: [
+        { id: 'opt-a', interventions: { 'delivery_gap': 0.1 } },
+        { id: 'opt-b', interventions: { 'cost': 0.3 } },
+      ],
+      goal_node_id: 'goal',
+      parameter_uncertainties: [
+        { node_id: 'delivery_gap', distribution: 'normal', mean: targetValue, std: 0.1 },
+        { node_id: 'cost', distribution: 'normal', mean: 0.5, std: 0.1 },
+      ],
+    };
+  }
+
+  it('detects a flip the comparison reads from observed_state.value (PU mean ignored)', async () => {
+    const fn = createISLInferenceFn(contractFaithfulMock('delivery_gap', 0.5), graphReq(0.7), 'req-1');
+    const candidate = makeCandidate({ factor_id: 'delivery_gap', current_value: 0.7, direction: 'decrease' });
+
+    const { results } = await resolveFlipValues([candidate], fn, 'opt-a');
+
+    // With the fix, low/high probes set different observed_state.value → winner moves.
+    expect(results[0].flip_reason).toBe('found');
+    expect(results[0].flip_value).not.toBeNull();
+    expect(results[0].flip_value!).toBeCloseTo(0.5, 1);
+    expect(results[0].alternative_winner_id).toBe('opt-b');
+    expect(results[0].margin_sensitivity?.movement).toBe('flipped');
+    // 3 Step-0 probes + bisection midpoints (probes_used > 3, iterations_used > 0).
+    expect(results[0].probes_used!).toBeGreaterThan(3);
+    expect(results[0].iterations_used!).toBeGreaterThan(0);
+  });
+
+  it('confirms the comparison ignores parameter_uncertainties.mean and tracks observed_state.value', async () => {
+    const mock = contractFaithfulMock('delivery_gap', 0.5);
+    const winner = (r: any) => [...r.data.results].sort((a, b) => b.win_probability - a.win_probability)[0].option_id;
+
+    // Same observed_state.value (0.7), different PU mean → winner UNCHANGED (old probe field).
+    const sameValueLowPU = graphReq(0.7); sameValueLowPU.parameter_uncertainties[0].mean = 0;
+    const sameValueHighPU = graphReq(0.7); sameValueHighPU.parameter_uncertainties[0].mean = 1;
+    expect(winner(await mock('x', sameValueLowPU))).toBe(winner(await mock('x', sameValueHighPU)));
+
+    // Different observed_state.value → winner CHANGES (the field the fix mutates).
+    expect(winner(await mock('x', graphReq(0.1)))).not.toBe(winner(await mock('x', graphReq(0.9))));
+  });
 });
 
 // =============================================================================
