@@ -551,6 +551,59 @@ describe('resolveFlipValues() — probes_used telemetry', () => {
     expect(diagnostics[0].probes_used).toBe(3);
     expect(diagnostics[0].iterations_used).toBe(0);
   });
+
+  it('counts only COMPLETED Step-0 probes on partial failure (not 0)', async () => {
+    // baseline (0.5) and lower bound (0) resolve immediately; the upper bound (1)
+    // rejects after a tick, so the other two definitely complete first. Under a
+    // flat `probes += 3` after Promise.all this would wrongly report 0.
+    const partialFailMock: ISLInferenceFn = async (_id, mean) => {
+      if (mean >= 1) {
+        await new Promise((r) => setTimeout(r, 5));
+        throw new Error('upper-bound probe failed');
+      }
+      return {
+        options: [
+          { option_id: 'opt-a', win_probability: 0.6 },
+          { option_id: 'opt-b', win_probability: 0.4 },
+        ],
+      };
+    };
+    const candidate = makeCandidate({ current_value: 0.5 });
+
+    const { results } = await resolveFlipValues([candidate], partialFailMock, 'opt-a');
+
+    expect(results[0].flip_reason).toBe('error');
+    // 2 of 3 Step-0 probes completed before the upper-bound rejection.
+    expect(results[0].probes_used).toBe(2);
+  });
+
+  it('keeps iterations_used bisection-only on the grid-fallback path (grid probes only in probes_used)', async () => {
+    // Step-0: baseline(0.5)=a, min(0)=b (differs → search toward_min), max(1)=a.
+    // First bisection midpoint (0.25) returns a THIRD option → grid fallback after
+    // exactly 1 bisection iteration. Grid probe at 0 returns b → flip found.
+    const gridMock: ISLInferenceFn = async (_id, mean) => {
+      let leader: string;
+      if (mean === 0) leader = 'opt-b';
+      else if (mean === 0.5 || mean === 1) leader = 'opt-a';
+      else leader = 'opt-c'; // interior midpoint → non-monotonic
+      return {
+        options: [
+          { option_id: 'opt-a', win_probability: leader === 'opt-a' ? 0.6 : 0.2 },
+          { option_id: 'opt-b', win_probability: leader === 'opt-b' ? 0.6 : 0.2 },
+          { option_id: 'opt-c', win_probability: leader === 'opt-c' ? 0.6 : 0.2 },
+        ],
+      };
+    };
+    const candidate = makeCandidate({ current_value: 0.5, direction: 'decrease' });
+
+    const { results } = await resolveFlipValues([candidate], gridMock, 'opt-a');
+
+    expect(results[0].flip_reason).toBe('non_monotonic_grid');
+    // 1 bisection midpoint before fallback; grid probes do NOT inflate iterations_used.
+    expect(results[0].iterations_used).toBe(1);
+    // 3 Step-0 + 1 bisection + 1 grid probe = 5 completed evaluations.
+    expect(results[0].probes_used).toBe(5);
+  });
 });
 
 describe('createISLInferenceFn()', () => {

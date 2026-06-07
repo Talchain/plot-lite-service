@@ -82,10 +82,13 @@ export interface FlipDiagnostics {
   winner_at_max: string;
   bracket_low: number;
   bracket_high: number;
+  /** Binary-search (bisection) iterations only. Grid-fallback probes are NOT
+   *  counted here — they count toward `probes_used`. */
   iterations_used: number;
   /**
-   * Total probe evaluations executed for this factor: the 3 Step-0 probes
-   * (baseline + both bounds) plus any bisection/grid midpoint probes. 0 when
+   * Total probe evaluations COMPLETED for this factor: the 3 Step-0 probes
+   * (baseline + both bounds) plus any bisection/grid midpoint probes. Counts
+   * completions, not attempts — a probe that rejected is not counted. 0 when
    * the probe phase never ran (pre-probe timeout, non-finite baseline). Lets
    * `iterations_used: 0` be disambiguated: 3 means probes ran but bisection
    * did not; 0 means no probes ran at all.
@@ -217,12 +220,22 @@ async function searchFlipForFactor(
       };
     }
 
+    // Probe baseline + both bounds. Each call increments `probes` as it COMPLETES
+    // (via the wrapper), so a partial Step-0 failure still reports the number of
+    // probes that actually completed: Promise.all rejects on the first error, but
+    // siblings that already resolved have already counted. A flat `probes += 3`
+    // after the await would instead report 0 on any rejection — dishonest when one
+    // or two of the three probes had in fact completed.
+    const runProbe = (mean: number): Promise<FlipInferenceResult> =>
+      inferenceFn(candidate.factor_id, mean).then((r) => {
+        probes++;
+        return r;
+      });
     const [baselineResult, minResult, maxResult] = await Promise.all([
-      inferenceFn(candidate.factor_id, baseline),
-      inferenceFn(candidate.factor_id, 0),
-      inferenceFn(candidate.factor_id, 1),
+      runProbe(baseline),
+      runProbe(0),
+      runProbe(1),
     ]);
-    probes += 3; // Step-0 probes completed: baseline, lower bound, upper bound
 
     const W0 = getArgmaxOption(baselineResult);
     const W_min = getArgmaxOption(minResult);
@@ -396,7 +409,10 @@ async function gridFallback(
   diag: FlipDiagnostics,
   marginSensitivity: MarginSensitivity
 ): Promise<{ result: FlipThresholdInputData; diagnostics: FlipDiagnostics }> {
-  let iterations = iterationsSoFar;
+  // iterations_used stays bisection-only: grid probes count toward probes_used,
+  // never toward iterations_used. `iterations` is fixed to the bisection-iteration
+  // count at the moment we fell back to the grid scan.
+  const iterations = iterationsSoFar;
   let probes = probesSoFar;
   const step = (high - low) / (config.maxGridPoints - 1);
 
@@ -415,8 +431,7 @@ async function gridFallback(
 
     try {
       const result = await inferenceFn(candidate.factor_id, probeValue);
-      iterations++;
-      probes++; // grid probe completed
+      probes++; // grid probe completed (counts toward probes_used, not iterations_used)
 
       const winner = getArgmaxOption(result);
       if (winner !== originalWinnerId) {
@@ -432,8 +447,8 @@ async function gridFallback(
         };
       }
     } catch {
-      // Skip failed points in grid scan (probe did not complete — not counted)
-      iterations++;
+      // Skip failed points in grid scan. A failed probe did not complete, so it
+      // counts toward neither probes_used nor iterations_used.
     }
   }
 

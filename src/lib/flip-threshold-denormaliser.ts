@@ -37,11 +37,12 @@ export interface DenormalisedFlipThreshold {
   alternative_winner_label: string | null;
   /** Reason for the flip_value result */
   flip_reason: string;
-  /** Number of ISL inference iterations used */
+  /** Number of binary-search (bisection) iterations used (grid probes excluded). */
   iterations_used?: number;
   /**
-   * Total probe evaluations executed (3 Step-0 probes plus any bisection/grid
-   * midpoints). 0 when no probes ran. Disambiguates iterations_used:0.
+   * Total probe evaluations COMPLETED (3 Step-0 probes plus any bisection/grid
+   * midpoints; completions, not attempts). 0 when no probes ran. Disambiguates
+   * iterations_used:0.
    */
   probes_used?: number;
   /**
