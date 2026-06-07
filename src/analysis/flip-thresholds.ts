@@ -31,11 +31,13 @@ export interface FlipInferenceResult {
 }
 
 /**
- * Callback that runs ISL inference with a single factor's mean overridden.
+ * Callback that runs ISL inference with a single factor's value overridden.
  * The caller constructs this closure to encapsulate ISL client + request details.
  *
  * @param factorId - Factor node ID to override
- * @param overrideMean - New mean value for the factor in parameter_uncertainties
+ * @param overrideMean - Normalised [0,1] probe value applied to the factor's graph
+ *   `observed_state.value` (the field ISL's comparison reads as the sampling mean);
+ *   the factor's `parameter_uncertainties[].mean` is kept aligned to the same value.
  * @returns ISL inference result with option win_probabilities
  */
 export type ISLInferenceFn = (

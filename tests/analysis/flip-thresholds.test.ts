@@ -876,6 +876,27 @@ describe('createISLInferenceFn()', () => {
       .sort((a: number, b: number) => a - b);
     expect(values).toEqual([0, 0.7, 1]);                           // each probe its own value
   });
+
+  it('handles a target factor absent from the graph (no crash; graph unchanged; PU inserted)', async () => {
+    // Defensive only: production selection prevents this (current_value comes from the
+    // graph, so a flip candidate is always a graph node).
+    let captured: any = null;
+    const mockCallAnalysis = async (_ep: string, body: unknown) => {
+      captured = body;
+      return { data: { results: [{ option_id: 'opt-a', win_probability: 1.0 }] } };
+    };
+    const req = makeGraphRequest();
+    const fn = createISLInferenceFn(mockCallAnalysis, req, 'req-1');
+
+    await fn('factor-missing', 0.42);
+
+    // No spurious node added; existing graph nodes/values intact.
+    expect((captured.graph.nodes as any[]).map((n) => n.id)).toEqual(['factor-x', 'factor-y', 'goal']);
+    expect((captured.graph.nodes as any[]).find((n) => n.id === 'factor-x').observed_state.value).toBe(0.7);
+    // PU still gets the factor inserted (existing fallback behaviour for non-graph factors).
+    const puMissing = (captured.parameter_uncertainties as any[]).find((p) => p.node_id === 'factor-missing');
+    expect(puMissing.mean).toBe(0.42);
+  });
 });
 
 // =============================================================================
@@ -915,16 +936,24 @@ describe('resolveFlipValues() with a contract-faithful comparison (observed_stat
       graph: {
         nodes: [
           { id: 'delivery_gap', kind: 'factor', observed_state: { value: targetValue, std: 0.1, cap: 10, raw_value: targetValue * 10, unit: 'story_points' } },
+          { id: 'cost', kind: 'factor', observed_state: { value: 0.5, std: 0.1, cap: 50000, raw_value: 25000, unit: 'GBP' } },
           { id: 'goal', kind: 'goal' },
         ],
         edges: [],
       },
+      // delivery_gap is intervened on by ONLY opt-a (partially overridden), so the
+      // PR #183 selection guard would NOT exclude it — i.e. a factor that legitimately
+      // reaches probing in production. (The contract-faithful mock ignores options; this
+      // is for fixture realism / coherence with the real selection flow.)
       options: [
         { id: 'opt-a', interventions: { 'delivery_gap': 0.1 } },
-        { id: 'opt-b', interventions: { 'delivery_gap': 0.9 } },
+        { id: 'opt-b', interventions: { 'cost': 0.3 } },
       ],
       goal_node_id: 'goal',
-      parameter_uncertainties: [{ node_id: 'delivery_gap', distribution: 'normal', mean: targetValue, std: 0.1 }],
+      parameter_uncertainties: [
+        { node_id: 'delivery_gap', distribution: 'normal', mean: targetValue, std: 0.1 },
+        { node_id: 'cost', distribution: 'normal', mean: 0.5, std: 0.1 },
+      ],
     };
   }
 
