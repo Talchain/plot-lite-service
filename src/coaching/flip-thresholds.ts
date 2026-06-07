@@ -76,12 +76,20 @@ const MAX_FLIP_THRESHOLDS = 5;
  * @param factorSensitivity Factor sensitivity array from ISL
  * @param optionComparison Option comparison array from ISL
  * @param graph Normalized graph (for current_value lookup)
- * @returns Array of flip threshold input data (max 2)
+ * @param overriddenFactorIds Factor IDs overridden by EVERY compared option.
+ *   These are inert for assumption-threshold probing (the flip probe varies a
+ *   factor's prior mean, but a do()-intervention on every option severs that
+ *   factor from its prior, so probing can never move the winner). Excluded from
+ *   both the primary ranked selection and the zero-elasticity fallback so they
+ *   never consume flip-threshold probe budget. Factors intervened by only SOME
+ *   options, or by none, are preserved. Optional — omit to disable exclusion.
+ * @returns Array of flip threshold input data (max MAX_FLIP_THRESHOLDS)
  */
 export function computeFlipThresholdData(
   factorSensitivity: FactorSensitivityInput[],
   optionComparison: OptionComparisonInput[],
-  graph: EngineGraphV3
+  graph: EngineGraphV3,
+  overriddenFactorIds?: ReadonlySet<string>
 ): FlipThresholdInputData[] {
   // Edge case: Only one option (no runner_up) → no flip thresholds
   if (!optionComparison || optionComparison.length < 2) {
@@ -106,12 +114,16 @@ export function computeFlipThresholdData(
     return [];
   }
 
-  // Filter factors with meaningful elasticity
+  // Filter factors with meaningful elasticity. Also exclude factors overridden by
+  // every compared option: their prior value is severed by each option's
+  // intervention, so an assumption-threshold probe on them always returns
+  // no_effect_within_bounds (see overriddenFactorIds param docs).
   const validFactors = factorSensitivity.filter(
     (f) =>
       f.elasticity !== null &&
       f.elasticity !== undefined &&
-      Math.abs(f.elasticity) >= MIN_ELASTICITY_THRESHOLD
+      Math.abs(f.elasticity) >= MIN_ELASTICITY_THRESHOLD &&
+      !overriddenFactorIds?.has(f.factor_id)
   );
 
   // Sort by |elasticity| descending (highest sensitivity = most likely to flip)
@@ -146,15 +158,18 @@ export function computeFlipThresholdData(
       direction,
       flip_reason: 'heuristic',
       iterations_used: 0,
+      probes_used: 0, // Heuristic candidate — no probes run until resolveFlipValues
       alternative_winner_id: null,
       unit: factorNode?.observed_state?.unit,
     });
   }
 
-  // Fallback: zero-elasticity graphs (all factors filtered out by MIN_ELASTICITY_THRESHOLD)
-  // Emit top 2 factors by distance from midpoint (most room to flip)
+  // Fallback: zero-elasticity graphs (all factors filtered out by MIN_ELASTICITY_THRESHOLD).
+  // Emit top 2 factors by distance from midpoint (most room to flip). Overridden-by-all
+  // factors are excluded here too so the fallback never re-introduces inert factors.
   if (results.length === 0 && factorSensitivity.length > 0) {
     const fallbackCandidates = factorSensitivity
+      .filter((f) => !overriddenFactorIds?.has(f.factor_id))
       .map((f) => {
         const currentValue = getFactorCurrentValue(f.factor_id, graph);
         if (currentValue === null) return null;
@@ -178,6 +193,7 @@ export function computeFlipThresholdData(
         direction: candidate.currentValue < 0.5 ? 'increase' : 'decrease',
         flip_reason: 'zero_elasticity_fallback',
         iterations_used: 0,
+        probes_used: 0, // Heuristic candidate — no probes run until resolveFlipValues
         alternative_winner_id: null,
         unit: factorNode?.observed_state?.unit,
       });
@@ -185,6 +201,51 @@ export function computeFlipThresholdData(
   }
 
   return results;
+}
+
+/**
+ * Return the set of factor (node) IDs that EVERY compared option intervenes on.
+ *
+ * A factor overridden by every option is inert for assumption-threshold probing:
+ * the flip probe varies `parameter_uncertainties[].mean`, but each option applies a
+ * do()-intervention that fixes the factor, severing it from its prior. Probing such
+ * a factor can never change any option's outcome, so it always yields
+ * `no_effect_within_bounds` and wastes probe budget. Feed the result to
+ * {@link computeFlipThresholdData} as `overriddenFactorIds` to exclude them.
+ *
+ * IMPORTANT — "overridden by every option", not "intervention target":
+ *  - a factor intervened on by only SOME options is NOT included (the
+ *    non-intervening options still respond to the prior, so a flip is possible);
+ *  - a non-intervened factor is never included.
+ *
+ * @param options Compared options; intervention keys are factor node IDs.
+ * @returns Set of factor IDs overridden by every option (empty if none / no options).
+ */
+export function getFactorsOverriddenByAllOptions(
+  options: ReadonlyArray<{ interventions?: Record<string, unknown> | null }>
+): Set<string> {
+  if (!Array.isArray(options) || options.length === 0) {
+    return new Set<string>();
+  }
+
+  // Intervention-key set (factor node IDs) per option.
+  const perOptionKeys = options.map((opt) => {
+    const interventions = opt?.interventions;
+    if (!interventions || typeof interventions !== 'object') {
+      return new Set<string>();
+    }
+    return new Set<string>(Object.keys(interventions));
+  });
+
+  // Intersect across all options: a factor must appear in every option's key set.
+  const [firstKeys, ...restKeys] = perOptionKeys;
+  const overridden = new Set<string>();
+  for (const factorId of firstKeys) {
+    if (restKeys.every((keys) => keys.has(factorId))) {
+      overridden.add(factorId);
+    }
+  }
+  return overridden;
 }
 
 // =============================================================================

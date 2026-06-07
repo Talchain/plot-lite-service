@@ -290,8 +290,17 @@ export interface FlipThresholdInputData {
   direction: 'increase' | 'decrease';
   /** Reason for the flip_value result */
   flip_reason?: 'found' | 'no_effect_within_bounds' | 'insufficient_precision' | 'error' | 'timeout' | 'non_monotonic_grid' | 'single_option' | 'heuristic' | 'zero_elasticity_fallback';
-  /** Number of ISL inference iterations used */
+  /** Number of binary-search (bisection) iterations used. Grid-fallback probes
+   *  are counted in probes_used, not here. */
   iterations_used?: number;
+  /**
+   * Total probe evaluations COMPLETED for this entry: the 3 Step-0 probes plus
+   * any bisection/grid midpoints (completions, not attempts). 0 for heuristic
+   * candidates (no probes run yet) and for entries whose probe phase never
+   * started. Distinct from iterations_used — probes_used:3 with iterations_used:0
+   * means the three probes ran but bisection did not.
+   */
+  probes_used?: number;
   /** Option that becomes winner after the flip (null if no flip found) */
   alternative_winner_id?: string | null;
   /** Factor unit from observed_state (e.g., "GBP", "%") */

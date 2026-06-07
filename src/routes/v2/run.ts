@@ -106,7 +106,7 @@ import {
   REQUEST_BUDGET_MS,
 } from '../../config/timeouts.js';
 import { createISLInferenceFn, resolveFlipValues } from '../../analysis/flip-thresholds.js';
-import { computeFlipThresholdData } from '../../coaching/flip-thresholds.js';
+import { computeFlipThresholdData, getFactorsOverriddenByAllOptions } from '../../coaching/flip-thresholds.js';
 import { denormaliseFlipThresholds, type DenormalisedFlipThreshold } from '../../lib/flip-threshold-denormaliser.js';
 import { classifyFlipThresholdsStatus } from '../../lib/flip-threshold-status.js';
 import {
@@ -4374,7 +4374,23 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
 
         if (islSuccess && factorSensitivity && optionComparisonData && optionComparisonData.length >= 2) {
           try {
-            // Step 1: Compute heuristic candidates (top 5 by |elasticity|)
+            // Selection guard: exclude factors overridden by EVERY compared option.
+            // The flip probe varies a factor's prior mean (parameter_uncertainties),
+            // but a do()-intervention on every option severs that factor from its
+            // prior, so probing it can only ever return no_effect_within_bounds.
+            // Factors intervened by only some options, or by none, stay eligible.
+            const overriddenByAllOptions = getFactorsOverriddenByAllOptions(normalizedOptions);
+            if (overriddenByAllOptions.size > 0) {
+              req.log.info({
+                event: 'flip_thresholds_overridden_excluded',
+                request_id: requestId,
+                excluded_count: overriddenByAllOptions.size,
+                excluded_factor_ids: [...overriddenByAllOptions].slice(0, 10),
+              });
+            }
+
+            // Step 1: Compute heuristic candidates (top 5 by |elasticity|),
+            // skipping the overridden-by-all factors above.
             const flipCandidates = computeFlipThresholdData(
               factorSensitivity.map((f: any) => ({
                 factor_id: f.factor_id,
@@ -4388,7 +4404,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                 win_probability: o.win_probability ?? 0,
                 expected_outcome: o.expected_outcome,
               })),
-              filteredGraph
+              filteredGraph,
+              overriddenByAllOptions
             );
 
             if (flipCandidates.length > 0) {

@@ -8,7 +8,10 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { computeFlipThresholdData } from '../../../src/coaching/flip-thresholds.js';
+import {
+  computeFlipThresholdData,
+  getFactorsOverriddenByAllOptions,
+} from '../../../src/coaching/flip-thresholds.js';
 import type { EngineGraphV3 } from '../../../src/types/engine-v3.js';
 
 // =============================================================================
@@ -319,5 +322,129 @@ describe('computeFlipThresholdData()', () => {
       // f-low (0.2 < 0.5) should suggest increase
       expect(lowFactor?.direction).toBe('increase');
     });
+  });
+});
+
+// =============================================================================
+// Overridden-by-all-options exclusion (assumption-threshold selection guard)
+// =============================================================================
+
+describe('getFactorsOverriddenByAllOptions()', () => {
+  it('returns only factors intervened on by EVERY option (intersection)', () => {
+    const options = [
+      { id: 'opt-a', label: 'A', interventions: { 'factor-x': { value: 0.8 }, 'factor-y': { value: 0.3 } } },
+      { id: 'opt-b', label: 'B', interventions: { 'factor-x': { value: 0.2 }, 'factor-z': { value: 0.5 } } },
+    ];
+    const overridden = getFactorsOverriddenByAllOptions(options);
+    expect([...overridden]).toEqual(['factor-x']);
+  });
+
+  it('does NOT include a factor intervened on by only SOME options', () => {
+    const options = [
+      { id: 'opt-a', label: 'A', interventions: { 'factor-x': { value: 0.8 }, 'factor-partial': { value: 0.4 } } },
+      { id: 'opt-b', label: 'B', interventions: { 'factor-x': { value: 0.2 } } },
+    ];
+    const overridden = getFactorsOverriddenByAllOptions(options);
+    expect(overridden.has('factor-partial')).toBe(false);
+    expect(overridden.has('factor-x')).toBe(true);
+  });
+
+  it('does NOT include non-intervened factors', () => {
+    const options = [
+      { id: 'opt-a', label: 'A', interventions: { 'factor-x': { value: 0.8 } } },
+      { id: 'opt-b', label: 'B', interventions: { 'factor-x': { value: 0.2 } } },
+    ];
+    const overridden = getFactorsOverriddenByAllOptions(options);
+    // factor-external is never intervened — must not appear
+    expect(overridden.has('factor-external')).toBe(false);
+  });
+
+  it('returns empty set when an option intervenes on nothing', () => {
+    const options = [
+      { id: 'opt-a', label: 'A', interventions: { 'factor-x': { value: 0.8 } } },
+      { id: 'opt-b', label: 'B', interventions: {} },
+    ];
+    expect(getFactorsOverriddenByAllOptions(options).size).toBe(0);
+  });
+
+  it('returns empty set for empty / missing options', () => {
+    expect(getFactorsOverriddenByAllOptions([]).size).toBe(0);
+    expect(getFactorsOverriddenByAllOptions([{ id: 'a', label: 'A' } as any]).size).toBe(0);
+  });
+});
+
+describe('computeFlipThresholdData() — overridden-by-all exclusion', () => {
+  it('excludes fully overridden factors before flip-threshold probing', () => {
+    // factor-high (0.5) is the top candidate but is overridden by every option.
+    const overridden = new Set(['factor-high']);
+    const result = computeFlipThresholdData(
+      TEST_FACTOR_SENSITIVITY,
+      TEST_OPTION_COMPARISON,
+      TEST_GRAPH,
+      overridden
+    );
+    const ids = result.map((r) => r.factor_id);
+    expect(ids).not.toContain('factor-high');
+    // Non-overridden sensitive factors are still selected (and become probe candidates).
+    expect(ids).toContain('factor-neg');
+    expect(ids).toContain('factor-medium');
+  });
+
+  it('keeps factors intervened by only some options eligible (not in the overridden set)', () => {
+    // A "partial" factor is NOT in the overridden-by-all set, so it stays eligible.
+    const overridden = new Set(['factor-high']); // only the fully-overridden one
+    const result = computeFlipThresholdData(
+      TEST_FACTOR_SENSITIVITY,
+      TEST_OPTION_COMPARISON,
+      TEST_GRAPH,
+      overridden
+    );
+    // factor-medium stands in for a partially/never-intervened sensitive factor.
+    expect(result.map((r) => r.factor_id)).toContain('factor-medium');
+  });
+
+  it('keeps non-intervened sensitive factors eligible', () => {
+    // Empty overridden set → nothing excluded; behaves like the no-arg call.
+    const withGuard = computeFlipThresholdData(TEST_FACTOR_SENSITIVITY, TEST_OPTION_COMPARISON, TEST_GRAPH, new Set());
+    const withoutGuard = computeFlipThresholdData(TEST_FACTOR_SENSITIVITY, TEST_OPTION_COMPARISON, TEST_GRAPH);
+    expect(withGuard.map((r) => r.factor_id)).toEqual(withoutGuard.map((r) => r.factor_id));
+  });
+
+  it('emits no entries (no fabricated flip values) when all candidates are overridden', () => {
+    const overridden = new Set(['factor-high', 'factor-medium', 'factor-low', 'factor-neg']);
+    const result = computeFlipThresholdData(
+      TEST_FACTOR_SENSITIVITY,
+      TEST_OPTION_COMPARISON,
+      TEST_GRAPH,
+      overridden
+    );
+    expect(result).toHaveLength(0);
+  });
+
+  it('does not re-introduce overridden factors via the zero-elasticity fallback', () => {
+    const zeroElasticity = [
+      { factor_id: 'f1', factor_label: 'F1', elasticity: 0.0, confidence: 0.8 },
+      { factor_id: 'f2', factor_label: 'F2', elasticity: 0.0, confidence: 0.7 },
+    ];
+    const graph: EngineGraphV3 = {
+      nodes: [
+        { id: 'f1', label: 'F1', kind: 'factor', observed_state: { value: 0.9, belief: 0.8 } },
+        { id: 'f2', label: 'F2', kind: 'factor', observed_state: { value: 0.1, belief: 0.7 } },
+      ],
+      edges: [],
+    };
+    // f1 would normally be the top fallback pick (furthest from 0.5), but it is overridden.
+    const result = computeFlipThresholdData(zeroElasticity, TEST_OPTION_COMPARISON, graph, new Set(['f1']));
+    const ids = result.map((r) => r.factor_id);
+    expect(ids).not.toContain('f1');
+    expect(ids).toContain('f2');
+  });
+
+  it('tags heuristic candidates with probes_used: 0 (no probes run pre-resolution)', () => {
+    const result = computeFlipThresholdData(TEST_FACTOR_SENSITIVITY, TEST_OPTION_COMPARISON, TEST_GRAPH);
+    expect(result.length).toBeGreaterThan(0);
+    for (const entry of result) {
+      expect(entry.probes_used).toBe(0);
+    }
   });
 });

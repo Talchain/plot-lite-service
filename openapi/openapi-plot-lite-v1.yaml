@@ -1115,7 +1115,16 @@ components:
           description: Reason for the flip_value result (e.g., "flip_found", "no_flip_in_range").
         iterations_used:
           type: integer
-          description: Number of ISL inference iterations used to locate the threshold.
+          description: >
+            Number of binary-search (bisection) iterations used to locate the
+            threshold. Grid-fallback probes are counted in probes_used, not here.
+        probes_used:
+          type: integer
+          description: >
+            Total ISL probe evaluations COMPLETED for this entry (the 3 Step-0
+            probes plus any bisection/grid midpoints; completions, not attempts).
+            0 when no probes ran. Distinct from iterations_used: probes_used=3
+            with iterations_used=0 means the three probes ran but bisection did not.
       required: [factor_id, factor_label, current_value, flip_value, direction, alternative_winner_id, alternative_winner_label, flip_reason]
     ConditionalProbability:
       type: object

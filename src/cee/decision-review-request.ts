@@ -25,6 +25,7 @@ import type {
 } from './validation/m1-review-types.js';
 import {
   computeFlipThresholdData,
+  getFactorsOverriddenByAllOptions,
   calculateMargin,
   getWinnerAndRunnerUp,
   type FactorSensitivityInput,
@@ -127,11 +128,15 @@ export function buildDecisionReviewRequest(
   // Get winner and runner-up
   const { winner, runnerUp } = getWinnerAndRunnerUp(optionComparison);
 
-  // Compute flip threshold data
+  // Compute flip threshold data. Exclude factors overridden by EVERY option so
+  // this path (legacy decision-review assembly) gets the same assumption-threshold
+  // selection guard as the main /v2/run route — probing a fully-overridden factor
+  // would always return no_effect_within_bounds.
   const flipThresholdData = computeFlipThresholdData(
     factorSensitivity as FactorSensitivityInput[],
     optionComparison as OptionComparisonInput[],
-    graph
+    graph,
+    getFactorsOverriddenByAllOptions(options)
   );
 
   // Calculate margin
