@@ -531,9 +531,11 @@ function roundTo4(value: number): number {
 /**
  * Create an ISL inference function from the ISL service and original request.
  *
- * Constructs a closure that:
- * 1. Clones the original ISL request
- * 2. Overrides the target factor's mean in parameter_uncertainties
+ * Constructs a closure that, per probe:
+ * 1. Clones the request graph and sets the target factor's observed_state.value
+ *    to the probe value — the field ISL's comparison reads as the sampling mean
+ * 2. Keeps the target factor's parameter_uncertainties.mean aligned to the same
+ *    value (contract honesty; the comparison shadows this field)
  * 3. Calls ISL via the service's callAnalysisEndpoint
  * 4. Returns the option comparison results
  *
@@ -579,9 +581,36 @@ export function createISLInferenceFn(
       ];
     }
 
+    // Clone the graph for THIS probe and set the target factor's
+    // observed_state.value to the probe value. ISL's comparison samples each factor
+    // from Normal(observed_state.value, parameter_uncertainties.std): the comparison
+    // MEAN is read from the graph node's observed_state.value, while the request's
+    // parameter_uncertainties.mean is shadowed (not consumed) by the comparison path.
+    // So observed_state.value is the field that actually moves the winner; the aligned
+    // parameter_uncertainties.mean override above is kept only for contract honesty /
+    // possible future consumers.
+    //
+    // overrideMean is already in the normalised [0,1] scale of observed_state.value,
+    // so the normalised scale is preserved (we never write raw human values here).
+    // raw_value/cap/unit/baseline (display + denormalisation metadata) and std
+    // (uncertainty width) are left untouched. The clone is probe-local: the original
+    // request graph is never mutated, and concurrent Step-0 probes (baseline/0/1)
+    // cannot leak values into one another.
+    const probeNodes = (originalRequest.graph?.nodes ?? []).map((node) => {
+      if (node?.id !== factorId) return node; // other nodes kept by reference, never mutated
+      return {
+        ...node,
+        observed_state: {
+          ...(node.observed_state ?? {}),
+          value: overrideMean,
+        },
+      };
+    });
+    const probeGraph = { ...originalRequest.graph, nodes: probeNodes };
+
     const modifiedRequest = {
       request_id: `${requestId}__flip_${factorId}`,
-      graph: originalRequest.graph,
+      graph: probeGraph,
       options: originalRequest.options,
       goal_node_id: originalRequest.goal_node_id,
       n_samples: originalRequest.n_samples,
