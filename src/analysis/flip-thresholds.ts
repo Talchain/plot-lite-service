@@ -538,11 +538,27 @@ function roundTo4(value: number): number {
  *    to the probe value — the field ISL's comparison reads as the sampling mean
  * 2. Keeps the target factor's parameter_uncertainties.mean aligned to the same
  *    value (contract honesty; the comparison shadows this field)
- * 3. Calls ISL via the service's callAnalysisEndpoint
- * 4. Returns the option comparison results
+ * 3. Forwards the resolved analysis seed (the same seed sent to the main ISL
+ *    robustness call) on every probe request
+ * 4. Calls ISL via the service's callAnalysisEndpoint
+ * 5. Returns the option comparison results
+ *
+ * Seed forwarding + intentional common random numbers: every probe in a single
+ * flip search receives `originalRequest.seed` — the resolved seed PLoT sends to
+ * the main analysis call (the explicit request seed, or the seed PLoT derived
+ * from the canonical request/graph when omitted). Holding the seed constant
+ * across probe points means ISL's PCG64 sampler draws the *same* edge
+ * configurations and factor-noise z-values at every probe; only the probed
+ * factor's sampling mean shifts. That preserves the deterministic
+ * common-random-numbers smoothness the bisection relies on, while aligning the
+ * probe world with the displayed base analysis (same seed → probe baseline
+ * margin matches the main-call margin within representation/rounding limits).
+ * We deliberately do NOT vary the seed per probe and do NOT fall back to ISL's
+ * graph-hash seed (which ignores the request seed).
  *
  * @param callAnalysis - Function that calls ISL analysis endpoint
- * @param originalRequest - The original ISL robustness request
+ * @param originalRequest - The original ISL robustness request (carries the
+ *   resolved seed forwarded to the main analysis call)
  * @param requestId - Request ID for tracing (suffixed with flip search context)
  * @returns ISLInferenceFn callback
  */
@@ -554,6 +570,10 @@ export function createISLInferenceFn(
     goal_node_id: string;
     n_samples?: number;
     parameter_uncertainties?: Array<{ node_id: string; distribution: string; mean: number; std: number }>;
+    // Resolved seed sent to the main ISL analysis call (explicit request seed,
+    // or PLoT-derived seed when omitted). Forwarded verbatim on every probe so
+    // common random numbers stay intentional and aligned with the base analysis.
+    seed?: string | number;
   },
   requestId: string
 ): ISLInferenceFn {
@@ -618,6 +638,13 @@ export function createISLInferenceFn(
       n_samples: originalRequest.n_samples,
       analysis_types: ['comparison'] as const,
       parameter_uncertainties: paramUncertainties,
+      // Forward the resolved analysis seed on every probe (intentional CRN —
+      // same seed across all probe points; never per-probe, never the
+      // graph-hash fallback). Omit the key entirely when no seed is present so
+      // ISL's existing graph-hash default still applies for seedless callers.
+      ...(originalRequest.seed !== undefined && originalRequest.seed !== null
+        ? { seed: originalRequest.seed }
+        : {}),
     };
 
     const result = await callAnalysis(

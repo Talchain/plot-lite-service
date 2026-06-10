@@ -897,6 +897,91 @@ describe('createISLInferenceFn()', () => {
     const puMissing = (captured.parameter_uncertainties as any[]).find((p) => p.node_id === 'factor-missing');
     expect(puMissing.mean).toBe(0.42);
   });
+
+  // ===========================================================================
+  // Seed forwarding + intentional common random numbers (CRN)
+  //
+  // The probe request must carry the SAME resolved seed PLoT forwards to the
+  // main ISL analysis call (originalRequest.seed). run.ts sets that field to
+  // plotSeedUsed = resolveSeed(providedSeed, graph): the explicit request seed,
+  // or the PLoT-derived seed when omitted. Holding it constant across every
+  // probe keeps CRN deterministic and aligns the probe world with the base
+  // analysis. See createISLInferenceFn doc-comment.
+  // ===========================================================================
+
+  it('forwards the resolved analysis seed on the probe request', async () => {
+    let captured: any = null;
+    const mockCallAnalysis = async (_ep: string, body: unknown) => {
+      captured = body;
+      return { data: { results: [{ option_id: 'opt-a', win_probability: 1.0 }] } };
+    };
+    const req = { ...makeGraphRequest(), seed: '4242' };
+    const fn = createISLInferenceFn(mockCallAnalysis, req, 'req-1');
+
+    await fn('factor-x', 0.25);
+
+    expect(captured.seed).toBe('4242');
+  });
+
+  it('forwards a PLoT-derived (omitted-then-resolved) numeric seed verbatim', async () => {
+    // When the request omits seed, run.ts resolves a derived seed from the
+    // canonical request/graph (resolveSeed → deriveSeedFromHash) BEFORE building
+    // islRequest, so originalRequest.seed is already the resolved derived value.
+    // The probe must forward that derived seed unchanged — never re-derive,
+    // never fall back to ISL's own graph-hash default.
+    let captured: any = null;
+    const mockCallAnalysis = async (_ep: string, body: unknown) => {
+      captured = body;
+      return { data: { results: [{ option_id: 'opt-a', win_probability: 1.0 }] } };
+    };
+    const derivedSeed = 464372930; // shape of a resolveSeed()-derived value
+    const req = { ...makeGraphRequest(), seed: derivedSeed };
+    const fn = createISLInferenceFn(mockCallAnalysis, req, 'req-1');
+
+    await fn('factor-x', 0.5);
+
+    expect(captured.seed).toBe(derivedSeed);
+  });
+
+  it('uses ONE constant seed across all probe points (intentional CRN, never per-probe)', async () => {
+    const seenSeeds: unknown[] = [];
+    const mockCallAnalysis = async (_ep: string, body: any) => {
+      seenSeeds.push(body.seed);
+      return { data: { results: [{ option_id: 'opt-a', win_probability: 1.0 }] } };
+    };
+    const req = { ...makeGraphRequest(), seed: '777' };
+    const fn = createISLInferenceFn(mockCallAnalysis, req, 'req-1');
+
+    // The three Step-0 probe points (baseline / min / max).
+    await Promise.all([fn('factor-x', 0.7), fn('factor-x', 0), fn('factor-x', 1)]);
+
+    expect(seenSeeds).toHaveLength(3);
+    expect(seenSeeds).toEqual(['777', '777', '777']); // same seed at every probe
+  });
+
+  it('omits seed entirely when originalRequest has no seed (preserves seedless-caller default)', async () => {
+    let captured: any = null;
+    const mockCallAnalysis = async (_ep: string, body: unknown) => {
+      captured = body;
+      return { data: { results: [{ option_id: 'opt-a', win_probability: 1.0 }] } };
+    };
+    // makeGraphRequest() carries no seed.
+    const fn = createISLInferenceFn(mockCallAnalysis, makeGraphRequest(), 'req-1');
+
+    await fn('factor-x', 0.3);
+
+    expect('seed' in captured).toBe(false); // key omitted → ISL graph-hash default applies
+  });
+
+  it('does not mutate the original request when forwarding the seed', async () => {
+    const mockCallAnalysis = async () => ({ data: { results: [{ option_id: 'opt-a', win_probability: 1.0 }] } });
+    const req = { ...makeGraphRequest(), seed: '4242' };
+    const fn = createISLInferenceFn(mockCallAnalysis, req, 'req-1');
+
+    await fn('factor-x', 0.1);
+
+    expect(req.seed).toBe('4242'); // unchanged
+  });
 });
 
 // =============================================================================
@@ -1162,5 +1247,125 @@ describe('resolveFlipValues() margin_sensitivity integration', () => {
       expect(results[0].flip_reason).toBe('no_effect_within_bounds');
       expect(results[0].margin_sensitivity?.baseline_leading_option_id).toBe('a');
     });
+  });
+});
+
+// =============================================================================
+// Seed-driven flip determinism (end-to-end through the real createISLInferenceFn)
+//
+// These exercise the FULL probe path: resolveFlipValues → real
+// createISLInferenceFn → ISL request body (with the forwarded seed) → a
+// seed-sensitive ISL stub. They prove the forwarded seed actually changes what
+// the search converges to, and that the same seed is deterministic.
+// =============================================================================
+
+describe('resolveFlipValues() — seed forwarding drives flip determinism', () => {
+  /**
+   * Seed-sensitive ISL comparison stub: the flip point depends on body.seed.
+   * Winner is opt-a when the probed observed_state.value is at/above a
+   * seed-derived threshold in (0, baseline). Mirrors ISL's real behaviour
+   * (the seed shifts the sampled flip point) without a Monte Carlo sampler.
+   * Also records every seed it observed, for CRN/consistency assertions.
+   */
+  function seedThreshold(seed: unknown): number {
+    const n = Number(seed);
+    const s = Number.isFinite(n) ? Math.abs(Math.trunc(n)) : 0;
+    return 0.3 + (s % 5) * 0.05; // 0.30, 0.35, 0.40, 0.45, 0.50 — all inside (0, 0.7)
+  }
+
+  function makeSeedSensitiveCallAnalysis(factorId: string) {
+    const seenSeeds: unknown[] = [];
+    const callAnalysis = async (_ep: string, body: any) => {
+      seenSeeds.push(body.seed);
+      const node = (body.graph.nodes as any[]).find((n) => n.id === factorId);
+      const v = node?.observed_state?.value ?? 0;
+      const aWins = v >= seedThreshold(body.seed); // decrease search: high value → opt-a
+      return {
+        data: {
+          results: [
+            { option_id: 'opt-a', win_probability: aWins ? 0.7 : 0.3 },
+            { option_id: 'opt-b', win_probability: aWins ? 0.3 : 0.7 },
+          ],
+        },
+      };
+    };
+    return { callAnalysis, seenSeeds };
+  }
+
+  function seedFlipRequest(seed: number) {
+    return {
+      graph: {
+        nodes: [
+          { id: 'delivery_gap', kind: 'factor', observed_state: { value: 0.7, std: 0.1, cap: 10, raw_value: 7, unit: 'story_points' } },
+          { id: 'goal', kind: 'goal' },
+        ],
+        edges: [],
+      },
+      options: [
+        { id: 'opt-a', interventions: {} },
+        { id: 'opt-b', interventions: {} },
+      ],
+      goal_node_id: 'goal',
+      n_samples: 1000,
+      parameter_uncertainties: [
+        { node_id: 'delivery_gap', distribution: 'normal', mean: 0.7, std: 0.1 },
+      ],
+      seed,
+    };
+  }
+
+  const candidate = () => makeCandidate({ factor_id: 'delivery_gap', current_value: 0.7, direction: 'decrease' });
+
+  it('same seed → identical flip result (deterministic)', async () => {
+    const run = async () => {
+      const { callAnalysis } = makeSeedSensitiveCallAnalysis('delivery_gap');
+      const fn = createISLInferenceFn(callAnalysis, seedFlipRequest(10), 'req-seed');
+      const { results } = await resolveFlipValues([candidate()], fn, 'opt-a');
+      return results[0];
+    };
+
+    const a = await run();
+    const b = await run();
+
+    expect(a.flip_reason).toBe('found');
+    expect(a.flip_value).not.toBeNull();
+    expect(b.flip_value).toBe(a.flip_value); // byte-identical across repeats
+    // seed 10 → threshold 0.30
+    expect(a.flip_value!).toBeCloseTo(0.3, 1);
+  });
+
+  it('different seeds → different flip result (the forwarded seed is consumed)', async () => {
+    const runWithSeed = async (seed: number) => {
+      const { callAnalysis } = makeSeedSensitiveCallAnalysis('delivery_gap');
+      const fn = createISLInferenceFn(callAnalysis, seedFlipRequest(seed), 'req-seed');
+      const { results } = await resolveFlipValues([candidate()], fn, 'opt-a');
+      return results[0];
+    };
+
+    const low = await runWithSeed(10); // threshold 0.30
+    const high = await runWithSeed(14); // threshold 0.50
+
+    expect(low.flip_reason).toBe('found');
+    expect(high.flip_reason).toBe('found');
+    expect(low.flip_value!).toBeCloseTo(0.3, 1);
+    expect(high.flip_value!).toBeCloseTo(0.5, 1);
+    expect(high.flip_value).not.toBe(low.flip_value); // seed changed the threshold
+  });
+
+  it('every probe in one search carries the same forwarded seed (CRN), and different searches carry different seeds', async () => {
+    const a = makeSeedSensitiveCallAnalysis('delivery_gap');
+    const fnA = createISLInferenceFn(a.callAnalysis, seedFlipRequest(10), 'req-a');
+    await resolveFlipValues([candidate()], fnA, 'opt-a');
+
+    const b = makeSeedSensitiveCallAnalysis('delivery_gap');
+    const fnB = createISLInferenceFn(b.callAnalysis, seedFlipRequest(14), 'req-b');
+    await resolveFlipValues([candidate()], fnB, 'opt-a');
+
+    // Within a single search: every probe used the one resolved seed (CRN).
+    expect(a.seenSeeds.length).toBeGreaterThan(3); // Step-0 (3) + bisection midpoints
+    expect(new Set(a.seenSeeds)).toEqual(new Set([10]));
+    expect(new Set(b.seenSeeds)).toEqual(new Set([14]));
+    // Across searches: the probe requests carried different seeds.
+    expect(new Set(a.seenSeeds)).not.toEqual(new Set(b.seenSeeds));
   });
 });
