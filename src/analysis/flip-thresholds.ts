@@ -337,15 +337,23 @@ async function searchFlipForFactor(
 
     for (let i = 0; i < config.maxIterations; i++) {
       if (Date.now() >= factorDeadline) {
-        const flipValue = roundTo4(midpoint(searchLow, searchHigh));
+        // The bracket midpoint is a partial-search artefact: where the bisection
+        // happened to stop when the wall-clock deadline hit, NOT a converged
+        // threshold. It must never be surfaced as a usable `flip_value`. We keep
+        // it (and the far winner) in `diag` only — diagnostics are log-only and
+        // never reach the public response — and emit a null-threshold result so
+        // downstream consumers classify this as unresolved. `margin_sensitivity`
+        // is retained: it reflects the completed Step-0 probes (a real finding
+        // that the winner changes within bounds), independent of the timeout.
+        const partialMidpoint = roundTo4(midpoint(searchLow, searchHigh));
         diag.iterations_used = iterations;
         diag.probes_used = probes;
         diag.precision_achieved = Math.abs(searchHigh - searchLow);
         diag.flip_reason = 'timeout';
-        diag.flip_value = flipValue;
+        diag.flip_value = partialMidpoint;
         diag.alternative_winner_id = farWinner;
         return {
-          result: { ...candidate, flip_value: flipValue, flip_reason: 'timeout', iterations_used: iterations, probes_used: probes, alternative_winner_id: farWinner, margin_sensitivity: marginSensitivity },
+          result: { ...candidate, flip_value: null, flip_reason: 'timeout', iterations_used: iterations, probes_used: probes, alternative_winner_id: null, margin_sensitivity: marginSensitivity },
           diagnostics: diag,
         };
       }
