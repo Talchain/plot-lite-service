@@ -345,7 +345,7 @@ describe('resolveFlipValues()', () => {
       const slowMock = createSlowLowerBoundFlipMock(100);
       const candidate = makeCandidate({ current_value: 0.9, direction: 'decrease' });
 
-      const { results } = await resolveFlipValues([candidate], slowMock, 'opt-a', {
+      const { results, diagnostics } = await resolveFlipValues([candidate], slowMock, 'opt-a', {
         perFactorTimeoutMs: 20,
         overallTimeoutMs: 20,
       });
@@ -368,6 +368,21 @@ describe('resolveFlipValues()', () => {
       // timeout branch, not the pre-probe branch (which carries no margin_sensitivity).
       expect(r.margin_sensitivity).toBeDefined();
       expect(r.margin_sensitivity?.movement).toBe('flipped');
+
+      // Diagnostic-only preservation: the partial-search midpoint and far winner
+      // MUST survive in diagnostics (log-only) even though they are suppressed from
+      // the public result above. Bracket is [0, baseline=0.9] (only the min bound
+      // flips), so the midpoint at timeout is 0.45 and the far winner is 'opt-b'.
+      // Asserting both halves locks the full contract: preserved for debugging,
+      // never surfaced as a usable threshold.
+      const d = diagnostics[0];
+      expect(d.flip_reason).toBe('timeout');
+      expect(d.flip_value).not.toBeNull();
+      expect(d.flip_value).toBeCloseTo(0.45, 4);
+      expect(d.alternative_winner_id).toBe('opt-b');
+      // The whole point: diagnostics keep the midpoint, the public result nulls it.
+      expect(r.flip_value).toBeNull();
+      expect(d.flip_value).not.toBe(r.flip_value);
     });
   });
 
