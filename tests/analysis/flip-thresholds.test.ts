@@ -988,6 +988,12 @@ describe('createISLInferenceFn()', () => {
   // explicit !== undefined && !== null, so falsy-but-valid seeds (0, '') are
   // forwarded; a future "simplify to a truthy check" would silently drop them
   // and break determinism for seed 0 — these cases lock that in.
+  //
+  // NB: '' is asserted as a PRESENT seed (forwarded), which documents this
+  // layer's verbatim behaviour only. Whether an empty string is a *valid*
+  // product-level seed (vs invalid/seedless) is a route/schema concern decided
+  // by the /v2/run contract + resolveSeed(), not here — changing it would be a
+  // separate route/schema change.
   it.each([
     { label: 'numeric string', seed: '4242', expected: '4242' },
     { label: 'number', seed: 4242, expected: 4242 },

@@ -210,4 +210,29 @@ describe('V2 Run · flip-threshold probes carry the resolved seed', () => {
     expect(seedsRun2).toEqual(new Set(['999']));
     expect(seedsRun1).not.toEqual(seedsRun2);
   });
+
+  it('numeric seed 0 → route normalises to "0" and every probe carries it (falsy seed survives end-to-end)', async () => {
+    // The unit test proves createISLInferenceFn forwards 0; this proves the full
+    // route path: resolveSeed(0) → "0" (the public path String()-normalises the
+    // number), and that normalised seed reaches every flip probe. Guards the
+    // classic falsy-zero trap across the whole /v2/run → probe chain.
+    capturedBodies.length = 0;
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v2/run',
+      headers: { 'Content-Type': 'application/json' },
+      payload: JSON.stringify({ graph: GRAPH, options: OPTIONS, goal_node_id: 'goal', seed: 0 }),
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.meta.seed_used).toBe('0'); // numeric 0 normalised to "0", not dropped
+    expect(body.meta.seed_source).toBe('client_generated');
+
+    const probes = flipProbeBodies();
+    expect(probes.length).toBeGreaterThan(0);
+    for (const p of probes) {
+      expect(String(p.seed)).toBe('0'); // probe carries the normalised resolved seed
+    }
+  });
 });
