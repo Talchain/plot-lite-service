@@ -982,6 +982,47 @@ describe('createISLInferenceFn()', () => {
 
     expect(req.seed).toBe('4242'); // unchanged
   });
+
+  // Boundary values: the probe forwards the resolved seed VERBATIM (no
+  // normalisation — resolveSeed does that upstream). The conditional uses
+  // explicit !== undefined && !== null, so falsy-but-valid seeds (0, '') are
+  // forwarded; a future "simplify to a truthy check" would silently drop them
+  // and break determinism for seed 0 — these cases lock that in.
+  it.each([
+    { label: 'numeric string', seed: '4242', expected: '4242' },
+    { label: 'number', seed: 4242, expected: 4242 },
+    { label: 'zero (falsy but valid)', seed: 0, expected: 0 },
+    { label: 'empty string (falsy but present)', seed: '', expected: '' },
+    { label: 'non-numeric string', seed: 'derived-seed', expected: 'derived-seed' },
+  ])('forwards a $label seed verbatim', async ({ seed, expected }) => {
+    let captured: any = null;
+    const mockCallAnalysis = async (_ep: string, body: unknown) => {
+      captured = body;
+      return { data: { results: [{ option_id: 'opt-a', win_probability: 1.0 }] } };
+    };
+    const fn = createISLInferenceFn(mockCallAnalysis, { ...makeGraphRequest(), seed }, 'req-1');
+
+    await fn('factor-x', 0.4);
+
+    expect('seed' in captured).toBe(true);
+    expect(captured.seed).toBe(expected);
+  });
+
+  it.each([
+    { label: 'explicit null', seed: null },
+    { label: 'explicit undefined', seed: undefined },
+  ])('omits the seed key for $label (preserves ISL graph-hash default)', async ({ seed }) => {
+    let captured: any = null;
+    const mockCallAnalysis = async (_ep: string, body: unknown) => {
+      captured = body;
+      return { data: { results: [{ option_id: 'opt-a', win_probability: 1.0 }] } };
+    };
+    const fn = createISLInferenceFn(mockCallAnalysis, { ...makeGraphRequest(), seed } as any, 'req-1');
+
+    await fn('factor-x', 0.4);
+
+    expect('seed' in captured).toBe(false);
+  });
 });
 
 // =============================================================================
