@@ -189,5 +189,17 @@ describe('classifyFlipThresholdsStatus()', () => {
         status_reason: 'something_new_in_a_future_isl_version',
       });
     });
+
+    it('classifies the post-fix timeout producer shape { flip_value: null, flip_reason: "timeout" } as unresolved, never computed', () => {
+      // Mirrors exactly what the binary-search timeout branch now emits after the
+      // timeout-honesty fix: a null threshold with reason 'timeout'. This MUST be
+      // unresolved (not computed) so no downstream surface treats the absent
+      // threshold as actionable. Before the fix this entry carried a non-null
+      // bracket-midpoint flip_value and was misclassified as 'computed'.
+      const entries = [makeEntry({ flip_value: null, flip_reason: 'timeout' })];
+      const result = classifyFlipThresholdsStatus(entries);
+      expect(result).toEqual({ status: 'unresolved', status_reason: 'timeout' });
+      expect(result.status).not.toBe('computed');
+    });
   });
 });

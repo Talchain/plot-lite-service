@@ -315,28 +315,59 @@ describe('resolveFlipValues()', () => {
   });
 
   describe('Timeout Handling', () => {
-    it('returns timeout when per-factor timeout exceeded', async () => {
-      // Create a slow mock
-      const slowMock: ISLInferenceFn = async () => {
-        await new Promise((resolve) => setTimeout(resolve, 200));
+    /**
+     * Mock that flips the winner ONLY at the lower bound (mean === 0) and sleeps
+     * on every probe. The Step-0 probes (baseline, min, max) run in parallel and
+     * each sleep `delayMs`, so by the time they resolve the per-factor deadline
+     * has already elapsed — driving a genuine wall-clock timeout into the
+     * binary-search loop's deadline check. The winner change at the lower bound
+     * forces a bracket to be set (strict flip), so the ONLY reachable outcome is
+     * the binary-search timeout branch — eliminating the old test's
+     * timeout/no_effect/found ambiguity.
+     */
+    function createSlowLowerBoundFlipMock(delayMs: number): ISLInferenceFn {
+      return async (_factorId: string, overrideMean: number): Promise<FlipInferenceResult> => {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        const flipped = overrideMean <= 0; // only the min bound (mean=0) flips
         return {
           options: [
-            { option_id: 'opt-a', win_probability: 0.6 },
-            { option_id: 'opt-b', win_probability: 0.4 },
+            { option_id: 'opt-a', win_probability: flipped ? 0.35 : 0.65 },
+            { option_id: 'opt-b', win_probability: flipped ? 0.65 : 0.35 },
           ],
         };
       };
+    }
 
+    it('does NOT surface the partial-search midpoint as flip_value on a genuine timeout', async () => {
+      // Real-deadline timeout: deadline (20ms) << Step-0 probe time (~100ms), so the
+      // loop's `Date.now() >= factorDeadline` check fires before any binary iteration.
+      // This is a genuine wall-clock timeout (not an injected flip_reason flag).
+      const slowMock = createSlowLowerBoundFlipMock(100);
       const candidate = makeCandidate({ current_value: 0.9, direction: 'decrease' });
 
       const { results } = await resolveFlipValues([candidate], slowMock, 'opt-a', {
-        perFactorTimeoutMs: 100, // Very short timeout
-        overallTimeoutMs: 200,
+        perFactorTimeoutMs: 20,
+        overallTimeoutMs: 20,
       });
 
       expect(results).toHaveLength(1);
-      // Should either timeout or complete (if the 3 probing calls were fast enough)
-      expect(['timeout', 'no_effect_within_bounds', 'found']).toContain(results[0].flip_reason);
+      const r = results[0];
+
+      // Authoritative honesty gate: timeout exposes no usable numeric threshold.
+      expect(r.flip_reason).toBe('timeout');
+      expect(r.flip_value).toBeNull();
+      expect(r.alternative_winner_id).toBeNull();
+
+      // iterations_used preserved (the timeout fired at the top of the loop).
+      expect(typeof r.iterations_used).toBe('number');
+      expect(r.iterations_used).toBeGreaterThanOrEqual(0);
+
+      // margin_sensitivity is retained — it reflects the COMPLETED Step-0 probes,
+      // and movement stays truthful ('flipped', since the lower bound's winner
+      // differs from baseline). Its presence also proves this is the binary-search
+      // timeout branch, not the pre-probe branch (which carries no margin_sensitivity).
+      expect(r.margin_sensitivity).toBeDefined();
+      expect(r.margin_sensitivity?.movement).toBe('flipped');
     });
   });
 
