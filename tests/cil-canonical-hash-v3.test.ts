@@ -134,7 +134,7 @@ describe('CIL C2: Canonical hash with goal_constraints', () => {
 
     // Track S: HASH_VERSION bumped 6→7 (n_samples added to canonical form).
     expect(parsed.version).toBe(7);
-    expect(parsed.n_samples).toBe(1000); // resolved default depth (v7)
+    expect(parsed.n_samples).toBe(4000); // PR-E: standard default depth raised 1000→4000
     expect(parsed.goal_constraints).toBeDefined();
     expect(parsed.goal_constraints).toHaveLength(1);
     expect(parsed.goal_constraints[0].constraint_id).toBe('c1');

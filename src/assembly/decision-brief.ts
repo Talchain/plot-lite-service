@@ -31,6 +31,7 @@ import type {
 } from '../types/decision-brief.js';
 import { DECISION_BRIEF_VERSION } from '../types/decision-brief.js';
 import type { RunResponseV3 } from '../types/engine-v3.js';
+import { STANDARD_N_SAMPLES_DEFAULT } from '../config/sampling.js';
 
 // =============================================================================
 // Constants
@@ -70,10 +71,11 @@ function computeBriefId(graphHash: string, seed: number, configVersion: string):
  *
  * Track S: the sample depth is now a per-request input (was hardcoded 1000), so
  * briefs computed at different depths get different config_versions (and thus
- * different brief_ids). Defaults to 1000 when omitted, which reproduces the
- * pre-Track-S hash for callers that don't supply a depth.
+ * different brief_ids). Defaults to the standard depth (PR-E: 4000) when omitted.
+ * The live route always passes the resolved depth, so the default only affects
+ * direct callers/tests.
  */
-function computeConfigVersion(nSamples: number = 1000): string {
+function computeConfigVersion(nSamples: number = STANDARD_N_SAMPLES_DEFAULT): string {
   const configInputs = {
     n_samples_default: nSamples,
     enable_review_pass: process.env.ENABLE_REVIEW_PASS ?? 'default',
