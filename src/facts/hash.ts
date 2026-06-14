@@ -42,7 +42,13 @@ function sha256(input: string): string {
  */
 export function generateFactId(factKey: FactKey, lineage: FactLineage): string {
   const keyPayload = canonicalJson(factKey);
-  const lineagePayload = `${lineage.graph_hash}:${lineage.seed}:${lineage.config_version}:${lineage.isl_request_id}`;
+  let lineagePayload = `${lineage.graph_hash}:${lineage.seed}:${lineage.config_version}:${lineage.isl_request_id}`;
+  // Track S: depth-aware fact ids. Appended ONLY when present so pre-Track-S
+  // facts (no n_samples) keep their original ids — facts computed at different
+  // sample depths get distinct ids.
+  if (lineage.n_samples !== undefined) {
+    lineagePayload += `:${lineage.n_samples}`;
+  }
   return sha256(`${keyPayload}:${lineagePayload}`).slice(0, 16);
 }
 

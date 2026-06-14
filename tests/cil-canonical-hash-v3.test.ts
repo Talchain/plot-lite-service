@@ -122,7 +122,7 @@ describe('CIL C2: Canonical hash with goal_constraints', () => {
     expect(hashA).toBe(hashB);
   });
 
-  it('hash version is 6 (includes version in canonical form)', () => {
+  it('hash version is 7 (includes version in canonical form)', () => {
     const req = makeRequest({
       goal_constraints: [
         { constraint_id: 'c1', node_id: 'goal', operator: '>=', value: 20000 },
@@ -132,7 +132,9 @@ describe('CIL C2: Canonical hash with goal_constraints', () => {
     const canonical = canonicaliseRequest(req, GRAPH, '42');
     const parsed = JSON.parse(canonical);
 
-    expect(parsed.version).toBe(6);
+    // Track S: HASH_VERSION bumped 6→7 (n_samples added to canonical form).
+    expect(parsed.version).toBe(7);
+    expect(parsed.n_samples).toBe(1000); // resolved default depth (v7)
     expect(parsed.goal_constraints).toBeDefined();
     expect(parsed.goal_constraints).toHaveLength(1);
     expect(parsed.goal_constraints[0].constraint_id).toBe('c1');

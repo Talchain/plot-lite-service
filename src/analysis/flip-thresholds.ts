@@ -73,6 +73,38 @@ function getDefaultConfig(): FlipSearchConfig {
 }
 
 /**
+ * Track S — Flip-probe sample depth (decoupled from base analysis depth).
+ *
+ * Each flip probe is a full ISL `comparison` call inside a binary search under a
+ * fixed per-factor/overall time budget. If probes inherited the base analysis
+ * `n_samples`, raising the base depth would slow every probe and push the search
+ * into timeout (observed: flip-threshold timeouts rose from ~1/12 runs at 1000
+ * samples to ~3/12 at 4000). Decoupling lets the base analysis use a higher depth
+ * for display-stable probabilities while flip probes stay fast.
+ */
+export const DEFAULT_FLIP_PROBE_N_SAMPLES = 1000;
+
+/**
+ * Resolve the sample depth to use for flip probes, independent of base depth.
+ *
+ * Precedence:
+ *  1. `FLIP_PROBE_N_SAMPLES` env (absolute ops override — may exceed base);
+ *  2. otherwise `min(DEFAULT_FLIP_PROBE_N_SAMPLES, baseNSamples)` — probes never
+ *     run deeper than the base, and crucially do NOT scale up when the base does.
+ */
+export function resolveFlipProbeNSamples(baseNSamples?: number): number {
+  const raw = process.env.FLIP_PROBE_N_SAMPLES;
+  if (raw !== undefined && raw.trim() !== '') {
+    const parsed = parseInt(raw, 10);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  const base = typeof baseNSamples === 'number' && Number.isFinite(baseNSamples) && baseNSamples > 0
+    ? baseNSamples
+    : DEFAULT_FLIP_PROBE_N_SAMPLES;
+  return Math.min(DEFAULT_FLIP_PROBE_N_SAMPLES, base);
+}
+
+/**
  * Per-factor diagnostics emitted alongside flip_thresholds_resolved log event.
  */
 export interface FlipDiagnostics {
@@ -583,7 +615,10 @@ export function createISLInferenceFn(
     // common random numbers stay intentional and aligned with the base analysis.
     seed?: string | number;
   },
-  requestId: string
+  requestId: string,
+  // Track S: sample depth for flip probes, decoupled from base analysis depth.
+  // When omitted, probes fall back to the base request's n_samples (legacy behaviour).
+  flipProbeNSamples?: number
 ): ISLInferenceFn {
   return async (factorId: string, overrideMean: number): Promise<FlipInferenceResult> => {
     // Clone parameter_uncertainties with the target factor's mean overridden
@@ -643,7 +678,9 @@ export function createISLInferenceFn(
       graph: probeGraph,
       options: originalRequest.options,
       goal_node_id: originalRequest.goal_node_id,
-      n_samples: originalRequest.n_samples,
+      // Track S: probes use their own depth (decoupled). Falls back to base depth
+      // when no probe depth is supplied, preserving legacy behaviour for old callers.
+      n_samples: flipProbeNSamples ?? originalRequest.n_samples,
       analysis_types: ['comparison'] as const,
       parameter_uncertainties: paramUncertainties,
       // Forward the resolved analysis seed on every probe (intentional CRN —

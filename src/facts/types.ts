@@ -114,6 +114,13 @@ export interface FactLineage {
   seed: number;
   config_version: string;
   isl_request_id: string;
+  /**
+   * Track S: resolved Monte Carlo sample depth the facts were computed at.
+   * Additive + backward-compatible: optional, and only contributes to fact_id
+   * when present, so pre-Track-S facts (no n_samples) reproduce identical ids.
+   * Absence ⇒ a fact written before sample-depth provenance existed.
+   */
+  n_samples?: number;
   /** From CEE checkpoint, if available */
   plan_id?: string;
   plan_hash?: string;
