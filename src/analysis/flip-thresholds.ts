@@ -17,7 +17,7 @@
 
 import type { FlipThresholdInputData } from '../cee/validation/m1-review-types.js';
 import { computeMarginSensitivity, type MarginSensitivity } from './margin-sensitivity.js';
-import { parseBoundedIntEnv, MIN_N_SAMPLES, MAX_N_SAMPLES } from '../config/env-int.js';
+import { resolveBoundedIntEnvOrWarn, MIN_N_SAMPLES, MAX_N_SAMPLES } from '../config/env-int.js';
 
 // =============================================================================
 // Types
@@ -95,7 +95,7 @@ export const DEFAULT_FLIP_PROBE_N_SAMPLES = 1000;
  *     run deeper than the base, and crucially do NOT scale up when the base does.
  */
 export function resolveFlipProbeNSamples(baseNSamples?: number): number {
-  const envOverride = parseBoundedIntEnv(process.env.FLIP_PROBE_N_SAMPLES, MIN_N_SAMPLES, MAX_N_SAMPLES);
+  const envOverride = resolveBoundedIntEnvOrWarn('FLIP_PROBE_N_SAMPLES', MIN_N_SAMPLES, MAX_N_SAMPLES);
   if (envOverride !== null) return envOverride;
   const base = typeof baseNSamples === 'number' && Number.isFinite(baseNSamples) && baseNSamples > 0
     ? baseNSamples

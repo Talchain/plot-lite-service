@@ -5,8 +5,14 @@
  * silently set a garbage Monte Carlo sample depth and bypass the /v2/run bound.
  */
 
-import { describe, it, expect } from 'vitest';
-import { parseBoundedIntEnv, MIN_N_SAMPLES, MAX_N_SAMPLES } from '../src/config/env-int.js';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import {
+  parseBoundedIntEnv,
+  resolveBoundedIntEnvOrWarn,
+  __resetEnvIntWarnings,
+  MIN_N_SAMPLES,
+  MAX_N_SAMPLES,
+} from '../src/config/env-int.js';
 
 const within = (raw: string | undefined) => parseBoundedIntEnv(raw, MIN_N_SAMPLES, MAX_N_SAMPLES);
 
@@ -47,5 +53,41 @@ describe('parseBoundedIntEnv', () => {
   it('honours custom bounds', () => {
     expect(parseBoundedIntEnv('5', 1, 10)).toBe(5);
     expect(parseBoundedIntEnv('11', 1, 10)).toBeNull();
+  });
+});
+
+describe('resolveBoundedIntEnvOrWarn', () => {
+  const NAME = '__TRACK_S_TEST_DEPTH__';
+  beforeEach(() => { __resetEnvIntWarnings(); delete process.env[NAME]; });
+  afterEach(() => { delete process.env[NAME]; vi.restoreAllMocks(); });
+
+  it('returns the value for a valid env (no warning)', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    process.env[NAME] = '2000';
+    expect(resolveBoundedIntEnvOrWarn(NAME, MIN_N_SAMPLES, MAX_N_SAMPLES)).toBe(2000);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('returns null and does NOT warn when the var is absent', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(resolveBoundedIntEnvOrWarn(NAME, MIN_N_SAMPLES, MAX_N_SAMPLES)).toBeNull();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('warns exactly once for a SET-but-invalid value (no per-request spam)', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    process.env[NAME] = '1,000'; // would parseInt to 1
+    expect(resolveBoundedIntEnvOrWarn(NAME, MIN_N_SAMPLES, MAX_N_SAMPLES)).toBeNull();
+    expect(resolveBoundedIntEnvOrWarn(NAME, MIN_N_SAMPLES, MAX_N_SAMPLES)).toBeNull();
+    expect(resolveBoundedIntEnvOrWarn(NAME, MIN_N_SAMPLES, MAX_N_SAMPLES)).toBeNull();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toContain(NAME);
+  });
+
+  it('warns on out-of-bounds too', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    process.env[NAME] = '50000';
+    expect(resolveBoundedIntEnvOrWarn(NAME, MIN_N_SAMPLES, MAX_N_SAMPLES)).toBeNull();
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 });

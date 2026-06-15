@@ -26,6 +26,10 @@ const FACTOR_SENSITIVITY = [
   { factor_id: 'factor-b', factor_label: 'Factor B', elasticity: -0.65, direction: 'negative', attribution_stability: 'moderate', elasticity_std: 0.1, rank_flip_rate: 0.1 },
 ];
 
+// Track S: records every ISL request body the route sends, so route tests can
+// assert the resolved n_samples actually reaches the ISL request (not just meta).
+const islRequestBodies: any[] = [];
+
 const mockISLService = {
   isEnabled(): boolean { return true; },
   async isAvailable(): Promise<boolean> { return true; },
@@ -69,6 +73,7 @@ const mockISLService = {
   },
   async computeCounterfactual(): Promise<never> { throw new Error('not called'); },
   async callAnalysisEndpoint<T>(_endpoint: string, body: any): Promise<{ data: T | null; error: string | null; isl_echoed_request_id?: string }> {
+    islRequestBodies.push(body);
     const options = body.options || [];
     return {
       data: {
@@ -259,6 +264,7 @@ describe('fact_objects in /v2/run (ENABLE_FACTS_ASSEMBLY=1)', () => {
   // meta, the response_hash, or the stored fact lineage. Uses EXPLICIT depths so
   // it is independent of the standard-default value.
   async function runAt(nSamples: number) {
+    islRequestBodies.length = 0; // capture only this run's ISL requests
     const res = await app.inject({
       method: 'POST',
       url: '/v2/run',
@@ -269,8 +275,15 @@ describe('fact_objects in /v2/run (ENABLE_FACTS_ASSEMBLY=1)', () => {
     return JSON.parse(res.body);
   }
 
-  it('threads the resolved n_samples into response meta and fact lineage', async () => {
+  // The base analysis request carries the full analysis_types; flip-probe
+  // requests (analysis_types: ['comparison']) are separate and decoupled.
+  const baseISLRequest = () =>
+    islRequestBodies.find((b) => Array.isArray(b.analysis_types) && b.analysis_types.includes('robustness'));
+
+  it('threads the resolved n_samples into the ISL request, response meta, and fact lineage', async () => {
     const body = await runAt(2000);
+    // The depth actually reaches the ISL request body (not just response meta).
+    expect(baseISLRequest()?.n_samples).toBe(2000);
     expect(body.meta.n_samples).toBe(2000);
     expect(body.fact_objects.length).toBeGreaterThan(0);
     for (const fact of body.fact_objects) {
@@ -280,7 +293,9 @@ describe('fact_objects in /v2/run (ENABLE_FACTS_ASSEMBLY=1)', () => {
 
   it('produces a different response_hash for a different n_samples (same graph + seed)', async () => {
     const at2000 = await runAt(2000);
+    expect(baseISLRequest()?.n_samples).toBe(2000);
     const at4000 = await runAt(4000);
+    expect(baseISLRequest()?.n_samples).toBe(4000);
     expect(at2000.meta.n_samples).toBe(2000);
     expect(at4000.meta.n_samples).toBe(4000);
     expect(at2000.response_hash).not.toBe(at4000.response_hash);
