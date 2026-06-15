@@ -63,6 +63,14 @@ describe('resolveFlipProbeNSamples', () => {
     process.env[ENV_KEY] = 'not-a-number';
     expect(resolveFlipProbeNSamples(4000)).toBe(DEFAULT_FLIP_PROBE_N_SAMPLES);
   });
+
+  it('ignores parseInt foot-guns and out-of-bounds env values (falls back, never misparses)', () => {
+    for (const bad of ['1,000', '4_000', '1000abc', '1.5', '-5', '50000', '99', '0']) {
+      process.env[ENV_KEY] = bad;
+      // Falls back to min(1000, base) — never to a misparsed value like 1 or 4.
+      expect(resolveFlipProbeNSamples(4000)).toBe(DEFAULT_FLIP_PROBE_N_SAMPLES);
+    }
+  });
 });
 
 describe('createISLInferenceFn probe depth', () => {

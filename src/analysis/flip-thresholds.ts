@@ -17,6 +17,7 @@
 
 import type { FlipThresholdInputData } from '../cee/validation/m1-review-types.js';
 import { computeMarginSensitivity, type MarginSensitivity } from './margin-sensitivity.js';
+import { parseBoundedIntEnv, MIN_N_SAMPLES, MAX_N_SAMPLES } from '../config/env-int.js';
 
 // =============================================================================
 // Types
@@ -88,16 +89,14 @@ export const DEFAULT_FLIP_PROBE_N_SAMPLES = 1000;
  * Resolve the sample depth to use for flip probes, independent of base depth.
  *
  * Precedence:
- *  1. `FLIP_PROBE_N_SAMPLES` env (absolute ops override — may exceed base);
+ *  1. `FLIP_PROBE_N_SAMPLES` env — strictly parsed, in-bounds (100..10000) ops
+ *     override (may exceed base); malformed/out-of-bounds values are ignored;
  *  2. otherwise `min(DEFAULT_FLIP_PROBE_N_SAMPLES, baseNSamples)` — probes never
  *     run deeper than the base, and crucially do NOT scale up when the base does.
  */
 export function resolveFlipProbeNSamples(baseNSamples?: number): number {
-  const raw = process.env.FLIP_PROBE_N_SAMPLES;
-  if (raw !== undefined && raw.trim() !== '') {
-    const parsed = parseInt(raw, 10);
-    if (Number.isFinite(parsed) && parsed > 0) return parsed;
-  }
+  const envOverride = parseBoundedIntEnv(process.env.FLIP_PROBE_N_SAMPLES, MIN_N_SAMPLES, MAX_N_SAMPLES);
+  if (envOverride !== null) return envOverride;
   const base = typeof baseNSamples === 'number' && Number.isFinite(baseNSamples) && baseNSamples > 0
     ? baseNSamples
     : DEFAULT_FLIP_PROBE_N_SAMPLES;
