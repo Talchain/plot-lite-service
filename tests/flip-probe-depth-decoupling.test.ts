@@ -6,7 +6,7 @@
  * into timeout. These tests pin the contract: probe depth is its own control.
  */
 
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   createISLInferenceFn,
   resolveFlipProbeNSamples,
@@ -40,7 +40,10 @@ function recordingInference(flipProbeNSamples?: number) {
 }
 
 const ENV_KEY = 'FLIP_PROBE_N_SAMPLES';
-afterEach(() => { delete process.env[ENV_KEY]; });
+// Invalid-env cases below intentionally trip the once-per-process warning;
+// stub console.warn so the expected operator warning doesn't clutter test output.
+beforeEach(() => { vi.spyOn(console, 'warn').mockImplementation(() => {}); });
+afterEach(() => { delete process.env[ENV_KEY]; vi.restoreAllMocks(); });
 
 describe('resolveFlipProbeNSamples', () => {
   it('does NOT scale up when the base depth is raised (decoupled)', () => {

@@ -56,7 +56,7 @@ export function resolveBoundedIntEnvOrWarn(name: string, min: number, max: numbe
   if (parsed === null && raw !== undefined && raw.trim() !== '' && !warnedEnvVars.has(name)) {
     warnedEnvVars.add(name);
     // console.warn matches the existing src/config convention (timeouts, feature-flags).
-    console.warn(`[track-s] Ignoring invalid ${name}="${raw}"; expected an integer in [${min}, ${max}]. Using the default instead.`);
+    console.warn(`[track-s] Ignoring invalid ${name}="${raw}"; expected an integer in [${min}, ${max}]. Using the fallback instead.`);
   }
   return parsed;
 }
