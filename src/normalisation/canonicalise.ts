@@ -108,6 +108,7 @@
 
 import { createHash } from 'node:crypto';
 import type { RunRequestV3, OptionV3, EngineGraphV3, GoalConstraint, IdentifiabilityAssessment, FactorStabilityEntry } from '../types/engine-v3.js';
+import { STANDARD_N_SAMPLES_DEFAULT } from '../config/sampling.js';
 
 // -----------------------------------------------------------------------------
 // Constants
@@ -119,10 +120,13 @@ export const HASH_VERSION = 7;
 /**
  * Fallback Monte Carlo sample depth used when canonicalising a request whose
  * `n_samples` is omitted and no resolved depth is passed by the caller.
- * MUST match `DEFAULT_N_SAMPLES` in `src/routes/v2/run.ts` so that an omitted
- * `n_samples` and an explicit default-valued one produce the same hash.
+ *
+ * Anchored to the compile-time standard default (`STANDARD_N_SAMPLES_DEFAULT`,
+ * PR-E: 4000) — NOT the env-resolved value — so canonical hashing stays
+ * deterministic and environment-independent. The live route always passes the
+ * resolved depth explicitly, so this fallback only affects direct callers/tests.
  */
-export const DEFAULT_HASH_N_SAMPLES = 1000;
+export const DEFAULT_HASH_N_SAMPLES = STANDARD_N_SAMPLES_DEFAULT;
 
 /** Number of decimal places for float normalisation */
 const DECIMAL_PRECISION = 12;

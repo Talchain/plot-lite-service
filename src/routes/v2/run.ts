@@ -119,6 +119,7 @@ import type { SeedSourceType } from '@talchain/schemas';
 import { factorReviewV2, type CEESchemaV2Config } from '../../cee/client.js';
 import { FLAGS } from '../../config/flags.js';
 import { getAllFeatureFlags } from '../../config/feature-flags.js';
+import { resolveStandardNSamples } from '../../config/sampling.js';
 import { generateM1Coaching } from '../../coaching/m1-coaching.js';
 import { filterInterventionOverrides } from '../../coaching/sensitivity-filter.js';
 import type { M1Review } from '../../cee/validation/m1-review-types.js';
@@ -795,7 +796,8 @@ function buildISLResponseSummary(
 // -----------------------------------------------------------------------------
 
 const PREFLIGHT_VERSION_VALUE = '2025-12-26';
-const DEFAULT_N_SAMPLES = 1000;
+// Track S PR-E: standard base-analysis depth is resolved per-request via
+// resolveStandardNSamples() (default 4000, env STANDARD_N_SAMPLES override).
 const BODY_LIMIT_BYTES = 10 * 1024 * 1024; // 10MB
 
 // -----------------------------------------------------------------------------
@@ -2696,7 +2698,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
       // Note: plotSeedUsed is resolved AFTER graph normalization for determinism
       // When seed is omitted, we derive it from the normalized graph hash
       const providedSeed = body.seed;  // May be undefined - will resolve after normalization
-      const nSamples = body.n_samples ?? DEFAULT_N_SAMPLES;
+      // Track S PR-E: standard base-analysis depth (default 4000, env-overridable
+      // to 1000 via STANDARD_N_SAMPLES). An explicit request n_samples always wins.
+      const nSamples = body.n_samples ?? resolveStandardNSamples();
       const detailLevel = body.detail_level ?? 'standard';
 
       // Normalize goal_threshold: null is treated as absent

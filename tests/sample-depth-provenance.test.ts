@@ -61,9 +61,13 @@ describe('Decision-brief lineage sample-depth awareness', () => {
     expect(assembleBrief(baseInput(undefined))?.lineage.n_samples).toBeUndefined();
   });
 
-  it('omitted depth reproduces the legacy (default-1000) config_version', () => {
-    // Backward compat: a brief with no depth hashes the same as an explicit 1000.
+  it('omitted depth reproduces the standard-default config_version', () => {
+    // A brief with no depth hashes the same as one at the standard default
+    // (PR-E: 4000), and differs from a non-default depth.
     expect(assembleBrief(baseInput(undefined))?.lineage.config_version).toBe(
+      assembleBrief(baseInput(4000))?.lineage.config_version
+    );
+    expect(assembleBrief(baseInput(undefined))?.lineage.config_version).not.toBe(
       assembleBrief(baseInput(1000))?.lineage.config_version
     );
   });
