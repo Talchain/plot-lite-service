@@ -483,7 +483,7 @@ describe('Tier 2: Data Responsibility (P.4, P.5, P.8)', () => {
 // P.6: Hash determinism (pure unit tests)
 // ---------------------------------------------------------------------------
 
-describe('P.6: Hash version 6 — ISL-derived fields excluded', () => {
+describe('P.6: Hash version 7 — ISL-derived fields excluded', () => {
   const HASH_GRAPH: EngineGraphV3 = {
     nodes: [
       { id: 'factor-a', kind: 'factor', label: 'Factor A' },
@@ -508,13 +508,14 @@ describe('P.6: Hash version 6 — ISL-derived fields excluded', () => {
     } as RunRequestV3;
   }
 
-  it('P6-1: HASH_VERSION is 6', () => {
-    expect(HASH_VERSION).toBe(6);
+  it('P6-1: HASH_VERSION is 7', () => {
+    // Track S: bumped 6→7 (n_samples added to canonical form).
+    expect(HASH_VERSION).toBe(7);
   });
 
-  it('P6-2: version field in canonical form is 6', () => {
+  it('P6-2: version field in canonical form is 7', () => {
     const canonical = JSON.parse(canonicaliseRequest(makeReq(), HASH_GRAPH, '42'));
-    expect(canonical.version).toBe(6);
+    expect(canonical.version).toBe(7);
   });
 
   it('P6-3: same request with different factor_stability → same hash', () => {
@@ -563,9 +564,9 @@ describe('P.6: Hash version 6 — ISL-derived fields excluded', () => {
     expect(canonical).not.toContain('"factor_stability"');
   });
 
-  it('P6-7: __hash_version=6 present in serialised hash input (via version field)', () => {
+  it('P6-7: __hash_version=7 present in serialised hash input (via version field)', () => {
     const canonical = JSON.parse(canonicaliseRequest(makeReq(), HASH_GRAPH, '42'));
-    expect(canonical.version).toBe(6);
+    expect(canonical.version).toBe(7);
   });
 
   it('P6-8: same input always produces same hash (determinism)', () => {

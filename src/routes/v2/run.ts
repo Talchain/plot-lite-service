@@ -105,7 +105,7 @@ import {
   THRESHOLDS_MIN_REMAINING_BUDGET_MS,
   REQUEST_BUDGET_MS,
 } from '../../config/timeouts.js';
-import { createISLInferenceFn, resolveFlipValues } from '../../analysis/flip-thresholds.js';
+import { createISLInferenceFn, resolveFlipValues, resolveFlipProbeNSamples } from '../../analysis/flip-thresholds.js';
 import { computeFlipThresholdData, getFactorsOverriddenByAllOptions } from '../../coaching/flip-thresholds.js';
 import { denormaliseFlipThresholds, type DenormalisedFlipThreshold } from '../../lib/flip-threshold-denormaliser.js';
 import { classifyFlipThresholdsStatus } from '../../lib/flip-threshold-status.js';
@@ -1056,6 +1056,8 @@ interface MetaParams {
   /** CIL Phase 1: Seed origin — type from @talchain/schemas SeedSource */
   seedSource: SeedSourceType;
   nSamples: number;
+  /** Track S: sample depth used for flip probes (decoupled from nSamples). Omitted when no flip search ran. */
+  flipProbeNSamples?: number;
   detailLevel: string;
   latencyMs: number;
   normalizationMs?: number;
@@ -1833,7 +1835,8 @@ function buildResponse(
     m1_coaching: m1Coaching,
     m1_review: m2DecisionReview?.m1_review ?? undefined,
     response_hash: responseHash,
-    meta: { seed_used: meta.seedUsed },
+    // Track S: depth-aware brief lineage (config_version + lineage.n_samples).
+    meta: { seed_used: meta.seedUsed, n_samples: meta.nSamples },
   });
 
   // Review cards: evidence priority card from factor sensitivity data.
@@ -1869,6 +1872,8 @@ function buildResponse(
       seed: Number(meta.seedUsed) || 0,
       config_version: '1',
       isl_request_id: requestId,
+      // Track S: record the sample depth facts were computed at (depth-aware lineage).
+      n_samples: meta.nSamples,
     };
 
     // Map V2 analysis data to ISLResponseInput shape
@@ -2221,6 +2226,11 @@ function buildResponse(
       //             (client_generated or server_generated)
       seed_source: meta.seedSource,
       n_samples: meta.nSamples,
+      // Track S: probe depth, surfaced only when a flip search ran and it differs
+      // from base depth (decoupled control). Excluded from response_hash (meta).
+      ...(meta.flipProbeNSamples !== undefined && meta.flipProbeNSamples !== meta.nSamples
+        ? { flip_probe_n_samples: meta.flipProbeNSamples }
+        : {}),
       detail_level: meta.detailLevel,
       latency_ms: meta.latencyMs,
       normalization_ms: meta.normalizationMs,
@@ -3426,7 +3436,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // Base hash used for early-return paths (ISL not enabled, ISL error).
         // On the success path, this is recomputed after ISL returns (v6: ISL-derived
         // fields are excluded from the hash — see canonicalise.ts BREAKING CHANGE v6).
-        let responseHash = hashRequest(body, filteredGraph, plotSeedUsed, toIdentifiabilityResponse(identifiabilityResult));
+        let responseHash = hashRequest(body, filteredGraph, plotSeedUsed, toIdentifiabilityResponse(identifiabilityResult), undefined, nSamples);
 
         // =================================================================
         // Phase 4: ISL Call
@@ -4184,7 +4194,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // Recompute response hash (v6: ISL-derived fields excluded — identifiability
         // and factor_stability are passed for API backwards compat but ignored by
         // canonicaliseRequest; see canonicalise.ts BREAKING CHANGE v6).
-        responseHash = hashRequest(body, filteredGraph, plotSeedUsed, toIdentifiabilityResponse(identifiabilityResult), factorStability);
+        responseHash = hashRequest(body, filteredGraph, plotSeedUsed, toIdentifiabilityResponse(identifiabilityResult), factorStability, nSamples);
 
         const sensitivityData: SensitivityData = { edgeSensitivity, factorSensitivity, edgeEValues, conditionalWinners };
 
@@ -4371,6 +4381,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // =================================================================
         let resolvedFlipData: import('../../cee/validation/m1-review-types.js').FlipThresholdInputData[] | undefined;
         let flipThresholds: DenormalisedFlipThreshold[] | undefined;
+        // Track S: depth actually used for flip probes (decoupled from base nSamples).
+        // Set when a flip search runs; surfaced in response meta for transparency.
+        let flipProbeNSamples: number | undefined;
 
         if (islSuccess && factorSensitivity && optionComparisonData && optionComparisonData.length >= 2) {
           try {
@@ -4415,10 +4428,15 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               const winnerId = topWinnerOption?.option_id ?? topWinnerOption?.id ?? '';
 
               if (winnerId) {
+                // Track S: flip probes use a depth decoupled from the base analysis
+                // (`nSamples`), so raising base depth cannot silently push probes into
+                // timeout. See resolveFlipProbeNSamples / FLIP_PROBE_N_SAMPLES.
+                flipProbeNSamples = resolveFlipProbeNSamples(nSamples);
                 const flipInferenceFn = createISLInferenceFn(
                   (endpoint, body, rid) => islService.callAnalysisEndpoint(endpoint, body, rid),
                   islRequest,
-                  requestId
+                  requestId,
+                  flipProbeNSamples
                 );
 
                 const flipResult = await resolveFlipValues(
@@ -4742,6 +4760,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             seedUsed: plotSeedUsed,
             seedSource: providedSeed !== undefined ? 'client_generated' : 'server_generated',
             nSamples,
+            flipProbeNSamples,
             detailLevel,
             latencyMs: finalTotalMs,
             normalizationMs,

@@ -26,6 +26,10 @@ const FACTOR_SENSITIVITY = [
   { factor_id: 'factor-b', factor_label: 'Factor B', elasticity: -0.65, direction: 'negative', attribution_stability: 'moderate', elasticity_std: 0.1, rank_flip_rate: 0.1 },
 ];
 
+// Track S: records every ISL request body the route sends, so route tests can
+// assert the resolved n_samples actually reaches the ISL request (not just meta).
+const islRequestBodies: any[] = [];
+
 const mockISLService = {
   isEnabled(): boolean { return true; },
   async isAvailable(): Promise<boolean> { return true; },
@@ -69,6 +73,7 @@ const mockISLService = {
   },
   async computeCounterfactual(): Promise<never> { throw new Error('not called'); },
   async callAnalysisEndpoint<T>(_endpoint: string, body: any): Promise<{ data: T | null; error: string | null; isl_echoed_request_id?: string }> {
+    islRequestBodies.push(body);
     const options = body.options || [];
     return {
       data: {
@@ -252,6 +257,50 @@ describe('fact_objects in /v2/run (ENABLE_FACTS_ASSEMBLY=1)', () => {
       expect(fact.lineage).toBeDefined();
       expect(fact.content_hash).toBeDefined();
     }
+  });
+
+  // Track S: end-to-end wiring of the resolved n_samples through /v2/run. Guards
+  // against a regression where run.ts stops threading nSamples into the response
+  // meta, the response_hash, or the stored fact lineage. Uses EXPLICIT depths so
+  // it is independent of the standard-default value.
+  async function runAt(nSamples: number) {
+    islRequestBodies.length = 0; // capture only this run's ISL requests
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v2/run',
+      headers: { 'Content-Type': 'application/json' },
+      payload: { ...PAYLOAD, n_samples: nSamples },
+    });
+    expect(res.statusCode).toBe(200);
+    return JSON.parse(res.body);
+  }
+
+  // The base analysis request carries the full analysis_types; flip-probe
+  // requests (analysis_types: ['comparison']) are separate and decoupled.
+  const baseISLRequest = () =>
+    islRequestBodies.find((b) => Array.isArray(b.analysis_types) && b.analysis_types.includes('robustness'));
+
+  it('threads the resolved n_samples into the ISL request, response meta, and fact lineage', async () => {
+    const body = await runAt(2000);
+    // The depth actually reaches the ISL request body (not just response meta).
+    expect(baseISLRequest()?.n_samples).toBe(2000);
+    expect(body.meta.n_samples).toBe(2000);
+    expect(body.fact_objects.length).toBeGreaterThan(0);
+    for (const fact of body.fact_objects) {
+      expect(fact.lineage.n_samples).toBe(2000);
+    }
+  });
+
+  it('produces a different response_hash for a different n_samples (same graph + seed)', async () => {
+    const at2000 = await runAt(2000);
+    expect(baseISLRequest()?.n_samples).toBe(2000);
+    const at4000 = await runAt(4000);
+    expect(baseISLRequest()?.n_samples).toBe(4000);
+    expect(at2000.meta.n_samples).toBe(2000);
+    expect(at4000.meta.n_samples).toBe(4000);
+    expect(at2000.response_hash).not.toBe(at4000.response_hash);
+    // fact lineage depth tracks the request depth at the route level
+    expect(at4000.fact_objects.every((f: any) => f.lineage.n_samples === 4000)).toBe(true);
   });
 });
 

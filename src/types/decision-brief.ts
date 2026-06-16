@@ -98,6 +98,8 @@ export interface BriefLineage {
   model_id?: string;
   config_version: string;
   response_hash: string;
+  /** Track S: resolved Monte Carlo sample depth the brief was computed at (additive, optional) */
+  n_samples?: number;
 }
 
 // =============================================================================

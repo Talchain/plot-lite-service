@@ -86,6 +86,24 @@
  * The `identifiability` and `factorStability` parameters are retained in
  * `canonicaliseRequest` and `hashRequest` for API backwards compatibility
  * but are no longer included in the hash input.
+ *
+ * ## BREAKING CHANGE (v7)
+ *
+ * Hash version 7 adds the resolved Monte Carlo sample depth to the canonical form:
+ *
+ * 1. **n_samples inclusion**: The resolved `n_samples` (request value, or the
+ *    server default when omitted) now contributes to the hash. Monte Carlo error
+ *    scales with sample depth, so the same graph + same seed at a different
+ *    `n_samples` is a genuinely different computation and MUST hash differently.
+ *    - An omitted `n_samples` resolves to the server default before hashing, so
+ *      an explicit default-valued request and an omitted one share a hash.
+ *    - Impact: ALL hashes change due to version prefix bump (v6→v7).
+ *
+ * **Migration**: ALL hashes change from v6. Cache invalidation required. Old
+ * stored facts/responses keep their v6 hashes (namespaced by the `version`
+ * field); this change does not rewrite history — new runs emit v7.
+ * `n_samples` is request-derived and deterministic, consistent with the v6
+ * principle that the hash is computable from the request alone.
  */
 
 import { createHash } from 'node:crypto';
@@ -96,7 +114,15 @@ import type { RunRequestV3, OptionV3, EngineGraphV3, GoalConstraint, Identifiabi
 // -----------------------------------------------------------------------------
 
 /** Hash version to prevent collisions when canonicalisation changes */
-export const HASH_VERSION = 6;
+export const HASH_VERSION = 7;
+
+/**
+ * Fallback Monte Carlo sample depth used when canonicalising a request whose
+ * `n_samples` is omitted and no resolved depth is passed by the caller.
+ * MUST match `DEFAULT_N_SAMPLES` in `src/routes/v2/run.ts` so that an omitted
+ * `n_samples` and an explicit default-valued one produce the same hash.
+ */
+export const DEFAULT_HASH_N_SAMPLES = 1000;
 
 /** Number of decimal places for float normalisation */
 const DECIMAL_PRECISION = 12;
@@ -254,6 +280,8 @@ interface CanonicalConstraint {
 interface CanonicalRequest {
   version: number;
   seed: string;
+  /** Resolved Monte Carlo sample depth (v7) — affects MC error of all surfaced numbers */
+  n_samples: number;
   goal_node_id: string;
   detail_level: string;
   /** Goal threshold affects probability_of_goal computation */
@@ -286,6 +314,9 @@ interface CanonicalRequest {
  * @param seedUsed Seed that will be used (already normalised to string)
  * @param _identifiability Unused since v6 — retained for API backwards compatibility
  * @param _factorStability Unused since v6 — retained for API backwards compatibility
+ * @param nSamples Resolved Monte Carlo sample depth (v7). When omitted, falls back
+ *   to `req.n_samples`, then to `DEFAULT_HASH_N_SAMPLES`, so callers that have
+ *   already applied the route default should pass it explicitly.
  * @returns Canonical JSON string
  */
 export function canonicaliseRequest(
@@ -293,11 +324,20 @@ export function canonicaliseRequest(
   normalizedGraph: EngineGraphV3,
   seedUsed: string,
   _identifiability?: IdentifiabilityAssessment,
-  _factorStability?: FactorStabilityEntry[]
+  _factorStability?: FactorStabilityEntry[],
+  nSamples?: number
 ): string {
+  // v7: resolve the sample depth the same way the route does, so an omitted
+  // n_samples and an explicit default-valued one canonicalise identically.
+  const resolvedNSamples =
+    nSamples ??
+    (typeof req.n_samples === 'number' && Number.isFinite(req.n_samples)
+      ? req.n_samples
+      : DEFAULT_HASH_N_SAMPLES);
   const canonical: CanonicalRequest = {
     version: HASH_VERSION,
     seed: seedUsed,
+    n_samples: resolvedNSamples,
     goal_node_id: req.goal_node_id,
     detail_level: req.detail_level ?? 'standard',
     graph: {
@@ -364,6 +404,7 @@ export function computeResponseHash(canonicalised: string): string {
  * @param seedUsed Seed that will be used (already normalised to string)
  * @param identifiability Optional identifiability assessment
  * @param factorStability Optional ISL stability assessment per factor
+ * @param nSamples Resolved Monte Carlo sample depth (v7); see canonicaliseRequest
  * @returns 16-character hex hash
  */
 export function hashRequest(
@@ -371,8 +412,9 @@ export function hashRequest(
   normalizedGraph: EngineGraphV3,
   seedUsed: string,
   identifiability?: IdentifiabilityAssessment,
-  factorStability?: FactorStabilityEntry[]
+  factorStability?: FactorStabilityEntry[],
+  nSamples?: number
 ): string {
-  const canonical = canonicaliseRequest(req, normalizedGraph, seedUsed, identifiability, factorStability);
+  const canonical = canonicaliseRequest(req, normalizedGraph, seedUsed, identifiability, factorStability, nSamples);
   return computeResponseHash(canonical);
 }

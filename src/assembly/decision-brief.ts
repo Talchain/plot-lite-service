@@ -65,10 +65,17 @@ function computeBriefId(graphHash: string, seed: number, configVersion: string):
   ].join('-');
 }
 
-/** Compute config_version as SHA-256 hash of computation-affecting config values. */
-function computeConfigVersion(): string {
+/**
+ * Compute config_version as SHA-256 hash of computation-affecting config values.
+ *
+ * Track S: the sample depth is now a per-request input (was hardcoded 1000), so
+ * briefs computed at different depths get different config_versions (and thus
+ * different brief_ids). Defaults to 1000 when omitted, which reproduces the
+ * pre-Track-S hash for callers that don't supply a depth.
+ */
+function computeConfigVersion(nSamples: number = 1000): string {
   const configInputs = {
-    n_samples_default: 1000,
+    n_samples_default: nSamples,
     enable_review_pass: process.env.ENABLE_REVIEW_PASS ?? 'default',
     enable_facts_assembly: process.env.ENABLE_FACTS_ASSEMBLY ?? 'default',
     brief_assembly_version: '1',
@@ -96,6 +103,8 @@ export type BriefAssemblyInput = Pick<RunResponseV3, 'analysis_status' | 'critiq
   response_hash?: string;
   meta: {
     seed_used: string;
+    /** Track S: resolved Monte Carlo sample depth (drives config_version + lineage.n_samples) */
+    n_samples?: number;
   };
 };
 
@@ -388,8 +397,12 @@ function buildWarnings(input: BriefAssemblyInput, isPartial: boolean): BriefWarn
 }
 
 function buildLineage(input: BriefAssemblyInput): BriefLineage {
+  const nSamples = input.meta.n_samples;
   return {
-    config_version: computeConfigVersion(),
+    config_version: computeConfigVersion(nSamples),
     response_hash: input.response_hash ?? '',
+    // Track S: record sample depth explicitly. Omitted when absent so pre-Track-S
+    // briefs (and fixtures without a depth) keep their existing lineage shape.
+    ...(nSamples !== undefined ? { n_samples: nSamples } : {}),
   };
 }
