@@ -231,6 +231,83 @@ describe('enrichFactorSensitivity', () => {
 
     expect(result.sensitivity).toBe(0);
   });
+
+  // ---------------------------------------------------------------------------
+  // VOI sanitisation on the internal robustness-enrichment builder (Howard 1966
+  // non-negative contract). Mirrors the guard already applied by the three
+  // sibling surfaces (mapIslFactorEntry, adaptFactorSensitivityResponse,
+  // adaptRobustnessAnalysis). Forward-safe hardening: this builder result is
+  // NOT consumed by any outbound CEE request today (buildCeeReviewRequest reads
+  // only fragile_edges; CeeReviewRequest has no VOI field).
+  // ---------------------------------------------------------------------------
+
+  it('preserves a positive finite VOI verbatim', () => {
+    const factor = {
+      node_id: 'fac_price',
+      sensitivity: 0.85,
+      value_of_information: 0.42,
+      direction: 'negative' as const,
+    };
+
+    const result = enrichFactorSensitivity(factor, TEST_GRAPH);
+
+    expect(result.value_of_information).toBe(0.42);
+  });
+
+  it('preserves an explicit VOI of 0 (missing-vs-zero distinction)', () => {
+    // VOI = 0 is a valid ISL result ("perfect information would not change the
+    // recommendation") and must be preserved, NOT coerced to undefined.
+    const factor = {
+      node_id: 'fac_price',
+      sensitivity: 0.4,
+      value_of_information: 0,
+      direction: 'positive' as const,
+    };
+
+    const result = enrichFactorSensitivity(factor, TEST_GRAPH);
+
+    expect(result.value_of_information).toBe(0);
+  });
+
+  it('sanitises a negative VOI to undefined (Monte Carlo artefact)', () => {
+    const factor = {
+      node_id: 'fac_price',
+      sensitivity: 0.4,
+      value_of_information: -0.07,
+      direction: 'negative' as const,
+    };
+
+    const result = enrichFactorSensitivity(factor, TEST_GRAPH);
+
+    expect(result.value_of_information).toBeUndefined();
+  });
+
+  it('sanitises NaN, Infinity and -Infinity VOI to undefined', () => {
+    for (const voi of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      const factor = {
+        node_id: 'fac_price',
+        sensitivity: 0.4,
+        value_of_information: voi,
+        direction: 'positive' as const,
+      };
+
+      const result = enrichFactorSensitivity(factor, TEST_GRAPH);
+
+      expect(result.value_of_information).toBeUndefined();
+    }
+  });
+
+  it('leaves an absent VOI absent', () => {
+    const factor = {
+      node_id: 'fac_price',
+      sensitivity: 0.4,
+      direction: 'positive' as const,
+    };
+
+    const result = enrichFactorSensitivity(factor, TEST_GRAPH);
+
+    expect(result.value_of_information).toBeUndefined();
+  });
 });
 
 // =============================================================================
@@ -332,5 +409,45 @@ describe('buildRobustnessDataForCee', () => {
     expect(result).not.toBeNull();
     expect(result!.recommended_option).toBeUndefined();
     expect(result!.fragile_edges).toHaveLength(1);
+  });
+
+  it('sanitises a negative VOI while preserving a positive sibling in the builder result', () => {
+    // End-to-end through the buildRobustnessDataForCee builder (an internal
+    // enrichment result; not consumed by the outbound CEE request today): a
+    // negative MC artefact must become undefined, while a valid positive VOI on
+    // a sibling factor is preserved verbatim.
+    const islRobustness = {
+      recommendation_stability: 0.87,
+      fragile_edges: ['fac_price->goal_revenue'],
+      robust_edges: [],
+    };
+
+    const islFactorSensitivity = [
+      {
+        node_id: 'fac_price',
+        sensitivity: 0.85,
+        value_of_information: -0.07, // MC sampling artefact → must sanitise to undefined
+        direction: 'negative' as const,
+      },
+      {
+        node_id: 'fac_market_size',
+        sensitivity: 0.6,
+        value_of_information: 0.42, // valid → preserved
+        direction: 'positive' as const,
+      },
+    ];
+
+    const result = buildRobustnessDataForCee(
+      islRobustness,
+      islFactorSensitivity,
+      'opt_premium',
+      TEST_GRAPH,
+      TEST_OPTIONS
+    );
+
+    expect(result).not.toBeNull();
+    const byId = new Map(result!.factor_sensitivity!.map((f) => [f.factor_id, f]));
+    expect(byId.get('fac_price')!.value_of_information).toBeUndefined();
+    expect(byId.get('fac_market_size')!.value_of_information).toBe(0.42);
   });
 });

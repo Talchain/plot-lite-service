@@ -13,6 +13,7 @@ import type {
   RobustnessDataForCee,
 } from '../types/plot-types.js';
 import type { ISLFactorSensitivityItem } from '../types/isl-types.js';
+import { sanitiseIslVoi } from '../../../lib/evpi-emission.js';
 
 // =============================================================================
 // Edge ID Parsing Helpers
@@ -182,7 +183,22 @@ export function enrichFactorSensitivity(
     factor_id: factor.node_id,
     factor_label: getNodeLabel(graph, factor.node_id),
     sensitivity: sensitivityValue,
-    value_of_information: factor.value_of_information,
+    // Forward-safe internal hardening: apply the non-negative VOI contract
+    // (Howard 1966) on this enrichment builder for consistency with the three
+    // sibling surfaces that already sanitise ISL VOI — `mapIslFactorEntry`
+    // (src/routes/v2/run.ts:590), `adaptFactorSensitivityResponse`
+    // (./factor-sensitivity.ts:49), and `adaptRobustnessAnalysis`
+    // (./robustness-analysis.ts:330). ISL emits VOI via a Monte Carlo estimator
+    // that can drift slightly negative from sampling noise; `sanitiseIslVoi`
+    // maps negative/non-finite values to `undefined` (absence means "no
+    // measurable value of information", not zero).
+    //
+    // NOTE: this field is NOT currently consumed by any outbound CEE request —
+    // `buildCeeReviewRequest` reads `RobustnessDataForCee` only via
+    // `fragile_edges`, and `CeeReviewRequest` carries no VOI field. The guard
+    // keeps the builder result contract-compliant should VOI ever be wired into
+    // a CEE payload; it changes no CEE-visible data today.
+    value_of_information: sanitiseIslVoi(factor.value_of_information),
     direction: factor.direction,
   };
 }
