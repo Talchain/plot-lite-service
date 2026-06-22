@@ -227,6 +227,13 @@ describe('WP5 gate · non-finite ISL outcomes do not leak into the public respon
       || body.robustness_status === 'unavailable';
     expect(degraded).toBe(true);
   });
+
+  it('REGRESSION (Codex round-2): option_comparison_status is NOT "computed" when no option has a usable outcome', async () => {
+    // Every option's required outcome is non-finite (omitted) → status must reflect
+    // that there is no usable comparison, not report a confident "computed".
+    const res = await run(app);
+    expect(res.json().option_comparison_status).not.toBe('computed');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -263,5 +270,119 @@ describe('WP5 gate · finite outcomes are finite and within [0,1]', () => {
     }
     // And the whole response is finite.
     expect(findNonFiniteNumbers(res.json())).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Codex round-2: out-of-RANGE (finite but invalid) option_comparison values.
+// Round-1 guarded only non-finite; a finite 1.5 probability still passed.
+// ---------------------------------------------------------------------------
+
+describe('numeric-egress gate · out-of-range option_comparison values are omitted', () => {
+  let app: FastifyInstance;
+
+  beforeAll(async () => {
+    process.env.RATE_LIMIT_ENABLED = '0';
+    process.env.CEE_ORCHESTRATOR_ENABLED = '0';
+    payloadFn = (options: any[]) => ({
+      options: options.map((o: any, i: number) => ({
+        option_id: o.id,
+        win_probability: 1.5,        // > 1 → must be OMITTED (impossible probability)
+        probability_of_goal: 1.5,    // > 1 → omitted
+        expected_outcome: 0.7,
+        outcome: { mean: 0.7 - i * 0.1, std: 0.1, p10: 0.5, p50: 0.7, p90: 0.9, n_samples: -5, n_valid_samples: 1000, validity_ratio: 1.5 },
+        rank: i + 1,
+      })),
+      edges: [], edges_provenance: 'isl:/api/v1/robustness/analyze/v2', edge_sensitivity_status: 'available',
+      factors: [], factor_sensitivity: [], value_of_information: [],
+      factors_provenance: 'unavailable', factor_sensitivity_status: 'skipped_no_factor_values',
+      overall_robustness: 'robust', robustness_score: 0.8,
+      fragile_edges: [], robust_edges: [], latency_ms: 50, source: 'isl',
+    });
+    app = await createServer();
+  });
+  afterAll(async () => {
+    await app?.close();
+    delete process.env.RATE_LIMIT_ENABLED;
+    delete process.env.CEE_ORCHESTRATOR_ENABLED;
+  });
+
+  it('REGRESSION: win_probability / probability_of_goal > 1 are OMITTED (not emitted as 1.5)', async () => {
+    const res = await run(app);
+    expect(res.statusCode).toBe(200);
+    const oc = (res.json().option_comparison ?? []) as any[];
+    expect(oc.length).toBeGreaterThan(0);
+    for (const o of oc) {
+      expect(o.win_probability ?? undefined).toBeUndefined();
+      expect(o.probability_of_goal ?? undefined).toBeUndefined();
+    }
+  });
+
+  it('REGRESSION: out-of-range validity_ratio (>1) and negative n_samples are omitted; valid stats kept', async () => {
+    const res = await run(app);
+    const oc = (res.json().option_comparison ?? []) as any[];
+    for (const o of oc) {
+      expect(o.outcome?.mean).toBeDefined();                         // outcome still emitted (required stats finite)
+      expect(o.outcome?.validity_ratio ?? undefined).toBeUndefined(); // 1.5 dropped
+      expect(o.outcome?.n_samples ?? undefined).toBeUndefined();      // -5 dropped
+      expect(o.outcome?.n_valid_samples).toBe(1000);                  // valid count kept
+    }
+    // No fabricated null on any numeric-egress field in the raw payload either.
+    expect(findNullNumericFields(res.json())).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Codex round-3 #2: ONE required outcome quantile invalid (finite mean, NaN p10)
+// must omit the WHOLE outcome AND make status not 'computed' — the serialiser and
+// the status derivation must use the SAME all-required-stats predicate.
+// ---------------------------------------------------------------------------
+
+describe('numeric-egress gate · a single invalid required outcome quantile omits outcome AND degrades status', () => {
+  let app: FastifyInstance;
+
+  beforeAll(async () => {
+    process.env.RATE_LIMIT_ENABLED = '0';
+    process.env.CEE_ORCHESTRATOR_ENABLED = '0';
+    payloadFn = (options: any[]) => ({
+      options: options.map((o: any, i: number) => ({
+        option_id: o.id,
+        win_probability: i === 0 ? 0.7 : 0.3,
+        probability_of_goal: 0.6,
+        expected_outcome: 0.7,  // legacy/finite — must NOT count toward usability
+        // mean/p50/p90 finite but p10 = NaN → a REQUIRED quantile is invalid.
+        outcome: { mean: 0.7, std: 0.1, p10: N, p50: 0.7, p90: 0.9, n_samples: 1000, n_valid_samples: 1000, validity_ratio: 1 },
+        rank: i + 1,
+      })),
+      edges: [], edges_provenance: 'isl:/api/v1/robustness/analyze/v2', edge_sensitivity_status: 'available',
+      factors: [], factor_sensitivity: [], value_of_information: [],
+      factors_provenance: 'unavailable', factor_sensitivity_status: 'skipped_no_factor_values',
+      overall_robustness: 'robust', robustness_score: 0.8,
+      fragile_edges: [], robust_edges: [], latency_ms: 50, source: 'isl',
+    });
+    app = await createServer();
+  });
+  afterAll(async () => {
+    await app?.close();
+    delete process.env.RATE_LIMIT_ENABLED;
+    delete process.env.CEE_ORCHESTRATOR_ENABLED;
+  });
+
+  it('REGRESSION: finite mean + NaN p10 ⇒ outcome omitted on every option', async () => {
+    const res = await run(app);
+    expect(res.statusCode).toBe(200);
+    const oc = (res.json().option_comparison ?? []) as any[];
+    expect(oc.length).toBeGreaterThan(0);
+    for (const o of oc) {
+      expect(o.outcome ?? undefined).toBeUndefined();   // whole outcome omitted (a required quantile is invalid)
+      expect(o.outcome).not.toBeNull();
+    }
+    expect(findNullNumericFields(res.json())).toEqual([]);
+  });
+
+  it('REGRESSION: status is NOT "computed" when the public outcome was omitted (shared predicate)', async () => {
+    const res = await run(app);
+    // expected_outcome is finite but is NOT emitted in V2, so it must not rescue status.
+    expect(res.json().option_comparison_status).not.toBe('computed');
   });
 });

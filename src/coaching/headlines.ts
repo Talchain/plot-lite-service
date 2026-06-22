@@ -51,7 +51,21 @@ export function generateHeadlines(inputs: CoachingInputs): StoryHeadlines {
     return {};
   }
 
-  // Compute metrics for headline selection
+  // Honesty (Codex round-3): if ANY option's win probability is non-finite, the
+  // relative ranking of EVERY option is unknowable — the invalid option could rank
+  // first, second, or last — so NO "winner"/"leads"/"Runner-up" claim is justified
+  // for any option. Emit the same rank-neutral, number-free message for every option
+  // rather than using sort order as evidence of rank. (Round-2 only suppressed the
+  // claim for the winner/immediate runner-up, which still mis-ranked [0.7, 0.3, NaN].)
+  if (options.some((o) => !Number.isFinite(o.winProbability))) {
+    const neutral: StoryHeadlines = {};
+    for (const o of options) {
+      neutral[o.id] = 'Win probability could not be computed — ranking unavailable';
+    }
+    return neutral;
+  }
+
+  // Compute metrics for headline selection (all options are finite past this point)
   const winProbDelta = runnerUp ? winner.winProbability - runnerUp.winProbability : winner.winProbability;
   const stability = robustness.recommendationStability;
   const hasFactorSensitivity = factorSensitivity.length > 0;
@@ -76,54 +90,46 @@ export function generateHeadlines(inputs: CoachingInputs): StoryHeadlines {
     thresholds
   );
 
-  // Generate headline for winner. Numeric-safety guard (WP5): a non-finite
-  // winProbDelta — winner or runner-up win probability is NaN/±Infinity from a
-  // degenerate ISL Monte Carlo run — must NOT render "... by Infinity points".
-  // Fall back to an honest, number-free headline in that case. (The finite-safe
-  // sort above already prevents an invalid option from being crowned winner
-  // whenever a finite option exists.)
-  const deltaFinite = Number.isFinite(winProbDelta);
-  const deltaPoints = deltaFinite ? Math.round(winProbDelta * 100) : 0;
+  // Generate headline for winner. winProbDelta is finite here (the rank-neutral
+  // early return above handled any non-finite option), so every headline number
+  // is finite — no "... by Infinity points" can be produced.
+  const deltaPoints = Math.round(winProbDelta * 100);
 
   let winnerHeadline = '';
-  if (!deltaFinite) {
-    winnerHeadline = `${winner.label} leads, but the margin could not be computed`;
-  } else {
-    switch (headlineType) {
-      case 'clear_winner':
-        winnerHeadline = HEADLINE_TEMPLATES.clear_winner
-          .replace('{option}', winner.label)
-          .replace('{deltaPoints}', String(deltaPoints));
-        break;
-      case 'moderate_winner':
-        winnerHeadline = HEADLINE_TEMPLATES.moderate_winner
-          .replace('{option}', winner.label)
-          .replace('{deltaPoints}', String(deltaPoints));
-        break;
-      case 'close_call':
-        winnerHeadline = HEADLINE_TEMPLATES.close_call
-          .replace('{option}', winner.label)
-          .replace('{deltaPoints}', String(deltaPoints));
-        break;
-      case 'high_uncertainty':
-        winnerHeadline = HEADLINE_TEMPLATES.high_uncertainty
-          .replace('{option}', winner.label)
-          .replace('{fragileEdgeLabel}', topFragile?.displayLabel ?? 'key assumptions')
-          .replace('{altWinner}', topFragile?.altWinnerLabel ?? 'another option');
-        break;
-      case 'needs_evidence': {
-        // Find factor with highest VoI (impact × uncertainty)
-        const topGap = factorSensitivity
-          .map((f) => ({
-            label: f.label,
-            voi: Math.abs(f.elasticity ?? f.influence_score ?? 0) * (1 - (f.confidence ?? 0.5)),
-          }))
-          .sort((a, b) => b.voi - a.voi)[0];
-        const topGapLabel = topGap?.label ?? 'key factors';
-        winnerHeadline = HEADLINE_TEMPLATES.needs_evidence
-          .replace('{topGapLabel}', topGapLabel);
-        break;
-      }
+  switch (headlineType) {
+    case 'clear_winner':
+      winnerHeadline = HEADLINE_TEMPLATES.clear_winner
+        .replace('{option}', winner.label)
+        .replace('{deltaPoints}', String(deltaPoints));
+      break;
+    case 'moderate_winner':
+      winnerHeadline = HEADLINE_TEMPLATES.moderate_winner
+        .replace('{option}', winner.label)
+        .replace('{deltaPoints}', String(deltaPoints));
+      break;
+    case 'close_call':
+      winnerHeadline = HEADLINE_TEMPLATES.close_call
+        .replace('{option}', winner.label)
+        .replace('{deltaPoints}', String(deltaPoints));
+      break;
+    case 'high_uncertainty':
+      winnerHeadline = HEADLINE_TEMPLATES.high_uncertainty
+        .replace('{option}', winner.label)
+        .replace('{fragileEdgeLabel}', topFragile?.displayLabel ?? 'key assumptions')
+        .replace('{altWinner}', topFragile?.altWinnerLabel ?? 'another option');
+      break;
+    case 'needs_evidence': {
+      // Find factor with highest VoI (impact × uncertainty)
+      const topGap = factorSensitivity
+        .map((f) => ({
+          label: f.label,
+          voi: Math.abs(f.elasticity ?? f.influence_score ?? 0) * (1 - (f.confidence ?? 0.5)),
+        }))
+        .sort((a, b) => b.voi - a.voi)[0];
+      const topGapLabel = topGap?.label ?? 'key factors';
+      winnerHeadline = HEADLINE_TEMPLATES.needs_evidence
+        .replace('{topGapLabel}', topGapLabel);
+      break;
     }
   }
 
@@ -131,14 +137,11 @@ export function generateHeadlines(inputs: CoachingInputs): StoryHeadlines {
     [winner.id]: winnerHeadline,
   };
 
-  // Simple headlines for other options. Guard against a non-finite winProbability
-  // (NaN/±Infinity from a degenerate ISL Monte Carlo run): `Math.round(Infinity*100)`
-  // would render a nonsensical "Infinity% win probability" string to the user.
-  // Fall back to an honest, number-free label in that case.
+  // Simple headlines for the other options. Every winProbability is finite here
+  // (any non-finite option triggered the rank-neutral early return above), so the
+  // "Runner-up" rank label is justified and the percentage is always finite.
   sorted.slice(1).forEach((opt) => {
-    headlines[opt.id] = Number.isFinite(opt.winProbability)
-      ? `Runner-up with ${Math.round(opt.winProbability * 100)}% win probability`
-      : 'Runner-up';
+    headlines[opt.id] = `Runner-up with ${Math.round(opt.winProbability * 100)}% win probability`;
   });
 
   return headlines;

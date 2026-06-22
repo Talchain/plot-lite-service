@@ -1021,11 +1021,14 @@ export function buildFactorStability(
   const seen = new Set<string>();
 
   for (const f of islFactorSensitivity) {
-    // All four 3C fields must be present with valid types
+    // All four 3C fields must be present with valid types AND domains (Codex
+    // round-2): elasticity_std is a non-negative spread; rank_flip_rate is a [0,1]
+    // rate. A finite-but-out-of-domain value (negative std, rate > 1) is skipped
+    // rather than emitted.
     if (
-      !Number.isFinite(f.elasticity_std) ||
+      !Number.isFinite(f.elasticity_std) || f.elasticity_std < 0 ||
       !VALID_ATTRIBUTION_STABILITY.has(f.attribution_stability) ||
-      !Number.isFinite(f.rank_flip_rate) ||
+      !Number.isFinite(f.rank_flip_rate) || f.rank_flip_rate < 0 || f.rank_flip_rate > 1 ||
       typeof f.stability_method !== 'string' || f.stability_method === ''
     ) continue;
 

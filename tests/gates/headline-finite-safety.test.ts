@@ -58,32 +58,45 @@ function assertNoNonFiniteCopy(headlines: Record<string, string>) {
   }
 }
 
-describe('WP5 headline gate · finite-safe ranking', () => {
-  it('REGRESSION: an infinite first option does NOT become winner and emits no "Infinity points"', () => {
-    // Codex repro: Bad returned first with win_probability = +Infinity.
+/** No headline may assert a RANK (leads / outperforms / edges ahead / Runner-up) —
+ *  used when the comparison is invalid, where rank is unknowable. */
+function assertNoRankClaim(headlines: Record<string, string>) {
+  for (const [id, text] of Object.entries(headlines)) {
+    expect(text, `headline for ${id}`).not.toMatch(/\bleads\b|outperforms|edges ahead|Runner-up/i);
+  }
+}
+
+const RANK_NEUTRAL = 'Win probability could not be computed — ranking unavailable';
+
+describe('WP5 headline gate · any non-finite option ⇒ rank-neutral for ALL', () => {
+  function assertAllRankNeutral(headlines: Record<string, string>, ids: string[]) {
+    assertNoNonFiniteCopy(headlines);
+    assertNoRankClaim(headlines); // no "leads"/"outperforms"/"Runner-up" for ANY option
+    expect(Object.keys(headlines).sort()).toEqual([...ids].sort());
+    for (const id of ids) expect(headlines[id]).toBe(RANK_NEUTRAL);
+  }
+
+  it('REGRESSION: an infinite option ⇒ every option is rank-neutral (no "leads"/"Runner-up")', () => {
     const headlines = generateHeadlines(makeInputs([opt('bad', 'Bad', Number.POSITIVE_INFINITY), opt('good', 'Good', 0.6)]));
-    assertNoNonFiniteCopy(headlines);
-    // Bad must be ranked runner-up (finite Good wins), not the "outperforms" winner.
-    expect(headlines['bad']).toBe('Runner-up');
-    expect(headlines['good']).toBeDefined();
-    expect(headlines['good']).not.toBe('Runner-up');
+    assertAllRankNeutral(headlines, ['bad', 'good']);
   });
 
-  it('an invalid (NaN) runner-up does not corrupt the finite winner; no non-finite copy', () => {
+  it('REGRESSION: a NaN runner-up ⇒ every option is rank-neutral', () => {
     const headlines = generateHeadlines(makeInputs([opt('good', 'Good', 0.7), opt('bad', 'Bad', Number.NaN)]));
-    assertNoNonFiniteCopy(headlines);
-    expect(headlines['bad']).toBe('Runner-up');
-    expect(headlines['good']).toBeDefined();
-    expect(headlines['good']).not.toBe('Runner-up');
+    assertAllRankNeutral(headlines, ['good', 'bad']);
   });
 
-  it('ALL options non-finite ⇒ number-free headlines, no Infinity/NaN', () => {
+  it('REGRESSION (Codex round-3): [0.7, 0.3, NaN] ⇒ NO option claims a rank (mid is NOT "Runner-up")', () => {
+    // The NaN option could actually rank first or second, so neither "Top leads" nor
+    // labelling Mid "Runner-up" is justified. Round-2 wrongly kept the finite ranking
+    // here; the contract is now: ANY invalid comparison poisons ALL rank claims.
+    const headlines = generateHeadlines(makeInputs([opt('top', 'Top', 0.7), opt('mid', 'Mid', 0.3), opt('bad', 'Bad', Number.NaN)]));
+    assertAllRankNeutral(headlines, ['top', 'mid', 'bad']);
+  });
+
+  it('ALL options non-finite ⇒ every option is rank-neutral', () => {
     const headlines = generateHeadlines(makeInputs([opt('a', 'A', Number.NaN), opt('b', 'B', Number.POSITIVE_INFINITY)]));
-    assertNoNonFiniteCopy(headlines);
-    // Both options still get a (number-free) headline string.
-    expect(Object.keys(headlines).sort()).toEqual(['a', 'b']);
-    expect(headlines['a'].length).toBeGreaterThan(0);
-    expect(headlines['b'].length).toBeGreaterThan(0);
+    assertAllRankNeutral(headlines, ['a', 'b']);
   });
 });
 

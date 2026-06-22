@@ -151,6 +151,7 @@ import { buildEvidencePriorityCard, type FactorInput } from '../../review-pass/e
 import type { ProposalCardV1 } from '../../review-pass/types.js';
 import { assembleFactObjects, type ISLResponseInput } from '../../facts/index.js';
 import type { FactObjectV1, FactLineage } from '../../facts/types.js';
+import { finiteNum, prob01, nonNeg, nonNegInt, hasAllRequiredOutcomeStats } from './numeric-egress-guards.js';
 
 // -----------------------------------------------------------------------------
 // Feature Flags
@@ -329,7 +330,8 @@ function normaliseRepairsForMeta(repairs: RepairRecord[]): RepairRecord[] {
  * Edge ID format: `from::to` (double-colon separator)
  * @see docs/UI_Handoff_PLoT_v1.md for format specification
  */
-function transformEdgeSensitivity(
+/** @internal Exported for numeric-egress-guard unit tests. */
+export function transformEdgeSensitivity(
   islSensitivity: unknown,
   nodeLabelMap?: Map<string, string>,
   normContext?: NormalisationContext,
@@ -368,7 +370,11 @@ function transformEdgeSensitivity(
       importance_rank: s.importance_rank,
       interpretation: s.interpretation,
     };
-  });
+    // Numeric-egress guard (Codex round-2): elasticity/importance_rank are required
+    // numbers; a non-finite ISL value (incl. denorm overflow above) would serialise
+    // to a fabricated `null`. Drop the whole edge entry (honest absence) rather than
+    // emit a null — the array simply carries fewer, all-valid entries.
+  }).filter((e) => finiteNum(e.elasticity) !== undefined && finiteNum(e.importance_rank) !== undefined);
 }
 
 /**
@@ -377,7 +383,8 @@ function transformEdgeSensitivity(
  * rather than "not computed".
  * Edge IDs are normalised to double-colon format.
  */
-function transformEdgeEValues(
+/** @internal Exported for numeric-egress-guard unit tests. */
+export function transformEdgeEValues(
   islEdgeEValues: ISLEdgeEValue[] | undefined,
   nodeLabelMap?: Map<string, string>,
   normContext?: NormalisationContext,
@@ -429,7 +436,14 @@ function transformEdgeEValues(
       flip_mean: flipMean,
       ...(eValueNormalised !== undefined && { _normalised: eValueNormalised }),
     };
-  });
+    // Numeric-egress guard (Codex round-2): e_value/current_mean/flip_mean are
+    // required numbers; drop entries with any non-finite value rather than emit a
+    // fabricated `null`.
+  }).filter((e) =>
+    finiteNum(e.e_value) !== undefined &&
+    finiteNum(e.current_mean) !== undefined &&
+    finiteNum(e.flip_mean) !== undefined
+  );
 }
 
 /**
@@ -438,7 +452,8 @@ function transformEdgeEValues(
  * rather than "not computed".
  * Enriches option IDs in buckets with human-readable labels.
  */
-function transformConditionalWinners(
+/** @internal Exported for numeric-egress-guard unit tests. */
+export function transformConditionalWinners(
   islConditionalWinners: ISLConditionalWinner[] | undefined,
   nodeLabelMap?: Map<string, string>,
   optionLabelMap?: Map<string, string>,
@@ -484,7 +499,7 @@ function transformConditionalWinners(
           runner_up_label: resolveOptionLabel(cw.low_bucket.runner_up_id!),
         }),
         win_probability: cw.low_bucket.win_probability,
-        ...(cw.low_bucket.mean_outcome !== undefined && { mean_outcome: denormMeanOutcome(cw.low_bucket.mean_outcome) }),
+        ...(finiteNum(denormMeanOutcome(cw.low_bucket.mean_outcome)) !== undefined && { mean_outcome: denormMeanOutcome(cw.low_bucket.mean_outcome) }),
       },
       high_bucket: {
         winner_id: cw.high_bucket.winner_id,
@@ -494,13 +509,21 @@ function transformConditionalWinners(
           runner_up_label: resolveOptionLabel(cw.high_bucket.runner_up_id!),
         }),
         win_probability: cw.high_bucket.win_probability,
-        ...(cw.high_bucket.mean_outcome !== undefined && { mean_outcome: denormMeanOutcome(cw.high_bucket.mean_outcome) }),
+        ...(finiteNum(denormMeanOutcome(cw.high_bucket.mean_outcome)) !== undefined && { mean_outcome: denormMeanOutcome(cw.high_bucket.mean_outcome) }),
       },
       winner_flips: cw.winner_flips,
     };
     if (cwNormalised) result._normalised = true;
     return result;
-  });
+    // Numeric-egress guard (Codex round-2): split_value is a required number and each
+    // bucket win_probability is a required [0,1] probability; drop the whole
+    // conditional-winner entry when any is non-finite / out-of-range rather than emit
+    // a fabricated null or an impossible probability.
+  }).filter((cw) =>
+    finiteNum(cw.split_value) !== undefined &&
+    prob01(cw.low_bucket.win_probability) !== undefined &&
+    prob01(cw.high_bucket.win_probability) !== undefined
+  );
 }
 
 /**
@@ -592,12 +615,17 @@ function mapIslFactorEntry(f: any, normContext?: NormalisationContext): FactorSe
   const entry: FactorSensitivityResultV3 = {
     factor_id: factorId,
     factor_label: f.label ?? null,
-    influence_score: f.influence_score ?? null,
-    influence_rank: f.influence_rank ?? null,
-    sensitivity_score: sensitivityValue,
-    elasticity: f.elasticity ?? null,
+    // Numeric-egress guard (Codex round-3): influence_score is a [0,1] normalised
+    // score; ranks are non-negative integers; sensitivity_score/elasticity are signed
+    // finite reals. These are OPTIONAL fields — omit when absent, non-finite, or
+    // out-of-domain rather than passing a raw NaN (→ fabricated null) or an impossible
+    // value through. (The ISL-only merge path spreads these into the public response.)
+    influence_score: prob01(f.influence_score),
+    influence_rank: nonNegInt(f.influence_rank),
+    sensitivity_score: finiteNum(sensitivityValue),
+    elasticity: finiteNum(f.elasticity),
     direction: (f.direction as 'positive' | 'negative' | 'mixed' | 'unknown') ?? null,
-    importance_rank: f.importance_rank ?? null,
+    importance_rank: nonNegInt(f.importance_rank),
     interpretation: f.interpretation ?? null,
     // VOI is a dimensionless decision-readiness score (EVPI proxy, clamped [0,1]).
     // It does NOT require denormalisation — it measures "how valuable would perfect
@@ -634,10 +662,15 @@ function mapIslFactorEntry(f: any, normContext?: NormalisationContext): FactorSe
     },
   };
 
-  // 3C stability fields — carry through when ISL provides them
-  if (elasticityStd !== undefined) entry.elasticity_std = elasticityStd;
+  // 3C stability fields — carry through when ISL provides them. Numeric-egress guard
+  // (Codex round-2): elasticity_std is a non-negative spread; rank_flip_rate is a
+  // [0,1] rate. Omit when absent or out-of-domain (was a bare presence check that
+  // let a negative / >1 value through to the public surface).
+  const eStd = nonNeg(elasticityStd);
+  if (eStd !== undefined) entry.elasticity_std = eStd;
   if (f.attribution_stability !== undefined) entry.attribution_stability = f.attribution_stability;
-  if (f.rank_flip_rate !== undefined) entry.rank_flip_rate = f.rank_flip_rate;
+  const rfr = prob01(f.rank_flip_rate);
+  if (rfr !== undefined) entry.rank_flip_rate = rfr;
   if (f.stability_method !== undefined) entry.stability_method = f.stability_method;
 
   // Track S: ISL factor value provenance — carry through when ISL provides them.
@@ -1372,6 +1405,15 @@ function buildConstraintFields(
     return { constraints_status: 'unavailable' };
   }
 
+  // Honesty (Codex round-2): distinguish a genuine upstream ISL constraint ERROR
+  // from merely-unavailable data. The ISL option result carries an explicit
+  // status ∈ {computed, skipped, error}; surface 'error' rather than collapsing a
+  // real failure into 'unavailable', so consumers can tell a failure apart from
+  // missing data. ('error' is an existing ConstraintFeatureStatus value.)
+  if (firstOptionWithConstraints.status === 'error') {
+    return { constraints_status: 'error' };
+  }
+
   const analysis = firstOptionWithConstraints.constraint_analysis;
   const islConstraints: ISLConstraintResult[] = analysis.constraints ?? [];
 
@@ -1426,11 +1468,20 @@ function buildConstraintFields(
       r.probability >= 0 &&
       r.probability <= 1
   );
+  // Exact one-to-one correspondence with the forwarded active constraints — NOT
+  // mere coverage. Round-1 only checked forwarded ⊆ resolved, which accepted
+  // duplicate rows (two ISL results collapsing to one constraint_id via the
+  // (node_id,operator) resolver) and extraneous rows (ISL returning more than were
+  // forwarded). Require: equal cardinality, unique resolved ids (no collapse), and
+  // every resolved id is a forwarded constraint (resolved ⊆ forwarded).
   const resolvedConstraintIds = new Set(constraintResults.map((r) => r.constraint_id));
-  const everyForwardedConstraintCovered = goalConstraints.every((gc) =>
-    resolvedConstraintIds.has(gc.constraint_id)
-  );
-  if (!allConstraintProbabilitiesValid || !everyForwardedConstraintCovered) {
+  const forwardedIds = new Set(goalConstraints.map((gc) => gc.constraint_id));
+  const exactCorrespondence =
+    constraintResults.length === goalConstraints.length &&
+    resolvedConstraintIds.size === constraintResults.length &&
+    [...resolvedConstraintIds].every((id) => forwardedIds.has(id)) &&
+    goalConstraints.every((gc) => resolvedConstraintIds.has(gc.constraint_id));
+  if (!allConstraintProbabilitiesValid || !exactCorrespondence) {
     return { constraints_status: 'unavailable' };
   }
 
@@ -1455,10 +1506,19 @@ function buildConstraintFields(
       }
     }
 
+    const nearMissFraction = c.near_miss_fraction ?? 0;
+    // Numeric-egress guard (Codex round-3): drop the whole diagnostic row when a
+    // present margin / near-miss is non-finite — a NaN/±Infinity would serialise to a
+    // fabricated `null` on these required-number fields. Non-finite ROW filtering only;
+    // making the fields optional (to remove the `?? 0` absent-default) is a deferred
+    // schema/OpenAPI change.
+    if (!Number.isFinite(failureMarginMedian) || !Number.isFinite(nearMissFraction)) {
+      return [];
+    }
     return [{
       constraint_id: constraintId,
       failure_margin_median: failureMarginMedian,
-      near_miss_fraction: c.near_miss_fraction ?? 0,
+      near_miss_fraction: nearMissFraction,
       binding: c.binding ?? false,
     }];
   });
@@ -1480,7 +1540,11 @@ function buildConstraintFields(
           probability: cp.probability,
           effective_sample_size: cp.effective_sample_size ?? 0,
         };
-      });
+      })
+      // Numeric-egress guard (Codex round-3): drop conditional rows whose probability
+      // or effective_sample_size is non-finite (would serialise to a fabricated `null`
+      // on these required-number fields). Non-finite ROW filtering only.
+      .filter((cp: ConditionalProbability) => Number.isFinite(cp.probability) && Number.isFinite(cp.effective_sample_size));
   }
 
   return {
@@ -1586,21 +1650,23 @@ function buildResponse(
     // original order so a fully-finite outcome serialises byte-identically (no
     // response_hash drift); only the degenerate non-finite case changes.
     let outcome: Record<string, number> | undefined;
-    if (
-      hasOutcomeObject &&
-      Number.isFinite(outcomeData.mean) &&
-      Number.isFinite(outcomeData.p10) &&
-      Number.isFinite(outcomeData.p50) &&
-      Number.isFinite(outcomeData.p90)
-    ) {
+    if (hasOutcomeObject && hasAllRequiredOutcomeStats(outcomeData)) {
+      // Required mean/p10/p50/p90 are outcome magnitudes (unbounded) → finite-only.
+      // Optional stats carry their true domains: std non-negative, sample counts
+      // non-negative integers, validity_ratio a [0,1] rate. Key insertion order is
+      // preserved so a valid outcome serialises byte-identically (no golden drift).
       outcome = { mean: outcomeData.mean };
-      if (Number.isFinite(outcomeData.std)) outcome.std = outcomeData.std;
+      const stdVal = nonNeg(outcomeData.std);
+      if (stdVal !== undefined) outcome.std = stdVal;
       outcome.p10 = outcomeData.p10;
       outcome.p50 = outcomeData.p50;
       outcome.p90 = outcomeData.p90;
-      if (Number.isFinite(outcomeData.n_samples)) outcome.n_samples = outcomeData.n_samples;
-      if (Number.isFinite(outcomeData.n_valid_samples)) outcome.n_valid_samples = outcomeData.n_valid_samples;
-      if (Number.isFinite(outcomeData.validity_ratio)) outcome.validity_ratio = outcomeData.validity_ratio;
+      const nSamplesVal = nonNegInt(outcomeData.n_samples);
+      if (nSamplesVal !== undefined) outcome.n_samples = nSamplesVal;
+      const nValidVal = nonNegInt(outcomeData.n_valid_samples);
+      if (nValidVal !== undefined) outcome.n_valid_samples = nValidVal;
+      const validityVal = prob01(outcomeData.validity_ratio);
+      if (validityVal !== undefined) outcome.validity_ratio = validityVal;
     }
 
     const resolvedOptionLabel = option?.label ?? r.label ?? optionId;
@@ -1621,19 +1687,21 @@ function buildResponse(
       status_reason: r.status_reason,
     };
 
-    // Only include probability_of_goal if ISL returned a FINITE value (omit when
-    // absent or non-finite, not null). A non-finite ISL value (NaN/±Infinity from
-    // a degenerate Monte Carlo run) would otherwise serialise to a fabricated
+    // Include probability_of_goal only if ISL returned a value in [0,1] (omit when
+    // absent, non-finite, or out-of-range — never a fabricated `null` or a 150%
+    // probability). A non-finite value would otherwise serialise to a fabricated
     // `null` on this declared-numeric probability field; honest absence is correct.
-    if (r.probability_of_goal !== undefined && r.probability_of_goal !== null && Number.isFinite(r.probability_of_goal)) {
-      result.probability_of_goal = r.probability_of_goal;
+    const probGoal = prob01(r.probability_of_goal);
+    if (probGoal !== undefined) {
+      result.probability_of_goal = probGoal;
     }
 
-    // Only include win_probability if ISL returned a FINITE value (omit when absent
-    // or non-finite, not null). Mirrors the Number.isFinite guard already used by
-    // the recommended-option / near-tie derivations (see deriveRecommendedOption).
-    if (r.win_probability !== undefined && r.win_probability !== null && Number.isFinite(r.win_probability)) {
-      result.win_probability = r.win_probability;
+    // Include win_probability only if ISL returned a value in [0,1] (omit when
+    // absent, non-finite, or out-of-range). Mirrors the finite guard already used
+    // by the recommended-option / near-tie derivations (see deriveRecommendedOption).
+    const winProb = prob01(r.win_probability);
+    if (winProb !== undefined) {
+      result.win_probability = winProb;
     }
 
     // CIL C1: Pass through per-option constraint analysis from ISL
@@ -1644,10 +1712,12 @@ function buildResponse(
     }
     if (constraintAnalysis) {
       // Map ISL's joint_probability to Schema v2.7 probability_of_joint_goal.
-      // Numeric-safety guard (WP5): omit when non-finite (a NaN/±Infinity would
-      // otherwise serialise to a fabricated `null` on this declared-number field).
-      if (constraintAnalysis.joint_probability !== undefined && Number.isFinite(constraintAnalysis.joint_probability)) {
-        result.probability_of_joint_goal = constraintAnalysis.joint_probability;
+      // Numeric-safety guard: omit when non-finite or outside [0,1] (a NaN/±Infinity
+      // would otherwise serialise to a fabricated `null`, and a >1 value would render
+      // an impossible probability).
+      const jointProb = prob01(constraintAnalysis.joint_probability);
+      if (jointProb !== undefined) {
+        result.probability_of_joint_goal = jointProb;
       }
 
       // Map ISL's per-constraint prob_satisfied to constraint_probabilities map
@@ -1670,10 +1740,12 @@ function buildResponse(
         for (let i = 0; i < islConstraintsHere.length; i++) {
           const c = islConstraintsHere[i];
           const constraintId = indexToId[i] ?? `${c.node_id}_${c.operator}`;
-          // Numeric-safety guard (WP5): omit non-finite prob_satisfied (a NaN/±Infinity
-          // would otherwise serialise to a fabricated `null` in this probability map).
-          if (Number.isFinite(c.prob_satisfied)) {
-            constraintProbs[constraintId] = c.prob_satisfied;
+          // Numeric-safety guard: omit prob_satisfied unless it is a [0,1] value (a
+          // NaN/±Infinity would serialise to a fabricated `null`; a >1 value is an
+          // impossible probability).
+          const probSat = prob01(c.prob_satisfied);
+          if (probSat !== undefined) {
+            constraintProbs[constraintId] = probSat;
           }
         }
         result.constraint_probabilities = constraintProbs;
@@ -1785,14 +1857,19 @@ function buildResponse(
     }));
 
     robustness = {
-      score: islResult.robustness.score,
+      // Numeric-egress guard (Codex round-3): omit robustness scalars when non-finite
+      // (score) or outside [0,1] (recommendation_stability, confidence) — these are
+      // OPTIONAL fields, so omission is honest absence, never a fabricated `null` or an
+      // impossible rate. switch_probability fabrication is NOT addressed here (see the
+      // deferred cross-layer note in the PR — it is type-required across consumers).
+      ...(finiteNum(islResult.robustness.score) !== undefined && { score: finiteNum(islResult.robustness.score) }),
       label,
       fragile_edges: enrichedFragileEdges,
       robust_edges: enrichedRobustEdges,
       explanation: islResult.robustness.explanation,
-      // Pass through recommendation_stability from ISL if present
-      ...(islResult.robustness.recommendation_stability !== undefined && {
-        recommendation_stability: islResult.robustness.recommendation_stability,
+      // Pass through recommendation_stability from ISL when it is a valid [0,1] rate
+      ...(prob01(islResult.robustness.recommendation_stability) !== undefined && {
+        recommendation_stability: prob01(islResult.robustness.recommendation_stability),
       }),
       // Pass through V2/Option C robustness summary fields from ISL
       ...(islResult.robustness.is_robust !== undefined && {
@@ -1801,8 +1878,8 @@ function buildResponse(
       ...(islResult.robustness.level !== undefined && {
         level: islResult.robustness.level,
       }),
-      ...(islResult.robustness.confidence !== undefined && {
-        confidence: islResult.robustness.confidence,
+      ...(prob01(islResult.robustness.confidence) !== undefined && {
+        confidence: prob01(islResult.robustness.confidence),
       }),
       // Include normalization errors if any occurred (for observability)
       ...(normalizationErrors.length > 0 && { normalization_errors: normalizationErrors }),
@@ -4137,6 +4214,19 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           normalisationContext,
         );
 
+        // Observability (Codex round-3 #4): the transforms above DROP entries with
+        // non-finite / out-of-range numerics. These surfaces have no per-feature status
+        // to degrade, so emit a warning when entries are silently removed rather than
+        // hiding the upstream defect. (Counts only — no payload.)
+        const eValuesDropped = (islResult.edge_e_values?.length ?? 0) - edgeEValues.length;
+        if (eValuesDropped > 0) {
+          req.log.warn({ event: 'edge_e_values_dropped_nonfinite', request_id: requestId, dropped: eValuesDropped, kept: edgeEValues.length });
+        }
+        const condWinnersDropped = (islResult.conditional_winners?.length ?? 0) - conditionalWinners.length;
+        if (condWinnersDropped > 0) {
+          req.log.warn({ event: 'conditional_winners_dropped_invalid', request_id: requestId, dropped: condWinnersDropped, kept: conditionalWinners.length });
+        }
+
         // Factor sensitivity: Graph-based is PRIMARY, ISL is FALLBACK
         // Graph-based uses edge path analysis (Schema D.5) - no dependency on parameter_uncertainties
         // Normalize fragile edges for VOI computation in factor sensitivity
@@ -4276,7 +4366,24 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           || hasNonEmptyArray(islResult.robustness?.fragile_edges)
           || hasNonEmptyArray(islResult.robustness?.robust_edges);
 
-        const optionStatus = mapToPerFeatureStatus(islAnalysisStatus, hasOptionComparison);
+        // Honesty (Codex round-2): option_comparison_status must reflect USABLE
+        // output, not just a non-empty raw array. An option is usable ONLY when its
+        // public `outcome` would actually be emitted — i.e. ALL required outcome
+        // stats (mean/p10/p50/p90) are finite, via the SAME predicate the outcome
+        // serialiser uses (Codex round-3 #2). The legacy `expected_outcome` is NOT
+        // emitted in V2, so it must not count toward usability. Require at least one
+        // usable option AND that every option not explicitly skipped/errored is
+        // usable — so 'computed' cannot be reported when a computed option's outcome
+        // was omitted. (Transitively gates top-level 'computed' via determineTopLevelStatus.)
+        const isOptionUsable = (r: any): boolean => hasAllRequiredOutcomeStats(r?.outcome);
+        const usableOptionData = optionComparisonData ?? [];
+        const hasUsableOptionComparison = hasOptionComparison &&
+          usableOptionData.some(isOptionUsable) &&
+          usableOptionData.every((r: any) =>
+            r?.status === 'skipped' || r?.status === 'error' || isOptionUsable(r)
+          );
+
+        const optionStatus = mapToPerFeatureStatus(islAnalysisStatus, hasUsableOptionComparison);
         const robustnessStatus = mapToPerFeatureStatus(islAnalysisStatus, hasRobustness);
         const driversStatus = mapToPerFeatureStatus(islAnalysisStatus, hasDriversSensitivity);
 
@@ -4631,7 +4738,11 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                   affectedOptions.sort((a, b) => a.option_id.localeCompare(b.option_id));
 
                   const thresholdValue = tp.threshold_value;
-                  const margin = currentValue !== undefined
+                  // Numeric-egress guard (Codex round-2): threshold_value comes from the
+                  // remote ISL endpoint cast-without-runtime-validation; a non-finite
+                  // value would serialise to a fabricated `null` while thresholds_status
+                  // is 'computed'. Guard margin here and drop non-finite entries below.
+                  const margin = (Number.isFinite(thresholdValue) && currentValue !== undefined)
                     ? Math.abs(thresholdValue - currentValue)
                     : undefined;
 
@@ -4644,7 +4755,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                     affected_options: affectedOptions,
                     margin,
                   };
-                });
+                })
+                .filter((t) => Number.isFinite(t.threshold_value));
                 // Stable order: factor_id → threshold_value → crossing_direction
                 thresholdAnalysis.sort((a, b) =>
                   a.factor_id.localeCompare(b.factor_id)
@@ -4652,7 +4764,33 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                   || a.crossing_direction.localeCompare(b.crossing_direction)
                 );
 
-                thresholdsStatus = 'computed';
+                // Honest status on filtering (Codex round-3 #4): entries with a
+                // non-finite threshold_value were dropped above. If EVERY input
+                // threshold was invalid, do NOT claim 'computed' — surface 'error'
+                // (an existing ThresholdsStatus). If only some were dropped, keep the
+                // valid entries but emit an observable warning so the silent loss is
+                // reported, not hidden. ('partial' is not a ThresholdsStatus value; a
+                // dedicated partial state would be a schema change.)
+                const thresholdsDropped = islThresholds.length - thresholdAnalysis.length;
+                thresholdsStatus = (islThresholds.length > 0 && thresholdAnalysis.length === 0)
+                  ? 'error'
+                  : 'computed';
+                if (thresholdsDropped > 0) {
+                  req.log.warn({
+                    event: 'threshold_entries_dropped_nonfinite',
+                    request_id: requestId,
+                    dropped: thresholdsDropped,
+                    kept: thresholdAnalysis.length,
+                  });
+                  critiques.push({
+                    id: randomUUID(),
+                    code: 'THRESHOLD_NONFINITE_DROPPED',
+                    severity: 'warning',
+                    message: `${thresholdsDropped} threshold result(s) omitted: ISL returned a non-finite threshold value.`,
+                    source: 'isl',
+                    blocks_analysis: false,
+                  });
+                }
                 thresholdsMeta = { duration_ms: Math.round(thresholdsDurationMs) };
 
                 req.log.info({

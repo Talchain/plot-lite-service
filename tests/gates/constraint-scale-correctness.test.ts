@@ -124,6 +124,9 @@ describe('WP1 gate · honest constraint drops (temporal)', () => {
 // reach buildConstraintFields. Uses app.inject (no socket).
 
 let mockConstraintAnalysis: any = undefined;
+// When set, the mocked ISL option result carries this `status` (e.g. 'error') so we
+// can pin that an explicit upstream constraint error surfaces as constraints_status:'error'.
+let mockOptionStatus: string | undefined = undefined;
 
 const mockISLService = {
   isEnabled(): boolean { return true; },
@@ -144,6 +147,7 @@ const mockISLService = {
         option_id: opt.id,
         outcome: { mean: 0.7 + idx * 0.1, std: 0.1, p10: 0.5, p50: 0.7, p90: 0.9, n_samples: 1000, n_valid_samples: 1000, validity_ratio: 1.0 },
         rank: idx + 1,
+        ...(mockOptionStatus && { status: mockOptionStatus }),
         ...(mockConstraintAnalysis && { constraint_analysis: mockConstraintAnalysis }),
       })),
       edges: [], edges_provenance: 'isl:/api/v1/robustness/analyze/v2' as const,
@@ -165,6 +169,7 @@ const mockISLService = {
           option_id: opt.id,
           outcome: { mean: 0.7 + idx * 0.1, std: 0.1, p10: 0.5, p50: 0.7, p90: 0.9, n_samples: 1000, n_valid_samples: 1000, validity_ratio: 1.0 },
           rank: idx + 1,
+          ...(mockOptionStatus && { status: mockOptionStatus }),
           ...(mockConstraintAnalysis && { constraint_analysis: mockConstraintAnalysis }),
         })),
         edges: [], factors: [], value_of_information: [], overall_robustness: 'robust',
@@ -223,6 +228,7 @@ describe('WP1 gate · honest constraints_status (no fabricated "computed")', () 
     delete process.env.RATE_LIMIT_ENABLED;
     delete process.env.CEE_ORCHESTRATOR_ENABLED;
     mockConstraintAnalysis = undefined;
+    mockOptionStatus = undefined;
   });
 
   async function run(payload: any) {
@@ -312,5 +318,47 @@ describe('WP1 gate · honest constraints_status (no fabricated "computed")', () 
     expect(status).toBe(200);
     expect(body.constraints_status).toBe('computed');
     expect(body.constraint_results).toHaveLength(2);
+  });
+
+  // --- Codex round-2: exact one-to-one correspondence (not mere coverage) ---
+
+  it('REGRESSION: duplicate result rows (two ISL results for one forwarded constraint) ⇒ "unavailable"', async () => {
+    mockOptionStatus = undefined;
+    // Both rows resolve to the same forwarded id (revenue-min) via (node_id,operator);
+    // coverage passes but cardinality (2) ≠ forwarded (1) → must be 'unavailable'.
+    mockConstraintAnalysis = {
+      constraints: [
+        { node_id: 'goal', operator: '>=', value: 20000, prob_satisfied: 0.85 },
+        { node_id: 'goal', operator: '>=', value: 20000, prob_satisfied: 0.70 },
+      ],
+    };
+    const { status, body } = await run({ ...BASE_PAYLOAD, goal_constraints: GOAL_CONSTRAINTS });
+    expect(status).toBe(200);
+    expect(body.constraints_status).toBe('unavailable');
+  });
+
+  it('REGRESSION: an extraneous result row (id not forwarded) ⇒ "unavailable"', async () => {
+    mockOptionStatus = undefined;
+    // Second row maps to a synthetic id not in the forwarded set → resolved ⊄ forwarded.
+    mockConstraintAnalysis = {
+      constraints: [
+        { node_id: 'goal', operator: '>=', value: 20000, prob_satisfied: 0.85 },
+        { node_id: 'other-node', operator: '<=', value: 5, prob_satisfied: 0.5 },
+      ],
+    };
+    const { status, body } = await run({ ...BASE_PAYLOAD, goal_constraints: GOAL_CONSTRAINTS });
+    expect(status).toBe(200);
+    expect(body.constraints_status).toBe('unavailable');
+  });
+
+  it('REGRESSION: an explicit upstream ISL error (option.status="error") ⇒ "error", not "unavailable"', async () => {
+    mockOptionStatus = 'error';
+    mockConstraintAnalysis = {
+      constraints: [{ node_id: 'goal', operator: '>=', value: 20000, prob_satisfied: 0.85 }],
+    };
+    const { status, body } = await run({ ...BASE_PAYLOAD, goal_constraints: GOAL_CONSTRAINTS });
+    expect(status).toBe(200);
+    expect(body.constraints_status).toBe('error');
+    mockOptionStatus = undefined;
   });
 });
