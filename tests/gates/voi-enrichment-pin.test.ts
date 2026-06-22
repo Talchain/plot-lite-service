@@ -2,8 +2,9 @@
  * SCIENTIFIC REGRESSION GATE — WP3: VOI / EVPI trace-and-pin
  * ----------------------------------------------------------------------------
  * Pins the HONESTY contract of the value-of-information / EVPI surface on the
- * REAL public /v2/run response (the consumed path), plus a compile-time pin
- * that the outbound CEE review request carries no VOI field.
+ * REAL public /v2/run response (the consumed path). The compile-time pin that
+ * the outbound CEE review request carries no VOI field now lives — and is
+ * actually enforced by `tsc` — in src/types/cee-no-voi.type-pin.ts.
  *
  * What this gate protects:
  *   - No NEGATIVE or NON-FINITE `value_of_information` or `evpi_percentage_points`
@@ -12,8 +13,9 @@
  *   - `evpi_percentage_points` is labelled `evpi_method: 'heuristic'` wherever it
  *     appears — it is a VOI×win-prob-spread proxy, NOT true counterfactual EVPI.
  *     It must never be unlabelled or labelled 'counterfactual'.
- *   - The outbound CEE review request (`CeeReviewRequest`) has NO VOI field —
- *     #189's enrichment VOI is inert w.r.t. CEE (it reads only fragile_edges).
+ *   - (CEE-no-VOI: the outbound `CeeReviewRequest` carries no VOI field — #189
+ *     enrichment VOI inert w.r.t. CEE — is enforced at COMPILE TIME in
+ *     src/types/cee-no-voi.type-pin.ts, NOT by this runtime gate.)
  *
  * Already covered elsewhere (NOT duplicated):
  *   - sanitiseIslVoi / computeEvpiPercentagePoints unit contract (missing-vs-zero,
@@ -26,22 +28,14 @@
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import type { CeeReviewRequest } from '../../src/cee/types.js';
 
-// ---------------------------------------------------------------------------
-// Compile-time NEGATIVE pin: the outbound CEE review request type carries no
-// VOI / EVPI field. Checked by `tsc --noEmit`; locks #189 enrichment as inert
-// relative to CEE. If a VOI key is ever added to CeeReviewRequest (or its
-// nested sensitive_parameters), `Extract<...>` becomes non-`never` and this
-// assignment fails to compile.
-// ---------------------------------------------------------------------------
-type SensitiveParam = NonNullable<NonNullable<CeeReviewRequest['isl_robustness']>['sensitive_parameters']>[number];
-type _NoVoiOnCeeRequest = Extract<keyof CeeReviewRequest, 'value_of_information' | 'voi' | 'evpi_percentage_points'>;
-type _NoVoiOnSensitiveParam = Extract<keyof SensitiveParam, 'value_of_information' | 'voi' | 'evpi'>;
-const _ceeNoVoi: _NoVoiOnCeeRequest extends never ? true : never = true;
-const _spNoVoi: _NoVoiOnSensitiveParam extends never ? true : never = true;
-void _ceeNoVoi;
-void _spNoVoi;
+// NOTE: the compile-time NEGATIVE pin — that the outbound CEE review request
+// (`CeeReviewRequest`) and its `sensitive_parameters` carry no VOI/EVPI field —
+// has moved to src/types/cee-no-voi.type-pin.ts, where `tsc -p tsconfig.json`
+// (npm run typecheck + CI `npx tsc --noEmit`) actually enforces it. It was inert
+// here: `tests/` is excluded from tsconfig.json and Vitest strips types without
+// type-checking. This gate now covers ONLY the runtime VOI/EVPI honesty pins on
+// the public /v2/run surface.
 
 // ---------------------------------------------------------------------------
 // Mocked ISL — returns a win-probability spread (so the heuristic EVPI loop
