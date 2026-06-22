@@ -1349,14 +1349,26 @@ function buildConstraintFields(
     return {};
   }
 
-  // Find first option with constraint_analysis data
+  // Find first option with NON-EMPTY constraint_analysis.constraints.
+  // Honesty guard: a present-but-empty `constraints: []` array means ISL echoed the
+  // analysis object but evaluated zero constraints (e.g. it silently dropped every
+  // constraint it received). Requiring length > 0 here routes that degenerate case
+  // through the `'unavailable'` branch below instead of emitting a misleading
+  // `constraints_status: 'computed'` with no constraint_results. (An empty array is
+  // truthy in JS, so the previous `r.constraint_analysis?.constraints` predicate
+  // matched it and reported a fabricated "computed".)
   const islOptionData = islResult?.options ?? islResult?.results;
   const firstOptionWithConstraints = Array.isArray(islOptionData)
-    ? islOptionData.find((r: any) => r.constraint_analysis?.constraints)
+    ? islOptionData.find(
+        (r: any) =>
+          Array.isArray(r.constraint_analysis?.constraints) &&
+          r.constraint_analysis.constraints.length > 0
+      )
     : undefined;
 
   if (!firstOptionWithConstraints?.constraint_analysis) {
-    // Constraints sent but ISL returned no constraint_analysis
+    // Constraints sent but ISL returned no usable constraint_analysis
+    // (absent, or present with zero evaluated constraints).
     return { constraints_status: 'unavailable' };
   }
 
@@ -1573,13 +1585,18 @@ function buildResponse(
       status_reason: r.status_reason,
     };
 
-    // Only include probability_of_goal if ISL returned it (omit when absent, not null)
-    if (r.probability_of_goal !== undefined && r.probability_of_goal !== null) {
+    // Only include probability_of_goal if ISL returned a FINITE value (omit when
+    // absent or non-finite, not null). A non-finite ISL value (NaN/±Infinity from
+    // a degenerate Monte Carlo run) would otherwise serialise to a fabricated
+    // `null` on this declared-numeric probability field; honest absence is correct.
+    if (r.probability_of_goal !== undefined && r.probability_of_goal !== null && Number.isFinite(r.probability_of_goal)) {
       result.probability_of_goal = r.probability_of_goal;
     }
 
-    // Only include win_probability if ISL returned it (omit when absent, not null)
-    if (r.win_probability !== undefined && r.win_probability !== null) {
+    // Only include win_probability if ISL returned a FINITE value (omit when absent
+    // or non-finite, not null). Mirrors the Number.isFinite guard already used by
+    // the recommended-option / near-tie derivations (see deriveRecommendedOption).
+    if (r.win_probability !== undefined && r.win_probability !== null && Number.isFinite(r.win_probability)) {
       result.win_probability = r.win_probability;
     }
 

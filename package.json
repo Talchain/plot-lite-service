@@ -12,6 +12,7 @@
     "test": "node tools/run-all-tests.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:engine": "node tools/run-tests.cjs",
+    "test:gates": "npx vitest run tests/gates/",
     "test:contracts": "npm run build && npx vitest run tests/contracts.*.test.ts",
     "validate:contracts": "npx tsx contracts/validate.ts",
     "test:stream": "npm run build && npx vitest run tests/stream.*.test.ts",

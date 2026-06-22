@@ -102,9 +102,14 @@ export function generateHeadlines(inputs: CoachingInputs): StoryHeadlines {
     [winner.id]: winnerHeadline,
   };
 
-  // Simple headlines for other options
+  // Simple headlines for other options. Guard against a non-finite winProbability
+  // (NaN/±Infinity from a degenerate ISL Monte Carlo run): `Math.round(Infinity*100)`
+  // would render a nonsensical "Infinity% win probability" string to the user.
+  // Fall back to an honest, number-free label in that case.
   sorted.slice(1).forEach((opt) => {
-    headlines[opt.id] = `Runner-up with ${Math.round(opt.winProbability * 100)}% win probability`;
+    headlines[opt.id] = Number.isFinite(opt.winProbability)
+      ? `Runner-up with ${Math.round(opt.winProbability * 100)}% win probability`
+      : 'Runner-up';
   });
 
   return headlines;
