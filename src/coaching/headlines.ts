@@ -16,6 +16,24 @@ const HEADLINE_TEMPLATES = {
   needs_evidence: 'Decision unclear — gather data on {topGapLabel} before proceeding',
 } as const;
 
+/**
+ * Sort options by win probability descending, treating a non-finite probability
+ * (NaN / ±Infinity from a degenerate ISL Monte Carlo run) as the LOWEST rank.
+ * Using subtraction directly would return NaN for non-finite inputs, leaving the
+ * sort order undefined — so an invalid option could be crowned "winner" merely
+ * because the comparator is ambiguous. Ranking non-finite last guarantees a finite
+ * option wins whenever one exists, and never produces a NaN comparison result.
+ */
+function compareByWinProbabilityDesc(
+  a: { winProbability: number },
+  b: { winProbability: number }
+): number {
+  const ka = Number.isFinite(a.winProbability) ? a.winProbability : -Infinity;
+  const kb = Number.isFinite(b.winProbability) ? b.winProbability : -Infinity;
+  if (ka === kb) return 0;
+  return kb > ka ? 1 : -1;
+}
+
 export function generateHeadlines(inputs: CoachingInputs): StoryHeadlines {
   const { options, factorSensitivity, fragileEdges, robustness } = inputs;
   const thresholds = getThresholds();
@@ -24,8 +42,8 @@ export function generateHeadlines(inputs: CoachingInputs): StoryHeadlines {
     return {};
   }
 
-  // Sort options by win probability
-  const sorted = [...options].sort((a, b) => b.winProbability - a.winProbability);
+  // Sort options by win probability (finite-safe: invalid options rank last)
+  const sorted = [...options].sort(compareByWinProbabilityDesc);
   const winner = sorted[0];
   const runnerUp = sorted[1];
 
@@ -58,44 +76,55 @@ export function generateHeadlines(inputs: CoachingInputs): StoryHeadlines {
     thresholds
   );
 
-  // Generate headline for winner
-  const deltaPoints = Math.round(winProbDelta * 100);
+  // Generate headline for winner. Numeric-safety guard (WP5): a non-finite
+  // winProbDelta — winner or runner-up win probability is NaN/±Infinity from a
+  // degenerate ISL Monte Carlo run — must NOT render "... by Infinity points".
+  // Fall back to an honest, number-free headline in that case. (The finite-safe
+  // sort above already prevents an invalid option from being crowned winner
+  // whenever a finite option exists.)
+  const deltaFinite = Number.isFinite(winProbDelta);
+  const deltaPoints = deltaFinite ? Math.round(winProbDelta * 100) : 0;
 
   let winnerHeadline = '';
-  switch (headlineType) {
-    case 'clear_winner':
-      winnerHeadline = HEADLINE_TEMPLATES.clear_winner
-        .replace('{option}', winner.label)
-        .replace('{deltaPoints}', String(deltaPoints));
-      break;
-    case 'moderate_winner':
-      winnerHeadline = HEADLINE_TEMPLATES.moderate_winner
-        .replace('{option}', winner.label)
-        .replace('{deltaPoints}', String(deltaPoints));
-      break;
-    case 'close_call':
-      winnerHeadline = HEADLINE_TEMPLATES.close_call
-        .replace('{option}', winner.label)
-        .replace('{deltaPoints}', String(deltaPoints));
-      break;
-    case 'high_uncertainty':
-      winnerHeadline = HEADLINE_TEMPLATES.high_uncertainty
-        .replace('{option}', winner.label)
-        .replace('{fragileEdgeLabel}', topFragile?.displayLabel ?? 'key assumptions')
-        .replace('{altWinner}', topFragile?.altWinnerLabel ?? 'another option');
-      break;
-    case 'needs_evidence':
-      // Find factor with highest VoI (impact × uncertainty)
-      const topGap = factorSensitivity
-        .map((f) => ({
-          label: f.label,
-          voi: Math.abs(f.elasticity ?? f.influence_score ?? 0) * (1 - (f.confidence ?? 0.5)),
-        }))
-        .sort((a, b) => b.voi - a.voi)[0];
-      const topGapLabel = topGap?.label ?? 'key factors';
-      winnerHeadline = HEADLINE_TEMPLATES.needs_evidence
-        .replace('{topGapLabel}', topGapLabel);
-      break;
+  if (!deltaFinite) {
+    winnerHeadline = `${winner.label} leads, but the margin could not be computed`;
+  } else {
+    switch (headlineType) {
+      case 'clear_winner':
+        winnerHeadline = HEADLINE_TEMPLATES.clear_winner
+          .replace('{option}', winner.label)
+          .replace('{deltaPoints}', String(deltaPoints));
+        break;
+      case 'moderate_winner':
+        winnerHeadline = HEADLINE_TEMPLATES.moderate_winner
+          .replace('{option}', winner.label)
+          .replace('{deltaPoints}', String(deltaPoints));
+        break;
+      case 'close_call':
+        winnerHeadline = HEADLINE_TEMPLATES.close_call
+          .replace('{option}', winner.label)
+          .replace('{deltaPoints}', String(deltaPoints));
+        break;
+      case 'high_uncertainty':
+        winnerHeadline = HEADLINE_TEMPLATES.high_uncertainty
+          .replace('{option}', winner.label)
+          .replace('{fragileEdgeLabel}', topFragile?.displayLabel ?? 'key assumptions')
+          .replace('{altWinner}', topFragile?.altWinnerLabel ?? 'another option');
+        break;
+      case 'needs_evidence': {
+        // Find factor with highest VoI (impact × uncertainty)
+        const topGap = factorSensitivity
+          .map((f) => ({
+            label: f.label,
+            voi: Math.abs(f.elasticity ?? f.influence_score ?? 0) * (1 - (f.confidence ?? 0.5)),
+          }))
+          .sort((a, b) => b.voi - a.voi)[0];
+        const topGapLabel = topGap?.label ?? 'key factors';
+        winnerHeadline = HEADLINE_TEMPLATES.needs_evidence
+          .replace('{topGapLabel}', topGapLabel);
+        break;
+      }
+    }
   }
 
   const headlines: StoryHeadlines = {
@@ -192,8 +221,8 @@ export function detectHeadlineType(inputs: CoachingInputs): HeadlineType {
     return 'needs_evidence';
   }
 
-  // Sort options by win probability
-  const sorted = [...options].sort((a, b) => b.winProbability - a.winProbability);
+  // Sort options by win probability (finite-safe: invalid options rank last)
+  const sorted = [...options].sort(compareByWinProbabilityDesc);
   const winner = sorted[0];
   const runnerUp = sorted[1];
 

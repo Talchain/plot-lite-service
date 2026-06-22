@@ -59,6 +59,26 @@ function findNullProbabilityFields(obj: unknown, path = '$', acc: string[] = [])
   return acc;
 }
 
+// Numeric-named fields on the option_comparison egress that this lane guards.
+// A `null` on any of these is a FABRICATED null (Fastify serialising a non-finite
+// ISL number) — the probability-name regex above does NOT match the outcome
+// statistics (mean/std/p10/p50/p90/validity_ratio), so they need this explicit set.
+const NUMERIC_EGRESS_FIELD =
+  /^(mean|std|p10|p50|p90|validity_ratio|win_probability|probability_of_goal|probability_of_joint_goal|prob_satisfied|probability|expected_outcome)$/;
+
+/** Collect dotted paths of every numeric-egress field that is explicitly `null`. */
+function findNullNumericFields(obj: unknown, path = '$', acc: string[] = []): string[] {
+  if (Array.isArray(obj)) {
+    obj.forEach((v, i) => findNullNumericFields(v, `${path}[${i}]`, acc));
+  } else if (obj && typeof obj === 'object') {
+    for (const [k, v] of Object.entries(obj)) {
+      if (v === null && NUMERIC_EGRESS_FIELD.test(k)) acc.push(`${path}.${k}`);
+      findNullNumericFields(v, `${path}.${k}`, acc);
+    }
+  }
+  return acc;
+}
+
 // ---------------------------------------------------------------------------
 // Mocked ISL
 // ---------------------------------------------------------------------------
@@ -166,6 +186,25 @@ describe('WP5 gate · non-finite ISL outcomes do not leak into the public respon
     const body = res.json();
     expect(findNonFiniteNumbers(body)).toEqual([]);          // none survive parsing as numbers either
     expect(findNullProbabilityFields(body)).toEqual([]);     // honest ABSENCE, never null
+  });
+
+  it('REGRESSION: no numeric-egress field is a fabricated null (outcome statistics included)', async () => {
+    // Catches the gap a probability-name regex misses: outcome mean/std/p10/p50/p90
+    // serialised to `null` from a non-finite ISL value.
+    const res = await run(app);
+    expect(findNullNumericFields(res.json())).toEqual([]);
+  });
+
+  it('REGRESSION: a non-finite outcome omits the WHOLE outcome object (never partial nulls)', async () => {
+    // The fixture makes every required stat (mean/p10/p50/p90) non-finite, so the
+    // entire outcome is omitted (honest absence) rather than emitting null stats.
+    const res = await run(app);
+    const oc = (res.json().option_comparison ?? []) as any[];
+    expect(oc.length).toBeGreaterThan(0);
+    for (const o of oc) {
+      expect(o.outcome ?? undefined).toBeUndefined();
+      expect(o.outcome).not.toBeNull();
+    }
   });
 
   it('REGRESSION: non-finite win_probability / probability_of_goal are OMITTED, not null', async () => {

@@ -202,15 +202,21 @@ describe('WP3 gate · VOI/EVPI honesty on the public /v2/run surface', () => {
     // the PUBLIC surface: a 0 is a real, preserved value — never coerced to
     // null/undefined and never made negative.
     const fs = (body.factor_sensitivity ?? []) as any[];
+    // Non-vacuity: the public factor_sensitivity surface is populated AND at least one
+    // factor actually carries a numeric VOI, so the per-factor checks below genuinely
+    // run (the fixture forwards three factors a/b/c). A public exact-0 is NOT asserted:
+    // public VOI is graph-derived here, so a 0 is not guaranteed to appear — but when
+    // one does, it must be exactly 0.
+    expect(fs.length).toBeGreaterThan(0);
+    const withVoi = fs.filter((f) => f.value_of_information !== undefined && f.value_of_information !== null);
+    expect(withVoi.length).toBeGreaterThan(0);
     const zeros = fs.filter((f) => f.value_of_information === 0);
     for (const f of zeros) {
       expect(Object.is(f.value_of_information, 0)).toBe(true); // exactly 0, not -0/null/undefined
     }
     // Any factor that carries a VOI at all carries a number (never a stray null).
-    for (const f of fs) {
-      if ('value_of_information' in f && f.value_of_information !== undefined) {
-        expect(typeof f.value_of_information).toBe('number');
-      }
+    for (const f of withVoi) {
+      expect(typeof f.value_of_information).toBe('number');
     }
   });
 });

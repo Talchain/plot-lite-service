@@ -28,14 +28,14 @@ type SensitiveParam = NonNullable<
   NonNullable<CeeReviewRequest['isl_robustness']>['sensitive_parameters']
 >[number];
 
-type NoVoiOnCeeRequest = Extract<
-  keyof CeeReviewRequest,
-  'value_of_information' | 'voi' | 'evpi_percentage_points'
->;
-type NoVoiOnSensitiveParam = Extract<
-  keyof SensitiveParam,
-  'value_of_information' | 'voi' | 'evpi'
->;
+// The complete set of forbidden VOI / EVPI key aliases, checked IDENTICALLY at
+// both the top level (CeeReviewRequest) and the nested sensitive_parameters
+// level. Keeping one shared union prevents the two checks from drifting apart
+// (e.g. one covering 'evpi' but not 'evpi_percentage_points', or vice versa).
+type ForbiddenVoiKey = 'value_of_information' | 'voi' | 'evpi' | 'evpi_percentage_points';
+
+type NoVoiOnCeeRequest = Extract<keyof CeeReviewRequest, ForbiddenVoiKey>;
+type NoVoiOnSensitiveParam = Extract<keyof SensitiveParam, ForbiddenVoiKey>;
 
 const _ceeNoVoi: NoVoiOnCeeRequest extends never ? true : never = true;
 const _spNoVoi: NoVoiOnSensitiveParam extends never ? true : never = true;

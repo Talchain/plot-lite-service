@@ -202,6 +202,13 @@ const GOAL_CONSTRAINTS = [
   { constraint_id: 'revenue-min', node_id: 'goal', operator: '>=', value: 20000 },
 ];
 
+// Two forwarded constraints on the goal node (a >= / <= range): used to pin the
+// completeness requirement — every forwarded constraint must map to a valid result.
+const TWO_CONSTRAINTS = [
+  { constraint_id: 'revenue-min', node_id: 'goal', operator: '>=', value: 20000 },
+  { constraint_id: 'cost-max', node_id: 'goal', operator: '<=', value: 50000 },
+];
+
 describe('WP1 gate · honest constraints_status (no fabricated "computed")', () => {
   let app: FastifyInstance;
 
@@ -259,5 +266,51 @@ describe('WP1 gate · honest constraints_status (no fabricated "computed")', () 
     expect(status).toBe(200);
     expect(body.constraints_status).toBe('unavailable');
     expect(body.constraint_results).toBeUndefined();
+  });
+
+  // --- Completeness & validity: non-empty is NOT sufficient for "computed" ---
+
+  it('REGRESSION: a malformed result (non-finite prob_satisfied) ⇒ "unavailable", not "computed"', async () => {
+    mockConstraintAnalysis = {
+      constraints: [{ node_id: 'goal', operator: '>=', value: 20000, prob_satisfied: Number.NaN }],
+    };
+    const { status, body } = await run({ ...BASE_PAYLOAD, goal_constraints: GOAL_CONSTRAINTS });
+    expect(status).toBe(200);
+    expect(body.constraints_status).toBe('unavailable');
+    expect(body.constraint_results).toBeUndefined();
+  });
+
+  it('REGRESSION: an out-of-range prob_satisfied (>1) ⇒ "unavailable"', async () => {
+    mockConstraintAnalysis = {
+      constraints: [{ node_id: 'goal', operator: '>=', value: 20000, prob_satisfied: 1.5 }],
+    };
+    const { status, body } = await run({ ...BASE_PAYLOAD, goal_constraints: GOAL_CONSTRAINTS });
+    expect(status).toBe(200);
+    expect(body.constraints_status).toBe('unavailable');
+  });
+
+  it('REGRESSION: one result for two forwarded constraints ⇒ "unavailable" (incomplete coverage)', async () => {
+    // ISL evaluated only one of the two forwarded constraints; reporting "computed"
+    // would falsely imply both were assessed.
+    mockConstraintAnalysis = {
+      constraints: [{ node_id: 'goal', operator: '>=', value: 20000, prob_satisfied: 0.85 }],
+    };
+    const { status, body } = await run({ ...BASE_PAYLOAD, goal_constraints: TWO_CONSTRAINTS });
+    expect(status).toBe(200);
+    expect(body.constraints_status).toBe('unavailable');
+  });
+
+  it('POSITIVE CONTROL: two forwarded constraints with two valid results ⇒ "computed"', async () => {
+    mockConstraintAnalysis = {
+      constraints: [
+        { node_id: 'goal', operator: '>=', value: 20000, prob_satisfied: 0.85 },
+        { node_id: 'goal', operator: '<=', value: 50000, prob_satisfied: 0.6 },
+      ],
+      joint_probability: 0.55,
+    };
+    const { status, body } = await run({ ...BASE_PAYLOAD, goal_constraints: TWO_CONSTRAINTS });
+    expect(status).toBe(200);
+    expect(body.constraints_status).toBe('computed');
+    expect(body.constraint_results).toHaveLength(2);
   });
 });

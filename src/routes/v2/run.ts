@@ -1411,6 +1411,29 @@ function buildConstraintFields(
     };
   });
 
+  // Honesty guard (WP1/WP5): 'computed' must mean every forwarded constraint has a
+  // complete, valid result. Reject to 'unavailable' when ISL returned a malformed
+  // result (probability non-finite or outside [0,1]) or did not cover every
+  // forwarded constraint (e.g. one result for two forwarded constraints). Otherwise
+  // we would report a fabricated 'computed' over partial or garbage data, and a
+  // non-finite probability would serialise to a fabricated `null`. `goalConstraints`
+  // here is the ACTIVE (post temporal-filter) set actually forwarded to ISL (callers
+  // pass activeGoalConstraints), so each one must map to a valid result.
+  const allConstraintProbabilitiesValid = constraintResults.every(
+    (r) =>
+      typeof r.probability === 'number' &&
+      Number.isFinite(r.probability) &&
+      r.probability >= 0 &&
+      r.probability <= 1
+  );
+  const resolvedConstraintIds = new Set(constraintResults.map((r) => r.constraint_id));
+  const everyForwardedConstraintCovered = goalConstraints.every((gc) =>
+    resolvedConstraintIds.has(gc.constraint_id)
+  );
+  if (!allConstraintProbabilitiesValid || !everyForwardedConstraintCovered) {
+    return { constraints_status: 'unavailable' };
+  }
+
   // Extract diagnostics from ISL constraint results
   // When constraints were normalised, denormalise failure_margin_median back to user units.
   // failure_margin_median is a distance (delta), so scale by range width (same as std).
@@ -1553,19 +1576,32 @@ function buildResponse(
     const outcomeData = r.outcome;
     const hasOutcomeObject = outcomeData && typeof outcomeData === 'object';
 
-    // Build full outcome stats from ISL V2 format
-    const outcome = hasOutcomeObject
-      ? {
-          mean: outcomeData.mean,
-          std: outcomeData.std,
-          p10: outcomeData.p10,
-          p50: outcomeData.p50,
-          p90: outcomeData.p90,
-          n_samples: outcomeData.n_samples,
-          n_valid_samples: outcomeData.n_valid_samples,
-          validity_ratio: outcomeData.validity_ratio,
-        }
-      : undefined;
+    // Build full outcome stats from ISL V2 format. Numeric-safety guard (WP5):
+    // omit the ENTIRE outcome when a REQUIRED stat (mean/p10/p50/p90 per
+    // OutcomeStatsV3) is non-finite — a NaN/±Infinity would otherwise serialise to
+    // a fabricated `null` on a declared-number field. Optional stats (std,
+    // n_samples, n_valid_samples, validity_ratio) are dropped INDIVIDUALLY when
+    // non-finite. `Number.isFinite` is false for non-numbers too, so this also
+    // drops missing/garbage values exactly as before. Keys are inserted in the
+    // original order so a fully-finite outcome serialises byte-identically (no
+    // response_hash drift); only the degenerate non-finite case changes.
+    let outcome: Record<string, number> | undefined;
+    if (
+      hasOutcomeObject &&
+      Number.isFinite(outcomeData.mean) &&
+      Number.isFinite(outcomeData.p10) &&
+      Number.isFinite(outcomeData.p50) &&
+      Number.isFinite(outcomeData.p90)
+    ) {
+      outcome = { mean: outcomeData.mean };
+      if (Number.isFinite(outcomeData.std)) outcome.std = outcomeData.std;
+      outcome.p10 = outcomeData.p10;
+      outcome.p50 = outcomeData.p50;
+      outcome.p90 = outcomeData.p90;
+      if (Number.isFinite(outcomeData.n_samples)) outcome.n_samples = outcomeData.n_samples;
+      if (Number.isFinite(outcomeData.n_valid_samples)) outcome.n_valid_samples = outcomeData.n_valid_samples;
+      if (Number.isFinite(outcomeData.validity_ratio)) outcome.validity_ratio = outcomeData.validity_ratio;
+    }
 
     const resolvedOptionLabel = option?.label ?? r.label ?? optionId;
 
@@ -1607,8 +1643,10 @@ function buildResponse(
       logger?.info({ event: 'constraint_analysis_absent', option_id: optionId });
     }
     if (constraintAnalysis) {
-      // Map ISL's joint_probability to Schema v2.7 probability_of_joint_goal
-      if (constraintAnalysis.joint_probability !== undefined) {
+      // Map ISL's joint_probability to Schema v2.7 probability_of_joint_goal.
+      // Numeric-safety guard (WP5): omit when non-finite (a NaN/±Infinity would
+      // otherwise serialise to a fabricated `null` on this declared-number field).
+      if (constraintAnalysis.joint_probability !== undefined && Number.isFinite(constraintAnalysis.joint_probability)) {
         result.probability_of_joint_goal = constraintAnalysis.joint_probability;
       }
 
@@ -1632,7 +1670,11 @@ function buildResponse(
         for (let i = 0; i < islConstraintsHere.length; i++) {
           const c = islConstraintsHere[i];
           const constraintId = indexToId[i] ?? `${c.node_id}_${c.operator}`;
-          constraintProbs[constraintId] = c.prob_satisfied;
+          // Numeric-safety guard (WP5): omit non-finite prob_satisfied (a NaN/±Infinity
+          // would otherwise serialise to a fabricated `null` in this probability map).
+          if (Number.isFinite(c.prob_satisfied)) {
+            constraintProbs[constraintId] = c.prob_satisfied;
+          }
         }
         result.constraint_probabilities = constraintProbs;
         logger?.info({ event: 'constraint_probs_mapped', option_id: optionId, count: Object.keys(constraintProbs).length });
