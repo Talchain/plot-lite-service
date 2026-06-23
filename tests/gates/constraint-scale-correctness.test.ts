@@ -127,6 +127,10 @@ let mockConstraintAnalysis: any = undefined;
 // When set, the mocked ISL option result carries this `status` (e.g. 'error') so we
 // can pin that an explicit upstream constraint error surfaces as constraints_status:'error'.
 let mockOptionStatus: string | undefined = undefined;
+// When set, the mocked ISL returns these option results VERBATIM (full per-option
+// control of status/constraint_analysis) instead of the uniform default mapping —
+// used to build a MIXED response (one errored option + one valid-constraints option).
+let mockOptionResults: any[] | undefined = undefined;
 
 const mockISLService = {
   isEnabled(): boolean { return true; },
@@ -143,7 +147,7 @@ const mockISLService = {
   },
   async analyseRobustness(_graph: any, _goalNodeId: string, options: any[]) {
     return {
-      options: options.map((opt: any, idx: number) => ({
+      options: mockOptionResults ?? options.map((opt: any, idx: number) => ({
         option_id: opt.id,
         outcome: { mean: 0.7 + idx * 0.1, std: 0.1, p10: 0.5, p50: 0.7, p90: 0.9, n_samples: 1000, n_valid_samples: 1000, validity_ratio: 1.0 },
         rank: idx + 1,
@@ -165,7 +169,7 @@ const mockISLService = {
     const options = body.options || [];
     return {
       data: {
-        options: options.map((opt: any, idx: number) => ({
+        options: mockOptionResults ?? options.map((opt: any, idx: number) => ({
           option_id: opt.id,
           outcome: { mean: 0.7 + idx * 0.1, std: 0.1, p10: 0.5, p50: 0.7, p90: 0.9, n_samples: 1000, n_valid_samples: 1000, validity_ratio: 1.0 },
           rank: idx + 1,
@@ -229,6 +233,7 @@ describe('WP1 gate · honest constraints_status (no fabricated "computed")', () 
     delete process.env.CEE_ORCHESTRATOR_ENABLED;
     mockConstraintAnalysis = undefined;
     mockOptionStatus = undefined;
+    mockOptionResults = undefined;
   });
 
   async function run(payload: any) {
@@ -360,5 +365,50 @@ describe('WP1 gate · honest constraints_status (no fabricated "computed")', () 
     expect(status).toBe(200);
     expect(body.constraints_status).toBe('error');
     mockOptionStatus = undefined;
+  });
+
+  it('REGRESSION (Codex round-4): error status with ABSENT constraint_analysis ⇒ "error", not "unavailable"', async () => {
+    // The COMMON ISL error shape: option.status="error" with NO constraint_analysis
+    // payload at all. The non-empty-constraints lookup finds nothing, so this must be
+    // detected in the 'unavailable' branch and surfaced as 'error' — not hidden.
+    mockOptionStatus = 'error';
+    mockConstraintAnalysis = undefined; // absent payload
+    const { status, body } = await run({ ...BASE_PAYLOAD, goal_constraints: GOAL_CONSTRAINTS });
+    expect(status).toBe(200);
+    expect(body.constraints_status).toBe('error');
+    expect(body.constraint_results).toBeUndefined();
+    mockOptionStatus = undefined;
+  });
+
+  it('REGRESSION (Codex round-4): error status with EMPTY constraint_analysis.constraints ⇒ "error"', async () => {
+    // Present-but-empty constraints + error status: also the no-usable-payload path,
+    // and an explicit error must win over a bare 'unavailable'.
+    mockOptionStatus = 'error';
+    mockConstraintAnalysis = { constraints: [] };
+    const { status, body } = await run({ ...BASE_PAYLOAD, goal_constraints: GOAL_CONSTRAINTS });
+    expect(status).toBe(200);
+    expect(body.constraints_status).toBe('error');
+    mockOptionStatus = undefined;
+  });
+
+  it('POLICY (Codex round-5): MIXED response — one errored option (no constraints) + one valid result ⇒ "computed"', async () => {
+    // Deliberate round-4 policy: an option-level error does NOT override another
+    // option's valid constraint computation. Constraint analysis is per-option, so a
+    // valid result means constraints WERE computed; the errored option's failure is
+    // carried in its own option status, not in constraints_status. Lock it down.
+    const finiteOutcome = { mean: 0.7, std: 0.1, p10: 0.5, p50: 0.7, p90: 0.9, n_samples: 1000, n_valid_samples: 1000, validity_ratio: 1.0 };
+    mockOptionResults = [
+      { option_id: 'opt1', outcome: finiteOutcome, rank: 1, status: 'error' }, // errored, NO constraint_analysis
+      {
+        option_id: 'opt2', outcome: finiteOutcome, rank: 2, status: 'computed',
+        constraint_analysis: { constraints: [{ node_id: 'goal', operator: '>=', value: 20000, prob_satisfied: 0.85 }] },
+      },
+    ];
+    const { status, body } = await run({ ...BASE_PAYLOAD, goal_constraints: GOAL_CONSTRAINTS });
+    expect(status).toBe(200);
+    expect(body.constraints_status).toBe('computed');           // valid result is authoritative
+    expect(body.constraint_results).toHaveLength(1);
+    expect(body.constraint_results[0].probability).toBe(0.85);
+    mockOptionResults = undefined;
   });
 });

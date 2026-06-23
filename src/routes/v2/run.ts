@@ -1400,16 +1400,21 @@ function buildConstraintFields(
     : undefined;
 
   if (!firstOptionWithConstraints?.constraint_analysis) {
-    // Constraints sent but ISL returned no usable constraint_analysis
-    // (absent, or present with zero evaluated constraints).
-    return { constraints_status: 'unavailable' };
+    // Constraints sent but ISL returned no usable constraint_analysis (absent, or
+    // present with zero evaluated constraints). Honesty (Codex round-4): the COMMON
+    // ISL error shape is status:'error' WITH absent/empty constraint_analysis, so an
+    // explicit upstream error reaches HERE — no constraint-bearing option was found
+    // by the length>0 lookup above, which would otherwise hide the failure as
+    // 'unavailable'. Distinguish it and surface the existing 'error' status instead.
+    const hasOptionError = Array.isArray(islOptionData)
+      && islOptionData.some((r: any) => r?.status === 'error');
+    return { constraints_status: hasOptionError ? 'error' : 'unavailable' };
   }
 
-  // Honesty (Codex round-2): distinguish a genuine upstream ISL constraint ERROR
-  // from merely-unavailable data. The ISL option result carries an explicit
-  // status ∈ {computed, skipped, error}; surface 'error' rather than collapsing a
-  // real failure into 'unavailable', so consumers can tell a failure apart from
-  // missing data. ('error' is an existing ConstraintFeatureStatus value.)
+  // Honesty (Codex round-2): also surface 'error' for the rarer shape where the
+  // constraint-bearing option itself reports status:'error' (it has a constraint
+  // payload but the run errored). The common no-payload error shape is handled in
+  // the 'unavailable' branch above. ('error' is an existing ConstraintFeatureStatus.)
   if (firstOptionWithConstraints.status === 'error') {
     return { constraints_status: 'error' };
   }
