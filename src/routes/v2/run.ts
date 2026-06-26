@@ -1468,10 +1468,18 @@ function buildConstraintFields(
   // pass activeGoalConstraints), so each one must map to a valid result.
   const allConstraintProbabilitiesValid = constraintResults.every(
     (r) =>
-      typeof r.probability === 'number' &&
-      Number.isFinite(r.probability) &&
-      r.probability >= 0 &&
-      r.probability <= 1
+      // Absent probability (ISL echoed the constraint without a prob_satisfied) is
+      // ACCEPTABLE ABSENCE — it is omitted (Fastify drops undefined), never fabricated,
+      // and must NOT collapse the whole constraint field to 'unavailable'. Only a
+      // PRESENT-but-unsafe value (non-finite or outside [0,1]) is rejected, per Track S
+      // numeric-safety policy. (Codex round-6: round-3 over-rejected absent probability,
+      // which broke the 'computed-empty' contract pinned by
+      // tests/enrichment-emission-contract.test.ts.)
+      r.probability === undefined ||
+      (typeof r.probability === 'number' &&
+        Number.isFinite(r.probability) &&
+        r.probability >= 0 &&
+        r.probability <= 1)
   );
   // Exact one-to-one correspondence with the forwarded active constraints — NOT
   // mere coverage. Round-1 only checked forwarded ⊆ resolved, which accepted
