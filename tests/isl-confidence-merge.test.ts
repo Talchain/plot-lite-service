@@ -354,6 +354,122 @@ describe('mergeIslConfidenceIntoGraphFactors', () => {
   });
 
   // -------------------------------------------------------------------------
+  // T10b (Lane A1) — structural-vs-tunable preservation
+  //
+  // ISL marks intervention-controlled option levers as NOT independently
+  // tunable (sensitivity_score: 0 + zero_reason: 'intervention_override'). The
+  // graph computes a non-zero topological influence for those same nodes. When
+  // a lever is BOTH a graph factor AND an ISL intervention_override factor, the
+  // merge previously spread `...gf` and kept the graph-derived non-zero
+  // sensitivity, dropping zero_reason — exposing option-pinned levers as tunable
+  // sensitivity drivers.
+  //
+  // RED-before: pre-fix the two lever assertions (sensitivity_score === 0 and
+  // zero_reason === 'intervention_override') FAIL — the merged levers keep the
+  // graph sensitivity (0.4475 / 0.23 / -0.175) and have no zero_reason.
+  // GREEN-after: the merge preserves ISL's sensitivity_score:0 + zero_reason for
+  // the levers (keyed ONLY on zero_reason), leaving influence_score, source, and
+  // non-lever entries byte-identical to the graph input.
+  //
+  // Fixture provenance: shared active Supabase etmmuzwxtcjipwphdola,
+  // v5_handler_facts fact b451605e (scenario c5eeee8a, request 77b2891a).
+  // Graph sensitivities mirror the PLoT egress; ISL values mirror the raw ISL
+  // factor_sensitivity (tests/fixtures/lane-a1/isl-factor-sensitivity-77b2891a.json).
+  // -------------------------------------------------------------------------
+  it('T10b (Lane A1): matched intervention_override levers preserve sensitivity_score:0 + zero_reason; non-levers + influence_score unchanged', () => {
+    // Graph-derived factors (mirror computeFactorSensitivityFromGraph egress):
+    // non-zero sensitivity, source 'graph', no zero_reason.
+    const graphFactors: FactorSensitivityResultV3[] = [
+      makeGraphFactor('fac_leadership_capacity', { factor_label: 'Technical Leadership Capacity', sensitivity_score: 0.4475, elasticity: 1, influence_score: 1, direction: 'positive' }),
+      makeGraphFactor('fac_dev_capacity', { factor_label: 'Additional Developer Capacity', sensitivity_score: 0.23, elasticity: 0.5139664804469275, influence_score: 0.5139664804469275, direction: 'positive' }),
+      makeGraphFactor('fac_hiring_cost', { factor_label: 'Annual Hiring Cost', sensitivity_score: -0.175, elasticity: 0.39106145251396646, influence_score: 0.39106145251396646, direction: 'negative' }),
+      makeGraphFactor('fac_time_pressure', { factor_label: 'Launch Deadline Pressure', sensitivity_score: -0.2285, elasticity: 0.5106145251396648, influence_score: 0.5106145251396648, direction: 'negative' }),
+      makeGraphFactor('fac_team_size', { factor_label: 'Existing Team Size', sensitivity_score: 0.0435, elasticity: 0.09720670391061453, influence_score: 0.09720670391061453, direction: 'positive' }),
+    ];
+    // Snapshot pre-merge graph values to prove non-lever identity + influence invariance.
+    const graphById = new Map(graphFactors.map(f => [f.factor_id, { ...f }]));
+
+    // Raw-ISL-derived (UNFILTERED) entries: the 3 levers carry sensitivity_score:0
+    // + zero_reason:'intervention_override'; the 2 non-levers do not.
+    const islUnfiltered: FactorSensitivityResultV3[] = [
+      makeIslFactor('fac_leadership_capacity', { sensitivity_score: 0, zero_reason: 'intervention_override', attribution_stability: 'negligible', elasticity_std: 0, rank_flip_rate: 0, stability_method: 'bootstrap_20' }),
+      makeIslFactor('fac_dev_capacity', { sensitivity_score: 0, zero_reason: 'intervention_override', attribution_stability: 'negligible', elasticity_std: 0, rank_flip_rate: 0, stability_method: 'bootstrap_20' }),
+      makeIslFactor('fac_hiring_cost', { sensitivity_score: 0, zero_reason: 'intervention_override', attribution_stability: 'negligible', elasticity_std: 0, rank_flip_rate: 0, stability_method: 'bootstrap_20' }),
+      makeIslFactor('fac_time_pressure', { sensitivity_score: 1, attribution_stability: 'low' }),
+      makeIslFactor('fac_team_size', { sensitivity_score: 0.2275125731717371, attribution_stability: 'low' }),
+    ];
+
+    const LEVERS = ['fac_leadership_capacity', 'fac_dev_capacity', 'fac_hiring_cost'];
+    const NON_LEVERS = ['fac_time_pressure', 'fac_team_size'];
+
+    // Fixture invariant: raw ISL marks the levers sensitivity 0 + intervention_override.
+    for (const id of LEVERS) {
+      const isl = islUnfiltered.find(f => f.factor_id === id)!;
+      expect(isl.sensitivity_score).toBe(0);
+      expect(isl.zero_reason).toBe('intervention_override');
+    }
+
+    const merged = mergeIslConfidenceIntoGraphFactors(graphFactors, islUnfiltered);
+    expect(merged).toHaveLength(5);
+
+    // GREEN-after (RED pre-fix): levers preserve ISL sensitivity_score:0 + zero_reason,
+    // with graph-derived influence_score and source untouched.
+    for (const id of LEVERS) {
+      const m = merged.find(f => f.factor_id === id)!;
+      expect(m.sensitivity_score).toBe(0);                  // RED pre-fix: graph-derived non-zero
+      expect(m.zero_reason).toBe('intervention_override');  // RED pre-fix: null/absent
+      expect(m.influence_score).toBe(graphById.get(id)!.influence_score); // unchanged (graph)
+      expect(m.source).toBe('graph');                       // unchanged (legacy provenance)
+    }
+
+    // Non-lever identity: sensitivity_score byte-equal to graph input, no override zero_reason.
+    for (const id of NON_LEVERS) {
+      const m = merged.find(f => f.factor_id === id)!;
+      const g = graphById.get(id)!;
+      expect(m.sensitivity_score).toBe(g.sensitivity_score);
+      expect(m.influence_score).toBe(g.influence_score);
+      expect(m.zero_reason).not.toBe('intervention_override');
+    }
+
+    // influence_score invariance across ALL entries (levers + non-levers).
+    for (const m of merged) {
+      expect(m.influence_score).toBe(graphById.get(m.factor_id)!.influence_score);
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // T10c (Lane A1, invariant hardening) — sensitivity_score for an
+  // intervention_override lever is FORCED to 0, even if ISL pairs
+  // intervention_override with a non-zero sensitivity_score. zero_reason
+  // 'intervention_override' DEFINES the lever as not independently tunable, so
+  // PLoT enforces the invariant rather than copying a (hypothetically
+  // inconsistent) ISL value — preventing a non-zero sensitivity from re-leaking
+  // as tunable. influence_score (graph) stays unchanged.
+  // -------------------------------------------------------------------------
+  it('T10c (Lane A1): forces sensitivity_score:0 for an intervention_override lever even if ISL reports a non-zero value', () => {
+    const graphFactors: FactorSensitivityResultV3[] = [
+      makeGraphFactor('fac_lever', { sensitivity_score: 0.4475, influence_score: 1, elasticity: 1 }),
+      makeGraphFactor('fac_plain', { sensitivity_score: 0.3, influence_score: 0.6, elasticity: 0.6 }),
+    ];
+    const isl: FactorSensitivityResultV3[] = [
+      // Inconsistent ISL payload: zero_reason intervention_override BUT non-zero sensitivity_score.
+      makeIslFactor('fac_lever', { sensitivity_score: 0.9, zero_reason: 'intervention_override', attribution_stability: 'negligible' }),
+      makeIslFactor('fac_plain', { sensitivity_score: 0.7 }),
+    ];
+
+    const merged = mergeIslConfidenceIntoGraphFactors(graphFactors, isl);
+
+    const lever = merged.find(f => f.factor_id === 'fac_lever')!;
+    expect(lever.sensitivity_score).toBe(0);                  // forced — NOT 0.9 (ISL) and NOT 0.4475 (graph)
+    expect(lever.zero_reason).toBe('intervention_override');
+    expect(lever.influence_score).toBe(1);                    // graph structural importance unchanged
+
+    const plain = merged.find(f => f.factor_id === 'fac_plain')!;
+    expect(plain.sensitivity_score).toBe(0.3);                // non-lever graph value untouched
+    expect(plain.zero_reason).not.toBe('intervention_override');
+  });
+
+  // -------------------------------------------------------------------------
   // T11 — heart-of-the-fix regression (audit row A1-PRIMARY)
   // -------------------------------------------------------------------------
 
