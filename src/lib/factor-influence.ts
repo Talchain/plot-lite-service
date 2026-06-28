@@ -939,7 +939,13 @@ export function mergeIslConfidenceIntoGraphFactors(
       // provenance label) are deliberately left unchanged; the authority for
       // tunability is `zero_reason === 'intervention_override'` + sensitivity 0.
       ...(islMatch.zero_reason === 'intervention_override' && {
-        sensitivity_score: islMatch.sensitivity_score ?? 0,
+        // `zero_reason: 'intervention_override'` DEFINES the lever as not
+        // independently tunable, so sensitivity is 0 by contract. Force 0 here
+        // (rather than copying islMatch.sensitivity_score) so PLoT enforces the
+        // invariant even if an ISL payload ever paired intervention_override with
+        // a non-zero sensitivity_score — that inconsistency must not re-leak as a
+        // tunable sensitivity. (influence_score / source stay graph-derived.)
+        sensitivity_score: 0,
         zero_reason: 'intervention_override',
       }),
     };

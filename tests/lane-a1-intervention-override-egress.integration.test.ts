@@ -137,7 +137,13 @@ describe('Lane A1 — /v2/run egress preserves intervention_override lever sensi
   const LEVERS = ['fac_leadership_capacity', 'fac_dev_capacity', 'fac_hiring_cost'];
   const NON_LEVERS = ['fac_time_pressure', 'fac_team_size'];
 
+  // Save/restore (not delete) so an ambient value — e.g. under CI — is preserved
+  // and we don't leak an env change to other tests sharing the worker.
+  const ENV_KEYS = ['RATE_LIMIT_ENABLED', 'CEE_ORCHESTRATOR_ENABLED'] as const;
+  const savedEnv: Record<string, string | undefined> = {};
+
   beforeAll(async () => {
+    for (const k of ENV_KEYS) savedEnv[k] = process.env[k];
     process.env.RATE_LIMIT_ENABLED = '0';
     process.env.CEE_ORCHESTRATOR_ENABLED = '0';
     app = await createServer();
@@ -149,8 +155,10 @@ describe('Lane A1 — /v2/run egress preserves intervention_override lever sensi
 
   afterAll(async () => {
     await app?.close();
-    delete process.env.RATE_LIMIT_ENABLED;
-    delete process.env.CEE_ORCHESTRATOR_ENABLED;
+    for (const k of ENV_KEYS) {
+      if (savedEnv[k] === undefined) delete process.env[k];
+      else process.env[k] = savedEnv[k];
+    }
   });
 
   it('levers egress sensitivity_score:0 + zero_reason:intervention_override; non-levers + influence_score unchanged', async () => {

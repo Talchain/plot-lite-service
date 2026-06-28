@@ -438,6 +438,38 @@ describe('mergeIslConfidenceIntoGraphFactors', () => {
   });
 
   // -------------------------------------------------------------------------
+  // T10c (Lane A1, invariant hardening) — sensitivity_score for an
+  // intervention_override lever is FORCED to 0, even if ISL pairs
+  // intervention_override with a non-zero sensitivity_score. zero_reason
+  // 'intervention_override' DEFINES the lever as not independently tunable, so
+  // PLoT enforces the invariant rather than copying a (hypothetically
+  // inconsistent) ISL value — preventing a non-zero sensitivity from re-leaking
+  // as tunable. influence_score (graph) stays unchanged.
+  // -------------------------------------------------------------------------
+  it('T10c (Lane A1): forces sensitivity_score:0 for an intervention_override lever even if ISL reports a non-zero value', () => {
+    const graphFactors: FactorSensitivityResultV3[] = [
+      makeGraphFactor('fac_lever', { sensitivity_score: 0.4475, influence_score: 1, elasticity: 1 }),
+      makeGraphFactor('fac_plain', { sensitivity_score: 0.3, influence_score: 0.6, elasticity: 0.6 }),
+    ];
+    const isl: FactorSensitivityResultV3[] = [
+      // Inconsistent ISL payload: zero_reason intervention_override BUT non-zero sensitivity_score.
+      makeIslFactor('fac_lever', { sensitivity_score: 0.9, zero_reason: 'intervention_override', attribution_stability: 'negligible' }),
+      makeIslFactor('fac_plain', { sensitivity_score: 0.7 }),
+    ];
+
+    const merged = mergeIslConfidenceIntoGraphFactors(graphFactors, isl);
+
+    const lever = merged.find(f => f.factor_id === 'fac_lever')!;
+    expect(lever.sensitivity_score).toBe(0);                  // forced — NOT 0.9 (ISL) and NOT 0.4475 (graph)
+    expect(lever.zero_reason).toBe('intervention_override');
+    expect(lever.influence_score).toBe(1);                    // graph structural importance unchanged
+
+    const plain = merged.find(f => f.factor_id === 'fac_plain')!;
+    expect(plain.sensitivity_score).toBe(0.3);                // non-lever graph value untouched
+    expect(plain.zero_reason).not.toBe('intervention_override');
+  });
+
+  // -------------------------------------------------------------------------
   // T11 — heart-of-the-fix regression (audit row A1-PRIMARY)
   // -------------------------------------------------------------------------
 
