@@ -928,6 +928,20 @@ export function mergeIslConfidenceIntoGraphFactors(
       ...(islMatch.value_source !== undefined && { value_source: islMatch.value_source }),
       ...(islMatch.value_extraction_type !== undefined && { value_extraction_type: islMatch.value_extraction_type }),
       ...(islMatch.value_defaulted !== undefined && { value_defaulted: islMatch.value_defaulted }),
+      // Lane A1 — structural-vs-tunable preservation. ISL marks
+      // intervention-controlled option levers as NOT independently tunable
+      // (sensitivity_score: 0 + zero_reason: 'intervention_override'). The graph
+      // computes a non-zero topological influence for those same nodes, so the
+      // `...gf` spread above would otherwise expose that as a tunable
+      // sensitivity. Key ONLY on ISL's existing zero_reason — do not re-derive
+      // lever status from graph topology or option interventions. `influence_score`
+      // (graph structural importance) and `source` ('graph', a legacy/object
+      // provenance label) are deliberately left unchanged; the authority for
+      // tunability is `zero_reason === 'intervention_override'` + sensitivity 0.
+      ...(islMatch.zero_reason === 'intervention_override' && {
+        sensitivity_score: islMatch.sensitivity_score ?? 0,
+        zero_reason: 'intervention_override',
+      }),
     };
   });
 
