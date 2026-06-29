@@ -200,6 +200,47 @@ describe('Lane A1 — /v2/run egress preserves intervention_override lever sensi
     }
   });
 
+  it('P0a: levers carry NO evpi_percentage_points (absent, not 0) and value_of_information 0; non-levers retain the EVPI field', async () => {
+    // winProbSpread here = 0.62 - 0.38 = 0.24 > 0, so the heuristic EVPI loop in
+    // routes/v2/run.ts fires over the merged factor_sensitivity (graph+isl_merge).
+    const res = await fetch(`${baseUrl}/v2/run`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ graph: GRAPH, options: OPTIONS, goal_node_id: 'goal', seed: '42' }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    const factors = body.factor_sensitivity as any[];
+
+    // NEGATIVE (RED pre-P0a: lever VOI=0 → computeEvpiPercentagePoints returns a
+    // confident 0, so the lever previously egressed evpi_percentage_points: 0):
+    // every lever must now have the field ABSENT (skipped), and VOI not positive.
+    for (const id of LEVERS) {
+      const f = factors.find((x: any) => x.factor_id === id);
+      expect(f.evpi_percentage_points, `${id} evpi absent`).toBeUndefined();
+      expect(f.evpi_method, `${id} evpi_method absent`).toBeUndefined();
+      expect(f.value_of_information ?? 0, `${id} VOI not positive`).toBeLessThanOrEqual(0);
+    }
+
+    // POSITIVE (no over-suppression / no silent blanking): non-levers are NOT
+    // skipped — they retain the evpi_percentage_points field (here 0, since this
+    // fixture carries no fragile edges so graph VOI is 0; the dedicated egress
+    // test asserts a strictly-positive non-lever EVPI). Field presence is the
+    // honest guarantee: levers lose it, non-levers keep it.
+    for (const id of NON_LEVERS) {
+      const f = factors.find((x: any) => x.factor_id === id);
+      expect(f.evpi_percentage_points, `${id} evpi present`).toBeDefined();
+      expect(f.evpi_method, `${id} evpi labelled heuristic`).toBe('heuristic');
+    }
+
+    // The lever fac_leadership_capacity has the HIGHEST raw graph influence_score
+    // (it is the strongest topological driver), yet it does NOT surface with an
+    // EVPI — it cannot be ranked as the investigation/validation priority.
+    const maxInfluence = factors.reduce((m, f) => Math.max(m, f.influence_score ?? 0), 0);
+    const topInfluence = factors.find((f) => (f.influence_score ?? 0) === maxInfluence);
+    expect(LEVERS).toContain(topInfluence.factor_id);
+    expect(topInfluence.evpi_percentage_points).toBeUndefined();
+  });
+
   const LEVER_LABELS = ['Technical Leadership Capacity', 'Additional Developer Capacity', 'Annual Hiring Cost'];
   const NONLEVER_LABELS = ['Launch Deadline Pressure', 'Existing Team Size'];
 

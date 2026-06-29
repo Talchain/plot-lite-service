@@ -4305,6 +4305,15 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           const winProbSpread = winProbs.length >= 2 ? winProbs[0] - winProbs[1] : 0;
           if (winProbSpread > 0) {
             for (const f of factorSensitivity) {
+              // P0a: never emit EVPI for an option-pinned lever
+              // (zero_reason === 'intervention_override'). Its VOI is forced to 0
+              // in mergeIslConfidenceIntoGraphFactors, and computeEvpiPercentagePoints(0, …)
+              // returns a confident 0 (not undefined) — which would still render an
+              // EVPI chip and rank the lever as an "investigation priority". Skip it
+              // entirely so evpi_percentage_points is ABSENT (preserving the
+              // missing-vs-zero contract), not 0. Belt-and-braces with the
+              // producer-side VOI zeroing; suppression only, no EVPI rename/redefine.
+              if (f.zero_reason === 'intervention_override') continue;
               const evpiPp = computeEvpiPercentagePoints(f.value_of_information, winProbSpread);
               if (evpiPp !== undefined) {
                 f.evpi_percentage_points = evpiPp;

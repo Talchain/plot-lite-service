@@ -954,6 +954,17 @@ export function mergeIslConfidenceIntoGraphFactors(
         // durable guarantee is the explicit zero_reason predicate at each
         // tunability/evidence surface; this is defence-in-depth. (A1b brief §1/§3.)
         elasticity: 0,
+        // P0a: a lever's value_of_information is 0 by the same contract.
+        // `value_of_information` is computed pre-merge in
+        // computeFactorSensitivityFromGraph from the lever's non-zero topological
+        // influence (and carried through by the `...gf` spread above); the EVPI
+        // enrichment loop in routes/v2/run.ts derives evpi_percentage_points from
+        // it, so without this a lever would publish a positive EVPI and surface as
+        // a top "investigation priority / resolvable uncertainty" in consumers
+        // (e.g. the UI factor card). Resolving knowledge of an option-pinned value
+        // the user sets is not an information gain, so VOI is 0 — same suppression
+        // posture as sensitivity_score/elasticity above, NOT a new EVPI definition.
+        value_of_information: 0,
       }),
     };
   });
