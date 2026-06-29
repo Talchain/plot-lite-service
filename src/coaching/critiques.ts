@@ -6,7 +6,7 @@
 
 import type { CoachingInputs, Critique, CritiqueType } from './types.js';
 import { getThresholds } from './thresholds.js';
-import { isInterventionOverride } from './sensitivity-filter.js';
+import { isInterventionOverride, filterInterventionOverrides } from './sensitivity-filter.js';
 
 export function generateCritiques(inputs: CoachingInputs): Critique[] {
   const critiques: Critique[] = [];
@@ -40,7 +40,13 @@ export function generateCritiques(inputs: CoachingInputs): Critique[] {
 }
 
 function checkDominantFactor(inputs: CoachingInputs, thresholds: ReturnType<typeof getThresholds>): Critique | null {
-  const { factorSensitivity } = inputs;
+  // A1b: DOMINANT_FACTOR is a tunability critique — it names the dominant factor in
+  // a "what would change if {x} had less influence?" challenge. Exclude option-pinned
+  // levers via the explicit zero_reason predicate (the durable guarantee — NOT
+  // reliant on producer elasticity:0) so a lever is never named as the dominant
+  // tunable factor. Single application point: inputs.factorSensitivity is the raw
+  // coaching array, not already filtered.
+  const factorSensitivity = filterInterventionOverrides(inputs.factorSensitivity);
   if (factorSensitivity.length === 0) return null;
 
   const absElasticities = factorSensitivity.map((f) => Math.abs(f.elasticity ?? 0));

@@ -198,3 +198,44 @@ describe('A1b — checkMissingRiskPathway materiality guard', () => {
     expect(hasMissingRiskCritique(coachingInputs(factors, { graph: NO_RISK_GRAPH }))).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// checkDominantFactor — DOMINANT_FACTOR is a tunability critique ("what would
+// change if {x} had less influence?"); option-pinned levers must never be named
+// as the dominant tunable factor. Excluded via the explicit predicate (durable
+// guarantee), not producer elasticity:0. Levers here carry a NON-ZERO elasticity
+// so the test proves the predicate, not the producer value.
+// ---------------------------------------------------------------------------
+describe('A1b — checkDominantFactor excludes intervention_override levers', () => {
+  function dominantCritique(inputs: CoachingInputs) {
+    return generateCritiques(inputs).find(c => c.type === 'DOMINANT_FACTOR');
+  }
+
+  it('a high-elasticity lever is NOT named as the dominant factor (RED pre-A1b: lever named)', () => {
+    const factors = [
+      normFactor({ node_id: 'fac_leadership_capacity', label: LEVER, elasticity: 10, importance_rank: 1, influence_score: 1, zero_reason: 'intervention_override' }),
+      normFactor({ node_id: 'fac_time_pressure', label: NONLEVER, elasticity: 0.1, importance_rank: 2, influence_score: 0.1, direction: 'negative' }),
+    ];
+    const dom = dominantCritique(coachingInputs(factors));
+    expect(dom?.targets ?? []).not.toContain('fac_leadership_capacity');
+    expect(dom?.challenge_question ?? '').not.toContain(LEVER);
+    expect(dom?.suggested_action ?? '').not.toContain(LEVER);
+  });
+
+  it('a non-lever factor can still be named as dominant (predicate does not break detection)', () => {
+    const factors = [
+      normFactor({ node_id: 'fac_time_pressure', label: NONLEVER, elasticity: 10, importance_rank: 1, influence_score: 1, direction: 'negative' }),
+      normFactor({ node_id: 'fac_team_size', label: 'Existing Team Size', elasticity: 0.1, importance_rank: 2, influence_score: 0.1, direction: 'positive' }),
+    ];
+    const dom = dominantCritique(coachingInputs(factors));
+    expect(dom, 'DOMINANT_FACTOR fires for a real non-lever dominance').toBeDefined();
+    expect(dom!.targets).toContain('fac_time_pressure');
+  });
+
+  it('unrelated critique behaviour unchanged: NARROW_FRAMING still fires with a lever present', () => {
+    // Filter is LOCAL to checkDominantFactor — other critiques are unaffected.
+    const factors = [normFactor({ node_id: 'fac_leadership_capacity', label: LEVER, elasticity: 10, importance_rank: 1, influence_score: 1, zero_reason: 'intervention_override' })];
+    const types = generateCritiques(coachingInputs(factors)).map(c => c.type);
+    expect(types).toContain('NARROW_FRAMING'); // 2 options, no status-quo → fires regardless of factors
+  });
+});
