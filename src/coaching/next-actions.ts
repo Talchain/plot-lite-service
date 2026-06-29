@@ -11,6 +11,8 @@ import type { CoachingInputs, Critique, NextAction, Readiness, HeadlineType, Evi
 import { getThresholds } from './thresholds.js';
 import { computeKeyDrivers } from './key-drivers.js';
 import { deriveReadinessTone, type ReadinessToneReason, type ReadinessToneResult } from './readiness-tone.js';
+// A1c: the P3 fragile-edge action must not name an edge sourced from an option-pinned lever.
+import { filterLeverSourcedFragileEdges } from '../lib/intervention-override.js';
 
 export function generateNextActions(
   inputs: CoachingInputs,
@@ -24,6 +26,12 @@ export function generateNextActions(
   // Compute readiness (unchanged semantics — downstream consumers depend on it).
   const readiness = computeReadiness(headlineType, critiques, evidenceGaps, thresholds);
 
+  // A1c: the P3 "Validate the {edge} assumption" action must not name an edge
+  // SOURCED from an option-pinned lever; pick the top non-lever fragile edge
+  // (fallback: undefined → the P3 fragile-edge action is skipped).
+  const a1cLeverIds = inputs.interventionTargetIds ?? new Set<string>();
+  const a1cTunableFragileEdges = filterLeverSourcedFragileEdges(inputs.fragileEdges, a1cLeverIds, (e) => e.fromId);
+
   // Build context for action interpolation
   const context = {
     readiness,
@@ -31,7 +39,7 @@ export function generateNextActions(
     critiques,
     evidenceGaps,
     topGap: evidenceGaps[0],
-    topFragileEdge: inputs.fragileEdges[0],
+    topFragileEdge: a1cTunableFragileEdges[0],
     winner: inputs.options[0],
     optionCount: inputs.options.length,
     stability: inputs.robustness.recommendationStability,

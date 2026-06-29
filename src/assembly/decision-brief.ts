@@ -34,7 +34,7 @@ import type { RunResponseV3 } from '../types/engine-v3.js';
 import { STANDARD_N_SAMPLES_DEFAULT } from '../config/sampling.js';
 // A1b: intervention-controlled levers are not independently tunable; exclude them
 // from the |elasticity|-ranked tunability surfaces (top_drivers, what_would_change).
-import { filterInterventionOverrides } from '../lib/intervention-override.js';
+import { filterInterventionOverrides, interventionOverrideFactorIds, filterLeverSourcedFragileEdges } from '../lib/intervention-override.js';
 
 // =============================================================================
 // Constants
@@ -311,9 +311,13 @@ function buildKeyAssumptions(input: BriefAssemblyInput): string[] {
 }
 
 function buildWhatWouldChange(input: BriefAssemblyInput): string[] {
-  // Primary: fragile edges
-  const fragileEdges = input.robustness?.fragile_edges;
-  if (fragileEdges && fragileEdges.length > 0) {
+  // A1c: lever-id set from zero_reason (BriefAssemblyInput carries no interventionTargetIds).
+  const leverIds = interventionOverrideFactorIds(input.factor_sensitivity ?? []);
+  // Primary: fragile edges — A1c excludes edges SOURCED from an option-pinned lever
+  // ("lever → X" here would imply the user can tune the pinned lever). Non-lever
+  // fragile edges are kept; if none remain, fall through to the (A1b-filtered) factor path.
+  const fragileEdges = filterLeverSourcedFragileEdges(input.robustness?.fragile_edges ?? [], leverIds, (e) => e.from_id);
+  if (fragileEdges.length > 0) {
     return fragileEdges
       .map(e => {
         const from = e.from_label?.trim() || e.from_id;
