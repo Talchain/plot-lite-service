@@ -246,6 +246,13 @@ export function detectHeadlineType(inputs: CoachingInputs): HeadlineType {
   const stability = robustness.recommendationStability;
   const hasFactorSensitivity = factorSensitivity.length > 0;
 
+  // A1b: VoI classification must not be driven by option-pinned levers. Exclude
+  // levers for the VoI site ONLY — the hasFactorSensitivity existence check above
+  // keeps the original array. Mirrors generateHeadlines so both classify
+  // consistently, and does not rely on the producer elasticity:0 alone (the
+  // explicit predicate is the durable guarantee).
+  const tunable = filterInterventionOverrides(factorSensitivity);
+
   // Get top fragile edge (highest switch probability)
   const topFragile = fragileEdges
     .filter((e) => e.switchProb >= thresholds.headline_fragile_edge_min)
@@ -254,7 +261,7 @@ export function detectHeadlineType(inputs: CoachingInputs): HeadlineType {
   const topFragileSwitchProb = topFragile?.switchProb ?? 0;
 
   // Compute evidence gap influence
-  const topGapVoI = computeTopGapInfluence(factorSensitivity);
+  const topGapVoI = computeTopGapInfluence(tunable);
 
   return selectHeadlineType(
     winProbDelta,

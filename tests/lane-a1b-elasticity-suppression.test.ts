@@ -14,7 +14,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { assembleBrief, type BriefAssemblyInput } from '../src/assembly/decision-brief.js';
-import { generateHeadlines } from '../src/coaching/headlines.js';
+import { generateHeadlines, detectHeadlineType } from '../src/coaching/headlines.js';
 import { generateCritiques } from '../src/coaching/critiques.js';
 import { computeKeyDrivers } from '../src/coaching/key-drivers.js';
 import { buildEvidencePriorityCard, type FactorInput } from '../src/review-pass/evidence-priority.js';
@@ -125,6 +125,23 @@ describe('A1b — headlines do not name levers as VoI/evidence gaps (existence c
     const factors = [normFactor({ node_id: 'fac_leadership_capacity', label: LEVER, elasticity: 1, confidence: 0.1, influence_score: 1, zero_reason: 'intervention_override' })];
     const headlines = generateHeadlines(coachingInputs(factors));
     expect(Object.keys(headlines).length).toBeGreaterThan(0); // winner headline still emitted
+  });
+
+  // Codex finding: detectHeadlineType (used by orchestrator) is the SAME headline
+  // VoI classification surface and must apply the predicate too — otherwise a
+  // high-elasticity lever drives high_uncertainty there while generateHeadlines
+  // (filtered) disagrees. RED pre-fix: detectHeadlineType returned high_uncertainty.
+  it('detectHeadlineType: high-elasticity intervention_override lever does NOT classify as high_uncertainty (no fragile edge)', () => {
+    const factors = [
+      normFactor({ node_id: 'fac_leadership_capacity', label: LEVER, elasticity: 1, confidence: 0.05, influence_score: 1, zero_reason: 'intervention_override' }),
+      normFactor({ node_id: 'fac_team_size', label: 'Existing Team Size', elasticity: 0.05, confidence: 0.9, influence_score: 0.05, direction: 'positive' }),
+    ];
+    // stability defined + clear winner delta + NO fragile edges → without the
+    // lever's stale VoI, the type is not high_uncertainty.
+    const inputs = coachingInputs(factors, { robustness: { level: 'high', recommendationStability: 0.85, isRobust: true } as any });
+    expect(detectHeadlineType(inputs)).not.toBe('high_uncertainty');
+    // Consistency: generateHeadlines on the same input must not name the lever.
+    expect(Object.values(generateHeadlines(inputs)).join(' || ')).not.toContain(LEVER);
   });
 });
 

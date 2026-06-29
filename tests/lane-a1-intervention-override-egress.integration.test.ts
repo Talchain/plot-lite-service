@@ -139,13 +139,15 @@ describe('Lane A1 — /v2/run egress preserves intervention_override lever sensi
 
   // Save/restore (not delete) so an ambient value — e.g. under CI — is preserved
   // and we don't leak an env change to other tests sharing the worker.
-  const ENV_KEYS = ['RATE_LIMIT_ENABLED', 'CEE_ORCHESTRATOR_ENABLED'] as const;
+  const ENV_KEYS = ['RATE_LIMIT_ENABLED', 'CEE_ORCHESTRATOR_ENABLED', 'ENABLE_REVIEW_PASS'] as const;
   const savedEnv: Record<string, string | undefined> = {};
 
   beforeAll(async () => {
     for (const k of ENV_KEYS) savedEnv[k] = process.env[k];
     process.env.RATE_LIMIT_ENABLED = '0';
     process.env.CEE_ORCHESTRATOR_ENABLED = '0';
+    // Emit the evidence_priority review card so the A1b exclusion is asserted, not skipped.
+    process.env.ENABLE_REVIEW_PASS = '1';
     app = await createServer();
     await app.listen({ port: 0, host: '127.0.0.1' });
     const addr = app.server.address();
@@ -230,12 +232,12 @@ describe('Lane A1 — /v2/run egress preserves intervention_override lever sensi
     const wwc = body.decision_brief.what_would_change ?? [];
     for (const lab of LEVER_LABELS) expect(wwc).not.toContain(lab);
 
-    // evidence-priority review card (if emitted): levers excluded.
-    const epCard = (body.review_cards ?? []).find((c: any) => /evidence/i.test(c.card_type ?? c.type ?? c.kind ?? ''));
-    if (epCard?.items) {
-      const epLabels = epCard.items.map((i: any) => i.factor_label ?? i.factor_id);
-      for (const lab of LEVER_LABELS) expect(epLabels).not.toContain(lab);
-    }
+    // evidence-priority review card (ENABLE_REVIEW_PASS on → emitted): levers excluded.
+    const epCard = (body.review_cards ?? []).find((c: any) => c.card_type === 'evidence_priority');
+    expect(epCard, 'evidence_priority card emitted').toBeDefined();
+    const epIds = (epCard.items ?? []).map((i: any) => i.factor_id);
+    for (const id of LEVERS) expect(epIds, `evidence-priority excludes ${id}`).not.toContain(id);
+    expect(epIds.length, 'a non-lever remains in evidence-priority').toBeGreaterThan(0);
 
     // story_headlines (if emitted): no lever named.
     const sh = body.m1_coaching?.story_headlines;
