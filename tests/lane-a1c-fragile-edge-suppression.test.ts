@@ -140,6 +140,27 @@ describe('A1c — story_headlines[high_uncertainty]', () => {
     expect(detectHeadlineType(inputs)).not.toBe('high_uncertainty');                       // type shifted (no qualifying fragile edge)
     expect(Object.values(generateHeadlines(inputs)).join(' || ')).not.toContain(LEVER_LABEL);
   });
+  it('VoI-DRIVEN high_uncertainty + only lever-sourced fragile edges → generic "key assumptions", never the lever', () => {
+    // Distinct branch from the type-shift fallback above: here a NON-lever factor with
+    // high VoI (|elasticity|·(1−confidence)=0.64 > headline_high_uncertainty_voi 0.30)
+    // holds the headline TYPE at high_uncertainty via the VoI arm of selectHeadlineType,
+    // independent of fragile edges. The sole fragile edge is lever-sourced → A1c drops it
+    // → topFragile undefined → the high_uncertainty template substitutes the generic
+    // 'key assumptions', NOT the lever label. RED pre-A1c: without the filter the lever
+    // edge (switchProb 0.6 ≥ 0.15) becomes topFragile and its label is named here.
+    const highVoiNonLever: NormalisedFactorSensitivity = {
+      node_id: NONLEVER, label: NONLEVER_LABEL, elasticity: 0.8, importance_rank: 1,
+      confidence: 0.2, direction: 'positive', influence_score: 0.8, zero_reason: undefined,
+    };
+    const inputs = ci(
+      [nfe(LEVER, LEVER_LABEL, 'out_delivery', 'On-Time Delivery', 0.6)], // only edge is lever-sourced
+      { factorSensitivity: [highVoiNonLever] },
+    );
+    expect(detectHeadlineType(inputs)).toBe('high_uncertainty');        // VoI-driven → type HOLDS
+    const text = Object.values(generateHeadlines(inputs)).join(' || ');
+    expect(text).toContain('key assumptions');                          // generic fallback copy
+    expect(text).not.toContain(LEVER_LABEL);                            // never the lever (the A1c guarantee)
+  });
 });
 
 describe('A1c — top_fragile_edge (m1-coaching composition)', () => {
