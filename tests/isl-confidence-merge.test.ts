@@ -470,6 +470,45 @@ describe('mergeIslConfidenceIntoGraphFactors', () => {
   });
 
   // -------------------------------------------------------------------------
+  // T10d (Lane A1b, producer) — matched intervention_override levers get a
+  // defensive `elasticity: 0` (so downstream `elasticity ?? influence_score`
+  // fallbacks short-circuit instead of re-leaking the preserved influence_score).
+  // sensitivity_score/zero_reason (A1) and influence_score/source/importance_rank
+  // remain as A1 left them; non-lever elasticity is byte-identical.
+  // RED pre-A1b: matched levers keep the graph-derived elasticity (`...gf`).
+  // -------------------------------------------------------------------------
+  it('T10d (Lane A1b): matched intervention_override levers get elasticity:0; non-levers + influence_score/importance_rank unchanged', () => {
+    const graphFactors: FactorSensitivityResultV3[] = [
+      makeGraphFactor('fac_leadership_capacity', { sensitivity_score: 0.4475, elasticity: 1, influence_score: 1, importance_rank: 1, direction: 'positive' }),
+      makeGraphFactor('fac_dev_capacity', { sensitivity_score: 0.23, elasticity: 0.5139664804469275, influence_score: 0.5139664804469275, importance_rank: 2, direction: 'positive' }),
+      makeGraphFactor('fac_time_pressure', { sensitivity_score: -0.2285, elasticity: 0.5106145251396648, influence_score: 0.5106145251396648, importance_rank: 3, direction: 'negative' }),
+    ];
+    const graphById = new Map(graphFactors.map(f => [f.factor_id, { ...f }]));
+    const islUnfiltered: FactorSensitivityResultV3[] = [
+      makeIslFactor('fac_leadership_capacity', { sensitivity_score: 0, zero_reason: 'intervention_override', attribution_stability: 'negligible' }),
+      makeIslFactor('fac_dev_capacity', { sensitivity_score: 0, zero_reason: 'intervention_override', attribution_stability: 'negligible' }),
+      makeIslFactor('fac_time_pressure', { sensitivity_score: 1, attribution_stability: 'low' }),
+    ];
+
+    const merged = mergeIslConfidenceIntoGraphFactors(graphFactors, islUnfiltered);
+
+    const LEVERS = ['fac_leadership_capacity', 'fac_dev_capacity'];
+    for (const id of LEVERS) {
+      const m = merged.find(f => f.factor_id === id)!;
+      expect(m.elasticity).toBe(0);                          // RED pre-A1b: graph-derived non-zero
+      expect(m.sensitivity_score).toBe(0);                  // A1 invariant preserved
+      expect(m.zero_reason).toBe('intervention_override');  // A1 invariant preserved
+      expect(m.influence_score).toBe(graphById.get(id)!.influence_score); // unchanged (graph)
+      expect(m.importance_rank).toBe(graphById.get(id)!.importance_rank); // unchanged
+      expect(m.source).toBe('graph');                       // unchanged
+    }
+    // Non-lever elasticity byte-identical to graph input.
+    const tp = merged.find(f => f.factor_id === 'fac_time_pressure')!;
+    expect(tp.elasticity).toBe(graphById.get('fac_time_pressure')!.elasticity);
+    expect(tp.zero_reason).not.toBe('intervention_override');
+  });
+
+  // -------------------------------------------------------------------------
   // T11 — heart-of-the-fix regression (audit row A1-PRIMARY)
   // -------------------------------------------------------------------------
 

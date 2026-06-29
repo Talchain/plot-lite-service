@@ -947,6 +947,13 @@ export function mergeIslConfidenceIntoGraphFactors(
         // tunable sensitivity. (influence_score / source stay graph-derived.)
         sensitivity_score: 0,
         zero_reason: 'intervention_override',
+        // A1b: defensive public producer value — NOT a measured elasticity and
+        // NO claim of low sensitivity/stability. Set to 0 (not omitted) so
+        // downstream `elasticity ?? influence_score` fallbacks short-circuit to 0
+        // instead of re-leaking the preserved non-zero influence_score. The
+        // durable guarantee is the explicit zero_reason predicate at each
+        // tunability/evidence surface; this is defence-in-depth. (A1b brief §1/§3.)
+        elasticity: 0,
       }),
     };
   });

@@ -32,6 +32,9 @@ import type {
 import { DECISION_BRIEF_VERSION } from '../types/decision-brief.js';
 import type { RunResponseV3 } from '../types/engine-v3.js';
 import { STANDARD_N_SAMPLES_DEFAULT } from '../config/sampling.js';
+// A1b: intervention-controlled levers are not independently tunable; exclude them
+// from the |elasticity|-ranked tunability surfaces (top_drivers, what_would_change).
+import { filterInterventionOverrides } from '../lib/intervention-override.js';
 
 // =============================================================================
 // Constants
@@ -256,8 +259,10 @@ function buildOptions(input: BriefAssemblyInput): BriefOption[] {
 }
 
 function buildTopDrivers(input: BriefAssemblyInput): BriefDriver[] {
-  const factors = input.factor_sensitivity;
-  if (!factors || factors.length === 0) return [];
+  // A1b: exclude intervention-controlled levers — top_drivers ranks by
+  // abs(elasticity) and would otherwise present option-pinned levers as tunable.
+  const factors = filterInterventionOverrides(input.factor_sensitivity ?? []);
+  if (factors.length === 0) return [];
 
   // Sort by absolute elasticity descending, ties broken by factor_id (node_id) bytewise ascending
   const withElasticity = factors
@@ -320,8 +325,9 @@ function buildWhatWouldChange(input: BriefAssemblyInput): string[] {
   }
 
   // Fallback: factor_sensitivity labels (top drivers by |elasticity|)
-  const factors = input.factor_sensitivity;
-  if (factors && factors.length > 0) {
+  // A1b: exclude intervention-controlled levers from this |elasticity|-ranked fallback.
+  const factors = filterInterventionOverrides(input.factor_sensitivity ?? []);
+  if (factors.length > 0) {
     return factors
       .filter(f => f.elasticity !== undefined && f.elasticity !== null)
       .sort((a, b) => Math.abs(b.elasticity!) - Math.abs(a.elasticity!))

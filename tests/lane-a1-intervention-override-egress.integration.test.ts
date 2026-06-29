@@ -139,13 +139,15 @@ describe('Lane A1 — /v2/run egress preserves intervention_override lever sensi
 
   // Save/restore (not delete) so an ambient value — e.g. under CI — is preserved
   // and we don't leak an env change to other tests sharing the worker.
-  const ENV_KEYS = ['RATE_LIMIT_ENABLED', 'CEE_ORCHESTRATOR_ENABLED'] as const;
+  const ENV_KEYS = ['RATE_LIMIT_ENABLED', 'CEE_ORCHESTRATOR_ENABLED', 'ENABLE_REVIEW_PASS'] as const;
   const savedEnv: Record<string, string | undefined> = {};
 
   beforeAll(async () => {
     for (const k of ENV_KEYS) savedEnv[k] = process.env[k];
     process.env.RATE_LIMIT_ENABLED = '0';
     process.env.CEE_ORCHESTRATOR_ENABLED = '0';
+    // Emit the evidence_priority review card so the A1b exclusion is asserted, not skipped.
+    process.env.ENABLE_REVIEW_PASS = '1';
     app = await createServer();
     await app.listen({ port: 0, host: '127.0.0.1' });
     const addr = app.server.address();
@@ -195,6 +197,53 @@ describe('Lane A1 — /v2/run egress preserves intervention_override lever sensi
       const f = factors.find((x: any) => x.factor_id === id);
       expect(f.sensitivity_score).not.toBe(0);
       expect(f.zero_reason ?? null).not.toBe('intervention_override');
+    }
+  });
+
+  const LEVER_LABELS = ['Technical Leadership Capacity', 'Additional Developer Capacity', 'Annual Hiring Cost'];
+  const NONLEVER_LABELS = ['Launch Deadline Pressure', 'Existing Team Size'];
+
+  it('A1b: levers absent from decision_brief.top_drivers / what_would_change; elasticity:0; non-levers present', async () => {
+    const res = await fetch(`${baseUrl}/v2/run`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ graph: GRAPH, options: OPTIONS, goal_node_id: 'goal', seed: '42' }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    const factors = body.factor_sensitivity;
+
+    // Producer: lever elasticity defensively zeroed (RED pre-A1b: graph-derived non-zero).
+    for (const id of LEVERS) {
+      expect(factors.find((x: any) => x.factor_id === id).elasticity, `${id} elasticity`).toBe(0);
+    }
+    // Non-lever elasticity unchanged (non-zero).
+    for (const id of NON_LEVERS) {
+      expect(factors.find((x: any) => x.factor_id === id).elasticity).not.toBe(0);
+    }
+
+    // decision_brief.top_drivers: levers excluded, non-lever(s) present (RED pre-A1b: levers rank top).
+    expect(body.decision_brief, 'decision_brief present').toBeDefined();
+    const td = (body.decision_brief.top_drivers ?? []).map((d: any) => d.factor_label);
+    expect(td.length).toBeGreaterThan(0);
+    for (const lab of LEVER_LABELS) expect(td, `top_drivers excludes ${lab}`).not.toContain(lab);
+    expect(NONLEVER_LABELS.some((lab) => td.includes(lab)), 'a non-lever surfaces as a top driver').toBe(true);
+
+    // decision_brief.what_would_change (factor fallback; fragile_edges empty): levers excluded.
+    const wwc = body.decision_brief.what_would_change ?? [];
+    for (const lab of LEVER_LABELS) expect(wwc).not.toContain(lab);
+
+    // evidence-priority review card (ENABLE_REVIEW_PASS on → emitted): levers excluded.
+    const epCard = (body.review_cards ?? []).find((c: any) => c.card_type === 'evidence_priority');
+    expect(epCard, 'evidence_priority card emitted').toBeDefined();
+    const epIds = (epCard.items ?? []).map((i: any) => i.factor_id);
+    for (const id of LEVERS) expect(epIds, `evidence-priority excludes ${id}`).not.toContain(id);
+    expect(epIds.length, 'a non-lever remains in evidence-priority').toBeGreaterThan(0);
+
+    // story_headlines (if emitted): no lever named.
+    const sh = body.m1_coaching?.story_headlines;
+    if (sh) {
+      const text = Object.values(sh).join(' || ');
+      for (const lab of LEVER_LABELS) expect(text, `headlines do not name ${lab}`).not.toContain(lab);
     }
   });
 });
