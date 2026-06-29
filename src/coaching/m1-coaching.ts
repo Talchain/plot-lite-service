@@ -14,6 +14,8 @@ import type {
 } from '../types/engine-v3.js';
 import { normaliseCoachingInputs } from './normalise-inputs.js';
 import { generateHeadlines, getFragileEdgeContext } from './headlines.js';
+// A1c: exclude lever-sourced fragile edges from top_fragile_edge.
+import { filterLeverSourcedFragileEdges } from '../lib/intervention-override.js';
 import { computeEvidenceGaps } from './evidence-gaps.js';
 import { generateCritiques } from './critiques.js';
 import { generateNextActions, computeReadiness } from './next-actions.js';
@@ -99,8 +101,13 @@ export function generateM1Coaching(
       );
     }
 
-    // Get fragile edge context if relevant
-    const topFragileEdge = getFragileEdgeContext(inputs.fragileEdges);
+    // Get fragile edge context if relevant.
+    // A1c: top_fragile_edge must not surface an edge SOURCED from an option-pinned
+    // lever; filter before selection (fallback: undefined when no non-lever edge).
+    const a1cLeverIds = inputs.interventionTargetIds ?? new Set<string>();
+    const topFragileEdge = getFragileEdgeContext(
+      filterLeverSourcedFragileEdges(inputs.fragileEdges, a1cLeverIds, (e) => e.fromId),
+    );
 
     // Phase 3: Differentiators (C1-C3)
     const assumptionsLedger = safeCompute(

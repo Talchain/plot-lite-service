@@ -8,6 +8,8 @@ import type { CoachingInputs, HeadlineType, StoryHeadlines, FragileEdgeContext }
 import { getThresholds } from './thresholds.js';
 // A1b: intervention-controlled levers are not tunable evidence/VoI gaps.
 import { filterInterventionOverrides } from './sensitivity-filter.js';
+// A1c: exclude fragile edges SOURCED from an option-pinned lever from the high_uncertainty headline.
+import { isLeverSourcedEdge } from '../lib/intervention-override.js';
 
 const HEADLINE_TEMPLATES = {
   clear_winner: '{option} outperforms by {deltaPoints} points with high confidence',
@@ -78,9 +80,15 @@ export function generateHeadlines(inputs: CoachingInputs): StoryHeadlines {
   // existence from headline reasoning). Used at both VoI sites below.
   const tunable = filterInterventionOverrides(factorSensitivity);
 
-  // Get top fragile edge (highest switch probability)
+  // Get top fragile edge (highest switch probability).
+  // A1c: exclude fragile edges SOURCED from an option-pinned lever — naming
+  // "lever → X ... could swing the outcome" in the high_uncertainty headline
+  // implies the user can tune a pinned lever. Non-lever fragile edges are kept;
+  // if none qualify, topFragile is undefined → the headline type shifts off
+  // high_uncertainty (no lever named, no fragile edge forced).
+  const leverIds = inputs.interventionTargetIds ?? new Set<string>();
   const topFragile = fragileEdges
-    .filter((e) => e.switchProb >= thresholds.headline_fragile_edge_min)
+    .filter((e) => e.switchProb >= thresholds.headline_fragile_edge_min && !isLeverSourcedEdge(e.fromId, leverIds))
     .sort((a, b) => b.switchProb - a.switchProb)[0];
 
   const topFragileSwitchProb = topFragile?.switchProb ?? 0;
@@ -253,9 +261,12 @@ export function detectHeadlineType(inputs: CoachingInputs): HeadlineType {
   // explicit predicate is the durable guarantee).
   const tunable = filterInterventionOverrides(factorSensitivity);
 
-  // Get top fragile edge (highest switch probability)
+  // Get top fragile edge (highest switch probability).
+  // A1c: exclude lever-sourced fragile edges from the high_uncertainty CLASSIFIER
+  // too, so the headline TYPE stays consistent with the (filtered) headline text.
+  const leverIds = inputs.interventionTargetIds ?? new Set<string>();
   const topFragile = fragileEdges
-    .filter((e) => e.switchProb >= thresholds.headline_fragile_edge_min)
+    .filter((e) => e.switchProb >= thresholds.headline_fragile_edge_min && !isLeverSourcedEdge(e.fromId, leverIds))
     .sort((a, b) => b.switchProb - a.switchProb)[0];
 
   const topFragileSwitchProb = topFragile?.switchProb ?? 0;
