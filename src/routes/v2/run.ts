@@ -1994,7 +1994,9 @@ function buildResponse(
   // Gated behind ENABLE_REVIEW_PASS. Excluded from response_hash.
   const assembledReviewCards: ProposalCardV1[] = [];
   if (FLAGS.ENABLE_REVIEW_PASS) {
-    const epFactors: FactorInput[] = (factorSensitivity ?? []).map((fs: any) => ({
+    // A1b: exclude intervention-controlled levers from the evidence-priority card
+    // (ranked by abs(elasticity)) — option-pinned levers are not tunable evidence gaps.
+    const epFactors: FactorInput[] = filterInterventionOverrides(factorSensitivity ?? []).map((fs: any) => ({
       factor_id: fs.factor_id,
       factor_label: fs.factor_label ?? fs.factor_id,
       elasticity: fs.elasticity ?? fs.sensitivity_score ?? 0,

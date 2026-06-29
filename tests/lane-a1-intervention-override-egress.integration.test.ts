@@ -197,4 +197,51 @@ describe('Lane A1 — /v2/run egress preserves intervention_override lever sensi
       expect(f.zero_reason ?? null).not.toBe('intervention_override');
     }
   });
+
+  const LEVER_LABELS = ['Technical Leadership Capacity', 'Additional Developer Capacity', 'Annual Hiring Cost'];
+  const NONLEVER_LABELS = ['Launch Deadline Pressure', 'Existing Team Size'];
+
+  it('A1b: levers absent from decision_brief.top_drivers / what_would_change; elasticity:0; non-levers present', async () => {
+    const res = await fetch(`${baseUrl}/v2/run`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ graph: GRAPH, options: OPTIONS, goal_node_id: 'goal', seed: '42' }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    const factors = body.factor_sensitivity;
+
+    // Producer: lever elasticity defensively zeroed (RED pre-A1b: graph-derived non-zero).
+    for (const id of LEVERS) {
+      expect(factors.find((x: any) => x.factor_id === id).elasticity, `${id} elasticity`).toBe(0);
+    }
+    // Non-lever elasticity unchanged (non-zero).
+    for (const id of NON_LEVERS) {
+      expect(factors.find((x: any) => x.factor_id === id).elasticity).not.toBe(0);
+    }
+
+    // decision_brief.top_drivers: levers excluded, non-lever(s) present (RED pre-A1b: levers rank top).
+    expect(body.decision_brief, 'decision_brief present').toBeDefined();
+    const td = (body.decision_brief.top_drivers ?? []).map((d: any) => d.factor_label);
+    expect(td.length).toBeGreaterThan(0);
+    for (const lab of LEVER_LABELS) expect(td, `top_drivers excludes ${lab}`).not.toContain(lab);
+    expect(NONLEVER_LABELS.some((lab) => td.includes(lab)), 'a non-lever surfaces as a top driver').toBe(true);
+
+    // decision_brief.what_would_change (factor fallback; fragile_edges empty): levers excluded.
+    const wwc = body.decision_brief.what_would_change ?? [];
+    for (const lab of LEVER_LABELS) expect(wwc).not.toContain(lab);
+
+    // evidence-priority review card (if emitted): levers excluded.
+    const epCard = (body.review_cards ?? []).find((c: any) => /evidence/i.test(c.card_type ?? c.type ?? c.kind ?? ''));
+    if (epCard?.items) {
+      const epLabels = epCard.items.map((i: any) => i.factor_label ?? i.factor_id);
+      for (const lab of LEVER_LABELS) expect(epLabels).not.toContain(lab);
+    }
+
+    // story_headlines (if emitted): no lever named.
+    const sh = body.m1_coaching?.story_headlines;
+    if (sh) {
+      const text = Object.values(sh).join(' || ');
+      for (const lab of LEVER_LABELS) expect(text, `headlines do not name ${lab}`).not.toContain(lab);
+    }
+  });
 });

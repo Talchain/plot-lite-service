@@ -6,6 +6,8 @@
 
 import type { CoachingInputs, HeadlineType, StoryHeadlines, FragileEdgeContext } from './types.js';
 import { getThresholds } from './thresholds.js';
+// A1b: intervention-controlled levers are not tunable evidence/VoI gaps.
+import { filterInterventionOverrides } from './sensitivity-filter.js';
 
 const HEADLINE_TEMPLATES = {
   clear_winner: '{option} outperforms by {deltaPoints} points with high confidence',
@@ -70,6 +72,12 @@ export function generateHeadlines(inputs: CoachingInputs): StoryHeadlines {
   const stability = robustness.recommendationStability;
   const hasFactorSensitivity = factorSensitivity.length > 0;
 
+  // A1b: VoI/evidence derivation must not name option-pinned levers as tunable
+  // gaps. Exclude levers for the VoI sites ONLY — the hasFactorSensitivity
+  // existence check above keeps the original array (we do not erase lever
+  // existence from headline reasoning). Used at both VoI sites below.
+  const tunable = filterInterventionOverrides(factorSensitivity);
+
   // Get top fragile edge (highest switch probability)
   const topFragile = fragileEdges
     .filter((e) => e.switchProb >= thresholds.headline_fragile_edge_min)
@@ -78,7 +86,7 @@ export function generateHeadlines(inputs: CoachingInputs): StoryHeadlines {
   const topFragileSwitchProb = topFragile?.switchProb ?? 0;
 
   // Compute evidence gap influence (simplified for now)
-  const topGapVoI = computeTopGapInfluence(factorSensitivity);
+  const topGapVoI = computeTopGapInfluence(tunable);
 
   // Select headline type
   const headlineType = selectHeadlineType(
@@ -120,7 +128,7 @@ export function generateHeadlines(inputs: CoachingInputs): StoryHeadlines {
       break;
     case 'needs_evidence': {
       // Find factor with highest VoI (impact × uncertainty)
-      const topGap = factorSensitivity
+      const topGap = tunable
         .map((f) => ({
           label: f.label,
           voi: Math.abs(f.elasticity ?? f.influence_score ?? 0) * (1 - (f.confidence ?? 0.5)),

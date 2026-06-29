@@ -6,6 +6,7 @@
 
 import type { CoachingInputs, Critique, CritiqueType } from './types.js';
 import { getThresholds } from './thresholds.js';
+import { isInterventionOverride } from './sensitivity-filter.js';
 
 export function generateCritiques(inputs: CoachingInputs): Critique[] {
   const critiques: Critique[] = [];
@@ -65,9 +66,19 @@ function checkMissingRiskPathway(inputs: CoachingInputs): Critique | null {
   const { factorSensitivity, graph } = inputs;
 
   // Primary check: factor_sensitivity direction field from ISL
+  const MATERIALITY_THRESHOLD = 0.01;
   const negativeFactors = factorSensitivity.filter((f) => f.direction === 'negative');
-  const materialNegativeFactors = negativeFactors.filter(
-    (f) => Math.abs(f.elasticity ?? 0) > 0.01
+  // A1b: for intervention-controlled levers the producer zeroes `elasticity`
+  // (defence-in-depth), so materiality for a lever must use its PRESERVED
+  // structural magnitude `influence_score` — NOT the zeroed elasticity (would
+  // drop a material lever from the negative set → false MISSING_RISK_PATHWAY) and
+  // NOT unconditional materiality (would wrongly keep a negligible lever). For
+  // graph factors influence_score === elasticity === normalised_influence, so the
+  // 0.01 threshold is on the same scale and recovers the exact pre-A1b decision.
+  const materialNegativeFactors = negativeFactors.filter((f) =>
+    isInterventionOverride(f)
+      ? Math.abs(f.influence_score ?? 0) > MATERIALITY_THRESHOLD
+      : Math.abs(f.elasticity ?? 0) > MATERIALITY_THRESHOLD
   );
 
   if (materialNegativeFactors.length > 0) return null;
