@@ -509,6 +509,44 @@ describe('mergeIslConfidenceIntoGraphFactors', () => {
   });
 
   // -------------------------------------------------------------------------
+  // T10e (P0a, producer) — matched intervention_override levers get a
+  // defensive `value_of_information: 0`. The graph computes a non-zero VOI for a
+  // lever from its topological influence (computeFactorSensitivityFromGraph),
+  // and the `...gf` spread carries it through the merge; without the override
+  // the lever would publish a positive VOI, from which the /v2/run EVPI loop
+  // derives a positive evpi_percentage_points (lever surfaces as a top
+  // "investigation priority"). sensitivity_score/elasticity/zero_reason (A1/A1b)
+  // and influence_score (structural) are unaffected; non-lever VOI is unchanged.
+  // RED pre-P0a: matched levers keep the graph-derived value_of_information.
+  // -------------------------------------------------------------------------
+  it('T10e (P0a): matched intervention_override levers get value_of_information:0; non-lever VOI unchanged', () => {
+    const graphFactors: FactorSensitivityResultV3[] = [
+      makeGraphFactor('fac_leadership_capacity', { sensitivity_score: 0.4475, elasticity: 1, influence_score: 1, value_of_information: 0.42, importance_rank: 1, direction: 'positive' }),
+      makeGraphFactor('fac_dev_capacity', { sensitivity_score: 0.23, elasticity: 0.51, influence_score: 0.51, value_of_information: 0.21, importance_rank: 2, direction: 'positive' }),
+      makeGraphFactor('fac_time_pressure', { sensitivity_score: -0.2285, elasticity: 0.51, influence_score: 0.51, value_of_information: 0.18, importance_rank: 3, direction: 'negative' }),
+    ];
+    const islUnfiltered: FactorSensitivityResultV3[] = [
+      makeIslFactor('fac_leadership_capacity', { sensitivity_score: 0, zero_reason: 'intervention_override', attribution_stability: 'negligible' }),
+      makeIslFactor('fac_dev_capacity', { sensitivity_score: 0, zero_reason: 'intervention_override', attribution_stability: 'negligible' }),
+      makeIslFactor('fac_time_pressure', { sensitivity_score: 1, attribution_stability: 'low' }),
+    ];
+
+    const graphById = new Map(graphFactors.map(f => [f.factor_id, { ...f }]));
+    const merged = mergeIslConfidenceIntoGraphFactors(graphFactors, islUnfiltered);
+
+    for (const id of ['fac_leadership_capacity', 'fac_dev_capacity']) {
+      const m = merged.find(f => f.factor_id === id)!;
+      expect(m.value_of_information).toBe(0);               // RED pre-P0a: graph-derived non-zero (0.42 / 0.21)
+      expect(m.zero_reason).toBe('intervention_override');  // A1 invariant preserved
+      expect(m.influence_score).toBe(graphById.get(id)!.influence_score); // structural importance untouched
+    }
+    // Non-lever VOI byte-identical to graph input (no over-suppression).
+    const tp = merged.find(f => f.factor_id === 'fac_time_pressure')!;
+    expect(tp.value_of_information).toBe(0.18);
+    expect(tp.zero_reason).not.toBe('intervention_override');
+  });
+
+  // -------------------------------------------------------------------------
   // T11 — heart-of-the-fix regression (audit row A1-PRIMARY)
   // -------------------------------------------------------------------------
 
