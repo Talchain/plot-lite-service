@@ -269,6 +269,20 @@ describe('headers on OPTIONS preflight', () => {
     const allowedHeaders = res.headers.get('Access-Control-Allow-Headers')?.toLowerCase() || '';
     expect(allowedHeaders).toContain('x-olumi-payload-hash');
   });
+
+  it('includes x-olumi-sdk in Access-Control-Allow-Headers', async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/v1/run`, {
+      method: 'OPTIONS',
+      headers: {
+        'Origin': 'http://localhost:5173',
+        'Access-Control-Request-Method': 'POST',
+        'Access-Control-Request-Headers': 'content-type,x-olumi-sdk',
+      },
+    });
+    expect([200, 204]).toContain(res.status);
+    const allowedHeaders = res.headers.get('Access-Control-Allow-Headers')?.toLowerCase() || '';
+    expect(allowedHeaders).toContain('x-olumi-sdk');
+  });
 });
 
 describe('headers on HEAD requests', () => {
