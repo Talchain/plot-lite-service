@@ -72,9 +72,12 @@ export function buildCritique(inputs: CritiqueInputs): CritiqueItem[] {
     });
   } else if (graph.edges.length > edge_soft_limit) {
     items.push({
+      // Advisory carries its own code so downstream humanisers/UIs can key
+      // on it instead of falling through to generic-copy handling.
+      code: CRITIQUE_CODES.GRAPH_DENSE,
       severity: 'IMPROVEMENT',
       semantic_severity: 'WARNING',
-      message: `Dense graph: ${graph.edges.length} edges (recommended maximum: ${edge_soft_limit}). Results are unaffected, but analysis is slower and harder to interpret.`,
+      message: `Dense graph: ${graph.edges.length} edges (recommended maximum: ${edge_soft_limit}). Analysis is slower and harder to interpret at this density.`,
       suggested_action: 'Remove weak edges or group related factors',
       auto_fixable: false,
       source: 'engine',

@@ -91,7 +91,7 @@ describe('run-path edge caps (soft 120, hard 160)', () => {
     expect(advisories[0].severity).toBe('IMPROVEMENT');
     expect(advisories[0].semantic_severity).toBe('WARNING');
     expect(advisories[0].message).toContain('121 edges (recommended maximum: 120)');
-    expect(advisories[0].code).toBeUndefined();
+    expect(advisories[0].code).toBe('GRAPH_DENSE');
   });
 
   it('160 edges stays advisory, not blocking', () => {
