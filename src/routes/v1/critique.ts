@@ -10,6 +10,11 @@ import { buildModelCard, getActiveFeatureFlags } from '../../trust/model-card.js
 import { buildCritique } from '../../trust/critique-builder.js';
 import { checkIdentifiability } from '../../trust/identifiability.js';
 import type { Graph } from '../../trust/types.js';
+import {
+  RUN_CRITIQUE_NODE_LIMIT,
+  RUN_EDGE_SOFT_LIMIT,
+  RUN_EDGE_HARD_LIMIT,
+} from '../../constants/limits.js';
 
 export interface CritiqueRequest {
   graph: Graph;
@@ -67,7 +72,9 @@ export async function registerCritiqueRoute(app: FastifyInstance) {
       graph,
       assumptions,
       identifiable: identifiability.identifiable,
-      node_limit: 12,
+      node_limit: RUN_CRITIQUE_NODE_LIMIT,
+      edge_soft_limit: RUN_EDGE_SOFT_LIMIT,
+      edge_hard_limit: RUN_EDGE_HARD_LIMIT,
     });
 
     // Count auto-fixable issues

@@ -31,6 +31,20 @@ export const MAX_OPTIONS = LIMITS.MAX_OPTIONS;
 // CIL M5: Named constant for default edge exists_probability.
 // Canonical source: @talchain/schemas (re-exported above).
 
+// Run-path critique thresholds (PLoT-local; distinct from the contract-level
+// LIMITS above). The run path still computes results beyond these thresholds,
+// but flags them via critique:
+// - > RUN_CRITIQUE_NODE_LIMIT nodes  → BLOCKER critique, results marked approximate
+// - > RUN_EDGE_SOFT_LIMIT edges      → advisory (non-blocking) critique
+// - > RUN_EDGE_HARD_LIMIT edges      → BLOCKER critique, results marked approximate
+// Note: when SCM-Lite is enabled, request validation rejects graphs over
+// LIMITS.MAX_NODES / LIMITS.MAX_EDGES (50 / 100) with a 400 before any
+// critique is built, so the edge critique thresholds are only reachable on
+// non-SCM-Lite runs (internal validation bound: 200 nodes / 500 edges).
+export const RUN_CRITIQUE_NODE_LIMIT = 40;
+export const RUN_EDGE_SOFT_LIMIT = 120;
+export const RUN_EDGE_HARD_LIMIT = 160;
+
 // P.8: Maximum goal_constraints per request. Enforced on raw input count before
 // any compilation or filtering. DoS protection — ISL evaluates each constraint
 // via Monte Carlo; unbounded constraint arrays are a latent DoS vector.

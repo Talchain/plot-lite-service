@@ -1,0 +1,929 @@
+{
+  "seed": 4242,
+  "graph": {
+    "nodes": [
+      {
+        "id": "decision_pricing",
+        "label": "Decide pricing strategy",
+        "kind": "decision"
+      },
+      {
+        "id": "option_premium",
+        "label": "Premium pricing",
+        "kind": "option"
+      },
+      {
+        "id": "option_freemium",
+        "label": "Freemium tier",
+        "kind": "option"
+      },
+      {
+        "id": "option_hybrid",
+        "label": "Hybrid model",
+        "kind": "option"
+      },
+      {
+        "id": "factor_01",
+        "label": "Market factor 1",
+        "kind": "factor"
+      },
+      {
+        "id": "factor_02",
+        "label": "Market factor 2",
+        "kind": "factor"
+      },
+      {
+        "id": "factor_03",
+        "label": "Market factor 3",
+        "kind": "factor"
+      },
+      {
+        "id": "factor_04",
+        "label": "Market factor 4",
+        "kind": "factor"
+      },
+      {
+        "id": "factor_05",
+        "label": "Market factor 5",
+        "kind": "factor"
+      },
+      {
+        "id": "factor_06",
+        "label": "Market factor 6",
+        "kind": "factor"
+      },
+      {
+        "id": "factor_07",
+        "label": "Market factor 7",
+        "kind": "factor"
+      },
+      {
+        "id": "factor_08",
+        "label": "Market factor 8",
+        "kind": "factor"
+      },
+      {
+        "id": "factor_09",
+        "label": "Market factor 9",
+        "kind": "factor"
+      },
+      {
+        "id": "factor_10",
+        "label": "Market factor 10",
+        "kind": "factor"
+      },
+      {
+        "id": "factor_11",
+        "label": "Market factor 11",
+        "kind": "factor"
+      },
+      {
+        "id": "factor_12",
+        "label": "Market factor 12",
+        "kind": "factor"
+      },
+      {
+        "id": "factor_13",
+        "label": "Market factor 13",
+        "kind": "factor"
+      },
+      {
+        "id": "factor_14",
+        "label": "Market factor 14",
+        "kind": "factor"
+      },
+      {
+        "id": "factor_15",
+        "label": "Market factor 15",
+        "kind": "factor"
+      },
+      {
+        "id": "factor_16",
+        "label": "Market factor 16",
+        "kind": "factor"
+      },
+      {
+        "id": "factor_17",
+        "label": "Market factor 17",
+        "kind": "factor"
+      },
+      {
+        "id": "factor_18",
+        "label": "Market factor 18",
+        "kind": "factor"
+      },
+      {
+        "id": "factor_19",
+        "label": "Market factor 19",
+        "kind": "factor"
+      },
+      {
+        "id": "factor_20",
+        "label": "Market factor 20",
+        "kind": "factor"
+      },
+      {
+        "id": "outcome_01",
+        "label": "Business outcome 1",
+        "kind": "outcome"
+      },
+      {
+        "id": "outcome_02",
+        "label": "Business outcome 2",
+        "kind": "outcome"
+      },
+      {
+        "id": "outcome_03",
+        "label": "Business outcome 3",
+        "kind": "outcome"
+      },
+      {
+        "id": "outcome_04",
+        "label": "Business outcome 4",
+        "kind": "outcome"
+      },
+      {
+        "id": "outcome_05",
+        "label": "Business outcome 5",
+        "kind": "outcome"
+      },
+      {
+        "id": "outcome_06",
+        "label": "Business outcome 6",
+        "kind": "outcome"
+      },
+      {
+        "id": "outcome_07",
+        "label": "Business outcome 7",
+        "kind": "outcome"
+      },
+      {
+        "id": "outcome_08",
+        "label": "Business outcome 8",
+        "kind": "outcome"
+      },
+      {
+        "id": "outcome_09",
+        "label": "Business outcome 9",
+        "kind": "outcome"
+      },
+      {
+        "id": "outcome_10",
+        "label": "Business outcome 10",
+        "kind": "outcome"
+      },
+      {
+        "id": "risk_01",
+        "label": "Delivery risk 1",
+        "kind": "risk"
+      },
+      {
+        "id": "risk_02",
+        "label": "Delivery risk 2",
+        "kind": "risk"
+      },
+      {
+        "id": "risk_03",
+        "label": "Delivery risk 3",
+        "kind": "risk"
+      },
+      {
+        "id": "risk_04",
+        "label": "Delivery risk 4",
+        "kind": "risk"
+      },
+      {
+        "id": "risk_05",
+        "label": "Delivery risk 5",
+        "kind": "risk"
+      },
+      {
+        "id": "goal_revenue",
+        "label": "Grow annual revenue",
+        "kind": "goal"
+      }
+    ],
+    "edges": [
+      {
+        "from": "decision_pricing",
+        "to": "option_premium",
+        "weight": 0.3,
+        "belief": 0.6
+      },
+      {
+        "from": "decision_pricing",
+        "to": "option_freemium",
+        "weight": 0.5,
+        "belief": 0.9
+      },
+      {
+        "from": "decision_pricing",
+        "to": "option_hybrid",
+        "weight": 0.7,
+        "belief": 0.8
+      },
+      {
+        "from": "option_premium",
+        "to": "factor_01",
+        "weight": 0.4,
+        "belief": 0.7
+      },
+      {
+        "from": "option_premium",
+        "to": "factor_02",
+        "weight": 0.6,
+        "belief": 0.6
+      },
+      {
+        "from": "option_premium",
+        "to": "factor_03",
+        "weight": 0.3,
+        "belief": 0.9
+      },
+      {
+        "from": "option_premium",
+        "to": "factor_04",
+        "weight": 0.5,
+        "belief": 0.8
+      },
+      {
+        "from": "option_premium",
+        "to": "factor_05",
+        "weight": 0.7,
+        "belief": 0.7
+      },
+      {
+        "from": "option_premium",
+        "to": "factor_06",
+        "weight": 0.4,
+        "belief": 0.6
+      },
+      {
+        "from": "option_premium",
+        "to": "factor_07",
+        "weight": 0.6,
+        "belief": 0.9
+      },
+      {
+        "from": "option_premium",
+        "to": "factor_08",
+        "weight": 0.3,
+        "belief": 0.8
+      },
+      {
+        "from": "option_premium",
+        "to": "factor_09",
+        "weight": 0.5,
+        "belief": 0.7
+      },
+      {
+        "from": "option_premium",
+        "to": "factor_10",
+        "weight": 0.7,
+        "belief": 0.6
+      },
+      {
+        "from": "option_premium",
+        "to": "factor_11",
+        "weight": 0.4,
+        "belief": 0.9
+      },
+      {
+        "from": "option_premium",
+        "to": "factor_12",
+        "weight": 0.6,
+        "belief": 0.8
+      },
+      {
+        "from": "option_premium",
+        "to": "factor_13",
+        "weight": 0.3,
+        "belief": 0.7
+      },
+      {
+        "from": "option_premium",
+        "to": "factor_14",
+        "weight": 0.5,
+        "belief": 0.6
+      },
+      {
+        "from": "option_premium",
+        "to": "factor_15",
+        "weight": 0.7,
+        "belief": 0.9
+      },
+      {
+        "from": "option_premium",
+        "to": "factor_16",
+        "weight": 0.4,
+        "belief": 0.8
+      },
+      {
+        "from": "option_premium",
+        "to": "factor_17",
+        "weight": 0.6,
+        "belief": 0.7
+      },
+      {
+        "from": "option_premium",
+        "to": "factor_18",
+        "weight": 0.3,
+        "belief": 0.6
+      },
+      {
+        "from": "option_premium",
+        "to": "factor_19",
+        "weight": 0.5,
+        "belief": 0.9
+      },
+      {
+        "from": "option_premium",
+        "to": "factor_20",
+        "weight": 0.7,
+        "belief": 0.8
+      },
+      {
+        "from": "option_freemium",
+        "to": "factor_01",
+        "weight": 0.4,
+        "belief": 0.7
+      },
+      {
+        "from": "option_freemium",
+        "to": "factor_02",
+        "weight": 0.6,
+        "belief": 0.6
+      },
+      {
+        "from": "option_freemium",
+        "to": "factor_03",
+        "weight": 0.3,
+        "belief": 0.9
+      },
+      {
+        "from": "option_freemium",
+        "to": "factor_04",
+        "weight": 0.5,
+        "belief": 0.8
+      },
+      {
+        "from": "option_freemium",
+        "to": "factor_05",
+        "weight": 0.7,
+        "belief": 0.7
+      },
+      {
+        "from": "option_freemium",
+        "to": "factor_06",
+        "weight": 0.4,
+        "belief": 0.6
+      },
+      {
+        "from": "option_freemium",
+        "to": "factor_07",
+        "weight": 0.6,
+        "belief": 0.9
+      },
+      {
+        "from": "option_freemium",
+        "to": "factor_08",
+        "weight": 0.3,
+        "belief": 0.8
+      },
+      {
+        "from": "option_freemium",
+        "to": "factor_09",
+        "weight": 0.5,
+        "belief": 0.7
+      },
+      {
+        "from": "option_freemium",
+        "to": "factor_10",
+        "weight": 0.7,
+        "belief": 0.6
+      },
+      {
+        "from": "option_freemium",
+        "to": "factor_11",
+        "weight": 0.4,
+        "belief": 0.9
+      },
+      {
+        "from": "option_freemium",
+        "to": "factor_12",
+        "weight": 0.6,
+        "belief": 0.8
+      },
+      {
+        "from": "option_freemium",
+        "to": "factor_13",
+        "weight": 0.3,
+        "belief": 0.7
+      },
+      {
+        "from": "option_freemium",
+        "to": "factor_14",
+        "weight": 0.5,
+        "belief": 0.6
+      },
+      {
+        "from": "option_freemium",
+        "to": "factor_15",
+        "weight": 0.7,
+        "belief": 0.9
+      },
+      {
+        "from": "option_freemium",
+        "to": "factor_16",
+        "weight": 0.4,
+        "belief": 0.8
+      },
+      {
+        "from": "option_freemium",
+        "to": "factor_17",
+        "weight": 0.6,
+        "belief": 0.7
+      },
+      {
+        "from": "option_freemium",
+        "to": "factor_18",
+        "weight": 0.3,
+        "belief": 0.6
+      },
+      {
+        "from": "option_freemium",
+        "to": "factor_19",
+        "weight": 0.5,
+        "belief": 0.9
+      },
+      {
+        "from": "option_freemium",
+        "to": "factor_20",
+        "weight": 0.7,
+        "belief": 0.8
+      },
+      {
+        "from": "option_hybrid",
+        "to": "factor_01",
+        "weight": 0.4,
+        "belief": 0.7
+      },
+      {
+        "from": "option_hybrid",
+        "to": "factor_02",
+        "weight": 0.6,
+        "belief": 0.6
+      },
+      {
+        "from": "option_hybrid",
+        "to": "factor_03",
+        "weight": 0.3,
+        "belief": 0.9
+      },
+      {
+        "from": "option_hybrid",
+        "to": "factor_04",
+        "weight": 0.5,
+        "belief": 0.8
+      },
+      {
+        "from": "option_hybrid",
+        "to": "factor_05",
+        "weight": 0.7,
+        "belief": 0.7
+      },
+      {
+        "from": "option_hybrid",
+        "to": "factor_06",
+        "weight": 0.4,
+        "belief": 0.6
+      },
+      {
+        "from": "option_hybrid",
+        "to": "factor_07",
+        "weight": 0.6,
+        "belief": 0.9
+      },
+      {
+        "from": "option_hybrid",
+        "to": "factor_08",
+        "weight": 0.3,
+        "belief": 0.8
+      },
+      {
+        "from": "option_hybrid",
+        "to": "factor_09",
+        "weight": 0.5,
+        "belief": 0.7
+      },
+      {
+        "from": "option_hybrid",
+        "to": "factor_10",
+        "weight": 0.7,
+        "belief": 0.6
+      },
+      {
+        "from": "option_hybrid",
+        "to": "factor_11",
+        "weight": 0.4,
+        "belief": 0.9
+      },
+      {
+        "from": "option_hybrid",
+        "to": "factor_12",
+        "weight": 0.6,
+        "belief": 0.8
+      },
+      {
+        "from": "option_hybrid",
+        "to": "factor_13",
+        "weight": 0.3,
+        "belief": 0.7
+      },
+      {
+        "from": "option_hybrid",
+        "to": "factor_14",
+        "weight": 0.5,
+        "belief": 0.6
+      },
+      {
+        "from": "option_hybrid",
+        "to": "factor_15",
+        "weight": 0.7,
+        "belief": 0.9
+      },
+      {
+        "from": "option_hybrid",
+        "to": "factor_16",
+        "weight": 0.4,
+        "belief": 0.8
+      },
+      {
+        "from": "option_hybrid",
+        "to": "factor_17",
+        "weight": 0.6,
+        "belief": 0.7
+      },
+      {
+        "from": "option_hybrid",
+        "to": "factor_18",
+        "weight": 0.3,
+        "belief": 0.6
+      },
+      {
+        "from": "option_hybrid",
+        "to": "factor_19",
+        "weight": 0.5,
+        "belief": 0.9
+      },
+      {
+        "from": "option_hybrid",
+        "to": "factor_20",
+        "weight": 0.7,
+        "belief": 0.8
+      },
+      {
+        "from": "factor_01",
+        "to": "outcome_01",
+        "weight": 0.4,
+        "belief": 0.7
+      },
+      {
+        "from": "factor_02",
+        "to": "outcome_02",
+        "weight": 0.6,
+        "belief": 0.6
+      },
+      {
+        "from": "factor_03",
+        "to": "outcome_03",
+        "weight": 0.3,
+        "belief": 0.9
+      },
+      {
+        "from": "factor_04",
+        "to": "outcome_04",
+        "weight": 0.5,
+        "belief": 0.8
+      },
+      {
+        "from": "factor_05",
+        "to": "outcome_05",
+        "weight": 0.7,
+        "belief": 0.7
+      },
+      {
+        "from": "factor_06",
+        "to": "outcome_06",
+        "weight": 0.4,
+        "belief": 0.6
+      },
+      {
+        "from": "factor_07",
+        "to": "outcome_07",
+        "weight": 0.6,
+        "belief": 0.9
+      },
+      {
+        "from": "factor_08",
+        "to": "outcome_08",
+        "weight": 0.3,
+        "belief": 0.8
+      },
+      {
+        "from": "factor_09",
+        "to": "outcome_09",
+        "weight": 0.5,
+        "belief": 0.7
+      },
+      {
+        "from": "factor_10",
+        "to": "outcome_10",
+        "weight": 0.7,
+        "belief": 0.6
+      },
+      {
+        "from": "factor_11",
+        "to": "outcome_01",
+        "weight": 0.4,
+        "belief": 0.9
+      },
+      {
+        "from": "factor_12",
+        "to": "outcome_02",
+        "weight": 0.6,
+        "belief": 0.8
+      },
+      {
+        "from": "factor_13",
+        "to": "outcome_03",
+        "weight": 0.3,
+        "belief": 0.7
+      },
+      {
+        "from": "factor_14",
+        "to": "outcome_04",
+        "weight": 0.5,
+        "belief": 0.6
+      },
+      {
+        "from": "factor_15",
+        "to": "outcome_05",
+        "weight": 0.7,
+        "belief": 0.9
+      },
+      {
+        "from": "factor_16",
+        "to": "outcome_06",
+        "weight": 0.4,
+        "belief": 0.8
+      },
+      {
+        "from": "factor_17",
+        "to": "outcome_07",
+        "weight": 0.6,
+        "belief": 0.7
+      },
+      {
+        "from": "factor_18",
+        "to": "outcome_08",
+        "weight": 0.3,
+        "belief": 0.6
+      },
+      {
+        "from": "factor_19",
+        "to": "outcome_09",
+        "weight": 0.5,
+        "belief": 0.9
+      },
+      {
+        "from": "factor_20",
+        "to": "outcome_10",
+        "weight": 0.7,
+        "belief": 0.8
+      },
+      {
+        "from": "factor_01",
+        "to": "factor_02",
+        "weight": 0.4,
+        "belief": 0.7
+      },
+      {
+        "from": "factor_02",
+        "to": "factor_03",
+        "weight": 0.6,
+        "belief": 0.6
+      },
+      {
+        "from": "factor_03",
+        "to": "factor_04",
+        "weight": 0.3,
+        "belief": 0.9
+      },
+      {
+        "from": "factor_04",
+        "to": "factor_05",
+        "weight": 0.5,
+        "belief": 0.8
+      },
+      {
+        "from": "factor_05",
+        "to": "factor_06",
+        "weight": 0.7,
+        "belief": 0.7
+      },
+      {
+        "from": "factor_06",
+        "to": "factor_07",
+        "weight": 0.4,
+        "belief": 0.6
+      },
+      {
+        "from": "factor_07",
+        "to": "factor_08",
+        "weight": 0.6,
+        "belief": 0.9
+      },
+      {
+        "from": "factor_08",
+        "to": "factor_09",
+        "weight": 0.3,
+        "belief": 0.8
+      },
+      {
+        "from": "factor_09",
+        "to": "factor_10",
+        "weight": 0.5,
+        "belief": 0.7
+      },
+      {
+        "from": "factor_10",
+        "to": "factor_11",
+        "weight": 0.7,
+        "belief": 0.6
+      },
+      {
+        "from": "factor_11",
+        "to": "factor_12",
+        "weight": 0.4,
+        "belief": 0.9
+      },
+      {
+        "from": "factor_12",
+        "to": "factor_13",
+        "weight": 0.6,
+        "belief": 0.8
+      },
+      {
+        "from": "factor_13",
+        "to": "factor_14",
+        "weight": 0.3,
+        "belief": 0.7
+      },
+      {
+        "from": "factor_14",
+        "to": "factor_15",
+        "weight": 0.5,
+        "belief": 0.6
+      },
+      {
+        "from": "factor_15",
+        "to": "factor_16",
+        "weight": 0.7,
+        "belief": 0.9
+      },
+      {
+        "from": "factor_16",
+        "to": "factor_17",
+        "weight": 0.4,
+        "belief": 0.8
+      },
+      {
+        "from": "factor_17",
+        "to": "factor_18",
+        "weight": 0.6,
+        "belief": 0.7
+      },
+      {
+        "from": "risk_01",
+        "to": "outcome_01",
+        "weight": 0.3,
+        "belief": 0.6
+      },
+      {
+        "from": "risk_01",
+        "to": "outcome_02",
+        "weight": 0.5,
+        "belief": 0.9
+      },
+      {
+        "from": "risk_02",
+        "to": "outcome_03",
+        "weight": 0.7,
+        "belief": 0.8
+      },
+      {
+        "from": "risk_02",
+        "to": "outcome_04",
+        "weight": 0.4,
+        "belief": 0.7
+      },
+      {
+        "from": "risk_03",
+        "to": "outcome_05",
+        "weight": 0.6,
+        "belief": 0.6
+      },
+      {
+        "from": "risk_03",
+        "to": "outcome_06",
+        "weight": 0.3,
+        "belief": 0.9
+      },
+      {
+        "from": "risk_04",
+        "to": "outcome_07",
+        "weight": 0.5,
+        "belief": 0.8
+      },
+      {
+        "from": "risk_04",
+        "to": "outcome_08",
+        "weight": 0.7,
+        "belief": 0.7
+      },
+      {
+        "from": "risk_05",
+        "to": "outcome_09",
+        "weight": 0.4,
+        "belief": 0.6
+      },
+      {
+        "from": "risk_05",
+        "to": "outcome_10",
+        "weight": 0.6,
+        "belief": 0.9
+      },
+      {
+        "from": "outcome_01",
+        "to": "goal_revenue",
+        "weight": 0.3,
+        "belief": 0.8
+      },
+      {
+        "from": "outcome_02",
+        "to": "goal_revenue",
+        "weight": 0.5,
+        "belief": 0.7
+      },
+      {
+        "from": "outcome_03",
+        "to": "goal_revenue",
+        "weight": 0.7,
+        "belief": 0.6
+      },
+      {
+        "from": "outcome_04",
+        "to": "goal_revenue",
+        "weight": 0.4,
+        "belief": 0.9
+      },
+      {
+        "from": "outcome_05",
+        "to": "goal_revenue",
+        "weight": 0.6,
+        "belief": 0.8
+      },
+      {
+        "from": "outcome_06",
+        "to": "goal_revenue",
+        "weight": 0.3,
+        "belief": 0.7
+      },
+      {
+        "from": "outcome_07",
+        "to": "goal_revenue",
+        "weight": 0.5,
+        "belief": 0.6
+      },
+      {
+        "from": "outcome_08",
+        "to": "goal_revenue",
+        "weight": 0.7,
+        "belief": 0.9
+      },
+      {
+        "from": "outcome_09",
+        "to": "goal_revenue",
+        "weight": 0.4,
+        "belief": 0.8
+      },
+      {
+        "from": "outcome_10",
+        "to": "goal_revenue",
+        "weight": 0.6,
+        "belief": 0.7
+      }
+    ]
+  }
+}

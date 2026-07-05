@@ -102,8 +102,8 @@ export interface Belief {
 export interface KernelConfig {
   seed: number;
   K: number; // number of edge masks to sample
-  maxNodes: number; // hard cap (default 12)
-  maxEdges: number; // hard cap (default 20)
+  maxNodes: number; // hard cap (defaults to canonical MAX_NODES, 50)
+  maxEdges: number; // hard cap (defaults to canonical MAX_EDGES, 100)
   beliefDefault: number; // default edge belief (default 0.7)
   // EdgeV2 dual beliefs defaults
   beliefStrengthDefault?: number; // default belief_strength (default 0.8)

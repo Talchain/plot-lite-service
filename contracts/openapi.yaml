@@ -762,18 +762,39 @@ paths:
                     example: 50
                   max_edges:
                     type: integer
-                    example: 200
+                    example: 100
                   max_body_kb:
                     type: integer
                     example: 96
                     description: Maximum request body size in kilobytes
+                  run_critique_node_limit:
+                    type: integer
+                    example: 40
+                    description: >-
+                      Run-path critique threshold. Graphs with more nodes still
+                      compute, but a BLOCKER critique marks results approximate.
+                  run_edge_soft_limit:
+                    type: integer
+                    example: 120
+                    description: >-
+                      Advisory edge threshold. Graphs with more edges receive a
+                      non-blocking critique; results are unaffected.
+                  run_edge_hard_limit:
+                    type: integer
+                    example: 160
+                    description: >-
+                      Hard edge critique threshold. Graphs with more edges still
+                      compute, but a BLOCKER critique marks results approximate.
               examples:
                 success:
                   value:
                     schema: limits.v1
                     max_nodes: 50
-                    max_edges: 200
+                    max_edges: 100
                     max_body_kb: 96
+                    run_critique_node_limit: 40
+                    run_edge_soft_limit: 120
+                    run_edge_hard_limit: 160
         '500':
           description: Internal server error
           content:

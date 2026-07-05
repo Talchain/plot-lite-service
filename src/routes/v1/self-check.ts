@@ -17,6 +17,11 @@ import { checkIdentifiability } from '../../trust/identifiability.js';
 import { enforceComputeBudget } from '../../governance/cost-estimator.js';
 import { computeSensitivitySimple } from '../../lib/sensitivity-simple.js';
 import { buildDriversPayload, buildDiscriminationSignal, applyDiscriminationToDrivers } from '../../trust/drivers-builder.js';
+import {
+  RUN_CRITIQUE_NODE_LIMIT,
+  RUN_EDGE_SOFT_LIMIT,
+  RUN_EDGE_HARD_LIMIT,
+} from '../../constants/limits.js';
 
 export async function registerSelfCheckRoute(app: FastifyInstance) {
   app.get('/v1/self-check', async (req: FastifyRequest, reply: FastifyReply) => {
@@ -102,7 +107,9 @@ export async function registerSelfCheckRoute(app: FastifyInstance) {
       graph,
       assumptions: model_card.assumptions_summary,
       identifiable: identifiability.identifiable,
-      node_limit: 12,
+      node_limit: RUN_CRITIQUE_NODE_LIMIT,
+      edge_soft_limit: RUN_EDGE_SOFT_LIMIT,
+      edge_hard_limit: RUN_EDGE_HARD_LIMIT,
     });
 
     // Explain-Δ

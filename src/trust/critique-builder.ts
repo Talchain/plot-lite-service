@@ -5,12 +5,21 @@
 
 import type { CritiqueItem, Graph } from './types.js';
 import { CRITIQUE_CODES } from './critique-codes.js';
+import {
+  RUN_CRITIQUE_NODE_LIMIT,
+  RUN_EDGE_SOFT_LIMIT,
+  RUN_EDGE_HARD_LIMIT,
+} from '../constants/limits.js';
 
 export interface CritiqueInputs {
   graph: Graph;
   assumptions?: string[];
   identifiable: boolean;
   node_limit?: number;
+  /** Advisory edge threshold: above this a non-blocking critique is added */
+  edge_soft_limit?: number;
+  /** Hard edge threshold: above this a BLOCKER critique marks results approximate */
+  edge_hard_limit?: number;
 }
 
 /**
@@ -21,12 +30,14 @@ export function buildCritique(inputs: CritiqueInputs): CritiqueItem[] {
     graph,
     assumptions = [],
     identifiable,
-    node_limit = 12,
+    node_limit = RUN_CRITIQUE_NODE_LIMIT,
+    edge_soft_limit = RUN_EDGE_SOFT_LIMIT,
+    edge_hard_limit = RUN_EDGE_HARD_LIMIT,
   } = inputs;
 
   const items: CritiqueItem[] = [];
 
-  // Check 1: Graph size
+  // Check 1: Graph size (nodes)
   if (graph.nodes.length > node_limit) {
     items.push({
       code: CRITIQUE_CODES.GRAPH_TOO_LARGE,
@@ -43,6 +54,28 @@ export function buildCritique(inputs: CritiqueInputs): CritiqueItem[] {
       semantic_severity: 'WARNING',
       message: `Sparse graph: ${graph.nodes.length} nodes. Consider adding intermediate variables.`,
       suggested_action: 'Add mediating factors for richer analysis',
+      auto_fixable: false,
+      source: 'engine',
+    });
+  }
+
+  // Check 1b: Graph size (edges)
+  if (graph.edges.length > edge_hard_limit) {
+    items.push({
+      code: CRITIQUE_CODES.GRAPH_TOO_LARGE,
+      severity: 'BLOCKER',
+      semantic_severity: 'ERROR',
+      message: `Graph too dense: ${graph.edges.length} edges (limit: ${edge_hard_limit}). Results marked approximate.`,
+      suggested_action: 'Simplify model by removing weak edges or grouping nodes',
+      auto_fixable: false,
+      source: 'engine',
+    });
+  } else if (graph.edges.length > edge_soft_limit) {
+    items.push({
+      severity: 'IMPROVEMENT',
+      semantic_severity: 'WARNING',
+      message: `Dense graph: ${graph.edges.length} edges (recommended maximum: ${edge_soft_limit}). Results are unaffected, but analysis is slower and harder to interpret.`,
+      suggested_action: 'Remove weak edges or group related factors',
       auto_fixable: false,
       source: 'engine',
     });

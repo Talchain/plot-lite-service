@@ -55,6 +55,11 @@ import {
   LIMITS_MAX_NODES,
   LIMITS_MAX_EDGES
 } from '../../config/constants.js';
+import {
+  RUN_CRITIQUE_NODE_LIMIT,
+  RUN_EDGE_SOFT_LIMIT,
+  RUN_EDGE_HARD_LIMIT,
+} from '../../constants/limits.js';
 import { validateEffect } from '../../engine/effects.js';
 import { orchestrateCeeReview, type OrchestratorEnv } from '../../cee/orchestrator.js';
 import type { CeeReviewRequest } from '../../cee/types.js';
@@ -668,7 +673,9 @@ export async function registerRunRoute(app: FastifyInstance) {
           graph,
           assumptions: model_card.assumptions_summary,
           identifiable: identifiability.identifiable,
-          node_limit: 12,
+          node_limit: RUN_CRITIQUE_NODE_LIMIT,
+          edge_soft_limit: RUN_EDGE_SOFT_LIMIT,
+          edge_hard_limit: RUN_EDGE_HARD_LIMIT,
         })
       : [];
 
