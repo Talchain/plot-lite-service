@@ -29,8 +29,21 @@ afterEach(() => {
   while (cleanups.length > 0) rmSync(cleanups.pop()!, { recursive: true, force: true });
 });
 
+// Isolate every git invocation from an ambient GIT_DIR. git runs hooks (e.g.
+// pre-push) with GIT_DIR exported, and GIT_DIR takes precedence over `-C <dir>`
+// — so without this, `git -C <tmp> init` would target the REAL repo's gitdir
+// and corrupt it (notably flipping core.bare on a worktreeConfig repo). Always
+// operate on the temp fixture repo only.
+function isolatedGitEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  delete env.GIT_DIR;
+  delete env.GIT_WORK_TREE;
+  delete env.GIT_INDEX_FILE;
+  return env;
+}
+
 function git(dir: string, ...args: string[]): void {
-  execFileSync('git', ['-C', dir, ...args], { stdio: 'ignore' });
+  execFileSync('git', ['-C', dir, ...args], { stdio: 'ignore', env: isolatedGitEnv() });
 }
 
 function makeFixture(opts: FixtureOpts): string {
@@ -67,7 +80,7 @@ function makeFixture(opts: FixtureOpts): string {
 
 function runPolicy(dir: string): { status: number; output: string } {
   try {
-    const output = execFileSync('bash', [SCRIPT, dir], { encoding: 'utf8' });
+    const output = execFileSync('bash', [SCRIPT, dir], { encoding: 'utf8', env: isolatedGitEnv() });
     return { status: 0, output };
   } catch (err) {
     const e = err as { status?: number; stdout?: string; stderr?: string };
