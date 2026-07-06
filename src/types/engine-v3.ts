@@ -534,7 +534,6 @@ export const BLOCKER_CODES = [
   'INVALID_EDGE_ENDPOINT',
   'DUPLICATE_NODE_IDS',
   'GRAPH_TOO_LARGE',
-  'GRAPH_DENSE',
   'IDENTIFIABILITY_ISSUE',
   'GRAPH_CYCLE_DETECTED',
   'ISL_CANNOT_IDENTIFY',
@@ -585,6 +584,8 @@ export const INLINE_CRITIQUE_CODES = [
   'INVALID_BIDIRECTED_EDGE',
   'IDENTICAL_OPTIONS_DEDUPED',
   'INBOUND_STRENGTH_SUM_EXCEEDED',    // inbound |strength.mean| sum > 1.0
+  // critique-builder.ts advisories (IMPROVEMENT severity — never blocks)
+  'GRAPH_DENSE',
   // Categorical integrity (audit C1-A; see categorical-detector.ts)
   'CATEGORICAL_DECOMPOSED',           // info: a one-hot indicator group was validated as safe
   'STRIPPED_FIELD_WARNING',           // warning: scientifically-meaningful field was stripped on a passed-through factor
