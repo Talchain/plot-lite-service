@@ -173,33 +173,20 @@ run_check_4() {
 
 # ---------------------------------------------------------------------------
 # Check 5: Dependency audit
-# Prevents: file: references in package.json/lock that work locally but fail on Render.
+# Prevents: file: references in package.json/lock that work locally but fail on
+# Render (paths outside the repo clone). In-repo, git-tracked, sha256-manifested
+# vendored talchain-schemas tarballs are the ONE narrow allowance — they ship
+# with the clone. Policy + tests: scripts/validate-file-deps.sh,
+# tests/file-dep-policy.test.ts.
 # ---------------------------------------------------------------------------
 run_check_5() {
   CHECKS_RUN=$((CHECKS_RUN + 1))
-  local found=0
-
-  if grep -qE '"file:' package.json 2>/dev/null; then
-    fail "5/7" "package.json contains file: dependency references:"
-    grep -nE '"file:' package.json | sed 's/^/         /'
-    found=1
-  fi
-
-  # Check whichever lock file exists
-  local lockfile=""
-  if [ -f "pnpm-lock.yaml" ]; then
-    lockfile="pnpm-lock.yaml"
-  elif [ -f "package-lock.json" ]; then
-    lockfile="package-lock.json"
-  fi
-
-  if [ -n "$lockfile" ] && grep -qE '"file:|file:' "$lockfile" 2>/dev/null; then
-    fail "5/7" "$lockfile contains file: dependency references"
-    found=1
-  fi
-
-  if [ "$found" -eq 0 ]; then
-    pass "5/7" "No file: dependency references"
+  local output
+  if output="$(bash scripts/validate-file-deps.sh . 2>&1)"; then
+    pass "5/7" "file: dependency policy — $(printf '%s' "$output" | head -1)"
+  else
+    fail "5/7" "file: dependency policy violation:"
+    printf '%s\n' "$output" | sed 's/^/         /'
   fi
 }
 
