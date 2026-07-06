@@ -21,6 +21,39 @@ YELLOW='\033[1;33m'
 BOLD='\033[1m'
 NC='\033[0m'
 
+# ---------------------------------------------------------------------------
+# Hook-environment hygiene.
+#
+# git exports GIT_DIR (and friends) when it invokes a hook such as pre-push.
+# Every git command below must resolve THIS worktree from the current
+# directory, never an inherited GIT_DIR that points at some other worktree's
+# gitdir — so unset them up front. Harmless for manual runs.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE 2>/dev/null || true
+
+# Self-heal a provably-wrong `core.bare`.
+#
+# This repo has `extensions.worktreeConfig=true`, which makes `core.bare`
+# worktree-scoped. A concurrent or interrupted git write (a killed process
+# leaving a *.lock, parallel worktree ops) can leave `core.bare=true` in a
+# worktree scope, overriding the correct shared `false`. When that happens,
+# EVERY work-tree git command — starting with the `rev-parse --show-toplevel`
+# below — dies with the opaque "fatal: this operation must be run in a work
+# tree", silently blocking all pushes from that worktree until someone finds
+# and clears it.
+#
+# We are standing in a checked-out worktree with source files, so a `bare`
+# view is definitively a corruption, not a real bare repo. Detect it and
+# correct it loudly (worktree-scoped when the extension is on), rather than
+# failing with an inscrutable message.
+if [ -f "package.json" ] && [ "$(git config --get core.bare 2>/dev/null || echo false)" = "true" ]; then
+  echo -e "  ${YELLOW}WARN${NC} core.bare=true in a checked-out worktree — corruption (see extensions.worktreeConfig). Self-healing to false." >&2
+  if [ "$(git config --get extensions.worktreeConfig 2>/dev/null || echo false)" = "true" ]; then
+    git config --worktree core.bare false 2>/dev/null || git config core.bare false
+  else
+    git config core.bare false
+  fi
+fi
+
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
