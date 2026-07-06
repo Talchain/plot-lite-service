@@ -143,6 +143,9 @@ export const TEMPLATE_MAP: Record<string, TemplateEntry> = {
   GRAPH_TOO_LARGE:
     'Model exceeds the size limit. Simplify by merging or removing less important factors.',
 
+  GRAPH_DENSE:
+    'Your model has many connections. Analysis is slower and harder to interpret at this density — consider removing weaker links.',
+
   GRAPH_CYCLE_DETECTED:
     'Your model contains a circular dependency. Models must flow in one direction.',
 
