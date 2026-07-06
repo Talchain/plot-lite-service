@@ -21,7 +21,13 @@ function canonicalise(value: JSONValue): JSONValue {
       .map((v) => canonicalise(v)) as JSONArray;
   }
   if (isPlainObject(value)) {
-    const out: JSONObject = {};
+    // Null-prototype accumulator so an own `__proto__` key (present on
+    // JSON.parse'd request bodies) round-trips as a real own property instead
+    // of being swallowed by the inherited setter on a plain `{}`. Without this,
+    // two bodies differing only by `__proto__` canonicalise identically and
+    // collide to one idempotency cache key. Mirrors CEE stableStringify /
+    // DGAI canonical-hash hardening.
+    const out: JSONObject = Object.create(null);
     const keys = Object.keys(value).sort();
     for (const k of keys) {
       const v = (value as Record<string, unknown>)[k];

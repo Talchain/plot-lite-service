@@ -17,7 +17,11 @@ import type { FactKey, FactLineage, FactData } from './types.js';
 export function canonicalJson(obj: unknown): string {
   return JSON.stringify(obj, (_key, value) => {
     if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-      const sorted: Record<string, unknown> = {};
+      // Null-prototype accumulator so an own `__proto__` key survives instead
+      // of being swallowed by the inherited setter on a plain `{}` — otherwise
+      // two distinct fact payloads could share one content_hash / fact_id.
+      // Mirrors CEE/DGAI canonicaliser hardening.
+      const sorted: Record<string, unknown> = Object.create(null);
       for (const k of Object.keys(value).sort()) {
         sorted[k] = value[k];
       }

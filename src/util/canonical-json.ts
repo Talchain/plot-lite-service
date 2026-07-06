@@ -27,8 +27,11 @@ function sortedReplacer(_key: string, value: unknown): unknown {
     return value;
   }
   
-  // Sort object keys alphabetically
-  const sorted: Record<string, unknown> = {};
+  // Sort object keys alphabetically. Null-prototype accumulator so an own
+  // `__proto__` key survives as a real own property instead of hitting the
+  // inherited setter on a plain `{}` (which would swallow it and let two
+  // distinct payloads share one response_hash). Mirrors CEE/DGAI hardening.
+  const sorted: Record<string, unknown> = Object.create(null);
   const keys = Object.keys(value).sort();
   for (const k of keys) {
     sorted[k] = (value as Record<string, unknown>)[k];
