@@ -6,7 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash scripts/claude-pre-push-gate.sh"
+            "command": "bash scripts/claude-pre-push-gate.sh",
+            "timeout": 900
           }
         ]
       }
