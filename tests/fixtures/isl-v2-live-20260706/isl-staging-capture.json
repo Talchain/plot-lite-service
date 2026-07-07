@@ -1,0 +1,435 @@
+{
+  "version": "2.0",
+  "endpoint_version": "analyze/v2",
+  "engine_version": "1.0.0",
+  "build": "f3f5d92",
+  "timestamp": "2026-07-06T23:32:39.636888Z",
+  "analysis_status": "computed",
+  "robustness_status": "computed",
+  "factor_sensitivity_status": "computed",
+  "critiques": [],
+  "request_echo": {
+    "graph_node_count": 9,
+    "graph_edge_count": 13,
+    "options_count": 4,
+    "goal_node_id_hash": "d9f77e1cb872",
+    "n_samples": 4000,
+    "response_version_requested": 2,
+    "include_diagnostics": false
+  },
+  "options": [
+    {
+      "id": "opt_one_dev",
+      "label": "Hire One Developer (Reduced Commitment)",
+      "outcome": {
+        "mean": 0.10179725550865354,
+        "std": 0.11941813998438616,
+        "p10": -0.046497474297611675,
+        "p50": 0.10615207437561272,
+        "p90": 0.24657456603769748,
+        "n_samples": 4000,
+        "n_valid_samples": 4000,
+        "validity_ratio": 1,
+        "percentiles_source": "samples"
+      },
+      "win_probability": 0.0007083333333333334,
+      "status": "computed"
+    },
+    {
+      "id": "opt_status_quo",
+      "label": "No New Hire (Status Quo)",
+      "outcome": {
+        "mean": -0.00039679435638067785,
+        "std": 0.0911193335327987,
+        "p10": -0.10769108623911076,
+        "p50": 0.00011162160103608826,
+        "p90": 0.10336789783872895,
+        "n_samples": 4000,
+        "n_valid_samples": 4000,
+        "validity_ratio": 1,
+        "percentiles_source": "samples"
+      },
+      "win_probability": 0.002833333333333333,
+      "status": "computed"
+    },
+    {
+      "id": "opt_tech_lead",
+      "label": "Hire One Tech Lead",
+      "outcome": {
+        "mean": 0.25559011544614935,
+        "std": 0.17185431793611658,
+        "p10": 0.03934250803901223,
+        "p50": 0.2523671951931171,
+        "p90": 0.47137358299516724,
+        "n_samples": 4000,
+        "n_valid_samples": 4000,
+        "validity_ratio": 1,
+        "percentiles_source": "samples"
+      },
+      "win_probability": 0.59025,
+      "status": "computed"
+    },
+    {
+      "id": "opt_two_devs",
+      "label": "Hire Two Developers",
+      "outcome": {
+        "mean": 0.20399130537368776,
+        "std": 0.1784758980587605,
+        "p10": -0.03424836348148578,
+        "p50": 0.21703179877108886,
+        "p90": 0.42035080806243247,
+        "n_samples": 4000,
+        "n_valid_samples": 4000,
+        "validity_ratio": 1,
+        "percentiles_source": "samples"
+      },
+      "win_probability": 0.40620833333333334,
+      "status": "computed"
+    }
+  ],
+  "robustness": {
+    "level": "low",
+    "confidence": 0.5809173280554281,
+    "fragile_edges": [
+      {
+        "edge_id": "fac_dev_headcount->out_throughput",
+        "from_id": "fac_dev_headcount",
+        "to_id": "out_throughput",
+        "alternative_winner_id": "opt_two_devs",
+        "switch_probability": 0.075,
+        "marginal_switch_probability": 0.42
+      },
+      {
+        "edge_id": "out_throughput->goal_productivity",
+        "from_id": "out_throughput",
+        "to_id": "goal_productivity",
+        "alternative_winner_id": "opt_two_devs",
+        "switch_probability": 0.281,
+        "marginal_switch_probability": 0.03
+      },
+      {
+        "edge_id": "fac_dev_headcount->out_technical_quality",
+        "from_id": "fac_dev_headcount",
+        "to_id": "out_technical_quality",
+        "alternative_winner_id": "opt_two_devs",
+        "switch_probability": 0.375,
+        "marginal_switch_probability": 0.05
+      },
+      {
+        "edge_id": "fac_dev_headcount->risk_coordination",
+        "from_id": "fac_dev_headcount",
+        "to_id": "risk_coordination",
+        "alternative_winner_id": "opt_two_devs",
+        "switch_probability": 0.487,
+        "marginal_switch_probability": 0
+      },
+      {
+        "edge_id": "out_technical_quality->goal_productivity",
+        "from_id": "out_technical_quality",
+        "to_id": "goal_productivity",
+        "alternative_winner_id": "opt_two_devs",
+        "switch_probability": 0.569,
+        "marginal_switch_probability": 0.21
+      },
+      {
+        "edge_id": "fac_tech_lead->out_technical_quality",
+        "from_id": "fac_tech_lead",
+        "to_id": "out_technical_quality",
+        "alternative_winner_id": "opt_two_devs",
+        "switch_probability": 0.61,
+        "marginal_switch_probability": 0.23
+      },
+      {
+        "edge_id": "risk_coordination->goal_productivity",
+        "from_id": "risk_coordination",
+        "to_id": "goal_productivity",
+        "alternative_winner_id": "opt_two_devs",
+        "switch_probability": 0.307,
+        "marginal_switch_probability": 0.28
+      }
+    ],
+    "is_robust": false,
+    "fragile_edges_v1": [
+      "fac_dev_headcount->out_technical_quality",
+      "out_throughput->goal_productivity",
+      "out_technical_quality->goal_productivity",
+      "fac_dev_headcount->risk_coordination",
+      "risk_coordination->goal_productivity",
+      "fac_dev_headcount->out_throughput",
+      "fac_tech_lead->out_technical_quality"
+    ],
+    "robust_edges": [
+      "fac_team_maturity->risk_coordination",
+      "fac_hiring_cost->risk_cost_burden",
+      "fac_team_maturity->out_throughput",
+      "risk_cost_burden->goal_productivity"
+    ],
+    "recommendation_stability": 0.59025,
+    "edge_e_values": [
+      {
+        "edge_id": "fac_dev_headcount->out_technical_quality",
+        "from_id": "fac_dev_headcount",
+        "to_id": "out_technical_quality",
+        "e_value": 3.6404,
+        "is_unflippable": false,
+        "flip_direction": "increase",
+        "current_mean": 0.12,
+        "flip_mean": 0.436845
+      },
+      {
+        "edge_id": "fac_dev_headcount->out_throughput",
+        "from_id": "fac_dev_headcount",
+        "to_id": "out_throughput",
+        "e_value": 1.2228,
+        "is_unflippable": false,
+        "flip_direction": "increase",
+        "current_mean": 0.5072815533980582,
+        "flip_mean": 0.620287
+      },
+      {
+        "edge_id": "fac_dev_headcount->risk_coordination",
+        "from_id": "fac_dev_headcount",
+        "to_id": "risk_coordination",
+        "e_value": 1,
+        "is_unflippable": false,
+        "flip_direction": "decrease",
+        "current_mean": 0.3,
+        "flip_mean": -0.069032
+      },
+      {
+        "edge_id": "fac_hiring_cost->risk_cost_burden",
+        "from_id": "fac_hiring_cost",
+        "to_id": "risk_cost_burden",
+        "is_unflippable": true,
+        "flip_direction": "increase",
+        "current_mean": 0.7,
+        "flip_mean": 0.7
+      },
+      {
+        "edge_id": "fac_team_maturity->out_throughput",
+        "from_id": "fac_team_maturity",
+        "to_id": "out_throughput",
+        "is_unflippable": true,
+        "flip_direction": "increase",
+        "current_mean": 0.18446601941747573,
+        "flip_mean": 0.18446601941747573
+      },
+      {
+        "edge_id": "fac_team_maturity->risk_coordination",
+        "from_id": "fac_team_maturity",
+        "to_id": "risk_coordination",
+        "is_unflippable": true,
+        "flip_direction": "increase",
+        "current_mean": -0.18,
+        "flip_mean": -0.18
+      },
+      {
+        "edge_id": "fac_tech_lead->out_technical_quality",
+        "from_id": "fac_tech_lead",
+        "to_id": "out_technical_quality",
+        "e_value": 1,
+        "is_unflippable": false,
+        "flip_direction": "decrease",
+        "current_mean": 0.6,
+        "flip_mean": 0.376344
+      },
+      {
+        "edge_id": "fac_tech_lead->out_throughput",
+        "from_id": "fac_tech_lead",
+        "to_id": "out_throughput",
+        "e_value": 1,
+        "is_unflippable": false,
+        "flip_direction": "decrease",
+        "current_mean": 0.258252427184466,
+        "flip_mean": 0.130179
+      },
+      {
+        "edge_id": "fac_tech_lead->risk_coordination",
+        "from_id": "fac_tech_lead",
+        "to_id": "risk_coordination",
+        "e_value": 1.8117,
+        "is_unflippable": false,
+        "flip_direction": "increase",
+        "current_mean": -0.15,
+        "flip_mean": 0.27175
+      },
+      {
+        "edge_id": "out_technical_quality->goal_productivity",
+        "from_id": "out_technical_quality",
+        "to_id": "goal_productivity",
+        "e_value": 1,
+        "is_unflippable": false,
+        "flip_direction": "decrease",
+        "current_mean": 0.3,
+        "flip_mean": 0.169789
+      },
+      {
+        "edge_id": "out_throughput->goal_productivity",
+        "from_id": "out_throughput",
+        "to_id": "goal_productivity",
+        "e_value": 1.4044,
+        "is_unflippable": false,
+        "flip_direction": "increase",
+        "current_mean": 0.55,
+        "flip_mean": 0.772441
+      },
+      {
+        "edge_id": "risk_coordination->goal_productivity",
+        "from_id": "risk_coordination",
+        "to_id": "goal_productivity",
+        "e_value": 1,
+        "is_unflippable": false,
+        "flip_direction": "increase",
+        "current_mean": -0.2,
+        "flip_mean": -0.028855
+      },
+      {
+        "edge_id": "risk_cost_burden->goal_productivity",
+        "from_id": "risk_cost_burden",
+        "to_id": "goal_productivity",
+        "is_unflippable": true,
+        "flip_direction": "increase",
+        "current_mean": -0.25,
+        "flip_mean": -0.25
+      }
+    ]
+  },
+  "factor_sensitivity": [
+    {
+      "node_id": "fac_hiring_cost",
+      "label": "Hiring and Salary Cost",
+      "sensitivity_score": 1,
+      "importance_score": 1,
+      "elasticity": -0.014698333393406733,
+      "elasticity_display": -0.014698333393406733,
+      "direction": "negative",
+      "confidence": 0.3815,
+      "confidence_source": "bootstrap_sampling",
+      "importance_rank": 1,
+      "observed_value": 0,
+      "interpretation": "Decision is robust to Hiring and Salary Cost value variation",
+      "baseline_near_zero": false,
+      "influence_score": 0.5248077179966281,
+      "influence_rank": 3,
+      "elasticity_std": 0.01101973,
+      "attribution_stability": "low",
+      "rank_flip_rate": 0.3,
+      "stability_method": "bootstrap_20"
+    },
+    {
+      "node_id": "fac_team_maturity",
+      "label": "Team Technical Maturity",
+      "sensitivity_score": 0.662581761847986,
+      "importance_score": 0.6666666666666667,
+      "elasticity": 0.00973884763603252,
+      "elasticity_display": 0.00973884763603252,
+      "direction": "positive",
+      "confidence": 0.3891,
+      "confidence_source": "bootstrap_sampling",
+      "importance_rank": 2,
+      "interpretation": "Decision is robust to Team Technical Maturity value variation",
+      "value_defaulted": true,
+      "baseline_near_zero": false,
+      "influence_score": 0.34772802242162665,
+      "influence_rank": 4,
+      "elasticity_std": 0.00657316,
+      "attribution_stability": "low",
+      "rank_flip_rate": 0.05,
+      "stability_method": "bootstrap_20"
+    },
+    {
+      "node_id": "fac_dev_headcount",
+      "label": "Developer Headcount Added",
+      "sensitivity_score": 0,
+      "importance_score": 0.33333333333333337,
+      "elasticity": 0,
+      "elasticity_display": 0,
+      "direction": "negative",
+      "confidence": 0.1,
+      "confidence_source": "bootstrap_sampling",
+      "importance_rank": 3,
+      "observed_value": 0,
+      "interpretation": "Decision is robust to Developer Headcount Added value variation",
+      "zero_reason": "intervention_override",
+      "baseline_near_zero": false,
+      "influence_score": 1,
+      "influence_rank": 1,
+      "elasticity_std": 0,
+      "attribution_stability": "negligible",
+      "rank_flip_rate": 0,
+      "stability_method": "bootstrap_20"
+    },
+    {
+      "node_id": "fac_tech_lead",
+      "label": "Tech Lead in Place",
+      "sensitivity_score": 0,
+      "importance_score": 0,
+      "elasticity": 0,
+      "elasticity_display": 0,
+      "direction": "negative",
+      "confidence": 0.1,
+      "confidence_source": "bootstrap_sampling",
+      "importance_rank": 4,
+      "observed_value": 0,
+      "interpretation": "Decision is robust to Tech Lead in Place value variation",
+      "zero_reason": "intervention_override",
+      "baseline_near_zero": false,
+      "influence_score": 0.8898237003456604,
+      "influence_rank": 2,
+      "elasticity_std": 0,
+      "attribution_stability": "negligible",
+      "rank_flip_rate": 0,
+      "stability_method": "bootstrap_20"
+    }
+  ],
+  "inference_warnings": [],
+  "stability_thresholds": {
+    "high_moderate_boundary": 0.1,
+    "moderate_low_boundary": 0.3,
+    "version": "v1.0-operational-defaults",
+    "provisional": true
+  },
+  "factor_evpi": [
+    {
+      "factor_id": "fac_dev_headcount",
+      "evpi": 0.0185,
+      "evpi_percentage_points": 1.85,
+      "current_metric": 0.5795,
+      "perfect_metric": 0.598,
+      "metric_type": "p_win_recommended",
+      "n_evpi_samples": 500
+    },
+    {
+      "factor_id": "fac_team_maturity",
+      "evpi": 0.0145,
+      "evpi_percentage_points": 1.45,
+      "current_metric": 0.5795,
+      "perfect_metric": 0.594,
+      "metric_type": "p_win_recommended",
+      "n_evpi_samples": 500
+    },
+    {
+      "factor_id": "fac_tech_lead",
+      "evpi": 0.0085,
+      "evpi_percentage_points": 0.85,
+      "current_metric": 0.5795,
+      "perfect_metric": 0.588,
+      "metric_type": "p_win_recommended",
+      "n_evpi_samples": 500
+    },
+    {
+      "factor_id": "fac_hiring_cost",
+      "evpi": -0.0015,
+      "evpi_percentage_points": -0.15,
+      "current_metric": 0.5795,
+      "perfect_metric": 0.578,
+      "metric_type": "p_win_recommended",
+      "n_evpi_samples": 500
+    }
+  ],
+  "auto_noise_applied": false,
+  "request_id": "4211dad2-de7b-4b0f-aac9-3eab9b4574be",
+  "processing_time_ms": 1463,
+  "seed_used": "2034401427",
+  "seed_source": "client_provided"
+}

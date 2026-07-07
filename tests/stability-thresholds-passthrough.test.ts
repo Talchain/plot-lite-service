@@ -333,10 +333,16 @@ describe('stability_thresholds passthrough + hash_version in _meta', () => {
       // stability_thresholds should be absent
       expect('stability_thresholds' in body).toBe(false);
 
-      // inference_warnings should contain the diagnostic warning
+      // inference_warnings should contain the diagnostic warning.
+      // Filter by code: the EDGE_SENSITIVITY_UNAVAILABLE_V2_WIRE marker (the
+      // V2 wire drops edge-level sensitivity) also appears on every computed
+      // response whose edge_sensitivity is empty — including this one.
       expect(body.inference_warnings).toBeDefined();
-      expect(body.inference_warnings).toHaveLength(1);
-      expect(body.inference_warnings[0]).toEqual({
+      const stabilityWarnings = body.inference_warnings.filter(
+        (w: any) => w.code === 'STABILITY_THRESHOLDS_MISSING',
+      );
+      expect(stabilityWarnings).toHaveLength(1);
+      expect(stabilityWarnings[0]).toEqual({
         code: 'STABILITY_THRESHOLDS_MISSING',
         message: 'ISL returned factor-level stability fields but stability_thresholds metadata was absent or malformed — threshold classification context unavailable',
         severity: 'info',
@@ -367,8 +373,13 @@ describe('stability_thresholds passthrough + hash_version in _meta', () => {
       // stability_thresholds should be absent
       expect('stability_thresholds' in body).toBe(false);
 
-      // inference_warnings should be empty array (sentinel contract: always present)
-      expect(body.inference_warnings).toEqual([]);
+      // No STABILITY_THRESHOLDS_MISSING warning (sentinel contract: the array
+      // is always present; it now also carries the always-on
+      // EDGE_SENSITIVITY_UNAVAILABLE_V2_WIRE marker, so filter by code).
+      expect(Array.isArray(body.inference_warnings)).toBe(true);
+      expect(
+        body.inference_warnings.filter((w: any) => w.code === 'STABILITY_THRESHOLDS_MISSING'),
+      ).toEqual([]);
     } finally {
       forceOmitThresholds = false;
       forceStrip3CFields = false;
@@ -397,10 +408,12 @@ describe('stability_thresholds passthrough + hash_version in _meta', () => {
       // Malformed thresholds should be rejected (not passed through)
       expect('stability_thresholds' in body).toBe(false);
 
-      // Warning should fire because 3C fields are present but thresholds were rejected
+      // Warning should fire because 3C fields are present but thresholds were
+      // rejected (filter by code — see IW1 note on the always-on V2-wire marker)
       expect(body.inference_warnings).toBeDefined();
-      expect(body.inference_warnings).toHaveLength(1);
-      expect(body.inference_warnings[0].code).toBe('STABILITY_THRESHOLDS_MISSING');
+      expect(
+        body.inference_warnings.filter((w: any) => w.code === 'STABILITY_THRESHOLDS_MISSING'),
+      ).toHaveLength(1);
     } finally {
       forceMalformedThresholds = null;
     }
@@ -425,9 +438,14 @@ describe('stability_thresholds passthrough + hash_version in _meta', () => {
       expect(res.status).toBe(200);
       const body = await res.json() as any;
 
-      // Should not crash — response should still be valid
-      // No 3C fields detected (non-array falls back to []), so empty array
-      expect(body.inference_warnings).toEqual([]);
+      // Should not crash — response should still be valid.
+      // No 3C fields detected (non-array falls back to []), so no
+      // STABILITY_THRESHOLDS_MISSING warning (filter by code — the array also
+      // carries the always-on EDGE_SENSITIVITY_UNAVAILABLE_V2_WIRE marker).
+      expect(Array.isArray(body.inference_warnings)).toBe(true);
+      expect(
+        body.inference_warnings.filter((w: any) => w.code === 'STABILITY_THRESHOLDS_MISSING'),
+      ).toEqual([]);
     } finally {
       forceOmitThresholds = false;
       forceFactorSensitivityShape = undefined;

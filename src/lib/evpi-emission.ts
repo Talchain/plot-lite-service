@@ -67,3 +67,62 @@ export function computeEvpiPercentagePoints(
   const raw = voi * winProbSpread * 100;
   return Math.max(0, Math.round(raw * 10) / 10);
 }
+
+/**
+ * Emission resolution for EVPI percentage-points values.
+ *
+ * PLoT rounds emitted EVPI to 1 decimal place (see
+ * `computeEvpiPercentagePoints`), so any value below half of that rounding
+ * step (0.05pp) is indistinguishable from zero at the emitted precision.
+ * Raw estimates below this threshold — including ALL negatives, which are
+ * Monte Carlo sampling artefacts (Howard 1966 non-negativity) — are
+ * "below resolution": too small to measure at this sampling depth.
+ */
+export const EVPI_EMISSION_RESOLUTION_PP = 0.05;
+
+/** Classification of a raw EVPI percentage-points value for outward emission. */
+export interface EvpiEmissionClassification {
+  /**
+   * The outward-safe value (rounded to 0.1pp), or `undefined` when the raw
+   * value is below resolution. NEVER negative, NEVER a clamped 0 standing in
+   * for a negative.
+   */
+  emit: number | undefined;
+  /**
+   * True when the raw value is below the emission resolution (including all
+   * negatives). Surfaces that can express it should label the factor
+   * "below resolution" rather than showing 0 — a clamped 0 falsely claims
+   * "measured as exactly worthless" when the honest statement is "too small
+   * to measure at this sampling depth".
+   */
+  below_resolution: boolean;
+  /** The raw input value, for diagnostics only (may be negative). */
+  raw: number;
+}
+
+/**
+ * Classify a raw EVPI percentage-points value (e.g. from the ISL V2
+ * `factor_evpi[].evpi_percentage_points` wire field) for outward emission.
+ *
+ * Contract (raw negative EVPI observed flowing in staging logs; the live
+ * capture at tests/fixtures/isl-v2-live-20260706 carries fac_hiring_cost
+ * -0.15pp):
+ * - Negative values are NEVER emitted outward, in any form.
+ * - Below-resolution values (raw < EVPI_EMISSION_RESOLUTION_PP, which
+ *   includes all negatives) are labelled, not clamped to zero: `emit` is
+ *   `undefined` and `below_resolution` is true.
+ * - At-or-above-resolution values are rounded to 0.1pp for emission.
+ * - Non-finite input yields `{ emit: undefined, below_resolution: false }` —
+ *   absence of a measurement is not a below-resolution measurement.
+ */
+export function classifyEvpiPercentagePointsForEmission(
+  rawPp: number,
+): EvpiEmissionClassification {
+  if (typeof rawPp !== 'number' || !Number.isFinite(rawPp)) {
+    return { emit: undefined, below_resolution: false, raw: rawPp };
+  }
+  if (rawPp < EVPI_EMISSION_RESOLUTION_PP) {
+    return { emit: undefined, below_resolution: true, raw: rawPp };
+  }
+  return { emit: Math.round(rawPp * 10) / 10, below_resolution: false, raw: rawPp };
+}

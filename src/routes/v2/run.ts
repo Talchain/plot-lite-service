@@ -96,6 +96,8 @@ import {
 } from '../../integrations/isl/adapters/robustness-analysis.js';
 import type { RobustnessDataForCee, NormalizedEdgeInfo } from '../../integrations/isl/types/plot-types.js';
 import type { ISLConstraintResult, ISLEdgeEValue, ISLConditionalWinner } from '../../integrations/isl/types/isl-types.js';
+import { getIslEdgeEValues, getIslComputedAt, mapIslFactorEvpi } from '../../integrations/isl/v2-envelope.js';
+import { preflightDuplicateEdges } from '../../integrations/isl/preflight.js';
 import { orchestrateCeeReview } from '../../cee/orchestrator.js';
 import { orchestrateDecisionReview, type DecisionReviewInput, type DecisionReviewConfig } from '../../cee/decision-review-orchestrator.js';
 import {
@@ -132,7 +134,7 @@ import { sanitiseIslVoi, computeEvpiPercentagePoints } from '../../lib/evpi-emis
 import { NEAR_TIE_THRESHOLD } from '../../trust/result-coherence.js';
 import { assessGraphIdentifiability, toIdentifiabilityResponse, detectUnmeasuredConfounding } from '../../trust/identifiability-v2.js';
 import { classifyEdgeSeverity } from '../../trust/edge-severity.js';
-import { deriveConfidenceTier } from '../../trust/confidence-tier.js';
+import { deriveConfidenceTier, reconcileConfidenceTier } from '../../trust/confidence-tier.js';
 import { detectDominantFactor } from '../../trust/factor-dominance.js';
 import type { IdentifiabilityAssessment } from '../../types/engine-v3.js';
 import {
@@ -610,6 +612,16 @@ function mapIslFactorEntry(f: any, normContext?: NormalisationContext): FactorSe
   // reused for both the `value_of_information` field and the `confidence`
   // fallback chain below. See `src/lib/evpi-emission.ts` for the full
   // contract rationale (Howard 1966 non-negativity, MC sampling artefacts).
+  //
+  // V2 wire truth (verified live 2026-07-06, build f3f5d92):
+  // `factor_sensitivity[].value_of_information` is a V1-only field the live
+  // V2 envelope NEVER emits — this read is structurally undefined on the live
+  // path, so factor VOI always comes from the graph heuristic
+  // (computeFactorSensitivityFromGraph). The V2 wire carries true per-factor
+  // EVPI at top-level `factor_evpi` instead; wiring it into user-facing VOI is
+  // decision P-5 (pending) — see mapIslFactorEvpi in
+  // src/integrations/isl/v2-envelope.ts. The read is kept (not deleted) only
+  // to tolerate legacy fixtures.
   const sanitisedVoi = sanitiseIslVoi(f.value_of_information);
 
   const entry: FactorSensitivityResultV3 = {
@@ -1792,13 +1804,23 @@ function buildResponse(
     }
     return map;
   })();
+  // ISL V2 wire truth (verified live 2026-07-06, build f3f5d92 — see
+  // src/integrations/isl/v2-envelope.ts): the pinned response_version=2
+  // envelope NEVER emits top-level `sensitivity`; edge-level sensitivity is
+  // genuinely dropped by the V2 wire with no nested replacement. The former
+  // `islResult?.sensitivity` fallback read here was structurally dead. Do NOT
+  // invent a substitute (ISL contract followup); edge_sensitivity stays
+  // "computed, empty" and is explicitly marked via the
+  // EDGE_SENSITIVITY_UNAVAILABLE_V2_WIRE inference warning below.
   const edgeSensitivity = sensitivityData?.edgeSensitivity
-    ?? transformEdgeSensitivity(islResult?.sensitivity, fallbackNodeLabelMap);
+    ?? transformEdgeSensitivity(undefined, fallbackNodeLabelMap);
   const factorSensitivity = sensitivityData?.factorSensitivity
     ?? transformFactorSensitivity(islResult?.factor_sensitivity);
-  // Fallback transforms for edge_e_values and conditional_winners when sensitivityData not pre-computed
+  // Fallback transforms for edge_e_values and conditional_winners when sensitivityData not pre-computed.
+  // Edge E-values are NESTED at robustness.edge_e_values on the V2 wire (the
+  // former top-level read was structurally dead) — read via the accessor.
   const edgeEValues = sensitivityData?.edgeEValues
-    ?? transformEdgeEValues(islResult?.edge_e_values, fallbackNodeLabelMap);
+    ?? transformEdgeEValues(getIslEdgeEValues(islResult), fallbackNodeLabelMap);
   const conditionalWinners = sensitivityData?.conditionalWinners
     ?? transformConditionalWinners(islResult?.conditional_winners, fallbackNodeLabelMap, fallbackOptionLabelMap);
 
@@ -1946,6 +1968,22 @@ function buildResponse(
         severity: 'info',
       });
     }
+  }
+
+  // Liveness honesty: edge-level sensitivity is requested on every ISL call
+  // (analysis_types always includes 'sensitivity') but the live V2 wire does
+  // not emit it (verified 2026-07-06, build f3f5d92). An empty edge_sensitivity
+  // on a computed analysis would otherwise be a SILENT empty array —
+  // indistinguishable from "computed and found nothing". Mark it explicitly so
+  // consumers (and the liveness fixture test) can tell wire-gap from absence.
+  // Factor-level sensitivity is unaffected. No substitute is invented — the
+  // gap is ISL contract work (recorded followup).
+  if (analysisStatus === 'computed' && islResult && !hasNonEmptyArray(edgeSensitivity)) {
+    inferenceWarnings.push({
+      code: INFERENCE_WARNING_CODES.EDGE_SENSITIVITY_UNAVAILABLE_V2_WIRE,
+      message: 'Edge-level sensitivity was requested but the ISL V2 response format does not carry it — edge_sensitivity is empty by wire contract, not by computation failure. Factor-level sensitivity is unaffected.',
+      severity: 'info',
+    });
   }
 
   // Merge ISL-originated inference_warnings into the PLoT array.
@@ -2169,9 +2207,15 @@ function buildResponse(
     // NOTE: Deterministic (no LLM), but excluded from canonical hash as non-semantic metadata
     ...(m1Coaching && { m1_coaching: m1Coaching }),
 
-    // Confidence tier derived from M1 coaching readiness (B1)
+    // Confidence tier derived from M1 coaching readiness (B1), then reconciled
+    // against the robustness assessment carried in this SAME response:
+    // never emit 'strong' alongside robustness.is_robust === false or
+    // level 'low'/'very_low' — cap at the provisional 'fair' tier.
+    // (Producer-side honesty: confidence_tier is PLoT-assembled enrichment.)
     // NOTE: Deterministic. Excluded from response_hash (derived from coaching).
-    ...(m1Coaching?.readiness && { confidence_tier: deriveConfidenceTier(m1Coaching.readiness) }),
+    ...(m1Coaching?.readiness && {
+      confidence_tier: reconcileConfidenceTier(deriveConfidenceTier(m1Coaching.readiness), robustness),
+    }),
 
     // Dominant factor detection (B1) — computed from factor_sensitivity
     // NOTE: Deterministic. Excluded from response_hash.
@@ -2482,11 +2526,15 @@ function buildCeeReviewRequest(
     const r = islResult.robustness;
     islRobustness = {
       overall_robustness: r.label as 'robust' | 'moderate' | 'fragile',
-      validation_status: islResult.validation_status,
-      validation_confidence: islResult.validation_confidence,
+      // validation_status / validation_confidence reads removed: the live V2
+      // wire never emits them (verified 2026-07-06, build f3f5d92) so both
+      // were structurally undefined here — the CEE request carried no such
+      // keys. Omitting the reads is behaviour-identical on the live path.
       sensitive_parameters: islResult.factor_sensitivity?.slice(0, 5).map((f: any) => ({
         parameter: f.node_id,
-        sensitivity: f.sensitivity,
+        // Schema v2.6 canonical field is 'sensitivity_score'; the bare
+        // 'sensitivity' key is V1-era and dead on the live V2 wire.
+        sensitivity: f.sensitivity_score ?? f.sensitivity,
         impact_direction: f.direction ?? 'positive',
       })),
       recommendations: robustnessData?.fragile_edges?.slice(0, 3).map(e =>
@@ -2526,10 +2574,10 @@ function buildCeeReviewRequest(
           p90: opt.confidence_interval?.[1] ?? opt.outcome?.p90 ?? 0,
         }));
       })(),
-      top_edge_drivers: islResult?.sensitivity?.slice(0, 5).map((s: any) => ({
-        id: `${s.edge_from}::${s.edge_to}`,
-        sensitivity: s.elasticity,
-      })),
+      // top_edge_drivers read removed: it consumed top-level `sensitivity`,
+      // which the live V2 wire never emits (verified 2026-07-06) — the key was
+      // structurally absent from every live CEE request. No substitute is
+      // invented (edge-level sensitivity is an ISL contract followup).
       ranked_actions: options.map((o, i) => ({
         id: o.id,
         rank: i + 1,
@@ -3831,6 +3879,57 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // Runs on normalized graph so edge strengths are in canonical form.
         preflight.warnings.push(...validateInboundStrengthSum(filteredGraph));
 
+        // =================================================================
+        // Duplicate-edge preflight (ISL now 422s duplicate (from,to,type) edges)
+        // =================================================================
+        // EXACT identical duplicates are coalesced (logged via repairs_applied);
+        // NON-identical duplicates (differing weight/belief/label) are a typed
+        // actionable blocker — PLoT must not silently pick one of the user's
+        // contradictory claims.
+        {
+          const dupResult = preflightDuplicateEdges(filteredGraph.edges);
+          if (dupResult.conflicts.length > 0) {
+            req.log.warn({
+              event: 'duplicate_edge_conflict',
+              request_id: requestId,
+              conflicts: dupResult.conflicts,
+            });
+            return reply.status(422).send(buildBlockedResponse(
+              'Conflicting duplicate edges',
+              dupResult.conflicts.map((c) => ({
+                id: randomUUID(),
+                code: 'DUPLICATE_EDGE_CONFLICT',
+                severity: 'blocker' as const,
+                message: `Edges ${c.from} -> ${c.to} (${c.edge_type}) appear ${c.count} times with different values (${c.divergent_fields.join(', ')}). Keep one edge per relationship, or merge the beliefs into a single edge.`,
+                source: 'validation' as const,
+                affected_node_ids: [c.from, c.to],
+                blocks_analysis: true,
+              })),
+              filteredGraph,
+              normalizedOptions,
+              requestId,
+              requestComputedAt,
+            ));
+          }
+          if (dupResult.coalesced.length > 0) {
+            filteredGraph.edges = dupResult.edges as typeof filteredGraph.edges;
+            for (const c of dupResult.coalesced) {
+              repairs.push({
+                field: `edges[${c.from}->${c.to}]`,
+                action: 'removed',
+                from_value: c.count,
+                to_value: 1,
+                reason: `COALESCE_DUPLICATE_EDGE: ${c.count} exact-identical ${c.edge_type} edges ${c.from} -> ${c.to} coalesced to one before ISL call (ISL rejects duplicate (from,to,type) edges)`,
+              });
+            }
+            req.log.info({
+              event: 'duplicate_edges_coalesced',
+              request_id: requestId,
+              groups: dupResult.coalesced,
+            });
+          }
+        }
+
         // Build ISL request (using normalised options and constraints)
         // CIL Phase 1: ALWAYS forward seed to ISL for deterministic Monte Carlo runs.
         // Derived seeds must be forwarded to ensure end-to-end determinism: if only computed
@@ -3967,9 +4066,11 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             islSuccess = true;
             islStatusCode = 200;
             islEchoedRequestId = response.isl_echoed_request_id ?? null;
-            // Capture timestamp when ISL response received (before any PLoT processing)
-            // Use ISL's computed_at if provided, otherwise capture now
-            computedAt = islResult?.computed_at ?? new Date().toISOString();
+            // Capture timestamp when ISL response received (before any PLoT processing).
+            // The V2 wire carries this as top-level `timestamp` (the V1-era
+            // `computed_at` is never emitted on V2 — verified live 2026-07-06,
+            // build f3f5d92); fall back to PLoT's own clock when absent.
+            computedAt = getIslComputedAt(islResult) ?? new Date().toISOString();
 
             // PLoT is seed authority: ignore ISL's returned seed_used.
             // Log mismatch at DEBUG level for observability (no side effects).
@@ -4022,6 +4123,33 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               // Capture ISL build version if present
               isl_build: islResult?.build ?? null,
             });
+
+            // === INTERNAL (flag-gated, default OFF): V2 factor_evpi arrival proof ===
+            // The V2 wire carries per-factor counterfactual EVPI at top-level
+            // `factor_evpi` (verified live 2026-07-06). Decision P-5 (pending):
+            // it MUST NOT feed any user-facing VOI/EVPI surface yet. Behind the
+            // flag we log a sanitised summary ONLY — negative/below-resolution
+            // raw values are never logged as emittable numbers (see
+            // mapIslFactorEvpi hygiene). The public response is byte-identical
+            // whether this flag is on or off.
+            if (FLAGS.ISL_FACTOR_EVPI_INTERNAL) {
+              const factorEvpiMapping = mapIslFactorEvpi(islResult);
+              req.log.info({
+                event: 'isl_factor_evpi_internal',
+                request_id: requestId,
+                count: factorEvpiMapping.entries.length,
+                dropped_invalid: factorEvpiMapping.dropped_invalid,
+                below_resolution_count: factorEvpiMapping.entries.filter((e) => e.below_resolution).length,
+                entries: factorEvpiMapping.entries.map((e) => ({
+                  factor_id: e.factor_id,
+                  emit_pp: e.emit_pp ?? null,
+                  below_resolution: e.below_resolution,
+                  raw_evpi_percentage_points: e.raw_evpi_percentage_points,
+                  metric_type: e.metric_type,
+                  n_evpi_samples: e.n_evpi_samples,
+                })),
+              });
+            }
           } else {
             islStatusCode = 500;
             islFallbackExecuted = true;
@@ -4216,10 +4344,22 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
 
         // Transform sensitivity arrays FIRST - these are the final arrays that will be returned
         // Status check must use the SAME arrays to prevent status/response misalignment
-        const edgeSensitivity = transformEdgeSensitivity(islResult.sensitivity, earlyNodeLabelMap, normalisationContext);
+        //
+        // V2 wire truth (verified live 2026-07-06, build f3f5d92 — see
+        // src/integrations/isl/v2-envelope.ts): the pinned response_version=2
+        // envelope NEVER emits top-level `sensitivity` and carries no nested
+        // replacement — edge-level sensitivity is genuinely dropped by the V2
+        // wire. The former `islResult.sensitivity` read was structurally dead.
+        // Do NOT invent a substitute (ISL contract followup); edge_sensitivity
+        // is "computed, empty" and explicitly marked via the
+        // EDGE_SENSITIVITY_UNAVAILABLE_V2_WIRE inference warning.
+        const edgeSensitivity = transformEdgeSensitivity(undefined, earlyNodeLabelMap, normalisationContext);
 
-        // Transform ISL edge_e_values (when present) with label enrichment
-        const edgeEValues = transformEdgeEValues(islResult.edge_e_values, earlyNodeLabelMap, normalisationContext);
+        // Transform ISL edge_e_values with label enrichment. NESTED at
+        // robustness.edge_e_values on the V2 wire (the former top-level read
+        // was structurally dead — every live response came back "empty").
+        const islEdgeEValuesRaw = getIslEdgeEValues(islResult);
+        const edgeEValues = transformEdgeEValues(islEdgeEValuesRaw, earlyNodeLabelMap, normalisationContext);
 
         // Transform ISL conditional_winners (when present) with label enrichment
         const conditionalWinners = transformConditionalWinners(
@@ -4233,7 +4373,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // non-finite / out-of-range numerics. These surfaces have no per-feature status
         // to degrade, so emit a warning when entries are silently removed rather than
         // hiding the upstream defect. (Counts only — no payload.)
-        const eValuesDropped = (islResult.edge_e_values?.length ?? 0) - edgeEValues.length;
+        const eValuesDropped = (islEdgeEValuesRaw?.length ?? 0) - edgeEValues.length;
         if (eValuesDropped > 0) {
           req.log.warn({ event: 'edge_e_values_dropped_nonfinite', request_id: requestId, dropped: eValuesDropped, kept: edgeEValues.length });
         }
