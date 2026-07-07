@@ -5892,6 +5892,34 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/critiqueV3'
+        robustness:
+          type: object
+          description: >-
+            Empty robustness object maintained on blocked/failed responses
+            (CIL 0.2 contract). ADDITIVE (lane PLoT-W5): also carries
+            display_verdict 'not_assessed' + display_verdict_reason — a
+            blocked/failed run never computed robustness, so the
+            display-safe verdict is always 'not_assessed' here.
+          properties:
+            fragile_edges:
+              type: array
+              description: Always [] on blocked/failed responses.
+              items:
+                type: object
+            robust_edges:
+              type: array
+              description: Always [] on blocked/failed responses.
+              items:
+                type: object
+            display_verdict:
+              type: string
+              enum: [not_assessed]
+              description: Always 'not_assessed' on blocked/failed responses.
+            display_verdict_reason:
+              type: string
+              description: >-
+                Producer-owned claim-safe phrase (wording
+                provisional_doctrine_v0, no numbers).
 
     runResponseV3:
       type: object
@@ -6335,6 +6363,29 @@ components:
                     description: Probability that this edge's existence would flip
             explanation:
               type: string
+            display_verdict:
+              type: string
+              enum: [robust, moderate, fragile, not_assessed]
+              description: >-
+                ADDITIVE (lane PLoT-W5, roadmap Tier 1.6): display-safe
+                robustness verdict, derived by PLoT honestly and ONLY from
+                the producer facts is_robust/level (confidence is never an
+                input and can never upgrade a verdict). Mapping
+                (provisional_doctrine_v0): is_robust true AND level high →
+                robust; level medium (wire vocabulary) or moderate →
+                moderate; is_robust false OR level low/very_low → fragile
+                (explicit is_robust false always wins, never softened);
+                robustness absent/failed/facts-missing → not_assessed. Never
+                a determinate-looking verdict without computed robustness.
+                The UI renders this verbatim and must not re-derive meaning
+                from is_robust/level/confidence.
+            display_verdict_reason:
+              type: string
+              description: >-
+                ADDITIVE (lane PLoT-W5): producer-owned claim-safe phrase
+                matching display_verdict (wording provisional_doctrine_v0,
+                no numbers), e.g. fragile → 'small changes could flip this
+                result'.
         meta:
           type: object
           required: [seed_used, n_samples, detail_level, latency_ms]

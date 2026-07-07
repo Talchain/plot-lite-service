@@ -923,7 +923,33 @@ components:
           description: Graph identifiability assessment
         robustness:
           type: object
-          description: Robustness assessment (sensitivity to edge removal)
+          description: >
+            Robustness assessment (sensitivity to edge removal). ADDITIVE
+            (lane PLoT-W5): display_verdict + display_verdict_reason — the
+            display-safe verdict, derived by PLoT honestly and ONLY from the
+            producer facts is_robust/level (confidence is never an input and
+            can never upgrade a verdict). 'not_assessed' whenever robustness
+            was not computed or the verdict-bearing facts are missing — never
+            a determinate-looking verdict without computed robustness. The UI
+            renders these verbatim and must not re-derive meaning from
+            is_robust/level/confidence.
+          properties:
+            display_verdict:
+              type: string
+              enum: [robust, moderate, fragile, not_assessed]
+              description: >
+                Display-safe robustness verdict (mapping
+                provisional_doctrine_v0): is_robust true AND level high →
+                robust; level medium (wire vocabulary) or moderate →
+                moderate; is_robust false OR level low/very_low → fragile
+                (explicit is_robust false always wins, never softened);
+                robustness absent/failed/facts-missing → not_assessed.
+            display_verdict_reason:
+              type: string
+              description: >
+                Producer-owned claim-safe phrase matching display_verdict
+                (wording provisional_doctrine_v0, no numbers), e.g. fragile →
+                'small changes could flip this result'.
         option_comparison_status:
           type: string
           enum: [computed, unavailable, skipped, error]
@@ -998,7 +1024,22 @@ components:
             $ref: '#/components/schemas/CritiqueV3'
         robustness:
           type: object
-          description: Empty robustness object (CIL 0.2 contract)
+          description: >
+            Empty robustness object (CIL 0.2 contract). ADDITIVE (lane
+            PLoT-W5): also carries display_verdict 'not_assessed' +
+            display_verdict_reason — a blocked/failed run never computed
+            robustness, so the display-safe verdict is always
+            'not_assessed' here.
+          properties:
+            display_verdict:
+              type: string
+              enum: [not_assessed]
+              description: Always 'not_assessed' on blocked/failed responses.
+            display_verdict_reason:
+              type: string
+              description: >
+                Producer-owned claim-safe phrase (wording
+                provisional_doctrine_v0, no numbers).
       required: [analysis_status, status_reason, critiques]
     CritiqueV3:
       type: object
