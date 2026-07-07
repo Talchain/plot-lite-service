@@ -243,8 +243,19 @@ describe('CONSTRAINT_TARGET_UNRELIABLE (item A — Paul\'s 20/% valueless-node c
     // Even if ISL does not flag the base (e.g. older ISL build), scaling a
     // user-unit threshold against the made-up default [0,1] range is already
     // not decision-grade.
+    //
+    // P0-C1 update (lane 23): a '%' unit is now a producer-declared scale
+    // (normalises against 100), so the original 20/'%' constraint no longer
+    // hits the default range — that path is FIXED, not suppressed (see
+    // tests/goal-threshold-normalisation.fixture.test.ts). To keep THIS leg
+    // pinned, use a unit with no declared scale on the same valueless node:
+    // normalisation still falls to default [0,1] and must still suppress.
     emitDefaultBaseWarning = false;
-    const body = await run(GRAPH_VALUELESS_TARGET, SUCCESS_TARGET_20_PCT);
+    const body = await run(GRAPH_VALUELESS_TARGET, {
+      ...SUCCESS_TARGET_20_PCT,
+      unit: 'points',
+      label: 'Effectiveness at least 20 points',
+    });
 
     for (const opt of body.option_comparison) {
       expect(opt, opt.option_id).not.toHaveProperty('probability_of_joint_goal');
