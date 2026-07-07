@@ -23,8 +23,28 @@
  * tell the user what to do. Raw computed values stay in diagnostics (logs)
  * only.
  *
- * This module is detection only — suppression happens at the emission sites in
- * `src/routes/v2/run.ts` (buildResponse). No ISL request change; no ISL change.
+ * DOCTRINE B EXCEPTION (lane P0-C2, ratified by the product owner 2026-07-07):
+ * when the ONLY reason is `target_base_defaulted` AND the target node has
+ * forward-propagated inputs (≥1 directed incoming edge), the probabilities are
+ * DELIVERED, not suppressed. Rationale: post PR #203 the threshold
+ * normalisation is sound (producer-declared scale), and ISL scores the
+ * constraint from the target node's forward-propagated outcome-sample series
+ * (robustness_analyzer_v2.py — evaluate_multi shares the outcome code path;
+ * prob_satisfied compares the SAME normalised samples the already-delivered
+ * `probability_of_goal` uses). The defaulted base=0.0 means those samples are
+ * the modelled level driven by upstream factors from a zero baseline — a
+ * meaningful modelled distribution, not a constant placeholder. Delivery
+ * carries an additive `goal_fit_basis` provenance annotation and an
+ * info-severity CONSTRAINT_GOALFIT_MODELLED_BASIS note instead of the
+ * warning. A defaulted-base target WITHOUT forward-propagated inputs (root
+ * node) keeps suppressing: its samples would be a constant placeholder.
+ * (ISL only emits CONSTRAINT_NODE_DEFAULT_BASE for non-root nodes today —
+ * robustness_analyzer_v2.py `if not is_root and …` — the PLoT-side edge check
+ * is defensive against ISL semantics drift.)
+ *
+ * This module is detection + classification only — suppression/delivery
+ * happens at the emission sites in `src/routes/v2/run.ts` (buildResponse).
+ * No ISL request change; no ISL change.
  */
 
 import type { GoalConstraint } from '../types/engine-v3.js';
@@ -128,6 +148,94 @@ function collectDefaultedBaseNodeIds(islResult: unknown): Set<string> {
   }
 
   return ids;
+}
+
+/**
+ * Wire value for the goal-fit provenance annotation (doctrine B): the
+ * delivered probabilities are scored from the target node's
+ * forward-propagated Monte Carlo outcome distribution against the normalised
+ * threshold — not measured against an observed baseline for that node.
+ */
+export const GOAL_FIT_SCORED_FROM_MODELLED_OUTCOME = 'modelled_outcome_distribution' as const;
+
+/** Partition of unreliable targets into suppression vs doctrine-B delivery. */
+export interface ConstraintTargetPartition {
+  /** Targets that keep run-level suppression (any reason set other than the doctrine-B case). */
+  suppressed: UnreliableConstraintTarget[];
+  /**
+   * Doctrine-B targets: reason set exactly {target_base_defaulted} AND the
+   * node has forward-propagated inputs. Probabilities are delivered with a
+   * `goal_fit_basis` annotation + info-severity disclosure.
+   */
+  modelledBasis: UnreliableConstraintTarget[];
+}
+
+/**
+ * Classify detected unreliable targets under doctrine B (P0-C2).
+ *
+ * A target qualifies for modelled-basis DELIVERY only when:
+ *  - its reason set is exactly {target_base_defaulted} — i.e. threshold
+ *    normalisation used a real, producer-declared or node-derived scale
+ *    (post-#203); AND
+ *  - the target node has at least one DIRECTED incoming edge in the graph
+ *    PLoT sent to ISL, so its sample series is a forward-propagated modelled
+ *    distribution, not a constant defaulted placeholder. Bidirected edges are
+ *    excluded — the ISL translator strips them from the forward model
+ *    (translator-v3.ts), so they contribute no propagation.
+ *
+ * Conservative on absent inputs: no graph (or no edges) → nothing qualifies,
+ * every target keeps suppressing exactly as before doctrine B.
+ */
+export function partitionConstraintTargets(
+  targets: UnreliableConstraintTarget[],
+  graph: { edges?: Array<{ from?: string; to?: string; edge_type?: string }> } | undefined,
+): ConstraintTargetPartition {
+  const suppressed: UnreliableConstraintTarget[] = [];
+  const modelledBasis: UnreliableConstraintTarget[] = [];
+
+  // Node ids with ≥1 directed (non-bidirected) incoming edge — mirrors the
+  // ISL translator's directed-edge filter (edge_type !== 'bidirected').
+  const forwardPropagatedNodeIds = new Set<string>();
+  if (Array.isArray(graph?.edges)) {
+    for (const edge of graph.edges) {
+      if (edge?.edge_type === 'bidirected') continue;
+      if (typeof edge?.to === 'string' && edge.to.length > 0) {
+        forwardPropagatedNodeIds.add(edge.to);
+      }
+    }
+  }
+
+  for (const target of targets) {
+    const baseDefaultedOnly =
+      target.reasons.length === 1 && target.reasons[0] === 'target_base_defaulted';
+    if (baseDefaultedOnly && forwardPropagatedNodeIds.has(target.node_id)) {
+      modelledBasis.push(target);
+    } else {
+      suppressed.push(target);
+    }
+  }
+
+  return { suppressed, modelledBasis };
+}
+
+/**
+ * Build the user-facing CONSTRAINT_GOALFIT_MODELLED_BASIS info note
+ * (doctrine B delivery disclosure).
+ *
+ * provisional_doctrine_v0 — wording surface. Claim-safe: says what the
+ * numbers ARE (modelled from the forward-propagated outcome distribution
+ * against the target) and what they are NOT (anchored to an observed
+ * baseline), names the node and the concrete user action, and never quotes
+ * the delivered probabilities.
+ */
+export function buildConstraintGoalFitModelledMessage(nodeLabel: string): string {
+  return (
+    `Goal-fit for "${nodeLabel}" is modelled: "${nodeLabel}" has no observed baseline value, ` +
+    `so each option's probability is scored from the modelled outcome distribution for ` +
+    `"${nodeLabel}" against your target — it reflects modelled change driven by upstream ` +
+    `factors, not distance from a measured starting point. ` +
+    `Set a value for "${nodeLabel}" to anchor these probabilities to an observed baseline.`
+  );
 }
 
 /**

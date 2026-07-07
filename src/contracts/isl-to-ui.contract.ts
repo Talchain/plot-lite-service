@@ -42,6 +42,14 @@ export const ISL_TO_UI_CONTRACT: BoundaryContract = {
    * threshold normalisation and/or ISL CONSTRAINT_NODE_DEFAULT_BASE on the
    * target node). Marked by the WARNING-severity CONSTRAINT_TARGET_UNRELIABLE
    * inference warning; raw values stay in diagnostics logs only.
+   *
+   * Doctrine B exception (lane P0-C2, ratified 2026-07-07): when the ONLY
+   * unreliability reason is the defaulted base AND the target node is
+   * forward-propagated (≥1 directed incoming edge), the fields are DELIVERED
+   * with an additive per-option `goal_fit_basis` provenance annotation
+   * ({ scored_from: 'modelled_outcome_distribution', node_ids }) and an
+   * info-severity CONSTRAINT_GOALFIT_MODELLED_BASIS note instead of the
+   * warning.
    * @see src/lib/constraint-reliability.ts
    */
   filtered: [

@@ -9,7 +9,11 @@
 import { describe, it, expect } from 'vitest';
 import {
   detectUnreliableConstraintTargets,
+  partitionConstraintTargets,
   buildConstraintTargetUnreliableMessage,
+  buildConstraintGoalFitModelledMessage,
+  GOAL_FIT_SCORED_FROM_MODELLED_OUTCOME,
+  type UnreliableConstraintTarget,
 } from '../src/lib/constraint-reliability.js';
 import type { NormalisationRange } from '../src/lib/intervention-normaliser.js';
 
@@ -110,6 +114,94 @@ describe('detectUnreliableConstraintTargets', () => {
       ],
     };
     expect(detectUnreliableConstraintTargets([gc('c1', 'out_x')], undefined, islResult)).toEqual([]);
+  });
+});
+
+describe('partitionConstraintTargets (P0-C2 doctrine B classification)', () => {
+  const target = (
+    nodeId: string,
+    reasons: UnreliableConstraintTarget['reasons'],
+  ): UnreliableConstraintTarget => ({
+    constraint_id: `c_${nodeId}`,
+    node_id: nodeId,
+    reasons,
+  });
+
+  const graph = {
+    edges: [
+      { from: 'fac_a', to: 'out_x' },
+      { from: 'out_x', to: 'goal_g' },
+    ],
+  };
+
+  it('classifies base-defaulted-only targets with forward-propagated inputs as modelledBasis', () => {
+    const out = partitionConstraintTargets([target('goal_g', ['target_base_defaulted'])], graph);
+    expect(out.modelledBasis.map((t) => t.node_id)).toEqual(['goal_g']);
+    expect(out.suppressed).toEqual([]);
+  });
+
+  it('keeps suppressing a base-defaulted target with NO incoming edges (root: constant placeholder, not a distribution)', () => {
+    const out = partitionConstraintTargets([target('fac_a', ['target_base_defaulted'])], graph);
+    expect(out.suppressed.map((t) => t.node_id)).toEqual(['fac_a']);
+    expect(out.modelledBasis).toEqual([]);
+  });
+
+  it('keeps suppressing when the reason set includes threshold_normalisation_defaulted', () => {
+    for (const reasons of [
+      ['threshold_normalisation_defaulted'],
+      ['threshold_normalisation_defaulted', 'target_base_defaulted'],
+    ] as const) {
+      const out = partitionConstraintTargets([target('goal_g', [...reasons])], graph);
+      expect(out.suppressed, reasons.join('+')).toHaveLength(1);
+      expect(out.modelledBasis, reasons.join('+')).toEqual([]);
+    }
+  });
+
+  it('ignores bidirected edges when deciding forward propagation (ISL strips them from the forward model)', () => {
+    const bidirectedOnly = { edges: [{ from: 'fac_a', to: 'goal_g', edge_type: 'bidirected' }] };
+    const out = partitionConstraintTargets([target('goal_g', ['target_base_defaulted'])], bidirectedOnly);
+    expect(out.suppressed).toHaveLength(1);
+    expect(out.modelledBasis).toEqual([]);
+  });
+
+  it('is conservative on absent graph/edges: everything keeps suppressing', () => {
+    for (const g of [undefined, {}, { edges: [] }] as const) {
+      const out = partitionConstraintTargets([target('goal_g', ['target_base_defaulted'])], g);
+      expect(out.suppressed).toHaveLength(1);
+      expect(out.modelledBasis).toEqual([]);
+    }
+  });
+
+  it('partitions a mixed set target-by-target', () => {
+    const out = partitionConstraintTargets(
+      [
+        target('goal_g', ['target_base_defaulted']),
+        target('out_x', ['threshold_normalisation_defaulted']),
+      ],
+      graph,
+    );
+    expect(out.modelledBasis.map((t) => t.node_id)).toEqual(['goal_g']);
+    expect(out.suppressed.map((t) => t.node_id)).toEqual(['out_x']);
+  });
+});
+
+describe('buildConstraintGoalFitModelledMessage (provisional_doctrine_v0 wording)', () => {
+  it('names the node, states the modelled basis, and gives the anchoring action', () => {
+    const msg = buildConstraintGoalFitModelledMessage('Improve productivity');
+    expect(msg).toContain('Improve productivity');
+    expect(msg.toLowerCase()).toContain('modelled');
+    expect(msg).toContain('no observed baseline value');
+    expect(msg).toContain('Set a value for "Improve productivity"');
+  });
+
+  it('never quotes probabilities or percentage figures', () => {
+    const msg = buildConstraintGoalFitModelledMessage('X');
+    expect(msg).not.toMatch(/\d+(\.\d+)?%/);
+    expect(msg).not.toMatch(/0\.\d+/);
+  });
+
+  it('exports the wire value used by the goal_fit_basis annotation', () => {
+    expect(GOAL_FIT_SCORED_FROM_MODELLED_OUTCOME).toBe('modelled_outcome_distribution');
   });
 });
 

@@ -19,10 +19,11 @@
  *      its producer-declared scale ('%' → 100, goal_threshold_cap) is honored;
  *   3. NO threshold_normalisation_defaulted suppression — goal-fit
  *      probabilities are emitted;
- *   4. PIN (P0-C2 boundary): the target_base_defaulted suppression leg (ISL
- *      CONSTRAINT_NODE_DEFAULT_BASE — the goal node's missing value channel,
- *      a pending doctrine decision) is UNAFFECTED: suppression still fires on
- *      that reason alone;
+ *   4. P0-C2 doctrine B (ratified 2026-07-07): the target_base_defaulted leg
+ *      ALONE no longer suppresses — goal-fit is DELIVERED, scored from the
+ *      forward-propagated outcome distribution, with a goal_fit_basis
+ *      annotation and an info-severity disclosure (see
+ *      tests/goalfit-doctrine-b.fixture.test.ts for the full contract);
  *   5. Regression: non-'%' units and explicit-range nodes behave exactly as
  *      before.
  */
@@ -279,27 +280,35 @@ describe('goal-threshold normalisation (P0-C1 — "at least 20%" silently nullif
   });
 
   // -------------------------------------------------------------------------
-  // PIN (deliverable 3): target_base_defaulted leg is UNAFFECTED (P0-C2)
+  // P0-C2 doctrine B (ratified 2026-07-07): target_base_defaulted ALONE
+  // delivers — scored from the modelled outcome distribution
   // -------------------------------------------------------------------------
 
-  it('PIN: suppression still fires on target_base_defaulted ALONE (missing value channel = P0-C2 doctrine)', async () => {
+  it('doctrine B: target_base_defaulted ALONE delivers goal-fit with a modelled-basis disclosure', async () => {
     emitDefaultBaseWarning = true;
     try {
       const body = await run(GRAPH_GOAL_WITH_THRESHOLD_CAP, AT_LEAST_20_PCT);
 
       // Threshold normalisation succeeded (0.2 went to ISL)…
       expect(lastISLRequestBody.goal_constraints[0].value).toBeCloseTo(0.2, 9);
-      // …but ISL defaulted the goal node's base → suppression depends ONLY on
-      // that remaining reason.
+      // …and although ISL defaulted the goal node's base, the goal node is
+      // forward-propagated, so the modelled probabilities are DELIVERED with
+      // honest provenance (doctrine B) instead of suppressed.
       for (const opt of body.option_comparison) {
-        expect(opt, opt.option_id).not.toHaveProperty('probability_of_joint_goal');
-        expect(opt, opt.option_id).not.toHaveProperty('constraint_probabilities');
+        expect(opt.probability_of_joint_goal, opt.option_id).toBe(0);
+        expect(opt.constraint_probabilities, opt.option_id).toEqual({ success_target: 0 });
+        expect(opt.goal_fit_basis, opt.option_id).toEqual({
+          scored_from: 'modelled_outcome_distribution',
+          node_ids: ['goal_productivity'],
+        });
       }
-      const warnings = unreliableWarnings(body);
-      expect(warnings).toHaveLength(1);
-      expect(warnings[0].severity).toBe('warning');
-      // The target_base_defaulted wording variant (missing value channel).
-      expect(warnings[0].message).toContain('no observed value');
+      // The honesty signal is downgraded: no warning, one info note.
+      expect(unreliableWarnings(body)).toHaveLength(0);
+      const notes = (body.inference_warnings ?? []).filter(
+        (w: any) => w.code === 'CONSTRAINT_GOALFIT_MODELLED_BASIS',
+      );
+      expect(notes).toHaveLength(1);
+      expect(notes[0].severity).toBe('info');
     } finally {
       emitDefaultBaseWarning = false;
     }
