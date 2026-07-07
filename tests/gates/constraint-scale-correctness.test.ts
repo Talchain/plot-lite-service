@@ -194,7 +194,15 @@ const { createServer } = await import('../../src/createServer.js');
 const BASE_PAYLOAD = {
   graph: {
     nodes: [
-      { id: 'goal', kind: 'goal', label: 'Revenue' },
+      // observed_state.value gives deriveRange() a real inferred range
+      // ([0, 80000], source 'inferred_value') for the 20000/50000 constraints
+      // below. Without it the threshold normalisation falls back to the
+      // default [0,1] range, which since lane 27 (ROADMAP 1.26a) honestly
+      // reports constraints_status: 'unavailable' (unreliable target) — this
+      // suite tests the buildConstraintFields correspondence/validity
+      // mechanics, so its target must be RELIABLE. Reliability suppression
+      // itself is pinned in tests/constraint-results-top-level-gating.fixture.test.ts.
+      { id: 'goal', kind: 'goal', label: 'Revenue', observed_state: { value: 40000 } },
       { id: 'factor-a', kind: 'factor', label: 'Market Size' },
     ],
     edges: [{ from: 'factor-a', to: 'goal', strength: { mean: 0.5, std: 0.1 } }],
