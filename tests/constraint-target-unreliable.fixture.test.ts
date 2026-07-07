@@ -25,6 +25,16 @@
  *
  * The ISL request/ISL service are NOT changed — the mock returns exactly what
  * live ISL returned for this chain.
+ *
+ * POST-HISTORY UPDATES to the original chain:
+ *   - P0-C1 (PR #203): '%' is now a producer-declared scale (normalises
+ *     against 100), so the ORIGINAL 20/'%' constraint no longer trips the
+ *     default-range leg. The suppression pins below use unit 'points' (no
+ *     declared scale) to keep the default-range chain exercised.
+ *   - P0-C2 doctrine B (ratified 2026-07-07): target_base_defaulted ALONE on
+ *     a forward-propagated node now DELIVERS with a modelled-basis
+ *     disclosure — see tests/goalfit-doctrine-b.fixture.test.ts. Every
+ *     OTHER reason combination (as pinned here) suppresses exactly as before.
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
@@ -162,6 +172,17 @@ const SUCCESS_TARGET_20_PCT = {
   label: 'Effectiveness at least 20%',
 };
 
+/**
+ * Suppression-pin variant: 'points' has no producer-declared scale, so the
+ * valueless node still normalises against the default [0,1] range
+ * (threshold_normalisation_defaulted) — post-#203, '%' alone no longer does.
+ */
+const SUCCESS_TARGET_20_POINTS = {
+  ...SUCCESS_TARGET_20_PCT,
+  unit: 'points',
+  label: 'Effectiveness at least 20 points',
+};
+
 describe('CONSTRAINT_TARGET_UNRELIABLE (item A — Paul\'s 20/% valueless-node chain)', () => {
   let app: FastifyInstance;
 
@@ -199,7 +220,10 @@ describe('CONSTRAINT_TARGET_UNRELIABLE (item A — Paul\'s 20/% valueless-node c
   it('suppresses probability_of_joint_goal and constraint_probabilities on the full live chain', async () => {
     emitDefaultBaseWarning = true;
     try {
-      const body = await run(GRAPH_VALUELESS_TARGET, SUCCESS_TARGET_20_PCT);
+      // 'points' variant: keeps BOTH legs firing (default range + default
+      // base) post-#203 — the multi-reason set must suppress exactly as the
+      // original chain did (doctrine B only exempts base-defaulted ALONE).
+      const body = await run(GRAPH_VALUELESS_TARGET, SUCCESS_TARGET_20_POINTS);
 
       expect(body.analysis_status).not.toBe('blocked');
       expect(Array.isArray(body.option_comparison)).toBe(true);
@@ -219,7 +243,7 @@ describe('CONSTRAINT_TARGET_UNRELIABLE (item A — Paul\'s 20/% valueless-node c
   it('emits a WARNING-severity CONSTRAINT_TARGET_UNRELIABLE naming the node and the user action', async () => {
     emitDefaultBaseWarning = true;
     try {
-      const body = await run(GRAPH_VALUELESS_TARGET, SUCCESS_TARGET_20_PCT);
+      const body = await run(GRAPH_VALUELESS_TARGET, SUCCESS_TARGET_20_POINTS);
 
       const warnings = (body.inference_warnings ?? []).filter(
         (w: any) => w.code === 'CONSTRAINT_TARGET_UNRELIABLE',
@@ -271,6 +295,10 @@ describe('CONSTRAINT_TARGET_UNRELIABLE (item A — Paul\'s 20/% valueless-node c
   it('does not fabricate GOAL_FEASIBILITY_LOW coaching from the placeholder joint probability', async () => {
     emitDefaultBaseWarning = true;
     try {
+      // Deliberately the '%' (doctrine-B delivery) case: even though the
+      // modelled goal-fit is now DELIVERED on the wire, the coaching
+      // joint-prob gate stays conservative — no feasibility claim is derived
+      // from a modelled-baseline number (see run.ts coaching call site).
       const body = await run(GRAPH_VALUELESS_TARGET, SUCCESS_TARGET_20_PCT);
       // The joint-prob readiness gate is skipped for unreliable targets: no
       // "may not achieve the target" claim derived from a placeholder 0.
@@ -302,7 +330,7 @@ describe('CONSTRAINT_TARGET_UNRELIABLE (item A — Paul\'s 20/% valueless-node c
     // still discloses status honestly instead of disappearing silently.
     emitDefaultBaseWarning = true;
     try {
-      const body = await run(GRAPH_VALUELESS_TARGET, SUCCESS_TARGET_20_PCT);
+      const body = await run(GRAPH_VALUELESS_TARGET, SUCCESS_TARGET_20_POINTS);
       expect(body.constraints_status).toBeDefined();
     } finally {
       emitDefaultBaseWarning = false;

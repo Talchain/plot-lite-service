@@ -1426,6 +1426,10 @@ export interface OptionComparisonResultV3 {
    * SUPPRESSED (absent) when any constraint target is unreliable
    * (CONSTRAINT_TARGET_UNRELIABLE inference warning present) — the raw
    * computed value would be meaningless and lives in diagnostics logs only.
+   * Doctrine B (P0-C2): a target whose ONLY unreliability reason is a
+   * defaulted base (no observed value) but whose samples are
+   * forward-propagated is DELIVERED with a `goal_fit_basis` annotation
+   * instead of suppressed — see src/lib/constraint-reliability.ts.
    */
   probability_of_joint_goal?: number;
 
@@ -1434,9 +1438,27 @@ export interface OptionComparisonResultV3 {
    * Map of constraint_id to probability [0, 1].
    * Only present when goal_constraints provided in request.
    * SUPPRESSED (absent) when any constraint target is unreliable
-   * (CONSTRAINT_TARGET_UNRELIABLE inference warning present).
+   * (CONSTRAINT_TARGET_UNRELIABLE inference warning present); delivered with
+   * `goal_fit_basis` under doctrine B (see probability_of_joint_goal).
    */
   constraint_probabilities?: Record<string, number>;
+
+  /**
+   * Provenance annotation for delivered goal-fit probabilities (doctrine B,
+   * P0-C2). Present ONLY when probability_of_joint_goal /
+   * constraint_probabilities were scored from the target node's
+   * forward-propagated Monte Carlo outcome distribution because the node has
+   * no observed baseline value (ISL defaulted its base to 0.0). Absent on
+   * fully-reliable runs — additive, never fabricated.
+   * Accompanied by the info-severity CONSTRAINT_GOALFIT_MODELLED_BASIS
+   * inference warning.
+   */
+  goal_fit_basis?: {
+    /** How the delivered probabilities were scored. */
+    scored_from: 'modelled_outcome_distribution';
+    /** Constraint-target node ids scored this way (sorted, deduplicated). */
+    node_ids: string[];
+  };
 }
 
 /**
@@ -1946,9 +1968,22 @@ export const INFERENCE_WARNING_CODES = {
    * uncertainty). `probability_of_joint_goal` and `constraint_probabilities`
    * are SUPPRESSED for the run (absence is honest; raw computed values stay
    * in diagnostics logs only). Severity: warning.
+   * Doctrine B (P0-C2): the base-defaulted-only forward-propagated case no
+   * longer suppresses — it emits CONSTRAINT_GOALFIT_MODELLED_BASIS instead.
    * @see src/lib/constraint-reliability.ts
    */
   CONSTRAINT_TARGET_UNRELIABLE: 'CONSTRAINT_TARGET_UNRELIABLE',
+  /**
+   * Doctrine B (P0-C2, ratified 2026-07-07): goal-fit probabilities WERE
+   * delivered, scored from the constraint-target node's forward-propagated
+   * Monte Carlo outcome distribution against the normalised threshold —
+   * because the node has no observed baseline value (ISL defaulted its base
+   * to 0.0), they reflect modelled change driven by upstream factors, not
+   * distance from a measured starting point. Pairs with the per-option
+   * `goal_fit_basis` annotation. Severity: info.
+   * @see src/lib/constraint-reliability.ts
+   */
+  CONSTRAINT_GOALFIT_MODELLED_BASIS: 'CONSTRAINT_GOALFIT_MODELLED_BASIS',
 } as const;
 
 export type InferenceWarningCode = (typeof INFERENCE_WARNING_CODES)[keyof typeof INFERENCE_WARNING_CODES];

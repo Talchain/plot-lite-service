@@ -134,7 +134,10 @@ import { buildAutoNoiseProvenance, extractIslAutoNoiseApplied, logAutoNoiseFlagM
 import { sanitiseIslVoi, computeEvpiPercentagePoints } from '../../lib/evpi-emission.js';
 import {
   detectUnreliableConstraintTargets,
+  partitionConstraintTargets,
   buildConstraintTargetUnreliableMessage,
+  buildConstraintGoalFitModelledMessage,
+  GOAL_FIT_SCORED_FROM_MODELLED_OUTCOME,
 } from '../../lib/constraint-reliability.js';
 import { NEAR_TIE_THRESHOLD } from '../../trust/result-coherence.js';
 import { assessGraphIdentifiability, toIdentifiabilityResponse, detectUnmeasuredConfounding } from '../../trust/identifiability-v2.js';
@@ -1724,12 +1727,34 @@ function buildResponse(
   // the UI gates goal-fit on absence) and a WARNING-severity
   // CONSTRAINT_TARGET_UNRELIABLE inference warning names the node + the fix.
   // Raw computed values are logged (diagnostics) but never emitted.
+  //
+  // Doctrine B (lane P0-C2, ratified 2026-07-07): a target whose ONLY reason
+  // is target_base_defaulted AND whose samples are forward-propagated (≥1
+  // directed incoming edge) is DELIVERED instead — scored from the modelled
+  // outcome distribution — with an additive per-option `goal_fit_basis`
+  // annotation and an info-severity CONSTRAINT_GOALFIT_MODELLED_BASIS note.
+  // Any other reason combination (default-range normalisation, root-node
+  // targets, mixed multi-constraint runs) keeps suppressing exactly as
+  // before. See src/lib/constraint-reliability.ts for the classification.
   const unreliableConstraintTargets = detectUnreliableConstraintTargets(
     goalConstraints,
     constraintNormRanges,
     islResult,
   );
-  const suppressConstraintProbabilities = unreliableConstraintTargets.length > 0;
+  const constraintTargetPartition = partitionConstraintTargets(
+    unreliableConstraintTargets,
+    graph,
+  );
+  const suppressConstraintProbabilities = constraintTargetPartition.suppressed.length > 0;
+  // Modelled-basis delivery is only active when NOTHING suppresses: on a
+  // mixed run the run-level suppression wins (exactly today's behaviour).
+  const modelledBasisConstraintTargets = suppressConstraintProbabilities
+    ? []
+    : constraintTargetPartition.modelledBasis;
+  // Sorted + deduplicated node ids for the per-option annotation.
+  const modelledBasisNodeIds = [
+    ...new Set(modelledBasisConstraintTargets.map((t) => t.node_id)),
+  ].sort();
 
   // Map ISL results to response format
   // ISL V2 uses 'options' field; V1 uses 'results'. Check both for compatibility.
@@ -1870,6 +1895,24 @@ function buildResponse(
         if (constraintProbs !== undefined) {
           result.constraint_probabilities = constraintProbs;
           logger?.info({ event: 'constraint_probs_mapped', option_id: optionId, count: Object.keys(constraintProbs).length });
+        }
+        // Doctrine B (P0-C2): honest provenance for delivered goal-fit scored
+        // from the modelled outcome distribution (target base defaulted, no
+        // observed baseline). Additive — absent on fully-reliable runs, and
+        // only attached when the option actually carries a delivered value.
+        if (
+          modelledBasisNodeIds.length > 0 &&
+          (jointProb !== undefined || constraintProbs !== undefined)
+        ) {
+          result.goal_fit_basis = {
+            scored_from: GOAL_FIT_SCORED_FROM_MODELLED_OUTCOME,
+            node_ids: modelledBasisNodeIds,
+          };
+          logger?.info({
+            event: 'constraint_probability_modelled_basis',
+            option_id: optionId,
+            node_ids: modelledBasisNodeIds,
+          });
         }
       }
     }
@@ -2123,6 +2166,24 @@ function buildResponse(
         // provisional_doctrine_v0 — wording surface (see constraint-reliability.ts)
         message: buildConstraintTargetUnreliableMessage(nodeLabel, target.reasons),
         severity: 'warning',
+      });
+    }
+  } else if (modelledBasisConstraintTargets.length > 0) {
+    // Doctrine B (P0-C2): goal-fit was DELIVERED, scored from the modelled
+    // outcome distribution. The honesty signal is downgraded to an
+    // info-severity note — one per affected node — pairing with the
+    // per-option `goal_fit_basis` annotation emitted above. Raw numbers are
+    // never quoted in the note.
+    const notedNodeIds = new Set<string>();
+    for (const target of modelledBasisConstraintTargets) {
+      if (notedNodeIds.has(target.node_id)) continue;
+      notedNodeIds.add(target.node_id);
+      const nodeLabel = graph?.nodes?.find((n) => n.id === target.node_id)?.label ?? target.node_id;
+      inferenceWarnings.push({
+        code: INFERENCE_WARNING_CODES.CONSTRAINT_GOALFIT_MODELLED_BASIS,
+        // provisional_doctrine_v0 — wording surface (see constraint-reliability.ts)
+        message: buildConstraintGoalFitModelledMessage(nodeLabel),
+        severity: 'info',
       });
     }
   }
@@ -4959,6 +5020,14 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           // coaching joint-probability gate never reads placeholder-derived
           // joint probabilities (same inputs → same verdict as the public
           // suppression).
+          //
+          // Doctrine B (P0-C2) note — DELIBERATELY stricter than the wire:
+          // even when the base-defaulted-only case now DELIVERS goal-fit
+          // probabilities (with a modelled-basis disclosure), coaching keeps
+          // skipping the GOAL_FEASIBILITY_LOW gate for them. A feasibility
+          // claim ("may not achieve the target") derived from a
+          // modelled-baseline number would need its own caveated wording;
+          // silence is the claim-safe default until that wording is ratified.
           const coachingConstraintTargetsUnreliable = detectUnreliableConstraintTargets(
             activeGoalConstraints,
             constraintNormalisationRanges,
