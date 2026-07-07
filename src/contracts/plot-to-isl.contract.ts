@@ -83,5 +83,9 @@ export const PLOT_TO_ISL_CONTRACT: BoundaryContract = {
     'request_id',
     'analysis_types',
     'parameter_uncertainties[].distribution',
+    // Lane PLoT-W4: conditional forward — sent as `true` ONLY when the inbound
+    // /v2/run request set include_path_decomposition: true; the key is OMITTED
+    // otherwise (request-gated opt-in, no default ISL payload growth).
+    'include_path_decomposition (conditional opt-in forward)',
   ],
 } as const;

@@ -53,7 +53,13 @@ export const ISL_TO_UI_CONTRACT: BoundaryContract = {
   renames: [
     /** Array-level rename: ISL returns options[], UI exposes option_comparison[]. */
     { from: 'options', to: 'option_comparison' },
-    /** ISL uses sensitivity[], UI uses edge_sensitivity[]. */
+    /**
+     * Live V2 wire (ISL build 9a22a1a+, lane PLoT-W4): edge sensitivity is
+     * NESTED at robustness.edge_sensitivity; UI exposes flat edge_sensitivity[].
+     * (The V1-era top-level sensitivity[] rename below is legacy-fixture only.)
+     */
+    { from: 'robustness.edge_sensitivity', to: 'edge_sensitivity' },
+    /** LEGACY (fixtures only): V1-era ISL top-level sensitivity[] → edge_sensitivity[]. */
     { from: 'sensitivity', to: 'edge_sensitivity' },
     /** Factor identification: ISL uses node_id, UI uses factor_id. */
     { from: 'factor_sensitivity[].node_id', to: 'factor_sensitivity[].factor_id' },
@@ -70,9 +76,9 @@ export const ISL_TO_UI_CONTRACT: BoundaryContract = {
   transforms: [
     {
       kind: 'derive',
-      from: ['edge_from', 'edge_to'],
+      from: ['from_id', 'to_id'],
       to: 'edge_sensitivity[].edge_id',
-      why: 'Composite key: "${edge_from}::${edge_to}" (double-colon canonical format)',
+      why: 'Composite key: "${from_id}::${to_id}" (double-colon canonical format; live V2 nested entries carry from_id/to_id — legacy fixture entries carry edge_from/edge_to and are accepted equivalently)',
     },
     {
       kind: 'reshape',
@@ -121,5 +127,11 @@ export const ISL_TO_UI_CONTRACT: BoundaryContract = {
     'conditional_winners[].high_bucket.winner_label',
     'flip_thresholds',                   // Always-emit: [] when absent/empty from ISL. Entries denormalised into factor/outcome units.
     'conditional_probabilities',         // Always-emit: [] when absent/empty (in constraint-analysis block). Index-based refs resolved to constraint_id strings.
+    // Lane PLoT-W4 (ISL build 9a22a1a+): verbatim additive passthroughs —
+    // present only when the ISL envelope carried them (and, for
+    // path_decomposition, only when the /v2/run request opted in via
+    // include_path_decomposition).
+    'sensitivity_reference_option_id',   // Disclosure: option the sensitivity/fragile-edge analysis was computed against.
+    'path_decomposition',                // Request-gated structural pathway decomposition (opt-in; not a causal claim).
   ],
 } as const;
