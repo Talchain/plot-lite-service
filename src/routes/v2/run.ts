@@ -2457,6 +2457,27 @@ function buildResponse(
         baseMeta.range_derivation_sources = meta.rangeDerivationSources;
       }
 
+      // Lane PLoT-R3 (roadmap 2.13): diligence-grade evidence capture — ALWAYS
+      // present (deliberately NOT gated behind UI_CANONICAL_META, which stays
+      // off in staging and left the UI debug bundle reporting plot/isl payloads
+      // unavailable). Digests of the primary ISL exchange (sha256 + byte
+      // length + key manifest — never full bodies) + deployed builds. The
+      // primary exchange is the first robustness/analyze call; flip probes and
+      // follow-ups remain visible in downstream_calls when captured.
+      baseMeta.evidence = (() => {
+        const calls = getDownstreamCallsForLog(requestId);
+        const primaryIslCall =
+          calls.find((c) => c.service === 'isl' && c.endpoint.includes('/robustness/analyze')) ??
+          calls.find((c) => c.service === 'isl');
+        return {
+          plot_build: meta.build ?? 'unknown',
+          // Passthrough of ISL's `build` response field; never invented.
+          isl_build: typeof islResult?.build === 'string' ? islResult.build : null,
+          isl_request_digest: primaryIslCall?.request_digest ?? null,
+          isl_response_digest: primaryIslCall?.response_digest ?? null,
+        };
+      })();
+
       // Diagnostic fields — lightweight metadata for debug panel / developer inspection.
       // NOT consumed by UI display logic. NOT included in response_hash.
       baseMeta.feature_flags_snapshot = getAllFeatureFlags();

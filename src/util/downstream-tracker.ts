@@ -6,6 +6,40 @@
  * Each request gets its own isolated call log.
  */
 
+import { createHash } from 'node:crypto';
+
+/**
+ * Lane PLoT-R3 (roadmap 2.13): diligence-grade content digest of an exact
+ * wire payload. Carries enough to verify a separately captured payload
+ * matches what PLoT actually exchanged — WITHOUT shipping the body:
+ *   - sha256 over the exact serialised bytes (request: the JSON.stringify'd
+ *     body sent; response: the raw response text received);
+ *   - byte length (UTF-8);
+ *   - sorted top-level key manifest ([] for non-object payloads).
+ */
+export interface PayloadDigest {
+  sha256: string;
+  bytes: number;
+  key_manifest: string[];
+}
+
+/**
+ * Compute a PayloadDigest from the exact serialised text of a payload.
+ * `parsed` provides the top-level key manifest (pass the object the text
+ * serialises to / parses from; non-objects yield an empty manifest).
+ */
+export function computePayloadDigest(text: string, parsed: unknown): PayloadDigest {
+  const keys =
+    parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? Object.keys(parsed as Record<string, unknown>).sort()
+      : [];
+  return {
+    sha256: createHash('sha256').update(text, 'utf8').digest('hex'),
+    bytes: Buffer.byteLength(text, 'utf8'),
+    key_manifest: keys,
+  };
+}
+
 /**
  * Represents a single downstream service call
  */
@@ -30,6 +64,10 @@ export interface DownstreamCall {
   responsePayload?: unknown;
   /** Error response body for non-200 responses (truncated to 1000 chars) */
   errorBody?: string;
+  /** Lane PLoT-R3 (2.13): digest of the exact request bytes sent downstream */
+  requestDigest?: PayloadDigest;
+  /** Lane PLoT-R3 (2.13): digest of the exact response bytes received */
+  responseDigest?: PayloadDigest;
 }
 
 /**
@@ -147,6 +185,8 @@ export function getDownstreamCallsForLog(requestId: string): Array<{
   request_payload?: unknown;
   response_payload?: unknown;
   error_body?: string;
+  request_digest?: PayloadDigest;
+  response_digest?: PayloadDigest;
 }> {
   return getDownstreamCalls(requestId).map((call) => ({
     service: call.service,
@@ -159,6 +199,9 @@ export function getDownstreamCallsForLog(requestId: string): Array<{
     request_payload: call.requestPayload,
     response_payload: call.responsePayload,
     ...(call.errorBody && { error_body: call.errorBody }),
+    // Lane PLoT-R3 (2.13): additive digest passthrough for _meta.evidence
+    ...(call.requestDigest && { request_digest: call.requestDigest }),
+    ...(call.responseDigest && { response_digest: call.responseDigest }),
   }));
 }
 

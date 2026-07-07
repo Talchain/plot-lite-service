@@ -582,6 +582,8 @@ describe('ISL Client — request ID echo capture', () => {
         'x-request-id': requestId,
       }),
       json: async () => ({ status: 'ok' }),
+      // Lane PLoT-R3: client now reads raw text (for exact-byte digests) and parses it
+      text: async () => JSON.stringify({ status: 'ok' }),
     })) as unknown as typeof fetch;
 
     const client = new ISLClient({
@@ -607,6 +609,8 @@ describe('ISL Client — request ID echo capture', () => {
       status: 200,
       headers: new Headers({ 'content-type': 'application/json' }),
       json: async () => ({ status: 'ok' }),
+      // Lane PLoT-R3: client now reads raw text (for exact-byte digests) and parses it
+      text: async () => JSON.stringify({ status: 'ok' }),
     })) as unknown as typeof fetch;
 
     const client = new ISLClient({

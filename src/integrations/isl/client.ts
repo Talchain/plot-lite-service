@@ -10,7 +10,7 @@
 
 import { ISLHttpError, ISLTimeoutError, ISLNetworkError, isRetryableError, type ISLError422 } from './errors.js';
 import { computeOlumiHash } from '../../util/canonical.js';
-import { recordDownstreamCall, sanitizePayloadForDebug } from '../../util/downstream-tracker.js';
+import { recordDownstreamCall, sanitizePayloadForDebug, computePayloadDigest } from '../../util/downstream-tracker.js';
 import { ISL_TIMEOUT_MS, ISL_HEALTH_CHECK_TIMEOUT_MS } from '../../config/timeouts.js';
 
 /**
@@ -99,6 +99,12 @@ export class ISLClient {
     // P1: Compute payload hash outside loop for catch block access
     const payloadHash = computeOlumiHash(body);
 
+    // Lane PLoT-R3 (2.13): diligence-grade digest of the EXACT request bytes
+    // sent to ISL (same serialisation as the fetch body below). sha256 + byte
+    // length + sorted top-level key manifest — full bodies never ride the wire.
+    const requestBodyText = JSON.stringify(body);
+    const requestDigest = computePayloadDigest(requestBodyText, body);
+
     for (let attempt = 1; attempt <= this.config.maxRetries; attempt++) {
       // Track start time outside try block for catch access
       const startTime = Date.now();
@@ -120,7 +126,9 @@ export class ISLClient {
             // P0-PLOT-2: Request ISL V2 responses
             'X-ISL-Response-Version': '2',
           },
-          body: JSON.stringify(body),
+          // Lane PLoT-R3 (2.13): send the pre-serialised text so requestDigest
+          // is a digest of the EXACT bytes on the wire.
+          body: requestBodyText,
           signal: controller.signal,
         });
 
@@ -152,6 +160,9 @@ export class ISLClient {
             requestId,
             requestPayload: sanitizePayloadForDebug(body),
             responsePayload: sanitizePayloadForDebug(tryParseJson(errorBody)),
+            // Lane PLoT-R3 (2.13): digests of the exact bytes exchanged
+            requestDigest,
+            responseDigest: computePayloadDigest(errorBody, tryParseJson(errorBody)),
           });
 
           // P0-PLOT-3: Parse ISL 422 as structured result
@@ -176,8 +187,11 @@ export class ISLClient {
           throw err;
         }
 
-        // Parse response and record successful downstream call with payloads for debug
-        const responseData = (await response.json()) as T;
+        // Parse response and record successful downstream call with payloads for debug.
+        // Lane PLoT-R3 (2.13): read the raw text first so responseDigest covers
+        // the EXACT bytes received, then parse (same JSON, same errors as .json()).
+        const responseText = await response.text();
+        const responseData = JSON.parse(responseText) as T;
         const islEchoedRequestId = response.headers.get('x-request-id') ?? null;
         const responseHash = computeOlumiHash(responseData);
         recordDownstreamCall({
@@ -190,6 +204,9 @@ export class ISLClient {
           requestId,
           requestPayload: sanitizePayloadForDebug(body),
           responsePayload: sanitizePayloadForDebug(responseData),
+          // Lane PLoT-R3 (2.13): digests of the exact bytes exchanged
+          requestDigest,
+          responseDigest: computePayloadDigest(responseText, responseData),
         });
 
         return { data: responseData, islEchoedRequestId };
@@ -241,6 +258,8 @@ export class ISLClient {
               requestId,
               requestPayload: sanitizePayloadForDebug(body),
               // No response payload for network/timeout errors
+              // Lane PLoT-R3 (2.13): request digest still recorded (what was sent)
+              requestDigest,
             });
           }
           break;
