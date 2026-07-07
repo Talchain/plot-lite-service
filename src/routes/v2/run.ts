@@ -94,6 +94,7 @@ import {
   normalizeFragileEdges,
   normalizeRobustEdges,
 } from '../../integrations/isl/adapters/robustness-analysis.js';
+import { deriveRobustnessDisplayVerdict } from './robustness-display-verdict.js';
 import type { RobustnessDataForCee, NormalizedEdgeInfo } from '../../integrations/isl/types/plot-types.js';
 import type { ISLConstraintResult, ISLEdgeEValue, ISLConditionalWinner } from '../../integrations/isl/types/isl-types.js';
 import { getIslEdgeEValues, getIslEdgeSensitivity, getIslComputedAt, mapIslFactorEvpi } from '../../integrations/isl/v2-envelope.js';
@@ -1203,10 +1204,14 @@ function buildV2RunError({
     analysis_status: analysisStatus,
     status_reason: statusReason,
     critiques,
-    // CIL 0.2: maintain robustness contract on error responses
+    // CIL 0.2: maintain robustness contract on error responses.
+    // Lane PLoT-W5 (additive): blocked/failed runs never computed robustness,
+    // so the display-safe verdict is 'not_assessed' — never a
+    // determinate-looking verdict without computed robustness.
     robustness: {
       fragile_edges: [],
       robust_edges: [],
+      ...deriveRobustnessDisplayVerdict(undefined, false),
     },
     retryable,
     meta: {
@@ -2009,6 +2014,20 @@ function buildResponse(
   if (nearTie) {
     robustness.near_tie = nearTie;
   }
+
+  // Display-safe robustness verdict (lane PLoT-W5, roadmap Tier 1.6 —
+  // additive). Derived honestly and ONLY from the producer facts
+  // is_robust/level as assembled above (confidence is NEVER an input);
+  // 'not_assessed' whenever robustness_status is not 'computed' or the
+  // verdict-bearing facts are missing — never a determinate-looking verdict
+  // without computed robustness. Mapping + wording provisional_doctrine_v0 —
+  // see src/routes/v2/robustness-display-verdict.ts.
+  const displayVerdictFields = deriveRobustnessDisplayVerdict(
+    { is_robust: robustness.is_robust, level: robustness.level },
+    robustnessStatus === 'computed',
+  );
+  robustness.display_verdict = displayVerdictFields.display_verdict;
+  robustness.display_verdict_reason = displayVerdictFields.display_verdict_reason;
 
   // Extract factor_enrichments from sensitivityData (if present)
   const factorEnrichments = sensitivityData?.factorEnrichments;

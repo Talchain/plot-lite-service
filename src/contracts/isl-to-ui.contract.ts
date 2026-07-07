@@ -110,6 +110,15 @@ export const ISL_TO_UI_CONTRACT: BoundaryContract = {
     'recommended_option_id',
     'recommended_option_label',
     'near_tie',
+    // Lane PLoT-W5 (roadmap Tier 1.6): display-safe robustness verdict — the
+    // producer-owned meaning of is_robust/level so the UI never re-derives it.
+    // Derived ONLY from is_robust + level (confidence is NEVER an input);
+    // 'not_assessed' whenever robustness was not computed or the
+    // verdict-bearing facts are missing. Emitted on success AND blocked/failed
+    // error shapes. Mapping + wording provisional_doctrine_v0 — see
+    // src/routes/v2/robustness-display-verdict.ts.
+    'robustness.display_verdict',        // enum: robust | moderate | fragile | not_assessed
+    'robustness.display_verdict_reason', // claim-safe producer phrase, no numbers (e.g. fragile → 'small changes could flip this result')
     'confidence_tier',                   // B1: derived from m1_coaching.readiness (ready→strong, close_call→fair, else→needs_work)
     'dominant_factor',                   // B1: detected from factor_sensitivity (influence >0.5 AND ratio >2:1)
     'factor_sensitivity[].evpi_percentage_points', // P-5: ISL factor_evpi[] counterfactual (sanitised, flag-gated staging/test) OR VOI×spread heuristic fallback; source disclosed via evpi_method
