@@ -21,9 +21,15 @@ import type { EngineNodeV3, OptionV3, InterventionValueV3, OutcomeStatsV3, Repai
 
 /**
  * Range source for normalisation.
- * Priority order: explicit_cap > explicit > extracted > inferred_spread > inferred_baseline > inferred_value > default
+ * Priority order (interventions): explicit_cap > explicit > extracted > inferred_spread > inferred_baseline > inferred_value > default
+ *
+ * Constraint-only sources (P0-C1, producer-declared scales — see
+ * normaliseGoalConstraints):
+ * - 'goal_threshold_cap': the node's CEE-stamped goal_threshold_cap
+ * - 'unit_percent': the constraint's '%' unit (house doctrine: '%' always
+ *   normalises against 100)
  */
-export type RangeSource = 'explicit_cap' | 'explicit' | 'extracted' | 'inferred_spread' | 'inferred_baseline' | 'inferred_value' | 'default';
+export type RangeSource = 'explicit_cap' | 'explicit' | 'extracted' | 'inferred_spread' | 'inferred_baseline' | 'inferred_value' | 'default' | 'goal_threshold_cap' | 'unit_percent';
 
 /**
  * Range for normalisation.
@@ -845,6 +851,54 @@ export interface NormalisedGoalConstraint extends GoalConstraint {
 }
 
 /**
+ * Node-level goal-threshold metadata (P0-C1).
+ *
+ * CEE stamps these on the RAW upstream node (`goal_threshold` already
+ * normalised to [0,1], `goal_threshold_cap` = the scale it was normalised
+ * against, e.g. 100 for '%'). The canonical EngineNodeV3 does not carry them,
+ * so the route captures them from `body.graph.nodes` and passes them in here.
+ */
+export interface GoalThresholdNodeMeta {
+  /** Already-normalised threshold in [0,1], stamped by CEE */
+  goal_threshold?: number;
+  /** Scale cap the raw user threshold was normalised against (e.g. 100 for '%') */
+  goal_threshold_cap?: number;
+}
+
+/**
+ * Producer-declared scale signals for constraint normalisation (P0-C1).
+ * Both are additive/optional — omitting them reproduces the legacy behaviour.
+ */
+export interface ConstraintNormalisationExtras {
+  /**
+   * Unit per constraint_id, captured from the raw client/compiled constraints
+   * BEFORE the ISL-boundary strip (the temporal filter removes `unit`).
+   */
+  unitsByConstraintId?: Map<string, string>;
+  /** Raw-node goal-threshold metadata per node_id */
+  goalThresholdMetaByNodeId?: Map<string, GoalThresholdNodeMeta>;
+}
+
+/**
+ * True when a constraint unit means "percent" (house doctrine: '%' always
+ * normalises against 100).
+ */
+export function isPercentUnit(unit: string | undefined): boolean {
+  if (typeof unit !== 'string') return false;
+  const u = unit.trim().toLowerCase();
+  return u === '%' || u === 'percent' || u === 'pct' || u === 'percentage';
+}
+
+/**
+ * Tolerance (on the normalised [0,1] scale) for treating the node's
+ * CEE-stamped goal_threshold as "the same target" as the re-normalised raw
+ * constraint value. Wide enough to absorb producer rounding (4 dp), narrow
+ * enough that a genuinely changed target (e.g. 25% vs a stale 0.2 stamp) is
+ * NOT silently overridden by the stale stamp.
+ */
+const GOAL_THRESHOLD_CORRESPONDENCE_TOLERANCE = 1e-3;
+
+/**
  * Result of constraint normalisation.
  */
 export interface ConstraintNormalisationResult {
@@ -860,22 +914,44 @@ export interface ConstraintNormalisationResult {
     normalised_value: number;
     range: NormalisationRange;
     used_heuristic: boolean;
+    /** True when the node's CEE-stamped goal_threshold was preferred (P0-C1) */
+    used_node_goal_threshold?: boolean;
   }>;
 }
 
 /**
  * Normalise goal constraint values to [0,1] space.
  *
- * Uses the same deriveRange() function as interventions.
+ * Uses the same deriveRange() function as interventions, extended with two
+ * producer-declared constraint scales (P0-C1) that outrank the node-derived
+ * chain:
+ *
+ * | Priority | Source               | Rule                                            |
+ * |----------|----------------------|-------------------------------------------------|
+ * | 0        | `goal_threshold_cap` | Node's CEE-stamped cap. Range [0, cap].         |
+ * | 1        | `unit_percent`       | Constraint unit is '%'. Range [0, 100] (house   |
+ * |          |                      | doctrine: '%' always normalises against 100).   |
+ * | 2+       | deriveRange(node)    | Existing chain (explicit_cap → … → default).    |
+ *
+ * Additionally, when the node carries a CEE-stamped, already-normalised
+ * finite `goal_threshold` in [0,1] that corresponds to the same target
+ * (|value/cap − goal_threshold| ≤ 1e-3 under a producer-declared cap), the
+ * stamp is PREFERRED over re-normalising the raw client value — CEE is the
+ * producer of both numbers, so its normalisation is authoritative and free of
+ * re-derivation drift. A stamp that does NOT correspond (e.g. stale after the
+ * user changed the target) is ignored.
+ *
  * Preserves original user-unit value for response denormalisation.
  *
  * @param constraints Goal constraints to normalise
  * @param nodes Graph nodes (for range derivation)
+ * @param extras Producer-declared scale signals (units, node goal-threshold metadata)
  * @returns Normalised constraints with original values preserved
  */
 export function normaliseGoalConstraints(
   constraints: GoalConstraint[],
-  nodes: EngineNodeV3[]
+  nodes: EngineNodeV3[],
+  extras?: ConstraintNormalisationExtras
 ): ConstraintNormalisationResult {
   const repairs: RepairRecord[] = [];
   const diagnostics: ConstraintNormalisationResult['diagnostics'] = [];
@@ -893,18 +969,50 @@ export function normaliseGoalConstraints(
     // Find target node
     const targetNode = nodeMap.get(node_id);
 
-    // Derive range for the target node.
-    // deriveRange() handles observed_state.cap as priority 0 (explicit_cap), then
-    // state_space.range → heuristics → [0,1]. If node not found, use default [0,1].
-    const range: NormalisationRange = targetNode
-      ? deriveRange(targetNode)
-      : { min: 0, max: 1, source: 'default' };
+    // Producer-declared scale signals (P0-C1)
+    const nodeMeta = extras?.goalThresholdMetaByNodeId?.get(node_id);
+    const unit = extras?.unitsByConstraintId?.get(constraint_id);
+    const nodeCap = nodeMeta?.goal_threshold_cap;
+
+    // Derive range. Producer-declared constraint scales outrank the
+    // node-derived chain; deriveRange() handles observed_state.cap as
+    // priority 0 (explicit_cap), then state_space.range → heuristics → [0,1].
+    // If node not found and no declared scale, use default [0,1].
+    let range: NormalisationRange;
+    if (typeof nodeCap === 'number' && Number.isFinite(nodeCap) && nodeCap > 0) {
+      range = { min: 0, max: nodeCap, source: 'goal_threshold_cap' };
+    } else if (isPercentUnit(unit)) {
+      range = { min: 0, max: 100, source: 'unit_percent' };
+    } else {
+      range = targetNode
+        ? deriveRange(targetNode)
+        : { min: 0, max: 1, source: 'default' };
+    }
 
     // Normalise value
-    const { normalised, clamped } = normaliseValue(value, range);
+    let { normalised, clamped } = normaliseValue(value, range);
 
-    // Track if we used a heuristic (non-explicit range)
-    const usedHeuristic = range.source !== 'explicit' && range.source !== 'explicit_cap';
+    // Prefer the node's CEE-stamped, already-normalised goal_threshold when it
+    // corresponds to the same target under a producer-declared cap.
+    let usedNodeGoalThreshold = false;
+    const nodeGoalThreshold = nodeMeta?.goal_threshold;
+    if (
+      (range.source === 'goal_threshold_cap' || range.source === 'unit_percent') &&
+      typeof nodeGoalThreshold === 'number' &&
+      Number.isFinite(nodeGoalThreshold) &&
+      nodeGoalThreshold >= 0 && nodeGoalThreshold <= 1 &&
+      Math.abs(normalised - nodeGoalThreshold) <= GOAL_THRESHOLD_CORRESPONDENCE_TOLERANCE
+    ) {
+      normalised = nodeGoalThreshold;
+      clamped = false;
+      usedNodeGoalThreshold = true;
+    }
+
+    // Track if we used a heuristic (non-producer-declared range)
+    const NON_HEURISTIC_SOURCES: ReadonlySet<RangeSource> = new Set<RangeSource>([
+      'explicit', 'explicit_cap', 'goal_threshold_cap', 'unit_percent',
+    ]);
+    const usedHeuristic = !NON_HEURISTIC_SOURCES.has(range.source);
 
     // Create normalised constraint
     const normalisedConstraint: NormalisedGoalConstraint = {
@@ -924,7 +1032,7 @@ export function normaliseGoalConstraints(
       action: 'normalised',
       from_value: value,
       to_value: normalised,
-      reason: `normalised range=[${range.min},${range.max}] source=${range.source}${clamped ? ' (clamped)' : ''}`,
+      reason: `normalised range=[${range.min},${range.max}] source=${range.source}${clamped ? ' (clamped)' : ''}${usedNodeGoalThreshold ? ' (node goal_threshold preferred)' : ''}`,
     });
 
     // Add diagnostic
@@ -935,6 +1043,7 @@ export function normaliseGoalConstraints(
       normalised_value: normalised,
       range,
       used_heuristic: usedHeuristic,
+      ...(usedNodeGoalThreshold && { used_node_goal_threshold: true }),
     });
 
     // Heuristic use is captured in diagnostics[].used_heuristic and repair records.

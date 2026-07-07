@@ -152,6 +152,7 @@ import {
   type NormalisationContext,
   type NormalisationDiagnostic,
   type NormalisationRange,
+  type GoalThresholdNodeMeta,
 } from '../../lib/intervention-normaliser.js';
 import { assembleBrief } from '../../assembly/decision-brief.js';
 import { buildEvidencePriorityCard, type FactorInput } from '../../review-pass/evidence-priority.js';
@@ -1407,6 +1408,39 @@ export function deriveRecommendedOption(
  * We use the first option's constraint_analysis as the canonical source for top-level
  * constraint metadata (diagnostics and conditional probabilities are per-graph, not per-option).
  */
+/**
+ * Collect CEE-stamped goal-threshold metadata from the RAW upstream nodes (P0-C1).
+ *
+ * CEE stamps `goal_threshold` (already normalised to [0,1]) and
+ * `goal_threshold_cap` (the scale the raw user target was normalised against,
+ * e.g. 100 for '%') on the goal node. The graph normaliser rebuilds nodes into
+ * canonical EngineNodeV3 and DROPS these fields, so they must be captured from
+ * `body.graph.nodes` before normalisation — same pattern as the
+ * auto_constraint_from_threshold fallback, which reads the raw goal node
+ * directly. Supports the same direct/data.-nested locations as normaliseNode.
+ */
+function collectGoalThresholdNodeMeta(
+  rawNodes: unknown
+): Map<string, GoalThresholdNodeMeta> {
+  const meta = new Map<string, GoalThresholdNodeMeta>();
+  if (!Array.isArray(rawNodes)) return meta;
+
+  const finiteOrUndefined = (v: unknown): number | undefined =>
+    typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+
+  for (const node of rawNodes as any[]) {
+    if (!node || typeof node.id !== 'string' || node.id.length === 0) continue;
+    const goalThreshold = finiteOrUndefined(node.goal_threshold ?? node.data?.goal_threshold);
+    const goalThresholdCap = finiteOrUndefined(node.goal_threshold_cap ?? node.data?.goal_threshold_cap);
+    if (goalThreshold === undefined && goalThresholdCap === undefined) continue;
+    meta.set(node.id, {
+      ...(goalThreshold !== undefined && { goal_threshold: goalThreshold }),
+      ...(goalThresholdCap !== undefined && { goal_threshold_cap: goalThresholdCap }),
+    });
+  }
+  return meta;
+}
+
 function buildConstraintFields(
   goalConstraints: GoalConstraint[] | undefined,
   islResult: any,
@@ -3567,6 +3601,26 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         );
 
         // =================================================================
+        // P0-C1: capture producer-declared constraint scales BEFORE they
+        // disappear from the pipeline.
+        // =================================================================
+        // - CEE stamps goal_threshold (already normalised) + goal_threshold_cap
+        //   on the RAW upstream node; the canonical EngineNodeV3 drops them.
+        // - The temporal filter strips the constraint's `unit` at the ISL
+        //   boundary.
+        // Both signals feed the out-of-domain gate below and the Phase 4b
+        // constraint normaliser — without them a raw "20 (%)" target falls to
+        // the default [0,1] range and is clamped to 1.0 (the live 2026-07-07
+        // silent-nullification defect).
+        const goalThresholdMetaByNodeId = collectGoalThresholdNodeMeta(body.graph?.nodes);
+        const constraintUnitsByConstraintId = new Map<string, string>();
+        for (const c of constraintCompilation.constraints as RawGoalConstraint[]) {
+          if (typeof c.unit === 'string' && c.unit.length > 0) {
+            constraintUnitsByConstraintId.set(c.constraint_id, c.unit);
+          }
+        }
+
+        // =================================================================
         // Phase 1c++: Temporal Constraint Filter
         // =================================================================
         // Drop non-evaluable temporal constraints before ISL.
@@ -3576,7 +3630,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         const temporalFilterResult = filterTemporalConstraints(
           constraintCompilation.constraints as RawGoalConstraint[],
           filteredGraph.nodes,
-          req.log
+          req.log,
+          goalThresholdMetaByNodeId
         );
 
         // Replace constraint list with filtered set
@@ -3956,7 +4011,14 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           if (constraintsNeedNormalisation(activeGoalConstraints)) {
             const constraintNormResult = normaliseGoalConstraints(
               activeGoalConstraints,
-              filteredGraph.nodes
+              filteredGraph.nodes,
+              // P0-C1: producer-declared scales (constraint '%' unit, node
+              // goal_threshold_cap / goal_threshold) captured before the
+              // temporal filter stripped them — see Phase 1c++ above.
+              {
+                unitsByConstraintId: constraintUnitsByConstraintId,
+                goalThresholdMetaByNodeId,
+              }
             );
             constraintsForISL = constraintNormResult.constraints;
 

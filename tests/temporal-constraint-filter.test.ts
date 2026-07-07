@@ -10,7 +10,8 @@
  * - T2: temporal unit on goal node with value > 1 → filtered
  * - T3: legitimate goal constraint (no temporal markers) → NOT filtered
  * - T4: factor constraint → NOT filtered (not probability-domain node)
- * - T5: NRR-style constraint (value > 1, unit = "%") → NOT filtered + warning
+ * - T5a/T5b: '%'-united constraints (P0-C1) — within [0,100] = in-domain
+ *   (scale resolved, no warning); beyond the cap → still warns
  * - T6: mixed array → correct split
  * - T7: empty array → no-op
  * - T8: unknown node_id → passed through (let validation catch it)
@@ -153,8 +154,12 @@ describe('filterTemporalConstraints', () => {
     expect(result.passed[0].constraint_id).toBe('c4');
   });
 
-  // T5: NRR-style constraint (value > 1, unit = "%") → NOT filtered + out-of-domain warning
-  it('T5: does NOT filter NRR-style constraint (value 1.1, unit "%"), emits warning', () => {
+  // T5 (updated for P0-C1): a '%' unit is a producer-declared scale (house
+  // doctrine: '%' normalises against 100), so a '%' value within [0,100] is
+  // IN-domain — the gate resolves the scale instead of warning. The original
+  // intent (flag values that cannot be scaled into the domain) is preserved:
+  // a '%' value beyond the cap still warns.
+  it("T5a: does NOT warn for a '%' value within the declared scale (1.1% is in-domain)", () => {
     const constraints: RawGoalConstraint[] = [{
       constraint_id: 'c5',
       node_id: 'goal_mid_market_success',
@@ -167,18 +172,43 @@ describe('filterTemporalConstraints', () => {
 
     expect(result.passed).toHaveLength(1);
     expect(result.filtered).toHaveLength(0);
+    expect(result.warnings).toHaveLength(0);
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'plot.constraint_scale_resolved',
+        constraint_id: 'c5',
+        threshold: 1.1,
+        declared_cap: 100,
+      })
+    );
+  });
+
+  it("T5b: STILL warns for a '%' value beyond the declared cap (150%)", () => {
+    const constraints: RawGoalConstraint[] = [{
+      constraint_id: 'c5',
+      node_id: 'goal_mid_market_success',
+      operator: '>=',
+      value: 150,
+      unit: '%',
+    }];
+    const logger = mockLogger();
+    const result = filterTemporalConstraints(constraints, ALL_NODES, logger);
+
+    expect(result.passed).toHaveLength(1);
+    expect(result.filtered).toHaveLength(0);
     expect(result.warnings).toHaveLength(1);
     expect(result.warnings[0]).toEqual(expect.objectContaining({
       constraint_id: 'c5',
       node_id: 'goal_mid_market_success',
-      threshold: 1.1,
+      threshold: 150,
       node_kind: 'goal',
     }));
     expect(logger.warn).toHaveBeenCalledWith(
       expect.objectContaining({
         event: 'plot.constraint_out_of_domain',
         constraint_id: 'c5',
-        threshold: 1.1,
+        threshold: 150,
       })
     );
   });

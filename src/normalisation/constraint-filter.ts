@@ -25,6 +25,7 @@ import type {
   EngineNodeV3,
   FilteredConstraintRecord,
 } from '../types/engine-v3.js';
+import { isPercentUnit, type GoalThresholdNodeMeta } from '../lib/intervention-normaliser.js';
 
 // Node kinds whose scores are in probability domain (expected [0,1] range).
 // Constraints with large values + temporal units on these nodes are non-evaluable.
@@ -64,11 +65,16 @@ interface Logger {
  * @param constraints  Raw constraints (may carry CEE-specific fields like deadline_metadata, unit)
  * @param nodes        Graph nodes (for node-kind lookup)
  * @param logger       Optional structured logger (req.log compatible)
+ * @param goalThresholdMetaByNodeId  Raw-node goal-threshold metadata (P0-C1) —
+ *   a threshold that normalises into [0,1] under a producer-declared scale
+ *   (node goal_threshold_cap, or 100 for a '%' unit) is IN-domain, so the
+ *   out-of-domain safety gate must not fire for it
  */
 export function filterTemporalConstraints(
   constraints: RawGoalConstraint[],
   nodes: EngineNodeV3[],
-  logger?: Logger
+  logger?: Logger,
+  goalThresholdMetaByNodeId?: Map<string, GoalThresholdNodeMeta>
 ): ConstraintFilterResult {
   const nodeMap = new Map<string, EngineNodeV3>();
   for (const node of nodes) {
@@ -134,22 +140,52 @@ export function filterTemporalConstraints(
     // Constraint targets a probability-domain node with value outside [0,1],
     // but the unit is NOT temporal. This may be legitimate (e.g., NRR above 110%)
     // or a data issue. Log a warning but still forward to ISL.
+    //
+    // P0-C1 exception: a raw threshold that normalises INTO [0,1] under a
+    // producer-declared scale — the node's CEE-stamped goal_threshold_cap, or
+    // 100 for a '%' unit — is in-domain (e.g. "at least 20%" = 0.2). The
+    // normaliser will scale it against that same cap; warning here would flag
+    // the user's own valid target as a data issue.
     if (isProbabilityNode && (value < 0 || value > 1) && !isTemporalUnit) {
-      warnings.push({
-        constraint_id,
-        node_id,
-        threshold: value,
-        node_kind: nodeKind,
-        message: `Constraint ${constraint_id} targets ${nodeKind} node "${node_id}" with threshold ${value} outside [0,1] range`,
-      });
-      logger?.warn({
-        event: 'plot.constraint_out_of_domain',
-        constraint_id,
-        node_id,
-        threshold: value,
-        node_kind: nodeKind,
-        unit: unit ?? null,
-      });
+      const nodeMeta = goalThresholdMetaByNodeId?.get(node_id);
+      const declaredCap =
+        typeof nodeMeta?.goal_threshold_cap === 'number' &&
+        Number.isFinite(nodeMeta.goal_threshold_cap) &&
+        nodeMeta.goal_threshold_cap > 0
+          ? nodeMeta.goal_threshold_cap
+          : isPercentUnit(unit)
+            ? 100
+            : undefined;
+      const scalableIntoDomain =
+        declaredCap !== undefined && value >= 0 && value <= declaredCap;
+
+      if (scalableIntoDomain) {
+        logger?.info({
+          event: 'plot.constraint_scale_resolved',
+          constraint_id,
+          node_id,
+          threshold: value,
+          node_kind: nodeKind,
+          unit: unit ?? null,
+          declared_cap: declaredCap,
+        });
+      } else {
+        warnings.push({
+          constraint_id,
+          node_id,
+          threshold: value,
+          node_kind: nodeKind,
+          message: `Constraint ${constraint_id} targets ${nodeKind} node "${node_id}" with threshold ${value} outside [0,1] range`,
+        });
+        logger?.warn({
+          event: 'plot.constraint_out_of_domain',
+          constraint_id,
+          node_id,
+          threshold: value,
+          node_kind: nodeKind,
+          unit: unit ?? null,
+        });
+      }
     }
 
     // Strip CEE-specific fields, keep only GoalConstraint fields for ISL.
