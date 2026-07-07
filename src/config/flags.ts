@@ -104,6 +104,23 @@ export const FLAGS = {
     return process.env.NODE_ENV === 'test' || process.env.RENDER_SERVICE_NAME?.includes('staging') === true;
   },
 
+  // Lane PLoT-R3 (roadmap 2.7): decision_brief claim-safe surfaces
+  /**
+   * Gates the ADDITIVE claim-safe surfaces on `decision_brief`
+   * (headline_banded, defaulted_assumptions, robustness_caveat,
+   * warning_codes — all wording provisional_doctrine_v0).
+   *
+   * Default: ON in every environment. The ONLY reason this flag exists is
+   * byte-identity of the pre-existing decision-brief golden fixtures
+   * (tests/decision-brief.test.ts "golden fixtures" describe pins it '0'
+   * so src/fixtures/decision-brief/*.json stay byte-identical). Explicit
+   * '0'/'false' disables; anything else (including unset) enables.
+   */
+  get BRIEF_CLAIM_SAFE_SURFACES_ENABLE() {
+    const raw = process.env.BRIEF_CLAIM_SAFE_SURFACES_ENABLE;
+    return raw !== '0' && raw !== 'false';
+  },
+
   // ISL V2 science channel: per-factor counterfactual EVPI (factor_evpi wire field)
   /**
    * P-5 promotion gate (provisional_doctrine_v0, lane PLoT-H item C,

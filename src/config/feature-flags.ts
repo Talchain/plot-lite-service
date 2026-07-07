@@ -53,6 +53,8 @@ export const KNOWN_FEATURE_FLAGS = [
   'ENABLE_REVIEW_PASS',
   // Track A: Validate-patch endpoint
   'ENABLE_VALIDATE_PATCH',
+  // Lane PLoT-R3: decision_brief claim-safe surfaces (default ON; golden-fixture byte-identity gate)
+  'BRIEF_CLAIM_SAFE_SURFACES_ENABLE',
 ] as const;
 
 export function validateFeatureFlags(logger?: any): void {

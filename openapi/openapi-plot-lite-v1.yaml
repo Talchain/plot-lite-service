@@ -938,6 +938,32 @@ components:
           description: Deterministic hash of semantic response fields
         processing_time_ms:
           type: number
+        decision_brief:
+          oneOf:
+            - $ref: '#/components/schemas/DecisionBriefV1'
+            - type: 'null'
+          description: >
+            Shareable decision brief assembled deterministically from the
+            analysis results (no LLM call). null when analysis failed or
+            required source data (option_comparison, robustness) is absent.
+            Contains non-deterministic fields (brief_id, created_at);
+            excluded from response_hash.
+        _meta:
+          type: object
+          description: >
+            Response-only diagnostic metadata (excluded from response_hash).
+            Base fields are always present; extended debug payloads are gated
+            behind the UI_CANONICAL_META flag. Additive lane PLoT-R3 field:
+            `evidence` — diligence-grade capture of the ISL exchange
+            (sha256/byte-length/key-manifest digests, never full bodies) plus
+            plot_build and isl_build. See CanonicalMeta in
+            src/types/engine-v3.ts.
+          properties:
+            source_path: { type: string, enum: [isl, graph_fallback] }
+            request_id: { type: string }
+            plot_build: { type: string }
+            evidence:
+              $ref: '#/components/schemas/EvidenceCaptureV1'
         meta:
           type: object
           description: Processing metadata
@@ -1191,3 +1217,166 @@ components:
             negatives). evpi_percentage_points is deliberately absent in that case —
             labelled, never a clamped 0 and never a negative.
       required: [factor_id]
+    # =========================================================================
+    # Decision brief (lane PLoT-R3, roadmap 2.7 producer leg)
+    # =========================================================================
+    DecisionBriefV1:
+      type: object
+      description: >
+        Deterministically assembled decision brief. Claim-safe surfaces
+        (headline_banded, defaulted_assumptions, robustness_caveat,
+        warning_codes) are ADDITIVE, provisional_doctrine_v0-worded, and
+        gated behind the default-ON BRIEF_CLAIM_SAFE_SURFACES_ENABLE flag.
+      properties:
+        brief_id: { type: string, description: Deterministic SHA-256-derived UUID }
+        version: { type: string, enum: ['1'] }
+        graph_hash: { type: string }
+        seed: { type: number }
+        created_at: { type: string, format: date-time }
+        headline:
+          type: string
+          description: Narrative summary (M2 review → M1 coaching → 'Analysis complete' fallback chain).
+        options:
+          type: array
+          description: Options ranked by win_probability descending.
+          items:
+            type: object
+            properties:
+              option_id: { type: string }
+              label: { type: string }
+              win_probability: { type: number, minimum: 0, maximum: 1 }
+              rank: { type: integer, minimum: 1 }
+            required: [option_id, label, win_probability, rank]
+        top_drivers:
+          type: array
+          description: >
+            Top factors by absolute elasticity (influence-based, max 5).
+            Intervention-pinned levers are excluded — a pinned lever is not an
+            independently tunable driver and never appears in "check this"
+            framing.
+          items:
+            type: object
+            properties:
+              factor_label: { type: string }
+              sensitivity: { type: number }
+              direction: { type: string, enum: [positive, negative] }
+            required: [factor_label, sensitivity, direction]
+        key_assumptions:
+          type: array
+          items: { type: string }
+        what_would_change:
+          type: array
+          items: { type: string }
+        robustness:
+          type: string
+          enum: [robust, moderate, fragile]
+        warnings:
+          type: array
+          items:
+            type: object
+            properties:
+              code: { type: string }
+              message: { type: string }
+              severity: { type: string, enum: [info, warning, error] }
+            required: [code, message, severity]
+        lineage:
+          type: object
+          properties:
+            config_version: { type: string }
+            response_hash: { type: string }
+            n_samples: { type: integer }
+          required: [config_version, response_hash]
+        headline_banded:
+          type: object
+          description: >
+            ADDITIVE (lane PLoT-R3, provisional_doctrine_v0): deterministic
+            leader claim banded by win-probability gap — the producer leg of
+            the UI's UI-SEM-060 leader-claim banding. Bands: gap < 0.10 →
+            very_close; gap >= 0.25 AND robustness established →
+            clearly_ahead; otherwise slightly_ahead. 'clearly ahead' wording
+            is NEVER emitted without established robustness. Absent when
+            fewer than two ranked options exist.
+          properties:
+            text: { type: string, description: provisional_doctrine_v0 wording }
+            band: { type: string, enum: [very_close, slightly_ahead, clearly_ahead] }
+            leader_option_id: { type: string }
+            leader_label: { type: string }
+            runner_up_option_id: { type: [string, 'null'] }
+            runner_up_label: { type: [string, 'null'] }
+            win_probability_gap: { type: number, minimum: 0, maximum: 1 }
+            robustness_gated:
+              type: boolean
+              description: True when a clearly_ahead-sized gap was downgraded because robustness was not established.
+            doctrine: { type: string, enum: [provisional_doctrine_v0] }
+          required: [text, band, leader_option_id, leader_label, win_probability_gap, robustness_gated, doctrine]
+        defaulted_assumptions:
+          type: array
+          description: >
+            ADDITIVE (lane PLoT-R3): defaulted-input disclosures —
+            value_defaulted factors (pinned levers excluded) plus
+            DEFAULT-coded inference-warning echoes. Max 10.
+          items:
+            type: object
+            properties:
+              factor_label: { type: [string, 'null'] }
+              note: { type: string }
+              source: { type: string, enum: [value_defaulted, default_disclosure] }
+              code: { type: string }
+              doctrine: { type: string, enum: [provisional_doctrine_v0] }
+            required: [factor_label, note, source, doctrine]
+        robustness_caveat:
+          type: object
+          description: >
+            ADDITIVE (lane PLoT-R3): honest robustness wording derived
+            strictly from is_robust / level; when neither is present the text
+            states robustness was not assessed.
+          properties:
+            text: { type: string }
+            basis: { type: string, enum: [is_robust, level, absent] }
+            doctrine: { type: string, enum: [provisional_doctrine_v0] }
+          required: [text, basis, doctrine]
+        warning_codes:
+          type: array
+          description: >
+            ADDITIVE (lane PLoT-R3): echo of warning-severity
+            inference-warning codes (codes only). Sorted, deduplicated.
+          items: { type: string }
+      required: [brief_id, version, graph_hash, seed, created_at, headline, options, top_drivers, key_assumptions, what_would_change, robustness, warnings, lineage]
+    # =========================================================================
+    # Diligence-grade evidence capture (lane PLoT-R3, roadmap 2.13)
+    # =========================================================================
+    PayloadDigestV1:
+      type: object
+      description: >
+        Content digest of an exact wire payload: sha256 over the exact bytes
+        sent/received, byte length, and the sorted top-level key manifest.
+        Full bodies are NOT carried on the wire — the digest lets an auditor
+        verify a separately captured payload matches what PLoT exchanged.
+      properties:
+        sha256: { type: string, description: Hex SHA-256 of the exact payload bytes }
+        bytes: { type: integer, minimum: 0, description: Payload length in bytes (UTF-8) }
+        key_manifest:
+          type: array
+          description: Sorted top-level JSON keys of the payload ([] for non-object payloads).
+          items: { type: string }
+      required: [sha256, bytes, key_manifest]
+    EvidenceCaptureV1:
+      type: object
+      description: >
+        ADDITIVE (lane PLoT-R3, roadmap 2.13): always-present diligence
+        evidence for the primary ISL exchange. Closes the debug-bundle
+        "plot: null / isl: null" gap without shipping full payloads.
+      properties:
+        plot_build: { type: string, description: Deployed PLoT build SHA (BUILD_ID / GITHUB_SHA / git fallback) }
+        isl_build:
+          type: [string, 'null']
+          description: ISL build identifier from the ISL response 'build' field; null when ISL was not called or did not report one.
+        isl_request_digest:
+          oneOf:
+            - $ref: '#/components/schemas/PayloadDigestV1'
+            - type: 'null'
+        isl_response_digest:
+          oneOf:
+            - $ref: '#/components/schemas/PayloadDigestV1'
+            - type: 'null'
+      required: [plot_build, isl_build, isl_request_digest, isl_response_digest]

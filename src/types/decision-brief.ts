@@ -68,6 +68,97 @@ export interface DecisionBriefV1 {
   // Provenance
   /** Lineage information for audit trail */
   lineage: BriefLineage;
+
+  // ===========================================================================
+  // Lane PLoT-R3 (roadmap 2.7 producer leg) — ADDITIVE claim-safe surfaces.
+  // All optional: absent on pre-R3 briefs and when
+  // BRIEF_CLAIM_SAFE_SURFACES_ENABLE is '0'/'false' (golden-fixture
+  // byte-identity gate). All wording is provisional_doctrine_v0.
+  // ===========================================================================
+
+  /**
+   * Deterministic leader claim banded by win-probability gap (the producer
+   * leg of the UI's UI-SEM-060 leader-claim banding debt — "Remove when PLoT
+   * provides a leader-confidence band / close-call signal").
+   * Absent when fewer than two ranked options exist (no comparative claim
+   * is made without a comparison).
+   */
+  headline_banded?: BriefBandedHeadline;
+
+  /**
+   * Defaulted-input disclosures: factors ISL substituted a default value for
+   * (`value_defaulted: true`, intervention-pinned levers excluded) plus
+   * run-level default disclosures echoed from DEFAULT-coded inference
+   * warnings. Max 10, deterministic order.
+   */
+  defaulted_assumptions?: BriefDefaultedAssumption[];
+
+  /** Honest robustness wording derived from is_robust / level (never invented). */
+  robustness_caveat?: BriefRobustnessCaveat;
+
+  /**
+   * Echo of warning-severity inference-warning codes from the run response
+   * (codes only — no numbers, no prose). Sorted, deduplicated. [] when the
+   * run carried no warning-severity inference warnings.
+   */
+  warning_codes?: string[];
+}
+
+// =============================================================================
+// Lane PLoT-R3 claim-safe surface types (all wording provisional_doctrine_v0)
+// =============================================================================
+
+/**
+ * Gap bands for the leader claim. 'clearly_ahead' is ONLY emitted when the
+ * run's robustness is established (is_robust === true, or level 'high' with
+ * no explicit is_robust === false) — a large gap without robustness is
+ * downgraded to 'slightly_ahead' with robustness_gated: true.
+ */
+export type BriefHeadlineBand = 'very_close' | 'slightly_ahead' | 'clearly_ahead';
+
+export interface BriefBandedHeadline {
+  /** provisional_doctrine_v0 wording — claim-safe leader sentence */
+  text: string;
+  band: BriefHeadlineBand;
+  leader_option_id: string;
+  leader_label: string;
+  runner_up_option_id: string | null;
+  runner_up_label: string | null;
+  /** win_probability(leader) − win_probability(runner-up), [0,1] */
+  win_probability_gap: number;
+  /**
+   * True when the gap alone qualified for 'clearly_ahead' but robustness was
+   * not established, so the claim was downgraded to 'slightly_ahead'.
+   */
+  robustness_gated: boolean;
+  doctrine: 'provisional_doctrine_v0';
+}
+
+export interface BriefDefaultedAssumption {
+  /** Factor label when the disclosure is factor-scoped; null for run-level disclosures */
+  factor_label: string | null;
+  /** provisional_doctrine_v0 wording (factor-scoped) or verbatim warning echo (run-level) */
+  note: string;
+  /**
+   * 'value_defaulted'     — factor_sensitivity[*].value_defaulted === true
+   * 'default_disclosure'  — inference warning whose code names a default
+   */
+  source: 'value_defaulted' | 'default_disclosure';
+  /** Inference-warning code for 'default_disclosure' entries */
+  code?: string;
+  doctrine: 'provisional_doctrine_v0';
+}
+
+export interface BriefRobustnessCaveat {
+  /** provisional_doctrine_v0 wording — honest, no invented certainty */
+  text: string;
+  /**
+   * Which upstream signal the wording was derived from:
+   * 'is_robust' — ISL boolean flag; 'level' — ISL robustness level;
+   * 'absent' — neither present (wording says robustness was not assessed).
+   */
+  basis: 'is_robust' | 'level' | 'absent';
+  doctrine: 'provisional_doctrine_v0';
 }
 
 export interface BriefOption {

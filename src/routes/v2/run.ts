@@ -2089,6 +2089,9 @@ function buildResponse(
     robustness,
     m1_coaching: m1Coaching,
     m1_review: m2DecisionReview?.m1_review ?? undefined,
+    // Lane PLoT-R3: warning_codes echo + DEFAULT-coded disclosures for the
+    // brief's claim-safe surfaces (provisional_doctrine_v0 wording).
+    inference_warnings: inferenceWarnings,
     response_hash: responseHash,
     // Track S: depth-aware brief lineage (config_version + lineage.n_samples).
     meta: { seed_used: meta.seedUsed, n_samples: meta.nSamples },
