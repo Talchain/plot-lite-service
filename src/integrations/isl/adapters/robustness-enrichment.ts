@@ -224,14 +224,19 @@ export function buildRobustnessDataForCee(
   graph: EngineGraphV3,
   options: OptionV3[]
 ): RobustnessDataForCee | null {
-  // Check if there's any meaningful robustness data
+  // Check if there's any meaningful robustness data.
+  // recommendation_stability no longer counts as meaningful data and is no
+  // longer forwarded (lane PLoT-H item B, 2026-07-07): ISL derives it as
+  // option_wins[winner]/n_samples — the leader's win_probability relabelled,
+  // zero independent information (verified byte-identical in live tests
+  // 0.59025 / 0.8541875 and in tests/fixtures/isl-v2-live-20260706). Omission
+  // is honest absence; consumers must not print it as a distinct "stability".
   const hasFragileEdges = (islRobustness?.fragile_edges?.length ?? 0) > 0;
   const hasRobustEdges = (islRobustness?.robust_edges?.length ?? 0) > 0;
-  const hasRecommendationStability = islRobustness?.recommendation_stability !== undefined;
   const hasFactorSensitivity = (islFactorSensitivity?.length ?? 0) > 0;
 
   // Return null if no meaningful data
-  if (!hasFragileEdges && !hasRobustEdges && !hasRecommendationStability && !hasFactorSensitivity) {
+  if (!hasFragileEdges && !hasRobustEdges && !hasFactorSensitivity) {
     return null;
   }
 
@@ -248,7 +253,7 @@ export function buildRobustnessDataForCee(
   );
 
   return {
-    recommendation_stability: islRobustness?.recommendation_stability,
+    // recommendation_stability deliberately omitted — see item B note above.
     recommended_option: recommendedOptionId
       ? {
           id: recommendedOptionId,

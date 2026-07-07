@@ -316,7 +316,12 @@ export interface EnrichedFactorSensitivity {
  * Contains ISL robustness data enriched with human-readable labels.
  */
 export interface RobustnessDataForCee {
-  /** Recommendation stability score (0-1) */
+  /**
+   * @deprecated NO LONGER POPULATED (lane PLoT-H item B, 2026-07-07):
+   * ISL's recommendation_stability is the leader's win_probability relabelled
+   * (option_wins[winner]/n_samples) — zero independent information. Kept on
+   * the type for inbound tolerance only; buildRobustnessDataForCee omits it.
+   */
   recommendation_stability?: number;
   /** Recommended option with label */
   recommended_option?: {
