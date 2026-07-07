@@ -1170,4 +1170,24 @@ components:
           description: >
             Track S: true when ISL substituted a default for the factor value.
             Absent means "not reported / older ISL response" and is never coerced to false.
+        evpi_percentage_points:
+          type: number
+          minimum: 0
+          description: >
+            Estimated EVPI in percentage points of win probability. Source disclosed
+            by evpi_method ('counterfactual' = ISL per-factor counterfactual EVPI,
+            sanitised — negatives never emitted; 'heuristic' = VOI × win-probability
+            spread × 100 fallback). Always >= 0 when present.
+        evpi_method:
+          type: string
+          enum: [heuristic, counterfactual]
+          description: Method used to compute evpi_percentage_points.
+        evpi_status:
+          type: string
+          enum: [below_resolution]
+          description: >
+            Present only when ISL's counterfactual EVPI estimate is too small to
+            measure at the run's sampling depth (including Monte Carlo–noise
+            negatives). evpi_percentage_points is deliberately absent in that case —
+            labelled, never a clamped 0 and never a negative.
       required: [factor_id]

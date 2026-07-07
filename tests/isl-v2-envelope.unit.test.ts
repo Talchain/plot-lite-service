@@ -155,7 +155,7 @@ describe('getIslComputedAt', () => {
   });
 });
 
-describe('mapIslFactorEvpi (guarded internal mapping — P-5 pending, NOT user-facing)', () => {
+describe('mapIslFactorEvpi (sanitising mapping — P-5 promoted behind ISL_FACTOR_EVPI_INTERNAL, provisional_doctrine_v0)', () => {
   it('proves the live wire delivers factor_evpi: 4 sanitised entries from capture A', () => {
     const { entries, dropped_invalid } = mapIslFactorEvpi(captureA);
     expect(entries).toHaveLength(4);
@@ -210,6 +210,36 @@ describe('mapIslFactorEvpi (guarded internal mapping — P-5 pending, NOT user-f
     });
     expect(garbage.entries).toHaveLength(1);
     expect(garbage.dropped_invalid).toBe(3);
+  });
+
+  it("honours ISL's evpi_status='below_resolution' even when the raw value clears PLoT's threshold", () => {
+    const { entries } = mapIslFactorEvpi({
+      factor_evpi: [
+        {
+          factor_id: 'fac_x', evpi: 0.02, evpi_percentage_points: 2.0,
+          current_metric: 0.5, perfect_metric: 0.52, metric_type: 'p_win_recommended',
+          n_evpi_samples: 500, evpi_status: 'below_resolution',
+        },
+      ] as any,
+    });
+    expect(entries).toHaveLength(1);
+    expect(entries[0].below_resolution).toBe(true);
+    expect(entries[0].emit_pp).toBeUndefined(); // producer's own label wins
+  });
+
+  it("does NOT let evpi_status='ok' override PLoT's threshold for sub-resolution raws", () => {
+    const { entries } = mapIslFactorEvpi({
+      factor_evpi: [
+        {
+          factor_id: 'fac_y', evpi: -0.0001, evpi_percentage_points: -0.01,
+          current_metric: 0.5, perfect_metric: 0.4999, metric_type: 'p_win_recommended',
+          n_evpi_samples: 500, evpi_status: 'ok',
+        },
+      ] as any,
+    });
+    expect(entries).toHaveLength(1);
+    expect(entries[0].below_resolution).toBe(true); // local threshold still applies
+    expect(entries[0].emit_pp).toBeUndefined();
   });
 });
 

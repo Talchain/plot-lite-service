@@ -142,7 +142,10 @@ describe('ISL V2 science-channel liveness (live capture, build f3f5d92)', () => 
     process.env.CEE_ORCHESTRATOR_ENABLED = '0';
     process.env.DECISION_REVIEW_ENABLE = '0';
     process.env.ENABLE_REVIEW_PASS = '0';
-    // Flag hygiene under test: the internal factor_evpi mapping stays OFF
+    // P-5 promoted (lane PLoT-H item C): with no explicit env override the
+    // flag now DEFAULTS ON under NODE_ENV=test (and staging), so this run
+    // exercises the promoted ISL-counterfactual EVPI path. Prod default stays
+    // OFF (covered by the flag-off describe block below).
     delete process.env.ISL_FACTOR_EVPI_INTERNAL;
     app = await createServer();
     await app.ready();
@@ -181,6 +184,24 @@ describe('ISL V2 science-channel liveness (live capture, build f3f5d92)', () => 
     expect(body.robustness.is_robust).toBe(false);
     expect(body.robustness.level).toBe('low');
     expect(typeof body.robustness.confidence).toBe('number');
+  });
+
+  // -------------------------------------------------------------------------
+  // Item B (lane PLoT-H): recommendation_stability is a relabel of the
+  // leader's win_probability — never emitted.
+  // -------------------------------------------------------------------------
+
+  it('recommendation_stability is NOT emitted (byte-identical to leader win_probability on the wire)', () => {
+    // Evidence in this very capture: the wire value equals the leader's
+    // win_probability EXACTLY (ISL computes option_wins[winner]/n_samples).
+    const wireStability = captureA.robustness.recommendation_stability;
+    const leaderWinProb = Math.max(
+      ...captureA.options.map((o: any) => o.win_probability as number),
+    );
+    expect(wireStability).toBe(leaderWinProb); // 0.59025 === 0.59025
+    // Zero independent information → PLoT omits the key (absence is honest;
+    // the UI printed it as a fabricated "N% stability" and has an absence path).
+    expect(body.robustness).not.toHaveProperty('recommendation_stability');
   });
 
   it("analysis_types 'sensitivity' (factor-level) → factor_sensitivity non-empty and drivers computed", () => {
@@ -257,12 +278,13 @@ describe('ISL V2 science-channel liveness (live capture, build f3f5d92)', () => 
     }
   });
 
-  it('raw factor_evpi never leaks into the public response (flag off — P-5 pending)', () => {
+  it('raw factor_evpi never leaks into the public response (promotion ON — sanitised mapping only)', () => {
     expect(collectFields(body, (k) => k === 'factor_evpi')).toHaveLength(0);
     // The raw negative wire EVPI values must not appear under any EVPI/VOI
-    // key anywhere in the payload. (NOTE: a plain substring check would
-    // false-positive — the graph legitimately carries an edge mean of -0.15;
-    // the leak check must be structural, keyed to EVPI/VOI fields.)
+    // key anywhere in the payload — WITH the promotion active. (NOTE: a plain
+    // substring check would false-positive — the graph legitimately carries an
+    // edge mean of -0.15; the leak check must be structural, keyed to EVPI/VOI
+    // fields.)
     const evpiFields = collectFields(body, (k) =>
       k === 'evpi' || k === 'evpi_percentage_points' || k === 'value_of_information' ||
       k === 'raw_evpi' || k === 'raw_evpi_percentage_points',
@@ -270,6 +292,69 @@ describe('ISL V2 science-channel liveness (live capture, build f3f5d92)', () => 
     for (const [path, value] of evpiFields) {
       expect(value, `${path} must not carry the raw wire negatives`).not.toBe(-0.0015);
       expect(value, `${path} must not carry the raw wire negatives`).not.toBe(-0.15);
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // Item C (lane PLoT-H, P-5 promoted, provisional_doctrine_v0): ISL
+  // counterfactual factor_evpi feeds the factor_sensitivity EVPI surface IN
+  // PLACE of the heuristic (flag default ON under NODE_ENV=test).
+  // -------------------------------------------------------------------------
+
+  it('ISL factor_evpi maps to evpi_percentage_points with evpi_method counterfactual', () => {
+    const byId = new Map(
+      body.factor_sensitivity.map((f: any) => [f.factor_id, f]),
+    );
+    // Positive wire estimates → emitted, rounded to 0.1pp, method disclosed as
+    // counterfactual — EXCEPT option-pinned levers (zero_reason
+    // 'intervention_override'), which never carry EVPI in any form (P0a). In
+    // this capture fac_dev_headcount (1.85pp) and fac_tech_lead (0.85pp) are
+    // levers; fac_team_maturity (1.45pp) is the tunable positive.
+    for (const wire of captureA.factor_evpi as any[]) {
+      const f: any = byId.get(wire.factor_id);
+      if (!f) continue; // factors not in the public array carry nothing
+      if (f.zero_reason === 'intervention_override') {
+        // P0a: levers carry NO EVPI fields even when ISL supplies an estimate
+        expect(f, wire.factor_id).not.toHaveProperty('evpi_percentage_points');
+        expect(f, wire.factor_id).not.toHaveProperty('evpi_method');
+        expect(f, wire.factor_id).not.toHaveProperty('evpi_status');
+        continue;
+      }
+      if (wire.evpi_percentage_points >= 0.05) {
+        expect(f.evpi_method, wire.factor_id).toBe('counterfactual');
+        expect(f.evpi_percentage_points, wire.factor_id).toBeGreaterThan(0);
+        expect(f.evpi_percentage_points, wire.factor_id).toBeCloseTo(
+          Math.round(wire.evpi_percentage_points * 10) / 10,
+          10,
+        );
+        expect(f).not.toHaveProperty('evpi_status');
+      }
+    }
+    // At least one factor actually took the counterfactual path
+    const counterfactualCount = body.factor_sensitivity.filter(
+      (f: any) => f.evpi_method === 'counterfactual',
+    ).length;
+    expect(counterfactualCount).toBeGreaterThan(0);
+    // And NO factor took the heuristic path on this run (in-place, not mixed)
+    expect(
+      body.factor_sensitivity.some((f: any) => f.evpi_method === 'heuristic'),
+    ).toBe(false);
+  });
+
+  it('below-resolution wire estimate (fac_hiring_cost -0.15pp) → labelled, never 0, never negative', () => {
+    const hiringCost = body.factor_sensitivity.find(
+      (f: any) => f.factor_id === 'fac_hiring_cost',
+    );
+    // The capture carries a raw NEGATIVE estimate for this factor. It must be
+    // labelled below-resolution with the value ABSENT — a clamped 0 would
+    // falsely claim "measured as exactly worthless".
+    if (hiringCost) {
+      expect(hiringCost.evpi_status).toBe('below_resolution');
+      expect(hiringCost).not.toHaveProperty('evpi_percentage_points');
+      expect(hiringCost).not.toHaveProperty('evpi_method');
+    } else {
+      // If the factor is not on the public surface at all, absence is honest.
+      expect(hiringCost).toBeUndefined();
     }
   });
 
@@ -364,6 +449,54 @@ describe('CONSTRAINT_SAMPLES_UNNOISED warning tolerance', () => {
       expect(forwarded[0].severity).toBe('info');
     } finally {
       injectWarning = null;
+    }
+  }, 60_000);
+});
+
+// ---------------------------------------------------------------------------
+// Item C prod posture: flag explicitly OFF → no counterfactual EVPI anywhere
+// (heuristic fallback semantics byte-identical to the pre-promotion build).
+// ---------------------------------------------------------------------------
+
+describe('factor_evpi promotion flag OFF (prod posture)', () => {
+  let app: FastifyInstance;
+
+  beforeAll(async () => {
+    process.env.RATE_LIMIT_ENABLED = '0';
+    process.env.CEE_ORCHESTRATOR_ENABLED = '0';
+    process.env.DECISION_REVIEW_ENABLE = '0';
+    process.env.ENABLE_REVIEW_PASS = '0';
+    process.env.ISL_FACTOR_EVPI_INTERNAL = '0'; // explicit prod-default override
+    app = await createServer();
+    await app.ready();
+  }, 120_000);
+
+  afterAll(async () => {
+    await app.close();
+    delete process.env.ISL_FACTOR_EVPI_INTERNAL;
+  });
+
+  it('never emits evpi_method counterfactual or evpi_status when the flag is off', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v2/run',
+      headers: { 'Content-Type': 'application/json' },
+      payload: buildPlotBody(),
+    });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    for (const f of body.factor_sensitivity as any[]) {
+      expect(f.evpi_method, f.factor_id).not.toBe('counterfactual');
+      expect(f, f.factor_id).not.toHaveProperty('evpi_status');
+    }
+    // Raw wire negatives still never leak
+    const evpiFields = collectFields(body, (k) =>
+      k === 'evpi' || k === 'evpi_percentage_points' || k === 'value_of_information',
+    );
+    for (const [path, value] of evpiFields) {
+      if (typeof value === 'number') {
+        expect(value, `${path} must never be negative`).toBeGreaterThanOrEqual(0);
+      }
     }
   }, 60_000);
 });

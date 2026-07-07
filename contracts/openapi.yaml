@@ -6165,17 +6165,24 @@ components:
                 minimum: 0
                 description: >-
                   Estimated EVPI in percentage points of win probability.
-                  Heuristic approximation: VOI × win-probability spread × 100.
-                  Present only when both VOI and win probabilities are
-                  available. EVPI is non-negative by definition
+                  Source is disclosed by `evpi_method`:
+                  `counterfactual` = ISL per-factor counterfactual EVPI
+                  (V2 wire `factor_evpi[]`, sanitised at the boundary;
+                  active on staging/test where the promotion flag defaults
+                  on); `heuristic` = VOI × win-probability spread × 100
+                  (fallback when ISL factor_evpi is absent or the flag is
+                  off; present only when both VOI and win probabilities are
+                  available). EVPI is non-negative by definition
                   (information cannot harm a rational decision-maker on
                   average — Howard 1966); negative values returned by Monte
-                  Carlo VOI estimators are sampling artefacts, not
+                  Carlo estimators are sampling artefacts, not
                   meaningful decision signals.
-                  Two-tier enforcement: (1) negative upstream VOI is
-                  treated as unavailable at the integration boundary, so
+                  Enforcement: (1) negative upstream values are treated as
+                  unavailable at the integration boundary, so
                   `evpi_percentage_points` is OMITTED entirely for the
-                  affected factor (preserving the missing-vs-zero
+                  affected factor (counterfactual path: labelled via
+                  `evpi_status: below_resolution`; heuristic path: field
+                  simply absent — preserving the missing-vs-zero
                   distinction the rest of the response contract relies
                   on); (2) any negative computed EVPI that nevertheless
                   reaches the emitter is defensively clamped to `0`
@@ -6185,6 +6192,17 @@ components:
                 type: string
                 enum: [heuristic, counterfactual]
                 description: Method used to compute evpi_percentage_points
+              evpi_status:
+                type: string
+                enum: [below_resolution]
+                description: >-
+                  Present only when ISL's counterfactual EVPI estimate for
+                  this factor is too small to measure at the run's sampling
+                  depth (including Monte Carlo–noise negatives).
+                  `evpi_percentage_points` is deliberately absent in that
+                  case — the estimate is labelled, never emitted as a
+                  clamped 0 (which would falsely claim "measured as exactly
+                  worthless") and never emitted as a negative.
               direction:
                 type: string
         robustness:

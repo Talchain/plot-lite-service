@@ -104,15 +104,20 @@ export interface FactorEvpiMappingResult {
 }
 
 /**
- * Guarded internal mapping for the V2 `factor_evpi` field.
+ * Guarded mapping for the V2 `factor_evpi` field.
  *
- * IMPORTANT — P-5 pending: this data MUST NOT be wired into any user-facing
- * VOI/EVPI surface yet. The mapping exists to (a) prove the data arrives on
- * the live wire (fixture test) and (b) centralise the negative/below-resolution
- * hygiene so the eventual wiring cannot leak a raw negative EVPI outward.
- *
- * Behind `FLAGS.ISL_FACTOR_EVPI_INTERNAL` (default OFF) the route logs
- * diagnostics only; the public response is byte-identical either way.
+ * P-5 PROMOTED (provisional_doctrine_v0, lane PLoT-H item C, 2026-07-07):
+ * behind `FLAGS.ISL_FACTOR_EVPI_INTERNAL` (default ON for staging/test, OFF
+ * for prod) the sanitised entries feed the factor_sensitivity
+ * "worth checking next" surface (`evpi_percentage_points`,
+ * `evpi_method: 'counterfactual'`, `evpi_status: 'below_resolution'`) IN
+ * PLACE of the VOI×spread heuristic. The hygiene is centralised here so the
+ * wiring can never leak a raw negative EVPI outward:
+ * - negatives are NEVER emitted (Monte Carlo sampling artefacts);
+ * - below-resolution estimates are labelled, never clamped to 0;
+ * - ISL's own `evpi_status` wire field is honoured where present
+ *   ('below_resolution' forces the label even if the raw value clears
+ *   PLoT's local threshold).
  */
 export function mapIslFactorEvpi(
   islResult: Partial<ISLRobustnessAnalyzeV2Response> | null | undefined,
@@ -141,10 +146,16 @@ export function mapIslFactorEvpi(
     const classification: EvpiEmissionClassification =
       classifyEvpiPercentagePointsForEmission(e.evpi_percentage_points);
 
+    // Honour ISL's own emission classification where present: an explicit
+    // 'below_resolution' from the producer overrides PLoT's local threshold
+    // (never the reverse — PLoT's threshold still applies when ISL says 'ok'
+    // or omits the field, so a sub-resolution raw value stays labelled).
+    const islSaysBelowResolution = e.evpi_status === 'below_resolution';
+
     entries.push({
       factor_id: e.factor_id,
-      emit_pp: classification.emit,
-      below_resolution: classification.below_resolution,
+      emit_pp: islSaysBelowResolution ? undefined : classification.emit,
+      below_resolution: classification.below_resolution || islSaysBelowResolution,
       raw_evpi: e.evpi,
       raw_evpi_percentage_points: e.evpi_percentage_points,
       metric_type: typeof e.metric_type === 'string' ? e.metric_type : 'unknown',
