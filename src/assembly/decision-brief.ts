@@ -28,10 +28,17 @@ import type {
   BriefDriver,
   BriefWarning,
   BriefLineage,
+  BriefBandedHeadline,
+  BriefDefaultedAssumption,
+  BriefRobustnessCaveat,
 } from '../types/decision-brief.js';
 import { DECISION_BRIEF_VERSION } from '../types/decision-brief.js';
 import type { RunResponseV3 } from '../types/engine-v3.js';
 import { STANDARD_N_SAMPLES_DEFAULT } from '../config/sampling.js';
+import { FLAGS } from '../config/flags.js';
+// Lane PLoT-R3: 'very close' band shares the near-tie threshold (0.10) with
+// computeNearTie so the brief and robustness.near_tie can never disagree.
+import { NEAR_TIE_THRESHOLD } from '../trust/result-coherence.js';
 // A1b: intervention-controlled levers are not independently tunable; exclude them
 // from the |elasticity|-ranked tunability surfaces (top_drivers, what_would_change).
 import { filterInterventionOverrides, interventionOverrideFactorIds, filterLeverSourcedFragileEdges } from '../lib/intervention-override.js';
@@ -44,6 +51,17 @@ const MAX_TOP_DRIVERS = 5;
 const MAX_WARNINGS = 10;
 const MAX_KEY_ASSUMPTIONS = 10;
 const MAX_WHAT_WOULD_CHANGE = 10;
+const MAX_DEFAULTED_ASSUMPTIONS = 10;
+const MAX_WARNING_CODES = 20;
+
+/**
+ * provisional_doctrine_v0 — gap at/above which the leader MAY be called
+ * 'clearly ahead' (still requires established robustness; see
+ * buildBandedHeadline). Below it (and at/above NEAR_TIE_THRESHOLD) the claim
+ * is 'slightly ahead'. Deliberately far above the UI's UI-SEM-006/060
+ * GAP_THRESHOLD (0.10) so the strongest wording needs a decisive gap.
+ */
+export const CLEARLY_AHEAD_GAP_THRESHOLD = 0.25;
 
 /**
  * Deterministic brief_id: SHA-256 of `graph_hash:seed:config_version`,
@@ -105,6 +123,12 @@ export type BriefAssemblyInput = Pick<RunResponseV3, 'analysis_status' | 'critiq
   robustness?: RunResponseV3['robustness'];
   m1_coaching?: RunResponseV3['m1_coaching'];
   m1_review?: RunResponseV3['m1_review'];
+  /**
+   * Lane PLoT-R3 (additive, optional): the run's inference_warnings, used for
+   * warning_codes (warning-severity echo) and defaulted_assumptions
+   * (DEFAULT-coded disclosures). Absent → both surfaces treat as none.
+   */
+  inference_warnings?: RunResponseV3['inference_warnings'];
   response_hash?: string;
   meta: {
     seed_used: string;
@@ -203,6 +227,21 @@ export function assembleBrief(input: BriefAssemblyInput): DecisionBriefV1 | null
   const seed = Number(input.meta.seed_used);
   const briefId = computeBriefId(graphHash, seed, lineage.config_version);
 
+  // --- Lane PLoT-R3 claim-safe surfaces (provisional_doctrine_v0) ---
+  // Gated default-ON; the flag exists ONLY so pre-R3 golden fixtures stay
+  // byte-identical (see FLAGS.BRIEF_CLAIM_SAFE_SURFACES_ENABLE).
+  const claimSafeSurfaces = FLAGS.BRIEF_CLAIM_SAFE_SURFACES_ENABLE
+    ? {
+        ...(() => {
+          const banded = buildBandedHeadline(options, input);
+          return banded ? { headline_banded: banded } : {};
+        })(),
+        defaulted_assumptions: buildDefaultedAssumptions(input),
+        robustness_caveat: buildRobustnessCaveat(input),
+        warning_codes: buildWarningCodes(input),
+      }
+    : {};
+
   return {
     brief_id: briefId,
     version: DECISION_BRIEF_VERSION,
@@ -217,6 +256,7 @@ export function assembleBrief(input: BriefAssemblyInput): DecisionBriefV1 | null
     robustness,
     warnings,
     lineage,
+    ...claimSafeSurfaces,
   };
 }
 
@@ -417,4 +457,182 @@ function buildLineage(input: BriefAssemblyInput): BriefLineage {
     // briefs (and fixtures without a depth) keep their existing lineage shape.
     ...(nSamples !== undefined ? { n_samples: nSamples } : {}),
   };
+}
+
+// =============================================================================
+// Lane PLoT-R3 claim-safe surface builders (provisional_doctrine_v0)
+//
+// Wording rules enforced here:
+//   - band vocabulary is EXACTLY 'very close' / 'slightly ahead' /
+//     'clearly ahead' — and 'clearly ahead' only when robustness is
+//     established (UI-SEM-060 producer leg);
+//   - no 'EVPI', no 'expected value', no 'sensitive to <factor>' phrasing;
+//   - intervention-pinned levers never appear in "check this" framing
+//     (value_defaulted disclosures filter them like top_drivers does);
+//   - nothing is invented: every sentence is derived from a present upstream
+//     signal, and absence is stated as absence (robustness_caveat 'absent').
+// =============================================================================
+
+/**
+ * Robustness is "established" only on a positive signal: an explicit
+ * `is_robust === true`, or `level === 'high'` without an explicit
+ * `is_robust === false` contradicting it. Missing signals never count.
+ */
+function isRobustnessEstablished(robustness: BriefAssemblyInput['robustness']): boolean {
+  if (!robustness) return false;
+  if (robustness.is_robust === true) return true;
+  if (robustness.is_robust === false) return false;
+  return robustness.level === 'high';
+}
+
+/**
+ * Leader claim banded by win-probability gap (provisional_doctrine_v0):
+ *   gap <  NEAR_TIE_THRESHOLD (0.10)        → 'very_close'
+ *   gap >= CLEARLY_AHEAD_GAP_THRESHOLD (0.25)
+ *     AND robustness established            → 'clearly_ahead'
+ *   otherwise                               → 'slightly_ahead'
+ *     (robustness_gated: true when only the missing robustness kept the
+ *      claim out of 'clearly_ahead')
+ *
+ * Returns null when fewer than two ranked options exist — no comparative
+ * claim without a comparison.
+ */
+function buildBandedHeadline(
+  options: BriefOption[],
+  input: BriefAssemblyInput,
+): BriefBandedHeadline | null {
+  if (options.length < 2) return null;
+
+  const leader = options[0];
+  const runnerUp = options[1];
+  const gap = leader.win_probability - runnerUp.win_probability;
+  const robust = isRobustnessEstablished(input.robustness);
+
+  let band: BriefBandedHeadline['band'];
+  let robustnessGated = false;
+  let text: string;
+
+  if (gap < NEAR_TIE_THRESHOLD) {
+    band = 'very_close';
+    // provisional_doctrine_v0
+    text = `${leader.label} leads, but the top options are very close.`;
+  } else if (gap >= CLEARLY_AHEAD_GAP_THRESHOLD && robust) {
+    band = 'clearly_ahead';
+    // provisional_doctrine_v0 — strongest claim requires decisive gap AND robustness
+    text = `${leader.label} is clearly ahead.`;
+  } else {
+    band = 'slightly_ahead';
+    robustnessGated = gap >= CLEARLY_AHEAD_GAP_THRESHOLD && !robust;
+    // provisional_doctrine_v0
+    text = `${leader.label} is slightly ahead.`;
+  }
+
+  return {
+    text,
+    band,
+    leader_option_id: leader.option_id,
+    leader_label: leader.label,
+    runner_up_option_id: runnerUp.option_id,
+    runner_up_label: runnerUp.label,
+    win_probability_gap: gap,
+    robustness_gated: robustnessGated,
+    doctrine: 'provisional_doctrine_v0',
+  };
+}
+
+/**
+ * Defaulted-input disclosures:
+ *   1. factor_sensitivity entries with value_defaulted === true —
+ *      intervention-pinned levers EXCLUDED (a pinned lever must never appear
+ *      in "check this input" framing; same A1b predicate as top_drivers).
+ *      Sorted by factor_id bytewise for determinism.
+ *   2. inference warnings whose code contains 'DEFAULT'
+ *      (e.g. ROOT_NODE_DEFAULT_VALUE) — run-level disclosures echoed
+ *      verbatim (message is producer-owned wording), sorted by code.
+ * Capped at MAX_DEFAULTED_ASSUMPTIONS, factor-scoped entries first.
+ */
+function buildDefaultedAssumptions(input: BriefAssemblyInput): BriefDefaultedAssumption[] {
+  const out: BriefDefaultedAssumption[] = [];
+
+  const factors = filterInterventionOverrides(input.factor_sensitivity ?? [])
+    .filter((f) => f.value_defaulted === true)
+    .sort((a, b) => (a.factor_id < b.factor_id ? -1 : a.factor_id > b.factor_id ? 1 : 0));
+  for (const f of factors) {
+    const label = f.factor_label?.trim() || f.factor_id;
+    out.push({
+      factor_label: label,
+      // provisional_doctrine_v0
+      note: `No starting value was provided for "${label}" — the analysis used a default. Setting a real value or range would make this result more trustworthy.`,
+      source: 'value_defaulted',
+      doctrine: 'provisional_doctrine_v0',
+    });
+  }
+
+  const seenCodes = new Set<string>();
+  const defaultWarnings = (input.inference_warnings ?? [])
+    .filter((w) => typeof w.code === 'string' && w.code.includes('DEFAULT'))
+    .sort((a, b) => (a.code < b.code ? -1 : a.code > b.code ? 1 : 0));
+  for (const w of defaultWarnings) {
+    if (seenCodes.has(w.code)) continue;
+    seenCodes.add(w.code);
+    out.push({
+      factor_label: null,
+      note: w.message,
+      source: 'default_disclosure',
+      code: w.code,
+      doctrine: 'provisional_doctrine_v0',
+    });
+  }
+
+  return out.slice(0, MAX_DEFAULTED_ASSUMPTIONS);
+}
+
+/**
+ * Honest robustness caveat (provisional_doctrine_v0). Wording is derived
+ * strictly from upstream signals; when neither is_robust nor level is
+ * present the caveat SAYS robustness was not assessed instead of implying
+ * stability.
+ */
+function buildRobustnessCaveat(input: BriefAssemblyInput): BriefRobustnessCaveat {
+  const robustness = input.robustness;
+  const isRobust = robustness?.is_robust;
+  const level = robustness?.level as string | undefined;
+
+  const basis: BriefRobustnessCaveat['basis'] =
+    isRobust !== undefined ? 'is_robust' : level !== undefined ? 'level' : 'absent';
+
+  // provisional_doctrine_v0 wording matrix
+  let text: string;
+  if (basis === 'absent') {
+    text = 'Robustness was not assessed for this run — treat the ranking as unverified against perturbations.';
+  } else if (isRobust === true || (isRobust === undefined && level === 'high')) {
+    text = 'This ranking held up under the perturbations tested. That is not a guarantee — defaulted or uncertain inputs can still change the result.';
+  } else if (isRobust === false && level === undefined) {
+    text = 'This ranking did not pass the robustness checks — small changes to assumptions could change which option leads.';
+  } else if (level === 'medium' || level === 'moderate') {
+    text = 'This ranking was only moderately stable under the perturbations tested — treat the lead as provisional.';
+  } else if (level === 'low' || level === 'very_low') {
+    text = 'This ranking was fragile under the perturbations tested — small changes to assumptions could change which option leads.';
+  } else {
+    // is_robust === false with a level that is not low/very_low, or an
+    // unrecognised level value — state the weaker of the two signals.
+    text = 'This ranking did not pass the robustness checks — small changes to assumptions could change which option leads.';
+  }
+
+  return { text, basis, doctrine: 'provisional_doctrine_v0' };
+}
+
+/**
+ * Echo of warning-severity inference-warning codes (codes only — no values,
+ * no prose). Deduplicated, bytewise-sorted, capped. Info-severity warnings
+ * are NOT echoed (they are diagnostics, not caveats).
+ */
+function buildWarningCodes(input: BriefAssemblyInput): string[] {
+  const codes = new Set<string>();
+  for (const w of input.inference_warnings ?? []) {
+    if (w.severity === 'warning' && typeof w.code === 'string' && w.code.length > 0) {
+      codes.add(w.code);
+    }
+  }
+  return [...codes].sort().slice(0, MAX_WARNING_CODES);
 }

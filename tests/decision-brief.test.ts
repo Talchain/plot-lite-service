@@ -5,7 +5,7 @@
  * from existing run_bundle response data.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -47,6 +47,19 @@ const MINIMAL_OPTIONS = [
 // =============================================================================
 
 describe('assembleBrief — golden fixtures', () => {
+  // Lane PLoT-R3: the golden fixtures pre-date the claim-safe surfaces
+  // (headline_banded, defaulted_assumptions, robustness_caveat,
+  // warning_codes). Emission is gated behind the default-ON
+  // BRIEF_CLAIM_SAFE_SURFACES_ENABLE flag and pinned OFF here so the
+  // fixture JSONs stay byte-identical. The new surfaces are covered in
+  // tests/decision-brief.claim-safety.test.ts.
+  beforeAll(() => {
+    process.env.BRIEF_CLAIM_SAFE_SURFACES_ENABLE = '0';
+  });
+  afterAll(() => {
+    delete process.env.BRIEF_CLAIM_SAFE_SURFACES_ENABLE;
+  });
+
   it('assembles correctly from normal response (happy path)', () => {
     const { input, expected } = loadFixture('normal.json');
     const result = assembleBrief(input);

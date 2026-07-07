@@ -138,6 +138,12 @@ const IGNORE_FIELDS = [
   'brief_id',            // decision_brief: deterministic SHA-256-derived UUID (excluded for backwards compat with existing snapshots)
   'created_at',          // decision_brief: timestamp per assembly
   'fact_objects',        // F.7: fact_objects contain per-request IDs (fact_id, isl_request_id, content_hash); tested separately
+  // Lane PLoT-R3 (2.13): _meta.evidence digests cover the EXACT ISL wire bytes,
+  // which include the per-request request_id — legitimately volatile per run
+  // (same class as downstream_calls / request_id, already ignored above).
+  // evidence.plot_build and evidence.isl_build remain compared.
+  'isl_request_digest',
+  'isl_response_digest',
 ];
 
 /** Sort arrays by their natural key so element order doesn't cause false mismatches. */

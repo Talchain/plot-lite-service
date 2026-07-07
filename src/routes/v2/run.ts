@@ -2089,6 +2089,9 @@ function buildResponse(
     robustness,
     m1_coaching: m1Coaching,
     m1_review: m2DecisionReview?.m1_review ?? undefined,
+    // Lane PLoT-R3: warning_codes echo + DEFAULT-coded disclosures for the
+    // brief's claim-safe surfaces (provisional_doctrine_v0 wording).
+    inference_warnings: inferenceWarnings,
     response_hash: responseHash,
     // Track S: depth-aware brief lineage (config_version + lineage.n_samples).
     meta: { seed_used: meta.seedUsed, n_samples: meta.nSamples },
@@ -2453,6 +2456,27 @@ function buildResponse(
       if (meta.rangeDerivationSources && Object.keys(meta.rangeDerivationSources).length > 0) {
         baseMeta.range_derivation_sources = meta.rangeDerivationSources;
       }
+
+      // Lane PLoT-R3 (roadmap 2.13): diligence-grade evidence capture — ALWAYS
+      // present (deliberately NOT gated behind UI_CANONICAL_META, which stays
+      // off in staging and left the UI debug bundle reporting plot/isl payloads
+      // unavailable). Digests of the primary ISL exchange (sha256 + byte
+      // length + key manifest — never full bodies) + deployed builds. The
+      // primary exchange is the first robustness/analyze call; flip probes and
+      // follow-ups remain visible in downstream_calls when captured.
+      baseMeta.evidence = (() => {
+        const calls = getDownstreamCallsForLog(requestId);
+        const primaryIslCall =
+          calls.find((c) => c.service === 'isl' && c.endpoint.includes('/robustness/analyze')) ??
+          calls.find((c) => c.service === 'isl');
+        return {
+          plot_build: meta.build ?? 'unknown',
+          // Passthrough of ISL's `build` response field; never invented.
+          isl_build: typeof islResult?.build === 'string' ? islResult.build : null,
+          isl_request_digest: primaryIslCall?.request_digest ?? null,
+          isl_response_digest: primaryIslCall?.response_digest ?? null,
+        };
+      })();
 
       // Diagnostic fields — lightweight metadata for debug panel / developer inspection.
       // NOT consumed by UI display logic. NOT included in response_hash.

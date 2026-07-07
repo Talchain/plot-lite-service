@@ -2217,6 +2217,42 @@ export interface CanonicalMeta {
   review_cards_count?: number;
   /** Whether the R.1 evidence_priority card was emitted (diagnostic only) */
   evidence_priority_card_present?: boolean;
+  /**
+   * Lane PLoT-R3 (roadmap 2.13): diligence-grade evidence capture — ALWAYS
+   * present (not gated behind UI_CANONICAL_META). Closes the debug-bundle
+   * "plot: null / isl: null" gap without shipping full ISL payloads:
+   * digests (sha256 + byte length + key manifest) of the primary ISL
+   * exchange plus the deployed PLoT and ISL builds. Diagnostic only;
+   * excluded from response_hash like all _meta fields.
+   */
+  evidence?: EvidenceCaptureV1;
+}
+
+/**
+ * Lane PLoT-R3 (2.13): content digest of an exact wire payload —
+ * sha256 over the exact bytes, UTF-8 byte length, sorted top-level key
+ * manifest ([] for non-object payloads). Never carries the body itself.
+ */
+export interface PayloadDigestV3 {
+  sha256: string;
+  bytes: number;
+  key_manifest: string[];
+}
+
+/**
+ * Lane PLoT-R3 (2.13): always-present diligence evidence for the primary
+ * ISL exchange (the first robustness/analyze call; flip probes and other
+ * follow-up calls remain visible in downstream_calls).
+ */
+export interface EvidenceCaptureV1 {
+  /** Deployed PLoT build SHA (BUILD_ID / GITHUB_SHA / git fallback) */
+  plot_build: string;
+  /** ISL build identifier from the ISL response `build` field; null when unavailable */
+  isl_build: string | null;
+  /** Digest of the exact request bytes PLoT sent to ISL; null when ISL was not called */
+  isl_request_digest: PayloadDigestV3 | null;
+  /** Digest of the exact response bytes ISL returned; null when unavailable */
+  isl_response_digest: PayloadDigestV3 | null;
 }
 
 /**
@@ -2243,6 +2279,10 @@ export interface DownstreamCallInfoV3 {
   response_payload?: unknown;
   /** Error response body for non-200 responses (truncated to 1000 chars) */
   error_body?: string;
+  /** Lane PLoT-R3 (2.13): digest of the exact request bytes sent (additive) */
+  request_digest?: PayloadDigestV3;
+  /** Lane PLoT-R3 (2.13): digest of the exact response bytes received (additive) */
+  response_digest?: PayloadDigestV3;
 }
 
 /**
