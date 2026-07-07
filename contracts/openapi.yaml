@@ -5783,6 +5783,16 @@ components:
             When provided, CEE generates contextualised review output
             (e.g., "Hiring a senior developer is recommended for your goal
             of increasing productivity" instead of generic "Option A recommended").
+        include_path_decomposition:
+          type: boolean
+          default: false
+          description: |
+            Request structural pathway decomposition (additive, request-gated
+            opt-in — lane PLoT-W4). When true, PLoT forwards
+            include_path_decomposition to ISL and the response carries the
+            path_decomposition section (requires deployed ISL build 9a22a1a+).
+            Omitted or false: the flag is not sent to ISL and the response
+            section is absent — no default payload growth on either boundary.
 
     nodeV3:
       type: object
@@ -6127,6 +6137,12 @@ components:
                   simulated scenarios.
         edge_sensitivity:
           type: array
+          description: |
+            Edge-level sensitivity. Populated from the ISL V2 wire's nested
+            robustness.edge_sensitivity (ISL build 9a22a1a+, lane PLoT-W4).
+            Empty on older deployed ISL builds — then explicitly marked via
+            the EDGE_SENSITIVITY_UNAVAILABLE_V2_WIRE inference warning
+            (populated OR marked, never both absent on a computed analysis).
           items:
             type: object
             properties:
@@ -6144,6 +6160,75 @@ components:
                 type: integer
               interpretation:
                 type: string
+        sensitivity_reference_option_id:
+          type: string
+          description: |
+            Reference-option disclosure (additive, lane PLoT-W4; ISL build
+            9a22a1a+): the option ID that edge sensitivity, factor
+            sensitivity, and the fragile-edge classification were computed
+            against (ISL currently uses the first option in the request).
+            Verbatim passthrough of the ISL envelope field. Absent when the
+            deployed ISL did not disclose it or no sensitivity was computed.
+            Disclosure only — surface that sensitivity results are relative
+            to this option; do not invent a baseline. Not in response_hash.
+        path_decomposition:
+          type: object
+          description: |
+            Structural pathway decomposition (additive, lane PLoT-W4; ISL
+            build 9a22a1a+). Present ONLY when the request set
+            include_path_decomposition: true. Verbatim passthrough of the
+            ISL envelope section. Structural decomposition of the modelled
+            effect — NOT a causal claim; path effects are dimensionless
+            edge-coefficient products (no outcome-space denormalisation).
+            mechanism wording is ISL-owned and provisional
+            (provisional_doctrine_v0). Not in response_hash.
+          properties:
+            recommended_option_id:
+              type: string
+              description: The recommended option this decomposition explains (context/metadata)
+            entry_nodes:
+              type: array
+              items:
+                type: string
+              description: Retained intervention target node IDs the paths start from
+            truncated:
+              type: boolean
+              description: |
+                True when path enumeration exceeded the safety budget and the
+                top-3 ranking was suppressed (paths is then empty). Does NOT
+                mean the modelled effect is zero.
+            path_count:
+              type: integer
+              description: Number of simple paths enumerated (== budget cap when truncated)
+            paths:
+              type: array
+              description: Top-3 intervention-target-to-goal paths ranked by |path_effect|
+              items:
+                type: object
+                properties:
+                  path:
+                    type: array
+                    items:
+                      type: string
+                    description: Node IDs from intervention target to goal, in path order
+                  path_effect:
+                    type: number
+                    description: Signed product of per-edge coefficients (structural only)
+                  total_effect:
+                    type: number
+                    description: Signed sum of path_effect across all enumerated paths
+                  signed_contribution:
+                    type: number
+                    description: path_effect / total_effect; absent when indeterminate
+                  status:
+                    type: string
+                    enum: [computed, indeterminate]
+                  mechanism:
+                    type: string
+                    description: |
+                      Human-readable modelled-pathway statement (ISL-owned
+                      wording, provisional_doctrine_v0). Describes modelled
+                      structure only; not a real-world causal claim.
         factor_sensitivity:
           type: array
           items:

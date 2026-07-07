@@ -3,15 +3,15 @@
  * fields live on the live V2 wire.
  *
  * PLoT pins `response_version=2` on every ISL call (client.ts). The live V2
- * envelope (verified against the raw staging capture at
- * `tests/fixtures/isl-v2-live-20260706/isl-staging-capture.json`, ISL build
- * f3f5d92, captured 2026-07-06) differs from the V1-era shapes several run.ts
- * reads assumed:
+ * envelope (verified against the raw staging captures at
+ * `tests/fixtures/isl-v2-live-20260706/` — ISL build f3f5d92, 2026-07-06 —
+ * and `tests/fixtures/isl-v2-live-20260707/` — ISL build 9a22a1a,
+ * 2026-07-07) differs from the V1-era shapes several run.ts reads assumed:
  *
  *   | field                | V1-era read (dead live)     | live V2 location            |
  *   |----------------------|-----------------------------|------------------------------|
  *   | edge E-values        | top-level `edge_e_values`   | `robustness.edge_e_values`   |
- *   | edge sensitivity     | top-level `sensitivity`     | NOT EMITTED (wire drops it)  |
+ *   | edge sensitivity     | top-level `sensitivity`     | `robustness.edge_sensitivity` (build 9a22a1a+; ABSENT on older builds) |
  *   | validation status    | top-level `validation_status` | NOT EMITTED                |
  *   | computed timestamp   | top-level `computed_at`     | top-level `timestamp`        |
  *   | factor VOI           | `factor_sensitivity[].value_of_information` | top-level `factor_evpi[]` (per-factor EVPI) |
@@ -22,6 +22,7 @@
 
 import type {
   ISLEdgeEValue,
+  ISLEdgeSensitivityV2,
   ISLFactorEvpiEntry,
   ISLRobustnessAnalyzeV2Response,
 } from './types/isl-types.js';
@@ -46,6 +47,31 @@ export function getIslEdgeEValues(
   if (Array.isArray(nested)) return nested;
   const legacyTopLevel = islResult?.edge_e_values;
   if (Array.isArray(legacyTopLevel)) return legacyTopLevel;
+  return undefined;
+}
+
+/**
+ * Read edge-level sensitivity from an ISL response.
+ *
+ * Canonical V2 location is NESTED at `robustness.edge_sensitivity`
+ * (`EdgeSensitivityV2` entries; first emitted by ISL build 9a22a1a — lane 11
+ * / ISL PR #65 — and verified against the live staging capture at
+ * `tests/fixtures/isl-v2-live-20260707/isl-staging-capture.json`). There is
+ * deliberately NO legacy fallback to the V1-era top-level `sensitivity`
+ * field: the live V2 wire never emitted it (verified 2026-07-06, build
+ * f3f5d92) and its entries use a different shape (`edge_from`/`edge_to`).
+ *
+ * Returns `undefined` when the nested location is absent or not a non-empty
+ * array — i.e. on older deployed ISL builds — so callers keep the
+ * "computed-empty vs absent" distinction and the
+ * EDGE_SENSITIVITY_UNAVAILABLE_V2_WIRE warning path stays reachable when the
+ * wire genuinely lacks the field.
+ */
+export function getIslEdgeSensitivity(
+  islResult: Partial<ISLRobustnessAnalyzeV2Response> | null | undefined,
+): ISLEdgeSensitivityV2[] | undefined {
+  const nested = islResult?.robustness?.edge_sensitivity;
+  if (Array.isArray(nested) && nested.length > 0) return nested;
   return undefined;
 }
 

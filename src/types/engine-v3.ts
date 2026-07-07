@@ -32,6 +32,7 @@ import type { M1Review } from '../cee/validation/m1-review-types.js';
 import type { ReviewStatus, ReviewSkipReason } from '../cee/validation/m1-review-constants.js';
 import type { DenormalisedFlipThreshold } from '../lib/flip-threshold-denormaliser.js';
 import type { DecisionBriefV1 } from './decision-brief.js';
+import type { ISLPathDecompositionV2 } from '../integrations/isl/types/isl-types.js';
 
 // -----------------------------------------------------------------------------
 // Node Kinds
@@ -494,6 +495,15 @@ export interface RunRequestV3 {
    */
   include_e_values?: boolean;
   include_voi?: boolean;
+
+  /**
+   * When true, PLoT forwards include_path_decomposition to ISL and passes
+   * the resulting `path_decomposition` envelope section through additively
+   * (lane PLoT-W4; ISL build 9a22a1a+). REQUEST-GATED OPT-IN — unlike
+   * include_e_values/include_voi this flag is NOT defaulted on, so there is
+   * no default payload growth on either boundary. Default: false.
+   */
+  include_path_decomposition?: boolean;
 }
 
 // -----------------------------------------------------------------------------
@@ -872,8 +882,39 @@ export interface RunResponseV3 {
   /**
    * Edge sensitivity results. Always an array (empty if unavailable).
    * Edge ID format: `from::to` (double-colon separator)
+   *
+   * Populated from the nested V2 wire location `robustness.edge_sensitivity`
+   * (ISL build 9a22a1a+, lane PLoT-W4). Empty on older deployed ISL builds —
+   * then explicitly marked via the EDGE_SENSITIVITY_UNAVAILABLE_V2_WIRE
+   * inference warning (populated OR marked, never both absent on a computed
+   * analysis).
    */
   edge_sensitivity: EdgeSensitivityResultV3[];
+
+  /**
+   * Reference-option disclosure (additive, lane PLoT-W4; ISL build
+   * 9a22a1a+): the option ID that edge sensitivity, factor sensitivity, and
+   * the fragile-edge classification were computed against (ISL currently
+   * uses the first option in the request). Passed through verbatim from the
+   * ISL envelope's `sensitivity_reference_option_id`. Absent when the
+   * deployed ISL did not disclose it (older builds) or no sensitivity was
+   * computed. Disclosure only — consumers should surface that sensitivity
+   * results are relative to this option instead of inventing a baseline.
+   * NOT in response_hash (response_hash canonicalises the request).
+   */
+  sensitivity_reference_option_id?: string;
+
+  /**
+   * Structural pathway decomposition (additive, lane PLoT-W4; ISL build
+   * 9a22a1a+). Request-gated: present ONLY when the /v2/run request set
+   * `include_path_decomposition: true` (PLoT forwards the flag to ISL; ISL
+   * emits the section only when requested). Passed through verbatim —
+   * structural path effects are dimensionless edge-coefficient products, so
+   * no outcome-space denormalisation applies. `mechanism` wording is
+   * ISL-owned and provisional (provisional_doctrine_v0).
+   * NOT in response_hash.
+   */
+  path_decomposition?: ISLPathDecompositionV2;
 
   /** Factor sensitivity results (if available) */
   factor_sensitivity?: FactorSensitivityResultV3[];
@@ -1886,12 +1927,16 @@ export const INFERENCE_WARNING_CODES = {
   /** ISL returned factor-level 3C fields but stability_thresholds was absent or malformed */
   STABILITY_THRESHOLDS_MISSING: 'STABILITY_THRESHOLDS_MISSING',
   /**
-   * Edge-level sensitivity was requested (analysis_types includes 'sensitivity')
-   * but the ISL V2 wire does not emit it (verified live 2026-07-06, build
-   * f3f5d92): edge_sensitivity is empty by wire contract, NOT by computation
-   * failure. Factor-level sensitivity is unaffected. Restoring edge-level
-   * sensitivity is ISL contract work (recorded followup); PLoT does not
-   * invent a substitute.
+   * Edge-level sensitivity was requested (analysis_types includes
+   * 'sensitivity') but the deployed ISL's V2 response did not carry it.
+   * ISL builds 9a22a1a+ (lane 11 / ISL PR #65, 2026-07-07) emit it nested at
+   * `robustness.edge_sensitivity` and PLoT consumes it (lane PLoT-W4) — this
+   * warning then no longer fires. It remains for OLDER deployed ISL builds
+   * (e.g. f3f5d92) whose wire omits the field entirely: edge_sensitivity is
+   * empty because the wire omitted it, NOT by computation failure.
+   * Invariant: edge_sensitivity populated OR this marker present — never
+   * both absent on a computed analysis. Factor-level sensitivity is
+   * unaffected. PLoT does not invent a substitute.
    */
   EDGE_SENSITIVITY_UNAVAILABLE_V2_WIRE: 'EDGE_SENSITIVITY_UNAVAILABLE_V2_WIRE',
   /**

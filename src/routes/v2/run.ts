@@ -96,7 +96,7 @@ import {
 } from '../../integrations/isl/adapters/robustness-analysis.js';
 import type { RobustnessDataForCee, NormalizedEdgeInfo } from '../../integrations/isl/types/plot-types.js';
 import type { ISLConstraintResult, ISLEdgeEValue, ISLConditionalWinner } from '../../integrations/isl/types/isl-types.js';
-import { getIslEdgeEValues, getIslComputedAt, mapIslFactorEvpi } from '../../integrations/isl/v2-envelope.js';
+import { getIslEdgeEValues, getIslEdgeSensitivity, getIslComputedAt, mapIslFactorEvpi } from '../../integrations/isl/v2-envelope.js';
 import { preflightDuplicateEdges } from '../../integrations/isl/preflight.js';
 import { orchestrateCeeReview } from '../../cee/orchestrator.js';
 import { orchestrateDecisionReview, type DecisionReviewInput, type DecisionReviewConfig } from '../../cee/decision-review-orchestrator.js';
@@ -333,6 +333,15 @@ function normaliseRepairsForMeta(repairs: RepairRecord[]): RepairRecord[] {
  * Always returns an array (empty if no data).
  * Enriches with from_label/to_label from graph node labels (same pattern as fragile edge enrichment).
  *
+ * Accepts BOTH ISL entry shapes:
+ * - live V2 nested `robustness.edge_sensitivity` entries (`from_id`/`to_id`,
+ *   ISL build 9a22a1a+ — read via getIslEdgeSensitivity, lane PLoT-W4). The
+ *   V2-only `sensitivity_score`/`direction` fields are NOT emitted outward
+ *   (direction is the sign of elasticity, already carried; score is a
+ *   normalisation of it) — contracts stay frozen.
+ * - legacy V1-era top-level `sensitivity` entries (`edge_from`/`edge_to`,
+ *   fixtures only — the live V2 wire never emitted them).
+ *
  * Edge ID format: `from::to` (double-colon separator)
  * @see docs/UI_Handoff_PLoT_v1.md for format specification
  */
@@ -348,6 +357,11 @@ export function transformEdgeSensitivity(
   return (islSensitivity as any[]).map((s: any) => {
     let elasticity = s.elasticity;
     let elasticityNormalised: boolean | undefined;
+
+    // V2 nested entries carry from_id/to_id; legacy entries carry
+    // edge_from/edge_to. Resolve once, prefer the live V2 shape.
+    const fromId: string = s.from_id ?? s.edge_from;
+    const toId: string = s.to_id ?? s.edge_to;
 
     // Denormalise elasticity when normalisation was active.
     // Edge elasticity = ∂(goal outcome) / ∂(edge parameter). Edge parameters
@@ -365,11 +379,11 @@ export function transformEdgeSensitivity(
     }
 
     return {
-      edge_id: `${s.edge_from}::${s.edge_to}`,  // Double-colon separator (canonical format)
-      from: s.edge_from,
-      to: s.edge_to,
-      from_label: nodeLabelMap?.get(s.edge_from) ?? s.edge_from,
-      to_label: nodeLabelMap?.get(s.edge_to) ?? s.edge_to,
+      edge_id: `${fromId}::${toId}`,  // Double-colon separator (canonical format)
+      from: fromId,
+      to: toId,
+      from_label: nodeLabelMap?.get(fromId) ?? fromId,
+      to_label: nodeLabelMap?.get(toId) ?? toId,
       sensitivity_type: s.sensitivity_type as 'existence' | 'magnitude',
       elasticity,
       ...(elasticityNormalised !== undefined && { _normalised: elasticityNormalised }),
@@ -379,8 +393,12 @@ export function transformEdgeSensitivity(
     // Numeric-egress guard (Codex round-2): elasticity/importance_rank are required
     // numbers; a non-finite ISL value (incl. denorm overflow above) would serialise
     // to a fabricated `null`. Drop the whole edge entry (honest absence) rather than
-    // emit a null — the array simply carries fewer, all-valid entries.
-  }).filter((e) => finiteNum(e.elasticity) !== undefined && finiteNum(e.importance_rank) !== undefined);
+    // emit a null — the array simply carries fewer, all-valid entries. Entries
+    // whose node IDs are unresolvable in either shape are dropped for the same
+    // reason (a "undefined::undefined" edge_id is a fabricated identifier).
+  }).filter((e) =>
+    typeof e.from === 'string' && typeof e.to === 'string' &&
+    finiteNum(e.elasticity) !== undefined && finiteNum(e.importance_rank) !== undefined);
 }
 
 /**
@@ -979,7 +997,7 @@ const V2_RUN_ALLOWED_KEYS = new Set([
   'graph', 'options', 'goal_node_id',
   'seed', 'n_samples', 'detail_level', 'request_id', 'idempotency_key',
   'goal_threshold', 'brief', 'goal_constraints', 'include_thresholds',
-  'include_e_values', 'include_voi',
+  'include_e_values', 'include_voi', 'include_path_decomposition',
 ]);
 
 const runV3Schema = {
@@ -1024,6 +1042,7 @@ const runV3Schema = {
       include_thresholds: { type: 'boolean' },
       include_e_values: { type: 'boolean' },
       include_voi: { type: 'boolean' },
+      include_path_decomposition: { type: 'boolean' },
     },
   },
 };
@@ -1842,16 +1861,16 @@ function buildResponse(
     }
     return map;
   })();
-  // ISL V2 wire truth (verified live 2026-07-06, build f3f5d92 — see
+  // ISL V2 wire truth (lane PLoT-W4, 2026-07-07 — see
   // src/integrations/isl/v2-envelope.ts): the pinned response_version=2
-  // envelope NEVER emits top-level `sensitivity`; edge-level sensitivity is
-  // genuinely dropped by the V2 wire with no nested replacement. The former
-  // `islResult?.sensitivity` fallback read here was structurally dead. Do NOT
-  // invent a substitute (ISL contract followup); edge_sensitivity stays
-  // "computed, empty" and is explicitly marked via the
-  // EDGE_SENSITIVITY_UNAVAILABLE_V2_WIRE inference warning below.
+  // envelope NEVER emits top-level `sensitivity`, but as of ISL build
+  // 9a22a1a (lane 11 / ISL PR #65) it carries edge-level sensitivity NESTED
+  // at `robustness.edge_sensitivity` — read via the accessor. On older
+  // deployed ISL builds (e.g. f3f5d92) the nested field is absent too:
+  // edge_sensitivity then stays "computed, empty" and is explicitly marked
+  // via the EDGE_SENSITIVITY_UNAVAILABLE_V2_WIRE inference warning below.
   const edgeSensitivity = sensitivityData?.edgeSensitivity
-    ?? transformEdgeSensitivity(undefined, fallbackNodeLabelMap);
+    ?? transformEdgeSensitivity(getIslEdgeSensitivity(islResult), fallbackNodeLabelMap);
   const factorSensitivity = sensitivityData?.factorSensitivity
     ?? transformFactorSensitivity(islResult?.factor_sensitivity);
   // Fallback transforms for edge_e_values and conditional_winners when sensitivityData not pre-computed.
@@ -2017,17 +2036,20 @@ function buildResponse(
   }
 
   // Liveness honesty: edge-level sensitivity is requested on every ISL call
-  // (analysis_types always includes 'sensitivity') but the live V2 wire does
-  // not emit it (verified 2026-07-06, build f3f5d92). An empty edge_sensitivity
-  // on a computed analysis would otherwise be a SILENT empty array —
-  // indistinguishable from "computed and found nothing". Mark it explicitly so
-  // consumers (and the liveness fixture test) can tell wire-gap from absence.
-  // Factor-level sensitivity is unaffected. No substitute is invented — the
-  // gap is ISL contract work (recorded followup).
+  // (analysis_types always includes 'sensitivity'). ISL builds 9a22a1a+ emit
+  // it nested at robustness.edge_sensitivity (consumed above — lane PLoT-W4);
+  // OLDER deployed ISL builds (e.g. f3f5d92) do not emit it anywhere on the
+  // V2 wire. On those builds an empty edge_sensitivity on a computed analysis
+  // would be a SILENT empty array — indistinguishable from "computed and
+  // found nothing". Mark it explicitly so consumers (and the liveness fixture
+  // tests) can tell wire-gap from absence. SUPPRESSED automatically when the
+  // wire carried data (edgeSensitivity non-empty): populated OR marked,
+  // never both absent. Factor-level sensitivity is unaffected.
   if (analysisStatus === 'computed' && islResult && !hasNonEmptyArray(edgeSensitivity)) {
     inferenceWarnings.push({
       code: INFERENCE_WARNING_CODES.EDGE_SENSITIVITY_UNAVAILABLE_V2_WIRE,
-      message: 'Edge-level sensitivity was requested but the ISL V2 response format does not carry it — edge_sensitivity is empty by wire contract, not by computation failure. Factor-level sensitivity is unaffected.',
+      // provisional_doctrine_v0 — wording surface (diagnostic disclosure)
+      message: 'Edge-level sensitivity was requested but this ISL response did not carry it (emitted by ISL builds 9a22a1a+ at robustness.edge_sensitivity) — edge_sensitivity is empty because the deployed ISL wire omitted the field, not by computation failure. Factor-level sensitivity is unaffected.',
       severity: 'info',
     });
   }
@@ -2244,6 +2266,26 @@ function buildResponse(
     critiques: addUserMessages(critiques, graph ?? { nodes: [] }, options),
     option_comparison: optionComparison,
     edge_sensitivity: edgeSensitivity,
+    // Reference-option disclosure (additive, lane PLoT-W4; ISL build
+    // 9a22a1a+): verbatim passthrough of the envelope's
+    // sensitivity_reference_option_id. Omitted when the deployed ISL did not
+    // disclose it — honest absence, never a PLoT-invented baseline.
+    // Excluded from response_hash (hash canonicalises the request).
+    ...(typeof islResult?.sensitivity_reference_option_id === 'string' &&
+      islResult.sensitivity_reference_option_id.length > 0 && {
+        sensitivity_reference_option_id: islResult.sensitivity_reference_option_id,
+      }),
+    // Structural pathway decomposition (additive, lane PLoT-W4; ISL build
+    // 9a22a1a+): verbatim passthrough, inherently request-gated — ISL only
+    // emits the section when include_path_decomposition was forwarded, which
+    // PLoT does only on explicit /v2/run opt-in. Structural path effects are
+    // dimensionless edge-coefficient products (no outcome-space
+    // denormalisation applies). Excluded from response_hash.
+    ...(islResult?.path_decomposition &&
+      typeof islResult.path_decomposition === 'object' &&
+      !Array.isArray(islResult.path_decomposition) && {
+        path_decomposition: islResult.path_decomposition,
+      }),
     // Edge E-values from ISL — enriched with labels. Always emitted ([] when empty
     // or ISL omitted the field) so consumers can distinguish computed-empty from
     // absent; PLoT always requests include_e_values: true. Excluded from response_hash.
@@ -4033,7 +4075,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           nSamples,
           effectiveGoalThreshold,  // Use effective threshold (undefined if multi-constraint)
           constraintsForISL,       // Normalised constraint values (undefined if not using multi-constraint)
-          plotSeedUsed  // Always forward PLoT's seed (PLoT is seed authority)
+          plotSeedUsed,  // Always forward PLoT's seed (PLoT is seed authority)
+          body.include_path_decomposition === true  // Lane PLoT-W4: request-gated opt-in, forwarded only on explicit true
         );
 
         req.log.info(
@@ -4435,15 +4478,18 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // Transform sensitivity arrays FIRST - these are the final arrays that will be returned
         // Status check must use the SAME arrays to prevent status/response misalignment
         //
-        // V2 wire truth (verified live 2026-07-06, build f3f5d92 — see
+        // V2 wire truth (lane PLoT-W4, 2026-07-07 — see
         // src/integrations/isl/v2-envelope.ts): the pinned response_version=2
-        // envelope NEVER emits top-level `sensitivity` and carries no nested
-        // replacement — edge-level sensitivity is genuinely dropped by the V2
-        // wire. The former `islResult.sensitivity` read was structurally dead.
-        // Do NOT invent a substitute (ISL contract followup); edge_sensitivity
-        // is "computed, empty" and explicitly marked via the
-        // EDGE_SENSITIVITY_UNAVAILABLE_V2_WIRE inference warning.
-        const edgeSensitivity = transformEdgeSensitivity(undefined, earlyNodeLabelMap, normalisationContext);
+        // envelope NEVER emits top-level `sensitivity`, but as of ISL build
+        // 9a22a1a (lane 11 / ISL PR #65, verified against the live capture
+        // tests/fixtures/isl-v2-live-20260707) edge-level sensitivity is
+        // NESTED at `robustness.edge_sensitivity` — read via the accessor.
+        // On older deployed ISL builds the nested field is absent too:
+        // edge_sensitivity is then "computed, empty" and explicitly marked
+        // via the EDGE_SENSITIVITY_UNAVAILABLE_V2_WIRE inference warning
+        // (suppressed automatically when the wire carries data — the warning
+        // only fires on an empty final array).
+        const edgeSensitivity = transformEdgeSensitivity(getIslEdgeSensitivity(islResult), earlyNodeLabelMap, normalisationContext);
 
         // Transform ISL edge_e_values with label enrichment. NESTED at
         // robustness.edge_e_values on the V2 wire (the former top-level read

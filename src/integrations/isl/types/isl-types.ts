@@ -222,6 +222,12 @@ export interface ISLFactorSensitivityItem {
 /**
  * Edge sensitivity item from ISL /api/v1/robustness/analyze/v2 response
  * Returned when analysis_types includes 'sensitivity'
+ *
+ * @deprecated V1-era TOP-LEVEL shape (`sensitivity[]` with `edge_from`/
+ * `edge_to`) — the live V2 wire never emits it. As of ISL build 9a22a1a
+ * (lane 11, 2026-07-07) edge sensitivity is emitted NESTED at
+ * `robustness.edge_sensitivity` in the `ISLEdgeSensitivityV2` shape. Kept
+ * only for legacy fixture tolerance.
  */
 export interface ISLEdgeSensitivityItem {
   /** Source node ID */
@@ -236,6 +242,87 @@ export interface ISLEdgeSensitivityItem {
   importance_rank: number;
   /** Human-readable interpretation - USE THIS for direction, not elasticity sign */
   interpretation: string;
+}
+
+/**
+ * Edge sensitivity entry on the live V2 wire — CANONICAL location is NESTED
+ * at `robustness.edge_sensitivity` (additive optional; first emitted by ISL
+ * build 9a22a1a, lane 11 / ISL PR #65, verified against the live staging
+ * capture `tests/fixtures/isl-v2-live-20260707/isl-staging-capture.json`).
+ * Absent on older deployed ISL builds (e.g. f3f5d92) — PLoT then emits the
+ * EDGE_SENSITIVITY_UNAVAILABLE_V2_WIRE inference warning.
+ *
+ * Computed against the reference option disclosed in the envelope's
+ * top-level `sensitivity_reference_option_id`. Read via
+ * `getIslEdgeSensitivity()` in `../v2-envelope.js`, never directly.
+ */
+export interface ISLEdgeSensitivityV2 {
+  /** Edge identifier in ISL "from->to" format */
+  edge_id: string;
+  /** Source node ID */
+  from_id: string;
+  /** Target node ID */
+  to_id: string;
+  /** Contrast type: 'existence' (edge forced on vs off) or 'magnitude' */
+  sensitivity_type: 'existence' | 'magnitude';
+  /**
+   * Normalized sensitivity score (0-1): |elasticity| relative to the max
+   * |elasticity| in the analysis (same normalization as factor
+   * sensitivity_score). Not currently emitted outward by PLoT.
+   */
+  sensitivity_score?: number;
+  /** Sign of the raw elasticity. Not currently emitted outward by PLoT. */
+  direction?: 'positive' | 'negative';
+  /** Raw elasticity: % change in outcome per % change in parameter */
+  elasticity: number;
+  /** Rank by |elasticity| across all edge contrasts (1 = most important) */
+  importance_rank: number;
+  /**
+   * Human-readable explanation. Wording is provisional
+   * (provisional_doctrine_v0 — ISL-owned analyzer output, passed through).
+   */
+  interpretation: string;
+}
+
+/**
+ * One modelled pathway's signed structural contribution to the goal, from
+ * the V2 wire `path_decomposition.paths[]` (ISL `PathContributionV2`).
+ * Structural decomposition of the modelled effect, NOT a causal claim.
+ * `mechanism` wording is provisional (provisional_doctrine_v0, ISL-owned).
+ */
+export interface ISLPathContributionV2 {
+  /** Node IDs from the retained intervention target to the goal, in path order */
+  path: string[];
+  /** Signed product of per-edge coefficients along this path (structural only) */
+  path_effect: number;
+  /** Signed sum of path_effect across all enumerated paths (identical on every entry) */
+  total_effect: number;
+  /** path_effect / total_effect; omitted when indeterminate */
+  signed_contribution?: number;
+  /** 'computed' | 'indeterminate' (near-zero net modelled effect) */
+  status: 'computed' | 'indeterminate';
+  /** Human-readable modelled-pathway statement (provisional_doctrine_v0) */
+  mechanism: string;
+}
+
+/**
+ * Structural pathway decomposition on the V2 wire (top-level
+ * `path_decomposition`, ISL `PathDecompositionV2`). Request-gated by
+ * `include_path_decomposition` — absent unless explicitly requested.
+ * First emitted by ISL build 9a22a1a (lane 11 / ISL PR #65); verified
+ * against `tests/fixtures/isl-v2-live-20260707/isl-staging-capture-pathdecomp.json`.
+ */
+export interface ISLPathDecompositionV2 {
+  /** The recommended option this decomposition explains (context/metadata) */
+  recommended_option_id: string;
+  /** Retained intervention target node IDs the paths start from */
+  entry_nodes: string[];
+  /** True when path enumeration exceeded the safety budget (paths suppressed) */
+  truncated: boolean;
+  /** Number of simple paths enumerated (== budget cap when truncated) */
+  path_count: number;
+  /** Top-3 paths ranked by |path_effect| */
+  paths: ISLPathContributionV2[];
 }
 
 /**
@@ -471,12 +558,13 @@ export interface ISLRobustnessAnalyzeV2Response {
   /**
    * Edge sensitivity (when 'sensitivity' in analysis_types).
    *
-   * @deprecated DEAD ON THE LIVE V2 WIRE. Verified against the live staging
-   * capture (2026-07-06, build f3f5d92): the V2 envelope never emits top-level
-   * edge sensitivity and carries NO nested replacement — the V2 wire genuinely
-   * drops edge-level sensitivity. Do NOT invent a substitute; restoring it is
-   * ISL contract work (recorded followup). Factor-level sensitivity is
-   * unaffected (`factor_sensitivity`).
+   * @deprecated DEAD ON THE LIVE V2 WIRE — the V2 envelope never emits
+   * TOP-LEVEL edge sensitivity (verified 2026-07-06, build f3f5d92). As of
+   * ISL build 9a22a1a (lane 11 / ISL PR #65, 2026-07-07) the wire carries a
+   * NESTED replacement at `robustness.edge_sensitivity`
+   * (`ISLEdgeSensitivityV2` shape) — read via `getIslEdgeSensitivity()` in
+   * `../v2-envelope.js`. This top-level field is kept for fixture/legacy
+   * tolerance only.
    */
   sensitivity?: ISLEdgeSensitivityItem[];
 
@@ -519,6 +607,14 @@ export interface ISLRobustnessAnalyzeV2Response {
      * `getIslEdgeEValues()` in `../v2-envelope.js`.
      */
     edge_e_values?: ISLEdgeEValue[];
+    /**
+     * Edge-level sensitivity — CANONICAL V2 wire location (additive
+     * optional; first emitted by ISL build 9a22a1a, lane 11 / ISL PR #65).
+     * Absent on older deployed ISL builds — PLoT then emits the
+     * EDGE_SENSITIVITY_UNAVAILABLE_V2_WIRE inference warning. Read via
+     * `getIslEdgeSensitivity()` in `../v2-envelope.js`.
+     */
+    edge_sensitivity?: ISLEdgeSensitivityV2[];
     /** Explanation of robustness assessment - V1 format (optional in V2) */
     explanation?: string;
   };
@@ -583,6 +679,24 @@ export interface ISLRobustnessAnalyzeV2Response {
    * `computed_at` field (which V2 never emits; verified live 2026-07-06).
    */
   timestamp?: string;
+
+  /**
+   * Reference-option disclosure (T1-5, additive optional; ISL build
+   * 9a22a1a+): the option ID edge sensitivity, factor sensitivity, and the
+   * fragile-edge classification were computed against (currently the first
+   * option in the request). Disclosure only — PLoT passes it through
+   * verbatim so consumers can surface the baseline instead of inventing one.
+   */
+  sensitivity_reference_option_id?: string;
+
+  /**
+   * Structural pathway decomposition (additive optional; ISL build
+   * 9a22a1a+). Request-gated by `include_path_decomposition` — ISL only
+   * emits it when explicitly requested, so presence implies opt-in.
+   * PLoT passes it through verbatim (structural values are dimensionless
+   * edge-coefficient products — no outcome-space denormalisation applies).
+   */
+  path_decomposition?: ISLPathDecompositionV2;
 
   /**
    * Conditional winner analysis per factor.

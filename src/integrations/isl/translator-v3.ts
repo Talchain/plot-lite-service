@@ -127,6 +127,13 @@ export interface ISLRobustnessRequestV3 {
   include_e_values?: boolean;
   /** Request Value of Information (EVPI) analysis from ISL. */
   include_voi?: boolean;
+  /**
+   * Request structural pathway decomposition from ISL (V2 envelope
+   * `path_decomposition`, ISL build 9a22a1a+). REQUEST-GATED OPT-IN: only
+   * forwarded when the inbound /v2/run request set it — never defaulted on,
+   * so the ISL payload does not grow for callers that did not ask.
+   */
+  include_path_decomposition?: boolean;
 }
 
 // -----------------------------------------------------------------------------
@@ -383,6 +390,11 @@ function isBinaryFactor(node: EngineNodeV3): boolean {
  * @param nSamples Number of samples (optional)
  * @param goalThreshold Goal threshold for probability_of_goal computation (optional)
  * @param goalConstraints Goal constraints for multi-constraint analysis (optional)
+ * @param seed Seed forwarded to ISL for deterministic Monte Carlo runs (optional)
+ * @param includePathDecomposition Forward include_path_decomposition to ISL
+ *   (optional, request-gated opt-in — only sent when the caller explicitly
+ *   asked; the key is OMITTED otherwise so the ISL payload never grows by
+ *   default)
  * @returns ISL robustness request
  */
 export function toISLRobustnessRequest(
@@ -394,7 +406,8 @@ export function toISLRobustnessRequest(
   goalThreshold?: number,
   goalConstraints?: GoalConstraint[],
   // CIL 0.1: forward seed to ISL for deterministic Monte Carlo runs
-  seed?: string | number
+  seed?: string | number,
+  includePathDecomposition?: boolean
 ): ISLRobustnessRequestV3 {
   // Bidirected edges are trust-layer only (identifiability + warnings).
   // ISL operates on directed edges only. Phase 3A-inference will add inference semantics.
@@ -436,6 +449,14 @@ export function toISLRobustnessRequest(
   // CIL 0.1: forward seed to ISL for deterministic Monte Carlo runs
   if (seed !== undefined) {
     request.seed = seed;
+  }
+
+  // Path decomposition is a request-gated opt-in (lane PLoT-W4): forward the
+  // flag ONLY when the inbound request explicitly asked for it. The key is
+  // omitted (not sent as false) otherwise — no default payload growth on
+  // either the ISL request or the ISL response.
+  if (includePathDecomposition === true) {
+    request.include_path_decomposition = true;
   }
 
   return request;
