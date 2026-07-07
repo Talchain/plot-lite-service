@@ -1382,6 +1382,9 @@ export interface OptionComparisonResultV3 {
   /**
    * Probability of jointly satisfying all goal_constraints [0, 1].
    * Only present when goal_constraints provided in request.
+   * SUPPRESSED (absent) when any constraint target is unreliable
+   * (CONSTRAINT_TARGET_UNRELIABLE inference warning present) — the raw
+   * computed value would be meaningless and lives in diagnostics logs only.
    */
   probability_of_joint_goal?: number;
 
@@ -1389,6 +1392,8 @@ export interface OptionComparisonResultV3 {
    * Per-constraint probabilities for this option.
    * Map of constraint_id to probability [0, 1].
    * Only present when goal_constraints provided in request.
+   * SUPPRESSED (absent) when any constraint target is unreliable
+   * (CONSTRAINT_TARGET_UNRELIABLE inference warning present).
    */
   constraint_probabilities?: Record<string, number>;
 }
@@ -1689,10 +1694,18 @@ export interface FactorSensitivityResultV3 {
   value_of_information?: number;
   /**
    * Estimated EVPI in percentage points of win probability.
-   * Heuristic approximation: `value_of_information × win_probability_spread × 100`.
-   * Not true counterfactual EVPI. To be replaced when ISL supports
-   * per-factor counterfactual EVPI.
-   * Present only when both VOI and win probabilities are available.
+   *
+   * Two sources, disclosed via `evpi_method`:
+   * - `'counterfactual'`: ISL's per-factor counterfactual EVPI (V2 wire
+   *   `factor_evpi[]`), used IN PLACE of the heuristic when present and
+   *   `FLAGS.ISL_FACTOR_EVPI_INTERNAL` is on (staging/test default ON, prod
+   *   OFF — P-5, provisional_doctrine_v0). Sanitised: negatives are NEVER
+   *   emitted; below-resolution estimates are labelled via `evpi_status`
+   *   instead of a clamped 0.
+   * - `'heuristic'`: `value_of_information × win_probability_spread × 100`
+   *   (fallback when ISL factor_evpi is absent or the flag is off).
+   *
+   * Present only when the active source yields an emittable value.
    *
    * **Derived from this field's own `value_of_information`** — inherits its
    * public-surface provenance (ISL Monte Carlo or graph fallback with
@@ -1706,6 +1719,15 @@ export interface FactorSensitivityResultV3 {
   evpi_percentage_points?: number;
   /** Method used to compute evpi_percentage_points */
   evpi_method?: 'heuristic' | 'counterfactual';
+  /**
+   * Present ONLY when ISL supplied a counterfactual EVPI estimate for this
+   * factor that is too small to measure at the run's sampling depth
+   * (including Monte Carlo–noise negatives, which are never emitted).
+   * `'below_resolution'` means "too small to measure", NOT "measured as
+   * zero" — `evpi_percentage_points` is deliberately absent in that case.
+   * Honours ISL's `factor_evpi[].evpi_status` wire field where present.
+   */
+  evpi_status?: 'below_resolution';
   /**
    * Confidence in the sensitivity score (0-1).
    *
@@ -1872,6 +1894,16 @@ export const INFERENCE_WARNING_CODES = {
    * invent a substitute.
    */
   EDGE_SENSITIVITY_UNAVAILABLE_V2_WIRE: 'EDGE_SENSITIVITY_UNAVAILABLE_V2_WIRE',
+  /**
+   * A goal constraint's target is not decision-grade: its threshold
+   * normalisation fell back to the default [0,1] range and/or ISL defaulted
+   * the target node's base to 0.0 (no observed value / no parameter
+   * uncertainty). `probability_of_joint_goal` and `constraint_probabilities`
+   * are SUPPRESSED for the run (absence is honest; raw computed values stay
+   * in diagnostics logs only). Severity: warning.
+   * @see src/lib/constraint-reliability.ts
+   */
+  CONSTRAINT_TARGET_UNRELIABLE: 'CONSTRAINT_TARGET_UNRELIABLE',
 } as const;
 
 export type InferenceWarningCode = (typeof INFERENCE_WARNING_CODES)[keyof typeof INFERENCE_WARNING_CODES];
@@ -1953,7 +1985,17 @@ export interface RobustnessAssessmentV3 {
   /** Robust edges - always Array<NormalizedEdgeInfoV3>, never undefined/null. Empty array when none. */
   robust_edges: NormalizedEdgeInfoV3[];
   explanation?: string;
-  /** Recommendation stability from ISL (0-1, probability recommendation holds under perturbation) */
+  /**
+   * @deprecated NO LONGER EMITTED by PLoT (lane PLoT-H item B, 2026-07-07).
+   * ISL derives this as `option_wins[winner] / n_samples` (see ISL
+   * `robustness_analyzer_v2.py:_compute_robustness`) — i.e. it is the
+   * leader's win_probability relabelled, carrying zero independent
+   * information. Verified byte-identical to the leader's win_probability in
+   * both live manual tests (0.59025 and 0.8541875) and in the live capture
+   * fixture (tests/fixtures/isl-v2-live-20260706). Consumers must use the
+   * absence path (the UI already suppresses "N% stability" on absence).
+   * Field kept on the type for inbound tolerance of old payloads only.
+   */
   recommendation_stability?: number;
   /** Boolean robustness flag from ISL V2/Option C format */
   is_robust?: boolean;

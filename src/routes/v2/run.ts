@@ -131,6 +131,10 @@ import { getDownstreamCallsForLog } from '../../util/downstream-tracker.js';
 import { computeFactorSensitivityFromGraph, buildFactorStability, mergeIslConfidenceIntoGraphFactors } from '../../lib/factor-influence.js';
 import { buildAutoNoiseProvenance, extractIslAutoNoiseApplied, logAutoNoiseFlagMissingFromIsl } from '../../lib/auto-noise.js';
 import { sanitiseIslVoi, computeEvpiPercentagePoints } from '../../lib/evpi-emission.js';
+import {
+  detectUnreliableConstraintTargets,
+  buildConstraintTargetUnreliableMessage,
+} from '../../lib/constraint-reliability.js';
 import { NEAR_TIE_THRESHOLD } from '../../trust/result-coherence.js';
 import { assessGraphIdentifiability, toIdentifiabilityResponse, detectUnmeasuredConfounding } from '../../trust/identifiability-v2.js';
 import { classifyEdgeSeverity } from '../../trust/edge-severity.js';
@@ -1654,6 +1658,21 @@ function buildResponse(
   factorStability?: FactorStabilityEntry[],
   logger?: { info: (obj: object, msg?: string) => void; warn: (obj: object, msg?: string) => void }
 ): RunResponseV3 {
+  // Producer honesty (lane PLoT-H item A): detect goal constraints whose
+  // targets are NOT decision-grade — threshold normalisation fell back to the
+  // default [0,1] range and/or ISL defaulted the target node's base to 0.0.
+  // When any such target exists, probability_of_joint_goal and
+  // constraint_probabilities are SUPPRESSED for the run (absence is honest —
+  // the UI gates goal-fit on absence) and a WARNING-severity
+  // CONSTRAINT_TARGET_UNRELIABLE inference warning names the node + the fix.
+  // Raw computed values are logged (diagnostics) but never emitted.
+  const unreliableConstraintTargets = detectUnreliableConstraintTargets(
+    goalConstraints,
+    constraintNormRanges,
+    islResult,
+  );
+  const suppressConstraintProbabilities = unreliableConstraintTargets.length > 0;
+
   // Map ISL results to response format
   // ISL V2 uses 'options' field; V1 uses 'results'. Check both for compatibility.
   const islOptionData = islResult?.options ?? islResult?.results;
@@ -1741,16 +1760,14 @@ function buildResponse(
       // would otherwise serialise to a fabricated `null`, and a >1 value would render
       // an impossible probability).
       const jointProb = prob01(constraintAnalysis.joint_probability);
-      if (jointProb !== undefined) {
-        result.probability_of_joint_goal = jointProb;
-      }
 
       // Map ISL's per-constraint prob_satisfied to constraint_probabilities map
       // Uses index-position mapping (same as buildConstraintFields): ISL preserves insertion
       // order but does NOT echo constraint_id. Value-based matching breaks after normalisation
       // because ISL echoes normalised values while goalConstraints holds raw user-unit values.
+      let constraintProbs: Record<string, number> | undefined;
       if (Array.isArray(constraintAnalysis.constraints) && constraintAnalysis.constraints.length > 0) {
-        const constraintProbs: Record<string, number> = {};
+        constraintProbs = {};
         const islConstraintsHere = constraintAnalysis.constraints as ISLConstraintResult[];
         const indexToId: string[] = islConstraintsHere.map((islC, idx) => {
           const byIndex = goalConstraints?.[idx];
@@ -1773,8 +1790,29 @@ function buildResponse(
             constraintProbs[constraintId] = probSat;
           }
         }
-        result.constraint_probabilities = constraintProbs;
-        logger?.info({ event: 'constraint_probs_mapped', option_id: optionId, count: Object.keys(constraintProbs).length });
+      }
+
+      if (suppressConstraintProbabilities) {
+        // Producer honesty (item A): the computed values are structurally
+        // meaningless (default-range threshold and/or defaulted base). Emit
+        // NEITHER field — absence is honest — and keep the raw values in
+        // diagnostics logs only. CONSTRAINT_TARGET_UNRELIABLE (warning) is
+        // emitted once per affected node further below.
+        logger?.warn({
+          event: 'constraint_probability_suppressed',
+          option_id: optionId,
+          raw_probability_of_joint_goal: constraintAnalysis.joint_probability,
+          raw_constraint_probabilities: constraintProbs,
+          unreliable_targets: unreliableConstraintTargets,
+        });
+      } else {
+        if (jointProb !== undefined) {
+          result.probability_of_joint_goal = jointProb;
+        }
+        if (constraintProbs !== undefined) {
+          result.constraint_probabilities = constraintProbs;
+          logger?.info({ event: 'constraint_probs_mapped', option_id: optionId, count: Object.keys(constraintProbs).length });
+        }
       }
     }
 
@@ -1893,19 +1931,27 @@ function buildResponse(
 
     robustness = {
       // Numeric-egress guard (Codex round-3): omit robustness scalars when non-finite
-      // (score) or outside [0,1] (recommendation_stability, confidence) — these are
-      // OPTIONAL fields, so omission is honest absence, never a fabricated `null` or an
-      // impossible rate. switch_probability fabrication is NOT addressed here (see the
-      // deferred cross-layer note in the PR — it is type-required across consumers).
+      // (score) or outside [0,1] (confidence) — these are OPTIONAL fields, so omission
+      // is honest absence, never a fabricated `null` or an impossible rate.
+      // switch_probability fabrication is NOT addressed here (see the deferred
+      // cross-layer note in the PR — it is type-required across consumers).
       ...(finiteNum(islResult.robustness.score) !== undefined && { score: finiteNum(islResult.robustness.score) }),
       label,
       fragile_edges: enrichedFragileEdges,
       robust_edges: enrichedRobustEdges,
       explanation: islResult.robustness.explanation,
-      // Pass through recommendation_stability from ISL when it is a valid [0,1] rate
-      ...(prob01(islResult.robustness.recommendation_stability) !== undefined && {
-        recommendation_stability: prob01(islResult.robustness.recommendation_stability),
-      }),
+      // recommendation_stability is DELIBERATELY NOT EMITTED (lane PLoT-H
+      // item B, 2026-07-07). ISL computes it as option_wins[winner]/n_samples
+      // (robustness_analyzer_v2.py:_compute_robustness) — the leader's
+      // win_probability relabelled, zero independent information. Verified
+      // byte-identical to the leader's win_probability in both live manual
+      // tests (0.59025 / 0.8541875) and in the live capture fixture
+      // (tests/fixtures/isl-v2-live-20260706: robustness.recommendation_stability
+      // 0.59025 === max win_probability 0.59025). The UI printed it as
+      // "N% stability" — a fabricated second statistic. Omission is honest
+      // absence; the UI has an absence path. No genuinely distinct
+      // recommendation-level stability signal exists on the V2 wire (the
+      // wire's `confidence` is itself derived from this same value).
       // Pass through V2/Option C robustness summary fields from ISL
       ...(islResult.robustness.is_robust !== undefined && {
         is_robust: islResult.robustness.is_robust,
@@ -1984,6 +2030,26 @@ function buildResponse(
       message: 'Edge-level sensitivity was requested but the ISL V2 response format does not carry it — edge_sensitivity is empty by wire contract, not by computation failure. Factor-level sensitivity is unaffected.',
       severity: 'info',
     });
+  }
+
+  // Producer honesty (item A): one WARNING per affected constraint-target
+  // node when goal-fit probabilities were suppressed above. Open-vocabulary
+  // code CONSTRAINT_TARGET_UNRELIABLE; message names the node and the
+  // concrete user action (set a value/range) — raw suppressed numbers are
+  // never quoted (they live in the constraint_probability_suppressed log).
+  if (suppressConstraintProbabilities) {
+    const warnedNodeIds = new Set<string>();
+    for (const target of unreliableConstraintTargets) {
+      if (warnedNodeIds.has(target.node_id)) continue;
+      warnedNodeIds.add(target.node_id);
+      const nodeLabel = graph?.nodes?.find((n) => n.id === target.node_id)?.label ?? target.node_id;
+      inferenceWarnings.push({
+        code: INFERENCE_WARNING_CODES.CONSTRAINT_TARGET_UNRELIABLE,
+        // provisional_doctrine_v0 — wording surface (see constraint-reliability.ts)
+        message: buildConstraintTargetUnreliableMessage(nodeLabel, target.reasons),
+        severity: 'warning',
+      });
+    }
   }
 
   // Merge ISL-originated inference_warnings into the PLoT array.
@@ -4430,34 +4496,85 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           factorSensitivitySource = 'isl';
         }
 
-        // Enrich factor sensitivity with EVPI percentage points heuristic.
-        // Heuristic approximation: VOI × win probability spread × 100,
-        // clamped to ≥ 0. Not true counterfactual EVPI. To be replaced
-        // when ISL supports per-factor counterfactual EVPI. See
-        // `src/lib/evpi-emission.ts` for the non-negative contract
-        // rationale (Howard 1966; OpenAPI `evpi_percentage_points.minimum: 0`).
+        // Enrich factor sensitivity with EVPI percentage points.
+        //
+        // P-5 (provisional_doctrine_v0, lane PLoT-H item C): when ISL supplied
+        // per-factor counterfactual EVPI (V2 wire `factor_evpi[]`) AND
+        // FLAGS.ISL_FACTOR_EVPI_INTERNAL is on (default ON for staging/test,
+        // OFF for prod), the sanitised ISL values are used IN PLACE of the
+        // heuristic for the "worth checking next" ranking surface. Hygiene via
+        // mapIslFactorEvpi: negatives are NEVER emitted; below-resolution
+        // estimates (including all MC-noise negatives, honouring ISL's
+        // `evpi_status` wire field where present) are labelled
+        // `evpi_status: 'below_resolution'` with evpi_percentage_points ABSENT
+        // — never a clamped 0. Live motivation (scenario 327bc417,
+        // 2026-07-07): the heuristic |sens|×(1−conf)×max(marginal) flattened
+        // to 0 for ALL factors because marginal_switch_probability was
+        // uniformly 0, so the ranking carried no information.
+        //
+        // Fallback (factor_evpi absent or flag off): the existing heuristic
+        // VOI × win-probability-spread × 100, clamped ≥ 0. Not true
+        // counterfactual EVPI. See `src/lib/evpi-emission.ts` for the
+        // non-negative contract rationale (Howard 1966; OpenAPI
+        // `evpi_percentage_points.minimum: 0`). The golden pricing-canary
+        // fixture has no factor_evpi → always takes this path (byte-identical).
         if (factorSensitivity) {
-          const islOptions = processedIslResult?.options ?? processedIslResult?.results ?? [];
-          const winProbs = (islOptions as any[])
-            .map((o: any) => o.win_probability as number | undefined)
-            .filter((wp): wp is number => wp != null)
-            .sort((a, b) => b - a);
-          const winProbSpread = winProbs.length >= 2 ? winProbs[0] - winProbs[1] : 0;
-          if (winProbSpread > 0) {
+          const factorEvpiMapping = FLAGS.ISL_FACTOR_EVPI_INTERNAL
+            ? mapIslFactorEvpi(islResult)
+            : { entries: [], dropped_invalid: 0 };
+          const islEvpiByFactor = new Map(
+            factorEvpiMapping.entries.map((e) => [e.factor_id, e]),
+          );
+
+          if (islEvpiByFactor.size > 0) {
             for (const f of factorSensitivity) {
               // P0a: never emit EVPI for an option-pinned lever
-              // (zero_reason === 'intervention_override'). Its VOI is forced to 0
-              // in mergeIslConfidenceIntoGraphFactors, and computeEvpiPercentagePoints(0, …)
-              // returns a confident 0 (not undefined) — which would still render an
-              // EVPI chip and rank the lever as an "investigation priority". Skip it
-              // entirely so evpi_percentage_points is ABSENT (preserving the
-              // missing-vs-zero contract), not 0. Belt-and-braces with the
-              // producer-side VOI zeroing; suppression only, no EVPI rename/redefine.
+              // (zero_reason === 'intervention_override') — resolving knowledge
+              // of a value the user sets is not an information gain. Applies to
+              // the ISL counterfactual path exactly as to the heuristic path.
               if (f.zero_reason === 'intervention_override') continue;
-              const evpiPp = computeEvpiPercentagePoints(f.value_of_information, winProbSpread);
-              if (evpiPp !== undefined) {
-                f.evpi_percentage_points = evpiPp;
-                f.evpi_method = 'heuristic';
+              const entry = islEvpiByFactor.get(f.factor_id);
+              if (!entry) continue; // no ISL estimate for this factor → honest absence
+              if (entry.emit_pp !== undefined) {
+                f.evpi_percentage_points = entry.emit_pp;
+                f.evpi_method = 'counterfactual';
+              } else if (entry.below_resolution) {
+                // "Too small to measure at this sampling depth" — labelled,
+                // never a fabricated 0 and never the raw negative.
+                f.evpi_status = 'below_resolution';
+              }
+            }
+            req.log.info({
+              event: 'factor_evpi_promoted',
+              request_id: requestId,
+              source: 'isl_counterfactual',
+              entries: factorEvpiMapping.entries.length,
+              dropped_invalid: factorEvpiMapping.dropped_invalid,
+              below_resolution_count: factorEvpiMapping.entries.filter((e) => e.below_resolution).length,
+            });
+          } else {
+            const islOptions = processedIslResult?.options ?? processedIslResult?.results ?? [];
+            const winProbs = (islOptions as any[])
+              .map((o: any) => o.win_probability as number | undefined)
+              .filter((wp): wp is number => wp != null)
+              .sort((a, b) => b - a);
+            const winProbSpread = winProbs.length >= 2 ? winProbs[0] - winProbs[1] : 0;
+            if (winProbSpread > 0) {
+              for (const f of factorSensitivity) {
+                // P0a: never emit EVPI for an option-pinned lever
+                // (zero_reason === 'intervention_override'). Its VOI is forced to 0
+                // in mergeIslConfidenceIntoGraphFactors, and computeEvpiPercentagePoints(0, …)
+                // returns a confident 0 (not undefined) — which would still render an
+                // EVPI chip and rank the lever as an "investigation priority". Skip it
+                // entirely so evpi_percentage_points is ABSENT (preserving the
+                // missing-vs-zero contract), not 0. Belt-and-braces with the
+                // producer-side VOI zeroing; suppression only, no EVPI rename/redefine.
+                if (f.zero_reason === 'intervention_override') continue;
+                const evpiPp = computeEvpiPercentagePoints(f.value_of_information, winProbSpread);
+                if (evpiPp !== undefined) {
+                  f.evpi_percentage_points = evpiPp;
+                  f.evpi_method = 'heuristic';
+                }
               }
             }
           }
@@ -4687,6 +4804,16 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             reason: r.reason,
           }));
 
+          // Producer honesty (item A): mirror buildResponse's detection so the
+          // coaching joint-probability gate never reads placeholder-derived
+          // joint probabilities (same inputs → same verdict as the public
+          // suppression).
+          const coachingConstraintTargetsUnreliable = detectUnreliableConstraintTargets(
+            activeGoalConstraints,
+            constraintNormalisationRanges,
+            processedIslResult,
+          ).length > 0;
+
           m1Coaching = generateM1Coaching(
             filteredGraph,
             body.options,
@@ -4699,6 +4826,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                                  // factor_sensitivity array we publish, so evidence_gaps
                                  // confidence/influence match the public payload (audit
                                  // A1-PRIMARY: no raw-ISL signal under coaching field names).
+            coachingConstraintTargetsUnreliable,  // Item A: skip joint-prob gate on unreliable targets
           );
         } catch (err) {
           req.log.warn({

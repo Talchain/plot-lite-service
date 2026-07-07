@@ -111,9 +111,16 @@ import { createServer } from '../src/createServer.js';
 
 const GRAPH = {
   nodes: [
-    { id: 'goal', kind: 'goal', label: 'Revenue' },
+    // Constraint targets carry observed values so their normalisation ranges
+    // derive from real data (inferred_value tier), keeping the targets
+    // RELIABLE. Without them the user-unit thresholds (20000 / 5000) would be
+    // scaled against the made-up default [0,1] range, and item A producer
+    // honesty (CONSTRAINT_TARGET_UNRELIABLE) would rightly SUPPRESS the
+    // per-option probability fields this suite pins the mapping of — see
+    // tests/constraint-target-unreliable.fixture.test.ts for that contract.
+    { id: 'goal', kind: 'goal', label: 'Revenue', observed_state: { value: 15000 } },
     { id: 'factor-a', kind: 'factor', label: 'Market Size' },
-    { id: 'factor-b', kind: 'factor', label: 'Retention' },
+    { id: 'factor-b', kind: 'factor', label: 'Retention', observed_state: { value: 4000 } },
   ],
   edges: [
     { from: 'factor-a', to: 'goal', strength: { mean: 0.5, std: 0.1 } },
@@ -196,11 +203,15 @@ describe('CIL C1: Constraint Results Passthrough', () => {
   });
 
   it('passes through constraint_results with correct field mapping when ISL returns constraint_analysis', async () => {
-    // ISL returns constraint_analysis per-option (canonical "value" field)
+    // ISL returns constraint_analysis per-option (canonical "value" field).
+    // failure_margin_median is in NORMALISED units on the ISL wire (the
+    // constraints were normalised before forwarding); PLoT denormalises by
+    // range width — goal: [0, 30000] (inferred from observed 15000) → 0.04 ×
+    // 30000 = 1200; factor-b: [0, 8000] → 0.05 × 8000 = 400.
     mockConstraintAnalysis = {
       constraints: [
-        { node_id: 'goal', operator: '>=', value: 20000, prob_satisfied: 0.85, failure_margin_median: 1200, near_miss_fraction: 0.12, binding: true },
-        { node_id: 'factor-b', operator: '<=', value: 5000, prob_satisfied: 0.92, failure_margin_median: 400, near_miss_fraction: 0.05, binding: false },
+        { node_id: 'goal', operator: '>=', value: 20000, prob_satisfied: 0.85, failure_margin_median: 0.04, near_miss_fraction: 0.12, binding: true },
+        { node_id: 'factor-b', operator: '<=', value: 5000, prob_satisfied: 0.92, failure_margin_median: 0.05, near_miss_fraction: 0.05, binding: false },
       ],
       joint_probability: 0.78,
       conditional_probabilities: [
