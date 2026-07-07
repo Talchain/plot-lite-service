@@ -266,3 +266,177 @@ export function logPreflightResult(
   };
   console.log(JSON.stringify(entry));
 }
+
+// -----------------------------------------------------------------------------
+// Duplicate-edge preflight (ISL 422s duplicate (from, to, type) edges)
+// -----------------------------------------------------------------------------
+
+/**
+ * Structural edge shape consumed by the duplicate-edge preflight.
+ * Matches EngineEdgeV3 (normalised graph) — the shape forwarded to ISL.
+ */
+export interface DuplicateCheckEdge {
+  from: string;
+  to: string;
+  exists_probability: number;
+  strength: { mean: number; std: number };
+  label?: string;
+  edge_type?: 'directed' | 'bidirected';
+}
+
+/** A coalesced EXACT-duplicate group (identical on every field). */
+export interface CoalescedDuplicate {
+  from: string;
+  to: string;
+  edge_type: string;
+  /** Total identical copies found (>= 2); one is kept, the rest dropped */
+  count: number;
+}
+
+/** A NON-identical duplicate conflict — same (from, to, type), differing payload. */
+export interface DuplicateEdgeConflict {
+  from: string;
+  to: string;
+  edge_type: string;
+  /** Number of edges sharing this (from, to, type) key */
+  count: number;
+  /** Fields whose values differ across the conflicting edges */
+  divergent_fields: string[];
+}
+
+/** Result of the duplicate-edge preflight. */
+export interface DuplicateEdgePreflightResult {
+  /** Edges with exact-identical duplicates coalesced (order preserved, first kept) */
+  edges: DuplicateCheckEdge[];
+  /** Exact-identical groups that were coalesced (for repairs_applied) */
+  coalesced: CoalescedDuplicate[];
+  /**
+   * Non-identical duplicates. NEVER silently deduped — PLoT cannot know which
+   * belief/weight/provenance the user meant, so this is a typed actionable
+   * blocker for the caller (producers own semantics; PLoT must not invent a
+   * merge).
+   */
+  conflicts: DuplicateEdgeConflict[];
+}
+
+/**
+ * Canonical duplicate key: (from, to, edge_type). Matches the uniqueness
+ * constraint ISL now enforces with a 422 on /robustness/analyze/v2.
+ * JSON-encoded so IDs containing delimiter characters cannot collide
+ * (e.g. from="a b",to="c" vs from="a",to="b c").
+ */
+function duplicateEdgeKey(e: DuplicateCheckEdge): string {
+  return JSON.stringify([e.from, e.to, e.edge_type ?? 'directed']);
+}
+
+/** Canonical full-payload fingerprint used to detect EXACT-identical edges. */
+function edgeFingerprint(e: DuplicateCheckEdge): string {
+  return JSON.stringify({
+    from: e.from,
+    to: e.to,
+    edge_type: e.edge_type ?? 'directed',
+    exists_probability: e.exists_probability,
+    strength_mean: e.strength?.mean,
+    strength_std: e.strength?.std,
+    label: e.label ?? null,
+  });
+}
+
+/** Field-level diff across a conflicting duplicate group (for the blocker message). */
+function divergentFields(group: DuplicateCheckEdge[]): string[] {
+  const fields: Array<[string, (e: DuplicateCheckEdge) => unknown]> = [
+    ['exists_probability', (e) => e.exists_probability],
+    ['strength.mean', (e) => e.strength?.mean],
+    ['strength.std', (e) => e.strength?.std],
+    ['label', (e) => e.label ?? null],
+  ];
+  const out: string[] = [];
+  for (const [name, get] of fields) {
+    const first = JSON.stringify(get(group[0]));
+    if (group.some((e) => JSON.stringify(get(e)) !== first)) out.push(name);
+  }
+  return out;
+}
+
+/**
+ * Duplicate-edge preflight, run BEFORE building the ISL request.
+ *
+ * - EXACT identical duplicates (every field equal) are coalesced to a single
+ *   edge; each coalesced group is reported so the caller can log it through
+ *   the existing repairs_applied mechanism (observable, not silent).
+ * - NON-identical duplicates — same (from, to, type) but differing
+ *   weight/belief/label — are returned as conflicts. The caller MUST block
+ *   with a typed actionable critique; silently deduping would pick one of
+ *   the user's contradictory claims and discard the other without consent.
+ *
+ * Edge order is preserved; the first occurrence of each duplicate group keeps
+ * its position (relevant for downstream index-based references and for ISL
+ * determinism).
+ */
+export function preflightDuplicateEdges(
+  edges: DuplicateCheckEdge[],
+): DuplicateEdgePreflightResult {
+  const groups = new Map<string, DuplicateCheckEdge[]>();
+  for (const e of edges) {
+    const key = duplicateEdgeKey(e);
+    const group = groups.get(key);
+    if (group) group.push(e);
+    else groups.set(key, [e]);
+  }
+
+  const coalesced: CoalescedDuplicate[] = [];
+  const conflicts: DuplicateEdgeConflict[] = [];
+  const dropFingerprints = new Map<string, number>(); // fingerprint -> copies still to drop
+
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    const firstFp = edgeFingerprint(group[0]);
+    const allIdentical = group.every((e) => edgeFingerprint(e) === firstFp);
+    const edgeType = group[0].edge_type ?? 'directed';
+    if (allIdentical) {
+      coalesced.push({
+        from: group[0].from,
+        to: group[0].to,
+        edge_type: edgeType,
+        count: group.length,
+      });
+      dropFingerprints.set(
+        firstFp,
+        (dropFingerprints.get(firstFp) ?? 0) + group.length - 1,
+      );
+    } else {
+      conflicts.push({
+        from: group[0].from,
+        to: group[0].to,
+        edge_type: edgeType,
+        count: group.length,
+        divergent_fields: divergentFields(group),
+      });
+    }
+  }
+
+  // Nothing to coalesce (or only conflicts): return input untouched.
+  if (coalesced.length === 0) {
+    return { edges, coalesced, conflicts };
+  }
+
+  // Drop all-but-first copy of each exact-identical group, preserving order.
+  const seenKeep = new Set<string>();
+  const result: DuplicateCheckEdge[] = [];
+  for (const e of edges) {
+    const fp = edgeFingerprint(e);
+    const toDrop = dropFingerprints.get(fp);
+    if (toDrop !== undefined) {
+      if (seenKeep.has(fp)) {
+        if (toDrop > 0) {
+          dropFingerprints.set(fp, toDrop - 1);
+          continue; // drop this exact-identical copy
+        }
+      } else {
+        seenKeep.add(fp); // first copy: keep
+      }
+    }
+    result.push(e);
+  }
+  return { edges: result, coalesced, conflicts };
+}

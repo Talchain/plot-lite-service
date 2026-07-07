@@ -103,4 +103,17 @@ export const FLAGS = {
     if (raw === '1' || raw === 'true') return true;
     return process.env.NODE_ENV === 'test' || process.env.RENDER_SERVICE_NAME?.includes('staging') === true;
   },
+
+  // ISL V2 science channel: per-factor counterfactual EVPI (factor_evpi wire field)
+  /**
+   * INTERNAL DIAGNOSTICS ONLY (default OFF everywhere, including test/staging).
+   * When enabled, /v2/run logs a sanitised summary of the ISL V2 `factor_evpi`
+   * wire field (via `mapIslFactorEvpi`). It NEVER changes the public response:
+   * wiring factor_evpi into user-facing VOI/EVPI is decision P-5 (pending) and
+   * MUST NOT happen behind this flag.
+   */
+  get ISL_FACTOR_EVPI_INTERNAL() {
+    const raw = process.env.ISL_FACTOR_EVPI_INTERNAL;
+    return raw === '1' || raw === 'true';
+  },
 } as const;

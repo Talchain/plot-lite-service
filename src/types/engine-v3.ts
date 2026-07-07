@@ -1437,8 +1437,14 @@ export interface EnrichedEdgeEValue {
   to_label: string;
   /** E-value (evidence strength) */
   e_value: number;
-  /** Direction the edge would need to flip to change the recommendation */
-  flip_direction: 'positive_to_negative' | 'negative_to_positive' | 'removal';
+  /**
+   * Direction the edge would need to flip to change the recommendation.
+   * ISL owns this vocabulary and PLoT passes it through verbatim: the live V2
+   * wire emits 'increase' | 'decrease' (verified 2026-07-06, build f3f5d92);
+   * legacy documented values were 'positive_to_negative' |
+   * 'negative_to_positive' | 'removal'. Typed open to match the wire.
+   */
+  flip_direction: string;
   /** Current mean effect of this edge */
   current_mean: number;
   /** Mean effect at the flip point */
@@ -1857,6 +1863,15 @@ export interface StabilityThresholds {
 export const INFERENCE_WARNING_CODES = {
   /** ISL returned factor-level 3C fields but stability_thresholds was absent or malformed */
   STABILITY_THRESHOLDS_MISSING: 'STABILITY_THRESHOLDS_MISSING',
+  /**
+   * Edge-level sensitivity was requested (analysis_types includes 'sensitivity')
+   * but the ISL V2 wire does not emit it (verified live 2026-07-06, build
+   * f3f5d92): edge_sensitivity is empty by wire contract, NOT by computation
+   * failure. Factor-level sensitivity is unaffected. Restoring edge-level
+   * sensitivity is ISL contract work (recorded followup); PLoT does not
+   * invent a substitute.
+   */
+  EDGE_SENSITIVITY_UNAVAILABLE_V2_WIRE: 'EDGE_SENSITIVITY_UNAVAILABLE_V2_WIRE',
 } as const;
 
 export type InferenceWarningCode = (typeof INFERENCE_WARNING_CODES)[keyof typeof INFERENCE_WARNING_CODES];

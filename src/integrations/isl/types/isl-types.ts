@@ -241,18 +241,68 @@ export interface ISLEdgeSensitivityItem {
 /**
  * ISL edge E-value from robustness analysis.
  * Measures evidence strength for each edge's causal effect direction.
+ *
+ * V2 wire location: NESTED at `robustness.edge_e_values` (verified against the
+ * live staging capture `tests/fixtures/isl-v2-live-20260706/isl-staging-capture.json`,
+ * ISL build f3f5d92). The top-level `edge_e_values` field is a V1-era location the
+ * live V2 envelope never emits — read via `getIslEdgeEValues()` in
+ * `../v2-envelope.js`, never directly.
  */
 export interface ISLEdgeEValue {
   /** Edge ID in ISL format (e.g., "from->to") */
   edge_id: string;
+  /** Source node ID (present on V2 nested entries; absent on legacy shapes) */
+  from_id?: string;
+  /** Target node ID (present on V2 nested entries; absent on legacy shapes) */
+  to_id?: string;
   /** E-value (evidence strength) */
   e_value: number;
-  /** Direction the edge would need to flip to change the recommendation */
-  flip_direction: 'positive_to_negative' | 'negative_to_positive' | 'removal';
+  /**
+   * Direction the edge would need to flip to change the recommendation.
+   * Live V2 wire emits 'increase' | 'decrease'; legacy documented values were
+   * 'positive_to_negative' | 'negative_to_positive' | 'removal'. Typed open
+   * because ISL owns this vocabulary and PLoT passes it through verbatim.
+   */
+  flip_direction: string;
   /** Current mean effect of this edge */
   current_mean: number;
   /** Mean effect at the flip point */
   flip_mean: number;
+  /**
+   * True when no finite change to this edge can flip the recommendation
+   * (V2 nested entries only). NOT emitted outward by PLoT — contracts frozen;
+   * recorded as a followup for contract work.
+   */
+  is_unflippable?: boolean;
+}
+
+/**
+ * ISL per-factor EVPI entry from the V2 wire (top-level `factor_evpi`).
+ *
+ * Verified live (staging capture 2026-07-06, build f3f5d92): entries carry
+ * true counterfactual EVPI per factor. NOT wired into any user-facing VOI/EVPI
+ * surface yet (decision P-5 pending) — consumed only by the guarded internal
+ * mapping in `../v2-envelope.js`.
+ *
+ * Raw `evpi` / `evpi_percentage_points` can drift slightly negative from Monte
+ * Carlo sampling noise (observed live: -0.0015 / -0.15pp). Negative values are
+ * sampling artefacts, never real signals — see `src/lib/evpi-emission.ts`.
+ */
+export interface ISLFactorEvpiEntry {
+  /** Factor node ID */
+  factor_id: string;
+  /** EVPI as a fraction of the decision metric (can be MC-noise negative) */
+  evpi: number;
+  /** EVPI in percentage points of the decision metric (can be MC-noise negative) */
+  evpi_percentage_points: number;
+  /** Current value of the decision metric */
+  current_metric: number;
+  /** Decision metric under perfect information about this factor */
+  perfect_metric: number;
+  /** Which metric EVPI is measured on (e.g., 'p_win_recommended') */
+  metric_type: string;
+  /** Number of Monte Carlo samples used for the EVPI estimate */
+  n_evpi_samples: number;
 }
 
 /**
@@ -411,7 +461,16 @@ export interface ISLRobustnessAnalyzeV2Response {
   /** Request ID echo */
   request_id?: string;
 
-  /** Edge sensitivity (when 'sensitivity' in analysis_types) */
+  /**
+   * Edge sensitivity (when 'sensitivity' in analysis_types).
+   *
+   * @deprecated DEAD ON THE LIVE V2 WIRE. Verified against the live staging
+   * capture (2026-07-06, build f3f5d92): the V2 envelope never emits top-level
+   * edge sensitivity and carries NO nested replacement — the V2 wire genuinely
+   * drops edge-level sensitivity. Do NOT invent a substitute; restoring it is
+   * ISL contract work (recorded followup). Factor-level sensitivity is
+   * unaffected (`factor_sensitivity`).
+   */
   sensitivity?: ISLEdgeSensitivityItem[];
 
   /** Factor-level sensitivity scores */
@@ -446,6 +505,13 @@ export interface ISLRobustnessAnalyzeV2Response {
      * ISL returns strings in "from->to" format.
      */
     robust_edges?: string[];
+    /**
+     * Edge E-values — CANONICAL V2 wire location (verified live 2026-07-06,
+     * build f3f5d92). The top-level `edge_e_values` sibling is a V1-era
+     * location the live V2 envelope never emits. Read via
+     * `getIslEdgeEValues()` in `../v2-envelope.js`.
+     */
+    edge_e_values?: ISLEdgeEValue[];
     /** Explanation of robustness assessment - V1 format (optional in V2) */
     explanation?: string;
   };
@@ -471,17 +537,42 @@ export interface ISLRobustnessAnalyzeV2Response {
   /** Confidence in the recommendation */
   recommendation_confidence?: number;
 
-  /** Validation status from causal graph analysis */
+  /**
+   * Validation status from causal graph analysis.
+   *
+   * @deprecated DEAD ON THE LIVE V2 WIRE (verified 2026-07-06, build f3f5d92):
+   * the V2 envelope never emits this field. All reads removed; kept for
+   * fixture/legacy tolerance only.
+   */
   validation_status?: 'identifiable' | 'uncertain' | 'cannot_identify';
 
-  /** Confidence in the validation assessment */
+  /**
+   * Confidence in the validation assessment.
+   *
+   * @deprecated DEAD ON THE LIVE V2 WIRE — see `validation_status`.
+   */
   validation_confidence?: 'high' | 'medium' | 'low';
 
   /**
    * Edge E-values measuring evidence strength for each edge's causal direction.
-   * Present when ISL provides E-value analysis.
+   *
+   * @deprecated V1-era TOP-LEVEL location — the live V2 wire nests E-values at
+   * `robustness.edge_e_values` (verified 2026-07-06, build f3f5d92). Read via
+   * `getIslEdgeEValues()` which prefers the nested location.
    */
   edge_e_values?: ISLEdgeEValue[];
+
+  /**
+   * Per-factor counterfactual EVPI (V2 wire, top-level; verified live
+   * 2026-07-06). NOT user-facing yet — P-5 pending. See `ISLFactorEvpiEntry`.
+   */
+  factor_evpi?: ISLFactorEvpiEntry[];
+
+  /**
+   * Response timestamp (ISO 8601) — the V2 wire's equivalent of the V1-era
+   * `computed_at` field (which V2 never emits; verified live 2026-07-06).
+   */
+  timestamp?: string;
 
   /**
    * Conditional winner analysis per factor.
