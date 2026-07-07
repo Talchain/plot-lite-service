@@ -50,11 +50,19 @@ export const ISL_TO_UI_CONTRACT: BoundaryContract = {
    * ({ scored_from: 'modelled_outcome_distribution', node_ids }) and an
    * info-severity CONSTRAINT_GOALFIT_MODELLED_BASIS note instead of the
    * warning.
+   *
+   * Top-level mirror (lane 27, ROADMAP 1.26a — the LANE25 §8 follow-up): the
+   * TOP-LEVEL block built by buildConstraintFields (constraint_results[]
+   * .probability, constraint_diagnostics, conditional_probabilities) is gated
+   * by the SAME partition — on a suppressed run the whole block is withheld
+   * and constraints_status reports 'unavailable' instead of a fabricated
+   * 'computed'; doctrine-B modelledBasis targets deliver it unchanged.
    * @see src/lib/constraint-reliability.ts
    */
   filtered: [
     'constraint_analysis.joint_probability (when CONSTRAINT_TARGET_UNRELIABLE)',
     'constraint_analysis.constraints[].prob_satisfied (when CONSTRAINT_TARGET_UNRELIABLE)',
+    'constraint_results[] / constraint_diagnostics[] / conditional_probabilities[] (top-level block, when CONSTRAINT_TARGET_UNRELIABLE — constraints_status: unavailable)',
   ],
 
   /** WHY renamed: UI schema uses different field names than ISL's response. */

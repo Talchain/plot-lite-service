@@ -138,6 +138,7 @@ import {
   buildConstraintTargetUnreliableMessage,
   buildConstraintGoalFitModelledMessage,
   GOAL_FIT_SCORED_FROM_MODELLED_OUTCOME,
+  type UnreliableConstraintTarget,
 } from '../../lib/constraint-reliability.js';
 import { NEAR_TIE_THRESHOLD } from '../../trust/result-coherence.js';
 import { assessGraphIdentifiability, toIdentifiabilityResponse, detectUnmeasuredConfounding } from '../../trust/identifiability-v2.js';
@@ -1410,6 +1411,12 @@ export function deriveRecommendedOption(
  *
  * We use the first option's constraint_analysis as the canonical source for top-level
  * constraint metadata (diagnostics and conditional probabilities are per-graph, not per-option).
+ *
+ * Reliability gate (lane 27, ROADMAP 1.26a): when any constraint target is
+ * suppressed-unreliable (partitionConstraintTargets — the same classification
+ * behind the per-option probability suppression), the whole block returns
+ * { constraints_status: 'unavailable' } instead of 'computed' with leaked
+ * probabilities; raw values go to the constraint_results_suppressed log only.
  */
 /**
  * Collect CEE-stamped goal-threshold metadata from the RAW upstream nodes (P0-C1).
@@ -1447,7 +1454,14 @@ function collectGoalThresholdNodeMeta(
 function buildConstraintFields(
   goalConstraints: GoalConstraint[] | undefined,
   islResult: any,
-  constraintNormRanges?: Map<string, NormalisationRange>
+  constraintNormRanges?: Map<string, NormalisationRange>,
+  // Producer honesty (lane 27, ROADMAP 1.26a): the suppressed half of the
+  // constraint-target partition (partitionConstraintTargets — same
+  // classification the per-option suppression keys on). When non-empty, the
+  // top-level block is withheld too; doctrine-B modelledBasis targets are NOT
+  // passed here — they deliver (lane P0-C2).
+  suppressedConstraintTargets?: UnreliableConstraintTarget[],
+  logger?: { warn: (obj: object, msg?: string) => void }
 ): {
   constraints_status?: ConstraintFeatureStatus;
   constraint_results?: ConstraintResult[];
@@ -1635,6 +1649,33 @@ function buildConstraintFields(
       // or effective_sample_size is non-finite (would serialise to a fabricated `null`
       // on these required-number fields). Non-finite ROW filtering only.
       .filter((cp: ConditionalProbability) => Number.isFinite(cp.probability) && Number.isFinite(cp.effective_sample_size));
+  }
+
+  // Producer honesty (lane 27, ROADMAP 1.26a — the LANE25 §8 follow-up): the
+  // per-option suppression (item A + doctrine B, see buildResponse) withholds
+  // probability_of_joint_goal / constraint_probabilities when any constraint
+  // target is suppressed-unreliable, but this top-level block previously still
+  // emitted constraint_results[].probability (= the first option's
+  // prob_satisfied) under constraints_status: 'computed' — the withheld
+  // numbers leaked via the top-level surface. Gate it on the SAME partition:
+  // when any target suppresses, the whole block is withheld (absence is
+  // honest; the WARNING-severity CONSTRAINT_TARGET_UNRELIABLE explains why)
+  // and 'unavailable' replaces the fabricated 'computed'. The diagnostics and
+  // conditional probabilities derive from the same non-decision-grade
+  // evaluation, so they are withheld with it. Raw values stay in the
+  // diagnostics log below — never on the wire. Doctrine-B modelledBasis
+  // targets deliver unchanged (callers pass only the suppressed partition).
+  // Gated AFTER the early returns above so ISL 'error'/'unavailable'
+  // outcomes keep their more specific status.
+  if (suppressedConstraintTargets && suppressedConstraintTargets.length > 0) {
+    logger?.warn({
+      event: 'constraint_results_suppressed',
+      raw_constraint_results: constraintResults,
+      raw_constraint_diagnostics: constraintDiagnostics,
+      raw_conditional_probabilities: conditionalProbabilities,
+      unreliable_targets: suppressedConstraintTargets,
+    });
+    return { constraints_status: 'unavailable' };
   }
 
   return {
@@ -2353,8 +2394,18 @@ function buildResponse(
     robustness_status: robustnessStatus,
     drivers_status: driversStatus,
 
-    // CIL C1: Multi-constraint analysis fields
-    ...buildConstraintFields(goalConstraints, islResult, constraintNormRanges),
+    // CIL C1: Multi-constraint analysis fields.
+    // Lane 27 (ROADMAP 1.26a): gated by the SAME reliability partition as the
+    // per-option suppression above — suppressed targets withhold the whole
+    // top-level block ('unavailable'); doctrine-B modelledBasis targets and
+    // fully-reliable runs deliver it byte-identically.
+    ...buildConstraintFields(
+      goalConstraints,
+      islResult,
+      constraintNormRanges,
+      constraintTargetPartition.suppressed,
+      logger,
+    ),
 
     // Auto-noise disclosure (audit B3, P0). `auto_noise_applied` echoes
     // ISL's flag verbatim (or `null` when ISL's `_metadata` omits the
