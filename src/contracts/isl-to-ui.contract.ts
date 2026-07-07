@@ -26,10 +26,28 @@ export const ISL_TO_UI_CONTRACT: BoundaryContract = {
   drops: [
     'metadata.n_samples',            // Superseded by outcome.n_samples per-option
     'recommendation_confidence',     // Removed in V3 schema migration
+    // Producer honesty (lane PLoT-H item B, 2026-07-07): ISL derives this as
+    // option_wins[winner]/n_samples — the leader's win_probability relabelled,
+    // zero independent information (verified byte-identical live: 0.59025 /
+    // 0.8541875). The UI printed it as a fabricated "N% stability" statistic.
+    // Absence is honest; the UI has an absence path.
+    'robustness.recommendation_stability',
   ],
 
-  /** No structural filtering at this boundary (filtering happens at PLoT→ISL). */
-  filtered: [],
+  /**
+   * Conditional structural filtering (producer honesty, lane PLoT-H item A):
+   * per-option `constraint_analysis.joint_probability` → probability_of_joint_goal
+   * and `constraints[].prob_satisfied` → constraint_probabilities are SUPPRESSED
+   * for the whole run when any constraint target is unreliable (default-range
+   * threshold normalisation and/or ISL CONSTRAINT_NODE_DEFAULT_BASE on the
+   * target node). Marked by the WARNING-severity CONSTRAINT_TARGET_UNRELIABLE
+   * inference warning; raw values stay in diagnostics logs only.
+   * @see src/lib/constraint-reliability.ts
+   */
+  filtered: [
+    'constraint_analysis.joint_probability (when CONSTRAINT_TARGET_UNRELIABLE)',
+    'constraint_analysis.constraints[].prob_satisfied (when CONSTRAINT_TARGET_UNRELIABLE)',
+  ],
 
   /** WHY renamed: UI schema uses different field names than ISL's response. */
   renames: [
@@ -88,6 +106,9 @@ export const ISL_TO_UI_CONTRACT: BoundaryContract = {
     'near_tie',
     'confidence_tier',                   // B1: derived from m1_coaching.readiness (ready→strong, close_call→fair, else→needs_work)
     'dominant_factor',                   // B1: detected from factor_sensitivity (influence >0.5 AND ratio >2:1)
+    'factor_sensitivity[].evpi_percentage_points', // P-5: ISL factor_evpi[] counterfactual (sanitised, flag-gated staging/test) OR VOI×spread heuristic fallback; source disclosed via evpi_method
+    'factor_sensitivity[].evpi_method',  // P-5: 'counterfactual' (ISL factor_evpi) | 'heuristic' (VOI×spread fallback)
+    'factor_sensitivity[].evpi_status',  // P-5: 'below_resolution' label when ISL counterfactual EVPI too small to measure (incl. MC-noise negatives) — never a clamped 0
     // Tier-B always-emit contract: the following enrichment arrays are always
     // present on the response ([] when ISL returns empty or omits the field),
     // and their entries are label-enriched beyond the ISL source shape.

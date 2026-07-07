@@ -106,14 +106,26 @@ export const FLAGS = {
 
   // ISL V2 science channel: per-factor counterfactual EVPI (factor_evpi wire field)
   /**
-   * INTERNAL DIAGNOSTICS ONLY (default OFF everywhere, including test/staging).
-   * When enabled, /v2/run logs a sanitised summary of the ISL V2 `factor_evpi`
-   * wire field (via `mapIslFactorEvpi`). It NEVER changes the public response:
-   * wiring factor_evpi into user-facing VOI/EVPI is decision P-5 (pending) and
-   * MUST NOT happen behind this flag.
+   * P-5 promotion gate (provisional_doctrine_v0, lane PLoT-H item C,
+   * 2026-07-07 — supersedes the previous "internal diagnostics only" posture).
+   *
+   * When ON and the ISL V2 wire carries `factor_evpi[]`, the sanitised
+   * counterfactual EVPI (via `mapIslFactorEvpi`: negatives NEVER emitted,
+   * below-resolution labelled `evpi_status: 'below_resolution'`, honouring
+   * ISL's `evpi_status` wire field where present) is used IN PLACE of the
+   * heuristic (VOI × win-probability spread) on the factor_sensitivity
+   * "worth checking next" surface (`evpi_percentage_points`,
+   * `evpi_method: 'counterfactual'`). When `factor_evpi` is absent (e.g. the
+   * golden pricing-canary) or the flag is OFF, the heuristic fallback runs
+   * unchanged — public response byte-identical to the pre-promotion build.
+   *
+   * Default: ON for test and staging; OFF for production. Explicit env
+   * ('1'/'true' or '0'/'false') overrides in both directions.
    */
   get ISL_FACTOR_EVPI_INTERNAL() {
     const raw = process.env.ISL_FACTOR_EVPI_INTERNAL;
-    return raw === '1' || raw === 'true';
+    if (raw === '0' || raw === 'false') return false;
+    if (raw === '1' || raw === 'true') return true;
+    return process.env.NODE_ENV === 'test' || process.env.RENDER_SERVICE_NAME?.includes('staging') === true;
   },
 } as const;

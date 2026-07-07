@@ -303,6 +303,13 @@ export interface ISLFactorEvpiEntry {
   metric_type: string;
   /** Number of Monte Carlo samples used for the EVPI estimate */
   n_evpi_samples: number;
+  /**
+   * ISL's own emission classification for this estimate (newer ISL builds;
+   * the 2026-07-06 live capture predates it). When present and
+   * 'below_resolution', PLoT honours it: the entry is labelled
+   * below-resolution regardless of PLoT's local threshold classification.
+   */
+  evpi_status?: 'ok' | 'below_resolution' | string;
 }
 
 /**
@@ -564,7 +571,10 @@ export interface ISLRobustnessAnalyzeV2Response {
 
   /**
    * Per-factor counterfactual EVPI (V2 wire, top-level; verified live
-   * 2026-07-06). NOT user-facing yet — P-5 pending. See `ISLFactorEvpiEntry`.
+   * 2026-07-06). P-5 PROMOTED (provisional_doctrine_v0, 2026-07-07): feeds
+   * the factor_sensitivity "worth checking next" surface behind
+   * `FLAGS.ISL_FACTOR_EVPI_INTERNAL` (staging/test ON, prod OFF), sanitised
+   * via `mapIslFactorEvpi`. See `ISLFactorEvpiEntry`.
    */
   factor_evpi?: ISLFactorEvpiEntry[];
 

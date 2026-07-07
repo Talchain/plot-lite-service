@@ -325,6 +325,19 @@ describe('buildRobustnessDataForCee', () => {
     expect(result).toBeNull();
   });
 
+  it('returns null when ONLY recommendation_stability is present (item B: no longer meaningful data)', () => {
+    // recommendation_stability is the leader's win_probability relabelled —
+    // it neither counts as meaningful robustness data nor gets forwarded.
+    const result = buildRobustnessDataForCee(
+      { recommendation_stability: 0.87 },
+      [],
+      undefined,
+      TEST_GRAPH,
+      TEST_OPTIONS
+    );
+    expect(result).toBeNull();
+  });
+
   it('builds complete robustness data with all fields', () => {
     const islRobustness = {
       recommendation_stability: 0.87,
@@ -359,7 +372,10 @@ describe('buildRobustnessDataForCee', () => {
     );
 
     expect(result).not.toBeNull();
-    expect(result!.recommendation_stability).toBe(0.87);
+    // Item B (producer honesty): recommendation_stability is NO LONGER
+    // forwarded — ISL derives it as option_wins[winner]/n_samples (the
+    // leader's win_probability relabelled), zero independent information.
+    expect(result!.recommendation_stability).toBeUndefined();
     expect(result!.recommended_option).toEqual({
       id: 'opt_premium',
       label: 'Premium Pricing',

@@ -32,7 +32,7 @@ type SensitiveParam = NonNullable<
 // both the top level (CeeReviewRequest) and the nested sensitive_parameters
 // level. Keeping one shared union prevents the two checks from drifting apart
 // (e.g. one covering 'evpi' but not 'evpi_percentage_points', or vice versa).
-type ForbiddenVoiKey = 'value_of_information' | 'voi' | 'evpi' | 'evpi_percentage_points';
+type ForbiddenVoiKey = 'value_of_information' | 'voi' | 'evpi' | 'evpi_percentage_points' | 'evpi_status';
 
 type NoVoiOnCeeRequest = Extract<keyof CeeReviewRequest, ForbiddenVoiKey>;
 type NoVoiOnSensitiveParam = Extract<keyof SensitiveParam, ForbiddenVoiKey>;
