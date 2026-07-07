@@ -2071,6 +2071,26 @@ export interface RobustnessAssessmentV3 {
    * Present when option_comparison is computed with valid win_probability values.
    */
   near_tie?: NearTieInfoV3;
+  /**
+   * ADDITIVE (lane PLoT-W5, roadmap Tier 1.6): display-safe robustness verdict,
+   * derived by PLoT honestly and ONLY from the producer facts is_robust/level
+   * (confidence is NEVER an input — it can never upgrade a verdict). Mapping
+   * is provisional_doctrine_v0 — see src/routes/v2/robustness-display-verdict.ts.
+   * 'not_assessed' whenever robustness was not computed (absent/failed/blocked)
+   * or the verdict-bearing facts are missing — NEVER a determinate-looking
+   * verdict without computed robustness. Emitted on every /v2/run response
+   * (success shapes via buildResponse, blocked/failed shapes via
+   * buildV2RunError); optional on the type for inbound tolerance of payloads
+   * from older builds.
+   */
+  display_verdict?: 'robust' | 'moderate' | 'fragile' | 'not_assessed';
+  /**
+   * ADDITIVE (lane PLoT-W5): producer-owned claim-safe phrase matching
+   * display_verdict (e.g. fragile → 'small changes could flip this result').
+   * No numbers, wording provisional_doctrine_v0 — the UI renders it verbatim
+   * and must not re-derive meaning.
+   */
+  display_verdict_reason?: string;
 }
 
 /**
