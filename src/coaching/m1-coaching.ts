@@ -44,6 +44,14 @@ import { deriveReadinessTone, type ReadinessToneResult } from './readiness-tone.
  *   intervention-override filtering. Falls back to raw ISL when omitted to
  *   preserve backward-compatible behaviour for unit tests that mock ISL
  *   responses directly.
+ * @param constraintTargetsUnreliable Producer honesty (lane PLoT-H item A):
+ *   true when any goal constraint's target is not decision-grade (default
+ *   [0,1] threshold-normalisation range and/or ISL defaulted the target base
+ *   to 0.0). The joint-probability readiness gate is SKIPPED in that case —
+ *   the joint probabilities it would read are structurally meaningless, and
+ *   gating on them would fabricate a "may not achieve the target" coaching
+ *   claim from a placeholder 0. The route suppresses the same values on the
+ *   public surface (CONSTRAINT_TARGET_UNRELIABLE).
  * @returns M1Coaching object or null if generation fails
  */
 export function generateM1Coaching(
@@ -64,7 +72,8 @@ export function generateM1Coaching(
     severity?: string;
   }>,
   goalConstraints?: GoalConstraint[],
-  factorSensitivityEnriched?: FactorSensitivityResultV3[]
+  factorSensitivityEnriched?: FactorSensitivityResultV3[],
+  constraintTargetsUnreliable?: boolean
 ): M1Coaching | null {
   const startTime = performance.now();
 
@@ -87,7 +96,10 @@ export function generateM1Coaching(
     let readiness = computeReadiness(headlineType, modelCritiques, evidenceGaps, thresholds);
 
     // Post-readiness gate: Joint constraint probability (Task 1)
-    if (goalConstraints && goalConstraints.length > 0) {
+    // Producer honesty (item A): skipped when constraint targets are
+    // unreliable — the joint probabilities are placeholder-derived and the
+    // gate would fabricate a GOAL_FEASIBILITY_LOW claim from them.
+    if (goalConstraints && goalConstraints.length > 0 && !constraintTargetsUnreliable) {
       const jointProbGate = applyJointProbabilityGate(
         readiness, islResult, thresholds, modelCritiques
       );
