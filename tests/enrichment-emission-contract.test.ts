@@ -15,6 +15,12 @@
  *      `plot.confidence_fallback_degenerate` telemetry event fires exactly once
  *      per request (aggregated, not per-factor).
  *   6. VOI entries with value 0 are preserved (Task 2 fix).
+ *   7. Producer-side envelope contract (lane 33, schemas 0.14.0 / enrichment
+ *      v1): the full buildResponse output — the /v2/run body that CEE
+ *      persists byte-for-byte as RunAnalysisHandlerFact.result.enrichment —
+ *      safeParses against AnalysisEnrichmentSchema, so a malformed KNOWN key
+ *      fails loudly at the producer instead of flowing silently to CEE/UI
+ *      (olumi-schemas contract-tests/README.md §PLoT lane, step 4).
  *
  * This test complements the narrower unit tests in
  * tests/factor-sensitivity.test.ts, tests/factor-influence.test.ts, and
@@ -23,6 +29,24 @@
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
+import { AnalysisEnrichmentSchema } from '@talchain/schemas/boundary';
+
+/**
+ * Producer-side enrichment-envelope assertion (contract-tests README §PLoT
+ * lane, step 4). AnalysisEnrichmentSchema is passthrough + all-optional, so
+ * this only trips when a KNOWN key is emitted with a shape the boundary
+ * contract does not allow — exactly the defect class the typed envelope
+ * (schemas 0.14.0) exists to catch at the producer.
+ */
+function expectParsesAsAnalysisEnrichment(body: unknown): void {
+  const parsed = AnalysisEnrichmentSchema.safeParse(body);
+  if (!parsed.success) {
+    throw new Error(
+      `buildResponse output failed AnalysisEnrichmentSchema.safeParse:\n${parsed.error.message}`,
+    );
+  }
+  expect(parsed.success).toBe(true);
+}
 
 // Mock ISL to produce the mixed-case fixture before the server module loads.
 const mockISLService = {
@@ -198,6 +222,9 @@ describe('enrichment emission contract (route-level mixed-case fixture)', () => 
     expect(res.status).toBe(200);
     const body = (await res.json()) as any;
 
+    // --- Producer-side envelope contract (lane 33 / schemas 0.14.0) ---
+    expectParsesAsAnalysisEnrichment(body);
+
     // --- Task 1: all four enrichment keys are present ---
     expect(body).toHaveProperty('edge_e_values');
     expect(body).toHaveProperty('conditional_winners');
@@ -294,6 +321,11 @@ describe('enrichment emission contract (route-level mixed-case fixture)', () => 
 
     expect(res.status).toBe(200);
     const body = (await res.json()) as any;
+
+    // Producer-side envelope contract on the constraints-bearing variant too —
+    // this path emits constraint_results / conditional_probabilities, whose
+    // vocabulary (PR #203–#205) the 0.14.0 envelope types.
+    expectParsesAsAnalysisEnrichment(body);
 
     // The constraints block must be present and conditional_probabilities must
     // surface as [] (not absent), so consumers see "computed-empty".
