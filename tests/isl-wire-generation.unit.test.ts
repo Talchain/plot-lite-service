@@ -108,6 +108,16 @@ describe('assessIslWireGeneration (spec §2.1)', () => {
     expect(a.ok).toBe(true);
   });
 
+  it('re-verified deployed-build capture (3773f76, 2026-07-08) also verifies — wire generation unchanged', () => {
+    const capture20260708 = JSON.parse(
+      readFileSync(join(FIXTURES, 'isl-v2-live-20260708', 'isl-staging-capture.json'), 'utf8'),
+    );
+    const a = assessIslWireGeneration(capture20260708);
+    expect(a.ok).toBe(true);
+    expect(a.missing_markers).toEqual([]);
+    expect(a.isl_build).toBe('3773f76');
+  });
+
   it('real older-generation capture (f3f5d92) → unverified via the edge_sensitivity probe', () => {
     const a = assessIslWireGeneration(capture20260706);
     expect(a.ok).toBe(false);
