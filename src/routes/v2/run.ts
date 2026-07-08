@@ -830,8 +830,11 @@ interface ISLResponseSummary {
 /**
  * Build ISL response summary for consolidated logging.
  * Only captures counts and metadata - no PII or large payloads.
+ *
+ * Exported for unit tests only (lane 29 — the sensitivity_count defect was
+ * invisible precisely because this diagnostic had no test).
  */
-function buildISLResponseSummary(
+export function buildISLResponseSummary(
   requestId: string,
   seedUsed: string,
   islResult: any,
@@ -854,8 +857,13 @@ function buildISLResponseSummary(
       ? islResult.robustness.fragile_edges.length : 0,
     robust_edges_count: Array.isArray(islResult?.robustness?.robust_edges)
       ? islResult.robustness.robust_edges.length : 0,
-    sensitivity_count: Array.isArray(islResult?.sensitivity)
-      ? islResult.sensitivity.length : 0,
+    // Lane 29 (spec §2.3): count the SAME wire location the response readers
+    // use (robustness.edge_sensitivity via the accessor). The former
+    // top-level `islResult.sensitivity` read was structurally 0 on every
+    // live V2 response, so this diagnostic permanently reported
+    // sensitivity_count: 0 even when the wire carried data — exactly the
+    // signal an operator checks when diagnosing "empty science".
+    sensitivity_count: getIslEdgeSensitivity(islResult)?.length ?? 0,
     factor_sensitivity_count: Array.isArray(islResult?.factor_sensitivity)
       ? islResult.factor_sensitivity.length : 0,
     fallback_executed: fallbackExecuted,
