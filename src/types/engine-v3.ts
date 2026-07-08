@@ -1962,6 +1962,21 @@ export const INFERENCE_WARNING_CODES = {
    */
   EDGE_SENSITIVITY_UNAVAILABLE_V2_WIRE: 'EDGE_SENSITIVITY_UNAVAILABLE_V2_WIRE',
   /**
+   * Edge E-values were requested (include_e_values: true on every ISL call)
+   * but the response's `robustness` object carries NO
+   * `robustness.edge_e_values` location at all — the canonical V2 wire
+   * location (emitted since ISL build f3f5d92) is absent, i.e. the deployed
+   * ISL is an older/rolled-back wire generation (lane 29, spec §2.1
+   * wire-location probe). edge_e_values is then empty because the wire
+   * omitted the LOCATION, not by computation: an empty array AT the
+   * location is computed-empty (honest — no warning). Invariant mirrors
+   * EDGE_SENSITIVITY_UNAVAILABLE_V2_WIRE: location present OR this marker
+   * present — never a silent [] from a missing location on a computed
+   * analysis. Pairs with `_meta.evidence.isl_wire_generation_ok: false`
+   * and the `isl_wire_generation_unverified` log event.
+   */
+  EDGE_E_VALUES_UNAVAILABLE_V2_WIRE: 'EDGE_E_VALUES_UNAVAILABLE_V2_WIRE',
+  /**
    * A goal constraint's target is not decision-grade: its threshold
    * normalisation fell back to the default [0,1] range and/or ISL defaulted
    * the target node's base to 0.0 (no observed value / no parameter
@@ -2353,6 +2368,18 @@ export interface EvidenceCaptureV1 {
   isl_request_digest: PayloadDigestV3 | null;
   /** Digest of the exact response bytes ISL returned; null when unavailable */
   isl_response_digest: PayloadDigestV3 | null;
+  /**
+   * Lane 29 (spec §2.1): result of the ISL wire-generation assertion —
+   * true when the primary ISL response declared its version markers
+   * (build / engine_version / version=2.x / timestamp) AND every applicable
+   * nested wire-location probe resolved (robustness.edge_e_values,
+   * robustness.edge_sensitivity). False = generation UNVERIFIED (mismatch,
+   * rollback, or no successful ISL exchange at all) — enrichment may be
+   * honestly degraded; the run itself never hard-fails on this. Details in
+   * the `isl_wire_generation_unverified` log event.
+   * @see src/integrations/isl/wire-generation.ts
+   */
+  isl_wire_generation_ok: boolean;
 }
 
 /**

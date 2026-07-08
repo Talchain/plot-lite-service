@@ -1420,4 +1420,17 @@ components:
           oneOf:
             - $ref: '#/components/schemas/PayloadDigestV1'
             - type: 'null'
+        isl_wire_generation_ok:
+          type: boolean
+          description: >
+            ADDITIVE (lane 29, ROADMAP 1.24): result of the ISL
+            wire-generation assertion. True when the primary ISL response
+            declared its version markers (build, engine_version, version=2.x,
+            timestamp) AND the nested wire locations PLoT's readers assume
+            (robustness.edge_e_values, robustness.edge_sensitivity) resolved.
+            False = generation unverified (mis-deploy/rollback, or no
+            successful ISL exchange) — enrichment may be honestly degraded
+            (see EDGE_E_VALUES_UNAVAILABLE_V2_WIRE /
+            EDGE_SENSITIVITY_UNAVAILABLE_V2_WIRE inference warnings); the run
+            itself never hard-fails on this.
       required: [plot_build, isl_build, isl_request_digest, isl_response_digest]

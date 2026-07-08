@@ -98,6 +98,7 @@ import { deriveRobustnessDisplayVerdict } from './robustness-display-verdict.js'
 import type { RobustnessDataForCee, NormalizedEdgeInfo } from '../../integrations/isl/types/plot-types.js';
 import type { ISLConstraintResult, ISLEdgeEValue, ISLConditionalWinner } from '../../integrations/isl/types/isl-types.js';
 import { getIslEdgeEValues, getIslEdgeSensitivity, getIslComputedAt, mapIslFactorEvpi } from '../../integrations/isl/v2-envelope.js';
+import { assessIslWireGeneration, logIslWireGenerationUnverified } from '../../integrations/isl/wire-generation.js';
 import { preflightDuplicateEdges } from '../../integrations/isl/preflight.js';
 import { orchestrateCeeReview } from '../../cee/orchestrator.js';
 import { orchestrateDecisionReview, type DecisionReviewInput, type DecisionReviewConfig } from '../../cee/decision-review-orchestrator.js';
@@ -2199,6 +2200,30 @@ function buildResponse(
     });
   }
 
+  // Wire-location probe honesty (lane 29, spec §2.1): edge E-values are
+  // requested on EVERY ISL call (include_e_values: true, translator-v3).
+  // When robustness came back but the canonical nested location
+  // robustness.edge_e_values is ABSENT — not even an empty array — the
+  // deployed ISL wire is an older/rolled-back generation and the empty
+  // edge_e_values in this response would be a SILENT computed-empty: the
+  // exact "empty science" regression shape this lane exists to prevent.
+  // Mark it explicitly. An empty array AT the location is computed-empty
+  // (honest — the accessor returns [] and no marker fires); a legacy
+  // top-level fallback that carried data also suppresses the marker (the
+  // accessor resolves it). Pairs with _meta.evidence.isl_wire_generation_ok.
+  if (
+    analysisStatus === 'computed' &&
+    islResult?.robustness &&
+    getIslEdgeEValues(islResult) === undefined
+  ) {
+    inferenceWarnings.push({
+      code: INFERENCE_WARNING_CODES.EDGE_E_VALUES_UNAVAILABLE_V2_WIRE,
+      // provisional_doctrine_v0 — wording surface (diagnostic disclosure)
+      message: 'Edge E-values were requested but this ISL response carries no robustness.edge_e_values location (emitted by ISL builds f3f5d92+) — edge_e_values is empty because the deployed ISL wire omitted the field, not by computation failure.',
+      severity: 'info',
+    });
+  }
+
   // Producer honesty (item A): one WARNING per affected constraint-target
   // node when goal-fit probabilities were suppressed above. Open-vocabulary
   // code CONSTRAINT_TARGET_UNRELIABLE; message names the node and the
@@ -2690,6 +2715,12 @@ function buildResponse(
           isl_build: typeof islResult?.build === 'string' ? islResult.build : null,
           isl_request_digest: primaryIslCall?.request_digest ?? null,
           isl_response_digest: primaryIslCall?.response_digest ?? null,
+          // Lane 29 (spec §2.1): wire-generation assertion result. Pure
+          // re-assessment of the same envelope the boundary warning used
+          // (denormalisation only rewrites option outcomes — the markers and
+          // nested locations are untouched). False also covers "ISL never
+          // returned a usable envelope" — unverified is unverified.
+          isl_wire_generation_ok: assessIslWireGeneration(islResult).ok,
         };
       })();
 
@@ -4457,6 +4488,21 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               // Capture ISL build version if present
               isl_build: islResult?.build ?? null,
             });
+
+            // === Wire-generation assertion (lane 29, spec §2.1) ===
+            // PLoT pins response_version=2 on the REQUEST; this verifies the
+            // RESPONSE actually is the generation the readers assume
+            // (version markers declared + nested wire locations present).
+            // ONE structured warning on mismatch/absence; NEVER a hard fail
+            // — absence of enrichment is degraded-but-usable, and the
+            // honest per-feature degradation (EDGE_*_UNAVAILABLE_V2_WIRE
+            // markers) happens where the response is assembled. Surfaced to
+            // consumers as _meta.evidence.isl_wire_generation_ok.
+            logIslWireGenerationUnverified(
+              req.log,
+              assessIslWireGeneration(islResult),
+              requestId,
+            );
 
             // === INTERNAL (flag-gated, default OFF): V2 factor_evpi arrival proof ===
             // The V2 wire carries per-factor counterfactual EVPI at top-level
