@@ -26,8 +26,15 @@ import { shouldAllowCeeCall, recordCeeSuccess, recordCeeFailure, getCeeCircuitBr
 // -----------------------------------------------------------------------------
 
 const VALID_ROBUSTNESS_VALUES = ['robust', 'moderate', 'fragile'] as const;
-const VALID_VALIDATION_STATUS = ['identifiable', 'uncertain', 'cannot_identify'] as const;
-const VALID_CONFIDENCE_VALUES = ['high', 'medium', 'low'] as const;
+// validation_status / validation_confidence guards RETIRED (lane 29, spec
+// docs/enrichment-v1/PLOT-V2-READ-FIX-SPEC.md §2.2): the live V2 wire NEVER
+// emits validation_status (pinned by tests/contract/isl-to-plot.contract.test.ts;
+// isl-types.ts marks it @deprecated DEAD ON THE LIVE V2 WIRE), and the
+// /v2/run producer (buildCeeReviewRequest) stopped setting either field —
+// so every read here was a branch that could never fire. Deleted rather
+// than remapped to the V2 identifiability source (identifiability.status,
+// B1.5) to keep the CEE request path byte-identical; re-introducing
+// identifiability into this block is a product decision, not a read repair.
 
 /**
  * Validate ISL robustness payload before using it to construct CEE blocks.
@@ -46,22 +53,6 @@ function validateISLRobustness(isl: unknown): string | null {
   }
   if (!VALID_ROBUSTNESS_VALUES.includes(data.overall_robustness as typeof VALID_ROBUSTNESS_VALUES[number])) {
     return `isl_robustness.overall_robustness must be one of: ${VALID_ROBUSTNESS_VALUES.join(', ')}`;
-  }
-
-  // Optional: validation_status
-  if (data.validation_status !== undefined) {
-    if (typeof data.validation_status !== 'string' ||
-        !VALID_VALIDATION_STATUS.includes(data.validation_status as typeof VALID_VALIDATION_STATUS[number])) {
-      return `isl_robustness.validation_status must be one of: ${VALID_VALIDATION_STATUS.join(', ')}`;
-    }
-  }
-
-  // Optional: validation_confidence
-  if (data.validation_confidence !== undefined) {
-    if (typeof data.validation_confidence !== 'string' ||
-        !VALID_CONFIDENCE_VALUES.includes(data.validation_confidence as typeof VALID_CONFIDENCE_VALUES[number])) {
-      return `isl_robustness.validation_confidence must be one of: ${VALID_CONFIDENCE_VALUES.join(', ')}`;
-    }
   }
 
   // Optional: sensitive_parameters
@@ -677,29 +668,16 @@ export async function orchestrateCeeReview(
       } else {
         const isl = request.isl_robustness;
 
-        // Determine overall status from robustness + validation
-        const robustnessStatus = isl.overall_robustness === 'robust' ? 'ok' :
-                                  isl.overall_robustness === 'moderate' ? 'warning' : 'error';
-        const validationStatus = isl.validation_status === 'identifiable' ? 'ok' :
-                                  isl.validation_status === 'uncertain' ? 'warning' :
-                                  isl.validation_status === 'cannot_identify' ? 'error' : null;
-
-        // Use worst status between robustness and validation
-        let finalStatus: 'ok' | 'warning' | 'error' = robustnessStatus;
-        if (validationStatus === 'error' || robustnessStatus === 'error') {
-          finalStatus = 'error';
-        } else if (validationStatus === 'warning' || robustnessStatus === 'warning') {
-          finalStatus = 'warning';
-        }
+        // Determine overall status from robustness. (The former
+        // validation_status worst-status merge and "Identifiability: …"
+        // factor were dead on the live path — validation_status is never
+        // supplied; lane 29 spec §2.2 — so this is behaviour-identical.)
+        const finalStatus: 'ok' | 'warning' | 'error' =
+          isl.overall_robustness === 'robust' ? 'ok' :
+          isl.overall_robustness === 'moderate' ? 'warning' : 'error';
 
         // Build consolidated factors array
         const factors: string[] = [];
-
-        // Add validation info if available
-        if (isl.validation_status) {
-          const confStr = isl.validation_confidence ? ` (${isl.validation_confidence} confidence)` : '';
-          factors.push(`Identifiability: ${isl.validation_status}${confStr}`);
-        }
 
         // Add top sensitive parameters (max 3)
         if (isl.sensitive_parameters && isl.sensitive_parameters.length > 0 && isl.overall_robustness !== 'robust') {
@@ -715,14 +693,13 @@ export async function orchestrateCeeReview(
         // Add source provenance
         factors.push('Source: ISL');
 
-        // Single consolidated robustness block
+        // Single consolidated robustness block. (`details` was only ever set
+        // from the dead validation_status read — on the live path it was
+        // always undefined, so omitting the key is wire-identical.)
         const robustnessBlock: CeeReviewBlock = {
           id: 'robustness',
           status: finalStatus,
           headline: `Model robustness: ${isl.overall_robustness}`,
-          details: isl.validation_status
-            ? `Identifiability: ${isl.validation_status}`
-            : undefined,
           factors: factors.length > 0 ? factors : undefined,
         };
 
