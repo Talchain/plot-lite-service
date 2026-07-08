@@ -27,6 +27,16 @@
  * The pre-existing tests/schema-adoption.test.ts (written against 0.2.1)
  * is deliberately unchanged — it passing on 0.13.1 is itself part of the
  * proof.
+ *
+ * 2026-07-08 (lane 33): the vendored pin moved 0.13.1 → 0.14.0
+ * (enrichment v1; additive over 0.13.1 — no transport field or strictness
+ * change on any symbol PLoT consumes). The installed-version proof below
+ * now pins 0.14.0; every consumed-surface fixture in this file is
+ * deliberately unchanged — it passing on 0.14.0 is itself part of the
+ * proof. 0.14.0-specific adoption lives in
+ * tests/contract/isl-to-plot.contract.test.ts and the
+ * AnalysisEnrichmentSchema assertion in
+ * tests/enrichment-emission-contract.test.ts.
  */
 
 import { readFileSync } from 'node:fs';
@@ -60,11 +70,11 @@ import type {
 } from '@talchain/schemas';
 
 // =============================================================================
-// 0. Installed-version proof: the vendored 0.13.1 tarball is what resolves
+// 0. Installed-version proof: the vendored 0.14.0 tarball is what resolves
 // =============================================================================
 
-describe('@talchain/schemas 0.13.1 installation', () => {
-  it('resolves to version 0.13.1', () => {
+describe('@talchain/schemas 0.14.0 installation', () => {
+  it('resolves to version 0.14.0', () => {
     // The package's exports map has no "require" condition, so
     // createRequire().resolve() cannot be used; read the installed
     // manifest directly (checkout-stable relative to this test file).
@@ -76,7 +86,7 @@ describe('@talchain/schemas 0.13.1 installation', () => {
       version: string;
     };
     expect(pkg.name).toBe('@talchain/schemas');
-    expect(pkg.version).toBe('0.13.1');
+    expect(pkg.version).toBe('0.14.0');
   });
 });
 

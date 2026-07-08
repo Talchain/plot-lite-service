@@ -9,43 +9,43 @@ and `DecisionGuideAI` (UI).
 
 ## Current contents
 
-### `talchain-schemas-0.13.1.tgz`
+### `talchain-schemas-0.14.0.tgz`
 
-**Purpose:** pre-publish consumption of `@talchain/schemas` v0.13.1,
-replacing the previous GitHub Packages registry pin (`0.2.1`). This
-removes the `GITHUB_TOKEN` requirement for installing the schemas
-package and brings PLoT onto the same vendored-tgz pattern as CEE/DGAI.
+**Purpose:** pre-publish consumption of `@talchain/schemas` v0.14.0
+(enrichment v1 — typed analysis-enrichment envelope + wire-shape contract
+pack; see `docs/enrichment-v1/ROLLOUT.md` in the schemas repo). Adopted
+as rollout step 3 (PLoT lane), after the CEE lane (step 2) closed the
+0.13.0/0.13.1 skew. Keeps PLoT on the vendored-tgz pattern shared with
+CEE/DGAI (no `GITHUB_TOKEN` needed to install).
 
-**Provenance:** built from `~/Documents/GitHub/olumi-schemas` at commit
-`e1d8d5b960db72ee99091a07ca680ccb3734282a` (package version 0.13.1) via
-`npm install && npm run build && npm pack` in a clean detached worktree.
-Lint (`tsc --noEmit`) and the full schema test suite (591 tests) passed
-at pack time.
+**Provenance:** built from `~/Documents/GitHub/olumi-schemas` `main` at
+commit `5612e2666` via `npm ci && npm run prepublishOnly && npm pack` in
+a clean detached worktree. The prepublish gate (build + full schema test
+suite, 646 tests) passed at pack time. The tarball sha256 matches the
+one recorded by the CEE adoption lane byte-for-byte
+(`4e4915552a36654b7736eb56d42740e44b5c655209b606882782c55aff749767`).
 
-**Checksum:** `vendor/talchain-schemas-0.13.1.tgz.sha256` holds the
-canonical sha256 of the tarball bytes
-(`9e596e2a8d4f95bfb0df641bde3591b59fd7a24d1cff7b9ce09096209faff6b5`).
-Verify with:
+**Checksum:** `vendor/talchain-schemas-0.14.0.tgz.sha256` holds the
+canonical sha256 of the tarball bytes. Verify with:
 
 ```bash
-shasum -a 256 -c <(printf '%s  vendor/talchain-schemas-0.13.1.tgz\n' \
-  "$(cat vendor/talchain-schemas-0.13.1.tgz.sha256)")
+shasum -a 256 -c <(printf '%s  vendor/talchain-schemas-0.14.0.tgz\n' \
+  "$(cat vendor/talchain-schemas-0.14.0.tgz.sha256)")
 ```
 
-**Consumed-surface analysis (0.2.1 → 0.13.1):** every dist module that
-backs a symbol PLoT imports is byte-identical between 0.2.1 and 0.13.1
-(`limits`, `analysis`/`enums`, `cee-errors`, `plot-errors`, `repairs`),
-except `graph.*`, whose only delta is a purely additive appended export
-(`TopologyPlanSchema` / `TopologyPlan`) that PLoT does not consume.
-`index.*` differs only by re-exporting the many new 0.3–0.13 modules.
-Runtime adoption fixtures live in `tests/schema-adoption-0.13.1.test.ts`;
-the pre-existing `tests/schema-adoption.test.ts` is unchanged and green
-on 0.13.1.
+**Consumed-surface analysis (0.13.1 → 0.14.0):** 0.14.0 is additive over
+0.13.1 — it adds the opt-in `@talchain/schemas/boundary` enrichment
+envelope (`AnalysisEnrichmentSchema`, `CEE_UI_ENRICHMENT_KEEP_LIST`, ...)
+and changes no transport field or strictness that PLoT consumes. PLoT
+opts in on the producer side: `tests/enrichment-emission-contract.test.ts`
+asserts `buildResponse` output parses against `AnalysisEnrichmentSchema`,
+and `tests/contract/isl-to-plot.contract.test.ts` pins the ISL→PLoT V2
+envelope field locations.
 
 **Rollback path:** revert the re-vendor commit. Git history restores the
-registry pin (`"@talchain/schemas": "0.2.1"`), the prior
-`package-lock.json`, and removes `vendor/`. Re-run `npm install`
-(requires `GITHUB_TOKEN` for the GitHub Packages registry, per `.npmrc`).
+0.13.1 tarball + manifest, the prior `package.json` pin, and the prior
+`package-lock.json`. (The pre-0.13.1 registry-pin era — `0.2.1` +
+`GITHUB_TOKEN` via `.npmrc` — is two bumps back in history.)
 
 **How to update:**
 
