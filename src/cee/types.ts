@@ -264,10 +264,11 @@ export interface CeeReviewRequest {
   isl_robustness?: {
     /** Overall model robustness from ISL sensitivity analysis */
     overall_robustness: 'robust' | 'moderate' | 'fragile';
-    /** Identifiability status from ISL validation */
-    validation_status?: 'identifiable' | 'uncertain' | 'cannot_identify';
-    /** Confidence in the validation */
-    validation_confidence?: 'high' | 'medium' | 'low';
+    // validation_status / validation_confidence RETIRED (lane 29, spec
+    // docs/enrichment-v1/PLOT-V2-READ-FIX-SPEC.md §2.2): the live V2 wire
+    // never emits validation_status and the /v2/run producer never set
+    // either field on /v2, so the orchestrator reads could never fire there
+    // (legacy /v1 still supplies them — declared behaviour change, orchestrator.ts).
     /** Top sensitive parameters (max 5) */
     sensitive_parameters?: Array<{
       parameter: string;
