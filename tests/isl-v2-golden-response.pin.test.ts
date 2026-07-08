@@ -193,7 +193,13 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
   });
 
   it('matches the checked-in golden byte-for-byte after masking volatile fields', () => {
-    if (process.env.UPDATE_GOLDEN === '1' || !existsSync(GOLDEN_PATH)) {
+    if (!existsSync(GOLDEN_PATH) && process.env.UPDATE_GOLDEN !== '1') {
+      throw new Error(
+        `Golden file missing at ${GOLDEN_PATH} — a lost/deleted golden must not silently regenerate. ` +
+        'Restore it from git, or intentionally regenerate with UPDATE_GOLDEN=1.'
+      );
+    }
+    if (process.env.UPDATE_GOLDEN === '1') {
       writeFileSync(GOLDEN_PATH, normalisedText + '\n');
     }
     const golden = readFileSync(GOLDEN_PATH, 'utf8').replace(/\n$/, '');

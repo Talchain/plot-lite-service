@@ -2865,7 +2865,8 @@ function buildCeeReviewRequest(
       // validation_status / validation_confidence reads removed: the live V2
       // wire never emits them (verified 2026-07-06, build f3f5d92) so both
       // were structurally undefined here — the CEE request carried no such
-      // keys. Omitting the reads is behaviour-identical on the live path.
+      // keys. Omitting the reads is behaviour-identical on the /v2 path
+      // (the legacy /v1 route is a declared behaviour change — see orchestrator.ts).
       sensitive_parameters: islResult.factor_sensitivity?.slice(0, 5).map((f: any) => ({
         parameter: f.node_id,
         // Schema v2.6 canonical field is 'sensitivity_score'; the bare

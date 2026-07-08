@@ -31,7 +31,13 @@ const VALID_ROBUSTNESS_VALUES = ['robust', 'moderate', 'fragile'] as const;
 // emits validation_status (pinned by tests/contract/isl-to-plot.contract.test.ts;
 // isl-types.ts marks it @deprecated DEAD ON THE LIVE V2 WIRE), and the
 // /v2/run producer (buildCeeReviewRequest) stopped setting either field —
-// so every read here was a branch that could never fire. Deleted rather
+// so on the /v2 path every read here was a branch that could never fire.
+// SCOPE QUALIFICATION (post-review): orchestrateCeeReview is SHARED with the
+// still-registered legacy /v1/run route, whose producer DOES set
+// validation_status/validation_confidence — on /v1 this deletion CHANGES the
+// CEE-facing robustness block (identifiability factor + worst-status
+// escalation removed). Accepted as a declared behaviour change on the legacy
+// surface, not a dead-read repair there. Deleted rather
 // than remapped to the V2 identifiability source (identifiability.status,
 // B1.5) to keep the CEE request path byte-identical; re-introducing
 // identifiability into this block is a product decision, not a read repair.
@@ -670,8 +676,10 @@ export async function orchestrateCeeReview(
 
         // Determine overall status from robustness. (The former
         // validation_status worst-status merge and "Identifiability: …"
-        // factor were dead on the live path — validation_status is never
-        // supplied; lane 29 spec §2.2 — so this is behaviour-identical.)
+        // factor were dead on the /v2 path — its producer never supplies
+        // validation_status; lane 29 spec §2.2 — so /v2 is behaviour-identical.
+        // On legacy /v1/run, which does supply it, this is a declared
+        // behaviour change: see the scope qualification at the top of file.)
         const finalStatus: 'ok' | 'warning' | 'error' =
           isl.overall_robustness === 'robust' ? 'ok' :
           isl.overall_robustness === 'moderate' ? 'warning' : 'error';
