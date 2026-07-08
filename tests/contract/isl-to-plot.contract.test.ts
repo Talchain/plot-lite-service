@@ -28,10 +28,13 @@
  *    here the file IS the raw response, so no `.response` unwrap).
  *  - Parameterised over every verified capture (the reference copy pinned
  *    only the 20260707 one).
- *  - The `@talchain/schemas/boundary` import swap is DEFERRED until PLoT
- *    pins schemas >= 0.14.0 (currently 0.13.1, which does not export
- *    AnalysisEnrichmentSchema) — the reference spec imports no schema
- *    either, so nothing is lost.
+ *  - Schema import: PLoT pins schemas 0.14.0 as of lane 33, resolving the
+ *    deferral previously noted here. The reference spec imports no schema
+ *    (the ISL response has no boundary schema; AnalysisEnrichmentSchema
+ *    types the PLoT→CEE envelope, not this wire), so there is no import to
+ *    swap in THIS file — the 0.14.0 producer-side adoption lives in
+ *    tests/enrichment-emission-contract.test.ts
+ *    (expectParsesAsAnalysisEnrichment).
  * Refresh the fixture whenever the deployed ISL build changes materially.
  */
 
