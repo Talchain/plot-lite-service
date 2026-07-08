@@ -1,0 +1,1669 @@
+{
+  "request_schema_version": "v3",
+  "endpoint_version": "v2/run",
+  "preflight_version": "2025-12-26",
+  "request_id": "__VOLATILE__",
+  "analysis_status": "computed",
+  "option_comparison_status": "computed",
+  "robustness_status": "computed",
+  "drivers_status": "computed",
+  "auto_noise_applied": false,
+  "auto_noise_provenance": {
+    "applied": false,
+    "effect": "widens_outcome_and_risk_uncertainty",
+    "formula_version": "plot_auto_v1",
+    "multiplier": 1,
+    "noise_distribution": "normal_zero_mean_outcome_std",
+    "filter_scope": "outcome_and_risk_nodes",
+    "is_provisional": true,
+    "calibration_status": "provisional_pending_pilot_calibration"
+  },
+  "isl_analysis_status": "computed",
+  "critiques": [],
+  "option_comparison": [
+    {
+      "option_id": "opt_one_dev",
+      "option_label": "Hire One Developer (Reduced Commitment)",
+      "id": "opt_one_dev",
+      "label": "Hire One Developer (Reduced Commitment)",
+      "outcome": {
+        "mean": 0.10179725550865354,
+        "std": 0.11941813998438616,
+        "p10": -0.046497474297611675,
+        "p50": 0.10615207437561272,
+        "p90": 0.24657456603769748,
+        "n_samples": 4000,
+        "n_valid_samples": 4000,
+        "validity_ratio": 1
+      },
+      "status": "computed",
+      "win_probability": 0.0007083333333333334
+    },
+    {
+      "option_id": "opt_status_quo",
+      "option_label": "No New Hire (Status Quo)",
+      "id": "opt_status_quo",
+      "label": "No New Hire (Status Quo)",
+      "outcome": {
+        "mean": -0.00039679435638067785,
+        "std": 0.0911193335327987,
+        "p10": -0.10769108623911076,
+        "p50": 0.00011162160103608826,
+        "p90": 0.10336789783872895,
+        "n_samples": 4000,
+        "n_valid_samples": 4000,
+        "validity_ratio": 1
+      },
+      "status": "computed",
+      "win_probability": 0.002833333333333333
+    },
+    {
+      "option_id": "opt_tech_lead",
+      "option_label": "Hire One Tech Lead",
+      "id": "opt_tech_lead",
+      "label": "Hire One Tech Lead",
+      "outcome": {
+        "mean": 0.25559011544614935,
+        "std": 0.17185431793611658,
+        "p10": 0.03934250803901223,
+        "p50": 0.2523671951931171,
+        "p90": 0.47137358299516724,
+        "n_samples": 4000,
+        "n_valid_samples": 4000,
+        "validity_ratio": 1
+      },
+      "status": "computed",
+      "win_probability": 0.59025
+    },
+    {
+      "option_id": "opt_two_devs",
+      "option_label": "Hire Two Developers",
+      "id": "opt_two_devs",
+      "label": "Hire Two Developers",
+      "outcome": {
+        "mean": 0.20399130537368776,
+        "std": 0.1784758980587605,
+        "p10": -0.03424836348148578,
+        "p50": 0.21703179877108886,
+        "p90": 0.42035080806243247,
+        "n_samples": 4000,
+        "n_valid_samples": 4000,
+        "validity_ratio": 1
+      },
+      "status": "computed",
+      "win_probability": 0.40620833333333334
+    }
+  ],
+  "edge_sensitivity": [
+    {
+      "edge_id": "fac_dev_headcount::out_throughput",
+      "from": "fac_dev_headcount",
+      "to": "out_throughput",
+      "from_label": "Developer Headcount Added",
+      "to_label": "Development Throughput",
+      "sensitivity_type": "existence",
+      "elasticity": 1.2513902402782395,
+      "importance_rank": 1,
+      "interpretation": "Decision is highly sensitive to fac_dev_headcount->out_throughput existence - consider validating this relationship"
+    },
+    {
+      "edge_id": "out_throughput::goal_productivity",
+      "from": "out_throughput",
+      "to": "goal_productivity",
+      "from_label": "Development Throughput",
+      "to_label": "Increase Team Productivity",
+      "sensitivity_type": "existence",
+      "elasticity": 1.1883970169020575,
+      "importance_rank": 2,
+      "interpretation": "Decision is highly sensitive to out_throughput->goal_productivity existence - consider validating this relationship"
+    },
+    {
+      "edge_id": "fac_dev_headcount::out_throughput",
+      "from": "fac_dev_headcount",
+      "to": "out_throughput",
+      "from_label": "Developer Headcount Added",
+      "to_label": "Development Throughput",
+      "sensitivity_type": "magnitude",
+      "elasticity": 0.3886784295256368,
+      "importance_rank": 3,
+      "interpretation": "Decision is highly sensitive to fac_dev_headcount->out_throughput effect size - consider narrowing uncertainty"
+    },
+    {
+      "edge_id": "out_throughput::goal_productivity",
+      "from": "out_throughput",
+      "to": "goal_productivity",
+      "from_label": "Development Throughput",
+      "to_label": "Increase Team Productivity",
+      "sensitivity_type": "magnitude",
+      "elasticity": 0.31501892135924836,
+      "importance_rank": 4,
+      "interpretation": "Decision is highly sensitive to out_throughput->goal_productivity effect size - consider narrowing uncertainty"
+    },
+    {
+      "edge_id": "fac_dev_headcount::out_technical_quality",
+      "from": "fac_dev_headcount",
+      "to": "out_technical_quality",
+      "from_label": "Developer Headcount Added",
+      "to_label": "Technical Quality and Architecture",
+      "sensitivity_type": "existence",
+      "elasticity": 0.2910082942131519,
+      "importance_rank": 5,
+      "interpretation": "Decision is highly sensitive to fac_dev_headcount->out_technical_quality existence - consider validating this relationship"
+    },
+    {
+      "edge_id": "fac_dev_headcount::risk_coordination",
+      "from": "fac_dev_headcount",
+      "to": "risk_coordination",
+      "from_label": "Developer Headcount Added",
+      "to_label": "Team Coordination Overhead",
+      "sensitivity_type": "existence",
+      "elasticity": -0.2511721814777993,
+      "importance_rank": 6,
+      "interpretation": "Decision is highly sensitive to fac_dev_headcount->risk_coordination existence - consider validating this relationship"
+    },
+    {
+      "edge_id": "fac_dev_headcount::out_technical_quality",
+      "from": "fac_dev_headcount",
+      "to": "out_technical_quality",
+      "from_label": "Developer Headcount Added",
+      "to_label": "Technical Quality and Architecture",
+      "sensitivity_type": "magnitude",
+      "elasticity": 0.1918130474552909,
+      "importance_rank": 7,
+      "interpretation": "Decision is moderately sensitive to fac_dev_headcount->out_technical_quality effect size"
+    },
+    {
+      "edge_id": "out_technical_quality::goal_productivity",
+      "from": "out_technical_quality",
+      "to": "goal_productivity",
+      "from_label": "Technical Quality and Architecture",
+      "to_label": "Increase Team Productivity",
+      "sensitivity_type": "existence",
+      "elasticity": 0.16508258543273735,
+      "importance_rank": 8,
+      "interpretation": "Decision is moderately sensitive to out_technical_quality->goal_productivity existence"
+    },
+    {
+      "edge_id": "fac_tech_lead::out_technical_quality",
+      "from": "fac_tech_lead",
+      "to": "out_technical_quality",
+      "from_label": "Tech Lead in Place",
+      "to_label": "Technical Quality and Architecture",
+      "sensitivity_type": "existence",
+      "elasticity": -0.15880832572911233,
+      "importance_rank": 9,
+      "interpretation": "Decision is moderately sensitive to fac_tech_lead->out_technical_quality existence"
+    },
+    {
+      "edge_id": "risk_coordination::goal_productivity",
+      "from": "risk_coordination",
+      "to": "goal_productivity",
+      "from_label": "Team Coordination Overhead",
+      "to_label": "Increase Team Productivity",
+      "sensitivity_type": "magnitude",
+      "elasticity": 0.13680055983286613,
+      "importance_rank": 10,
+      "interpretation": "Decision is moderately sensitive to risk_coordination->goal_productivity effect size"
+    },
+    {
+      "edge_id": "fac_tech_lead::out_throughput",
+      "from": "fac_tech_lead",
+      "to": "out_throughput",
+      "from_label": "Tech Lead in Place",
+      "to_label": "Development Throughput",
+      "sensitivity_type": "existence",
+      "elasticity": -0.06253336321870173,
+      "importance_rank": 11,
+      "interpretation": "Decision is moderately sensitive to fac_tech_lead->out_throughput existence"
+    },
+    {
+      "edge_id": "fac_tech_lead::risk_coordination",
+      "from": "fac_tech_lead",
+      "to": "risk_coordination",
+      "from_label": "Tech Lead in Place",
+      "to_label": "Team Coordination Overhead",
+      "sensitivity_type": "existence",
+      "elasticity": -0.05344157975123388,
+      "importance_rank": 12,
+      "interpretation": "Decision is moderately sensitive to fac_tech_lead->risk_coordination existence"
+    },
+    {
+      "edge_id": "risk_coordination::goal_productivity",
+      "from": "risk_coordination",
+      "to": "goal_productivity",
+      "from_label": "Team Coordination Overhead",
+      "to_label": "Increase Team Productivity",
+      "sensitivity_type": "existence",
+      "elasticity": -0.05262263067782032,
+      "importance_rank": 13,
+      "interpretation": "Decision is moderately sensitive to risk_coordination->goal_productivity existence"
+    },
+    {
+      "edge_id": "fac_tech_lead::out_technical_quality",
+      "from": "fac_tech_lead",
+      "to": "out_technical_quality",
+      "from_label": "Tech Lead in Place",
+      "to_label": "Technical Quality and Architecture",
+      "sensitivity_type": "magnitude",
+      "elasticity": -0.05245322696037401,
+      "importance_rank": 14,
+      "interpretation": "Decision is moderately sensitive to fac_tech_lead->out_technical_quality effect size"
+    },
+    {
+      "edge_id": "fac_hiring_cost::risk_cost_burden",
+      "from": "fac_hiring_cost",
+      "to": "risk_cost_burden",
+      "from_label": "Hiring and Salary Cost",
+      "to_label": "Salary and Overhead Cost Burden",
+      "sensitivity_type": "existence",
+      "elasticity": 0.048291502670828275,
+      "importance_rank": 15,
+      "interpretation": "Decision is robust to whether fac_hiring_cost->risk_cost_burden exists"
+    },
+    {
+      "edge_id": "fac_tech_lead::risk_coordination",
+      "from": "fac_tech_lead",
+      "to": "risk_coordination",
+      "from_label": "Tech Lead in Place",
+      "to_label": "Team Coordination Overhead",
+      "sensitivity_type": "magnitude",
+      "elasticity": 0.047478937156115834,
+      "importance_rank": 16,
+      "interpretation": "Decision is robust to effect size variation in fac_tech_lead->risk_coordination"
+    },
+    {
+      "edge_id": "fac_dev_headcount::risk_coordination",
+      "from": "fac_dev_headcount",
+      "to": "risk_coordination",
+      "from_label": "Developer Headcount Added",
+      "to_label": "Team Coordination Overhead",
+      "sensitivity_type": "magnitude",
+      "elasticity": -0.03853227851171947,
+      "importance_rank": 17,
+      "interpretation": "Decision is robust to effect size variation in fac_dev_headcount->risk_coordination"
+    },
+    {
+      "edge_id": "fac_tech_lead::out_throughput",
+      "from": "fac_tech_lead",
+      "to": "out_throughput",
+      "from_label": "Tech Lead in Place",
+      "to_label": "Development Throughput",
+      "sensitivity_type": "magnitude",
+      "elasticity": 0.02083868355353204,
+      "importance_rank": 18,
+      "interpretation": "Decision is robust to effect size variation in fac_tech_lead->out_throughput"
+    },
+    {
+      "edge_id": "risk_cost_burden::goal_productivity",
+      "from": "risk_cost_burden",
+      "to": "goal_productivity",
+      "from_label": "Salary and Overhead Cost Burden",
+      "to_label": "Increase Team Productivity",
+      "sensitivity_type": "existence",
+      "elasticity": 0.01918881017984634,
+      "importance_rank": 19,
+      "interpretation": "Decision is robust to whether risk_cost_burden->goal_productivity exists"
+    },
+    {
+      "edge_id": "fac_team_maturity::out_throughput",
+      "from": "fac_team_maturity",
+      "to": "out_throughput",
+      "from_label": "Team Technical Maturity",
+      "to_label": "Development Throughput",
+      "sensitivity_type": "magnitude",
+      "elasticity": -0.017245599207043938,
+      "importance_rank": 20,
+      "interpretation": "Decision is robust to effect size variation in fac_team_maturity->out_throughput"
+    },
+    {
+      "edge_id": "fac_hiring_cost::risk_cost_burden",
+      "from": "fac_hiring_cost",
+      "to": "risk_cost_burden",
+      "from_label": "Hiring and Salary Cost",
+      "to_label": "Salary and Overhead Cost Burden",
+      "sensitivity_type": "magnitude",
+      "elasticity": -0.014803365109484011,
+      "importance_rank": 21,
+      "interpretation": "Decision is robust to effect size variation in fac_hiring_cost->risk_cost_burden"
+    },
+    {
+      "edge_id": "fac_team_maturity::risk_coordination",
+      "from": "fac_team_maturity",
+      "to": "risk_coordination",
+      "from_label": "Team Technical Maturity",
+      "to_label": "Team Coordination Overhead",
+      "sensitivity_type": "existence",
+      "elasticity": 0.01280628422547599,
+      "importance_rank": 22,
+      "interpretation": "Decision is robust to whether fac_team_maturity->risk_coordination exists"
+    },
+    {
+      "edge_id": "out_technical_quality::goal_productivity",
+      "from": "out_technical_quality",
+      "to": "goal_productivity",
+      "from_label": "Technical Quality and Architecture",
+      "to_label": "Increase Team Productivity",
+      "sensitivity_type": "magnitude",
+      "elasticity": 0.012480176561832883,
+      "importance_rank": 23,
+      "interpretation": "Decision is robust to effect size variation in out_technical_quality->goal_productivity"
+    },
+    {
+      "edge_id": "fac_team_maturity::out_throughput",
+      "from": "fac_team_maturity",
+      "to": "out_throughput",
+      "from_label": "Team Technical Maturity",
+      "to_label": "Development Throughput",
+      "sensitivity_type": "existence",
+      "elasticity": -0.012078633629956382,
+      "importance_rank": 24,
+      "interpretation": "Decision is robust to whether fac_team_maturity->out_throughput exists"
+    },
+    {
+      "edge_id": "risk_cost_burden::goal_productivity",
+      "from": "risk_cost_burden",
+      "to": "goal_productivity",
+      "from_label": "Salary and Overhead Cost Burden",
+      "to_label": "Increase Team Productivity",
+      "sensitivity_type": "magnitude",
+      "elasticity": -0.005263185616853417,
+      "importance_rank": 25,
+      "interpretation": "Decision is robust to effect size variation in risk_cost_burden->goal_productivity"
+    },
+    {
+      "edge_id": "fac_team_maturity::risk_coordination",
+      "from": "fac_team_maturity",
+      "to": "risk_coordination",
+      "from_label": "Team Technical Maturity",
+      "to_label": "Team Coordination Overhead",
+      "sensitivity_type": "magnitude",
+      "elasticity": -0.004907927886438242,
+      "importance_rank": 26,
+      "interpretation": "Decision is robust to effect size variation in fac_team_maturity->risk_coordination"
+    }
+  ],
+  "sensitivity_reference_option_id": "opt_one_dev",
+  "edge_e_values": [
+    {
+      "edge_id": "fac_dev_headcount::out_technical_quality",
+      "from_id": "fac_dev_headcount",
+      "to_id": "out_technical_quality",
+      "from_label": "Developer Headcount Added",
+      "to_label": "Technical Quality and Architecture",
+      "e_value": 3.6404,
+      "flip_direction": "increase",
+      "current_mean": 0.12,
+      "flip_mean": 0.436845
+    },
+    {
+      "edge_id": "fac_dev_headcount::out_throughput",
+      "from_id": "fac_dev_headcount",
+      "to_id": "out_throughput",
+      "from_label": "Developer Headcount Added",
+      "to_label": "Development Throughput",
+      "e_value": 1.2228,
+      "flip_direction": "increase",
+      "current_mean": 0.5072815533980582,
+      "flip_mean": 0.620287
+    },
+    {
+      "edge_id": "fac_dev_headcount::risk_coordination",
+      "from_id": "fac_dev_headcount",
+      "to_id": "risk_coordination",
+      "from_label": "Developer Headcount Added",
+      "to_label": "Team Coordination Overhead",
+      "e_value": 1,
+      "flip_direction": "decrease",
+      "current_mean": 0.3,
+      "flip_mean": -0.069032
+    },
+    {
+      "edge_id": "fac_tech_lead::out_technical_quality",
+      "from_id": "fac_tech_lead",
+      "to_id": "out_technical_quality",
+      "from_label": "Tech Lead in Place",
+      "to_label": "Technical Quality and Architecture",
+      "e_value": 1,
+      "flip_direction": "decrease",
+      "current_mean": 0.6,
+      "flip_mean": 0.376344
+    },
+    {
+      "edge_id": "fac_tech_lead::out_throughput",
+      "from_id": "fac_tech_lead",
+      "to_id": "out_throughput",
+      "from_label": "Tech Lead in Place",
+      "to_label": "Development Throughput",
+      "e_value": 1,
+      "flip_direction": "decrease",
+      "current_mean": 0.258252427184466,
+      "flip_mean": 0.130179
+    },
+    {
+      "edge_id": "fac_tech_lead::risk_coordination",
+      "from_id": "fac_tech_lead",
+      "to_id": "risk_coordination",
+      "from_label": "Tech Lead in Place",
+      "to_label": "Team Coordination Overhead",
+      "e_value": 1.8117,
+      "flip_direction": "increase",
+      "current_mean": -0.15,
+      "flip_mean": 0.27175
+    },
+    {
+      "edge_id": "out_technical_quality::goal_productivity",
+      "from_id": "out_technical_quality",
+      "to_id": "goal_productivity",
+      "from_label": "Technical Quality and Architecture",
+      "to_label": "Increase Team Productivity",
+      "e_value": 1,
+      "flip_direction": "decrease",
+      "current_mean": 0.3,
+      "flip_mean": 0.169789
+    },
+    {
+      "edge_id": "out_throughput::goal_productivity",
+      "from_id": "out_throughput",
+      "to_id": "goal_productivity",
+      "from_label": "Development Throughput",
+      "to_label": "Increase Team Productivity",
+      "e_value": 1.4044,
+      "flip_direction": "increase",
+      "current_mean": 0.55,
+      "flip_mean": 0.772441
+    },
+    {
+      "edge_id": "risk_coordination::goal_productivity",
+      "from_id": "risk_coordination",
+      "to_id": "goal_productivity",
+      "from_label": "Team Coordination Overhead",
+      "to_label": "Increase Team Productivity",
+      "e_value": 1,
+      "flip_direction": "increase",
+      "current_mean": -0.2,
+      "flip_mean": -0.028855
+    }
+  ],
+  "conditional_winners": [],
+  "factor_sensitivity": [
+    {
+      "factor_id": "fac_tech_lead",
+      "factor_label": "Tech Lead in Place",
+      "influence_score": 1,
+      "influence_rank": 1,
+      "sensitivity_score": 0,
+      "elasticity": 0,
+      "direction": "positive",
+      "importance_rank": 1,
+      "value_of_information": 0,
+      "confidence": 0.3,
+      "confidence_source": "plot_unified_from_isl_bootstrap",
+      "confidence_provenance": {
+        "computation_source": "plot_unified_from_isl_bootstrap",
+        "formula_version": "plot_unified_v3",
+        "is_provisional": true,
+        "calibration_status": "provisional_pending_pilot_calibration",
+        "input_quality": "standard"
+      },
+      "confidence_components": {
+        "structural_certainty": 0.5,
+        "sampling_stability": 0
+      },
+      "zero_reason": "intervention_override",
+      "source": "graph",
+      "flip_risk_category": "isolated",
+      "attribution_stability": "negligible",
+      "elasticity_std": 0,
+      "rank_flip_rate": 0,
+      "stability_method": "bootstrap_20",
+      "range_derivation_source": "default"
+    },
+    {
+      "factor_id": "fac_dev_headcount",
+      "factor_label": "Developer Headcount Added",
+      "influence_score": 0.7243656922228352,
+      "influence_rank": 2,
+      "sensitivity_score": 0,
+      "elasticity": 0,
+      "direction": "positive",
+      "importance_rank": 2,
+      "value_of_information": 0,
+      "confidence": 0.3,
+      "confidence_source": "plot_unified_from_isl_bootstrap",
+      "confidence_provenance": {
+        "computation_source": "plot_unified_from_isl_bootstrap",
+        "formula_version": "plot_unified_v3",
+        "is_provisional": true,
+        "calibration_status": "provisional_pending_pilot_calibration",
+        "input_quality": "standard"
+      },
+      "confidence_components": {
+        "structural_certainty": 0.5,
+        "sampling_stability": 0
+      },
+      "zero_reason": "intervention_override",
+      "source": "graph",
+      "flip_risk_category": "isolated",
+      "attribution_stability": "negligible",
+      "elasticity_std": 0,
+      "rank_flip_rate": 0,
+      "stability_method": "bootstrap_20",
+      "range_derivation_source": "default"
+    },
+    {
+      "factor_id": "fac_hiring_cost",
+      "factor_label": "Hiring and Salary Cost",
+      "influence_score": 0.4971042471042471,
+      "influence_rank": 3,
+      "sensitivity_score": -0.175,
+      "elasticity": 0.4971042471042471,
+      "direction": "negative",
+      "importance_rank": 3,
+      "value_of_information": 0,
+      "confidence": 0.44075,
+      "confidence_source": "plot_unified_from_isl_bootstrap",
+      "confidence_provenance": {
+        "computation_source": "plot_unified_from_isl_bootstrap",
+        "formula_version": "plot_unified_v3",
+        "is_provisional": true,
+        "calibration_status": "provisional_pending_pilot_calibration",
+        "input_quality": "standard"
+      },
+      "confidence_components": {
+        "structural_certainty": 0.5,
+        "sampling_stability": 0.25
+      },
+      "source": "graph",
+      "flip_risk_category": "negligible",
+      "attribution_stability": "low",
+      "elasticity_std": 0.01101973,
+      "rank_flip_rate": 0.3,
+      "stability_method": "bootstrap_20",
+      "evpi_status": "below_resolution"
+    },
+    {
+      "factor_id": "fac_team_maturity",
+      "factor_label": "Team Technical Maturity",
+      "influence_score": 0.39045780474351904,
+      "influence_rank": 4,
+      "sensitivity_score": 0.13745631067961164,
+      "elasticity": 0.39045780474351904,
+      "direction": "positive",
+      "importance_rank": 4,
+      "value_of_information": 0,
+      "confidence": 0.44455,
+      "confidence_source": "plot_unified_from_isl_bootstrap",
+      "confidence_provenance": {
+        "computation_source": "plot_unified_from_isl_bootstrap",
+        "formula_version": "plot_unified_v3",
+        "is_provisional": true,
+        "calibration_status": "provisional_pending_pilot_calibration",
+        "input_quality": "standard"
+      },
+      "confidence_components": {
+        "structural_certainty": 0.5,
+        "sampling_stability": 0.25
+      },
+      "source": "graph",
+      "flip_risk_category": "negligible",
+      "attribution_stability": "low",
+      "elasticity_std": 0.00657316,
+      "rank_flip_rate": 0.05,
+      "stability_method": "bootstrap_20",
+      "value_defaulted": true,
+      "evpi_status": "below_resolution"
+    }
+  ],
+  "factor_stability": [
+    {
+      "factor_id": "fac_hiring_cost",
+      "factor_label": "Hiring and Salary Cost",
+      "elasticity_std": 0.01101973,
+      "attribution_stability": "low",
+      "rank_flip_rate": 0.3,
+      "stability_method": "bootstrap_20"
+    },
+    {
+      "factor_id": "fac_team_maturity",
+      "factor_label": "Team Technical Maturity",
+      "elasticity_std": 0.00657316,
+      "attribution_stability": "low",
+      "rank_flip_rate": 0.05,
+      "stability_method": "bootstrap_20"
+    },
+    {
+      "factor_id": "fac_dev_headcount",
+      "factor_label": "Developer Headcount Added",
+      "elasticity_std": 0,
+      "attribution_stability": "negligible",
+      "rank_flip_rate": 0,
+      "stability_method": "bootstrap_20"
+    },
+    {
+      "factor_id": "fac_tech_lead",
+      "factor_label": "Tech Lead in Place",
+      "elasticity_std": 0,
+      "attribution_stability": "negligible",
+      "rank_flip_rate": 0,
+      "stability_method": "bootstrap_20"
+    }
+  ],
+  "stability_thresholds": {
+    "high_moderate_boundary": 0.1,
+    "moderate_low_boundary": 0.3,
+    "version": "v1.0-operational-defaults",
+    "provisional": true
+  },
+  "inference_warnings": [],
+  "m1_coaching": {
+    "story_headlines": {
+      "opt_tech_lead": "Hire One Tech Lead leads, but Technical Quality and Architecture → Increase Team Productivity could swing the outcome to Hire Two Developers",
+      "opt_two_devs": "Runner-up with 41% win probability",
+      "opt_status_quo": "Runner-up with 0% win probability",
+      "opt_one_dev": "Runner-up with 0% win probability"
+    },
+    "evidence_gaps": [
+      {
+        "factor_id": "fac_hiring_cost",
+        "factor_label": "Hiring and Salary Cost",
+        "voi_score": 0.27800555019305023,
+        "confidence": 0.44075,
+        "confidence_display": "44%",
+        "confidence_defaulted": false,
+        "influence": 0.4971042471042471,
+        "influence_display": "50%",
+        "suggestion": "Gather data on \"Hiring and Salary Cost\" to reduce uncertainty",
+        "notes": [],
+        "value": 0,
+        "evpi_percentage_points": 5.1,
+        "evpi_method": "heuristic"
+      },
+      {
+        "factor_id": "fac_team_maturity",
+        "factor_label": "Team Technical Maturity",
+        "voi_score": 0.21687978764478766,
+        "confidence": 0.44455,
+        "confidence_display": "44%",
+        "confidence_defaulted": false,
+        "influence": 0.39045780474351904,
+        "influence_display": "39%",
+        "suggestion": "Gather data on \"Team Technical Maturity\" to reduce uncertainty",
+        "notes": [],
+        "evpi_percentage_points": 4,
+        "evpi_method": "heuristic"
+      }
+    ],
+    "model_critiques": [
+      {
+        "type": "DOMINANT_FACTOR",
+        "severity": "warn",
+        "challenge_question": "One factor dominates. What would change if Hiring and Salary Cost had less influence?",
+        "suggested_action": "Consider whether Hiring and Salary Cost's importance is evidence-based or assumed",
+        "targets": [
+          "fac_hiring_cost"
+        ]
+      }
+    ],
+    "next_actions": [
+      {
+        "priority": 3,
+        "action": "Validate the Technical Quality and Architecture → Increase Team Productivity assumption",
+        "rationale": "57% chance this flips the decision to Hire Two Developers",
+        "target_type": "edge",
+        "target_id": "out_technical_quality->goal_productivity",
+        "target_label": "Technical Quality and Architecture → Increase Team Productivity"
+      },
+      {
+        "priority": 7,
+        "action": "Validate the fragile assumptions before treating Hire One Tech Lead as a decision",
+        "rationale": "Hire One Tech Lead currently leads by 18 points, but the recommendation is not yet robust",
+        "target_type": "option",
+        "target_id": "opt_tech_lead",
+        "target_label": "Hire One Tech Lead"
+      }
+    ],
+    "readiness": "ready",
+    "headline_type": "moderate_winner",
+    "top_fragile_edge": {
+      "edge_id": "out_technical_quality->goal_productivity",
+      "label": "Technical Quality and Architecture → Increase Team Productivity",
+      "alternative_winner": "Hire Two Developers",
+      "switch_probability": 0.569
+    },
+    "assumptions_ledger": {
+      "assumptions": [
+        {
+          "dedup_key": "isl_engine:flagged:edge:fac_tech_lead->out_technical_quality:switch_probability",
+          "source_service": "isl_engine",
+          "action": "flagged",
+          "entity_type": "edge",
+          "entity_id": "fac_tech_lead->out_technical_quality",
+          "field": "switch_probability",
+          "from_value": null,
+          "to_value": 0.61,
+          "reason": "Edge Tech Lead in Place → Technical Quality and Architecture has 61% chance of flipping decision",
+          "impact": "high",
+          "impact_reason_code": "FRAGILE_EDGE"
+        },
+        {
+          "dedup_key": "isl_engine:flagged:edge:out_technical_quality->goal_productivity:switch_probability",
+          "source_service": "isl_engine",
+          "action": "flagged",
+          "entity_type": "edge",
+          "entity_id": "out_technical_quality->goal_productivity",
+          "field": "switch_probability",
+          "from_value": null,
+          "to_value": 0.569,
+          "reason": "Edge Technical Quality and Architecture → Increase Team Productivity has 57% chance of flipping decision",
+          "impact": "high",
+          "impact_reason_code": "FRAGILE_EDGE"
+        },
+        {
+          "dedup_key": "isl_engine:flagged:edge:fac_dev_headcount->risk_coordination:switch_probability",
+          "source_service": "isl_engine",
+          "action": "flagged",
+          "entity_type": "edge",
+          "entity_id": "fac_dev_headcount->risk_coordination",
+          "field": "switch_probability",
+          "from_value": null,
+          "to_value": 0.487,
+          "reason": "Edge Developer Headcount Added → Team Coordination Overhead has 49% chance of flipping decision",
+          "impact": "high",
+          "impact_reason_code": "FRAGILE_EDGE"
+        },
+        {
+          "dedup_key": "isl_engine:flagged:edge:fac_dev_headcount->out_technical_quality:switch_probability",
+          "source_service": "isl_engine",
+          "action": "flagged",
+          "entity_type": "edge",
+          "entity_id": "fac_dev_headcount->out_technical_quality",
+          "field": "switch_probability",
+          "from_value": null,
+          "to_value": 0.375,
+          "reason": "Edge Developer Headcount Added → Technical Quality and Architecture has 38% chance of flipping decision",
+          "impact": "high",
+          "impact_reason_code": "FRAGILE_EDGE"
+        },
+        {
+          "dedup_key": "isl_engine:flagged:edge:risk_coordination->goal_productivity:switch_probability",
+          "source_service": "isl_engine",
+          "action": "flagged",
+          "entity_type": "edge",
+          "entity_id": "risk_coordination->goal_productivity",
+          "field": "switch_probability",
+          "from_value": null,
+          "to_value": 0.307,
+          "reason": "Edge Team Coordination Overhead → Increase Team Productivity has 31% chance of flipping decision",
+          "impact": "high",
+          "impact_reason_code": "FRAGILE_EDGE"
+        },
+        {
+          "dedup_key": "isl_engine:flagged:edge:out_throughput->goal_productivity:switch_probability",
+          "source_service": "isl_engine",
+          "action": "flagged",
+          "entity_type": "edge",
+          "entity_id": "out_throughput->goal_productivity",
+          "field": "switch_probability",
+          "from_value": null,
+          "to_value": 0.281,
+          "reason": "Edge Development Throughput → Increase Team Productivity has 28% chance of flipping decision",
+          "impact": "high",
+          "impact_reason_code": "FRAGILE_EDGE"
+        },
+        {
+          "dedup_key": "isl_engine:flagged:node:fac_tech_lead:confidence",
+          "source_service": "isl_engine",
+          "action": "flagged",
+          "entity_type": "node",
+          "entity_id": "fac_tech_lead",
+          "field": "confidence",
+          "from_value": null,
+          "to_value": 0.3,
+          "reason": "Factor Tech Lead in Place has low confidence (30%)",
+          "impact": "high",
+          "impact_reason_code": "HIGH_INFLUENCE_FACTOR"
+        },
+        {
+          "dedup_key": "isl_engine:flagged:node:fac_dev_headcount:confidence",
+          "source_service": "isl_engine",
+          "action": "flagged",
+          "entity_type": "node",
+          "entity_id": "fac_dev_headcount",
+          "field": "confidence",
+          "from_value": null,
+          "to_value": 0.3,
+          "reason": "Factor Developer Headcount Added has low confidence (30%)",
+          "impact": "high",
+          "impact_reason_code": "HIGH_INFLUENCE_FACTOR"
+        },
+        {
+          "dedup_key": "isl_engine:flagged:node:fac_hiring_cost:confidence",
+          "source_service": "isl_engine",
+          "action": "flagged",
+          "entity_type": "node",
+          "entity_id": "fac_hiring_cost",
+          "field": "confidence",
+          "from_value": null,
+          "to_value": 0.44075,
+          "reason": "Factor Hiring and Salary Cost has low confidence (44%)",
+          "impact": "high",
+          "impact_reason_code": "HIGH_INFLUENCE_FACTOR"
+        },
+        {
+          "dedup_key": "isl_engine:flagged:node:fac_team_maturity:confidence",
+          "source_service": "isl_engine",
+          "action": "flagged",
+          "entity_type": "node",
+          "entity_id": "fac_team_maturity",
+          "field": "confidence",
+          "from_value": null,
+          "to_value": 0.44455,
+          "reason": "Factor Team Technical Maturity has low confidence (44%)",
+          "impact": "medium",
+          "impact_reason_code": "HIGH_INFLUENCE_FACTOR"
+        }
+      ],
+      "total_count": 10,
+      "high_impact_count": 9,
+      "medium_impact_count": 1,
+      "low_impact_count": 0
+    },
+    "thresholds_used": {
+      "headline_clear_winner_delta": 0.2,
+      "headline_clear_winner_stability": 0.7,
+      "headline_moderate_winner_delta": 0.1,
+      "headline_moderate_winner_stability": 0.5,
+      "headline_close_call_delta": 0.1,
+      "headline_high_uncertainty_voi": 0.3,
+      "headline_high_uncertainty_fragile": 0.25,
+      "headline_fragile_edge_min": 0.15,
+      "evidence_gap_min_voi": 0,
+      "evidence_gap_top_quartile": true,
+      "evidence_gap_floor": 3,
+      "evidence_gap_cap": 3,
+      "critique_dominant_factor_threshold": 0.5,
+      "critique_influential_external_quartile": 0.25,
+      "critique_narrow_framing_max_options": 2,
+      "critique_anchoring_baseline_value": 0.5,
+      "critique_overconfidence_threshold": 0.85,
+      "action_fragile_edge_threshold": 0.2,
+      "action_high_voi_threshold": 0.4,
+      "readiness_high_evidence_gap_count": 2,
+      "readiness_high_voi_threshold": 0.4,
+      "readiness_joint_prob_floor": 0.05,
+      "readiness_joint_prob_close_call": 0.3,
+      "tone_confident_stability_min": 0.75,
+      "tone_low_driver_confidence_max": 0.5
+    },
+    "readiness_signals": {
+      "overall": "ready",
+      "overall_score": 0.85,
+      "computed_score_raw": 0.72,
+      "dimensions": {
+        "evidence_quality": 0.6,
+        "model_robustness": 0.7,
+        "framing_quality": 1
+      },
+      "signals": [
+        {
+          "dimension": "evidence",
+          "signal": "2 evidence gaps",
+          "impact": "negative",
+          "weight": 0.2
+        },
+        {
+          "dimension": "evidence",
+          "signal": "Low average confidence (37%)",
+          "impact": "negative",
+          "weight": 0.2
+        },
+        {
+          "dimension": "robustness",
+          "signal": "6 fragile edges",
+          "impact": "negative",
+          "weight": 0.3
+        },
+        {
+          "dimension": "framing",
+          "signal": "4 options considered",
+          "impact": "positive",
+          "weight": 0.1
+        }
+      ]
+    },
+    "key_drivers": [
+      {
+        "factor_id": "fac_tech_lead",
+        "factor_label": "Tech Lead in Place",
+        "influence_score": 1,
+        "normalised_impact": 1,
+        "impact_display": "Very High",
+        "direction": "positive",
+        "rank": 1
+      },
+      {
+        "factor_id": "fac_dev_headcount",
+        "factor_label": "Developer Headcount Added",
+        "influence_score": 0.724,
+        "normalised_impact": 0.72,
+        "impact_display": "High",
+        "direction": "positive",
+        "rank": 2
+      },
+      {
+        "factor_id": "fac_hiring_cost",
+        "factor_label": "Hiring and Salary Cost",
+        "influence_score": 0.497,
+        "normalised_impact": 0.5,
+        "impact_display": "Medium",
+        "direction": "negative",
+        "rank": 3
+      },
+      {
+        "factor_id": "fac_team_maturity",
+        "factor_label": "Team Technical Maturity",
+        "influence_score": 0.39,
+        "normalised_impact": 0.39,
+        "impact_display": "Medium",
+        "direction": "positive",
+        "rank": 4
+      }
+    ],
+    "executive_summary": {
+      "summary": "Hire One Tech Lead currently leads by 18 points, but the model is not yet strong enough for an unqualified decision. Treat this as a provisional lead until the fragile assumptions are checked. Validate the fragile assumptions before treating this as a decision.",
+      "decision_statement": "Hire One Tech Lead currently leads by 18 points, but the model is not yet strong enough for an unqualified decision.",
+      "key_qualifier": "Treat this as a provisional lead until the fragile assumptions are checked.",
+      "action_implication": "Validate the fragile assumptions before treating this as a decision."
+    },
+    "readiness_tone": "caution",
+    "readiness_reasons": [
+      "NOT_ROBUST",
+      "LOW_ROBUSTNESS",
+      "LOW_STABILITY",
+      "MATERIAL_FRAGILE_EDGE",
+      "EVIDENCE_GAPS",
+      "LOW_DRIVER_CONFIDENCE"
+    ],
+    "coaching_version": "1.2.0",
+    "computed_at": "__VOLATILE__"
+  },
+  "confidence_tier": "fair",
+  "flip_thresholds": [
+    {
+      "factor_id": "fac_hiring_cost",
+      "factor_label": "Hiring and Salary Cost",
+      "current_value": 0,
+      "flip_value": null,
+      "direction": "increase",
+      "alternative_winner_id": null,
+      "alternative_winner_label": null,
+      "flip_reason": "no_effect_within_bounds",
+      "iterations_used": 0,
+      "probes_used": 3,
+      "margin_sensitivity": {
+        "movement": "none",
+        "threshold": 0.05,
+        "baseline_leading_option_id": "opt_tech_lead",
+        "baseline_runner_up_option_id": "opt_two_devs",
+        "baseline_margin": 0.18404166666666671,
+        "min_probe_margin": 0.18404166666666671,
+        "max_probe_margin": 0.18404166666666671,
+        "min_probe_delta": 0,
+        "max_probe_delta": 0,
+        "strongest_direction": "none",
+        "strongest_probe_value": null,
+        "value_scale": "normalised",
+        "strongest_delta": null,
+        "strongest_delta_abs": null,
+        "strongest_delta_percentage_points": null,
+        "display_value_available": false
+      }
+    }
+  ],
+  "flip_thresholds_status": "all_no_effect",
+  "flip_thresholds_margin_status": "all_none",
+  "flip_thresholds_margin_coverage": {
+    "total": 1,
+    "with_margin": 1,
+    "without_margin": 0
+  },
+  "identifiability": {
+    "status": "identifiable",
+    "method": "backdoor",
+    "pairs_checked": 2,
+    "pairs_identifiable": 2
+  },
+  "m1_review": null,
+  "review_status": "disabled",
+  "robustness": {
+    "fragile_edges": [
+      {
+        "edge_id": "fac_dev_headcount->out_throughput",
+        "from_id": "fac_dev_headcount",
+        "to_id": "out_throughput",
+        "switch_probability": 0.075,
+        "marginal_switch_probability": 0.42,
+        "alternative_winner_id": "opt_two_devs",
+        "from_label": "Developer Headcount Added",
+        "to_label": "Development Throughput",
+        "severity": "warning",
+        "alternative_winner_label": "Hire Two Developers"
+      },
+      {
+        "edge_id": "out_throughput->goal_productivity",
+        "from_id": "out_throughput",
+        "to_id": "goal_productivity",
+        "switch_probability": 0.281,
+        "marginal_switch_probability": 0.03,
+        "alternative_winner_id": "opt_two_devs",
+        "from_label": "Development Throughput",
+        "to_label": "Increase Team Productivity",
+        "severity": "warning",
+        "alternative_winner_label": "Hire Two Developers"
+      },
+      {
+        "edge_id": "fac_dev_headcount->out_technical_quality",
+        "from_id": "fac_dev_headcount",
+        "to_id": "out_technical_quality",
+        "switch_probability": 0.375,
+        "marginal_switch_probability": 0.05,
+        "alternative_winner_id": "opt_two_devs",
+        "from_label": "Developer Headcount Added",
+        "to_label": "Technical Quality and Architecture",
+        "severity": "warning",
+        "alternative_winner_label": "Hire Two Developers"
+      },
+      {
+        "edge_id": "fac_dev_headcount->risk_coordination",
+        "from_id": "fac_dev_headcount",
+        "to_id": "risk_coordination",
+        "switch_probability": 0.487,
+        "marginal_switch_probability": 0,
+        "alternative_winner_id": "opt_two_devs",
+        "from_label": "Developer Headcount Added",
+        "to_label": "Team Coordination Overhead",
+        "severity": "warning",
+        "alternative_winner_label": "Hire Two Developers"
+      },
+      {
+        "edge_id": "out_technical_quality->goal_productivity",
+        "from_id": "out_technical_quality",
+        "to_id": "goal_productivity",
+        "switch_probability": 0.569,
+        "marginal_switch_probability": 0.21,
+        "alternative_winner_id": "opt_two_devs",
+        "from_label": "Technical Quality and Architecture",
+        "to_label": "Increase Team Productivity",
+        "severity": "error",
+        "alternative_winner_label": "Hire Two Developers"
+      },
+      {
+        "edge_id": "fac_tech_lead->out_technical_quality",
+        "from_id": "fac_tech_lead",
+        "to_id": "out_technical_quality",
+        "switch_probability": 0.61,
+        "marginal_switch_probability": 0.23,
+        "alternative_winner_id": "opt_two_devs",
+        "from_label": "Tech Lead in Place",
+        "to_label": "Technical Quality and Architecture",
+        "severity": "error",
+        "alternative_winner_label": "Hire Two Developers"
+      },
+      {
+        "edge_id": "risk_coordination->goal_productivity",
+        "from_id": "risk_coordination",
+        "to_id": "goal_productivity",
+        "switch_probability": 0.307,
+        "marginal_switch_probability": 0.28,
+        "alternative_winner_id": "opt_two_devs",
+        "from_label": "Team Coordination Overhead",
+        "to_label": "Increase Team Productivity",
+        "severity": "warning",
+        "alternative_winner_label": "Hire Two Developers"
+      }
+    ],
+    "robust_edges": [
+      {
+        "edge_id": "fac_hiring_cost->risk_cost_burden",
+        "from_id": "fac_hiring_cost",
+        "to_id": "risk_cost_burden",
+        "switch_probability": 1,
+        "from_label": "Hiring and Salary Cost",
+        "to_label": "Salary and Overhead Cost Burden",
+        "alternative_winner_id": null,
+        "alternative_winner_label": null
+      },
+      {
+        "edge_id": "fac_team_maturity->risk_coordination",
+        "from_id": "fac_team_maturity",
+        "to_id": "risk_coordination",
+        "switch_probability": 1,
+        "from_label": "Team Technical Maturity",
+        "to_label": "Team Coordination Overhead",
+        "alternative_winner_id": null,
+        "alternative_winner_label": null
+      },
+      {
+        "edge_id": "risk_cost_burden->goal_productivity",
+        "from_id": "risk_cost_burden",
+        "to_id": "goal_productivity",
+        "switch_probability": 1,
+        "from_label": "Salary and Overhead Cost Burden",
+        "to_label": "Increase Team Productivity",
+        "alternative_winner_id": null,
+        "alternative_winner_label": null
+      },
+      {
+        "edge_id": "fac_team_maturity->out_throughput",
+        "from_id": "fac_team_maturity",
+        "to_id": "out_throughput",
+        "switch_probability": 1,
+        "from_label": "Team Technical Maturity",
+        "to_label": "Development Throughput",
+        "alternative_winner_id": null,
+        "alternative_winner_label": null
+      }
+    ],
+    "is_robust": false,
+    "level": "low",
+    "confidence": 0.5809173280554281,
+    "recommended_option_id": "opt_tech_lead",
+    "recommended_option_label": "Hire One Tech Lead",
+    "near_tie": {
+      "is_tie": false,
+      "top_option_id": "opt_tech_lead",
+      "second_option_id": "opt_two_devs",
+      "tied_option_ids": [
+        "opt_tech_lead"
+      ],
+      "gap": 0.18404166666666671,
+      "threshold": 0.1
+    },
+    "display_verdict": "fragile",
+    "display_verdict_reason": "small changes could flip this result"
+  },
+  "robustness_synthesis": null,
+  "cee_status": "skipped",
+  "decision_quality": null,
+  "insights": null,
+  "improvement_guidance": null,
+  "rationale": null,
+  "ceeTrace": {
+    "requestId": "__VOLATILE__",
+    "degraded": false,
+    "timestamp": "__VOLATILE__",
+    "source": "orchestrator",
+    "reason": "CEE feature disabled"
+  },
+  "processing_time_ms": "__VOLATILE__",
+  "response_hash": "195f3c2552217c57",
+  "decision_brief": {
+    "brief_id": "4cabf774-12b1-4aa1-b28b-fb88093a683f",
+    "version": "1",
+    "graph_hash": "195f3c2552217c57",
+    "seed": 2034401427,
+    "created_at": "__VOLATILE__",
+    "headline": "Hire One Tech Lead currently leads by 18 points, but the model is not yet strong enough for an unqualified decision. Treat this as a provisional lead until the fragile assumptions are checked. Validate the fragile assumptions before treating this as a decision.",
+    "options": [
+      {
+        "option_id": "opt_tech_lead",
+        "label": "Hire One Tech Lead",
+        "win_probability": 0.59025,
+        "rank": 1
+      },
+      {
+        "option_id": "opt_two_devs",
+        "label": "Hire Two Developers",
+        "win_probability": 0.40620833333333334,
+        "rank": 2
+      },
+      {
+        "option_id": "opt_status_quo",
+        "label": "No New Hire (Status Quo)",
+        "win_probability": 0.002833333333333333,
+        "rank": 3
+      },
+      {
+        "option_id": "opt_one_dev",
+        "label": "Hire One Developer (Reduced Commitment)",
+        "win_probability": 0.0007083333333333334,
+        "rank": 4
+      }
+    ],
+    "top_drivers": [
+      {
+        "factor_label": "Hiring and Salary Cost",
+        "sensitivity": 0.4971042471042471,
+        "direction": "negative"
+      },
+      {
+        "factor_label": "Team Technical Maturity",
+        "sensitivity": 0.39045780474351904,
+        "direction": "positive"
+      }
+    ],
+    "key_assumptions": [
+      "Hiring and Salary Cost",
+      "Team Technical Maturity"
+    ],
+    "what_would_change": [
+      "Development Throughput → Increase Team Productivity",
+      "Technical Quality and Architecture → Increase Team Productivity",
+      "Team Coordination Overhead → Increase Team Productivity"
+    ],
+    "robustness": "fragile",
+    "warnings": [
+      {
+        "code": "DOMINANT_FACTOR",
+        "message": "One factor dominates. What would change if Hiring and Salary Cost had less influence?",
+        "severity": "warning"
+      },
+      {
+        "code": "M2_UNAVAILABLE",
+        "message": "Decision review was unavailable; brief uses deterministic coaching fallback",
+        "severity": "warning"
+      }
+    ],
+    "lineage": {
+      "config_version": "2b3c700a4863",
+      "response_hash": "195f3c2552217c57",
+      "n_samples": 4000
+    },
+    "headline_banded": {
+      "text": "Hire One Tech Lead is slightly ahead.",
+      "band": "slightly_ahead",
+      "leader_option_id": "opt_tech_lead",
+      "leader_label": "Hire One Tech Lead",
+      "runner_up_option_id": "opt_two_devs",
+      "runner_up_label": "Hire Two Developers",
+      "win_probability_gap": 0.18404166666666671,
+      "robustness_gated": false,
+      "doctrine": "provisional_doctrine_v0"
+    },
+    "defaulted_assumptions": [
+      {
+        "factor_label": "Team Technical Maturity",
+        "note": "No starting value was provided for \"Team Technical Maturity\" — the analysis used a default. Setting a real value or range would make this result more trustworthy.",
+        "source": "value_defaulted",
+        "doctrine": "provisional_doctrine_v0"
+      }
+    ],
+    "robustness_caveat": {
+      "text": "This ranking was fragile under the perturbations tested — small changes to assumptions could change which option leads.",
+      "basis": "is_robust",
+      "doctrine": "provisional_doctrine_v0"
+    },
+    "warning_codes": []
+  },
+  "review_cards": [],
+  "fact_objects": [
+    {
+      "fact_id": "__VOLATILE__",
+      "fact_key": {
+        "type": "probability",
+        "option_id": "opt_one_dev"
+      },
+      "fact_type": "probability",
+      "data": {
+        "type": "probability",
+        "option_id": "opt_one_dev",
+        "option_label": "Hire One Developer (Reduced Commitment)",
+        "p10": -0.046497474297611675,
+        "p50": 0.10615207437561272,
+        "p90": 0.24657456603769748,
+        "mean": 0.10179725550865354
+      },
+      "lineage": {
+        "graph_hash": "cbec4fb7bf6698e0",
+        "seed": 2034401427,
+        "config_version": "1",
+        "isl_request_id": "__VOLATILE__",
+        "n_samples": 4000
+      },
+      "content_hash": "3e7a7ee90a6f2460"
+    },
+    {
+      "fact_id": "__VOLATILE__",
+      "fact_key": {
+        "type": "probability",
+        "option_id": "opt_status_quo"
+      },
+      "fact_type": "probability",
+      "data": {
+        "type": "probability",
+        "option_id": "opt_status_quo",
+        "option_label": "No New Hire (Status Quo)",
+        "p10": -0.10769108623911076,
+        "p50": 0.00011162160103608826,
+        "p90": 0.10336789783872895,
+        "mean": -0.00039679435638067785
+      },
+      "lineage": {
+        "graph_hash": "cbec4fb7bf6698e0",
+        "seed": 2034401427,
+        "config_version": "1",
+        "isl_request_id": "__VOLATILE__",
+        "n_samples": 4000
+      },
+      "content_hash": "d085afe35bc8cc9f"
+    },
+    {
+      "fact_id": "__VOLATILE__",
+      "fact_key": {
+        "type": "probability",
+        "option_id": "opt_tech_lead"
+      },
+      "fact_type": "probability",
+      "data": {
+        "type": "probability",
+        "option_id": "opt_tech_lead",
+        "option_label": "Hire One Tech Lead",
+        "p10": 0.03934250803901223,
+        "p50": 0.2523671951931171,
+        "p90": 0.47137358299516724,
+        "mean": 0.25559011544614935
+      },
+      "lineage": {
+        "graph_hash": "cbec4fb7bf6698e0",
+        "seed": 2034401427,
+        "config_version": "1",
+        "isl_request_id": "__VOLATILE__",
+        "n_samples": 4000
+      },
+      "content_hash": "80a265760799c6c3"
+    },
+    {
+      "fact_id": "__VOLATILE__",
+      "fact_key": {
+        "type": "probability",
+        "option_id": "opt_two_devs"
+      },
+      "fact_type": "probability",
+      "data": {
+        "type": "probability",
+        "option_id": "opt_two_devs",
+        "option_label": "Hire Two Developers",
+        "p10": -0.03424836348148578,
+        "p50": 0.21703179877108886,
+        "p90": 0.42035080806243247,
+        "mean": 0.20399130537368776
+      },
+      "lineage": {
+        "graph_hash": "cbec4fb7bf6698e0",
+        "seed": 2034401427,
+        "config_version": "1",
+        "isl_request_id": "__VOLATILE__",
+        "n_samples": 4000
+      },
+      "content_hash": "83b435b6b5b3df12"
+    },
+    {
+      "fact_id": "__VOLATILE__",
+      "fact_key": {
+        "type": "factor_sensitivity",
+        "node_id": "fac_dev_headcount",
+        "metric": "sensitivity_score"
+      },
+      "fact_type": "factor_sensitivity",
+      "data": {
+        "type": "factor_sensitivity",
+        "node_id": "fac_dev_headcount",
+        "label": "Developer Headcount Added",
+        "sensitivity_score": 0,
+        "importance_score": 0,
+        "importance_rank": 2,
+        "elasticity": 0,
+        "direction": "positive",
+        "confidence": 0.3,
+        "attribution_stability": "negligible"
+      },
+      "lineage": {
+        "graph_hash": "cbec4fb7bf6698e0",
+        "seed": 2034401427,
+        "config_version": "1",
+        "isl_request_id": "__VOLATILE__",
+        "n_samples": 4000
+      },
+      "content_hash": "6328d59d1577f9e9"
+    },
+    {
+      "fact_id": "__VOLATILE__",
+      "fact_key": {
+        "type": "factor_sensitivity",
+        "node_id": "fac_hiring_cost",
+        "metric": "sensitivity_score"
+      },
+      "fact_type": "factor_sensitivity",
+      "data": {
+        "type": "factor_sensitivity",
+        "node_id": "fac_hiring_cost",
+        "label": "Hiring and Salary Cost",
+        "sensitivity_score": 0.4971042471042471,
+        "importance_score": 0.4971042471042471,
+        "importance_rank": 3,
+        "elasticity": 0.4971042471042471,
+        "direction": "negative",
+        "confidence": 0.44075,
+        "attribution_stability": "low"
+      },
+      "lineage": {
+        "graph_hash": "cbec4fb7bf6698e0",
+        "seed": 2034401427,
+        "config_version": "1",
+        "isl_request_id": "__VOLATILE__",
+        "n_samples": 4000
+      },
+      "content_hash": "1b078eb246e060e2"
+    },
+    {
+      "fact_id": "__VOLATILE__",
+      "fact_key": {
+        "type": "factor_sensitivity",
+        "node_id": "fac_team_maturity",
+        "metric": "sensitivity_score"
+      },
+      "fact_type": "factor_sensitivity",
+      "data": {
+        "type": "factor_sensitivity",
+        "node_id": "fac_team_maturity",
+        "label": "Team Technical Maturity",
+        "sensitivity_score": 0.39045780474351904,
+        "importance_score": 0.39045780474351904,
+        "importance_rank": 4,
+        "elasticity": 0.39045780474351904,
+        "direction": "positive",
+        "confidence": 0.44455,
+        "attribution_stability": "low"
+      },
+      "lineage": {
+        "graph_hash": "cbec4fb7bf6698e0",
+        "seed": 2034401427,
+        "config_version": "1",
+        "isl_request_id": "__VOLATILE__",
+        "n_samples": 4000
+      },
+      "content_hash": "29dd19919af45252"
+    },
+    {
+      "fact_id": "__VOLATILE__",
+      "fact_key": {
+        "type": "factor_sensitivity",
+        "node_id": "fac_tech_lead",
+        "metric": "sensitivity_score"
+      },
+      "fact_type": "factor_sensitivity",
+      "data": {
+        "type": "factor_sensitivity",
+        "node_id": "fac_tech_lead",
+        "label": "Tech Lead in Place",
+        "sensitivity_score": 0,
+        "importance_score": 0,
+        "importance_rank": 1,
+        "elasticity": 0,
+        "direction": "positive",
+        "confidence": 0.3,
+        "attribution_stability": "negligible"
+      },
+      "lineage": {
+        "graph_hash": "cbec4fb7bf6698e0",
+        "seed": 2034401427,
+        "config_version": "1",
+        "isl_request_id": "__VOLATILE__",
+        "n_samples": 4000
+      },
+      "content_hash": "43d316b1bc131bbd"
+    },
+    {
+      "fact_id": "__VOLATILE__",
+      "fact_key": {
+        "type": "robustness",
+        "metric": "robustness_score"
+      },
+      "fact_type": "robustness",
+      "data": {
+        "type": "robustness",
+        "robustness_level": "moderate",
+        "robustness_score": 0.5
+      },
+      "lineage": {
+        "graph_hash": "cbec4fb7bf6698e0",
+        "seed": 2034401427,
+        "config_version": "1",
+        "isl_request_id": "__VOLATILE__",
+        "n_samples": 4000
+      },
+      "content_hash": "746563481e476303"
+    }
+  ],
+  "_meta": {
+    "source_path": "isl",
+    "repairs_applied": [],
+    "request_id": "__VOLATILE__",
+    "plot_build": "__VOLATILE__",
+    "hash_version": 7,
+    "response_hash": "195f3c2552217c57",
+    "request_id_chain": {
+      "ui": null,
+      "plot": "__VOLATILE__",
+      "isl": "__VOLATILE__",
+      "isl_echoed": null,
+      "all_match": false,
+      "chain_complete": false
+    },
+    "range_derivation_sources": {
+      "fac_tech_lead": "default",
+      "fac_dev_headcount": "default"
+    },
+    "evidence": {
+      "plot_build": "__VOLATILE__",
+      "isl_build": "9a22a1a",
+      "isl_request_digest": null,
+      "isl_response_digest": null
+    },
+    "feature_flags_snapshot": {
+      "SCM_LITE_ENABLE": "0",
+      "PROD_SCM_LITE_PLACEHOLDER": "0",
+      "ADAPTIVE_K_ENABLE": "0",
+      "CONFIDENCE_CALIBRATED": "0",
+      "IDENT_TAG_ENABLE": "0",
+      "PROVENANCE_ENABLE": "0",
+      "ENABLE_DUAL_BELIEFS": "0",
+      "ENABLE_NOISY_OR": "0",
+      "ENABLE_LOGISTIC": "0",
+      "ENABLE_NOISY_AND_NOT": "0",
+      "ENABLE_MIXED_COMBINATION": "0",
+      "ENABLE_TRACE_CACHING": "0",
+      "ENABLE_STRATIFIED_SAMPLING": "0",
+      "ENABLE_IMPORTANCE_SAMPLING": "0",
+      "ENABLE_OPTION_PROBABILITIES": "0",
+      "RATE_LIMIT_ENABLED": "0",
+      "TOKEN_RL_ENABLE": "0",
+      "RL_CB_ENABLE": "0",
+      "PROMETHEUS_METRICS": "0",
+      "PROMETHEUS_ENABLE": "0",
+      "OPS_SNAPSHOT_ENABLE": "0",
+      "METRICS": "0",
+      "AUTH_ENABLED": "0",
+      "TEST_ROUTES": "0",
+      "CORS_DEV": "0",
+      "OPENAPI_DEV": "0",
+      "COMPARE_VIEW_ENABLE": "0",
+      "INSPECTOR_DEBUG_ENABLE": "0",
+      "FEATURE_STREAM": "0",
+      "STREAM_PARITY_ENABLE": "0",
+      "WHATIF_DELTA_ENABLE": "0",
+      "CEE_ORCHESTRATOR_ENABLED": "0",
+      "DECISION_REVIEW_ENABLE": "0",
+      "ENABLE_FACTS_ASSEMBLY": "0",
+      "ENABLE_REVIEW_PASS": "0",
+      "ENABLE_VALIDATE_PATCH": "0",
+      "BRIEF_CLAIM_SAFE_SURFACES_ENABLE": "0"
+    },
+    "decision_brief_assembled": true,
+    "review_cards_count": 0,
+    "evidence_priority_card_present": false
+  },
+  "meta": {
+    "seed_used": "2034401427",
+    "seed_source": "client_generated",
+    "n_samples": 4000,
+    "flip_probe_n_samples": 1000,
+    "detail_level": "standard",
+    "latency_ms": "__VOLATILE__",
+    "normalization_ms": "__VOLATILE__",
+    "validation_ms": "__VOLATILE__",
+    "isl_ms": "__VOLATILE__",
+    "cee_ms": "__VOLATILE__",
+    "build": "__VOLATILE__",
+    "computed_at": "__VOLATILE__",
+    "request_id_chain": {
+      "ui": null,
+      "plot": "__VOLATILE__",
+      "isl": "__VOLATILE__",
+      "isl_echoed": null,
+      "all_match": false,
+      "chain_complete": false
+    },
+    "feature_flags": {
+      "SCM_LITE_ENABLE": "0",
+      "PROD_SCM_LITE_PLACEHOLDER": "0",
+      "ADAPTIVE_K_ENABLE": "0",
+      "CONFIDENCE_CALIBRATED": "0",
+      "IDENT_TAG_ENABLE": "0",
+      "PROVENANCE_ENABLE": "0",
+      "ENABLE_DUAL_BELIEFS": "0",
+      "ENABLE_NOISY_OR": "0",
+      "ENABLE_LOGISTIC": "0",
+      "ENABLE_NOISY_AND_NOT": "0",
+      "ENABLE_MIXED_COMBINATION": "0",
+      "ENABLE_TRACE_CACHING": "0",
+      "ENABLE_STRATIFIED_SAMPLING": "0",
+      "ENABLE_IMPORTANCE_SAMPLING": "0",
+      "ENABLE_OPTION_PROBABILITIES": "0",
+      "RATE_LIMIT_ENABLED": "0",
+      "TOKEN_RL_ENABLE": "0",
+      "RL_CB_ENABLE": "0",
+      "PROMETHEUS_METRICS": "0",
+      "PROMETHEUS_ENABLE": "0",
+      "OPS_SNAPSHOT_ENABLE": "0",
+      "METRICS": "0",
+      "AUTH_ENABLED": "0",
+      "TEST_ROUTES": "0",
+      "CORS_DEV": "0",
+      "OPENAPI_DEV": "0",
+      "COMPARE_VIEW_ENABLE": "0",
+      "INSPECTOR_DEBUG_ENABLE": "0",
+      "FEATURE_STREAM": "0",
+      "STREAM_PARITY_ENABLE": "0",
+      "WHATIF_DELTA_ENABLE": "0",
+      "CEE_ORCHESTRATOR_ENABLED": "0",
+      "DECISION_REVIEW_ENABLE": "0",
+      "ENABLE_FACTS_ASSEMBLY": "0",
+      "ENABLE_REVIEW_PASS": "0",
+      "ENABLE_VALIDATE_PATCH": "0",
+      "BRIEF_CLAIM_SAFE_SURFACES_ENABLE": "0",
+      "facts_assembly": true,
+      "review_pass": false
+    }
+  }
+}
