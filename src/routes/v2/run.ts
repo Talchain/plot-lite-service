@@ -138,6 +138,8 @@ import {
   partitionConstraintTargets,
   buildConstraintTargetUnreliableMessage,
   buildConstraintGoalFitModelledMessage,
+  isAutoConstraintDirectionSuspect,
+  buildConstraintDirectionSuspectMessage,
   GOAL_FIT_SCORED_FROM_MODELLED_OUTCOME,
   type UnreliableConstraintTarget,
 } from '../../lib/constraint-reliability.js';
@@ -1806,6 +1808,18 @@ function buildResponse(
     ...new Set(modelledBasisConstraintTargets.map((t) => t.node_id)),
   ].sort();
 
+  // Defensive sign-check (lane PLoT-goal-fit-sign-defense) on the Phase 1c+
+  // auto-constraint fallback: at most one constraint ever carries this
+  // provenance (synthesis only fires when zero constraints were compiled —
+  // see run.ts ~3696), so find it once here rather than per-option below.
+  const autoDirectionConstraint = goalConstraints?.find(
+    (c) => (c as any)._internal?.source === 'auto_from_goal_threshold',
+  );
+  // Node ids where the sign-mismatch fired for at least one option — used to
+  // emit exactly one CONSTRAINT_DIRECTION_SUSPECT warning below, mirroring
+  // the unreliable-constraint-target dedup-by-node pattern above.
+  const directionSuspectNodeIds = new Set<string>();
+
   // Map ISL results to response format
   // ISL V2 uses 'options' field; V1 uses 'results'. Check both for compatibility.
   const islOptionData = islResult?.options ?? islResult?.results;
@@ -1925,7 +1939,31 @@ function buildResponse(
         }
       }
 
-      if (suppressConstraintProbabilities) {
+      // Defensive sign-check (lane PLoT-goal-fit-sign-defense): the auto-
+      // constraint fallback guessed '>=' with no visibility into goal-framing
+      // text. If the guessed positive threshold can never be reached — this
+      // option's modelled outcome for the SAME target node stays negative
+      // even at its most favourable sampled percentile (p90) — the ~0% ISL
+      // just computed is a mechanical certainty of the sign mismatch, not a
+      // signal about the graph. Abstain rather than emit it. Checked BEFORE
+      // suppressConstraintProbabilities/modelled-basis so it takes priority
+      // over both (this is a stronger, option-specific defect than either).
+      const directionSuspect =
+        autoDirectionConstraint !== undefined &&
+        isAutoConstraintDirectionSuspect(autoDirectionConstraint.value, outcome?.p90);
+
+      if (directionSuspect) {
+        directionSuspectNodeIds.add(autoDirectionConstraint!.node_id);
+        logger?.warn({
+          event: 'constraint_direction_suspect',
+          option_id: optionId,
+          node_id: autoDirectionConstraint!.node_id,
+          auto_threshold: autoDirectionConstraint!.value,
+          outcome_p90: outcome?.p90,
+          raw_probability_of_joint_goal: constraintAnalysis.joint_probability,
+          raw_constraint_probabilities: constraintProbs,
+        });
+      } else if (suppressConstraintProbabilities) {
         // Producer honesty (item A): the computed values are structurally
         // meaningless (default-range threshold and/or defaulted base). Emit
         // NEITHER field — absence is honest — and keep the raw values in
@@ -2260,6 +2298,22 @@ function buildResponse(
         severity: 'info',
       });
     }
+  }
+
+  // Defensive sign-check (lane PLoT-goal-fit-sign-defense): one WARNING per
+  // affected auto-constraint target node when the fallback's guessed '>='
+  // direction was structurally unsatisfiable for at least one option (see
+  // the per-option check above, next to suppressConstraintProbabilities).
+  // Independent of the if/else-if above — it fires alongside whichever of
+  // those applies, since it is a stronger, option-specific defect.
+  for (const nodeId of directionSuspectNodeIds) {
+    const nodeLabel = graph?.nodes?.find((n) => n.id === nodeId)?.label ?? nodeId;
+    inferenceWarnings.push({
+      code: INFERENCE_WARNING_CODES.CONSTRAINT_DIRECTION_SUSPECT,
+      // provisional_doctrine_v0 — wording surface (see constraint-reliability.ts)
+      message: buildConstraintDirectionSuspectMessage(nodeLabel),
+      severity: 'warning',
+    });
   }
 
   // Merge ISL-originated inference_warnings into the PLoT array.

@@ -1999,6 +1999,22 @@ export const INFERENCE_WARNING_CODES = {
    * @see src/lib/constraint-reliability.ts
    */
   CONSTRAINT_GOALFIT_MODELLED_BASIS: 'CONSTRAINT_GOALFIT_MODELLED_BASIS',
+  /**
+   * Defensive sign-check on the auto-constraint fallback (Phase 1c+, run.ts
+   * ~line 3696): goal_constraints was empty so PLoT synthesised a single
+   * `>= goal_threshold` constraint from a bare number, with no visibility
+   * into the goal-framing text CEE extracted it from — the fallback cannot
+   * tell "at least X" from "at most X". When the guessed threshold is
+   * positive AND the modelled outcome distribution for that same target node
+   * never reaches non-negative territory even at its most favourable sampled
+   * percentile (p90 < 0), the constraint is structurally unsatisfiable: every
+   * option is guaranteed a ~0% `probability_of_joint_goal` by construction of
+   * the sign mismatch, not by the graph. That fabricated-looking near-zero is
+   * SUPPRESSED for the affected option(s) (absence is honest) in favour of
+   * this warning. Severity: warning.
+   * @see src/lib/constraint-reliability.ts
+   */
+  CONSTRAINT_DIRECTION_SUSPECT: 'CONSTRAINT_DIRECTION_SUSPECT',
 } as const;
 
 export type InferenceWarningCode = (typeof INFERENCE_WARNING_CODES)[keyof typeof INFERENCE_WARNING_CODES];

@@ -258,3 +258,58 @@ export function buildConstraintTargetUnreliableMessage(
     `Set a value or range for "${nodeLabel}" to make this target computable.`
   );
 }
+
+/**
+ * Defensive sign-check for the auto-constraint fallback (Phase 1c+, run.ts
+ * ~line 3696): when goal_constraints is empty but a bare `goal_threshold`
+ * exists, PLoT synthesises a single `>= threshold` constraint because it has
+ * no visibility into the goal-framing text CEE extracted the number from —
+ * a target phrased as a maximum ("keep churn under X") would need `<=`, not
+ * `>=`, and PLoT cannot tell the two apart from the number alone.
+ *
+ * Guessing wrong is usually harmless-looking (a plausible-but-wrong
+ * probability), which is exactly what makes it dangerous. This function
+ * catches the one case PLoT CAN detect on its own evidence, with no NLP:
+ * the guessed threshold is positive, and the modelled outcome distribution
+ * for that SAME target node never gets there even at its most favourable
+ * sampled percentile (p90 < 0). In that case `>= positive_threshold` is
+ * structurally unsatisfiable — every option is guaranteed a ~0% joint-goal
+ * probability by construction, not because the graph says the goal is hard.
+ * That ~0% is indistinguishable on the wire from a real "this option won't
+ * reach the target" signal, so emitting it would be a fabrication dressed
+ * up as a computation. Abstain instead (see run.ts call site).
+ *
+ * Deliberately conservative: absent/non-finite inputs, a non-positive
+ * threshold, or an outcome that reaches non-negative territory anywhere in
+ * its sampled range all return false — normal (satisfiable-looking) runs are
+ * completely untouched.
+ */
+export function isAutoConstraintDirectionSuspect(
+  autoConstraintValue: number | undefined,
+  outcomeP90: number | undefined,
+): boolean {
+  if (typeof autoConstraintValue !== 'number' || !Number.isFinite(autoConstraintValue)) return false;
+  if (autoConstraintValue <= 0) return false;
+  if (typeof outcomeP90 !== 'number' || !Number.isFinite(outcomeP90)) return false;
+  return outcomeP90 < 0;
+}
+
+/**
+ * Build the user-facing CONSTRAINT_DIRECTION_SUSPECT warning message.
+ *
+ * provisional_doctrine_v0 — wording surface. Names the node, states what
+ * PLoT observed (not an intent judgement — PLoT cannot see the goal framing
+ * text), says probabilities were withheld rather than fabricated, and
+ * suggests the concrete fix. Never quotes a suppressed number.
+ */
+export function buildConstraintDirectionSuspectMessage(nodeLabel: string): string {
+  return (
+    `The auto-generated success target for "${nodeLabel}" assumes higher is better, but the ` +
+    `modelled outcome for "${nodeLabel}" stays negative for every option even in the most ` +
+    `favourable modelled scenario — the target and the modelled direction don't line up. ` +
+    `Goal-fit probabilities were withheld for this run rather than showing a near-zero number ` +
+    `that the direction mismatch — not the graph — would produce. If "${nodeLabel}" is meant ` +
+    `to be minimised (e.g. a cost or a rate you want low), add an explicit goal constraint with ` +
+    `the correct operator instead of relying on the plain threshold.`
+  );
+}
