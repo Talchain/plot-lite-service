@@ -58,6 +58,12 @@ export const RESPONSE_CONTENT_HASH_EXCLUDED_KEYS: readonly string[] = [
   'thresholds_status',
   'thresholds_meta',
   'threshold_analysis',
+  // Deployment/environment provenance, not response content: meta.build is
+  // the deployed git SHA (changes every commit — a checked-in golden or
+  // cross-deploy replay would flip the hash with identical content), and
+  // meta.feature_flags is an environment snapshot carried for diagnostics.
+  'build',
+  'feature_flags',
   // Safety: never self-referential wherever it is attached
   'response_content_hash',
 ];
