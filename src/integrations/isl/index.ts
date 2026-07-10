@@ -697,6 +697,20 @@ export function createISLService(): ISLService {
 }
 
 /**
+ * Public projection of an ISLAnalysisResult error for v1 proxy responses
+ * (review [6]): the enriched fields (status, critiques — added for the
+ * /v2/run typed failure envelope) are internal discriminators for /v2/run
+ * and must not widen the declared v1 `isl_error` contract
+ * {code, message, retryable} or leak ISL-internal critique detail.
+ */
+export function toPublicIslError(
+  error: { code: string; message: string; retryable: boolean } | undefined,
+): { code: string; message: string; retryable: boolean } | undefined {
+  if (!error) return undefined;
+  return { code: error.code, message: error.message, retryable: error.retryable };
+}
+
+/**
  * Transform PLoT Graph to ISL DAG structure
  */
 function graphToISLDAG(graph: Graph): ISLDAGStructure {

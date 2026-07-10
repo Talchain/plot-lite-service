@@ -39,30 +39,6 @@ type IslBehaviour =
 
 let islBehaviour: IslBehaviour = { kind: 'computed' };
 
-function computedIslResponse() {
-  return {
-    analysis_status: 'computed',
-    seed_used: 42,
-    options: [
-      {
-        option_id: 'opt-a',
-        outcome: { mean: 0.7, std: 0.05, p10: 0.6, p50: 0.7, p90: 0.8, n_samples: 100, n_valid_samples: 100, validity_ratio: 1.0 },
-        win_probability: 0.7,
-        status: 'computed',
-      },
-      {
-        option_id: 'opt-b',
-        outcome: { mean: 0.4, std: 0.05, p10: 0.3, p50: 0.4, p90: 0.5, n_samples: 100, n_valid_samples: 100, validity_ratio: 1.0 },
-        win_probability: 0.3,
-        status: 'computed',
-      },
-    ],
-    factor_sensitivity: [],
-    robustness: { confidence: 0.8, level: 'high', is_robust: true, fragile_edges: [], robust_edges: [] },
-    inference_warnings: [],
-  };
-}
-
 const mockISLService = {
   isEnabled: () => true,
   async callAnalysisEndpoint<T>(): Promise<any> {
@@ -82,7 +58,7 @@ const mockISLService = {
       });
       return { data: bomb as T, latency_ms: 5, isl_echoed_request_id: null };
     }
-    return { data: computedIslResponse() as T, latency_ms: 5, isl_echoed_request_id: null };
+    return { data: makeComputedIslResponse() as T, latency_ms: 5, isl_echoed_request_id: null };
   },
 };
 
@@ -92,29 +68,10 @@ vi.mock('../src/integrations/isl/index.ts', async () => {
 });
 
 import { createServer } from '../src/createServer.js';
+import { makeValidRunBody, makeComputedIslResponse } from './helpers/run-fixtures.js';
 
-// ---------------------------------------------------------------------------
-// Minimal valid request (2 options — schema minimum)
-// ---------------------------------------------------------------------------
-function validBody(extra: Record<string, unknown> = {}) {
-  return {
-    graph: {
-      nodes: [
-        { id: 'factor-0', kind: 'factor', label: 'Factor 0', observed_state: { value: 0.5 } },
-        { id: 'goal', kind: 'goal', label: 'Goal' },
-      ],
-      edges: [
-        { from: 'factor-0', to: 'goal', exists_probability: 0.8, strength: { mean: 0.3, std: 0.05 } },
-      ],
-    },
-    options: [
-      { id: 'opt-a', label: 'Option A', interventions: { 'factor-0': { value: 0.8, source: 'user_specified' } } },
-      { id: 'opt-b', label: 'Option B', interventions: { 'factor-0': { value: 0.2, source: 'user_specified' } } },
-    ],
-    goal_node_id: 'goal',
-    ...extra,
-  };
-}
+// Minimal valid request (2 options — schema minimum), shared fixture
+const validBody = makeValidRunBody;
 
 function critiqueCodes(body: any): string[] {
   return (body.critiques ?? []).map((c: any) => c.code);
@@ -163,6 +120,10 @@ describe('/v2/run typed failure envelope', () => {
     const specific = body.critiques.find((c: any) => c.code === 'ISL_TIMEOUT');
     expect(specific.user_message).toBeTruthy();
     expect(specific.source).toBe('isl');
+    // Review [17]: raw ISL error detail (endpoint paths, timeout config)
+    // stays in the logs — the wire carries the class-safe copy only.
+    expect(specific.message).not.toContain('/api/');
+    expect(specific.message).not.toContain('30000ms');
   });
 
   it('ISL unreachable: failed response carries ISL_NETWORK_ERROR critique + honest status_reason', async () => {
@@ -210,6 +171,9 @@ describe('/v2/run typed failure envelope', () => {
     const body = res.json();
     expect(body.analysis_status).toBe('blocked');
     expect(critiqueCodes(body)).toContain('ISL_CANNOT_IDENTIFY');
+    // Review [0]: ISL blockers order FIRST — CEE plot-client renders
+    // critiques[0].message, which must never be a co-occurring info warning.
+    expect(body.critiques[0].code).toBe('ISL_CANNOT_IDENTIFY');
     expect(body.retryable).toBe(false);
     expect(body.status_reason).toContain('identifiable');
   });

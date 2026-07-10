@@ -14,7 +14,7 @@ import { replyWithAppError } from '../../errors.js';
 import { normalizeGraph } from '../../util/normalize.js';
 import { inferEdgeTypes } from '../../services/ranking/edge-type-inference.js';
 import { isFlagOn } from '../../cee/codes.js';
-import { islService } from '../../integrations/isl/index.js';
+import { islService, toPublicIslError } from '../../integrations/isl/index.js';
 import type {
   ContinuousOptimiseRequest,
   ContinuousOptimiseResponse,
@@ -273,7 +273,7 @@ export async function registerAnalysisOptimiseRoute(app: FastifyInstance) {
           );
 
           result = islResult.data;
-          islError = islResult.error;
+          islError = toPublicIslError(islResult.error);
 
           // Record result with circuit breaker
           if (result) {

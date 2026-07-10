@@ -15,7 +15,7 @@ import { detectPrimaryOutcome } from '../../services/ranking/outcome-detector.js
 import { inferEdgeTypes } from '../../services/ranking/edge-type-inference.js';
 import { isWinnerDominant } from '../../trust/ranking-confidence.js';
 import { isFlagOn } from '../../cee/codes.js';
-import { islService } from '../../integrations/isl/index.js';
+import { islService, toPublicIslError } from '../../integrations/isl/index.js';
 import type {
   DominanceAnalysisRequest,
   DominanceAnalysisResponse,
@@ -234,7 +234,7 @@ export async function registerDominanceAnalysisRoute(app: FastifyInstance) {
         );
 
         analysis = islResult.data;
-        islError = islResult.error;
+        islError = toPublicIslError(islResult.error);
 
         if (analysis) {
           provenance = 'isl';

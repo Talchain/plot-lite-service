@@ -14,7 +14,7 @@ import { normalizeGraph } from '../../util/normalize.js';
 import { detectPrimaryOutcome } from '../../services/ranking/outcome-detector.js';
 import { inferEdgeTypes } from '../../services/ranking/edge-type-inference.js';
 import { isFlagOn } from '../../cee/codes.js';
-import { islService } from '../../integrations/isl/index.js';
+import { islService, toPublicIslError } from '../../integrations/isl/index.js';
 import type {
   ParetoAnalysisRequest,
   ParetoAnalysisResponse,
@@ -257,7 +257,7 @@ export async function registerParetoAnalysisRoute(app: FastifyInstance) {
         islMs = islResult.latency_ms;
 
         analysis = islResult.data;
-        islError = islResult.error;
+        islError = toPublicIslError(islResult.error);
 
         if (analysis) {
           provenance = 'isl';
