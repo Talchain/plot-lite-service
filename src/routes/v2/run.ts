@@ -88,6 +88,7 @@ import {
   logISLCall,
 } from '../../logging/preflight-logger.js';
 import { getISLService } from '../../integrations/isl/index.js';
+import { ISLHttpError } from '../../integrations/isl/errors.js';
 import type { ISLCritique } from '../../integrations/isl/errors.js';
 import { errorResponse } from '../../errors.js';
 import { buildRobustnessDataForCee } from '../../integrations/isl/adapters/robustness-enrichment.js';
@@ -4794,13 +4795,16 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             });
           }
         } catch (err) {
-          // Defensive only: callAnalysisEndpoint has a no-throw contract
-          // (it catches ISLHttpError/timeouts/network internally and RETURNS
-          // the error object — handled via islCallError below). Review [9]
-          // removed the dead ISLHttpError belt that duplicated the live
-          // islCallError 422 branch.
+          // Defensive only: the real callAnalysisEndpoint has a no-throw
+          // contract (it catches ISLHttpError/timeouts/network internally and
+          // RETURNS the error object — handled via islCallError below).
+          // Review [9] removed the dead ISLHttpError 422 belt that duplicated
+          // the live islCallError branch, but a thrown ISLHttpError (swapped
+          // service implementation, test double) keeps its status semantics —
+          // retryableFromIslStatus(401/404) = false is pinned by
+          // v2-run-error-shapes.test.ts.
           islFallbackExecuted = true;
-          islStatusCode = 500;
+          islStatusCode = err instanceof ISLHttpError ? err.status : 500;
 
           req.log.error({
             event: 'isl_call_exception',
