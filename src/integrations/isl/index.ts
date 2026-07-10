@@ -18,7 +18,8 @@
  */
 
 import { ISLClient, getISLClientConfig } from './client.js';
-import { ISLTimeoutError, ISLNetworkError, isRetryableError } from './errors.js';
+import { ISLTimeoutError, ISLNetworkError, ISLHttpError, isRetryableError } from './errors.js';
+import type { ISLCritique } from './errors.js';
 import {
   adaptValidationResponse,
   createFallbackValidation,
@@ -86,6 +87,10 @@ export interface ISLAnalysisResult<T> {
     code: string;
     message: string;
     retryable: boolean;
+    /** HTTP status from ISL when the failure was an HTTP-level rejection */
+    status?: number;
+    /** Structured critiques from an ISL 422 (V2/V1/Pydantic formats normalised) */
+    critiques?: ISLCritique[];
   };
   /** Request latency in milliseconds */
   latency_ms: number;
@@ -656,23 +661,32 @@ export function createISLService(): ISLService {
         const err = error as Error;
         const isTimeout = err instanceof ISLTimeoutError;
         const isNetwork = err instanceof ISLNetworkError;
+        const httpError = error instanceof ISLHttpError ? error : undefined;
 
         logError(`isl_analysis_failed:${endpoint}`, error, requestId);
 
-        // Determine error code based on error type
+        // Determine error code based on error type. HTTP-level rejections keep
+        // their status (and 422 critiques) so callers can discriminate instead
+        // of collapsing every failure class into one generic code.
         let code = 'ISL_ERROR';
         if (isTimeout) {
           code = 'ISL_TIMEOUT';
         } else if (isNetwork) {
           code = 'ISL_NETWORK_ERROR';
+        } else if (httpError?.is422()) {
+          code = 'ISL_REJECTED';
         }
+
+        const critiques = httpError?.is422() ? httpError.getCritiques() : undefined;
 
         return {
           data: null,
           error: {
             code,
-            message: err.message || 'ISL analysis request failed',
+            message: (httpError?.is422() ? httpError.getErrorMessage() : err.message) || 'ISL analysis request failed',
             retryable: isRetryableError(error),
+            ...(httpError ? { status: httpError.status } : {}),
+            ...(critiques && critiques.length > 0 ? { critiques } : {}),
           },
           latency_ms: Date.now() - startMs,
           isl_echoed_request_id: (err as any).islEchoedRequestId ?? null,

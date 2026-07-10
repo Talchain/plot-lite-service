@@ -4055,6 +4055,30 @@ paths:
         - IDENTICAL_OPTIONS
         - GRAPH_CYCLE_DETECTED
         - GRAPH_TOO_LARGE (max 50 nodes, 100 edges)
+        - MISSING_GOAL_NODE
+        - GOAL_NODE_NOT_CAUSAL (goal is an option/decision node)
+        - TOO_MANY_OPTIONS
+        - TOO_MANY_CONSTRAINTS
+        - GRAPH_TOO_COMPLEX (node×edge product above the analysis complexity cap)
+        - DUPLICATE_EDGE_CONFLICT (same-relationship edges with divergent values)
+        - INVALID_NODE_ID_PATTERN
+        - INVALID_EDGE_ENDPOINT
+        - DUPLICATE_NODE_IDS
+        - IDENTIFIABILITY_ISSUE
+        - ISL_CANNOT_IDENTIFY (ISL-originated 422 critiques passed through)
+        - ISL_REQUEST_INVALID
+        - NORMALIZATION_ERROR
+        - CONSTRAINT_TARGET_NOT_FOUND / CONSTRAINT_TARGET_NOT_IN_INFERENCE / CONSTRAINT_INVALID_OPERATOR / CONSTRAINT_DUPLICATE_ID
+        - NOMINAL_INTERVENTION_NOT_SUPPORTED / ONE_HOT_MUTEX_VIOLATION / ONE_HOT_GROUPING_INCONSISTENT (categorical integrity)
+
+        **Failure classes (HTTP 200, analysis_status='failed')**:
+        Infrastructure failures return HTTP 200 with a discriminating critique carried
+        alongside the legacy ISL_CALL_FAILED critique (kept for back-compat):
+        - ISL_TIMEOUT (retryable) — analysis service timed out
+        - ISL_NETWORK_ERROR (retryable) — analysis service unreachable
+        - ISL_ERROR (retryable per status) — analysis service returned an HTTP error
+        - ISL_REJECTED (not retryable) — ISL 422 without parseable critiques
+        - PLOT_INTERNAL_ERROR (retryable) — unexpected internal error inside the handler; critiques[] is never empty
       requestBody:
         required: true
         content:
@@ -4227,6 +4251,48 @@ paths:
                         affected_option_ids: ["option_bad"]
                         affected_node_ids: ["nonexistent_node"]
                         blocks_analysis: true
+        '401':
+          description: Unauthorized - Bearer token required (emitted only when AUTH_ENABLED=1 and AUTH_V2_ENABLED=1; both default off)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+        '403':
+          description: Forbidden - Bearer token not recognised (emitted only when AUTH_ENABLED=1 and AUTH_V2_ENABLED=1; both default off)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+        '413':
+          description: Payload Too Large - request body exceeds the endpoint body limit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+        '429':
+          description: Too Many Requests - rate limited (retryable)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+        '500':
+          description: Internal Server Error - unexpected failure outside the /v2/run handler. Inside the handler, internal errors return HTTP 200 with analysis_status='failed' and a PLOT_INTERNAL_ERROR critique.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+        '503':
+          description: Service Unavailable - circuit breaker open (retryable)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+        '504':
+          description: Gateway Timeout - request timed out (retryable)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
 
 
 components:
@@ -6536,6 +6602,19 @@ components:
             - GRAPH_CYCLE_DETECTED: Graph contains cycles
             - IDENTIFIABILITY_ISSUE: Causal model cannot be identified
             - ISL_CANNOT_IDENTIFY: ISL layer cannot identify effect
+            - GRAPH_TOO_COMPLEX: Node×edge product above the analysis complexity cap
+            - DUPLICATE_EDGE_CONFLICT: Same-relationship edges with divergent values
+            - TOO_MANY_CONSTRAINTS: Constraint count exceeds the limit
+            - ISL_REQUEST_INVALID: Analysis request rejected before dispatch
+            - NORMALIZATION_ERROR: Model could not be normalised
+
+            Failure-class codes (HTTP 200, analysis_status='failed'):
+            - ISL_CALL_FAILED: Legacy generic ISL failure (kept for back-compat)
+            - ISL_TIMEOUT: Analysis service timed out
+            - ISL_NETWORK_ERROR: Analysis service unreachable
+            - ISL_ERROR: Analysis service returned an HTTP error
+            - ISL_REJECTED: ISL 422 without parseable critiques
+            - PLOT_INTERNAL_ERROR: Unexpected internal error (critiques[] never empty)
         severity:
           type: string
           enum: [info, warning, error, blocker]
@@ -6551,7 +6630,7 @@ components:
             keyed by critique code. Falls back to a generic message for unrecognised codes.
         source:
           type: string
-          enum: [validation, isl]
+          enum: [validation, engine, cee, isl]
         affected_option_ids:
           type: array
           items:

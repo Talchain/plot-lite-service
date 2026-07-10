@@ -89,6 +89,8 @@ import {
 } from '../../logging/preflight-logger.js';
 import { getISLService } from '../../integrations/isl/index.js';
 import { ISLHttpError } from '../../integrations/isl/errors.js';
+import type { ISLCritique } from '../../integrations/isl/errors.js';
+import { errorResponse } from '../../errors.js';
 import { buildRobustnessDataForCee } from '../../integrations/isl/adapters/robustness-enrichment.js';
 import {
   normalizeFragileEdges,
@@ -1266,6 +1268,45 @@ function buildBlockedResponse(
     computedAt,
     critiques: addUserMessages(critiques, graph, options),
   });
+}
+
+/**
+ * Honest per-class failure detail for ISL infrastructure failures
+ * (fragility gap 2, FRAGILITY-PAIR-FINDINGS-2026-07-10): the discriminating
+ * code computed by callAnalysisEndpoint reaches the wire as a critique
+ * instead of being discarded, so consumers can distinguish "service down,
+ * retry" from "request rejected, don't retry". Codes not listed here
+ * (e.g. ISL_NOT_ENABLED) keep the legacy response byte-identically.
+ */
+function buildIslFailureDetail(
+  error: { code: string; message: string; status?: number } | undefined,
+): { statusReason: string; critique?: CritiqueV3 } {
+  // user_message copy lives in the critique-humaniser TEMPLATE_MAP (single
+  // source, coverage-tested) — callers run the critique through addUserMessages.
+  const classStatusReasons: Record<string, string> = {
+    ISL_TIMEOUT: 'The analysis service timed out before returning a result.',
+    ISL_NETWORK_ERROR: 'The analysis service is unreachable.',
+    ISL_ERROR: 'The analysis service returned an error.',
+    ISL_REJECTED: 'The analysis service rejected this request.',
+  };
+  const classStatusReason = error ? classStatusReasons[error.code] : undefined;
+  if (!error || !classStatusReason) {
+    return { statusReason: 'ISL analysis failed' };
+  }
+  const statusReason = error.code === 'ISL_ERROR' && error.status
+    ? `The analysis service returned an error (HTTP ${error.status}).`
+    : classStatusReason;
+  return {
+    statusReason,
+    critique: {
+      id: randomUUID(),
+      code: error.code,
+      severity: 'error',
+      message: error.message,
+      source: 'isl',
+      blocks_analysis: false,
+    },
+  };
 }
 
 /**
@@ -3272,11 +3313,20 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           const keys = Object.keys(body);
           const unknown = keys.filter(k => !V2_RUN_ALLOWED_KEYS.has(k));
           if (unknown.length > 0) {
-            return reply.status(400).send({
-              statusCode: 400,
-              error: 'Bad Request',
-              message: `Unknown field: ${unknown[0]}. /v2/run does not accept additional properties.`,
-            });
+            // Fragility gap 6: this was the ONE /v2/run error path emitting the
+            // bare Fastify shape (no schema, no stable code). Normalised into
+            // the error.v1 envelope every other lifecycle error uses.
+            const preValidationRequestId =
+              (req.headers['x-request-id'] as string | undefined)?.trim()
+              || (body as { request_id?: string }).request_id
+              || String(req.id);
+            return reply.status(400).send(errorResponse(
+              'BAD_INPUT',
+              `Unknown field: ${unknown[0]}. /v2/run does not accept additional properties.`,
+              `Remove '${unknown[0]}' or check spelling`,
+              undefined,
+              preValidationRequestId,
+            ));
           }
         }
       },
@@ -4574,6 +4624,11 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         let islSuccess = false;
         let islStatusCode = 0;
         let islError: ISLHttpError | undefined;
+        // Full error object from callAnalysisEndpoint's no-throw contract —
+        // carries the discriminating code (+ status/critiques for HTTP-level
+        // rejections). Fragility gaps 2/3: previously only `retryable` was
+        // kept and the code was discarded.
+        let islCallError: { code: string; message: string; retryable: boolean; status?: number; critiques?: ISLCritique[] } | undefined;
         let islFallbackExecuted = false;
         let computedAt: string | undefined;
         let islEchoedRequestId: string | null = null;
@@ -4692,10 +4747,11 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               });
             }
           } else {
-            islStatusCode = 500;
+            islStatusCode = response.error?.status ?? 500;
             islFallbackExecuted = true;
             islEchoedRequestId = response.isl_echoed_request_id ?? null;
             islResponseRetryable = response.error?.retryable;
+            islCallError = response.error;
             req.log.error({
               event: 'isl_call_failed',
               error: response.error?.message ?? 'Unknown error',
@@ -4806,6 +4862,24 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           ));
         }
 
+        // Fragility gap 3: the branch above never fires on the live path —
+        // callAnalysisEndpoint catches ISLHttpError and RETURNS the error
+        // rather than throwing, so ISL's structured 422 critiques arrive
+        // here. Same 422-blocked contract as the throw path.
+        if (islCallError?.status === 422 && islCallError.critiques && islCallError.critiques.length > 0) {
+          const islCritiques = mapISLCritiquesToV2(islCallError.critiques);
+          critiques.push(...islCritiques);
+
+          return reply.status(422).send(buildBlockedResponse(
+            islCallError.message || 'ISL validation failed',
+            critiques,
+            filteredGraph,
+            normalizedOptions,
+            requestId,
+            computedAt ?? requestComputedAt,
+          ));
+        }
+
         // Handle ISL failure (non-422)
         if (!islSuccess) {
           const chain = buildRequestIdChain(hasExplicitRequestId, requestId, true, islEchoedRequestId);
@@ -4814,20 +4888,35 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           // V2 contract: failed = 200, communicates failure via analysis_status
           // Use service-computed retryable if available; fall back to status-based logic.
           const islRetryable = islResponseRetryable ?? retryableFromIslStatus(islStatusCode || undefined);
+          // Fragility gap 2: carry the discriminating failure class (timeout /
+          // unreachable / HTTP error / rejected) alongside the legacy
+          // ISL_CALL_FAILED critique, which stays for existing consumers.
+          const islFailure = buildIslFailureDetail(islCallError);
           return reply.send(buildV2RunError({
             analysisStatus: 'failed',
-            statusReason: 'ISL analysis failed',
+            statusReason: islFailure.statusReason,
             retryable: islRetryable,
             requestId,
             computedAt: computedAt ?? requestComputedAt,
-            critiques: [...critiques, {
-              id: randomUUID(),
-              code: 'ISL_CALL_FAILED',
-              severity: 'error' as const,
-              message: 'ISL analysis failed. Please try again.',
-              source: 'isl' as const,
-              blocks_analysis: false,
-            }],
+            // addUserMessages on the whole array matches the blocked-path
+            // behaviour (buildBlockedResponse) — the spec requires
+            // user_message on every critique; the failed path never set it.
+            critiques: addUserMessages(
+              [
+                ...critiques,
+                ...(islFailure.critique ? [islFailure.critique] : []),
+                {
+                  id: randomUUID(),
+                  code: 'ISL_CALL_FAILED',
+                  severity: 'error' as const,
+                  message: 'ISL analysis failed. Please try again.',
+                  source: 'isl' as const,
+                  blocks_analysis: false,
+                },
+              ],
+              filteredGraph,
+              normalizedOptions,
+            ),
           }));
         }
 
@@ -5791,12 +5880,24 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // Outermost safety net: guarantee V2RunError on any unexpected throw.
         // error.v1 must never leak from this endpoint.
         // V2 contract: failed = 200, communicates failure via analysis_status
+        // Fragility gap 1: the most severe failure class no longer returns an
+        // EMPTY critiques[] — it carries a typed PLOT_INTERNAL_ERROR critique.
+        // Copy is deliberately generic: the raw exception goes to the log
+        // above, never to the wire.
         return reply.send(buildV2RunError({
           analysisStatus: 'failed',
           statusReason: 'Internal server error',
           retryable: true,
           requestId,
           computedAt: requestComputedAt,
+          critiques: addUserMessages([{
+            id: randomUUID(),
+            code: 'PLOT_INTERNAL_ERROR',
+            severity: 'error',
+            message: 'Unexpected internal error while assembling the analysis response.',
+            source: 'engine',
+            blocks_analysis: false,
+          }]),
         }));
       }
     }
