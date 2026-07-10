@@ -17,7 +17,7 @@ import type {
 import { runDecisionReviewViaSdk, type EvidenceHelperItem } from './orchestrator.js';
 import { isFlagOn } from './codes.js';
 import { computeOlumiHash } from '../util/canonical.js';
-import { recordDownstreamCall, sanitizePayloadForDebug } from '../util/downstream-tracker.js';
+import { recordDownstreamCall, sanitizePayloadForDebug, computePayloadDigest } from '../util/downstream-tracker.js';
 import {
   CEE_TIMEOUT_MS as CENTRAL_CEE_TIMEOUT_MS,
   CEE_DECISION_REVIEW_TIMEOUT_MS as CENTRAL_DECISION_REVIEW_TIMEOUT_MS,
@@ -192,6 +192,10 @@ export async function callCEEWithSchemaV2<T>(
       }));
     }
 
+    // Exact request bytes — reused for the wire body AND the 2.13 byte digest
+    const bodyText = JSON.stringify(payload);
+    const requestDigest = computePayloadDigest(bodyText, payload);
+
     const response = await fetchWithTimeout(url, {
       method: 'POST',
       headers: {
@@ -200,11 +204,13 @@ export async function callCEEWithSchemaV2<T>(
         'X-Olumi-Assist-Key': config.apiKey,
         'X-Request-Id': requestId,
       },
-      body: JSON.stringify(payload),
+      body: bodyText,
       timeoutMs,
     });
 
     const latencyMs = Date.now() - startMs;
+    // 2.13 gap D: capture the downstream echo for the PLoT→CEE chain leg
+    const echoedRequestId = response.headers.get('x-request-id');
 
     if (!response.ok) {
       // Read error body first (truncate to 1000 chars for logging)
@@ -220,6 +226,8 @@ export async function callCEEWithSchemaV2<T>(
         payloadHash,
         requestId,
         errorBody,
+        requestDigest,
+        echoedRequestId,
       });
       throw new Error(`CEE ${path} failed: HTTP ${response.status} - ${errorText}`);
     }
@@ -227,7 +235,9 @@ export async function callCEEWithSchemaV2<T>(
     // Capture X-CEE-API-Version header
     const ceeApiVersion = response.headers.get('X-CEE-API-Version');
 
-    const data = await response.json() as T & { schema_version?: string; graph?: { edges?: Array<{ effect_direction?: string; strength_std?: number }> } };
+    // Raw text first (2.13): the byte digest must cover the EXACT wire bytes
+    const responseText = await response.text();
+    const data = JSON.parse(responseText) as T & { schema_version?: string; graph?: { edges?: Array<{ effect_direction?: string; strength_std?: number }> } };
     const schemaVersion = (data as any)?.schema_version;
 
     // Compute response hash for downstream tracking
@@ -242,6 +252,9 @@ export async function callCEEWithSchemaV2<T>(
       payloadHash,
       responseHash,
       requestId,
+      requestDigest,
+      responseDigest: computePayloadDigest(responseText, data),
+      echoedRequestId,
     });
 
     // V2 verification logging per acceptance criteria
@@ -401,6 +414,10 @@ export async function factorReviewV2(
     const url = `${baseUrl}${path}?schema=v2`;
     const payloadHash = computeOlumiHash(payload);
 
+    // Exact request bytes — reused for the wire body AND the 2.13 byte digest
+    const bodyText = JSON.stringify(payload);
+    const requestDigest = computePayloadDigest(bodyText, payload);
+
     const response = await fetchWithTimeout(url, {
       method: 'POST',
       headers: {
@@ -409,11 +426,12 @@ export async function factorReviewV2(
         'X-Olumi-Assist-Key': config.apiKey,
         'X-Request-Id': requestId,
       },
-      body: JSON.stringify(payload),
+      body: bodyText,
       timeoutMs: FACTOR_REVIEW_TIMEOUT_MS,
     });
 
     const latencyMs = Date.now() - startMs;
+    const echoedRequestId = response.headers.get('x-request-id');
 
     if (!response.ok) {
       // Read error body first (truncate to 1000 chars for logging)
@@ -429,6 +447,8 @@ export async function factorReviewV2(
         payloadHash,
         requestId,
         errorBody,
+        requestDigest,
+        echoedRequestId,
       });
 
       console.warn(JSON.stringify({
@@ -442,7 +462,9 @@ export async function factorReviewV2(
       return undefined;
     }
 
-    const data = await response.json() as CeeFactorReviewResponse;
+    // Raw text first (2.13): the byte digest must cover the EXACT wire bytes
+    const responseText = await response.text();
+    const data = JSON.parse(responseText) as CeeFactorReviewResponse;
     const responseHash = computeOlumiHash(data);
 
     // Record successful downstream call
@@ -454,6 +476,9 @@ export async function factorReviewV2(
       payloadHash,
       responseHash,
       requestId,
+      requestDigest,
+      responseDigest: computePayloadDigest(responseText, data),
+      echoedRequestId,
     });
 
     console.log(JSON.stringify({
@@ -545,6 +570,10 @@ export async function callDecisionReview(
     const payloadHash = computeOlumiHash(request);
 
     const effectiveTimeoutMs = config.timeoutMs ?? DECISION_REVIEW_TIMEOUT_MS;
+    // Exact request bytes — reused for the wire body AND the 2.13 byte digest
+    const bodyText = JSON.stringify(request);
+    const requestDigest = computePayloadDigest(bodyText, request);
+
     const response = await fetchWithTimeout(url, {
       method: 'POST',
       headers: {
@@ -553,11 +582,12 @@ export async function callDecisionReview(
         'X-Olumi-Assist-Key': config.apiKey,
         'X-Request-Id': requestId,
       },
-      body: JSON.stringify(request),
+      body: bodyText,
       timeoutMs: effectiveTimeoutMs,
     });
 
     const latencyMs = Date.now() - startMs;
+    const echoedRequestId = response.headers.get('x-request-id');
 
     if (!response.ok) {
       // Read error body first (truncate to 1000 chars for logging)
@@ -577,6 +607,8 @@ export async function callDecisionReview(
         errorBody,
         requestPayload: sanitizePayloadForDebug(request),
         responsePayload: sanitizePayloadForDebug(errorPayload),
+        requestDigest,
+        echoedRequestId,
       });
 
       console.warn(JSON.stringify({
@@ -597,7 +629,9 @@ export async function callDecisionReview(
       };
     }
 
-    const data = await response.json() as { review?: unknown; _meta?: { model?: string; latency_ms?: number; tokens?: number } };
+    // Raw text first (2.13): the byte digest must cover the EXACT wire bytes
+    const responseText = await response.text();
+    const data = JSON.parse(responseText) as { review?: unknown; _meta?: { model?: string; latency_ms?: number; tokens?: number } };
     const responseHash = computeOlumiHash(data);
 
     // Record successful downstream call with full payloads for debug
@@ -611,6 +645,9 @@ export async function callDecisionReview(
       requestId,
       requestPayload: sanitizePayloadForDebug(request),
       responsePayload: sanitizePayloadForDebug(data),
+      requestDigest,
+      responseDigest: computePayloadDigest(responseText, data),
+      echoedRequestId,
     });
 
     console.log(JSON.stringify({

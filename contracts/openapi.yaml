@@ -4031,7 +4031,15 @@ paths:
         - `drivers_status`: 'computed' | 'unavailable' | 'skipped' | 'error'
 
         **Response Hash**:
-        - `response_hash`: 16-char hex hash computed from semantic fields only (for determinism)
+        - `response_hash`: 16-char hex hash computed from semantic fields only (for determinism).
+          BY DESIGN this hashes the canonicalised REQUEST (graph, options, seed, identifiability
+          inputs) — a determinism/reproducibility token, NOT a hash of the response content.
+          Consumers use `response_hash` equality to prove "same analysis inputs"; it does not
+          verify response integrity.
+        - `_meta.response_content_hash` (additive, 2.13): "rch_v1:"-prefixed 16-char hex hash of
+          the response CONTENT — the public semantic surface minus volatile fields (timings,
+          timestamps, per-request ids, the `_meta` subtree). Deterministic across replays of the
+          same request and independently recomputable from the body. Success responses only.
 
         **Seed Handling**:
         - Accept string (canonical) or number (legacy)
