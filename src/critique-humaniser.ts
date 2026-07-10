@@ -199,6 +199,24 @@ export const TEMPLATE_MAP: Record<string, TemplateEntry> = {
   ISL_ERROR:
     'The analysis engine encountered an error. Please try again.',
 
+  ISL_TIMEOUT:
+    'The analysis took too long and timed out. This is usually temporary — try running it again.',
+
+  ISL_NETWORK_ERROR:
+    'We could not reach the analysis service. Try again shortly — if this keeps happening, the service may be down.',
+
+  ISL_REJECTED:
+    'The analysis service rejected this request, so the analysis could not run. Adjust the model and try again.',
+
+  PLOT_INTERNAL_ERROR:
+    'Something went wrong on our side while preparing the analysis. Your model is unaffected — try running the analysis again.',
+
+  GRAPH_TOO_COMPLEX:
+    'This model is too complex to analyse reliably. Reduce the number of factors or connections and re-run.',
+
+  DUPLICATE_EDGE_CONFLICT:
+    'The model has duplicate connections between the same factors with conflicting values. Keep one connection per relationship.',
+
   OPTION_ID_MISMATCH: (c, g, opts) => {
     const label = resolveOptionLabel(
       c.affected_option_ids?.[0] ?? c.affected_node_ids?.[0], opts, g,

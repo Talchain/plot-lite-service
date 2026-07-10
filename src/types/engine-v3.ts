@@ -588,6 +588,15 @@ export const INLINE_CRITIQUE_CODES = [
   'ISL_CALL_FAILED',
   'ISL_EMPTY_RESULTS',
   'ISL_ERROR',
+  // Typed failure envelope (fragility pair 2026-07-10): discriminating ISL
+  // failure classes + typed internal-exception critique.
+  'ISL_TIMEOUT',                      // ISL request timed out
+  'ISL_NETWORK_ERROR',                // ISL unreachable
+  'ISL_REJECTED',                     // ISL HTTP 422 (with critiques → 422 blocked; without → failed)
+  'PLOT_INTERNAL_ERROR',              // outermost /v2/run catch — never an empty critiques[]
+  // Registered late (both already emitted via buildBlockedResponse):
+  'GRAPH_TOO_COMPLEX',                // complexity refusal at the ISL cap (ROADMAP 1.54)
+  'DUPLICATE_EDGE_CONFLICT',          // same-relationship edges with divergent values
   'MIXED_RANGE_DERIVATION',           // factors use 2+ different derivation tiers
   // preflight-v2.ts
   'SCALE_MISMATCH_WARNING',
