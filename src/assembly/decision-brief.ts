@@ -31,6 +31,7 @@ import type {
   BriefBandedHeadline,
   BriefDefaultedAssumption,
   BriefRobustnessCaveat,
+  BriefAnalysisSummary,
 } from '../types/decision-brief.js';
 import { DECISION_BRIEF_VERSION } from '../types/decision-brief.js';
 import type { RunResponseV3 } from '../types/engine-v3.js';
@@ -242,6 +243,17 @@ export function assembleBrief(input: BriefAssemblyInput): DecisionBriefV1 | null
       }
     : {};
 
+  // --- Platform lane (roadmap 3.1): decision-record capture surface ---
+  // Gated default-OFF (dark ship); shape pinned against
+  // DecisionRecordAnalysisSummarySchema.strict() in
+  // tests/decision-brief.analysis-summary.test.ts.
+  const analysisSummarySurface = FLAGS.BRIEF_DECISION_RECORD_SUMMARY_ENABLE
+    ? (() => {
+        const summary = buildAnalysisSummary(options, input);
+        return summary ? { analysis_summary: summary } : {};
+      })()
+    : {};
+
   return {
     brief_id: briefId,
     version: DECISION_BRIEF_VERSION,
@@ -257,6 +269,7 @@ export function assembleBrief(input: BriefAssemblyInput): DecisionBriefV1 | null
     warnings,
     lineage,
     ...claimSafeSurfaces,
+    ...analysisSummarySurface,
   };
 }
 
@@ -296,6 +309,49 @@ function buildOptions(input: BriefAssemblyInput): BriefOption[] {
     win_probability: o.win_probability ?? 0,
     rank: i + 1,
   }));
+}
+
+/**
+ * Platform lane (roadmap 3.1): the decision-record capture surface.
+ *
+ * Ratified seam (orchestrator, 2026-07-10) — every field copied, none
+ * derived: leading_option/win_probability from the rank-1 option (the same
+ * deterministic ranking as buildOptions), goal_fit from the LEADER's
+ * probability_of_joint_goal (omitted when absent — never invented from
+ * probability_of_goal or anything else), robustness_band from
+ * robustness.display_verdict VERBATIM incl. 'not_assessed' (omitted when
+ * the verdict is absent — never derived from level/is_robust; that honest
+ * mapping already happened in robustness-display-verdict.ts).
+ *
+ * Returns undefined when no ranked leader exists — the surface is
+ * optional-forward and consumers tolerate absence.
+ */
+function buildAnalysisSummary(
+  options: BriefOption[],
+  input: BriefAssemblyInput,
+): BriefAnalysisSummary | undefined {
+  const leader = options[0];
+  if (!leader) return undefined;
+
+  const summary: BriefAnalysisSummary = {
+    leading_option: leader.label,
+    win_probability: leader.win_probability,
+  };
+
+  const leaderComparison = (input.option_comparison ?? []).find(
+    (o) => o.option_id === leader.option_id,
+  );
+  const goalFit = leaderComparison?.probability_of_joint_goal;
+  if (typeof goalFit === 'number' && Number.isFinite(goalFit)) {
+    summary.goal_fit = goalFit;
+  }
+
+  const verdict = input.robustness?.display_verdict;
+  if (typeof verdict === 'string' && verdict.length > 0) {
+    summary.robustness_band = verdict;
+  }
+
+  return summary;
 }
 
 function buildTopDrivers(input: BriefAssemblyInput): BriefDriver[] {

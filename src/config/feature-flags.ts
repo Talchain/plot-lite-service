@@ -55,6 +55,8 @@ export const KNOWN_FEATURE_FLAGS = [
   'ENABLE_VALIDATE_PATCH',
   // Lane PLoT-R3: decision_brief claim-safe surfaces (default ON; golden-fixture byte-identity gate)
   'BRIEF_CLAIM_SAFE_SURFACES_ENABLE',
+  // Platform lane (roadmap 3.1): decision_brief.analysis_summary capture surface (default OFF, dark)
+  'BRIEF_DECISION_RECORD_SUMMARY_ENABLE',
 ] as const;
 
 export function validateFeatureFlags(logger?: any): void {

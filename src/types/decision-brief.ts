@@ -102,6 +102,40 @@ export interface DecisionBriefV1 {
    * run carried no warning-severity inference warnings.
    */
   warning_codes?: string[];
+
+  // ===========================================================================
+  // Platform lane (roadmap 3.1) — decision-record capture surface. ADDITIVE,
+  // optional, flag-gated DEFAULT-OFF (BRIEF_DECISION_RECORD_SUMMARY_ENABLE).
+  // ===========================================================================
+
+  /**
+   * Display-safe analysis summary for decision-record capture, shaped
+   * EXACTLY like @talchain/schemas 0.15.0 DecisionRecordAnalysisSummarySchema
+   * (`.strict()`) so the CEE capture hook copies it verbatim into
+   * `DecisionRecordDecision.analysis_summary` — zero mapping (seam ratified
+   * 2026-07-10): leading_option = rank-1 option label · win_probability =
+   * rank-1 win probability · goal_fit = leader's probability_of_joint_goal
+   * (OMITTED when absent — never invented) · robustness_band =
+   * `robustness.display_verdict` verbatim incl. 'not_assessed' (OMITTED when
+   * the verdict is absent — never derived from another signal).
+   *
+   * Optional-forward by design: absent when the flag is off, and a decision
+   * record is valid without it (the brief itself is also null when
+   * robustness/options are missing — consumers must tolerate absence).
+   */
+  analysis_summary?: BriefAnalysisSummary;
+}
+
+/**
+ * Mirror of DecisionRecordAnalysisSummarySchema (0.15.0). Kept structurally
+ * identical — tests/decision-brief.analysis-summary.test.ts pins the emitted
+ * value against the schema's `.strict()` parse, so drift fails CI.
+ */
+export interface BriefAnalysisSummary {
+  leading_option?: string;
+  win_probability?: number;
+  goal_fit?: number;
+  robustness_band?: string;
 }
 
 // =============================================================================
