@@ -1547,6 +1547,8 @@
       "plot": "__VOLATILE__",
       "isl": "__VOLATILE__",
       "isl_echoed": null,
+      "cee": null,
+      "cee_echoed": null,
       "all_match": false,
       "chain_complete": false
     },
@@ -1603,7 +1605,8 @@
     },
     "decision_brief_assembled": true,
     "review_cards_count": 0,
-    "evidence_priority_card_present": false
+    "evidence_priority_card_present": false,
+    "response_content_hash": "rch_v1:c1926e261773448f"
   },
   "meta": {
     "seed_used": "2034401427",
@@ -1623,6 +1626,8 @@
       "plot": "__VOLATILE__",
       "isl": "__VOLATILE__",
       "isl_echoed": null,
+      "cee": null,
+      "cee_echoed": null,
       "all_match": false,
       "chain_complete": false
     },
