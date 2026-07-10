@@ -2015,6 +2015,21 @@ export const INFERENCE_WARNING_CODES = {
    * @see src/lib/constraint-reliability.ts
    */
   CONSTRAINT_DIRECTION_SUSPECT: 'CONSTRAINT_DIRECTION_SUSPECT',
+  /**
+   * ROADMAP 1.54 (density wall): the Monte Carlo sample depth for this run
+   * was reduced before the ISL call so that the request fits ISL's
+   * complexity budget (`n_samples × nodes × edges ≤ ISL_MAX_COMPUTE_COMPLEXITY`,
+   * default 10,000,000) — previously such graphs failed outright with a raw
+   * ISL 422. The message names BOTH the originally requested/default depth
+   * and the reduced depth actually used; `meta.n_samples` (and brief/fact
+   * lineage) always report the TRUE reduced depth. Reductions never go below
+   * ADAPTIVE_N_SAMPLES_FLOOR (1,000) — graphs that cannot fit even at the
+   * floor are refused with a GRAPH_TOO_COMPLEX blocker instead (422, before
+   * ISL). Displayed probabilities may be less stable than at the standard
+   * depth (Track S ±3pp target was calibrated at 4,000). Severity: warning.
+   * @see src/config/sampling.ts applyComplexityBudget
+   */
+  SAMPLES_REDUCED_FOR_COMPLEXITY: 'SAMPLES_REDUCED_FOR_COMPLEXITY',
 } as const;
 
 export type InferenceWarningCode = (typeof INFERENCE_WARNING_CODES)[keyof typeof INFERENCE_WARNING_CODES];
