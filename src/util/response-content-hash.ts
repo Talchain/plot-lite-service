@@ -8,30 +8,41 @@
  * the x-olumi-response-hash header, which covers volatile fields
  * (latency_ms, timestamps) and is therefore not reproducible across runs.
  *
- * `response_content_hash` closes that gap: sha256 (16 hex, "rch_v1:"-prefixed)
+ * `response_content_hash` closes that gap: sha256 (16 hex, versioned prefix)
  * over the PUBLIC semantic surface of the response — the full body minus
- * the `_meta` diagnostic subtree and minus the volatile field set below —
- * with the natural-key array sorts the determinism-replay suite uses, so a
- * replayed identical request yields an identical hash. It is attached to
- * `_meta.response_content_hash` AFTER computation, so it never hashes itself,
- * and it never feeds `hashRequest` (request-hash stability preserved).
+ * the `_meta` diagnostic subtree and minus the volatile field set below.
+ * It is attached inside buildResponse AFTER the body is assembled, so it
+ * never hashes itself, and it never feeds `hashRequest` (request-hash
+ * stability preserved).
+ *
+ * rch_v2 (review-hardening, 2026-07-11) changed the recipe from rch_v1:
+ *   - array pre-sort uses locale-independent code-unit comparison (was
+ *     localeCompare — ICU/locale-dependent, so the "independently
+ *     recomputable" promise could break across Node builds);
+ *   - equal natural keys tie-break on the elements' canonical serialisation
+ *     (edge_sensitivity carries each edge_id twice — existence+magnitude —
+ *     so a key-only sort left upstream order leaking into the hash);
+ *   - `id` is stripped ONLY inside the `critiques` subtree (critique UUIDs),
+ *     no longer globally — nested semantic `id` fields (e.g. review-card
+ *     supporting_refs) are hashed content again;
+ *   - single-pass serialisation (no intermediate deep clones).
  *
  * The exclusion list is exported so tests (and external verifiers) recompute
  * the hash independently — "zero hash mismatches" is asserted, not assumed.
- * Keep it aligned with tests/determinism-replay.test.ts IGNORE_FIELDS: a new
- * volatile field that breaks replay-stability of this hash must be added in
- * BOTH places, as a conscious decision.
+ * SHARED_VOLATILE_KEYS is the single source the determinism-replay suite
+ * derives its ignore-list from: a new volatile field is added ONCE, here.
  */
 
 import { createHash } from 'node:crypto';
-import { canonicalJson } from '../facts/hash.js';
 
-export const RESPONSE_CONTENT_HASH_VERSION = 'rch_v1';
+export const RESPONSE_CONTENT_HASH_VERSION = 'rch_v2';
 
-/** Field names stripped (deep, by key) before hashing — the volatile set. */
-export const RESPONSE_CONTENT_HASH_EXCLUDED_KEYS: readonly string[] = [
-  // Diagnostic subtree (builds, digests, payloads, this hash itself)
-  '_meta',
+/**
+ * Volatile-by-key field names shared with the determinism-replay suite
+ * (tests/determinism-replay.test.ts derives its IGNORE_FIELDS from this —
+ * single source; do not fork a second list).
+ */
+export const SHARED_VOLATILE_KEYS: readonly string[] = [
   // Per-request identity & call traces
   'request_id',
   'request_id_chain',
@@ -49,8 +60,7 @@ export const RESPONSE_CONTENT_HASH_EXCLUDED_KEYS: readonly string[] = [
   'isl_ms',
   'cee_ms',
   'timestamp',
-  // Per-run generated identifiers
-  'id',        // critique UUIDs (semantic ids use option_id/edge_id/factor_id)
+  // Per-run generated identifiers / containers of them
   'brief_id',
   'created_at',
   'fact_objects',
@@ -58,20 +68,32 @@ export const RESPONSE_CONTENT_HASH_EXCLUDED_KEYS: readonly string[] = [
   'thresholds_status',
   'thresholds_meta',
   'threshold_analysis',
-  // Deployment/environment provenance, not response content: meta.build is
-  // the deployed git SHA (changes every commit — a checked-in golden or
-  // cross-deploy replay would flip the hash with identical content), and
-  // meta.feature_flags is an environment snapshot carried for diagnostics.
+];
+
+/**
+ * Additional exclusions specific to the content hash (NOT for the replay
+ * suite, which deliberately still compares `_meta` contents):
+ * `_meta` = diagnostic subtree (builds, digests, payloads, this hash);
+ * `build`/`feature_flags` = deployment/environment provenance (meta.build is
+ * the deployed git SHA — a checked-in golden or cross-deploy replay would
+ * flip the hash with identical content); self-reference guard. `id` is NOT
+ * here — it is stripped context-scoped, only inside `critiques` (see
+ * serialize()).
+ */
+export const RESPONSE_CONTENT_HASH_EXCLUDED_KEYS: readonly string[] = [
+  ...SHARED_VOLATILE_KEYS,
+  '_meta',
   'build',
   'feature_flags',
-  // Safety: never self-referential wherever it is attached
   'response_content_hash',
 ];
 
 /**
- * Top-level arrays sorted by natural key before hashing — mirrors the
- * determinism-replay suite's SORT_ARRAYS_BY so element-order jitter can't
- * flip the hash between replays.
+ * Top-level arrays pre-sorted by natural key before hashing, so element-order
+ * jitter can't flip the hash between replays. The determinism-replay suite
+ * derives its SORT_ARRAYS_BY from this map (single source). Ties on the
+ * natural key (edge_sensitivity legitimately repeats edge_id) fall back to
+ * the elements' canonical serialisation, so upstream ordering never leaks in.
  */
 export const RESPONSE_CONTENT_HASH_SORTED_ARRAYS: Readonly<Record<string, string>> = {
   option_comparison: 'option_id',
@@ -80,46 +102,79 @@ export const RESPONSE_CONTENT_HASH_SORTED_ARRAYS: Readonly<Record<string, string
   critiques: 'code',
 };
 
-function stripVolatile(value: unknown, excluded: ReadonlySet<string>): unknown {
+/** Locale-independent code-unit string comparison (never localeCompare). */
+function cmpCodeUnit(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/**
+ * Single-pass canonical serialiser: sorted object keys (code-unit order),
+ * excluded keys dropped, `id` dropped only inside the `critiques` subtree.
+ * Emits JSON text directly — no intermediate clone of the body.
+ */
+function serialize(value: unknown, insideCritiques: boolean, excluded: ReadonlySet<string>): string | undefined {
+  if (value === null) return 'null';
+  switch (typeof value) {
+    case 'string':
+    case 'number':
+    case 'boolean':
+      return JSON.stringify(value);
+    case 'undefined':
+    case 'function':
+    case 'symbol':
+      return undefined;
+  }
   if (Array.isArray(value)) {
-    return value.map((v) => stripVolatile(v, excluded));
+    const parts = value.map((v) => serialize(v, insideCritiques, excluded) ?? 'null');
+    return `[${parts.join(',')}]`;
   }
-  if (value !== null && typeof value === 'object') {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      if (excluded.has(k)) continue;
-      out[k] = stripVolatile(v, excluded);
-    }
-    return out;
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record)
+    .filter((k) => !excluded.has(k) && !(insideCritiques && k === 'id'))
+    .sort(cmpCodeUnit);
+  const parts: string[] = [];
+  for (const k of keys) {
+    const v = serialize(record[k], insideCritiques || k === 'critiques', excluded);
+    if (v !== undefined) parts.push(`${JSON.stringify(k)}:${v}`);
   }
-  return value;
+  return `{${parts.join(',')}}`;
 }
 
 /**
  * Compute the deterministic content hash of a /v2/run response body.
- * Pass the body WITHOUT `_meta.response_content_hash` attached (the field is
- * stripped defensively anyway via the exclusion list).
+ * Safe to pass the fully-built body: `_meta` (and therefore any attached
+ * response_content_hash) is excluded by construction.
  */
 export function computeResponseContentHash(body: unknown): string {
   const excluded = new Set(RESPONSE_CONTENT_HASH_EXCLUDED_KEYS);
-  const stripped = stripVolatile(body, excluded);
+  let surface = body;
 
-  if (stripped !== null && typeof stripped === 'object' && !Array.isArray(stripped)) {
-    const record = stripped as Record<string, unknown>;
+  if (body !== null && typeof body === 'object' && !Array.isArray(body)) {
+    const record = body as Record<string, unknown>;
+    const overrides: Record<string, unknown> = {};
     for (const [field, sortKey] of Object.entries(RESPONSE_CONTENT_HASH_SORTED_ARRAYS)) {
       const arr = record[field];
-      if (Array.isArray(arr)) {
-        record[field] = [...arr].sort((a, b) =>
-          String((a as Record<string, unknown>)?.[sortKey] ?? '')
-            .localeCompare(String((b as Record<string, unknown>)?.[sortKey] ?? '')),
+      if (!Array.isArray(arr)) continue;
+      const insideCritiques = field === 'critiques';
+      overrides[field] = [...arr].sort((a, b) => {
+        const ka = String((a as Record<string, unknown>)?.[sortKey] ?? '');
+        const kb = String((b as Record<string, unknown>)?.[sortKey] ?? '');
+        const primary = cmpCodeUnit(ka, kb);
+        if (primary !== 0) return primary;
+        // Tie-break: full canonical serialisation, so duplicate natural keys
+        // (e.g. edge_sensitivity existence+magnitude rows) order stably.
+        return cmpCodeUnit(
+          serialize(a, insideCritiques, excluded) ?? 'null',
+          serialize(b, insideCritiques, excluded) ?? 'null',
         );
-      }
+      });
+    }
+    if (Object.keys(overrides).length > 0) {
+      surface = { ...record, ...overrides };
     }
   }
 
-  const digest = createHash('sha256')
-    .update(canonicalJson(stripped), 'utf8')
-    .digest('hex')
-    .slice(0, 16);
+  const canonical = serialize(surface, false, excluded) ?? 'null';
+  const digest = createHash('sha256').update(canonical, 'utf8').digest('hex').slice(0, 16);
   return `${RESPONSE_CONTENT_HASH_VERSION}:${digest}`;
 }

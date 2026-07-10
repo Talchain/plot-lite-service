@@ -15,6 +15,10 @@ import {
   canonicalCompare,
   DEFAULT_IGNORE_FIELDS,
 } from './utils/canonical-compare.js';
+import {
+  SHARED_VOLATILE_KEYS,
+  RESPONSE_CONTENT_HASH_SORTED_ARRAYS,
+} from '../src/util/response-content-hash.js';
 
 // ---------------------------------------------------------------------------
 // ISL Mock — deterministic responses keyed by option ID
@@ -116,43 +120,33 @@ const OPTIONS = [
   { id: 'opt2', label: 'Reduce Churn', interventions: { 'factor-b': 0.3 } },
 ];
 
-/** Volatile fields that vary between runs (timestamps, durations, UUIDs). */
+/**
+ * Volatile fields that vary between runs (timestamps, durations, UUIDs).
+ * Review [13]: the shared volatile set is single-sourced from
+ * src/util/response-content-hash.ts (SHARED_VOLATILE_KEYS) so a new volatile
+ * field added there automatically stays out of BOTH this replay comparison
+ * and response_content_hash. Test-only additions below: `id` (critique UUIDs
+ * — the content hash strips these context-scoped inside `critiques` only,
+ * but this suite compares the whole body) and the _meta.evidence digests
+ * (cover exact ISL wire bytes incl. the per-request request_id; the content
+ * hash excludes all of _meta wholesale, which this suite deliberately does
+ * NOT — evidence.plot_build/isl_build stay compared).
+ */
 const IGNORE_FIELDS = [
   ...DEFAULT_IGNORE_FIELDS,
-  'timing',
-  'latency_ms',
-  'normalization_ms',
-  'validation_ms',
-  'isl_ms',
-  'cee_ms',
+  ...SHARED_VOLATILE_KEYS,
   'id', // critique UUIDs
-  'downstream_calls', // per-request ISL/CEE call traces (IDs, timings, payloads)
-  'request_id_chain', // per-request UUID chain across services
-  'requestId', // ceeTrace.requestId (per-request UUID)
-  'timestamp', // ceeTrace.timestamp, downstream_calls timestamps
-  'plot_request_id', // ceeTrace.plot_request_id (per-request UUID)
-  'cee_sent_request_id', // ceeTrace.cee_sent_request_id (per-request UUID)
-  'thresholds_status',   // B10.3: depends on ISL call timing, not deterministic inputs
-  'thresholds_meta',     // B10.3: contains duration_ms (volatile timing)
-  'threshold_analysis',  // B10.3: presence depends on ISL call success/timing
-  'brief_id',            // decision_brief: deterministic SHA-256-derived UUID (excluded for backwards compat with existing snapshots)
-  'created_at',          // decision_brief: timestamp per assembly
-  'fact_objects',        // F.7: fact_objects contain per-request IDs (fact_id, isl_request_id, content_hash); tested separately
-  // Lane PLoT-R3 (2.13): _meta.evidence digests cover the EXACT ISL wire bytes,
-  // which include the per-request request_id — legitimately volatile per run
-  // (same class as downstream_calls / request_id, already ignored above).
-  // evidence.plot_build and evidence.isl_build remain compared.
   'isl_request_digest',
   'isl_response_digest',
 ];
 
-/** Sort arrays by their natural key so element order doesn't cause false mismatches. */
-const SORT_ARRAYS_BY = {
-  '$.option_comparison': 'option_id',
-  '$.edge_sensitivity': 'edge_id',
-  '$.factor_sensitivity': 'factor_id',
-  '$.critiques': 'code',
-};
+/**
+ * Sort arrays by their natural key so element order doesn't cause false
+ * mismatches — derived from the content-hash module's map (single source).
+ */
+const SORT_ARRAYS_BY = Object.fromEntries(
+  Object.entries(RESPONSE_CONTENT_HASH_SORTED_ARRAYS).map(([field, key]) => [`$.${field}`, key]),
+);
 
 // ---------------------------------------------------------------------------
 // Tests

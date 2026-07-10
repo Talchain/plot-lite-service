@@ -88,7 +88,6 @@ import {
   logISLCall,
 } from '../../logging/preflight-logger.js';
 import { getISLService } from '../../integrations/isl/index.js';
-import { ISLHttpError } from '../../integrations/isl/errors.js';
 import type { ISLCritique } from '../../integrations/isl/errors.js';
 import { errorResponse } from '../../errors.js';
 import { buildRobustnessDataForCee } from '../../integrations/isl/adapters/robustness-enrichment.js';
@@ -1310,7 +1309,11 @@ function buildIslFailureDetail(
       id: randomUUID(),
       code: error.code,
       severity: 'error',
-      message: error.message,
+      // Review [17]: class-safe copy, never the raw ISL error.message — raw
+      // detail carries internals (endpoint paths, timeout config) and already
+      // goes to the logs (isl_call_failed / isl_analysis_failed events); the
+      // wire gets the same claim-safe posture as PLOT_INTERNAL_ERROR.
+      message: statusReason,
       source: 'isl',
       blocks_analysis: false,
     },
@@ -2546,7 +2549,12 @@ function buildResponse(
     });
   }
 
-  return {
+  // Snapshot the downstream call log ONCE — _meta.builds, _meta.payloads,
+  // _meta.evidence and downstream_calls below all read it (review [7]: was
+  // re-scanned + re-mapped per consumer, copying sanitized ISL bodies each time).
+  const downstreamCallsForLog = getDownstreamCallsForLog(requestId);
+
+  const response: RunResponseV3 = {
     request_schema_version: 'v3',
     endpoint_version: 'v2/run',
     preflight_version: PREFLIGHT_VERSION_VALUE,
@@ -2776,7 +2784,7 @@ function buildResponse(
 
       // Extended _meta fields only when feature flag enabled
       if (isCanonicalMetaEnabled()) {
-        const allCalls = getDownstreamCallsForLog(requestId);
+        const allCalls = downstreamCallsForLog;
         const islCall = allCalls.find(c => c.service === 'isl');
 
         // Build versions for all services in the pipeline
@@ -2837,7 +2845,7 @@ function buildResponse(
       // primary exchange is the first robustness/analyze call; flip probes and
       // follow-ups remain visible in downstream_calls when captured.
       baseMeta.evidence = (() => {
-        const calls = getDownstreamCallsForLog(requestId);
+        const calls = downstreamCallsForLog;
         const primaryIslCall =
           calls.find((c) => c.service === 'isl' && c.endpoint.includes('/robustness/analyze')) ??
           calls.find((c) => c.service === 'isl');
@@ -2873,7 +2881,7 @@ function buildResponse(
 
     // Downstream service calls (ISL, CEE) for debugging and tracing
     downstream_calls: (() => {
-      const allCalls = getDownstreamCallsForLog(requestId);
+      const allCalls = downstreamCallsForLog;
       if (allCalls.length === 0) return undefined;
       const islCalls = allCalls.filter(c => c.service === 'isl');
       const ceeCalls = allCalls.filter(c => c.service === 'cee');
@@ -2914,6 +2922,18 @@ function buildResponse(
       },
     },
   };
+
+  // 2.13 gap A (review [10]: attach at the OWNER layer, not per send site):
+  // buildResponse owns _meta, so every caller — main computed path AND the
+  // ISL_NOT_ENABLED early return — carries the deterministic content hash.
+  // Attached after assembly so it never hashes itself (_meta is excluded
+  // from the hash by construction). response_hash (request-canonical
+  // determinism token) is deliberately untouched.
+  if (response._meta) {
+    response._meta.response_content_hash = computeResponseContentHash(response);
+  }
+
+  return response;
 }
 
 // -----------------------------------------------------------------------------
@@ -4639,7 +4659,6 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         let islResult: any;
         let islSuccess = false;
         let islStatusCode = 0;
-        let islError: ISLHttpError | undefined;
         // Full error object from callAnalysisEndpoint's no-throw contract —
         // carries the discriminating code (+ status/critiques for HTTP-level
         // rejections). Fragility gaps 2/3: previously only `retryable` was
@@ -4775,24 +4794,13 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             });
           }
         } catch (err) {
+          // Defensive only: callAnalysisEndpoint has a no-throw contract
+          // (it catches ISLHttpError/timeouts/network internally and RETURNS
+          // the error object — handled via islCallError below). Review [9]
+          // removed the dead ISLHttpError belt that duplicated the live
+          // islCallError 422 branch.
           islFallbackExecuted = true;
-          if (err instanceof ISLHttpError) {
-            islError = err;
-            islStatusCode = err.status;
-            islEchoedRequestId = (err as any).islEchoedRequestId ?? null;
-
-            // Handle 422 from ISL with structured critiques (V2, V1, or Pydantic format)
-            if (err.is422()) {
-              req.log.info({
-                event: 'isl_422_received',
-                format: err.isV2Format() ? 'v2' : 'legacy',
-                message: err.getErrorMessage(),
-                critiques_count: err.getCritiques().length,
-              });
-            }
-          } else {
-            islStatusCode = 500;
-          }
+          islStatusCode = 500;
 
           req.log.error({
             event: 'isl_call_exception',
@@ -4863,32 +4871,17 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           });
         }
 
-        // Handle ISL 422 with structured critiques (V2, V1, or Pydantic format)
-        if (islError?.is422()) {
-          const islCritiques = mapISLCritiquesToV2(islError.getCritiques());
-          critiques.push(...islCritiques);
-
-          return reply.status(422).send(buildBlockedResponse(
-            islError.getErrorMessage(),
-            critiques,
-            filteredGraph,
-            normalizedOptions,
-            requestId,
-            computedAt ?? requestComputedAt,
-          ));
-        }
-
-        // Fragility gap 3: the branch above never fires on the live path —
-        // callAnalysisEndpoint catches ISLHttpError and RETURNS the error
-        // rather than throwing, so ISL's structured 422 critiques arrive
-        // here. Same 422-blocked contract as the throw path.
+        // Fragility gap 3: ISL 422 with structured critiques. callAnalysisEndpoint
+        // catches ISLHttpError and RETURNS the error object (no-throw contract),
+        // so ISL's structured 422 critiques arrive here. ISL blockers go FIRST
+        // (review [0]: CEE plot-client renders critiques[0].message — an info
+        // NORMALIZATION_WARNING must not displace the blocking ISL critique).
         if (islCallError?.status === 422 && islCallError.critiques && islCallError.critiques.length > 0) {
           const islCritiques = mapISLCritiquesToV2(islCallError.critiques);
-          critiques.push(...islCritiques);
 
           return reply.status(422).send(buildBlockedResponse(
             islCallError.message || 'ISL validation failed',
-            critiques,
+            [...islCritiques, ...critiques],
             filteredGraph,
             normalizedOptions,
             requestId,
@@ -5844,7 +5837,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         );
         reply.header('X-Olumi-Request-Id-Chain', buildRequestIdChainHeader(chain)!);
 
-        const successBody = buildResponse(
+        return reply.send(buildResponse(
           requestId,
           topLevelStatus,
           topLevelStatus !== 'computed' ? (islStatusReason || 'Some analyses unavailable') : undefined,
@@ -5897,17 +5890,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           toIdentifiabilityResponse(identifiabilityResult),  // B1.5a: always-present mapped response
           factorStability,  // 3C: ISL stability assessment per factor
           req.log  // logger for fact_objects assembly logging
-        );
-
-        // 2.13 gap A: deterministic response-CONTENT hash, attached AFTER the
-        // body is fully built so it can never hash itself. Success surface
-        // only — V2RunError carries no _meta. response_hash (request-canonical
-        // determinism token) is deliberately untouched.
-        if (successBody._meta) {
-          successBody._meta.response_content_hash = computeResponseContentHash(successBody);
-        }
-
-        return reply.send(successBody);
+        ));
       } catch (err) {
         req.log.error({
           event: 'v2_run_error',

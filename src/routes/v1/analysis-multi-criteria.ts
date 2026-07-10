@@ -13,7 +13,7 @@ import { getInferenceEngine } from '../../inference/index.js';
 import { normalizeGraph } from '../../util/normalize.js';
 import { inferEdgeTypes } from '../../services/ranking/edge-type-inference.js';
 import { isFlagOn } from '../../cee/codes.js';
-import { islService } from '../../integrations/isl/index.js';
+import { islService, toPublicIslError } from '../../integrations/isl/index.js';
 import type {
   MultiCriteriaRequest,
   MultiCriteriaResponse,
@@ -382,7 +382,7 @@ export async function registerMultiCriteriaAnalysisRoute(app: FastifyInstance) {
         );
 
         aggregation = islResult.data;
-        islError = islResult.error;
+        islError = toPublicIslError(islResult.error);
         islMs = islResult.latency_ms;
 
         if (aggregation) {

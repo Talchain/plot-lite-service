@@ -15,7 +15,7 @@ import { detectPrimaryOutcome } from '../../services/ranking/outcome-detector.js
 import { inferEdgeTypes } from '../../services/ranking/edge-type-inference.js';
 import { validateSequentialGraph, getMaxStage } from '../../util/sequential-validation.js';
 import { isFlagOn } from '../../cee/codes.js';
-import { islService } from '../../integrations/isl/index.js';
+import { islService, toPublicIslError } from '../../integrations/isl/index.js';
 import type {
   PolicyTreeRequest,
   PolicyTreeResponse,
@@ -333,7 +333,7 @@ export async function registerPolicyTreeRoute(app: FastifyInstance) {
         );
 
         tree = islResult.data;
-        islError = islResult.error;
+        islError = toPublicIslError(islResult.error);
 
         if (tree) {
           provenance = 'isl';
