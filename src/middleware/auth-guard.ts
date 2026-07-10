@@ -25,6 +25,19 @@ export function isAuthEnabled(): boolean {
 }
 
 /**
+ * Scope flag extending the Bearer gate to /v2/* (ROADMAP 3.4 required-login,
+ * PLoT service-tier half — see parallel-briefs/PLATFORM-LOGIN-AUDIT-2026-07-10.md).
+ *
+ * Default OFF (dark ship): /v2 stays ungated exactly as today. Enforcement
+ * requires BOTH flags — AUTH_ENABLED is the global auth kill-switch,
+ * AUTH_V2_ENABLED widens its scope to /v2. Flipped at required-login
+ * rollout, together with the UI-side authenticated proxy for /v2 calls.
+ */
+export function isV2AuthEnabled(): boolean {
+  return process.env.AUTH_V2_ENABLED === '1';
+}
+
+/**
  * Consolidated auth guard for all routes.
  *
  * Returns `true` if request is authorized (or auth disabled/bypassed).

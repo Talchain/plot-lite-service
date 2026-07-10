@@ -34,6 +34,8 @@ export const KNOWN_FEATURE_FLAGS = [
   'METRICS',
   // Auth & security
   'AUTH_ENABLED',
+  // ROADMAP 3.4 required-login: extends the Bearer gate to /v2/* (default OFF, dark)
+  'AUTH_V2_ENABLED',
   'TEST_ROUTES',
   // Development
   'CORS_DEV',
