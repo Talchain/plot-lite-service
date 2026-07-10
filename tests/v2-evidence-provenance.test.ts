@@ -28,44 +28,51 @@ import type { FastifyInstance } from 'fastify';
 import { createHash } from 'node:crypto';
 
 // ---------------------------------------------------------------------------
-// Switchable ISL mock — deterministic; `meanA` varies semantic content.
+// Switchable ISL mock — deterministic; `state.meanA` varies semantic content.
+// vi.hoisted: this file also imports run.js directly (buildRequestIdChain),
+// so the mock factory can fire before module-body consts initialise.
 // ---------------------------------------------------------------------------
-let meanA = 0.7;
+const islMock = vi.hoisted(() => {
+  const state = { meanA: 0.7 };
 
-function computedIslResponse() {
-  return {
-    analysis_status: 'computed',
-    seed_used: 42,
-    options: [
-      {
-        option_id: 'opt-a',
-        outcome: { mean: meanA, std: 0.05, p10: meanA - 0.1, p50: meanA, p90: meanA + 0.1, n_samples: 100, n_valid_samples: 100, validity_ratio: 1.0 },
-        win_probability: 0.7,
-        status: 'computed',
-      },
-      {
-        option_id: 'opt-b',
-        outcome: { mean: 0.4, std: 0.05, p10: 0.3, p50: 0.4, p90: 0.5, n_samples: 100, n_valid_samples: 100, validity_ratio: 1.0 },
-        win_probability: 0.3,
-        status: 'computed',
-      },
-    ],
-    factor_sensitivity: [],
-    robustness: { confidence: 0.8, level: 'high', is_robust: true, fragile_edges: [], robust_edges: [] },
-    inference_warnings: [],
+  function computedIslResponse() {
+    const meanA = state.meanA;
+    return {
+      analysis_status: 'computed',
+      seed_used: 42,
+      options: [
+        {
+          option_id: 'opt-a',
+          outcome: { mean: meanA, std: 0.05, p10: meanA - 0.1, p50: meanA, p90: meanA + 0.1, n_samples: 100, n_valid_samples: 100, validity_ratio: 1.0 },
+          win_probability: 0.7,
+          status: 'computed',
+        },
+        {
+          option_id: 'opt-b',
+          outcome: { mean: 0.4, std: 0.05, p10: 0.3, p50: 0.4, p90: 0.5, n_samples: 100, n_valid_samples: 100, validity_ratio: 1.0 },
+          win_probability: 0.3,
+          status: 'computed',
+        },
+      ],
+      factor_sensitivity: [],
+      robustness: { confidence: 0.8, level: 'high', is_robust: true, fragile_edges: [], robust_edges: [] },
+      inference_warnings: [],
+    };
+  }
+
+  const mockISLService = {
+    isEnabled: () => true,
+    async callAnalysisEndpoint<T>(): Promise<any> {
+      return { data: computedIslResponse() as T, latency_ms: 5, isl_echoed_request_id: null };
+    },
   };
-}
 
-const mockISLService = {
-  isEnabled: () => true,
-  async callAnalysisEndpoint<T>(): Promise<any> {
-    return { data: computedIslResponse() as T, latency_ms: 5, isl_echoed_request_id: null };
-  },
-};
+  return { state, mockISLService };
+});
 
 vi.mock('../src/integrations/isl/index.ts', async () => {
   const actual = await vi.importActual<any>('../src/integrations/isl/index.ts');
-  return { ...actual, getISLService: () => mockISLService, islService: mockISLService };
+  return { ...actual, getISLService: () => islMock.mockISLService, islService: islMock.mockISLService };
 });
 
 import { createServer } from '../src/createServer.js';
@@ -76,7 +83,7 @@ import {
 } from '../src/util/response-content-hash.js';
 import { buildRequestIdChain } from '../src/routes/v2/run.js';
 import { callCEEWithSchemaV2 } from '../src/cee/client.js';
-import { getDownstreamCalls, clearDownstreamTracking } from '../src/util/downstream-tracker.js';
+import { getDownstreamCalls, clearDownstreamTracking, initDownstreamTracking } from '../src/util/downstream-tracker.js';
 
 function validBody(extra: Record<string, unknown> = {}) {
   return {
@@ -119,7 +126,7 @@ describe('/v2/run evidence provenance (2.13 completion)', () => {
   // GAP A — deterministic response-content hash
   // -------------------------------------------------------------------------
   it('success response carries _meta.response_content_hash (rch_v1:<16 hex>)', async () => {
-    meanA = 0.7;
+    islMock.state.meanA = 0.7;
     const res = await app.inject({ method: 'POST', url: '/v2/run', payload: validBody() });
     expect(res.statusCode).toBe(200);
     const body = res.json();
@@ -128,7 +135,7 @@ describe('/v2/run evidence provenance (2.13 completion)', () => {
   });
 
   it('identical request replayed → identical response_content_hash (determinism)', async () => {
-    meanA = 0.7;
+    islMock.state.meanA = 0.7;
     const r1 = await app.inject({ method: 'POST', url: '/v2/run', payload: validBody() });
     const r2 = await app.inject({ method: 'POST', url: '/v2/run', payload: validBody() });
     const h1 = r1.json()._meta.response_content_hash;
@@ -138,16 +145,16 @@ describe('/v2/run evidence provenance (2.13 completion)', () => {
   });
 
   it('semantically different response → different response_content_hash', async () => {
-    meanA = 0.7;
+    islMock.state.meanA = 0.7;
     const r1 = await app.inject({ method: 'POST', url: '/v2/run', payload: validBody() });
-    meanA = 0.6;
+    islMock.state.meanA = 0.6;
     const r2 = await app.inject({ method: 'POST', url: '/v2/run', payload: validBody() });
-    meanA = 0.7;
+    islMock.state.meanA = 0.7;
     expect(r2.json()._meta.response_content_hash).not.toBe(r1.json()._meta.response_content_hash);
   });
 
   it('response_content_hash is independently recomputable from the body (zero-mismatch)', async () => {
-    meanA = 0.7;
+    islMock.state.meanA = 0.7;
     const res = await app.inject({ method: 'POST', url: '/v2/run', payload: validBody() });
     const body = res.json();
     const claimed = body._meta.response_content_hash;
@@ -158,11 +165,11 @@ describe('/v2/run evidence provenance (2.13 completion)', () => {
   });
 
   it('response_hash (request-canonical determinism token) is UNCHANGED by the new field', async () => {
-    meanA = 0.7;
+    islMock.state.meanA = 0.7;
     const r1 = await app.inject({ method: 'POST', url: '/v2/run', payload: validBody() });
-    meanA = 0.6; // different response CONTENT, same request
+    islMock.state.meanA = 0.6; // different response CONTENT, same request
     const r2 = await app.inject({ method: 'POST', url: '/v2/run', payload: validBody() });
-    meanA = 0.7;
+    islMock.state.meanA = 0.7;
     // request-canonical: same request → same response_hash even when content differs
     expect(r2.json().meta.response_hash).toBe(r1.json().meta.response_hash);
   });
@@ -171,7 +178,7 @@ describe('/v2/run evidence provenance (2.13 completion)', () => {
   // GAP B — within-run wire-integrity assertion (header vs body)
   // -------------------------------------------------------------------------
   it('x-olumi-response-hash header matches an independent recompute over the body', async () => {
-    meanA = 0.7;
+    islMock.state.meanA = 0.7;
     const res = await app.inject({ method: 'POST', url: '/v2/run', payload: validBody() });
     const headerHash = res.headers['x-olumi-response-hash'];
     expect(headerHash).toMatch(/^[0-9a-f]{12}$/);
@@ -197,7 +204,7 @@ describe('/v2/run evidence provenance (2.13 completion)', () => {
   });
 
   it('success response chain carries cee:null when CEE is not called', async () => {
-    meanA = 0.7;
+    islMock.state.meanA = 0.7;
     const res = await app.inject({
       method: 'POST',
       url: '/v2/run',
@@ -223,6 +230,9 @@ describe('CEE client downstream digests (2.13 gap C)', () => {
   });
 
   it('callCEEWithSchemaV2 records request/response PayloadDigests over exact bytes + echoed id', async () => {
+    // recordDownstreamCall silently ignores un-initialised request ids —
+    // mirror the request lifecycle's init.
+    initDownstreamTracking(REQUEST_ID);
     const responseBody = { schema_version: 'v2', graph: { edges: [] }, ok: true };
     const responseText = JSON.stringify(responseBody);
 

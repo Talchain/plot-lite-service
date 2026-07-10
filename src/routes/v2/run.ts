@@ -131,7 +131,8 @@ import { filterInterventionOverrides } from '../../coaching/sensitivity-filter.j
 import type { M1Review } from '../../cee/validation/m1-review-types.js';
 import type { ReviewStatus } from '../../cee/validation/m1-review-constants.js';
 import { ReviewSkipReasons, type ReviewSkipReason } from '../../cee/validation/m1-review-constants.js';
-import { getDownstreamCallsForLog } from '../../util/downstream-tracker.js';
+import { getDownstreamCallsForLog, getDownstreamCalls } from '../../util/downstream-tracker.js';
+import { computeResponseContentHash } from '../../util/response-content-hash.js';
 import { computeFactorSensitivityFromGraph, buildFactorStability, mergeIslConfidenceIntoGraphFactors } from '../../lib/factor-influence.js';
 import { buildAutoNoiseProvenance, extractIslAutoNoiseApplied, logAutoNoiseFlagMissingFromIsl } from '../../lib/auto-noise.js';
 import { sanitiseIslVoi, computeEvpiPercentagePoints } from '../../lib/evpi-emission.js';
@@ -1184,9 +1185,16 @@ interface MetaParams {
     isl: string | null;
     /** Request ID ISL echoed back (null if ISL didn't echo) */
     isl_echoed: string | null;
-    /** true ONLY when all four are non-null AND identical */
+    /**
+     * 2.13 gap D (additive): request ID PLoT sent to CEE (null if CEE not
+     * called) and CEE's echo. Informational — deliberately NOT part of
+     * all_match/chain_complete (Brief 4 header spec back-compat).
+     */
+    cee: string | null;
+    cee_echoed: string | null;
+    /** true ONLY when all four ISL-leg fields are non-null AND identical */
     all_match: boolean;
-    /** true ONLY when all four are non-null */
+    /** true ONLY when all four ISL-leg fields are non-null */
     chain_complete: boolean;
   };
   /** Filtered constraint records for _meta.filtered_constraints */
@@ -1759,19 +1767,27 @@ export function buildRequestIdChain(
   requestId: string,
   islCalled: boolean,
   islEchoedRequestId: string | null,
+  ceeCalled: boolean = false,
+  ceeEchoedRequestId: string | null = null,
 ): NonNullable<MetaParams['requestIdChain']> {
   const ui = hasExplicitRequestId ? requestId : null;
   const plot = requestId;
   const isl = islCalled ? requestId : null;
   const isl_echoed = islEchoedRequestId;
+  // all_match/chain_complete stay computed over the ISL four ONLY — the CEE
+  // legs (2.13 gap D) are additive/informational so existing consumers of
+  // the Brief 4 semantics are unaffected.
   const chain_complete = ui !== null && plot !== null && isl !== null && isl_echoed !== null;
   const all_match = chain_complete && ui === plot && plot === isl && isl === isl_echoed;
-  return { ui, plot, isl, isl_echoed, all_match, chain_complete };
+  const cee = ceeCalled ? requestId : null;
+  const cee_echoed = ceeEchoedRequestId;
+  return { ui, plot, isl, isl_echoed, cee, cee_echoed, all_match, chain_complete };
 }
 
 /**
  * Build X-Olumi-Request-Id-Chain header JSON from request ID chain.
- * Field names match _meta.request_id_chain (Brief 4 spec — 6 fields).
+ * Field names match _meta.request_id_chain (Brief 4 spec — original 6
+ * fields; 2.13 adds the additive cee/cee_echoed legs).
  */
 function buildRequestIdChainHeader(chain: MetaParams['requestIdChain']): string | null {
   if (!chain) return null;
@@ -5813,10 +5829,22 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
 
         const finalTotalMs = performance.now() - startTime;
 
-        const chain = buildRequestIdChain(hasExplicitRequestId, requestId, true, islEchoedRequestId);
+        // 2.13 gap D: derive the PLoT→CEE chain legs from the downstream
+        // tracker (CEE calls are made inside orchestration; the tracker is
+        // the single record of whether/what CEE echoed).
+        const ceeDownstreamCalls = getDownstreamCalls(requestId).filter((c) => c.service === 'cee');
+        const ceeEchoedRequestId = ceeDownstreamCalls.find((c) => c.echoedRequestId)?.echoedRequestId ?? null;
+        const chain = buildRequestIdChain(
+          hasExplicitRequestId,
+          requestId,
+          true,
+          islEchoedRequestId,
+          ceeDownstreamCalls.length > 0,
+          ceeEchoedRequestId,
+        );
         reply.header('X-Olumi-Request-Id-Chain', buildRequestIdChainHeader(chain)!);
 
-        return reply.send(buildResponse(
+        const successBody = buildResponse(
           requestId,
           topLevelStatus,
           topLevelStatus !== 'computed' ? (islStatusReason || 'Some analyses unavailable') : undefined,
@@ -5869,7 +5897,17 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           toIdentifiabilityResponse(identifiabilityResult),  // B1.5a: always-present mapped response
           factorStability,  // 3C: ISL stability assessment per factor
           req.log  // logger for fact_objects assembly logging
-        ));
+        );
+
+        // 2.13 gap A: deterministic response-CONTENT hash, attached AFTER the
+        // body is fully built so it can never hash itself. Success surface
+        // only — V2RunError carries no _meta. response_hash (request-canonical
+        // determinism token) is deliberately untouched.
+        if (successBody._meta) {
+          successBody._meta.response_content_hash = computeResponseContentHash(successBody);
+        }
+
+        return reply.send(successBody);
       } catch (err) {
         req.log.error({
           event: 'v2_run_error',

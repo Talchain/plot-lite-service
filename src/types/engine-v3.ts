@@ -2362,6 +2362,14 @@ export interface CanonicalMeta {
   hash_version?: number;
   /** Determinism hash of canonical request (semantic fields only) */
   response_hash?: string;
+  /**
+   * 2.13 gap A: deterministic hash of the response CONTENT ("rch_v1:<16 hex>")
+   * — the public semantic surface minus the volatile set (see
+   * util/response-content-hash.ts). Complements response_hash, which is
+   * request-canonical by design and must not change meaning. Success
+   * responses only; attached after the body is fully built.
+   */
+  response_content_hash?: string;
   /** Per-factor range derivation source (maps factor_id → derivation tier) */
   range_derivation_sources?: Record<string, string>;
   /** Snapshot of all feature flags for this run (diagnostic only) */

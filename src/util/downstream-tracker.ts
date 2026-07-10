@@ -68,6 +68,8 @@ export interface DownstreamCall {
   requestDigest?: PayloadDigest;
   /** Lane PLoT-R3 (2.13): digest of the exact response bytes received */
   responseDigest?: PayloadDigest;
+  /** 2.13 gap D: request id the downstream service echoed back (x-request-id), null if absent */
+  echoedRequestId?: string | null;
 }
 
 /**

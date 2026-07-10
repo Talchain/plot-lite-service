@@ -299,6 +299,11 @@ describe('B3: numeric invariance under auto-noise disclosure (audit-feedback bri
       'processing_time_ms',
       // ISL status text varies if ISL provides one.
       'isl_status_reason',
+      // 2.13: deterministic hash OF the response content — a derived
+      // function of the B3 fields this test deliberately lets differ, so
+      // it must be masked here (its own correctness is pinned in
+      // tests/v2-evidence-provenance.test.ts).
+      'response_content_hash',
     ]);
     const B3_KEYS = new Set(['auto_noise_applied', 'auto_noise_provenance']);
 
