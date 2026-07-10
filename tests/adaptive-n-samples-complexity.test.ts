@@ -168,12 +168,17 @@ vi.mock('../src/integrations/isl/index.ts', async () => {
 import { createServer } from '../src/createServer.js';
 
 /**
- * Build a fully-connected star graph: `factorCount` factors, each with a
- * directed edge into a single goal node. Causal size seen by ISL:
- * (factorCount + 1) nodes × factorCount edges.
- * Small strength means keep the inbound-strength-sum warning quiet.
+ * Build a dense DAG within PLoT's own graph limits (50 nodes / 100 edges,
+ * @talchain/schemas LIMITS — preflight blocks anything larger with
+ * GRAPH_TOO_LARGE before this lane's guard runs): `factorCount` factors,
+ * each with a directed edge into a single goal node, plus a factor chain
+ * factor-i → factor-(i+1). Causal size seen by ISL:
+ * (factorCount + 1) nodes × (2 × factorCount − 1) edges.
+ * denseGraph(43) → 44 × 85 = 3,740 — the same density regime as the
+ * verified live failure (43 × 70 causal, attempt 6). Small strength means
+ * keep the inbound-strength-sum warning quiet.
  */
-function starGraph(factorCount: number) {
+function denseGraph(factorCount: number) {
   const factors = Array.from({ length: factorCount }, (_, i) => ({
     id: `factor-${i}`,
     kind: 'factor',
@@ -181,12 +186,20 @@ function starGraph(factorCount: number) {
     observed_state: { value: 0.5 },
   }));
   const goal = { id: 'goal', kind: 'goal', label: 'Goal' };
-  const edges = factors.map((f) => ({
-    from: f.id,
-    to: 'goal',
-    exists_probability: 0.8,
-    strength: { mean: 0.005, std: 0.01 },
-  }));
+  const edges = [
+    ...factors.map((f) => ({
+      from: f.id,
+      to: 'goal',
+      exists_probability: 0.8,
+      strength: { mean: 0.005, std: 0.01 },
+    })),
+    ...factors.slice(0, -1).map((f, i) => ({
+      from: f.id,
+      to: `factor-${i + 1}`,
+      exists_probability: 0.8,
+      strength: { mean: 0.005, std: 0.01 },
+    })),
+  ];
   return { nodes: [...factors, goal], edges };
 }
 
@@ -221,13 +234,13 @@ describe('adaptive n_samples via /v2/run', () => {
 
   it('dense graph: reduces n_samples before calling ISL and attaches SAMPLES_REDUCED_FOR_COMPLEXITY naming original and reduced depths', async () => {
     islCalls = [];
-    // 51 factors + goal = 52 nodes, 51 edges → 4000 × 2652 = 10,608,000 > 10M
+    // 43 factors + goal = 44 nodes, 85 edges → 4000 × 3,740 = 14,960,000 > 10M
     const res = await app.inject({
       method: 'POST',
       url: '/v2/run',
       headers: { 'Content-Type': 'application/json' },
       payload: {
-        graph: starGraph(51),
+        graph: denseGraph(43),
         options: OPTIONS,
         goal_node_id: 'goal',
         seed: '42',
@@ -236,11 +249,11 @@ describe('adaptive n_samples via /v2/run', () => {
 
     expect(res.statusCode).toBe(200);
 
-    // ISL received the reduced depth — floor(10,000,000 / (52 × 51)) = 3,770
+    // ISL received the reduced depth — floor(10,000,000 / (44 × 85)) = 2,673
     expect(islCalls.length).toBeGreaterThan(0);
-    expect(islCalls[0].graph.nodes).toHaveLength(52);
-    expect(islCalls[0].graph.edges).toHaveLength(51);
-    expect(islCalls[0].n_samples).toBe(3770);
+    expect(islCalls[0].graph.nodes).toHaveLength(44);
+    expect(islCalls[0].graph.edges).toHaveLength(85);
+    expect(islCalls[0].n_samples).toBe(2673);
     // No ISL call of any kind (base or probe) may breach the budget.
     for (const call of islCalls) {
       expect(call.n_samples * call.graph.nodes.length * call.graph.edges.length)
@@ -249,7 +262,7 @@ describe('adaptive n_samples via /v2/run', () => {
 
     const body = JSON.parse(res.body);
     // The response reports the TRUE depth used, not the requested default.
-    expect(body.meta?.n_samples).toBe(3770);
+    expect(body.meta?.n_samples).toBe(2673);
 
     // Exactly one warning, carried on the inference_warnings surface
     // (the CONSTRAINT_DIRECTION_SUSPECT pattern), naming both depths.
@@ -257,38 +270,51 @@ describe('adaptive n_samples via /v2/run', () => {
     expect(warnings).toHaveLength(1);
     expect(warnings[0].severity).toBe('warning');
     expect(warnings[0].message).toContain('4000');
-    expect(warnings[0].message).toContain('3770');
+    expect(warnings[0].message).toContain('2673');
   });
 
-  it('ultra-dense graph: refuses with GRAPH_TOO_COMPLEX before calling ISL — never a raw ISL 422 passthrough', async () => {
+  it('graph too complex even at the floor: refuses with GRAPH_TOO_COMPLEX before calling ISL — never a raw ISL 422 passthrough', async () => {
+    // At the DEFAULT budget the refusal arm needs nodes × edges > 10,000,
+    // which PLoT's own 50-node/100-edge graph limits keep out of reach
+    // (max product 5,000) — preflight GRAPH_TOO_LARGE fires first. The arm
+    // is live protection for a lowered ISL_MAX_COMPUTE_COMPLEXITY (the env
+    // both services read) and for future graph-limit raises, so exercise it
+    // here the way it would really fire: same env, lower budget. The
+    // >10,000-at-default arithmetic is covered by the unit tests above.
     islCalls = [];
-    // 101 factors + goal = 102 nodes, 101 edges → 10,302 > 10,000: even
-    // 1,000 samples would breach the budget (1,000 × 10,302 = 10,302,000).
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v2/run',
-      headers: { 'Content-Type': 'application/json' },
-      payload: {
-        graph: starGraph(101),
-        options: OPTIONS,
-        goal_node_id: 'goal',
-        seed: '42',
-      },
-    });
+    const prev = process.env.ISL_MAX_COMPUTE_COMPLEXITY;
+    try {
+      // 44 × 85 = 3,740; fitting depth floor(1,000,000 / 3,740) = 267 < 1,000.
+      process.env.ISL_MAX_COMPUTE_COMPLEXITY = '1000000';
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v2/run',
+        headers: { 'Content-Type': 'application/json' },
+        payload: {
+          graph: denseGraph(43),
+          options: OPTIONS,
+          goal_node_id: 'goal',
+          seed: '42',
+        },
+      });
 
-    expect(res.statusCode).toBe(422);
-    const body = JSON.parse(res.body);
-    expect(body.analysis_status).toBe('blocked');
-    const critique = (body.critiques ?? []).find((c: any) => c.code === 'GRAPH_TOO_COMPLEX');
-    expect(critique).toBeDefined();
-    expect(critique.severity).toBe('blocker');
-    expect(critique.blocks_analysis).toBe(true);
-    // Actionable: names the causal size and the budget so the caller can act.
-    expect(critique.message).toMatch(/102/);
-    expect(critique.message).toMatch(/101/);
+      expect(res.statusCode).toBe(422);
+      const body = JSON.parse(res.body);
+      expect(body.analysis_status).toBe('blocked');
+      const critique = (body.critiques ?? []).find((c: any) => c.code === 'GRAPH_TOO_COMPLEX');
+      expect(critique).toBeDefined();
+      expect(critique.severity).toBe('blocker');
+      expect(critique.blocks_analysis).toBe(true);
+      // Actionable: names the causal size and the budget so the caller can act.
+      expect(critique.message).toMatch(/44/);
+      expect(critique.message).toMatch(/85/);
 
-    // ISL was NEVER called — the refusal is PLoT-originated, not a passthrough.
-    expect(islCalls).toHaveLength(0);
+      // ISL was NEVER called — the refusal is PLoT-originated, not a passthrough.
+      expect(islCalls).toHaveLength(0);
+    } finally {
+      if (prev === undefined) delete process.env.ISL_MAX_COMPUTE_COMPLEXITY;
+      else process.env.ISL_MAX_COMPUTE_COMPLEXITY = prev;
+    }
   });
 
   it('normal graph: default depth passes through untouched with no reduction warning', async () => {
@@ -298,7 +324,7 @@ describe('adaptive n_samples via /v2/run', () => {
       url: '/v2/run',
       headers: { 'Content-Type': 'application/json' },
       payload: {
-        graph: starGraph(2), // 3 nodes × 2 edges → 4000 × 6 = 24,000
+        graph: denseGraph(2), // 3 nodes × 3 edges → 4000 × 9 = 36,000
         options: OPTIONS,
         goal_node_id: 'goal',
         seed: '42',
@@ -319,7 +345,7 @@ describe('adaptive n_samples via /v2/run', () => {
       url: '/v2/run',
       headers: { 'Content-Type': 'application/json' },
       payload: {
-        graph: starGraph(51), // 52 × 51 = 2,652 → floor(10M / 2,652) = 3,770
+        graph: denseGraph(43), // 44 × 85 = 3,740 → floor(10M / 3,740) = 2,673
         options: OPTIONS,
         goal_node_id: 'goal',
         seed: '42',
@@ -328,13 +354,13 @@ describe('adaptive n_samples via /v2/run', () => {
     });
 
     expect(res.statusCode).toBe(200);
-    expect(islCalls[0].n_samples).toBe(3770);
+    expect(islCalls[0].n_samples).toBe(2673);
     const body = JSON.parse(res.body);
-    expect(body.meta?.n_samples).toBe(3770);
+    expect(body.meta?.n_samples).toBe(2673);
     const warnings = findSamplesReducedWarnings(body);
     expect(warnings).toHaveLength(1);
     expect(warnings[0].message).toContain('8000');
-    expect(warnings[0].message).toContain('3770');
+    expect(warnings[0].message).toContain('2673');
   });
 
   it('explicit caller n_samples within budget is respected exactly, with no warning', async () => {
@@ -344,7 +370,7 @@ describe('adaptive n_samples via /v2/run', () => {
       url: '/v2/run',
       headers: { 'Content-Type': 'application/json' },
       payload: {
-        graph: starGraph(2),
+        graph: denseGraph(2),
         options: OPTIONS,
         goal_node_id: 'goal',
         seed: '42',

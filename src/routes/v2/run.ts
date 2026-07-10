@@ -123,7 +123,7 @@ import type { SeedSourceType } from '@talchain/schemas';
 import { factorReviewV2, type CEESchemaV2Config } from '../../cee/client.js';
 import { FLAGS } from '../../config/flags.js';
 import { getAllFeatureFlags } from '../../config/feature-flags.js';
-import { resolveStandardNSamples } from '../../config/sampling.js';
+import { resolveStandardNSamples, applyComplexityBudget, ADAPTIVE_N_SAMPLES_FLOOR } from '../../config/sampling.js';
 import { generateM1Coaching } from '../../coaching/m1-coaching.js';
 import { filterInterventionOverrides } from '../../coaching/sensitivity-filter.js';
 import type { M1Review } from '../../cee/validation/m1-review-types.js';
@@ -1143,6 +1143,13 @@ interface MetaParams {
   /** CIL Phase 1: Seed origin — type from @talchain/schemas SeedSource */
   seedSource: SeedSourceType;
   nSamples: number;
+  /**
+   * ROADMAP 1.54: the originally requested/default depth when nSamples was
+   * reduced to fit ISL's complexity budget. Present ONLY on reduced runs —
+   * its presence drives the SAMPLES_REDUCED_FOR_COMPLEXITY inference warning.
+   * nSamples itself is always the TRUE depth used.
+   */
+  originalNSamples?: number;
   /** Track S: sample depth used for flip probes (decoupled from nSamples). Omitted when no flip search ran. */
   flipProbeNSamples?: number;
   detailLevel: string;
@@ -2316,6 +2323,20 @@ function buildResponse(
     });
   }
 
+  // ROADMAP 1.54 (density wall): the sample depth was reduced before the ISL
+  // call so the request fits ISL's complexity budget — disclose it, naming
+  // BOTH depths. meta.n_samples (and brief/fact lineage) already report the
+  // TRUE reduced depth; this warning is what stops the reduction from being
+  // a silent override, including when the caller set n_samples explicitly.
+  if (meta.originalNSamples !== undefined && meta.originalNSamples !== meta.nSamples) {
+    inferenceWarnings.push({
+      code: INFERENCE_WARNING_CODES.SAMPLES_REDUCED_FOR_COMPLEXITY,
+      // provisional_doctrine_v0 — wording surface (diagnostic disclosure)
+      message: `Monte Carlo sample depth was reduced from ${meta.originalNSamples} to ${meta.nSamples} samples so this graph fits the analysis engine's complexity budget (sample depth × nodes × edges). All reported results were computed at ${meta.nSamples} samples; displayed probabilities may be slightly less stable than at the standard depth.`,
+      severity: 'warning',
+    });
+  }
+
   // Merge ISL-originated inference_warnings into the PLoT array.
   // ISL may return warnings like ROOT_NODE_DEFAULT_VALUE that PLoT forwards as-is.
   // Deduplicate by code to prevent equivalent warnings from both sources.
@@ -3290,7 +3311,11 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
       const providedSeed = body.seed;  // May be undefined - will resolve after normalization
       // Track S PR-E: standard base-analysis depth (default 4000, env-overridable
       // to 1000 via STANDARD_N_SAMPLES). An explicit request n_samples always wins.
-      const nSamples = body.n_samples ?? resolveStandardNSamples();
+      // ROADMAP 1.54: this is the REQUESTED depth — the depth actually used
+      // (`nSamples`) is finalised after preflight by applyComplexityBudget(),
+      // which may reduce it (never below ADAPTIVE_N_SAMPLES_FLOOR) so the ISL
+      // call fits ISL's complexity cap instead of drawing a raw 422.
+      const requestedNSamples = body.n_samples ?? resolveStandardNSamples();
       const detailLevel = body.detail_level ?? 'standard';
 
       // Normalize goal_threshold: null is treated as absent
@@ -3995,6 +4020,86 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         }
 
         // =================================================================
+        // Phase 2a+: Complexity budget — adaptive n_samples (ROADMAP 1.54)
+        // =================================================================
+        // ISL 422s any request whose n_samples × nodes × edges strictly
+        // exceeds its complexity cap (default 10,000,000). Fit the depth to
+        // the budget BEFORE calling ISL, using the causal counts ISL will
+        // receive: filteredGraph nodes (options/decision already filtered)
+        // and its directed edges (the translator drops bidirected edges —
+        // see toISLRobustnessRequest). Exact-duplicate edges may still be
+        // coalesced later (Phase 4b-adjacent), which only SHRINKS the edge
+        // count — so this bound is conservative, never permissive.
+        //
+        // Every later consumer of the depth — the base response hash, the
+        // ISL request, flip-probe depth resolution, meta.n_samples, and
+        // brief/fact lineage — sees the SAME post-budget value, so anything
+        // that reports n_samples reports the depth genuinely used.
+        const causalNodeCount = filteredGraph.nodes.length;
+        const causalDirectedEdgeCount = filteredGraph.edges.filter(
+          (e) => e.edge_type !== 'bidirected',
+        ).length;
+        const complexityDecision = applyComplexityBudget(
+          requestedNSamples,
+          causalNodeCount,
+          causalDirectedEdgeCount,
+        );
+
+        if (complexityDecision.kind === 'refused') {
+          // Honest structured refusal — never forward a request ISL is
+          // guaranteed to 422, and never pass that raw 422 through.
+          req.log.warn({
+            event: 'graph_too_complex_refused',
+            request_id: requestId,
+            node_count: causalNodeCount,
+            edge_count: causalDirectedEdgeCount,
+            node_edge_product: complexityDecision.nodeEdgeProduct,
+            max_node_edge_product: complexityDecision.maxNodeEdgeProduct,
+            requested_n_samples: complexityDecision.originalNSamples,
+            n_samples_floor: ADAPTIVE_N_SAMPLES_FLOOR,
+            complexity_budget: complexityDecision.budget,
+          });
+          return reply.status(422).send(buildBlockedResponse(
+            'Graph too complex to analyse',
+            [{
+              id: randomUUID(),
+              code: 'GRAPH_TOO_COMPLEX',
+              severity: 'blocker' as const,
+              message: `This graph is too complex to analyse: ${causalNodeCount} causal nodes × ${causalDirectedEdgeCount} causal edges = ${complexityDecision.nodeEdgeProduct}, above the maximum of ${complexityDecision.maxNodeEdgeProduct} the analysis engine can compute even at its minimum reliable sample depth (${ADAPTIVE_N_SAMPLES_FLOOR} samples, complexity budget ${complexityDecision.budget}). Reduce the number of nodes or edges — e.g. remove weaker or duplicate influences — and re-run.`,
+              source: 'validation' as const,
+              blocks_analysis: true,
+            }],
+            filteredGraph,
+            normalizedOptions,
+            requestId,
+            requestComputedAt,
+          ));
+        }
+
+        // Depth actually used everywhere below. When reduced, originalNSamples
+        // travels via meta so the response carries a SAMPLES_REDUCED_FOR_COMPLEXITY
+        // warning naming both depths (explicit caller depths are never silently
+        // overridden).
+        const nSamples = complexityDecision.nSamples;
+        const originalNSamples =
+          complexityDecision.kind === 'reduced' ? complexityDecision.originalNSamples : undefined;
+
+        if (complexityDecision.kind === 'reduced') {
+          req.log.info({
+            event: 'n_samples_reduced_for_complexity',
+            request_id: requestId,
+            node_count: causalNodeCount,
+            edge_count: causalDirectedEdgeCount,
+            original_n_samples: complexityDecision.originalNSamples,
+            reduced_n_samples: complexityDecision.nSamples,
+            original_complexity: complexityDecision.complexity,
+            reduced_complexity: complexityDecision.reducedComplexity,
+            complexity_budget: complexityDecision.budget,
+            n_samples_explicit: body.n_samples !== undefined,
+          });
+        }
+
+        // =================================================================
         // Phase 2b: Identifiability Assessment (B1.5)
         // =================================================================
         // WARNING only — never blocks. Silent degradation on error (returns undefined).
@@ -4100,6 +4205,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               seedUsed: plotSeedUsed,
               seedSource: providedSeed !== undefined ? 'client_generated' : 'server_generated',
               nSamples,
+              originalNSamples,
               detailLevel,
               latencyMs: totalMs,
               normalizationMs,
@@ -5633,6 +5739,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             seedUsed: plotSeedUsed,
             seedSource: providedSeed !== undefined ? 'client_generated' : 'server_generated',
             nSamples,
+            originalNSamples,
             flipProbeNSamples,
             detailLevel,
             latencyMs: finalTotalMs,
