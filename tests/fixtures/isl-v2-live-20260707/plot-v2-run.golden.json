@@ -1597,7 +1597,8 @@
       "ENABLE_FACTS_ASSEMBLY": "0",
       "ENABLE_REVIEW_PASS": "0",
       "ENABLE_VALIDATE_PATCH": "0",
-      "BRIEF_CLAIM_SAFE_SURFACES_ENABLE": "0"
+      "BRIEF_CLAIM_SAFE_SURFACES_ENABLE": "0",
+      "BRIEF_DECISION_RECORD_SUMMARY_ENABLE": "0"
     },
     "decision_brief_assembled": true,
     "review_cards_count": 0,
@@ -1662,6 +1663,7 @@
       "ENABLE_REVIEW_PASS": "0",
       "ENABLE_VALIDATE_PATCH": "0",
       "BRIEF_CLAIM_SAFE_SURFACES_ENABLE": "0",
+      "BRIEF_DECISION_RECORD_SUMMARY_ENABLE": "0",
       "facts_assembly": true,
       "review_pass": false
     }
