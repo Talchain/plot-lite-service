@@ -121,6 +121,23 @@ export const FLAGS = {
     return raw !== '0' && raw !== 'false';
   },
 
+  // Platform lane (roadmap 3.1): decision_brief.analysis_summary
+  /**
+   * Gates the ADDITIVE `decision_brief.analysis_summary` block — the
+   * decision-record capture surface, shaped exactly like
+   * @talchain/schemas 0.15.0 DecisionRecordAnalysisSummarySchema so the
+   * CEE capture hook is a pure copy (seam ratified by the orchestrator
+   * 2026-07-10; see tests/decision-brief.analysis-summary.test.ts).
+   *
+   * Default: OFF everywhere (dark ship) — flag-off briefs are
+   * byte-identical to pre-lane output. Only explicit '1'/'true' enables;
+   * flipped when the CEE capture hook lands.
+   */
+  get BRIEF_DECISION_RECORD_SUMMARY_ENABLE() {
+    const raw = process.env.BRIEF_DECISION_RECORD_SUMMARY_ENABLE;
+    return raw === '1' || raw === 'true';
+  },
+
   // ISL V2 science channel: per-factor counterfactual EVPI (factor_evpi wire field)
   /**
    * P-5 promotion gate (provisional_doctrine_v0, lane PLoT-H item C,

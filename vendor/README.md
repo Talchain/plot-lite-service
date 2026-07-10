@@ -9,43 +9,49 @@ and `DecisionGuideAI` (UI).
 
 ## Current contents
 
-### `talchain-schemas-0.14.0.tgz`
+### `talchain-schemas-0.15.0.tgz`
 
-**Purpose:** pre-publish consumption of `@talchain/schemas` v0.14.0
-(enrichment v1 — typed analysis-enrichment envelope + wire-shape contract
-pack; see `docs/enrichment-v1/ROLLOUT.md` in the schemas repo). Adopted
-as rollout step 3 (PLoT lane), after the CEE lane (step 2) closed the
-0.13.0/0.13.1 skew. Keeps PLoT on the vendored-tgz pattern shared with
-CEE/DGAI (no `GITHUB_TOKEN` needed to install).
+**Purpose:** pre-publish consumption of `@talchain/schemas` v0.15.0
+(the six-part additive wave: `reasoning` sidecar, `held_proposal` +
+`ui_directive` block kinds, `selection_change` system event,
+`selected_elements` turn-payload field, and the standalone
+`DecisionRecordSchema` — ROADMAP 3.1's contract half). Adopted by the
+Platform lane the same day CEE adopted it (CEE PR #405). Keeps PLoT on
+the vendored-tgz pattern shared with CEE/DGAI (no `GITHUB_TOKEN` needed
+to install).
 
-**Provenance:** built from `~/Documents/GitHub/olumi-schemas` `main` at
-commit `5612e2666` via `npm ci && npm run prepublishOnly && npm pack` in
-a clean detached worktree. The prepublish gate (build + full schema test
-suite, 646 tests) passed at pack time. The tarball sha256 matches the
-one recorded by the CEE adoption lane byte-for-byte
-(`4e4915552a36654b7736eb56d42740e44b5c655209b606882782c55aff749767`).
+**Provenance:** built from `~/Documents/GitHub/olumi-schemas` at tag
+`v0.15.0` (= main `b02ba48`) via `npm ci && npm run prepublishOnly &&
+npm pack` in a clean detached worktree; the prepublish gate (build +
+full schema test suite) passed at pack time. The tarball sha256 matches
+CEE's vendored copy byte-for-byte
+(`50cc1e0c4d5fcab11cd75417c458dad17e7033760c9f4d30d50329a4b946f19f`).
 
-**Checksum:** `vendor/talchain-schemas-0.14.0.tgz.sha256` holds the
+**Checksum:** `vendor/talchain-schemas-0.15.0.tgz.sha256` holds the
 canonical sha256 of the tarball bytes. Verify with:
 
 ```bash
-shasum -a 256 -c <(printf '%s  vendor/talchain-schemas-0.14.0.tgz\n' \
-  "$(cat vendor/talchain-schemas-0.14.0.tgz.sha256)")
+shasum -a 256 -c <(printf '%s  vendor/talchain-schemas-0.15.0.tgz\n' \
+  "$(cat vendor/talchain-schemas-0.15.0.tgz.sha256)")
 ```
 
-**Consumed-surface analysis (0.13.1 → 0.14.0):** 0.14.0 is additive over
-0.13.1 — it adds the opt-in `@talchain/schemas/boundary` enrichment
-envelope (`AnalysisEnrichmentSchema`, `CEE_UI_ENRICHMENT_KEEP_LIST`, ...)
-and changes no transport field or strictness that PLoT consumes. PLoT
-opts in on the producer side: `tests/enrichment-emission-contract.test.ts`
-asserts `buildResponse` output parses against `AnalysisEnrichmentSchema`,
-and `tests/contract/isl-to-plot.contract.test.ts` pins the ISL→PLoT V2
-envelope field locations.
+**Consumed-surface analysis (0.14.0 → 0.15.0):** proven additive (zero
+removed/renamed/tightened symbols; CI green on the schemas head). New
+symbols PLoT consumes: `DecisionRecordSchema` /
+`DecisionRecordAnalysisSummarySchema` from `@talchain/schemas/boundary`
+— pinned by `tests/decision-record.passthrough-parity.test.ts`
+(DDL↔wire pass-through parity with the Supabase `decision_records`
+migration) and `tests/decision-brief.analysis-summary.test.ts` (the
+flag-gated `decision_brief.analysis_summary` capture surface). All
+previously-consumed surfaces are re-proven by the unchanged fixtures in
+`tests/schema-adoption-0.13.1.test.ts`,
+`tests/enrichment-emission-contract.test.ts`, and
+`tests/contract/isl-to-plot.contract.test.ts`.
 
 **Rollback path:** revert the re-vendor commit. Git history restores the
-0.13.1 tarball + manifest, the prior `package.json` pin, and the prior
+0.14.0 tarball + manifest, the prior `package.json` pin, and the prior
 `package-lock.json`. (The pre-0.13.1 registry-pin era — `0.2.1` +
-`GITHUB_TOKEN` via `.npmrc` — is two bumps back in history.)
+`GITHUB_TOKEN` via `.npmrc` — is three bumps back in history.)
 
 **How to update:**
 
