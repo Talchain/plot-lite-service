@@ -1,0 +1,1 @@
+{"graph_summary":{"nodes":3,"edges":2,"node_kinds":["option","factor","outcome"]},"ranked_actions":[{"label":"Ship weekly releases","rank":1,"expected_outcome":1281.06,"outcome_quality":"positive","distribution":{"p10":1106.37,"p50":1281.06,"p90":1494.57},"success_probability":0.7}],"ranking_confidence":"high","goal_text":null,"goal_type":null,"goal_id":null}
