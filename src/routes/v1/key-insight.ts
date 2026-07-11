@@ -19,11 +19,13 @@ import { computeRankingConfidence } from '../../trust/ranking-confidence.js';
 import { detectPrimaryOutcome } from '../../services/ranking/outcome-detector.js';
 import { inferEdgeTypes } from '../../services/ranking/edge-type-inference.js';
 import { isFlagOn } from '../../cee/codes.js';
+import { checkIdentifiability, type IdentifiabilityResult } from '../../trust/identifiability.js';
 import type {
   KeyInsightRequest,
   KeyInsightResponse,
   RankedAction,
   CeeKeyInsight,
+  CeeIdentifiability,
   CeeKeyInsightRequestBody,
   ResponseWarning,
   Goal,
@@ -167,6 +169,30 @@ export function extractGoals(
   }));
 
   return { goals, primaryGoalId };
+}
+
+/**
+ * Map PLoT's IdentifiabilityResult to the shape CEE's IdentifiabilitySchema
+ * accepts (olumi-assistants-service src/schemas/cee.ts).
+ *
+ * Honesty rules (CEE #427 fail-honest doctrine):
+ * - `identifiable` is passed through verbatim — never defaulted to true;
+ * - `method` names a criterion only when one was actually applied
+ *   ('none' maps to null so CEE never claims "confirmed via none criterion");
+ * - `explanation` carries PLoT's own summary, with the detail notes appended
+ *   when non-identifiable so CEE can surface the real limitation.
+ */
+export function toCeeIdentifiability(result: IdentifiabilityResult): CeeIdentifiability {
+  const criterion = result.adjustment_metadata?.criterion;
+  return {
+    identifiable: result.identifiable,
+    method: criterion && criterion !== 'none' ? criterion : null,
+    adjustment_set: result.adjustment_set,
+    explanation:
+      !result.identifiable && result.notes.length > 0
+        ? `${result.summary}. ${result.notes.join('; ')}`
+        : result.summary,
+  };
 }
 
 /**
@@ -468,6 +494,31 @@ export async function registerKeyInsightRoute(app: FastifyInstance) {
       const { goals, primaryGoalId } = extractGoals(graph.nodes, graph.edges);
       const primaryGoal = goals.find(g => g.is_primary);
 
+      // Identifiability thread-through (CEE #427 follow-up): PLoT already
+      // computes identifiability on its run paths; run the same computation
+      // here (same treatment default as /v1/run: first node) and send the
+      // result to CEE so confident causal language is earned, not assumed.
+      // If the computation fails, the field is omitted — the outbound request
+      // stays byte-identical to the pre-thread baseline and CEE applies its
+      // own absent-field doctrine.
+      let identifiability: CeeIdentifiability | undefined;
+      try {
+        identifiability = toCeeIdentifiability(
+          checkIdentifiability({
+            graph,
+            treatment_node: graph.nodes[0]?.id ?? '',
+            outcome_node: outcomeNode,
+          })
+        );
+      } catch (err: any) {
+        req.log.warn({
+          evt: 'key_insight_identifiability_error',
+          error: err?.message,
+          id: requestId,
+        });
+        identifiability = undefined;
+      }
+
       // Build CEE request body with goal context
       const ceeRequestBody: CeeKeyInsightRequestBody = {
         plot_request_id: requestId,
@@ -488,6 +539,8 @@ export async function registerKeyInsightRoute(app: FastifyInstance) {
           goals,
           primary_goal_id: primaryGoalId,
         }),
+        // Identifiability (#427): present whenever computed; verbatim, never default-true
+        ...(identifiability && { identifiability }),
       };
 
       // Call CEE if enabled

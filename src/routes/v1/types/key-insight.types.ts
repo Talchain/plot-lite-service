@@ -130,6 +130,25 @@ export interface KeyInsightResponse {
 }
 
 /**
+ * Identifiability context sent to CEE (#427 follow-up).
+ *
+ * Shape mirrors CEE's IdentifiabilitySchema (olumi-assistants-service
+ * src/schemas/cee.ts) exactly: `identifiable` is required, the rest are
+ * nullable. CEE's CEEKeyInsightInput is `.strict()` at the top level — do not
+ * add fields here that CEE's schema does not declare.
+ */
+export interface CeeIdentifiability {
+  /** Whether causal effects are identifiable from the model structure */
+  identifiable: boolean;
+  /** Identification criterion applied (e.g. 'backdoor'); null when none was needed */
+  method: string | null;
+  /** Variables in the adjustment set for causal identification */
+  adjustment_set: string[] | null;
+  /** Human-readable explanation of the identifiability status */
+  explanation: string | null;
+}
+
+/**
  * CEE Key Insight request body (sent to CEE /assist/v1/key-insight)
  */
 export interface CeeKeyInsightRequestBody {
@@ -160,4 +179,10 @@ export interface CeeKeyInsightRequestBody {
   goals?: Goal[];
   /** ID of the primary goal when multiple goals exist */
   primary_goal_id?: string;
+  /**
+   * Identifiability computed by PLoT (same checkIdentifiability as /v1/run).
+   * Passed through verbatim — never defaulted to true. Omitted only when the
+   * computation is unavailable.
+   */
+  identifiability?: CeeIdentifiability;
 }
