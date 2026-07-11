@@ -68,7 +68,7 @@ Current configuration limits.
 ## Core Inference Endpoints
 
 ### POST /v1/run
-Execute causal inference on a decision graph.
+Execute the probabilistic simulation over a decision graph (user-specified causal structure).
 
 **Request:**
 ```json
