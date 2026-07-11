@@ -31,8 +31,7 @@
   "keywords": [
     "plot",
     "inference",
-    "causal",
-    "bayesian",
+    "causal-structure",
     "typescript",
     "sdk"
   ],

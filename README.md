@@ -2,7 +2,7 @@
 
 [![Nightly Evidence Pack](https://github.com/Talchain/plot-lite-service/actions/workflows/nightly-evidence-pack.yml/badge.svg)](https://github.com/Talchain/plot-lite-service/actions/workflows/nightly-evidence-pack.yml)
 
-Deterministic causal inference engine for decision analysis. Science-powered, production-ready, no LLM calls.
+Deterministic decision-analysis engine: probabilistic simulation over user-specified causal structure, with propagated uncertainty and reproducible seeded results. No LLM calls.
 
 ## Quick Start
 
@@ -19,7 +19,7 @@ curl http://localhost:4311/v1/limits
 ## Key Features
 
 - **Deterministic inference** - Same input + seed = identical output
-- **Causal interventions** - Do-calculus with identifiability checks
+- **Interventions** - Do-operator ("what-if") interventions on the assumed structure, with backdoor identifiability checks
 - **Scenario comparison** - Compare up to 5 options side-by-side
 - **Action optimization** - Select optimal actions under budget constraints
 - **Production-ready** - p95 < 600ms, rate limiting, comprehensive health checks
@@ -28,9 +28,9 @@ curl http://localhost:4311/v1/limits
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/v1/run` | POST | Run causal inference |
+| `/v1/run` | POST | Run the simulation on a decision graph |
 | `/v1/compare` | POST | Compare 2-5 scenarios |
-| `/v1/intervene` | POST | Causal interventions |
+| `/v1/intervene` | POST | Do-operator interventions |
 | `/v1/optimise` | POST | Action selection under budget |
 | `/v1/sensitivity` | POST | Sensitivity analysis |
 | `/v1/validate` | POST | Validate graph structure |
