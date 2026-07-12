@@ -712,18 +712,10 @@
         "target_type": "edge",
         "target_id": "out_technical_quality->goal_productivity",
         "target_label": "Technical Quality and Architecture → Increase Team Productivity"
-      },
-      {
-        "priority": 7,
-        "action": "Validate the fragile assumptions before treating Hire One Tech Lead as a decision",
-        "rationale": "Hire One Tech Lead currently leads by 18 points, but the recommendation is not yet robust",
-        "target_type": "option",
-        "target_id": "opt_tech_lead",
-        "target_label": "Hire One Tech Lead"
       }
     ],
-    "readiness": "ready",
-    "headline_type": "moderate_winner",
+    "readiness": "close_call",
+    "headline_type": "high_uncertainty",
     "top_fragile_edge": {
       "edge_id": "out_technical_quality->goal_productivity",
       "label": "Technical Quality and Architecture → Increase Team Productivity",
@@ -896,8 +888,8 @@
       "tone_low_driver_confidence_max": 0.5
     },
     "readiness_signals": {
-      "overall": "ready",
-      "overall_score": 0.85,
+      "overall": "close_call",
+      "overall_score": 0.55,
       "computed_score_raw": 0.72,
       "dimensions": {
         "evidence_quality": 0.6,
@@ -970,10 +962,10 @@
       }
     ],
     "executive_summary": {
-      "summary": "Hire One Tech Lead currently leads by 18 points, but the model is not yet strong enough for an unqualified decision. Treat this as a provisional lead until the fragile assumptions are checked. Validate the fragile assumptions before treating this as a decision.",
-      "decision_statement": "Hire One Tech Lead currently leads by 18 points, but the model is not yet strong enough for an unqualified decision.",
-      "key_qualifier": "Treat this as a provisional lead until the fragile assumptions are checked.",
-      "action_implication": "Validate the fragile assumptions before treating this as a decision."
+      "summary": "Hire One Tech Lead currently leads, but the outcome is highly uncertain. However, the 59% recommendation stability indicates the decision could shift with new information. Define tie-breaker criteria or gather additional evidence.",
+      "decision_statement": "Hire One Tech Lead currently leads, but the outcome is highly uncertain.",
+      "key_qualifier": "However, the 59% recommendation stability indicates the decision could shift with new information.",
+      "action_implication": "Define tie-breaker criteria or gather additional evidence."
     },
     "readiness_tone": "caution",
     "readiness_reasons": [
@@ -1203,7 +1195,7 @@
     "graph_hash": "195f3c2552217c57",
     "seed": 2034401427,
     "created_at": "__VOLATILE__",
-    "headline": "Hire One Tech Lead currently leads by 18 points, but the model is not yet strong enough for an unqualified decision. Treat this as a provisional lead until the fragile assumptions are checked. Validate the fragile assumptions before treating this as a decision.",
+    "headline": "Hire One Tech Lead currently leads, but the outcome is highly uncertain. However, the 59% recommendation stability indicates the decision could shift with new information. Define tie-breaker criteria or gather additional evidence.",
     "options": [
       {
         "option_id": "opt_tech_lead",
@@ -1606,7 +1598,7 @@
     "decision_brief_assembled": true,
     "review_cards_count": 0,
     "evidence_priority_card_present": false,
-    "response_content_hash": "rch_v2:ad7100190167bf5b"
+    "response_content_hash": "rch_v2:5c675374cdaeb9e3"
   },
   "meta": {
     "seed_used": "2034401427",

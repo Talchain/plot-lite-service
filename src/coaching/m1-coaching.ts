@@ -13,7 +13,13 @@ import type {
   OptionV3,
 } from '../types/engine-v3.js';
 import { normaliseCoachingInputs } from './normalise-inputs.js';
-import { generateHeadlines, getFragileEdgeContext } from './headlines.js';
+// 2.40: detectHeadlineType MUST be the canonical lever-aware classifier.
+// A module-local risk-blind duplicate used to shadow it here (it ignored
+// fragile edges/VoI and the A1b/A1c lever filters), so the readiness path
+// could report clear_winner/ready while story_headlines — canonical path,
+// same payload — said "could swing the outcome". Do not reintroduce a local
+// copy: tests/lane-240-detect-headline-type-shadow.test.ts pins the identity.
+import { generateHeadlines, getFragileEdgeContext, detectHeadlineType } from './headlines.js';
 // A1c: exclude lever-sourced fragile edges from top_fragile_edge.
 import { filterLeverSourcedFragileEdges } from '../lib/intervention-override.js';
 import { computeEvidenceGaps } from './evidence-gaps.js';
@@ -246,31 +252,6 @@ function safeCompute<T>(fn: () => T, fallback: T, logger: any, component: string
     });
     return fallback;
   }
-}
-
-/**
- * Detect headline type from inputs (simplified version of headlines.ts logic).
- */
-function detectHeadlineType(inputs: any): any {
-  const { options, factorSensitivity, robustness } = inputs;
-
-  if (options.length === 0 || factorSensitivity.length === 0) {
-    return 'needs_evidence';
-  }
-
-  const sorted = [...options].sort((a: any, b: any) => b.winProbability - a.winProbability);
-  const winner = sorted[0];
-  const runnerUp = sorted[1];
-
-  const winProbDelta = runnerUp ? winner.winProbability - runnerUp.winProbability : winner.winProbability;
-  const stability = robustness.recommendationStability;
-
-  if (stability === undefined) return 'needs_evidence';
-  if (winProbDelta >= 0.20 && stability >= 0.70) return 'clear_winner';
-  if (winProbDelta >= 0.10 && stability >= 0.50) return 'moderate_winner';
-  if (winProbDelta < 0.10) return 'close_call';
-
-  return 'needs_evidence';
 }
 
 // =============================================================================
