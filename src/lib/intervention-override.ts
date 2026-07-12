@@ -1,21 +1,84 @@
 /**
- * Intervention-override predicate — shared neutral leaf (A1b).
+ * Lever-identity predicates — shared neutral leaf (A1b; D-U adopted 13 Jul).
  *
  * A factor with `zero_reason === 'intervention_override'` is an option-pinned
  * decision lever (the user controls its value via `options[i].interventions`),
  * NOT an independently tunable uncertainty driver. Tunability / evidence / VoI /
  * "what would change" surfaces must exclude such levers.
  *
+ * D-U (ROADMAP 2.20/2.40) makes the STRUCTURAL union the canonical lever
+ * definition: a factor that ANY option intervenes on is a lever, whether or
+ * not ISL stamped it. ISL stamps `intervention_override` only for
+ * elasticity≈0 first-option pins, so the stamp alone under-covers (live
+ * fac_salary_cost case: pinned by a non-first option with nonzero measured
+ * elasticity → arrived unstamped → PLoT published its sensitivity/EVPI while
+ * coaching suppressed it as a lever). This module therefore carries BOTH
+ * predicates — the request-side structural union
+ * (`interventionTargetIdsFromOptions`) and the ISL-stamp symptom
+ * (`isInterventionOverride`) — and the combined D-U predicate
+ * (`isOptionControlledLever`). There is no other lever-identity definition;
+ * derive from here, never inline.
+ *
  * This module is the single definition, kept import-free so any layer (lib,
- * assembly, routes, coaching) can depend on it without creating an import cycle.
- * It keys ONLY on `zero_reason` — it does NOT read `source`, re-derive lever
- * status from graph topology or option interventions, expose a public field, or
- * define a new classification taxonomy.
+ * assembly, routes, coaching) can depend on it without creating an import
+ * cycle. It does NOT read `source`, re-derive lever status from graph
+ * topology, expose a public field, or define a new classification taxonomy.
  */
 
 /** True iff the factor is an intervention-controlled lever (option-pinned). */
 export function isInterventionOverride(f: { zero_reason?: string | null }): boolean {
   return f.zero_reason === 'intervention_override';
+}
+
+/**
+ * The canonical structural lever union (D-U): every factor id that ANY
+ * option's `interventions` map targets. Source of truth is the request-side
+ * `options[i].interventions`, NOT raw ISL `zero_reason` — ISL's stamp is a
+ * downstream symptom rather than the canonical definition, and it misses
+ * non-first-option pins with nonzero measured elasticity.
+ *
+ * Extracted verbatim from `src/coaching/normalise-inputs.ts` (which now
+ * delegates here) so the coaching layer and the public
+ * factor_sensitivity/EVPI egress share ONE union definition (ROADMAP 2.40).
+ *
+ * Plain-object guard: arrays are objects too and `Object.keys([])` returns
+ * `["0","1",…]`, which would pollute the lever set with positional indices
+ * for malformed inputs. The route schema enforces an object shape in
+ * production, but this is cheap defence-in-depth.
+ */
+export function interventionTargetIdsFromOptions(
+  options: ReadonlyArray<{ interventions?: unknown }> | undefined | null,
+): Set<string> {
+  const interventionTargetIds = new Set<string>();
+  for (const opt of options ?? []) {
+    const interventions = (opt as { interventions?: unknown }).interventions;
+    if (
+      interventions &&
+      typeof interventions === 'object' &&
+      !Array.isArray(interventions)
+    ) {
+      for (const factorId of Object.keys(interventions)) {
+        interventionTargetIds.add(factorId);
+      }
+    }
+  }
+  return interventionTargetIds;
+}
+
+/**
+ * Combined D-U lever predicate: a factor is an option-controlled lever when
+ * ISL stamped it (`zero_reason === 'intervention_override'`) OR it is a
+ * member of the structural union (`interventionTargetIdsFromOptions`).
+ * Suppression surfaces (sensitivity/elasticity/VOI/EVPI) must use this — the
+ * stamp alone under-covers (see module header).
+ */
+export function isOptionControlledLever(
+  f: { factor_id?: string; node_id?: string; zero_reason?: string | null },
+  structuralLeverIds?: ReadonlySet<string>,
+): boolean {
+  if (isInterventionOverride(f)) return true;
+  const id = f.factor_id ?? f.node_id;
+  return id != null && (structuralLeverIds?.has(id) ?? false);
 }
 
 /** Drop intervention-controlled levers from a factor list. */

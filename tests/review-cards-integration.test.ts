@@ -123,15 +123,22 @@ describe('Review cards in /v2/run', () => {
     await app.close();
   });
 
+  // D-U (ROADMAP 2.20/2.40): factor-a and factor-b are pinned by the options
+  // below, so they are structural LEVERS — suppressed from the evidence-priority
+  // card (a lever is not a tunable evidence gap). factor-c is pinned by nobody:
+  // it is the non-lever whose presence keeps the card alive, and the card must
+  // contain ONLY it.
   const GRAPH = {
     nodes: [
       { id: 'factor-a', kind: 'factor', label: 'Factor A', observed_state: { value: 50 } },
       { id: 'factor-b', kind: 'factor', label: 'Factor B', observed_state: { value: 30 } },
+      { id: 'factor-c', kind: 'factor', label: 'Factor C', observed_state: { value: 40 } },
       { id: 'goal', kind: 'goal', label: 'Goal' },
     ],
     edges: [
       { from: 'factor-a', to: 'goal', exists_probability: 0.8, strength: { mean: 0.5, std: 0.1 } },
       { from: 'factor-b', to: 'goal', exists_probability: 0.9, strength: { mean: -0.3, std: 0.1 } },
+      { from: 'factor-c', to: 'goal', exists_probability: 0.8, strength: { mean: 0.6, std: 0.1 } },
     ],
   };
 
@@ -187,6 +194,9 @@ describe('Review cards in /v2/run', () => {
       expect(typeof item.sensitivity_value).toBe('number');
       expect(item.sensitivity_value).toBeGreaterThanOrEqual(0);
       expect(typeof item.suggested_evidence).toBe('string');
+      // D-U structural lever guard: option-pinned factors (factor-a by opt-a,
+      // factor-b by opt-b) are levers, never evidence-priority items.
+      expect(['factor-a', 'factor-b']).not.toContain(item.factor_id);
     }
   });
 
