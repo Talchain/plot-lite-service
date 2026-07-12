@@ -32,6 +32,10 @@ import {
 import { DecisionReviewEvents, M1ReviewWarningCodes, ReviewSkipReasons, WARNING_GRADE_CODES } from './validation/m1-review-constants.js';
 import { correctUngroundedNumbers, type IslResultsForCorrection } from './validation/number-corrector.js';
 import { resolveFlipValues, type ISLInferenceFn } from '../analysis/flip-thresholds.js';
+import {
+  interventionTargetIdsFromOptions,
+  isOptionControlledLever,
+} from '../lib/intervention-override.js';
 
 // =============================================================================
 // Types
@@ -238,8 +242,14 @@ export async function orchestrateDecisionReview(
 
   const parsedReview = parseResult.data;
 
-  // Run deterministic number correction BEFORE validation
-  const islResultsForCorrection = buildIslResultsForCorrection(input.islResult);
+  // Run deterministic number correction BEFORE validation. The correction
+  // input is union-filtered (same leaf derivation as buildDecisionReviewRequest)
+  // so the corrector can never inject an option-controlled lever's elasticity
+  // into the returned narrative (public wire via the m1_review merge).
+  const islResultsForCorrection = buildIslResultsForCorrection(
+    input.islResult,
+    interventionTargetIdsFromOptions(input.options)
+  );
   const { corrected: numberCorrectedReview, corrections } = correctUngroundedNumbers(
     parsedReview,
     islResultsForCorrection,
@@ -371,8 +381,21 @@ export async function orchestrateDecisionReview(
 
 /**
  * Build ISL results format for number correction.
+ *
+ * factor_sensitivity is filtered with the combined D-U lever predicate
+ * (ISL stamp OR structural union) — the same filter as the CEE request's
+ * isl_results.factor_sensitivity — so the number-corrector's "authoritative"
+ * pool can never contain an option-controlled lever's elasticity (review
+ * fixup, PR #219: this builder previously read raw ISL with NO filter).
+ *
+ * Exported for tests (du-structural-lever-guard.decision-review.integration).
+ *
+ * @param structuralLeverIds Canonical union from interventionTargetIdsFromOptions.
  */
-function buildIslResultsForCorrection(islResult: ISLResultInput): IslResultsForCorrection {
+export function buildIslResultsForCorrection(
+  islResult: ISLResultInput,
+  structuralLeverIds?: ReadonlySet<string>
+): IslResultsForCorrection {
   const options = islResult.options ?? islResult.results ?? [];
 
   return {
@@ -385,11 +408,13 @@ function buildIslResultsForCorrection(islResult: ISLResultInput): IslResultsForC
     robustness: {
       recommendation_stability: islResult.robustness?.recommendation_stability ?? 0,
     },
-    factor_sensitivity: (islResult.factor_sensitivity ?? []).map((f) => ({
-      factor_id: f.factor_id,
-      elasticity: f.elasticity ?? 0,
-      confidence: f.confidence,
-    })),
+    factor_sensitivity: (islResult.factor_sensitivity ?? [])
+      .filter((f) => !isOptionControlledLever(f, structuralLeverIds))
+      .map((f) => ({
+        factor_id: f.factor_id,
+        elasticity: f.elasticity ?? 0,
+        confidence: f.confidence,
+      })),
   };
 }
 

@@ -16,8 +16,12 @@
  * predicates — the request-side structural union
  * (`interventionTargetIdsFromOptions`) and the ISL-stamp symptom
  * (`isInterventionOverride`) — and the combined D-U predicate
- * (`isOptionControlledLever`). There is no other lever-identity definition;
- * derive from here, never inline.
+ * (`isOptionControlledLever`). Every lever-identity consumer derives from
+ * here — the /v2/run egress guards, the coaching layer
+ * (normalise-inputs.ts), and, since the PR #219 review fixup, the M2
+ * decision-review lane (request assembly, number-corrector input,
+ * flip-candidate guard, legacy sensitive_parameters). Derive from here,
+ * never inline.
  *
  * This module is the single definition, kept import-free so any layer (lib,
  * assembly, routes, coaching) can depend on it without creating an import

@@ -158,6 +158,10 @@ const testIslResult = {
     },
   ],
   factor_sensitivity: [
+    // factor_a and factor_b are option-intervention targets (see testOptions)
+    // → structural-union levers, filtered out of the CEE request since the
+    // PR #219 review fixup. factor_c is the non-lever survivor that keeps the
+    // populated factor_sensitivity entry shape under contract coverage.
     {
       factor_id: 'factor_a',
       factor_label: 'Market Size',
@@ -169,6 +173,12 @@ const testIslResult = {
       factor_label: 'Competition',
       elasticity: 0.25,
       confidence: 0.7,
+    },
+    {
+      factor_id: 'factor_c',
+      factor_label: 'Brand Strength',
+      elasticity: 0.15,
+      confidence: 0.6,
     },
   ],
   robustness: {
@@ -595,29 +605,37 @@ describe('CEE Decision Review Contract', () => {
 
   // ===========================================================================
   // Flip-threshold selection guard on the legacy assembly path. The contract
-  // schema only validates shape/presence, so this exercises the by-all-options
-  // exclusion behaviour directly.
+  // schema only validates shape/presence, so this exercises the exclusion
+  // behaviour directly.
+  //
+  // RULING CHANGE (PR #219 review fixup): the excluded set is the STRUCTURAL
+  // UNION (any option intervenes), not just the all-options intersection. A
+  // some-but-not-all-options lever must not become a CEE flip candidate
+  // either — lever suppression outranks the probe-usefulness argument the old
+  // intersection guard encoded.
   // ===========================================================================
-  describe('flip-threshold overridden-by-all exclusion', () => {
+  describe('flip-threshold lever exclusion (structural union)', () => {
     // The shared testGraph omits observed_state.value, which would skip every factor
     // during flip-threshold selection. Give the factors values so they are genuinely
-    // eligible, then assert the guard removes only the fully-overridden one.
+    // eligible, then assert the union guard removes every lever and only levers.
     const graphWithValues: EngineGraphV3 = {
       nodes: [
         { id: 'goal', kind: 'goal', label: 'Maximize Revenue' },
         { id: 'factor_a', kind: 'factor', label: 'Market Size', observed_state: { value: 0.5, belief: 0.8 } },
         { id: 'factor_b', kind: 'factor', label: 'Competition', observed_state: { value: 0.5, belief: 0.7 } },
+        { id: 'factor_c', kind: 'factor', label: 'Brand Strength', observed_state: { value: 0.5, belief: 0.6 } },
       ],
       edges: testGraph.edges,
     };
 
-    it('excludes a factor overridden by EVERY option, preserves one overridden by only SOME', () => {
+    it('excludes every option-intervention target (all-options AND some-options), preserves the non-lever', () => {
       // testOptions: opt_a → {factor_a}; opt_b → {factor_a, factor_b}.
-      //   factor_a is overridden by every option → excluded from assumption-threshold probing.
-      //   factor_b is overridden by only opt_b → preserved.
-      // testIslResult.factor_sensitivity carries both factor_a (0.45) and factor_b (0.25)
-      // with no intervention_override zero_reason, so the by-all guard (not the ISL
-      // zero_reason filter) is what removes factor_a.
+      //   factor_a is overridden by every option → excluded (as before).
+      //   factor_b is overridden by only opt_b → union lever → NOW excluded.
+      //   factor_c is intervened by nobody → the surviving flip candidate.
+      // testIslResult.factor_sensitivity carries all three with no
+      // intervention_override zero_reason, so the structural-union guard (not
+      // the ISL zero_reason filter) is what removes factor_a and factor_b.
       const request = buildDecisionReviewRequest(
         'Flip-threshold exclusion unit test',
         graphWithValues,
@@ -627,8 +645,9 @@ describe('CEE Decision Review Contract', () => {
       );
 
       const flipFactorIds = request.flip_threshold_data.map((f) => f.factor_id);
-      expect(flipFactorIds).toContain('factor_b');     // partially intervened → eligible
+      expect(flipFactorIds).toContain('factor_c');     // non-lever → eligible
       expect(flipFactorIds).not.toContain('factor_a'); // overridden by all → excluded
+      expect(flipFactorIds).not.toContain('factor_b'); // some-options lever → excluded (ruling change)
     });
   });
 });

@@ -3014,6 +3014,7 @@ function buildCeeReviewRequest(
   let islRobustness: CeeReviewRequest['isl_robustness'];
   if (islResult?.robustness) {
     const r = islResult.robustness;
+    const structuralLeverIds = interventionTargetIdsFromOptions(options);
     islRobustness = {
       overall_robustness: r.label as 'robust' | 'moderate' | 'fragile',
       // validation_status / validation_confidence reads removed: the live V2
@@ -3021,7 +3022,14 @@ function buildCeeReviewRequest(
       // were structurally undefined here — the CEE request carried no such
       // keys. Omitting the reads is behaviour-identical on the /v2 path
       // (the legacy /v1 route is a declared behaviour change — see orchestrator.ts).
-      sensitive_parameters: islResult.factor_sensitivity?.slice(0, 5).map((f: any) => ({
+      // D-U union filter (review fixup, PR #219): option-controlled levers —
+      // ISL-stamped OR structural-union members — never egress as sensitive
+      // parameters, mirroring the M2 decision-review request filter. Filter
+      // BEFORE the slice so a lever never consumes one of the 5 slots.
+      // (Hygiene: this legacy path is dead while DECISION_REVIEW_ENABLE is on.)
+      sensitive_parameters: islResult.factor_sensitivity
+        ?.filter((f: any) => !isOptionControlledLever(f, structuralLeverIds))
+        .slice(0, 5).map((f: any) => ({
         parameter: f.node_id,
         // Schema v2.6 canonical field is 'sensitivity_score'; the bare
         // 'sensitivity' key is V1-era and dead on the live V2 wire.

@@ -229,10 +229,14 @@ export function getFactorsOverriddenByAllOptions(
     return new Set<string>();
   }
 
-  // Intervention-key set (factor node IDs) per option.
+  // Intervention-key set (factor node IDs) per option. Plain-object guard:
+  // arrays are objects too and `Object.keys([])` returns `["0","1",…]`, which
+  // would pollute the key sets with positional indices for malformed inputs —
+  // same defence-in-depth as interventionTargetIdsFromOptions in the shared
+  // lever-identity leaf.
   const perOptionKeys = options.map((opt) => {
     const interventions = opt?.interventions;
-    if (!interventions || typeof interventions !== 'object') {
+    if (!interventions || typeof interventions !== 'object' || Array.isArray(interventions)) {
       return new Set<string>();
     }
     return new Set<string>(Object.keys(interventions));
