@@ -10,7 +10,10 @@
 import { createHash } from 'node:crypto';
 import type { EngineGraphV3, OptionV3 } from '../types/engine-v3.js';
 import type { M1Coaching, EvidenceGap, Critique } from '../coaching/types.js';
-import { filterInterventionOverrides } from '../coaching/sensitivity-filter.js';
+import {
+  interventionTargetIdsFromOptions,
+  isOptionControlledLever,
+} from '../lib/intervention-override.js';
 import type {
   DecisionReviewRequest,
   DecisionReviewNode,
@@ -25,7 +28,6 @@ import type {
 } from './validation/m1-review-types.js';
 import {
   computeFlipThresholdData,
-  getFactorsOverriddenByAllOptions,
   calculateMargin,
   getWinnerAndRunnerUp,
   type FactorSensitivityInput,
@@ -116,9 +118,16 @@ export function buildDecisionReviewRequest(
   // Build stripped graph
   const strippedGraph = buildStrippedGraph(graph);
 
+  // D-U structural lever union (same leaf + same input as the /v2/run egress
+  // guard and the coaching layer — ONE union definition, never inlined). An
+  // unstamped union lever (the live fac_salary_cost class) must not reach CEE
+  // as isl_results.factor_sensitivity, be allowlisted as a "grounded" number,
+  // feed the number-corrector, or become a flip candidate.
+  const structuralLeverIds = interventionTargetIdsFromOptions(options);
+
   // Extract ISL results
   const optionComparison = extractOptionComparison(islResult, options);
-  const factorSensitivity = extractFactorSensitivity(islResult);
+  const factorSensitivity = extractFactorSensitivity(islResult, structuralLeverIds);
   const fragileEdges = extractFragileEdges(islResult);
   const robustness = extractRobustness(islResult);
 
@@ -128,15 +137,19 @@ export function buildDecisionReviewRequest(
   // Get winner and runner-up
   const { winner, runnerUp } = getWinnerAndRunnerUp(optionComparison);
 
-  // Compute flip threshold data. Exclude factors overridden by EVERY option so
-  // this path (legacy decision-review assembly) gets the same assumption-threshold
-  // selection guard as the main /v2/run route — probing a fully-overridden factor
-  // would always return no_effect_within_bounds.
+  // Compute flip threshold data. Excluded set is the STRUCTURAL UNION, not
+  // just the all-options intersection: a some-but-not-all-options lever must
+  // not become a CEE flip candidate either (review fixup, PR #219). The union
+  // strictly contains the old getFactorsOverriddenByAllOptions(options)
+  // intersection (a factor pinned by EVERY option is pinned by SOME option),
+  // so the original probe-budget guard is preserved. Belt-and-braces with the
+  // extractFactorSensitivity filter above, which already keeps levers out of
+  // this function's input.
   const flipThresholdData = computeFlipThresholdData(
     factorSensitivity as FactorSensitivityInput[],
     optionComparison as OptionComparisonInput[],
     graph,
-    getFactorsOverriddenByAllOptions(options)
+    structuralLeverIds
   );
 
   // Calculate margin
@@ -238,12 +251,26 @@ function extractOptionComparison(
 
 /**
  * Extract factor sensitivity data from ISL result.
+ *
+ * Filters option-controlled levers with the combined D-U predicate: ISL-stamped
+ * (zero_reason === 'intervention_override') OR structural-union member (any
+ * option intervenes on the factor). The stamp alone under-covers — ISL stamps
+ * only elasticity≈0 first-option pins, so an unstamped union lever's
+ * elasticity/confidence/label would otherwise egress to CEE on the active
+ * DECISION_REVIEW_ENABLE path (review fixup, PR #219).
+ *
+ * @param structuralLeverIds Canonical union from interventionTargetIdsFromOptions.
+ *   Optional for backward compatibility — omitting reverts to stamp-only.
  */
-export function extractFactorSensitivity(islResult: ISLResultInput): FactorSensitivityData[] {
+export function extractFactorSensitivity(
+  islResult: ISLResultInput,
+  structuralLeverIds?: ReadonlySet<string>
+): FactorSensitivityData[] {
   const factorSensitivity = islResult.factor_sensitivity ?? [];
 
-  // Task 2: Filter out intervention_override factors (decision levers, not uncertainty drivers)
-  return filterInterventionOverrides(factorSensitivity).map((f) => ({
+  return factorSensitivity
+    .filter((f) => !isOptionControlledLever(f, structuralLeverIds))
+    .map((f) => ({
       factor_id: f.factor_id,
       factor_label: f.factor_label ?? f.factor_id,
       elasticity: f.elasticity ?? 0,

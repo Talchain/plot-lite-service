@@ -134,6 +134,7 @@ import { ReviewSkipReasons, type ReviewSkipReason } from '../../cee/validation/m
 import { getDownstreamCallsForLog, getDownstreamCalls } from '../../util/downstream-tracker.js';
 import { computeResponseContentHash } from '../../util/response-content-hash.js';
 import { computeFactorSensitivityFromGraph, buildFactorStability, mergeIslConfidenceIntoGraphFactors } from '../../lib/factor-influence.js';
+import { interventionTargetIdsFromOptions, isOptionControlledLever } from '../../lib/intervention-override.js';
 import { buildAutoNoiseProvenance, extractIslAutoNoiseApplied, logAutoNoiseFlagMissingFromIsl } from '../../lib/auto-noise.js';
 import { sanitiseIslVoi, computeEvpiPercentagePoints } from '../../lib/evpi-emission.js';
 import {
@@ -3013,6 +3014,7 @@ function buildCeeReviewRequest(
   let islRobustness: CeeReviewRequest['isl_robustness'];
   if (islResult?.robustness) {
     const r = islResult.robustness;
+    const structuralLeverIds = interventionTargetIdsFromOptions(options);
     islRobustness = {
       overall_robustness: r.label as 'robust' | 'moderate' | 'fragile',
       // validation_status / validation_confidence reads removed: the live V2
@@ -3020,7 +3022,14 @@ function buildCeeReviewRequest(
       // were structurally undefined here — the CEE request carried no such
       // keys. Omitting the reads is behaviour-identical on the /v2 path
       // (the legacy /v1 route is a declared behaviour change — see orchestrator.ts).
-      sensitive_parameters: islResult.factor_sensitivity?.slice(0, 5).map((f: any) => ({
+      // D-U union filter (review fixup, PR #219): option-controlled levers —
+      // ISL-stamped OR structural-union members — never egress as sensitive
+      // parameters, mirroring the M2 decision-review request filter. Filter
+      // BEFORE the slice so a lever never consumes one of the 5 slots.
+      // (Hygiene: this legacy path is dead while DECISION_REVIEW_ENABLE is on.)
+      sensitive_parameters: islResult.factor_sensitivity
+        ?.filter((f: any) => !isOptionControlledLever(f, structuralLeverIds))
+        .slice(0, 5).map((f: any) => ({
         parameter: f.node_id,
         // Schema v2.6 canonical field is 'sensitivity_score'; the bare
         // 'sensitivity' key is V1-era and dead on the live V2 wire.
@@ -5049,6 +5058,17 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // collapse to 0.25" behaviour is fixed at the band table itself.)
         const islFactorSensitivityUnfiltered = transformFactorSensitivityUnfiltered(islResult.factor_sensitivity, normalisationContext);
 
+        // D-U structural lever union (ROADMAP 2.20/2.40, adopted 13 Jul): every
+        // factor id any option's `interventions` targets is a LEVER, whether or
+        // not ISL stamped it (ISL stamps only elasticity≈0 first-option pins).
+        // Same derivation + same input (body.options) as the coaching layer's
+        // normaliseCoachingInputs — ONE union definition, shared via
+        // src/lib/intervention-override.ts. Threaded into the merge below and
+        // the EVPI enrichment guards so a union lever never publishes
+        // sensitivity/elasticity/VOI/EVPI (live fac_salary_cost case: sens
+        // −0.19 + top EVPI 7.8pp published while coaching suppressed it).
+        const structuralLeverIds = interventionTargetIdsFromOptions(body.options);
+
         // Graph-based is primary for influence/sensitivity scores.
         // When graph results exist, merge ISL attribution_stability into graph entries
         // and recompute unified confidence (0.5 × band_score + 0.5 × mean(incoming edges)).
@@ -5061,6 +5081,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             graphBasedFactorSensitivity,
             islFactorSensitivityUnfiltered,
             filteredGraph.edges,
+            structuralLeverIds,
           );
           factorSensitivitySource = 'graph+isl_merge';
         } else {
@@ -5068,10 +5089,14 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           // Pass empty graph array so all ISL factors go through the ISL-only
           // append path, which computes unified confidence + confidence_components.
           // Use filtered entries here since ISL-only factors ARE the sensitivity output.
+          // The structural union still applies: an UNSTAMPED union lever survives
+          // transformFactorSensitivity's zero_reason filter, so the append path's
+          // union check is what keeps it off the sensitivity output.
           factorSensitivity = mergeIslConfidenceIntoGraphFactors(
             [],
             islFactorSensitivity,
             filteredGraph.edges,
+            structuralLeverIds,
           );
           factorSensitivitySource = 'isl';
         }
@@ -5108,11 +5133,16 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
 
           if (islEvpiByFactor.size > 0) {
             for (const f of factorSensitivity) {
-              // P0a: never emit EVPI for an option-pinned lever
-              // (zero_reason === 'intervention_override') — resolving knowledge
-              // of a value the user sets is not an information gain. Applies to
-              // the ISL counterfactual path exactly as to the heuristic path.
-              if (f.zero_reason === 'intervention_override') continue;
+              // P0a + D-U: never emit EVPI for an option-controlled lever —
+              // ISL-stamped (zero_reason === 'intervention_override') OR a
+              // structural union member (any option intervenes on it; ISL's
+              // stamp misses non-first-option pins with nonzero elasticity).
+              // Resolving knowledge of a value the user sets is not an
+              // information gain. Applies to the ISL counterfactual path
+              // exactly as to the heuristic path. The merge upstream already
+              // stamps union members, so this is belt-and-braces against any
+              // path that bypasses the merge.
+              if (isOptionControlledLever(f, structuralLeverIds)) continue;
               const entry = islEvpiByFactor.get(f.factor_id);
               if (!entry) continue; // no ISL estimate for this factor → honest absence
               if (entry.emit_pp !== undefined) {
@@ -5141,15 +5171,16 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             const winProbSpread = winProbs.length >= 2 ? winProbs[0] - winProbs[1] : 0;
             if (winProbSpread > 0) {
               for (const f of factorSensitivity) {
-                // P0a: never emit EVPI for an option-pinned lever
-                // (zero_reason === 'intervention_override'). Its VOI is forced to 0
-                // in mergeIslConfidenceIntoGraphFactors, and computeEvpiPercentagePoints(0, …)
+                // P0a + D-U: never emit EVPI for an option-controlled lever —
+                // ISL-stamped OR structural union member (see the counterfactual
+                // loop above). A lever's VOI is forced to 0 in
+                // mergeIslConfidenceIntoGraphFactors, and computeEvpiPercentagePoints(0, …)
                 // returns a confident 0 (not undefined) — which would still render an
                 // EVPI chip and rank the lever as an "investigation priority". Skip it
                 // entirely so evpi_percentage_points is ABSENT (preserving the
                 // missing-vs-zero contract), not 0. Belt-and-braces with the
                 // producer-side VOI zeroing; suppression only, no EVPI rename/redefine.
-                if (f.zero_reason === 'intervention_override') continue;
+                if (isOptionControlledLever(f, structuralLeverIds)) continue;
                 const evpiPp = computeEvpiPercentagePoints(f.value_of_information, winProbSpread);
                 if (evpiPp !== undefined) {
                   f.evpi_percentage_points = evpiPp;

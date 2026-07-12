@@ -41,6 +41,35 @@ import type {
   ConfidenceFormulaVersion,
 } from '../types/engine-v3.js';
 import { ATTRIBUTION_STABILITY_BAND_SCORES } from '../review-pass/evidence-priority.js';
+import { isInterventionOverride, isOptionControlledLever } from './intervention-override.js';
+
+/**
+ * D-U lever suppression (ROADMAP 2.20/2.40): the public shape of a factor that
+ * is controlled by the user's options. Sensitivity/elasticity/VOI are 0 by
+ * contract (not measurements); `zero_reason` is stamped so downstream (UI
+ * badge, CEE coaching, decision-brief) renders the honest "controlled by your
+ * options" state; `influence_score` (graph structural importance) is
+ * deliberately NOT touched — a lever keeps its structural weight, it just is
+ * not an "investigate next" uncertainty. Field-level rationale:
+ * - sensitivity_score 0: `zero_reason: 'intervention_override'` DEFINES the
+ *   lever as not independently tunable. Forced (not copied from ISL) so an
+ *   inconsistent ISL payload can never re-leak a tunable sensitivity (A1).
+ * - elasticity 0: defensive producer value, NOT a measured elasticity — set
+ *   (not omitted) so downstream `elasticity ?? influence_score` fallbacks
+ *   short-circuit to 0 instead of re-leaking influence_score (A1b).
+ * - value_of_information 0: resolving knowledge of a value the user sets is
+ *   not an information gain; without this the EVPI enrichment in
+ *   routes/v2/run.ts would derive a positive EVPI from the graph VOI (P0a).
+ * All three are idempotent constants: re-applying to an already-suppressed
+ * factor is a no-op, so ISL-stamped levers (and, post ISL #73, union-stamped
+ * ones) pass through unchanged.
+ */
+const LEVER_SUPPRESSION_FIELDS = {
+  sensitivity_score: 0,
+  zero_reason: 'intervention_override',
+  elasticity: 0,
+  value_of_information: 0,
+} as const;
 
 /**
  * Minimal fragile edge interface for VOI and flip risk computation.
@@ -834,14 +863,28 @@ export function computeFactorSensitivityFromGraph(
  * @param graphFactors Graph-based factor sensitivity entries (with confidence_components.structural_certainty)
  * @param islFactors ISL factor sensitivity entries (with attribution_stability)
  * @param graphEdges Graph edges for computing incoming edges on ISL-only factors
+ * @param structuralLeverIds D-U structural lever union (every factor id any
+ *   option's `interventions` targets, via `interventionTargetIdsFromOptions`).
+ *   Union members are suppressed+stamped exactly like ISL-stamped levers —
+ *   ISL's stamp under-covers (elasticity≈0 first-option pins only), so a
+ *   non-first-option pin with nonzero measured elasticity would otherwise
+ *   egress as a tunable sensitivity (live fac_salary_cost case).
  */
 export function mergeIslConfidenceIntoGraphFactors(
   graphFactors: FactorSensitivityResultV3[],
   islFactors: FactorSensitivityResultV3[] | undefined,
   graphEdges?: EngineEdgeV3[],
+  structuralLeverIds?: ReadonlySet<string>,
 ): FactorSensitivityResultV3[] {
   if (!islFactors || islFactors.length === 0) {
-    // Even when there's no ISL data, graph entries get re-confirmed provenance.
+    // Even when there's no ISL data, graph entries get re-confirmed provenance —
+    // and the D-U structural guard still applies: a union-member graph factor
+    // must not egress a tunable sensitivity just because ISL returned nothing.
+    if (structuralLeverIds && structuralLeverIds.size > 0) {
+      return graphFactors.map((gf) =>
+        structuralLeverIds.has(gf.factor_id) ? { ...gf, ...LEVER_SUPPRESSION_FIELDS } : gf,
+      );
+    }
     return graphFactors;
   }
 
@@ -871,7 +914,15 @@ export function mergeIslConfidenceIntoGraphFactors(
   const merged = graphFactors.map(gf => {
     graphFactorIds.add(gf.factor_id);
     const islMatch = islMap.get(gf.factor_id);
-    if (!islMatch) return gf;
+    // D-U structural membership: suppression fires on union membership OR the
+    // ISL stamp (below), so an unstamped union lever cannot leak.
+    const structuralLever = structuralLeverIds?.has(gf.factor_id) ?? false;
+    if (!islMatch) {
+      // No ISL entry for this graph factor. Pre-D-U this returned the graph
+      // entry untouched, which let a union lever ISL never analysed publish
+      // its graph sensitivity + VOI (→ EVPI). Suppress+stamp union members.
+      return structuralLever ? { ...gf, ...LEVER_SUPPRESSION_FIELDS } : gf;
+    }
 
     // Extract attribution_stability from ISL entry
     const attrStability = islMatch.attribution_stability ?? null;
@@ -928,54 +979,36 @@ export function mergeIslConfidenceIntoGraphFactors(
       ...(islMatch.value_source !== undefined && { value_source: islMatch.value_source }),
       ...(islMatch.value_extraction_type !== undefined && { value_extraction_type: islMatch.value_extraction_type }),
       ...(islMatch.value_defaulted !== undefined && { value_defaulted: islMatch.value_defaulted }),
-      // Lane A1 — structural-vs-tunable preservation. ISL marks
+      // Lane A1 + D-U — structural-vs-tunable preservation. ISL marks
       // intervention-controlled option levers as NOT independently tunable
-      // (sensitivity_score: 0 + zero_reason: 'intervention_override'). The graph
-      // computes a non-zero topological influence for those same nodes, so the
-      // `...gf` spread above would otherwise expose that as a tunable
-      // sensitivity. Key ONLY on ISL's existing zero_reason — do not re-derive
-      // lever status from graph topology or option interventions. `influence_score`
-      // (graph structural importance) and `source` ('graph', a legacy/object
-      // provenance label) are deliberately left unchanged; the authority for
-      // tunability is `zero_reason === 'intervention_override'` + sensitivity 0.
-      ...(islMatch.zero_reason === 'intervention_override' && {
-        // `zero_reason: 'intervention_override'` DEFINES the lever as not
-        // independently tunable, so sensitivity is 0 by contract. Force 0 here
-        // (rather than copying islMatch.sensitivity_score) so PLoT enforces the
-        // invariant even if an ISL payload ever paired intervention_override with
-        // a non-zero sensitivity_score — that inconsistency must not re-leak as a
-        // tunable sensitivity. (influence_score / source stay graph-derived.)
-        sensitivity_score: 0,
-        zero_reason: 'intervention_override',
-        // A1b: defensive public producer value — NOT a measured elasticity and
-        // NO claim of low sensitivity/stability. Set to 0 (not omitted) so
-        // downstream `elasticity ?? influence_score` fallbacks short-circuit to 0
-        // instead of re-leaking the preserved non-zero influence_score. The
-        // durable guarantee is the explicit zero_reason predicate at each
-        // tunability/evidence surface; this is defence-in-depth. (A1b brief §1/§3.)
-        elasticity: 0,
-        // P0a: a lever's value_of_information is 0 by the same contract.
-        // `value_of_information` is computed pre-merge in
-        // computeFactorSensitivityFromGraph from the lever's non-zero topological
-        // influence (and carried through by the `...gf` spread above); the EVPI
-        // enrichment loop in routes/v2/run.ts derives evpi_percentage_points from
-        // it, so without this a lever would publish a positive EVPI and surface as
-        // a top "investigation priority / resolvable uncertainty" in consumers
-        // (e.g. the UI factor card). Resolving knowledge of an option-pinned value
-        // the user sets is not an information gain, so VOI is 0 — same suppression
-        // posture as sensitivity_score/elasticity above, NOT a new EVPI definition.
-        value_of_information: 0,
-      }),
+      // (sensitivity_score: 0 + zero_reason: 'intervention_override'), but its
+      // stamp under-covers: only elasticity≈0 first-option pins are stamped.
+      // D-U (adopted 13 Jul, superseding A1's stamp-only keying) fires the
+      // same suppression on STRUCTURAL union membership too, so a factor any
+      // option pins — stamped or not — never egresses a tunable sensitivity.
+      // The graph computes a non-zero topological influence for these nodes,
+      // so the `...gf` spread above would otherwise expose it. Do not
+      // re-derive lever status from graph topology; the two authorities are
+      // the request-side union and ISL's stamp. `influence_score` (graph
+      // structural importance) and `source` ('graph', a legacy/object
+      // provenance label) are deliberately left unchanged. Field-level
+      // rationale on LEVER_SUPPRESSION_FIELDS; constants, so re-applying to an
+      // ISL-stamped entry is a byte-identical no-op (idempotence).
+      ...((isInterventionOverride(islMatch) || structuralLever) && LEVER_SUPPRESSION_FIELDS),
     };
   });
 
   // Append ISL-only factors not in graph results.
-  // Skip intervention_override entries — they are decision levers, not uncertainty
-  // drivers. When unfiltered ISL entries are passed for confidence merge, we must
-  // not accidentally append them to the sensitivity output.
+  // Skip option-controlled levers (ISL-stamped OR structural union members) —
+  // they are decision levers, not uncertainty drivers. When unfiltered ISL
+  // entries are passed for confidence merge, we must not accidentally append
+  // them to the sensitivity output; and an UNSTAMPED union member (non-first
+  // option pin, nonzero elasticity) must get the same treatment the stamped
+  // ones do — skipped here, exactly as ISL-stamped levers always were on this
+  // path (an ISL-only factor has no graph influence_score to preserve).
   const edges = graphEdges ?? [];
   for (const islF of islFactors) {
-    if (!graphFactorIds.has(islF.factor_id) && islF.zero_reason !== 'intervention_override') {
+    if (!graphFactorIds.has(islF.factor_id) && !isOptionControlledLever(islF, structuralLeverIds)) {
       // Compute incoming edges for ISL-only factor (include strength for improved fallback)
       const incoming = edges
         .filter(e => e.to === islF.factor_id)

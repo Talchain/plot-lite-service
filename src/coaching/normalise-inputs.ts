@@ -19,6 +19,7 @@ import type {
   FactorSensitivityResultV3,
   OptionV3,
 } from '../types/engine-v3.js';
+import { interventionTargetIdsFromOptions } from '../lib/intervention-override.js';
 
 /**
  * Normalise ISL response data for coaching consumption.
@@ -136,23 +137,10 @@ export function normaliseCoachingInputs(
   // current "what to validate next" list. Source of truth is the request-side
   // `options[i].interventions` map, NOT raw ISL `zero_reason`, because ISL's
   // zero_reason is a downstream symptom rather than the canonical definition.
-  const interventionTargetIds = new Set<string>();
-  for (const opt of options) {
-    const interventions = (opt as any).interventions;
-    // Plain-object guard: arrays are objects too and `Object.keys([])` returns
-    // `["0","1",…]`, which would pollute the lever set with positional indices
-    // for malformed inputs. The route schema enforces an object shape in
-    // production, but this is cheap defence-in-depth.
-    if (
-      interventions &&
-      typeof interventions === 'object' &&
-      !Array.isArray(interventions)
-    ) {
-      for (const factorId of Object.keys(interventions)) {
-        interventionTargetIds.add(factorId);
-      }
-    }
-  }
+  // The derivation itself lives in the shared lever-identity leaf
+  // (`src/lib/intervention-override.ts`) so coaching and the public
+  // factor_sensitivity/EVPI egress share ONE union definition (D-U, ROADMAP 2.40).
+  const interventionTargetIds = interventionTargetIdsFromOptions(options);
 
   return {
     factorSensitivity,
