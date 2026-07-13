@@ -31,7 +31,7 @@ jobs:
               - 'tests/**'
               - 'tools/**'
               - 'package.json'
-              - 'pnpm-lock.yaml'
+              - 'package-lock.json'
             maintenance:
               - '.gitignore'
               - '.github/workflows/**'
