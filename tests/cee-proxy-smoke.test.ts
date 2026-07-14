@@ -547,16 +547,60 @@ describe('CEE Proxy — Behavioural Smoke Tests', () => {
       expect(body.error).toContain('body');
     });
 
-    it('POST /v1/cee/prompts/warm returns 400 for empty body', async () => {
+    // prompts/warm: {} is the VALID "warm all prompts" request — the UI's
+    // prompt-preloader (DecisionGuideAI src/lib/prompt-preloader.ts) sends
+    // exactly {} on every page load, and CEE /assist/v1/prompts/warm accepts
+    // it (200). Rejecting it caused a silent warm-up failure on every page
+    // load (ROADMAP 2.54(c), SCORECARD §3).
+    it('POST /v1/cee/prompts/warm accepts empty object body and forwards {} to CEE', async () => {
+      let capturedBody: string | undefined;
+
+      globalThis.fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        capturedBody = init?.body as string;
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          text: async () => '{"success":true}',
+          json: async () => ({ success: true }),
+        };
+      }) as unknown as typeof fetch;
+
       const res = await app.inject({
         method: 'POST',
         url: '/v1/cee/prompts/warm',
         payload: {},
       });
 
-      expect(res.statusCode).toBe(400);
-      const body = JSON.parse(res.payload);
-      expect(body.error).toContain('body');
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.payload)).toEqual({ success: true });
+      expect(capturedBody).toBeDefined();
+      expect(JSON.parse(capturedBody!)).toEqual({});
+    });
+
+    it('POST /v1/cee/prompts/warm accepts a missing body and forwards {} to CEE', async () => {
+      let capturedBody: string | undefined;
+
+      globalThis.fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        capturedBody = init?.body as string;
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          text: async () => '{"success":true}',
+          json: async () => ({ success: true }),
+        };
+      }) as unknown as typeof fetch;
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/cee/prompts/warm',
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.payload)).toEqual({ success: true });
+      expect(capturedBody).toBeDefined();
+      expect(JSON.parse(capturedBody!)).toEqual({});
     });
   });
 });
