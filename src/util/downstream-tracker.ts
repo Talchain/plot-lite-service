@@ -208,11 +208,97 @@ export function getDownstreamCallsForLog(requestId: string): Array<{
 }
 
 // -----------------------------------------------------------------------------
+// Decision-input minimiser — log-safe downstream projection (F1/F3)
+// -----------------------------------------------------------------------------
+
+/**
+ * Log-safe view of a downstream call. Carries ONLY correlation/observability
+ * metadata — hashes, digests (sha256 + byte size + top-level key manifest),
+ * timing, status, endpoint and request IDs. It deliberately DROPS the
+ * decision-domain payload bodies (`request_payload` / `response_payload` /
+ * `error_body`) that carry node/factor labels, raw factor values, baseline
+ * means and parameter_uncertainties — none of which belong in INFO structured
+ * logs.
+ */
+export interface LogSafeDownstreamCall {
+  service: string;
+  endpoint: string;
+  status: number;
+  elapsed_ms: number;
+  payload_hash: string;
+  response_hash: string | null;
+  request_id: string;
+  echoed_request_id?: string | null;
+  /** sha256 + byte length + sorted top-level key manifest of the request bytes */
+  request_digest?: PayloadDigest;
+  /** sha256 + byte length + sorted top-level key manifest of the response bytes */
+  response_digest?: PayloadDigest;
+  /** Present ONLY under the diagnostic body-capture gate (default off) */
+  request_payload?: unknown;
+  /** Present ONLY under the diagnostic body-capture gate (default off) */
+  response_payload?: unknown;
+  /** Present ONLY under the diagnostic body-capture gate (default off) */
+  error_body?: string;
+}
+
+/**
+ * Explicit, default-OFF diagnostic gate for capturing full (still
+ * credential-redacted) request/response bodies in structured logs. Intended
+ * for short-lived, sampled debugging only — set the env var deliberately, and
+ * unset it once the investigation is done. When unset the log path emits
+ * digests + timing + status only.
+ */
+export function isDiagnosticBodyCaptureEnabled(): boolean {
+  const v = process.env.PLOT_DIAGNOSTIC_LOG_BODIES;
+  return v === '1' || v === 'true';
+}
+
+/**
+ * Project the recorded downstream calls for a request into a LOG-SAFE shape for
+ * INFO structured logs (e.g. `boundary.response`). Retains hashes, digests,
+ * sizes (via digest.bytes), key manifests, timing, status, endpoint and request
+ * IDs so ops correlation / chain tracing / debugging still work — and drops the
+ * decision-input bodies. Full bodies are included ONLY when the explicit
+ * diagnostic gate {@link isDiagnosticBodyCaptureEnabled} is on.
+ *
+ * NOTE: this is distinct from {@link getDownstreamCallsForLog}, which still
+ * carries the bodies for the /v2/run response + `_meta` (consumer-facing
+ * contract — minimised separately).
+ */
+export function getDownstreamCallsForBoundaryLog(requestId: string): LogSafeDownstreamCall[] {
+  const includeBodies = isDiagnosticBodyCaptureEnabled();
+  return getDownstreamCalls(requestId).map((call) => {
+    const safe: LogSafeDownstreamCall = {
+      service: call.service,
+      endpoint: call.endpoint,
+      status: call.status,
+      elapsed_ms: call.elapsedMs,
+      payload_hash: call.payloadHash,
+      response_hash: call.responseHash ?? null,
+      request_id: call.requestId,
+      ...(call.echoedRequestId !== undefined && { echoed_request_id: call.echoedRequestId }),
+      ...(call.requestDigest && { request_digest: call.requestDigest }),
+      ...(call.responseDigest && { response_digest: call.responseDigest }),
+    };
+    if (includeBodies) {
+      if (call.requestPayload !== undefined) safe.request_payload = call.requestPayload;
+      if (call.responsePayload !== undefined) safe.response_payload = call.responsePayload;
+      if (call.errorBody) safe.error_body = call.errorBody;
+    }
+    return safe;
+  });
+}
+
+// -----------------------------------------------------------------------------
 // Payload Sanitization for Debug
 // -----------------------------------------------------------------------------
 
 const MAX_ARRAY_ITEMS = 30;
-const SENSITIVE_KEYS = new Set(['password', 'secret', 'token', 'api_key', 'apiKey', 'authorization']);
+// F9 (decision-input minimiser): keys are compared LOWER-CASED (see below), so
+// every entry here MUST be lower-case. Previously `apiKey` sat in this set
+// mixed-case and `key.toLowerCase()` (`apikey`) never matched it, so a
+// camelCase `apiKey` credential rode through un-redacted. Store `apikey`.
+const SENSITIVE_KEYS = new Set(['password', 'secret', 'token', 'api_key', 'apikey', 'authorization']);
 
 /**
  * Sanitize a payload for debug output.
