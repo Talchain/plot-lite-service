@@ -42,6 +42,16 @@ const TIMEOUTS = {
 type CeeEndpoint = keyof typeof TIMEOUTS;
 
 /**
+ * Endpoints for which an empty body is a valid request.
+ *
+ * prompts/warm: {} means "warm all prompts" — CEE /assist/v1/prompts/warm
+ * accepts it (200), and the UI's prompt-preloader sends exactly {} on every
+ * page load. Rejecting it caused a silent warm-up failure on every page load
+ * (ROADMAP 2.54(c), SCORECARD §3).
+ */
+const EMPTY_BODY_ALLOWED: ReadonlySet<CeeEndpoint> = new Set(['prompts/warm']);
+
+/**
  * Create a CEE proxy route handler.
  *
  * Error handling follows the cee-draft-graph.ts passthrough pattern:
@@ -56,13 +66,15 @@ function createCeeProxyHandler(endpoint: CeeEndpoint) {
     const requestId = (req.headers['x-request-id'] as string) || randomUUID();
     const correlationId = (req.headers['x-correlation-id'] as string) || requestId;
 
-    // Validate body exists
-    if (!req.body || typeof req.body !== 'object' || Object.keys(req.body as object).length === 0) {
+    // Validate body exists (endpoints in EMPTY_BODY_ALLOWED accept {} / no body)
+    const allowEmptyBody = EMPTY_BODY_ALLOWED.has(endpoint);
+    if (!allowEmptyBody && (!req.body || typeof req.body !== 'object' || Object.keys(req.body as object).length === 0)) {
       return reply.code(400).send({
         error: 'Request body required',
         request_id: requestId,
       });
     }
+    const forwardBody = (req.body && typeof req.body === 'object') ? req.body : {};
 
     const baseUrl = process.env.CEE_BASE_URL?.trim();
     const apiKey = process.env.CEE_API_KEY?.trim();
@@ -119,7 +131,7 @@ function createCeeProxyHandler(endpoint: CeeEndpoint) {
           'X-Request-Id': requestId,
           'X-Correlation-Id': correlationId,
         },
-        body: JSON.stringify(req.body),
+        body: JSON.stringify(forwardBody),
         signal: controller.signal,
       });
 
