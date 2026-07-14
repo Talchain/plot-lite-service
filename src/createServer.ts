@@ -16,7 +16,7 @@ import type {} from './types/fastify.js';
 import { FASTIFY_REQUEST_TIMEOUT_MS } from './config/timeouts.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { computeOlumiHash } from './util/canonical.js';
-import { initDownstreamTracking, clearDownstreamTracking, formatDownstreamHeader, getDownstreamCallsForLog } from './util/downstream-tracker.js';
+import { initDownstreamTracking, clearDownstreamTracking, formatDownstreamHeader, getDownstreamCallsForBoundaryLog } from './util/downstream-tracker.js';
 import { recordPayloadHashInvalid } from './metrics/registry.js';
 import {
   noteLastRequestAt,
@@ -559,7 +559,11 @@ export async function createServer(opts: ServerOpts = {}) {
     // P1: boundary.response logging (canonical schema)
     try {
       const requestId = String(req.id);
-      const downstreamCalls = getDownstreamCallsForLog(requestId);
+      // Decision-input minimiser (F1/F3): log-safe projection — hashes,
+      // digests, timing, status only. Decision-input bodies (labels, raw
+      // values, parameter_uncertainties) are dropped from this INFO log; full
+      // bodies appear only under the default-off PLOT_DIAGNOSTIC_LOG_BODIES gate.
+      const downstreamCalls = getDownstreamCallsForBoundaryLog(requestId);
       req.log.info({
         event: 'boundary.response',
         timestamp: new Date().toISOString(),

@@ -4614,15 +4614,19 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         }
 
         // === DIAGNOSTIC: Log parameter_uncertainties sent to ISL ===
-        // This helps diagnose why ISL may return empty factor_sensitivity
+        // This helps diagnose why ISL may return empty factor_sensitivity.
+        // Decision-input minimiser (F1): node_id is a decision-domain identifier
+        // and mean/std are raw factor values — HASH the id and DROP the raw
+        // values. Counts + a std>0 signal preserve the diagnostic value (empty
+        // factor_sensitivity correlates with degenerate/zero-std PU) without
+        // leaking decision inputs into INFO logs.
         const paramUncertainties = islRequest.parameter_uncertainties ?? [];
         req.log.info({
           event: 'isl_request_parameter_uncertainties',
           count: paramUncertainties.length,
           sample: paramUncertainties.slice(0, 3).map((p) => ({
-            node_id: p.node_id,
-            mean: p.mean,
-            std: p.std,
+            node_id_hash: createHash('sha256').update(String(p.node_id)).digest('hex').slice(0, 12),
+            has_std: typeof p.std === 'number' && Number.isFinite(p.std) && p.std > 0,
           })),
           factor_nodes_in_graph: filteredGraph.nodes.filter((n) => n.kind === 'factor').length,
           factors_with_observed_value: filteredGraph.nodes.filter(
