@@ -14,6 +14,7 @@ import { checkLinearity, detectThresholdCrossings, generateForkSuggestions } fro
 import { checkIdentifiability } from '../../trust/identifiability.js';
 import { enforceComputeBudget } from '../../governance/cost-estimator.js';
 import { stampResponseHash, hashCanonicalInput } from '../../util/canonical-json.js';
+import { sha8 } from '../../util/pii-redact.js';
 import type {
   DetailLevel,
   RunResponseEnrichment,
@@ -370,16 +371,18 @@ export async function registerRunRoute(app: FastifyInstance) {
         ).length,
       };
 
+      // Wave1-L1 (PII): node ids are digested — raw ids can carry
+      // label-derived text; counts/kinds in graph_summary stay readable.
       const entryLog = {
         level: 'info',
         time: Date.now(),
         event: 'plot_run_request_received',
         request_id: String(req.id),
-        outcome_node: body.outcome_node,
-        goal_node: body.goal_node,
+        outcome_node: body.outcome_node !== undefined ? sha8(String(body.outcome_node)) : undefined,
+        goal_node: body.goal_node !== undefined ? sha8(String(body.goal_node)) : undefined,
         options_received: (rawGraph.nodes ?? [])
           .filter((n: any) => n.kind === 'option')
-          .map((n: any) => n.id),
+          .map((n: any) => sha8(String(n.id))),
         graph_summary: graphSummary,
         detail_level: body.detail_level ?? 'standard',
       };
@@ -443,7 +446,8 @@ export async function registerRunRoute(app: FastifyInstance) {
       if ((node as any).effect) {
         const validation = validateEffect((node as any).effect);
         if (!validation.valid) {
-          req.log.info({ evt: 'effect_validation_failed', id: req.id, route: '/v1/run', node: node.id, error: validation.error });
+          // Wave1-L1 (PII): node id digested; validation.error is a static string.
+          req.log.info({ evt: 'effect_validation_failed', id: req.id, route: '/v1/run', node: sha8(String(node.id)), error: validation.error });
           return replyWithAppError(reply, {
             type: 'BAD_INPUT',
             statusCode: 400,
@@ -462,7 +466,8 @@ export async function registerRunRoute(app: FastifyInstance) {
       if (body.constraints.bounds) {
         for (const [nodeId, bounds] of Object.entries(body.constraints.bounds)) {
           if (!nodeMap.has(nodeId)) {
-            req.log.info({ evt: 'constraints_violation', id: req.id, route: '/v1/run', reason: 'invalid_node_in_bounds', node: nodeId });
+            // Wave1-L1 (PII): node id digested — never log raw graph identifiers.
+            req.log.info({ evt: 'constraints_violation', id: req.id, route: '/v1/run', reason: 'invalid_node_in_bounds', node: sha8(nodeId) });
             return replyWithAppError(reply, {
               type: 'BAD_INPUT',
               statusCode: 400,
@@ -476,7 +481,8 @@ export async function registerRunRoute(app: FastifyInstance) {
             const val = (node as any).value;
             const b = bounds as any;
             if (b.min !== undefined && val < b.min) {
-              req.log.info({ evt: 'constraints_violation', id: req.id, route: '/v1/run', reason: 'bounds_min', node: nodeId, value: val, min: b.min });
+              // Wave1-L1 (PII): raw decision values (value/min) digested to sha8.
+              req.log.info({ evt: 'constraints_violation', id: req.id, route: '/v1/run', reason: 'bounds_min', node: sha8(nodeId), value: sha8(val), min: sha8(b.min) });
               return replyWithAppError(reply, {
                 type: 'BAD_INPUT',
                 statusCode: 400,
@@ -484,7 +490,8 @@ export async function registerRunRoute(app: FastifyInstance) {
               });
             }
             if (b.max !== undefined && val > b.max) {
-              req.log.info({ evt: 'constraints_violation', id: req.id, route: '/v1/run', reason: 'bounds_max', node: nodeId, value: val, max: b.max });
+              // Wave1-L1 (PII): raw decision values (value/max) digested to sha8.
+              req.log.info({ evt: 'constraints_violation', id: req.id, route: '/v1/run', reason: 'bounds_max', node: sha8(nodeId), value: sha8(val), max: sha8(b.max) });
               return replyWithAppError(reply, {
                 type: 'BAD_INPUT',
                 statusCode: 400,
@@ -501,7 +508,8 @@ export async function registerRunRoute(app: FastifyInstance) {
         const edgeKeys = new Set(graph.edges.map((e: any) => `${e.from}→${e.to}`));
         for (const [from, to] of body.constraints.structure.forbid_edges) {
           if (edgeKeys.has(`${from}→${to}`)) {
-            req.log.info({ evt: 'constraints_violation', id: req.id, route: '/v1/run', reason: 'forbidden_edge', from, to });
+            // Wave1-L1 (PII): edge endpoints are node ids — digested.
+            req.log.info({ evt: 'constraints_violation', id: req.id, route: '/v1/run', reason: 'forbidden_edge', from: sha8(from), to: sha8(to) });
             return replyWithAppError(reply, {
               type: 'BAD_INPUT',
               statusCode: 400,

@@ -8,6 +8,8 @@
 
 import { createHash } from 'node:crypto';
 
+import { redactPayloadShape, sha8 } from './pii-redact.js';
+
 /**
  * Lane PLoT-R3 (roadmap 2.13): diligence-grade content digest of an exact
  * wire payload. Carries enough to verify a separately captured payload
@@ -171,10 +173,18 @@ export function formatDownstreamHeader(requestId: string): string {
 }
 
 /**
- * Get downstream calls as array for boundary log inclusion.
+ * Get downstream calls as array for the /v2/run response body (and `_meta`).
+ *
+ * Wave1-L1 (Codex F8 residual): the echoed request/response bodies are
+ * SHAPE-PRESERVING DIGESTS — same keys, same nesting, but every raw factor
+ * label / node id / decision value replaced with "sha8:xxxxxxxx" (see
+ * pii-redact.ts). `error_body` is digested to a single sha8 string (ISL
+ * validation errors quote node labels/values). Correlation metadata
+ * (hashes, digests, timing, status, endpoint, request ids) and the
+ * structural `build` version string are retained verbatim.
  *
  * @param requestId - The unique request ID
- * @returns Array of call objects suitable for JSON logging
+ * @returns Array of call objects safe for response-body echo / JSON logging
  */
 export function getDownstreamCallsForLog(requestId: string): Array<{
   service: string;
@@ -198,9 +208,11 @@ export function getDownstreamCallsForLog(requestId: string): Array<{
     payload_hash: call.payloadHash,
     response_hash: call.responseHash || null,
     request_id: call.requestId,
-    request_payload: call.requestPayload,
-    response_payload: call.responsePayload,
-    ...(call.errorBody && { error_body: call.errorBody }),
+    request_payload:
+      call.requestPayload === undefined ? undefined : redactPayloadShape(call.requestPayload),
+    response_payload:
+      call.responsePayload === undefined ? undefined : redactPayloadShape(call.responsePayload),
+    ...(call.errorBody && { error_body: sha8(call.errorBody) }),
     // Lane PLoT-R3 (2.13): additive digest passthrough for _meta.evidence
     ...(call.requestDigest && { request_digest: call.requestDigest }),
     ...(call.responseDigest && { response_digest: call.responseDigest }),
@@ -261,9 +273,9 @@ export function isDiagnosticBodyCaptureEnabled(): boolean {
  * decision-input bodies. Full bodies are included ONLY when the explicit
  * diagnostic gate {@link isDiagnosticBodyCaptureEnabled} is on.
  *
- * NOTE: this is distinct from {@link getDownstreamCallsForLog}, which still
- * carries the bodies for the /v2/run response + `_meta` (consumer-facing
- * contract — minimised separately).
+ * NOTE: this is distinct from {@link getDownstreamCallsForLog}, which keeps
+ * the body CARRIERS for the /v2/run response + `_meta` but redacts their
+ * contents to shape-preserving sha8 digests (Wave1-L1, Codex F8 residual).
  */
 export function getDownstreamCallsForBoundaryLog(requestId: string): LogSafeDownstreamCall[] {
   const includeBodies = isDiagnosticBodyCaptureEnabled();

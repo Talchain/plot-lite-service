@@ -10,11 +10,11 @@
  * They also pin the camelCase credential-redaction fix (F9) and green-pin that
  * hashes/timing/status/credential-redaction still work.
  *
- * NOTE: the /v2/run RESPONSE `downstream_calls` bodies (finding F8) are
- * DEFERRED, not stripped — a consumer (the A1 diligence lane, which captures
- * `enrichment.downstream_calls.isl[0].response_payload.factor_sensitivity` from
- * persisted facts; and PLoT's own `_meta.builds.isl` reading
- * `response_payload.build`) depends on them. See PR description.
+ * NOTE: the /v2/run RESPONSE `downstream_calls` bodies (finding F8) are now
+ * CLOSED by Wave1-L1: getDownstreamCallsForLog() redacts the echoed bodies to
+ * shape-preserving sha8 digests (see pii-redact.ts and
+ * tests/pii-residual-redaction.test.ts). The structural `build` key is
+ * allow-listed so `_meta.builds.isl` keeps reading the real version string.
  */
 
 import { describe, it, expect } from 'vitest';

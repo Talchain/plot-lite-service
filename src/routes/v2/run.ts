@@ -2789,7 +2789,10 @@ function buildResponse(
         const allCalls = downstreamCallsForLog;
         const islCall = allCalls.find(c => c.service === 'isl');
 
-        // Build versions for all services in the pipeline
+        // Build versions for all services in the pipeline.
+        // Wave1-L1: downstream bodies are sha8-redacted, but the structural
+        // `build` key is allow-listed verbatim in pii-redact.ts — this read
+        // still sees the real ISL build string.
         (baseMeta as any).builds = {
           ui: meta.uiBuild ?? null,
           cee: meta.ceeBuild ?? null,
@@ -2881,7 +2884,9 @@ function buildResponse(
       return baseMeta;
     })(),
 
-    // Downstream service calls (ISL, CEE) for debugging and tracing
+    // Downstream service calls (ISL, CEE) for debugging and tracing.
+    // Wave1-L1 (Codex F8): echoed bodies are shape-preserving sha8 digests —
+    // no raw factor labels / node ids / decision values leave the service.
     downstream_calls: (() => {
       const allCalls = downstreamCallsForLog;
       if (allCalls.length === 0) return undefined;
