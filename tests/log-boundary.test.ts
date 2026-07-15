@@ -229,6 +229,22 @@ describe('log boundary — keys are content too', () => {
   });
 });
 
+describe('log boundary — Error handling', () => {
+  it('scrubs an Error message but keeps name and own diagnostic props', () => {
+    withDecisionTokenScope(() => {
+      registerDecisionTokens({ graph: { nodes: [{ id: MARKER_NODE }] } });
+      const err = Object.assign(new Error(`boom for ${MARKER_NODE}`), { code: 'ISL_ERROR', statusCode: 502 });
+      const out = redactLogRecord({ evt: 'e', err }) as Record<string, any>;
+      expect(out.err).toBeInstanceOf(Error);
+      expect(out.err.message).not.toContain(MARKER_NODE); // scrubbed
+      expect(out.err.message).toContain('boom for'); // positive control
+      // Diagnostic props survive: a redactor that eats these gets ripped out.
+      expect(out.err.code).toBe('ISL_ERROR');
+      expect(out.err.statusCode).toBe(502);
+    });
+  });
+});
+
 describe('log boundary — blast radius', () => {
   // runOutsideDecisionTokenScope is required here because an earlier
   // app.inject() in this file leaves the hook's enterWith scope on the test's

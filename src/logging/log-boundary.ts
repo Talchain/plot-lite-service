@@ -101,12 +101,21 @@ function redactValue(value: unknown, scrub: (t: string) => string, depth: number
   if (Array.isArray(value)) return value.map((v) => redactValue(v, scrub, depth + 1));
 
   if (typeof value === 'object') {
-    // Errors carry their message/stack on non-enumerable props; pino serialises
-    // them specially. Scrub the message, leave the rest to pino.
+    // Errors keep message/stack on NON-enumerable props, so the generic object
+    // walk below would silently drop them. Rebuild explicitly.
+    //
+    // Own enumerable props are carried over (scrubbed): a future author writing
+    // `req.log.error(err)` must not silently lose err.code / err.statusCode —
+    // this mechanism exists so new sites are safe AND still debuggable, and a
+    // redactor that quietly eats diagnostic fields would earn its own removal.
     if (value instanceof Error) {
       const scrubbed = new Error(scrubString(value.message, scrub));
       scrubbed.name = value.name;
       scrubbed.stack = value.stack ? scrubString(value.stack, scrub) : undefined;
+      for (const [k, v] of Object.entries(value as unknown as Record<string, unknown>)) {
+        if (k === 'message' || k === 'stack' || k === 'name') continue;
+        (scrubbed as unknown as Record<string, unknown>)[k] = redactValue(v, scrub, depth + 1);
+      }
       return scrubbed;
     }
     const out: Record<string, unknown> = {};
