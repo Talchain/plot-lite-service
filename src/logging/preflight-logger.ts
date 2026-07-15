@@ -7,7 +7,7 @@
  * @see Integration Alignment Implementation Brief v1.1
  */
 
-import { createHash } from 'node:crypto';
+import { saltedDigestHex } from '../util/pii-redact.js';
 import type { PreflightResultV3 } from '../types/engine-v3.js';
 
 // -----------------------------------------------------------------------------
@@ -23,13 +23,20 @@ const PREFLIGHT_VERSION = '2025-12-26';
 /**
  * Hash a node ID for production logging.
  *
- * Uses SHA-256 truncated to 12 characters.
+ * Wave1-L1 (review 3): was an UNSALTED sha256 truncated to 12 chars. Node ids
+ * are label-derived slugs from a tiny input space, so an unsalted digest is
+ * recoverable offline by anyone holding the logs (review 3 reversed one in
+ * 79ms). Now routed through the shared salted primitive — same 12-char log
+ * shape, no offline pre-image attack.
+ *
+ * Correlation is PER-PROCESS only (see pii-redact.ts DIGEST_SALT): these
+ * hashes do NOT survive a restart and must not be joined across processes.
  *
  * @param nodeId Node ID to hash
- * @returns Hashed node ID
+ * @returns Hashed node ID (12 hex chars)
  */
 export function hashNodeId(nodeId: string): string {
-  return createHash('sha256').update(nodeId).digest('hex').substring(0, 12);
+  return saltedDigestHex(nodeId, 12);
 }
 
 /**
@@ -244,9 +251,10 @@ export function addISLResponseToLog(
     success,
     error_code: error?.code,
     error_class: error?.class,
-    error_body_hash: error?.body
-      ? createHash('sha256').update(error.body).digest('hex')
-      : undefined,
+    // Wave1-L1 (review 3): salted — an ISL error body can echo decision
+    // content, and an unsalted digest of it is pre-imageable offline. Same
+    // 64-char log shape; correlation stays per-process.
+    error_body_hash: error?.body ? saltedDigestHex(error.body, 64) : undefined,
   };
 }
 

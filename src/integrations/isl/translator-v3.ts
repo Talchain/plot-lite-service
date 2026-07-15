@@ -22,6 +22,7 @@ import {
   FALLBACK_STD,
   resolveUserSuppliedStd,
 } from './parameter-uncertainty-bounds.js';
+import { sha8 } from '../../util/pii-redact.js';
 
 // -----------------------------------------------------------------------------
 // ISL Wire Format Types
@@ -286,8 +287,10 @@ export function buildParameterUncertaintiesV3(
     if (node.kind === 'factor' && node.category === 'external' && node.prior) {
       // Only "uniform" distribution supported for now
       if (node.prior.distribution !== 'uniform') {
+        // Wave1-L1 (PII): node id + user-supplied distribution text digested —
+        // an unsupported distribution is arbitrary user input.
         console.warn(
-          `[PARAMETER_UNCERTAINTY] node_id=${node.id} unsupported prior distribution '${node.prior.distribution}', skipping`
+          `[PARAMETER_UNCERTAINTY] node_id=${sha8(String(node.id))} unsupported prior distribution (distribution_sha8=${sha8(String(node.prior.distribution))}), skipping`
         );
         continue;
       }
@@ -298,16 +301,18 @@ export function buildParameterUncertaintiesV3(
       // Validate range_min and range_max are finite numbers
       if (typeof rangeMin !== 'number' || !Number.isFinite(rangeMin) ||
           typeof rangeMax !== 'number' || !Number.isFinite(rangeMax)) {
+        // Wave1-L1 (PII): node id digested.
         console.warn(
-          `[PARAMETER_UNCERTAINTY] node_id=${node.id} prior has non-finite range values, skipping`
+          `[PARAMETER_UNCERTAINTY] node_id=${sha8(String(node.id))} prior has non-finite range values, skipping`
         );
         continue;
       }
 
       // Swap if range_min > range_max
       if (rangeMin > rangeMax) {
+        // Wave1-L1 (PII): raw range values are decision inputs — digested.
         console.warn(
-          `[PARAMETER_UNCERTAINTY] node_id=${node.id} prior range_min (${rangeMin}) > range_max (${rangeMax}), swapping`
+          `[PARAMETER_UNCERTAINTY] node_id=${sha8(String(node.id))} prior range_min (${sha8(rangeMin)}) > range_max (${sha8(rangeMax)}), swapping`
         );
         [rangeMin, rangeMax] = [rangeMax, rangeMin];
       }

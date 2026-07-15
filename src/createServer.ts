@@ -5,6 +5,8 @@ import { existsSync } from 'fs';
 import { resolve, join as joinPath } from 'path';
 import { createHash, randomUUID } from 'crypto';
 import { promises as fsp } from 'node:fs';
+import { redactLogRecord, redactLogArgs, installConsoleBoundary } from './logging/log-boundary.js';
+import { beginDecisionTokenScope, registerDecisionTokens } from './logging/decision-tokens.js';
 import { makeRateLimiter } from './middleware/rate-limit.js';
 import { refreshFromEnv } from './config/runtimeConfig.js';
 import { securityHeadersOnSend } from './middleware/security-headers.js';
@@ -182,6 +184,24 @@ export async function createServer(opts: ServerOpts = {}) {
     logger: {
       level: 'info',
       redact: { paths: ['parse_text', 'body.parse_text', 'request.body.parse_text'], remove: true },
+      // Wave1-L1 THE logger boundary. formatters.log fires for the root logger
+      // AND every child — `req.log`, and the bare `logger?.` params that are
+      // `req.log` passed down — so a new log site is redacted by DEFAULT,
+      // without its author wrapping anything. This replaces per-call-site
+      // edits, which took three review rounds and still leaked (ROADMAP 2.56).
+      // No-op outside a request scope, so boot/tool logs are unchanged.
+      //
+      // BOTH hooks are required. formatters.log sees the merged object and
+      // child bindings but NOT `msg`; logMethod sees the raw args (so it covers
+      // `msg` in both `info(obj, 'text')` and `info('text')` shapes) but not
+      // bindings. Either alone leaves a hole. Redaction is idempotent, so the
+      // double pass is safe.
+      formatters: { log: redactLogRecord },
+      hooks: {
+        logMethod(this: unknown, args: unknown[], method: (...a: unknown[]) => void) {
+          return (method as (...a: unknown[]) => void).apply(this, redactLogArgs(args));
+        },
+      },
     },
     bodyLimit: 128 * 1024,
     // F-64: requestTimeout must exceed longest downstream proxy timeout (CEE_PROXY_TIMEOUT_MS=135s).
@@ -214,6 +234,33 @@ export async function createServer(opts: ServerOpts = {}) {
     ENABLE_VALIDATE_PATCH: _bootFlags.ENABLE_VALIDATE_PATCH,
     ENABLE_FACTS_ASSEMBLY: _bootFlags.ENABLE_FACTS_ASSEMBLY,
     ENABLE_REVIEW_PASS: _bootFlags.ENABLE_REVIEW_PASS,
+  });
+
+  // Wave1-L1 logger boundary, arm 2: console.* bypasses pino entirely (86 sites,
+  // e.g. v2/run.ts:579 leaking a raw node id). Installed once, idempotent.
+  installConsoleBoundary();
+
+  // Wave1-L1 logger boundary: establish the request's decision-token scope.
+  //
+  // onRequest runs before body parsing, so the scope exists for the WHOLE
+  // request (including parse/validation failures, which is exactly where the
+  // validator prose that interpolates raw node ids gets logged). enterWith
+  // propagates it to every downstream async continuation; verified isolated
+  // per request against a live server (see beginDecisionTokenScope).
+  app.addHook('onRequest', async () => {
+    beginDecisionTokenScope();
+  });
+
+  // Harvest the decision content once the body is parsed. preValidation is the
+  // earliest hook with req.body populated; registering here means every log
+  // line emitted from validation onward is scrubbed against this request's own
+  // labels, ids and values — whatever key some future author puts them under.
+  app.addHook('preValidation', async (request) => {
+    try {
+      registerDecisionTokens(request.body);
+    } catch {
+      /* harvesting must never fail a request */
+    }
   });
 
   // Echo X-Request-Id back to client

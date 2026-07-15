@@ -280,7 +280,14 @@ describe('enrichment emission contract (route-level mixed-case fixture)', () => 
     const evt = degenerateEvents[0];
     expect(evt.factor_count).toBe(1);
     expect(evt.total_factors).toBe(factors.length);
-    expect(evt.sample_factor_ids).toContain('factor-b');
+    // Wave1-L1 (PII, review 3): this telemetry logged the RAW factor id — a
+    // label-derived node id — and was not debug-gated. It now carries a sha8
+    // digest. The assertion's intent (the event names WHICH factor degenerated)
+    // is preserved: sha8 is self-consistent within a process, so the digest of
+    // 'factor-b' still identifies factor-b to anyone holding the input.
+    const { sha8 } = await import('../src/util/pii-redact.js');
+    expect(evt.sample_factor_ids).toContain(sha8('factor-b'));
+    expect(evt.sample_factor_ids).not.toContain('factor-b');
     expect(typeof evt.confidence_value).toBe('number');
   });
 
