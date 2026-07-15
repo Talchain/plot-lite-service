@@ -59,6 +59,7 @@ import type {
   InferenceWarning,
 } from '../../types/engine-v3.js';
 import { INFERENCE_WARNING_CODES } from '../../types/engine-v3.js';
+import { sha8 } from '../../util/pii-redact.js';
 import { addUserMessages } from '../../critique-humaniser.js';
 import type { GraphForLabels } from '../../critique-humaniser.js';
 // Seed derivation: when seed omitted, derive deterministically from graph hash
@@ -2885,8 +2886,12 @@ function buildResponse(
     })(),
 
     // Downstream service calls (ISL, CEE) for debugging and tracing.
-    // Wave1-L1 (Codex F8): echoed bodies are shape-preserving sha8 digests —
-    // no raw factor labels / node ids / decision values leave the service.
+    // Wave1-L1 (Codex F8 + review 3): echoed bodies are shape-preserving sha8
+    // digests — no raw factor labels / node ids / decision values leave the
+    // service. Review 3 refuted the original form of this claim: digesting
+    // only VALUES left the node-id KEYS of `options[].interventions` verbatim.
+    // redactPayloadShape now digests data-derived KEYS too (see pii-redact.ts);
+    // only contract-declared key names survive.
     downstream_calls: (() => {
       const allCalls = downstreamCallsForLog;
       if (allCalls.length === 0) return undefined;
@@ -5207,8 +5212,11 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           graph_based_count: graphBasedFactorSensitivity?.length ?? 0,
           isl_count: islFactorSensitivity?.length ?? 0,
           final_count: factorSensitivity?.length ?? 0,
+          // Wave1-L1 (PII, review 3): factor_id is a raw label-derived node id
+          // and this log site is NOT debug-gated — it reached production logs
+          // verbatim. Digest it; the score/provenance fields are structural.
           sample: factorSensitivity?.slice(0, 2).map((f) => ({
-            factor_id: f.factor_id,
+            factor_id: sha8(String(f.factor_id)),
             sensitivity_score: f.sensitivity_score,
             confidence: f.confidence,
             confidence_source: f.confidence_source,
@@ -5235,7 +5243,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               factor_count: degenerate.length,
               total_factors: factorSensitivity.length,
               confidence_value: degenerate[0].confidence,
-              sample_factor_ids: degenerate.slice(0, 3).map(f => f.factor_id),
+              // Wave1-L1 (PII, review 3): raw factor ids, not debug-gated.
+              sample_factor_ids: degenerate.slice(0, 3).map(f => sha8(String(f.factor_id))),
               msg: 'Confidence fallback produced degenerate uniform value',
             });
           }
@@ -5488,7 +5497,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                 event: 'flip_thresholds_overridden_excluded',
                 request_id: requestId,
                 excluded_count: overriddenByAllOptions.size,
-                excluded_factor_ids: [...overriddenByAllOptions].slice(0, 10),
+                // Wave1-L1 (PII, review 3): raw factor ids, not debug-gated.
+                excluded_factor_ids: [...overriddenByAllOptions].slice(0, 10).map((id) => sha8(String(id))),
               });
             }
 

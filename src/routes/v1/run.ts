@@ -14,7 +14,7 @@ import { checkLinearity, detectThresholdCrossings, generateForkSuggestions } fro
 import { checkIdentifiability } from '../../trust/identifiability.js';
 import { enforceComputeBudget } from '../../governance/cost-estimator.js';
 import { stampResponseHash, hashCanonicalInput } from '../../util/canonical-json.js';
-import { sha8 } from '../../util/pii-redact.js';
+import { sha8, redactValidationErrorsForLog } from '../../util/pii-redact.js';
 import type {
   DetailLevel,
   RunResponseEnrichment,
@@ -403,11 +403,19 @@ export async function registerRunRoute(app: FastifyInstance) {
       
       if (!priorsValidation.valid) {
         const firstError = priorsValidation.errors[0];
-        req.log.info({ 
-          evt: 'priors_validation_failed', 
-          id: req.id, 
-          route: '/v1/run', 
-          errors: priorsValidation.errors 
+        // Wave1-L1 (PII): errors[].field/message interpolate the raw node id
+        // ("priors.<id>", "Prior specified for unknown node: <id>"). Digest
+        // every candidate id — the request's priors keys and the graph's node
+        // ids — before the objects reach the log. The RESPONSE below keeps the
+        // raw message: that text is contract-visible (see PR notes).
+        req.log.info({
+          evt: 'priors_validation_failed',
+          id: req.id,
+          route: '/v1/run',
+          errors: redactValidationErrorsForLog(priorsValidation.errors, [
+            ...Object.keys(body.priors as Record<string, unknown>),
+            ...nodeIds,
+          ]),
         });
         return replyWithAppError(reply, {
           type: 'BAD_INPUT',
@@ -426,11 +434,22 @@ export async function registerRunRoute(app: FastifyInstance) {
       
       if (!evidenceValidation.valid) {
         const firstError = evidenceValidation.errors[0];
-        req.log.info({ 
-          evt: 'evidence_validation_failed', 
-          id: req.id, 
-          route: '/v1/run', 
-          errors: evidenceValidation.errors 
+        // Wave1-L1 (PII): same class as priors above — errors[].message
+        // interpolates the raw node id ("Evidence references unknown node:
+        // <id>"). Candidate ids: the evidence items' node_ids + graph node ids.
+        const evidenceNodeIds = Array.isArray(body.evidence)
+          ? (body.evidence as Array<Record<string, unknown>>)
+              .map((e) => e?.node_id)
+              .filter((v): v is string => typeof v === 'string')
+          : [];
+        req.log.info({
+          evt: 'evidence_validation_failed',
+          id: req.id,
+          route: '/v1/run',
+          errors: redactValidationErrorsForLog(evidenceValidation.errors, [
+            ...evidenceNodeIds,
+            ...nodeIds,
+          ]),
         });
         return replyWithAppError(reply, {
           type: 'BAD_INPUT',

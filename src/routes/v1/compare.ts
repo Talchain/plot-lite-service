@@ -11,6 +11,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { replyWithAppError } from '../../errors.js';
 import { getInferenceEngine } from '../../inference/index.js';
 import { computeGraphDiff } from '../../util/graph-diff.js';
+import { sha8 } from '../../util/pii-redact.js';
 import { buildChangeAttribution, type ScenarioRun } from '../../util/change-attribution.js';
 import { buildExplainDelta } from '../../trust/explain-delta.js';
 import type { ChangeAttribution } from '../../types/change-attribution.js';
@@ -91,7 +92,9 @@ export async function registerCompareRoute(app: FastifyInstance) {
           };
         } catch (err) {
           // Fallback to deterministic calculation on inference failure
-          req.log.warn({ evt: 'compare_inference_fallback', label: g.label, error: String(err) });
+          // Wave1-L1 (PII, ROADMAP 2.56 residual (b)): scenario labels are raw
+          // decision content — digest before logging.
+          req.log.warn({ evt: 'compare_inference_fallback', label_sha8: sha8(String(g.label)), error: String(err) });
           const base = (seed + body.graphs.indexOf(g) * 100) / 10000;
           return {
             success: false,

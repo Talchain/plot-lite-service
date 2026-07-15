@@ -22,6 +22,7 @@ import { canonicalIdempotencyPreHandler, canonicalIdempotencyOnSend } from '../.
 import { BODY_LIMIT_BYTES } from '../../config/constants.js';
 import { getInferenceEngine } from '../../inference/index.js';
 import { normalizeGraph } from '../../util/normalize.js';
+import { sha8 } from '../../util/pii-redact.js';
 import type { DetailLevel } from '../../trust/types.js';
 import { DETAIL_LEVEL_CONFIG } from '../../trust/types.js';
 import { computeRankingConfidence, isWinnerDominant } from '../../trust/ranking-confidence.js';
@@ -409,9 +410,11 @@ export async function registerRunBundleRoute(app: FastifyInstance) {
           };
         } catch (err) {
           // Log but continue - return fallback for this scenario
+          // Wave1-L1 (PII, ROADMAP 2.56 residual (b)): scenario labels are raw
+          // decision content — digest before logging. `index` is structural.
           req.log.warn({
             evt: 'run_bundle_inference_error',
-            label: scenario.label,
+            label_sha8: sha8(String(scenario.label)),
             index: scenario.index,
             error: err instanceof Error ? err.message : String(err),
           });
