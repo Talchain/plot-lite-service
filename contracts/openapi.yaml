@@ -4049,6 +4049,14 @@ paths:
           FAIL-OPEN: validation never blocks or mutates delivery. All HTTP-200 shapes from
           buildResponse carry it (computed/partial/failed), same coverage as
           `response_content_hash`.
+        - `FLIP_THRESHOLDS_UNAVAILABLE` in `inference_warnings` (additive, A3 lane 2): the
+          flip-threshold computation was attempted but the ENTIRE block failed, so
+          `flip_thresholds` is empty (`flip_thresholds_status: 'unavailable'`) because
+          computation failed — not because nothing was probed and not because no factor could
+          flip the leading option. The message names the thrown error's name only (never its
+          message or values). Per-factor failures do NOT emit this — they remain disclosed per
+          entry via `flip_reason` ('timeout'/'error'/...). Non-blocking: all other analyses are
+          unaffected.
 
         **Seed Handling**:
         - Accept string (canonical) or number (legacy)

@@ -60,15 +60,23 @@ import { isInterventionOverride, isOptionControlledLever } from './intervention-
  * - value_of_information 0: resolving knowledge of a value the user sets is
  *   not an information gain; without this the EVPI enrichment in
  *   routes/v2/run.ts would derive a positive EVPI from the graph VOI (P0a).
- * All three are idempotent constants: re-applying to an already-suppressed
- * factor is a no-op, so ISL-stamped levers (and, post ISL #73, union-stamped
- * ones) pass through unchanged.
+ * - elasticity_std 0: bootstrap spread of the (contractually zero)
+ *   elasticity. Left unsuppressed, a non-zero spread republishes measurement
+ *   texture for the very metric the contract zeroes — the live universality
+ *   re-run (r2 residual R1, 2026-07-16) caught suppressed lever
+ *   fac_salary_cost egressing elasticity_std 0.00396846. Forced to 0 so the
+ *   suppression covers the variance statistic of the value it suppresses
+ *   (A3 lane 2).
+ * All the numeric fields are idempotent constants: re-applying to an
+ * already-suppressed factor is a no-op, so ISL-stamped levers (and, post
+ * ISL #73, union-stamped ones) pass through unchanged.
  */
 const LEVER_SUPPRESSION_FIELDS = {
   sensitivity_score: 0,
   zero_reason: 'intervention_override',
   elasticity: 0,
   value_of_information: 0,
+  elasticity_std: 0,
 } as const;
 
 /**
@@ -1083,7 +1091,25 @@ const VALID_ATTRIBUTION_STABILITY = new Set(['high', 'moderate', 'low', 'negligi
  */
 export function buildFactorStability(
   islFactorSensitivity: unknown,
-  graph: EngineGraphV3
+  graph: EngineGraphV3,
+  /**
+   * A3 lane 2 fixup (r2 residual R1, second surface): D-U structural lever
+   * union. This builder reads RAW ISL entries — the merge-layer
+   * LEVER_SUPPRESSION_FIELDS never touches them — so without this the
+   * stability surface republishes the variance statistic of the suppressed
+   * elasticity (live fac_salary_cost: factor_stability[0].elasticity_std
+   * 0.00396846 alongside a zeroed factor_sensitivity entry). Option-controlled
+   * levers (union membership OR the ISL zero_reason stamp — the same
+   * isOptionControlledLever predicate every other suppression site uses) keep
+   * their entry — attribution_stability/rank_flip_rate/stability_method are
+   * untouched diagnostics — but egress elasticity_std 0, zero-in-place like
+   * the sibling factor_sensitivity surface. No stamp is added: the entry type
+   * has no zero_reason field, and the authoritative stamp for the same
+   * factor_id rides the factor_sensitivity entry. The domain-validity gate
+   * below still applies to the RAW value first (an invalid raw std skips the
+   * entry, never zero-launders it).
+   */
+  structuralLeverIds?: ReadonlySet<string>,
 ): FactorStabilityEntry[] {
   if (!Array.isArray(islFactorSensitivity) || islFactorSensitivity.length === 0) return [];
 
@@ -1113,7 +1139,10 @@ export function buildFactorStability(
     result.push({
       factor_id: factorId,
       factor_label: f.label ?? nodeLabelMap.get(factorId) ?? factorId,
-      elasticity_std: f.elasticity_std,
+      // Lever suppression (see the structuralLeverIds param doc): a factor
+      // any option pins must not publish a non-zero spread of its
+      // contractually-zero elasticity on this surface either.
+      elasticity_std: isOptionControlledLever(f, structuralLeverIds) ? 0 : f.elasticity_std,
       attribution_stability: f.attribution_stability,
       rank_flip_rate: f.rank_flip_rate,
       stability_method: f.stability_method,

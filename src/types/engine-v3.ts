@@ -2054,6 +2054,21 @@ export const INFERENCE_WARNING_CODES = {
    * @see src/routes/v2/enrichment-egress-guard.ts
    */
   ENRICHMENT_CONTRACT_MISMATCH: 'ENRICHMENT_CONTRACT_MISMATCH',
+  /**
+   * A3 lane 2 (ROADMAP 2.31 adjacency — whole-block flip honesty): the
+   * flip-threshold computation was ATTEMPTED for this analysis but the ENTIRE
+   * block threw, so `flip_thresholds` is empty (`flip_thresholds_status:
+   * 'unavailable'`) because computation failed — not because no factor could
+   * flip the leading option and not because nothing was probed. Without this
+   * marker the whole-block case degraded to an absent field + a server-side
+   * `flip_thresholds_error` WARN only, indistinguishable on the wire from
+   * "no candidates". Per-factor failures are NOT this case — they remain
+   * disclosed per entry via `flip_reason` ('timeout'/'error'/...). The
+   * message carries the thrown error's NAME only, never its message or any
+   * value. Non-blocking: all other analyses are unaffected.
+   * Severity: warning.
+   */
+  FLIP_THRESHOLDS_UNAVAILABLE: 'FLIP_THRESHOLDS_UNAVAILABLE',
 } as const;
 
 export type InferenceWarningCode = (typeof INFERENCE_WARNING_CODES)[keyof typeof INFERENCE_WARNING_CODES];

@@ -257,7 +257,16 @@ describe('B8-8: 3C field handling in /v2/run response', () => {
     for (const factor of [factorA, factorB]) {
       expect(factor.confidence_source).toBe('plot_unified_from_isl_bootstrap');
       expect(factor.attribution_stability).toBe('moderate');
-      expect(factor.elasticity_std).toBe(0.12);
+      // A3 lane 2 (r2 residual R1): BOTH fixture factors are option-pinned
+      // levers (opt-a pins factor-a, opt-b pins factor-b), so the D-U
+      // suppression contract (LEVER_SUPPRESSION_FIELDS) now forces
+      // elasticity_std to 0 on the public factor_sensitivity entry — the
+      // pre-lane assertion `toBe(0.12)` was pinning the leak itself (a
+      // non-zero variance statistic of the suppressed elasticity). The
+      // factor_stability[] surface below is suppressed the same way (lane 2
+      // fixup: buildFactorStability zeroes lever elasticity_std in-place;
+      // entry presence and the other 3C diagnostics are retained).
+      expect(factor.elasticity_std).toBe(0);
       expect(factor.rank_flip_rate).toBe(0.08);
       expect(factor.stability_method).toBe('bootstrap');
     }
