@@ -1,4 +1,5 @@
 import pino from 'pino';
+import { ISL_TIMEOUT_MS, CEE_TIMEOUT_MS } from './config/timeouts.js';
 
 const logger = pino({
   level: process.env.LOG_LEVEL || 'info',
@@ -147,9 +148,14 @@ export function validateEnv(): void {
   // Ensure worst-case latency fits within proxy timeout
   // Default 600s (10 min) to accommodate long-running ISL/CEE operations with retries
   const PROXY_TIMEOUT_MS = Number(process.env.PROXY_TIMEOUT_MS || '600000');
-  const islTimeoutMs = Number(process.env.ISL_TIMEOUT_MS || '15000');
+  // Paul-ruled lenient defaults 2026-07-17: derive the resolved values from
+  // config/timeouts.ts instead of hand-mirroring defaults here — the mirrors
+  // had already drifted (15000 vs the real 30000 ISL default, 5000 vs the real
+  // 60000 CEE default), so this warn was doing its arithmetic on a codebase
+  // that didn't exist.
+  const islTimeoutMs = ISL_TIMEOUT_MS;
   const islMaxRetries = Number(process.env.ISL_MAX_RETRIES || '3');
-  const ceeTimeoutMs = Number(process.env.CEE_TIMEOUT_MS || '5000');
+  const ceeTimeoutMs = CEE_TIMEOUT_MS;
   const computeBudgetMs = Number(process.env.MAX_COMPUTE_MS || '10000');
 
   // ISL worst-case: timeout × retries (sequential retries with exponential backoff)

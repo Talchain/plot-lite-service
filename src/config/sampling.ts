@@ -23,8 +23,21 @@ import { resolveBoundedIntEnvOrWarn, MIN_N_SAMPLES, MAX_N_SAMPLES } from './env-
  * Compile-time standard base-analysis sample depth. Fixed (not env-derived) so
  * it can anchor deterministic, environment-independent fallbacks (e.g. the
  * canonical-hash default). The live request path uses resolveStandardNSamples().
+ *
+ * Paul-ruled lenient defaults 2026-07-17: raised 4000 → 10000 (the schema
+ * ceiling). A3 budget-scout measurement (acceptance-evidence/
+ * a3-verify-2026-07-16/budget-review.md, task 2a): depth is near-linear at
+ * ~22 ms per +1000 samples local (~110 ms staging), so 4000 → 10000 costs
+ * ~+0.7 s staging on the base call — trivially inside the UI's 120 s client
+ * timeout — while displayed probabilities gain ~sqrt(2.5) stability. The
+ * `STANDARD_N_SAMPLES` env var remains the emergency rollback knob.
+ * NOTE: the canonical request hash is sample-aware by design, so requests
+ * that omit n_samples hash differently after this raise — post-deploy
+ * freshness correctly sees a NEW analysis config (results at 10k are not
+ * results at 4k), invalidating stale-at-4k caches rather than forking
+ * identity.
  */
-export const STANDARD_N_SAMPLES_DEFAULT = 4000;
+export const STANDARD_N_SAMPLES_DEFAULT = 10_000;
 
 /**
  * Resolve the standard base-analysis sample depth for a request whose
@@ -58,8 +71,25 @@ export function resolveStandardNSamples(): number {
  * — real dense decision graphs hit a raw ISL 422 on the live path (verified:
  * acceptance-evidence/dense-graph-test attempt 6, 43 × 70 causal = 12,040,000).
  * PLoT mirrors the budget so it can adapt the depth BEFORE calling ISL.
+ *
+ * Paul-ruled lenient defaults 2026-07-17: raised 10M → 30M. Without this the
+ * base-depth raise (STANDARD_N_SAMPLES_DEFAULT 4000 → 10000) silently no-ops
+ * on any graph with filtered nodes × edges > 1000: the A3 budget-scout
+ * measured a 40n/120e graph at requested K=10000 being adaptively clamped
+ * back to n=4873 under the 10M budget (budget-review.md task 2e) — the
+ * silent-cap class. 30M keeps the worst-fit dense-graph base call inside the
+ * ISL client timeout with margin (scout: ~15-17 s staging); do NOT jump to
+ * 100M, which would breach it.
+ *
+ * ⚠ DEPLOY-ORDER COUPLING: ISL enforces the SAME budget (env
+ * `ISL_MAX_COMPUTE_COMPLEXITY`, ISL code default 10M at tip 5745154e). If
+ * PLoT's mirror is 30M while ISL still enforces 10M, PLoT under-reduces and
+ * dense graphs get a raw ISL 422 instead of today's disclosed adaptive
+ * reduction. ISL's matching raise (or `ISL_MAX_COMPUTE_COMPLEXITY=30000000`
+ * set on BOTH services) must land BEFORE or WITH this deploy — recorded as a
+ * CALLER ASK in the lane-5 PR.
  */
-export const ISL_COMPLEXITY_BUDGET_DEFAULT = 10_000_000;
+export const ISL_COMPLEXITY_BUDGET_DEFAULT = 30_000_000;
 
 /**
  * The floor for ADAPTIVE reductions: PLoT never lowers a requested depth

@@ -63,25 +63,57 @@ export const CEE_PROXY_PROMPTS_WARM_TIMEOUT_MS =
 // ISL Timeouts
 // -----------------------------------------------------------------------------
 
-/** ISL request timeout */
+/**
+ * ISL request timeout.
+ *
+ * Paul-ruled lenient defaults 2026-07-17: raised 30_000 → 60_000. Paul's
+ * ruling: better to learn something is slow than have analysis cut off —
+ * prioritise analysis quality and scientific credibility. 60s accommodates
+ * ISL's own internal leniency raises (parallel ISL lane) plus the measured
+ * worst-fit dense-graph base call at the raised depth/complexity budget
+ * (A3 budget-scout: ~15-17s staging at K=10000/30M — inside 30s but without
+ * margin once ISL's raised internal budgets stack on top). Sits within the
+ * derived caller envelope: UI /v2 adapter 120s is the BINDING hop (Render's
+ * platform cap is 100 minutes, never binding). NOTE: CEE's non-brief
+ * PLOT_RUN_TIMEOUT_MS is 30s — a CALLER ASK to raise it is recorded in the
+ * lane-5 PR; until then CEE non-brief runs cannot benefit from the full 60s.
+ */
 export const ISL_TIMEOUT_MS =
-  Number(process.env.ISL_REQUEST_TIMEOUT_MS || process.env.ISL_TIMEOUT_MS) || 30_000;
+  Number(process.env.ISL_REQUEST_TIMEOUT_MS || process.env.ISL_TIMEOUT_MS) || 60_000;
 
 /** ISL health-check timeout */
 export const ISL_HEALTH_CHECK_TIMEOUT_MS =
   Number(process.env.ISL_HEALTH_CHECK_TIMEOUT_MS) || 5_000;
 
-/** ISL threshold analysis: maximum per-call timeout cap */
+/**
+ * ISL threshold analysis: maximum per-call timeout cap.
+ *
+ * Paul-ruled lenient defaults 2026-07-17: raised 10_000 → 30_000. Still
+ * min()-ed at the call site against (remaining request budget − 1s safety
+ * margin), so the effective timeout can never outlive the request budget —
+ * the raise only stops the CAP from truncating threshold analysis when
+ * budget remains.
+ */
 export const ISL_THRESHOLDS_TIMEOUT_MS_CAP =
-  Number(process.env.ISL_THRESHOLDS_TIMEOUT_MS_CAP) || 10_000;
+  Number(process.env.ISL_THRESHOLDS_TIMEOUT_MS_CAP) || 30_000;
 
 /** ISL threshold analysis: minimum remaining request budget to attempt call */
 export const THRESHOLDS_MIN_REMAINING_BUDGET_MS =
   Number(process.env.THRESHOLDS_MIN_REMAINING_BUDGET_MS) || 5_000;
 
-/** Overall request budget for /v2/run (used for threshold budget gating) */
+/**
+ * Overall request budget for /v2/run (used for threshold + flip-search
+ * budget gating).
+ *
+ * Paul-ruled lenient defaults 2026-07-17: raised 60_000 → 70_000, ≤58% of
+ * the BINDING caller bound — the UI /v2 adapter's 120s client timeout
+ * (verified at the bytes; Render's platform cap is 100 minutes and never
+ * binds). An internal budget that outlives the caller delivers nothing —
+ * this is deliberately NOT raised nearer 120s while the CEE non-brief
+ * caller sits at 30s (CALLER ASK recorded in the lane-5 PR).
+ */
 export const REQUEST_BUDGET_MS =
-  Number(process.env.REQUEST_BUDGET_MS) || 60_000;
+  Number(process.env.REQUEST_BUDGET_MS) || 70_000;
 
 // -----------------------------------------------------------------------------
 // Fastify server timeout

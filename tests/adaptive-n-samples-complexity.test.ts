@@ -38,56 +38,57 @@ import {
 
 describe('applyComplexityBudget (unit)', () => {
   it('leaves depth unchanged when complexity is within the ISL budget', () => {
-    // 4000 × 3 × 2 = 24,000 ≪ 10,000,000
+    // 4000 × 3 × 2 = 24,000 ≪ 30,000,000 (Paul-ruled lenient default 2026-07-17)
     const d = applyComplexityBudget(4000, 3, 2);
     expect(d.kind).toBe('unchanged');
     if (d.kind === 'unchanged') expect(d.nSamples).toBe(4000);
   });
 
   it('allows complexity exactly at the budget (ISL blocks only strictly above the limit)', () => {
-    // 1000 × 100 × 100 = 10,000,000 == budget → allowed, unchanged
-    const d = applyComplexityBudget(1000, 100, 100);
+    // 3000 × 100 × 100 = 30,000,000 == budget → allowed, unchanged
+    const d = applyComplexityBudget(3000, 100, 100);
     expect(d.kind).toBe('unchanged');
   });
 
   it('reduces depth to floor(budget / (nodes × edges)) when over budget', () => {
-    // 4000 × 52 × 51 = 10,608,000 > 10,000,000
-    // floor(10,000,000 / 2,652) = 3,770 → 3,770 × 2,652 = 9,998,040 ≤ budget
-    const d = applyComplexityBudget(4000, 52, 51);
+    // 10000 × 60 × 51 = 30,600,000 > 30,000,000
+    // floor(30,000,000 / 3,060) = 9,803 → 9,803 × 3,060 = 29,997,180 ≤ budget
+    const d = applyComplexityBudget(10_000, 60, 51);
     expect(d.kind).toBe('reduced');
     if (d.kind === 'reduced') {
-      expect(d.nSamples).toBe(3770);
-      expect(d.originalNSamples).toBe(4000);
-      expect(d.nSamples * 52 * 51).toBeLessThanOrEqual(ISL_COMPLEXITY_BUDGET_DEFAULT);
+      expect(d.nSamples).toBe(9803);
+      expect(d.originalNSamples).toBe(10_000);
+      expect(d.nSamples * 60 * 51).toBeLessThanOrEqual(ISL_COMPLEXITY_BUDGET_DEFAULT);
       // One more sample would breach the budget — maximal honest depth.
-      expect((d.nSamples + 1) * 52 * 51).toBeGreaterThan(ISL_COMPLEXITY_BUDGET_DEFAULT);
+      expect((d.nSamples + 1) * 60 * 51).toBeGreaterThan(ISL_COMPLEXITY_BUDGET_DEFAULT);
     }
   });
 
   it('reduces to exactly the 1,000-sample floor when that is what fits', () => {
-    // nodes × edges = 10,000 → floor(10,000,000 / 10,000) = 1,000 == floor
-    const d = applyComplexityBudget(4000, 100, 100);
+    // nodes × edges = 30,000 → floor(30,000,000 / 30,000) = 1,000 == floor
+    const d = applyComplexityBudget(4000, 150, 200);
     expect(d.kind).toBe('reduced');
     if (d.kind === 'reduced') expect(d.nSamples).toBe(ADAPTIVE_N_SAMPLES_FLOOR);
   });
 
   it('refuses when even the 1,000-sample floor exceeds the budget', () => {
-    // nodes × edges = 10,302 → floor(10,000,000 / 10,302) = 970 < 1,000
-    const d = applyComplexityBudget(4000, 102, 101);
+    // nodes × edges = 30,625 → floor(30,000,000 / 30,625) = 979 < 1,000
+    const d = applyComplexityBudget(4000, 175, 175);
     expect(d.kind).toBe('refused');
   });
 
   it('respects an explicit low depth that already fits (no raise, no reduction)', () => {
-    // 500 × 100 × 150 = 7,500,000 ≤ budget — even though nodes × edges > 10,000
-    // would refuse AT the floor, the caller's smaller explicit depth fits as-is.
-    const d = applyComplexityBudget(500, 100, 150);
+    // 500 × 200 × 160 = 16,000,000 ≤ budget — even though nodes × edges (32,000)
+    // would refuse AT the floor (32M > 30M), the caller's smaller explicit
+    // depth fits as-is.
+    const d = applyComplexityBudget(500, 200, 160);
     expect(d.kind).toBe('unchanged');
     if (d.kind === 'unchanged') expect(d.nSamples).toBe(500);
   });
 
   it('refuses an explicit depth whose graph cannot fit even at the floor', () => {
-    // 1500 × 102 × 101 = 15,453,000 > budget; fitting depth 970 < floor → refuse
-    const d = applyComplexityBudget(1500, 102, 101);
+    // 1500 × 175 × 175 = 45,937,500 > budget; fitting depth 979 < floor → refuse
+    const d = applyComplexityBudget(1500, 175, 175);
     expect(d.kind).toBe('refused');
   });
 
@@ -99,10 +100,12 @@ describe('applyComplexityBudget (unit)', () => {
   it('honours the ISL_MAX_COMPUTE_COMPLEXITY env override at call time', () => {
     const prev = process.env.ISL_MAX_COMPUTE_COMPLEXITY;
     try {
-      process.env.ISL_MAX_COMPUTE_COMPLEXITY = '20000000';
-      expect(resolveComplexityBudget()).toBe(20_000_000);
-      // 4000 × 52 × 51 = 10,608,000 ≤ 20,000,000 → unchanged under the raised budget
-      expect(applyComplexityBudget(4000, 52, 51).kind).toBe('unchanged');
+      // A LOWERED override must win over the raised 30M default — an override
+      // that merely re-allows what the default already allows proves nothing.
+      process.env.ISL_MAX_COMPUTE_COMPLEXITY = '5000000';
+      expect(resolveComplexityBudget()).toBe(5_000_000);
+      // 4000 × 52 × 51 = 10,608,000 > 5,000,000 → reduced under the lowered budget
+      expect(applyComplexityBudget(4000, 52, 51).kind).toBe('reduced');
     } finally {
       if (prev === undefined) delete process.env.ISL_MAX_COMPUTE_COMPLEXITY;
       else process.env.ISL_MAX_COMPUTE_COMPLEXITY = prev;
@@ -234,7 +237,7 @@ describe('adaptive n_samples via /v2/run', () => {
 
   it('dense graph: reduces n_samples before calling ISL and attaches SAMPLES_REDUCED_FOR_COMPLEXITY naming original and reduced depths', async () => {
     islCalls = [];
-    // 43 factors + goal = 44 nodes, 85 edges → 4000 × 3,740 = 14,960,000 > 10M
+    // 43 factors + goal = 44 nodes, 85 edges → 10000 × 3,740 = 37,400,000 > 30M
     const res = await app.inject({
       method: 'POST',
       url: '/v2/run',
@@ -249,11 +252,11 @@ describe('adaptive n_samples via /v2/run', () => {
 
     expect(res.statusCode).toBe(200);
 
-    // ISL received the reduced depth — floor(10,000,000 / (44 × 85)) = 2,673
+    // ISL received the reduced depth — floor(30,000,000 / (44 × 85)) = 8,021
     expect(islCalls.length).toBeGreaterThan(0);
     expect(islCalls[0].graph.nodes).toHaveLength(44);
     expect(islCalls[0].graph.edges).toHaveLength(85);
-    expect(islCalls[0].n_samples).toBe(2673);
+    expect(islCalls[0].n_samples).toBe(8021);
     // No ISL call of any kind (base or probe) may breach the budget.
     for (const call of islCalls) {
       expect(call.n_samples * call.graph.nodes.length * call.graph.edges.length)
@@ -262,19 +265,19 @@ describe('adaptive n_samples via /v2/run', () => {
 
     const body = JSON.parse(res.body);
     // The response reports the TRUE depth used, not the requested default.
-    expect(body.meta?.n_samples).toBe(2673);
+    expect(body.meta?.n_samples).toBe(8021);
 
     // Exactly one warning, carried on the inference_warnings surface
     // (the CONSTRAINT_DIRECTION_SUSPECT pattern), naming both depths.
     const warnings = findSamplesReducedWarnings(body);
     expect(warnings).toHaveLength(1);
     expect(warnings[0].severity).toBe('warning');
-    expect(warnings[0].message).toContain('4000');
-    expect(warnings[0].message).toContain('2673');
+    expect(warnings[0].message).toContain('10000');
+    expect(warnings[0].message).toContain('8021');
   });
 
   it('graph too complex even at the floor: refuses with GRAPH_TOO_COMPLEX before calling ISL — never a raw ISL 422 passthrough', async () => {
-    // At the DEFAULT budget the refusal arm needs nodes × edges > 10,000,
+    // At the DEFAULT budget the refusal arm needs nodes × edges > 30,000,
     // which PLoT's own 50-node/100-edge graph limits keep out of reach
     // (max product 5,000) — preflight GRAPH_TOO_LARGE fires first. The arm
     // is live protection for a lowered ISL_MAX_COMPUTE_COMPLEXITY (the env
@@ -324,7 +327,7 @@ describe('adaptive n_samples via /v2/run', () => {
       url: '/v2/run',
       headers: { 'Content-Type': 'application/json' },
       payload: {
-        graph: denseGraph(2), // 3 nodes × 3 edges → 4000 × 9 = 36,000
+        graph: denseGraph(2), // 3 nodes × 3 edges → 10000 × 9 = 90,000
         options: OPTIONS,
         goal_node_id: 'goal',
         seed: '42',
@@ -332,9 +335,9 @@ describe('adaptive n_samples via /v2/run', () => {
     });
 
     expect(res.statusCode).toBe(200);
-    expect(islCalls[0].n_samples).toBe(4000);
+    expect(islCalls[0].n_samples).toBe(10_000);
     const body = JSON.parse(res.body);
-    expect(body.meta?.n_samples).toBe(4000);
+    expect(body.meta?.n_samples).toBe(10_000);
     expect(findSamplesReducedWarnings(body)).toHaveLength(0);
   });
 
@@ -345,22 +348,22 @@ describe('adaptive n_samples via /v2/run', () => {
       url: '/v2/run',
       headers: { 'Content-Type': 'application/json' },
       payload: {
-        graph: denseGraph(43), // 44 × 85 = 3,740 → floor(10M / 3,740) = 2,673
+        graph: denseGraph(43), // 44 × 85 = 3,740 → floor(30M / 3,740) = 8,021
         options: OPTIONS,
         goal_node_id: 'goal',
         seed: '42',
-        n_samples: 8000,
+        n_samples: 10000,
       },
     });
 
     expect(res.statusCode).toBe(200);
-    expect(islCalls[0].n_samples).toBe(2673);
+    expect(islCalls[0].n_samples).toBe(8021);
     const body = JSON.parse(res.body);
-    expect(body.meta?.n_samples).toBe(2673);
+    expect(body.meta?.n_samples).toBe(8021);
     const warnings = findSamplesReducedWarnings(body);
     expect(warnings).toHaveLength(1);
-    expect(warnings[0].message).toContain('8000');
-    expect(warnings[0].message).toContain('2673');
+    expect(warnings[0].message).toContain('10000');
+    expect(warnings[0].message).toContain('8021');
   });
 
   it('explicit caller n_samples within budget is respected exactly, with no warning', async () => {
