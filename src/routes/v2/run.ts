@@ -454,6 +454,7 @@ export function transformEdgeEValues(
     // using goal node range when normalisation was active.
     let currentMean = e.current_mean;
     let flipMean = e.flip_mean;
+    let stability = e.stability;
     let eValueNormalised: boolean | undefined;
     if (normContext && goalRange) {
       if (typeof currentMean === 'number') {
@@ -461,6 +462,41 @@ export function transformEdgeEValues(
       }
       if (typeof flipMean === 'number') {
         flipMean = denormaliseValue(flipMean, goalRange);
+      }
+      // A3 lane 4 (Paul's 17 Jul ruling): the stability band receives EXACTLY
+      // the same map as the sibling flip_mean above — units-coherence
+      // invariant: band values are ALWAYS in the same space as flip_mean on
+      // the same entry. Counts (n_seeds/n_seeds_flipped) are space-invariant.
+      if (stability !== undefined) {
+        const bandMin = typeof stability.band_min === 'number'
+          ? denormaliseValue(stability.band_min, goalRange) : undefined;
+        const bandMedian = typeof stability.band_median === 'number'
+          ? denormaliseValue(stability.band_median, goalRange) : undefined;
+        const bandMax = typeof stability.band_max === 'number'
+          ? denormaliseValue(stability.band_max, goalRange) : undefined;
+        stability = {
+          // Spread first so any future additive ISL band field still rides
+          // (the named-field-rebuild silent-drop trap this file's lane-3
+          // comment documents); mapped fields override below.
+          ...stability,
+          ...(bandMin !== undefined && { band_min: bandMin }),
+          ...(bandMedian !== undefined && { band_median: bandMedian }),
+          ...(bandMax !== undefined && { band_max: bandMax }),
+          // band_width RECOMPUTED from the MAPPED endpoints (mapped band_max −
+          // mapped band_min), NEVER passed through denormaliseValue itself: a
+          // width is a difference, and the affine `+ min` offset would corrupt
+          // it. Absent endpoints (n_seeds_flipped == 0) ⇒ width stays absent;
+          // a degenerate goal range (max − min <= 0) collapses both endpoints
+          // to the same constant ⇒ width 0, consistent with flip_mean there.
+          ...(bandMin !== undefined && bandMax !== undefined &&
+            { band_width: bandMax - bandMin }),
+          // Per-seed means: map non-null cells, preserve nulls AS NULL (a
+          // null means that seed's background admits no flip — not a value).
+          ...(Array.isArray(stability.seed_flip_means) && {
+            seed_flip_means: stability.seed_flip_means.map((v) =>
+              typeof v === 'number' ? denormaliseValue(v, goalRange) : v),
+          }),
+        };
       }
     } else if (normContext) {
       // Normalisation was active but goal range unavailable — flag
@@ -477,16 +513,18 @@ export function transformEdgeEValues(
       flip_direction: e.flip_direction,
       current_mean: currentMean,
       flip_mean: flipMean,
-      // A3 lane 3: seed-sweep flip-stability band (ISL PR #71, flag-gated
-      // ISL_FLIP_STABILITY_BANDS — absent on the live wire until the flag
-      // flips). Carried VERBATIM when present, key absent (never null) when
-      // not: this field-by-field rebuild used to silently DROP it. NOT
-      // denormalised — band values stay in ISL flip-mean space even when
-      // currentMean/flipMean above were denormalised (see the units note on
-      // ISLFlipStabilityBandV2). ⚠ band_width == 0 is BY CONSTRUCTION when
-      // n_seeds_flipped == 1 — carried as-is, consumers must condition on
-      // n_seeds_flipped.
-      ...(e.stability !== undefined && { stability: e.stability }),
+      // A3 lane 3 + lane 4: seed-sweep flip-stability band (ISL PR #71,
+      // flag-gated ISL_FLIP_STABILITY_BANDS — absent on the live wire until
+      // the flag flips). Key absent (never null) when ISL omits it: this
+      // field-by-field rebuild used to silently DROP it. UNITS-COHERENCE
+      // INVARIANT (Paul's 17 Jul ruling): band values are ALWAYS in the same
+      // space as flip_mean on the same entry — mapped above via the same
+      // denormaliseValue when flipMean was denormalised (band_width recomputed
+      // from mapped endpoints); verbatim on the fallback and _normalised:true
+      // paths where flipMean is verbatim too (see ISLFlipStabilityBandV2).
+      // ⚠ band_width == 0 is BY CONSTRUCTION when n_seeds_flipped == 1 —
+      // consumers must condition on n_seeds_flipped.
+      ...(stability !== undefined && { stability }),
       ...(eValueNormalised !== undefined && { _normalised: eValueNormalised }),
     };
     // Numeric-egress guard (Codex round-2): e_value/current_mean/flip_mean are
