@@ -63,12 +63,13 @@ describe('Decision-brief lineage sample-depth awareness', () => {
 
   it('omitted depth reproduces the standard-default config_version', () => {
     // A brief with no depth hashes the same as one at the standard default
-    // (PR-E: 4000), and differs from a non-default depth.
+    // (Paul-ruled lenient defaults 2026-07-17: 10000; PR-E was 4000), and
+    // differs from a non-default depth.
     expect(assembleBrief(baseInput(undefined))?.lineage.config_version).toBe(
-      assembleBrief(baseInput(4000))?.lineage.config_version
+      assembleBrief(baseInput(10_000))?.lineage.config_version
     );
     expect(assembleBrief(baseInput(undefined))?.lineage.config_version).not.toBe(
-      assembleBrief(baseInput(1000))?.lineage.config_version
+      assembleBrief(baseInput(4000))?.lineage.config_version
     );
   });
 });

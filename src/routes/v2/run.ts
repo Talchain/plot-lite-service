@@ -112,7 +112,7 @@ import {
   THRESHOLDS_MIN_REMAINING_BUDGET_MS,
   REQUEST_BUDGET_MS,
 } from '../../config/timeouts.js';
-import { createISLInferenceFn, resolveFlipValues, resolveFlipProbeNSamples } from '../../analysis/flip-thresholds.js';
+import { createISLInferenceFn, resolveFlipValues, resolveFlipProbeNSamples, resolveFlipOverallTimeoutMs, resolveFlipPerFactorTimeoutMs } from '../../analysis/flip-thresholds.js';
 import { computeFlipThresholdData, getFactorsOverriddenByAllOptions } from '../../coaching/flip-thresholds.js';
 import { denormaliseFlipThresholds, type DenormalisedFlipThreshold } from '../../lib/flip-threshold-denormaliser.js';
 import { classifyFlipThresholdsStatus } from '../../lib/flip-threshold-status.js';
@@ -5656,17 +5656,51 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                 // (`nSamples`), so raising base depth cannot silently push probes into
                 // timeout. See resolveFlipProbeNSamples / FLIP_PROBE_N_SAMPLES.
                 flipProbeNSamples = resolveFlipProbeNSamples(nSamples);
+                // Paul-ruled lenient defaults 2026-07-17: each probe's ISL call is
+                // capped at the per-factor budget — a probe has no use for time its
+                // factor no longer has. (Without this cap a single in-flight probe
+                // could add a full ISL_TIMEOUT_MS tail past the flip deadline.)
+                const flipProbeIslTimeoutMs = resolveFlipPerFactorTimeoutMs();
                 const flipInferenceFn = createISLInferenceFn(
-                  (endpoint, body, rid) => islService.callAnalysisEndpoint(endpoint, body, rid),
+                  (endpoint, body, rid) => islService.callAnalysisEndpoint(endpoint, body, rid, flipProbeIslTimeoutMs),
                   islRequest,
                   requestId,
                   flipProbeNSamples
                 );
 
+                // Envelope guard (Paul-ruled lenient defaults 2026-07-17): the raised
+                // flip budget is clamped to the REMAINING request budget. Before the
+                // raises, base ISL (30s) + flip (10s) could never exceed the 60s
+                // request budget; after them (60s + 60s) it could — and an internal
+                // budget that outlives the caller's timeout delivers nothing. The
+                // clamp is DISCLOSED, never silent: a clamped/exhausted search trips
+                // per-entry flip_reason 'timeout' with elapsed_ms, and the clamp
+                // itself is logged below.
+                const flipStartMs = performance.now();
+                const flipConfiguredOverallMs = resolveFlipOverallTimeoutMs();
+                const flipRequestBudgetMs = Number(process.env.REQUEST_BUDGET_MS) || REQUEST_BUDGET_MS;
+                const flipRemainingBudgetMs = flipRequestBudgetMs - (flipStartMs - startTime);
+                const flipSafetyMarginMs = 1_000;
+                const flipOverallTimeoutMs = Math.min(
+                  flipConfiguredOverallMs,
+                  Math.max(0, flipRemainingBudgetMs - flipSafetyMarginMs)
+                );
+                if (flipOverallTimeoutMs < flipConfiguredOverallMs) {
+                  req.log.info({
+                    event: 'flip_thresholds_budget_clamped',
+                    request_id: requestId,
+                    configured_overall_timeout_ms: flipConfiguredOverallMs,
+                    clamped_overall_timeout_ms: Math.round(flipOverallTimeoutMs),
+                    remaining_budget_ms: Math.round(flipRemainingBudgetMs),
+                    request_budget_ms: flipRequestBudgetMs,
+                  });
+                }
+
                 const flipResult = await resolveFlipValues(
                   flipCandidates,
                   flipInferenceFn,
-                  winnerId
+                  winnerId,
+                  { overallTimeoutMs: flipOverallTimeoutMs }
                 );
                 resolvedFlipData = flipResult.results;
 
@@ -5674,6 +5708,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                   event: 'flip_thresholds_resolved',
                   request_id: requestId,
                   count: resolvedFlipData.length,
+                  // Paul-ruled lenient defaults 2026-07-17: slowness visible — block
+                  // wall-time + probe depth alongside per-factor elapsed_ms in factors.
+                  elapsed_ms: Math.round(performance.now() - flipStartMs),
+                  flip_probe_n_samples: flipProbeNSamples,
                   factors: flipResult.diagnostics,
                 });
               } else {
@@ -5700,6 +5738,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               event: 'flip_thresholds_error',
               request_id: requestId,
               error: (err as Error).message,
+              // Paul-ruled lenient defaults 2026-07-17: failures carry their
+              // wall-time too — a crash after 55s and a crash after 50ms are
+              // different diagnoses.
+              elapsed_ms: Math.round(performance.now() - startTime),
             });
             // Continue without flip thresholds — non-blocking
           }

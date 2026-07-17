@@ -18,6 +18,7 @@
 import type { FlipThresholdInputData } from '../cee/validation/m1-review-types.js';
 import { computeMarginSensitivity, type MarginSensitivity } from './margin-sensitivity.js';
 import { resolveBoundedIntEnvOrWarn, MIN_N_SAMPLES, MAX_N_SAMPLES } from '../config/env-int.js';
+import { STANDARD_N_SAMPLES_DEFAULT } from '../config/sampling.js';
 
 // =============================================================================
 // Types
@@ -62,44 +63,88 @@ export interface FlipSearchConfig {
   overallTimeoutMs: number;
 }
 
+/**
+ * Paul-ruled lenient defaults 2026-07-17 — flip-search time budgets.
+ *
+ * Raised from 5_000/10_000 to 10_000/30_000 (per-factor/overall), the values
+ * MEASURED by the A3 budget-scout (acceptance-evidence/a3-verify-2026-07-16/
+ * budget-review.md, task 2c + ruling table): probes at base depth crowd the
+ * old 10 s overall budget (~10 probes × ~700 ms staging at depth 4000), and
+ * Paul's ruling is that analysis must not be cut off — a slow search should
+ * DISCLOSE itself, not truncate. Worst case with these budgets is ~35 s of
+ * flip search, well inside the UI's 120 s client timeout (the binding
+ * envelope hop; Render's platform cap is 100 MINUTES and never binds).
+ * The overall budget is additionally clamped at the call site
+ * (src/routes/v2/run.ts) to the REMAINING request budget so the raised
+ * default can never outlive the caller. Timeouts remain fully disclosed:
+ * flip_reason 'timeout' per entry + elapsed_ms on every diagnostics entry.
+ *
+ * ⚠ Watch-item (recorded in the lane-5 PR): with the base-depth raise to
+ * 10k, probes run at 10k (min(cap, base)) — ~2.5× the scout's depth-4000
+ * probe timings — so factors needing a full bisection may trip the 10 s
+ * per-factor budget on staging and disclose 'timeout'. The no-deploy
+ * mitigation knob is FLIP_PROBE_N_SAMPLES=4000 (env).
+ */
+export const DEFAULT_FLIP_PER_FACTOR_TIMEOUT_MS = 10_000;
+export const DEFAULT_FLIP_OVERALL_TIMEOUT_MS = 30_000;
+
+/** Env-or-default overall flip-search budget (before call-site budget clamping). */
+export function resolveFlipOverallTimeoutMs(): number {
+  return parseInt(process.env.FLIP_SEARCH_OVERALL_TIMEOUT_MS ?? String(DEFAULT_FLIP_OVERALL_TIMEOUT_MS), 10);
+}
+
+/** Env-or-default per-factor flip-search budget. Also caps each probe's ISL call. */
+export function resolveFlipPerFactorTimeoutMs(): number {
+  return parseInt(process.env.FLIP_SEARCH_PER_FACTOR_TIMEOUT_MS ?? String(DEFAULT_FLIP_PER_FACTOR_TIMEOUT_MS), 10);
+}
+
 function getDefaultConfig(): FlipSearchConfig {
   const precisionTarget = 0.01;
   return {
     maxIterations: Math.ceil(Math.log2(1 / precisionTarget)),  // ~7 for [0,1]
     precisionTarget,
     maxGridPoints: 11,
-    perFactorTimeoutMs: parseInt(process.env.FLIP_SEARCH_PER_FACTOR_TIMEOUT_MS ?? '5000', 10),
-    overallTimeoutMs: parseInt(process.env.FLIP_SEARCH_OVERALL_TIMEOUT_MS ?? '10000', 10),
+    perFactorTimeoutMs: resolveFlipPerFactorTimeoutMs(),
+    overallTimeoutMs: resolveFlipOverallTimeoutMs(),
   };
 }
 
 /**
- * Track S — Flip-probe sample depth (decoupled from base analysis depth).
+ * Flip-probe sample depth cap (probes run at BASE precision up to this cap).
  *
- * Each flip probe is a full ISL `comparison` call inside a binary search under a
- * fixed per-factor/overall time budget. If probes inherited the base analysis
- * `n_samples`, raising the base depth would slow every probe and push the search
- * into timeout (observed: flip-threshold timeouts rose from ~1/12 runs at 1000
- * samples to ~3/12 at 4000). Decoupling lets the base analysis use a higher depth
- * for display-stable probabilities while flip probes stay fast.
+ * Paul-ruled lenient defaults 2026-07-17: raised 1_000 → 10_000. Paul's
+ * ruling — prioritise analysis quality and scientific credibility over
+ * latency: flip thresholds computed at 1,000 samples while the base analysis
+ * runs at 4,000+ meant tipping points were an order of magnitude noisier than
+ * the probabilities displayed next to them. Probes now inherit the base
+ * analysis depth up to this cap (== MAX_N_SAMPLES, the /v2/run schema bound),
+ * so flip values carry the base analysis's precision. The flip-search time
+ * budgets were raised in step (see DEFAULT_FLIP_PER_FACTOR_TIMEOUT_MS /
+ * DEFAULT_FLIP_OVERALL_TIMEOUT_MS); a slow search now DISCLOSES itself
+ * (flip_reason 'timeout' + elapsed_ms) instead of silently shipping
+ * low-precision values. Track-S decoupling survives as the cap + the
+ * FLIP_PROBE_N_SAMPLES env override, no longer as a hard 1,000 floor-pin.
  */
-export const DEFAULT_FLIP_PROBE_N_SAMPLES = 1000;
+export const DEFAULT_FLIP_PROBE_N_SAMPLES = 10_000;
 
 /**
- * Resolve the sample depth to use for flip probes, independent of base depth.
+ * Resolve the sample depth to use for flip probes.
  *
  * Precedence:
  *  1. `FLIP_PROBE_N_SAMPLES` env — strictly parsed, in-bounds (100..10000) ops
  *     override (may exceed base); malformed/out-of-bounds values are ignored;
- *  2. otherwise `min(DEFAULT_FLIP_PROBE_N_SAMPLES, baseNSamples)` — probes never
- *     run deeper than the base, and crucially do NOT scale up when the base does.
+ *  2. otherwise `min(DEFAULT_FLIP_PROBE_N_SAMPLES, baseNSamples)` — probes run
+ *     at the base analysis's depth (base precision), capped at 10k; they never
+ *     run deeper than the base.
  */
 export function resolveFlipProbeNSamples(baseNSamples?: number): number {
   const envOverride = resolveBoundedIntEnvOrWarn('FLIP_PROBE_N_SAMPLES', MIN_N_SAMPLES, MAX_N_SAMPLES);
   if (envOverride !== null) return envOverride;
+  // Unknown base depth → assume the standard base default (4,000), never the
+  // 10k cap: "base precision" means matching the base, not maxing out.
   const base = typeof baseNSamples === 'number' && Number.isFinite(baseNSamples) && baseNSamples > 0
     ? baseNSamples
-    : DEFAULT_FLIP_PROBE_N_SAMPLES;
+    : STANDARD_N_SAMPLES_DEFAULT;
   return Math.min(DEFAULT_FLIP_PROBE_N_SAMPLES, base);
 }
 
@@ -138,6 +183,14 @@ export interface FlipDiagnostics {
    * non-finite baseline, or exception during the parallel probe phase).
    */
   margin_sensitivity?: MarginSensitivity;
+  /**
+   * Wall-clock ms this factor's search took, stamped on EVERY diagnostics
+   * entry (found / timeout / error / no_effect alike). Paul-ruled lenient
+   * defaults 2026-07-17: slowness must be VISIBLE — a 'timeout' trip without
+   * its elapsed time is an undiagnosable cutoff. Log-only (diagnostics never
+   * reach the public response).
+   */
+  elapsed_ms?: number;
 }
 
 // =============================================================================
@@ -200,6 +253,22 @@ export async function resolveFlipValues(
  * 7. Max iterations from precision target: ceil(log2(1 / precision_target))
  */
 async function searchFlipForFactor(
+  candidate: FlipThresholdInputData,
+  inferenceFn: ISLInferenceFn,
+  originalWinnerId: string,
+  config: FlipSearchConfig,
+  overallDeadline: number
+): Promise<{ result: FlipThresholdInputData; diagnostics: FlipDiagnostics }> {
+  // Stamp elapsed_ms on every diagnostics entry (all exit paths return the
+  // shared `diag` object). Paul-ruled lenient defaults 2026-07-17: slowness
+  // must be visible, especially on 'timeout' trips.
+  const searchStartedAt = Date.now();
+  const out = await searchFlipForFactorInner(candidate, inferenceFn, originalWinnerId, config, overallDeadline);
+  out.diagnostics.elapsed_ms = Date.now() - searchStartedAt;
+  return out;
+}
+
+async function searchFlipForFactorInner(
   candidate: FlipThresholdInputData,
   inferenceFn: ISLInferenceFn,
   originalWinnerId: string,

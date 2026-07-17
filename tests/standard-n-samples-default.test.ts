@@ -1,11 +1,16 @@
 /**
- * Track S PR-E — Standard MC sample depth default 1000→4000, with env rollback.
+ * Track S PR-E (revised) — Standard MC sample depth default, with env rollback.
+ *
+ * HISTORY: PR-E raised the default 1000→4000; Paul-ruled lenient defaults
+ * 2026-07-17 raised it again 4000→10000 (the schema ceiling; scout-measured
+ * +0.7s staging — budget-review.md task 2a) and flip probes now RUN AT base
+ * precision up to the 10k cap instead of being pinned to 1000.
  *
  * Machine-enforced acceptance proof:
- *  - default unset → standard depth resolves to 4000;
+ *  - default unset → standard depth resolves to 10000;
  *  - STANDARD_N_SAMPLES=1000 → resolves to 1000 (emergency rollback);
- *  - response hash differs between 1000 and 4000;
- *  - flip probes stay at their independent depth (do NOT inherit base 4000).
+ *  - response hash differs between depths (sample-aware hash);
+ *  - flip probes follow base depth up to the 10k cap (Paul ruling).
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -38,10 +43,10 @@ const REQ = {
 } as unknown as RunRequestV3;
 
 describe('PR-E standard sample depth', () => {
-  it('default (env unset) resolves to 4000', () => {
+  it('default (env unset) resolves to 10000 (Paul-ruled lenient default 2026-07-17)', () => {
     delete process.env[ENV_KEY];
-    expect(STANDARD_N_SAMPLES_DEFAULT).toBe(4000);
-    expect(resolveStandardNSamples()).toBe(4000);
+    expect(STANDARD_N_SAMPLES_DEFAULT).toBe(10_000);
+    expect(resolveStandardNSamples()).toBe(10_000);
   });
 
   it('STANDARD_N_SAMPLES=1000 rolls back to 1000', () => {
@@ -62,7 +67,7 @@ describe('PR-E standard sample depth', () => {
     // parseInt would yield 1 / 4 / 1000 for the first three — all unsafe.
     for (const bad of ['oops', '', '   ', '1,000', '4_000', '1000abc', '1.5', '-500', '1e3', '99', '0', '10001', '50000']) {
       process.env[ENV_KEY] = bad;
-      expect(resolveStandardNSamples()).toBe(STANDARD_N_SAMPLES_DEFAULT); // 4000
+      expect(resolveStandardNSamples()).toBe(STANDARD_N_SAMPLES_DEFAULT); // 10000
     }
   });
 
@@ -72,9 +77,9 @@ describe('PR-E standard sample depth', () => {
     expect(h1000).not.toBe(h4000);
   });
 
-  it('flip probes do NOT inherit the new 4000 base depth (stay decoupled)', () => {
-    // Base default is now 4000; flip probes must remain at their independent depth.
-    expect(resolveFlipProbeNSamples(STANDARD_N_SAMPLES_DEFAULT)).toBe(1000);
-    expect(resolveFlipProbeNSamples(resolveStandardNSamples())).toBe(1000);
+  it('flip probes follow the base depth up to the 10k cap (Paul ruling 2026-07-17)', () => {
+    // Probes at base precision: base default 10000 → probes 10000 (== cap).
+    expect(resolveFlipProbeNSamples(STANDARD_N_SAMPLES_DEFAULT)).toBe(10_000);
+    expect(resolveFlipProbeNSamples(resolveStandardNSamples())).toBe(10_000);
   });
 });

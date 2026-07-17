@@ -1188,11 +1188,11 @@
     "reason": "CEE feature disabled"
   },
   "processing_time_ms": "__VOLATILE__",
-  "response_hash": "195f3c2552217c57",
+  "response_hash": "60e3ac213554be4f",
   "decision_brief": {
-    "brief_id": "4cabf774-12b1-4aa1-b28b-fb88093a683f",
+    "brief_id": "599e531e-c6b4-4f60-9926-a1c19f9bf367",
     "version": "1",
-    "graph_hash": "195f3c2552217c57",
+    "graph_hash": "60e3ac213554be4f",
     "seed": 2034401427,
     "created_at": "__VOLATILE__",
     "headline": "Hire One Tech Lead currently leads, but the outcome is highly uncertain. However, the 59% recommendation stability indicates the decision could shift with new information. Define tie-breaker criteria or gather additional evidence.",
@@ -1257,9 +1257,9 @@
       }
     ],
     "lineage": {
-      "config_version": "2b3c700a4863",
-      "response_hash": "195f3c2552217c57",
-      "n_samples": 4000
+      "config_version": "0c29e308b4b3",
+      "response_hash": "60e3ac213554be4f",
+      "n_samples": 10000
     },
     "headline_banded": {
       "text": "Hire One Tech Lead is slightly ahead.",
@@ -1310,7 +1310,7 @@
         "seed": 2034401427,
         "config_version": "1",
         "isl_request_id": "__VOLATILE__",
-        "n_samples": 4000
+        "n_samples": 10000
       },
       "content_hash": "3e7a7ee90a6f2460"
     },
@@ -1335,7 +1335,7 @@
         "seed": 2034401427,
         "config_version": "1",
         "isl_request_id": "__VOLATILE__",
-        "n_samples": 4000
+        "n_samples": 10000
       },
       "content_hash": "d085afe35bc8cc9f"
     },
@@ -1360,7 +1360,7 @@
         "seed": 2034401427,
         "config_version": "1",
         "isl_request_id": "__VOLATILE__",
-        "n_samples": 4000
+        "n_samples": 10000
       },
       "content_hash": "80a265760799c6c3"
     },
@@ -1385,7 +1385,7 @@
         "seed": 2034401427,
         "config_version": "1",
         "isl_request_id": "__VOLATILE__",
-        "n_samples": 4000
+        "n_samples": 10000
       },
       "content_hash": "83b435b6b5b3df12"
     },
@@ -1414,7 +1414,7 @@
         "seed": 2034401427,
         "config_version": "1",
         "isl_request_id": "__VOLATILE__",
-        "n_samples": 4000
+        "n_samples": 10000
       },
       "content_hash": "6328d59d1577f9e9"
     },
@@ -1443,7 +1443,7 @@
         "seed": 2034401427,
         "config_version": "1",
         "isl_request_id": "__VOLATILE__",
-        "n_samples": 4000
+        "n_samples": 10000
       },
       "content_hash": "1b078eb246e060e2"
     },
@@ -1472,7 +1472,7 @@
         "seed": 2034401427,
         "config_version": "1",
         "isl_request_id": "__VOLATILE__",
-        "n_samples": 4000
+        "n_samples": 10000
       },
       "content_hash": "29dd19919af45252"
     },
@@ -1501,7 +1501,7 @@
         "seed": 2034401427,
         "config_version": "1",
         "isl_request_id": "__VOLATILE__",
-        "n_samples": 4000
+        "n_samples": 10000
       },
       "content_hash": "43d316b1bc131bbd"
     },
@@ -1522,7 +1522,7 @@
         "seed": 2034401427,
         "config_version": "1",
         "isl_request_id": "__VOLATILE__",
-        "n_samples": 4000
+        "n_samples": 10000
       },
       "content_hash": "746563481e476303"
     }
@@ -1533,7 +1533,7 @@
     "request_id": "__VOLATILE__",
     "plot_build": "__VOLATILE__",
     "hash_version": 7,
-    "response_hash": "195f3c2552217c57",
+    "response_hash": "60e3ac213554be4f",
     "request_id_chain": {
       "ui": null,
       "plot": "__VOLATILE__",
@@ -1598,13 +1598,12 @@
     "decision_brief_assembled": true,
     "review_cards_count": 0,
     "evidence_priority_card_present": false,
-    "response_content_hash": "rch_v2:5c675374cdaeb9e3"
+    "response_content_hash": "rch_v2:96feaa2a2e028dfd"
   },
   "meta": {
     "seed_used": "2034401427",
     "seed_source": "client_generated",
-    "n_samples": 4000,
-    "flip_probe_n_samples": 1000,
+    "n_samples": 10000,
     "detail_level": "standard",
     "latency_ms": "__VOLATILE__",
     "normalization_ms": "__VOLATILE__",
