@@ -4040,6 +4040,15 @@ paths:
           the response CONTENT — the public semantic surface minus volatile fields (timings,
           timestamps, per-request ids, the `_meta` subtree). Deterministic across replays of the
           same request and independently recomputable from the body. Success responses only.
+        - `_meta.evidence.enrichment_contract_ok` (additive, A3 lane 1): producer-side result of
+          validating this response body against the typed PLoT→CEE enrichment envelope
+          (`AnalysisEnrichmentSchema`, vendored `@talchain/schemas`). `true` = parsed clean;
+          `false` = type/enum corruption on a typed envelope key, paired with exactly one
+          `ENRICHMENT_CONTRACT_MISMATCH` entry in `inference_warnings` naming the zod issue
+          paths (never values). Absent = the guard itself errored (unassessed, not ok).
+          FAIL-OPEN: validation never blocks or mutates delivery. All HTTP-200 shapes from
+          buildResponse carry it (computed/partial/failed), same coverage as
+          `response_content_hash`.
 
         **Seed Handling**:
         - Accept string (canonical) or number (legacy)

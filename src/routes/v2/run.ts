@@ -172,6 +172,11 @@ import type { ProposalCardV1 } from '../../review-pass/types.js';
 import { assembleFactObjects, type ISLResponseInput } from '../../facts/index.js';
 import type { FactObjectV1, FactLineage } from '../../facts/types.js';
 import { finiteNum, prob01, nonNeg, nonNegInt, hasAllRequiredOutcomeStats } from './numeric-egress-guards.js';
+import {
+  assessEnrichmentContract,
+  buildEnrichmentContractWarning,
+  logEnrichmentContractMismatch,
+} from './enrichment-egress-guard.js';
 
 // -----------------------------------------------------------------------------
 // Feature Flags
@@ -2934,6 +2939,45 @@ function buildResponse(
       },
     },
   };
+
+  // A3 lane 1 (enrichment producer guard): validate the fully-assembled
+  // outgoing body against the typed PLoT→CEE enrichment envelope
+  // (AnalysisEnrichmentSchema, vendored @talchain/schemas — byte-identical
+  // to the copy CEE's shadow validator runs). At the OWNER layer, like the
+  // content-hash attach below, so every run-body send site — main computed
+  // path AND the ISL_NOT_ENABLED early return — inherits it. FAIL-OPEN:
+  // never blocks or mutates delivery; a mismatch is DISCLOSED via
+  // `_meta.evidence.enrichment_contract_ok: false` + one
+  // ENRICHMENT_CONTRACT_MISMATCH inference warning + one
+  // `enrichment_contract_mismatch` log event (zod issue paths only — never
+  // payload values). Ordering: the warning is appended BEFORE the content
+  // hash is computed, so the disclosure sits INSIDE the hashed content; the
+  // evidence stamp lives in _meta, which the hash excludes by construction.
+  // The appended warning `{code, message, severity}` conforms to the
+  // envelope's inference_warnings element schema by construction, so the
+  // disclosure can never itself create a contract violation.
+  try {
+    const enrichmentAssessment = assessEnrichmentContract(response);
+    if (response._meta?.evidence) {
+      response._meta.evidence.enrichment_contract_ok = enrichmentAssessment.ok;
+    }
+    if (!enrichmentAssessment.ok) {
+      response.inference_warnings = [
+        ...(response.inference_warnings ?? []),
+        buildEnrichmentContractWarning(enrichmentAssessment),
+      ];
+      if (logger) logEnrichmentContractMismatch(logger, enrichmentAssessment, requestId);
+    }
+  } catch (err) {
+    // A guard bug is NOT a contract mismatch: stamp NOTHING (absence =
+    // unassessed — never a false claim in either direction) and log the
+    // error NAME only (error messages can embed payload values).
+    logger?.warn({
+      event: 'enrichment_contract_guard_error',
+      request_id: requestId,
+      error_name: err instanceof Error ? err.name : typeof err,
+    });
+  }
 
   // 2.13 gap A (review [10]: attach at the OWNER layer, not per send site):
   // buildResponse owns _meta, so every caller — main computed path AND the
