@@ -262,10 +262,10 @@ describe('B8-8: 3C field handling in /v2/run response', () => {
       // suppression contract (LEVER_SUPPRESSION_FIELDS) now forces
       // elasticity_std to 0 on the public factor_sensitivity entry — the
       // pre-lane assertion `toBe(0.12)` was pinning the leak itself (a
-      // non-zero variance statistic of the suppressed elasticity). The raw
-      // ISL value (0.12) still reaches factor_stability[] below: that surface
-      // reads raw ISL input and sits outside the suppression contract
-      // (disclosed residual, 2.25 hygiene sweep).
+      // non-zero variance statistic of the suppressed elasticity). The
+      // factor_stability[] surface below is suppressed the same way (lane 2
+      // fixup: buildFactorStability zeroes lever elasticity_std in-place;
+      // entry presence and the other 3C diagnostics are retained).
       expect(factor.elasticity_std).toBe(0);
       expect(factor.rank_flip_rate).toBe(0.08);
       expect(factor.stability_method).toBe('bootstrap');

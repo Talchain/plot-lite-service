@@ -1091,7 +1091,25 @@ const VALID_ATTRIBUTION_STABILITY = new Set(['high', 'moderate', 'low', 'negligi
  */
 export function buildFactorStability(
   islFactorSensitivity: unknown,
-  graph: EngineGraphV3
+  graph: EngineGraphV3,
+  /**
+   * A3 lane 2 fixup (r2 residual R1, second surface): D-U structural lever
+   * union. This builder reads RAW ISL entries — the merge-layer
+   * LEVER_SUPPRESSION_FIELDS never touches them — so without this the
+   * stability surface republishes the variance statistic of the suppressed
+   * elasticity (live fac_salary_cost: factor_stability[0].elasticity_std
+   * 0.00396846 alongside a zeroed factor_sensitivity entry). Option-controlled
+   * levers (union membership OR the ISL zero_reason stamp — the same
+   * isOptionControlledLever predicate every other suppression site uses) keep
+   * their entry — attribution_stability/rank_flip_rate/stability_method are
+   * untouched diagnostics — but egress elasticity_std 0, zero-in-place like
+   * the sibling factor_sensitivity surface. No stamp is added: the entry type
+   * has no zero_reason field, and the authoritative stamp for the same
+   * factor_id rides the factor_sensitivity entry. The domain-validity gate
+   * below still applies to the RAW value first (an invalid raw std skips the
+   * entry, never zero-launders it).
+   */
+  structuralLeverIds?: ReadonlySet<string>,
 ): FactorStabilityEntry[] {
   if (!Array.isArray(islFactorSensitivity) || islFactorSensitivity.length === 0) return [];
 
@@ -1121,7 +1139,10 @@ export function buildFactorStability(
     result.push({
       factor_id: factorId,
       factor_label: f.label ?? nodeLabelMap.get(factorId) ?? factorId,
-      elasticity_std: f.elasticity_std,
+      // Lever suppression (see the structuralLeverIds param doc): a factor
+      // any option pins must not publish a non-zero spread of its
+      // contractually-zero elasticity on this surface either.
+      elasticity_std: isOptionControlledLever(f, structuralLeverIds) ? 0 : f.elasticity_std,
       attribution_stability: f.attribution_stability,
       rank_flip_rate: f.rank_flip_rate,
       stability_method: f.stability_method,

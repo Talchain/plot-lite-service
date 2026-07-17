@@ -5321,7 +5321,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
 
         // Build factor_stability from ISL's raw factor_sensitivity (3C bootstrap fields).
         // Independent of factor_sensitivity source — always derived from ISL when available.
-        const factorStability = buildFactorStability(islResult.factor_sensitivity, filteredGraph);
+        // A3 lane 2 fixup: thread the D-U lever union so this RAW-input surface
+        // cannot republish a suppressed lever's elasticity_std (r2 residual R1
+        // saw the live leak on BOTH factor_sensitivity AND factor_stability).
+        const factorStability = buildFactorStability(islResult.factor_sensitivity, filteredGraph, structuralLeverIds);
 
         // Recompute response hash (v6: ISL-derived fields excluded — identifiability
         // and factor_stability are passed for API backwards compat but ignored by

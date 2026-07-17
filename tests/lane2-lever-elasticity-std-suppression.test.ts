@@ -25,7 +25,7 @@
  */
 import { describe, it, expect, beforeAll, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import { mergeIslConfidenceIntoGraphFactors } from '../src/lib/factor-influence.js';
+import { mergeIslConfidenceIntoGraphFactors, buildFactorStability } from '../src/lib/factor-influence.js';
 import type { FactorSensitivityResultV3 } from '../src/types/engine-v3.js';
 
 // ---------------------------------------------------------------------------
@@ -259,6 +259,124 @@ describe('/v2/run egress: lever elasticity_std suppressed, unpinned preserved', 
     expect(plain).toBeDefined();
     expect(plain.zero_reason ?? null).toBeNull();
     expect(typeof plain.elasticity_std).toBe('number');
+    expect(plain.elasticity_std).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fixup (coordinator, same lane): the SECOND surface. The r2 evidence saw the
+// live lever elasticity_std leak in BOTH factor_sensitivity[2] AND
+// factor_stability[0] — suppressing only the first would ship a half-true
+// suppression claim. factor_stability had NO lever handling at all (pure
+// validity-gate + dedup over RAW ISL entries), so the closest precedent
+// applies: zero-in-place like the sibling factor_sensitivity surface (entry
+// presence retained — dropping entries would be a bigger behaviour change
+// than the ruled leak; FactorStabilityEntry has no zero_reason field, and the
+// authoritative stamp for the same factor_id rides factor_sensitivity).
+// ---------------------------------------------------------------------------
+
+describe('buildFactorStability: lever elasticity_std suppressed on the stability surface (unit)', () => {
+  const GRAPH_MIN = {
+    nodes: [
+      { id: 'fac_union', kind: 'factor', label: 'Union Lever' },
+      { id: 'fac_stamped', kind: 'factor', label: 'Stamped Lever' },
+      { id: 'fac_plain', kind: 'factor', label: 'Plain Factor' },
+    ],
+    edges: [],
+  } as any;
+
+  function rawIsl(id: string, over: Record<string, unknown> = {}) {
+    return {
+      node_id: id,
+      sensitivity: 0.3,
+      elasticity_std: 0.00396846,
+      attribution_stability: 'low',
+      rank_flip_rate: 0.3,
+      stability_method: 'bootstrap_20',
+      ...over,
+    };
+  }
+
+  it('a union lever (unstamped) egresses elasticity_std 0; entry presence + other 3C fields retained', () => {
+    const out = buildFactorStability(
+      [rawIsl('fac_union'), rawIsl('fac_plain', { elasticity_std: 0.00750934, rank_flip_rate: 0.05 })],
+      GRAPH_MIN,
+      new Set(['fac_union']),
+    );
+    const lever = out.find((e) => e.factor_id === 'fac_union');
+    expect(lever).toBeDefined();
+    expect(lever!.elasticity_std).toBe(0);
+    expect(lever!.attribution_stability).toBe('low');
+    expect(lever!.rank_flip_rate).toBe(0.3);
+    expect(lever!.stability_method).toBe('bootstrap_20');
+    // positive control in the same call: unpinned raw value preserved verbatim
+    const plain = out.find((e) => e.factor_id === 'fac_plain');
+    expect(plain!.elasticity_std).toBe(0.00750934);
+  });
+
+  it('an ISL-STAMPED lever (zero_reason, no union set) also egresses elasticity_std 0', () => {
+    const out = buildFactorStability(
+      [rawIsl('fac_stamped', { sensitivity: 0, zero_reason: 'intervention_override', elasticity_std: 0.005 })],
+      GRAPH_MIN,
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0].factor_id).toBe('fac_stamped');
+    expect(out[0].elasticity_std).toBe(0);
+  });
+
+  it('suppression keys ONLY on the lever predicate: unstamped + no union set → raw value preserved', () => {
+    const out = buildFactorStability([rawIsl('fac_plain', { elasticity_std: 0.00750934 })], GRAPH_MIN);
+    expect(out[0].elasticity_std).toBe(0.00750934);
+  });
+
+  it('domain validity gate still applies to the RAW value (a lever with invalid raw std is skipped, not zero-laundered)', () => {
+    const out = buildFactorStability(
+      [rawIsl('fac_union', { elasticity_std: -1 })],
+      GRAPH_MIN,
+      new Set(['fac_union']),
+    );
+    expect(out).toHaveLength(0);
+  });
+});
+
+describe('/v2/run egress: factor_stability surface (fixup — second surface of r2 R1)', () => {
+  let stability: any[];
+
+  beforeAll(async () => {
+    process.env.RATE_LIMIT_ENABLED = '0';
+    process.env.CEE_ORCHESTRATOR_ENABLED = '0';
+    const app: FastifyInstance = await createServer();
+    try {
+      const res = await app.inject({
+        method: 'POST', url: '/v2/run',
+        headers: { 'content-type': 'application/json' },
+        payload: PAYLOAD,
+      });
+      expect(res.statusCode).toBe(200);
+      stability = (res.json().factor_stability ?? []) as any[];
+    } finally {
+      await app.close();
+      delete process.env.RATE_LIMIT_ENABLED;
+      delete process.env.CEE_ORCHESTRATOR_ENABLED;
+    }
+  });
+
+  it('the union lever RETAINS its factor_stability entry but egresses elasticity_std 0', () => {
+    const lever = stability.find((e) => e.factor_id === UNION_ID);
+    expect(lever).toBeDefined();
+    expect(lever.elasticity_std).toBe(0);
+    expect(lever.attribution_stability).toBe('low');
+  });
+
+  it('the ISL-stamped lever egresses elasticity_std 0 in factor_stability', () => {
+    const lever = stability.find((e) => e.factor_id === STAMPED_ID);
+    expect(lever).toBeDefined();
+    expect(lever.elasticity_std).toBe(0);
+  });
+
+  it('positive control: the unpinned factor keeps a non-zero elasticity_std in factor_stability', () => {
+    const plain = stability.find((e) => e.factor_id === PLAIN_ID);
+    expect(plain).toBeDefined();
     expect(plain.elasticity_std).toBeGreaterThan(0);
   });
 });

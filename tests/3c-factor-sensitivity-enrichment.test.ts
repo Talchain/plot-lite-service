@@ -712,14 +712,19 @@ describe('FS6: Route-level factor_stability via /v2/run', () => {
     const stabA = body.factor_stability.find((f: any) => f.factor_id === 'factor-a');
     const stabB = body.factor_stability.find((f: any) => f.factor_id === 'factor-b');
 
+    // A3 lane 2 fixup (r2 residual R1, second surface): BOTH fixture factors
+    // are option-pinned levers (opt1 pins factor-a, opt2 pins factor-b), so
+    // buildFactorStability now zeroes their elasticity_std in-place — the
+    // pre-lane assertions (0.042 / 0.11) were pinning the stability-surface
+    // leak itself. Entry presence and the other 3C diagnostics are retained.
     expect(stabA).toBeDefined();
-    expect(stabA.elasticity_std).toBe(0.042);
+    expect(stabA.elasticity_std).toBe(0);
     expect(stabA.attribution_stability).toBe('high');
     expect(stabA.rank_flip_rate).toBe(0.03);
     expect(stabA.stability_method).toBe('bootstrap_1000');
 
     expect(stabB).toBeDefined();
-    expect(stabB.elasticity_std).toBe(0.11);
+    expect(stabB.elasticity_std).toBe(0);
     expect(stabB.attribution_stability).toBe('moderate');
     expect(stabB.rank_flip_rate).toBe(0.15);
     expect(stabB.stability_method).toBe('bootstrap_1000');
