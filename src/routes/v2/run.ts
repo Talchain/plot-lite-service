@@ -1162,6 +1162,15 @@ interface MetaParams {
   originalNSamples?: number;
   /** Track S: sample depth used for flip probes (decoupled from nSamples). Omitted when no flip search ran. */
   flipProbeNSamples?: number;
+  /**
+   * A3 lane 2 (whole-block flip honesty): the JS error NAME (never the
+   * message or any value) captured when the ENTIRE flip-threshold block was
+   * attempted but threw. Presence drives the FLIP_THRESHOLDS_UNAVAILABLE
+   * inference warning. Absent when the block succeeded, produced no
+   * candidates, or was never attempted. Per-factor failures do NOT set this —
+   * they ride `flip_reason` on each flip_thresholds entry.
+   */
+  flipThresholdsFailedErrorName?: string;
   detailLevel: string;
   latencyMs: number;
   normalizationMs?: number;
@@ -2401,6 +2410,22 @@ function buildResponse(
       code: INFERENCE_WARNING_CODES.SAMPLES_REDUCED_FOR_COMPLEXITY,
       // provisional_doctrine_v0 — wording surface (diagnostic disclosure)
       message: `Monte Carlo sample depth was reduced from ${meta.originalNSamples} to ${meta.nSamples} samples so this graph fits the analysis engine's complexity budget (sample depth × nodes × edges). All reported results were computed at ${meta.nSamples} samples; displayed probabilities may be slightly less stable than at the standard depth.`,
+      severity: 'warning',
+    });
+  }
+
+  // A3 lane 2 (ROADMAP 2.31 adjacency — whole-block flip honesty): the entire
+  // flip-threshold block was attempted but threw. Without this warning the
+  // response ships flip_thresholds: [] + flip_thresholds_status 'unavailable'
+  // with only a server-side WARN — indistinguishable on the wire from "nothing
+  // to probe". Per-factor failures are NOT this case: they ride flip_reason
+  // ('timeout'/'error'/...) on each entry and never set this meta field. The
+  // message names the thrown error's NAME only — never its message or values.
+  if (meta.flipThresholdsFailedErrorName) {
+    inferenceWarnings.push({
+      code: INFERENCE_WARNING_CODES.FLIP_THRESHOLDS_UNAVAILABLE,
+      // provisional_doctrine_v0 — wording surface (diagnostic disclosure)
+      message: `Flip thresholds (tipping points) were attempted for this analysis but the computation failed as a whole (${meta.flipThresholdsFailedErrorName}) — flip_thresholds is empty because computation failed, not because no factor could flip the leading option. All other analyses are unaffected.`,
       severity: 'warning',
     });
   }
@@ -5527,6 +5552,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // Track S: depth actually used for flip probes (decoupled from base nSamples).
         // Set when a flip search runs; surfaced in response meta for transparency.
         let flipProbeNSamples: number | undefined;
+        // A3 lane 2: error NAME captured when the ENTIRE flip block throws —
+        // drives the FLIP_THRESHOLDS_UNAVAILABLE inference warning (wire
+        // disclosure of the previously server-log-only degradation).
+        let flipThresholdsFailedErrorName: string | undefined;
 
         if (islSuccess && factorSensitivity && optionComparisonData && optionComparisonData.length >= 2) {
           try {
@@ -5608,6 +5637,14 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               );
             }
           } catch (err) {
+            // A3 lane 2 (ROADMAP 2.31 adjacency): wire-disclose the
+            // whole-block failure. Capture the error NAME only (never the
+            // message or any value) — buildResponse turns its presence into a
+            // FLIP_THRESHOLDS_UNAVAILABLE inference warning so the absent
+            // flip_thresholds field is attributable on the wire, not just in
+            // this server-side WARN. Per-factor failures never reach this
+            // catch (resolveFlipValues handles them per entry via flip_reason).
+            flipThresholdsFailedErrorName = (err as Error)?.name || 'Error';
             req.log.warn({
               event: 'flip_thresholds_error',
               request_id: requestId,
@@ -5949,6 +5986,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             nSamples,
             originalNSamples,
             flipProbeNSamples,
+            flipThresholdsFailedErrorName,
             detailLevel,
             latencyMs: finalTotalMs,
             normalizationMs,

@@ -60,15 +60,23 @@ import { isInterventionOverride, isOptionControlledLever } from './intervention-
  * - value_of_information 0: resolving knowledge of a value the user sets is
  *   not an information gain; without this the EVPI enrichment in
  *   routes/v2/run.ts would derive a positive EVPI from the graph VOI (P0a).
- * All three are idempotent constants: re-applying to an already-suppressed
- * factor is a no-op, so ISL-stamped levers (and, post ISL #73, union-stamped
- * ones) pass through unchanged.
+ * - elasticity_std 0: bootstrap spread of the (contractually zero)
+ *   elasticity. Left unsuppressed, a non-zero spread republishes measurement
+ *   texture for the very metric the contract zeroes — the live universality
+ *   re-run (r2 residual R1, 2026-07-16) caught suppressed lever
+ *   fac_salary_cost egressing elasticity_std 0.00396846. Forced to 0 so the
+ *   suppression covers the variance statistic of the value it suppresses
+ *   (A3 lane 2).
+ * All the numeric fields are idempotent constants: re-applying to an
+ * already-suppressed factor is a no-op, so ISL-stamped levers (and, post
+ * ISL #73, union-stamped ones) pass through unchanged.
  */
 const LEVER_SUPPRESSION_FIELDS = {
   sensitivity_score: 0,
   zero_reason: 'intervention_override',
   elasticity: 0,
   value_of_information: 0,
+  elasticity_std: 0,
 } as const;
 
 /**
