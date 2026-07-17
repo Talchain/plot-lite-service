@@ -329,8 +329,9 @@ export interface ISLPathDecompositionV2 {
  * Seed-sweep stability band for one edge's flip threshold (ISL Track S
  * Phase 1, ISL PR #71). Flag-gated in ISL by `ISL_FLIP_STABILITY_BANDS`
  * (default OFF): the field is simply ABSENT from every edge_e_values entry
- * until the flag is enabled — PLoT carries it through VERBATIM when present
- * and emits nothing when absent (dark carry-through, A3 lane 3).
+ * until the flag is enabled — PLoT carries it through when present and emits
+ * nothing when absent (dark carry-through, A3 lane 3; units alignment, A3
+ * lane 4 — see the UNITS invariant below).
  *
  * Shape derived from ISL `FlipStabilityBandV2`
  * (src/models/response_v2.py:368-415 at ISL tip 5745154e) serialised with
@@ -349,14 +350,20 @@ export interface ISLPathDecompositionV2 {
  * from a single flipped background. Any consumer confidence rubric MUST
  * condition on `n_seeds_flipped`, never on `band_width` alone.
  *
- * ⚠ UNITS: band values are flip MEANS in the same space as ISL's raw
- * `flip_mean`. PLoT denormalises the entry's `current_mean`/`flip_mean` into
- * outcome units when normalisation is active but carries `stability`
- * VERBATIM (no reinterpretation, per the dark-carry-through contract), so
- * under active normalisation the band values remain in ISL-normalised space
- * while the sibling `flip_mean` is outcome-space. Consumers comparing the
- * two must account for this; any denormalisation decision belongs to the
- * flag-flip/consumption lane.
+ * ⚠ UNITS INVARIANT (A3 lane 4, Paul's 17 Jul ruling): on the /v2/run wire,
+ * band values are ALWAYS in the same space as `flip_mean` on the same entry.
+ * When PLoT denormalises the entry's `current_mean`/`flip_mean` into goal
+ * units (active normalisation + resolvable goal range), `band_min`/
+ * `band_median`/`band_max` and every non-null `seed_flip_means` cell receive
+ * the IDENTICAL affine map, and `band_width` is RECOMPUTED from the mapped
+ * endpoints (a width is a difference — it never receives the affine offset).
+ * On the paths where `flip_mean` stays verbatim (no normalisation context;
+ * `_normalised: true`), the band stays verbatim too. Consumers may therefore
+ * compare band values with the sibling `flip_mean` directly, on every path.
+ * NOTE: whether mapping a flip mean (an EDGE-STRENGTH-space quantity at the
+ * ISL producer) through the GOAL-NODE outcome range is semantically right is
+ * an open question logged for Neil covering flip_mean AND bands together —
+ * this invariant guarantees internal consistency, not that semantics.
  */
 export interface ISLFlipStabilityBandV2 {
   /** Number of child seeds swept (ISL default 5, clamped [2, 20]) */
@@ -418,9 +425,10 @@ export interface ISLEdgeEValue {
   /**
    * Seed-sweep flip-threshold stability band (ISL PR #71). Present ONLY when
    * ISL runs with `ISL_FLIP_STABILITY_BANDS` enabled (default OFF — absent on
-   * the live wire today). Carried through to the /v2/run response VERBATIM
-   * (A3 lane 3 dark carry-through); see ISLFlipStabilityBandV2 for the
-   * band_width/n_seeds_flipped interpretation trap and units note.
+   * the live wire today). Carried through to the /v2/run response in the SAME
+   * space as the entry's flip_mean (A3 lane 3 carry-through + lane 4 units
+   * alignment); see ISLFlipStabilityBandV2 for the band_width/n_seeds_flipped
+   * interpretation trap and the units invariant.
    */
   stability?: ISLFlipStabilityBandV2;
 }
