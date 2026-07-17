@@ -4057,6 +4057,17 @@ paths:
           message or values). Per-factor failures do NOT emit this — they remain disclosed per
           entry via `flip_reason` ('timeout'/'error'/...). Non-blocking: all other analyses are
           unaffected.
+        - `edge_e_values[].stability` (additive, A3 lane 3): seed-sweep flip-threshold
+          stability band carried VERBATIM from ISL (ISL PR #71). Present ONLY when ISL runs
+          with `ISL_FLIP_STABILITY_BANDS` enabled (default OFF — absent from every entry on
+          today's live wire); when ISL omits it the key is absent, never null. Shape:
+          `{ n_seeds, n_seeds_flipped, band_min?, band_median?, band_max?, band_width?,
+          seed_flip_means[] }` — the four `band_*` keys are omitted when `n_seeds_flipped`
+          is 0; `seed_flip_means` entries are null where that seed's background admits no
+          flip. CAUTION: `band_width` is 0.0 BY CONSTRUCTION when `n_seeds_flipped` is 1
+          (a single value has zero range) — condition any width-based confidence rubric on
+          `n_seeds_flipped`. Band values are in ISL flip-mean space and are NOT
+          denormalised, even when the entry's `current_mean`/`flip_mean` were.
 
         **Seed Handling**:
         - Accept string (canonical) or number (legacy)

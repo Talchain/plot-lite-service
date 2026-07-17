@@ -32,7 +32,7 @@ import type { M1Review } from '../cee/validation/m1-review-types.js';
 import type { ReviewStatus, ReviewSkipReason } from '../cee/validation/m1-review-constants.js';
 import type { DenormalisedFlipThreshold } from '../lib/flip-threshold-denormaliser.js';
 import type { DecisionBriefV1 } from './decision-brief.js';
-import type { ISLPathDecompositionV2 } from '../integrations/isl/types/isl-types.js';
+import type { ISLFlipStabilityBandV2, ISLPathDecompositionV2 } from '../integrations/isl/types/isl-types.js';
 
 // -----------------------------------------------------------------------------
 // Node Kinds
@@ -1526,6 +1526,18 @@ export interface EnrichedEdgeEValue {
   current_mean: number;
   /** Mean effect at the flip point */
   flip_mean: number;
+  /**
+   * Seed-sweep flip-threshold stability band, carried VERBATIM from ISL
+   * (ISL PR #71; single ISL type, no mirrored shape — trap-12 discipline).
+   * Present ONLY when ISL runs with `ISL_FLIP_STABILITY_BANDS` enabled
+   * (default OFF — the key is absent, never null, on today's live wire).
+   * ⚠ band_width is 0.0 BY CONSTRUCTION when n_seeds_flipped == 1 (single
+   * flipped seed has zero range) — consumers must condition any width-based
+   * confidence rubric on n_seeds_flipped. ⚠ Band values stay in ISL
+   * flip-mean space even when the sibling current_mean/flip_mean were
+   * denormalised into outcome units — see ISLFlipStabilityBandV2.
+   */
+  stability?: ISLFlipStabilityBandV2;
   /** True when normalisation was active but denormalisation ranges were unavailable */
   _normalised?: boolean;
 }

@@ -158,5 +158,17 @@ export const ISL_TO_UI_CONTRACT: BoundaryContract = {
     // include_path_decomposition).
     'sensitivity_reference_option_id',   // Disclosure: option the sensitivity/fragile-edge analysis was computed against.
     'path_decomposition',                // Request-gated structural pathway decomposition (opt-in; not a causal claim).
+    // A3 lane 3 (ISL PR #71): seed-sweep flip-stability band — verbatim
+    // additive passthrough on edge_e_values entries, NOT an enrichment.
+    // Present only when ISL runs with ISL_FLIP_STABILITY_BANDS enabled
+    // (default OFF — absent on today's live wire); key absent, never null,
+    // when ISL omits it. Lever edges: e-values (now incl. stability) are
+    // currently PUBLISHED for levers — same surface as the open R2 doctrine
+    // bullet on lever flip_thresholds/e-values; this lane invents no new
+    // suppression pending that ruling.
+    // ⚠ band_width == 0.0 BY CONSTRUCTION when n_seeds_flipped == 1; band
+    // values stay in ISL flip-mean space even when the entry's
+    // current_mean/flip_mean were denormalised (see ISLFlipStabilityBandV2).
+    'edge_e_values[].stability',
   ],
 } as const;

@@ -326,6 +326,60 @@ export interface ISLPathDecompositionV2 {
 }
 
 /**
+ * Seed-sweep stability band for one edge's flip threshold (ISL Track S
+ * Phase 1, ISL PR #71). Flag-gated in ISL by `ISL_FLIP_STABILITY_BANDS`
+ * (default OFF): the field is simply ABSENT from every edge_e_values entry
+ * until the flag is enabled — PLoT carries it through VERBATIM when present
+ * and emits nothing when absent (dark carry-through, A3 lane 3).
+ *
+ * Shape derived from ISL `FlipStabilityBandV2`
+ * (src/models/response_v2.py:368-415 at ISL tip 5745154e) serialised with
+ * `model_dump(by_alias=True, exclude_none=True)`:
+ * - `n_seeds` / `n_seeds_flipped` / `seed_flip_means` are always present when
+ *   the band is present;
+ * - `band_min`/`band_median`/`band_max`/`band_width` are OMITTED (absent
+ *   keys, never null) when `n_seeds_flipped == 0` — exclude_none drops None
+ *   model fields;
+ * - in-array nulls inside `seed_flip_means` DO survive exclude_none
+ *   (pydantic drops None fields, not None list elements).
+ *
+ * ⚠ INTERPRETATION TRAP (ISL's own doc, carried verbatim): when
+ * `n_seeds_flipped == 1`, `band_width` is 0.0 BY CONSTRUCTION (a single
+ * value has zero range) — a naive width rubric would read maximal stability
+ * from a single flipped background. Any consumer confidence rubric MUST
+ * condition on `n_seeds_flipped`, never on `band_width` alone.
+ *
+ * ⚠ UNITS: band values are flip MEANS in the same space as ISL's raw
+ * `flip_mean`. PLoT denormalises the entry's `current_mean`/`flip_mean` into
+ * outcome units when normalisation is active but carries `stability`
+ * VERBATIM (no reinterpretation, per the dark-carry-through contract), so
+ * under active normalisation the band values remain in ISL-normalised space
+ * while the sibling `flip_mean` is outcome-space. Consumers comparing the
+ * two must account for this; any denormalisation decision belongs to the
+ * flag-flip/consumption lane.
+ */
+export interface ISLFlipStabilityBandV2 {
+  /** Number of child seeds swept (ISL default 5, clamped [2, 20]) */
+  n_seeds: number;
+  /** Seeds whose sampled background admits a flip within [-1, 1]. When 0, the band_* fields are omitted. */
+  n_seeds_flipped: number;
+  /** Minimum flip mean across flipped seeds. Omitted when nothing flips. */
+  band_min?: number;
+  /** Median flip mean across flipped seeds. Omitted when nothing flips. */
+  band_median?: number;
+  /** Maximum flip mean across flipped seeds. Omitted when nothing flips. */
+  band_max?: number;
+  /**
+   * band_max - band_min. Omitted when nothing flips. 0.0 BY CONSTRUCTION
+   * when n_seeds_flipped == 1 — see the interpretation trap on the interface
+   * doc; condition any width rubric on n_seeds_flipped.
+   */
+  band_width?: number;
+  /** Per-child-seed flip mean, in child-seed order; null where that seed's background admits no flip. */
+  seed_flip_means: Array<number | null>;
+}
+
+/**
  * ISL edge E-value from robustness analysis.
  * Measures evidence strength for each edge's causal effect direction.
  *
@@ -361,6 +415,14 @@ export interface ISLEdgeEValue {
    * recorded as a followup for contract work.
    */
   is_unflippable?: boolean;
+  /**
+   * Seed-sweep flip-threshold stability band (ISL PR #71). Present ONLY when
+   * ISL runs with `ISL_FLIP_STABILITY_BANDS` enabled (default OFF — absent on
+   * the live wire today). Carried through to the /v2/run response VERBATIM
+   * (A3 lane 3 dark carry-through); see ISLFlipStabilityBandV2 for the
+   * band_width/n_seeds_flipped interpretation trap and units note.
+   */
+  stability?: ISLFlipStabilityBandV2;
 }
 
 /**

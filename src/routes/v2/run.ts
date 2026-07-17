@@ -477,6 +477,16 @@ export function transformEdgeEValues(
       flip_direction: e.flip_direction,
       current_mean: currentMean,
       flip_mean: flipMean,
+      // A3 lane 3: seed-sweep flip-stability band (ISL PR #71, flag-gated
+      // ISL_FLIP_STABILITY_BANDS — absent on the live wire until the flag
+      // flips). Carried VERBATIM when present, key absent (never null) when
+      // not: this field-by-field rebuild used to silently DROP it. NOT
+      // denormalised — band values stay in ISL flip-mean space even when
+      // currentMean/flipMean above were denormalised (see the units note on
+      // ISLFlipStabilityBandV2). ⚠ band_width == 0 is BY CONSTRUCTION when
+      // n_seeds_flipped == 1 — carried as-is, consumers must condition on
+      // n_seeds_flipped.
+      ...(e.stability !== undefined && { stability: e.stability }),
       ...(eValueNormalised !== undefined && { _normalised: eValueNormalised }),
     };
     // Numeric-egress guard (Codex round-2): e_value/current_mean/flip_mean are
