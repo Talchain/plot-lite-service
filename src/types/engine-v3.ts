@@ -2039,6 +2039,21 @@ export const INFERENCE_WARNING_CODES = {
    * @see src/config/sampling.ts applyComplexityBudget
    */
   SAMPLES_REDUCED_FOR_COMPLEXITY: 'SAMPLES_REDUCED_FOR_COMPLEXITY',
+  /**
+   * A3 lane 1 (enrichment producer guard): the outgoing /v2/run success body
+   * failed producer-side validation against the typed PLoT→CEE enrichment
+   * envelope (`AnalysisEnrichmentSchema`, vendored @talchain/schemas) at the
+   * egress boundary. FAIL-OPEN: delivery is never blocked or mutated — the
+   * message names the offending zod issue paths + codes (never values) so
+   * the defect is attributable at the producer instead of surfacing only in
+   * CEE's shadow-validation telemetry. The envelope is passthrough with all
+   * root keys optional, so this fires ONLY on type/enum corruption of typed
+   * keys — never because PLoT emits fields the schema does not know.
+   * Pairs with `_meta.evidence.enrichment_contract_ok: false` and the
+   * `enrichment_contract_mismatch` log event. Severity: warning.
+   * @see src/routes/v2/enrichment-egress-guard.ts
+   */
+  ENRICHMENT_CONTRACT_MISMATCH: 'ENRICHMENT_CONTRACT_MISMATCH',
 } as const;
 
 export type InferenceWarningCode = (typeof INFERENCE_WARNING_CODES)[keyof typeof INFERENCE_WARNING_CODES];
@@ -2428,6 +2443,18 @@ export interface EvidenceCaptureV1 {
    * @see src/integrations/isl/wire-generation.ts
    */
   isl_wire_generation_ok: boolean;
+  /**
+   * A3 lane 1 (enrichment producer guard): result of validating this very
+   * response body against the typed PLoT→CEE enrichment envelope
+   * (`AnalysisEnrichmentSchema`, vendored @talchain/schemas) at the egress
+   * boundary. True = the body parsed clean; false = type/enum corruption on
+   * a typed envelope key — see the paired ENRICHMENT_CONTRACT_MISMATCH
+   * inference warning (issue paths) and `enrichment_contract_mismatch` log
+   * event. ABSENT (never a boolean) when the guard itself errored — absence
+   * means unassessed, not ok. FAIL-OPEN: the run never hard-fails on this.
+   * @see src/routes/v2/enrichment-egress-guard.ts
+   */
+  enrichment_contract_ok?: boolean;
 }
 
 /**

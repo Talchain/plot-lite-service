@@ -122,6 +122,7 @@ export const STRUCTURAL_KEYS: ReadonlySet<string> = new Set([
   "elasticity_std",
   "endpoint",
   "endpoint_version",
+  "enrichment_contract_ok",
   "entry_nodes",
   "epsilon_std",
   "error",

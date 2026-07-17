@@ -10,9 +10,11 @@
  *
  * The golden was generated on staging base 524c488 BEFORE the lane 29 code
  * changes, so this test proves the lane's fixes leave well-formed V2
- * responses byte-identical apart from the ONE spec-mandated additive field:
- *   _meta.evidence.isl_wire_generation_ok   (spec §2.1)
- * which the normaliser strips before comparison. Nothing else may change.
+ * responses byte-identical apart from the spec-mandated additive evidence
+ * stamps, which the normaliser strips before comparison:
+ *   _meta.evidence.isl_wire_generation_ok   (lane 29, spec §2.1)
+ *   _meta.evidence.enrichment_contract_ok   (A3 lane 1, enrichment guard)
+ * Nothing else may change.
  *
  * Volatile fields masked (all environment/clock/RNG-dependent, never
  * wire-shape): request ids + request_id_chain values, per-request latency
@@ -151,11 +153,16 @@ function normalise(node: any): any {
   return node;
 }
 
-/** Strip the ONE spec-mandated additive lane 29 field (spec §2.1) so the
- * golden generated on pre-lane base 524c488 pins everything else. */
-function stripLane29Additions(body: any): any {
+/** Strip the spec-mandated additive evidence stamps so the golden generated
+ * on pre-lane base 524c488 pins everything else:
+ *   - lane 29 (spec §2.1): isl_wire_generation_ok
+ *   - A3 lane 1 (enrichment producer guard): enrichment_contract_ok — same
+ *     additive-evidence-stamp class; its VALUE surface is pinned by
+ *     tests/enrichment-egress-guard.route.test.ts, not by this byte pin. */
+function stripAdditiveEvidenceStamps(body: any): any {
   if (body?._meta?.evidence) {
     delete body._meta.evidence.isl_wire_generation_ok;
+    delete body._meta.evidence.enrichment_contract_ok;
   }
   return body;
 }
@@ -182,7 +189,7 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
     expect(res.statusCode).toBe(200);
     rawBody = JSON.parse(res.body);
     normalisedText = JSON.stringify(
-      normalise(stripLane29Additions(JSON.parse(res.body))),
+      normalise(stripAdditiveEvidenceStamps(JSON.parse(res.body))),
       null,
       2,
     );
