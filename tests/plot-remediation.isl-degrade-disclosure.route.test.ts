@@ -87,6 +87,20 @@ const ISL_INFO_WARNING = {
   },
 };
 
+// NIT 2 (post-#232 review): a hypothetical ISL severity MORE severe than
+// 'warning' (e.g. 'error') must surface as 'warning' — the most severe level
+// PLoT's InferenceWarning supports — NEVER be collapsed DOWN to 'info' (which
+// would hide it). ISL emits no 'error' today; this maps defensively.
+const ISL_ERROR_WARNING = {
+  code: 'SOME_SEVERE_CONDITION',
+  field: 'robustness',
+  severity: 'error',
+  detail: {
+    reason: 'severe',
+    message: 'A severe condition ISL might one day emit — must NOT be downgraded to info.',
+  },
+};
+
 const EXPECTED_CODES = [
   'STABILITY_BANDS_UNAVAILABLE',
   'E_VALUES_UNAVAILABLE',
@@ -108,8 +122,9 @@ const ISL_DATA = {
     edge_e_values: [],
   },
   // ISL-originated degrade disclosures (the ISL lane emits these on budget trip),
-  // plus one benign info-severity warning — all in the REAL detail-nested shape.
-  inference_warnings: [...ISL_INFERENCE_WARNINGS, ISL_INFO_WARNING],
+  // plus one benign info-severity warning and one hypothetical error-severity
+  // warning — all in the REAL detail-nested shape.
+  inference_warnings: [...ISL_INFERENCE_WARNINGS, ISL_INFO_WARNING, ISL_ERROR_WARNING],
 };
 
 const mockISLService = {
@@ -217,6 +232,10 @@ describe('item 5 — ISL degrade disclosures carried through to the wire', () =>
     expect(info!.severity).toBe('info');
     expect(info!.field).toBe('goal');
     expect(info!.message).toBe(ISL_INFO_WARNING.detail.message);
+    // NIT 2: an 'error'-severity ISL warning escalates to 'warning', never 'info'.
+    const severe = byCode.get('SOME_SEVERE_CONDITION');
+    expect(severe, 'severe warning present').toBeDefined();
+    expect(severe!.severity).toBe('warning');
     // spot-check the message routing survives too
     expect(byCode.get('STABILITY_BANDS_UNAVAILABLE')!.message).toContain('bands are omitted');
     expect(byCode.get('PATH_DECOMPOSITION_UNAVAILABLE')!.message).toContain('path_decomposition is omitted');

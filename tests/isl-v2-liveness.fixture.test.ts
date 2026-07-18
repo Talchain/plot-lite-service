@@ -427,7 +427,11 @@ describe('CONSTRAINT_SAMPLES_UNNOISED warning tolerance', () => {
     }
   }, 60_000);
 
-  it('unknown severity values degrade to info, never crash', async () => {
+  it('unknown severity values ESCALATE to warning (never hidden as info), never crash', async () => {
+    // NIT 2 (post-#232 review): an unrecognised/severe ISL severity must surface
+    // as 'warning' — the most severe level PLoT supports — never be collapsed
+    // DOWN to 'info' (which would hide a potentially-severe condition). Only an
+    // explicit 'info' (or absent) severity stays 'info'.
     injectWarning = {
       code: 'CONSTRAINT_SAMPLES_UNNOISED',
       message: 'Constraint node samples were not auto-noised for this run',
@@ -446,7 +450,7 @@ describe('CONSTRAINT_SAMPLES_UNNOISED warning tolerance', () => {
         (w: any) => w.code === 'CONSTRAINT_SAMPLES_UNNOISED',
       );
       expect(forwarded).toHaveLength(1);
-      expect(forwarded[0].severity).toBe('info');
+      expect(forwarded[0].severity).toBe('warning');
     } finally {
       injectWarning = null;
     }

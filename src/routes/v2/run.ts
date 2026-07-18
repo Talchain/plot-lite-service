@@ -425,21 +425,73 @@ export function transformEdgeSensitivity(
 }
 
 /**
+ * NIT 1 (post-#232 review): edge E-value drops have TWO distinct causes and the
+ * disclosure must attribute them accurately (never claim a transformation
+ * overflow for a benign input null):
+ * - `inputNull`: a required numeric was ALREADY non-finite in the ISL INPUT —
+ *   the common UNFLIPPABLE case (ISL emits e_value:null when current==flip, so
+ *   there is no evidence ratio). Not a defect, not an overflow.
+ * - `overflow`: every raw input numeric was finite yet a value became non-finite
+ *   AFTER range denormalisation (the pathological F14 case).
+ */
+export interface EdgeEValueDropSink {
+  inputNull: number;
+  overflow: number;
+}
+
+/**
+ * Build the accurate, cause-attributing wire disclosure for dropped edge
+ * E-values (NIT 1). Returns undefined when nothing was dropped. Names only the
+ * cause(s) actually present — the unflippable/input-null case is NEVER described
+ * as an overflow. Severity: info (see EDGE_E_VALUE_NON_FINITE_DROPPED doc).
+ */
+export function describeEdgeEValueDrop(
+  inputNull: number,
+  overflow: number,
+): InferenceWarning | undefined {
+  const total = inputNull + overflow;
+  if (total <= 0) return undefined;
+  const causes: string[] = [];
+  if (inputNull > 0) {
+    causes.push(
+      `${inputNull} carried no finite E-value from the analysis engine (an unflippable edge, whose current and flip means coincide, has no evidence ratio)`,
+    );
+  }
+  if (overflow > 0) {
+    causes.push(`${overflow} became non-finite after range denormalisation`);
+  }
+  return {
+    code: INFERENCE_WARNING_CODES.EDGE_E_VALUE_NON_FINITE_DROPPED,
+    // provisional_doctrine_v0 — wording surface (diagnostic disclosure). Count only.
+    message:
+      `${total} edge E-value ${total === 1 ? 'entry was' : 'entries were'} omitted from ` +
+      `edge_e_values: ${causes.join('; ')}. edge_e_values is shorter because those entries ` +
+      `could not be represented, not because they were computed empty. All other analyses are unaffected.`,
+    severity: 'info',
+  };
+}
+
+/**
  * Transform ISL edge_e_values to enriched response format with labels.
  * Returns [] when input is empty/absent so consumers see "computed, empty"
  * rather than "not computed".
  * Edge IDs are normalised to double-colon format.
+ *
+ * `dropSink` (optional, NIT 1): when supplied, entries dropped for
+ * non-finiteness are classified by cause (input-null vs post-transform overflow)
+ * so the wire disclosure can attribute them accurately.
  */
 /** @internal Exported for numeric-egress-guard unit tests. */
 export function transformEdgeEValues(
   islEdgeEValues: ISLEdgeEValue[] | undefined,
   nodeLabelMap?: Map<string, string>,
   normContext?: NormalisationContext,
+  dropSink?: EdgeEValueDropSink,
 ): EnrichedEdgeEValue[] {
   if (!islEdgeEValues || islEdgeEValues.length === 0) return [];
   const goalRange = normContext?.goal_context?.range;
 
-  return islEdgeEValues.map(e => {
+  const mapped = islEdgeEValues.map(e => {
     // Parse ISL edge_id ("from->to" or "from::to") to get node IDs.
     // Fallback: if neither separator found, use entire edge_id as both from and to
     // (matches parseEdgeId pattern in robustness-analysis.ts).
@@ -537,14 +589,40 @@ export function transformEdgeEValues(
       ...(stability !== undefined && { stability }),
       ...(eValueNormalised !== undefined && { _normalised: eValueNormalised }),
     };
-    // Numeric-egress guard (Codex round-2): e_value/current_mean/flip_mean are
-    // required numbers; drop entries with any non-finite value rather than emit a
-    // fabricated `null`.
-  }).filter((e) =>
-    finiteNum(e.e_value) !== undefined &&
-    finiteNum(e.current_mean) !== undefined &&
-    finiteNum(e.flip_mean) !== undefined
-  );
+  });
+
+  // Numeric-egress guard (Codex round-2): e_value/current_mean/flip_mean are
+  // required numbers; drop entries with any non-finite value rather than emit a
+  // fabricated `null`. NIT 1: classify each drop by cause (input-null vs
+  // post-transform overflow) so the disclosure attributes it accurately. `mapped`
+  // is 1:1 with `islEdgeEValues` (map preserves order), so index i pairs the
+  // transformed entry with its raw ISL input.
+  const kept: EnrichedEdgeEValue[] = [];
+  for (let i = 0; i < mapped.length; i++) {
+    const out = mapped[i];
+    const keep =
+      finiteNum(out.e_value) !== undefined &&
+      finiteNum(out.current_mean) !== undefined &&
+      finiteNum(out.flip_mean) !== undefined;
+    if (keep) {
+      kept.push(out);
+      continue;
+    }
+    if (dropSink) {
+      const raw = islEdgeEValues[i];
+      // If any RAW input numeric was already non-finite, the drop is due to the
+      // INPUT (unflippable edge: e_value=null) — NOT a transform overflow. Only
+      // when every raw input was finite yet a transformed value is non-finite is
+      // the cause a range-denormalisation overflow.
+      const rawAllFinite =
+        finiteNum(raw.e_value) !== undefined &&
+        finiteNum(raw.current_mean) !== undefined &&
+        finiteNum(raw.flip_mean) !== undefined;
+      if (rawAllFinite) dropSink.overflow++;
+      else dropSink.inputNull++;
+    }
+  }
+  return kept;
 }
 
 /**
@@ -1230,13 +1308,15 @@ interface MetaParams {
    */
   flipThresholdsFailedErrorName?: string;
   /**
-   * F14 (Codex deep review): count of edge E-value entries dropped from the
-   * public array because a required numeric (e_value/current_mean/flip_mean)
-   * was non-finite after transformation. Presence (>0) drives the
-   * EDGE_E_VALUE_NON_FINITE_DROPPED inference warning so the drop is
-   * attributable on the wire, not only in the server log. Absent/0 = no drop.
+   * F14 (Codex deep review) + NIT 1: edge E-value entries dropped from the public
+   * array because a required numeric was non-finite, split by CAUSE — `inputNull`
+   * (already non-finite in the ISL input, e.g. an unflippable edge) vs `overflow`
+   * (finite input that became non-finite after range denormalisation). A non-zero
+   * total drives the cause-accurate EDGE_E_VALUE_NON_FINITE_DROPPED inference
+   * warning so the drop is attributable on the wire, not only in the server log.
+   * Absent = no drop.
    */
-  edgeEValuesDroppedNonFinite?: number;
+  edgeEValuesDropped?: EdgeEValueDropSink;
   detailLevel: string;
   latencyMs: number;
   normalizationMs?: number;
@@ -2530,24 +2610,22 @@ function buildResponse(
     });
   }
 
-  // F14 (Codex deep review): DISCLOSE edge E-values dropped for non-finiteness.
-  // The transform drops entries whose e_value/current_mean/flip_mean are
-  // non-finite (a fabricated `null` would otherwise ship). Without this marker
-  // the drop was server-log-only — a short/empty edge_e_values was
-  // indistinguishable from a genuinely computed-empty result. Non-blocking.
-  if (meta.edgeEValuesDroppedNonFinite && meta.edgeEValuesDroppedNonFinite > 0) {
-    const n = meta.edgeEValuesDroppedNonFinite;
-    inferenceWarnings.push({
-      code: INFERENCE_WARNING_CODES.EDGE_E_VALUE_NON_FINITE_DROPPED,
-      // provisional_doctrine_v0 — wording surface (diagnostic disclosure). Count only.
-      message: `${n} edge E-value entr${n === 1 ? 'y was' : 'ies were'} omitted from edge_e_values because a required numeric was non-finite after transformation — edge_e_values is shorter because those entries could not be represented, not because they were computed empty. All other analyses are unaffected.`,
-      // info, not warning: ISL routinely emits null e_value for UNFLIPPABLE edges
-      // (current_mean == flip_mean → no finite evidence ratio), so this is an
-      // expected non-representability disclosure, not an alarm — matching the
-      // sibling EDGE_E_VALUES_UNAVAILABLE_V2_WIRE severity. Still fully on the
-      // wire (+ _meta warning_codes), just below the prominent warning strip.
-      severity: 'info',
-    });
+  // F14 (Codex deep review) + NIT 1: DISCLOSE edge E-values dropped for
+  // non-finiteness, attributing the CAUSE accurately. The transform drops
+  // entries whose e_value/current_mean/flip_mean are non-finite (a fabricated
+  // `null` would otherwise ship). Without this marker the drop was
+  // server-log-only — a short/empty edge_e_values was indistinguishable from a
+  // genuinely computed-empty result. describeEdgeEValueDrop names the
+  // unflippable/input-null cause and the overflow cause separately, never
+  // claiming an overflow for the common benign input-null case. Severity: info
+  // (ISL routinely emits null e_value for unflippable edges — expected
+  // non-representability, not an alarm; still on the wire + _meta warning_codes).
+  if (meta.edgeEValuesDropped) {
+    const disclosure = describeEdgeEValueDrop(
+      meta.edgeEValuesDropped.inputNull,
+      meta.edgeEValuesDropped.overflow,
+    );
+    if (disclosure) inferenceWarnings.push(disclosure);
   }
 
   // Merge ISL-originated inference_warnings into the PLoT array.
@@ -2591,7 +2669,12 @@ function buildResponse(
         inferenceWarnings.push({
           code: w.code,
           message,
-          severity: w.severity === 'warning' ? 'warning' : 'info',
+          // NIT 2: map severity defensively. 'info' (and absent — the F4 benign
+          // default) stays 'info'; 'warning' stays 'warning'; anything MORE severe
+          // than 'warning' (e.g. 'error') or any unknown value escalates to
+          // 'warning' — the most severe level PLoT's InferenceWarning supports —
+          // and is NEVER collapsed DOWN to 'info' (which would HIDE it).
+          severity: (w.severity == null || w.severity === 'info') ? 'info' : 'warning',
           ...(field !== undefined && { field }),
           ...(elapsedMs !== undefined && { elapsed_ms: elapsedMs }),
         });
@@ -5294,9 +5377,11 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // robustness.edge_e_values on the V2 wire (the former top-level read
         // was structurally dead — every live response came back "empty").
         const islEdgeEValuesRaw = getIslEdgeEValues(islResult);
-        // F14: threaded to buildResponse's meta so a non-finite drop is disclosed on the wire.
-        let edgeEValuesDroppedNonFinite: number | undefined;
-        const edgeEValues = transformEdgeEValues(islEdgeEValuesRaw, earlyNodeLabelMap, normalisationContext);
+        // F14 + NIT 1: classify drops by cause (input-null vs overflow) and thread
+        // to buildResponse's meta so the wire disclosure attributes them accurately.
+        let edgeEValuesDropped: EdgeEValueDropSink | undefined;
+        const edgeEValueDropSink: EdgeEValueDropSink = { inputNull: 0, overflow: 0 };
+        const edgeEValues = transformEdgeEValues(islEdgeEValuesRaw, earlyNodeLabelMap, normalisationContext, edgeEValueDropSink);
 
         // Transform ISL conditional_winners (when present) with label enrichment
         const conditionalWinners = transformConditionalWinners(
@@ -5310,10 +5395,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // non-finite / out-of-range numerics. These surfaces have no per-feature status
         // to degrade, so emit a warning when entries are silently removed rather than
         // hiding the upstream defect. (Counts only — no payload.)
-        const eValuesDropped = (islEdgeEValuesRaw?.length ?? 0) - edgeEValues.length;
+        const eValuesDropped = edgeEValueDropSink.inputNull + edgeEValueDropSink.overflow;
         if (eValuesDropped > 0) {
-          edgeEValuesDroppedNonFinite = eValuesDropped; // F14: wire disclosure via meta.
-          req.log.warn({ event: 'edge_e_values_dropped_nonfinite', request_id: requestId, dropped: eValuesDropped, kept: edgeEValues.length });
+          edgeEValuesDropped = edgeEValueDropSink; // F14 + NIT 1: cause-attributed wire disclosure via meta.
+          req.log.warn({ event: 'edge_e_values_dropped_nonfinite', request_id: requestId, dropped: eValuesDropped, input_null: edgeEValueDropSink.inputNull, overflow: edgeEValueDropSink.overflow, kept: edgeEValues.length });
         }
         const condWinnersDropped = (islResult.conditional_winners?.length ?? 0) - conditionalWinners.length;
         if (condWinnersDropped > 0) {
@@ -6255,7 +6340,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             originalNSamples,
             flipProbeNSamples,
             flipThresholdsFailedErrorName,
-            edgeEValuesDroppedNonFinite,
+            edgeEValuesDropped,
             detailLevel,
             latencyMs: finalTotalMs,
             normalizationMs,

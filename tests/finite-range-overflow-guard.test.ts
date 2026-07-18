@@ -21,7 +21,7 @@ import {
   type NormalisationContext,
 } from '../src/lib/intervention-normaliser.js';
 import { denormaliseFlipThresholds } from '../src/lib/flip-threshold-denormaliser.js';
-import { transformEdgeEValues } from '../src/routes/v2/run.js';
+import { transformEdgeEValues, describeEdgeEValueDrop, type EdgeEValueDropSink } from '../src/routes/v2/run.js';
 import type { EngineNodeV3 } from '../src/types/engine-v3.js';
 
 const INSANE = { min: -1e308, max: 1e308 };
@@ -118,5 +118,58 @@ describe('F14 — edge E-values: overflow no longer silently drops the entry', (
 
   it('positive control: denormaliseValue on a safe range is exact', () => {
     expect(denormaliseValue(0.5, { min: 10, max: 60, source: 'explicit' })).toBe(35);
+  });
+});
+
+describe('NIT 1 — edge E-value drop cause is classified + described accurately', () => {
+  it('transformEdgeEValues classifies an UNFLIPPABLE input-null drop as inputNull', () => {
+    const sink: EdgeEValueDropSink = { inputNull: 0, overflow: 0 };
+    // e_value:null in the ISL INPUT (finite means) — unflippable. No normContext.
+    const isl = [{ edge_id: 'a->b', e_value: null, current_mean: 0.5, flip_mean: 0.5, flip_direction: 'increase' }];
+    const out = transformEdgeEValues(isl as never, undefined, undefined, sink);
+    expect(out).toHaveLength(0);
+    expect(sink).toEqual({ inputNull: 1, overflow: 0 });
+  });
+
+  it('transformEdgeEValues classifies a post-transform OVERFLOW drop as overflow', () => {
+    const sink: EdgeEValueDropSink = { inputNull: 0, overflow: 0 };
+    // All raw inputs FINITE, but a directly non-finite goal range denormalises
+    // current/flip to Infinity → dropped → cause is the transform, not the input.
+    const context: NormalisationContext = {
+      factors: new Map(),
+      goal_node_id: 'goal',
+      goal_context: { factor_id: 'goal', range: { min: -1e308, max: 1e308, source: 'explicit' }, baseline: 0 },
+    };
+    const isl = [{ edge_id: 'a->b', e_value: 1.4, current_mean: 0.5, flip_mean: 0.7, flip_direction: 'increase' }];
+    const out = transformEdgeEValues(isl as never, undefined, context, sink);
+    expect(out).toHaveLength(0);
+    expect(sink).toEqual({ inputNull: 0, overflow: 1 });
+  });
+
+  it('describeEdgeEValueDrop names the unflippable cause WITHOUT overflow wording', () => {
+    const d = describeEdgeEValueDrop(1, 0)!;
+    expect(d.severity).toBe('info');
+    expect(d.code).toBe('EDGE_E_VALUE_NON_FINITE_DROPPED');
+    expect(d.message.toLowerCase()).toContain('unflippable');
+    expect(d.message).toContain('no finite E-value');
+    expect(d.message.toLowerCase()).not.toContain('denormalisation');
+    expect(d.message.toLowerCase()).not.toContain('after transformation');
+  });
+
+  it('describeEdgeEValueDrop names the overflow cause WITHOUT unflippable wording', () => {
+    const d = describeEdgeEValueDrop(0, 1)!;
+    expect(d.message.toLowerCase()).toContain('denormalisation');
+    expect(d.message.toLowerCase()).not.toContain('unflippable');
+  });
+
+  it('describeEdgeEValueDrop names BOTH causes when both present', () => {
+    const d = describeEdgeEValueDrop(2, 3)!;
+    expect(d.message).toContain('no finite E-value');
+    expect(d.message.toLowerCase()).toContain('denormalisation');
+    expect(d.message).toContain('5 edge E-value entries'); // total
+  });
+
+  it('describeEdgeEValueDrop returns undefined when nothing dropped', () => {
+    expect(describeEdgeEValueDrop(0, 0)).toBeUndefined();
   });
 });

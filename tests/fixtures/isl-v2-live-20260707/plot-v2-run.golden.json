@@ -657,7 +657,7 @@
   "inference_warnings": [
     {
       "code": "EDGE_E_VALUE_NON_FINITE_DROPPED",
-      "message": "4 edge E-value entries were omitted from edge_e_values because a required numeric was non-finite after transformation — edge_e_values is shorter because those entries could not be represented, not because they were computed empty. All other analyses are unaffected.",
+      "message": "4 edge E-value entries were omitted from edge_e_values: 4 carried no finite E-value from the analysis engine (an unflippable edge, whose current and flip means coincide, has no evidence ratio). edge_e_values is shorter because those entries could not be represented, not because they were computed empty. All other analyses are unaffected.",
       "severity": "info"
     }
   ],
@@ -1604,7 +1604,7 @@
     "decision_brief_assembled": true,
     "review_cards_count": 0,
     "evidence_priority_card_present": false,
-    "response_content_hash": "rch_v2:fa0104979707a391"
+    "response_content_hash": "rch_v2:0e2fa534192a0645"
   },
   "meta": {
     "seed_used": "2034401427",
