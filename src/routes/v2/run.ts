@@ -112,6 +112,7 @@ import {
   THRESHOLDS_MIN_REMAINING_BUDGET_MS,
   resolveRequestBudgetMs,
   ISL_TIMEOUT_MS,
+  worstCaseMs,
 } from '../../config/timeouts.js';
 import { getISLClientConfig } from '../../integrations/isl/client.js';
 import { createISLInferenceFn, resolveFlipValues, resolveFlipProbeNSamples, resolveFlipOverallTimeoutMs, resolveFlipPerFactorTimeoutMs } from '../../analysis/flip-thresholds.js';
@@ -4850,9 +4851,21 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             Math.max(BASE_CALL_MIN_TIMEOUT_MS, Math.floor(baseCallRemainingMs - baseCallSafetyMarginMs)),
           );
           const configuredMaxRetries = Math.max(1, getISLClientConfig().maxRetries);
-          // How many full per-attempt slices fit the remaining budget (≥ 1).
-          const fittingRetries = Math.max(1, Math.floor(baseCallRemainingMs / baseCallTimeoutMs));
-          const baseCallMaxRetries = Math.min(configuredMaxRetries, fittingRetries);
+          // Largest attempt count whose HONEST worst case (attempts × per-attempt
+          // + the 1s+2s… backoff the client sleeps between them) still fits the
+          // remaining budget — never < 1, never > the configured cap. The prior
+          // `floor(remaining / timeout)` counted bare timeout slices and omitted
+          // the backoff; worstCaseMs is the single source now shared with the
+          // telemetry below, the startup budget warn, and their tests. At the 70s
+          // default this still resolves to 1 attempt (no behaviour change) — it
+          // only stops the accounting from lying.
+          let baseCallMaxRetries = 1;
+          while (
+            baseCallMaxRetries < configuredMaxRetries &&
+            worstCaseMs(baseCallMaxRetries + 1, baseCallTimeoutMs) <= baseCallRemainingMs
+          ) {
+            baseCallMaxRetries++;
+          }
           if (baseCallTimeoutMs < ISL_TIMEOUT_MS || baseCallMaxRetries < configuredMaxRetries) {
             req.log.info({
               event: 'base_isl_call_budget_clamped',
@@ -4862,7 +4875,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               configured_max_retries: configuredMaxRetries,
               clamped_max_retries: baseCallMaxRetries,
               remaining_budget_ms: Math.round(baseCallRemainingMs),
-              worst_case_total_ms: baseCallMaxRetries * baseCallTimeoutMs,
+              worst_case_total_ms: worstCaseMs(baseCallMaxRetries, baseCallTimeoutMs),
             });
           }
           const response = await islService.callAnalysisEndpoint<any>(
@@ -5723,7 +5736,14 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                 // could add a full ISL_TIMEOUT_MS tail past the flip deadline.)
                 const flipProbeIslTimeoutMs = resolveFlipPerFactorTimeoutMs();
                 const flipInferenceFn = createISLInferenceFn(
-                  (endpoint, body, rid) => islService.callAnalysisEndpoint(endpoint, body, rid, flipProbeIslTimeoutMs),
+                  // F3 (Codex): maxRetries=1 — each probe is optional, so a
+                  // transient failure discloses per-factor instead of adding ~3×
+                  // per-attempt tails past the flip deadline. The 4th arg is the
+                  // per-probe AbortSignal threaded from the flip search: forwarding
+                  // it lets an in-flight probe cancel the moment the factor/overall
+                  // deadline trips (the client folds it into its per-attempt timeout).
+                  (endpoint, body, rid, signal) =>
+                    islService.callAnalysisEndpoint(endpoint, body, rid, flipProbeIslTimeoutMs, 1, signal),
                   islRequest,
                   requestId,
                   flipProbeNSamples
@@ -5870,11 +5890,21 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                 remaining_budget_ms: Math.round(remainingBudgetMs),
               });
 
+              // F9 (Codex): pass maxRetries=1 for this OPTIONAL phase. Omitting it
+              // inherited the config default (ISL_MAX_RETRIES=3), so a "30s cap"
+              // was really ~3× the per-attempt timeout + the 1s+2s backoff (~93s)
+              // — and this call is synchronously awaited AFTER the base science, so
+              // a retry storm here discards a completed base result. A transient
+              // failure now degrades-and-discloses (thresholds_status
+              // 'timeout'/'error') rather than retrying past the budget. The
+              // per-attempt timeout stays clamped to the remaining budget
+              // (thresholdsTimeoutMs above).
               const thresholdsResult = await islService.callAnalysisEndpoint<IslThresholdResponse>(
                 '/api/v1/analysis/thresholds',
                 thresholdsPayload,
                 requestId,
-                Math.round(thresholdsTimeoutMs)
+                Math.round(thresholdsTimeoutMs),
+                1
               );
 
               const thresholdsDurationMs = performance.now() - thresholdsStart;

@@ -1,5 +1,5 @@
 import pino from 'pino';
-import { ISL_TIMEOUT_MS, CEE_TIMEOUT_MS } from './config/timeouts.js';
+import { ISL_TIMEOUT_MS, CEE_TIMEOUT_MS, worstCaseMs, resolveIslMaxRetries } from './config/timeouts.js';
 
 const logger = pino({
   level: process.env.LOG_LEVEL || 'info',
@@ -154,12 +154,17 @@ export function validateEnv(): void {
   // 60000 CEE default), so this warn was doing its arithmetic on a codebase
   // that didn't exist.
   const islTimeoutMs = ISL_TIMEOUT_MS;
-  const islMaxRetries = Number(process.env.ISL_MAX_RETRIES || '3');
+  // De-mirrored 2026-07-18: the ISL_MAX_RETRIES default '3' now derives from the
+  // single source in config/timeouts.ts (was hand-written here AND in isl/client.ts).
+  const islMaxRetries = resolveIslMaxRetries();
   const ceeTimeoutMs = CEE_TIMEOUT_MS;
   const computeBudgetMs = Number(process.env.MAX_COMPUTE_MS || '10000');
 
-  // ISL worst-case: timeout × retries (sequential retries with exponential backoff)
-  const islWorstCaseMs = islTimeoutMs * islMaxRetries;
+  // ISL worst-case: attempts × per-attempt timeout PLUS the 1s+2s… backoff slept
+  // between them. The comment said "with exponential backoff" but the previous
+  // formula (islTimeoutMs × islMaxRetries) omitted it; worstCaseMs is now the
+  // single honest source shared with the /v2/run base-call clamp + telemetry.
+  const islWorstCaseMs = worstCaseMs(islMaxRetries, islTimeoutMs);
 
   // Total worst-case: max(ISL, CEE) + compute
   const totalWorstCaseMs = Math.max(islWorstCaseMs, ceeTimeoutMs) + computeBudgetMs;
