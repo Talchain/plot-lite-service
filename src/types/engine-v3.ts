@@ -1529,8 +1529,9 @@ export interface EnrichedEdgeEValue {
   /**
    * Seed-sweep flip-threshold stability band, carried VERBATIM from ISL
    * (ISL PR #71; single ISL type, no mirrored shape — trap-12 discipline).
-   * Present ONLY when ISL runs with `ISL_FLIP_STABILITY_BANDS` enabled
-   * (default OFF — the key is absent, never null, on today's live wire).
+   * DEFAULT-ON since ISL PR #76 — present when ISL computed a band for this
+   * entry; the key is absent (never null) when it had nothing to sweep or on
+   * older pre-#76 ISL builds.
    * ⚠ band_width is 0.0 BY CONSTRUCTION when n_seeds_flipped == 1 (single
    * flipped seed has zero range) — consumers must condition any width-based
    * confidence rubric on n_seeds_flipped. ⚠ Band values stay in ISL
@@ -2081,6 +2082,48 @@ export const INFERENCE_WARNING_CODES = {
    * Severity: warning.
    */
   FLIP_THRESHOLDS_UNAVAILABLE: 'FLIP_THRESHOLDS_UNAVAILABLE',
+  /**
+   * A3 remediation (ALTITUDE Hunt 2, 2026-07-18): ISL-ORIGINATED degrade
+   * disclosure. ISL computes seed-sweep flip-stability bands under a wall-clock
+   * budget; on a budget trip it degrades all-or-nothing (no bands attached to
+   * ANY edge_e_values entry) and — post ISL-lane — emits this code in its
+   * `inference_warnings` so the absence is attributable on the wire instead of
+   * ISL-log-only. PLoT forwards it verbatim through the ISL-warning merge (the
+   * same passthrough ROOT_NODE_DEFAULT_VALUE rides), exactly mirroring how
+   * FLIP_THRESHOLDS_UNAVAILABLE discloses PLoT's own whole-block flip failure.
+   * Bands are additive enrichment — non-blocking; all other analyses unaffected.
+   * Severity: warning.
+   */
+  STABILITY_BANDS_UNAVAILABLE: 'STABILITY_BANDS_UNAVAILABLE',
+  /**
+   * A3 remediation (ALTITUDE Hunt 2, 2026-07-18): ISL-ORIGINATED degrade
+   * disclosure, sibling of STABILITY_BANDS_UNAVAILABLE. ISL computes edge
+   * E-values under their own budget; on a trip the E-value phase degrades and
+   * ISL emits this code in `inference_warnings` so the empty/partial
+   * edge_e_values are attributable on the wire, not ISL-log-only. PLoT forwards
+   * it verbatim. Non-blocking; other analyses unaffected. Severity: warning.
+   */
+  E_VALUES_UNAVAILABLE: 'E_VALUES_UNAVAILABLE',
+  /**
+   * A3 remediation (ALTITUDE Hunt 2, 2026-07-18): ISL-ORIGINATED degrade
+   * disclosure, sibling of STABILITY_BANDS_UNAVAILABLE / E_VALUES_UNAVAILABLE.
+   * ISL's per-factor EVPI (value-of-information) phase runs under its own
+   * wall-clock budget; on a trip it degrades and ISL emits this code (with
+   * elapsed_ms) in `inference_warnings` so the absent/partial EVPI is
+   * attributable on the wire, not ISL-log-only. PLoT forwards it verbatim.
+   * Non-blocking; other analyses unaffected. Severity: warning.
+   */
+  EVPI_UNAVAILABLE: 'EVPI_UNAVAILABLE',
+  /**
+   * A3 remediation (ALTITUDE Hunt 2, 2026-07-18): ISL-ORIGINATED degrade
+   * disclosure, sibling of the budget-degradation family. ISL's structural
+   * path decomposition (request-gated) runs under its own budget; on a trip it
+   * degrades and ISL emits this code (with elapsed_ms) in `inference_warnings`
+   * so the absent path_decomposition is attributable on the wire, not
+   * ISL-log-only. PLoT forwards it verbatim. Non-blocking; other analyses
+   * unaffected. Severity: warning.
+   */
+  PATH_DECOMPOSITION_UNAVAILABLE: 'PATH_DECOMPOSITION_UNAVAILABLE',
 } as const;
 
 export type InferenceWarningCode = (typeof INFERENCE_WARNING_CODES)[keyof typeof INFERENCE_WARNING_CODES];
@@ -2093,6 +2136,16 @@ export interface InferenceWarning {
   code: InferenceWarningCode | string;
   message: string;
   severity: 'info' | 'warning';
+  /**
+   * Optional wall-clock ms the underlying phase ran before degrading. Carried
+   * through from ISL's budget-degradation disclosures (STABILITY_BANDS_UNAVAILABLE,
+   * E_VALUES_UNAVAILABLE, EVPI_UNAVAILABLE, PATH_DECOMPOSITION_UNAVAILABLE) so a
+   * slow degrade is diagnosable on the wire, not only in the ISL log. Present
+   * only when the source warning carried a finite elapsed_ms. The egress
+   * enrichment envelope's inference_warnings element is passthrough, so this
+   * additive field never fails the contract.
+   */
+  elapsed_ms?: number;
 }
 
 /**

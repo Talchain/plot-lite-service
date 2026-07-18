@@ -110,8 +110,10 @@ import {
   CEE_DECISION_REVIEW_TIMEOUT_MS,
   ISL_THRESHOLDS_TIMEOUT_MS_CAP,
   THRESHOLDS_MIN_REMAINING_BUDGET_MS,
-  REQUEST_BUDGET_MS,
+  resolveRequestBudgetMs,
+  ISL_TIMEOUT_MS,
 } from '../../config/timeouts.js';
+import { getISLClientConfig } from '../../integrations/isl/client.js';
 import { createISLInferenceFn, resolveFlipValues, resolveFlipProbeNSamples, resolveFlipOverallTimeoutMs, resolveFlipPerFactorTimeoutMs } from '../../analysis/flip-thresholds.js';
 import { computeFlipThresholdData, getFactorsOverriddenByAllOptions } from '../../coaching/flip-thresholds.js';
 import { denormaliseFlipThresholds, type DenormalisedFlipThreshold } from '../../lib/flip-threshold-denormaliser.js';
@@ -174,6 +176,7 @@ import type { FactObjectV1, FactLineage } from '../../facts/types.js';
 import { finiteNum, prob01, nonNeg, nonNegInt, hasAllRequiredOutcomeStats } from './numeric-egress-guards.js';
 import {
   assessEnrichmentContract,
+  shouldAssessEnrichmentContract,
   buildEnrichmentContractWarning,
   logEnrichmentContractMismatch,
 } from './enrichment-egress-guard.js';
@@ -514,8 +517,8 @@ export function transformEdgeEValues(
       current_mean: currentMean,
       flip_mean: flipMean,
       // A3 lane 3 + lane 4: seed-sweep flip-stability band (ISL PR #71,
-      // flag-gated ISL_FLIP_STABILITY_BANDS — absent on the live wire until
-      // the flag flips). Key absent (never null) when ISL omits it: this
+      // DEFAULT-ON since ISL PR #76). Key absent (never null) when ISL omits
+      // it (nothing to sweep, or an older pre-#76 build): this
       // field-by-field rebuild used to silently DROP it. UNITS-COHERENCE
       // INVARIANT (Paul's 17 Jul ruling): band values are ALWAYS in the same
       // space as flip_mean on the same entry — mapped above via the same
@@ -2496,10 +2499,19 @@ function buildResponse(
       const nodeId = w?.detail?.node_id ?? w?.node_id ?? '';
       const dedupKey = `${w?.code}:${nodeId}`;
       if (w && typeof w.code === 'string' && typeof message === 'string' && !existingKeys.has(dedupKey)) {
+        // Carry a finite elapsed_ms through when the ISL warning supplies one —
+        // the budget-degradation family (STABILITY_BANDS_UNAVAILABLE /
+        // E_VALUES_UNAVAILABLE / EVPI_UNAVAILABLE / PATH_DECOMPOSITION_UNAVAILABLE)
+        // stamps how long the phase ran before degrading, so a slow degrade is
+        // diagnosable on the wire, not only in the ISL log. Additive + numeric
+        // only (no PII); the egress envelope's warning element is passthrough.
+        const rawElapsed = w?.elapsed_ms ?? w?.detail?.elapsed_ms;
+        const elapsedMs = typeof rawElapsed === 'number' && Number.isFinite(rawElapsed) ? rawElapsed : undefined;
         inferenceWarnings.push({
           code: w.code,
           message,
           severity: w.severity === 'warning' ? 'warning' : 'info',
+          ...(elapsedMs !== undefined && { elapsed_ms: elapsedMs }),
         });
         existingKeys.add(dedupKey);
       }
@@ -3029,17 +3041,24 @@ function buildResponse(
   // The appended warning `{code, message, severity}` conforms to the
   // envelope's inference_warnings element schema by construction, so the
   // disclosure can never itself create a contract violation.
+  // A3 remediation item 8: sample the guard (1-in-N in production, every
+  // request otherwise). A skipped request leaves enrichment_contract_ok ABSENT
+  // (= unassessed — the same honest non-claim as the guard-error path below),
+  // never a fabricated `true`. A deterministic envelope break still surfaces
+  // within N, and CEE's shadow parse remains the independent backstop.
   try {
-    const enrichmentAssessment = assessEnrichmentContract(response);
-    if (response._meta?.evidence) {
-      response._meta.evidence.enrichment_contract_ok = enrichmentAssessment.ok;
-    }
-    if (!enrichmentAssessment.ok) {
-      response.inference_warnings = [
-        ...(response.inference_warnings ?? []),
-        buildEnrichmentContractWarning(enrichmentAssessment),
-      ];
-      if (logger) logEnrichmentContractMismatch(logger, enrichmentAssessment, requestId);
+    if (shouldAssessEnrichmentContract()) {
+      const enrichmentAssessment = assessEnrichmentContract(response);
+      if (response._meta?.evidence) {
+        response._meta.evidence.enrichment_contract_ok = enrichmentAssessment.ok;
+      }
+      if (!enrichmentAssessment.ok) {
+        response.inference_warnings = [
+          ...(response.inference_warnings ?? []),
+          buildEnrichmentContractWarning(enrichmentAssessment),
+        ];
+        if (logger) logEnrichmentContractMismatch(logger, enrichmentAssessment, requestId);
+      }
     }
   } catch (err) {
     // A guard bug is NOT a contract mismatch: stamp NOTHING (absence =
@@ -4812,10 +4831,46 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         let islResponseRetryable: boolean | undefined;
 
         try {
+          // A3 remediation item 4: clamp the base ISL robustness call to the
+          // REMAINING request budget so its retries cannot outlive the caller.
+          // Unclamped this call is ISL_TIMEOUT_MS per attempt × ISL_MAX_RETRIES
+          // (default 60s × 3 ≈ 180s worst case) — past the UI's 120s client
+          // timeout, which loses the WHOLE analysis. Mirror of the flip block's
+          // remaining-budget clamp (below): allow ONE generous attempt up to the
+          // remaining budget, then cap the retry COUNT to what still fits — so a
+          // slow-but-successful call is NOT truncated (per-attempt stays near
+          // ISL_TIMEOUT_MS), yet the total is bounded by the budget. The base
+          // call runs early, so remaining ≈ REQUEST_BUDGET_MS (70s) → one 60s
+          // attempt; the clamp only bites the pathological retry storm.
+          const baseCallRemainingMs = resolveRequestBudgetMs() - (performance.now() - startTime);
+          const baseCallSafetyMarginMs = 1_000;
+          const BASE_CALL_MIN_TIMEOUT_MS = 1_000;
+          const baseCallTimeoutMs = Math.min(
+            ISL_TIMEOUT_MS,
+            Math.max(BASE_CALL_MIN_TIMEOUT_MS, Math.floor(baseCallRemainingMs - baseCallSafetyMarginMs)),
+          );
+          const configuredMaxRetries = Math.max(1, getISLClientConfig().maxRetries);
+          // How many full per-attempt slices fit the remaining budget (≥ 1).
+          const fittingRetries = Math.max(1, Math.floor(baseCallRemainingMs / baseCallTimeoutMs));
+          const baseCallMaxRetries = Math.min(configuredMaxRetries, fittingRetries);
+          if (baseCallTimeoutMs < ISL_TIMEOUT_MS || baseCallMaxRetries < configuredMaxRetries) {
+            req.log.info({
+              event: 'base_isl_call_budget_clamped',
+              request_id: requestId,
+              isl_timeout_ms: ISL_TIMEOUT_MS,
+              clamped_timeout_ms: baseCallTimeoutMs,
+              configured_max_retries: configuredMaxRetries,
+              clamped_max_retries: baseCallMaxRetries,
+              remaining_budget_ms: Math.round(baseCallRemainingMs),
+              worst_case_total_ms: baseCallMaxRetries * baseCallTimeoutMs,
+            });
+          }
           const response = await islService.callAnalysisEndpoint<any>(
             '/api/v1/robustness/analyze/v2',
             islRequest,
-            requestId
+            requestId,
+            baseCallTimeoutMs,
+            baseCallMaxRetries
           );
 
           if (response.data) {
@@ -5652,9 +5707,15 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               const winnerId = topWinnerOption?.option_id ?? topWinnerOption?.id ?? '';
 
               if (winnerId) {
-                // Track S: flip probes use a depth decoupled from the base analysis
-                // (`nSamples`), so raising base depth cannot silently push probes into
-                // timeout. See resolveFlipProbeNSamples / FLIP_PROBE_N_SAMPLES.
+                // Track S (revised 2026-07-17): flip probes now INHERIT the base
+                // analysis depth up to the 10k cap (resolveFlipProbeNSamples =
+                // min(cap, nSamples)), so flip values carry the precision of the
+                // probabilities displayed beside them. Raising the base therefore
+                // DOES deepen probes (toward the flip timeout) — which is why the
+                // flip time budgets were raised in step and a slow search now
+                // DISCLOSES a per-factor 'timeout' rather than silently shipping
+                // low-precision values. The FLIP_PROBE_N_SAMPLES env override still
+                // decouples probe depth from the base on demand.
                 flipProbeNSamples = resolveFlipProbeNSamples(nSamples);
                 // Paul-ruled lenient defaults 2026-07-17: each probe's ISL call is
                 // capped at the per-factor budget — a probe has no use for time its
@@ -5678,7 +5739,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                 // itself is logged below.
                 const flipStartMs = performance.now();
                 const flipConfiguredOverallMs = resolveFlipOverallTimeoutMs();
-                const flipRequestBudgetMs = Number(process.env.REQUEST_BUDGET_MS) || REQUEST_BUDGET_MS;
+                const flipRequestBudgetMs = resolveRequestBudgetMs();
                 const flipRemainingBudgetMs = flipRequestBudgetMs - (flipStartMs - startTime);
                 const flipSafetyMarginMs = 1_000;
                 const flipOverallTimeoutMs = Math.min(
@@ -5759,7 +5820,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         if (body.include_thresholds) {
           const elapsedMs = performance.now() - startTime;
           // Read budget dynamically to support test-time env overrides
-          const requestBudgetMs = Number(process.env.REQUEST_BUDGET_MS) || REQUEST_BUDGET_MS;
+          const requestBudgetMs = resolveRequestBudgetMs();
           const remainingBudgetMs = requestBudgetMs - elapsedMs;
 
           if (remainingBudgetMs < THRESHOLDS_MIN_REMAINING_BUDGET_MS) {

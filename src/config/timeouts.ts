@@ -115,6 +115,23 @@ export const THRESHOLDS_MIN_REMAINING_BUDGET_MS =
 export const REQUEST_BUDGET_MS =
   Number(process.env.REQUEST_BUDGET_MS) || 70_000;
 
+/**
+ * Resolve the request budget at CALL TIME, honouring a runtime `REQUEST_BUDGET_MS`
+ * env override.
+ *
+ * `REQUEST_BUDGET_MS` above is evaluated ONCE at module load (used for startup
+ * logging and the value-pin tests). The /v2/run call sites need the LIVE env
+ * value so an override set after import — e.g. a test forcing budget exhaustion
+ * with `process.env.REQUEST_BUDGET_MS = '1'` — actually takes effect. This
+ * consolidates the two identical `Number(process.env.REQUEST_BUDGET_MS) ||
+ * REQUEST_BUDGET_MS` expressions that previously sat inline in run.ts (a
+ * one-liner shared here rather than "just REQUEST_BUDGET_MS", which would
+ * silently drop the documented runtime-override capability).
+ */
+export function resolveRequestBudgetMs(): number {
+  return Number(process.env.REQUEST_BUDGET_MS) || REQUEST_BUDGET_MS;
+}
+
 // -----------------------------------------------------------------------------
 // Fastify server timeout
 // -----------------------------------------------------------------------------

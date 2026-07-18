@@ -35,6 +35,7 @@
 import { AnalysisEnrichmentSchema } from '@talchain/schemas/boundary';
 import { INFERENCE_WARNING_CODES } from '../../types/engine-v3.js';
 import type { InferenceWarning } from '../../types/engine-v3.js';
+import { parseBoundedIntEnv } from '../../config/env-int.js';
 
 /**
  * Cap on reported issues (wire message + log event). A pathological body
@@ -42,6 +43,54 @@ import type { InferenceWarning } from '../../types/engine-v3.js';
  * defect and `issue_count` carries the true total.
  */
 export const ENRICHMENT_CONTRACT_MAX_REPORTED_ISSUES = 10;
+
+// ----------------------------------------------------------------------------
+// Sampling (A3 remediation item 8, efficiency)
+// ----------------------------------------------------------------------------
+
+/**
+ * Production default sample rate: assess 1 in N outgoing bodies.
+ *
+ * The full-body `AnalysisEnrichmentSchema.safeParse` on EVERY /v2/run duplicates
+ * CEE's shadow parse of the same envelope. A real contract regression is
+ * DETERMINISTIC — it breaks the same field on EVERY response — so a 1-in-N
+ * sample still surfaces it within N requests, while cutting the per-request
+ * schema-parse cost by ~(N-1)/N. Outside production the guard runs on EVERY
+ * request (staging + tests want the immediate, complete signal). Ops override:
+ * `ENRICHMENT_GUARD_SAMPLE_N` (integer ≥ 1; 1 = every request).
+ */
+export const DEFAULT_ENRICHMENT_GUARD_SAMPLE_N_PROD = 16;
+
+/** Round-robin request counter for the 1-in-N sampler (per process). */
+let enrichmentGuardCounter = 0;
+
+/** Test-only: reset the sampler so 1-in-N sequences are deterministic per test. */
+export function __resetEnrichmentGuardSampler(): void {
+  enrichmentGuardCounter = 0;
+}
+
+/**
+ * Resolve the sample denominator. `ENRICHMENT_GUARD_SAMPLE_N` (strict, ≥1)
+ * overrides; otherwise every request outside production, 1-in-N in production.
+ */
+export function resolveEnrichmentGuardSampleN(): number {
+  const parsed = parseBoundedIntEnv(process.env.ENRICHMENT_GUARD_SAMPLE_N, 1, 1_000_000);
+  if (parsed !== null) return parsed;
+  return process.env.NODE_ENV === 'production' ? DEFAULT_ENRICHMENT_GUARD_SAMPLE_N_PROD : 1;
+}
+
+/**
+ * True when THIS request should run the egress guard. Deterministic round-robin
+ * (assess request 1, N+1, 2N+1, …) so a deterministic envelope break surfaces
+ * within N. `N <= 1` ⇒ always true (every request).
+ */
+export function shouldAssessEnrichmentContract(): boolean {
+  const n = resolveEnrichmentGuardSampleN();
+  if (n <= 1) return true;
+  const shouldAssess = enrichmentGuardCounter % n === 0;
+  enrichmentGuardCounter = (enrichmentGuardCounter + 1) % n;
+  return shouldAssess;
+}
 
 /** One schema violation, reduced to non-sensitive coordinates. */
 export interface EnrichmentContractIssue {

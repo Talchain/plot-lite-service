@@ -534,7 +534,7 @@ describe('3C: factor_stability (buildFactorStability)', () => {
   ];
 
   it('FS1: populated from ISL when all four 3C fields present', () => {
-    const result = buildFactorStability(ISL_WITH_3C, GRAPH);
+    const result = buildFactorStability(ISL_WITH_3C, GRAPH, new Set());
 
     expect(result).toHaveLength(2);
     expect(result[0]).toEqual({
@@ -556,7 +556,7 @@ describe('3C: factor_stability (buildFactorStability)', () => {
   });
 
   it('FS2: empty array when ISL omits 3C fields', () => {
-    const result = buildFactorStability(ISL_WITHOUT_3C, GRAPH);
+    const result = buildFactorStability(ISL_WITHOUT_3C, GRAPH, new Set());
     expect(result).toEqual([]);
   });
 
@@ -574,7 +574,7 @@ describe('3C: factor_stability (buildFactorStability)', () => {
       },
     ];
 
-    const result = buildFactorStability(partial, GRAPH);
+    const result = buildFactorStability(partial, GRAPH, new Set());
 
     // Only factor-b has all four fields
     expect(result).toHaveLength(1);
@@ -590,7 +590,7 @@ describe('3C: factor_stability (buildFactorStability)', () => {
       { node_id: 'f5', elasticity_std: 0.1, attribution_stability: 'high', rank_flip_rate: 0.03, stability_method: 'bootstrap_1000' }, // valid
     ];
 
-    const result = buildFactorStability(invalid, GRAPH);
+    const result = buildFactorStability(invalid, GRAPH, new Set());
     expect(result).toHaveLength(1);
     expect(result[0].factor_id).toBe('f5');
   });
@@ -601,7 +601,7 @@ describe('3C: factor_stability (buildFactorStability)', () => {
       { node_id: 'factor-a', elasticity_std: 0.99, attribution_stability: 'low', rank_flip_rate: 0.5, stability_method: 'bootstrap_500' },
     ];
 
-    const result = buildFactorStability(dupes, GRAPH);
+    const result = buildFactorStability(dupes, GRAPH, new Set());
     expect(result).toHaveLength(1);
     expect(result[0].elasticity_std).toBe(0.042); // first-wins
   });
@@ -610,7 +610,7 @@ describe('3C: factor_stability (buildFactorStability)', () => {
     // buildFactorStability reads from the raw ISL array (not the transformed factor_sensitivity)
     // Verify the ISL input array is not mutated
     const islCopy = JSON.parse(JSON.stringify(ISL_WITH_3C));
-    buildFactorStability(islCopy, GRAPH);
+    buildFactorStability(islCopy, GRAPH, new Set());
 
     // Input array is unchanged
     expect(islCopy).toEqual(ISL_WITH_3C);

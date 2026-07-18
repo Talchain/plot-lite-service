@@ -22,6 +22,7 @@ import {
   DEFAULT_FLIP_PROBE_N_SAMPLES,
   DEFAULT_FLIP_PER_FACTOR_TIMEOUT_MS,
   DEFAULT_FLIP_OVERALL_TIMEOUT_MS,
+  FLIP_PROBE_UNKNOWN_BASE_N_SAMPLES,
   resolveFlipProbeNSamples,
   resolveFlipPerFactorTimeoutMs,
   resolveFlipOverallTimeoutMs,
@@ -103,8 +104,14 @@ describe('flip probes run at base precision (behavioural, not just the constant)
     expect(resolveFlipProbeNSamples(20_000)).toBe(10_000);
   });
 
-  it('unknown base depth falls back to the standard base default (now 10k)', () => {
-    expect(resolveFlipProbeNSamples(undefined)).toBe(STANDARD_N_SAMPLES_DEFAULT);
+  it('unknown base depth falls back to the explicit 4,000 floor, NOT the 10k cap', () => {
+    // A3 remediation item 2 (2026-07-18): the fallback was STANDARD_N_SAMPLES_DEFAULT,
+    // which was raised 4000 → 10_000 (the cap) on 2026-07-17 — so min(10k, 10k) = 10k
+    // silently contradicted resolveFlipProbeNSamples's "assume 4000 floor, never the
+    // 10k cap" contract. Now the fallback is the explicit FLIP_PROBE_UNKNOWN_BASE_N_SAMPLES.
+    expect(resolveFlipProbeNSamples(undefined)).toBe(FLIP_PROBE_UNKNOWN_BASE_N_SAMPLES);
+    expect(resolveFlipProbeNSamples(undefined)).toBe(4_000);
+    expect(resolveFlipProbeNSamples(undefined)).not.toBe(STANDARD_N_SAMPLES_DEFAULT);
   });
 });
 

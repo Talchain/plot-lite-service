@@ -318,6 +318,7 @@ describe('buildFactorStability: lever elasticity_std suppressed on the stability
     const out = buildFactorStability(
       [rawIsl('fac_stamped', { sensitivity: 0, zero_reason: 'intervention_override', elasticity_std: 0.005 })],
       GRAPH_MIN,
+      new Set(), // no union — suppression here rides the ISL zero_reason stamp
     );
     expect(out).toHaveLength(1);
     expect(out[0].factor_id).toBe('fac_stamped');
@@ -325,7 +326,7 @@ describe('buildFactorStability: lever elasticity_std suppressed on the stability
   });
 
   it('suppression keys ONLY on the lever predicate: unstamped + no union set → raw value preserved', () => {
-    const out = buildFactorStability([rawIsl('fac_plain', { elasticity_std: 0.00750934 })], GRAPH_MIN);
+    const out = buildFactorStability([rawIsl('fac_plain', { elasticity_std: 0.00750934 })], GRAPH_MIN, new Set());
     expect(out[0].elasticity_std).toBe(0.00750934);
   });
 

@@ -1108,8 +1108,17 @@ export function buildFactorStability(
    * factor_id rides the factor_sensitivity entry. The domain-validity gate
    * below still applies to the RAW value first (an invalid raw std skips the
    * entry, never zero-launders it).
+   *
+   * REQUIRED (A3 remediation 2026-07-18): the sole production caller (run.ts)
+   * passes the D-U union; making the param non-optional turns a future
+   * refactor that drops it into a COMPILE error instead of a silent
+   * re-introduction of the #226 elasticity_std leak. Callers with no levers
+   * pass an empty set. (The zeroing keeps its own ternary rather than spreading
+   * LEVER_SUPPRESSION_FIELDS — a FactorStabilityEntry has only elasticity_std,
+   * so the full suppression shape does not apply here; the divergence is
+   * intentional. This change is about ENFORCING the param, not sharing the set.)
    */
-  structuralLeverIds?: ReadonlySet<string>,
+  structuralLeverIds: ReadonlySet<string>,
 ): FactorStabilityEntry[] {
   if (!Array.isArray(islFactorSensitivity) || islFactorSensitivity.length === 0) return [];
 

@@ -327,11 +327,12 @@ export interface ISLPathDecompositionV2 {
 
 /**
  * Seed-sweep stability band for one edge's flip threshold (ISL Track S
- * Phase 1, ISL PR #71). Flag-gated in ISL by `ISL_FLIP_STABILITY_BANDS`
- * (default OFF): the field is simply ABSENT from every edge_e_values entry
- * until the flag is enabled — PLoT carries it through when present and emits
- * nothing when absent (dark carry-through, A3 lane 3; units alignment, A3
- * lane 4 — see the UNITS invariant below).
+ * Phase 1, ISL PR #71). DEFAULT-ON in ISL since PR #76 (the
+ * `ISL_FLIP_STABILITY_BANDS` env gate was removed) — present on every
+ * edge_e_values entry ISL computed a band for. PLoT carries it through when
+ * present and emits nothing when absent (an entry ISL had nothing to sweep,
+ * or an older pre-#76 ISL build) — dark carry-through, A3 lane 3; units
+ * alignment, A3 lane 4 — see the UNITS invariant below.
  *
  * Shape derived from ISL `FlipStabilityBandV2`
  * (src/models/response_v2.py:368-415 at ISL tip 5745154e) serialised with
@@ -366,7 +367,11 @@ export interface ISLPathDecompositionV2 {
  * this invariant guarantees internal consistency, not that semantics.
  */
 export interface ISLFlipStabilityBandV2 {
-  /** Number of child seeds swept (ISL default 5, clamped [2, 20]) */
+  /**
+   * Number of child seeds swept — ISL constant `FLIP_STABILITY_N_SEEDS`
+   * (10 since ISL PR #76; the former env-select + [2, 20] clamp was removed
+   * when bands went default-on).
+   */
   n_seeds: number;
   /** Seeds whose sampled background admits a flip within [-1, 1]. When 0, the band_* fields are omitted. */
   n_seeds_flipped: number;
@@ -423,12 +428,13 @@ export interface ISLEdgeEValue {
    */
   is_unflippable?: boolean;
   /**
-   * Seed-sweep flip-threshold stability band (ISL PR #71). Present ONLY when
-   * ISL runs with `ISL_FLIP_STABILITY_BANDS` enabled (default OFF — absent on
-   * the live wire today). Carried through to the /v2/run response in the SAME
-   * space as the entry's flip_mean (A3 lane 3 carry-through + lane 4 units
-   * alignment); see ISLFlipStabilityBandV2 for the band_width/n_seeds_flipped
-   * interpretation trap and the units invariant.
+   * Seed-sweep flip-threshold stability band (ISL PR #71). DEFAULT-ON since ISL
+   * PR #76 — present when ISL computed a band for this entry; absent (key
+   * omitted, never null) when it had nothing to sweep or on older pre-#76 ISL
+   * builds. Carried through to the /v2/run response in the SAME space as the
+   * entry's flip_mean (A3 lane 3 carry-through + lane 4 units alignment); see
+   * ISLFlipStabilityBandV2 for the band_width/n_seeds_flipped interpretation
+   * trap and the units invariant.
    */
   stability?: ISLFlipStabilityBandV2;
 }
