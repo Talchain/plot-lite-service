@@ -4058,9 +4058,9 @@ paths:
           entry via `flip_reason` ('timeout'/'error'/...). Non-blocking: all other analyses are
           unaffected.
         - `edge_e_values[].stability` (additive, A3 lane 3): seed-sweep flip-threshold
-          stability band carried from ISL (ISL PR #71). Present ONLY when ISL runs
-          with `ISL_FLIP_STABILITY_BANDS` enabled (default OFF — absent from every entry on
-          today's live wire); when ISL omits it the key is absent, never null. Shape:
+          stability band carried from ISL (ISL PR #71). DEFAULT-ON since ISL PR #76
+          — present when ISL computed a band for the entry; when ISL omits it (nothing
+          to sweep, or an older pre-#76 build) the key is absent, never null. Shape:
           `{ n_seeds, n_seeds_flipped, band_min?, band_median?, band_max?, band_width?,
           seed_flip_means[] }` — the four `band_*` keys are omitted when `n_seeds_flipped`
           is 0; `seed_flip_means` entries are null where that seed's background admits no
