@@ -35,6 +35,46 @@ export function isInterventionOverride(f: { zero_reason?: string | null }): bool
 }
 
 /**
+ * Canonical identity of an ISL factor entry — ONE precedence, used EVERYWHERE
+ * (Codex F13). ISL's canonical key is `node_id` (the graph node id); PLoT's
+ * `factor_id` is the downstream alias. Precedence is **node_id-first**, matching
+ * the factor_sensitivity mapper (`mapIslFactorEntry`, `run.ts`) and the
+ * factor_stability publication (`buildFactorStability`, `factor-influence.ts`)
+ * which both already resolve `node_id ?? factor_id`. The D-U lever predicate
+ * (`isOptionControlledLever`) historically resolved the OPPOSITE way
+ * (`factor_id ?? node_id`), so a future/additive twin `{node_id:'lever',
+ * factor_id:'other'}` mapped/published as `lever` yet, resolving identity as
+ * `other`, escaped lever-suppression. Everything now resolves identity through
+ * this single helper.
+ *
+ * Returns `undefined` when neither id is a non-empty string.
+ */
+export function factorIdOf(
+  f: { factor_id?: string | null; node_id?: string | null },
+): string | undefined {
+  const nodeId = typeof f.node_id === 'string' && f.node_id !== '' ? f.node_id : undefined;
+  const factorId = typeof f.factor_id === 'string' && f.factor_id !== '' ? f.factor_id : undefined;
+  return nodeId ?? factorId;
+}
+
+/**
+ * True when an entry carries BOTH a non-empty `node_id` AND a non-empty
+ * `factor_id` that DIFFER — an ambiguous twin whose canonical identity cannot
+ * be trusted (Codex F13). Such an entry is dropped from lever-sensitive
+ * publication surfaces and the drop is DISCLOSED on the wire
+ * (`FACTOR_ID_CONFLICT`), never silently resolved to one of the two ids. The
+ * pinned ISL producer emits only `node_id` today, so this is schema-evolution
+ * hardening; it is additive and cannot fire on the current producer shape.
+ */
+export function hasFactorIdConflict(
+  f: { factor_id?: string | null; node_id?: string | null },
+): boolean {
+  const nodeId = typeof f.node_id === 'string' && f.node_id !== '' ? f.node_id : undefined;
+  const factorId = typeof f.factor_id === 'string' && f.factor_id !== '' ? f.factor_id : undefined;
+  return nodeId !== undefined && factorId !== undefined && nodeId !== factorId;
+}
+
+/**
  * The canonical structural lever union (D-U): every factor id that ANY
  * option's `interventions` map targets. Source of truth is the request-side
  * `options[i].interventions`, NOT raw ISL `zero_reason` — ISL's stamp is a
@@ -81,7 +121,9 @@ export function isOptionControlledLever(
   structuralLeverIds?: ReadonlySet<string>,
 ): boolean {
   if (isInterventionOverride(f)) return true;
-  const id = f.factor_id ?? f.node_id;
+  // F13: resolve identity through the ONE canonical precedence (node_id-first),
+  // identical to the factor_sensitivity mapper and factor_stability publication.
+  const id = factorIdOf(f);
   return id != null && (structuralLeverIds?.has(id) ?? false);
 }
 
@@ -104,7 +146,7 @@ export function interventionOverrideFactorIds(
   const ids = new Set<string>();
   for (const f of factors) {
     if (isInterventionOverride(f)) {
-      const id = f.factor_id ?? f.node_id;
+      const id = factorIdOf(f); // F13: one canonical precedence everywhere.
       if (id) ids.add(id);
     }
   }

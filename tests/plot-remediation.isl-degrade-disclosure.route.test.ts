@@ -17,40 +17,75 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 
+// F4 (Codex deep review): the REAL ISL InferenceWarning wire shape (LIVE from
+// ISL #79) — `{code, field, detail:{reason, elapsed_ms, message}, severity}`.
+// NOT the old idealised flat `{message, severity, elapsed_ms}` mock. The four
+// budget-degradation codes carry severity:'warning'; the human copy + timing
+// live under `detail`; `field` names the affected wire location.
 const ISL_INFERENCE_WARNINGS = [
   {
     code: 'STABILITY_BANDS_UNAVAILABLE',
-    message:
-      'Seed-sweep flip-stability bands were attempted but the band computation ' +
-      'exceeded its budget for this analysis — bands are omitted; all other analyses are unaffected.',
+    field: 'edge_e_values',
     severity: 'warning',
-    elapsed_ms: 2013,
+    detail: {
+      reason: 'budget_exceeded',
+      elapsed_ms: 2013,
+      message:
+        'Seed-sweep flip-stability bands were attempted but the band computation ' +
+        'exceeded its budget for this analysis — bands are omitted; all other analyses are unaffected.',
+    },
   },
   {
     code: 'E_VALUES_UNAVAILABLE',
-    message:
-      'Edge E-values were attempted but the E-value computation exceeded its ' +
-      'budget for this analysis — edge_e_values are omitted; all other analyses are unaffected.',
+    field: 'edge_e_values',
     severity: 'warning',
-    elapsed_ms: 8041,
+    detail: {
+      reason: 'budget_exceeded',
+      elapsed_ms: 8041,
+      message:
+        'Edge E-values were attempted but the E-value computation exceeded its ' +
+        'budget for this analysis — edge_e_values are omitted; all other analyses are unaffected.',
+    },
   },
   {
     code: 'EVPI_UNAVAILABLE',
-    message:
-      'Per-factor EVPI (value of information) was attempted but exceeded its ' +
-      'budget for this analysis — EVPI is omitted; all other analyses are unaffected.',
+    field: 'factor_evpi',
     severity: 'warning',
-    elapsed_ms: 1502,
+    detail: {
+      reason: 'budget_exceeded',
+      elapsed_ms: 1502,
+      message:
+        'Per-factor EVPI (value of information) was attempted but exceeded its ' +
+        'budget for this analysis — EVPI is omitted; all other analyses are unaffected.',
+    },
   },
   {
     code: 'PATH_DECOMPOSITION_UNAVAILABLE',
-    message:
-      'Structural path decomposition was attempted but exceeded its budget for ' +
-      'this analysis — path_decomposition is omitted; all other analyses are unaffected.',
+    field: 'path_decomposition',
     severity: 'warning',
-    elapsed_ms: 3300,
+    detail: {
+      reason: 'budget_exceeded',
+      elapsed_ms: 3300,
+      message:
+        'Structural path decomposition was attempted but exceeded its budget for ' +
+        'this analysis — path_decomposition is omitted; all other analyses are unaffected.',
+    },
   },
 ];
+
+// A benign, non-degradation warning — severity 'info' (the ISL default) must
+// stay 'info' through the map (proves severity is mapped THROUGH faithfully,
+// not blanket-forced to either value).
+const ISL_INFO_WARNING = {
+  code: 'ROOT_NODE_DEFAULT_VALUE',
+  field: 'goal',
+  severity: 'info',
+  detail: {
+    reason: 'no_observed_value',
+    node_id: 'goal',
+    message: 'A root node had no observed value; a default base was used. This is informational.',
+  },
+};
 
 const EXPECTED_CODES = [
   'STABILITY_BANDS_UNAVAILABLE',
@@ -72,8 +107,9 @@ const ISL_DATA = {
     robust_edges: ['factor-a::goal'],
     edge_e_values: [],
   },
-  // ISL-originated degrade disclosures (the ISL lane emits these on budget trip).
-  inference_warnings: ISL_INFERENCE_WARNINGS,
+  // ISL-originated degrade disclosures (the ISL lane emits these on budget trip),
+  // plus one benign info-severity warning — all in the REAL detail-nested shape.
+  inference_warnings: [...ISL_INFERENCE_WARNINGS, ISL_INFO_WARNING],
 };
 
 const mockISLService = {
@@ -156,20 +192,31 @@ describe('item 5 — ISL degrade disclosures carried through to the wire', () =>
     return JSON.parse(res.body);
   }
 
-  it('all FOUR ISL degrade codes appear on inference_warnings, severity + elapsed_ms preserved', async () => {
+  it('real detail-nested ISL warnings ride to the wire: severity + elapsed_ms + field + message preserved', async () => {
     const body = await run();
     const warnings = body.inference_warnings ?? [];
-    const byCode = new Map<string, { code: string; message: string; severity: string; elapsed_ms?: number }>(
+    const byCode = new Map<string, { code: string; message: string; severity: string; elapsed_ms?: number; field?: string }>(
       warnings.map((w: { code: string }) => [w.code, w]),
     );
 
     for (const source of ISL_INFERENCE_WARNINGS) {
       const got = byCode.get(source.code);
       expect(got, `wire warning for ${source.code}`).toBeDefined();
+      // severity mapped THROUGH (ISL supplied 'warning').
       expect(got!.severity).toBe('warning');
-      // elapsed_ms is carried through verbatim (a slow degrade stays diagnosable).
-      expect(got!.elapsed_ms).toBe(source.elapsed_ms);
+      // elapsed_ms read from detail.elapsed_ms and carried through verbatim.
+      expect(got!.elapsed_ms).toBe(source.detail.elapsed_ms);
+      // message read from detail.message.
+      expect(got!.message).toBe(source.detail.message);
+      // field preserved from the real ISL shape (RED pre-fix: field was dropped).
+      expect(got!.field).toBe(source.field);
     }
+    // benign info-severity warning stays 'info' (severity mapped through, not forced).
+    const info = byCode.get('ROOT_NODE_DEFAULT_VALUE');
+    expect(info, 'benign info warning present').toBeDefined();
+    expect(info!.severity).toBe('info');
+    expect(info!.field).toBe('goal');
+    expect(info!.message).toBe(ISL_INFO_WARNING.detail.message);
     // spot-check the message routing survives too
     expect(byCode.get('STABILITY_BANDS_UNAVAILABLE')!.message).toContain('bands are omitted');
     expect(byCode.get('PATH_DECOMPOSITION_UNAVAILABLE')!.message).toContain('path_decomposition is omitted');

@@ -138,7 +138,7 @@ import { ReviewSkipReasons, type ReviewSkipReason } from '../../cee/validation/m
 import { getDownstreamCallsForLog, getDownstreamCalls } from '../../util/downstream-tracker.js';
 import { computeResponseContentHash } from '../../util/response-content-hash.js';
 import { computeFactorSensitivityFromGraph, buildFactorStability, mergeIslConfidenceIntoGraphFactors } from '../../lib/factor-influence.js';
-import { interventionTargetIdsFromOptions, isOptionControlledLever } from '../../lib/intervention-override.js';
+import { interventionTargetIdsFromOptions, isOptionControlledLever, factorIdOf, hasFactorIdConflict } from '../../lib/intervention-override.js';
 import { buildAutoNoiseProvenance, extractIslAutoNoiseApplied, logAutoNoiseFlagMissingFromIsl } from '../../lib/auto-noise.js';
 import { sanitiseIslVoi, computeEvpiPercentagePoints } from '../../lib/evpi-emission.js';
 import {
@@ -472,12 +472,16 @@ export function transformEdgeEValues(
       // invariant: band values are ALWAYS in the same space as flip_mean on
       // the same entry. Counts (n_seeds/n_seeds_flipped) are space-invariant.
       if (stability !== undefined) {
+        // F14: finite-check every post-denormalisation band value. A non-finite
+        // denorm (an overflow-width range that slipped the source guard) would
+        // otherwise ride to the wire as a fabricated `null`; omit the field
+        // instead (honest absence), exactly as the sibling e_value filter does.
         const bandMin = typeof stability.band_min === 'number'
-          ? denormaliseValue(stability.band_min, goalRange) : undefined;
+          ? finiteNum(denormaliseValue(stability.band_min, goalRange)) : undefined;
         const bandMedian = typeof stability.band_median === 'number'
-          ? denormaliseValue(stability.band_median, goalRange) : undefined;
+          ? finiteNum(denormaliseValue(stability.band_median, goalRange)) : undefined;
         const bandMax = typeof stability.band_max === 'number'
-          ? denormaliseValue(stability.band_max, goalRange) : undefined;
+          ? finiteNum(denormaliseValue(stability.band_max, goalRange)) : undefined;
         stability = {
           // Spread first so any future additive ISL band field still rides
           // (the named-field-rebuild silent-drop trap this file's lane-3
@@ -497,8 +501,10 @@ export function transformEdgeEValues(
           // Per-seed means: map non-null cells, preserve nulls AS NULL (a
           // null means that seed's background admits no flip — not a value).
           ...(Array.isArray(stability.seed_flip_means) && {
+            // F14: a non-finite denorm cell becomes null (a "no value" seed),
+            // never a fabricated Infinity → null with lost provenance.
             seed_flip_means: stability.seed_flip_means.map((v) =>
-              typeof v === 'number' ? denormaliseValue(v, goalRange) : v),
+              typeof v === 'number' ? (finiteNum(denormaliseValue(v, goalRange)) ?? null) : v),
           }),
         };
       }
@@ -641,7 +647,7 @@ function mapIslFactorEntry(f: any, normContext?: NormalisationContext): FactorSe
     }));
   }
 
-  const factorId: string = f.node_id ?? f.factor_id;
+  const factorId: string = factorIdOf(f) ?? ''; // F13: one canonical precedence everywhere.
 
   // Denormalise sensitivity_score and elasticity_std when normalisation was active.
   // sensitivity_score is an elasticity-like measure (Δoutcome / Δfactor); scale by
@@ -1223,6 +1229,14 @@ interface MetaParams {
    * they ride `flip_reason` on each flip_thresholds entry.
    */
   flipThresholdsFailedErrorName?: string;
+  /**
+   * F14 (Codex deep review): count of edge E-value entries dropped from the
+   * public array because a required numeric (e_value/current_mean/flip_mean)
+   * was non-finite after transformation. Presence (>0) drives the
+   * EDGE_E_VALUE_NON_FINITE_DROPPED inference warning so the drop is
+   * attributable on the wire, not only in the server log. Absent/0 = no drop.
+   */
+  edgeEValuesDroppedNonFinite?: number;
   detailLevel: string;
   latencyMs: number;
   normalizationMs?: number;
@@ -2355,6 +2369,40 @@ function buildResponse(
     }
   }
 
+  // F13 (Codex deep review): DISCLOSE ambiguous-identity factor entries. An ISL
+  // entry carrying BOTH a node_id AND a factor_id that DIFFER cannot be resolved
+  // to a single trusted id, so the publication builders DROP it (factor_stability
+  // buildFactorStability, CEE-review extractFactorSensitivity, and the D-U lever
+  // predicate resolve identity through the one canonical factorIdOf precedence).
+  // The pinned ISL producer emits only node_id, so this cannot fire today — it is
+  // schema-evolution hardening that fails LOUD (never silent) if a future
+  // producer adds a conflicting factor_id.
+  {
+    const rawFactors = Array.isArray(islResult?.factor_sensitivity)
+      ? islResult.factor_sensitivity
+      : [];
+    const conflictIds = new Set<string>();
+    for (const f of rawFactors) {
+      if (hasFactorIdConflict(f)) {
+        const id = factorIdOf(f);
+        if (id) conflictIds.add(id);
+      }
+    }
+    if (conflictIds.size > 0) {
+      inferenceWarnings.push({
+        code: INFERENCE_WARNING_CODES.FACTOR_ID_CONFLICT,
+        // provisional_doctrine_v0 — wording surface (diagnostic disclosure). Names
+        // only structural graph ids (never user values); count disambiguates.
+        message:
+          `${conflictIds.size} factor entr${conflictIds.size === 1 ? 'y' : 'ies'} carried a ` +
+          `conflicting node_id/factor_id and ${conflictIds.size === 1 ? 'was' : 'were'} dropped from ` +
+          `factor_sensitivity, factor_stability and decision-review derivation (ambiguous identity): ` +
+          `${[...conflictIds].sort().join(', ')}. All other analyses are unaffected.`,
+        severity: 'warning',
+      });
+    }
+  }
+
   // Liveness honesty: edge-level sensitivity is requested on every ISL call
   // (analysis_types always includes 'sensitivity'). ISL builds 9a22a1a+ emit
   // it nested at robustness.edge_sensitivity (consumed above — lane PLoT-W4);
@@ -2482,10 +2530,37 @@ function buildResponse(
     });
   }
 
+  // F14 (Codex deep review): DISCLOSE edge E-values dropped for non-finiteness.
+  // The transform drops entries whose e_value/current_mean/flip_mean are
+  // non-finite (a fabricated `null` would otherwise ship). Without this marker
+  // the drop was server-log-only — a short/empty edge_e_values was
+  // indistinguishable from a genuinely computed-empty result. Non-blocking.
+  if (meta.edgeEValuesDroppedNonFinite && meta.edgeEValuesDroppedNonFinite > 0) {
+    const n = meta.edgeEValuesDroppedNonFinite;
+    inferenceWarnings.push({
+      code: INFERENCE_WARNING_CODES.EDGE_E_VALUE_NON_FINITE_DROPPED,
+      // provisional_doctrine_v0 — wording surface (diagnostic disclosure). Count only.
+      message: `${n} edge E-value entr${n === 1 ? 'y was' : 'ies were'} omitted from edge_e_values because a required numeric was non-finite after transformation — edge_e_values is shorter because those entries could not be represented, not because they were computed empty. All other analyses are unaffected.`,
+      // info, not warning: ISL routinely emits null e_value for UNFLIPPABLE edges
+      // (current_mean == flip_mean → no finite evidence ratio), so this is an
+      // expected non-representability disclosure, not an alarm — matching the
+      // sibling EDGE_E_VALUES_UNAVAILABLE_V2_WIRE severity. Still fully on the
+      // wire (+ _meta warning_codes), just below the prominent warning strip.
+      severity: 'info',
+    });
+  }
+
   // Merge ISL-originated inference_warnings into the PLoT array.
   // ISL may return warnings like ROOT_NODE_DEFAULT_VALUE that PLoT forwards as-is.
   // Deduplicate by code to prevent equivalent warnings from both sources.
-  // ISL warnings may have top-level `message` OR `detail.message` — check both.
+  //
+  // F4 (Codex deep review): map ISL's REAL `InferenceWarning` shape
+  // `{code, field, detail:{reason, elapsed_ms, message}, severity}` (LIVE from
+  // ISL #79) faithfully — read `detail.message` (falling back to `detail.reason`),
+  // `detail.elapsed_ms`, preserve `field`, and map `severity` THROUGH (ISL now
+  // supplies it: the 4 budget-degradation codes are 'warning', benign codes
+  // 'info'/absent → 'info'). Top-level `message`/`elapsed_ms`/`node_id` are still
+  // read first for back-compat with older fixtures/captures.
   if (Array.isArray(islResult?.inference_warnings)) {
     // Deduplicate by code+node_id composite key to allow per-node warnings
     // (e.g., multiple ROOT_NODE_DEFAULT_VALUE for different root nodes).
@@ -2496,7 +2571,9 @@ function buildResponse(
         ? w.message
         : typeof w?.detail?.message === 'string'
           ? w.detail.message
-          : undefined;
+          : typeof w?.detail?.reason === 'string'
+            ? w.detail.reason
+            : undefined;
       const nodeId = w?.detail?.node_id ?? w?.node_id ?? '';
       const dedupKey = `${w?.code}:${nodeId}`;
       if (w && typeof w.code === 'string' && typeof message === 'string' && !existingKeys.has(dedupKey)) {
@@ -2508,10 +2585,14 @@ function buildResponse(
         // only (no PII); the egress envelope's warning element is passthrough.
         const rawElapsed = w?.elapsed_ms ?? w?.detail?.elapsed_ms;
         const elapsedMs = typeof rawElapsed === 'number' && Number.isFinite(rawElapsed) ? rawElapsed : undefined;
+        // F4: preserve `field` from the real ISL shape (top-level, or detail-nested).
+        const rawField = w?.field ?? w?.detail?.field;
+        const field = typeof rawField === 'string' && rawField !== '' ? rawField : undefined;
         inferenceWarnings.push({
           code: w.code,
           message,
           severity: w.severity === 'warning' ? 'warning' : 'info',
+          ...(field !== undefined && { field }),
           ...(elapsedMs !== undefined && { elapsed_ms: elapsedMs }),
         });
         existingKeys.add(dedupKey);
@@ -5213,6 +5294,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // robustness.edge_e_values on the V2 wire (the former top-level read
         // was structurally dead — every live response came back "empty").
         const islEdgeEValuesRaw = getIslEdgeEValues(islResult);
+        // F14: threaded to buildResponse's meta so a non-finite drop is disclosed on the wire.
+        let edgeEValuesDroppedNonFinite: number | undefined;
         const edgeEValues = transformEdgeEValues(islEdgeEValuesRaw, earlyNodeLabelMap, normalisationContext);
 
         // Transform ISL conditional_winners (when present) with label enrichment
@@ -5229,6 +5312,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // hiding the upstream defect. (Counts only — no payload.)
         const eValuesDropped = (islEdgeEValuesRaw?.length ?? 0) - edgeEValues.length;
         if (eValuesDropped > 0) {
+          edgeEValuesDroppedNonFinite = eValuesDropped; // F14: wire disclosure via meta.
           req.log.warn({ event: 'edge_e_values_dropped_nonfinite', request_id: requestId, dropped: eValuesDropped, kept: edgeEValues.length });
         }
         const condWinnersDropped = (islResult.conditional_winners?.length ?? 0) - conditionalWinners.length;
@@ -6171,6 +6255,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             originalNSamples,
             flipProbeNSamples,
             flipThresholdsFailedErrorName,
+            edgeEValuesDroppedNonFinite,
             detailLevel,
             latencyMs: finalTotalMs,
             normalizationMs,

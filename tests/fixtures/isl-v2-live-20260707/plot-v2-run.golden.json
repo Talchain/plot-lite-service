@@ -654,7 +654,13 @@
     "version": "v1.0-operational-defaults",
     "provisional": true
   },
-  "inference_warnings": [],
+  "inference_warnings": [
+    {
+      "code": "EDGE_E_VALUE_NON_FINITE_DROPPED",
+      "message": "4 edge E-value entries were omitted from edge_e_values because a required numeric was non-finite after transformation — edge_e_values is shorter because those entries could not be represented, not because they were computed empty. All other analyses are unaffected.",
+      "severity": "info"
+    }
+  ],
   "m1_coaching": {
     "story_headlines": {
       "opt_tech_lead": "Hire One Tech Lead leads, but Technical Quality and Architecture → Increase Team Productivity could swing the outcome to Hire Two Developers",
@@ -1598,7 +1604,7 @@
     "decision_brief_assembled": true,
     "review_cards_count": 0,
     "evidence_priority_card_present": false,
-    "response_content_hash": "rch_v2:96feaa2a2e028dfd"
+    "response_content_hash": "rch_v2:fa0104979707a391"
   },
   "meta": {
     "seed_used": "2034401427",

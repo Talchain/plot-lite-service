@@ -113,6 +113,26 @@ export interface NormalisationDiagnostic {
 // -----------------------------------------------------------------------------
 
 /**
+ * A range is usable for (de)normalisation ONLY when both endpoints are finite
+ * AND the width is finite and strictly positive (Codex F14). The half-open
+ * check `max > min` is NOT sufficient: `{min:-1e308,max:1e308}` satisfies it,
+ * yet `max - min === Infinity`, so denormalising a valid `0.5` returns
+ * `Infinity` — which `JSON.stringify` emits as a fabricated `null` on the wire,
+ * or (for edge current_mean/flip_mean) makes PLoT silently DROP the whole
+ * E-value. Every range source is gated through this so a non-finite-width range
+ * can never reach `denormaliseValue`; a rejected source falls through the
+ * priority chain to the safe `default [0,1]`.
+ */
+export function isFiniteRange(min: number, max: number): boolean {
+  return (
+    Number.isFinite(min) &&
+    Number.isFinite(max) &&
+    Number.isFinite(max - min) &&
+    max - min > 0
+  );
+}
+
+/**
  * Validate an extracted range from CE.
  * Returns true if the range is valid for normalisation.
  */
@@ -120,8 +140,9 @@ function isValidExtractedRange(range: [number, number] | undefined): range is [n
   if (!Array.isArray(range) || range.length !== 2) return false;
   const [min, max] = range;
   if (typeof min !== 'number' || typeof max !== 'number') return false;
-  if (!Number.isFinite(min) || !Number.isFinite(max)) return false;
-  if (min >= max) return false;
+  // F14: require finite endpoints AND a finite positive width (min<max alone
+  // admits {-1e308,1e308} whose width overflows to Infinity).
+  if (!isFiniteRange(min, max)) return false;
   return true;
 }
 
@@ -161,14 +182,17 @@ export function deriveRange(
   // Authoritative scale cap set by CEE (e.g., goal node with cap=1000 means value=200 → 0.2).
   // Takes precedence over state_space.range to ensure consistent normalisation
   // across both intervention (Phase 4a) and constraint (Phase 4b) paths.
-  if (typeof observedState?.cap === 'number' && observedState.cap > 0) {
+  // F14: require a finite positive width at every source (isFiniteRange) so an
+  // overflow-width range can never reach denormaliseValue — a rejected source
+  // falls through to the next priority (ultimately the safe default [0,1]).
+  if (typeof observedState?.cap === 'number' && observedState.cap > 0 && isFiniteRange(0, observedState.cap)) {
     return { min: 0, max: observedState.cap, source: 'explicit_cap' };
   }
 
   // Priority 1: Explicit state_space.range
   if (stateSpace?.range) {
     const { min, max } = stateSpace.range;
-    if (typeof min === 'number' && typeof max === 'number' && max > min) {
+    if (typeof min === 'number' && typeof max === 'number' && isFiniteRange(min, max)) {
       return { min, max, source: 'explicit' };
     }
   }
@@ -199,11 +223,12 @@ export function deriveRange(
         const padding = spread * 0.2;
         // Clamp lower bound to 0 when all intervention values are non-negative
         const paddedMin = minVal >= 0 ? Math.max(0, minVal - padding) : minVal - padding;
-        return {
-          min: paddedMin,
-          max: maxVal + padding,
-          source: 'inferred_spread',
-        };
+        const paddedMax = maxVal + padding;
+        // F14: skip an overflow-width spread (e.g. values near ±1e308) — fall
+        // through to baseline/value inference or the default.
+        if (isFiniteRange(paddedMin, paddedMax)) {
+          return { min: paddedMin, max: paddedMax, source: 'inferred_spread' };
+        }
       }
     }
   }
@@ -223,7 +248,8 @@ export function deriveRange(
 
     if (maxAbsValue > 0) {
       const max = 2 * maxAbsValue;
-      return { min: 0, max, source: 'inferred_baseline' };
+      // F14: skip an overflow-width inferred range; fall through to value / default.
+      if (isFiniteRange(0, max)) return { min: 0, max, source: 'inferred_baseline' };
     }
   }
 
@@ -231,7 +257,8 @@ export function deriveRange(
   if (currentValue !== undefined && typeof currentValue === 'number' && currentValue !== 0) {
     // Range: [0, 2 × |currentValue|]
     const max = 2 * Math.abs(currentValue);
-    return { min: 0, max, source: 'inferred_value' };
+    // F14: skip an overflow-width inferred range; fall through to the default.
+    if (isFiniteRange(0, max)) return { min: 0, max, source: 'inferred_value' };
   }
 
   // Priority 4: Default [0, 1]
@@ -440,21 +467,22 @@ function buildFallbackRanges(
           const padding = spread * 0.2;
           // Clamp lower bound to 0 when all values are non-negative
           const paddedMin = minVal >= 0 ? Math.max(0, minVal - padding) : minVal - padding;
-          fallbackRanges.set(factorId, {
-            min: paddedMin,
-            max: maxVal + padding,
-            source: 'inferred_spread',
-          });
-          continue;
+          const paddedMax = maxVal + padding;
+          // F14: skip an overflow-width spread; fall through to the [0, 2×max]
+          // fallback or the default [0,1] below.
+          if (isFiniteRange(paddedMin, paddedMax)) {
+            fallbackRanges.set(factorId, { min: paddedMin, max: paddedMax, source: 'inferred_spread' });
+            continue;
+          }
         }
-        // Fall through to default range on extreme outlier
+        // Fall through to default range on extreme outlier / overflow
       }
     }
 
     // Fallback for single value, zero spread, or extreme outlier: [0, 2 × max(|values|)]
     const maxAbsValue = Math.max(...values.map(Math.abs));
 
-    if (maxAbsValue > 0) {
+    if (maxAbsValue > 0 && isFiniteRange(0, 2 * maxAbsValue)) {
       // Range: [0, 2 × max(|values|)] - ensures all values fit with headroom
       fallbackRanges.set(factorId, {
         min: 0,
@@ -462,7 +490,7 @@ function buildFallbackRanges(
         source: 'default', // Still 'default' source but with meaningful range
       });
     } else {
-      // All values are zero - use [0, 1]
+      // All values are zero, or an overflow-width inference (F14) — use [0, 1]
       fallbackRanges.set(factorId, { min: 0, max: 1, source: 'default' });
     }
   }
