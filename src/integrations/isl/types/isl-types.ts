@@ -781,13 +781,36 @@ export interface ISLRobustnessAnalyzeV2Response {
   conditional_winners?: ISLConditionalWinner[];
 
   /**
-   * Inference warnings from ISL.
-   * Forwarded into PLoT's inference_warnings array in the response.
+   * Inference warnings from ISL, forwarded into PLoT's inference_warnings array.
+   *
+   * F4 (Codex deep review): the REAL ISL `InferenceWarning` wire shape (LIVE
+   * from ISL #79) is `{code, field, detail:{reason, elapsed_ms, message, ...},
+   * severity}` — `severity` is now producer-supplied (default 'info'; the four
+   * budget-degradation codes are 'warning'), and the human copy + timing live
+   * under `detail`. Top-level `message`/`severity`/`elapsed_ms`/`node_id` are
+   * kept OPTIONAL for back-compat with older fixtures/captures that used the
+   * flat shape; PLoT's merge reads detail-first, then the flat fallbacks.
    */
   inference_warnings?: Array<{
     code: string;
-    message: string;
+    /** Field path the warning is about (e.g. 'factor_evpi', 'path_decomposition'). */
+    field?: string;
     severity?: 'info' | 'warning';
+    /** Flat human copy (older captures); real shape carries it under `detail`. */
+    message?: string;
+    /** Flat timing (older captures); real shape carries it under `detail`. */
+    elapsed_ms?: number;
+    /** Flat node id (older per-node captures). */
+    node_id?: string;
+    /** The real nested payload. */
+    detail?: {
+      reason?: string;
+      message?: string;
+      elapsed_ms?: number;
+      node_id?: string;
+      field?: string;
+      [key: string]: unknown;
+    };
   }>;
 
   /**

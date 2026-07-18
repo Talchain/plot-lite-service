@@ -41,7 +41,7 @@ import type {
   ConfidenceFormulaVersion,
 } from '../types/engine-v3.js';
 import { ATTRIBUTION_STABILITY_BAND_SCORES } from '../review-pass/evidence-priority.js';
-import { isInterventionOverride, isOptionControlledLever } from './intervention-override.js';
+import { isInterventionOverride, isOptionControlledLever, factorIdOf, hasFactorIdConflict } from './intervention-override.js';
 
 /**
  * D-U lever suppression (ROADMAP 2.20/2.40): the public shape of a factor that
@@ -1138,7 +1138,13 @@ export function buildFactorStability(
       typeof f.stability_method !== 'string' || f.stability_method === ''
     ) continue;
 
-    const factorId = f.node_id ?? f.factor_id;
+    // F13: an ambiguous twin (both node_id and factor_id present and DIFFERENT)
+    // cannot be trusted to identify a single factor — drop it rather than
+    // publish a spread under a guessed identity. Disclosure of the drop rides
+    // the FACTOR_ID_CONFLICT wire warning (run.ts scans the same raw array).
+    if (hasFactorIdConflict(f)) continue;
+
+    const factorId = factorIdOf(f); // F13: one canonical precedence everywhere.
     if (!factorId) continue;
 
     // Deduplicate by factor key (first-wins)

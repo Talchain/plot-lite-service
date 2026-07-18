@@ -2124,6 +2124,33 @@ export const INFERENCE_WARNING_CODES = {
    * unaffected. Severity: warning.
    */
   PATH_DECOMPOSITION_UNAVAILABLE: 'PATH_DECOMPOSITION_UNAVAILABLE',
+  /**
+   * F13 (Codex deep review, A3 r2): one or more ISL factor-sensitivity entries
+   * carried BOTH a `node_id` AND a `factor_id` that DIFFER — an ambiguous twin
+   * whose canonical identity cannot be trusted. Rather than resolve it to a
+   * guessed id (and risk mapping it as a lever on one surface while it escapes
+   * lever-suppression on another), PLoT DROPS such entries from the public
+   * factor_sensitivity / factor_stability / CEE-review surfaces and discloses
+   * the drop here. The pinned ISL producer emits only canonical `node_id`, so
+   * this cannot fire on the current wire — it is schema-evolution hardening.
+   * Non-blocking; all other analyses unaffected. Severity: warning.
+   * @see src/lib/intervention-override.ts factorIdOf / hasFactorIdConflict
+   */
+  FACTOR_ID_CONFLICT: 'FACTOR_ID_CONFLICT',
+  /**
+   * F14 (Codex deep review, A3 r2): one or more edge E-value entries were
+   * dropped from the public `edge_e_values` array because a required numeric
+   * (e_value / current_mean / flip_mean) was non-finite after transformation
+   * (e.g. a range-width overflow denormalised a valid value to ±Infinity, which
+   * would serialise to a fabricated `null`). Without this marker the drop was
+   * SILENT — an empty/short `edge_e_values` was indistinguishable from a
+   * genuinely computed-empty result. Non-blocking; other analyses unaffected.
+   * Severity: info (ISL routinely emits null e_value for unflippable edges —
+   * expected non-representability, not an alarm; mirrors
+   * EDGE_E_VALUES_UNAVAILABLE_V2_WIRE).
+   * @see src/routes/v2/run.ts transformEdgeEValues
+   */
+  EDGE_E_VALUE_NON_FINITE_DROPPED: 'EDGE_E_VALUE_NON_FINITE_DROPPED',
 } as const;
 
 export type InferenceWarningCode = (typeof INFERENCE_WARNING_CODES)[keyof typeof INFERENCE_WARNING_CODES];
@@ -2136,6 +2163,14 @@ export interface InferenceWarning {
   code: InferenceWarningCode | string;
   message: string;
   severity: 'info' | 'warning';
+  /**
+   * F4 (Codex deep review): the field path the warning is about, preserved
+   * verbatim from ISL's real `InferenceWarning.field` (e.g. `factor_evpi`,
+   * `path_decomposition`). Present only when the source warning carried one.
+   * The egress enrichment envelope's inference_warnings element is passthrough,
+   * so this additive field never fails the contract.
+   */
+  field?: string;
   /**
    * Optional wall-clock ms the underlying phase ran before degrading. Carried
    * through from ISL's budget-degradation disclosures (STABILITY_BANDS_UNAVAILABLE,

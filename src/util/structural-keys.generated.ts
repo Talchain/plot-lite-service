@@ -97,6 +97,7 @@ export const STRUCTURAL_KEYS: ReadonlySet<string> = new Set([
   "deduplicated_options",
   "degraded",
   "description",
+  "detail",
   "detail_level",
   "details",
   "details_truncated",

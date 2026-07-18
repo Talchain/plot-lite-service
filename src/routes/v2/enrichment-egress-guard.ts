@@ -111,23 +111,118 @@ export interface EnrichmentContractAssessment {
 }
 
 /**
+ * F12 (Codex deep review, A3 r2) — PLoT-LOCAL refined validation of the nested
+ * `edge_e_values[].stability` band.
+ *
+ * The shared `EnrichmentEdgeEValueSchema` is `.passthrough()` and does NOT type
+ * the `stability` object, so the schema parse alone cannot see a malformed band.
+ * This is the FAIL-LOUD local interim (the canonical shared stability schema is
+ * a separate A1 schemas-PR): a band that violates any invariant below is
+ * reported as a contract issue so the response is NOT stamped valid.
+ *
+ * Invariants (per Codex F12 + ISLFlipStabilityBandV2 semantics):
+ * - finite ORDERED endpoints: band_min ≤ band_median ≤ band_max (each finite);
+ * - non-negative INTEGER counts: n_seeds ≥ 0, 0 ≤ n_seeds_flipped ≤ n_seeds;
+ * - count/list consistency: seed_flip_means length === n_seeds; each cell is a
+ *   finite number or null;
+ * - non-negative band_width (finite).
+ *
+ * Absent band (nothing to sweep) is valid — returns no issues. Codes are
+ * zod-flavoured strings ({path, code} only, no values — same PII discipline as
+ * the schema path).
+ */
+export function assessStabilityBands(body: unknown): EnrichmentContractIssue[] {
+  const issues: EnrichmentContractIssue[] = [];
+  if (!body || typeof body !== 'object') return issues;
+  const edges = (body as { edge_e_values?: unknown }).edge_e_values;
+  if (!Array.isArray(edges)) return issues;
+
+  const isNonNegInt = (v: unknown): v is number =>
+    typeof v === 'number' && Number.isFinite(v) && Number.isInteger(v) && v >= 0;
+  const finiteOf = (v: unknown): number | undefined =>
+    typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+
+  edges.forEach((edge, i) => {
+    if (!edge || typeof edge !== 'object') return;
+    const stability = (edge as { stability?: unknown }).stability;
+    if (stability === undefined) return; // absent band — nothing to validate.
+    const base = `edge_e_values.${i}.stability`;
+    if (typeof stability !== 'object' || stability === null || Array.isArray(stability)) {
+      issues.push({ path: base, code: 'invalid_type' });
+      return;
+    }
+    const s = stability as Record<string, unknown>;
+
+    // Counts.
+    const nSeeds = s.n_seeds;
+    const nFlipped = s.n_seeds_flipped;
+    if (!isNonNegInt(nSeeds)) issues.push({ path: `${base}.n_seeds`, code: 'invalid_type' });
+    if (!isNonNegInt(nFlipped)) issues.push({ path: `${base}.n_seeds_flipped`, code: 'invalid_type' });
+    if (isNonNegInt(nSeeds) && isNonNegInt(nFlipped) && nFlipped > nSeeds) {
+      issues.push({ path: `${base}.n_seeds_flipped`, code: 'too_big' });
+    }
+
+    // Per-seed list: length matches n_seeds; each cell finite-or-null.
+    const means = s.seed_flip_means;
+    if (means !== undefined) {
+      if (!Array.isArray(means)) {
+        issues.push({ path: `${base}.seed_flip_means`, code: 'invalid_type' });
+      } else {
+        if (isNonNegInt(nSeeds) && means.length !== nSeeds) {
+          issues.push({ path: `${base}.seed_flip_means`, code: 'custom' }); // count/list mismatch
+        }
+        means.forEach((m, j) => {
+          if (m !== null && !(typeof m === 'number' && Number.isFinite(m))) {
+            issues.push({ path: `${base}.seed_flip_means.${j}`, code: 'invalid_type' });
+          }
+        });
+      }
+    }
+
+    // Endpoints + width: each finite when present.
+    for (const k of ['band_min', 'band_median', 'band_max', 'band_width'] as const) {
+      const v = s[k];
+      if (v !== undefined && finiteOf(v) === undefined) {
+        issues.push({ path: `${base}.${k}`, code: 'invalid_type' });
+      }
+    }
+    // Ordered endpoints (only when both sides are finite).
+    const bMin = finiteOf(s.band_min);
+    const bMed = finiteOf(s.band_median);
+    const bMax = finiteOf(s.band_max);
+    if (bMin !== undefined && bMed !== undefined && bMin > bMed) issues.push({ path: `${base}.band_median`, code: 'too_small' });
+    if (bMed !== undefined && bMax !== undefined && bMed > bMax) issues.push({ path: `${base}.band_max`, code: 'too_small' });
+    if (bMin !== undefined && bMax !== undefined && bMin > bMax) issues.push({ path: `${base}.band_max`, code: 'too_small' }); // reversed band
+    // Non-negative width.
+    const bW = finiteOf(s.band_width);
+    if (bW !== undefined && bW < 0) issues.push({ path: `${base}.band_width`, code: 'too_small' });
+  });
+
+  return issues;
+}
+
+/**
  * Assess an outgoing /v2/run success body against the typed enrichment
- * envelope. Pure and non-throwing over any JSON-serialisable input; callers
- * still wrap the call site (fail-open) so a schema-library failure can never
- * take down response delivery.
+ * envelope PLUS the PLoT-local refined stability-band parse (F12). Pure and
+ * non-throwing over any JSON-serialisable input; callers still wrap the call
+ * site (fail-open) so a schema-library failure can never take down response
+ * delivery.
  */
 export function assessEnrichmentContract(body: unknown): EnrichmentContractAssessment {
   const result = AnalysisEnrichmentSchema.safeParse(body);
-  if (result.success) {
+  const schemaIssues: EnrichmentContractIssue[] = result.success
+    ? []
+    : result.error.issues.map((issue) => ({ path: issue.path.join('.'), code: issue.code }));
+  // F12: the passthrough envelope cannot see the nested stability band — add the
+  // PLoT-local refinement so a malformed band is never stamped valid.
+  const stabilityIssues = assessStabilityBands(body);
+  const all = [...schemaIssues, ...stabilityIssues];
+  if (all.length === 0) {
     return { ok: true, issues: [], issue_count: 0 };
   }
-  const all = result.error.issues;
   return {
     ok: false,
-    issues: all.slice(0, ENRICHMENT_CONTRACT_MAX_REPORTED_ISSUES).map((issue) => ({
-      path: issue.path.join('.'),
-      code: issue.code,
-    })),
+    issues: all.slice(0, ENRICHMENT_CONTRACT_MAX_REPORTED_ISSUES),
     issue_count: all.length,
   };
 }

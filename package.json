@@ -75,7 +75,7 @@
   "description": "",
   "type": "module",
   "engines": {
-    "node": ">=20 <21",
+    "node": ">=20.3.0 <21",
     "npm": ">=10 <11"
   },
   "dependencies": {

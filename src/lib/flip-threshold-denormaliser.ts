@@ -88,16 +88,28 @@ export function denormaliseFlipThresholds(
       ? denormaliseValue(flip.flip_value, factorContext.range)
       : null;
 
+    // F14 (defense-in-depth): the range-source finite guard (deriveRange) makes
+    // this unreachable for ranges built here, but a directly-supplied
+    // overflow-width range would denormalise a valid value to ±Infinity, which
+    // JSON.stringify emits as a fabricated `null`. Finite-check every public
+    // numeric after the map: emit the finite value, else null the flip_value AND
+    // DISCLOSE via flip_reason so the null is attributable, never silent.
+    const currentFinite = Number.isFinite(denormCurrent);
+    const flipFinite = denormFlip !== null && Number.isFinite(denormFlip);
+    const nonFiniteDenorm = !currentFinite || (denormFlip !== null && !flipFinite);
+
     return {
       factor_id: flip.factor_id,
       factor_label: flip.factor_label,
-      current_value: denormCurrent,
-      flip_value: denormFlip,
+      // Never emit a non-finite current_value — fall back to the pre-denorm
+      // (normalised) value, which the disclosed flip_reason flags as unmapped.
+      current_value: currentFinite ? denormCurrent : flip.current_value,
+      flip_value: flipFinite ? denormFlip : null,
       direction: flip.direction,
       unit: flip.unit,
       alternative_winner_id: flip.alternative_winner_id ?? null,
       alternative_winner_label: resolveLabel(flip.alternative_winner_id, options),
-      flip_reason: flip.flip_reason ?? 'heuristic',
+      flip_reason: nonFiniteDenorm ? 'non_finite_denormalisation' : (flip.flip_reason ?? 'heuristic'),
       iterations_used: flip.iterations_used,
       probes_used: flip.probes_used,
       ...(flip.margin_sensitivity

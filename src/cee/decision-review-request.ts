@@ -13,6 +13,8 @@ import type { M1Coaching, EvidenceGap, Critique } from '../coaching/types.js';
 import {
   interventionTargetIdsFromOptions,
   isOptionControlledLever,
+  factorIdOf,
+  hasFactorIdConflict,
 } from '../lib/intervention-override.js';
 import type {
   DecisionReviewRequest,
@@ -269,13 +271,19 @@ export function extractFactorSensitivity(
   const factorSensitivity = islResult.factor_sensitivity ?? [];
 
   return factorSensitivity
-    .filter((f) => !isOptionControlledLever(f, structuralLeverIds))
-    .map((f) => ({
-      factor_id: f.factor_id,
-      factor_label: f.factor_label ?? f.factor_id,
-      elasticity: f.elasticity ?? 0,
-      confidence: f.confidence ?? 0.5,
-    }));
+    // F13: drop ambiguous twins (node_id/factor_id present and DIFFERENT) and
+    // option-controlled levers, both resolved through the ONE canonical
+    // precedence, so an unstamped union lever cannot escape to CEE.
+    .filter((f) => !hasFactorIdConflict(f) && !isOptionControlledLever(f, structuralLeverIds))
+    .map((f) => {
+      const factorId = factorIdOf(f) ?? f.factor_id;
+      return {
+        factor_id: factorId,
+        factor_label: f.factor_label ?? factorId,
+        elasticity: f.elasticity ?? 0,
+        confidence: f.confidence ?? 0.5,
+      };
+    });
 }
 
 /**
