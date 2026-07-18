@@ -79,7 +79,7 @@ import { REPAIR_CODES } from '../../normalisation/repair-codes.js';
 import { MAX_CONSTRAINTS } from '../../constants/limits.js';
 import type { RawGoalConstraint, FilteredConstraintRecord, InternalMetadata } from '../../types/engine-v3.js';
 import type { IslThresholdResponse, ThresholdPoint } from '../v1/types/proxy.types.js';
-import { toISLRobustnessRequest, validateISLRequest } from '../../integrations/isl/translator-v3.js';
+import { toISLRobustnessRequest, validateISLRequest, buildParameterUncertaintiesV3 } from '../../integrations/isl/translator-v3.js';
 import { injectConstraintParameterUncertainties } from '../../integrations/isl/constraint-pu-injection.js';
 import {
   createPreflightLog,
@@ -129,7 +129,8 @@ import type { SeedSourceType } from '@talchain/schemas';
 import { factorReviewV2, type CEESchemaV2Config } from '../../cee/client.js';
 import { FLAGS } from '../../config/flags.js';
 import { getAllFeatureFlags } from '../../config/feature-flags.js';
-import { resolveStandardNSamples, applyComplexityBudget, ADAPTIVE_N_SAMPLES_FLOOR } from '../../config/sampling.js';
+import { resolveStandardNSamples, ADAPTIVE_N_SAMPLES_FLOOR, planSampleDepth, type DepthPlanInput } from '../../config/sampling.js';
+import { getIslComputeAdmission } from '../../integrations/isl/compute-admission.js';
 import { generateM1Coaching } from '../../coaching/m1-coaching.js';
 import { filterInterventionOverrides } from '../../coaching/sensitivity-filter.js';
 import type { M1Review } from '../../cee/validation/m1-review-types.js';
@@ -2589,7 +2590,7 @@ function buildResponse(
     inferenceWarnings.push({
       code: INFERENCE_WARNING_CODES.SAMPLES_REDUCED_FOR_COMPLEXITY,
       // provisional_doctrine_v0 — wording surface (diagnostic disclosure)
-      message: `Monte Carlo sample depth was reduced from ${meta.originalNSamples} to ${meta.nSamples} samples so this graph fits the analysis engine's complexity budget (sample depth × nodes × edges). All reported results were computed at ${meta.nSamples} samples; displayed probabilities may be slightly less stable than at the standard depth.`,
+      message: `Monte Carlo sample depth was reduced from ${meta.originalNSamples} to ${meta.nSamples} samples so this graph fits the analysis engine's compute-admission budget. All reported results were computed at ${meta.nSamples} samples; displayed probabilities may be slightly less stable than at the standard depth.`,
       severity: 'warning',
     });
   }
@@ -4427,44 +4428,76 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         }
 
         // =================================================================
-        // Phase 2a+: Complexity budget — adaptive n_samples (ROADMAP 1.54)
+        // Phase 2a+: Compute-admission — adaptive n_samples (Codex F8 handshake)
         // =================================================================
-        // ISL 422s any request whose n_samples × nodes × edges strictly
-        // exceeds its complexity cap (default 10,000,000). Fit the depth to
-        // the budget BEFORE calling ISL, using the causal counts ISL will
-        // receive: filteredGraph nodes (options/decision already filtered)
-        // and its directed edges (the translator drops bidirected edges —
-        // see toISLRobustnessRequest). Exact-duplicate edges may still be
-        // coalesced later (Phase 4b-adjacent), which only SHRINKS the edge
-        // count — so this bound is conservative, never permissive.
+        // ISL rejects any robustness request whose WEIGHTED compute cost exceeds
+        // its live admission ceiling. Fit the depth to that ceiling BEFORE
+        // calling ISL, using the causal counts ISL will receive: filteredGraph
+        // nodes (options/decision already filtered) and its directed edges (the
+        // translator drops bidirected edges — see toISLRobustnessRequest).
+        // Exact-duplicate edges may still be coalesced later, which only SHRINKS
+        // the edge count — so this bound is conservative, never permissive.
         //
-        // Every later consumer of the depth — the base response hash, the
-        // ISL request, flip-probe depth resolution, meta.n_samples, and
-        // brief/fact lineage — sees the SAME post-budget value, so anything
-        // that reports n_samples reports the depth genuinely used.
+        // DERIVE-DON'T-MIRROR: PLoT reads ISL's live ceiling + weights from
+        // /health (cached; getIslComputeAdmission) instead of hand-copying a
+        // scalar number, and prices the request with the ADVERTISED weights via
+        // the version-keyed estimator. If the handshake is unavailable or the
+        // formula version is unknown, planSampleDepth FAILS LOUD onto the
+        // conservative legacy scalar bound (base depth capped) and the resolver
+        // has already emitted the isl_admission_version_skew warning + metric.
+        //
+        // Every later consumer of the depth — the base response hash, the ISL
+        // request, flip-probe depth resolution, meta.n_samples, and brief/fact
+        // lineage — sees the SAME post-plan value, so anything that reports
+        // n_samples reports the depth genuinely used.
         const causalNodeCount = filteredGraph.nodes.length;
         const causalDirectedEdgeCount = filteredGraph.edges.filter(
           (e) => e.edge_type !== 'bidirected',
         ).length;
-        const complexityDecision = applyComplexityBudget(
-          requestedNSamples,
-          causalNodeCount,
-          causalDirectedEdgeCount,
-        );
+        const causalOptionCount = normalizedOptions.length;
+        const uniqueParamUncertainties = new Set(
+          (buildParameterUncertaintiesV3(filteredGraph.nodes) ?? []).map((pu) => pu.node_id),
+        ).size;
+
+        const admissionResolution = getIslComputeAdmission();
+        const depthPlanInput: DepthPlanInput = {
+          nSamples: requestedNSamples,
+          nSamplesExplicit: body.n_samples !== undefined,
+          nodeCount: causalNodeCount,
+          edgeCount: causalDirectedEdgeCount,
+          optionCount: causalOptionCount,
+          uniqueParamUncertainties,
+          // The base /v2/run request always sends these phases (see
+          // toISLRobustnessRequest); path decomposition is a request-gated opt-in.
+          includeVoi: true,
+          includeSensitivity: true,
+          includeEValues: true,
+          includePathDecomposition: body.include_path_decomposition === true,
+        };
+        // conservative (fail-loud: cap the depth-raise + tighten the scalar
+        // bound) ONLY on a genuine skew — ISL configured but its capability is
+        // unreadable / an unknown formula version. A benign no-gate state (ISL
+        // not configured, or the cold warm-up before the first /health read) is
+        // NOT skew and keeps the standard depth + historical scalar budget.
+        const complexityDecision = planSampleDepth(depthPlanInput, admissionResolution.admission, {
+          conservative: admissionResolution.skew,
+        });
 
         if (complexityDecision.kind === 'refused') {
           // Honest structured refusal — never forward a request ISL is
-          // guaranteed to 422, and never pass that raw 422 through.
+          // guaranteed to reject, and never pass that raw rejection through.
           req.log.warn({
             event: 'graph_too_complex_refused',
             request_id: requestId,
             node_count: causalNodeCount,
             edge_count: causalDirectedEdgeCount,
-            node_edge_product: complexityDecision.nodeEdgeProduct,
-            max_node_edge_product: complexityDecision.maxNodeEdgeProduct,
+            option_count: causalOptionCount,
+            plan_mode: complexityDecision.mode,
+            cost_at_floor: complexityDecision.costAtFloor,
+            admission_ceiling: complexityDecision.ceiling,
             requested_n_samples: complexityDecision.originalNSamples,
             n_samples_floor: ADAPTIVE_N_SAMPLES_FLOOR,
-            complexity_budget: complexityDecision.budget,
+            admission_status: admissionResolution.status,
           });
           return reply.status(422).send(buildBlockedResponse(
             'Graph too complex to analyse',
@@ -4472,7 +4505,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               id: randomUUID(),
               code: 'GRAPH_TOO_COMPLEX',
               severity: 'blocker' as const,
-              message: `This graph is too complex to analyse: ${causalNodeCount} causal nodes × ${causalDirectedEdgeCount} causal edges = ${complexityDecision.nodeEdgeProduct}, above the maximum of ${complexityDecision.maxNodeEdgeProduct} the analysis engine can compute even at its minimum reliable sample depth (${ADAPTIVE_N_SAMPLES_FLOOR} samples, complexity budget ${complexityDecision.budget}). Reduce the number of nodes or edges — e.g. remove weaker or duplicate influences — and re-run.`,
+              message: `This graph is too complex to analyse: ${causalNodeCount} causal nodes and ${causalDirectedEdgeCount} causal edges across ${causalOptionCount} option(s) exceed the analysis engine's compute-admission budget even at its minimum reliable sample depth (${ADAPTIVE_N_SAMPLES_FLOOR} samples). Reduce the number of nodes, edges, or options — e.g. remove weaker or duplicate influences — and re-run.`,
               source: 'validation' as const,
               blocks_analysis: true,
             }],
@@ -4497,11 +4530,14 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             request_id: requestId,
             node_count: causalNodeCount,
             edge_count: causalDirectedEdgeCount,
+            option_count: causalOptionCount,
+            plan_mode: complexityDecision.mode,
             original_n_samples: complexityDecision.originalNSamples,
             reduced_n_samples: complexityDecision.nSamples,
-            original_complexity: complexityDecision.complexity,
-            reduced_complexity: complexityDecision.reducedComplexity,
-            complexity_budget: complexityDecision.budget,
+            original_cost: complexityDecision.cost,
+            reduced_cost: complexityDecision.reducedCost,
+            admission_ceiling: complexityDecision.ceiling,
+            admission_status: admissionResolution.status,
             n_samples_explicit: body.n_samples !== undefined,
           });
         }

@@ -23,14 +23,63 @@
  *  5. Anywhere the response reports n_samples, it reports the TRUE depth used.
  */
 
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import {
   applyComplexityBudget,
   resolveComplexityBudget,
   ISL_COMPLEXITY_BUDGET_DEFAULT,
   ADAPTIVE_N_SAMPLES_FLOOR,
+  LEGACY_BASE_N_SAMPLES,
+  estimateWeightedCostV2,
+  type WeightedCostRequest,
 } from '../src/config/sampling.js';
+import {
+  __setIslComputeAdmissionForTest,
+  __resetIslComputeAdmission,
+} from '../src/integrations/isl/compute-admission.js';
+import type {
+  ISLComputeAdmission,
+  ISLComputeAdmissionWeights,
+} from '../src/integrations/isl/types/isl-types.js';
+
+// Live-advertised v2-weighted coefficients (isl-staging /health, 2026-07-18).
+const LIVE_WEIGHTS: ISLComputeAdmissionWeights = {
+  base_per_sample_per_option_per_struct: 1,
+  evpi_sample_cap: 2000,
+  sensitivity_coef: 4,
+  evalue_coef: 20,
+  bands_coef: 200,
+  path_coef: 1,
+  max_decomposition_paths: 20000,
+};
+
+function v2Admission(maxCostUnits = 24_000_000): ISLComputeAdmission {
+  return {
+    max_cost_units: maxCostUnits,
+    complexity_formula_version: 'v2-weighted-2026-07',
+    weights: { ...LIVE_WEIGHTS },
+    caps: { max_options: 10, max_nodes: 50, max_edges: 200, max_parameter_uncertainties: 50 },
+  };
+}
+
+/** Rebuild the weighted-cost request shape from a captured base ISL call body. */
+function costOfCall(call: any, nSamples: number): number {
+  const req: WeightedCostRequest = {
+    nSamples,
+    nodeCount: call.graph.nodes.length,
+    edgeCount: call.graph.edges.length,
+    optionCount: call.options.length,
+    uniqueParamUncertainties: new Set(
+      (call.parameter_uncertainties ?? []).map((pu: any) => pu.node_id),
+    ).size,
+    includeVoi: call.include_voi === true,
+    includeSensitivity: Array.isArray(call.analysis_types) && call.analysis_types.includes('sensitivity'),
+    includeEValues: call.include_e_values === true,
+    includePathDecomposition: call.include_path_decomposition === true,
+  };
+  return estimateWeightedCostV2(req, LIVE_WEIGHTS);
+}
 
 // ---------------------------------------------------------------------------
 // Unit tests — applyComplexityBudget
@@ -217,7 +266,7 @@ function findSamplesReducedWarnings(body: any): any[] {
   );
 }
 
-describe('adaptive n_samples via /v2/run', () => {
+describe('adaptive n_samples via /v2/run (F8 handshake — weighted planning)', () => {
   let app: FastifyInstance;
 
   beforeAll(async () => {
@@ -227,6 +276,7 @@ describe('adaptive n_samples via /v2/run', () => {
     process.env.ENABLE_REVIEW_PASS = '0';
     delete process.env.STANDARD_N_SAMPLES;
     delete process.env.ISL_MAX_COMPUTE_COMPLEXITY;
+    delete process.env.ISL_MAX_COST_UNITS;
     app = await createServer();
     await app.ready();
   });
@@ -235,89 +285,91 @@ describe('adaptive n_samples via /v2/run', () => {
     await app.close();
   });
 
-  it('dense graph: reduces n_samples before calling ISL and attaches SAMPLES_REDUCED_FOR_COMPLEXITY naming original and reduced depths', async () => {
+  // Each test seeds the ISL compute-admission cache directly so the route plans
+  // against the LIVE weighted gate (production reality: ISL F8 is deployed and
+  // /health advertises this block). A fresh-timestamp seed means no network.
+  beforeEach(() => {
+    __setIslComputeAdmissionForTest({ admission: v2Admission(), skew: false, status: 'ok' });
+  });
+  afterEach(() => {
+    __resetIslComputeAdmission();
+  });
+
+  it('dense graph: reduces to the MAXIMAL depth that fits the live weighted ceiling, with the reduction warning', async () => {
     islCalls = [];
-    // 43 factors + goal = 44 nodes, 85 edges → 10000 × 3,740 = 37,400,000 > 30M
+    // denseGraph(43) = 44 nodes / 85 edges / 2 options / 43 factor uncertainties.
+    // Weighted cost at 10000 (EVPI-dominated) exceeds the 24M ceiling → reduced.
     const res = await app.inject({
       method: 'POST',
       url: '/v2/run',
       headers: { 'Content-Type': 'application/json' },
-      payload: {
-        graph: denseGraph(43),
-        options: OPTIONS,
-        goal_node_id: 'goal',
-        seed: '42',
-      },
+      payload: { graph: denseGraph(43), options: OPTIONS, goal_node_id: 'goal', seed: '42' },
     });
 
     expect(res.statusCode).toBe(200);
-
-    // ISL received the reduced depth — floor(30,000,000 / (44 × 85)) = 8,021
     expect(islCalls.length).toBeGreaterThan(0);
     expect(islCalls[0].graph.nodes).toHaveLength(44);
     expect(islCalls[0].graph.edges).toHaveLength(85);
-    expect(islCalls[0].n_samples).toBe(8021);
-    // No ISL call of any kind (base or probe) may breach the budget.
-    for (const call of islCalls) {
-      expect(call.n_samples * call.graph.nodes.length * call.graph.edges.length)
-        .toBeLessThanOrEqual(ISL_COMPLEXITY_BUDGET_DEFAULT);
-    }
+
+    const sent = islCalls[0].n_samples;
+    expect(sent).toBeLessThan(10_000); // reduced
+    expect(sent).toBeGreaterThanOrEqual(ADAPTIVE_N_SAMPLES_FLOOR);
+    // MAXIMAL + never breaches the gate: the sent depth fits 24M, one more breaches.
+    expect(costOfCall(islCalls[0], sent)).toBeLessThanOrEqual(24_000_000);
+    expect(costOfCall(islCalls[0], sent + 1)).toBeGreaterThan(24_000_000);
 
     const body = JSON.parse(res.body);
-    // The response reports the TRUE depth used, not the requested default.
-    expect(body.meta?.n_samples).toBe(8021);
+    expect(body.meta?.n_samples).toBe(sent); // reports the TRUE depth used
 
-    // Exactly one warning, carried on the inference_warnings surface
-    // (the CONSTRAINT_DIRECTION_SUSPECT pattern), naming both depths.
     const warnings = findSamplesReducedWarnings(body);
     expect(warnings).toHaveLength(1);
     expect(warnings[0].severity).toBe('warning');
     expect(warnings[0].message).toContain('10000');
-    expect(warnings[0].message).toContain('8021');
+    expect(warnings[0].message).toContain(String(sent));
   });
 
-  it('graph too complex even at the floor: refuses with GRAPH_TOO_COMPLEX before calling ISL — never a raw ISL 422 passthrough', async () => {
-    // At the DEFAULT budget the refusal arm needs nodes × edges > 30,000,
-    // which PLoT's own 50-node/100-edge graph limits keep out of reach
-    // (max product 5,000) — preflight GRAPH_TOO_LARGE fires first. The arm
-    // is live protection for a lowered ISL_MAX_COMPUTE_COMPLEXITY (the env
-    // both services read) and for future graph-limit raises, so exercise it
-    // here the way it would really fire: same env, lower budget. The
-    // >10,000-at-default arithmetic is covered by the unit tests above.
+  it('mid-size graph within the live weighted budget is admitted at FULL depth (no needless reduction)', async () => {
+    // denseGraph(20) = 21 nodes / 39 edges / 2 opts / 20 factors → weighted cost
+    // ≈ 7.2M ≪ 24M, so the full 10000 passes. (The clean "old scalar would have
+    // over-reduced this, weighted does not" contrast is unit-tested with a U=0
+    // 50n/100e graph — denseGraph makes every node a factor, so its EVPI term
+    // tracks the scalar and the two gates do not cleanly diverge here.)
     islCalls = [];
-    const prev = process.env.ISL_MAX_COMPUTE_COMPLEXITY;
-    try {
-      // 44 × 85 = 3,740; fitting depth floor(1,000,000 / 3,740) = 267 < 1,000.
-      process.env.ISL_MAX_COMPUTE_COMPLEXITY = '1000000';
-      const res = await app.inject({
-        method: 'POST',
-        url: '/v2/run',
-        headers: { 'Content-Type': 'application/json' },
-        payload: {
-          graph: denseGraph(43),
-          options: OPTIONS,
-          goal_node_id: 'goal',
-          seed: '42',
-        },
-      });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v2/run',
+      headers: { 'Content-Type': 'application/json' },
+      payload: { graph: denseGraph(20), options: OPTIONS, goal_node_id: 'goal', seed: '42' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(costOfCall(islCalls[0], 10_000)).toBeLessThanOrEqual(24_000_000);
+    expect(islCalls[0].n_samples).toBe(10_000);
+    expect(findSamplesReducedWarnings(JSON.parse(res.body))).toHaveLength(0);
+  });
 
-      expect(res.statusCode).toBe(422);
-      const body = JSON.parse(res.body);
-      expect(body.analysis_status).toBe('blocked');
-      const critique = (body.critiques ?? []).find((c: any) => c.code === 'GRAPH_TOO_COMPLEX');
-      expect(critique).toBeDefined();
-      expect(critique.severity).toBe('blocker');
-      expect(critique.blocks_analysis).toBe(true);
-      // Actionable: names the causal size and the budget so the caller can act.
-      expect(critique.message).toMatch(/44/);
-      expect(critique.message).toMatch(/85/);
+  it('graph too costly even at the floor: refuses with GRAPH_TOO_COMPLEX before calling ISL — never a raw ISL passthrough', async () => {
+    // Seed a LOW ceiling so even the floor depth (1000) does not fit → refuse.
+    __setIslComputeAdmissionForTest({ admission: v2Admission(1_000_000), skew: false, status: 'ok' });
+    islCalls = [];
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v2/run',
+      headers: { 'Content-Type': 'application/json' },
+      payload: { graph: denseGraph(43), options: OPTIONS, goal_node_id: 'goal', seed: '42' },
+    });
 
-      // ISL was NEVER called — the refusal is PLoT-originated, not a passthrough.
-      expect(islCalls).toHaveLength(0);
-    } finally {
-      if (prev === undefined) delete process.env.ISL_MAX_COMPUTE_COMPLEXITY;
-      else process.env.ISL_MAX_COMPUTE_COMPLEXITY = prev;
-    }
+    expect(res.statusCode).toBe(422);
+    const body = JSON.parse(res.body);
+    expect(body.analysis_status).toBe('blocked');
+    const critique = (body.critiques ?? []).find((c: any) => c.code === 'GRAPH_TOO_COMPLEX');
+    expect(critique).toBeDefined();
+    expect(critique.severity).toBe('blocker');
+    expect(critique.blocks_analysis).toBe(true);
+    // Actionable: names the causal size so the caller can act.
+    expect(critique.message).toMatch(/44/);
+    expect(critique.message).toMatch(/85/);
+    // ISL was NEVER called — the refusal is PLoT-originated, not a passthrough.
+    expect(islCalls).toHaveLength(0);
   });
 
   it('normal graph: default depth passes through untouched with no reduction warning', async () => {
@@ -326,12 +378,7 @@ describe('adaptive n_samples via /v2/run', () => {
       method: 'POST',
       url: '/v2/run',
       headers: { 'Content-Type': 'application/json' },
-      payload: {
-        graph: denseGraph(2), // 3 nodes × 3 edges → 10000 × 9 = 90,000
-        options: OPTIONS,
-        goal_node_id: 'goal',
-        seed: '42',
-      },
+      payload: { graph: denseGraph(2), options: OPTIONS, goal_node_id: 'goal', seed: '42' },
     });
 
     expect(res.statusCode).toBe(200);
@@ -347,23 +394,19 @@ describe('adaptive n_samples via /v2/run', () => {
       method: 'POST',
       url: '/v2/run',
       headers: { 'Content-Type': 'application/json' },
-      payload: {
-        graph: denseGraph(43), // 44 × 85 = 3,740 → floor(30M / 3,740) = 8,021
-        options: OPTIONS,
-        goal_node_id: 'goal',
-        seed: '42',
-        n_samples: 10000,
-      },
+      payload: { graph: denseGraph(43), options: OPTIONS, goal_node_id: 'goal', seed: '42', n_samples: 10000 },
     });
 
     expect(res.statusCode).toBe(200);
-    expect(islCalls[0].n_samples).toBe(8021);
+    const sent = islCalls[0].n_samples;
+    expect(sent).toBeLessThan(10_000);
+    expect(costOfCall(islCalls[0], sent)).toBeLessThanOrEqual(24_000_000);
     const body = JSON.parse(res.body);
-    expect(body.meta?.n_samples).toBe(8021);
+    expect(body.meta?.n_samples).toBe(sent);
     const warnings = findSamplesReducedWarnings(body);
     expect(warnings).toHaveLength(1);
     expect(warnings[0].message).toContain('10000');
-    expect(warnings[0].message).toContain('8021');
+    expect(warnings[0].message).toContain(String(sent));
   });
 
   it('explicit caller n_samples within budget is respected exactly, with no warning', async () => {
@@ -372,13 +415,7 @@ describe('adaptive n_samples via /v2/run', () => {
       method: 'POST',
       url: '/v2/run',
       headers: { 'Content-Type': 'application/json' },
-      payload: {
-        graph: denseGraph(2),
-        options: OPTIONS,
-        goal_node_id: 'goal',
-        seed: '42',
-        n_samples: 8000,
-      },
+      payload: { graph: denseGraph(2), options: OPTIONS, goal_node_id: 'goal', seed: '42', n_samples: 8000 },
     });
 
     expect(res.statusCode).toBe(200);
@@ -386,5 +423,24 @@ describe('adaptive n_samples via /v2/run', () => {
     const body = JSON.parse(res.body);
     expect(body.meta?.n_samples).toBe(8000);
     expect(findSamplesReducedWarnings(body)).toHaveLength(0);
+  });
+
+  it('FAIL-LOUD FALLBACK: with a skewed capability the DEFAULTED depth-raise is disabled (plans at 4000, not 10000)', async () => {
+    // A version-skewed capability → the route must fall back to the conservative
+    // legacy scalar bound with the depth-raise disabled.
+    __setIslComputeAdmissionForTest({ admission: null, skew: true, status: 'unknown_version' });
+    islCalls = [];
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v2/run',
+      headers: { 'Content-Type': 'application/json' },
+      payload: { graph: denseGraph(2), options: OPTIONS, goal_node_id: 'goal', seed: '42' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    // 3 nodes × 3 edges fits the 10M scalar bound at 4000 → unchanged at 4000.
+    expect(islCalls[0].n_samples).toBe(LEGACY_BASE_N_SAMPLES); // 4000, not 10000
+    const body = JSON.parse(res.body);
+    expect(body.meta?.n_samples).toBe(LEGACY_BASE_N_SAMPLES);
   });
 });
