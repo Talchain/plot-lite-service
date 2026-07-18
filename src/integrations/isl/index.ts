@@ -200,7 +200,8 @@ export interface ISLService {
     endpoint: string,
     body: unknown,
     requestId: string,
-    timeoutMs?: number
+    timeoutMs?: number,
+    maxRetries?: number
   ): Promise<ISLAnalysisResult<T>>;
 }
 
@@ -617,7 +618,8 @@ export function createISLService(): ISLService {
       endpoint: string,
       body: unknown,
       requestId: string,
-      timeoutMs?: number
+      timeoutMs?: number,
+      maxRetries?: number
     ): Promise<ISLAnalysisResult<T>> {
       const startMs = Date.now();
 
@@ -642,6 +644,12 @@ export function createISLService(): ISLService {
       // Apply per-call timeout override if provided (e.g., budget-aware threshold calls)
       if (timeoutMs !== undefined) {
         currentConfig.timeoutMs = timeoutMs;
+      }
+      // Per-call retry cap (A3 remediation item 4): the base /v2/run robustness
+      // call passes this so its retries × per-attempt timeout cannot outlive the
+      // request budget. Omitted → the config default (ISL_MAX_RETRIES, 3).
+      if (maxRetries !== undefined) {
+        currentConfig.maxRetries = Math.max(1, Math.floor(maxRetries));
       }
       const currentClient = new ISLClient(currentConfig);
 

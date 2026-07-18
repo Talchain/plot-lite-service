@@ -18,7 +18,6 @@
 import type { FlipThresholdInputData } from '../cee/validation/m1-review-types.js';
 import { computeMarginSensitivity, type MarginSensitivity } from './margin-sensitivity.js';
 import { resolveBoundedIntEnvOrWarn, MIN_N_SAMPLES, MAX_N_SAMPLES } from '../config/env-int.js';
-import { STANDARD_N_SAMPLES_DEFAULT } from '../config/sampling.js';
 
 // =============================================================================
 // Types
@@ -88,14 +87,39 @@ export interface FlipSearchConfig {
 export const DEFAULT_FLIP_PER_FACTOR_TIMEOUT_MS = 10_000;
 export const DEFAULT_FLIP_OVERALL_TIMEOUT_MS = 30_000;
 
+/**
+ * Bounds for the flip-search time-budget env overrides (ms).
+ *
+ * A budget must be a non-negative integer. `0` is PERMITTED and means an
+ * immediate timeout on every factor — the deterministic "disable flip search
+ * but keep the per-factor 'timeout' disclosure" knob (used by the disclosure
+ * tests). The upper bound is generous (10 min) because the OVERALL budget is
+ * additionally clamped to the remaining request budget at the call site — this
+ * bound only exists to reject garbage. Routing these through the strict
+ * {@link resolveBoundedIntEnvOrWarn} (rather than `parseInt`) closes the
+ * NaN/misparse hole: `parseInt('' ?? default)` on an EMPTY env string is `NaN`,
+ * and `parseInt('30_000')`/`parseInt('30000abc')` silently return `30`/`30000`.
+ * A `NaN` deadline (`Date.now() + NaN`) makes every `Date.now() >= deadline`
+ * guard false — defeating every timeout. (`?? DEFAULT` preserves a valid `0`
+ * because `0` is non-nullish.)
+ */
+export const MIN_FLIP_TIMEOUT_MS = 0;
+export const MAX_FLIP_TIMEOUT_MS = 600_000;
+
 /** Env-or-default overall flip-search budget (before call-site budget clamping). */
 export function resolveFlipOverallTimeoutMs(): number {
-  return parseInt(process.env.FLIP_SEARCH_OVERALL_TIMEOUT_MS ?? String(DEFAULT_FLIP_OVERALL_TIMEOUT_MS), 10);
+  return (
+    resolveBoundedIntEnvOrWarn('FLIP_SEARCH_OVERALL_TIMEOUT_MS', MIN_FLIP_TIMEOUT_MS, MAX_FLIP_TIMEOUT_MS) ??
+    DEFAULT_FLIP_OVERALL_TIMEOUT_MS
+  );
 }
 
 /** Env-or-default per-factor flip-search budget. Also caps each probe's ISL call. */
 export function resolveFlipPerFactorTimeoutMs(): number {
-  return parseInt(process.env.FLIP_SEARCH_PER_FACTOR_TIMEOUT_MS ?? String(DEFAULT_FLIP_PER_FACTOR_TIMEOUT_MS), 10);
+  return (
+    resolveBoundedIntEnvOrWarn('FLIP_SEARCH_PER_FACTOR_TIMEOUT_MS', MIN_FLIP_TIMEOUT_MS, MAX_FLIP_TIMEOUT_MS) ??
+    DEFAULT_FLIP_PER_FACTOR_TIMEOUT_MS
+  );
 }
 
 function getDefaultConfig(): FlipSearchConfig {
@@ -124,8 +148,25 @@ function getDefaultConfig(): FlipSearchConfig {
  * (flip_reason 'timeout' + elapsed_ms) instead of silently shipping
  * low-precision values. Track-S decoupling survives as the cap + the
  * FLIP_PROBE_N_SAMPLES env override, no longer as a hard 1,000 floor-pin.
+ *
+ * The cap DERIVES from `MAX_N_SAMPLES` (the /v2/run schema ceiling) rather than
+ * mirroring the `10_000` literal, so the two can never silently diverge.
  */
-export const DEFAULT_FLIP_PROBE_N_SAMPLES = 10_000;
+export const DEFAULT_FLIP_PROBE_N_SAMPLES = MAX_N_SAMPLES;
+
+/**
+ * Fallback base depth used ONLY when the caller's base `n_samples` is unknown.
+ *
+ * An EXPLICIT 4,000 floor — deliberately NOT `STANDARD_N_SAMPLES_DEFAULT`.
+ * `STANDARD_N_SAMPLES_DEFAULT` was raised to `MAX_N_SAMPLES` (10,000) on
+ * 2026-07-17, so `min(DEFAULT_FLIP_PROBE_N_SAMPLES, STANDARD_N_SAMPLES_DEFAULT)`
+ * collapsed to `min(10k, 10k) = 10k` — the exact 10k CAP the docstring below
+ * promises to avoid. "Base precision" means matching a typical base depth, not
+ * maxing out the probe depth when the base is unknown. On the live route the
+ * base depth is always known (resolveStandardNSamples), so this branch is a
+ * defensive fallback for direct callers/tests only.
+ */
+export const FLIP_PROBE_UNKNOWN_BASE_N_SAMPLES = 4_000;
 
 /**
  * Resolve the sample depth to use for flip probes.
@@ -140,11 +181,11 @@ export const DEFAULT_FLIP_PROBE_N_SAMPLES = 10_000;
 export function resolveFlipProbeNSamples(baseNSamples?: number): number {
   const envOverride = resolveBoundedIntEnvOrWarn('FLIP_PROBE_N_SAMPLES', MIN_N_SAMPLES, MAX_N_SAMPLES);
   if (envOverride !== null) return envOverride;
-  // Unknown base depth → assume the standard base default (4,000), never the
-  // 10k cap: "base precision" means matching the base, not maxing out.
+  // Unknown base depth → the explicit 4,000 floor, never the 10k cap:
+  // "base precision" means matching a typical base, not maxing out.
   const base = typeof baseNSamples === 'number' && Number.isFinite(baseNSamples) && baseNSamples > 0
     ? baseNSamples
-    : STANDARD_N_SAMPLES_DEFAULT;
+    : FLIP_PROBE_UNKNOWN_BASE_N_SAMPLES;
   return Math.min(DEFAULT_FLIP_PROBE_N_SAMPLES, base);
 }
 
@@ -194,6 +235,53 @@ export interface FlipDiagnostics {
 }
 
 // =============================================================================
+// Concurrency bound
+// =============================================================================
+
+/**
+ * Max ISL inference calls in flight at once across a single flip search.
+ * Bounds ISL load so a many-candidate / deep-probe search cannot saturate the
+ * engine (→ 429s). Pinned; see the concurrency comment in resolveFlipValues.
+ */
+export const FLIP_MAX_CONCURRENT_ISL_CALLS = 2;
+
+/**
+ * Wrap an {@link ISLInferenceFn} so at most `max` invocations run concurrently;
+ * excess calls queue FIFO and start as earlier ones settle. A minimal
+ * counting-semaphore — no external dependency, order-preserving, and it applies
+ * uniformly to every probe of every factor because it wraps the single shared fn.
+ */
+function limitConcurrency(fn: ISLInferenceFn, max: number): ISLInferenceFn {
+  let active = 0;
+  const queue: Array<() => void> = [];
+  const acquire = (): Promise<void> =>
+    new Promise<void>((resolve) => {
+      if (active < max) {
+        active++;
+        resolve();
+      } else {
+        queue.push(() => {
+          active++;
+          resolve();
+        });
+      }
+    });
+  const release = (): void => {
+    active--;
+    const next = queue.shift();
+    if (next) next();
+  };
+  return async (factorId: string, overrideMean: number): Promise<FlipInferenceResult> => {
+    await acquire();
+    try {
+      return await fn(factorId, overrideMean);
+    } finally {
+      release();
+    }
+  };
+}
+
+// =============================================================================
 // Main Function
 // =============================================================================
 
@@ -223,10 +311,19 @@ export async function resolveFlipValues(
 
   const overallDeadline = Date.now() + cfg.overallTimeoutMs;
 
-  // Process factors with max 2 concurrency (spec: max 2 parallel ISL calls)
+  // Cap TOTAL in-flight ISL calls at 2 across the whole flip search. Each factor
+  // search issues up to 3 Step-0 probes in parallel (baseline + both bounds), so
+  // an unbounded `Promise.all` over N candidates would peak at N×3 concurrent ISL
+  // calls — at the raised 10k probe depth that amplifies into ISL saturation/429s.
+  // A shared semaphore around inferenceFn bounds the REAL ISL fan-out to
+  // FLIP_MAX_CONCURRENT_ISL_CALLS, independent of candidate count or per-factor
+  // probe parallelism. (Prior comment claimed "max 2 concurrency" but nothing
+  // enforced it — the candidate-level Promise.all was unbounded and each factor
+  // fanned out 3-wide underneath.)
+  const boundedInferenceFn = limitConcurrency(inferenceFn, FLIP_MAX_CONCURRENT_ISL_CALLS);
   const settled = await Promise.all(
     candidates.map((candidate) =>
-      searchFlipForFactor(candidate, inferenceFn, originalWinnerId, cfg, overallDeadline)
+      searchFlipForFactor(candidate, boundedInferenceFn, originalWinnerId, cfg, overallDeadline)
     )
   );
 
