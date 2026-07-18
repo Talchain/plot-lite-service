@@ -15,7 +15,7 @@
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import { ISL_TIMEOUT_MS } from '../src/config/timeouts.js';
+import { ISL_TIMEOUT_MS, worstCaseMs } from '../src/config/timeouts.js';
 
 const BASE_ROBUSTNESS_ENDPOINT = '/api/v1/robustness/analyze/v2';
 const UI_CLIENT_TIMEOUT_MS = 120_000; // the binding caller hop
@@ -115,7 +115,10 @@ describe('item 4 — base ISL robustness call clamped to the request budget', ()
     delete process.env.REQUEST_BUDGET_MS; // default 70s
     await run();
     const c = baseCall();
-    const worstCase = c.maxRetries! * c.timeoutMs!;
+    // Honest accounting (F11): include the 1s+2s… backoff the client sleeps
+    // between attempts — the previous `maxRetries × timeoutMs` omitted it and so
+    // could not see the very omission this cluster fixes.
+    const worstCase = worstCaseMs(c.maxRetries!, c.timeoutMs!);
     // Pre-fix worst case was 60_000 × 3 = 180_000 (> 120_000). Now bounded.
     expect(worstCase).toBeLessThan(UI_CLIENT_TIMEOUT_MS);
     // …and within the request budget envelope (70s default).
@@ -126,7 +129,7 @@ describe('item 4 — base ISL robustness call clamped to the request budget', ()
     process.env.REQUEST_BUDGET_MS = '30000';
     await run();
     const c = baseCall();
-    const worstCase = c.maxRetries! * c.timeoutMs!;
+    const worstCase = worstCaseMs(c.maxRetries!, c.timeoutMs!);
     expect(c.timeoutMs!).toBeLessThanOrEqual(30_000);
     expect(worstCase).toBeLessThanOrEqual(30_000);
     expect(worstCase).toBeLessThan(UI_CLIENT_TIMEOUT_MS);

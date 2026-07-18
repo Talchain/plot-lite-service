@@ -133,6 +133,61 @@ export function resolveRequestBudgetMs(): number {
 }
 
 // -----------------------------------------------------------------------------
+// ISL retry policy (single source of truth)
+// -----------------------------------------------------------------------------
+
+/**
+ * Default TOTAL ISL attempts (initial try + retries) — the `for (attempt = 1;
+ * attempt <= maxRetries; attempt++)` bound in isl/client.ts.
+ *
+ * De-mirrored 2026-07-18: this `3` was hand-written in BOTH isl/client.ts
+ * (`parseInt(process.env.ISL_MAX_RETRIES ?? '3', 10)`) and config-validator.ts
+ * (`Number(process.env.ISL_MAX_RETRIES || '3')`). A single constant so the two
+ * cannot silently drift. (The ISL timeouts were already de-mirrored here; this
+ * default was the one left behind.)
+ */
+export const ISL_MAX_RETRIES_DEFAULT = 3;
+
+/** Resolve the ISL attempt cap from `ISL_MAX_RETRIES` (default {@link ISL_MAX_RETRIES_DEFAULT}). */
+export function resolveIslMaxRetries(): number {
+  return parseInt(process.env.ISL_MAX_RETRIES ?? String(ISL_MAX_RETRIES_DEFAULT), 10);
+}
+
+/**
+ * Exponential-backoff constants for ISL retries. isl/client.ts sleeps
+ * `min(BASE · 2^(attempt-1), CAP)` AFTER each failed non-final attempt. Kept
+ * here as the single source shared with the worst-case accounting below.
+ */
+export const ISL_RETRY_BACKOFF_BASE_MS = 1_000;
+export const ISL_RETRY_BACKOFF_CAP_MS = 5_000;
+
+/** Backoff slept after attempt `attempt` (1-indexed) before the next try. */
+export function islRetryBackoffMs(attempt: number): number {
+  return Math.min(ISL_RETRY_BACKOFF_BASE_MS * Math.pow(2, attempt - 1), ISL_RETRY_BACKOFF_CAP_MS);
+}
+
+/**
+ * HONEST worst-case wall time for `attempts` sequential ISL attempts, each
+ * bounded by `perAttemptTimeoutMs`:
+ *
+ *   attempts × perAttemptTimeoutMs  +  Σ backoff slept BETWEEN them
+ *                                       (i = 1 .. attempts-1)
+ *
+ * The previous accounting (`attempts × perAttemptTimeoutMs`) OMITTED the 1s+2s…
+ * backoff the client actually sleeps — config-validator's comment even claimed
+ * "with exponential backoff" while its arithmetic did not include it, and the
+ * /v2/run base-call clamp + its telemetry + their test each repeated the same
+ * omission. Centralised here so every one of those sites DERIVES the same number
+ * instead of re-deriving (and re-omitting) it.
+ */
+export function worstCaseMs(attempts: number, perAttemptTimeoutMs: number): number {
+  const n = Math.max(0, Math.floor(attempts));
+  let backoff = 0;
+  for (let i = 1; i <= n - 1; i++) backoff += islRetryBackoffMs(i);
+  return n * perAttemptTimeoutMs + backoff;
+}
+
+// -----------------------------------------------------------------------------
 // Fastify server timeout
 // -----------------------------------------------------------------------------
 

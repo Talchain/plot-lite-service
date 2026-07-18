@@ -11,7 +11,7 @@
 import { ISLHttpError, ISLTimeoutError, ISLNetworkError, isRetryableError, type ISLError422 } from './errors.js';
 import { computeOlumiHash } from '../../util/canonical.js';
 import { recordDownstreamCall, sanitizePayloadForDebug, computePayloadDigest } from '../../util/downstream-tracker.js';
-import { ISL_TIMEOUT_MS, ISL_HEALTH_CHECK_TIMEOUT_MS } from '../../config/timeouts.js';
+import { ISL_TIMEOUT_MS, ISL_HEALTH_CHECK_TIMEOUT_MS, resolveIslMaxRetries, islRetryBackoffMs } from '../../config/timeouts.js';
 
 /**
  * ISL client configuration
@@ -39,6 +39,15 @@ export interface ISLRequestOptions {
   body: unknown;
   /** Request ID for tracing */
   requestId: string;
+  /**
+   * Optional external cancellation signal (e.g. a flip-search factor/overall
+   * deadline). Folded into THIS attempt's timeout AbortController so an in-flight
+   * fetch aborts the moment the caller's deadline trips. A deadline-cancel
+   * surfaces as an {@link ISLTimeoutError} — the same class as the per-attempt
+   * timeout — because the fold re-aborts via `controller.abort()` (name
+   * `AbortError`), preserving the existing AbortError→ISLTimeoutError mapping.
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -82,7 +91,7 @@ export class ISLClient {
    * @throws ISLHttpError on non-2xx responses
    */
   async request<T>(options: ISLRequestOptions): Promise<ISLRequestResult<T>> {
-    const { endpoint, body, requestId } = options;
+    const { endpoint, body, requestId, signal: externalSignal } = options;
     // Pin response version via query param (in addition to header)
     const url = `${this.config.baseUrl}${endpoint}?response_version=2`;
 
@@ -109,12 +118,30 @@ export class ISLClient {
       // Track start time outside try block for catch access
       const startTime = Date.now();
 
+      // Per-attempt timeout controller. Hoisted (with the external-signal
+      // listener) so the `finally` below always clears the timer and detaches the
+      // listener — even on the throwing path — with no cross-attempt leak.
+      const controller = new AbortController();
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+      let onExternalAbort: (() => void) | undefined;
+
       try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(
+        timeoutId = setTimeout(
           () => controller.abort(),
           this.config.timeoutMs
         );
+        // Fold the caller's external cancellation signal into THIS attempt's
+        // controller: if it is (or becomes) aborted, abort the in-flight fetch.
+        // Re-aborted via controller.abort() (name 'AbortError') so a deadline
+        // cancel maps to ISLTimeoutError exactly like the per-attempt timeout.
+        if (externalSignal) {
+          if (externalSignal.aborted) {
+            controller.abort();
+          } else {
+            onExternalAbort = () => controller.abort();
+            externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+          }
+        }
 
         const response = await fetch(url, {
           method: 'POST',
@@ -131,8 +158,6 @@ export class ISLClient {
           body: requestBodyText,
           signal: controller.signal,
         });
-
-        clearTimeout(timeoutId);
 
         const duration = Date.now() - startTime;
 
@@ -265,9 +290,14 @@ export class ISLClient {
           break;
         }
 
-        // Exponential backoff: 1s, 2s, 4s (capped at 5s)
-        const backoffMs = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+        // Exponential backoff (single source: islRetryBackoffMs) — 1s, 2s, 4s… capped at 5s.
+        const backoffMs = islRetryBackoffMs(attempt);
         await this.sleep(backoffMs);
+      } finally {
+        if (timeoutId !== undefined) clearTimeout(timeoutId);
+        if (onExternalAbort && externalSignal) {
+          externalSignal.removeEventListener('abort', onExternalAbort);
+        }
       }
     }
 
@@ -338,7 +368,7 @@ export function getISLClientConfig(): ISLClientConfig {
     baseUrl: String(process.env.ISL_BASE_URL ?? '').trim(),
     apiKey: String(process.env.ISL_API_KEY ?? '').trim(),
     timeoutMs: ISL_TIMEOUT_MS,
-    maxRetries: parseInt(process.env.ISL_MAX_RETRIES ?? '3', 10),
+    maxRetries: resolveIslMaxRetries(),
     healthCheckTimeoutMs: ISL_HEALTH_CHECK_TIMEOUT_MS,
   };
 }

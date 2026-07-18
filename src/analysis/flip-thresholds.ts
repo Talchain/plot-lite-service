@@ -43,7 +43,14 @@ export interface FlipInferenceResult {
  */
 export type ISLInferenceFn = (
   factorId: string,
-  overrideMean: number
+  overrideMean: number,
+  /**
+   * F3 (Codex): optional per-probe cancellation signal. When the factor/overall
+   * flip deadline trips, this aborts so an in-flight ISL probe cancels instead of
+   * running to completion. Implementations that ignore it still work (no
+   * cancellation, unchanged behaviour) — a 2-arg fn stays assignable to this type.
+   */
+  signal?: AbortSignal
 ) => Promise<FlipInferenceResult>;
 
 /**
@@ -271,10 +278,13 @@ function limitConcurrency(fn: ISLInferenceFn, max: number): ISLInferenceFn {
     const next = queue.shift();
     if (next) next();
   };
-  return async (factorId: string, overrideMean: number): Promise<FlipInferenceResult> => {
+  return async (factorId: string, overrideMean: number, signal?: AbortSignal): Promise<FlipInferenceResult> => {
     await acquire();
     try {
-      return await fn(factorId, overrideMean);
+      // Forward the deadline signal so a probe dequeued AFTER the deadline sees an
+      // already-aborted signal and short-circuits (see createISLInferenceFn) — this
+      // is how a queued probe past the deadline is prevented from starting real work.
+      return await fn(factorId, overrideMean, signal);
     } finally {
       release();
     }
@@ -310,6 +320,13 @@ export async function resolveFlipValues(
   }
 
   const overallDeadline = Date.now() + cfg.overallTimeoutMs;
+  // Cancellation (F3, Codex): a signal that aborts when the OVERALL flip deadline
+  // trips, threaded to every probe so in-flight ISL calls actually cancel. The
+  // `Date.now() >= deadline` guards below only fire BETWEEN probes — they cannot
+  // interrupt an awaited Promise.allSettled or cancel a queued/in-flight probe.
+  // AbortSignal.timeout's internal timer is unref'd, so it never keeps the event
+  // loop (or a test process) alive after the search settles.
+  const overallTimeoutSignal = AbortSignal.timeout(Math.max(0, cfg.overallTimeoutMs));
 
   // Cap TOTAL in-flight ISL calls at 2 across the whole flip search. Each factor
   // search issues up to 3 Step-0 probes in parallel (baseline + both bounds), so
@@ -323,7 +340,7 @@ export async function resolveFlipValues(
   const boundedInferenceFn = limitConcurrency(inferenceFn, FLIP_MAX_CONCURRENT_ISL_CALLS);
   const settled = await Promise.all(
     candidates.map((candidate) =>
-      searchFlipForFactor(candidate, boundedInferenceFn, originalWinnerId, cfg, overallDeadline)
+      searchFlipForFactor(candidate, boundedInferenceFn, originalWinnerId, cfg, overallDeadline, overallTimeoutSignal)
     )
   );
 
@@ -354,13 +371,14 @@ async function searchFlipForFactor(
   inferenceFn: ISLInferenceFn,
   originalWinnerId: string,
   config: FlipSearchConfig,
-  overallDeadline: number
+  overallDeadline: number,
+  overallSignal: AbortSignal
 ): Promise<{ result: FlipThresholdInputData; diagnostics: FlipDiagnostics }> {
   // Stamp elapsed_ms on every diagnostics entry (all exit paths return the
   // shared `diag` object). Paul-ruled lenient defaults 2026-07-17: slowness
   // must be visible, especially on 'timeout' trips.
   const searchStartedAt = Date.now();
-  const out = await searchFlipForFactorInner(candidate, inferenceFn, originalWinnerId, config, overallDeadline);
+  const out = await searchFlipForFactorInner(candidate, inferenceFn, originalWinnerId, config, overallDeadline, overallSignal);
   out.diagnostics.elapsed_ms = Date.now() - searchStartedAt;
   return out;
 }
@@ -370,9 +388,18 @@ async function searchFlipForFactorInner(
   inferenceFn: ISLInferenceFn,
   originalWinnerId: string,
   config: FlipSearchConfig,
-  overallDeadline: number
+  overallDeadline: number,
+  overallSignal: AbortSignal
 ): Promise<{ result: FlipThresholdInputData; diagnostics: FlipDiagnostics }> {
   const factorDeadline = Math.min(Date.now() + config.perFactorTimeoutMs, overallDeadline);
+  // Cancellation (F3): abort every probe of THIS factor when either the factor's
+  // own deadline or the overall flip deadline trips. Combined with the between-probe
+  // `Date.now() >= factorDeadline` guards below, this makes in-flight AND queued
+  // probes stop instead of running to completion past the deadline.
+  const factorSignal = AbortSignal.any([
+    overallSignal,
+    AbortSignal.timeout(Math.max(0, factorDeadline - Date.now())),
+  ]);
 
   const baseline = candidate.current_value;
 
@@ -433,19 +460,24 @@ async function searchFlipForFactorInner(
     // settles fulfilled or rejected); true in-flight bounding would require request
     // cancellation (AbortController), which is out of scope for this telemetry fix.
     const settled = await Promise.allSettled([
-      inferenceFn(candidate.factor_id, baseline),
-      inferenceFn(candidate.factor_id, 0),
-      inferenceFn(candidate.factor_id, 1),
+      inferenceFn(candidate.factor_id, baseline, factorSignal),
+      inferenceFn(candidate.factor_id, 0, factorSignal),
+      inferenceFn(candidate.factor_id, 1, factorSignal),
     ]);
     probes += settled.filter((s) => s.status === 'fulfilled').length;
 
     // Any Step-0 probe failing → error, with the honest count of probes that did
     // complete. (margin_sensitivity is intentionally omitted, as on the catch path.)
+    // Cancellation (F3): a rejection AFTER the deadline is a cancelled probe, not
+    // an ISL fault — disclose it as 'timeout' (the same status the between-probe
+    // guards use), else 'error'. Never relabel a genuine failure as a timeout.
     if (settled.some((s) => s.status === 'rejected')) {
-      diag.flip_reason = 'error';
+      const reason: 'timeout' | 'error' =
+        (Date.now() >= factorDeadline || factorSignal.aborted) ? 'timeout' : 'error';
+      diag.flip_reason = reason;
       diag.probes_used = probes;
       return {
-        result: { ...candidate, flip_value: null, flip_reason: 'error', iterations_used: 0, probes_used: probes, alternative_winner_id: null },
+        result: { ...candidate, flip_value: null, flip_reason: reason, iterations_used: 0, probes_used: probes, alternative_winner_id: null },
         diagnostics: diag,
       };
     }
@@ -560,7 +592,7 @@ async function searchFlipForFactorInner(
       }
 
       const mid = midpoint(searchLow, searchHigh);
-      const midResult = await inferenceFn(candidate.factor_id, mid);
+      const midResult = await inferenceFn(candidate.factor_id, mid, factorSignal);
       iterations++;
       probes++; // bisection midpoint probe completed
 
@@ -575,7 +607,7 @@ async function searchFlipForFactorInner(
       } else {
         // Non-monotonic: a third option became the winner. Fall back to grid scan.
         return await gridFallback(
-          candidate, inferenceFn, originalWinnerId, 0, 1, config, factorDeadline, iterations, probes, diag, marginSensitivity
+          candidate, inferenceFn, originalWinnerId, 0, 1, config, factorDeadline, iterations, probes, diag, marginSensitivity, factorSignal
         );
       }
     }
@@ -604,10 +636,15 @@ async function searchFlipForFactorInner(
       diagnostics: diag,
     };
   } catch (err) {
-    diag.flip_reason = 'error';
+    // Cancellation (F3): an error after the deadline is a cancelled probe →
+    // disclose 'timeout'; else a genuine ISL fault → 'error'. (Mirror of the
+    // Step-0 rejection branch above.)
+    const reason: 'timeout' | 'error' =
+      (Date.now() >= factorDeadline || factorSignal.aborted) ? 'timeout' : 'error';
+    diag.flip_reason = reason;
     diag.probes_used = probes;
     return {
-      result: { ...candidate, flip_value: null, flip_reason: 'error', iterations_used: 0, probes_used: probes, alternative_winner_id: null },
+      result: { ...candidate, flip_value: null, flip_reason: reason, iterations_used: 0, probes_used: probes, alternative_winner_id: null },
       diagnostics: diag,
     };
   }
@@ -632,7 +669,8 @@ async function gridFallback(
   iterationsSoFar: number,
   probesSoFar: number,
   diag: FlipDiagnostics,
-  marginSensitivity: MarginSensitivity
+  marginSensitivity: MarginSensitivity,
+  signal?: AbortSignal
 ): Promise<{ result: FlipThresholdInputData; diagnostics: FlipDiagnostics }> {
   // iterations_used stays bisection-only: grid probes count toward probes_used,
   // never toward iterations_used. `iterations` is fixed to the bisection-iteration
@@ -655,7 +693,7 @@ async function gridFallback(
     const probeValue = low + i * step;
 
     try {
-      const result = await inferenceFn(candidate.factor_id, probeValue);
+      const result = await inferenceFn(candidate.factor_id, probeValue, signal);
       probes++; // grid probe completed (counts toward probes_used, not iterations_used)
 
       const winner = getArgmaxOption(result);
@@ -768,7 +806,7 @@ function roundTo4(value: number): number {
  * @returns ISLInferenceFn callback
  */
 export function createISLInferenceFn(
-  callAnalysis: (endpoint: string, body: unknown, requestId: string) => Promise<{ data: any | null }>,
+  callAnalysis: (endpoint: string, body: unknown, requestId: string, signal?: AbortSignal) => Promise<{ data: any | null }>,
   originalRequest: {
     graph: { nodes: any[]; edges: any[] };
     options: any[];
@@ -785,7 +823,16 @@ export function createISLInferenceFn(
   // When omitted, probes fall back to the base request's n_samples (legacy behaviour).
   flipProbeNSamples?: number
 ): ISLInferenceFn {
-  return async (factorId: string, overrideMean: number): Promise<FlipInferenceResult> => {
+  return async (factorId: string, overrideMean: number, signal?: AbortSignal): Promise<FlipInferenceResult> => {
+    // F3 (Codex): a probe dequeued AFTER the deadline (semaphore release path)
+    // must not start real work — short-circuit before building the payload or
+    // calling ISL. This is the "re-check the deadline in the acquire/release path"
+    // guarantee, delivered via the threaded signal rather than by coupling the
+    // generic concurrency limiter to the flip deadline. An in-flight probe is
+    // separately cancelled inside the client (the signal aborts its fetch).
+    if (signal?.aborted) {
+      throw new DOMException('Flip probe aborted before ISL call (deadline elapsed)', 'AbortError');
+    }
     // Clone parameter_uncertainties with the target factor's mean overridden
     const basePU = originalRequest.parameter_uncertainties ?? [];
     const factorExists = basePU.some((pu) => pu.node_id === factorId);
@@ -860,7 +907,8 @@ export function createISLInferenceFn(
     const result = await callAnalysis(
       '/api/v1/robustness/analyze/v2',
       modifiedRequest,
-      `${requestId}__flip`
+      `${requestId}__flip`,
+      signal
     );
 
     if (!result.data) {

@@ -201,7 +201,8 @@ export interface ISLService {
     body: unknown,
     requestId: string,
     timeoutMs?: number,
-    maxRetries?: number
+    maxRetries?: number,
+    signal?: AbortSignal
   ): Promise<ISLAnalysisResult<T>>;
 }
 
@@ -619,7 +620,8 @@ export function createISLService(): ISLService {
       body: unknown,
       requestId: string,
       timeoutMs?: number,
-      maxRetries?: number
+      maxRetries?: number,
+      signal?: AbortSignal
     ): Promise<ISLAnalysisResult<T>> {
       const startMs = Date.now();
 
@@ -658,6 +660,7 @@ export function createISLService(): ISLService {
           endpoint,
           body,
           requestId,
+          signal,
         });
 
         return {
