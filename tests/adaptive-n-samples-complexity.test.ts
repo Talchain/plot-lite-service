@@ -64,12 +64,14 @@ function v2Admission(maxCostUnits = 24_000_000): ISLComputeAdmission {
 }
 
 /** Rebuild the weighted-cost request shape from a captured base ISL call body. */
-function costOfCall(call: any, nSamples: number): number {
-  const req: WeightedCostRequest = {
+function costReqFromCall(call: any, nSamples: number): WeightedCostRequest {
+  return {
     nSamples,
     nodeCount: call.graph.nodes.length,
     edgeCount: call.graph.edges.length,
     optionCount: call.options.length,
+    // The SENT parameter_uncertainties — factor PUs PLUS constraint-injected PUs,
+    // exactly what ISL counts in its EVPI `u`.
     uniqueParamUncertainties: new Set(
       (call.parameter_uncertainties ?? []).map((pu: any) => pu.node_id),
     ).size,
@@ -78,7 +80,11 @@ function costOfCall(call: any, nSamples: number): number {
     includeEValues: call.include_e_values === true,
     includePathDecomposition: call.include_path_decomposition === true,
   };
-  return estimateWeightedCostV2(req, LIVE_WEIGHTS);
+}
+
+/** Weighted cost of the SENT request at a given depth (ISL's actual `u`). */
+function costOfCall(call: any, nSamples: number): number {
+  return estimateWeightedCostV2(costReqFromCall(call, nSamples), LIVE_WEIGHTS);
 }
 
 // ---------------------------------------------------------------------------
@@ -259,6 +265,38 @@ const OPTIONS = [
   { id: 'opt-a', label: 'Option A', interventions: { 'factor-0': { value: 0.8, source: 'user_specified' } } },
   { id: 'opt-b', label: 'Option B', interventions: { 'factor-1': { value: 0.7, source: 'user_specified' } } },
 ];
+
+/**
+ * Multi-constraint graph: `F` factor nodes (each → a factor PU) plus `K`
+ * constrained OUTCOME nodes (observed_state.value, NOT factors → NO factor PU,
+ * but a CONSTRAINT-INJECTED PU that ISL counts in its EVPI `u`). A factor-only
+ * PU count MISSES the K injected PUs → under-prices EVPI → the permissive gap.
+ * Options intervene on factors; every node has a directed path to the goal.
+ */
+function constrainedOutcomeGraph(F: number, K: number) {
+  const factors = Array.from({ length: F }, (_, i) => ({
+    id: `factor-${i}`, kind: 'factor', label: `Factor ${i}`, observed_state: { value: 0.5 },
+  }));
+  const outcomes = Array.from({ length: K }, (_, i) => ({
+    id: `outcome-${i}`, kind: 'outcome', label: `Outcome ${i}`, observed_state: { value: 0.5 },
+  }));
+  const goal = { id: 'goal', kind: 'goal', label: 'Goal' };
+  const edge = (from: string, to: string) => ({
+    from, to, exists_probability: 0.8, strength: { mean: 0.005, std: 0.01 },
+  });
+  const edges = [
+    ...factors.map((f) => edge(f.id, 'goal')),
+    ...outcomes.map((o, i) => edge(`factor-${i % F}`, o.id)),
+    ...outcomes.map((o) => edge(o.id, 'goal')),
+  ];
+  return { nodes: [...factors, ...outcomes, goal], edges };
+}
+
+function constraintsOnOutcomes(K: number) {
+  return Array.from({ length: K }, (_, i) => ({
+    constraint_id: `oc-${i}`, node_id: `outcome-${i}`, operator: '>=', value: 0.3,
+  }));
+}
 
 function findSamplesReducedWarnings(body: any): any[] {
   return (body.inference_warnings ?? []).filter(
@@ -442,5 +480,71 @@ describe('adaptive n_samples via /v2/run (F8 handshake — weighted planning)', 
     expect(islCalls[0].n_samples).toBe(LEGACY_BASE_N_SAMPLES); // 4000, not 10000
     const body = JSON.parse(res.body);
     expect(body.meta?.n_samples).toBe(LEGACY_BASE_N_SAMPLES);
+  });
+
+  it('MULTI-CONSTRAINT: prices EVPI over factor PUs UNION constraint-injected PUs — plans conservatively (no pass-then-422)', async () => {
+    // 4 factors + 4 constrained outcomes: factor-only u = 4, ISL's real u = 8.
+    // Seed a ceiling BETWEEN the factor-only estimate (~946k) and the true
+    // union estimate (~1.28M) at full depth, so the under-count is decisive.
+    const CEILING = 1_000_000;
+    __setIslComputeAdmissionForTest({ admission: v2Admission(CEILING), skew: false, status: 'ok' });
+    islCalls = [];
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v2/run',
+      headers: { 'Content-Type': 'application/json' },
+      payload: {
+        graph: constrainedOutcomeGraph(4, 4),
+        options: OPTIONS,
+        goal_node_id: 'goal',
+        goal_constraints: constraintsOnOutcomes(4),
+        seed: '42',
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const call = islCalls[0];
+
+    // The constraint-target PUs really were injected into the request ISL sees:
+    // the sent PU count exceeds the 4 factor PUs (proves the fixture bites).
+    const sentU = new Set((call.parameter_uncertainties ?? []).map((p: any) => p.node_id)).size;
+    expect(sentU).toBe(8);
+
+    const sent = call.n_samples;
+
+    // POSITIVE CONTROL — the permissive gap the OLD (factor-only) count created:
+    // at full depth a factor-only estimate WOULD have fit the ceiling (so PLoT
+    // would NOT reduce → pass), but the SENT request's true cost EXCEEDS it (→
+    // ISL 422). That is exactly the pass-then-422 mode the handshake prevents.
+    const factorOnlyFullDepth = estimateWeightedCostV2(
+      { ...costReqFromCall(call, 10_000), uniqueParamUncertainties: 4 },
+      LIVE_WEIGHTS,
+    );
+    expect(factorOnlyFullDepth).toBeLessThanOrEqual(CEILING);
+    expect(costOfCall(call, 10_000)).toBeGreaterThan(CEILING);
+
+    // THE FIX — PLoT counted the injected PUs, so it planned CONSERVATIVELY: the
+    // SENT depth's true cost fits the ceiling (no pass-then-422), and it reduced.
+    expect(sent).toBeLessThan(10_000);
+    expect(sent).toBeGreaterThanOrEqual(ADAPTIVE_N_SAMPLES_FLOOR);
+    expect(costOfCall(call, sent)).toBeLessThanOrEqual(CEILING);
+    // Maximal honest depth: one more sample would breach the true (union) cost.
+    expect(costOfCall(call, sent + 1)).toBeGreaterThan(CEILING);
+  });
+
+  it('no-constraint control: EVPI u is the factor-PU count only (estimate unchanged)', async () => {
+    __setIslComputeAdmissionForTest({ admission: v2Admission(), skew: false, status: 'ok' });
+    islCalls = [];
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v2/run',
+      headers: { 'Content-Type': 'application/json' },
+      payload: { graph: constrainedOutcomeGraph(4, 0), options: OPTIONS, goal_node_id: 'goal', seed: '42' },
+    });
+    expect(res.statusCode).toBe(200);
+    const call = islCalls[0];
+    // No constraints → no injection → u is exactly the 4 factor PUs.
+    expect(new Set((call.parameter_uncertainties ?? []).map((p: any) => p.node_id)).size).toBe(4);
+    expect(call.n_samples).toBe(10_000); // tiny graph, well under 24M → not reduced
   });
 });

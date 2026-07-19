@@ -113,3 +113,45 @@ Re-verified on the CURRENT tree after the fallback-scope refactor (both still RE
 This PR deploys AFTER ISL F8 (already live). In either deploy order the fail-loud fallback is safe: if the
 /health handshake is unreadable or the version is unknown, PLoT plans conservatively (legacy scalar, base
 depth capped at 4000) and the drift is VISIBLE (warning + metric), never silent.
+
+---
+
+## Review fix — constraint-injected PUs folded into EVPI `u` (the "conservative, never permissive" CONCERN)
+
+**Defect (review-verified):** `estimateWeightedCostV2`'s EVPI `u` was fed only the FACTOR
+parameter-uncertainties (`buildParameterUncertaintiesV3`). But the request PLoT actually sends to ISL ALSO
+carries CONSTRAINT-TARGET PUs injected afterward (`injectConstraintParameterUncertainties`) for constrained
+non-goal nodes with `observed_state.value`. ISL counts those injected node_ids in its EVPI `u`, so on a
+near-ceiling multi-constraint graph PLoT UNDER-priced EVPI → planned as if it fit → ISL then 422s. That is
+the pass-then-422 mode the handshake exists to prevent — a permissive gap, violating the invariant.
+
+**Fix (one source of truth):** factored the injector's per-constraint accept/skip decision into
+`classifyConstraintPu` and a pure `selectConstraintInjectedPuNodeIds` (both in
+`constraint-pu-injection.ts`); the injector now routes through `classifyConstraintPu` (behaviour-preserving —
+25 existing injection tests green) and the planner counts EVPI `u` as
+`factorPuNodeIds.size + selectConstraintInjectedPuNodeIds(activeGoalConstraints, filteredGraph.nodes,
+goal, factorPuNodeIds).size` — the UNION, deduplicated by node_id, exactly ISL's `u`. `activeGoalConstraints`
+(available at the planning site) shares `constraintsForISL`'s node_id set (normalisation preserves node_ids),
+so the count is exact. No node-selection logic is duplicated — injector and planner share
+`classifyConstraintPu`.
+
+**Discipline:**
+- RED-first (route, `tests/adaptive-n-samples-complexity.test.ts`): a 4-factor + 4-constrained-outcome graph
+  (factor-only `u`=4, ISL's real `u`=8) with a ceiling seeded BETWEEN the factor-only estimate (~946k) and the
+  true union estimate (~1.28M). Against the pre-fix code the sent request (injected PUs → `u`=8) was NOT
+  reduced (`sent`=10000) so its true cost (1.28M) exceeded the ceiling — the permissive gap, asserted via the
+  positive control (`factorOnlyFullDepth ≤ ceiling < costOfCall(sent)`). After the fix PLoT counts `u`=8,
+  reduces to the maximal honest depth, and the sent cost fits (no pass-then-422).
+- Parity (`tests/constraint-pu-injection.test.ts`): `selectConstraintInjectedPuNodeIds` returns EXACTLY the
+  node_ids the injector adds (`|select| === injector.injected`), and `existingPu.size + select.size` === ISL's
+  `|parameter_uncertainties|` — one source of truth.
+- Common no-constraint case BYTE-IDENTICAL: `selectConstraintInjectedPuNodeIds([]/undefined)` = ∅ → union
+  `u` === factor `u` → estimate unchanged. Proven twice: the "no-constraint control" route test, AND the
+  mutation-check below stays GREEN for it (the fold is a no-op without constraints).
+- Mutation-check (throwaway edit in the committed tree; `git checkout --` restore, 0 dirty): revert the union
+  fold → factor-only → the MULTI-CONSTRAINT route test goes **RED** (`expected 10000 to be less than 10000`);
+  the no-constraint control stays GREEN.
+- Gate: `tsc -p tsconfig.json --noEmit` 0; full suite **5701 passed / 0 failed** (one subprocess-startup
+  timing test, `counterfactual.zero-baseline`, flaked once under CPU load then passed clean on re-run —
+  unrelated to this change, passes in isolation). Files touched: only `src/*.ts` + `tests/*` + this md — no
+  `package.json`/lock/`openapi.yaml`, standing-red set unchanged.

@@ -80,7 +80,7 @@ import { MAX_CONSTRAINTS } from '../../constants/limits.js';
 import type { RawGoalConstraint, FilteredConstraintRecord, InternalMetadata } from '../../types/engine-v3.js';
 import type { IslThresholdResponse, ThresholdPoint } from '../v1/types/proxy.types.js';
 import { toISLRobustnessRequest, validateISLRequest, buildParameterUncertaintiesV3 } from '../../integrations/isl/translator-v3.js';
-import { injectConstraintParameterUncertainties } from '../../integrations/isl/constraint-pu-injection.js';
+import { injectConstraintParameterUncertainties, selectConstraintInjectedPuNodeIds } from '../../integrations/isl/constraint-pu-injection.js';
 import {
   createPreflightLog,
   createISLRequestLog,
@@ -4455,9 +4455,26 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           (e) => e.edge_type !== 'bidirected',
         ).length;
         const causalOptionCount = normalizedOptions.length;
-        const uniqueParamUncertainties = new Set(
+        // EVPI is priced over the parameter_uncertainties ISL ACTUALLY receives:
+        // the factor PUs (buildParameterUncertaintiesV3) UNION the constraint-target
+        // PUs injected after the base request is built (injectConstraintParameterUncertainties,
+        // Phase 4b+ below). ISL counts BOTH in its EVPI `u`; count both here so
+        // PLoT's estimate matches ISL's — conservative, never permissive (else a
+        // near-ceiling multi-constraint graph passes here then ISL 422s). The
+        // injected node-id set is derived via the SAME selection the injector uses
+        // (one source of truth: selectConstraintInjectedPuNodeIds/classifyConstraintPu),
+        // and activeGoalConstraints shares constraintsForISL's node-id set
+        // (normalisation preserves node_ids), so the count is exact.
+        const factorPuNodeIds = new Set(
           (buildParameterUncertaintiesV3(filteredGraph.nodes) ?? []).map((pu) => pu.node_id),
-        ).size;
+        );
+        const constraintInjectedPuNodeIds = selectConstraintInjectedPuNodeIds(
+          activeGoalConstraints,
+          filteredGraph.nodes,
+          body.goal_node_id,
+          factorPuNodeIds,
+        );
+        const uniqueParamUncertainties = factorPuNodeIds.size + constraintInjectedPuNodeIds.size;
 
         const admissionResolution = getIslComputeAdmission();
         const depthPlanInput: DepthPlanInput = {
