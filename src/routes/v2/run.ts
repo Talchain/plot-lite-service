@@ -113,6 +113,7 @@ import {
   resolveRequestBudgetMs,
   ISL_TIMEOUT_MS,
   worstCaseMs,
+  OPTIONAL_PHASE_MAX_RETRIES,
 } from '../../config/timeouts.js';
 import { getISLClientConfig } from '../../integrations/isl/client.js';
 import { createISLInferenceFn, resolveFlipValues, resolveFlipProbeNSamples, resolveFlipOverallTimeoutMs, resolveFlipPerFactorTimeoutMs } from '../../analysis/flip-thresholds.js';
@@ -4465,14 +4466,29 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // (one source of truth: selectConstraintInjectedPuNodeIds/classifyConstraintPu),
         // and activeGoalConstraints shares constraintsForISL's node-id set
         // (normalisation preserves node_ids), so the count is exact.
-        const factorPuNodeIds = new Set(
-          (buildParameterUncertaintiesV3(filteredGraph.nodes) ?? []).map((pu) => pu.node_id),
-        );
+        // Build the factor PU list ONCE here (the planner needs its node-id
+        // count to price EVPI) and thread the SAME list into
+        // toISLRobustnessRequest below — filteredGraph.nodes is not mutated
+        // between here and the request build, so the request sends byte-identical
+        // PUs while paying for the pass only once. This also closes the
+        // lockstep-drift hazard: the plan count can no longer diverge from what
+        // the request actually carries.
+        const factorParameterUncertainties = buildParameterUncertaintiesV3(filteredGraph.nodes) ?? [];
+        const factorPuNodeIds = new Set(factorParameterUncertainties.map((pu) => pu.node_id));
+        // One id→node map shared by the plan-time constraint-PU selection and the
+        // build-time injection (both classify the same constrained nodes against
+        // the same graph). Built only when there are constraints to classify, so
+        // the common no-constraint path pays nothing.
+        const constraintPuNodeMap =
+          activeGoalConstraints && activeGoalConstraints.length > 0
+            ? new Map(filteredGraph.nodes.map((n) => [n.id, n]))
+            : undefined;
         const constraintInjectedPuNodeIds = selectConstraintInjectedPuNodeIds(
           activeGoalConstraints,
           filteredGraph.nodes,
           body.goal_node_id,
           factorPuNodeIds,
+          constraintPuNodeMap,
         );
         const uniqueParamUncertainties = factorPuNodeIds.size + constraintInjectedPuNodeIds.size;
 
@@ -4929,7 +4945,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           effectiveGoalThreshold,  // Use effective threshold (undefined if multi-constraint)
           constraintsForISL,       // Normalised constraint values (undefined if not using multi-constraint)
           plotSeedUsed,  // Always forward PLoT's seed (PLoT is seed authority)
-          body.include_path_decomposition === true  // Lane PLoT-W4: request-gated opt-in, forwarded only on explicit true
+          body.include_path_decomposition === true,  // Lane PLoT-W4: request-gated opt-in, forwarded only on explicit true
+          factorParameterUncertainties  // Reuse the factor PUs already built for the admission plan (same nodes → byte-identical)
         );
 
         req.log.info(
@@ -4966,6 +4983,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           filteredGraph.nodes,
           body.goal_node_id,
           req.log,
+          constraintPuNodeMap,  // Reuse the id→node map built for the plan-time selection above.
         );
         for (const entry of puResult.injected) {
           repairs.push({
@@ -5965,7 +5983,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                   // it lets an in-flight probe cancel the moment the factor/overall
                   // deadline trips (the client folds it into its per-attempt timeout).
                   (endpoint, body, rid, signal) =>
-                    islService.callAnalysisEndpoint(endpoint, body, rid, flipProbeIslTimeoutMs, 1, signal),
+                    islService.callAnalysisEndpoint(endpoint, body, rid, flipProbeIslTimeoutMs, OPTIONAL_PHASE_MAX_RETRIES, signal),
                   islRequest,
                   requestId,
                   flipProbeNSamples
@@ -6126,7 +6144,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                 thresholdsPayload,
                 requestId,
                 Math.round(thresholdsTimeoutMs),
-                1
+                OPTIONAL_PHASE_MAX_RETRIES
               );
 
               const thresholdsDurationMs = performance.now() - thresholdsStart;

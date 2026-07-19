@@ -35,6 +35,20 @@ export function isInterventionOverride(f: { zero_reason?: string | null }): bool
 }
 
 /**
+ * Normalise an entry's `node_id`/`factor_id` to `undefined` unless each is a
+ * non-empty string — the shared empty-string+type guard behind both
+ * {@link factorIdOf} (precedence resolution) and {@link hasFactorIdConflict}
+ * (twin detection), kept in one place so the two cannot drift.
+ */
+function normIds(
+  f: { factor_id?: string | null; node_id?: string | null },
+): { nodeId: string | undefined; factorId: string | undefined } {
+  const nodeId = typeof f.node_id === 'string' && f.node_id !== '' ? f.node_id : undefined;
+  const factorId = typeof f.factor_id === 'string' && f.factor_id !== '' ? f.factor_id : undefined;
+  return { nodeId, factorId };
+}
+
+/**
  * Canonical identity of an ISL factor entry — ONE precedence, used EVERYWHERE
  * (Codex F13). ISL's canonical key is `node_id` (the graph node id); PLoT's
  * `factor_id` is the downstream alias. Precedence is **node_id-first**, matching
@@ -52,8 +66,7 @@ export function isInterventionOverride(f: { zero_reason?: string | null }): bool
 export function factorIdOf(
   f: { factor_id?: string | null; node_id?: string | null },
 ): string | undefined {
-  const nodeId = typeof f.node_id === 'string' && f.node_id !== '' ? f.node_id : undefined;
-  const factorId = typeof f.factor_id === 'string' && f.factor_id !== '' ? f.factor_id : undefined;
+  const { nodeId, factorId } = normIds(f);
   return nodeId ?? factorId;
 }
 
@@ -69,8 +82,7 @@ export function factorIdOf(
 export function hasFactorIdConflict(
   f: { factor_id?: string | null; node_id?: string | null },
 ): boolean {
-  const nodeId = typeof f.node_id === 'string' && f.node_id !== '' ? f.node_id : undefined;
-  const factorId = typeof f.factor_id === 'string' && f.factor_id !== '' ? f.factor_id : undefined;
+  const { nodeId, factorId } = normIds(f);
   return nodeId !== undefined && factorId !== undefined && nodeId !== factorId;
 }
 

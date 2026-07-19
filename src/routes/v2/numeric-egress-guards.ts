@@ -16,24 +16,21 @@
  * response-payload drift for the normal path).
  */
 
-/** Finite real number (any magnitude). Use for measurements: means, std, deltas. */
-export function finiteNum(v: unknown): number | undefined {
-  return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
-}
+// `finiteNum` (measurements) and `nonNegInt` (sample counts) live in the
+// neutral numeric util so this guard, the enrichment-egress guard, and the
+// ISL compute-admission validator all share ONE definition. Re-exported here
+// so existing importers of this module keep their import path unchanged.
+import { finiteNum, nonNegInt, isFiniteNumber } from '../../util/numeric.js';
+export { finiteNum, nonNegInt };
 
 /** Finite probability/rate in [0,1]. Use for win_probability, prob_satisfied, rates. */
 export function prob01(v: unknown): number | undefined {
-  return typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1 ? v : undefined;
+  return isFiniteNumber(v) && v >= 0 && v <= 1 ? v : undefined;
 }
 
 /** Finite non-negative real. Use for std, e_value, absolute margins. */
 export function nonNeg(v: unknown): number | undefined {
-  return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined;
-}
-
-/** Non-negative integer. Use for sample counts (n_samples, n_valid_samples). */
-export function nonNegInt(v: unknown): number | undefined {
-  return typeof v === 'number' && Number.isFinite(v) && Number.isInteger(v) && v >= 0 ? v : undefined;
+  return isFiniteNumber(v) && v >= 0 ? v : undefined;
 }
 
 /**

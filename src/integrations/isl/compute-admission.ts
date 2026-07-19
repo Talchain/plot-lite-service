@@ -23,6 +23,7 @@
 import { getISLClientConfig, isISLConfigured, ISLClient } from './client.js';
 import { KNOWN_COMPLEXITY_FORMULA_VERSIONS } from '../../config/sampling.js';
 import { recordIslAdmissionVersionSkew } from '../../metrics/registry.js';
+import { isFiniteNumber, allFiniteNumberFields } from '../../util/numeric.js';
 import type {
   ISLComputeAdmission,
   ISLComputeAdmissionWeights,
@@ -67,34 +68,27 @@ function isFresh(now: number): boolean {
   return _cache !== null && now - _cache.at < ADMISSION_CACHE_TTL_MS;
 }
 
-function isFiniteNumber(v: unknown): v is number {
-  return typeof v === 'number' && Number.isFinite(v);
-}
+/** Coefficients an advertised `weights` object must carry as finite numbers. */
+const WEIGHT_KEYS = [
+  'base_per_sample_per_option_per_struct',
+  'evpi_sample_cap',
+  'sensitivity_coef',
+  'evalue_coef',
+  'bands_coef',
+  'path_coef',
+  'max_decomposition_paths',
+] as const;
+
+/** Cap fields an advertised `caps` object must carry as finite numbers. */
+const CAP_KEYS = ['max_options', 'max_nodes', 'max_edges', 'max_parameter_uncertainties'] as const;
 
 /** Validate the advertised `weights` object — every coefficient must be finite. */
 function validWeights(w: unknown): w is ISLComputeAdmissionWeights {
-  if (!w || typeof w !== 'object') return false;
-  const o = w as Record<string, unknown>;
-  return (
-    isFiniteNumber(o.base_per_sample_per_option_per_struct) &&
-    isFiniteNumber(o.evpi_sample_cap) &&
-    isFiniteNumber(o.sensitivity_coef) &&
-    isFiniteNumber(o.evalue_coef) &&
-    isFiniteNumber(o.bands_coef) &&
-    isFiniteNumber(o.path_coef) &&
-    isFiniteNumber(o.max_decomposition_paths)
-  );
+  return allFiniteNumberFields(w, WEIGHT_KEYS);
 }
 
 function validCaps(c: unknown): c is ISLComputeAdmissionCaps {
-  if (!c || typeof c !== 'object') return false;
-  const o = c as Record<string, unknown>;
-  return (
-    isFiniteNumber(o.max_options) &&
-    isFiniteNumber(o.max_nodes) &&
-    isFiniteNumber(o.max_edges) &&
-    isFiniteNumber(o.max_parameter_uncertainties)
-  );
+  return allFiniteNumberFields(c, CAP_KEYS);
 }
 
 /**

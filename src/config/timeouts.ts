@@ -148,6 +148,17 @@ export function resolveRequestBudgetMs(): number {
  */
 export const ISL_MAX_RETRIES_DEFAULT = 3;
 
+/**
+ * TOTAL ISL attempts (no retry) for an OPTIONAL, post-base-science phase —
+ * the flip-probe (Codex F3) and threshold (Codex F9) calls. These run AFTER a
+ * completed base result, so a retry storm would spend the request budget (and
+ * discard the base science) for a phase whose failure is safely
+ * degrade-and-disclose. `1` = one try, no retry; named here (rather than a bare
+ * literal at the two call sites) so the policy has one home next to
+ * {@link ISL_MAX_RETRIES_DEFAULT}.
+ */
+export const OPTIONAL_PHASE_MAX_RETRIES = 1;
+
 /** Resolve the ISL attempt cap from `ISL_MAX_RETRIES` (default {@link ISL_MAX_RETRIES_DEFAULT}). */
 export function resolveIslMaxRetries(): number {
   return parseInt(process.env.ISL_MAX_RETRIES ?? String(ISL_MAX_RETRIES_DEFAULT), 10);
