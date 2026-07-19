@@ -214,6 +214,8 @@ let islSensitivityCounter: CounterMetric | null = null;
 let islFactorSensitivityCounter: CounterMetric | null = null;
 let islRobustnessAnalysisCounter: CounterMetric | null = null;
 let islLatencyHistogram: HistogramMetric | null = null;
+// Codex F8 handshake — ISL /health compute-admission version-skew signal
+let islAdmissionVersionSkewCounter: CounterMetric | null = null;
 
 // Meta-reasoning quality metrics
 let metaQualityHistogram: HistogramMetric | null = null;
@@ -320,6 +322,16 @@ export function initializeHistograms(): void {
     'plot_engine_isl_latency_seconds',
     'ISL request latency in seconds',
     ['operation', 'result'] // operation: validation|sensitivity, result: ok|error
+  );
+
+  // Codex F8 handshake: fires when PLoT cannot plan against ISL's advertised
+  // compute-admission model (unreachable /health, missing compute_admission
+  // block, or an unknown complexity_formula_version) and falls back to the
+  // conservative legacy scalar bound. A sustained non-zero rate = drift.
+  islAdmissionVersionSkewCounter = new CounterMetric(
+    'plot_engine_isl_admission_version_skew_total',
+    'Total detections of ISL compute-admission handshake skew (fail-loud fallback engaged)',
+    ['reason'] // reason: unreachable|missing_block|unknown_version
   );
 
   // Meta-reasoning quality metrics
@@ -454,6 +466,13 @@ export function observeIslLatency(operation: 'validation' | 'sensitivity' | 'fac
   islLatencyHistogram?.observe({ operation, result }, durationMs / 1000);
 }
 
+// Codex F8 handshake: record a compute-admission version-skew detection.
+export function recordIslAdmissionVersionSkew(
+  reason: 'unreachable' | 'missing_block' | 'unknown_version',
+): void {
+  islAdmissionVersionSkewCounter?.inc({ reason });
+}
+
 // Meta-reasoning quality metrics recording functions
 export function observeMetaQuality(engine: string, score: number): void {
   metaQualityHistogram?.observe({ engine }, score);
@@ -556,6 +575,11 @@ export function renderHistograms(): string {
     lines.push(islLatencyHistogram.render());
   }
 
+  // Codex F8 handshake: compute-admission version-skew counter
+  if (islAdmissionVersionSkewCounter) {
+    lines.push(islAdmissionVersionSkewCounter.render());
+  }
+
   // Meta-reasoning quality metrics
   if (metaQualityHistogram) {
     lines.push(metaQualityHistogram.render());
@@ -598,6 +622,7 @@ export function resetHistograms(): void {
   islFactorSensitivityCounter?.reset();
   islRobustnessAnalysisCounter?.reset();
   islLatencyHistogram?.reset();
+  islAdmissionVersionSkewCounter?.reset();
   // Meta-reasoning quality metrics
   metaQualityHistogram?.reset();
   metaConfidenceCounter?.reset();

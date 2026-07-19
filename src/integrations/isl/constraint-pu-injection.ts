@@ -43,6 +43,65 @@ export interface SkippedPU {
 }
 
 /**
+ * Per-constraint classification — the SINGLE source of truth for "does this
+ * constraint get a PU injected, and if not why". Both the injector (below) and
+ * the admission-cost planner's PU count (via {@link selectConstraintInjectedPuNodeIds})
+ * derive their decision from this one function, so PLoT's EVPI `u` can never
+ * drift from what ISL actually receives + counts.
+ */
+export type ConstraintPuClassification =
+  | { kind: 'inject'; mean: number }
+  | { kind: 'skip'; reason: SkippedPU['reason'] }
+  | { kind: 'existing' };
+
+/** Classify a single constraint against the PUs already present. Pure. */
+export function classifyConstraintPu(
+  constraint: GoalConstraint,
+  nodeMap: ReadonlyMap<string, EngineNodeV3>,
+  goalNodeId: string,
+  existingPuNodeIds: ReadonlySet<string>,
+): ConstraintPuClassification {
+  // Goal node gets its distribution from ISL's outcome computation.
+  if (constraint.node_id === goalNodeId) return { kind: 'skip', reason: 'goal_node' };
+  // Inject-only-when-missing: never override an existing PU from the translator.
+  if (existingPuNodeIds.has(constraint.node_id)) return { kind: 'existing' };
+  const node = nodeMap.get(constraint.node_id);
+  if (!node) return { kind: 'skip', reason: 'missing_node' };
+  if (node.observed_state?.value === undefined) return { kind: 'skip', reason: 'missing_observed_state' };
+  return { kind: 'inject', mean: node.observed_state.value };
+}
+
+/**
+ * The set of node_ids that {@link injectConstraintParameterUncertainties} WOULD
+ * inject, given the PUs already present (`existingPuNodeIds` — the factor PUs).
+ * Pure + deterministic, and knowable at PLANNING time (before the injection
+ * runs). Used by the admission-cost planner so PLoT prices EVPI over
+ * `factor PUs ∪ constraint-injected PUs` — exactly ISL's `u`. Excludes node_ids
+ * already in `existingPuNodeIds`, so the caller takes the UNION as
+ * `existingPuNodeIds.size + result.size`.
+ */
+export function selectConstraintInjectedPuNodeIds(
+  constraints: GoalConstraint[] | undefined,
+  graphNodes: EngineNodeV3[],
+  goalNodeId: string,
+  existingPuNodeIds: ReadonlySet<string>,
+): Set<string> {
+  const injected = new Set<string>();
+  if (!constraints || constraints.length === 0) return injected;
+  const nodeMap = new Map(graphNodes.map((n) => [n.id, n]));
+  // Mirror the injector: a node accepted earlier becomes "existing" for later
+  // duplicate constraints on the same node (so it is counted exactly once).
+  const running = new Set(existingPuNodeIds);
+  for (const constraint of constraints) {
+    if (classifyConstraintPu(constraint, nodeMap, goalNodeId, running).kind === 'inject') {
+      injected.add(constraint.node_id);
+      running.add(constraint.node_id);
+    }
+  }
+  return injected;
+}
+
+/**
  * Inject ParameterUncertainty entries for constrained nodes that don't
  * already have one. Mutates `islRequest.parameter_uncertainties` in place.
  *
@@ -80,42 +139,33 @@ export function injectConstraintParameterUncertainties(
   const augmented = [...(islRequest.parameter_uncertainties ?? [])];
 
   for (const constraint of constraints) {
-    // Skip goal node — goal nodes get their distribution from ISL's outcome computation
-    if (constraint.node_id === goalNodeId) {
-      skipped.push({ node_id: constraint.node_id, reason: 'goal_node' });
+    // Single source of truth for the accept/skip decision (shared with the
+    // planner's PU count via selectConstraintInjectedPuNodeIds).
+    const cls = classifyConstraintPu(constraint, nodeMap, goalNodeId, existingPuNodeIds);
+
+    if (cls.kind === 'existing') continue;
+
+    if (cls.kind === 'skip') {
+      skipped.push({ node_id: constraint.node_id, reason: cls.reason });
+      if (cls.reason === 'missing_node') {
+        logger?.warn({
+          event: 'plot.constraint_missing_node',
+          node_id: constraint.node_id,
+          constraint_id: constraint.constraint_id,
+          message: `Constrained node ${constraint.node_id} not found in graph`,
+        });
+      } else if (cls.reason === 'missing_observed_state') {
+        logger?.warn({
+          event: 'plot.constraint_no_observed_value',
+          node_id: constraint.node_id,
+          constraint_id: constraint.constraint_id,
+          message: `Constrained node ${constraint.node_id} has no observed_state.value; ISL may use base=0.0`,
+        });
+      }
       continue;
     }
 
-    // Inject-only-when-missing: never override existing PU from the translator
-    if (existingPuNodeIds.has(constraint.node_id)) continue;
-
-    const node = nodeMap.get(constraint.node_id);
-
-    // Skip nodes not in the graph
-    if (!node) {
-      skipped.push({ node_id: constraint.node_id, reason: 'missing_node' });
-      logger?.warn({
-        event: 'plot.constraint_missing_node',
-        node_id: constraint.node_id,
-        constraint_id: constraint.constraint_id,
-        message: `Constrained node ${constraint.node_id} not found in graph`,
-      });
-      continue;
-    }
-
-    // Skip nodes without observed_state.value (cannot fabricate a mean)
-    if (node.observed_state?.value === undefined) {
-      skipped.push({ node_id: constraint.node_id, reason: 'missing_observed_state' });
-      logger?.warn({
-        event: 'plot.constraint_no_observed_value',
-        node_id: constraint.node_id,
-        constraint_id: constraint.constraint_id,
-        message: `Constrained node ${constraint.node_id} has no observed_state.value; ISL may use base=0.0`,
-      });
-      continue;
-    }
-
-    const mean = node.observed_state.value;
+    const mean = cls.mean;
     augmented.push({
       node_id: constraint.node_id,
       distribution: 'normal' as const,

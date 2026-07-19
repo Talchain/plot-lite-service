@@ -8,6 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   injectConstraintParameterUncertainties,
+  selectConstraintInjectedPuNodeIds,
   CONSTRAINT_PINNED_STD,
 } from '../src/integrations/isl/constraint-pu-injection.js';
 import type { ISLRobustnessRequestV3 } from '../src/integrations/isl/translator-v3.js';
@@ -235,5 +236,55 @@ describe('injectConstraintParameterUncertainties', () => {
     );
     expect(result.injected).toEqual([]);
     expect(result.skipped).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// selectConstraintInjectedPuNodeIds — the planner's PU-count derivation MUST
+// match the injector exactly (single source of truth: classifyConstraintPu).
+// ---------------------------------------------------------------------------
+
+describe('selectConstraintInjectedPuNodeIds (planner ↔ injector parity)', () => {
+  // Mixed graph: an injectable node, the goal, a missing node, a value-less node,
+  // and a node that already has a PU (factor PU) — the selector must return only
+  // the genuinely-injectable one, identical to what the injector adds.
+  const nodes = [
+    makeNode('inject_me', 0.6),      // non-goal, has value, no existing PU → inject
+    makeNode('already_pu', 0.4),     // has value but is an existing PU → skip
+    makeNode('no_value'),            // no observed_state.value → skip
+    // 'missing' is intentionally NOT in the graph
+    makeNode('goal', 0.9),           // goal → skip
+  ];
+  const constraints = [
+    makeConstraint('inject_me'),
+    makeConstraint('already_pu'),
+    makeConstraint('no_value'),
+    makeConstraint('missing'),
+    makeConstraint('goal'),
+    makeConstraint('inject_me', 'dup'), // duplicate on same node → counted once
+  ];
+  const existingPu = new Set(['already_pu']);
+
+  it('selects exactly the node_ids the injector would add (deduped, minus existing)', () => {
+    const selected = selectConstraintInjectedPuNodeIds(constraints, nodes, 'goal', existingPu);
+    expect([...selected]).toEqual(['inject_me']);
+  });
+
+  it('is BYTE-parity with the injector: |select| === injector.injected count', () => {
+    const islReq = makeISLRequest(
+      [...existingPu].map((id) => ({ node_id: id, distribution: 'normal' as const, mean: 0.4, std: 0.1 })),
+    );
+    const { injected } = injectConstraintParameterUncertainties(islReq, constraints, nodes, 'goal');
+    const selected = selectConstraintInjectedPuNodeIds(constraints, nodes, 'goal', existingPu);
+    // Same node_ids, same count — one source of truth (classifyConstraintPu).
+    expect(new Set(selected)).toEqual(new Set(injected.map((i) => i.node_id)));
+    // And the UNION size the planner uses matches ISL's `u` = |all PUs sent|.
+    const islU = new Set((islReq.parameter_uncertainties ?? []).map((p) => p.node_id)).size;
+    expect(existingPu.size + selected.size).toBe(islU);
+  });
+
+  it('returns empty for a no-constraint request (common case unchanged)', () => {
+    expect(selectConstraintInjectedPuNodeIds(undefined, nodes, 'goal', existingPu).size).toBe(0);
+    expect(selectConstraintInjectedPuNodeIds([], nodes, 'goal', existingPu).size).toBe(0);
   });
 });

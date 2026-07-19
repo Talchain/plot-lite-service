@@ -9,6 +9,7 @@
  */
 
 import { ISLHttpError, ISLTimeoutError, ISLNetworkError, isRetryableError, type ISLError422 } from './errors.js';
+import type { ISLHealthResponse } from './types/isl-types.js';
 import { computeOlumiHash } from '../../util/canonical.js';
 import { recordDownstreamCall, sanitizePayloadForDebug, computePayloadDigest } from '../../util/downstream-tracker.js';
 import { ISL_TIMEOUT_MS, ISL_HEALTH_CHECK_TIMEOUT_MS, resolveIslMaxRetries, islRetryBackoffMs } from '../../config/timeouts.js';
@@ -328,6 +329,40 @@ export class ISLClient {
       return response.ok;
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * Fetch and parse the ISL `/health` payload (Codex F8 handshake).
+   *
+   * Returns the parsed body (so the caller can read `compute_admission`), or
+   * `null` on ANY failure — unreachable, timeout, non-2xx, or unparseable JSON.
+   * A `null` return is the caller's "unreachable" signal; a non-null body that
+   * simply LACKS `compute_admission` is the caller's "missing block" signal.
+   * Uses the same auth + short health timeout as {@link healthCheck}.
+   */
+  async fetchHealth(): Promise<ISLHealthResponse | null> {
+    try {
+      const controller = new AbortController();
+      const healthCheckTimeout = this.config.healthCheckTimeoutMs ?? ISL_HEALTH_CHECK_TIMEOUT_MS;
+      const timeoutId = setTimeout(() => controller.abort(), healthCheckTimeout);
+
+      let response: Response;
+      try {
+        response = await fetch(`${this.config.baseUrl}/health`, {
+          method: 'GET',
+          headers: { 'X-API-Key': this.config.apiKey },
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
+
+      if (!response.ok) return null;
+      const body = (await response.json()) as ISLHealthResponse;
+      return body && typeof body === 'object' ? body : null;
+    } catch {
+      return null;
     }
   }
 

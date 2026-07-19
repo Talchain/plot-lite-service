@@ -62,12 +62,23 @@ export interface ISLCounterfactualResponse {
 }
 
 /**
- * ISL health check response from /health
+ * ISL health check response from /health.
+ *
+ * NOTE: `status` is typed narrowly for legacy consumers, but the live ISL
+ * `/health` actually returns `"healthy"`; PLoT's capability read does not depend
+ * on `status`. The Codex F8 handshake fields (`compute_admission` + build
+ * identity) are OPTIONAL — a pre-F8 ISL or a partial outage may omit them, and
+ * their absence is treated as a version-skew signal (see compute-admission.ts).
  */
 export interface ISLHealthResponse {
-  status: 'ok' | 'degraded' | 'unhealthy';
+  status?: 'ok' | 'degraded' | 'unhealthy' | 'healthy' | string;
   version?: string;
   latency_ms?: number;
+  build?: string;
+  build_full?: string;
+  config_fingerprint?: string;
+  /** ISL-advertised live request-admission cost model (Codex F8). */
+  compute_admission?: ISLComputeAdmission;
 }
 
 /**
@@ -851,6 +862,63 @@ export interface ISLResponseMetadataV2 {
   n_samples?: number;
   /** Analysis duration in milliseconds (legacy field, kept for compat). */
   duration_ms?: number;
+}
+
+// ===========================================================================
+// ISL /health compute-admission capability (Codex F8 handshake, Option B)
+// ===========================================================================
+//
+// ISL advertises its LIVE request-admission cost model on `/health` under
+// `compute_admission` (Inference-Service-Layer src/services/robustness_analyzer_v2.py
+// `build_compute_admission()`; single source of truth for BOTH the ISL admission
+// gate and this advertisement). PLoT READS this block and derives its
+// sample-reduction planning from it — it does NOT hand-copy the coefficients
+// (that would re-introduce the drift trap). See src/config/sampling.ts
+// (planSampleDepth / estimateWeightedCostV2) and src/integrations/isl/compute-admission.ts.
+//
+// The `weights` object carries the ISL-derived coefficients that PLoT feeds to
+// the version-keyed cost estimator at runtime; the FORMULA SHAPE is keyed by
+// `complexity_formula_version` so PLoT fails loud on an unknown future shape
+// rather than silently mis-planning against a formula it does not understand.
+
+/** ISL-advertised per-phase cost coefficients (v2-weighted-2026-07 formula). */
+export interface ISLComputeAdmissionWeights {
+  /** base MC term: units per sample × option × (nodes+edges) evaluate(). */
+  base_per_sample_per_option_per_struct: number;
+  /** EVPI samples are capped at this value in the EVPI cost term. */
+  evpi_sample_cap: number;
+  /** edge-sensitivity coefficient. */
+  sensitivity_coef: number;
+  /** e-values coefficient. */
+  evalue_coef: number;
+  /** stability-bands coefficient (bands ride on e-values). */
+  bands_coef: number;
+  /** path-decomposition coefficient. */
+  path_coef: number;
+  /** path-decomposition is bounded by this many decomposition paths. */
+  max_decomposition_paths: number;
+}
+
+/** ISL-advertised structural caps (a SEPARATE gate from the cost ceiling). */
+export interface ISLComputeAdmissionCaps {
+  max_options: number;
+  max_nodes: number;
+  max_edges: number;
+  max_parameter_uncertainties: number;
+}
+
+/**
+ * The `compute_admission` block advertised on ISL `/health`. `max_cost_units`
+ * is the LIVE enforced cost ceiling (env-resolved on ISL); `weights` are the
+ * live coefficients PLoT feeds to its version-keyed estimator.
+ */
+export interface ISLComputeAdmission {
+  /** Live enforced ceiling, in ISL "cost units" (NOT the old scalar units). */
+  max_cost_units: number;
+  /** Formula-shape version. PLoT plans only for versions it knows. */
+  complexity_formula_version: string;
+  weights: ISLComputeAdmissionWeights;
+  caps: ISLComputeAdmissionCaps;
 }
 
 /** @deprecated Use ISLRobustnessAnalyzeV2Response instead */
