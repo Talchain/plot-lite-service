@@ -533,3 +533,124 @@ function planLegacyFallback(input: DepthPlanInput, conservative: boolean): Depth
   }
   return { kind: 'unchanged', nSamples: scalar.nSamples, cost: scalar.complexity, ceiling: budget, mode: 'legacy_fallback' };
 }
+
+// ---------------------------------------------------------------------------
+// Codex F8 handshake — STRUCTURAL CAPS gate (the CAPS half of the handshake)
+// ---------------------------------------------------------------------------
+//
+// ISL advertises structural caps on /health (`compute_admission.caps`:
+// max_nodes / max_edges / max_options / max_parameter_uncertainties) SPECIFICALLY
+// so PLoT can pre-check them and refuse BEFORE calling ISL — rather than forward
+// a request ISL is guaranteed to reject with a raw Pydantic 422. #233 completed
+// the COST half (planSampleDepth against max_cost_units); THIS is the CAPS half.
+//
+// DERIVE-DON'T-MIRROR (programme trap #12):
+//   - parameter_uncertainties is the genuinely un-mirrored dimension — PLoT has
+//     NO LIMITS twin and NO other check for it — so the advertised cap is the
+//     sole gate. Before this, a >cap-PU graph passed PLoT and 422'd at ISL.
+//   - nodes / edges / options are checked against min(PLoT LIMITS, advertised
+//     cap): the advertised cap RETIRES the drift between PLoT's LIMITS mirror
+//     and ISL's pin (a cap ISL tightened BELOW PLoT's LIMITS now bites here),
+//     while PLoT's own LIMITS stay as the belt-and-braces LOWER bound (a
+//     garbage-high advertised cap can never WIDEN what PLoT admits). PLoT's
+//     preflight LIMITS checks elsewhere are untouched — this is scoped to the
+//     admission-planning path only.
+
+/** PLoT-side structural safety LIMITS — the belt-and-braces lower bound. */
+export interface StructuralSafetyLimits {
+  maxNodes: number;
+  maxEdges: number;
+  maxOptions: number;
+}
+
+/** The structural counts a request will send to ISL, for the caps gate. */
+export interface AdmissionCapsInput {
+  /** N — causal node count ISL will receive. */
+  nodeCount: number;
+  /** E — causal (directed) edge count ISL will receive. */
+  edgeCount: number;
+  /** O — option count ISL will receive. */
+  optionCount: number;
+  /** U — number of UNIQUE parameter uncertainties (factor + injected constraint). */
+  uniqueParamUncertainties: number;
+}
+
+/** Which structural dimension breached its admission cap. */
+export type AdmissionCapDimension = 'parameter_uncertainties' | 'nodes' | 'edges' | 'options';
+
+/** Outcome of the structural caps gate. */
+export type AdmissionCapsDecision =
+  | { kind: 'ok' }
+  | {
+      kind: 'exceeded';
+      /** The dimension that breached (named in the refusal message). */
+      dimension: AdmissionCapDimension;
+      /** Observed count in the request. */
+      observed: number;
+      /** Enforced limit: the advertised cap (PU) or min(LIMITS, cap) (structural). */
+      limit: number;
+      /** Which side produced the binding limit — for logging/telemetry. */
+      source: 'isl_cap' | 'plot_limit';
+    };
+
+/**
+ * Check a request's structural counts against ISL's advertised caps BEFORE the
+ * ISL call — the CAPS half of the /health handshake.
+ *
+ * Applies ONLY when caps are advertised-and-valid (`admission` non-null; the
+ * resolver has already version-checked the block and validated `caps`). When
+ * `admission` is null (genuine skew, ISL unconfigured, or the cold warm-up
+ * before the first /health read) this returns `{ kind: 'ok' }` — NO spurious
+ * caps refusal; the conservative cost-gate fallback governs exactly as before,
+ * mirroring planSampleDepth's skew posture so the two halves stay consistent.
+ *
+ * First breach wins; parameter_uncertainties is checked FIRST because it is the
+ * dimension PLoT has no other means to catch.
+ */
+export function checkAdmissionCaps(
+  input: AdmissionCapsInput,
+  admission: ISLComputeAdmission | null,
+  limits: StructuralSafetyLimits,
+): AdmissionCapsDecision {
+  if (admission === null) return { kind: 'ok' };
+  const caps = admission.caps;
+
+  // U — the genuinely un-checkable dimension: no PLoT LIMITS twin, so the
+  // advertised cap is the sole gate.
+  if (input.uniqueParamUncertainties > caps.max_parameter_uncertainties) {
+    return {
+      kind: 'exceeded',
+      dimension: 'parameter_uncertainties',
+      observed: input.uniqueParamUncertainties,
+      limit: caps.max_parameter_uncertainties,
+      source: 'isl_cap',
+    };
+  }
+
+  // Structural dimensions — enforce min(PLoT LIMITS, advertised cap).
+  const structural: ReadonlyArray<{
+    dimension: AdmissionCapDimension;
+    observed: number;
+    plotLimit: number;
+    islCap: number;
+  }> = [
+    { dimension: 'nodes', observed: input.nodeCount, plotLimit: limits.maxNodes, islCap: caps.max_nodes },
+    { dimension: 'edges', observed: input.edgeCount, plotLimit: limits.maxEdges, islCap: caps.max_edges },
+    { dimension: 'options', observed: input.optionCount, plotLimit: limits.maxOptions, islCap: caps.max_options },
+  ];
+  for (const { dimension, observed, plotLimit, islCap } of structural) {
+    const limit = Math.min(plotLimit, islCap);
+    if (observed > limit) {
+      return {
+        kind: 'exceeded',
+        dimension,
+        observed,
+        limit,
+        // The advertised cap binds iff it is the (strictly) tighter of the two.
+        source: islCap < plotLimit ? 'isl_cap' : 'plot_limit',
+      };
+    }
+  }
+
+  return { kind: 'ok' };
+}

@@ -130,7 +130,8 @@ import type { SeedSourceType } from '@talchain/schemas';
 import { factorReviewV2, type CEESchemaV2Config } from '../../cee/client.js';
 import { FLAGS } from '../../config/flags.js';
 import { getAllFeatureFlags } from '../../config/feature-flags.js';
-import { resolveStandardNSamples, ADAPTIVE_N_SAMPLES_FLOOR, planSampleDepth, type DepthPlanInput } from '../../config/sampling.js';
+import { resolveStandardNSamples, ADAPTIVE_N_SAMPLES_FLOOR, planSampleDepth, checkAdmissionCaps, type DepthPlanInput, type AdmissionCapsDecision, type AdmissionCapDimension } from '../../config/sampling.js';
+import { LIMITS_MAX_NODES, LIMITS_MAX_EDGES, LIMITS_MAX_OPTIONS } from '../../config/constants.js';
 import { getIslComputeAdmission } from '../../integrations/isl/compute-admission.js';
 import { generateM1Coaching } from '../../coaching/m1-coaching.js';
 import { filterInterventionOverrides } from '../../coaching/sensitivity-filter.js';
@@ -1440,6 +1441,25 @@ function buildBlockedResponse(
     computedAt,
     critiques: addUserMessages(critiques, graph, options),
   });
+}
+
+/**
+ * User-facing GRAPH_TOO_COMPLEX message for a structural admission-cap breach
+ * (the CAPS half of the /health handshake — checkAdmissionCaps). Names the
+ * breached dimension plus the observed count and enforced limit so the caller
+ * knows exactly what to reduce, matching the tone of the cost-ceiling refusal.
+ */
+function capsRefusalMessage(
+  decision: Extract<AdmissionCapsDecision, { kind: 'exceeded' }>,
+): string {
+  const noun: Record<AdmissionCapDimension, string> = {
+    parameter_uncertainties: 'factors with parameter uncertainty',
+    nodes: 'causal nodes',
+    edges: 'causal edges',
+    options: 'options',
+  };
+  const what = noun[decision.dimension];
+  return `This graph is too complex to analyse: it has ${decision.observed} ${what}, but the analysis engine admits at most ${decision.limit}. Reduce the number of ${what} — e.g. remove weaker or duplicate influences — and re-run.`;
 }
 
 /**
@@ -4493,6 +4513,63 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         const uniqueParamUncertainties = factorPuNodeIds.size + constraintInjectedPuNodeIds.size;
 
         const admissionResolution = getIslComputeAdmission();
+
+        // -----------------------------------------------------------------
+        // CAPS half of the /health handshake (checkAdmissionCaps).
+        // -----------------------------------------------------------------
+        // #233 fitted the depth to ISL's advertised COST ceiling. ISL ALSO
+        // advertises structural caps (compute_admission.caps) specifically so
+        // PLoT can pre-check them: a request over a cap — most importantly
+        // max_parameter_uncertainties, for which PLoT has NO other check — is
+        // otherwise forwarded and comes back a raw Pydantic 422 (the exact
+        // passthrough the handshake exists to prevent). Refuse it here with the
+        // SAME structured GRAPH_TOO_COMPLEX blocker the cost ceiling produces,
+        // BEFORE the ISL call. nodes/edges/options are checked against
+        // min(PLoT LIMITS, advertised cap) — derive-not-mirror, PLoT's LIMITS
+        // stay the belt-and-braces floor. Gated on a valid advertised block
+        // (admission non-null) exactly like the cost gate: on skew / no caps /
+        // cold warm-up this does NOT fire (no spurious refusal).
+        const capsDecision = checkAdmissionCaps(
+          {
+            nodeCount: causalNodeCount,
+            edgeCount: causalDirectedEdgeCount,
+            optionCount: causalOptionCount,
+            uniqueParamUncertainties,
+          },
+          admissionResolution.admission,
+          { maxNodes: LIMITS_MAX_NODES, maxEdges: LIMITS_MAX_EDGES, maxOptions: LIMITS_MAX_OPTIONS },
+        );
+        if (capsDecision.kind === 'exceeded') {
+          req.log.warn({
+            event: 'graph_exceeds_admission_cap',
+            request_id: requestId,
+            dimension: capsDecision.dimension,
+            observed: capsDecision.observed,
+            limit: capsDecision.limit,
+            limit_source: capsDecision.source,
+            node_count: causalNodeCount,
+            edge_count: causalDirectedEdgeCount,
+            option_count: causalOptionCount,
+            unique_parameter_uncertainties: uniqueParamUncertainties,
+            admission_status: admissionResolution.status,
+          });
+          return reply.status(422).send(buildBlockedResponse(
+            'Graph too complex to analyse',
+            [{
+              id: randomUUID(),
+              code: 'GRAPH_TOO_COMPLEX',
+              severity: 'blocker' as const,
+              message: capsRefusalMessage(capsDecision),
+              source: 'validation' as const,
+              blocks_analysis: true,
+            }],
+            filteredGraph,
+            normalizedOptions,
+            requestId,
+            requestComputedAt,
+          ));
+        }
+
         const depthPlanInput: DepthPlanInput = {
           nSamples: requestedNSamples,
           nSamplesExplicit: body.n_samples !== undefined,
