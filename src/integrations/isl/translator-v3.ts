@@ -412,7 +412,12 @@ export function toISLRobustnessRequest(
   goalConstraints?: GoalConstraint[],
   // CIL 0.1: forward seed to ISL for deterministic Monte Carlo runs
   seed?: string | number,
-  includePathDecomposition?: boolean
+  includePathDecomposition?: boolean,
+  // Optional: the factor PU list already built from `graph.nodes` by the caller
+  // (the /v2/run admission planner computes it to price EVPI). Threading it in
+  // avoids a second identical `buildParameterUncertaintiesV3` pass over the same
+  // nodes; byte-identical to recomputing here. Omitted callers recompute.
+  prebuiltParameterUncertainties?: ISLRobustnessRequestV3['parameter_uncertainties']
 ): ISLRobustnessRequestV3 {
   // Bidirected edges are trust-layer only (identifiability + warnings).
   // ISL operates on directed edges only. Phase 3A-inference will add inference semantics.
@@ -428,7 +433,7 @@ export function toISLRobustnessRequest(
     goal_node_id: goalNodeId,
     n_samples: nSamples,
     analysis_types: ['comparison', 'sensitivity', 'robustness'],
-    parameter_uncertainties: buildParameterUncertaintiesV3(graph.nodes),
+    parameter_uncertainties: prebuiltParameterUncertainties ?? buildParameterUncertaintiesV3(graph.nodes),
     include_e_values: true,
     include_voi: true,
   };

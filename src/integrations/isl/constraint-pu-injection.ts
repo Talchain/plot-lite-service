@@ -85,10 +85,14 @@ export function selectConstraintInjectedPuNodeIds(
   graphNodes: EngineNodeV3[],
   goalNodeId: string,
   existingPuNodeIds: ReadonlySet<string>,
+  // Optional prebuilt id→node map (built once by the caller and shared with the
+  // injector) so the plan-time selection and the build-time injection don't each
+  // reconstruct an identical map over the same nodes. Omitted callers build one.
+  sharedNodeMap?: ReadonlyMap<string, EngineNodeV3>,
 ): Set<string> {
   const injected = new Set<string>();
   if (!constraints || constraints.length === 0) return injected;
-  const nodeMap = new Map(graphNodes.map((n) => [n.id, n]));
+  const nodeMap = sharedNodeMap ?? new Map(graphNodes.map((n) => [n.id, n]));
   // Mirror the injector: a node accepted earlier becomes "existing" for later
   // duplicate constraints on the same node (so it is counted exactly once).
   const running = new Set(existingPuNodeIds);
@@ -124,6 +128,10 @@ export function injectConstraintParameterUncertainties(
   graphNodes: EngineNodeV3[],
   goalNodeId: string,
   logger?: FastifyBaseLogger,
+  // Optional prebuilt id→node map shared with the plan-time
+  // {@link selectConstraintInjectedPuNodeIds} so the map is built once, not twice.
+  // Omitted callers build one.
+  sharedNodeMap?: ReadonlyMap<string, EngineNodeV3>,
 ): { injected: InjectedPU[]; skipped: SkippedPU[] } {
   const injected: InjectedPU[] = [];
   const skipped: SkippedPU[] = [];
@@ -135,7 +143,7 @@ export function injectConstraintParameterUncertainties(
   const existingPuNodeIds = new Set(
     (islRequest.parameter_uncertainties ?? []).map((p) => p.node_id),
   );
-  const nodeMap = new Map(graphNodes.map((n) => [n.id, n]));
+  const nodeMap = sharedNodeMap ?? new Map(graphNodes.map((n) => [n.id, n]));
   const augmented = [...(islRequest.parameter_uncertainties ?? [])];
 
   for (const constraint of constraints) {

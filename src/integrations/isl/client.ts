@@ -306,26 +306,34 @@ export class ISLClient {
   }
 
   /**
+   * GET `/health` with the shared auth header + short AbortController timeout.
+   * The common boilerplate behind {@link healthCheck} and {@link fetchHealth};
+   * each caller reads only the tail it needs (`response.ok` vs the parsed body).
+   * The timeout is always cleared (finally), even when `fetch` rejects.
+   */
+  private async getHealthResponse(): Promise<Response> {
+    const controller = new AbortController();
+    const healthCheckTimeout = this.config.healthCheckTimeoutMs ?? ISL_HEALTH_CHECK_TIMEOUT_MS;
+    const timeoutId = setTimeout(() => controller.abort(), healthCheckTimeout);
+    try {
+      return await fetch(`${this.config.baseUrl}/health`, {
+        method: 'GET',
+        headers: { 'X-API-Key': this.config.apiKey },
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  /**
    * Check ISL service health
    *
    * @returns true if ISL is healthy
    */
   async healthCheck(): Promise<boolean> {
     try {
-      const controller = new AbortController();
-      const healthCheckTimeout = this.config.healthCheckTimeoutMs ?? ISL_HEALTH_CHECK_TIMEOUT_MS;
-      const timeoutId = setTimeout(() => controller.abort(), healthCheckTimeout);
-
-      const response = await fetch(`${this.config.baseUrl}/health`, {
-        method: 'GET',
-        headers: {
-          'X-API-Key': this.config.apiKey,
-        },
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
+      const response = await this.getHealthResponse();
       return response.ok;
     } catch {
       return false;
@@ -343,21 +351,7 @@ export class ISLClient {
    */
   async fetchHealth(): Promise<ISLHealthResponse | null> {
     try {
-      const controller = new AbortController();
-      const healthCheckTimeout = this.config.healthCheckTimeoutMs ?? ISL_HEALTH_CHECK_TIMEOUT_MS;
-      const timeoutId = setTimeout(() => controller.abort(), healthCheckTimeout);
-
-      let response: Response;
-      try {
-        response = await fetch(`${this.config.baseUrl}/health`, {
-          method: 'GET',
-          headers: { 'X-API-Key': this.config.apiKey },
-          signal: controller.signal,
-        });
-      } finally {
-        clearTimeout(timeoutId);
-      }
-
+      const response = await this.getHealthResponse();
       if (!response.ok) return null;
       const body = (await response.json()) as ISLHealthResponse;
       return body && typeof body === 'object' ? body : null;

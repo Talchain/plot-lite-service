@@ -36,6 +36,7 @@ import { AnalysisEnrichmentSchema } from '@talchain/schemas/boundary';
 import { INFERENCE_WARNING_CODES } from '../../types/engine-v3.js';
 import type { InferenceWarning } from '../../types/engine-v3.js';
 import { parseBoundedIntEnv } from '../../config/env-int.js';
+import { finiteNum, isNonNegInt } from '../../util/numeric.js';
 
 /**
  * Cap on reported issues (wire message + log event). A pathological body
@@ -137,11 +138,6 @@ export function assessStabilityBands(body: unknown): EnrichmentContractIssue[] {
   const edges = (body as { edge_e_values?: unknown }).edge_e_values;
   if (!Array.isArray(edges)) return issues;
 
-  const isNonNegInt = (v: unknown): v is number =>
-    typeof v === 'number' && Number.isFinite(v) && Number.isInteger(v) && v >= 0;
-  const finiteOf = (v: unknown): number | undefined =>
-    typeof v === 'number' && Number.isFinite(v) ? v : undefined;
-
   edges.forEach((edge, i) => {
     if (!edge || typeof edge !== 'object') return;
     const stability = (edge as { stability?: unknown }).stability;
@@ -182,19 +178,19 @@ export function assessStabilityBands(body: unknown): EnrichmentContractIssue[] {
     // Endpoints + width: each finite when present.
     for (const k of ['band_min', 'band_median', 'band_max', 'band_width'] as const) {
       const v = s[k];
-      if (v !== undefined && finiteOf(v) === undefined) {
+      if (v !== undefined && finiteNum(v) === undefined) {
         issues.push({ path: `${base}.${k}`, code: 'invalid_type' });
       }
     }
     // Ordered endpoints (only when both sides are finite).
-    const bMin = finiteOf(s.band_min);
-    const bMed = finiteOf(s.band_median);
-    const bMax = finiteOf(s.band_max);
+    const bMin = finiteNum(s.band_min);
+    const bMed = finiteNum(s.band_median);
+    const bMax = finiteNum(s.band_max);
     if (bMin !== undefined && bMed !== undefined && bMin > bMed) issues.push({ path: `${base}.band_median`, code: 'too_small' });
     if (bMed !== undefined && bMax !== undefined && bMed > bMax) issues.push({ path: `${base}.band_max`, code: 'too_small' });
     if (bMin !== undefined && bMax !== undefined && bMin > bMax) issues.push({ path: `${base}.band_max`, code: 'too_small' }); // reversed band
     // Non-negative width.
-    const bW = finiteOf(s.band_width);
+    const bW = finiteNum(s.band_width);
     if (bW !== undefined && bW < 0) issues.push({ path: `${base}.band_width`, code: 'too_small' });
   });
 
