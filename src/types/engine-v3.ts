@@ -371,12 +371,46 @@ export interface ConstraintResult {
 export interface ConstraintDiagnostic {
   /** Constraint ID */
   constraint_id: string;
-  /** Median failure margin (how far failures miss the threshold) */
-  failure_margin_median: number;
-  /** Fraction of failures within 10% of threshold (near misses) */
-  near_miss_fraction: number;
+  /**
+   * Median failure margin (how far failures miss the threshold).
+   * OPTIONAL: omitted (never fabricated as 0) when ISL did not compute it —
+   * a satisfying constraint carries no margin. Absent ≠ zero.
+   */
+  failure_margin_median?: number;
+  /**
+   * Fraction of failures within 10% of threshold (near misses).
+   * OPTIONAL for the same reason as failure_margin_median — absent ≠ zero.
+   */
+  near_miss_fraction?: number;
   /** Whether this constraint is the primary limiter of joint probability */
   binding: boolean;
+}
+
+/**
+ * Per-option, per-constraint graded breach margin (additive, PoC plumbing).
+ * Carries ISL's per-option failure_margin_median / near_miss_fraction to
+ * egress so breaching options are ORDERABLE by how far over they are.
+ * Absent margin fields are OMITTED (missing ≠ zero); `margin_precision`
+ * flags when the denormalised magnitude is a lower bound because the
+ * option's intervention saturated (clamped) its normalisation range.
+ */
+export interface ConstraintMargin {
+  /** Constraint ID (resolved by ISL response ordinal → input constraint_id). */
+  constraint_id: string;
+  /**
+   * Median failure margin in USER UNITS (denormalised by the constraint's
+   * range width). Omitted when ISL sent none for this option.
+   */
+  failure_margin_median?: number;
+  /** Fraction of failures within 10% of threshold. Omitted when absent. */
+  near_miss_fraction?: number;
+  /**
+   * Precision of failure_margin_median: 'exact' when the option's
+   * intervention stayed within its normalisation range, 'lower_bound' when
+   * it clamped (the true breach is larger than reported). Present only when
+   * failure_margin_median is present.
+   */
+  margin_precision?: 'exact' | 'lower_bound';
 }
 
 /**
@@ -803,6 +837,16 @@ export interface RunResponseV3 {
    * Reason for status (if not 'computed').
    */
   status_reason?: string;
+
+  /**
+   * True when the run produced USABLE results that are degraded/rough —
+   * analysis_status === 'partial' (options usable, some secondary feature
+   * degraded). Single-sourced from analysis_status (derive-don't-mirror); NOT
+   * a hand-maintained second flag. Named `approximate` to avoid colliding with
+   * the CEE-trace `degraded` semantic. Deliberately FALSE for 'failed'/'blocked'
+   * (no usable answer) — an 'approximate results' signal must not cover them.
+   */
+  approximate?: boolean;
 
   /**
    * Option comparison status.
@@ -1468,6 +1512,16 @@ export interface OptionComparisonResultV3 {
     /** Constraint-target node ids scored this way (sorted, deduplicated). */
     node_ids: string[];
   };
+
+  /**
+   * Per-constraint graded breach margins for THIS option (additive plumbing).
+   * One entry per constraint ISL evaluated for the option; margin fields are
+   * OMITTED (never fabricated as 0) when ISL sent none — so a satisfying
+   * option carries a bare entry while a breaching option carries its margin.
+   * Only present when goal_constraints provided and delivered (same honesty
+   * gate as constraint_probabilities).
+   */
+  constraint_margins?: ConstraintMargin[];
 }
 
 /**

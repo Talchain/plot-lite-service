@@ -101,6 +101,14 @@ export interface NormalisedOptions {
  * Diagnostic info for a normalised intervention.
  */
 export interface NormalisationDiagnostic {
+  /**
+   * Which option this intervention belongs to. Lets a per-option clamp map
+   * be derived (Map<optionId, Map<factorId, clamped>>) so egress can flag a
+   * clamped breach magnitude as a lower bound (constraint_margins
+   * margin_precision). The push is inside options.map(option => …) where
+   * option.id is in scope.
+   */
+  option_id: string;
   factor_id: string;
   original_value: number;
   normalised_value: number;
@@ -566,6 +574,7 @@ export function normaliseOptions(
       };
 
       diagnostics.push({
+        option_id: option.id,
         factor_id: factorId,
         original_value: intervention.value,
         normalised_value: normalised,
