@@ -30,6 +30,7 @@ import {
   needsNormalisation,
   constraintsNeedNormalisation,
   normaliseGoalConstraints,
+  normaliseOptionsForISL,
 } from '../../src/lib/intervention-normaliser.js';
 import { filterTemporalConstraints } from '../../src/normalisation/constraint-filter.js';
 import type {
@@ -92,6 +93,51 @@ describe('WP1 gate · constraint scale symmetry (PLoT-owned)', () => {
     // what prevents double-normalisation of already-normalised thresholds.
     const con: GoalConstraint = { constraint_id: 'p', node_id: 'goal', operator: '<=', value: 0.3 };
     expect(constraintsNeedNormalisation([con])).toBe(false);
+  });
+
+  // -------------------------------------------------------------------------
+  // A3 STRENGTHENING — pin shared ARGUMENTS, not just shared functions.
+  // The header claims "same deriveRange/normaliseValue machinery as
+  // interventions", but every fixture above uses an explicit range or a single
+  // inferred_value with no competing intervention spread — so both sides land
+  // on the same range by luck, never because the SAME per-node range object was
+  // threaded through. On a heuristic-range node the two calls DIVERGE (the
+  // constraint bare-derives while interventions use the spread). These pins fail
+  // if a future refactor reverts to bare constraint derivation.
+  // -------------------------------------------------------------------------
+  it('SHARED ARGUMENT: constraint and interventions on a spread node resolve the IDENTICAL range', () => {
+    // cost: observed value 30000, NO cap, NO state_space.range → heuristic node.
+    const nodes = [
+      { id: 'goal', kind: 'goal', label: 'Goal', observed_state: { value: 0.4 } },
+      { id: 'cost', kind: 'factor', label: 'Cost', observed_state: { value: 30000 } },
+    ] as unknown as EngineNodeV3[];
+    const options = [
+      { id: 'a', label: 'A', interventions: { cost: { value: 25000, source: 'user_specified' } } },
+      { id: 'b', label: 'B', interventions: { cost: { value: 45000, source: 'user_specified' } } },
+    ] as unknown as OptionV3[];
+
+    // Interventions derive the spread range.
+    const { context } = normaliseOptionsForISL(options, nodes, 'goal');
+    const interventionRange = context.factors.get('cost')!.range;
+    expect(interventionRange.source).toBe('inferred_spread');
+
+    // NEGATIVE CONTROL: a BARE constraint derivation (no shared scale) DIVERGES.
+    const bare = normaliseGoalConstraints(
+      [{ constraint_id: 'c', node_id: 'cost', operator: '<=', value: 20000 }],
+      nodes,
+    );
+    expect(bare.diagnostics[0].range.max).not.toBeCloseTo(interventionRange.max, 0);
+
+    // POSITIVE: threading the intervention scale makes both sides share the
+    // EXACT SAME range values — the shared-argument invariant.
+    const shared = normaliseGoalConstraints(
+      [{ constraint_id: 'c', node_id: 'cost', operator: '<=', value: 20000 }],
+      nodes,
+      { interventionScaleByNodeId: new Map([['cost', interventionRange]]) },
+    );
+    expect(shared.diagnostics[0].range.min).toBeCloseTo(interventionRange.min, 6);
+    expect(shared.diagnostics[0].range.max).toBeCloseTo(interventionRange.max, 6);
+    expect(shared.diagnostics[0].range.source).toBe(interventionRange.source);
   });
 });
 

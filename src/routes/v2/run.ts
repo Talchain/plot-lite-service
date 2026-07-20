@@ -2076,7 +2076,14 @@ function buildResponse(
   // all, per option. The direction map alone cannot distinguish "diagnosed
   // and not clamped" (margin is exact) from "never diagnosed" (clamp state
   // unknown → no precision claim may be made).
-  optionDiagnosedFactors?: Map<string, Set<string>>
+  optionDiagnosedFactors?: Map<string, Set<string>>,
+  // Codex F2a: per-constraint THRESHOLD clamp direction ('low' = clamped at the
+  // range floor, 'high' = at the ceiling). Present ONLY when the constraint
+  // threshold itself clamped during normalisation. Independent of the per-option
+  // intervention clamp above — a threshold can clamp while every intervention
+  // sits inside the range (the response-1 defect: cap below the intervention
+  // floor). Feeds constraint_margins margin_precision.
+  constraintThresholdClampByConstraintId?: Map<string, 'low' | 'high'>
 ): RunResponseV3 {
   // Producer honesty (lane PLoT-H item A): detect goal constraints whose
   // targets are NOT decision-grade — threshold normalisation fell back to the
@@ -2279,28 +2286,56 @@ function buildResponse(
           const entry: ConstraintMargin = { constraint_id: cid };
           if (fmm !== undefined) {
             entry.failure_margin_median = fmm;
-            // Codex F1 (b)+(c): consult the RECORDED clamp state independently
-            // of constraintNormRanges, and only claim what the evidence
-            // supports:
-            //   - 'lower_bound' ONLY when the clamp direction is
-            //     operator-compatible (high-clamp understates a '<=' breach,
-            //     low-clamp understates a '>=' breach);
-            //   - 'exact' ONLY when this option HAS a normalisation
-            //     diagnostic for the target factor and it did NOT clamp;
-            //   - OMITTED when clamped in a direction that says nothing about
-            //     this operator's breach, or when the target factor carries
-            //     no diagnostic at all (clamp state unknown — e.g. the
-            //     constraint targets a non-intervened node).
+            // Codex F1 (b)+(c) + F2a: consult BOTH recorded clamp states — the
+            // per-option INTERVENTION clamp (a clamped sample) and the
+            // constraint THRESHOLD clamp (a threshold pushed outside the shared
+            // range) — independently of constraintNormRanges, and only claim
+            // what the evidence supports.
+            //
+            // Case analysis (why each clamp/operator pairing is understatement
+            // vs overstatement of the emitted breach margin):
+            //   INTERVENTION clamp (the SAMPLE moves):
+            //     - high-clamp ('<='): true sample ≥ emitted ⇒ true breach ≥
+            //       emitted ⇒ understates → lower_bound.
+            //     - low-clamp  ('>='): true sample ≤ emitted ⇒ understates.
+            //     - the two opposite pairings could OVERSTATE ⇒ no claim.
+            //   THRESHOLD clamp (the THRESHOLD moves — the MIRROR direction):
+            //     - '<=' threshold clamped LOW (to the floor, normalised 0): the
+            //       true threshold is below 0, so the true breach (sample −
+            //       threshold) is LARGER ⇒ emitted understates → lower_bound.
+            //     - '>=' threshold clamped HIGH (to the ceiling, normalised 1):
+            //       true threshold above 1, true breach (threshold − sample)
+            //       LARGER ⇒ understates → lower_bound.
+            //     - '<=' clamped HIGH / '>=' clamped LOW: the emitted breach
+            //       could OVERSTATE the true breach ⇒ NEVER claim a bound.
+            // Precedence: ANY possible overstatement ⇒ OMIT (cannot prove a
+            // lower bound, and it is not exact). Otherwise ANY understatement ⇒
+            // 'lower_bound'. Otherwise (no clamp on either side) 'exact' — but
+            // ONLY when the target factor is diagnosed (else clamp state is
+            // unknown, e.g. a non-intervened target, and no claim is made).
             const clampDir = optionClampDirectionByFactor?.get(optionId)?.get(c.node_id);
             const hasDiagnostic = optionDiagnosedFactors?.get(optionId)?.has(c.node_id) ?? false;
-            if (clampDir !== undefined) {
-              const operatorCompatible =
-                (clampDir === 'high' && c.operator === '<=') ||
-                (clampDir === 'low' && c.operator === '>=');
-              if (operatorCompatible) {
-                entry.margin_precision = 'lower_bound';
-              }
+            const thresholdClamp = constraintThresholdClampByConstraintId?.get(cid);
+
+            const interventionUnderstates =
+              (clampDir === 'high' && c.operator === '<=') ||
+              (clampDir === 'low' && c.operator === '>=');
+            const interventionOverstates = clampDir !== undefined && !interventionUnderstates;
+
+            const thresholdUnderstates =
+              (thresholdClamp === 'low' && c.operator === '<=') ||
+              (thresholdClamp === 'high' && c.operator === '>=');
+            const thresholdOverstates = thresholdClamp !== undefined && !thresholdUnderstates;
+
+            if (interventionOverstates || thresholdOverstates) {
+              // At least one clamp may inflate the emitted margin above the true
+              // breach ⇒ we cannot honestly claim 'lower_bound', and it is not
+              // 'exact'. OMIT.
+            } else if (interventionUnderstates || thresholdUnderstates) {
+              entry.margin_precision = 'lower_bound';
             } else if (hasDiagnostic) {
+              // Neither side clamped in any direction and the target factor is
+              // diagnosed (thresholdClamp is necessarily undefined here) ⇒ exact.
               entry.margin_precision = 'exact';
             }
           }
@@ -4996,6 +5031,12 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         let normalisationContext: NormalisationContext | undefined;
         let normalisationDiagnostics: NormalisationDiagnostic[] = [];
         let constraintNormalisationRanges: Map<string, NormalisationRange> | undefined;
+        // Codex F2a: per-constraint THRESHOLD clamp direction ('low' = clamped at
+        // the range floor, 'high' = at the ceiling), derived from the constraint
+        // normalisation diagnostics (entry present ONLY when the threshold
+        // clamped). A clamped threshold makes the emitted breach margin a strict
+        // bound — the margin egress uses this to avoid mislabelling it 'exact'.
+        let constraintThresholdClampByConstraintId: Map<string, 'low' | 'high'> | undefined;
 
         if (needsNormalisation(normalizedOptions)) {
           const normResult = normaliseOptionsForISL(
@@ -5016,10 +5057,14 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             normalised: true,
             diagnostics_count: normalisationDiagnostics.length,
             repairs_count: normResult.repairs.length,
+            // F7 (Codex): log NO raw numeric decision values (original /
+            // normalised). The log boundary hashes registered raw inputs, but a
+            // DERIVED normalised scalar under an unlisted key is neither
+            // registered nor a DECISION_DOMAIN_KEY, so it would reach info logs
+            // in plaintext. Keep only the hashed factor_id, the range.source
+            // vocabulary, and the clamped boolean (least data wins).
             sample: normalisationDiagnostics.slice(0, 3).map(d => ({
               factor_id: d.factor_id,
-              original: d.original_value,
-              normalised: d.normalised_value,
               range_source: d.range.source,
               clamped: d.clamped,
             })),
@@ -5065,24 +5110,84 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         let constraintsForISL: GoalConstraint[] | undefined;
 
         if (activeGoalConstraints && activeGoalConstraints.length > 0) {
-          if (constraintsNeedNormalisation(activeGoalConstraints)) {
+          // A3 range-unify: the constraint threshold on a node MUST be normalised
+          // against the EXACT scale that node's interventions were scaled against
+          // in Phase 4a — otherwise ISL evaluates prob_satisfied and margins with
+          // the threshold and samples on two different scales (a violated cap
+          // could score probability 1; margins landed on a phantom width). Build
+          // the per-node intervention scale from what the interventions ACTUALLY
+          // used (the Phase-4a diagnostics). A node intervened while Phase 4a was
+          // SKIPPED (all interventions already in [0,1]) is carried as an
+          // identity [0,1] range so its threshold stays on the same raw sample
+          // scale rather than being independently re-normalised via a heuristic.
+          const IDENTITY_RANGE: NormalisationRange = { min: 0, max: 1, source: 'default' };
+          const interventionScaleByNodeId = ((): Map<string, NormalisationRange> => {
+            const rangeByNode = new Map<string, NormalisationRange>();
+            for (const d of normalisationDiagnostics) {
+              if (!rangeByNode.has(d.factor_id)) rangeByNode.set(d.factor_id, d.range);
+            }
+            const scales = new Map<string, NormalisationRange>();
+            for (const opt of normalizedOptions) {
+              for (const nodeId of Object.keys(opt.interventions)) {
+                if (!scales.has(nodeId)) {
+                  scales.set(nodeId, rangeByNode.get(nodeId) ?? IDENTITY_RANGE);
+                }
+              }
+            }
+            return scales;
+          })();
+
+          const gateNeedsNorm = constraintsNeedNormalisation(activeGoalConstraints);
+          // A NON-identity intervention scale forces normalisation even when the
+          // raw constraint value already sits in [0,1] (Caveat A combo 2): that
+          // value is a raw user quantity on the intervention scale and must be
+          // re-scaled onto it, not forwarded as an already-normalised number.
+          const anyNonIdentityScale = [...interventionScaleByNodeId.values()].some(
+            r => !(r.min === 0 && r.max === 1),
+          );
+
+          if (gateNeedsNorm || anyNonIdentityScale) {
             const constraintNormResult = normaliseGoalConstraints(
               activeGoalConstraints,
               filteredGraph.nodes,
               // P0-C1: producer-declared scales (constraint '%' unit, node
               // goal_threshold_cap / goal_threshold) captured before the
-              // temporal filter stripped them — see Phase 1c++ above.
+              // temporal filter stripped them — see Phase 1c++ above. A3: plus
+              // the per-node intervention scale, and the global gate result so
+              // constraints on NON-intervened nodes keep their exact prior
+              // behaviour (chain when the gate fired, forward-raw otherwise).
               {
                 unitsByConstraintId: constraintUnitsByConstraintId,
                 goalThresholdMetaByNodeId,
+                interventionScaleByNodeId,
+                normaliseWithoutScale: gateNeedsNorm,
               }
             );
             constraintsForISL = constraintNormResult.constraints;
 
-            // Store ranges for denormalisation of failure_margin_median in response
+            // Store ranges for denormalisation of failure_margin_median in
+            // response. After A3 unify these are the SAME ranges the samples
+            // live on, so the two margin-egress paths (run.ts ~1885, ~2269)
+            // denormalise on the correct (intervention) width automatically.
             constraintNormalisationRanges = new Map(
               constraintNormResult.diagnostics.map(d => [d.constraint_id, d.range])
             );
+
+            // Codex F2a: derive the per-constraint THRESHOLD clamp direction from
+            // the SAME diagnostics (single source of truth — not a parallel
+            // hand-maintained structure). Direction from the recorded post-clamp
+            // normalised_value: 0 ⇒ clamped at the range floor ('low'), 1 ⇒ at the
+            // ceiling ('high'). Only clamped thresholds get an entry; an interior
+            // normalised value under a degenerate (zero-width) range is
+            // indeterminate and recorded as neither (the margin egress then makes
+            // no precision claim).
+            constraintThresholdClampByConstraintId = new Map<string, 'low' | 'high'>();
+            for (const d of constraintNormResult.diagnostics) {
+              if (!d.clamped) continue;
+              const direction = d.normalised_value <= 0 ? 'low' : d.normalised_value >= 1 ? 'high' : undefined;
+              if (direction === undefined) continue;
+              constraintThresholdClampByConstraintId.set(d.constraint_id, direction);
+            }
 
             // Add constraint normalisation repairs to repairs_applied[]
             repairs = repairs.concat(constraintNormResult.repairs);
@@ -5092,12 +5197,15 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               normalised: true,
               diagnostics_count: constraintNormResult.diagnostics.length,
               repairs_count: constraintNormResult.repairs.length,
+              // F7 (Codex): log NO raw numeric decision values (original /
+              // normalised) — same rationale as the intervention log above.
+              // Keep the identifiers, the range.source vocabulary, and the
+              // clamped boolean (surfaced by F2a; useful, non-sensitive).
               sample: constraintNormResult.diagnostics.slice(0, 3).map(d => ({
                 constraint_id: d.constraint_id,
                 node_id: d.node_id,
-                original: d.original_value,
-                normalised: d.normalised_value,
                 range_source: d.range.source,
+                clamped: d.clamped,
               })),
             });
           } else {
@@ -6758,7 +6866,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           factorStability,  // 3C: ISL stability assessment per factor
           req.log,  // logger for fact_objects assembly logging
           optionClampDirectionByFactor,  // 1d + Codex F1: per-option clamp DIRECTION map for margin_precision
-          optionDiagnosedFactors  // Codex F1: factors with a recorded diagnostic (exact vs unknown)
+          optionDiagnosedFactors,  // Codex F1: factors with a recorded diagnostic (exact vs unknown)
+          constraintThresholdClampByConstraintId  // Codex F2a: per-constraint threshold clamp direction for margin_precision
         ));
       } catch (err) {
         req.log.error({
