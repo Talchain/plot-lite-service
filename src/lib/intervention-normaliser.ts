@@ -1049,33 +1049,44 @@ export function normaliseGoalConstraints(
 
     // The scale this node's INTERVENTIONS were normalised against (Phase 4a).
     const interventionScale = extras?.interventionScaleByNodeId?.get(node_id);
+    // An IDENTITY [0,1] intervention scale is the route's marker for "this node
+    // was intervened while Phase 4a was SKIPPED" (all interventions already in
+    // [0,1]) — it is an ASSUMPTION, not a measured spread. A NON-identity scale
+    // is a measured ground-truth spread. The two rank very differently below.
+    const interventionScaleIsIdentity =
+      interventionScale !== undefined && interventionScale.min === 0 && interventionScale.max === 1;
     // Default TRUE so every existing caller (unit tests, code paths that omit
     // the flag) keeps the pre-fix chain behaviour for scale-less constraints.
     const applyChainWithoutScale = extras?.normaliseWithoutScale ?? true;
 
-    // Derive range. Priority:
-    //   -1  interventionScale — the constraint threshold MUST share the exact
-    //       scale its node's samples occupy (A3 range-unify fix).
-    //  FWD  forward-raw — gate FALSE + no intervention scale ⇒ value already in
-    //       [0,1] ⇒ leave it untouched (HEAD parity, F1). MUST outrank the
-    //       producer branches below.
-    //    0  goal_threshold_cap  (producer-declared)
-    //    1  unit_percent        (producer-declared)
-    //    2+ deriveRange(node)   (existing chain: explicit_cap → … → default)
+    // Derive range. Priority ladder (F4, Codex-confirmed reorder):
+    //   1  interventionScale, NON-identity — a MEASURED spread is ground truth;
+    //      the threshold MUST share the exact scale its samples occupy
+    //      (A3 range-unify). Wins even over a producer cap (DOCTRINE-PENDING).
+    //   2  forward-raw — gate FALSE + no intervention scale ⇒ value already in
+    //      [0,1] ⇒ leave it untouched (HEAD parity, F1). MUST outrank producers.
+    //   3  goal_threshold_cap  (producer-declared)   ]  a producer DECLARATION
+    //   4  unit_percent        (producer-declared)   ]  outranks an ASSUMED
+    //                                                    identity scale (F4).
+    //   5  interventionScale, IDENTITY — the Phase-4a-skipped assumption; ranks
+    //      BELOW producer declarations, ABOVE the node heuristic, so the
+    //      core no-producer-metadata combos stay unchanged.
+    //   6  deriveRange(node)   (existing chain: explicit_cap → … → default)
     // If node not found and no declared scale, use default [0,1].
     let range: NormalisationRange;
     // Forwarded-raw ⇒ value is already in [0,1] (the global gate was FALSE) and
     // this node has no intervention scale: leave it untouched, emit no repair.
     let forwardedRawUnchanged = false;
-    if (interventionScale) {
-      // DOCTRINE-PENDING: when a node carries BOTH an intervention spread scale
-      // and a producer-declared cap (goal_threshold_cap / '%' / explicit_cap /
-      // state_space.range) and the two DISAGREE, this fix picks the
+    if (interventionScale && !interventionScaleIsIdentity) {
+      // DOCTRINE-PENDING: when a node carries BOTH a MEASURED intervention spread
+      // scale and a producer-declared cap (goal_threshold_cap / '%' / explicit_cap
+      // / state_space.range) and the two DISAGREE, this fix picks the
       // intervention-side range — it is the scale the ISL samples actually live
       // on, so it is the only choice that keeps threshold and samples
       // comparable. WHICH of the two should be authoritative when they diverge
       // is an unratified doctrine call (owner: A3 lead). Sameness is the
-      // invariant here; the pick is provisional.
+      // invariant here; the pick is provisional. (F4: this branch is now gated on
+      // NON-identity — an identity scale is an assumption, demoted to branch 5.)
       range = interventionScale;
     } else if (!applyChainWithoutScale) {
       // F1 (adversarial review): the global gate did NOT fire and this node has
@@ -1095,6 +1106,13 @@ export function normaliseGoalConstraints(
       range = { min: 0, max: nodeCap, source: 'goal_threshold_cap' };
     } else if (isPercentUnit(unit)) {
       range = { min: 0, max: 100, source: 'unit_percent' };
+    } else if (interventionScale) {
+      // F4 branch 5: an IDENTITY [0,1] intervention scale (Phase 4a skipped for
+      // this intervened node). Reached only when no producer '%'/cap declared it
+      // (those are handled above). Keeps the threshold on the SAME raw sample
+      // scale the interventions occupy, rather than independently re-deriving a
+      // node heuristic. (interventionScaleIsIdentity is necessarily true here.)
+      range = interventionScale;
     } else {
       range = targetNode
         ? deriveRange(targetNode)

@@ -206,6 +206,94 @@ describe('A3 range-unify · F1 · producer-scale constraint on a non-intervened 
 });
 
 // ===========================================================================
+// Layer A3 — F4 regression pin: producer '%'/cap must OUTRANK an IDENTITY scale
+// ===========================================================================
+// F4 (Codex-confirmed): interventions already in [0,1] (Phase 4a SKIPPED) install
+// an IDENTITY [0,1] intervention scale for the intervened node. A public
+// constraint {value:50, unit:'%'} (or goal_threshold_cap:100) on that node then
+// hit the (top-priority) interventionScale branch → 50 CLAMPED to 1, source
+// 'default' → the reliability gate (threshold_normalisation_defaulted) SUPPRESSED
+// a constraint HEAD evaluated correctly. The fix ranks producer declarations
+// ABOVE an identity scale (but BELOW a measured non-identity spread). The
+// discriminator: value 50 must land 0.5 on [0,100] with a NON-'default' source.
+describe('A3 range-unify · F4 · producer scale outranks an identity intervention scale', () => {
+  const nodes: EngineNodeV3[] = [
+    { id: 'goal', kind: 'goal', label: 'Goal', observed_state: { value: 0.4 } },
+    { id: 'cost', kind: 'factor', label: 'First-year cost', observed_state: { value: 30000 } },
+  ] as unknown as EngineNodeV3[];
+
+  // Phase-4a-skipped node ⇒ carried as an IDENTITY [0,1] scale by the route.
+  const identityScale = new Map([['cost', { min: 0, max: 1, source: 'default' as const }]]);
+
+  it("'%' unit OUTRANKS the identity scale: 50 → 0.5 on [0,100], source unit_percent (not clamped to 1/default)", () => {
+    const { constraints, diagnostics } = normaliseGoalConstraints(
+      [{ constraint_id: 'c_pct', node_id: 'cost', operator: '<=', value: 50 }],
+      nodes,
+      {
+        unitsByConstraintId: new Map([['c_pct', '%']]),
+        interventionScaleByNodeId: identityScale,
+        normaliseWithoutScale: true, // gate fired (50 is out of [0,1])
+      },
+    );
+    // At HEAD (before F4): identity branch → 50 clamps to 1, source 'default'.
+    expect(constraints[0].value).toBeCloseTo(0.5, 6);
+    expect(diagnostics[0].range.min).toBe(0);
+    expect(diagnostics[0].range.max).toBe(100);
+    expect(diagnostics[0].range.source).toBe('unit_percent');
+  });
+
+  it('goal_threshold_cap OUTRANKS the identity scale: 50 → 0.5 on [0,100], source goal_threshold_cap', () => {
+    const { constraints, diagnostics } = normaliseGoalConstraints(
+      [{ constraint_id: 'c_cap', node_id: 'cost', operator: '<=', value: 50 }],
+      nodes,
+      {
+        goalThresholdMetaByNodeId: new Map([['cost', { goal_threshold_cap: 100 }]]),
+        interventionScaleByNodeId: identityScale,
+        normaliseWithoutScale: true,
+      },
+    );
+    expect(constraints[0].value).toBeCloseTo(0.5, 6);
+    expect(diagnostics[0].range.max).toBe(100);
+    expect(diagnostics[0].range.source).toBe('goal_threshold_cap');
+  });
+
+  it('CONTROL: identity scale is STILL honoured when there is NO producer declaration (branch 5)', () => {
+    // Proves the reorder did not blanket-replace the identity scale with the
+    // chain — an identity scale with no '%'/cap still applies (50 → clamp 1,
+    // source default), ranking BELOW producers but ABOVE the node heuristic.
+    const { constraints, diagnostics } = normaliseGoalConstraints(
+      [{ constraint_id: 'c_plain', node_id: 'cost', operator: '<=', value: 50 }],
+      nodes,
+      {
+        interventionScaleByNodeId: identityScale,
+        normaliseWithoutScale: true,
+      },
+    );
+    expect(constraints[0].value).toBe(1); // clamped onto identity [0,1]
+    expect(diagnostics[0].range.source).toBe('default');
+    // NOT the node heuristic [0,60000] (that would be source 'inferred_value'/
+    // 'default' via deriveRange — here it is the identity scale, max 1).
+    expect(diagnostics[0].range.max).toBe(1);
+  });
+
+  it('CONTROL: a measured NON-identity spread still OUTRANKS a producer cap (branch 1, doctrine-pending)', () => {
+    // The reorder must only demote the IDENTITY scale — a real measured spread
+    // still wins over the producer cap (the DOCTRINE-PENDING pick), unchanged.
+    const { constraints, diagnostics } = normaliseGoalConstraints(
+      [{ constraint_id: 'c_cap', node_id: 'cost', operator: '<=', value: 30000 }],
+      nodes,
+      {
+        goalThresholdMetaByNodeId: new Map([['cost', { goal_threshold_cap: 100 }]]),
+        interventionScaleByNodeId: new Map([['cost', { min: 21000, max: 49000, source: 'inferred_spread' as const }]]),
+        normaliseWithoutScale: true,
+      },
+    );
+    expect(diagnostics[0].range.max).toBeCloseTo(49000, 6);
+    expect(constraints[0].value).toBeCloseTo(0.32142857, 6);
+  });
+});
+
+// ===========================================================================
 // Layer B — route-level pins with a FAITHFUL ISL surrogate
 // ===========================================================================
 // The surrogate computes prob_satisfied / failure_margin_median from the
@@ -454,6 +542,26 @@ describe('A3 range-unify · route level · faithful ISL surrogate', () => {
     // cost 0.3 <= 0.5 satisfied; cost 0.7 <= 0.5 violated.
     expect(optionEntry(body, 'opt_a').constraint_probabilities?.c1).toBe(1);
     expect(optionEntry(body, 'opt_b').constraint_probabilities?.c1).toBe(0);
+  });
+
+  // ---- F4: a '%' constraint on a Phase-4a-skipped (identity-scale) node ----
+  it('F4: a public %-constraint on an identity-scale node is NORMALISED via [0,100], NOT suppressed', async () => {
+    const body = await run({
+      graph: GRAPH, options: OPTIONS_UNIT, goal_node_id: 'goal', seed: '42',
+      // Interventions 0.3/0.7 are already in [0,1] → Phase 4a SKIPPED → cost
+      // carries an IDENTITY [0,1] intervention scale. The '%' unit must OUTRANK
+      // it: 50 → 0.5 on [0,100] (source unit_percent), NOT clamp to 1 on the
+      // identity scale with source 'default' (which the reliability gate
+      // suppresses — the regression this pins).
+      goal_constraints: [{ constraint_id: 'c_pct', node_id: 'cost', operator: '<=', value: 50, unit: '%' }],
+    });
+    // At HEAD (before F4): value 1, source 'default' → suppressed → 'unavailable'.
+    expect(constraintValueSentToISL('c_pct')).toBeCloseTo(0.5, 6);
+    expect(body.constraints_status).not.toBe('unavailable');
+    // cost 0.3 <= 0.5 satisfied; cost 0.7 <= 0.5 violated — the verdict is
+    // DELIVERED (the suppression half is lifted).
+    expect(optionEntry(body, 'opt_a').constraint_probabilities?.c_pct).toBe(1);
+    expect(optionEntry(body, 'opt_b').constraint_probabilities?.c_pct).toBe(0);
   });
 
   // NOTE (F1): the F1 corner (gate FALSE + a producer-'%'/cap constraint on a
