@@ -18,12 +18,20 @@
  * Index-signature keys (`[k: string]: X`) are deliberately NOT collected —
  * those are precisely the data-derived maps whose keys must be digested.
  *
+ * Codex F6: importing this module is SIDE-EFFECT-FREE. The old version ran
+ * its write at module top level, so the drift test's `import` REGENERATED the
+ * registry before comparing — the guard could never fail (it passed for
+ * months over a stale committed file). Writing now happens ONLY under direct
+ * CLI invocation; the drift test calls the pure `checkRegistry()` instead.
+ *
  * Usage: node tools/gen-structural-keys.mjs [--check]
+ *   (no flag)  regenerate src/util/structural-keys.generated.ts
+ *   --check    exit 1 if the checked-in file differs from the derivation
  */
 import ts from 'typescript';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { dirname, join, resolve } from 'node:path';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -32,6 +40,9 @@ export const CONTRACT_FILES = [
   'src/types/engine-v3.ts',
   'src/integrations/isl/types/isl-types.ts',
 ];
+
+/** Absolute path of the generated registry. */
+export const GENERATED_PATH = join(ROOT, 'src/util/structural-keys.generated.ts');
 
 /** Extract every declared property name from the contract type files. */
 export function extractStructuralKeys() {
@@ -72,17 +83,32 @@ ${keys.map((k) => `  ${JSON.stringify(k)},`).join('\n')}
 `;
 }
 
-const OUT = join(ROOT, 'src/util/structural-keys.generated.ts');
-const rendered = renderModule(extractStructuralKeys());
+/**
+ * PURE check: derive the expected module text and compare it to the file on
+ * disk. Never writes. This is what the drift test consumes.
+ */
+export function checkRegistry() {
+  const expected = renderModule(extractStructuralKeys());
+  const actual = readFileSync(GENERATED_PATH, 'utf8');
+  return { ok: actual === expected, expected, actual };
+}
 
-if (process.argv.includes('--check')) {
-  const current = readFileSync(OUT, 'utf8');
-  if (current !== rendered) {
-    console.error('structural-keys.generated.ts is STALE — run: node tools/gen-structural-keys.mjs');
-    process.exit(1);
+// CLI entry — runs ONLY when this file is executed directly
+// (`node tools/gen-structural-keys.mjs`), NEVER on import (Codex F6).
+const invokedDirectly =
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+
+if (invokedDirectly) {
+  if (process.argv.includes('--check')) {
+    const { ok } = checkRegistry();
+    if (!ok) {
+      console.error('structural-keys.generated.ts is STALE — run: node tools/gen-structural-keys.mjs');
+      process.exit(1);
+    }
+    console.log('OK: structural-keys.generated.ts is up to date');
+  } else {
+    writeFileSync(GENERATED_PATH, renderModule(extractStructuralKeys()));
+    console.log(`Wrote ${GENERATED_PATH}`);
   }
-  console.log('OK: structural-keys.generated.ts is up to date');
-} else {
-  writeFileSync(OUT, rendered);
-  console.log(`Wrote ${OUT}`);
 }

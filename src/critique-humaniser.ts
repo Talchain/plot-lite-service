@@ -118,6 +118,9 @@ export const TEMPLATE_MAP: Record<string, TemplateEntry> = {
   TOO_MANY_CONSTRAINTS:
     'Too many constraints provided. Reduce the number of constraints to stay within the limit.',
 
+  INVALID_CONSTRAINT_SHAPE:
+    'A constraint is incomplete or malformed. Each constraint needs an identifier, a target node, a >= or <= comparison, and a numeric limit.',
+
   EMPTY_INTERVENTIONS: (c, g, opts) => {
     const label = resolveOptionLabel(c.affected_option_ids?.[0], opts, g);
     return `${label} has no effects defined. Each option needs at least one connection to a factor.`;

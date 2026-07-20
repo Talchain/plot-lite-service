@@ -1282,7 +1282,11 @@ describe('Integration: Precedence Routing via /v2/run', () => {
 
     expect(status).toBe(422);
     expect(data?.critiques).toBeDefined();
-    expect(data?.critiques.some((c: any) => c.code === 'CONSTRAINT_INVALID_OPERATOR')).toBe(true);
+    // Codex F4: a non-closed operator on REQUEST-LEVEL goal_constraints is now
+    // rejected by the ingress-shape guard (INVALID_CONSTRAINT_SHAPE) before
+    // preflight runs. CONSTRAINT_INVALID_OPERATOR still covers graph-compiled
+    // constraints (see the validateGoalConstraints unit test above).
+    expect(data?.critiques.some((c: any) => c.code === 'INVALID_CONSTRAINT_SHAPE')).toBe(true);
   });
 });
 

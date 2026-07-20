@@ -402,13 +402,23 @@ export interface ConstraintMargin {
    * range width). Omitted when ISL sent none for this option.
    */
   failure_margin_median?: number;
-  /** Fraction of failures within 10% of threshold. Omitted when absent. */
+  /** Fraction of failures within 10% of threshold. Omitted when absent or outside [0,1]. */
   near_miss_fraction?: number;
   /**
-   * Precision of failure_margin_median: 'exact' when the option's
-   * intervention stayed within its normalisation range, 'lower_bound' when
-   * it clamped (the true breach is larger than reported). Present only when
-   * failure_margin_median is present.
+   * Precision of failure_margin_median (Codex F1 semantics). Only present
+   * when failure_margin_median is present, and only when the recorded
+   * normalisation diagnostics SUPPORT the claim:
+   * - 'lower_bound': the option's intervention on the constraint's target
+   *   factor clamped in the operator-COMPATIBLE direction (high-clamp with a
+   *   '<=' constraint, or low-clamp with a '>='), so the reported magnitude
+   *   understates the true breach.
+   * - 'exact': the option carries a normalisation diagnostic for the target
+   *   factor and it did NOT clamp.
+   * - OMITTED: the clamp direction is incompatible with the operator (a
+   *   clamp that says nothing about this breach), or the target factor has
+   *   no diagnostic at all (clamp state unknown — e.g. the constraint
+   *   targets a node no option intervenes on). Absence is honest "no
+   *   precision claim", never an implicit 'exact'.
    */
   margin_precision?: 'exact' | 'lower_bound';
 }
@@ -615,6 +625,7 @@ export const INLINE_CRITIQUE_CODES = [
   'IDENTIFIABILITY_WARNING',
   'UNMEASURED_CONFOUNDING_WARNING',
   'TOO_MANY_CONSTRAINTS',         // goal_constraints.length > MAX_CONSTRAINTS (P.8 DoS guard)
+  'INVALID_CONSTRAINT_SHAPE',     // ingress-shape guard: id/node_id trimmed non-empty, operator >=|<=, value finite (Codex F4)
   'ISL_NOT_ENABLED',
   'CONSTRAINT_OUT_OF_DOMAIN',
   'CONSTRAINT_FILTERED_TEMPORAL',

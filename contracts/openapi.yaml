@@ -6046,6 +6046,15 @@ components:
           type: string
           enum: [computed, partial, failed]
           description: Top-level status (NOT UI vocabulary)
+        approximate:
+          type: boolean
+          description: |
+            Canonical "usable but degraded" signal, DERIVED from
+            analysis_status: true ONLY when analysis_status is 'partial'
+            (usable option outcomes with some secondary feature degraded).
+            Deliberately false for 'computed' (clean) AND for
+            'failed'/'blocked' (no usable answer — those must never present
+            as "approximate results"). Additive (PR #237).
         status_reason:
           type: string
           description: Reason when status is not 'computed'
@@ -6269,6 +6278,49 @@ components:
                 description: |
                   Probability this option outperforms alternatives across
                   simulated scenarios.
+              constraint_margins:
+                type: array
+                description: |
+                  Per-option, per-constraint graded breach margins (additive,
+                  PR #237). One entry per constraint ISL evaluated for THIS
+                  option. Margin fields are OMITTED when ISL sent none —
+                  absence is distinguishable from a measured zero. Only
+                  present when goal_constraints were evaluated and the
+                  constraint target is decision-grade.
+                items:
+                  type: object
+                  required: [constraint_id]
+                  properties:
+                    constraint_id:
+                      type: string
+                      description: Constraint ID (resolved by ISL response ordinal → input constraint_id).
+                    failure_margin_median:
+                      type: number
+                      description: |
+                        Median failure margin in USER UNITS (denormalised by
+                        the constraint's range width). Omitted when ISL sent
+                        none, or when the received value was non-finite or
+                        negative (trust-boundary guard).
+                    near_miss_fraction:
+                      type: number
+                      minimum: 0
+                      maximum: 1
+                      description: |
+                        Fraction of failures within 10% of threshold. Omitted
+                        when absent or outside [0,1].
+                    margin_precision:
+                      type: string
+                      enum: [exact, lower_bound]
+                      description: |
+                        Precision of failure_margin_median. Present only when
+                        failure_margin_median is present AND the recorded
+                        normalisation diagnostics support a claim:
+                        'lower_bound' when the option's intervention clamped
+                        in the operator-compatible direction (true breach is
+                        at least the reported value); 'exact' when a
+                        diagnostic confirms no clamp. Omitted when clamp state
+                        is unknown or the clamp direction is incompatible with
+                        the operator.
         edge_sensitivity:
           type: array
           description: |
