@@ -5065,21 +5065,65 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         let constraintsForISL: GoalConstraint[] | undefined;
 
         if (activeGoalConstraints && activeGoalConstraints.length > 0) {
-          if (constraintsNeedNormalisation(activeGoalConstraints)) {
+          // A3 range-unify: the constraint threshold on a node MUST be normalised
+          // against the EXACT scale that node's interventions were scaled against
+          // in Phase 4a — otherwise ISL evaluates prob_satisfied and margins with
+          // the threshold and samples on two different scales (a violated cap
+          // could score probability 1; margins landed on a phantom width). Build
+          // the per-node intervention scale from what the interventions ACTUALLY
+          // used (the Phase-4a diagnostics). A node intervened while Phase 4a was
+          // SKIPPED (all interventions already in [0,1]) is carried as an
+          // identity [0,1] range so its threshold stays on the same raw sample
+          // scale rather than being independently re-normalised via a heuristic.
+          const IDENTITY_RANGE: NormalisationRange = { min: 0, max: 1, source: 'default' };
+          const interventionScaleByNodeId = ((): Map<string, NormalisationRange> => {
+            const rangeByNode = new Map<string, NormalisationRange>();
+            for (const d of normalisationDiagnostics) {
+              if (!rangeByNode.has(d.factor_id)) rangeByNode.set(d.factor_id, d.range);
+            }
+            const scales = new Map<string, NormalisationRange>();
+            for (const opt of normalizedOptions) {
+              for (const nodeId of Object.keys(opt.interventions)) {
+                if (!scales.has(nodeId)) {
+                  scales.set(nodeId, rangeByNode.get(nodeId) ?? IDENTITY_RANGE);
+                }
+              }
+            }
+            return scales;
+          })();
+
+          const gateNeedsNorm = constraintsNeedNormalisation(activeGoalConstraints);
+          // A NON-identity intervention scale forces normalisation even when the
+          // raw constraint value already sits in [0,1] (Caveat A combo 2): that
+          // value is a raw user quantity on the intervention scale and must be
+          // re-scaled onto it, not forwarded as an already-normalised number.
+          const anyNonIdentityScale = [...interventionScaleByNodeId.values()].some(
+            r => !(r.min === 0 && r.max === 1),
+          );
+
+          if (gateNeedsNorm || anyNonIdentityScale) {
             const constraintNormResult = normaliseGoalConstraints(
               activeGoalConstraints,
               filteredGraph.nodes,
               // P0-C1: producer-declared scales (constraint '%' unit, node
               // goal_threshold_cap / goal_threshold) captured before the
-              // temporal filter stripped them — see Phase 1c++ above.
+              // temporal filter stripped them — see Phase 1c++ above. A3: plus
+              // the per-node intervention scale, and the global gate result so
+              // constraints on NON-intervened nodes keep their exact prior
+              // behaviour (chain when the gate fired, forward-raw otherwise).
               {
                 unitsByConstraintId: constraintUnitsByConstraintId,
                 goalThresholdMetaByNodeId,
+                interventionScaleByNodeId,
+                normaliseWithoutScale: gateNeedsNorm,
               }
             );
             constraintsForISL = constraintNormResult.constraints;
 
-            // Store ranges for denormalisation of failure_margin_median in response
+            // Store ranges for denormalisation of failure_margin_median in
+            // response. After A3 unify these are the SAME ranges the samples
+            // live on, so the two margin-egress paths (run.ts ~1885, ~2269)
+            // denormalise on the correct (intervention) width automatically.
             constraintNormalisationRanges = new Map(
               constraintNormResult.diagnostics.map(d => [d.constraint_id, d.range])
             );

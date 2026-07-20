@@ -914,6 +914,33 @@ export interface ConstraintNormalisationExtras {
   unitsByConstraintId?: Map<string, string>;
   /** Raw-node goal-threshold metadata per node_id */
   goalThresholdMetaByNodeId?: Map<string, GoalThresholdNodeMeta>;
+  /**
+   * The EXACT normalisation range each node's INTERVENTIONS were scaled against
+   * in Phase 4a (keyed by node_id). This is the scale the ISL samples for that
+   * node actually occupy, so the constraint threshold on the same node MUST be
+   * normalised against the identical range — otherwise ISL compares a threshold
+   * and samples that live on two different scales (the A3 range-split defect:
+   * a violated cap scored probability 1; margins were on a phantom width).
+   *
+   * When present for a node, this range OVERRIDES the constraint-side derivation
+   * chain (including producer-declared caps) — see the DOCTRINE-PENDING note in
+   * normaliseGoalConstraints. A node whose interventions were forwarded raw
+   * ([0,1] gate skipped) is carried here as an identity [0,1] range so the
+   * threshold stays on the same raw sample scale rather than being independently
+   * re-normalised via a node heuristic.
+   */
+  interventionScaleByNodeId?: Map<string, NormalisationRange>;
+  /**
+   * Whether the caller's global `constraintsNeedNormalisation` gate fired. When
+   * TRUE (or unset — the default preserves every direct-unit-test caller), a
+   * constraint on a node WITHOUT an intervention scale is normalised through the
+   * existing derivation chain, exactly as before. When explicitly FALSE, that
+   * same constraint is forwarded raw (its value is already in [0,1] by
+   * definition of the gate), so only constraints on intervened nodes with a
+   * NON-identity scale are transformed. This keeps behaviour byte-identical for
+   * constraints on non-intervened nodes across every gate combination.
+   */
+  normaliseWithoutScale?: boolean;
 }
 
 /**
@@ -1011,19 +1038,47 @@ export function normaliseGoalConstraints(
     const unit = extras?.unitsByConstraintId?.get(constraint_id);
     const nodeCap = nodeMeta?.goal_threshold_cap;
 
-    // Derive range. Producer-declared constraint scales outrank the
-    // node-derived chain; deriveRange() handles observed_state.cap as
-    // priority 0 (explicit_cap), then state_space.range → heuristics → [0,1].
+    // The scale this node's INTERVENTIONS were normalised against (Phase 4a).
+    const interventionScale = extras?.interventionScaleByNodeId?.get(node_id);
+    // Default TRUE so every existing caller (unit tests, code paths that omit
+    // the flag) keeps the pre-fix chain behaviour for scale-less constraints.
+    const applyChainWithoutScale = extras?.normaliseWithoutScale ?? true;
+
+    // Derive range. Priority:
+    //   -1  interventionScale — the constraint threshold MUST share the exact
+    //       scale its node's samples occupy (A3 range-unify fix).
+    //    0  goal_threshold_cap  (producer-declared)
+    //    1  unit_percent        (producer-declared)
+    //    2+ deriveRange(node)   (existing chain: explicit_cap → … → default)
     // If node not found and no declared scale, use default [0,1].
     let range: NormalisationRange;
-    if (typeof nodeCap === 'number' && Number.isFinite(nodeCap) && nodeCap > 0) {
+    // Forwarded-raw ⇒ value is already in [0,1] (the global gate was FALSE) and
+    // this node has no intervention scale: leave it untouched, emit no repair.
+    let forwardedRawUnchanged = false;
+    if (interventionScale) {
+      // DOCTRINE-PENDING: when a node carries BOTH an intervention spread scale
+      // and a producer-declared cap (goal_threshold_cap / '%' / explicit_cap /
+      // state_space.range) and the two DISAGREE, this fix picks the
+      // intervention-side range — it is the scale the ISL samples actually live
+      // on, so it is the only choice that keeps threshold and samples
+      // comparable. WHICH of the two should be authoritative when they diverge
+      // is an unratified doctrine call (owner: A3 lead). Sameness is the
+      // invariant here; the pick is provisional.
+      range = interventionScale;
+    } else if (typeof nodeCap === 'number' && Number.isFinite(nodeCap) && nodeCap > 0) {
       range = { min: 0, max: nodeCap, source: 'goal_threshold_cap' };
     } else if (isPercentUnit(unit)) {
       range = { min: 0, max: 100, source: 'unit_percent' };
-    } else {
+    } else if (applyChainWithoutScale) {
       range = targetNode
         ? deriveRange(targetNode)
         : { min: 0, max: 1, source: 'default' };
+    } else {
+      // Global gate did not fire and this node has no intervention scale ⇒ the
+      // value is already in [0,1]; forward it verbatim (identity), matching the
+      // pre-fix "gate false ⇒ constraints forwarded raw" behaviour exactly.
+      range = { min: 0, max: 1, source: 'default' };
+      forwardedRawUnchanged = true;
     }
 
     // Normalise value
@@ -1063,25 +1118,39 @@ export function normaliseGoalConstraints(
     };
     normalisedConstraints.push(normalisedConstraint);
 
-    // Add repair record
-    repairs.push({
-      field: `constraint.value.${constraint_id}`,
-      action: 'normalised',
-      from_value: value,
-      to_value: normalised,
-      reason: `normalised range=[${range.min},${range.max}] source=${range.source}${clamped ? ' (clamped)' : ''}${usedNodeGoalThreshold ? ' (node goal_threshold preferred)' : ''}`,
-    });
+    // Add repair record. A forwarded-raw constraint (gate FALSE, no intervention
+    // scale) is an identity no-op — emit no repair, so repairs_applied stays
+    // byte-identical to the pre-fix "gate false ⇒ no constraint normalisation"
+    // path.
+    if (!forwardedRawUnchanged) {
+      repairs.push({
+        field: `constraint.value.${constraint_id}`,
+        action: 'normalised',
+        from_value: value,
+        to_value: normalised,
+        reason: `normalised range=[${range.min},${range.max}] source=${range.source}${clamped ? ' (clamped)' : ''}${usedNodeGoalThreshold ? ' (node goal_threshold preferred)' : ''}`,
+      });
+    }
 
-    // Add diagnostic
-    diagnostics.push({
-      constraint_id,
-      node_id,
-      original_value: value,
-      normalised_value: normalised,
-      range,
-      used_heuristic: usedHeuristic,
-      ...(usedNodeGoalThreshold && { used_node_goal_threshold: true }),
-    });
+    // Add diagnostic. A forwarded-raw constraint underwent NO transform, so it
+    // contributes no normalisation range — emitting a synthetic 'default' range
+    // here would make the callers treat it as identical to the pre-fix
+    // "gate false ⇒ function not called" state. Crucially, that synthetic
+    // 'default' range would trip constraint-reliability.ts
+    // (threshold_normalisation_defaulted) and SUPPRESS a constraint that HEAD
+    // delivered. So skip it: no diagnostic ⇒ no constraintNormalisationRanges
+    // entry ⇒ the reliability gate and margin denorm behave exactly as before.
+    if (!forwardedRawUnchanged) {
+      diagnostics.push({
+        constraint_id,
+        node_id,
+        original_value: value,
+        normalised_value: normalised,
+        range,
+        used_heuristic: usedHeuristic,
+        ...(usedNodeGoalThreshold && { used_node_goal_threshold: true }),
+      });
+    }
 
     // Heuristic use is captured in diagnostics[].used_heuristic and repair records.
   }
