@@ -385,6 +385,12 @@ describe('A3 range-unify · route level · faithful ISL surrogate', () => {
     expect(m).toBeDefined();
     expect(m.failure_margin_median).toBeCloseTo(24000, 0);
     expect(m.failure_margin_median).not.toBeCloseTo(31428.57, 0);
+    // Codex F2a: the THRESHOLD 20000 clamped to 0 on the shared scale (below the
+    // [21000,49000] floor), so the emitted 24000 UNDERSTATES the true breach
+    // (true threshold −1000/28000 → true breach ≈ 25000). A '<=' threshold
+    // clamped at the range floor is a strict lower bound → NOT 'exact'.
+    // (At branch HEAD, before F2a, this read 'exact' — the RED assertion.)
+    expect(m.margin_precision).toBe('lower_bound');
   });
 
   it('COMBO 1: a threshold INSIDE the spread yields the EXACT user-unit margin', async () => {
@@ -397,6 +403,11 @@ describe('A3 range-unify · route level · faithful ISL surrogate', () => {
     const b = optionEntry(body, 'opt_b');
     const m = b.constraint_margins?.find((x: any) => x.constraint_id === 'c1');
     expect(m.failure_margin_median).toBeCloseTo(15000, 0);
+    // Codex F2a CONTROL: threshold 30000 sits INSIDE the spread → it does NOT
+    // clamp, and opt_b's intervention (45000) is inside too → neither side
+    // clamps → the margin is genuinely 'exact'. This must stay 'exact' after
+    // F2a (proves the threshold-clamp gate discriminates, not a blanket demote).
+    expect(m.margin_precision).toBe('exact');
   });
 
   // ---- COMBO 2: interventions out of [0,1], constraint value in [0,1] ----

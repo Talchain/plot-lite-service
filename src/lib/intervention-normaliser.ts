@@ -978,6 +978,15 @@ export interface ConstraintNormalisationResult {
     normalised_value: number;
     range: NormalisationRange;
     used_heuristic: boolean;
+    /**
+     * True when the raw threshold fell OUTSIDE the normalisation range and was
+     * clamped onto [0,1] (Codex F2a). The clamp DIRECTION is read from
+     * normalised_value at egress (0 ⇒ clamped at the range floor, 1 ⇒ at the
+     * ceiling). A clamped threshold makes the emitted failure_margin a strict
+     * bound, not an exact distance — the margin egress consults this so it never
+     * labels an understated margin 'exact'.
+     */
+    clamped: boolean;
     /** True when the node's CEE-stamped goal_threshold was preferred (P0-C1) */
     used_node_goal_threshold?: boolean;
   }>;
@@ -1159,6 +1168,10 @@ export function normaliseGoalConstraints(
         normalised_value: normalised,
         range,
         used_heuristic: usedHeuristic,
+        // F2a: carry whether the threshold clamped. When the CEE goal_threshold
+        // stamp was preferred, `clamped` was reset to false above (the stamp is
+        // an exact in-[0,1] value, no clamp), so this is correct in that branch too.
+        clamped,
         ...(usedNodeGoalThreshold && { used_node_goal_threshold: true }),
       });
     }
