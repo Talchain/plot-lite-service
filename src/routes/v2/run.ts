@@ -1255,38 +1255,37 @@ function mapToPerFeatureStatus(islStatus: string | undefined, hasData: boolean):
  *
  * Key insight: A run is "partial" if options have usable outcomes, even if secondary
  * features error. This preserves value for the user.
+ *
+ * Codex F3: `partial` REQUIRES usable option outcomes. The old fallback
+ * returned 'partial' whenever any secondary feature computed and none
+ * errored, even with zero usable options — so a run with no usable answer
+ * read "usable but degraded" (and `approximate: true`). Usability is now an
+ * EXPLICIT input: the caller derives it from the V2 nested `outcome` stats
+ * (hasUsableOptionComparison at the call site — the same predicate that
+ * gates option_comparison_status), replacing a stale V1 read of
+ * `expected_outcome`, a field the V2 wire never carries.
  */
 function determineTopLevelStatus(
   optionStatus: PerFeatureStatus,
   robustnessStatus: PerFeatureStatus,
   driversStatus: PerFeatureStatus,
-  optionOutcomes?: Array<{ option_id: string; expected_outcome?: number }>
+  hasUsableOptionComparison: boolean
 ): TopLevelAnalysisStatus {
+  // No usable option outcomes → the primary deliverable is missing → failed,
+  // regardless of how many secondary features computed.
+  if (!hasUsableOptionComparison) {
+    return 'failed';
+  }
+
   const statuses = [optionStatus, robustnessStatus, driversStatus];
 
-  // All computed → computed
+  // Everything computed → computed
   if (statuses.every(s => s === 'computed')) {
     return 'computed';
   }
 
-  // Check if options have usable outcomes (primary deliverable)
-  const hasUsableOptions = optionStatus === 'computed' &&
-    optionOutcomes &&
-    optionOutcomes.length > 0 &&
-    optionOutcomes.some(o => o.expected_outcome !== undefined && Number.isFinite(o.expected_outcome));
-
-  // Options usable → partial (even if secondary features error)
-  if (hasUsableOptions) {
-    return 'partial';
-  }
-
-  // Mix of computed and unavailable/skipped (without usable options) → partial
-  if (statuses.some(s => s === 'computed') && !statuses.some(s => s === 'error')) {
-    return 'partial';
-  }
-
-  // Options not computed or all features unavailable/error → failed
-  return 'failed';
+  // Usable options + some degraded secondary feature → partial
+  return 'partial';
 }
 
 // -----------------------------------------------------------------------------
@@ -1533,6 +1532,26 @@ interface SensitivityData {
 }
 
 /**
+ * Codex F2: THE single crowning/near-tie candidate predicate.
+ *
+ * An option is a valid win-probability candidate ONLY when its ISL status is
+ * 'computed' (absent status = legacy shape, treated as computed) AND
+ * win_probability is a present, finite number. `deriveRecommendedOption` and
+ * `computeNearTie` MUST share this one predicate so their eligibility can
+ * never drift apart again — the drift is exactly how an errored option
+ * (status 'error', win_probability 0.9) got crowned while near-tie correctly
+ * excluded it.
+ */
+function isCrownableCandidate(o: { win_probability?: number; status?: string }): boolean {
+  return (
+    (o.status === undefined || o.status === 'computed') &&
+    o.win_probability !== undefined &&
+    o.win_probability !== null &&
+    Number.isFinite(o.win_probability)
+  );
+}
+
+/**
  * Compute near-tie detection from option comparison results.
  *
  * A near-tie is detected when the gap between the top two options
@@ -1548,14 +1567,8 @@ export function computeNearTie(
     return undefined;
   }
 
-  // Filter to options where status === 'computed' and win_probability is valid
-  const validOptions = optionComparison.filter(
-    (o) =>
-      (o.status === undefined || o.status === 'computed') &&
-      o.win_probability !== undefined &&
-      o.win_probability !== null &&
-      Number.isFinite(o.win_probability)
-  );
+  // Filter via the SHARED candidate predicate (status 'computed' + finite win_probability)
+  const validOptions = optionComparison.filter(isCrownableCandidate);
 
   if (validOptions.length === 0) {
     return undefined;
@@ -1608,6 +1621,13 @@ export function computeNearTie(
  * Tie-break rules (for determinism):
  * - If multiple options have win_probability within epsilon (1e-9), use lexicographic sort on option_id
  *
+ * Codex F2: candidacy uses the SAME predicate as computeNearTie
+ * (isCrownableCandidate) — an option whose ISL status is not 'computed'
+ * (errored/skipped) is never crowned, exactly as it is never counted in a
+ * near-tie. When NO option qualifies the function returns undefined (the
+ * existing no-valid-candidates result), same as the no-finite-win_probability
+ * path.
+ *
  * @param optionComparison Array of option comparison results with win_probability
  * @param options Original options array for label lookup
  * @returns Recommended option ID and label, or undefined if no valid winner
@@ -1615,17 +1635,15 @@ export function computeNearTie(
  * @public Exported for unit testing
  */
 export function deriveRecommendedOption(
-  optionComparison: Array<{ option_id: string; option_label?: string; win_probability?: number }> | undefined,
+  optionComparison: Array<{ option_id: string; option_label?: string; win_probability?: number; status?: string }> | undefined,
   options: OptionV3[] | undefined
 ): { recommended_option_id: string; recommended_option_label: string } | undefined {
   if (!optionComparison || optionComparison.length === 0) {
     return undefined;
   }
 
-  // Filter to options with valid win_probability
-  const validOptions = optionComparison.filter(
-    (o) => o.win_probability !== undefined && o.win_probability !== null && Number.isFinite(o.win_probability)
-  );
+  // Filter via the SHARED candidate predicate (status 'computed' + finite win_probability)
+  const validOptions = optionComparison.filter(isCrownableCandidate);
 
   if (validOptions.length === 0) {
     return undefined;
@@ -1874,18 +1892,16 @@ function buildConstraintFields(
       }
     }
 
-    let nearMissFraction = c.near_miss_fraction;
-    // Numeric-egress guard: only a PRESENT-but-non-finite margin/near-miss is
-    // dropped to undefined (a NaN/±Infinity would serialise to a fabricated
-    // `null`); genuine absence stays honest omission. The fields are now
-    // optional on ConstraintDiagnostic (the deferred schema change the former
-    // comment anticipated), so a spread omits them when undefined.
-    if (failureMarginMedian !== undefined && !Number.isFinite(failureMarginMedian)) {
-      failureMarginMedian = undefined;
-    }
-    if (nearMissFraction !== undefined && !Number.isFinite(nearMissFraction)) {
-      nearMissFraction = undefined;
-    }
+    // Numeric-egress guard (tightened by Codex F5): a PRESENT-but-invalid
+    // margin/near-miss is dropped to undefined; genuine absence stays honest
+    // omission. failure_margin_median is a breach DISTANCE — it must be a
+    // finite non-negative real (a negative value is upstream garbage, and a
+    // NaN/±Infinity would serialise to a fabricated `null`);
+    // near_miss_fraction is a rate in [0,1]. Same bounds as the per-option
+    // constraint_margins path. The fields are optional on
+    // ConstraintDiagnostic, so a spread omits them when undefined.
+    const nearMissFraction = prob01(c.near_miss_fraction);
+    failureMarginMedian = nonNeg(failureMarginMedian);
     return [{
       constraint_id: constraintId,
       ...(failureMarginMedian !== undefined && { failure_margin_median: failureMarginMedian }),
@@ -2048,11 +2064,19 @@ function buildResponse(
   identifiability?: IdentifiabilityAssessment,
   factorStability?: FactorStabilityEntry[],
   logger?: { info: (obj: object, msg?: string) => void; warn: (obj: object, msg?: string) => void },
-  // Sub-item 1d: per-option clamp map Map<optionId, Map<factorId, clamped>>,
-  // derived from the RECORDED NormalisationResult.diagnostics[].clamped (NOT
-  // recomputed from the already-normalised per-option interventions, which
-  // always read "not clamped"). Feeds constraint_margins margin_precision.
-  optionClampByOptionFactor?: Map<string, Map<string, boolean>>
+  // Sub-item 1d + Codex F1 (a): per-option clamp DIRECTION map
+  // Map<optionId, Map<factorId, 'high' | 'low'>> derived from the RECORDED
+  // NormalisationDiagnostics (NOT recomputed from the already-normalised
+  // per-option interventions, which always read "not clamped"). An entry is
+  // present ONLY when the intervention clamped; the direction comes from the
+  // recorded normalised_value (>= 1 → 'high', <= 0 → 'low'). Feeds
+  // constraint_margins margin_precision.
+  optionClampDirectionByFactor?: Map<string, Map<string, 'high' | 'low'>>,
+  // Codex F1 (c) companion: which factors carry a normalisation diagnostic at
+  // all, per option. The direction map alone cannot distinguish "diagnosed
+  // and not clamped" (margin is exact) from "never diagnosed" (clamp state
+  // unknown → no precision claim may be made).
+  optionDiagnosedFactors?: Map<string, Set<string>>
 ): RunResponseV3 {
   // Producer honesty (lane PLoT-H item A): detect goal constraints whose
   // targets are NOT decision-grade — threshold normalisation fell back to the
@@ -2232,9 +2256,11 @@ function buildResponse(
           const cid = indexToId[i] ?? `${c.node_id}_${c.operator}`;
           // Denormalise the failure margin (a distance) back to user units by
           // the constraint's range width — same convention as the top-level
-          // constraint_diagnostics path.
+          // constraint_diagnostics path. Denormalisation stays gated on the
+          // recorded ranges; clamp-precision (below) deliberately does NOT
+          // (Codex F1: the ranges map is absent whenever the constraint value
+          // was already in [0,1], but the intervention can still have clamped).
           let fmm = c.failure_margin_median;
-          let clampedForThisOption = false;
           if (fmm !== undefined && constraintNormRanges) {
             const range = constraintNormRanges.get(cid);
             if (range) {
@@ -2243,20 +2269,40 @@ function buildResponse(
                 fmm = fmm * rangeWidth;
               }
             }
-            // Prefer the RECORDED clamp for this option's constraint-target
-            // factor; if it clamped, the denormalised magnitude understates the
-            // true breach → mark it a lower bound.
-            clampedForThisOption = optionClampByOptionFactor?.get(optionId)?.get(c.node_id) ?? false;
           }
-          // Non-finite present margins are dropped to absence (would serialise
-          // to a fabricated `null`); genuine absence stays omitted.
-          if (fmm !== undefined && !Number.isFinite(fmm)) fmm = undefined;
-          const nmf = (c.near_miss_fraction !== undefined && Number.isFinite(c.near_miss_fraction))
-            ? c.near_miss_fraction : undefined;
+          // Codex F5 trust boundary: a breach DISTANCE must be a finite
+          // non-negative real (negative = upstream garbage; non-finite would
+          // serialise to a fabricated `null`), and near_miss_fraction is a
+          // rate in [0,1]. Invalid present values drop to honest absence.
+          fmm = nonNeg(fmm);
+          const nmf = prob01(c.near_miss_fraction);
           const entry: ConstraintMargin = { constraint_id: cid };
           if (fmm !== undefined) {
             entry.failure_margin_median = fmm;
-            entry.margin_precision = clampedForThisOption ? 'lower_bound' : 'exact';
+            // Codex F1 (b)+(c): consult the RECORDED clamp state independently
+            // of constraintNormRanges, and only claim what the evidence
+            // supports:
+            //   - 'lower_bound' ONLY when the clamp direction is
+            //     operator-compatible (high-clamp understates a '<=' breach,
+            //     low-clamp understates a '>=' breach);
+            //   - 'exact' ONLY when this option HAS a normalisation
+            //     diagnostic for the target factor and it did NOT clamp;
+            //   - OMITTED when clamped in a direction that says nothing about
+            //     this operator's breach, or when the target factor carries
+            //     no diagnostic at all (clamp state unknown — e.g. the
+            //     constraint targets a non-intervened node).
+            const clampDir = optionClampDirectionByFactor?.get(optionId)?.get(c.node_id);
+            const hasDiagnostic = optionDiagnosedFactors?.get(optionId)?.has(c.node_id) ?? false;
+            if (clampDir !== undefined) {
+              const operatorCompatible =
+                (clampDir === 'high' && c.operator === '<=') ||
+                (clampDir === 'low' && c.operator === '>=');
+              if (operatorCompatible) {
+                entry.margin_precision = 'lower_bound';
+              }
+            } else if (hasDiagnostic) {
+              entry.margin_precision = 'exact';
+            }
           }
           if (nmf !== undefined) {
             entry.near_miss_fraction = nmf;
@@ -4198,26 +4244,48 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // constraint mapping), so a constraint missing either as a non-empty
         // string silently corrupts identity/targeting. Reject it at the boundary
         // with a 422 blocked response (same path as TOO_MANY_CONSTRAINTS).
-        // operator/value are already downstream-validated by validateGoalConstraints.
+        //
+        // Codex F4 — the guard is COMPLETE at this boundary:
+        //  - constraint_id / node_id must be TRIMMED non-empty strings
+        //    (whitespace-only previously passed and corrupted identity);
+        //  - operator must be a CLOSED comparison '>=' | '<=' (rejected here
+        //    with a shape error rather than deep in preflight);
+        //  - value must be a FINITE number. The former claim that value is
+        //    "downstream-validated" was FALSE: preflight only range-COMPARES
+        //    it (a warning), so a missing/non-finite value (JSON.parse
+        //    accepts 1e999 → Infinity) transited to normalisation and ISL.
         if (Array.isArray(body.goal_constraints)) {
+          const isTrimmedNonEmptyString = (v: unknown): v is string =>
+            typeof v === 'string' && v.trim().length > 0;
           for (let i = 0; i < body.goal_constraints.length; i++) {
-            const c = body.goal_constraints[i] as { constraint_id?: unknown; node_id?: unknown };
-            const badField =
-              typeof c?.constraint_id !== 'string' || c.constraint_id.length === 0
-                ? 'constraint_id'
-                : typeof c?.node_id !== 'string' || c.node_id.length === 0
-                  ? 'node_id'
-                  : undefined;
+            const c = body.goal_constraints[i] as {
+              constraint_id?: unknown; node_id?: unknown; operator?: unknown; value?: unknown;
+            };
+            let badField: string | undefined;
+            let requirement: string | undefined;
+            if (!isTrimmedNonEmptyString(c?.constraint_id)) {
+              badField = 'constraint_id';
+              requirement = 'must be a non-empty string';
+            } else if (!isTrimmedNonEmptyString(c?.node_id)) {
+              badField = 'node_id';
+              requirement = 'must be a non-empty string';
+            } else if (c?.operator !== '>=' && c?.operator !== '<=') {
+              badField = 'operator';
+              requirement = `must be '>=' or '<='`;
+            } else if (typeof c?.value !== 'number' || !Number.isFinite(c.value)) {
+              badField = 'value';
+              requirement = 'must be a finite number';
+            }
             if (badField) {
               return reply.status(422).send(buildBlockedResponse(
-                `Invalid constraint shape: goal_constraints[${i}].${badField} must be a non-empty string`,
+                `Invalid constraint shape: goal_constraints[${i}].${badField} ${requirement}`,
                 [{
                   id: randomUUID(),
                   code: 'INVALID_CONSTRAINT_SHAPE',
                   severity: 'error',
                   // message names the offending field + index (field_path is not
                   // a CritiqueV3 field; the path is carried in the message text).
-                  message: `goal_constraints[${i}].${badField} must be a non-empty string`,
+                  message: `goal_constraints[${i}].${badField} ${requirement}`,
                   source: 'validation',
                   blocks_analysis: true,
                 }],
@@ -5950,18 +6018,16 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           });
         }
 
-        // Extract option outcomes for status determination
-        // Use optionComparisonData which already handles V1/V2 format fallback
-        const optionOutcomes = optionComparisonData?.map((r: any) => ({
-          option_id: r.option_id,
-          expected_outcome: r.expected_outcome,
-        }));
-
+        // Codex F3: usability is passed EXPLICITLY from the V2 nested-outcome
+        // predicate above (hasUsableOptionComparison). The old code re-derived
+        // it here from the stale V1 field `expected_outcome`, which the V2
+        // wire never carries — so the check was vacuously false and the
+        // 'partial' fallback in determineTopLevelStatus did the (wrong) work.
         const topLevelStatus = determineTopLevelStatus(
           optionStatus,
           robustnessStatus,
           driversStatus,  // Uses hasDriversSensitivity which checks both edge AND factor
-          optionOutcomes
+          hasUsableOptionComparison
         );
 
         // =================================================================
@@ -6597,20 +6663,43 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         );
         reply.header('X-Olumi-Request-Id-Chain', buildRequestIdChainHeader(chain)!);
 
-        // Sub-item 1d: derive the per-option clamp map from the RECORDED
-        // normalisation diagnostics (Map<optionId, Map<factorId, clamped>>).
-        // Reading the recorded `clamped` is authoritative — recomputing from the
-        // per-option interventions reaching buildResponse would read the already
-        // normalised [0,1] values and always report "not clamped". Feeds
-        // constraint_margins margin_precision (lower_bound when clamped).
-        const optionClampByOptionFactor = new Map<string, Map<string, boolean>>();
+        // Sub-item 1d + Codex F1 (a): derive the per-option clamp DIRECTION
+        // map from the RECORDED normalisation diagnostics
+        // (Map<optionId, Map<factorId, 'high'|'low'>>, entry present ONLY when
+        // clamped; direction from the recorded post-clamp normalised_value:
+        // >= 1 → 'high', <= 0 → 'low'). Reading the recorded diagnostics is
+        // authoritative — recomputing from the per-option interventions
+        // reaching buildResponse would read the already normalised [0,1]
+        // values and always report "not clamped". The companion
+        // optionDiagnosedFactors set records which factors carry a diagnostic
+        // at all, so "diagnosed and not clamped" (exact) stays distinguishable
+        // from "never diagnosed" (unknown → no precision claim). Feeds
+        // constraint_margins margin_precision.
+        const optionClampDirectionByFactor = new Map<string, Map<string, 'high' | 'low'>>();
+        const optionDiagnosedFactors = new Map<string, Set<string>>();
         for (const d of normalisationDiagnostics) {
-          let inner = optionClampByOptionFactor.get(d.option_id);
-          if (!inner) {
-            inner = new Map<string, boolean>();
-            optionClampByOptionFactor.set(d.option_id, inner);
+          let diagnosed = optionDiagnosedFactors.get(d.option_id);
+          if (!diagnosed) {
+            diagnosed = new Set<string>();
+            optionDiagnosedFactors.set(d.option_id, diagnosed);
           }
-          inner.set(d.factor_id, d.clamped);
+          if (d.clamped) {
+            const direction = d.normalised_value >= 1 ? 'high' : d.normalised_value <= 0 ? 'low' : undefined;
+            if (direction === undefined) {
+              // Degenerate clamp (zero-width range path) with an interior
+              // normalised value: direction is indeterminate. Record NEITHER a
+              // direction nor a diagnostic mark, so the margin builder makes
+              // NO precision claim (neither 'lower_bound' nor 'exact').
+              continue;
+            }
+            let inner = optionClampDirectionByFactor.get(d.option_id);
+            if (!inner) {
+              inner = new Map<string, 'high' | 'low'>();
+              optionClampDirectionByFactor.set(d.option_id, inner);
+            }
+            inner.set(d.factor_id, direction);
+          }
+          diagnosed.add(d.factor_id);
         }
 
         return reply.send(buildResponse(
@@ -6668,7 +6757,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           toIdentifiabilityResponse(identifiabilityResult),  // B1.5a: always-present mapped response
           factorStability,  // 3C: ISL stability assessment per factor
           req.log,  // logger for fact_objects assembly logging
-          optionClampByOptionFactor  // 1d: per-option clamp map for margin_precision
+          optionClampDirectionByFactor,  // 1d + Codex F1: per-option clamp DIRECTION map for margin_precision
+          optionDiagnosedFactors  // Codex F1: factors with a recorded diagnostic (exact vs unknown)
         ));
       } catch (err) {
         req.log.error({

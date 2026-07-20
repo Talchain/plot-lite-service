@@ -15,7 +15,7 @@
  *   ACTIVE  Part3.2-4 ingress guard: malformed constraint_id/node_id -> 422 (RED)
  *   ACTIVE  Part2 all-feasible -> argmax crowned (GREEN positive control)
  *   ACTIVE  Part2 no-constraints -> argmax crowned (GREEN positive control)
- *   SKIP    Part2 status parity (DEFERRED — crowning-adjacent, follow-on lane)
+ *   ACTIVE  Part2 status parity (Codex F2 fix lane — un-skipped as the RED test)
  *   SKIP    Part2 infeasible-leader demotion       (doctrine)
  *   SKIP    Part2 nothing-qualifies withheld       (doctrine)
  *   SKIP    Part2 tri-state unknown crowning       (doctrine)
@@ -440,8 +440,8 @@ describe('B4/L2 constraint eligibility gate + graded breach margins', () => {
       expect(body.robustness.recommendation_withheld).toBeUndefined();
     });
 
-    // DEFERRED: crowning-adjacent (deriveRecommendedOption status filter); not in A1's GO list; rides UI-first deploy order — follow-on lane.
-    it.skip('STATUS PARITY with computeNearTie: a non-computed option is never crowned', async () => {
+    // Codex F2: deriveRecommendedOption must share computeNearTie's status predicate.
+    it('STATUS PARITY with computeNearTie: a non-computed option is never crowned', async () => {
       mockConstraintAnalysisByOption = {
         opt_under: islConstraint(1.0),
         opt_just_over: islConstraint(1.0),
@@ -464,6 +464,210 @@ describe('B4/L2 constraint eligibility gate + graded breach margins', () => {
       expect(optionEntry(body, 'opt_under').constraint_eligibility).toBe('eligible');
       expect(optionEntry(body, 'opt_just_over').constraint_eligibility).toBe('ineligible');
       expect(optionEntry(body, 'opt_far_over').constraint_eligibility).toBe('ineligible');
+    });
+  });
+
+  // =========================================================================
+  // Codex F1 — margin_precision must not depend on constraintNormRanges
+  // =========================================================================
+  // The clamp lookup lived inside `if (fmm !== undefined && constraintNormRanges)`.
+  // When the constraint value is already in [0,1], constraint normalisation
+  // never runs, constraintNormRanges is undefined, and a RECORDED clamp was
+  // never consulted → a genuinely clamped option was labelled 'exact'.
+  // Precision semantics (settled design):
+  //   - 'lower_bound' ONLY when clamp direction is operator-compatible
+  //     (high-clamp + '<=', low-clamp + '>=')
+  //   - 'exact' ONLY when the option HAS normalisation diagnostics for the
+  //     target factor and it did NOT clamp
+  //   - OMITTED when clamped-but-direction-incompatible, or when the target
+  //     factor has no diagnostic at all (unknown).
+  describe('Codex F1: clamped margin must never be labelled exact', () => {
+    const F1_GRAPH = {
+      nodes: [
+        { id: 'goal', kind: 'goal', label: 'Goal', observed_state: { value: 0.4 } },
+        { id: 'fac_share', kind: 'factor', label: 'Share of segment', state_space: { range: { min: 0, max: 1 } }, observed_state: { value: 0.4 } },
+        { id: 'fac_other', kind: 'factor', label: 'Non-intervened factor', state_space: { range: { min: 0, max: 1 } }, observed_state: { value: 0.3 } },
+      ],
+      edges: [
+        { from: 'fac_share', to: 'goal', strength: { mean: 0.5, std: 0.1 } },
+        { from: 'fac_other', to: 'goal', strength: { mean: 0.3, std: 0.1 } },
+      ],
+    };
+
+    /** ISL constraint row against an arbitrary node. */
+    function islRow(nodeId: string, operator: string, value: number, probSatisfied: number, margin?: number, nearMiss?: number) {
+      return {
+        constraints: [
+          {
+            node_id: nodeId,
+            operator,
+            value,
+            prob_satisfied: probSatisfied,
+            ...(margin !== undefined && { failure_margin_median: margin }),
+            ...(nearMiss !== undefined && { near_miss_fraction: nearMiss }),
+          },
+        ],
+        joint_probability: probSatisfied,
+      };
+    }
+
+    it('RED (mandated): a [0,1]-range factor clamped by a raw intervention of 2 must NOT read exact on <=', async () => {
+      // Constraint value 0.5 is already in [0,1] → constraint normalisation
+      // never runs → constraintNormRanges is undefined. The intervention 2
+      // clamps HIGH against the factor's [0,1] range (recorded diagnostic),
+      // and high-clamp is operator-compatible with '<=' → 'lower_bound'.
+      const options = [
+        { id: 'opt_in_range', label: 'In range', interventions: { fac_share: 0.4 } },
+        { id: 'opt_clamped', label: 'Clamped', interventions: { fac_share: 2 } },
+      ];
+      mockConstraintAnalysisByOption = {
+        opt_in_range: islRow('fac_share', '<=', 0.5, 0.0, 0.05, 0.5),
+        opt_clamped: islRow('fac_share', '<=', 0.5, 0.0, 0.5, 0.1),
+      };
+      mockWinProbabilityByOption = { opt_in_range: 0.6, opt_clamped: 0.4 };
+
+      const body = await runAnalysis(baseUrl, {
+        graph: F1_GRAPH,
+        options,
+        goal_node_id: 'goal',
+        seed: '42',
+        goal_constraints: [{ constraint_id: 'c_share', node_id: 'fac_share', operator: '<=', value: 0.5, label: 'Share cap' }],
+      });
+
+      const clamped = optionEntry(body, 'opt_clamped').constraint_margins?.find((m: any) => m.constraint_id === 'c_share');
+      const inRange = optionEntry(body, 'opt_in_range').constraint_margins?.find((m: any) => m.constraint_id === 'c_share');
+      expect(clamped).toBeDefined();
+      expect(inRange).toBeDefined();
+
+      // The margin itself still flows (range width 1, no denormalisation needed).
+      expect(clamped.failure_margin_median).toBeCloseTo(0.5, 5);
+      // THE FINDING: this read 'exact' on unmodified code.
+      expect(clamped.margin_precision).toBe('lower_bound');
+      // Positive control: the un-clamped option (has a diagnostic, not clamped) IS exact.
+      expect(inRange.margin_precision).toBe('exact');
+    });
+
+    it('OMITS margin_precision when the clamp direction is operator-INCOMPATIBLE (high clamp + >=)', async () => {
+      const options = [
+        { id: 'opt_in_range', label: 'In range', interventions: { fac_share: 0.4 } },
+        { id: 'opt_clamped', label: 'Clamped', interventions: { fac_share: 2 } },
+      ];
+      mockConstraintAnalysisByOption = {
+        opt_in_range: islRow('fac_share', '>=', 0.5, 0.0, 0.05),
+        opt_clamped: islRow('fac_share', '>=', 0.5, 0.0, 0.2),
+      };
+      mockWinProbabilityByOption = { opt_in_range: 0.6, opt_clamped: 0.4 };
+
+      const body = await runAnalysis(baseUrl, {
+        graph: F1_GRAPH,
+        options,
+        goal_node_id: 'goal',
+        seed: '42',
+        goal_constraints: [{ constraint_id: 'c_share_floor', node_id: 'fac_share', operator: '>=', value: 0.5, label: 'Share floor' }],
+      });
+
+      const clamped = optionEntry(body, 'opt_clamped').constraint_margins?.find((m: any) => m.constraint_id === 'c_share_floor');
+      expect(clamped).toBeDefined();
+      // Margin still carried — but a high-clamp says nothing directional about
+      // a '>=' breach, so precision must be OMITTED, not guessed.
+      expect(clamped.failure_margin_median).toBeCloseTo(0.2, 5);
+      expect(clamped).not.toHaveProperty('margin_precision');
+    });
+
+    it('marks a LOW clamp on a >= constraint as lower_bound (operator-compatible)', async () => {
+      const options = [
+        { id: 'opt_in_range', label: 'In range', interventions: { fac_share: 0.4 } },
+        { id: 'opt_clamped_low', label: 'Clamped low', interventions: { fac_share: -1 } },
+      ];
+      mockConstraintAnalysisByOption = {
+        opt_in_range: islRow('fac_share', '>=', 0.5, 0.0, 0.05),
+        opt_clamped_low: islRow('fac_share', '>=', 0.5, 0.0, 0.5),
+      };
+      mockWinProbabilityByOption = { opt_in_range: 0.6, opt_clamped_low: 0.4 };
+
+      const body = await runAnalysis(baseUrl, {
+        graph: F1_GRAPH,
+        options,
+        goal_node_id: 'goal',
+        seed: '42',
+        goal_constraints: [{ constraint_id: 'c_share_floor', node_id: 'fac_share', operator: '>=', value: 0.5, label: 'Share floor' }],
+      });
+
+      const clampedLow = optionEntry(body, 'opt_clamped_low').constraint_margins?.find((m: any) => m.constraint_id === 'c_share_floor');
+      expect(clampedLow).toBeDefined();
+      expect(clampedLow.margin_precision).toBe('lower_bound');
+    });
+
+    it('OMITS margin_precision when the constraint targets a NON-INTERVENED node (no diagnostic → unknown)', async () => {
+      // Options intervene only on fac_share; the constraint targets fac_other.
+      // No option carries a normalisation diagnostic for fac_other, so clamp
+      // state is UNKNOWN — 'exact' would be a fabricated certainty.
+      const options = [
+        { id: 'opt_a', label: 'A', interventions: { fac_share: 2 } },
+        { id: 'opt_b', label: 'B', interventions: { fac_share: 0.4 } },
+      ];
+      mockConstraintAnalysisByOption = {
+        opt_a: islRow('fac_other', '<=', 0.5, 0.0, 0.1),
+        opt_b: islRow('fac_other', '<=', 0.5, 0.0, 0.2),
+      };
+      mockWinProbabilityByOption = { opt_a: 0.6, opt_b: 0.4 };
+
+      const body = await runAnalysis(baseUrl, {
+        graph: F1_GRAPH,
+        options,
+        goal_node_id: 'goal',
+        seed: '42',
+        goal_constraints: [{ constraint_id: 'c_other', node_id: 'fac_other', operator: '<=', value: 0.5, label: 'Other cap' }],
+      });
+
+      const entry = optionEntry(body, 'opt_a').constraint_margins?.find((m: any) => m.constraint_id === 'c_other');
+      expect(entry).toBeDefined();
+      expect(entry.failure_margin_median).toBeCloseTo(0.1, 5);
+      expect(entry).not.toHaveProperty('margin_precision');
+    });
+  });
+
+  // =========================================================================
+  // Codex F5 — invalid graded-margin values are bounded at the trust boundary
+  // =========================================================================
+  describe('Codex F5: out-of-domain ISL margin values never transit', () => {
+    it('OMITS near_miss_fraction > 1 and negative failure_margin_median on BOTH emission paths', async () => {
+      // opt_under is the FIRST option carrying constraint_analysis → it feeds
+      // the top-level constraint_diagnostics path; opt_just_over exercises the
+      // per-option constraint_margins path. opt_far_over is the positive
+      // control proving valid values still emit.
+      mockConstraintAnalysisByOption = {
+        opt_under: islConstraint(1.0, -0.05, 1.5),
+        opt_just_over: islConstraint(0.0, -0.05, 1.5),
+        opt_far_over: islConstraint(0.0, 0.16667, 0.0),
+      };
+      mockWinProbabilityByOption = { opt_under: 0.5, opt_just_over: 0.3, opt_far_over: 0.2 };
+
+      const body = await runAnalysis(baseUrl, { ...BASE_PAYLOAD, goal_constraints: GOAL_CONSTRAINTS });
+
+      // Per-option path: both invalid values omitted, entry itself retained.
+      const bad = optionEntry(body, 'opt_just_over').constraint_margins?.find(
+        (m: any) => m.constraint_id === CONSTRAINT_ID,
+      );
+      expect(bad, 'entry must still be carried (absence of fields, not of the row)').toBeDefined();
+      expect(bad).not.toHaveProperty('failure_margin_median');
+      expect(bad).not.toHaveProperty('near_miss_fraction');
+      expect(bad).not.toHaveProperty('margin_precision');
+
+      // Positive control: valid values on another option still emit.
+      const good = optionEntry(body, 'opt_far_over').constraint_margins?.find(
+        (m: any) => m.constraint_id === CONSTRAINT_ID,
+      );
+      expect(good.failure_margin_median).toBeCloseTo(10000, 0);
+      expect(good.near_miss_fraction).toBe(0.0);
+
+      // Top-level path (constraint_diagnostics, sourced from opt_under's row).
+      const diag = (body.constraint_diagnostics ?? []).find(
+        (d: any) => d.constraint_id === CONSTRAINT_ID,
+      );
+      expect(diag, 'diagnostic row still emitted (binding is fabrication-free false)').toBeDefined();
+      expect(diag).not.toHaveProperty('failure_margin_median');
+      expect(diag).not.toHaveProperty('near_miss_fraction');
     });
   });
 
@@ -526,6 +730,60 @@ describe('B4/L2 constraint eligibility gate + graded breach margins', () => {
       });
       expect(status).toBe(422);
       expect(JSON.stringify(body)).toContain('goal_constraints[0].constraint_id');
+    });
+
+    // ----- Codex F4: the guard was incomplete -------------------------------
+
+    it('F4: rejects a WHITESPACE-ONLY constraint_id with 422 INVALID_CONSTRAINT_SHAPE', async () => {
+      const { status, body } = await postRun({
+        ...BASE_PAYLOAD,
+        goal_constraints: [{ constraint_id: '   ', node_id: 'fac_cost', operator: '<=', value: 50000 }],
+      });
+      expect(status).toBe(422);
+      const s = JSON.stringify(body);
+      expect(s).toContain('INVALID_CONSTRAINT_SHAPE');
+      expect(s).toContain('goal_constraints[0].constraint_id');
+    });
+
+    it('F4: rejects a MISSING value with 422 naming goal_constraints[0].value', async () => {
+      const { status, body } = await postRun({
+        ...BASE_PAYLOAD,
+        goal_constraints: [{ constraint_id: 'c_no_value', node_id: 'fac_cost', operator: '<=' }],
+      });
+      expect(status).toBe(422);
+      const s = JSON.stringify(body);
+      expect(s).toContain('INVALID_CONSTRAINT_SHAPE');
+      expect(s).toContain('goal_constraints[0].value');
+    });
+
+    it('F4: rejects a NON-FINITE value (1e999 → Infinity at JSON.parse) with 422 naming .value', async () => {
+      // Hand-built body: JSON.stringify would turn Infinity into null, but the
+      // real ingress hazard is a parseable literal like 1e999 which JSON.parse
+      // yields as Infinity. Splice it in as raw JSON.
+      const raw = JSON.stringify(BASE_PAYLOAD);
+      const withConstraint = raw.slice(0, -1) +
+        ',"goal_constraints":[{"constraint_id":"c_inf","node_id":"fac_cost","operator":"<=","value":1e999}]}';
+      const res = await fetch(`${baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: withConstraint,
+      });
+      const body = await res.json();
+      expect(res.status).toBe(422);
+      const s = JSON.stringify(body);
+      expect(s).toContain('INVALID_CONSTRAINT_SHAPE');
+      expect(s).toContain('goal_constraints[0].value');
+    });
+
+    it('F4: rejects a NON-CLOSED operator "<" with 422 INVALID_CONSTRAINT_SHAPE naming .operator', async () => {
+      const { status, body } = await postRun({
+        ...BASE_PAYLOAD,
+        goal_constraints: [{ constraint_id: 'c_open_op', node_id: 'fac_cost', operator: '<', value: 50000 }],
+      });
+      expect(status).toBe(422);
+      const s = JSON.stringify(body);
+      expect(s).toContain('INVALID_CONSTRAINT_SHAPE');
+      expect(s).toContain('goal_constraints[0].operator');
     });
   });
 });

@@ -12,17 +12,19 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 
 describe('structural-keys.generated.ts tracks the contract types', () => {
   it('is up to date with the contract type declarations', async () => {
+    // Codex F6: use the generator's PURE checkRegistry(). The old version's
+    // import of the generator RAN its top-level write, silently regenerating
+    // the registry before the comparison — so this test passed over a stale
+    // committed file and could never fail. The generator is now
+    // side-effect-free on import (writes only under direct CLI invocation).
     const gen = await import('../../tools/gen-structural-keys.mjs');
-    const out = fileURLToPath(new URL('../../src/util/structural-keys.generated.ts', import.meta.url));
-    const expected = gen.renderModule(gen.extractStructuralKeys());
-    const actual = readFileSync(out, 'utf8');
+    const { ok, expected, actual } = gen.checkRegistry();
     // If this fails: node tools/gen-structural-keys.mjs
     expect(actual).toBe(expected);
+    expect(ok).toBe(true);
   });
 
   it('covers the ISL wire keys the echoed payload depends on', async () => {
