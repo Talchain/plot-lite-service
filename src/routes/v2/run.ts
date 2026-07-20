@@ -5057,10 +5057,14 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             normalised: true,
             diagnostics_count: normalisationDiagnostics.length,
             repairs_count: normResult.repairs.length,
+            // F7 (Codex): log NO raw numeric decision values (original /
+            // normalised). The log boundary hashes registered raw inputs, but a
+            // DERIVED normalised scalar under an unlisted key is neither
+            // registered nor a DECISION_DOMAIN_KEY, so it would reach info logs
+            // in plaintext. Keep only the hashed factor_id, the range.source
+            // vocabulary, and the clamped boolean (least data wins).
             sample: normalisationDiagnostics.slice(0, 3).map(d => ({
               factor_id: d.factor_id,
-              original: d.original_value,
-              normalised: d.normalised_value,
               range_source: d.range.source,
               clamped: d.clamped,
             })),
@@ -5193,12 +5197,15 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               normalised: true,
               diagnostics_count: constraintNormResult.diagnostics.length,
               repairs_count: constraintNormResult.repairs.length,
+              // F7 (Codex): log NO raw numeric decision values (original /
+              // normalised) — same rationale as the intervention log above.
+              // Keep the identifiers, the range.source vocabulary, and the
+              // clamped boolean (surfaced by F2a; useful, non-sensitive).
               sample: constraintNormResult.diagnostics.slice(0, 3).map(d => ({
                 constraint_id: d.constraint_id,
                 node_id: d.node_id,
-                original: d.original_value,
-                normalised: d.normalised_value,
                 range_source: d.range.source,
+                clamped: d.clamped,
               })),
             });
           } else {

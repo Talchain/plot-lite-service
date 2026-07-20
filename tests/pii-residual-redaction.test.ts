@@ -503,3 +503,57 @@ describe('sha8 digests resist offline recovery (per-process salt)', () => {
     expect(a).not.toBe(b);
   }, 30000);
 });
+
+// =============================================================================
+// (F7, Codex) — the constraint/intervention normalisation INFO logs must not
+// carry raw numeric decision VALUES (original / normalised).
+// =============================================================================
+// run.ts logs `sample[].original` / `sample[].normalised` at info level for both
+// the intervention (Phase 4a) and constraint (Phase 4b) normalisation diagnostics.
+// The log boundary hashes REGISTERED tokens (raw inputs), but a DERIVED value —
+// the normalised [0,1] scalar, and the original user-unit quantity under the
+// unlisted keys `original`/`normalised` — is neither registered nor a
+// DECISION_DOMAIN_KEY, so it reaches info logs in plaintext.
+//
+// This site fires only on the normalisation path and pino writes to fd 1 via
+// sonic-boom (no in-process capture; the spawned-server pattern cannot exercise
+// the ISL-adjacent path deterministically here) — so, exactly as the
+// `factor_sensitivity_source` pin above, this is a SOURCE-level assertion with
+// positive controls that the sites still exist and still sample the safe fields.
+describe('F7: constraint/intervention normalisation logs carry no raw numeric values', () => {
+  async function runSource(): Promise<string> {
+    const { readFile } = await import('node:fs/promises');
+    return readFile(new URL('../src/routes/v2/run.ts', import.meta.url), 'utf8');
+  }
+
+  it('intervention_normalisation info log drops original/normalised, keeps factor_id + range_source + clamped', async () => {
+    const src = await runSource();
+    const at = src.indexOf("event: 'intervention_normalisation'");
+    expect(at).toBeGreaterThan(-1);
+    // The info log (first occurrence) carries the sample; window covers it.
+    const site = src.slice(at, at + 1300);
+    // Positive control: the site still exists and still samples the SAFE fields.
+    expect(site).toContain('sample:');
+    expect(site).toMatch(/factor_id:\s*d\.factor_id\b/);
+    expect(site).toMatch(/range_source:\s*d\.range\.source\b/);
+    expect(site).toMatch(/clamped:\s*d\.clamped\b/);
+    // THE FIX: the raw numeric decision values are gone.
+    expect(site).not.toMatch(/original:\s*d\.original_value\b/);
+    expect(site).not.toMatch(/normalised:\s*d\.normalised_value\b/);
+  });
+
+  it('constraint_normalisation info log drops original/normalised, keeps constraint_id + node_id + range_source', async () => {
+    const src = await runSource();
+    const at = src.indexOf("event: 'constraint_normalisation'");
+    expect(at).toBeGreaterThan(-1);
+    const site = src.slice(at, at + 1300);
+    // Positive control: the site still exists and still samples identifiers + source.
+    expect(site).toContain('sample:');
+    expect(site).toMatch(/constraint_id:\s*d\.constraint_id\b/);
+    expect(site).toMatch(/node_id:\s*d\.node_id\b/);
+    expect(site).toMatch(/range_source:\s*d\.range\.source\b/);
+    // THE FIX: the raw numeric decision values are gone.
+    expect(site).not.toMatch(/original:\s*d\.original_value\b/);
+    expect(site).not.toMatch(/normalised:\s*d\.normalised_value\b/);
+  });
+});
