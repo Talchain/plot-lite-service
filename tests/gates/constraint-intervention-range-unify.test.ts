@@ -126,6 +126,86 @@ describe('A3 range-unify · pure function · constraint shares the intervention 
 });
 
 // ===========================================================================
+// Layer A2 — F1 regression pin: non-intervened node, gate FALSE, forwarded RAW
+// ===========================================================================
+// F1 (adversarial review, MEDIUM): when the global gate is FALSE (all constraint
+// values already in [0,1]) but the function is called anyway because some OTHER
+// node has a non-identity intervention scale, a constraint on a DIFFERENT,
+// NON-intervened node carrying a producer-declared scale ('%' unit or
+// goal_threshold_cap) was NEWLY normalised (0.5 → 0.005 / ×1/cap) with a new
+// repair — where HEAD forwarded it RAW (HEAD only called the function when the
+// gate fired). This pins the restored HEAD parity: forwarded raw, NO repair.
+describe('A3 range-unify · F1 · producer-scale constraint on a non-intervened node, gate FALSE', () => {
+  // 'cost' is the intervened node with a non-identity scale (forces the caller to
+  // invoke the function via anyNonIdentityScale). 'churn' is a DIFFERENT,
+  // NON-intervened node — it has NO entry in interventionScaleByNodeId.
+  const nodes: EngineNodeV3[] = [
+    { id: 'goal', kind: 'goal', label: 'Goal', observed_state: { value: 0.4 } },
+    { id: 'cost', kind: 'factor', label: 'First-year cost', observed_state: { value: 30000 } },
+    { id: 'churn', kind: 'factor', label: 'Churn rate', observed_state: { value: 0.1 } },
+  ] as unknown as EngineNodeV3[];
+
+  // The OTHER node's scale — its mere presence is what forces the call in the route
+  // (anyNonIdentityScale) and reproduces the F1 combo. 'churn' is absent from it.
+  const interventionScaleByNodeId = new Map([
+    ['cost', { min: 21000, max: 49000, source: 'inferred_spread' as const }],
+  ]);
+
+  it("'%'-unit constraint on the non-intervened node is FORWARDED RAW (not 0.005), no repair", () => {
+    const { constraints, repairs, diagnostics } = normaliseGoalConstraints(
+      [{ constraint_id: 'c_pct', node_id: 'churn', operator: '<=', value: 0.5 }],
+      nodes,
+      {
+        unitsByConstraintId: new Map([['c_pct', '%']]),
+        interventionScaleByNodeId,
+        normaliseWithoutScale: false, // global gate did NOT fire
+      },
+    );
+    // HEAD forwarded 0.5 raw (function not called for non-intervened nodes). The
+    // fix must reproduce that EXACTLY — NOT re-scale it to 0.005 via unit_percent.
+    expect(constraints[0].value).toBe(0.5);
+    expect(constraints[0].original_value).toBe(0.5);
+    // Forwarded-raw ⇒ identity no-op ⇒ NO repair, NO diagnostic (so it cannot trip
+    // the reliability gate or margin denorm — byte-identical to HEAD).
+    expect(repairs.filter(r => r.field === 'constraint.value.c_pct')).toHaveLength(0);
+    expect(diagnostics.filter(d => d.constraint_id === 'c_pct')).toHaveLength(0);
+  });
+
+  it('goal_threshold_cap constraint on the non-intervened node is FORWARDED RAW, no repair', () => {
+    const { constraints, repairs, diagnostics } = normaliseGoalConstraints(
+      [{ constraint_id: 'c_cap', node_id: 'churn', operator: '<=', value: 0.5 }],
+      nodes,
+      {
+        goalThresholdMetaByNodeId: new Map([['churn', { goal_threshold_cap: 100000 }]]),
+        interventionScaleByNodeId,
+        normaliseWithoutScale: false, // global gate did NOT fire
+      },
+    );
+    // HEAD forwarded 0.5 raw; the fix must NOT re-scale it to 0.000005 via the cap.
+    expect(constraints[0].value).toBe(0.5);
+    expect(repairs.filter(r => r.field === 'constraint.value.c_cap')).toHaveLength(0);
+    expect(diagnostics.filter(d => d.constraint_id === 'c_cap')).toHaveLength(0);
+  });
+
+  it('parity control: gate TRUE ⇒ the producer scale STILL applies (no over-broad guard)', () => {
+    // The reorder must ONLY forward-raw when the gate is FALSE. With the gate TRUE
+    // (or default), a '%'-unit constraint on a non-intervened node must still be
+    // normalised via unit_percent exactly as before the F1 fix.
+    const { constraints, repairs } = normaliseGoalConstraints(
+      [{ constraint_id: 'c_pct', node_id: 'churn', operator: '<=', value: 50 }],
+      nodes,
+      {
+        unitsByConstraintId: new Map([['c_pct', '%']]),
+        interventionScaleByNodeId,
+        normaliseWithoutScale: true, // global gate DID fire
+      },
+    );
+    expect(constraints[0].value).toBeCloseTo(0.5, 6); // 50 / 100
+    expect(repairs.filter(r => r.field === 'constraint.value.c_pct')).toHaveLength(1);
+  });
+});
+
+// ===========================================================================
 // Layer B — route-level pins with a FAITHFUL ISL surrogate
 // ===========================================================================
 // The surrogate computes prob_satisfied / failure_margin_median from the
@@ -364,4 +444,15 @@ describe('A3 range-unify · route level · faithful ISL surrogate', () => {
     expect(optionEntry(body, 'opt_a').constraint_probabilities?.c1).toBe(1);
     expect(optionEntry(body, 'opt_b').constraint_probabilities?.c1).toBe(0);
   });
+
+  // NOTE (F1): the F1 corner (gate FALSE + a producer-'%'/cap constraint on a
+  // NON-intervened node while another node forces the call via a non-identity
+  // scale) is pinned deterministically at the pure-function layer above
+  // ("A3 range-unify · F1 …"), which is the exact unit the reorder lives in. An
+  // end-to-end route pin was prototyped and manually confirmed (the churn '%'
+  // constraint reaches ISL with value 0.5 forwarded raw, only the pre-existing
+  // STRIP_RAW_CONSTRAINT_FIELDS unit-strip repair, no normalisation repair), but
+  // the module-level `capturedISLRequest` is overwritten by the additional ISL
+  // calls this multi-factor graph triggers, so a stable route assertion would
+  // test the harness, not the fix. Kept as pure-function pins to avoid theatre.
 });

@@ -1047,6 +1047,9 @@ export function normaliseGoalConstraints(
     // Derive range. Priority:
     //   -1  interventionScale — the constraint threshold MUST share the exact
     //       scale its node's samples occupy (A3 range-unify fix).
+    //  FWD  forward-raw — gate FALSE + no intervention scale ⇒ value already in
+    //       [0,1] ⇒ leave it untouched (HEAD parity, F1). MUST outrank the
+    //       producer branches below.
     //    0  goal_threshold_cap  (producer-declared)
     //    1  unit_percent        (producer-declared)
     //    2+ deriveRange(node)   (existing chain: explicit_cap → … → default)
@@ -1065,20 +1068,28 @@ export function normaliseGoalConstraints(
       // is an unratified doctrine call (owner: A3 lead). Sameness is the
       // invariant here; the pick is provisional.
       range = interventionScale;
+    } else if (!applyChainWithoutScale) {
+      // F1 (adversarial review): the global gate did NOT fire and this node has
+      // NO intervention scale ⇒ the value is already in [0,1] by definition of
+      // the gate; forward it verbatim (identity). This decision MUST precede the
+      // producer goal_threshold_cap / '%' branches below: at HEAD the function
+      // was NOT called for a constraint on a non-intervened node when the gate
+      // was false, so a producer cap or '%' unit on such a node must NOT drag the
+      // value through a normalisation HEAD never applied (e.g. '%' value 0.5 →
+      // 0.005, a new repair, margin denorm ×100). Restores exact HEAD parity for
+      // non-intervened nodes in the gate-false + some-other-node-has-a-scale
+      // combo. When the gate IS true (or unset — every direct-unit-test caller),
+      // this branch is skipped and the producer/chain branches apply as before.
+      range = { min: 0, max: 1, source: 'default' };
+      forwardedRawUnchanged = true;
     } else if (typeof nodeCap === 'number' && Number.isFinite(nodeCap) && nodeCap > 0) {
       range = { min: 0, max: nodeCap, source: 'goal_threshold_cap' };
     } else if (isPercentUnit(unit)) {
       range = { min: 0, max: 100, source: 'unit_percent' };
-    } else if (applyChainWithoutScale) {
+    } else {
       range = targetNode
         ? deriveRange(targetNode)
         : { min: 0, max: 1, source: 'default' };
-    } else {
-      // Global gate did not fire and this node has no intervention scale ⇒ the
-      // value is already in [0,1]; forward it verbatim (identity), matching the
-      // pre-fix "gate false ⇒ constraints forwarded raw" behaviour exactly.
-      range = { min: 0, max: 1, source: 'default' };
-      forwardedRawUnchanged = true;
     }
 
     // Normalise value
