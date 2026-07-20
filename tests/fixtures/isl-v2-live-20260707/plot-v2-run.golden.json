@@ -4,6 +4,7 @@
   "preflight_version": "2025-12-26",
   "request_id": "__VOLATILE__",
   "analysis_status": "computed",
+  "approximate": false,
   "option_comparison_status": "computed",
   "robustness_status": "computed",
   "drivers_status": "computed",
@@ -1604,7 +1605,7 @@
     "decision_brief_assembled": true,
     "review_cards_count": 0,
     "evidence_priority_card_present": false,
-    "response_content_hash": "rch_v2:0e2fa534192a0645"
+    "response_content_hash": "rch_v2:21006aa29c8ee071"
   },
   "meta": {
     "seed_used": "2034401427",

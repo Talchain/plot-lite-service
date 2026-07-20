@@ -48,6 +48,7 @@ import type {
   GoalConstraint,
   ConstraintResult,
   ConstraintDiagnostic,
+  ConstraintMargin,
   EnrichedEdgeEValue,
   ConditionalWinner,
   ConditionalProbability,
@@ -976,7 +977,9 @@ interface ISLResponseSummary {
   factor_sensitivity_count: number;
   fallback_executed: boolean;
   analysis_status?: string;
-  robustness_label?: string;
+  // Repointed from the phantom `robustness_label` (RobustnessResultV2 has no
+  // `label` on the V2 wire) to the real `robustness.level` field.
+  robustness_level?: string;
 }
 
 /**
@@ -1020,7 +1023,10 @@ export function buildISLResponseSummary(
       ? islResult.factor_sensitivity.length : 0,
     fallback_executed: fallbackExecuted,
     analysis_status: islResult?.analysis_status,
-    robustness_label: islResult?.robustness?.label,
+    // Repointed from the phantom `robustness.label` (never on the V2 wire —
+    // RobustnessResultV2 has no `label`, so this always logged undefined) to
+    // the real field `robustness.level`, so the diagnostic is actually useful.
+    robustness_level: islResult?.robustness?.level,
   };
 }
 
@@ -1853,9 +1859,12 @@ function buildConstraintFields(
       return [];
     }
     const constraintId = resolveConstraintId(c, idx);
-    let failureMarginMedian = c.failure_margin_median ?? 0;
+    // Absent ≠ zero: keep undefined undefined (kill the `?? 0` fabrication). A
+    // binding-only row (both margins absent) now emits with NO fabricated
+    // margins — the defect that manufactured false "hard-step" evidence.
+    let failureMarginMedian = c.failure_margin_median;
 
-    if (constraintNormRanges) {
+    if (failureMarginMedian !== undefined && constraintNormRanges) {
       const range = constraintNormRanges.get(constraintId);
       if (range) {
         const rangeWidth = range.max - range.min;
@@ -1865,19 +1874,22 @@ function buildConstraintFields(
       }
     }
 
-    const nearMissFraction = c.near_miss_fraction ?? 0;
-    // Numeric-egress guard (Codex round-3): drop the whole diagnostic row when a
-    // present margin / near-miss is non-finite — a NaN/±Infinity would serialise to a
-    // fabricated `null` on these required-number fields. Non-finite ROW filtering only;
-    // making the fields optional (to remove the `?? 0` absent-default) is a deferred
-    // schema/OpenAPI change.
-    if (!Number.isFinite(failureMarginMedian) || !Number.isFinite(nearMissFraction)) {
-      return [];
+    let nearMissFraction = c.near_miss_fraction;
+    // Numeric-egress guard: only a PRESENT-but-non-finite margin/near-miss is
+    // dropped to undefined (a NaN/±Infinity would serialise to a fabricated
+    // `null`); genuine absence stays honest omission. The fields are now
+    // optional on ConstraintDiagnostic (the deferred schema change the former
+    // comment anticipated), so a spread omits them when undefined.
+    if (failureMarginMedian !== undefined && !Number.isFinite(failureMarginMedian)) {
+      failureMarginMedian = undefined;
+    }
+    if (nearMissFraction !== undefined && !Number.isFinite(nearMissFraction)) {
+      nearMissFraction = undefined;
     }
     return [{
       constraint_id: constraintId,
-      failure_margin_median: failureMarginMedian,
-      near_miss_fraction: nearMissFraction,
+      ...(failureMarginMedian !== undefined && { failure_margin_median: failureMarginMedian }),
+      ...(nearMissFraction !== undefined && { near_miss_fraction: nearMissFraction }),
       binding: c.binding ?? false,
     }];
   });
@@ -1983,6 +1995,20 @@ function buildRequestIdChainHeader(chain: MetaParams['requestIdChain']): string 
 }
 
 /**
+ * `approximate` (sub-item 2) = the run produced USABLE results that are
+ * degraded/rough. ONLY `partial` qualifies (options usable, some secondary
+ * feature degraded). `computed` is clean; `failed`/`blocked` carry NO usable
+ * answer (a `failed` body is emitted on 200, e.g. the ISL-disabled path), so an
+ * "approximate results" signal must NOT cover them or it inverts the meaning.
+ * Single-sourced from analysis_status (derive-don't-mirror). Exported so a unit
+ * test pins all four states (mutation-checkable — the earlier `!== 'computed'`
+ * formula wrongly folded failed/blocked into true).
+ */
+export function isApproximateAnalysis(status: TopLevelAnalysisStatus): boolean {
+  return status === 'partial';
+}
+
+/**
  * Build a success/partial/failed response (HTTP 200).
  */
 function buildResponse(
@@ -2021,7 +2047,12 @@ function buildResponse(
   thresholdAnalysis?: ThresholdResult[],
   identifiability?: IdentifiabilityAssessment,
   factorStability?: FactorStabilityEntry[],
-  logger?: { info: (obj: object, msg?: string) => void; warn: (obj: object, msg?: string) => void }
+  logger?: { info: (obj: object, msg?: string) => void; warn: (obj: object, msg?: string) => void },
+  // Sub-item 1d: per-option clamp map Map<optionId, Map<factorId, clamped>>,
+  // derived from the RECORDED NormalisationResult.diagnostics[].clamped (NOT
+  // recomputed from the already-normalised per-option interventions, which
+  // always read "not clamped"). Feeds constraint_margins margin_precision.
+  optionClampByOptionFactor?: Map<string, Map<string, boolean>>
 ): RunResponseV3 {
   // Producer honesty (lane PLoT-H item A): detect goal constraints whose
   // targets are NOT decision-grade — threshold normalisation fell back to the
@@ -2165,6 +2196,12 @@ function buildResponse(
       // order but does NOT echo constraint_id. Value-based matching breaks after normalisation
       // because ISL echoes normalised values while goalConstraints holds raw user-unit values.
       let constraintProbs: Record<string, number> | undefined;
+      // Sub-item 1c: per-option graded breach margins. One entry per constraint
+      // ISL evaluated for THIS option; margin fields are OMITTED (never
+      // fabricated as 0) when ISL sent none — so a satisfying option carries a
+      // bare entry while a breaching option carries its (denormalised) margin.
+      // A missing margin is therefore DISTINGUISHABLE from a measured zero.
+      let constraintMargins: ConstraintMargin[] | undefined;
       if (Array.isArray(constraintAnalysis.constraints) && constraintAnalysis.constraints.length > 0) {
         constraintProbs = {};
         const islConstraintsHere = constraintAnalysis.constraints as ISLConstraintResult[];
@@ -2189,6 +2226,43 @@ function buildResponse(
             constraintProbs[constraintId] = probSat;
           }
         }
+        // Build the per-option margin entries alongside the probabilities,
+        // reusing the same index→constraint_id resolver.
+        constraintMargins = islConstraintsHere.map((c, i) => {
+          const cid = indexToId[i] ?? `${c.node_id}_${c.operator}`;
+          // Denormalise the failure margin (a distance) back to user units by
+          // the constraint's range width — same convention as the top-level
+          // constraint_diagnostics path.
+          let fmm = c.failure_margin_median;
+          let clampedForThisOption = false;
+          if (fmm !== undefined && constraintNormRanges) {
+            const range = constraintNormRanges.get(cid);
+            if (range) {
+              const rangeWidth = range.max - range.min;
+              if (rangeWidth > 0) {
+                fmm = fmm * rangeWidth;
+              }
+            }
+            // Prefer the RECORDED clamp for this option's constraint-target
+            // factor; if it clamped, the denormalised magnitude understates the
+            // true breach → mark it a lower bound.
+            clampedForThisOption = optionClampByOptionFactor?.get(optionId)?.get(c.node_id) ?? false;
+          }
+          // Non-finite present margins are dropped to absence (would serialise
+          // to a fabricated `null`); genuine absence stays omitted.
+          if (fmm !== undefined && !Number.isFinite(fmm)) fmm = undefined;
+          const nmf = (c.near_miss_fraction !== undefined && Number.isFinite(c.near_miss_fraction))
+            ? c.near_miss_fraction : undefined;
+          const entry: ConstraintMargin = { constraint_id: cid };
+          if (fmm !== undefined) {
+            entry.failure_margin_median = fmm;
+            entry.margin_precision = clampedForThisOption ? 'lower_bound' : 'exact';
+          }
+          if (nmf !== undefined) {
+            entry.near_miss_fraction = nmf;
+          }
+          return entry;
+        });
       }
 
       // Defensive sign-check (lane PLoT-goal-fit-sign-defense): the auto-
@@ -2235,6 +2309,13 @@ function buildResponse(
         if (constraintProbs !== undefined) {
           result.constraint_probabilities = constraintProbs;
           logger?.info({ event: 'constraint_probs_mapped', option_id: optionId, count: Object.keys(constraintProbs).length });
+        }
+        // Sub-item 1c: attach the per-option graded breach margins under the
+        // SAME honesty gate as the probabilities (never on a suppressed /
+        // direction-suspect target). Absent-margin entries are still carried
+        // (missing ≠ zero) with their margin fields omitted.
+        if (constraintMargins !== undefined && constraintMargins.length > 0) {
+          result.constraint_margins = constraintMargins;
         }
         // Doctrine B (P0-C2): honest provenance for delivered goal-fit scored
         // from the modelled outcome distribution (target base defaulted, no
@@ -2318,12 +2399,12 @@ function buildResponse(
     );
     const normalizationErrors = [...fragileResult.errors, ...robustResult.errors];
 
-    // Validate and cast label to expected union type
-    const rawLabel = islResult.robustness.label;
-    const label: 'robust' | 'moderate' | 'fragile' | undefined =
-      rawLabel === 'robust' || rawLabel === 'moderate' || rawLabel === 'fragile'
-        ? rawLabel
-        : undefined;
+    // Sub-item 3: the `robustness.label` / `robustness.score` reads are PHANTOM —
+    // RobustnessResultV2 (the raw V2 wire, islResult.robustness) has neither
+    // field, so they resolved to undefined on every live response and Fastify
+    // omitted the output `label`/`score` unconditionally. The dead reads are
+    // removed here; wire output is byte-identical (verified). The real verdict
+    // is carried by is_robust/level below and display_verdict.
 
     // Build node ID → label lookup for from_label/to_label resolution (Schema v2.6)
     const nodeLabelMap = new Map<string, string>();
@@ -2371,13 +2452,10 @@ function buildResponse(
     }));
 
     robustness = {
-      // Numeric-egress guard (Codex round-3): omit robustness scalars when non-finite
-      // (score) or outside [0,1] (confidence) — these are OPTIONAL fields, so omission
-      // is honest absence, never a fabricated `null` or an impossible rate.
-      // switch_probability fabrication is NOT addressed here (see the deferred
-      // cross-layer note in the PR — it is type-required across consumers).
-      ...(finiteNum(islResult.robustness.score) !== undefined && { score: finiteNum(islResult.robustness.score) }),
-      label,
+      // Sub-item 3: the phantom `score` (finiteNum(islResult.robustness.score))
+      // and `label` reads are removed — RobustnessResultV2 has neither field, so
+      // both were always undefined and omitted by Fastify. Wire is byte-identical.
+      // Numeric-egress guard note retained for `confidence` (still guarded below).
       fragile_edges: enrichedFragileEdges,
       robust_edges: enrichedRobustEdges,
       explanation: islResult.robustness.explanation,
@@ -2788,10 +2866,11 @@ function buildResponse(
         affected_option_ids: c.affected_option_ids,
         affected_node_ids: c.affected_node_ids,
       })),
-      robustness: robustness ? {
-        label: robustness.label,
-        score: robustness.score,
-      } : undefined,
+      // Sub-item 3: `robustness.label`/`.score` on the OUTPUT robustness object
+      // were always undefined (phantom — never populated from the V2 wire), so
+      // mapRobustness already fell back to its 'moderate'/0.5 defaults. Passing
+      // an empty object keeps the assembled FactObject byte-identical.
+      robustness: robustness ? {} : undefined,
     };
 
     const envelope = assembleFactObjects(islInput, lineage);
@@ -2842,6 +2921,10 @@ function buildResponse(
 
     analysis_status: analysisStatus,
     status_reason: statusReason,
+    // Sub-item 2: canonical `approximate` boolean, single-sourced from
+    // analysis_status via isApproximateAnalysis (see its doc for the semantics +
+    // why only 'partial' qualifies). Distinct name from the CEE-trace `degraded`.
+    approximate: isApproximateAnalysis(analysisStatus),
 
     option_comparison_status: optionComparisonStatus,
     robustness_status: robustnessStatus,
@@ -4104,6 +4187,47 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             requestId,
             requestComputedAt,
           ));
+        }
+
+        // =================================================================
+        // Phase 1b++: Constraint Ingress-Shape Guard (sub-item 4)
+        // =================================================================
+        // The runV3 body JSON-schema types goal_constraints only as an array of
+        // objects — the inner fields are UNVALIDATED. PLoT reads c.constraint_id
+        // and c.node_id everywhere downstream (constraint-trace log, id resolver,
+        // constraint mapping), so a constraint missing either as a non-empty
+        // string silently corrupts identity/targeting. Reject it at the boundary
+        // with a 422 blocked response (same path as TOO_MANY_CONSTRAINTS).
+        // operator/value are already downstream-validated by validateGoalConstraints.
+        if (Array.isArray(body.goal_constraints)) {
+          for (let i = 0; i < body.goal_constraints.length; i++) {
+            const c = body.goal_constraints[i] as { constraint_id?: unknown; node_id?: unknown };
+            const badField =
+              typeof c?.constraint_id !== 'string' || c.constraint_id.length === 0
+                ? 'constraint_id'
+                : typeof c?.node_id !== 'string' || c.node_id.length === 0
+                  ? 'node_id'
+                  : undefined;
+            if (badField) {
+              return reply.status(422).send(buildBlockedResponse(
+                `Invalid constraint shape: goal_constraints[${i}].${badField} must be a non-empty string`,
+                [{
+                  id: randomUUID(),
+                  code: 'INVALID_CONSTRAINT_SHAPE',
+                  severity: 'error',
+                  // message names the offending field + index (field_path is not
+                  // a CritiqueV3 field; the path is carried in the message text).
+                  message: `goal_constraints[${i}].${badField} must be a non-empty string`,
+                  source: 'validation',
+                  blocks_analysis: true,
+                }],
+                normalizedGraph,
+                normalizedOptions,
+                requestId,
+                requestComputedAt,
+              ));
+            }
+          }
         }
 
         // =================================================================
@@ -6473,6 +6597,22 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         );
         reply.header('X-Olumi-Request-Id-Chain', buildRequestIdChainHeader(chain)!);
 
+        // Sub-item 1d: derive the per-option clamp map from the RECORDED
+        // normalisation diagnostics (Map<optionId, Map<factorId, clamped>>).
+        // Reading the recorded `clamped` is authoritative — recomputing from the
+        // per-option interventions reaching buildResponse would read the already
+        // normalised [0,1] values and always report "not clamped". Feeds
+        // constraint_margins margin_precision (lower_bound when clamped).
+        const optionClampByOptionFactor = new Map<string, Map<string, boolean>>();
+        for (const d of normalisationDiagnostics) {
+          let inner = optionClampByOptionFactor.get(d.option_id);
+          if (!inner) {
+            inner = new Map<string, boolean>();
+            optionClampByOptionFactor.set(d.option_id, inner);
+          }
+          inner.set(d.factor_id, d.clamped);
+        }
+
         return reply.send(buildResponse(
           requestId,
           topLevelStatus,
@@ -6527,7 +6667,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           thresholdAnalysis, // B10.3: Threshold analysis results
           toIdentifiabilityResponse(identifiabilityResult),  // B1.5a: always-present mapped response
           factorStability,  // 3C: ISL stability assessment per factor
-          req.log  // logger for fact_objects assembly logging
+          req.log,  // logger for fact_objects assembly logging
+          optionClampByOptionFactor  // 1d: per-option clamp map for margin_precision
         ));
       } catch (err) {
         req.log.error({
