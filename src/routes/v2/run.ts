@@ -160,6 +160,7 @@ import {
 import { NEAR_TIE_THRESHOLD } from '../../trust/result-coherence.js';
 import { assessGraphIdentifiability, toIdentifiabilityResponse, detectUnmeasuredConfounding } from '../../trust/identifiability-v2.js';
 import { classifyEdgeSeverity, deriveFragileEdgeVisible } from '../../trust/edge-severity.js';
+import { deriveMarginPrecision } from '../../trust/margin-precision.js';
 import { deriveConfidenceTier, reconcileConfidenceTier } from '../../trust/confidence-tier.js';
 import { detectDominantFactor } from '../../trust/factor-dominance.js';
 import type { IdentifiabilityAssessment } from '../../types/engine-v3.js';
@@ -2430,29 +2431,10 @@ function buildResponse(
             // per-option INTERVENTION clamp (a clamped sample) and the
             // constraint THRESHOLD clamp (a threshold pushed outside the shared
             // range) — independently of constraintNormRanges, and only claim
-            // what the evidence supports.
-            //
-            // Case analysis (why each clamp/operator pairing is understatement
-            // vs overstatement of the emitted breach margin):
-            //   INTERVENTION clamp (the SAMPLE moves):
-            //     - high-clamp ('<='): true sample ≥ emitted ⇒ true breach ≥
-            //       emitted ⇒ understates → lower_bound.
-            //     - low-clamp  ('>='): true sample ≤ emitted ⇒ understates.
-            //     - the two opposite pairings could OVERSTATE ⇒ no claim.
-            //   THRESHOLD clamp (the THRESHOLD moves — the MIRROR direction):
-            //     - '<=' threshold clamped LOW (to the floor, normalised 0): the
-            //       true threshold is below 0, so the true breach (sample −
-            //       threshold) is LARGER ⇒ emitted understates → lower_bound.
-            //     - '>=' threshold clamped HIGH (to the ceiling, normalised 1):
-            //       true threshold above 1, true breach (threshold − sample)
-            //       LARGER ⇒ understates → lower_bound.
-            //     - '<=' clamped HIGH / '>=' clamped LOW: the emitted breach
-            //       could OVERSTATE the true breach ⇒ NEVER claim a bound.
-            // Precedence: ANY possible overstatement ⇒ OMIT (cannot prove a
-            // lower bound, and it is not exact). Otherwise ANY understatement ⇒
-            // 'lower_bound'. Otherwise (no clamp on either side) 'exact' — but
-            // ONLY when the target factor is diagnosed (else clamp state is
-            // unknown, e.g. a non-intervened target, and no claim is made).
+            // what the evidence supports. The truth table over
+            // {operator, interventionClamp, thresholdClamp, diagnosed} and its
+            // understatement/overstatement case analysis + precedence live in
+            // deriveMarginPrecision (src/trust/margin-precision.ts).
             const clampDir = optionClampDirectionByFactor?.get(optionId)?.get(c.node_id);
             const hasDiagnostic = optionDiagnosedFactors?.get(optionId)?.has(c.node_id) ?? false;
             // F2a threshold-clamp direction, derived from the scale-provenance map
@@ -2460,26 +2442,14 @@ function buildResponse(
             // this is byte-identical to the former dedicated param).
             const thresholdClamp = constraintScaleProvenanceByConstraintId?.get(cid)?.threshold_clamped;
 
-            const interventionUnderstates =
-              (clampDir === 'high' && c.operator === '<=') ||
-              (clampDir === 'low' && c.operator === '>=');
-            const interventionOverstates = clampDir !== undefined && !interventionUnderstates;
-
-            const thresholdUnderstates =
-              (thresholdClamp === 'low' && c.operator === '<=') ||
-              (thresholdClamp === 'high' && c.operator === '>=');
-            const thresholdOverstates = thresholdClamp !== undefined && !thresholdUnderstates;
-
-            if (interventionOverstates || thresholdOverstates) {
-              // At least one clamp may inflate the emitted margin above the true
-              // breach ⇒ we cannot honestly claim 'lower_bound', and it is not
-              // 'exact'. OMIT.
-            } else if (interventionUnderstates || thresholdUnderstates) {
-              entry.margin_precision = 'lower_bound';
-            } else if (hasDiagnostic) {
-              // Neither side clamped in any direction and the target factor is
-              // diagnosed (thresholdClamp is necessarily undefined here) ⇒ exact.
-              entry.margin_precision = 'exact';
+            const mp = deriveMarginPrecision({
+              operator: c.operator,
+              interventionClamp: clampDir,
+              thresholdClamp,
+              diagnosed: hasDiagnostic,
+            });
+            if (mp !== undefined) {
+              entry.margin_precision = mp;
             }
           }
           if (nmf !== undefined) {
