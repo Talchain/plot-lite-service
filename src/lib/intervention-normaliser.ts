@@ -193,8 +193,13 @@ function isValidExtractedRange(range: [number, number] | undefined): range is [n
  * |          |                    | padding. Requires ≥2 values with variation.               |
  * |          |                    | Outlier guard: skipped if maxVal > minVal × 100.          |
  * |          |                    | Lower bound clamped to 0 when all values non-negative.    |
- * | 2        | `inferred_baseline`| `[0, 2 × max(|baseline|, |value|)]`.                     |
- * | 3        | `inferred_value`   | `[0, 2 × |value|]`. Falls through if value is 0.          |
+ * | 2        | `inferred_baseline`| `[min(0,2b,2v), max(0,2b,2v)]` over baseline b and (when   |
+ * |          |                    | finite) current value v. Sign-preserving AND CONTAINS     |
+ * |          |                    | BOTH (D-9): opposite-sign b/v both round-trip (e.g.       |
+ * |          |                    | b=-500,v=+600 → `[-1000,1200]`). Same-sign/single reduces |
+ * |          |                    | to `[0,2r]` (r≥0) / `[2r,0]` (r<0), unchanged.            |
+ * | 3        | `inferred_value`   | `[min(0,2v), max(0,2v)]`, sign-preserving (D-9). Falls    |
+ * |          |                    | through if value is 0.                                    |
  * | 4        | `default`          | `[0, 1]`. Used when value is 0, missing, or unavailable.  |
  *
  * @param node Factor node
@@ -271,26 +276,41 @@ export function deriveRange(
 
   // Priority 2: Inferred from baseline and current value
   if (baseline !== undefined && typeof baseline === 'number') {
-    // Use baseline as reference point
-    // Range: [0, 2 × max(|baseline|, |currentValue|)]
-    const maxAbsValue = Math.max(
-      Math.abs(baseline),
-      currentValue !== undefined ? Math.abs(currentValue) : 0
-    );
-
-    if (maxAbsValue > 0) {
-      const max = 2 * maxAbsValue;
-      // F14: skip an overflow-width inferred range; fall through to value / default.
-      if (isFiniteRange(0, max)) return { min: 0, max, source: 'inferred_baseline' };
+    // D-9 (CONTAIN BOTH, sign-preserving): the derived range must CONTAIN 0 AND
+    // both the (doubled) baseline and the (doubled) current value, so a
+    // negative-domain factor round-trips instead of clamping to 0 — AND an
+    // OPPOSITE-SIGN baseline/currentValue pair (e.g. baseline=-500,
+    // currentValue=+600) yields a range containing BOTH (-1000..1200), not just
+    // the larger-magnitude one ({0,1200}, which erased -500). The earlier
+    // larger-magnitude single-`ref` logic was incomplete for mixed signs.
+    //   candidates = [0, 2·baseline] (+ 2·currentValue when finite)
+    //   range = [min(candidates), max(candidates)]
+    // Reduces to the prior behaviour for the same-sign / single-value cases:
+    //   both ≥ 0 → [0, 2·max] · both < 0 → [2·min, 0] · single r → [min(0,2r), max(0,2r)]
+    // (zero delta for positive-domain factors; unchanged for both-negative and
+    // single-value). A baseline=0 with no currentValue collapses to {0,0} and
+    // falls through to Priority 3/4 exactly as before (isFiniteRange width guard).
+    const candidates = [0, 2 * baseline];
+    if (currentValue !== undefined && Number.isFinite(currentValue)) {
+      candidates.push(2 * currentValue);
     }
+    const min = Math.min(...candidates);
+    const max = Math.max(...candidates);
+    // F14: only a finite POSITIVE-width range is usable (also rejects the {0,0}
+    // baseline=0 no-currentValue collapse); fall through to value / default.
+    if (isFiniteRange(min, max)) return { min, max, source: 'inferred_baseline' };
   }
 
   // Priority 3: Inferred from current value only
   if (currentValue !== undefined && typeof currentValue === 'number' && currentValue !== 0) {
-    // Range: [0, 2 × |currentValue|]
-    const max = 2 * Math.abs(currentValue);
+    // D-9 (PRESERVE SIGN): range = [min(0,2v), max(0,2v)] — [0,2v] for v>0
+    // (identical to the previous {0, 2×|v|}, zero delta for positive factors)
+    // and [2v,0] for v<0 (e.g. v=-500 → {-1000,0}, so -500 → ~0.5 not clamp-to-0).
+    const doubled = 2 * currentValue;
+    const min = Math.min(0, doubled);
+    const max = Math.max(0, doubled);
     // F14: skip an overflow-width inferred range; fall through to the default.
-    if (isFiniteRange(0, max)) return { min: 0, max, source: 'inferred_value' };
+    if (isFiniteRange(min, max)) return { min, max, source: 'inferred_value' };
   }
 
   // Priority 4: Default [0, 1]

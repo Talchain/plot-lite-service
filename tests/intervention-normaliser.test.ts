@@ -166,6 +166,64 @@ describe('deriveRange', () => {
       expect(range.source).toBe('inferred_baseline');
       expect(range.max).toBe(400000); // 2 × 200000
     });
+
+    it('positive baseline range is UNCHANGED (zero positive-case delta) [D-9]', () => {
+      // POSITIVE CONTROL: for v ≥ 0 the sign-preserving formula {min(0,2v),max(0,2v)}
+      // is byte-identical to the pre-D-9 {0, 2v}. This must stay GREEN both before
+      // and after the fix (proves zero change for positive-domain factors).
+      const node = createFactorNode('salary', 180000, 100000);
+      const range = deriveRange(node);
+
+      expect(range.source).toBe('inferred_baseline');
+      expect(range.min).toBe(0);
+      expect(range.max).toBe(360000); // 2 × max(|baseline|, |value|)
+      expect(normaliseValue(180000, range).normalised).toBeCloseTo(0.5);
+    });
+
+    it('preserves sign for negative baseline — round-trips, not clamped to 0 [D-9]', () => {
+      // RED at 733af0c: the branch returned {0, 2×|baseline|} = {0, 1000}, and
+      // normaliseValue(-500, {0,1000}) clamps to 0 — the sign/value is ERASED
+      // before ISL. D-9 (PRESERVE SIGN): the range must CONTAIN the value.
+      const node = createFactorNode('net_cash_position', -500, -500);
+      const range = deriveRange(node);
+
+      expect(range.source).toBe('inferred_baseline');
+      // Range contains the value's sign: {2v, 0} for v < 0.
+      expect(range.min).toBeLessThanOrEqual(-500);
+      expect(range.max).toBeGreaterThanOrEqual(-500);
+      expect(range.min).toBe(-1000);
+      expect(range.max).toBe(0);
+      // Round-trips to the symmetric midpoint instead of clamping to 0.
+      const { normalised, clamped } = normaliseValue(-500, range);
+      expect(normalised).not.toBe(0);
+      expect(normalised).toBeCloseTo(0.5);
+      expect(clamped).toBe(false);
+    });
+
+    it('OPPOSITE-SIGN baseline/currentValue — range CONTAINS BOTH, neither clamps [D-9 gap]', () => {
+      // RED at baa0a2b: the larger-magnitude single-`ref` logic picked
+      // ref = +600 (|600| > |-500|) → {0, 1200}, which does NOT contain -500,
+      // so normaliseValue(-500, {0,1200}) still clamps to 0 — the negative
+      // baseline is ERASED. D-9 requires the range to CONTAIN BOTH values, so
+      // both endpoints round-trip. baseline=-500, currentValue=+600 →
+      // candidates {0, 2·-500, 2·600} = {-1000, 1200}.
+      const node = createFactorNode('net_cash_position', 600, -500);
+      const range = deriveRange(node);
+
+      expect(range.source).toBe('inferred_baseline');
+      // Range CONTAINS both the baseline and the current value.
+      expect(range.min).toBeLessThanOrEqual(-500);
+      expect(range.max).toBeGreaterThanOrEqual(600);
+      expect(range.min).toBe(-1000); // 2 × -500
+      expect(range.max).toBe(1200); // 2 × 600
+      // The negative baseline round-trips instead of clamping to 0.
+      const neg = normaliseValue(-500, range);
+      expect(neg.normalised).not.toBe(0);
+      expect(neg.clamped).toBe(false);
+      // The positive current value also stays inside the range (no clamp).
+      const pos = normaliseValue(600, range);
+      expect(pos.clamped).toBe(false);
+    });
   });
 
   describe('Priority 3: Inferred from current value only', () => {
@@ -178,12 +236,33 @@ describe('deriveRange', () => {
       expect(range.max).toBe(360000); // 2 × 180000
     });
 
-    it('handles negative current values', () => {
+    it('positive current value range is UNCHANGED (zero positive-case delta) [D-9]', () => {
+      // POSITIVE CONTROL: {min(0,2v),max(0,2v)} == {0,2v} for v ≥ 0. GREEN both ways.
+      const node = createFactorNode('temperature', 500);
+      const range = deriveRange(node);
+
+      expect(range.source).toBe('inferred_value');
+      expect(range.min).toBe(0);
+      expect(range.max).toBe(1000); // 2 × 500, identical to pre-D-9
+      expect(normaliseValue(500, range).normalised).toBeCloseTo(0.5);
+    });
+
+    it('handles negative current values — preserves sign so it round-trips [D-9]', () => {
+      // ⚠ This test PREVIOUSLY PINNED THE BUG: it asserted max=100 for value=-50,
+      // i.e. range {0,100}, under which normaliseValue(-50) clamps to 0 — the sign
+      // is erased before ISL. That assertion pinned the defect. Per D-9 (PRESERVE
+      // SIGN) the range now CONTAINS the value: {2v, 0} for v < 0.
       const node = createFactorNode('temperature', -50);
       const range = deriveRange(node);
 
       expect(range.source).toBe('inferred_value');
-      expect(range.max).toBe(100); // 2 × |-50|
+      expect(range.min).toBe(-100); // 2 × (-50)
+      expect(range.max).toBe(0);
+      // Round-trips to 0.5 instead of clamping to 0.
+      const { normalised, clamped } = normaliseValue(-50, range);
+      expect(normalised).not.toBe(0);
+      expect(normalised).toBeCloseTo(0.5);
+      expect(clamped).toBe(false);
     });
   });
 
