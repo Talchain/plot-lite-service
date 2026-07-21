@@ -1,23 +1,31 @@
 /**
- * Doctrine 039 — producer-owned `driver_label`.
+ * Doctrine 039 (D-7) — producer-owned `driver_label`, 4-valued.
  *
- * PLoT emits a producer-owned categorical strong/moderate/minor label over the
- * normalised-influence scalar (`influence_score`). Cut-points ratified from the
- * UI's useResultsSectionData.ts:
- *   influence_score >= 0.50 → 'strong'
- *   influence_score >= 0.20 → 'moderate'
- *   otherwise              → 'minor'
- * NOTE: this does NOT supersede the UI's `getSemanticLabel`, which is 4-valued
- * (adds a rank-1 'biggest' band) and keys off normalised |elasticity|, not
- * influence_score — reconciling the two is a doctrine row (Neil/UI), tracked
- * separately (see src/lib/driver-label.ts header).
- * Absent/non-finite influence ⇒ NO label (honesty: never fabricate 'minor'
- * from a missing value). Thresholds are DOCTRINE-PENDING (Neil), one const each.
+ * PLoT emits a producer-owned categorical driver-strength label over the
+ * normalised-influence scalar (`influence_score`). It is now 4-valued to match
+ * the SHAPE of the UI's `getSemanticLabel`:
+ *   - three magnitude bands (cut-points ratified from useResultsSectionData.ts):
+ *       influence_score >= 0.50 → 'strong'
+ *       influence_score >= 0.20 → 'moderate'
+ *       otherwise              → 'minor'
+ *   - a set-aware rank-1 'biggest' band: the SINGLE factor with the greatest
+ *     `influence_score` is 'biggest', UNCONDITIONAL of magnitude. Ties on the max
+ *     resolve to the FIRST factor in the stable emitted order. A factor with
+ *     absent/non-finite influence gets NO label and is NOT eligible to be
+ *     'biggest'.
+ * NOTE: matching the SHAPE does not yet let the UI drop `getSemanticLabel` — the
+ * basis flip (elasticity vs influence) + UI adoption remain UI-confirmation-gated
+ * (D-7). Absent/non-finite influence ⇒ NO label (honesty). Magnitude thresholds
+ * are DOCTRINE-PENDING (Neil), one const each; 'biggest' is rank-1 unconditional
+ * (DOCTRINE-PENDING Neil/UX — a magnitude floor can be added later).
  *
- * Two describes:
- *  - unit: the pure helper `deriveDriverLabel` (the ratified cut-points).
- *  - route: the emit actually lands on the /v2/run wire, keyed off the
- *    factor's emitted influence_score (driven with the live 07-07 capture).
+ * Describes:
+ *  - unit: `deriveDriverLabel` — the pure 3-band magnitude helper (never 'biggest').
+ *  - unit: `indexOfBiggestDriver` — the set-aware rank-1 selector (argmax / ties /
+ *    single-factor / absent-not-eligible).
+ *  - route: the 4-valued emit lands on the /v2/run wire, keyed off each factor's
+ *    emitted influence_score, with exactly one 'biggest' on the rank-1 factor
+ *    (driven with the live 07-07 capture).
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
@@ -27,12 +35,13 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   deriveDriverLabel,
+  indexOfBiggestDriver,
   DRIVER_LABEL_STRONG_MIN,
   DRIVER_LABEL_MODERATE_MIN,
 } from '../src/lib/driver-label.js';
 
 // ---------------------------------------------------------------------------
-// Unit — pure helper
+// Unit — pure per-factor magnitude helper
 // ---------------------------------------------------------------------------
 
 describe('deriveDriverLabel — ratified normalised-influence cut-points', () => {
@@ -73,10 +82,88 @@ describe('deriveDriverLabel — ratified normalised-influence cut-points', () =>
     expect(DRIVER_LABEL_STRONG_MIN).toBe(0.5);
     expect(DRIVER_LABEL_MODERATE_MIN).toBe(0.2);
   });
+
+  // The magnitude helper is pure/per-factor and can NEVER return 'biggest';
+  // 'biggest' is a set-aware rank-1 override (indexOfBiggestDriver).
+  it("never returns 'biggest' (rank-1 is set-aware, not a magnitude band)", () => {
+    for (const s of [1, 0.99, 0.5, 0.2, 0.1, 0, 1e6]) {
+      expect(deriveDriverLabel(s)).not.toBe('biggest');
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
-// Route — the emit lands on the /v2/run wire (live 07-07 capture, mocked ISL)
+// Unit — set-aware rank-1 selector (the 'biggest' band)
+// ---------------------------------------------------------------------------
+
+describe('indexOfBiggestDriver — set-aware rank-1 by influence_score', () => {
+  it('picks the index of the single greatest influence_score', () => {
+    const factors = [
+      { influence_score: 0.2 },
+      { influence_score: 0.9 }, // rank-1
+      { influence_score: 0.5 },
+    ];
+    expect(indexOfBiggestDriver(factors)).toBe(1);
+  });
+
+  it('argmax is magnitude-blind: a low-influence max is still rank-1 (biggest unconditional)', () => {
+    // Greatest influence here is 0.1 → magnitude band would be 'minor', yet it
+    // is still the rank-1 factor. The derive-pass stamps it 'biggest'
+    // unconditionally of magnitude.
+    const factors = [
+      { influence_score: 0.05 },
+      { influence_score: 0.1 }, // rank-1, but deriveDriverLabel(0.1) === 'minor'
+      { influence_score: 0.03 },
+    ];
+    const idx = indexOfBiggestDriver(factors);
+    expect(idx).toBe(1);
+    expect(deriveDriverLabel(factors[idx].influence_score)).toBe('minor');
+  });
+
+  it('ties on the max → the FIRST factor in emitted order (deterministic)', () => {
+    const factors = [
+      { influence_score: 0.4 },
+      { influence_score: 0.8 }, // first occurrence of the max
+      { influence_score: 0.8 }, // tie — must NOT win
+      { influence_score: 0.1 },
+    ];
+    expect(indexOfBiggestDriver(factors)).toBe(1);
+  });
+
+  it('single-factor → that factor (index 0) is rank-1', () => {
+    expect(indexOfBiggestDriver([{ influence_score: 0.42 }])).toBe(0);
+  });
+
+  it('empty array → -1 (no eligible factor)', () => {
+    expect(indexOfBiggestDriver([])).toBe(-1);
+  });
+
+  it('all influence absent/non-finite → -1 (none eligible to be biggest)', () => {
+    expect(
+      indexOfBiggestDriver([
+        { influence_score: undefined },
+        { influence_score: null },
+        { influence_score: NaN },
+        { influence_score: Infinity },
+        {},
+      ]),
+    ).toBe(-1);
+  });
+
+  it('a factor with absent influence is skipped even when it appears first', () => {
+    // The absent-influence factor at index 0 is NOT eligible; the real max is
+    // the finite 0.3 at index 2.
+    const factors = [
+      { influence_score: undefined }, // ineligible
+      { influence_score: 0.1 },
+      { influence_score: 0.3 }, // rank-1 among the eligible
+    ];
+    expect(indexOfBiggestDriver(factors)).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Route — the 4-valued emit lands on the /v2/run wire (live 07-07 capture)
 // ---------------------------------------------------------------------------
 
 const FIXTURE_DIR = join(
@@ -153,7 +240,7 @@ function buildPlotBody() {
   };
 }
 
-describe('039 route: driver_label lands on /v2/run factor_sensitivity', () => {
+describe('039 route: 4-valued driver_label lands on /v2/run factor_sensitivity', () => {
   let app: FastifyInstance;
   let factors: any[];
 
@@ -180,8 +267,37 @@ describe('039 route: driver_label lands on /v2/run factor_sensitivity', () => {
     expect(factors.some((f) => f.driver_label !== undefined)).toBe(true);
   });
 
-  it('every emitted driver_label matches deriveDriverLabel(influence_score)', () => {
+  it("exactly ONE factor is 'biggest'", () => {
+    const biggest = factors.filter((f) => f.driver_label === 'biggest');
+    expect(biggest.length).toBe(1);
+  });
+
+  it("the 'biggest' factor is the single greatest influence_score (rank-1)", () => {
+    // Argmax over the EMITTED influence_score, computed independently of the field.
+    const eligible = factors.filter(
+      (f) => typeof f.influence_score === 'number' && Number.isFinite(f.influence_score),
+    );
+    expect(eligible.length).toBeGreaterThan(0);
+    const maxScore = Math.max(...eligible.map((f) => f.influence_score));
+    const argmax = factors.find((f) => f.influence_score === maxScore);
+    expect(argmax.driver_label).toBe('biggest');
+    // and no OTHER factor carries 'biggest'
     for (const f of factors) {
+      if (f !== argmax) expect(f.driver_label).not.toBe('biggest');
+    }
+  });
+
+  it('every NON-biggest driver_label matches the magnitude helper; the biggest is the argmax', () => {
+    const eligible = factors.filter(
+      (f) => typeof f.influence_score === 'number' && Number.isFinite(f.influence_score),
+    );
+    const maxScore = Math.max(...eligible.map((f) => f.influence_score));
+    const argmax = factors.find((f) => f.influence_score === maxScore);
+    for (const f of factors) {
+      if (f === argmax) {
+        expect(f.driver_label).toBe('biggest');
+        continue;
+      }
       const expected = deriveDriverLabel(f.influence_score);
       if (expected === undefined) {
         expect(f.driver_label).toBeUndefined();
@@ -191,10 +307,27 @@ describe('039 route: driver_label lands on /v2/run factor_sensitivity', () => {
     }
   });
 
-  it("driver_label is one of the ratified categories", () => {
+  it('a mid-rank factor keeps its magnitude band (strong/moderate), not biggest', () => {
+    // In the 07-07 capture the mid factors are dev_headcount (~0.72 → strong)
+    // and hiring_cost (~0.50 → moderate). Whichever mid factors exist, none is
+    // 'biggest' and each equals its magnitude band.
+    const eligible = factors.filter(
+      (f) => typeof f.influence_score === 'number' && Number.isFinite(f.influence_score),
+    );
+    const maxScore = Math.max(...eligible.map((f) => f.influence_score));
+    const mids = eligible.filter((f) => f.influence_score !== maxScore);
+    expect(mids.length).toBeGreaterThan(0);
+    for (const f of mids) {
+      expect(f.driver_label).not.toBe('biggest');
+      expect(f.driver_label).toBe(deriveDriverLabel(f.influence_score));
+      expect(['strong', 'moderate', 'minor']).toContain(f.driver_label);
+    }
+  });
+
+  it('driver_label is one of the 4 ratified categories', () => {
     for (const f of factors) {
       if (f.driver_label !== undefined) {
-        expect(['strong', 'moderate', 'minor']).toContain(f.driver_label);
+        expect(['biggest', 'strong', 'moderate', 'minor']).toContain(f.driver_label);
       }
     }
   });

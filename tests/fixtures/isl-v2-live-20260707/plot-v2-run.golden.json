@@ -517,7 +517,7 @@
       "elasticity_std": 0,
       "rank_flip_rate": 0,
       "stability_method": "bootstrap_20",
-      "driver_label": "strong",
+      "driver_label": "biggest",
       "range_derivation_source": "default"
     },
     {
@@ -1618,7 +1618,7 @@
     "decision_brief_assembled": true,
     "review_cards_count": 0,
     "evidence_priority_card_present": false,
-    "response_content_hash": "rch_v2:f92b82a0565a21f5"
+    "response_content_hash": "rch_v2:36d21c5efb11cff9"
   },
   "meta": {
     "seed_used": "2034401427",
