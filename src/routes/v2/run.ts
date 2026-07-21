@@ -159,7 +159,7 @@ import {
 } from '../../lib/constraint-reliability.js';
 import { NEAR_TIE_THRESHOLD } from '../../trust/result-coherence.js';
 import { assessGraphIdentifiability, toIdentifiabilityResponse, detectUnmeasuredConfounding } from '../../trust/identifiability-v2.js';
-import { classifyEdgeSeverity } from '../../trust/edge-severity.js';
+import { classifyEdgeSeverity, deriveFragileEdgeVisible } from '../../trust/edge-severity.js';
 import { deriveConfidenceTier, reconcileConfidenceTier } from '../../trust/confidence-tier.js';
 import { detectDominantFactor } from '../../trust/factor-dominance.js';
 import type { IdentifiabilityAssessment } from '../../types/engine-v3.js';
@@ -2679,6 +2679,12 @@ function buildResponse(
       to_label: nodeLabelMap.get(edge.to_id) ?? edge.to_id,
       // Severity classification from switch_probability (B1)
       severity: classifyEdgeSeverity(edge.switch_probability),
+      // Doctrine 013 — producer-DISCLOSED visibility gate over switch_probability
+      // (> 0.15). PLoT emits the flag but does NOT filter the array (the UI
+      // decides render). Omitted when switch_probability is non-finite (honesty).
+      ...(deriveFragileEdgeVisible(edge.switch_probability) !== undefined && {
+        visible: deriveFragileEdgeVisible(edge.switch_probability),
+      }),
       // Resolve alternative_winner_label from option ID (null when no alternative winner)
       alternative_winner_id: edge.alternative_winner_id ?? null,
       alternative_winner_label: edge.alternative_winner_id

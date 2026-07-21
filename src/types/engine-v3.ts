@@ -2348,6 +2348,15 @@ export interface NormalizedEdgeInfoV3 {
    * Present on fragile_edges (switch_probability < 1); omitted on robust_edges.
    */
   severity?: 'critical' | 'error' | 'warning';
+  /**
+   * Doctrine 013 — producer-DISCLOSED visibility gate over `switch_probability`.
+   * `visible = switch_probability > FRAGILE_EDGE_VISIBLE_MIN` (0.15, ratified
+   * from the UI's THRESHOLDS.FRAGILE_EDGE_FILTER; DOCTRINE-PENDING, Neil). PLoT
+   * DISCLOSES the gate but does NOT filter the array — the UI decides render.
+   * ABSENT when switch_probability is absent/non-finite (never fabricated). See
+   * `src/trust/edge-severity.ts`.
+   */
+  visible?: boolean;
   /** Marginal probability of recommendation switch for this edge */
   marginal_switch_probability?: number;
   /** Option that would win if this edge changes (from ISL) */
