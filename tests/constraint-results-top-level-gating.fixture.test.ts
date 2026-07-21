@@ -310,6 +310,9 @@ describe('top-level constraint_results gating by target reliability (lane 27, RO
           operator: '>=',
           value: 20,
           probability: 0.62,
+          // A3 trust marker (additive): a '%' constraint on a valueless target
+          // resolves via the producer unit_percent scale, unclamped ⇒ decision-grade.
+          scale_provenance: { source: 'unit_percent', range_unified: true, decision_grade: true },
         },
       ]);
       expect(body.conditional_probabilities).toEqual([]);
@@ -344,6 +347,8 @@ describe('top-level constraint_results gating by target reliability (lane 27, RO
         operator: '>=',
         value: 20,
         probability: 0.55,
+        // A3 trust marker (additive): producer '%' scale, unclamped ⇒ decision-grade.
+        scale_provenance: { source: 'unit_percent', range_unified: true, decision_grade: true },
       },
     ]);
     expect(body).not.toHaveProperty('constraint_diagnostics');

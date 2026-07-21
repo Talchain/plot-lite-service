@@ -27,6 +27,7 @@ import {
 
 // Import CEE types for factor enrichments
 import type { FactorEnrichment } from '../cee/types.js';
+import type { RangeSource } from '../lib/intervention-normaliser.js';
 import type { M1Coaching } from '../coaching/types.js';
 import type { M1Review } from '../cee/validation/m1-review-types.js';
 import type { ReviewStatus, ReviewSkipReason } from '../cee/validation/m1-review-constants.js';
@@ -352,6 +353,52 @@ export interface FilteredConstraintRecord {
 /**
  * Result for a single constraint evaluation.
  */
+/**
+ * Producer-owned trust marker for a single constraint's threshold scale
+ * (A3, ruling A3-DOCTRINE-DECISIONS-2026-07-21 D-2/D-5). Discloses HOW the
+ * threshold's [0,1] normalisation range was resolved so a downstream consumer
+ * can gate on trust rather than PLoT hiding results. Additive; absence of the
+ * whole marker is fail-closed by contract.
+ *
+ * FIELD NAMES/SHAPES ARE FROZEN CROSS-LANE — do not rename.
+ */
+export interface ConstraintScaleProvenance {
+  /**
+   * The range source actually used for this constraint's threshold — one of the
+   * `NormalisationRange.source` vocabulary strings (`inferred_spread`,
+   * `goal_threshold_cap`, `unit_percent`, `explicit_cap`, `explicit`,
+   * `inferred_value`, `default`, …). `'default'` also denotes a forwarded-raw
+   * constraint that underwent no normalisation (already in [0,1], no diagnostic).
+   */
+  source: RangeSource;
+  /**
+   * True when the threshold's range is identical by construction to the range
+   * this node's interventions used or would use — TRUE for a shared intervention
+   * scale AND for never-intervened nodes resolving through the same chain. FALSE
+   * precisely when the resolution DIVERGED: a producer-declared cap/'%' on the
+   * node was overridden by a MEASURED intervention spread (ruling D-2 disclosing
+   * itself).
+   */
+  range_unified: boolean;
+  /**
+   * Present ONLY when the threshold itself clamped onto [0,1] during
+   * normalisation ('low' = clamped at the range floor, 'high' = at the ceiling).
+   * Sourced from the #239 F2a threshold-clamp map. Absent ⇒ the threshold sat
+   * inside the range.
+   */
+  threshold_clamped?: 'low' | 'high';
+  /**
+   * FROZEN derivation:
+   *   (range_unified OR producer-declared source
+   *      [goal_threshold_cap | unit_percent | explicit_cap | explicit(=state_space)])
+   *   AND NOT threshold_clamped
+   *   AND source ∉ { inferred_value, default }.
+   * Conservative: inferred_value/default ⇒ false even when internally consistent
+   * (ruling D-5). This is a marker only; no new suppression rides on it.
+   */
+  decision_grade: boolean;
+}
+
 export interface ConstraintResult {
   /** Constraint ID from request */
   constraint_id: string;
@@ -363,6 +410,11 @@ export interface ConstraintResult {
   value: number;
   /** Probability of satisfying this constraint [0, 1] */
   probability: number;
+  /**
+   * Producer-owned trust marker for this constraint's threshold scale (A3). See
+   * ConstraintScaleProvenance. Additive; present for every active constraint.
+   */
+  scale_provenance?: ConstraintScaleProvenance;
 }
 
 /**
@@ -1533,6 +1585,16 @@ export interface OptionComparisonResultV3 {
    * gate as constraint_probabilities).
    */
   constraint_margins?: ConstraintMargin[];
+
+  /**
+   * Producer-owned trust marker (A3): AND over the `decision_grade` of the
+   * constraints that ACTUALLY PARTICIPATE for this option (those present in
+   * `constraint_probabilities`). Present ONLY when ≥1 constraint participates;
+   * an option with zero participating constraints OMITS the field entirely
+   * (absence = fail-closed by contract — never a vacuous `true`). A participating
+   * constraint whose provenance is missing is treated as non-decision-grade.
+   */
+  constraints_decision_grade?: boolean;
 }
 
 /**

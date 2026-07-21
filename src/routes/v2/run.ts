@@ -47,6 +47,7 @@ import type {
   DownstreamCallsV3,
   GoalConstraint,
   ConstraintResult,
+  ConstraintScaleProvenance,
   ConstraintDiagnostic,
   ConstraintMargin,
   EnrichedEdgeEValue,
@@ -168,9 +169,11 @@ import {
   needsNormalisation,
   normaliseGoalConstraints,
   constraintsNeedNormalisation,
+  isPercentUnit,
   type NormalisationContext,
   type NormalisationDiagnostic,
   type NormalisationRange,
+  type RangeSource,
   type GoalThresholdNodeMeta,
 } from '../../lib/intervention-normaliser.js';
 import { assembleBrief } from '../../assembly/decision-brief.js';
@@ -1730,6 +1733,86 @@ function collectGoalThresholdNodeMeta(
   return meta;
 }
 
+/**
+ * Producer-owned constraint trust marker (A3, ruling
+ * A3-DOCTRINE-DECISIONS-2026-07-21 D-2/D-5).
+ *
+ * Builds `scale_provenance` per ACTIVE constraint from the SAME #239 machinery
+ * the range-unify fix produced — the constraint normalisation diagnostics
+ * (`range.source`, per-constraint), the F2a threshold-clamp map, the per-node
+ * intervention scale, and the producer-declared metadata (goal_threshold_cap /
+ * '%' unit). No parallel structure; no new suppression (D-5) — this only
+ * discloses.
+ *
+ * The producer-declared SOURCE set for `decision_grade` is the spec's
+ * {goal_threshold_cap, unit_percent, explicit_cap, state_space}. NOTE: the
+ * `RangeSource` vocabulary has no literal `state_space` member — `deriveRange`
+ * emits `'explicit'` for a `state_space.range` declaration (and `'explicit_cap'`
+ * for `observed_state.cap`), so the spec's `state_space` is read as its vocab
+ * string `'explicit'`. (Flagged for Neil/A1 — the frozen field shapes are
+ * unaffected; this is the internal producer-source membership only.)
+ */
+const DECISION_GRADE_PRODUCER_SOURCES: ReadonlySet<RangeSource> = new Set<RangeSource>([
+  'goal_threshold_cap',
+  'unit_percent',
+  'explicit_cap',
+  'explicit', // = state_space.range (spec: "state_space")
+]);
+
+function buildConstraintScaleProvenance(
+  activeConstraints: GoalConstraint[],
+  // Per-constraint normalisation range (carries the resolved `source`), keyed by
+  // constraint_id. Undefined/absent entry ⇒ the constraint underwent NO
+  // normalisation (forwarded-raw / already in [0,1], no diagnostic).
+  constraintNormRanges: Map<string, NormalisationRange> | undefined,
+  thresholdClampByCid: Map<string, 'low' | 'high'> | undefined,
+  interventionScaleByNodeId: Map<string, NormalisationRange>,
+  goalThresholdMetaByNodeId: Map<string, GoalThresholdNodeMeta>,
+  unitsByConstraintId: Map<string, string>,
+): Map<string, ConstraintScaleProvenance> {
+  const out = new Map<string, ConstraintScaleProvenance>();
+  for (const c of activeConstraints) {
+    // A constraint that underwent NO normalisation (forwarded-raw / already in
+    // [0,1], no range) has no derived scale — the raw user [0,1] with no
+    // producer/unification evidence, disclosed conservatively as 'default'
+    // (⇒ decision_grade false, fail-closed, D-5).
+    const source: RangeSource = constraintNormRanges?.get(c.constraint_id)?.source ?? 'default';
+    const thresholdClamp = thresholdClampByCid?.get(c.constraint_id);
+
+    const interventionScale = interventionScaleByNodeId.get(c.node_id);
+    const nonIdentitySpread =
+      interventionScale !== undefined &&
+      !(interventionScale.min === 0 && interventionScale.max === 1);
+
+    const nodeCap = goalThresholdMetaByNodeId.get(c.node_id)?.goal_threshold_cap;
+    const producerDeclarationOnNode =
+      (typeof nodeCap === 'number' && Number.isFinite(nodeCap) && nodeCap > 0) ||
+      isPercentUnit(unitsByConstraintId.get(c.constraint_id));
+
+    // Divergence (D-2 disclosing itself): a MEASURED intervention spread overrode
+    // a producer declaration on the same node. Only THIS makes range_unified
+    // false — a shared scale, a never-intervened node, or a producer overriding
+    // an ASSUMED identity scale are all unified.
+    const diverged = nonIdentitySpread && producerDeclarationOnNode;
+    const rangeUnified = !diverged;
+
+    const producerDeclaredSource = DECISION_GRADE_PRODUCER_SOURCES.has(source);
+    const excludedSource = source === 'inferred_value' || source === 'default';
+    const decisionGrade =
+      (rangeUnified || producerDeclaredSource) &&
+      thresholdClamp === undefined &&
+      !excludedSource;
+
+    out.set(c.constraint_id, {
+      source,
+      range_unified: rangeUnified,
+      ...(thresholdClamp !== undefined && { threshold_clamped: thresholdClamp }),
+      decision_grade: decisionGrade,
+    });
+  }
+  return out;
+}
+
 function buildConstraintFields(
   goalConstraints: GoalConstraint[] | undefined,
   islResult: any,
@@ -1740,7 +1823,10 @@ function buildConstraintFields(
   // top-level block is withheld too; doctrine-B modelledBasis targets are NOT
   // passed here — they deliver (lane P0-C2).
   suppressedConstraintTargets?: UnreliableConstraintTarget[],
-  logger?: { warn: (obj: object, msg?: string) => void }
+  logger?: { warn: (obj: object, msg?: string) => void },
+  // A3 trust marker: per-constraint scale provenance to attach to each
+  // constraint_result. Additive; keyed by constraint_id.
+  scaleProvenanceByConstraintId?: Map<string, ConstraintScaleProvenance>
 ): {
   constraints_status?: ConstraintFeatureStatus;
   constraint_results?: ConstraintResult[];
@@ -1819,12 +1905,16 @@ function buildConstraintFields(
     const islValue = c.value ?? c.threshold;
     // Prefer original user-unit value from input constraints
     const originalConstraint = goalConstraints!.find(gc => gc.constraint_id === constraintId);
+    const scaleProvenance = scaleProvenanceByConstraintId?.get(constraintId);
     return {
       constraint_id: constraintId,
       node_id: c.node_id,
       operator: c.operator as '>=' | '<=',
       value: originalConstraint?.value ?? islValue,
       probability: c.prob_satisfied,
+      // A3 trust marker (additive): disclose how this threshold's scale was
+      // resolved so consumers can gate on trust (D-2/D-5).
+      ...(scaleProvenance !== undefined && { scale_provenance: scaleProvenance }),
     };
   });
 
@@ -2083,7 +2173,11 @@ function buildResponse(
   // intervention clamp above — a threshold can clamp while every intervention
   // sits inside the range (the response-1 defect: cap below the intervention
   // floor). Feeds constraint_margins margin_precision.
-  constraintThresholdClampByConstraintId?: Map<string, 'low' | 'high'>
+  constraintThresholdClampByConstraintId?: Map<string, 'low' | 'high'>,
+  // A3 trust marker: per-constraint scale provenance (keyed by constraint_id).
+  // Feeds BOTH the top-level constraint_results[].scale_provenance and the
+  // per-option constraints_decision_grade aggregate below.
+  constraintScaleProvenanceByConstraintId?: Map<string, ConstraintScaleProvenance>
 ): RunResponseV3 {
   // Producer honesty (lane PLoT-H item A): detect goal constraints whose
   // targets are NOT decision-grade — threshold normalisation fell back to the
@@ -2390,6 +2484,19 @@ function buildResponse(
         if (constraintProbs !== undefined) {
           result.constraint_probabilities = constraintProbs;
           logger?.info({ event: 'constraint_probs_mapped', option_id: optionId, count: Object.keys(constraintProbs).length });
+        }
+        // A3 trust marker: constraints_decision_grade = AND over the
+        // decision_grade of the constraints that ACTUALLY PARTICIPATE for this
+        // option (present in constraint_probabilities). Zero participating ⇒
+        // field ABSENT (fail-closed — never a vacuous true). A participating
+        // constraint with no provenance entry is treated non-decision-grade.
+        if (result.constraint_probabilities && constraintScaleProvenanceByConstraintId) {
+          const participating = Object.keys(result.constraint_probabilities);
+          if (participating.length > 0) {
+            result.constraints_decision_grade = participating.every(
+              (cid) => constraintScaleProvenanceByConstraintId.get(cid)?.decision_grade === true,
+            );
+          }
         }
         // Sub-item 1c: attach the per-option graded breach margins under the
         // SAME honesty gate as the probabilities (never on a suppressed /
@@ -3022,6 +3129,7 @@ function buildResponse(
       constraintNormRanges,
       constraintTargetPartition.suppressed,
       logger,
+      constraintScaleProvenanceByConstraintId,
     ),
 
     // Auto-noise disclosure (audit B3, P0). `auto_noise_applied` echoes
@@ -5037,6 +5145,11 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // clamped). A clamped threshold makes the emitted breach margin a strict
         // bound — the margin egress uses this to avoid mislabelling it 'exact'.
         let constraintThresholdClampByConstraintId: Map<string, 'low' | 'high'> | undefined;
+        // A3 trust marker: per-constraint scale provenance (built in Phase 4b
+        // below once the constraint ranges + clamp map + intervention scales are
+        // known). Feeds constraint_results[].scale_provenance and
+        // option_comparison[].constraints_decision_grade.
+        let constraintScaleProvenanceByConstraintId: Map<string, ConstraintScaleProvenance> | undefined;
 
         if (needsNormalisation(normalizedOptions)) {
           const normResult = normaliseOptionsForISL(
@@ -5217,6 +5330,23 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               constraint_count: activeGoalConstraints.length,
             });
           }
+
+          // A3 trust marker (additive; D-2/D-5): build the per-constraint scale
+          // provenance from the SAME #239 machinery — the resolved constraint
+          // range source, the F2a threshold-clamp map, the per-node intervention
+          // scale, and the producer metadata. Covers EVERY active constraint
+          // (the else branch above leaves constraintNormalisationRanges /
+          // constraintThresholdClampByConstraintId undefined → those forwarded-raw
+          // constraints disclose as source 'default', decision_grade false —
+          // fail-closed). No new suppression: this only discloses.
+          constraintScaleProvenanceByConstraintId = buildConstraintScaleProvenance(
+            activeGoalConstraints,
+            constraintNormalisationRanges,
+            constraintThresholdClampByConstraintId,
+            interventionScaleByNodeId,
+            goalThresholdMetaByNodeId,
+            constraintUnitsByConstraintId,
+          );
         }
 
         // Add constraint validation warnings to preflight warnings
@@ -6867,7 +6997,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           req.log,  // logger for fact_objects assembly logging
           optionClampDirectionByFactor,  // 1d + Codex F1: per-option clamp DIRECTION map for margin_precision
           optionDiagnosedFactors,  // Codex F1: factors with a recorded diagnostic (exact vs unknown)
-          constraintThresholdClampByConstraintId  // Codex F2a: per-constraint threshold clamp direction for margin_precision
+          constraintThresholdClampByConstraintId,  // Codex F2a: per-constraint threshold clamp direction for margin_precision
+          constraintScaleProvenanceByConstraintId  // A3 trust marker: scale_provenance + constraints_decision_grade
         ));
       } catch (err) {
         req.log.error({
