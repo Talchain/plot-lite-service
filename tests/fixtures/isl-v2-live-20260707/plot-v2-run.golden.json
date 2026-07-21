@@ -583,7 +583,8 @@
       "rank_flip_rate": 0.3,
       "stability_method": "bootstrap_20",
       "driver_label": "moderate",
-      "evpi_status": "below_resolution"
+      "evpi_status": "below_resolution",
+      "evidence_hint": false
     },
     {
       "factor_id": "fac_team_maturity",
@@ -616,7 +617,8 @@
       "stability_method": "bootstrap_20",
       "value_defaulted": true,
       "driver_label": "moderate",
-      "evpi_status": "below_resolution"
+      "evpi_status": "below_resolution",
+      "evidence_hint": false
     }
   ],
   "factor_stability": [
@@ -1616,7 +1618,7 @@
     "decision_brief_assembled": true,
     "review_cards_count": 0,
     "evidence_priority_card_present": false,
-    "response_content_hash": "rch_v2:e1a5944f5be777a2"
+    "response_content_hash": "rch_v2:f92b82a0565a21f5"
   },
   "meta": {
     "seed_used": "2034401427",

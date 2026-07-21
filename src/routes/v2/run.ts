@@ -145,7 +145,7 @@ import { computeResponseContentHash } from '../../util/response-content-hash.js'
 import { computeFactorSensitivityFromGraph, buildFactorStability, mergeIslConfidenceIntoGraphFactors } from '../../lib/factor-influence.js';
 import { interventionTargetIdsFromOptions, isOptionControlledLever, factorIdOf, hasFactorIdConflict } from '../../lib/intervention-override.js';
 import { buildAutoNoiseProvenance, extractIslAutoNoiseApplied, logAutoNoiseFlagMissingFromIsl } from '../../lib/auto-noise.js';
-import { sanitiseIslVoi, computeEvpiPercentagePoints } from '../../lib/evpi-emission.js';
+import { sanitiseIslVoi, computeEvpiPercentagePoints, deriveEvidenceHint } from '../../lib/evpi-emission.js';
 import { deriveDriverLabel } from '../../lib/driver-label.js';
 import {
   detectUnreliableConstraintTargets,
@@ -6208,6 +6208,20 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                 }
               }
             }
+          }
+
+          // Doctrine 014 — producer-owned evidence_hint ("gather evidence" gate).
+          // Derived AFTER the EVPI enrichment so it reads each factor's FINAL
+          // fields. Gate on the REAL counterfactual EVPI where present, else the
+          // heuristic VOI (deriveEvidenceHint). Skip option-controlled levers —
+          // a lever is not an evidence-gap candidate (consistent with the EVPI
+          // enrichment above, which also skips levers). Absent basis ⇒ omitted.
+          for (const f of factorSensitivity) {
+            if (isOptionControlledLever(f, structuralLeverIds)) continue;
+            const realEvpiPp =
+              f.evpi_method === 'counterfactual' ? f.evpi_percentage_points : undefined;
+            const hint = deriveEvidenceHint({ realEvpiPp, voi: f.value_of_information });
+            if (hint !== undefined) f.evidence_hint = hint;
           }
         }
 

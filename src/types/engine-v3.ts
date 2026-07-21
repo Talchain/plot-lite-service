@@ -1959,6 +1959,16 @@ export interface FactorSensitivityResultV3 {
    */
   evpi_status?: 'below_resolution';
   /**
+   * Doctrine 014 — producer-owned "gather evidence" gate. Gates on the REAL
+   * per-factor counterfactual EVPI where present (evpi_percentage_points with
+   * evpi_method 'counterfactual', >= EVPI_HINT_MIN_PP = 0.5pp), else falls back
+   * to the heuristic VOI (value_of_information > VOI_HINT_MIN = 0.05). Both
+   * thresholds DOCTRINE-PENDING (Neil). ABSENT when there is no basis (no real
+   * EVPI and no finite VOI) and on option-controlled levers (not evidence-gap
+   * candidates). See `src/lib/evpi-emission.ts` (`deriveEvidenceHint`).
+   */
+  evidence_hint?: boolean;
+  /**
    * Confidence in the sensitivity score (0-1).
    *
    * Always PLoT-recomputed; never a raw passthrough of ISL's own `confidence`

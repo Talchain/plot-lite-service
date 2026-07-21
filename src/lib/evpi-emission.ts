@@ -126,3 +126,47 @@ export function classifyEvpiPercentagePointsForEmission(
   }
   return { emit: Math.round(rawPp * 10) / 10, below_resolution: false, raw: rawPp };
 }
+
+/**
+ * DOCTRINE-PENDING (Neil): the "material EVPI" floor (in percentage points of
+ * win-probability) above which the producer flags "gather evidence". Grounded on
+ * observed real per-factor counterfactual EVPI from staging live captures — a
+ * material cluster (0.85-7.8pp) vs a negligible cluster (<=0.2pp + MC-noise
+ * negatives); 0.5pp sits in the empty gap and is 10x the 0.05pp emission-
+ * resolution floor. A future ruling changes this single const.
+ */
+export const EVPI_HINT_MIN_PP = 0.5;
+
+/**
+ * DOCTRINE-PENDING (Neil): the heuristic-VOI fallback floor for the "gather
+ * evidence" hint (used only when no REAL counterfactual EVPI is present).
+ * Ratified from the UI's `value_of_information > 0.05` cut-point. A future ruling
+ * changes this single const.
+ */
+export const VOI_HINT_MIN = 0.05;
+
+/**
+ * Doctrine 014 — derive the producer-owned `evidence_hint` ("gather evidence")
+ * gate for a factor. Gates on the REAL per-factor counterfactual EVPI where
+ * present, otherwise falls back to the heuristic VOI:
+ *   `realEvpiPp` finite  ⇒ `realEvpiPp >= EVPI_HINT_MIN_PP`
+ *   else `voi` finite     ⇒ `voi > VOI_HINT_MIN`
+ *   else                  ⇒ `undefined` (no basis — the caller omits the field).
+ *
+ * `realEvpiPp` MUST be the counterfactual EVPI only (the caller passes
+ * `undefined` for below-resolution or heuristic-derived percentage points, which
+ * route to the VOI fallback per the ratified "real EVPI where present" rule).
+ */
+export function deriveEvidenceHint(args: {
+  realEvpiPp?: number | null;
+  voi?: number | null;
+}): boolean | undefined {
+  const { realEvpiPp, voi } = args;
+  if (typeof realEvpiPp === 'number' && Number.isFinite(realEvpiPp)) {
+    return realEvpiPp >= EVPI_HINT_MIN_PP;
+  }
+  if (typeof voi === 'number' && Number.isFinite(voi)) {
+    return voi > VOI_HINT_MIN;
+  }
+  return undefined;
+}
