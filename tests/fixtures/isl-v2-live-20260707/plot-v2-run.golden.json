@@ -517,6 +517,7 @@
       "elasticity_std": 0,
       "rank_flip_rate": 0,
       "stability_method": "bootstrap_20",
+      "driver_label": "strong",
       "range_derivation_source": "default"
     },
     {
@@ -549,6 +550,7 @@
       "elasticity_std": 0,
       "rank_flip_rate": 0,
       "stability_method": "bootstrap_20",
+      "driver_label": "strong",
       "range_derivation_source": "default"
     },
     {
@@ -580,6 +582,7 @@
       "elasticity_std": 0.01101973,
       "rank_flip_rate": 0.3,
       "stability_method": "bootstrap_20",
+      "driver_label": "moderate",
       "evpi_status": "below_resolution"
     },
     {
@@ -612,6 +615,7 @@
       "rank_flip_rate": 0.05,
       "stability_method": "bootstrap_20",
       "value_defaulted": true,
+      "driver_label": "moderate",
       "evpi_status": "below_resolution"
     }
   ],
@@ -1605,7 +1609,7 @@
     "decision_brief_assembled": true,
     "review_cards_count": 0,
     "evidence_priority_card_present": false,
-    "response_content_hash": "rch_v2:21006aa29c8ee071"
+    "response_content_hash": "rch_v2:1882d4a39cf4ff26"
   },
   "meta": {
     "seed_used": "2034401427",

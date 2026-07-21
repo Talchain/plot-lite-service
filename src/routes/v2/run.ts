@@ -146,6 +146,7 @@ import { computeFactorSensitivityFromGraph, buildFactorStability, mergeIslConfid
 import { interventionTargetIdsFromOptions, isOptionControlledLever, factorIdOf, hasFactorIdConflict } from '../../lib/intervention-override.js';
 import { buildAutoNoiseProvenance, extractIslAutoNoiseApplied, logAutoNoiseFlagMissingFromIsl } from '../../lib/auto-noise.js';
 import { sanitiseIslVoi, computeEvpiPercentagePoints } from '../../lib/evpi-emission.js';
+import { deriveDriverLabel } from '../../lib/driver-label.js';
 import {
   detectUnreliableConstraintTargets,
   partitionConstraintTargets,
@@ -6126,6 +6127,17 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // `evpi_percentage_points.minimum: 0`). The golden pricing-canary
         // fixture has no factor_evpi → always takes this path (byte-identical).
         if (factorSensitivity) {
+          // Doctrine 039 — producer-owned driver_label. Derive the categorical
+          // strong/moderate/minor band from each factor's FINAL emitted
+          // influence_score (single derive-pass over the merged array; the label
+          // can never disagree with the number it is emitted alongside). A
+          // suppressed lever keeps its structural influence_score, so its label
+          // stays consistent. Absent influence_score ⇒ field omitted (honesty).
+          for (const f of factorSensitivity) {
+            const label = deriveDriverLabel(f.influence_score);
+            if (label !== undefined) f.driver_label = label;
+          }
+
           const factorEvpiMapping = FLAGS.ISL_FACTOR_EVPI_INTERNAL
             ? mapIslFactorEvpi(islResult)
             : { entries: [], dropped_invalid: 0 };

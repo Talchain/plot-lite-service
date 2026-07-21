@@ -1887,6 +1887,15 @@ export interface FactorSensitivityResultV3 {
   /** Human-readable interpretation from ISL */
   interpretation?: string;
   /**
+   * Doctrine 039 — producer-owned categorical driver-strength label over
+   * `influence_score` (normalised influence). Emitted so the UI drops its
+   * `getSemanticLabel` cut-point. Bands (DOCTRINE-PENDING, Neil): >=0.50
+   * 'strong', >=0.20 'moderate', else 'minor'. ABSENT when `influence_score`
+   * is absent/non-finite (never fabricated from a missing value). See
+   * `src/lib/driver-label.ts`.
+   */
+  driver_label?: 'strong' | 'moderate' | 'minor';
+  /**
    * Value of information for this factor on the public response surface.
    *
    * Provenance is path-dependent:
