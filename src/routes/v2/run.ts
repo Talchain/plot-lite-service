@@ -1878,6 +1878,13 @@ function buildConstraintFields(
   const analysis = firstOptionWithConstraints.constraint_analysis;
   const islConstraints: ISLConstraintResult[] = analysis.constraints ?? [];
 
+  // F5 disclosure (ruling D-4): the top-level constraint block derives from the
+  // FIRST option carrying a non-empty constraint_analysis (found above). Name
+  // that option on every emitted result so the first-option derivation is honest
+  // and labelled, not silent. Additive; keep the derivation, disclose it.
+  const derivedFromOptionId: string | undefined =
+    firstOptionWithConstraints.option_id ?? firstOptionWithConstraints.id;
+
   // Build an index-position lookup from ISL response ordinal → input constraint_id.
   // ISL preserves insertion order and does not echo constraint_id, so positional
   // mapping is the only stable identity. Value-based matching breaks after normalisation
@@ -1912,6 +1919,8 @@ function buildConstraintFields(
       operator: c.operator as '>=' | '<=',
       value: originalConstraint?.value ?? islValue,
       probability: c.prob_satisfied,
+      // F5 disclosure (D-4): the option this result was derived from.
+      ...(derivedFromOptionId !== undefined && { option_id: derivedFromOptionId }),
       // A3 trust marker (additive): disclose how this threshold's scale was
       // resolved so consumers can gate on trust (D-2/D-5).
       ...(scaleProvenance !== undefined && { scale_provenance: scaleProvenance }),

@@ -411,6 +411,15 @@ export interface ConstraintResult {
   /** Probability of satisfying this constraint [0, 1] */
   probability: number;
   /**
+   * F5 disclosure (ruling D-4): the id of the option this top-level constraint
+   * result was DERIVED FROM. The top-level constraint block reuses the FIRST
+   * option carrying a non-empty constraint_analysis as its canonical source
+   * (probability = that option's prob_satisfied), which was previously silent.
+   * Additive, honest, non-breaking — names the first-option derivation rather
+   * than restructuring it. Same value across every entry in one response.
+   */
+  option_id?: string;
+  /**
    * Producer-owned trust marker for this constraint's threshold scale (A3). See
    * ConstraintScaleProvenance. Additive; present for every active constraint.
    */
