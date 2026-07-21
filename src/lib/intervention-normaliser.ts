@@ -54,6 +54,17 @@ export function isIdentityRange(r: NormalisationRange): boolean {
 }
 
 /**
+ * True iff two ranges are the SAME scale — equal numeric bounds. Source-agnostic
+ * by design (A3 R1): "equal bounds = same scale" — a measured intervention spread
+ * `[0, cap]` and a producer `goal_threshold_cap` `[0, cap]` describe the identical
+ * scale even though their `source` strings differ, so the threshold IS on the
+ * samples' scale and did NOT diverge. Compares min AND max by value.
+ */
+export function rangesEqual(a: NormalisationRange, b: NormalisationRange): boolean {
+  return a.min === b.min && a.max === b.max;
+}
+
+/**
  * Intervention hints from CE (Context Engine).
  * Used to provide additional metadata for normalisation.
  */
@@ -1000,6 +1011,19 @@ export interface ConstraintNormalisationResult {
      * labels an understated margin 'exact'.
      */
     clamped: boolean;
+    /**
+     * A3 R1: recorded at ladder-decision time (here — where BOTH the resolved
+     * range and the node's intervention scale are in hand), so the trust marker
+     * can PROJECT it rather than re-derive it 700 lines away. TRUE when the
+     * threshold's scale did NOT diverge from the node's producer-declared scale:
+     * a measured (non-identity) intervention spread was adopted as the threshold
+     * scale (ladder branch 1) AND a producer declared a DIFFERENT scale
+     * (goal_threshold_cap / '%') for the same node. NUMERIC-equality test — equal
+     * bounds are the SAME scale (no divergence). No producer declaration, an
+     * identity (assumed) intervention scale, or no intervention scale ⇒ TRUE
+     * (nothing to diverge from).
+     */
+    range_unified: boolean;
     /** True when the node's CEE-stamped goal_threshold was preferred (P0-C1) */
     used_node_goal_threshold?: boolean;
   }>;
@@ -1145,6 +1169,28 @@ export function normaliseGoalConstraints(
         : { min: 0, max: 1, source: 'default' };
     }
 
+    // A3 R1 (false-divergence fix): decide range_unified HERE, at ladder-decision
+    // time, and record it in the diagnostic — the trust marker then PROJECTS it
+    // (no re-derivation from inputs 700 lines away). Divergence — range_unified
+    // FALSE — arises ONLY when a MEASURED (non-identity) intervention spread was
+    // adopted as the threshold scale (branch 1) while a producer declared a
+    // scale (goal_threshold_cap / '%') for the same node AND the two scales
+    // DIFFER NUMERICALLY. Equal bounds are the SAME scale ⇒ the threshold sits on
+    // the samples' scale ⇒ NO divergence (the bug this fixes assumed divergence on
+    // mere co-presence). No producer declaration, an identity (assumed) scale, or
+    // no intervention scale ⇒ nothing to diverge from ⇒ TRUE.
+    const producerDeclaredRange: NormalisationRange | undefined =
+      typeof nodeCap === 'number' && Number.isFinite(nodeCap) && nodeCap > 0
+        ? { min: 0, max: nodeCap, source: 'goal_threshold_cap' }
+        : isPercentUnit(unit)
+          ? { min: 0, max: 100, source: 'unit_percent' }
+          : undefined;
+    const rangeUnified =
+      interventionScale === undefined ||
+      interventionScaleIsIdentity ||
+      producerDeclaredRange === undefined ||
+      rangesEqual(interventionScale, producerDeclaredRange);
+
     // Normalise value
     let { normalised, clamped } = normaliseValue(value, range);
 
@@ -1211,6 +1257,8 @@ export function normaliseGoalConstraints(
         // stamp was preferred, `clamped` was reset to false above (the stamp is
         // an exact in-[0,1] value, no clamp), so this is correct in that branch too.
         clamped,
+        // A3 R1: the scale-unity decision, recorded for the trust marker to project.
+        range_unified: rangeUnified,
         ...(usedNodeGoalThreshold && { used_node_goal_threshold: true }),
       });
     }
