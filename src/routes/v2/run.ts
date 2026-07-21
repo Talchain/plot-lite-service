@@ -1744,19 +1744,49 @@ function collectGoalThresholdNodeMeta(
  * '%' unit). No parallel structure; no new suppression (D-5) — this only
  * discloses.
  *
- * The producer-declared SOURCE set for `decision_grade` is the spec's
- * {goal_threshold_cap, unit_percent, explicit_cap, state_space}. NOTE: the
- * `RangeSource` vocabulary has no literal `state_space` member — `deriveRange`
- * emits `'explicit'` for a `state_space.range` declaration (and `'explicit_cap'`
- * for `observed_state.cap`), so the spec's `state_space` is read as its vocab
- * string `'explicit'`. (Flagged for Neil/A1 — the frozen field shapes are
- * unaffected; this is the internal producer-source membership only.)
+ * `decision_grade` is a WHITELIST membership, NOT a blacklist (adversarial-round
+ * F-A1 amendment, on Paul's delegation to A3). Only a source in
+ * `DECISION_GRADE_SOURCES` — AND a unified range, AND no threshold clamp — earns
+ * the trust bit. Whitelist-not-blacklist is deliberate: any source not listed
+ * (incl. `inferred_value`, `default`, `inferred_baseline`, `extracted`, and ANY
+ * FUTURE `RangeSource` member) FAILS CLOSED until deliberately promoted here.
+ * That is derive-don't-mirror applied to the TRUST direction — a new range
+ * source cannot silently inherit decision-grade by omission.
+ *
+ * Member vocabulary:
+ *   - inferred_spread  — a MEASURED intervention spread; the threshold shares the
+ *                        samples' own scale (D-2 sameness). Grade-worthy only when
+ *                        range_unified (a producer declaration it overrode makes
+ *                        range_unified false ⇒ fails the AND, correctly).
+ *   - explicit         — a node-level `state_space.range` declaration.
+ *   - explicit_cap     — a node-level `observed_state.cap` declaration.
+ *   - goal_threshold_cap / unit_percent — the constraint's own producer scale.
+ *
+ * WHY the earlier OR-disjunct was dropped: the frozen derivation graded TRUE on
+ * `(range_unified OR producer-declared-source)`. That OR-disjunct was proven
+ * (MARKER-ADVERSARIAL.md F-A1, truth table) to be decision-relevant in EXACTLY
+ * ONE cell — the WRONG-TRUE cell: a node-level `explicit`/`explicit_cap` range
+ * inherited via the ladder's branch-1 adoption while the constraint's own
+ * producer declaration ('%'/goal_threshold_cap) was overridden. There
+ * range_unified is (correctly) FALSE yet the disjunct re-granted TRUE on the
+ * inherited producer source, certifying a catastrophically mis-scaled threshold.
+ * Requiring `range_unified AND source ∈ DECISION_GRADE_SOURCES` kills that cell
+ * and (per the table) changes NO other cell's verdict.
+ *
+ * NOTE: the `RangeSource` vocabulary has no literal `state_space` member —
+ * `deriveRange` emits `'explicit'` for a `state_space.range` declaration (and
+ * `'explicit_cap'` for `observed_state.cap`), so the spec's `state_space` is read
+ * as its vocab string `'explicit'`. `inferred_baseline` and `extracted` are
+ * EXCLUDED pending Neil (MARKER-ADVERSARIAL.md O-2 — one-line promotions if
+ * ratified). The frozen field shapes are unaffected; this is the internal
+ * decision-grade source membership only.
  */
-const DECISION_GRADE_PRODUCER_SOURCES: ReadonlySet<RangeSource> = new Set<RangeSource>([
+const DECISION_GRADE_SOURCES: ReadonlySet<RangeSource> = new Set<RangeSource>([
+  'inferred_spread',
+  'explicit', // = state_space.range (spec: "state_space")
+  'explicit_cap',
   'goal_threshold_cap',
   'unit_percent',
-  'explicit_cap',
-  'explicit', // = state_space.range (spec: "state_space")
 ]);
 
 function buildConstraintScaleProvenance(
@@ -1796,12 +1826,13 @@ function buildConstraintScaleProvenance(
     const diverged = nonIdentitySpread && producerDeclarationOnNode;
     const rangeUnified = !diverged;
 
-    const producerDeclaredSource = DECISION_GRADE_PRODUCER_SOURCES.has(source);
-    const excludedSource = source === 'inferred_value' || source === 'default';
+    // F-A1 whitelist derivation: range must be unified, unclamped, AND its source
+    // must be an explicitly-trusted member. A non-member (inferred_value, default,
+    // inferred_baseline, extracted, any future source) fails closed.
     const decisionGrade =
-      (rangeUnified || producerDeclaredSource) &&
+      rangeUnified &&
       thresholdClamp === undefined &&
-      !excludedSource;
+      DECISION_GRADE_SOURCES.has(source);
 
     out.set(c.constraint_id, {
       source,
@@ -2494,17 +2525,33 @@ function buildResponse(
           result.constraint_probabilities = constraintProbs;
           logger?.info({ event: 'constraint_probs_mapped', option_id: optionId, count: Object.keys(constraintProbs).length });
         }
-        // A3 trust marker: constraints_decision_grade = AND over the
-        // decision_grade of the constraints that ACTUALLY PARTICIPATE for this
-        // option (present in constraint_probabilities). Zero participating ⇒
-        // field ABSENT (fail-closed — never a vacuous true). A participating
-        // constraint with no provenance entry is treated non-decision-grade.
+        // A3 trust marker: constraints_decision_grade for this option.
+        //   - Zero participating ⇒ field ABSENT (fail-closed — never a vacuous
+        //     true).
+        //   - FULL participation (every ACTIVE constraint present in this
+        //     option's constraint_probabilities) ⇒ AND over their decision_grade.
+        //   - PARTIAL participation (F-A2 amendment): the option's participating
+        //     set is a PROPER SUBSET of the active set — ISL dropped a constraint,
+        //     or the prob01 guard removed a NaN'd one. A MISSING verdict is itself
+        //     a trust failure: a dropped FAILING constraint must NOT let the
+        //     aggregate read clean, so emit `false` rather than ANDing over the
+        //     survivors. (Run-level honesty suppression is orthogonal — it removes
+        //     constraint_probabilities for EVERY option, so the aggregate goes
+        //     absent, not partial.)
+        // A participating constraint with no provenance entry is still treated
+        // non-decision-grade by the `=== true` check.
         if (result.constraint_probabilities && constraintScaleProvenanceByConstraintId) {
-          const participating = Object.keys(result.constraint_probabilities);
+          const probs = result.constraint_probabilities;
+          const participating = Object.keys(probs);
           if (participating.length > 0) {
-            result.constraints_decision_grade = participating.every(
-              (cid) => constraintScaleProvenanceByConstraintId.get(cid)?.decision_grade === true,
-            );
+            const coversAllActiveConstraints = [
+              ...constraintScaleProvenanceByConstraintId.keys(),
+            ].every((cid) => cid in probs);
+            result.constraints_decision_grade =
+              coversAllActiveConstraints &&
+              participating.every(
+                (cid) => constraintScaleProvenanceByConstraintId.get(cid)?.decision_grade === true,
+              );
           }
         }
         // Sub-item 1c: attach the per-option graded breach margins under the
