@@ -193,10 +193,11 @@ function isValidExtractedRange(range: [number, number] | undefined): range is [n
  * |          |                    | padding. Requires ≥2 values with variation.               |
  * |          |                    | Outlier guard: skipped if maxVal > minVal × 100.          |
  * |          |                    | Lower bound clamped to 0 when all values non-negative.    |
- * | 2        | `inferred_baseline`| `[min(0,2r), max(0,2r)]`, r = signed baseline/value of    |
- * |          |                    | larger magnitude. Sign-preserving (D-9): v≥0 → `[0,2r]`   |
- * |          |                    | (unchanged), v<0 → `[2r,0]` so a negative value maps to   |
- * |          |                    | ~0.5, not clamp-to-0.                                     |
+ * | 2        | `inferred_baseline`| `[min(0,2b,2v), max(0,2b,2v)]` over baseline b and (when   |
+ * |          |                    | finite) current value v. Sign-preserving AND CONTAINS     |
+ * |          |                    | BOTH (D-9): opposite-sign b/v both round-trip (e.g.       |
+ * |          |                    | b=-500,v=+600 → `[-1000,1200]`). Same-sign/single reduces |
+ * |          |                    | to `[0,2r]` (r≥0) / `[2r,0]` (r<0), unchanged.            |
  * | 3        | `inferred_value`   | `[min(0,2v), max(0,2v)]`, sign-preserving (D-9). Falls    |
  * |          |                    | through if value is 0.                                    |
  * | 4        | `default`          | `[0, 1]`. Used when value is 0, missing, or unavailable.  |
@@ -275,28 +276,29 @@ export function deriveRange(
 
   // Priority 2: Inferred from baseline and current value
   if (baseline !== undefined && typeof baseline === 'number') {
-    // Reference = the larger-magnitude of baseline/currentValue, SIGN PRESERVED.
-    // D-9 (PRESERVE SIGN): the derived range must CONTAIN the value's sign, so
-    // a negative-domain factor round-trips instead of clamping to 0. For a
-    // reference r: range = [min(0,2r), max(0,2r)] → [0,2r] for r≥0 (identical to
-    // the previous {0, 2×max(|baseline|,|value|)}, zero delta for positive
-    // factors) and [2r,0] for r<0 (e.g. r=-500 → {-1000,0}, so -500 → ~0.5).
-    let ref = baseline;
-    if (
-      currentValue !== undefined &&
-      typeof currentValue === 'number' &&
-      Math.abs(currentValue) > Math.abs(ref)
-    ) {
-      ref = currentValue;
+    // D-9 (CONTAIN BOTH, sign-preserving): the derived range must CONTAIN 0 AND
+    // both the (doubled) baseline and the (doubled) current value, so a
+    // negative-domain factor round-trips instead of clamping to 0 — AND an
+    // OPPOSITE-SIGN baseline/currentValue pair (e.g. baseline=-500,
+    // currentValue=+600) yields a range containing BOTH (-1000..1200), not just
+    // the larger-magnitude one ({0,1200}, which erased -500). The earlier
+    // larger-magnitude single-`ref` logic was incomplete for mixed signs.
+    //   candidates = [0, 2·baseline] (+ 2·currentValue when finite)
+    //   range = [min(candidates), max(candidates)]
+    // Reduces to the prior behaviour for the same-sign / single-value cases:
+    //   both ≥ 0 → [0, 2·max] · both < 0 → [2·min, 0] · single r → [min(0,2r), max(0,2r)]
+    // (zero delta for positive-domain factors; unchanged for both-negative and
+    // single-value). A baseline=0 with no currentValue collapses to {0,0} and
+    // falls through to Priority 3/4 exactly as before (isFiniteRange width guard).
+    const candidates = [0, 2 * baseline];
+    if (currentValue !== undefined && Number.isFinite(currentValue)) {
+      candidates.push(2 * currentValue);
     }
-
-    if (Math.abs(ref) > 0) {
-      const doubled = 2 * ref;
-      const min = Math.min(0, doubled);
-      const max = Math.max(0, doubled);
-      // F14: skip an overflow-width inferred range; fall through to value / default.
-      if (isFiniteRange(min, max)) return { min, max, source: 'inferred_baseline' };
-    }
+    const min = Math.min(...candidates);
+    const max = Math.max(...candidates);
+    // F14: only a finite POSITIVE-width range is usable (also rejects the {0,0}
+    // baseline=0 no-currentValue collapse); fall through to value / default.
+    if (isFiniteRange(min, max)) return { min, max, source: 'inferred_baseline' };
   }
 
   // Priority 3: Inferred from current value only

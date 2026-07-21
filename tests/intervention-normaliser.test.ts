@@ -199,6 +199,31 @@ describe('deriveRange', () => {
       expect(normalised).toBeCloseTo(0.5);
       expect(clamped).toBe(false);
     });
+
+    it('OPPOSITE-SIGN baseline/currentValue — range CONTAINS BOTH, neither clamps [D-9 gap]', () => {
+      // RED at baa0a2b: the larger-magnitude single-`ref` logic picked
+      // ref = +600 (|600| > |-500|) → {0, 1200}, which does NOT contain -500,
+      // so normaliseValue(-500, {0,1200}) still clamps to 0 — the negative
+      // baseline is ERASED. D-9 requires the range to CONTAIN BOTH values, so
+      // both endpoints round-trip. baseline=-500, currentValue=+600 →
+      // candidates {0, 2·-500, 2·600} = {-1000, 1200}.
+      const node = createFactorNode('net_cash_position', 600, -500);
+      const range = deriveRange(node);
+
+      expect(range.source).toBe('inferred_baseline');
+      // Range CONTAINS both the baseline and the current value.
+      expect(range.min).toBeLessThanOrEqual(-500);
+      expect(range.max).toBeGreaterThanOrEqual(600);
+      expect(range.min).toBe(-1000); // 2 × -500
+      expect(range.max).toBe(1200); // 2 × 600
+      // The negative baseline round-trips instead of clamping to 0.
+      const neg = normaliseValue(-500, range);
+      expect(neg.normalised).not.toBe(0);
+      expect(neg.clamped).toBe(false);
+      // The positive current value also stays inside the range (no clamp).
+      const pos = normaliseValue(600, range);
+      expect(pos.clamped).toBe(false);
+    });
   });
 
   describe('Priority 3: Inferred from current value only', () => {
