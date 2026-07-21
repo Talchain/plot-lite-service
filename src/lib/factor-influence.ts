@@ -745,8 +745,13 @@ export function computeFactorSensitivityFromGraph(
   goalNodeId: string,
   fragileEdges?: FragileEdgeForVoi[]
 ): FactorSensitivityResultV3[] | null {
-  // Compute using the core algorithm
-  const influences = computeFactorInfluence(graph, goalNodeId);
+  // Compute using the core algorithm. A3 adjacent-hunt FIX #4: use the
+  // path-carrying variant (byte-identical influence/confidence/order — it wraps
+  // the SAME computeInfluenceFromPaths) so the zero_reason stamp below can tell
+  // a truly disconnected factor (paths.length === 0) apart from a CONNECTED
+  // factor whose only path carries zero net effect. `paths` is read locally for
+  // the stamp only and never egresses on the response object.
+  const influences = computeFactorInfluenceWithPaths(graph, goalNodeId);
 
   // Return null if no factors found (triggers ISL fallback)
   if (influences.length === 0) {
@@ -826,10 +831,16 @@ export function computeFactorSensitivityFromGraph(
         sampling_stability: null, // No ISL data at graph stage
       },
 
-      // Zero reason for factors with no path to goal
-      // Use original path-based confidence (f.confidence) to detect truly disconnected factors
+      // Zero reason for factors whose path-based influence AND confidence are 0.
+      // A3 adjacent-hunt FIX #4: {influence:0, confidence:0} collapses two
+      // distinct cases — a disconnected factor (paths.length === 0, early return
+      // in computeInfluenceFromPaths) and a CONNECTED factor whose only path has
+      // zero net effect (totalWeight === 0 discard). The former is genuinely
+      // "no path to goal"; the latter is connected and must NOT claim that.
+      // Distinguish by path count; 'zero_net_influence' is an additive
+      // open-vocabulary reason (consumers key only on 'intervention_override').
       zero_reason: f.influence === 0 && f.confidence === 0
-        ? 'no_path_to_goal'
+        ? (f.paths.length === 0 ? 'no_path_to_goal' : 'zero_net_influence')
         : undefined,
 
       // Mark source as graph-based
