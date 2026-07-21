@@ -18,6 +18,8 @@
  *   emits `m1_coaching.evidence_gaps[].evpi_percentage_points`.
  */
 
+import { isFiniteNumber } from '../util/numeric.js';
+
 /**
  * Sanitise an ISL-emitted `value_of_information` value to satisfy PLoT's
  * non-negative VOI contract. ISL emits VOI via a Monte Carlo estimator which
@@ -168,10 +170,10 @@ export function deriveEvidenceHint(args: {
   voi?: number | null;
 }): boolean | undefined {
   const { realEvpiPp, voi } = args;
-  if (typeof realEvpiPp === 'number' && Number.isFinite(realEvpiPp)) {
+  if (isFiniteNumber(realEvpiPp)) {
     return realEvpiPp >= EVPI_HINT_MIN_PP;
   }
-  if (typeof voi === 'number' && Number.isFinite(voi)) {
+  if (isFiniteNumber(voi)) {
     return voi > VOI_HINT_MIN;
   }
   return undefined;

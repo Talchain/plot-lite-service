@@ -171,6 +171,7 @@ import {
   normaliseGoalConstraints,
   constraintsNeedNormalisation,
   isPercentUnit,
+  isIdentityRange,
   type NormalisationContext,
   type NormalisationDiagnostic,
   type NormalisationRange,
@@ -183,6 +184,7 @@ import type { ProposalCardV1 } from '../../review-pass/types.js';
 import { assembleFactObjects, type ISLResponseInput } from '../../facts/index.js';
 import type { FactObjectV1, FactLineage } from '../../facts/types.js';
 import { finiteNum, prob01, nonNeg, nonNegInt, hasAllRequiredOutcomeStats } from './numeric-egress-guards.js';
+import { isFiniteNumber } from '../../util/numeric.js';
 import {
   assessEnrichmentContract,
   shouldAssessEnrichmentContract,
@@ -1812,12 +1814,11 @@ function buildConstraintScaleProvenance(
 
     const interventionScale = interventionScaleByNodeId.get(c.node_id);
     const nonIdentitySpread =
-      interventionScale !== undefined &&
-      !(interventionScale.min === 0 && interventionScale.max === 1);
+      interventionScale !== undefined && !isIdentityRange(interventionScale);
 
     const nodeCap = goalThresholdMetaByNodeId.get(c.node_id)?.goal_threshold_cap;
     const producerDeclarationOnNode =
-      (typeof nodeCap === 'number' && Number.isFinite(nodeCap) && nodeCap > 0) ||
+      (isFiniteNumber(nodeCap) && nodeCap > 0) ||
       isPercentUnit(unitsByConstraintId.get(c.constraint_id));
 
     // Divergence (D-2 disclosing itself): a MEASURED intervention spread overrode
@@ -2208,16 +2209,15 @@ function buildResponse(
   // and not clamped" (margin is exact) from "never diagnosed" (clamp state
   // unknown → no precision claim may be made).
   optionDiagnosedFactors?: Map<string, Set<string>>,
-  // Codex F2a: per-constraint THRESHOLD clamp direction ('low' = clamped at the
-  // range floor, 'high' = at the ceiling). Present ONLY when the constraint
-  // threshold itself clamped during normalisation. Independent of the per-option
-  // intervention clamp above — a threshold can clamp while every intervention
-  // sits inside the range (the response-1 defect: cap below the intervention
-  // floor). Feeds constraint_margins margin_precision.
-  constraintThresholdClampByConstraintId?: Map<string, 'low' | 'high'>,
   // A3 trust marker: per-constraint scale provenance (keyed by constraint_id).
   // Feeds BOTH the top-level constraint_results[].scale_provenance and the
-  // per-option constraints_decision_grade aggregate below.
+  // per-option constraints_decision_grade aggregate below. Also the sole source
+  // of the Codex F2a per-constraint THRESHOLD clamp direction: each entry's
+  // `threshold_clamped` ('low' = clamped at the range floor, 'high' = at the
+  // ceiling; absent = threshold sat inside the range) is read at the
+  // constraint_margins margin_precision site below — independent of the
+  // per-option intervention clamp (a threshold can clamp while every
+  // intervention sits inside the range: the response-1 defect).
   constraintScaleProvenanceByConstraintId?: Map<string, ConstraintScaleProvenance>
 ): RunResponseV3 {
   // Producer honesty (lane PLoT-H item A): detect goal constraints whose
@@ -2272,6 +2272,11 @@ function buildResponse(
   // Map ISL results to response format
   // ISL V2 uses 'options' field; V1 uses 'results'. Check both for compatibility.
   const islOptionData = islResult?.options ?? islResult?.results;
+  // Loop-invariant: the active constraint ids (the scale-provenance map's keys)
+  // do NOT vary per option — materialise once rather than per .map iteration.
+  const activeConstraintIds = constraintScaleProvenanceByConstraintId
+    ? [...constraintScaleProvenanceByConstraintId.keys()]
+    : undefined;
   const optionComparison = islOptionData?.map((r: any) => {
     const optionId = r.option_id ?? r.id;
     const option = options?.find((o) => o.id === optionId);
@@ -2450,7 +2455,10 @@ function buildResponse(
             // unknown, e.g. a non-intervened target, and no claim is made).
             const clampDir = optionClampDirectionByFactor?.get(optionId)?.get(c.node_id);
             const hasDiagnostic = optionDiagnosedFactors?.get(optionId)?.has(c.node_id) ?? false;
-            const thresholdClamp = constraintThresholdClampByConstraintId?.get(cid);
+            // F2a threshold-clamp direction, derived from the scale-provenance map
+            // (its `threshold_clamped` is built from the SAME F2a clamp map, so
+            // this is byte-identical to the former dedicated param).
+            const thresholdClamp = constraintScaleProvenanceByConstraintId?.get(cid)?.threshold_clamped;
 
             const interventionUnderstates =
               (clampDir === 'high' && c.operator === '<=') ||
@@ -2545,9 +2553,7 @@ function buildResponse(
           const probs = result.constraint_probabilities;
           const participating = Object.keys(probs);
           if (participating.length > 0) {
-            const coversAllActiveConstraints = [
-              ...constraintScaleProvenanceByConstraintId.keys(),
-            ].every((cid) => cid in probs);
+            const coversAllActiveConstraints = (activeConstraintIds ?? []).every((cid) => cid in probs);
             result.constraints_decision_grade =
               coversAllActiveConstraints &&
               participating.every(
@@ -2672,29 +2678,29 @@ function buildResponse(
 
     // Enrich fragile edges with labels (Schema v2.6: from_label, to_label, alternative_winner_label)
     // and severity classification (B1: ported from UI thresholds unchanged)
-    const enrichedFragileEdges: NormalizedEdgeInfoV3[] = fragileResult.edges.map(edge => ({
-      ...edge,
-      // from_label and to_label from graph lookup, fall back to node ID if not found
-      from_label: nodeLabelMap.get(edge.from_id) ?? edge.from_id,
-      to_label: nodeLabelMap.get(edge.to_id) ?? edge.to_id,
-      // Severity classification from switch_probability (B1). Emitted ONLY when
-      // switch_probability is finite — omitted (spread-out) when absent/non-finite,
-      // exactly like the `visible` gate below (honesty: absent ≠ 'warning').
-      ...(classifyEdgeSeverity(edge.switch_probability) !== undefined && {
-        severity: classifyEdgeSeverity(edge.switch_probability),
-      }),
-      // Doctrine 013 — producer-DISCLOSED visibility gate over switch_probability
-      // (> 0.15). PLoT emits the flag but does NOT filter the array (the UI
-      // decides render). Omitted when switch_probability is non-finite (honesty).
-      ...(deriveFragileEdgeVisible(edge.switch_probability) !== undefined && {
-        visible: deriveFragileEdgeVisible(edge.switch_probability),
-      }),
-      // Resolve alternative_winner_label from option ID (null when no alternative winner)
-      alternative_winner_id: edge.alternative_winner_id ?? null,
-      alternative_winner_label: edge.alternative_winner_id
-        ? (optionLabelMap.get(edge.alternative_winner_id) ?? edge.alternative_winner_id)
-        : null,
-    }));
+    const enrichedFragileEdges: NormalizedEdgeInfoV3[] = fragileResult.edges.map(edge => {
+      // Severity classification (B1) and the doctrine-013 producer-DISCLOSED
+      // `visible` gate (> 0.15) are each a pure function of switch_probability —
+      // compute ONCE. Both are emitted ONLY when switch_probability is finite —
+      // omitted (spread-out) when absent/non-finite (honesty: absent ≠
+      // 'warning'/false). PLoT discloses `visible` but does NOT filter the array
+      // (the UI decides render).
+      const severity = classifyEdgeSeverity(edge.switch_probability);
+      const visible = deriveFragileEdgeVisible(edge.switch_probability);
+      return {
+        ...edge,
+        // from_label and to_label from graph lookup, fall back to node ID if not found
+        from_label: nodeLabelMap.get(edge.from_id) ?? edge.from_id,
+        to_label: nodeLabelMap.get(edge.to_id) ?? edge.to_id,
+        ...(severity !== undefined && { severity }),
+        ...(visible !== undefined && { visible }),
+        // Resolve alternative_winner_label from option ID (null when no alternative winner)
+        alternative_winner_id: edge.alternative_winner_id ?? null,
+        alternative_winner_label: edge.alternative_winner_id
+          ? (optionLabelMap.get(edge.alternative_winner_id) ?? edge.alternative_winner_id)
+          : null,
+      };
+    });
 
     // Enrich robust edges with labels (Schema v2.6)
     const enrichedRobustEdges: NormalizedEdgeInfoV3[] = robustResult.edges.map(edge => ({
@@ -5322,9 +5328,13 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           // raw constraint value already sits in [0,1] (Caveat A combo 2): that
           // value is a raw user quantity on the intervention scale and must be
           // re-scaled onto it, not forwarded as an already-normalised number.
-          const anyNonIdentityScale = [...interventionScaleByNodeId.values()].some(
-            r => !(r.min === 0 && r.max === 1),
-          );
+          let anyNonIdentityScale = false;
+          for (const r of interventionScaleByNodeId.values()) {
+            if (!isIdentityRange(r)) {
+              anyNonIdentityScale = true;
+              break;
+            }
+          }
 
           if (gateNeedsNorm || anyNonIdentityScale) {
             const constraintNormResult = normaliseGoalConstraints(
@@ -5345,24 +5355,23 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             );
             constraintsForISL = constraintNormResult.constraints;
 
-            // Store ranges for denormalisation of failure_margin_median in
-            // response. After A3 unify these are the SAME ranges the samples
-            // live on, so the two margin-egress paths (run.ts ~1885, ~2269)
-            // denormalise on the correct (intervention) width automatically.
-            constraintNormalisationRanges = new Map(
-              constraintNormResult.diagnostics.map(d => [d.constraint_id, d.range])
-            );
-
-            // Codex F2a: derive the per-constraint THRESHOLD clamp direction from
-            // the SAME diagnostics (single source of truth — not a parallel
-            // hand-maintained structure). Direction from the recorded post-clamp
-            // normalised_value: 0 ⇒ clamped at the range floor ('low'), 1 ⇒ at the
-            // ceiling ('high'). Only clamped thresholds get an entry; an interior
-            // normalised value under a degenerate (zero-width) range is
-            // indeterminate and recorded as neither (the margin egress then makes
-            // no precision claim).
+            // Single pass over the constraint diagnostics builds BOTH per-constraint
+            // maps from the SAME source of truth (derive-don't-mirror):
+            //  - constraintNormalisationRanges: the range each threshold normalised
+            //    against, for failure_margin_median denorm. After A3 unify these are
+            //    the SAME ranges the samples live on, so the two margin-egress paths
+            //    (run.ts ~1885, ~2269) denormalise on the correct (intervention)
+            //    width automatically.
+            //  - constraintThresholdClampByConstraintId (Codex F2a): the THRESHOLD
+            //    clamp direction, from the recorded post-clamp normalised_value
+            //    (0 ⇒ range floor 'low', 1 ⇒ ceiling 'high'). Only clamped
+            //    thresholds get an entry; an interior value under a degenerate
+            //    (zero-width) range is indeterminate and recorded as neither (the
+            //    margin egress then makes no precision claim).
+            constraintNormalisationRanges = new Map<string, NormalisationRange>();
             constraintThresholdClampByConstraintId = new Map<string, 'low' | 'high'>();
             for (const d of constraintNormResult.diagnostics) {
+              constraintNormalisationRanges.set(d.constraint_id, d.range);
               if (!d.clamped) continue;
               const direction = d.normalised_value <= 0 ? 'low' : d.normalised_value >= 1 ? 'high' : undefined;
               if (direction === undefined) continue;
@@ -7101,8 +7110,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           req.log,  // logger for fact_objects assembly logging
           optionClampDirectionByFactor,  // 1d + Codex F1: per-option clamp DIRECTION map for margin_precision
           optionDiagnosedFactors,  // Codex F1: factors with a recorded diagnostic (exact vs unknown)
-          constraintThresholdClampByConstraintId,  // Codex F2a: per-constraint threshold clamp direction for margin_precision
-          constraintScaleProvenanceByConstraintId  // A3 trust marker: scale_provenance + constraints_decision_grade
+          constraintScaleProvenanceByConstraintId  // A3 trust marker: scale_provenance + constraints_decision_grade (also carries F2a threshold_clamped)
         ));
       } catch (err) {
         req.log.error({

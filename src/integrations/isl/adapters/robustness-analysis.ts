@@ -17,6 +17,7 @@ import type {
   NormalizedEdgeInfo,
   EdgeNormalizationError,
 } from '../types/plot-types.js';
+import { isFiniteNumber } from '../../../util/numeric.js';
 
 // -----------------------------------------------------------------------------
 // Edge ID Parsing Helpers
@@ -65,7 +66,7 @@ function normalizeFragileEdge(edge: ISLFragileEdgeInfo): NormalizedEdgeInfo {
     // switch_probability: emit ONLY when ISL provides a finite value. Absent ≠ 0
     // — a fabricated 0 fabricates BOTH severity ('warning') and the doctrine-013
     // `visible` flag (false) downstream. Omit honestly when ISL omits it.
-    ...(typeof edge.switch_probability === 'number' && Number.isFinite(edge.switch_probability)
+    ...(isFiniteNumber(edge.switch_probability)
       ? { switch_probability: edge.switch_probability }
       : {}),
     // Passthrough marginal_switch_probability from ISL (optional field)

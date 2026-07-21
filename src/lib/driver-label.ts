@@ -27,6 +27,8 @@
  * NOT eligible to be 'biggest'.
  */
 
+import { isFiniteNumber } from '../util/numeric.js';
+
 /**
  * DOCTRINE-PENDING (Neil): the "strong" driver band floor over normalised
  * influence. Ratified from the UI's getSemanticLabel cut-point (0.50). A future
@@ -66,7 +68,7 @@ export type MagnitudeDriverLabel = Exclude<DriverLabel, 'biggest'>;
 export function deriveDriverLabel(
   influenceScore: number | null | undefined,
 ): MagnitudeDriverLabel | undefined {
-  if (typeof influenceScore !== 'number' || !Number.isFinite(influenceScore)) {
+  if (!isFiniteNumber(influenceScore)) {
     return undefined;
   }
   if (influenceScore >= DRIVER_LABEL_STRONG_MIN) return 'strong';
@@ -103,7 +105,7 @@ export function indexOfBiggestDriver(
   let biggestScore = -Infinity;
   for (let i = 0; i < factors.length; i++) {
     const s = factors[i].influence_score;
-    if (typeof s !== 'number' || !Number.isFinite(s)) continue; // ineligible
+    if (!isFiniteNumber(s)) continue; // ineligible
     if (s > biggestScore) {
       biggestScore = s;
       biggestIdx = i;
