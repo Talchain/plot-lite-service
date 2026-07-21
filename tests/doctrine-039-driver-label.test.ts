@@ -1,12 +1,16 @@
 /**
  * Doctrine 039 — producer-owned `driver_label`.
  *
- * PLoT takes over the UI's `getSemanticLabel` cut-point: a categorical
- * strong/moderate/minor over the SAME normalised-influence scalar
- * (`influence_score`) the UI keyed off. Cut-points ratified from the UI:
+ * PLoT emits a producer-owned categorical strong/moderate/minor label over the
+ * normalised-influence scalar (`influence_score`). Cut-points ratified from the
+ * UI's useResultsSectionData.ts:
  *   influence_score >= 0.50 → 'strong'
  *   influence_score >= 0.20 → 'moderate'
  *   otherwise              → 'minor'
+ * NOTE: this does NOT supersede the UI's `getSemanticLabel`, which is 4-valued
+ * (adds a rank-1 'biggest' band) and keys off normalised |elasticity|, not
+ * influence_score — reconciling the two is a doctrine row (Neil/UI), tracked
+ * separately (see src/lib/driver-label.ts header).
  * Absent/non-finite influence ⇒ NO label (honesty: never fabricate 'minor'
  * from a missing value). Thresholds are DOCTRINE-PENDING (Neil), one const each.
  *

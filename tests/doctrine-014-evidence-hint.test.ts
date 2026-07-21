@@ -11,10 +11,14 @@
  * Both thresholds DOCTRINE-PENDING (Neil), one const each. Levers are skipped
  * (option-controlled, not evidence-gap candidates).
  *
- * EVPI_HINT_MIN_PP = 0.5pp is grounded on observed real staging EVPI (see
- * acceptance-evidence/.../doctrine-emits/NOTES.md §014): a material cluster
- * (0.85-7.8pp) vs a negligible cluster (<=0.2pp + MC-noise negatives), 0.5pp in
- * the empty gap, 10x the 0.05pp emission-resolution floor.
+ * EVPI_HINT_MIN_PP = 0.5pp is a PROVISIONAL, WEAKLY-grounded placeholder (see
+ * acceptance-evidence/.../doctrine-emits/NOTES.md §014 and the const's docstring
+ * in src/lib/evpi-emission.ts) — the available staging captures are near-
+ * duplicate re-captures and the observed EVPI sits at/below ISL's own ~6pp
+ * counterfactual noise floor, so this gate is near-inert on current builds. Do
+ * NOT cite a firm bimodal 0.85-7.8pp band as grounding; the REAL threshold is
+ * DOCTRINE-PENDING (Neil). These route tests exercise the WIRING (the gate is
+ * consulted and lands on the wire), not the calibration of the const.
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';

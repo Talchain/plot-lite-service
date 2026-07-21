@@ -1,10 +1,18 @@
 /**
  * Doctrine 039 — producer-owned `driver_label`.
  *
- * PLoT emits a categorical strong/moderate/minor label over the normalised
- * influence scalar (`influence_score`) so the UI can drop its `getSemanticLabel`
- * cut-point. The band boundaries are ratified FROM the UI's existing cut-points
- * (useResultsSectionData.ts): >=0.50 strong, >=0.20 moderate, else minor.
+ * `driver_label` is a producer-owned 3-band label (strong/moderate/minor) over
+ * the normalised influence scalar (`influence_score`). The band boundaries are
+ * ratified FROM the UI's existing cut-points (useResultsSectionData.ts):
+ * >=0.50 strong, >=0.20 moderate, else minor.
+ *
+ * NOTE — this field is NOT yet a drop-in replacement for the UI's copy. The
+ * UI's `getSemanticLabel` is 4-VALUED (it adds a rank-1 'biggest'/'strongest'
+ * band) and keys off normalised |elasticity| / max, NOT the wire
+ * `influence_score` — so the UI cannot fully drop its copy on this field alone.
+ * Reconciling the rank-1 band and the elasticity-vs-influence basis is a
+ * doctrine row (Neil/UI), tracked separately. This field is valid and honest as
+ * a producer influence-band; it is not yet claimed to supersede getSemanticLabel.
  *
  * The label is a pure function of `influence_score`; a factor whose influence
  * is absent/non-finite gets NO label (the missing-vs-value honesty contract:
