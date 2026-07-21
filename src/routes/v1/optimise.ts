@@ -295,7 +295,11 @@ export async function registerOptimiseRoute(app: FastifyInstance) {
     return reply.code(200).send({
       schema: 'optimise.v1',
       selected,
-      utility: { expected: finalUtility, p10: finalUtility * 0.9, p50: finalUtility, p90: finalUtility * 1.1 },
+      // R2 honesty: `expected` is a greedy-additive sum of per-action median deltas drawn
+      // from distinct kernel runs over different graphs — no single MC distribution backs it,
+      // so we do NOT fabricate p10/p50/p90 bands around it. Report only the computed point
+      // estimate; absent beats synthetic (previously p10=expected*0.9, p50=expected, p90=expected*1.1).
+      utility: { expected: finalUtility },
       explanations,
       meta: { 
         seed, 
