@@ -372,12 +372,14 @@ export interface ConstraintScaleProvenance {
    */
   source: RangeSource;
   /**
-   * True when the threshold's range is identical by construction to the range
-   * this node's interventions used or would use — TRUE for a shared intervention
-   * scale AND for never-intervened nodes resolving through the same chain. FALSE
-   * precisely when the resolution DIVERGED: a producer-declared cap/'%' on the
-   * node was overridden by a MEASURED intervention spread (ruling D-2 disclosing
-   * itself).
+   * True when the threshold's range is the SAME scale as the range this node's
+   * interventions used or would use — TRUE for a shared intervention scale AND for
+   * never-intervened nodes resolving through the same chain. FALSE precisely when
+   * the resolution DIVERGED: a producer-declared cap/'%' on the node was overridden
+   * by a MEASURED intervention spread ON A NUMERICALLY DIFFERENT SCALE (ruling D-2
+   * disclosing itself). Equal bounds are the same scale — an intervention spread
+   * `[0,cap]` matching a producer cap `[0,cap]` is unified, not diverged (A3 R1
+   * false-divergence fix).
    */
   range_unified: boolean;
   /**

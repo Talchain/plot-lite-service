@@ -254,4 +254,64 @@ describe('A3 constraint trust marker · scale_provenance + constraints_decision_
     expect('constraints_decision_grade' in a).toBe(false);
     expect(raw).not.toMatch(/"constraints_decision_grade"/);
   });
+
+  // (f) A3 R1 FALSE-DIVERGENCE FIX: a MEASURED intervention spread that is
+  //     NUMERICALLY EQUAL to the node's producer cap is NOT a divergence — the
+  //     threshold sits on the samples' own scale. Interventions 10000/70000 →
+  //     spread [0,82000] (source inferred_spread); node goal_threshold_cap 82000 →
+  //     producer scale [0,82000]. Equal bounds ⇒ range_unified TRUE ⇒
+  //     decision_grade TRUE. Threshold 40000 sits INSIDE [0,82000] (unclamped).
+  //     RED at HEAD (graded range_unified:false / decision_grade:false); GREEN after.
+  it('(f) equal-range: measured spread == producer cap ⇒ range_unified true, decision_grade true (R1 fix)', async () => {
+    const COST_CAP_82K = {
+      id: 'cost', kind: 'factor', label: 'First-year cost',
+      observed_state: { value: 30000 }, goal_threshold_cap: 82000,
+    };
+    const body = await run({
+      graph: { nodes: [NODES[0], COST_CAP_82K], edges: [EDGES[0]] },
+      options: [
+        { id: 'opt_a', label: 'A', interventions: { cost: 10000 } },
+        { id: 'opt_b', label: 'B', interventions: { cost: 70000 } },
+      ],
+      goal_node_id: 'goal', seed: '42',
+      goal_constraints: [{ constraint_id: 'c_eq', node_id: 'cost', operator: '<=', value: 40000 }],
+    });
+    const sp = topLevelConstraint(body, 'c_eq')?.scale_provenance;
+    expect(sp).toBeDefined();
+    expect(sp.source).toBe('inferred_spread');
+    expect(sp.range_unified).toBe(true);
+    expect('threshold_clamped' in sp).toBe(false); // 40000 ∈ [0,82000] ⇒ unclamped
+    expect(sp.decision_grade).toBe(true);
+    // Sole participating constraint is decision-grade ⇒ aggregate true on both.
+    expect(optionEntry(body, 'opt_a').constraints_decision_grade).toBe(true);
+    expect(optionEntry(body, 'opt_b').constraints_decision_grade).toBe(true);
+  });
+
+  // (g) POSITIVE CONTROL: a GENUINE divergence must STILL grade false — proves the
+  //     R1 fix narrows divergence to a NUMERIC inequality, it does NOT flip
+  //     everything true. Interventions 25000/45000 → spread [21000,49000]; node
+  //     goal_threshold_cap 40000 → producer scale [0,40000]. Unequal ⇒ diverged ⇒
+  //     range_unified FALSE ⇒ decision_grade FALSE. Threshold 30000 is INSIDE
+  //     [21000,49000] (unclamped), so range_unified is the SOLE cause (not a clamp).
+  //     GREEN before AND after the fix, and GREEN after a mutation-revert.
+  it('(g) POSITIVE CONTROL genuine divergence (spread != cap) ⇒ range_unified false, decision_grade false', async () => {
+    const COST_CAP_40K = {
+      id: 'cost', kind: 'factor', label: 'First-year cost',
+      observed_state: { value: 30000 }, goal_threshold_cap: 40000,
+    };
+    const body = await run({
+      graph: { nodes: [NODES[0], COST_CAP_40K], edges: [EDGES[0]] },
+      options: OPTIONS_SPREAD, // interventions 25000/45000 → spread [21000,49000]
+      goal_node_id: 'goal', seed: '42',
+      goal_constraints: [{ constraint_id: 'c_div', node_id: 'cost', operator: '<=', value: 30000 }],
+    });
+    const sp = topLevelConstraint(body, 'c_div')?.scale_provenance;
+    expect(sp).toBeDefined();
+    expect(sp.source).toBe('inferred_spread');
+    expect(sp.range_unified).toBe(false);
+    expect('threshold_clamped' in sp).toBe(false); // 30000 ∈ [21000,49000] ⇒ unclamped
+    expect(sp.decision_grade).toBe(false);
+    expect(optionEntry(body, 'opt_a').constraints_decision_grade).toBe(false);
+    expect(optionEntry(body, 'opt_b').constraints_decision_grade).toBe(false);
+  });
 });

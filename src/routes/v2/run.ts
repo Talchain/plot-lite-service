@@ -171,7 +171,6 @@ import {
   needsNormalisation,
   normaliseGoalConstraints,
   constraintsNeedNormalisation,
-  isPercentUnit,
   isIdentityRange,
   type NormalisationContext,
   type NormalisationDiagnostic,
@@ -185,7 +184,6 @@ import type { ProposalCardV1 } from '../../review-pass/types.js';
 import { assembleFactObjects, type ISLResponseInput } from '../../facts/index.js';
 import type { FactObjectV1, FactLineage } from '../../facts/types.js';
 import { finiteNum, prob01, nonNeg, nonNegInt, hasAllRequiredOutcomeStats } from './numeric-egress-guards.js';
-import { isFiniteNumber } from '../../util/numeric.js';
 import {
   assessEnrichmentContract,
   shouldAssessEnrichmentContract,
@@ -1760,8 +1758,10 @@ function collectGoalThresholdNodeMeta(
  * Member vocabulary:
  *   - inferred_spread  — a MEASURED intervention spread; the threshold shares the
  *                        samples' own scale (D-2 sameness). Grade-worthy only when
- *                        range_unified (a producer declaration it overrode makes
- *                        range_unified false ⇒ fails the AND, correctly).
+ *                        range_unified (a producer declaration it overrode with a
+ *                        NUMERICALLY DIFFERENT scale makes range_unified false ⇒
+ *                        fails the AND, correctly; an equal-bounds producer scale
+ *                        is the SAME scale ⇒ still unified, A3 R1).
  *   - explicit         — a node-level `state_space.range` declaration.
  *   - explicit_cap     — a node-level `observed_state.cap` declaration.
  *   - goal_threshold_cap / unit_percent — the constraint's own producer scale.
@@ -1784,6 +1784,18 @@ function collectGoalThresholdNodeMeta(
  * EXCLUDED pending Neil (MARKER-ADVERSARIAL.md O-2 — one-line promotions if
  * ratified). The frozen field shapes are unaffected; this is the internal
  * decision-grade source membership only.
+ *
+ * A3 R1 (range_unified is PROJECTED, not re-derived): the scale-unity decision is
+ * made once, at ladder-decision time in `normaliseGoalConstraints` (which holds
+ * BOTH the resolved range and the node's intervention scale), recorded on the
+ * per-constraint diagnostic, and threaded here as `rangeUnifiedByCid`. Divergence
+ * is a NUMERIC inequality (a measured spread adopted as the threshold scale while
+ * a producer declared a DIFFERENT scale) — equal bounds are the SAME scale, so an
+ * intervention spread `[0,cap]` matching a producer cap `[0,cap]` is unified, not
+ * diverged (the false-divergence fix). A never-normalised constraint (no
+ * diagnostic) has no intervention scale ⇒ nothing to diverge from ⇒ unified.
+ * `decision_grade`'s derivation (the whitelist AND) is unchanged — only its
+ * `range_unified` input is now correct + projected.
  */
 const DECISION_GRADE_SOURCES: ReadonlySet<RangeSource> = new Set<RangeSource>([
   'inferred_spread',
@@ -1800,9 +1812,13 @@ function buildConstraintScaleProvenance(
   // normalisation (forwarded-raw / already in [0,1], no diagnostic).
   constraintNormRanges: Map<string, NormalisationRange> | undefined,
   thresholdClampByCid: Map<string, 'low' | 'high'> | undefined,
-  interventionScaleByNodeId: Map<string, NormalisationRange>,
-  goalThresholdMetaByNodeId: Map<string, GoalThresholdNodeMeta>,
-  unitsByConstraintId: Map<string, string>,
+  // A3 R1: the range-unity decision RECORDED by normaliseGoalConstraints at
+  // ladder-decision time (from the SAME diagnostics as the maps above), keyed by
+  // constraint_id. Present iff the constraint was normalised. This marker PROJECTS
+  // it — no re-derivation of nonIdentitySpread/producerDeclaration from raw inputs
+  // 700 lines away (derive-don't-mirror). See the diagnostic's `range_unified`
+  // field for the numeric-equality divergence rule.
+  rangeUnifiedByCid: Map<string, boolean> | undefined,
 ): Map<string, ConstraintScaleProvenance> {
   const out = new Map<string, ConstraintScaleProvenance>();
   for (const c of activeConstraints) {
@@ -1813,21 +1829,11 @@ function buildConstraintScaleProvenance(
     const source: RangeSource = constraintNormRanges?.get(c.constraint_id)?.source ?? 'default';
     const thresholdClamp = thresholdClampByCid?.get(c.constraint_id);
 
-    const interventionScale = interventionScaleByNodeId.get(c.node_id);
-    const nonIdentitySpread =
-      interventionScale !== undefined && !isIdentityRange(interventionScale);
-
-    const nodeCap = goalThresholdMetaByNodeId.get(c.node_id)?.goal_threshold_cap;
-    const producerDeclarationOnNode =
-      (isFiniteNumber(nodeCap) && nodeCap > 0) ||
-      isPercentUnit(unitsByConstraintId.get(c.constraint_id));
-
-    // Divergence (D-2 disclosing itself): a MEASURED intervention spread overrode
-    // a producer declaration on the same node. Only THIS makes range_unified
-    // false — a shared scale, a never-intervened node, or a producer overriding
-    // an ASSUMED identity scale are all unified.
-    const diverged = nonIdentitySpread && producerDeclarationOnNode;
-    const rangeUnified = !diverged;
+    // range_unified is a PURE PROJECTION of the normalisation diagnostic (A3 R1).
+    // A normalised constraint carries its recorded decision; a NEVER-normalised
+    // constraint (no diagnostic ⇒ no intervention scale ⇒ nothing to diverge from)
+    // is unified by construction.
+    const rangeUnified = rangeUnifiedByCid?.get(c.constraint_id) ?? true;
 
     // F-A1 whitelist derivation: range must be unified, unclamped, AND its source
     // must be an explicitly-trusted member. A non-member (inferred_value, default,
@@ -5188,6 +5194,11 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // clamped). A clamped threshold makes the emitted breach margin a strict
         // bound — the margin egress uses this to avoid mislabelling it 'exact'.
         let constraintThresholdClampByConstraintId: Map<string, 'low' | 'high'> | undefined;
+        // A3 R1: per-constraint range-unity decision, recorded by
+        // normaliseGoalConstraints at ladder-decision time (entry present ONLY for
+        // a normalised constraint — a diagnostic exists). The trust marker PROJECTS
+        // this instead of re-deriving it; absence ⇒ never-normalised ⇒ unified.
+        let constraintRangeUnifiedByCid: Map<string, boolean> | undefined;
         // A3 trust marker: per-constraint scale provenance (built in Phase 4b
         // below once the constraint ranges + clamp map + intervention scales are
         // known). Feeds constraint_results[].scale_provenance and
@@ -5340,8 +5351,14 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             //    margin egress then makes no precision claim).
             constraintNormalisationRanges = new Map<string, NormalisationRange>();
             constraintThresholdClampByConstraintId = new Map<string, 'low' | 'high'>();
+            //  - constraintRangeUnifiedByCid (A3 R1): the range-unity decision the
+            //    normaliser recorded at ladder-decision time — projected verbatim
+            //    by the trust marker (derive-don't-mirror). Set BEFORE the clamp
+            //    `continue` so every diagnostic contributes it.
+            constraintRangeUnifiedByCid = new Map<string, boolean>();
             for (const d of constraintNormResult.diagnostics) {
               constraintNormalisationRanges.set(d.constraint_id, d.range);
+              constraintRangeUnifiedByCid.set(d.constraint_id, d.range_unified);
               if (!d.clamped) continue;
               const direction = d.normalised_value <= 0 ? 'low' : d.normalised_value >= 1 ? 'high' : undefined;
               if (direction === undefined) continue;
@@ -5379,19 +5396,18 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
 
           // A3 trust marker (additive; D-2/D-5): build the per-constraint scale
           // provenance from the SAME #239 machinery — the resolved constraint
-          // range source, the F2a threshold-clamp map, the per-node intervention
-          // scale, and the producer metadata. Covers EVERY active constraint
-          // (the else branch above leaves constraintNormalisationRanges /
-          // constraintThresholdClampByConstraintId undefined → those forwarded-raw
-          // constraints disclose as source 'default', decision_grade false —
-          // fail-closed). No new suppression: this only discloses.
+          // range source, the F2a threshold-clamp map, and the range-unity
+          // decision the normaliser already recorded (A3 R1 — projected, not
+          // re-derived). Covers EVERY active constraint (the else branch above
+          // leaves constraintNormalisationRanges / constraintThresholdClampByConstraintId
+          // / constraintRangeUnifiedByCid undefined → those forwarded-raw
+          // constraints disclose as source 'default', range_unified true,
+          // decision_grade false — fail-closed). No new suppression: only discloses.
           constraintScaleProvenanceByConstraintId = buildConstraintScaleProvenance(
             activeGoalConstraints,
             constraintNormalisationRanges,
             constraintThresholdClampByConstraintId,
-            interventionScaleByNodeId,
-            goalThresholdMetaByNodeId,
-            constraintUnitsByConstraintId,
+            constraintRangeUnifiedByCid,
           );
         }
 
