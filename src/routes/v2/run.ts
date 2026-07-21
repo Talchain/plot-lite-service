@@ -2677,8 +2677,12 @@ function buildResponse(
       // from_label and to_label from graph lookup, fall back to node ID if not found
       from_label: nodeLabelMap.get(edge.from_id) ?? edge.from_id,
       to_label: nodeLabelMap.get(edge.to_id) ?? edge.to_id,
-      // Severity classification from switch_probability (B1)
-      severity: classifyEdgeSeverity(edge.switch_probability),
+      // Severity classification from switch_probability (B1). Emitted ONLY when
+      // switch_probability is finite — omitted (spread-out) when absent/non-finite,
+      // exactly like the `visible` gate below (honesty: absent ≠ 'warning').
+      ...(classifyEdgeSeverity(edge.switch_probability) !== undefined && {
+        severity: classifyEdgeSeverity(edge.switch_probability),
+      }),
       // Doctrine 013 — producer-DISCLOSED visibility gate over switch_probability
       // (> 0.15). PLoT emits the flag but does NOT filter the array (the UI
       // decides render). Omitted when switch_probability is non-finite (honesty).

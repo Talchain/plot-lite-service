@@ -2351,11 +2351,17 @@ export interface NormalizedEdgeInfoV3 {
   from_label: string;
   /** Human-readable target node label (falls back to to_id if node not found) */
   to_label: string;
-  switch_probability: number;
+  /**
+   * OPTIONAL: omitted when the source edge carries no switch_probability
+   * (absent ≠ 0). When omitted, `severity` and `visible` are omitted too.
+   */
+  switch_probability?: number;
   /**
    * Severity classification derived from switch_probability.
-   * Thresholds: >0.7 → 'critical', >0.5 → 'error', ≤0.5 → 'warning'.
-   * Present on fragile_edges (switch_probability < 1); omitted on robust_edges.
+   * Thresholds: >0.7 → 'critical', >0.5 → 'error', 0–0.5 → 'warning'.
+   * Present on fragile_edges with a finite switch_probability; ABSENT when
+   * switch_probability is absent/non-finite (never fabricated 'warning') and on
+   * robust_edges.
    */
   severity?: 'critical' | 'error' | 'warning';
   /**

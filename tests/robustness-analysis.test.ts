@@ -129,7 +129,9 @@ describe('Edge Normalization in adaptRobustnessAnalysisResponse', () => {
     expect(result.fragile_edges).toHaveLength(1);
     expect(result.fragile_edges[0].from_id).toBe('nodeA');
     expect(result.fragile_edges[0].to_id).toBe('nodeB');
-    expect(result.fragile_edges[0].switch_probability).toBe(0); // Default for fragile
+    // sp-less ISL fragile edge: switch_probability is OMITTED, not fabricated 0
+    // (absent ≠ 0 — a fabricated 0 fabricates severity + doctrine-013 visible).
+    expect(result.fragile_edges[0].switch_probability).toBeUndefined();
   });
 
   it('tracks normalization errors for malformed edges', () => {

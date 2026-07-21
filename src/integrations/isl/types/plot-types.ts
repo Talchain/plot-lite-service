@@ -159,8 +159,13 @@ export interface NormalizedEdgeInfo {
   from_id: string;
   /** Target node ID */
   to_id: string;
-  /** Probability this edge causes recommendation to switch (0=fragile, 1=robust) */
-  switch_probability: number;
+  /**
+   * Probability this edge causes recommendation to switch (0=fragile, 1=robust).
+   * OPTIONAL: omitted when the source (ISL fragile edge, or a legacy string edge)
+   * carries no switch_probability — absent ≠ 0 (a fabricated 0 fabricates both
+   * severity and the doctrine-013 `visible` flag downstream).
+   */
+  switch_probability?: number;
   /** Marginal probability of recommendation switch for this edge */
   marginal_switch_probability?: number;
   /** Option that would win if this edge changes (from ISL) */

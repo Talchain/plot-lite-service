@@ -30,7 +30,6 @@ const FRAGILE_EDGE_V2_REQUIRED_KEYS = [
   'edge_id',
   'from_id',
   'to_id',
-  'switch_probability',
 ] as const;
 
 const FRAGILE_EDGE_V2_OPTIONAL_KEYS = [
@@ -38,6 +37,8 @@ const FRAGILE_EDGE_V2_OPTIONAL_KEYS = [
   'to_label',
   'alternative_winner_id',
   'alternative_winner_label',
+  // OPTIONAL: omitted for sp-less ISL edges and legacy string edges (absent ≠ 0).
+  'switch_probability',
   'marginal_switch_probability',
   'severity',
 ] as const;
@@ -52,7 +53,11 @@ function assertFragileEdgeV2Shape(edge: Record<string, unknown>, label: string):
   expect(typeof edge.edge_id, `${label}.edge_id`).toBe('string');
   expect(typeof edge.from_id, `${label}.from_id`).toBe('string');
   expect(typeof edge.to_id, `${label}.to_id`).toBe('string');
-  expect(typeof edge.switch_probability, `${label}.switch_probability`).toBe('number');
+  // switch_probability is OPTIONAL (omitted for sp-less/legacy-string edges);
+  // when present it must be a number.
+  if (edge.switch_probability !== undefined) {
+    expect(typeof edge.switch_probability, `${label}.switch_probability`).toBe('number');
+  }
 
   // edge_id must use "::" or "->" convention
   const edgeId = edge.edge_id as string;
@@ -109,17 +114,17 @@ describe('CIL Phase 0 — Task 1: fragile_edges shape consistency', () => {
       expect(result.edges).toHaveLength(2);
       expect(result.errors).toHaveLength(0);
 
-      // "::" separator
+      // "::" separator — legacy string edges carry no sp data: omitted, not 0.
       expect(result.edges[0].edge_id).toBe('price::revenue');
       expect(result.edges[0].from_id).toBe('price');
       expect(result.edges[0].to_id).toBe('revenue');
-      expect(result.edges[0].switch_probability).toBe(0);
+      expect(result.edges[0].switch_probability).toBeUndefined();
 
       // "->" separator
       expect(result.edges[1].edge_id).toBe('demand->supply');
       expect(result.edges[1].from_id).toBe('demand');
       expect(result.edges[1].to_id).toBe('supply');
-      expect(result.edges[1].switch_probability).toBe(0);
+      expect(result.edges[1].switch_probability).toBeUndefined();
     });
 
     it('returns empty array (not undefined/null) when no fragile edges', () => {
@@ -318,12 +323,12 @@ describe('CIL Phase 0 — Task 1: fragile_edges shape consistency', () => {
       const result = normalizeFragileEdges(edges, 'test-req');
       const edge = result.edges[0] as Record<string, unknown>;
 
-      // Snapshot: minimal keys
+      // Snapshot: minimal keys. String-parsed edges carry NO switch_probability
+      // (omitted — absent ≠ 0), so it is absent from the canonical minimal shape.
       expect(Object.keys(edge).sort()).toMatchInlineSnapshot(`
         [
           "edge_id",
           "from_id",
-          "switch_probability",
           "to_id",
         ]
       `);
