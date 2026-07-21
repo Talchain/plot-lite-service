@@ -517,6 +517,7 @@
       "elasticity_std": 0,
       "rank_flip_rate": 0,
       "stability_method": "bootstrap_20",
+      "driver_label": "strong",
       "range_derivation_source": "default"
     },
     {
@@ -549,6 +550,7 @@
       "elasticity_std": 0,
       "rank_flip_rate": 0,
       "stability_method": "bootstrap_20",
+      "driver_label": "strong",
       "range_derivation_source": "default"
     },
     {
@@ -580,7 +582,9 @@
       "elasticity_std": 0.01101973,
       "rank_flip_rate": 0.3,
       "stability_method": "bootstrap_20",
-      "evpi_status": "below_resolution"
+      "driver_label": "moderate",
+      "evpi_status": "below_resolution",
+      "evidence_hint": false
     },
     {
       "factor_id": "fac_team_maturity",
@@ -612,7 +616,9 @@
       "rank_flip_rate": 0.05,
       "stability_method": "bootstrap_20",
       "value_defaulted": true,
-      "evpi_status": "below_resolution"
+      "driver_label": "moderate",
+      "evpi_status": "below_resolution",
+      "evidence_hint": false
     }
   ],
   "factor_stability": [
@@ -1046,6 +1052,7 @@
         "from_label": "Developer Headcount Added",
         "to_label": "Development Throughput",
         "severity": "warning",
+        "visible": false,
         "alternative_winner_label": "Hire Two Developers"
       },
       {
@@ -1058,6 +1065,7 @@
         "from_label": "Development Throughput",
         "to_label": "Increase Team Productivity",
         "severity": "warning",
+        "visible": true,
         "alternative_winner_label": "Hire Two Developers"
       },
       {
@@ -1070,6 +1078,7 @@
         "from_label": "Developer Headcount Added",
         "to_label": "Technical Quality and Architecture",
         "severity": "warning",
+        "visible": true,
         "alternative_winner_label": "Hire Two Developers"
       },
       {
@@ -1082,6 +1091,7 @@
         "from_label": "Developer Headcount Added",
         "to_label": "Team Coordination Overhead",
         "severity": "warning",
+        "visible": true,
         "alternative_winner_label": "Hire Two Developers"
       },
       {
@@ -1094,6 +1104,7 @@
         "from_label": "Technical Quality and Architecture",
         "to_label": "Increase Team Productivity",
         "severity": "error",
+        "visible": true,
         "alternative_winner_label": "Hire Two Developers"
       },
       {
@@ -1106,6 +1117,7 @@
         "from_label": "Tech Lead in Place",
         "to_label": "Technical Quality and Architecture",
         "severity": "error",
+        "visible": true,
         "alternative_winner_label": "Hire Two Developers"
       },
       {
@@ -1118,6 +1130,7 @@
         "from_label": "Team Coordination Overhead",
         "to_label": "Increase Team Productivity",
         "severity": "warning",
+        "visible": true,
         "alternative_winner_label": "Hire Two Developers"
       }
     ],
@@ -1605,7 +1618,7 @@
     "decision_brief_assembled": true,
     "review_cards_count": 0,
     "evidence_priority_card_present": false,
-    "response_content_hash": "rch_v2:21006aa29c8ee071"
+    "response_content_hash": "rch_v2:f92b82a0565a21f5"
   },
   "meta": {
     "seed_used": "2034401427",

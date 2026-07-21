@@ -126,3 +126,53 @@ export function classifyEvpiPercentagePointsForEmission(
   }
   return { emit: Math.round(rawPp * 10) / 10, below_resolution: false, raw: rawPp };
 }
+
+/**
+ * DOCTRINE-PENDING (Neil): the "material EVPI" floor (in percentage points of
+ * win-probability) above which the producer flags "gather evidence".
+ *
+ * PROVISIONAL placeholder, WEAKLY grounded — do NOT cite a "clean bimodal
+ * 0.85-7.8pp band" as firm grounding. The available staging captures
+ * (isl-v2-live-2026070{6,7,8}) are near-duplicate re-captures (effectively 1-2
+ * distinct runs, mixed metric types), and the observed "material" EVPI values
+ * sit at/below ISL's own ~6pp counterfactual noise floor — so this gate is
+ * near-inert on current stamped builds. The value is harmless (one-line
+ * reversible) but the REAL threshold is DOCTRINE-PENDING (Neil), to be set once
+ * EVPI is calibrated against a wider, distinct sample. A future ruling changes
+ * this single const.
+ */
+export const EVPI_HINT_MIN_PP = 0.5;
+
+/**
+ * DOCTRINE-PENDING (Neil): the heuristic-VOI fallback floor for the "gather
+ * evidence" hint (used only when no REAL counterfactual EVPI is present).
+ * Ratified from the UI's `value_of_information > 0.05` cut-point. A future ruling
+ * changes this single const.
+ */
+export const VOI_HINT_MIN = 0.05;
+
+/**
+ * Doctrine 014 — derive the producer-owned `evidence_hint` ("gather evidence")
+ * gate for a factor. Gates on the REAL per-factor counterfactual EVPI where
+ * present, otherwise falls back to the heuristic VOI:
+ *   `realEvpiPp` finite  ⇒ `realEvpiPp >= EVPI_HINT_MIN_PP`
+ *   else `voi` finite     ⇒ `voi > VOI_HINT_MIN`
+ *   else                  ⇒ `undefined` (no basis — the caller omits the field).
+ *
+ * `realEvpiPp` MUST be the counterfactual EVPI only (the caller passes
+ * `undefined` for below-resolution or heuristic-derived percentage points, which
+ * route to the VOI fallback per the ratified "real EVPI where present" rule).
+ */
+export function deriveEvidenceHint(args: {
+  realEvpiPp?: number | null;
+  voi?: number | null;
+}): boolean | undefined {
+  const { realEvpiPp, voi } = args;
+  if (typeof realEvpiPp === 'number' && Number.isFinite(realEvpiPp)) {
+    return realEvpiPp >= EVPI_HINT_MIN_PP;
+  }
+  if (typeof voi === 'number' && Number.isFinite(voi)) {
+    return voi > VOI_HINT_MIN;
+  }
+  return undefined;
+}

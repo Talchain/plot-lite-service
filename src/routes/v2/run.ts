@@ -145,7 +145,8 @@ import { computeResponseContentHash } from '../../util/response-content-hash.js'
 import { computeFactorSensitivityFromGraph, buildFactorStability, mergeIslConfidenceIntoGraphFactors } from '../../lib/factor-influence.js';
 import { interventionTargetIdsFromOptions, isOptionControlledLever, factorIdOf, hasFactorIdConflict } from '../../lib/intervention-override.js';
 import { buildAutoNoiseProvenance, extractIslAutoNoiseApplied, logAutoNoiseFlagMissingFromIsl } from '../../lib/auto-noise.js';
-import { sanitiseIslVoi, computeEvpiPercentagePoints } from '../../lib/evpi-emission.js';
+import { sanitiseIslVoi, computeEvpiPercentagePoints, deriveEvidenceHint } from '../../lib/evpi-emission.js';
+import { deriveDriverLabel } from '../../lib/driver-label.js';
 import {
   detectUnreliableConstraintTargets,
   partitionConstraintTargets,
@@ -158,7 +159,7 @@ import {
 } from '../../lib/constraint-reliability.js';
 import { NEAR_TIE_THRESHOLD } from '../../trust/result-coherence.js';
 import { assessGraphIdentifiability, toIdentifiabilityResponse, detectUnmeasuredConfounding } from '../../trust/identifiability-v2.js';
-import { classifyEdgeSeverity } from '../../trust/edge-severity.js';
+import { classifyEdgeSeverity, deriveFragileEdgeVisible } from '../../trust/edge-severity.js';
 import { deriveConfidenceTier, reconcileConfidenceTier } from '../../trust/confidence-tier.js';
 import { detectDominantFactor } from '../../trust/factor-dominance.js';
 import type { IdentifiabilityAssessment } from '../../types/engine-v3.js';
@@ -2678,6 +2679,12 @@ function buildResponse(
       to_label: nodeLabelMap.get(edge.to_id) ?? edge.to_id,
       // Severity classification from switch_probability (B1)
       severity: classifyEdgeSeverity(edge.switch_probability),
+      // Doctrine 013 — producer-DISCLOSED visibility gate over switch_probability
+      // (> 0.15). PLoT emits the flag but does NOT filter the array (the UI
+      // decides render). Omitted when switch_probability is non-finite (honesty).
+      ...(deriveFragileEdgeVisible(edge.switch_probability) !== undefined && {
+        visible: deriveFragileEdgeVisible(edge.switch_probability),
+      }),
       // Resolve alternative_winner_label from option ID (null when no alternative winner)
       alternative_winner_id: edge.alternative_winner_id ?? null,
       alternative_winner_label: edge.alternative_winner_id
@@ -6126,6 +6133,17 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // `evpi_percentage_points.minimum: 0`). The golden pricing-canary
         // fixture has no factor_evpi → always takes this path (byte-identical).
         if (factorSensitivity) {
+          // Doctrine 039 — producer-owned driver_label. Derive the categorical
+          // strong/moderate/minor band from each factor's FINAL emitted
+          // influence_score (single derive-pass over the merged array; the label
+          // can never disagree with the number it is emitted alongside). A
+          // suppressed lever keeps its structural influence_score, so its label
+          // stays consistent. Absent influence_score ⇒ field omitted (honesty).
+          for (const f of factorSensitivity) {
+            const label = deriveDriverLabel(f.influence_score);
+            if (label !== undefined) f.driver_label = label;
+          }
+
           const factorEvpiMapping = FLAGS.ISL_FACTOR_EVPI_INTERNAL
             ? mapIslFactorEvpi(islResult)
             : { entries: [], dropped_invalid: 0 };
@@ -6190,6 +6208,20 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                 }
               }
             }
+          }
+
+          // Doctrine 014 — producer-owned evidence_hint ("gather evidence" gate).
+          // Derived AFTER the EVPI enrichment so it reads each factor's FINAL
+          // fields. Gate on the REAL counterfactual EVPI where present, else the
+          // heuristic VOI (deriveEvidenceHint). Skip option-controlled levers —
+          // a lever is not an evidence-gap candidate (consistent with the EVPI
+          // enrichment above, which also skips levers). Absent basis ⇒ omitted.
+          for (const f of factorSensitivity) {
+            if (isOptionControlledLever(f, structuralLeverIds)) continue;
+            const realEvpiPp =
+              f.evpi_method === 'counterfactual' ? f.evpi_percentage_points : undefined;
+            const hint = deriveEvidenceHint({ realEvpiPp, voi: f.value_of_information });
+            if (hint !== undefined) f.evidence_hint = hint;
           }
         }
 

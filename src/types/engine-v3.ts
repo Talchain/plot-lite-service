@@ -1887,6 +1887,15 @@ export interface FactorSensitivityResultV3 {
   /** Human-readable interpretation from ISL */
   interpretation?: string;
   /**
+   * Doctrine 039 — producer-owned categorical driver-strength label over
+   * `influence_score` (normalised influence). Emitted so the UI drops its
+   * `getSemanticLabel` cut-point. Bands (DOCTRINE-PENDING, Neil): >=0.50
+   * 'strong', >=0.20 'moderate', else 'minor'. ABSENT when `influence_score`
+   * is absent/non-finite (never fabricated from a missing value). See
+   * `src/lib/driver-label.ts`.
+   */
+  driver_label?: 'strong' | 'moderate' | 'minor';
+  /**
    * Value of information for this factor on the public response surface.
    *
    * Provenance is path-dependent:
@@ -1949,6 +1958,16 @@ export interface FactorSensitivityResultV3 {
    * Honours ISL's `factor_evpi[].evpi_status` wire field where present.
    */
   evpi_status?: 'below_resolution';
+  /**
+   * Doctrine 014 — producer-owned "gather evidence" gate. Gates on the REAL
+   * per-factor counterfactual EVPI where present (evpi_percentage_points with
+   * evpi_method 'counterfactual', >= EVPI_HINT_MIN_PP = 0.5pp), else falls back
+   * to the heuristic VOI (value_of_information > VOI_HINT_MIN = 0.05). Both
+   * thresholds DOCTRINE-PENDING (Neil). ABSENT when there is no basis (no real
+   * EVPI and no finite VOI) and on option-controlled levers (not evidence-gap
+   * candidates). See `src/lib/evpi-emission.ts` (`deriveEvidenceHint`).
+   */
+  evidence_hint?: boolean;
   /**
    * Confidence in the sensitivity score (0-1).
    *
@@ -2339,6 +2358,15 @@ export interface NormalizedEdgeInfoV3 {
    * Present on fragile_edges (switch_probability < 1); omitted on robust_edges.
    */
   severity?: 'critical' | 'error' | 'warning';
+  /**
+   * Doctrine 013 — producer-DISCLOSED visibility gate over `switch_probability`.
+   * `visible = switch_probability > FRAGILE_EDGE_VISIBLE_MIN` (0.15, ratified
+   * from the UI's THRESHOLDS.FRAGILE_EDGE_FILTER; DOCTRINE-PENDING, Neil). PLoT
+   * DISCLOSES the gate but does NOT filter the array — the UI decides render.
+   * ABSENT when switch_probability is absent/non-finite (never fabricated). See
+   * `src/trust/edge-severity.ts`.
+   */
+  visible?: boolean;
   /** Marginal probability of recommendation switch for this edge */
   marginal_switch_probability?: number;
   /** Option that would win if this edge changes (from ISL) */
