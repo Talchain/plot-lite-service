@@ -1887,14 +1887,18 @@ export interface FactorSensitivityResultV3 {
   /** Human-readable interpretation from ISL */
   interpretation?: string;
   /**
-   * Doctrine 039 — producer-owned categorical driver-strength label over
-   * `influence_score` (normalised influence). Emitted so the UI drops its
-   * `getSemanticLabel` cut-point. Bands (DOCTRINE-PENDING, Neil): >=0.50
-   * 'strong', >=0.20 'moderate', else 'minor'. ABSENT when `influence_score`
-   * is absent/non-finite (never fabricated from a missing value). See
+   * Doctrine 039 (D-7) — producer-owned categorical driver-strength label over
+   * `influence_score` (normalised influence). 4-valued, to match the shape of
+   * the UI's `getSemanticLabel`: the set-aware rank-1 'biggest' band plus three
+   * magnitude bands (DOCTRINE-PENDING, Neil): >=0.50 'strong', >=0.20
+   * 'moderate', else 'minor'. Exactly one factor per response is 'biggest' (the
+   * single greatest `influence_score`, unconditional of magnitude; ties → first
+   * in emitted order). ABSENT when `influence_score` is absent/non-finite (never
+   * fabricated from a missing value; not eligible to be 'biggest'). Basis flip
+   * (elasticity vs influence) + UI adoption remain UI-confirmation-gated. See
    * `src/lib/driver-label.ts`.
    */
-  driver_label?: 'strong' | 'moderate' | 'minor';
+  driver_label?: 'biggest' | 'strong' | 'moderate' | 'minor';
   /**
    * Value of information for this factor on the public response surface.
    *

@@ -146,7 +146,7 @@ import { computeFactorSensitivityFromGraph, buildFactorStability, mergeIslConfid
 import { interventionTargetIdsFromOptions, isOptionControlledLever, factorIdOf, hasFactorIdConflict } from '../../lib/intervention-override.js';
 import { buildAutoNoiseProvenance, extractIslAutoNoiseApplied, logAutoNoiseFlagMissingFromIsl } from '../../lib/auto-noise.js';
 import { sanitiseIslVoi, computeEvpiPercentagePoints, deriveEvidenceHint } from '../../lib/evpi-emission.js';
-import { deriveDriverLabel } from '../../lib/driver-label.js';
+import { deriveDriverLabel, indexOfBiggestDriver } from '../../lib/driver-label.js';
 import {
   detectUnreliableConstraintTargets,
   partitionConstraintTargets,
@@ -6137,16 +6137,28 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // `evpi_percentage_points.minimum: 0`). The golden pricing-canary
         // fixture has no factor_evpi → always takes this path (byte-identical).
         if (factorSensitivity) {
-          // Doctrine 039 — producer-owned driver_label. Derive the categorical
-          // strong/moderate/minor band from each factor's FINAL emitted
-          // influence_score (single derive-pass over the merged array; the label
-          // can never disagree with the number it is emitted alongside). A
-          // suppressed lever keeps its structural influence_score, so its label
-          // stays consistent. Absent influence_score ⇒ field omitted (honesty).
+          // Doctrine 039 (D-7) — producer-owned driver_label, 4-valued. Single
+          // derive-pass over the FINAL merged array (the label can never disagree
+          // with the number it is emitted alongside); a suppressed lever keeps its
+          // structural influence_score, so its label stays consistent.
+          //
+          // (1) Per-factor magnitude band (strong/moderate/minor) from each
+          //     factor's FINAL emitted influence_score. Absent influence_score ⇒
+          //     field omitted (honesty; not eligible to be 'biggest' either).
           for (const f of factorSensitivity) {
             const label = deriveDriverLabel(f.influence_score);
             if (label !== undefined) f.driver_label = label;
           }
+          // (2) Set-aware rank-1 override: the SINGLE factor with the greatest
+          //     influence_score is 'biggest', UNCONDITIONAL of magnitude (matches
+          //     the UI getSemanticLabel rank-1 'biggest'/'strongest' band). Rank-1
+          //     is computed here — not in the pure per-factor helper — because it
+          //     needs every factor's influence (like dominant_factor). Ties on the
+          //     max resolve to the FIRST factor in the emitted order (deterministic);
+          //     an absent-influence factor is skipped. Not lever-skipped: a lever
+          //     legitimately has a driver_label (categorical over influence magnitude).
+          const biggestIdx = indexOfBiggestDriver(factorSensitivity);
+          if (biggestIdx >= 0) factorSensitivity[biggestIdx].driver_label = 'biggest';
 
           const factorEvpiMapping = FLAGS.ISL_FACTOR_EVPI_INTERNAL
             ? mapIslFactorEvpi(islResult)
