@@ -193,8 +193,12 @@ function isValidExtractedRange(range: [number, number] | undefined): range is [n
  * |          |                    | padding. Requires ≥2 values with variation.               |
  * |          |                    | Outlier guard: skipped if maxVal > minVal × 100.          |
  * |          |                    | Lower bound clamped to 0 when all values non-negative.    |
- * | 2        | `inferred_baseline`| `[0, 2 × max(|baseline|, |value|)]`.                     |
- * | 3        | `inferred_value`   | `[0, 2 × |value|]`. Falls through if value is 0.          |
+ * | 2        | `inferred_baseline`| `[min(0,2r), max(0,2r)]`, r = signed baseline/value of    |
+ * |          |                    | larger magnitude. Sign-preserving (D-9): v≥0 → `[0,2r]`   |
+ * |          |                    | (unchanged), v<0 → `[2r,0]` so a negative value maps to   |
+ * |          |                    | ~0.5, not clamp-to-0.                                     |
+ * | 3        | `inferred_value`   | `[min(0,2v), max(0,2v)]`, sign-preserving (D-9). Falls    |
+ * |          |                    | through if value is 0.                                    |
  * | 4        | `default`          | `[0, 1]`. Used when value is 0, missing, or unavailable.  |
  *
  * @param node Factor node
@@ -271,26 +275,40 @@ export function deriveRange(
 
   // Priority 2: Inferred from baseline and current value
   if (baseline !== undefined && typeof baseline === 'number') {
-    // Use baseline as reference point
-    // Range: [0, 2 × max(|baseline|, |currentValue|)]
-    const maxAbsValue = Math.max(
-      Math.abs(baseline),
-      currentValue !== undefined ? Math.abs(currentValue) : 0
-    );
+    // Reference = the larger-magnitude of baseline/currentValue, SIGN PRESERVED.
+    // D-9 (PRESERVE SIGN): the derived range must CONTAIN the value's sign, so
+    // a negative-domain factor round-trips instead of clamping to 0. For a
+    // reference r: range = [min(0,2r), max(0,2r)] → [0,2r] for r≥0 (identical to
+    // the previous {0, 2×max(|baseline|,|value|)}, zero delta for positive
+    // factors) and [2r,0] for r<0 (e.g. r=-500 → {-1000,0}, so -500 → ~0.5).
+    let ref = baseline;
+    if (
+      currentValue !== undefined &&
+      typeof currentValue === 'number' &&
+      Math.abs(currentValue) > Math.abs(ref)
+    ) {
+      ref = currentValue;
+    }
 
-    if (maxAbsValue > 0) {
-      const max = 2 * maxAbsValue;
+    if (Math.abs(ref) > 0) {
+      const doubled = 2 * ref;
+      const min = Math.min(0, doubled);
+      const max = Math.max(0, doubled);
       // F14: skip an overflow-width inferred range; fall through to value / default.
-      if (isFiniteRange(0, max)) return { min: 0, max, source: 'inferred_baseline' };
+      if (isFiniteRange(min, max)) return { min, max, source: 'inferred_baseline' };
     }
   }
 
   // Priority 3: Inferred from current value only
   if (currentValue !== undefined && typeof currentValue === 'number' && currentValue !== 0) {
-    // Range: [0, 2 × |currentValue|]
-    const max = 2 * Math.abs(currentValue);
+    // D-9 (PRESERVE SIGN): range = [min(0,2v), max(0,2v)] — [0,2v] for v>0
+    // (identical to the previous {0, 2×|v|}, zero delta for positive factors)
+    // and [2v,0] for v<0 (e.g. v=-500 → {-1000,0}, so -500 → ~0.5 not clamp-to-0).
+    const doubled = 2 * currentValue;
+    const min = Math.min(0, doubled);
+    const max = Math.max(0, doubled);
     // F14: skip an overflow-width inferred range; fall through to the default.
-    if (isFiniteRange(0, max)) return { min: 0, max, source: 'inferred_value' };
+    if (isFiniteRange(min, max)) return { min, max, source: 'inferred_value' };
   }
 
   // Priority 4: Default [0, 1]
