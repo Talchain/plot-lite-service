@@ -1866,7 +1866,16 @@ function buildConstraintFields(
   logger?: { warn: (obj: object, msg?: string) => void },
   // A3 trust marker: per-constraint scale provenance to attach to each
   // constraint_result. Additive; keyed by constraint_id.
-  scaleProvenanceByConstraintId?: Map<string, ConstraintScaleProvenance>
+  scaleProvenanceByConstraintId?: Map<string, ConstraintScaleProvenance>,
+  // A3 adjacent-hunt FIX #1: the node ids where the auto-constraint's guessed
+  // '>=' direction was found structurally unsatisfiable for at least one option
+  // (isAutoConstraintDirectionSuspect fired — see the per-option gate in
+  // buildResponse, which withholds probability_of_joint_goal /
+  // constraint_probabilities and populates this set). The top-level block below
+  // must withhold on the SAME suspicion; otherwise it re-emits the near-0
+  // prob_satisfied the per-option gate suppressed, under a fabricated
+  // 'computed'. Symmetric with suppressedConstraintTargets.
+  directionSuspectNodeIds?: ReadonlySet<string>
 ): {
   constraints_status?: ConstraintFeatureStatus;
   constraint_results?: ConstraintResult[];
@@ -2096,6 +2105,34 @@ function buildConstraintFields(
       raw_constraint_diagnostics: constraintDiagnostics,
       raw_conditional_probabilities: conditionalProbabilities,
       unreliable_targets: suppressedConstraintTargets,
+    });
+    return { constraints_status: 'unavailable' };
+  }
+
+  // A3 adjacent-hunt FIX #1 (honesty leak): mirror the suppressed-target gate
+  // above for the DIRECTION-SUSPECT partition. The per-option gate already
+  // withholds probability_of_joint_goal / constraint_probabilities when the
+  // auto-constraint's guessed '>=' is structurally unsatisfiable (positive
+  // threshold, strictly-negative modelled outcome) — but this top-level block
+  // otherwise re-emits the SAME near-0 prob_satisfied under 'computed', leaking
+  // the exact number the per-option path suppressed. A direction-suspect run can
+  // have an EMPTY suppressed partition (decision-grade target: real base +
+  // non-default range), so the earlier gate does not cover it. Withhold the
+  // whole block when any FORWARDED constraint targets a direction-suspect node —
+  // absence is honest; the WARNING-severity CONSTRAINT_DIRECTION_SUSPECT (emitted
+  // by the per-option path) explains why. Raw values stay in the diagnostics log.
+  if (
+    directionSuspectNodeIds &&
+    directionSuspectNodeIds.size > 0 &&
+    goalConstraints.some((gc) => directionSuspectNodeIds.has(gc.node_id))
+  ) {
+    logger?.warn({
+      event: 'constraint_results_suppressed',
+      reason: 'direction_suspect',
+      raw_constraint_results: constraintResults,
+      raw_constraint_diagnostics: constraintDiagnostics,
+      raw_conditional_probabilities: conditionalProbabilities,
+      direction_suspect_node_ids: [...directionSuspectNodeIds],
     });
     return { constraints_status: 'unavailable' };
   }
@@ -3179,6 +3216,9 @@ function buildResponse(
       constraintTargetPartition.suppressed,
       logger,
       constraintScaleProvenanceByConstraintId,
+      // A3 adjacent-hunt FIX #1: populated by the per-option direction-suspect
+      // gate above; withholds the top-level block on the SAME suspicion.
+      directionSuspectNodeIds,
     ),
 
     // Auto-noise disclosure (audit B3, P0). `auto_noise_applied` echoes
