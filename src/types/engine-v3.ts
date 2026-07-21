@@ -388,13 +388,11 @@ export interface ConstraintScaleProvenance {
    */
   threshold_clamped?: 'low' | 'high';
   /**
-   * FROZEN derivation:
-   *   (range_unified OR producer-declared source
-   *      [goal_threshold_cap | unit_percent | explicit_cap | explicit(=state_space)])
-   *   AND NOT threshold_clamped
-   *   AND source ∉ { inferred_value, default }.
-   * Conservative: inferred_value/default ⇒ false even when internally consistent
-   * (ruling D-5). This is a marker only; no new suppression rides on it.
+   * Producer-owned trust marker. See `DECISION_GRADE_SOURCES` +
+   * `buildConstraintScaleProvenance` in `routes/v2/run.ts` for the authoritative
+   * derivation (whitelist form; the OR-disjunct was removed in the F-A1
+   * amendment). Conservative / fail-closed (ruling D-5). This is a marker only;
+   * no new suppression rides on it.
    */
   decision_grade: boolean;
 }
@@ -1890,8 +1888,9 @@ export interface FactorSensitivityResultV3 {
    * Doctrine 039 (D-7) — producer-owned categorical driver-strength label over
    * `influence_score` (normalised influence). 4-valued, to match the shape of
    * the UI's `getSemanticLabel`: the set-aware rank-1 'biggest' band plus three
-   * magnitude bands (DOCTRINE-PENDING, Neil): >=0.50 'strong', >=0.20
-   * 'moderate', else 'minor'. Exactly one factor per response is 'biggest' (the
+   * magnitude bands (DOCTRINE-PENDING, Neil): >= DRIVER_LABEL_STRONG_MIN
+   * 'strong', >= DRIVER_LABEL_MODERATE_MIN 'moderate', else 'minor'. Exactly one
+   * factor per response is 'biggest' (the
    * single greatest `influence_score`, unconditional of magnitude; ties → first
    * in emitted order). ABSENT when `influence_score` is absent/non-finite (never
    * fabricated from a missing value; not eligible to be 'biggest'). Basis flip
@@ -1965,8 +1964,8 @@ export interface FactorSensitivityResultV3 {
   /**
    * Doctrine 014 — producer-owned "gather evidence" gate. Gates on the REAL
    * per-factor counterfactual EVPI where present (evpi_percentage_points with
-   * evpi_method 'counterfactual', >= EVPI_HINT_MIN_PP = 0.5pp), else falls back
-   * to the heuristic VOI (value_of_information > VOI_HINT_MIN = 0.05). Both
+   * evpi_method 'counterfactual', >= EVPI_HINT_MIN_PP), else falls back
+   * to the heuristic VOI (value_of_information > VOI_HINT_MIN). Both
    * thresholds DOCTRINE-PENDING (Neil). ABSENT when there is no basis (no real
    * EVPI and no finite VOI) and on option-controlled levers (not evidence-gap
    * candidates). See `src/lib/evpi-emission.ts` (`deriveEvidenceHint`).
@@ -2370,7 +2369,7 @@ export interface NormalizedEdgeInfoV3 {
   severity?: 'critical' | 'error' | 'warning';
   /**
    * Doctrine 013 — producer-DISCLOSED visibility gate over `switch_probability`.
-   * `visible = switch_probability > FRAGILE_EDGE_VISIBLE_MIN` (0.15, ratified
+   * `visible = switch_probability > FRAGILE_EDGE_VISIBLE_MIN` (ratified
    * from the UI's THRESHOLDS.FRAGILE_EDGE_FILTER; DOCTRINE-PENDING, Neil). PLoT
    * DISCLOSES the gate but does NOT filter the array — the UI decides render.
    * ABSENT when switch_probability is absent/non-finite (never fabricated). See

@@ -3,6 +3,8 @@
  * Thresholds ported from UI useResultsSectionData.ts unchanged.
  */
 
+import { isFiniteNumber } from '../util/numeric.js';
+
 export type EdgeSeverity = 'critical' | 'error' | 'warning';
 
 /**
@@ -19,7 +21,7 @@ export type EdgeSeverity = 'critical' | 'error' | 'warning';
 export function classifyEdgeSeverity(
   switchProbability: number | null | undefined,
 ): EdgeSeverity | undefined {
-  if (typeof switchProbability !== 'number' || !Number.isFinite(switchProbability)) {
+  if (!isFiniteNumber(switchProbability)) {
     return undefined;
   }
   if (switchProbability > 0.7) return 'critical';
@@ -57,7 +59,7 @@ export const FRAGILE_EDGE_VISIBLE_MIN = 0.15;
 export function deriveFragileEdgeVisible(
   switchProbability: number | null | undefined,
 ): boolean | undefined {
-  if (typeof switchProbability !== 'number' || !Number.isFinite(switchProbability)) {
+  if (!isFiniteNumber(switchProbability)) {
     return undefined;
   }
   return switchProbability > FRAGILE_EDGE_VISIBLE_MIN;

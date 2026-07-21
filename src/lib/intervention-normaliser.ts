@@ -41,6 +41,19 @@ export interface NormalisationRange {
 }
 
 /**
+ * True iff `r` is the IDENTITY range `[0,1]`. Doctrine-load-bearing: an identity
+ * intervention scale is the marker for "this scale is an ASSUMPTION, not a
+ * MEASURED spread" — the node was intervened while Phase 4a was SKIPPED (all
+ * interventions already in [0,1]). A NON-identity range is a measured
+ * ground-truth spread. The two rank very differently in the constraint priority
+ * ladder (identity is demoted below producer declarations). Ignores `source` —
+ * only the numeric bounds decide.
+ */
+export function isIdentityRange(r: NormalisationRange): boolean {
+  return r.min === 0 && r.max === 1;
+}
+
+/**
  * Intervention hints from CE (Context Engine).
  * Used to provide additional metadata for normalisation.
  */
@@ -995,16 +1008,27 @@ export interface ConstraintNormalisationResult {
 /**
  * Normalise goal constraint values to [0,1] space.
  *
- * Uses the same deriveRange() function as interventions, extended with two
- * producer-declared constraint scales (P0-C1) that outrank the node-derived
- * chain:
+ * Uses the same deriveRange() function as interventions, resolved through a
+ * measurement/producer priority ladder (F4, Codex-confirmed reorder). This
+ * header MIRRORS the authoritative inline `Derive range` comment in the loop
+ * body below — keep the two in sync:
  *
- * | Priority | Source               | Rule                                            |
- * |----------|----------------------|-------------------------------------------------|
- * | 0        | `goal_threshold_cap` | Node's CEE-stamped cap. Range [0, cap].         |
- * | 1        | `unit_percent`       | Constraint unit is '%'. Range [0, 100] (house   |
- * |          |                      | doctrine: '%' always normalises against 100).   |
- * | 2+       | deriveRange(node)    | Existing chain (explicit_cap → … → default).    |
+ * | Priority | Source                            | Rule                                             |
+ * |----------|-----------------------------------|--------------------------------------------------|
+ * | 1        | `interventionScale` (NON-identity)| A MEASURED sample spread is ground truth; the    |
+ * |          |                                   | threshold shares the exact scale its samples     |
+ * |          |                                   | occupy. Wins even over a producer cap (DOCTRINE- |
+ * |          |                                   | PENDING).                                        |
+ * | 2        | forward-raw                       | Gate FALSE + no intervention scale ⇒ value       |
+ * |          |                                   | already in [0,1]; forwarded verbatim (HEAD       |
+ * |          |                                   | parity, F1). Outranks producers.                 |
+ * | 3        | `goal_threshold_cap`              | Producer-declared. Node's CEE-stamped cap.       |
+ * |          |                                   | Range [0, cap].                                  |
+ * | 4        | `unit_percent`                    | Producer-declared. Constraint unit is '%'.       |
+ * |          |                                   | Range [0, 100] (house doctrine).                 |
+ * | 5        | `interventionScale` (IDENTITY)    | Phase-4a-skipped ASSUMED [0,1] scale; ranks      |
+ * |          |                                   | below producer declarations, above the heuristic.|
+ * | 6        | deriveRange(node)                 | Existing chain (explicit_cap → … → default).     |
  *
  * Additionally, when the node carries a CEE-stamped, already-normalised
  * finite `goal_threshold` in [0,1] that corresponds to the same target
@@ -1036,6 +1060,11 @@ export function normaliseGoalConstraints(
     nodeMap.set(node.id, node);
   }
 
+  // Loop-invariant (does not vary per constraint). Default TRUE so every existing
+  // caller (unit tests, code paths that omit the flag) keeps the pre-fix chain
+  // behaviour for scale-less constraints.
+  const applyChainWithoutScale = extras?.normaliseWithoutScale ?? true;
+
   for (const constraint of constraints) {
     const { constraint_id, node_id, operator, value, label, weight } = constraint;
 
@@ -1054,10 +1083,7 @@ export function normaliseGoalConstraints(
     // [0,1]) — it is an ASSUMPTION, not a measured spread. A NON-identity scale
     // is a measured ground-truth spread. The two rank very differently below.
     const interventionScaleIsIdentity =
-      interventionScale !== undefined && interventionScale.min === 0 && interventionScale.max === 1;
-    // Default TRUE so every existing caller (unit tests, code paths that omit
-    // the flag) keeps the pre-fix chain behaviour for scale-less constraints.
-    const applyChainWithoutScale = extras?.normaliseWithoutScale ?? true;
+      interventionScale !== undefined && isIdentityRange(interventionScale);
 
     // Derive range. Priority ladder (F4, Codex-confirmed reorder):
     //   1  interventionScale, NON-identity — a MEASURED spread is ground truth;
@@ -1156,11 +1182,16 @@ export function normaliseGoalConstraints(
     };
     normalisedConstraints.push(normalisedConstraint);
 
-    // Add repair record. A forwarded-raw constraint (gate FALSE, no intervention
-    // scale) is an identity no-op — emit no repair, so repairs_applied stays
-    // byte-identical to the pre-fix "gate false ⇒ no constraint normalisation"
-    // path.
+    // A forwarded-raw constraint (gate FALSE, no intervention scale) is an
+    // identity no-op — skip BOTH the repair record AND the diagnostic so the
+    // response stays byte-identical to the pre-fix "gate false ⇒ no constraint
+    // normalisation" path. (A synthetic 'default'-range diagnostic emitted here
+    // would trip constraint-reliability.ts's threshold_normalisation_defaulted
+    // and SUPPRESS a constraint that HEAD delivered; and no diagnostic ⇒ no
+    // constraintNormalisationRanges entry ⇒ the reliability gate and margin
+    // denorm behave exactly as before.)
     if (!forwardedRawUnchanged) {
+      // Add repair record.
       repairs.push({
         field: `constraint.value.${constraint_id}`,
         action: 'normalised',
@@ -1168,17 +1199,7 @@ export function normaliseGoalConstraints(
         to_value: normalised,
         reason: `normalised range=[${range.min},${range.max}] source=${range.source}${clamped ? ' (clamped)' : ''}${usedNodeGoalThreshold ? ' (node goal_threshold preferred)' : ''}`,
       });
-    }
-
-    // Add diagnostic. A forwarded-raw constraint underwent NO transform, so it
-    // contributes no normalisation range — emitting a synthetic 'default' range
-    // here would make the callers treat it as identical to the pre-fix
-    // "gate false ⇒ function not called" state. Crucially, that synthetic
-    // 'default' range would trip constraint-reliability.ts
-    // (threshold_normalisation_defaulted) and SUPPRESS a constraint that HEAD
-    // delivered. So skip it: no diagnostic ⇒ no constraintNormalisationRanges
-    // entry ⇒ the reliability gate and margin denorm behave exactly as before.
-    if (!forwardedRawUnchanged) {
+      // Add diagnostic.
       diagnostics.push({
         constraint_id,
         node_id,
