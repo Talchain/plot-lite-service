@@ -6535,6 +6535,30 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             processedIslResult,
           ).length > 0;
 
+          // A3 adjacent-hunt FIX #1 (coaching companion): mirror buildResponse's
+          // per-option direction-suspect detection so the coaching joint-prob
+          // gate abstains on the SAME suspicion FIX #1 uses to withhold the
+          // top-level wire block. Same inputs (processedIslResult +
+          // activeGoalConstraints) → same verdict as the wire gate: the single
+          // synthesised auto-constraint's guessed '>=' is structurally
+          // unsatisfiable for at least one option (positive threshold, p90 < 0,
+          // finite-guarded exactly as the option map is). Without this the gate
+          // reads the near-0 joint_probability directly and emits
+          // GOAL_FEASIBILITY_LOW — contradicting the 'unavailable' wire block.
+          const coachingConstraintTargetDirectionSuspect = (() => {
+            const autoConstraint = activeGoalConstraints?.find(
+              (c) => (c as { _internal?: { source?: string } })._internal?.source === 'auto_from_goal_threshold',
+            );
+            if (!autoConstraint) return false;
+            const islOptionData: any[] =
+              processedIslResult?.options ?? processedIslResult?.results ?? [];
+            return islOptionData.some(
+              (r) =>
+                hasAllRequiredOutcomeStats(r?.outcome) &&
+                isAutoConstraintDirectionSuspect(autoConstraint.value, r?.outcome?.p90),
+            );
+          })();
+
           m1Coaching = generateM1Coaching(
             filteredGraph,
             body.options,
@@ -6548,6 +6572,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                                  // confidence/influence match the public payload (audit
                                  // A1-PRIMARY: no raw-ISL signal under coaching field names).
             coachingConstraintTargetsUnreliable,  // Item A: skip joint-prob gate on unreliable targets
+            coachingConstraintTargetDirectionSuspect,  // FIX #1 companion: skip joint-prob gate on direction-suspect targets
           );
         } catch (err) {
           req.log.warn({

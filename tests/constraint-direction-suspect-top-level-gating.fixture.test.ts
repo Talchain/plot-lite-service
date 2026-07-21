@@ -38,19 +38,30 @@ import type { FastifyInstance } from 'fastify';
 /**
  * 'negative': every option's modelled outcome stays negative even at p90
  * (structurally can never satisfy '>= positive_threshold' → direction-suspect).
- * 'positive': normal satisfiable-looking outcome (control / regression case).
+ * 'positive': normal satisfiable-looking outcome + high joint prob (control /
+ * regression case — no critique because it's feasible).
+ * 'infeasible_positive': satisfiable-DIRECTION outcome (p90 > 0, so NOT
+ * direction-suspect) but a genuinely-low joint probability — a real
+ * "this may not reach the target" signal that MUST survive the coaching gate.
+ * This is the positive control that proves the direction-suspect skip does not
+ * over-suppress honest GOAL_FEASIBILITY_LOW warnings.
  */
-let outcomeMode: 'negative' | 'positive' = 'positive';
+let outcomeMode: 'negative' | 'positive' | 'infeasible_positive' = 'positive';
 
 /** The near-0 prob_satisfied the per-option gate withholds and the top-level block leaks. */
 const NEG_PROB = 0.02;
 const POS_PROB = 0.72;
+/** Genuinely-low feasibility (< readiness_joint_prob_floor 0.05) on a NON-suspect run. */
+const LOW_FEASIBLE_PROB = 0.03;
 
 function buildOutcome(idx: number) {
   if (outcomeMode === 'negative') {
     // Whole modelled distribution below zero — '>= positive' unsatisfiable.
     return { mean: -0.4, std: 0.1, p10: -0.6, p50: -0.4, p90: -0.1, n_samples: 1000, n_valid_samples: 1000, validity_ratio: 1.0 };
   }
+  // 'positive' AND 'infeasible_positive' share a satisfiable-DIRECTION outcome
+  // (p90 > 0 ⇒ isAutoConstraintDirectionSuspect returns false). They differ
+  // only in the joint probability the mock reports below.
   return { mean: 0.7 + idx * 0.1, std: 0.1, p10: 0.5, p50: 0.7, p90: 0.9, n_samples: 1000, n_valid_samples: 1000, validity_ratio: 1.0 };
 }
 
@@ -74,7 +85,11 @@ const mockISLService = {
   async callAnalysisEndpoint<T>(_endpoint: string, body: any): Promise<{ data: T | null; error: string | null }> {
     const options = body.options || [];
     const goalConstraints = body.goal_constraints || [];
-    const prob = outcomeMode === 'negative' ? NEG_PROB : POS_PROB;
+    const prob = outcomeMode === 'negative'
+      ? NEG_PROB
+      : outcomeMode === 'infeasible_positive'
+        ? LOW_FEASIBLE_PROB
+        : POS_PROB;
 
     const constraintAnalysis = goalConstraints.length > 0
       ? {
@@ -224,5 +239,94 @@ describe('top-level constraint_results gating by direction-suspicion (A3 adjacen
     expect(Array.isArray(body.constraint_results)).toBe(true);
     expect(body.constraint_results.length).toBe(1);
     expect(body.constraint_results[0].probability).toBe(POS_PROB);
+  });
+
+  // ---------------------------------------------------------------------------
+  // FIX #1 coaching companion (adversarial-pass finding #1): the leak also
+  // escapes via the M1 joint-probability gate. applyJointProbabilityGate reads
+  // the RAW ISL joint_probability directly, so on a direction-suspect run it
+  // emits GOAL_FEASIBILITY_LOW ("may not achieve the target") into
+  // m1_coaching.model_critiques — AND assembleBrief folds that into
+  // decision_brief.warnings[] — from the SAME near-0 the wire block now
+  // withholds. Post-FIX-#1 the response is internally INCOHERENT
+  // (constraints_status 'unavailable' vs a definite feasibility verdict). The
+  // coaching gate is guarded on the SUPPRESSED-target partition, which is EMPTY
+  // on this decision-grade direction-suspect run, so the guard never fires.
+  // The companion fix ORs the direction-suspect condition into that guard.
+  // ---------------------------------------------------------------------------
+
+  it('COACHING LEAK: direction-suspect run must NOT emit GOAL_FEASIBILITY_LOW in coaching or brief', async () => {
+    outcomeMode = 'negative';
+    try {
+      const body = await run(app, 20);
+
+      // Same co-occurrence preconditions as the wire-block LEAK test.
+      const suspect = (body.inference_warnings ?? []).filter(
+        (w: any) => w.code === 'CONSTRAINT_DIRECTION_SUSPECT',
+      );
+      expect(suspect).toHaveLength(1);
+      const unreliable = (body.inference_warnings ?? []).filter(
+        (w: any) => w.code === 'CONSTRAINT_TARGET_UNRELIABLE',
+      );
+      expect(unreliable).toHaveLength(0);
+      // Wire block already withheld (FIX #1) — the incoherence this test closes
+      // is coaching CONTRADICTING that 'unavailable'.
+      expect(body.constraints_status).toBe('unavailable');
+
+      // Positive control INSIDE the assertion: the coaching machinery IS present
+      // and DID run (so the absence below is a real skip, not a missing block).
+      expect(body.m1_coaching, 'm1_coaching must be generated').toBeTruthy();
+      expect(Array.isArray(body.m1_coaching.model_critiques)).toBe(true);
+
+      // THE COACHING LEAK (RED at 94b46e7): the withheld ~0 re-surfaces as a
+      // definite GOAL_FEASIBILITY_LOW feasibility verdict.
+      const coachingTypes = body.m1_coaching.model_critiques.map((c: any) => c.type);
+      expect(coachingTypes).not.toContain('GOAL_FEASIBILITY_LOW');
+
+      // Second wire surface (same root): decision_brief folds coaching critiques
+      // into warnings[]. It must not carry the direction-suspect feasibility claim.
+      // Hard presence assertion (not a vacuous guard): a 'computed' 2-option run
+      // always assembles a brief.
+      expect(body.decision_brief, 'decision_brief must be assembled').toBeTruthy();
+      const briefCodes = (body.decision_brief.warnings ?? []).map((w: any) => w.code);
+      expect(briefCodes).not.toContain('GOAL_FEASIBILITY_LOW');
+    } finally {
+      outcomeMode = 'positive';
+    }
+  });
+
+  it('POSITIVE CONTROL: genuinely-infeasible NON-suspect run STILL emits GOAL_FEASIBILITY_LOW', async () => {
+    // p90 > 0 ⇒ NOT direction-suspect; joint prob 0.03 < floor 0.05 ⇒ a real
+    // low-feasibility signal. The direction-suspect skip must NOT touch it.
+    outcomeMode = 'infeasible_positive';
+    try {
+      const body = await run(app, 20);
+
+      // NOT direction-suspect, and suppressed partition empty → the gate runs.
+      const suspect = (body.inference_warnings ?? []).filter(
+        (w: any) => w.code === 'CONSTRAINT_DIRECTION_SUSPECT',
+      );
+      expect(suspect).toHaveLength(0);
+      const unreliable = (body.inference_warnings ?? []).filter(
+        (w: any) => w.code === 'CONSTRAINT_TARGET_UNRELIABLE',
+      );
+      expect(unreliable).toHaveLength(0);
+
+      // Honest low feasibility is DELIVERED on the wire block (not withheld)...
+      expect(body.constraints_status).toBe('computed');
+      expect(body.constraint_results[0].probability).toBe(LOW_FEASIBLE_PROB);
+
+      // ...and the honest GOAL_FEASIBILITY_LOW coaching critique SURVIVES
+      // (green both with and without the fix — the fix must not over-suppress).
+      expect(body.m1_coaching, 'm1_coaching must be generated').toBeTruthy();
+      const coachingTypes = body.m1_coaching.model_critiques.map((c: any) => c.type);
+      expect(coachingTypes).toContain('GOAL_FEASIBILITY_LOW');
+
+      expect(body.decision_brief, 'decision_brief must be assembled').toBeTruthy();
+      const briefCodes = (body.decision_brief.warnings ?? []).map((w: any) => w.code);
+      expect(briefCodes).toContain('GOAL_FEASIBILITY_LOW');
+    } finally {
+      outcomeMode = 'positive';
+    }
   });
 });

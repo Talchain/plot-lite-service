@@ -79,7 +79,18 @@ export function generateM1Coaching(
   }>,
   goalConstraints?: GoalConstraint[],
   factorSensitivityEnriched?: FactorSensitivityResultV3[],
-  constraintTargetsUnreliable?: boolean
+  constraintTargetsUnreliable?: boolean,
+  // A3 adjacent-hunt FIX #1 (coaching companion): TRUE when the auto-synthesised
+  // '>=' constraint's guessed direction is structurally unsatisfiable for at
+  // least one option (positive threshold + strictly-negative modelled outcome —
+  // isAutoConstraintDirectionSuspect). Distinct from constraintTargetsUnreliable
+  // (the suppressed-target partition), which is EMPTY on a decision-grade
+  // direction-suspect run. The joint-probability gate must ALSO abstain here:
+  // the near-0 joint_probability it would read is a mechanical sign-mismatch
+  // artefact, and FIX #1 already withholds the SAME number from the top-level
+  // wire block — emitting GOAL_FEASIBILITY_LOW from it would contradict that
+  // 'unavailable' verdict. Mirrors the wire gate's decision exactly.
+  constraintTargetDirectionSuspect?: boolean
 ): M1Coaching | null {
   const startTime = performance.now();
 
@@ -105,7 +116,16 @@ export function generateM1Coaching(
     // Producer honesty (item A): skipped when constraint targets are
     // unreliable — the joint probabilities are placeholder-derived and the
     // gate would fabricate a GOAL_FEASIBILITY_LOW claim from them.
-    if (goalConstraints && goalConstraints.length > 0 && !constraintTargetsUnreliable) {
+    // A3 adjacent-hunt FIX #1 (coaching companion): ALSO skipped when the
+    // target is direction-suspect — the near-0 joint_probability is a
+    // sign-mismatch artefact FIX #1 already withholds from the wire; emitting
+    // a feasibility verdict from it would contradict that 'unavailable'.
+    if (
+      goalConstraints &&
+      goalConstraints.length > 0 &&
+      !constraintTargetsUnreliable &&
+      !constraintTargetDirectionSuspect
+    ) {
       const jointProbGate = applyJointProbabilityGate(
         readiness, islResult, thresholds, modelCritiques
       );
