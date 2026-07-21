@@ -2063,7 +2063,19 @@ function buildConstraintFields(
   if (Array.isArray(analysis.conditional_probabilities) && analysis.conditional_probabilities.length > 0) {
     conditionalProbabilities = analysis.conditional_probabilities
       .filter((cp: any) =>
+        // A3 adjacent-hunt FIX #3 (crash hardening): an ISL index must be a
+        // valid array position for BOTH legs. The prior `< length` check alone
+        // let a negative or fractional index through — `islConstraints[idx]`
+        // was then `undefined` and `resolveConstraintId(undefined, idx)` threw,
+        // 500-ing (degrading to analysis_status:'failed') the whole /v2/run
+        // instead of dropping the one bad row. Require a non-negative integer
+        // in [0, length) — a bad row is DROPPED (honest omission), consistent
+        // with this file's untrusted-ISL numeric-egress posture.
+        Number.isInteger(cp.given_constraint_index) &&
+        cp.given_constraint_index >= 0 &&
         cp.given_constraint_index < islConstraints.length &&
+        Number.isInteger(cp.target_constraint_index) &&
+        cp.target_constraint_index >= 0 &&
         cp.target_constraint_index < islConstraints.length
       )
       .map((cp: any) => {
