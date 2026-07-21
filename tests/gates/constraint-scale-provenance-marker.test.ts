@@ -314,4 +314,100 @@ describe('A3 constraint trust marker · scale_provenance + constraints_decision_
     expect(optionEntry(body, 'opt_a').constraints_decision_grade).toBe(false);
     expect(optionEntry(body, 'opt_b').constraints_decision_grade).toBe(false);
   });
+
+  // ---------------------------------------------------------------------------
+  // D-8 (A3-DOCTRINE-DECISIONS-2026-07-21): extend the divergence check to
+  // NODE-level producer declarations (explicit_cap = observed_state.cap;
+  // explicit = state_space.range).
+  //
+  // ⚠ NO RED-FIRST CASE EXISTS. The D-8 gate asked for a node with an
+  // explicit_cap/state_space range [0,X] whose MEASURED intervention spread is a
+  // DIFFERENT range [a,b] ≠ [0,X] (branch-1) — asserting range_unified:false.
+  // That input is NOT CONSTRUCTIBLE: deriveRange gives explicit_cap/explicit TOP
+  // priority (branches 0/1), so a node that declares [0,X] has its INTERVENTIONS
+  // normalised against [0,X] too — the intervention scale IS the declaration, never
+  // a divergent spread. The extension is therefore a PROVABLE NO-OP (see D8-NOTES).
+  // The tests below are POSITIVE CONTROLS (must-stay-TRUE) — the mirror-of-R1
+  // concern is OVER-tightening, and these prove the node-level extension does NOT
+  // over-tighten. They pass at HEAD AND after the extension (that invariance is the
+  // no-op proof); reverting the extension keeps them green.
+
+  // (h) POSITIVE CONTROL — node-level explicit_cap. observed_state.cap=40000 ⇒ the
+  //     INTERVENTIONS (25000/45000) normalise against [0,40000] (source
+  //     explicit_cap), so interventionScale == the node's declared cap. Equal ⇒
+  //     range_unified TRUE, decision_grade TRUE. An explicit_cap is NOT a
+  //     divergence — it DEFINES the samples' scale.
+  it('(h) node explicit_cap ⇒ intervention scale IS the cap ⇒ range_unified true (no over-tighten)', async () => {
+    const COST_CAP_NODE = {
+      id: 'cost', kind: 'factor', label: 'First-year cost',
+      observed_state: { value: 30000, cap: 40000 },
+    };
+    const body = await run({
+      graph: { nodes: [NODES[0], COST_CAP_NODE], edges: [EDGES[0]] },
+      options: OPTIONS_SPREAD, // interventions 25000/45000
+      goal_node_id: 'goal', seed: '42',
+      goal_constraints: [{ constraint_id: 'c_cap', node_id: 'cost', operator: '<=', value: 30000 }],
+    });
+    const sp = topLevelConstraint(body, 'c_cap')?.scale_provenance;
+    expect(sp).toBeDefined();
+    expect(sp.source).toBe('explicit_cap');
+    expect(sp.range_unified).toBe(true);
+    expect('threshold_clamped' in sp).toBe(false); // 30000 ∈ [0,40000] ⇒ unclamped
+    expect(sp.decision_grade).toBe(true);
+    expect(optionEntry(body, 'opt_a').constraints_decision_grade).toBe(true);
+    expect(optionEntry(body, 'opt_b').constraints_decision_grade).toBe(true);
+  });
+
+  // (i) POSITIVE CONTROL — node-level explicit (state_space.range). Same mechanism:
+  //     the interventions normalise against the declared [0,40000] (source
+  //     explicit), so interventionScale == the declaration ⇒ range_unified TRUE.
+  it('(i) node state_space.range ⇒ intervention scale IS the range ⇒ range_unified true', async () => {
+    const COST_RANGE_NODE = {
+      id: 'cost', kind: 'factor', label: 'First-year cost',
+      observed_state: { value: 30000 }, state_space: { range: { min: 0, max: 40000 } },
+    };
+    const body = await run({
+      graph: { nodes: [NODES[0], COST_RANGE_NODE], edges: [EDGES[0]] },
+      options: OPTIONS_SPREAD, // interventions 25000/45000
+      goal_node_id: 'goal', seed: '42',
+      goal_constraints: [{ constraint_id: 'c_ss', node_id: 'cost', operator: '<=', value: 30000 }],
+    });
+    const sp = topLevelConstraint(body, 'c_ss')?.scale_provenance;
+    expect(sp).toBeDefined();
+    expect(sp.source).toBe('explicit');
+    expect(sp.range_unified).toBe(true);
+    expect('threshold_clamped' in sp).toBe(false);
+    expect(sp.decision_grade).toBe(true);
+    expect(optionEntry(body, 'opt_a').constraints_decision_grade).toBe(true);
+    expect(optionEntry(body, 'opt_b').constraints_decision_grade).toBe(true);
+  });
+
+  // (j) CHARACTERIZATION — BOTH declarations present, MUTUALLY DIFFERENT. Node has
+  //     observed_state.cap=40000 (⇒ interventionScale explicit_cap [0,40000]) AND a
+  //     CONSTRAINT-level goal_threshold_cap=100000 ([0,100000]). interventionScale
+  //     equals the node-level declaration but NOT the constraint-level one ⇒
+  //     divergence ⇒ range_unified FALSE. This fires via the EXISTING R1
+  //     constraint-level check (goal_threshold_cap), NOT the D-8 node-level
+  //     extension — it is FALSE at HEAD too. Pins the "divergence from EITHER"
+  //     behaviour and proves the both-exist path is already covered.
+  it('(j) both declarations, constraint-level differs ⇒ range_unified false (existing R1 path)', async () => {
+    const COST_BOTH_NODE = {
+      id: 'cost', kind: 'factor', label: 'First-year cost',
+      observed_state: { value: 30000, cap: 40000 }, goal_threshold_cap: 100000,
+    };
+    const body = await run({
+      graph: { nodes: [NODES[0], COST_BOTH_NODE], edges: [EDGES[0]] },
+      options: OPTIONS_SPREAD, // interventions 25000/45000
+      goal_node_id: 'goal', seed: '42',
+      goal_constraints: [{ constraint_id: 'c_both', node_id: 'cost', operator: '<=', value: 30000 }],
+    });
+    const sp = topLevelConstraint(body, 'c_both')?.scale_provenance;
+    expect(sp).toBeDefined();
+    expect(sp.source).toBe('explicit_cap'); // interventionScale wins the ladder (branch-1)
+    expect(sp.range_unified).toBe(false); // diverges from constraint-level goal_threshold_cap [0,100000]
+    expect('threshold_clamped' in sp).toBe(false); // 30000 ∈ [0,40000] ⇒ unclamped
+    expect(sp.decision_grade).toBe(false);
+    expect(optionEntry(body, 'opt_a').constraints_decision_grade).toBe(false);
+    expect(optionEntry(body, 'opt_b').constraints_decision_grade).toBe(false);
+  });
 });
