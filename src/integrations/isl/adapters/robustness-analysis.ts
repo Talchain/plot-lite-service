@@ -62,7 +62,12 @@ function normalizeFragileEdge(edge: ISLFragileEdgeInfo): NormalizedEdgeInfo {
     edge_id: edge.edge_id,
     from_id: edge.from_id ?? parsed.from,
     to_id: edge.to_id ?? parsed.to,
-    switch_probability: edge.switch_probability ?? 0,
+    // switch_probability: emit ONLY when ISL provides a finite value. Absent ≠ 0
+    // — a fabricated 0 fabricates BOTH severity ('warning') and the doctrine-013
+    // `visible` flag (false) downstream. Omit honestly when ISL omits it.
+    ...(typeof edge.switch_probability === 'number' && Number.isFinite(edge.switch_probability)
+      ? { switch_probability: edge.switch_probability }
+      : {}),
     // Passthrough marginal_switch_probability from ISL (optional field)
     ...(edge.marginal_switch_probability !== undefined
       ? { marginal_switch_probability: edge.marginal_switch_probability }
@@ -110,11 +115,13 @@ export function normalizeFragileEdges(
       // String format (legacy fallback)
       if (typeof edge === 'string') {
         const parsed = parseEdgeId(edge);
+        // Legacy STRING fragile edges carry NO switch_probability data — omit it
+        // (honest) rather than fabricate 0, which would fabricate severity
+        // ('warning') and the doctrine-013 `visible` flag (false) downstream.
         result.edges.push({
           edge_id: edge,
           from_id: parsed.from,
           to_id: parsed.to,
-          switch_probability: 0,
         });
         continue;
       }

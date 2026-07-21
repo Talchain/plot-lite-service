@@ -288,7 +288,8 @@ describe('Robustness Analysis Adapter', () => {
       expect(result.edges[0].edge_id).toBe('a->b');
       expect(result.edges[0].from_id).toBe('a');
       expect(result.edges[0].to_id).toBe('b');
-      expect(result.edges[0].switch_probability).toBe(0);
+      // Legacy string edges carry no sp data — omitted, not fabricated 0.
+      expect(result.edges[0].switch_probability).toBeUndefined();
     });
 
     it('parses from_id and to_id from edge_id when missing', () => {
@@ -325,12 +326,12 @@ describe('Robustness Analysis Adapter', () => {
       expect(result.errors).toHaveLength(0);
     });
 
-    it('defaults switch_probability to 0 when missing', () => {
+    it('omits switch_probability when missing (absent ≠ 0)', () => {
       const edges = [{ edge_id: 'a->b' }];
 
       const result = normalizeFragileEdges(edges);
 
-      expect(result.edges[0].switch_probability).toBe(0);
+      expect(result.edges[0].switch_probability).toBeUndefined();
     });
   });
 

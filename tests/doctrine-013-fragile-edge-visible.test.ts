@@ -8,13 +8,13 @@
  * helper `deriveFragileEdgeVisible` OMITS the field on absent/non-finite input
  * (unit tests below). Threshold is DOCTRINE-PENDING (Neil), one const.
  *
- * KNOWN SEAM (rowed) — the absent-omitting behaviour is NOT end-to-end. The
- * upstream adapter (robustness-analysis.ts:65) defaults `switch_probability
- * ?? 0`, so on the live /v2/run wire an sp-less fragile edge emits
- * `visible:false` (its likewise-defaulted `severity` shares the seam), NOT an
- * omitted field. Pinned honestly by the "KNOWN SEAM" route describe below;
- * unreachable on current ISL output (fragile edges always carry sp); the source
- * `?? 0` kill is tracked separately.
+ * CLOSED SEAM — the absent-omitting behaviour is now end-to-end. The upstream
+ * adapter (robustness-analysis.ts, `normalizeFragileEdge` + the legacy-string
+ * branch) no longer defaults `switch_probability ?? 0`, so on the /v2/run wire
+ * an sp-less fragile edge emits NEITHER `switch_probability`, NOR `visible`, NOR
+ * `severity` — honest omission, not a fabricated 0/false/'warning'. Pinned by
+ * the "SOURCE FIX (closed seam)" route describe below; unreachable on current
+ * ISL output (fragile edges always carry sp) ⇒ zero golden delta.
  */
 
 import { describe, it, expect, beforeAll, vi } from 'vitest';
@@ -199,22 +199,18 @@ describe('013 route: visible gate lands on /v2/run robustness.fragile_edges', ()
   });
 });
 
-describe('013 KNOWN SEAM (rowed): an sp-less fragile edge fabricates visible:false via the upstream `?? 0`', () => {
-  // KNOWN SEAM (rowed): the upstream normalizer defaults switch_probability
-  // `?? 0` (robustness-analysis.ts:65), so an sp-less edge fabricates
-  // visible:false, consistent with its likewise-defaulted severity.
-  // deriveFragileEdgeVisible itself omits on absent (unit test above); the fix
-  // is the source `?? 0` kill, tracked separately. Unreachable on current ISL
-  // output (fragile edges always carry sp).
+describe('013 SOURCE FIX (closed seam): an sp-less fragile edge OMITS switch_probability, visible AND severity', () => {
+  // CLOSED SEAM: the upstream normalizer no longer defaults switch_probability
+  // `?? 0` (robustness-analysis.ts, `normalizeFragileEdge` + the legacy-string
+  // branch). An ISL fragile edge that OMITS switch_probability now reaches the
+  // /v2/run wire with switch_probability, `visible` AND `severity` ALL omitted —
+  // honest absence, not a fabricated 0 / false / 'warning'. This end-to-end pin
+  // was previously the "KNOWN SEAM (rowed)" describe that asserted the
+  // fabrication (visible:false, sp:0); the source `?? 0` kill closes it.
   //
-  // This converts the previously-circular route assertion (which read the
-  // already-defaulted wire sp and so could never SEE the fabrication) into a
-  // disclosed pin: it feeds the route an ISL fragile edge with NO
-  // switch_probability and asserts what the CURRENT wire honestly does. It
-  // PASSES today (visible:false) and would FAIL if the upstream `?? 0` were
-  // removed (visible would then be omitted) — i.e. this pin will alarm when the
-  // rowed source fix lands, at which point it must be updated to the honest
-  // absent⇒omitted expectation.
+  // Unreachable on current ISL output (fragile edges always carry sp) ⇒ ZERO
+  // golden delta; this feeds the route an sp-less ISL edge to prove the honest
+  // absent⇒omitted contract holds end-to-end.
   const SP_LESS_EDGE_ID = 'fac_dev_headcount->goal_productivity';
   let edges: any[];
   let spLess: any;
@@ -239,15 +235,15 @@ describe('013 KNOWN SEAM (rowed): an sp-less fragile edge fabricates visible:fal
     expect(spLess).toBeDefined();
   });
 
-  it('the pure helper WOULD omit visible on the absent input (the honest contract)', () => {
-    // For contrast: what an absent-omitting end-to-end path would produce.
-    expect(deriveFragileEdgeVisible(undefined)).toBeUndefined();
+  it('switch_probability is OMITTED (no `?? 0` fabrication)', () => {
+    expect(spLess.switch_probability).toBeUndefined();
   });
 
-  it('but the CURRENT wire emits visible:false (upstream `?? 0` fabrication)', () => {
-    // switch_probability was defaulted to 0 upstream, so deriveFragileEdgeVisible(0)
-    // → false and the field is EMITTED, not omitted. This is the rowed seam.
-    expect(spLess.switch_probability).toBe(0);
-    expect(spLess.visible).toBe(false);
+  it('visible is OMITTED (honest absence, not a fabricated false)', () => {
+    expect(spLess.visible).toBeUndefined();
+  });
+
+  it('severity is OMITTED (honest absence, not a fabricated warning)', () => {
+    expect(spLess.severity).toBeUndefined();
   });
 });

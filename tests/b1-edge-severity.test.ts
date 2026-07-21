@@ -43,4 +43,15 @@ describe('classifyEdgeSeverity', () => {
   it('boundary: 0.5 → warning (> 0.5, not ≥)', () => {
     expect(classifyEdgeSeverity(0.5)).toBe('warning');
   });
+
+  // Absent / non-finite → undefined (field omitted, not fabricated 'warning').
+  // Mirrors deriveFragileEdgeVisible: absent ≠ a real low measurement.
+  it('absent / non-finite switch_probability → undefined (severity omitted)', () => {
+    expect(classifyEdgeSeverity(undefined)).toBeUndefined();
+    expect(classifyEdgeSeverity(null)).toBeUndefined();
+    expect(classifyEdgeSeverity(NaN)).toBeUndefined();
+    expect(classifyEdgeSeverity(Infinity)).toBeUndefined();
+    expect(classifyEdgeSeverity(-Infinity)).toBeUndefined();
+  });
 });
+
