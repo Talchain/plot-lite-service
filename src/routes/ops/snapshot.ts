@@ -6,6 +6,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { timingSafeEqual } from 'crypto';
 import { replyWithAppError } from '../../errors.js';
+import { getExpectedAuthToken } from '../../config/auth-token.js';
 import {
   getEngineP95Ms,
   getEngineP95MsRolling,
@@ -29,7 +30,10 @@ async function opsAuthGuard(req: FastifyRequest, reply: FastifyReply): Promise<F
   // If AUTH_ENABLED='1', use standard bearer auth
   if (process.env.AUTH_ENABLED === '1') {
     const hdr = String((req.headers?.authorization || req.headers?.Authorization || '') || '');
-    const expected = String(process.env.AUTH_TOKEN || '').trim();
+    // Same single source of truth as the main auth guard: PLOT_AUTH_TOKEN
+    // (caller-facing / provisioned) with an AUTH_TOKEN fallback. Reached only
+    // inside the AUTH_ENABLED==='1' branch, so inert until the auth flip.
+    const expected = getExpectedAuthToken();
 
     if (!hdr.startsWith('Bearer ')) {
       try {
