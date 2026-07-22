@@ -41,33 +41,9 @@ describe('POST /v1/optimise - R2 no fabricated uncertainty bands', () => {
 
     // ...and carries NOTHING ELSE. At HEAD utility has 4 keys incl. the synthetic
     // bands, so this equality FAILS at HEAD (proves the test can see the presence).
+    // The tell-tale fabrication was p10 === expected*0.9 && p90 === expected*1.1; a
+    // utility with only the `expected` key cannot exhibit that ±10% spread relationship,
+    // so this single keys-equality subsumes any per-band absence assertion.
     expect(Object.keys(data.utility).sort()).toEqual(['expected']);
-    expect(data.utility.p10).toBeUndefined();
-    expect(data.utility.p50).toBeUndefined();
-    expect(data.utility.p90).toBeUndefined();
-  });
-
-  it('does not emit the synthetic +/-10% spread relationship around expected', async () => {
-    const res = await fetch(`${server.baseUrl}/v1/optimise`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        graph: {
-          nodes: [{ id: 'R', label: 'R' }, { id: 'T', label: 'T' }],
-          edges: [{ from: 'R', to: 'T', weight: 1, belief_exists: 1 }],
-        },
-        budget: 10,
-        actions: [{ id: 'a1', cost: 2, do: [{ node_id: 'R', set_to: 5 }] }],
-        objective: { type: 'utility_linear', weights: { T: 1.0 } },
-        seed: 4242,
-      }),
-    });
-
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    // The tell-tale fabrication was p10 === expected*0.9 && p90 === expected*1.1.
-    // Absent bands cannot exhibit that relationship.
-    expect('p10' in data.utility).toBe(false);
-    expect('p90' in data.utility).toBe(false);
   });
 });
