@@ -86,8 +86,8 @@ import type {
 // 0. Installed-version proof: the vendored 0.14.0 tarball is what resolves
 // =============================================================================
 
-describe('@talchain/schemas 0.15.0 installation', () => {
-  it('resolves to version 0.15.0', () => {
+describe('@talchain/schemas 0.22.0 installation', () => {
+  it('resolves to version 0.22.0', () => {
     // The package's exports map has no "require" condition, so
     // createRequire().resolve() cannot be used; read the installed
     // manifest directly (checkout-stable relative to this test file).
@@ -99,7 +99,7 @@ describe('@talchain/schemas 0.15.0 installation', () => {
       version: string;
     };
     expect(pkg.name).toBe('@talchain/schemas');
-    expect(pkg.version).toBe('0.15.0');
+    expect(pkg.version).toBe('0.22.0');
   });
 });
 

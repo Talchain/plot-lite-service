@@ -82,7 +82,7 @@
     "@fastify/cors": "^11.1.0",
     "@fastify/helmet": "^13.0.1",
     "@olumi/assistants-sdk": "^1.11.1",
-    "@talchain/schemas": "file:./vendor/talchain-schemas-0.15.0.tgz",
+    "@talchain/schemas": "file:./vendor/talchain-schemas-0.22.0.tgz",
     "ajv": "^8.17.1",
     "fastify": "^5.8.1",
     "fastify-plugin": "^5.1.0",
