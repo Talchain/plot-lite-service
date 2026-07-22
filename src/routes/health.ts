@@ -3,7 +3,7 @@
  * Extracted from createServer.ts for maintainability
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { spawnSync } from 'child_process';
+import { getBuildId } from '../util/build-id.js';
 import {
   p95Ms,
   p99Ms,
@@ -19,32 +19,6 @@ export interface HealthRoutesOptions {
   enableTestRoutes?: boolean;
   idemCacheSize: () => number;
   getReadinessStatus: () => boolean;
-}
-
-// Cached build ID to avoid per-request git calls
-let cachedBuildId: string | null = null;
-
-function getBuildId(): string {
-  if (cachedBuildId !== null) return cachedBuildId;
-
-  // Prefer env vars from CI/CD (set at build/deploy time)
-  const envBuildId = process.env.BUILD_ID || process.env.GITHUB_SHA;
-  if (envBuildId) {
-    cachedBuildId = envBuildId.slice(0, 7);
-    return cachedBuildId;
-  }
-
-  // Fallback to git (one-time only, typically in dev)
-  try {
-    const res = spawnSync('git', ['--no-pager', 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' });
-    if (res.status === 0) {
-      cachedBuildId = res.stdout.trim() || new Date().toISOString();
-      return cachedBuildId;
-    }
-  } catch { /* ignore */ }
-
-  cachedBuildId = new Date().toISOString();
-  return cachedBuildId;
 }
 
 export async function registerHealthRoutes(app: FastifyInstance, opts: HealthRoutesOptions) {
