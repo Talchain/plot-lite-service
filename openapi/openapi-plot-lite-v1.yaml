@@ -61,6 +61,7 @@ paths:
   /critique:
     post:
       summary: Critique an edited flow deterministically
+      description: 'Requires Authorization: Bearer <token> when AUTH_ENABLED=1.'
       operationId: critique
       requestBody:
         required: true
@@ -84,6 +85,7 @@ paths:
   /improve:
     post:
       summary: Apply deterministic micro-fixes (optional endpoint; feature-flagged)
+      description: 'Requires Authorization: Bearer <token> when AUTH_ENABLED=1.'
       operationId: improve
       requestBody:
         required: true

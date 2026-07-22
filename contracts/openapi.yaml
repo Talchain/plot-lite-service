@@ -15,7 +15,7 @@ info:
     - AUTH_ENABLED=1 requires Authorization: Bearer <token> on certain routes
     - ISL_ENABLE=1 enables ISL (Inference Service Layer) integration for enhanced causal validation and sensitivity analysis
     
-    **Legacy Routes**: /draft-flows, /critique, /improve (v0) remain for backwards compatibility.
+    **Legacy Routes**: /draft-flows, /critique, /improve (v0) remain for backwards compatibility. All three require Authorization: Bearer <token> when AUTH_ENABLED=1.
   contact:
     name: PLoT Engine
     url: https://github.com/Talchain/plot-lite-service
