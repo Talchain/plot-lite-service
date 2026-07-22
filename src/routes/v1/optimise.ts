@@ -53,6 +53,19 @@ async function evaluateUtility(graph: any, objective: any, seed: number): Promis
   return total;
 }
 
+// Honest method-disclosure markers (#240 scale_provenance tradition): the wire must
+// not imply capabilities this route does not have.
+// - greedy_independent_v1: a greedy-independent marginal-gain knapsack. Each action's
+//   gain is measured independently vs the baseline, then actions are added greedily by
+//   efficiency. It assumes ADDITIVE / INDEPENDENT action effects — it is NOT a joint
+//   combinatorial optimiser, so synergies / diminishing-returns are ignored and the
+//   greedy knapsack is not guaranteed optimal.
+// - edge_weight_scaling: an action's do:[{node_id,set_to}] MULTIPLIES the weight of every
+//   outgoing edge of node_id by set_to. It does NOT set the node's value (no Pearl
+//   do-operator); a leaf/no-outgoing node is a silent no-op. Flagged for Neil doctrine.
+const OPTIMISE_METHOD = 'greedy_independent_v1' as const;
+const OPTIMISE_ACTION_SEMANTICS = 'edge_weight_scaling' as const;
+
 export async function registerOptimiseRoute(app: FastifyInstance) {
   app.post(
     '/v1/optimise',
@@ -80,7 +93,24 @@ export async function registerOptimiseRoute(app: FastifyInstance) {
         fields: { field: 'body' }
       });
     }
-    
+
+    // R3: reject missing/invalid graph with a clean 400 (previously an unguarded
+    // `body.graph.nodes.length` at the completion log threw an uncaught 500). Guard
+    // here, before any downstream access to body.graph (priors/evidence/kernel).
+    if (
+      !body.graph ||
+      typeof body.graph !== 'object' ||
+      !Array.isArray(body.graph.nodes) ||
+      !Array.isArray(body.graph.edges)
+    ) {
+      return replyWithAppError(reply, {
+        type: 'BAD_INPUT',
+        statusCode: 400,
+        message: 'graph is required and must have nodes[] and edges[] arrays',
+        fields: { field: 'graph' }
+      });
+    }
+
     const seed = body.seed || 4242;
     const actionIds = new Set<string>();
     for (const action of body.actions) {
@@ -294,8 +324,15 @@ export async function registerOptimiseRoute(app: FastifyInstance) {
     
     return reply.code(200).send({
       schema: 'optimise.v1',
+      // Honest method disclosure (additive) — see const definitions above.
+      method: OPTIMISE_METHOD,
+      action_semantics: OPTIMISE_ACTION_SEMANTICS,
       selected,
-      utility: { expected: finalUtility, p10: finalUtility * 0.9, p50: finalUtility, p90: finalUtility * 1.1 },
+      // R2 honesty: `expected` is a greedy-additive sum of per-action median deltas drawn
+      // from distinct kernel runs over different graphs — no single MC distribution backs it,
+      // so we do NOT fabricate p10/p50/p90 bands around it. Report only the computed point
+      // estimate; absent beats synthetic (previously p10=expected*0.9, p50=expected, p90=expected*1.1).
+      utility: { expected: finalUtility },
       explanations,
       meta: { 
         seed, 
