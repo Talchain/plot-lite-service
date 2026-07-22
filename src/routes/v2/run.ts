@@ -19,7 +19,6 @@
  */
 
 import { randomUUID, createHash } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type {
   RunRequestV3,
@@ -62,6 +61,7 @@ import type {
 } from '../../types/engine-v3.js';
 import { INFERENCE_WARNING_CODES } from '../../types/engine-v3.js';
 import { sha8 } from '../../util/pii-redact.js';
+import { getBuildId } from '../../util/build-id.js';
 import { addUserMessages } from '../../critique-humaniser.js';
 import type { GraphForLabels } from '../../critique-humaniser.js';
 // Seed derivation: when seed omitted, derive deterministically from graph hash
@@ -931,32 +931,6 @@ function extractStabilityThresholds(islResult: any): StabilityThresholds | undef
 // -----------------------------------------------------------------------------
 // Build ID (for deployment verification)
 // -----------------------------------------------------------------------------
-
-// Cached build ID to avoid per-request git calls
-let cachedBuildId: string | null = null;
-
-function getBuildId(): string {
-  if (cachedBuildId !== null) return cachedBuildId;
-
-  // Prefer env vars from CI/CD (set at build/deploy time)
-  const envBuildId = process.env.BUILD_ID || process.env.GITHUB_SHA;
-  if (envBuildId) {
-    cachedBuildId = envBuildId.slice(0, 7);
-    return cachedBuildId;
-  }
-
-  // Fallback to git (one-time only, typically in dev)
-  try {
-    const res = spawnSync('git', ['--no-pager', 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' });
-    if (res.status === 0) {
-      cachedBuildId = res.stdout.trim() || 'unknown';
-      return cachedBuildId;
-    }
-  } catch { /* ignore */ }
-
-  cachedBuildId = 'unknown';
-  return cachedBuildId;
-}
 
 // -----------------------------------------------------------------------------
 // ISL Response Summary (Consolidated Boundary Logging)

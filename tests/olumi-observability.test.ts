@@ -7,6 +7,7 @@ import { beforeAll, afterAll, describe, it, expect } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { createServer } from '../src/createServer.js';
 import { computeOlumiHash, canonicalStringify } from '../src/util/canonical.js';
+import { resetBuildIdCacheForTests } from '../src/util/build-id.js';
 import { GOLDEN_SCENARIO } from '../src/fixtures/self-check.js';
 
 let app: FastifyInstance;
@@ -22,7 +23,8 @@ beforeAll(async () => {
   process.env.TEST_ROUTES = '1';
   process.env.AUTH_ENABLED = '0';
   process.env.RATE_LIMIT_ENABLED = '0';
-  process.env.BUILD_ID = 'test-build-123';
+  process.env.BUILD_ID = 'abcdef1234567'; // SHA-like; canonical build id is the 7-char slice 'abcdef1'
+  resetBuildIdCacheForTests(); // a prior test file in this worker may have locked the shared cache
   app = await createServer({ enableTestRoutes: true });
   await app.listen({ port: 0, host: '127.0.0.1' });
   const addr = app.server.address();
@@ -35,6 +37,7 @@ afterAll(async () => {
     const v = (prevs as any)[k];
     if (v === undefined) delete (process.env as any)[k]; else (process.env as any)[k] = v;
   }
+  resetBuildIdCacheForTests(); // don't leak this file's build id to later files in the worker
 });
 
 describe('canonical hash computation', () => {
@@ -127,14 +130,29 @@ describe('x-olumi-service-build header', () => {
   it('returns x-olumi-service-build with BUILD_ID on health endpoint', async () => {
     const res = await fetch(`http://127.0.0.1:${port}/health`);
     expect(res.status).toBe(200);
-    expect(res.headers.get('x-olumi-service-build')).toBe('test-build-123');
+    expect(res.headers.get('x-olumi-service-build')).toBe('abcdef1');
   });
 
   it('returns both x-olumi-service-build and X-Build-Tag (backward compat)', async () => {
     const res = await fetch(`http://127.0.0.1:${port}/health`);
     expect(res.status).toBe(200);
-    expect(res.headers.get('x-olumi-service-build')).toBe('test-build-123');
-    expect(res.headers.get('X-Build-Tag')).toBe('test-build-123');
+    expect(res.headers.get('x-olumi-service-build')).toBe('abcdef1');
+    expect(res.headers.get('X-Build-Tag')).toBe('abcdef1');
+  });
+
+  // Codex F12: the build HEADER and the /health body build MUST agree — they are
+  // one identity, derived from one resolver. Before the fix the header used its
+  // own inline `BUILD_ID || GITHUB_SHA || 'dev'` (no slice, no git fallback) while
+  // the body used getBuildId() (7-char slice + git fallback), so they diverged
+  // (header 'dev' vs body the real SHA in deploys where neither env var is set).
+  // This pins the invariant so a re-divergence fails loud, not silently.
+  it('build header equals the /health body build (single-sourced, cannot diverge)', async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/health`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    const header = res.headers.get('x-olumi-service-build');
+    expect(header).toBe(body.build);
+    expect(header).toBe('abcdef1');
   });
 });
 
@@ -253,7 +271,7 @@ describe('headers on OPTIONS preflight', () => {
     // OPTIONS should return 204 or 200
     expect([200, 204]).toContain(res.status);
     expect(res.headers.get('x-olumi-service')).toBe('plot');
-    expect(res.headers.get('x-olumi-service-build')).toBe('test-build-123');
+    expect(res.headers.get('x-olumi-service-build')).toBe('abcdef1');
   });
 
   it('includes x-olumi-payload-hash in Access-Control-Allow-Headers', async () => {
@@ -292,7 +310,7 @@ describe('headers on HEAD requests', () => {
     });
     expect(res.status).toBe(200);
     expect(res.headers.get('x-olumi-service')).toBe('plot');
-    expect(res.headers.get('x-olumi-service-build')).toBe('test-build-123');
+    expect(res.headers.get('x-olumi-service-build')).toBe('abcdef1');
   });
 });
 
@@ -301,7 +319,7 @@ describe('headers on error responses', () => {
     const res = await fetch(`http://127.0.0.1:${port}/nonexistent-path`);
     expect(res.status).toBe(404);
     expect(res.headers.get('x-olumi-service')).toBe('plot');
-    expect(res.headers.get('x-olumi-service-build')).toBe('test-build-123');
+    expect(res.headers.get('x-olumi-service-build')).toBe('abcdef1');
   });
 
   it('returns olumi headers on validation error (4xx)', async () => {
@@ -315,7 +333,7 @@ describe('headers on error responses', () => {
     expect(res.status).toBeGreaterThanOrEqual(400);
     expect(res.status).toBeLessThan(500);
     expect(res.headers.get('x-olumi-service')).toBe('plot');
-    expect(res.headers.get('x-olumi-service-build')).toBe('test-build-123');
+    expect(res.headers.get('x-olumi-service-build')).toBe('abcdef1');
   });
 
   it('returns x-olumi-response-hash on error JSON responses', async () => {

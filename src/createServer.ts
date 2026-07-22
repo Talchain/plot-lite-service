@@ -17,6 +17,7 @@ import inflightPlugin from './plugins/inflight.js';
 import type {} from './types/fastify.js';
 import { FASTIFY_REQUEST_TIMEOUT_MS } from './config/timeouts.js';
 import { registerHealthRoutes } from './routes/health.js';
+import { getBuildId } from './util/build-id.js';
 import { computeOlumiHash } from './util/canonical.js';
 import { initDownstreamTracking, clearDownstreamTracking, formatDownstreamHeader, getDownstreamCallsForBoundaryLog } from './util/downstream-tracker.js';
 import { recordPayloadHashInvalid } from './metrics/registry.js';
@@ -508,9 +509,12 @@ export async function createServer(opts: ServerOpts = {}) {
     // P1: Add x-olumi-service header (all responses)
     try { reply.header('x-olumi-service', 'plot'); } catch { /* ignore */ }
 
-    // P1: Add x-olumi-service-build header (replaces X-Build-Tag, keep both during transition)
+    // P1: Add x-olumi-service-build header (replaces X-Build-Tag, keep both during transition).
+    // Uses the shared getBuildId() so the header can never diverge from the /health, /
+    // and /version bodies (Codex F12: this hook once emitted 'dev' — it lacked the git
+    // fallback that getBuildId() has — while /health reported the real SHA).
     try {
-      const buildTag = process.env.BUILD_ID || process.env.GITHUB_SHA || 'dev';
+      const buildTag = getBuildId();
       reply.header('x-olumi-service-build', buildTag);
       reply.header('X-Build-Tag', buildTag); // Keep for backward compatibility
     } catch { /* ignore */ }
