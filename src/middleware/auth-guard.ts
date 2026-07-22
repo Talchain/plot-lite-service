@@ -9,6 +9,7 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 import { timingSafeEqual } from 'crypto';
 import { replyWithAppError } from '../errors.js';
 import { isDemoMode } from './demo-mode.js';
+import { getExpectedAuthToken } from '../config/auth-token.js';
 
 export interface AuthGuardOptions {
   /** Allow demo mode bypass (for SSE streaming routes) */
@@ -78,7 +79,12 @@ export async function authGuard(
   // Get authorization header
   const headers = req.headers || {};
   const authHeader = String(headers.authorization || headers.Authorization || '');
-  const expectedToken = String(process.env.AUTH_TOKEN || '').trim();
+  // Single source of truth: PLOT_AUTH_TOKEN (the caller-facing name every live
+  // caller — CEE PLoTClient — already sends, and the only auth var provisioned
+  // on staging) with a fallback to the historical AUTH_TOKEN. No two-var mirror
+  // to keep in sync. This read is reached only after the AUTH_ENABLED early-return
+  // above, so it stays inert until the auth flip.
+  const expectedToken = getExpectedAuthToken();
 
   // Check for Bearer token
   if (!authHeader.startsWith('Bearer ')) {

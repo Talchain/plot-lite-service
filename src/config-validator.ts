@@ -1,5 +1,6 @@
 import pino from 'pino';
 import { ISL_TIMEOUT_MS, CEE_TIMEOUT_MS, worstCaseMs, resolveIslMaxRetries } from './config/timeouts.js';
+import { getExpectedAuthToken } from './config/auth-token.js';
 
 const logger = pino({
   level: process.env.LOG_LEVEL || 'info',
@@ -8,9 +9,14 @@ const logger = pino({
 export function validateEnv(): void {
   const errors: string[] = [];
 
-  // AUTH validation
-  if (process.env.AUTH_ENABLED === '1' && !process.env.AUTH_TOKEN) {
-    errors.push('AUTH_ENABLED=1 requires AUTH_TOKEN to be set');
+  // AUTH validation — a flip to AUTH_ENABLED=1 must have an expected token from
+  // the single resolved source (PLOT_AUTH_TOKEN, or the historical AUTH_TOKEN
+  // fallback). Without this reconciliation the boot would exit(1) on staging,
+  // where only PLOT_AUTH_TOKEN is provisioned — a boot crash strictly worse than
+  // the 403 this change exists to prevent. Fires only when AUTH_ENABLED=1 → inert
+  // until the flip.
+  if (process.env.AUTH_ENABLED === '1' && !getExpectedAuthToken()) {
+    errors.push('AUTH_ENABLED=1 requires AUTH_TOKEN or PLOT_AUTH_TOKEN to be set');
   }
 
   // PORT validation
