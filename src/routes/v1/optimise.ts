@@ -80,7 +80,24 @@ export async function registerOptimiseRoute(app: FastifyInstance) {
         fields: { field: 'body' }
       });
     }
-    
+
+    // R3: reject missing/invalid graph with a clean 400 (previously an unguarded
+    // `body.graph.nodes.length` at the completion log threw an uncaught 500). Guard
+    // here, before any downstream access to body.graph (priors/evidence/kernel).
+    if (
+      !body.graph ||
+      typeof body.graph !== 'object' ||
+      !Array.isArray(body.graph.nodes) ||
+      !Array.isArray(body.graph.edges)
+    ) {
+      return replyWithAppError(reply, {
+        type: 'BAD_INPUT',
+        statusCode: 400,
+        message: 'graph is required and must have nodes[] and edges[] arrays',
+        fields: { field: 'graph' }
+      });
+    }
+
     const seed = body.seed || 4242;
     const actionIds = new Set<string>();
     for (const action of body.actions) {
