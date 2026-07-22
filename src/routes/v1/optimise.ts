@@ -63,8 +63,13 @@ async function evaluateUtility(graph: any, objective: any, seed: number): Promis
 // - edge_weight_scaling: an action's do:[{node_id,set_to}] MULTIPLIES the weight of every
 //   outgoing edge of node_id by set_to. It does NOT set the node's value (no Pearl
 //   do-operator); a leaf/no-outgoing node is a silent no-op. Flagged for Neil doctrine.
-const OPTIMISE_METHOD = 'greedy_independent_v1' as const;
-const OPTIMISE_ACTION_SEMANTICS = 'edge_weight_scaling' as const;
+const OPTIMISE_METHOD = 'greedy_independent_v1';
+const OPTIMISE_ACTION_SEMANTICS = 'edge_weight_scaling';
+// meta.solver names the SAME greedy-independent algorithm as OPTIMISE_METHOD above —
+// two hand-maintained labels, separately test-pinned, that can drift. Any change to the
+// optimiser algorithm MUST update BOTH this const and OPTIMISE_METHOD. (Unifying the two
+// wire values is a separate rowed item; do NOT change either string here.)
+const OPTIMISE_META_SOLVER = 'greedy_kernel_v1';
 
 export async function registerOptimiseRoute(app: FastifyInstance) {
   app.post(
@@ -97,12 +102,7 @@ export async function registerOptimiseRoute(app: FastifyInstance) {
     // R3: reject missing/invalid graph with a clean 400 (previously an unguarded
     // `body.graph.nodes.length` at the completion log threw an uncaught 500). Guard
     // here, before any downstream access to body.graph (priors/evidence/kernel).
-    if (
-      !body.graph ||
-      typeof body.graph !== 'object' ||
-      !Array.isArray(body.graph.nodes) ||
-      !Array.isArray(body.graph.edges)
-    ) {
+    if (!body.graph || !Array.isArray(body.graph.nodes) || !Array.isArray(body.graph.edges)) {
       return replyWithAppError(reply, {
         type: 'BAD_INPUT',
         statusCode: 400,
@@ -334,9 +334,9 @@ export async function registerOptimiseRoute(app: FastifyInstance) {
       // estimate; absent beats synthetic (previously p10=expected*0.9, p50=expected, p90=expected*1.1).
       utility: { expected: finalUtility },
       explanations,
-      meta: { 
-        seed, 
-        solver: 'greedy_kernel_v1', 
+      meta: {
+        seed,
+        solver: OPTIMISE_META_SOLVER,
         constraints_applied: appliedKeys,
         constraints_resolved: constraintsResolved
       }
