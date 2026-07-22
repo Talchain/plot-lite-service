@@ -19,7 +19,13 @@ export async function registerV2Routes(app: FastifyInstance): Promise<void> {
   // unauthenticated callers cannot probe schema-validation behaviour.
   // authGuard reads only headers, which are available at onRequest.
   app.addHook('onRequest', async (req, reply) => {
-    if (!req.url?.startsWith('/v2/')) return;
+    // Gate on the MATCHED ROUTE PATTERN (req.routeOptions.url), not the raw
+    // req.url. Fastify routes on the DECODED path, so a percent-encoded prefix
+    // (e.g. `/%762/run`, raw does not start with `/v2/`) would slip past a raw
+    // `req.url.startsWith('/v2/')` guard yet still dispatch to `/v2/run` →
+    // unauthenticated compute. routeOptions.url is `/v2/run` for both `/v2/run`
+    // and `/%762/run`, and `undefined` for a genuine 404 (nothing to protect).
+    if (!req.routeOptions?.url?.startsWith('/v2/')) return;
     // CORS preflight carries no Authorization header by design.
     if (req.method === 'OPTIONS') return;
     if (!isV2AuthEnabled()) return;

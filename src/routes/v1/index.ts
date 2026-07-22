@@ -27,16 +27,26 @@ import { authGuard } from '../../middleware/auth-guard.js';
 export async function registerV1Routes(app: FastifyInstance) {
   // Add consolidated auth guard hook for all /v1/* routes
   app.addHook('preHandler', async (req, reply) => {
-    // Only apply to /v1/* routes
-    if (req.url?.startsWith('/v1/')) {
+    // Only apply to /v1/* routes. Gate on the MATCHED ROUTE PATTERN
+    // (req.routeOptions.url), not the raw req.url: Fastify routes on the DECODED
+    // path, so a percent-encoded prefix (e.g. `/%761/optimise`, raw does not
+    // start with `/v1/`) would slip past a raw `req.url.startsWith('/v1/')`
+    // guard yet still dispatch to `/v1/optimise` → unauthenticated compute.
+    // routeOptions.url is the registered pattern (`/v1/optimise`, and
+    // `/v1/templates/:id/graph` for param routes) and `undefined` for a
+    // genuine 404 (nothing to protect).
+    if (req.routeOptions?.url?.startsWith('/v1/')) {
       // Skip auth for OPTIONS preflight requests - CORS plugin handles these
       // Browsers don't send Authorization headers on preflight
       if (req.method === 'OPTIONS') {
         return;
       }
-      // Allow demo bypass for GET /v1/stream, skip auth entirely for /v1/templates (read-only public)
-      const isStreamRoute = req.method === 'GET' && req.url.startsWith('/v1/stream');
-      const isTemplatesRoute = req.url.startsWith('/v1/templates');
+      // Allow demo bypass for GET /v1/stream, skip auth entirely for /v1/templates (read-only public).
+      // Read the matched route pattern here too, so an encoded path cannot forge
+      // a demo-bypass / templates-skip: the pattern is `/v1/stream` and
+      // `/v1/templates`(`/:id/graph`) only when that route actually matched.
+      const isStreamRoute = req.method === 'GET' && req.routeOptions?.url?.startsWith('/v1/stream') === true;
+      const isTemplatesRoute = req.routeOptions?.url?.startsWith('/v1/templates') === true;
       const authorized = await authGuard(req, reply, {
         allowDemoBypass: isStreamRoute,
         skipAuth: isTemplatesRoute,
