@@ -54,6 +54,6 @@ This page documents the frozen engine contracts, gating flags, determinism & cac
 - `GET /version` → `{ api, build, model }`
 - `GET /draft-flows?template=<T>&seed=<N>&budget=<N?>` → deterministic body + strong ETag, 304 if matched
 - `POST /draft-flows` → deterministic legacy; supports `Idempotency-Key`
-- `POST /critique` → deterministic rules; Ajv validated
-- `POST /improve` → echoes `parse_json`
+- `POST /critique` → deterministic rules; Ajv validated (requires `Authorization: Bearer <token>` when `AUTH_ENABLED=1`)
+- `POST /improve` → echoes `parse_json` (requires `Authorization: Bearer <token>` when `AUTH_ENABLED=1`)
 - (test-only) `GET /stream`, `POST /stream/cancel`, `/internal/replay-*`

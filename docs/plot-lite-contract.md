@@ -7,7 +7,7 @@ _Last updated: 2025-09-20 22:08 BST_
 
 Deterministic draft flow generation and critique for the Scenario Sandbox PoC.
 
-- Endpoints: `/draft-flows`, `/critique`, optional `/improve`, plus `/health` and `/version`.
+- Endpoints: `/draft-flows`, `/critique`, optional `/improve`, plus `/health` and `/version`. (`/draft-flows`, `/critique`, and `/improve` require `Authorization: Bearer <token>` when `AUTH_ENABLED=1`.)
 - Determinism: Same `parse_text` + `context` + `seed` => byte-identical `parse_json_hash` and list ordering.
 - Privacy: Service must not log `parse_text`. Callers should redact or hash on their side; provenance storage is org‑configurable.
 

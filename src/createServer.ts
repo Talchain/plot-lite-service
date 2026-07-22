@@ -1195,6 +1195,7 @@ export async function createServer(opts: ServerOpts = {}) {
   });
 
   app.post('/critique', async (req: any, reply) => {
+    if (!(await authGuard(req, reply))) return;
     const body = req.body || {};
     // Sensitive scan (fast path then deep)
     {
@@ -1266,6 +1267,7 @@ export async function createServer(opts: ServerOpts = {}) {
   });
 
   app.post('/improve', async (req: any, reply) => {
+    if (!(await authGuard(req, reply))) return;
     const { parse_json } = req.body || {};
     if (typeof parse_json === 'undefined') { const { errorResponse } = await import('./errors.js'); return reply.code(400).send(errorResponse('BAD_INPUT', 'Field parse_json is required', 'Provide a parse_json object to be echoed back')); }
     return { parse_json, fix_applied: [] };
