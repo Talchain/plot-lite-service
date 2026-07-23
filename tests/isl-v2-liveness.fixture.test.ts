@@ -142,11 +142,9 @@ describe('ISL V2 science-channel liveness (live capture, build f3f5d92)', () => 
     process.env.CEE_ORCHESTRATOR_ENABLED = '0';
     process.env.DECISION_REVIEW_ENABLE = '0';
     process.env.ENABLE_REVIEW_PASS = '0';
-    // P-5 promoted (lane PLoT-H item C): with no explicit env override the
-    // flag now DEFAULTS ON under NODE_ENV=test (and staging), so this run
-    // exercises the promoted ISL-counterfactual EVPI path. Prod default stays
-    // OFF (covered by the flag-off describe block below).
-    delete process.env.ISL_FACTOR_EVPI_INTERNAL;
+    // F3 (ISL #103 / D-23.15): the ISL-counterfactual EVPI path and its
+    // ISL_FACTOR_EVPI_INTERNAL flag were removed; this run exercises the
+    // heuristic-only surface with the removed `factor_evpi` bytes ignored.
     app = await createServer();
     await app.ready();
 
@@ -296,66 +294,54 @@ describe('ISL V2 science-channel liveness (live capture, build f3f5d92)', () => 
   });
 
   // -------------------------------------------------------------------------
-  // Item C (lane PLoT-H, P-5 promoted, provisional_doctrine_v0): ISL
-  // counterfactual factor_evpi feeds the factor_sensitivity EVPI surface IN
-  // PLACE of the heuristic (flag default ON under NODE_ENV=test).
+  // Item C (F3 / D-23.15): the ISL counterfactual `factor_evpi` path has been
+  // REMOVED (ISL #103 renamed the win-probability EVPI field). This capture
+  // predates the rename and still carries `factor_evpi` bytes, but PLoT now
+  // IGNORES them — the factor_sensitivity EVPI surface is heuristic-only, and
+  // the honest outcome-unit successor `factor_evppi` is WITHHELD pending the S5
+  // typed surface (D-23.8). These tests pin the WITHDRAWAL.
   // -------------------------------------------------------------------------
 
-  it('ISL factor_evpi maps to evpi_percentage_points with evpi_method counterfactual', () => {
-    const byId = new Map(
-      body.factor_sensitivity.map((f: any) => [f.factor_id, f]),
-    );
-    // Positive wire estimates → emitted, rounded to 0.1pp, method disclosed as
-    // counterfactual — EXCEPT option-pinned levers (zero_reason
-    // 'intervention_override'), which never carry EVPI in any form (P0a). In
-    // this capture fac_dev_headcount (1.85pp) and fac_tech_lead (0.85pp) are
-    // levers; fac_team_maturity (1.45pp) is the tunable positive.
-    for (const wire of captureA.factor_evpi as any[]) {
-      const f: any = byId.get(wire.factor_id);
-      if (!f) continue; // factors not in the public array carry nothing
-      if (f.zero_reason === 'intervention_override') {
-        // P0a: levers carry NO EVPI fields even when ISL supplies an estimate
-        expect(f, wire.factor_id).not.toHaveProperty('evpi_percentage_points');
-        expect(f, wire.factor_id).not.toHaveProperty('evpi_method');
-        expect(f, wire.factor_id).not.toHaveProperty('evpi_status');
-        continue;
-      }
-      if (wire.evpi_percentage_points >= 0.05) {
-        expect(f.evpi_method, wire.factor_id).toBe('counterfactual');
-        expect(f.evpi_percentage_points, wire.factor_id).toBeGreaterThan(0);
-        expect(f.evpi_percentage_points, wire.factor_id).toBeCloseTo(
-          Math.round(wire.evpi_percentage_points * 10) / 10,
-          10,
-        );
-        expect(f).not.toHaveProperty('evpi_status');
+  it('the removed `factor_evpi` wire field is IGNORED — no factor is labelled counterfactual', () => {
+    // Positive control: this capture genuinely carries factor_evpi bytes, so a
+    // regression that re-wired the old name WOULD have data to surface here.
+    expect(Array.isArray(captureA.factor_evpi)).toBe(true);
+    expect(captureA.factor_evpi.length).toBeGreaterThan(0);
+
+    for (const f of body.factor_sensitivity as any[]) {
+      // No factor is labelled counterfactual, and none carries evpi_status (the
+      // below_resolution label was set ONLY by the removed counterfactual path).
+      expect(f.evpi_method, f.factor_id).not.toBe('counterfactual');
+      expect(f, f.factor_id).not.toHaveProperty('evpi_status');
+      // Any EVPI that IS emitted is the self-disclosed, non-negative heuristic.
+      if (f.evpi_percentage_points !== undefined) {
+        expect(f.evpi_method, f.factor_id).toBe('heuristic');
+        expect(f.evpi_percentage_points, f.factor_id).toBeGreaterThanOrEqual(0);
       }
     }
-    // At least one factor actually took the counterfactual path
-    const counterfactualCount = body.factor_sensitivity.filter(
-      (f: any) => f.evpi_method === 'counterfactual',
-    ).length;
-    expect(counterfactualCount).toBeGreaterThan(0);
-    // And NO factor took the heuristic path on this run (in-place, not mixed)
     expect(
-      body.factor_sensitivity.some((f: any) => f.evpi_method === 'heuristic'),
+      (body.factor_sensitivity as any[]).some((f) => f.evpi_method === 'counterfactual'),
     ).toBe(false);
   });
 
-  it('below-resolution wire estimate (fac_hiring_cost -0.15pp) → labelled, never 0, never negative', () => {
-    const hiringCost = body.factor_sensitivity.find(
-      (f: any) => f.factor_id === 'fac_hiring_cost',
+  it('fac_hiring_cost no longer carries the counterfactual below_resolution label (withdrawn with factor_evpi); raw negatives never leak', () => {
+    const hiringCost = (body.factor_sensitivity as any[]).find(
+      (f) => f.factor_id === 'fac_hiring_cost',
     );
-    // The capture carries a raw NEGATIVE estimate for this factor. It must be
-    // labelled below-resolution with the value ABSENT — a clamped 0 would
-    // falsely claim "measured as exactly worthless".
+    // The raw NEGATIVE estimate (-0.15pp / -0.0015) lived in the removed
+    // factor_evpi; the below_resolution label was counterfactual-only and is
+    // withdrawn. If the factor is on the surface it may carry a heuristic EVPI
+    // (non-negative) or nothing — never a counterfactual/below_resolution stamp.
     if (hiringCost) {
-      expect(hiringCost.evpi_status).toBe('below_resolution');
-      expect(hiringCost).not.toHaveProperty('evpi_percentage_points');
-      expect(hiringCost).not.toHaveProperty('evpi_method');
-    } else {
-      // If the factor is not on the public surface at all, absence is honest.
-      expect(hiringCost).toBeUndefined();
+      expect(hiringCost).not.toHaveProperty('evpi_status');
+      expect(hiringCost.evpi_method ?? 'heuristic').toBe('heuristic');
+      if (hiringCost.evpi_percentage_points !== undefined) {
+        expect(hiringCost.evpi_percentage_points).toBeGreaterThanOrEqual(0);
+      }
     }
+    // Raw wire negatives never leak in any form.
+    expect(JSON.stringify(body.factor_sensitivity)).not.toContain('-0.15');
+    expect(JSON.stringify(body.factor_sensitivity)).not.toContain('-0.0015');
   });
 
   // -------------------------------------------------------------------------
@@ -458,11 +444,12 @@ describe('CONSTRAINT_SAMPLES_UNNOISED warning tolerance', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Item C prod posture: flag explicitly OFF → no counterfactual EVPI anywhere
-// (heuristic fallback semantics byte-identical to the pre-promotion build).
+// Item C posture (F3 / ISL #103 / D-23.15): the counterfactual EVPI path was
+// removed, so the surface NEVER carries evpi_method 'counterfactual' or
+// evpi_status — unconditionally, no flag involved (heuristic fallback only).
 // ---------------------------------------------------------------------------
 
-describe('factor_evpi promotion flag OFF (prod posture)', () => {
+describe('no counterfactual EVPI or evpi_status on the surface (F3 — path removed)', () => {
   let app: FastifyInstance;
 
   beforeAll(async () => {
@@ -470,17 +457,15 @@ describe('factor_evpi promotion flag OFF (prod posture)', () => {
     process.env.CEE_ORCHESTRATOR_ENABLED = '0';
     process.env.DECISION_REVIEW_ENABLE = '0';
     process.env.ENABLE_REVIEW_PASS = '0';
-    process.env.ISL_FACTOR_EVPI_INTERNAL = '0'; // explicit prod-default override
     app = await createServer();
     await app.ready();
   }, 120_000);
 
   afterAll(async () => {
     await app.close();
-    delete process.env.ISL_FACTOR_EVPI_INTERNAL;
   });
 
-  it('never emits evpi_method counterfactual or evpi_status when the flag is off', async () => {
+  it('never emits evpi_method counterfactual or evpi_status (unconditional)', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/v2/run',

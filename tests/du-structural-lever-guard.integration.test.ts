@@ -27,11 +27,13 @@
  *   - fac_plain       non-lever with honest positive EVPI — must survive
  *                     (no over-suppression).
  *
- * Both EVPI producer paths are exercised end-to-end:
+ * The EVPI surface is exercised end-to-end:
  *   Block A: heuristic path (no factor_evpi on the wire; win-prob spread > 0).
- *   Block B: ISL counterfactual path (factor_evpi present), including a raw
- *            NEGATIVE factor_evpi entry for a lever — ROADMAP 2.20 rider (b):
- *            no negative EVPI may leak post-suppression, in any form.
+ *   Block B: the removed ISL counterfactual path — `factor_evpi` present on the
+ *            wire (including a raw NEGATIVE entry) but now IGNORED (ISL #103 /
+ *            F3 / D-23.15). The surface falls back to the heuristic; the removed
+ *            field's values never surface, and ROADMAP 2.20 rider (b) still
+ *            holds (no negative EVPI leaks post-suppression, in any form).
  *
  * Suppression only — no EVPI rename, no new scientific claim, no schema change.
  */
@@ -228,26 +230,28 @@ describe('D-U guard, Block A — heuristic EVPI path (no factor_evpi on the wire
   });
 });
 
-describe('D-U guard, Block B — ISL counterfactual EVPI path (factor_evpi on the wire)', () => {
+describe('D-U guard, Block B — removed ISL counterfactual path: `factor_evpi` on the wire is IGNORED (F3 / ISL #103 / D-23.15)', () => {
   let body: any;
   let factors: any[];
 
   beforeAll(async () => {
-    withFactorEvpi = true;
+    withFactorEvpi = true; // present on the wire — and now ignored by PLoT
     ({ body, factors } = await runOnce());
   });
 
-  it('the union lever\'s wire factor_evpi (7.8pp, the live worked example) is NOT published', () => {
-    // RED pre-guard: evpi_percentage_points 7.8, evpi_method 'counterfactual'
-    // — a lever ranked as the top investigation priority.
+  // With `factor_evpi` ignored the surface is the heuristic path; levers are
+  // suppressed there exactly as in Block A, and the removed field's values
+  // (7.8 / 5.0 / -0.15 / 3.2 pp) must never appear.
+
+  it('the union lever bears NO EVPI (its ignored wire factor_evpi 7.8pp is never published)', () => {
     expectSuppressedLever(factors.find((f) => f.factor_id === UNION_ID), 'union lever');
   });
 
-  it('the graph-only union lever\'s wire factor_evpi (5.0pp) is NOT published', () => {
+  it('the graph-only union lever bears NO EVPI (its ignored wire factor_evpi 5.0pp is never published)', () => {
     expectSuppressedLever(factors.find((f) => f.factor_id === GRAPH_ONLY_ID), 'graph-only lever');
   });
 
-  it('an ISL-stamped lever with a raw NEGATIVE wire factor_evpi egresses nothing — rider (b): no negative leak in any form', () => {
+  it('an ISL-stamped lever egresses nothing — rider (b): no negative leak, and the ignored raw wire -0.15 never appears', () => {
     const stamped = factors.find((f) => f.factor_id === STAMPED_ID);
     expectSuppressedLever(stamped, 'ISL-stamped lever');
     // Belt-and-braces sweep: no factor_sensitivity entry anywhere carries a
@@ -263,10 +267,15 @@ describe('D-U guard, Block B — ISL counterfactual EVPI path (factor_evpi on th
     expect(JSON.stringify(body.factor_sensitivity)).not.toContain('-0.15');
   });
 
-  it('a non-lever\'s counterfactual EVPI survives (3.2pp — no over-suppression)', () => {
+  it('WITHDRAWN: a non-lever gets the HEURISTIC EVPI, never the ignored counterfactual 3.2pp', () => {
     const plain = factors.find((f) => f.factor_id === PLAIN_ID);
     expect(plain, 'non-lever present').toBeDefined();
-    expect(plain.evpi_percentage_points).toBe(3.2);
-    expect(plain.evpi_method).toBe('counterfactual');
+    // The removed counterfactual path would have published 3.2pp @ method
+    // 'counterfactual'. That path is gone: the non-lever instead carries the
+    // self-disclosed heuristic EVPI (win-prob spread 0.4 > 0 in this fixture),
+    // and the wire value 3.2 is NOT surfaced verbatim as a counterfactual.
+    expect(plain.evpi_method).toBe('heuristic');
+    expect(plain.evpi_percentage_points).toBeGreaterThan(0);
+    expect(factors.some((f) => f.evpi_method === 'counterfactual')).toBe(false);
   });
 });

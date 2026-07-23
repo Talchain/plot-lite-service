@@ -22,6 +22,17 @@
  *
  * Regenerate deliberately (never to paper over a diff you can't explain):
  *   UPDATE_GOLDEN=1 npx vitest run tests/isl-v2-golden-response.pin.test.ts
+ *
+ * REGENERATED once for F3 (ISL #103 / D-23.15). This capture predates the ISL
+ * rename and still carries the removed top-level `factor_evpi[]`. Removing the
+ * dead counterfactual consumer changed EXACTLY two factor_sensitivity entries
+ * (fac_hiring_cost, fac_team_maturity): the counterfactual-only
+ * `evpi_status:"below_resolution"` stamp is gone and the now-always-run
+ * heuristic instead emits `evpi_percentage_points:0` + `evpi_method:"heuristic"`
+ * (their VOI is 0; win-prob spread 0.184 > 0). The derived `response_content_hash`
+ * follows. Nothing else moved. Against LIVE ISL (which emits no `factor_evpi`)
+ * this is unchanged behaviour — the stale fixture merely stopped exercising the
+ * dead branch. The exact diff is pinned by the assertion below.
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
@@ -227,5 +238,24 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
   it('response_hash is deterministic (unmasked in the golden, so also pinned byte-for-byte)', () => {
     expect(typeof rawBody._meta.response_hash).toBe('string');
     expect(rawBody._meta.response_hash.length).toBeGreaterThan(0);
+  });
+
+  // F3 (ISL #103 / D-23.15): explicit pin of the ONLY response-content change vs
+  // the pre-F3 golden, so the deliberate regeneration is not silent. The removed
+  // counterfactual consumer used to stamp these two non-lever factors
+  // `evpi_status:"below_resolution"` off the stale fixture's `factor_evpi`; the
+  // heuristic (the live path) now emits a non-negative, method-tagged value.
+  it('F3 surface change: the two non-lever factors carry heuristic EVPI, never the withdrawn counterfactual below_resolution', () => {
+    for (const id of ['fac_hiring_cost', 'fac_team_maturity']) {
+      const f = (rawBody.factor_sensitivity as any[]).find((x) => x.factor_id === id);
+      expect(f, id).toBeDefined();
+      expect(f, id).not.toHaveProperty('evpi_status');
+      expect(f.evpi_method, id).toBe('heuristic');
+      expect(f.evpi_percentage_points, id).toBeGreaterThanOrEqual(0);
+    }
+    // And no factor anywhere is labelled counterfactual (the path is removed).
+    expect(
+      (rawBody.factor_sensitivity as any[]).some((f) => f.evpi_method === 'counterfactual'),
+    ).toBe(false);
   });
 });
