@@ -14,6 +14,7 @@ import type {
   OptionV3,
   InterventionValueV3,
   GoalConstraint,
+  FactorCorrelation,
 } from '../../types/engine-v3.js';
 import {
   DEFAULT_STD_FLOOR,
@@ -135,6 +136,15 @@ export interface ISLRobustnessRequestV3 {
    * so the ISL payload does not grow for callers that did not ask.
    */
   include_path_decomposition?: boolean;
+
+  /**
+   * Client-supplied pairwise factor correlations (capability #100, doctrine
+   * D-23.4). Forwarded VERBATIM from the /v2/run request when present and
+   * non-empty; OMITTED otherwise (request-gated — no default payload growth,
+   * ISL's `extra:"ignore"` never sees an empty array). Deep semantics
+   * (unknown-factor / |rho|>1 / self-pair / duplicate) are validated ISL-side.
+   */
+  factor_correlations?: FactorCorrelation[];
 }
 
 // -----------------------------------------------------------------------------
@@ -417,7 +427,12 @@ export function toISLRobustnessRequest(
   // (the /v2/run admission planner computes it to price EVPI). Threading it in
   // avoids a second identical `buildParameterUncertaintiesV3` pass over the same
   // nodes; byte-identical to recomputing here. Omitted callers recompute.
-  prebuiltParameterUncertainties?: ISLRobustnessRequestV3['parameter_uncertainties']
+  prebuiltParameterUncertainties?: ISLRobustnessRequestV3['parameter_uncertainties'],
+  // Capability #100 (doctrine D-23.4): client-supplied pairwise factor
+  // correlations, forwarded VERBATIM. Request-gated — the key is included only
+  // when a non-empty array is supplied, so the ISL payload never grows by
+  // default and ISL's `extra:"ignore"` never sees an empty array.
+  factorCorrelations?: FactorCorrelation[]
 ): ISLRobustnessRequestV3 {
   // Bidirected edges are trust-layer only (identifiability + warnings).
   // ISL operates on directed edges only. Phase 3A-inference will add inference semantics.
@@ -467,6 +482,16 @@ export function toISLRobustnessRequest(
   // either the ISL request or the ISL response.
   if (includePathDecomposition === true) {
     request.include_path_decomposition = true;
+  }
+
+  // Capability #100 (doctrine D-23.4): forward client-supplied factor
+  // correlations VERBATIM, request-gated. Included ONLY when a non-empty array
+  // is supplied — omitted otherwise so the ISL payload is byte-identical for
+  // callers who did not ask, and ISL's `extra:"ignore"` never receives an
+  // empty array. Deep semantics (unknown-factor / |rho|>1 / self-pair /
+  // duplicate) are ISL's single source of truth and surface as a 422.
+  if (factorCorrelations && factorCorrelations.length > 0) {
+    request.factor_correlations = factorCorrelations;
   }
 
   return request;
