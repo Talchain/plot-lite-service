@@ -76,15 +76,18 @@ describe.each(CAPTURES)('ISL→PLoT wire contract (%s)', (fixtureDir) => {
       expect((isl.timestamp as string).length).toBeGreaterThan(0);
     });
 
-    it('per-factor EVPI lives at top-level `factor_evpi` (mapIslFactorEvpi, P-5)', () => {
-      expect(Array.isArray(isl.factor_evpi)).toBe(true);
-      const entry = (isl.factor_evpi as Array<Record<string, unknown>>)[0];
-      for (const key of ['factor_id', 'evpi', 'evpi_percentage_points', 'metric_type']) {
-        expect(entry, `factor_evpi[0].${key}`).toHaveProperty(key);
-      }
-      // evpi_status is conditionally present ('below_resolution') — when present
-      // PLoT must honour it instead of emitting a clamped 0.
-    });
+    // NOTE (F3 / D-23.15): per-factor `factor_evpi` (win-probability EVPI) was a
+    // top-level V2 field in these historical captures but was REMOVED by ISL
+    // #103. PLoT no longer has a read-path pointing at it, so this contract
+    // intentionally pins NO `factor_evpi` consumer (a wire-shape contract fails
+    // only when a PLoT read-path points at a field ISL does not emit — and PLoT
+    // no longer reads this name). The fail-loud guards that PLoT never
+    // re-consumes the removed name live in
+    // `tests/contract/isl-factor-evpi-removed.guard.test.ts` (runtime grep) and
+    // `src/types/isl-no-factor-evpi.type-pin.ts` (compile-time). ISL's honest
+    // successors — outcome-unit `factor_evppi` and win-probability
+    // `p_win_sensitivity` — postdate these captures and ride the raw top-level
+    // passthrough (see tests/factor-correlation-forwarding.test.ts).
 
     it('factor sensitivity entries carry the keys mapIslFactorEntry reads', () => {
       expect(Array.isArray(isl.factor_sensitivity)).toBe(true);

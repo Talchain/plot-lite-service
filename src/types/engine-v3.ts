@@ -1982,17 +1982,18 @@ export interface FactorSensitivityResultV3 {
   /**
    * Estimated EVPI in percentage points of win probability.
    *
-   * Two sources, disclosed via `evpi_method`:
-   * - `'counterfactual'`: ISL's per-factor counterfactual EVPI (V2 wire
-   *   `factor_evpi[]`), used IN PLACE of the heuristic when present and
-   *   `FLAGS.ISL_FACTOR_EVPI_INTERNAL` is on (staging/test default ON, prod
-   *   OFF — P-5, provisional_doctrine_v0). Sanitised: negatives are NEVER
-   *   emitted; below-resolution estimates are labelled via `evpi_status`
-   *   instead of a clamped 0.
-   * - `'heuristic'`: `value_of_information × win_probability_spread × 100`
-   *   (fallback when ISL factor_evpi is absent or the flag is off).
+   * Currently emitted ONLY via the `'heuristic'` method:
+   * `value_of_information × win_probability_spread × 100`, clamped ≥ 0.
    *
-   * Present only when the active source yields an emittable value.
+   * F3 (ISL #103 / D-23.15): the former `'counterfactual'` source consumed
+   * ISL's removed top-level `factor_evpi[]` and has been withdrawn. ISL's
+   * honest outcome-unit successor `factor_evppi` is NOT substituted here — it
+   * is in outcome units, not win-probability points, so it rides the raw
+   * top-level passthrough only and is reconciled onto this surface by the S5
+   * typed-surface batch (D-23.8). The `'counterfactual'` enum member is
+   * RESERVED for that batch; the current build never emits it.
+   *
+   * Present only when the heuristic yields an emittable value.
    *
    * **Derived from this field's own `value_of_information`** — inherits its
    * public-surface provenance (ISL Monte Carlo or graph fallback with
@@ -2004,22 +2005,27 @@ export interface FactorSensitivityResultV3 {
    * `src/coaching/types.ts:EvidenceGap` for the coaching formula.
    */
   evpi_percentage_points?: number;
-  /** Method used to compute evpi_percentage_points */
+  /**
+   * Method used to compute evpi_percentage_points. The current build emits
+   * only `'heuristic'`; `'counterfactual'` is RESERVED for the S5 typed
+   * outcome-unit surface (F3 / D-23.8) and is not produced today.
+   */
   evpi_method?: 'heuristic' | 'counterfactual';
   /**
-   * Present ONLY when ISL supplied a counterfactual EVPI estimate for this
-   * factor that is too small to measure at the run's sampling depth
-   * (including Monte Carlo–noise negatives, which are never emitted).
-   * `'below_resolution'` means "too small to measure", NOT "measured as
-   * zero" — `evpi_percentage_points` is deliberately absent in that case.
-   * Honours ISL's `factor_evpi[].evpi_status` wire field where present.
+   * RESERVED for the S5 typed counterfactual surface (F3 / D-23.8) — NOT
+   * emitted by the current build. It was previously set when ISL's removed
+   * `factor_evpi[].evpi_status` reported a per-factor estimate too small to
+   * measure at the run's sampling depth. `'below_resolution'` means "too small
+   * to measure", NOT "measured as zero" — when re-wired, `evpi_percentage_points`
+   * is deliberately absent in that case rather than a clamped 0.
    */
   evpi_status?: 'below_resolution';
   /**
-   * Doctrine 014 — producer-owned "gather evidence" gate. Gates on the REAL
-   * per-factor counterfactual EVPI where present (evpi_percentage_points with
-   * evpi_method 'counterfactual', >= EVPI_HINT_MIN_PP), else falls back
-   * to the heuristic VOI (value_of_information > VOI_HINT_MIN). Both
+   * Doctrine 014 — producer-owned "gather evidence" gate. With the
+   * counterfactual EVPI withheld (F3), the gate reads the heuristic VOI
+   * (value_of_information > VOI_HINT_MIN); when the S5 typed surface re-wires a
+   * real per-factor EVPI it will gate on that instead (evpi_percentage_points
+   * with evpi_method 'counterfactual', >= EVPI_HINT_MIN_PP). Both
    * thresholds DOCTRINE-PENDING (Neil). ABSENT when there is no basis (no real
    * EVPI and no finite VOI) and on option-controlled levers (not evidence-gap
    * candidates). See `src/lib/evpi-emission.ts` (`deriveEvidenceHint`).

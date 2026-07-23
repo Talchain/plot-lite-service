@@ -14,22 +14,26 @@
  *   | edge sensitivity     | top-level `sensitivity`     | `robustness.edge_sensitivity` (build 9a22a1a+; ABSENT on older builds) |
  *   | validation status    | top-level `validation_status` | NOT EMITTED                |
  *   | computed timestamp   | top-level `computed_at`     | top-level `timestamp`        |
- *   | factor VOI           | `factor_sensitivity[].value_of_information` | top-level `factor_evpi[]` (per-factor EVPI) |
  *
  * All V2-location reads MUST go through these accessors so the location is
  * fixed in exactly one place.
+ *
+ * NOTE (F3, ISL #103 / D-23.15): ISL removed the top-level `factor_evpi`
+ * wire field (win-probability EVPI). Its win-probability successor is
+ * `p_win_sensitivity` and the outcome-unit value of partial perfect
+ * information is `factor_evppi`; both ride the raw top-level passthrough in
+ * routes/v2/run.ts and are NOT (yet) reshaped here. The former
+ * `mapIslFactorEvpi` accessor + its counterfactual ranking consumer were
+ * removed with the field; see `src/types/isl-no-factor-evpi.type-pin.ts` and
+ * `tests/contract/isl-factor-evpi-removed.guard.test.ts` for the fail-loud
+ * guards that keep the dead name from creeping back.
  */
 
 import type {
   ISLEdgeEValue,
   ISLEdgeSensitivityV2,
-  ISLFactorEvpiEntry,
   ISLRobustnessAnalyzeV2Response,
 } from './types/isl-types.js';
-import {
-  classifyEvpiPercentagePointsForEmission,
-  type EvpiEmissionClassification,
-} from '../../lib/evpi-emission.js';
 
 /**
  * Read edge E-values from an ISL response.
@@ -94,103 +98,4 @@ export function getIslComputedAt(
   const legacy = islResult?.computed_at;
   if (typeof legacy === 'string' && legacy.length > 0) return legacy;
   return undefined;
-}
-
-/**
- * Internal (non-user-facing) representation of a sanitised per-factor EVPI
- * entry from the V2 `factor_evpi` wire field.
- *
- * EVPI hygiene contract (Howard 1966 non-negativity; see evpi-emission.ts):
- * - `emit_pp` is the ONLY value any surface may ever show outward — it is
- *   either a finite value >= the emission resolution, or `undefined`.
- * - Negative and below-resolution raw values set `below_resolution: true`
- *   ("too small to measure at this sampling depth"), NEVER a clamped 0 and
- *   NEVER a negative — the raw value stays in `raw_*` diagnostics only.
- */
-export interface InternalFactorEvpi {
-  factor_id: string;
-  /** Outward-safe EVPI in percentage points; undefined when below resolution */
-  emit_pp: number | undefined;
-  /** True when the raw estimate is below the emission resolution (incl. all negatives) */
-  below_resolution: boolean;
-  /** Raw wire value (diagnostics only — may be negative; MUST NOT be emitted) */
-  raw_evpi: number;
-  /** Raw wire value in percentage points (diagnostics only — may be negative) */
-  raw_evpi_percentage_points: number;
-  metric_type: string;
-  n_evpi_samples: number;
-}
-
-/** Result of mapping the V2 `factor_evpi` wire field. */
-export interface FactorEvpiMappingResult {
-  /** Sanitised entries (one per valid wire entry) */
-  entries: InternalFactorEvpi[];
-  /** Count of wire entries dropped for structural invalidity (non-finite/missing) */
-  dropped_invalid: number;
-}
-
-/**
- * Guarded mapping for the V2 `factor_evpi` field.
- *
- * P-5 PROMOTED (provisional_doctrine_v0, lane PLoT-H item C, 2026-07-07):
- * behind `FLAGS.ISL_FACTOR_EVPI_INTERNAL` (default ON for staging/test, OFF
- * for prod) the sanitised entries feed the factor_sensitivity
- * "worth checking next" surface (`evpi_percentage_points`,
- * `evpi_method: 'counterfactual'`, `evpi_status: 'below_resolution'`) IN
- * PLACE of the VOI×spread heuristic. The hygiene is centralised here so the
- * wiring can never leak a raw negative EVPI outward:
- * - negatives are NEVER emitted (Monte Carlo sampling artefacts);
- * - below-resolution estimates are labelled, never clamped to 0;
- * - ISL's own `evpi_status` wire field is honoured where present
- *   ('below_resolution' forces the label even if the raw value clears
- *   PLoT's local threshold).
- */
-export function mapIslFactorEvpi(
-  islResult: Partial<ISLRobustnessAnalyzeV2Response> | null | undefined,
-): FactorEvpiMappingResult {
-  const raw = islResult?.factor_evpi;
-  if (!Array.isArray(raw) || raw.length === 0) {
-    return { entries: [], dropped_invalid: 0 };
-  }
-
-  const entries: InternalFactorEvpi[] = [];
-  let droppedInvalid = 0;
-
-  for (const e of raw as Array<Partial<ISLFactorEvpiEntry>>) {
-    if (
-      !e ||
-      typeof e.factor_id !== 'string' ||
-      typeof e.evpi !== 'number' ||
-      !Number.isFinite(e.evpi) ||
-      typeof e.evpi_percentage_points !== 'number' ||
-      !Number.isFinite(e.evpi_percentage_points)
-    ) {
-      droppedInvalid += 1;
-      continue;
-    }
-
-    const classification: EvpiEmissionClassification =
-      classifyEvpiPercentagePointsForEmission(e.evpi_percentage_points);
-
-    // Honour ISL's own emission classification where present: an explicit
-    // 'below_resolution' from the producer overrides PLoT's local threshold
-    // (never the reverse — PLoT's threshold still applies when ISL says 'ok'
-    // or omits the field, so a sub-resolution raw value stays labelled).
-    const islSaysBelowResolution = e.evpi_status === 'below_resolution';
-
-    entries.push({
-      factor_id: e.factor_id,
-      emit_pp: islSaysBelowResolution ? undefined : classification.emit,
-      below_resolution: classification.below_resolution || islSaysBelowResolution,
-      raw_evpi: e.evpi,
-      raw_evpi_percentage_points: e.evpi_percentage_points,
-      metric_type: typeof e.metric_type === 'string' ? e.metric_type : 'unknown',
-      n_evpi_samples:
-        typeof e.n_evpi_samples === 'number' && Number.isFinite(e.n_evpi_samples)
-          ? e.n_evpi_samples
-          : 0,
-    });
-  }
-
-  return { entries, dropped_invalid: droppedInvalid };
 }

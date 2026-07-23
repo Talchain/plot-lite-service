@@ -221,29 +221,38 @@ describe('014 route: evidence_hint on unmodified live capture (below-resolution 
   });
 });
 
-describe('014 route: material real EVPI drives evidence_hint:true on the wire', () => {
+describe('014 route: the removed `factor_evpi` no longer drives a counterfactual evidence_hint (F3 / ISL #103 / D-23.15)', () => {
   let hiringCost: any;
   beforeAll(async () => {
-    // Inject a MATERIAL counterfactual EVPI on a non-lever factor (fac_hiring_cost)
-    // so the gate must resolve true — proves the wiring actually consults the real
-    // per-factor EVPI (not a hardcoded false).
+    // Inject a MATERIAL `factor_evpi` (the removed win-probability EVPI name) on
+    // a non-lever factor. Pre-F3 this drove evpi_method:'counterfactual' and an
+    // evidence_hint off the real per-factor EVPI. Post-F3 the name is IGNORED —
+    // this proves the old-name path is dead and the gate falls back to VOI only.
     const modified = JSON.parse(JSON.stringify(baseCapture));
     const fe = (modified.factor_evpi ?? []).find((e: any) => e.factor_id === 'fac_hiring_cost');
     fe.evpi = 0.02;
-    fe.evpi_percentage_points = 2.0; // >= EVPI_HINT_MIN_PP (0.5)
-    delete fe.evpi_status; // not below-resolution → emit as counterfactual
+    fe.evpi_percentage_points = 2.0; // pre-F3 this cleared EVPI_HINT_MIN_PP as counterfactual
+    delete fe.evpi_status;
     holder.capture = modified;
     const factors = await runOnce();
     hiringCost = factors.find((f: any) => f.factor_id === 'fac_hiring_cost');
   }, 120_000);
 
-  it('fac_hiring_cost carries a counterfactual EVPI at/above threshold', () => {
+  it('the injected factor_evpi is IGNORED — fac_hiring_cost is not counterfactual and carries no evpi_status', () => {
     expect(hiringCost).toBeDefined();
-    expect(hiringCost.evpi_method).toBe('counterfactual');
-    expect(hiringCost.evpi_percentage_points).toBeGreaterThanOrEqual(EVPI_HINT_MIN_PP);
+    expect(hiringCost.evpi_method).not.toBe('counterfactual');
+    expect(hiringCost).not.toHaveProperty('evpi_status');
   });
 
-  it('and therefore evidence_hint:true reaches the wire', () => {
-    expect(hiringCost.evidence_hint).toBe(true);
+  it('evidence_hint now derives from the heuristic VOI only (the ignored injected EVPI never drives it)', () => {
+    // With the counterfactual basis withheld, gateFor collapses to the VOI gate;
+    // whatever evidence_hint the wire carries must equal that VOI recomputation,
+    // NOT anything derived from the ignored injected factor_evpi (2.0pp).
+    if (hiringCost.evidence_hint !== undefined) {
+      expect(hiringCost.evidence_hint).toBe(gateFor(hiringCost));
+      expect(hiringCost.evidence_hint).toBe(
+        deriveEvidenceHint({ voi: hiringCost.value_of_information }),
+      );
+    }
   });
 });

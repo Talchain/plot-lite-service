@@ -137,9 +137,9 @@ export const ISL_TO_UI_CONTRACT: BoundaryContract = {
     'robustness.display_verdict_reason', // claim-safe producer phrase, no numbers (e.g. fragile → 'small changes could flip this result')
     'confidence_tier',                   // B1: derived from m1_coaching.readiness (ready→strong, close_call→fair, else→needs_work)
     'dominant_factor',                   // B1: detected from factor_sensitivity (influence >0.5 AND ratio >2:1)
-    'factor_sensitivity[].evpi_percentage_points', // P-5: ISL factor_evpi[] counterfactual (sanitised, flag-gated staging/test) OR VOI×spread heuristic fallback; source disclosed via evpi_method
-    'factor_sensitivity[].evpi_method',  // P-5: 'counterfactual' (ISL factor_evpi) | 'heuristic' (VOI×spread fallback)
-    'factor_sensitivity[].evpi_status',  // P-5: 'below_resolution' label when ISL counterfactual EVPI too small to measure (incl. MC-noise negatives) — never a clamped 0
+    'factor_sensitivity[].evpi_percentage_points', // F3: VOI×win-prob-spread HEURISTIC only (the removed ISL factor_evpi[] counterfactual source is withdrawn; factor_evppi withheld pending S5). Source disclosed via evpi_method.
+    'factor_sensitivity[].evpi_method',  // F3: currently only 'heuristic' (VOI×spread); 'counterfactual' reserved for the S5 typed surface
+    'factor_sensitivity[].evpi_status',  // F3: RESERVED for the S5 counterfactual surface (was the below_resolution label); NOT emitted by the current build
     // Tier-B always-emit contract: the following enrichment arrays are always
     // present on the response ([] when ISL returns empty or omits the field),
     // and their entries are label-enriched beyond the ISL source shape.

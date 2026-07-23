@@ -8,9 +8,12 @@
  *  - top-level `edge_e_values` / `sensitivity` / `validation_status` /
  *    `computed_at` NEVER appear on the live V2 wire;
  *  - edge E-values are NESTED at robustness.edge_e_values;
- *  - the timestamp is top-level `timestamp`;
- *  - per-factor EVPI arrives at top-level `factor_evpi` (including a raw
- *    NEGATIVE entry — MC sampling noise — that must never leak outward).
+ *  - the timestamp is top-level `timestamp`.
+ *
+ * This 2026-07-06 capture also carries the since-REMOVED top-level `factor_evpi`
+ * (win-probability EVPI, deleted by ISL #103 — F3/D-23.15). PLoT no longer
+ * consumes it; the assertions below pin its presence only as HISTORICAL fixture
+ * bytes (this file is a raw capture — "do not fix"), not as a live read-path.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -21,7 +24,6 @@ import { fileURLToPath } from 'node:url';
 import {
   getIslEdgeEValues,
   getIslComputedAt,
-  mapIslFactorEvpi,
 } from '../src/integrations/isl/v2-envelope.js';
 import {
   classifyEvpiPercentagePointsForEmission,
@@ -62,10 +64,13 @@ describe('live V2 wire shape (fixture integrity — raw capture, do not "fix")',
   );
 
   it.each([['A', captureA], ['B', captureB]])(
-    'capture %s: V2 locations are PRESENT (nested e-values, factor_evpi, timestamp)',
+    'capture %s: V2 locations are PRESENT (nested e-values, timestamp) + the historical factor_evpi bytes',
     (_name, capture) => {
       expect(Array.isArray(capture.robustness.edge_e_values)).toBe(true);
       expect(capture.robustness.edge_e_values.length).toBeGreaterThan(0);
+      // Historical only: `factor_evpi` was removed by ISL #103 and is no longer
+      // consumed by PLoT. This capture predates the rename, so its bytes still
+      // carry it; pinned here as fixture integrity, not a live read-path.
       expect(Array.isArray(capture.factor_evpi)).toBe(true);
       expect(capture.factor_evpi.length).toBeGreaterThan(0);
       expect(typeof capture.timestamp).toBe('string');
@@ -101,7 +106,7 @@ describe('live V2 wire shape (fixture integrity — raw capture, do not "fix")',
     expect(unflippable).toBe(4);
   });
 
-  it('capture A: factor_evpi carries a raw NEGATIVE entry (MC noise) — the hygiene target', () => {
+  it('capture A: the historical factor_evpi bytes carry a raw NEGATIVE entry (MC noise) — the removed field, retained as fixture integrity', () => {
     const negative = captureA.factor_evpi.filter((f: any) => f.evpi < 0);
     expect(negative.length).toBeGreaterThan(0);
     expect(negative[0].factor_id).toBe('fac_hiring_cost');
@@ -152,94 +157,6 @@ describe('getIslComputedAt', () => {
     expect(getIslComputedAt({ timestamp: '' as any })).toBeUndefined();
     expect(getIslComputedAt({ timestamp: 123 as any })).toBeUndefined();
     expect(getIslComputedAt(undefined)).toBeUndefined();
-  });
-});
-
-describe('mapIslFactorEvpi (sanitising mapping — P-5 promoted behind ISL_FACTOR_EVPI_INTERNAL, provisional_doctrine_v0)', () => {
-  it('proves the live wire delivers factor_evpi: 4 sanitised entries from capture A', () => {
-    const { entries, dropped_invalid } = mapIslFactorEvpi(captureA);
-    expect(entries).toHaveLength(4);
-    expect(dropped_invalid).toBe(0);
-    expect(entries.map((e) => e.factor_id).sort()).toEqual([
-      'fac_dev_headcount',
-      'fac_hiring_cost',
-      'fac_team_maturity',
-      'fac_tech_lead',
-    ]);
-  });
-
-  it('negative raw EVPI (fac_hiring_cost -0.15pp) → below_resolution, NEVER an emittable negative', () => {
-    const { entries } = mapIslFactorEvpi(captureA);
-    const hiring = entries.find((e) => e.factor_id === 'fac_hiring_cost')!;
-    expect(hiring.below_resolution).toBe(true);
-    expect(hiring.emit_pp).toBeUndefined();
-    // Raw values retained for diagnostics only
-    expect(hiring.raw_evpi).toBe(-0.0015);
-    expect(hiring.raw_evpi_percentage_points).toBe(-0.15);
-  });
-
-  it('no entry ever exposes a negative emittable value', () => {
-    const { entries } = mapIslFactorEvpi(captureA);
-    for (const e of entries) {
-      if (e.emit_pp !== undefined) {
-        expect(e.emit_pp).toBeGreaterThanOrEqual(EVPI_EMISSION_RESOLUTION_PP);
-      }
-    }
-  });
-
-  it('above-resolution entries emit rounded percentage points', () => {
-    const { entries } = mapIslFactorEvpi(captureA);
-    const dev = entries.find((e) => e.factor_id === 'fac_dev_headcount')!;
-    expect(dev.below_resolution).toBe(false);
-    expect(dev.emit_pp).toBe(1.9); // raw 1.85pp rounded to 0.1pp
-    expect(dev.metric_type).toBe('p_win_recommended');
-    expect(dev.n_evpi_samples).toBe(500);
-  });
-
-  it('tolerates absent/empty/garbage input without crashing', () => {
-    expect(mapIslFactorEvpi({})).toEqual({ entries: [], dropped_invalid: 0 });
-    expect(mapIslFactorEvpi(undefined)).toEqual({ entries: [], dropped_invalid: 0 });
-    expect(mapIslFactorEvpi({ factor_evpi: [] })).toEqual({ entries: [], dropped_invalid: 0 });
-    const garbage = mapIslFactorEvpi({
-      factor_evpi: [
-        null,
-        { factor_id: 'ok', evpi: 0.01, evpi_percentage_points: 1.0, current_metric: 0.5, perfect_metric: 0.51, metric_type: 'x', n_evpi_samples: 10 },
-        { factor_id: 'bad', evpi: Number.NaN, evpi_percentage_points: 1.0 },
-        { evpi: 0.01, evpi_percentage_points: 1.0 },
-      ] as any,
-    });
-    expect(garbage.entries).toHaveLength(1);
-    expect(garbage.dropped_invalid).toBe(3);
-  });
-
-  it("honours ISL's evpi_status='below_resolution' even when the raw value clears PLoT's threshold", () => {
-    const { entries } = mapIslFactorEvpi({
-      factor_evpi: [
-        {
-          factor_id: 'fac_x', evpi: 0.02, evpi_percentage_points: 2.0,
-          current_metric: 0.5, perfect_metric: 0.52, metric_type: 'p_win_recommended',
-          n_evpi_samples: 500, evpi_status: 'below_resolution',
-        },
-      ] as any,
-    });
-    expect(entries).toHaveLength(1);
-    expect(entries[0].below_resolution).toBe(true);
-    expect(entries[0].emit_pp).toBeUndefined(); // producer's own label wins
-  });
-
-  it("does NOT let evpi_status='ok' override PLoT's threshold for sub-resolution raws", () => {
-    const { entries } = mapIslFactorEvpi({
-      factor_evpi: [
-        {
-          factor_id: 'fac_y', evpi: -0.0001, evpi_percentage_points: -0.01,
-          current_metric: 0.5, perfect_metric: 0.4999, metric_type: 'p_win_recommended',
-          n_evpi_samples: 500, evpi_status: 'ok',
-        },
-      ] as any,
-    });
-    expect(entries).toHaveLength(1);
-    expect(entries[0].below_resolution).toBe(true); // local threshold still applies
-    expect(entries[0].emit_pp).toBeUndefined();
   });
 });
 

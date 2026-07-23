@@ -450,41 +450,13 @@ export interface ISLEdgeEValue {
   stability?: ISLFlipStabilityBandV2;
 }
 
-/**
- * ISL per-factor EVPI entry from the V2 wire (top-level `factor_evpi`).
- *
- * Verified live (staging capture 2026-07-06, build f3f5d92): entries carry
- * true counterfactual EVPI per factor. NOT wired into any user-facing VOI/EVPI
- * surface yet (decision P-5 pending) — consumed only by the guarded internal
- * mapping in `../v2-envelope.js`.
- *
- * Raw `evpi` / `evpi_percentage_points` can drift slightly negative from Monte
- * Carlo sampling noise (observed live: -0.0015 / -0.15pp). Negative values are
- * sampling artefacts, never real signals — see `src/lib/evpi-emission.ts`.
- */
-export interface ISLFactorEvpiEntry {
-  /** Factor node ID */
-  factor_id: string;
-  /** EVPI as a fraction of the decision metric (can be MC-noise negative) */
-  evpi: number;
-  /** EVPI in percentage points of the decision metric (can be MC-noise negative) */
-  evpi_percentage_points: number;
-  /** Current value of the decision metric */
-  current_metric: number;
-  /** Decision metric under perfect information about this factor */
-  perfect_metric: number;
-  /** Which metric EVPI is measured on (e.g., 'p_win_recommended') */
-  metric_type: string;
-  /** Number of Monte Carlo samples used for the EVPI estimate */
-  n_evpi_samples: number;
-  /**
-   * ISL's own emission classification for this estimate (newer ISL builds;
-   * the 2026-07-06 live capture predates it). When present and
-   * 'below_resolution', PLoT honours it: the entry is labelled
-   * below-resolution regardless of PLoT's local threshold classification.
-   */
-  evpi_status?: 'ok' | 'below_resolution' | string;
-}
+// REMOVED (F3, ISL #103 / D-23.15): `ISLFactorEvpiEntry` — the per-factor
+// win-probability EVPI entry from the now-deleted top-level `factor_evpi[]`
+// wire field. Its only consumer, `mapIslFactorEvpi` in ../v2-envelope.ts,
+// read a name ISL no longer emits and silently fell back to the VOI×spread
+// heuristic. Both are removed. The successors (`p_win_sensitivity`,
+// `factor_evppi`) ride the raw top-level passthrough in routes/v2/run.ts;
+// their firm shapes land with @talchain/schemas 0.23 / the S5 typed surface.
 
 /**
  * ISL conditional winner analysis per factor.
@@ -752,14 +724,13 @@ export interface ISLRobustnessAnalyzeV2Response {
    */
   edge_e_values?: ISLEdgeEValue[];
 
-  /**
-   * Per-factor counterfactual EVPI (V2 wire, top-level; verified live
-   * 2026-07-06). P-5 PROMOTED (provisional_doctrine_v0, 2026-07-07): feeds
-   * the factor_sensitivity "worth checking next" surface behind
-   * `FLAGS.ISL_FACTOR_EVPI_INTERNAL` (staging/test ON, prod OFF), sanitised
-   * via `mapIslFactorEvpi`. See `ISLFactorEvpiEntry`.
-   */
-  factor_evpi?: ISLFactorEvpiEntry[];
+  // REMOVED (F3, ISL #103 / D-23.15): the top-level `factor_evpi[]`
+  // (per-factor win-probability EVPI) field. ISL renamed it — the
+  // win-probability successor is `p_win_sensitivity` and the outcome-unit
+  // value of partial perfect information is `factor_evppi` (both typed on the
+  // PLoT response as `unknown` passthrough in engine-v3.ts, firm shapes
+  // pending @talchain/schemas 0.23 / S5). PLoT no longer consumes the old
+  // name; re-adding it here is blocked by `src/types/isl-no-factor-evpi.type-pin.ts`.
 
   /**
    * Response timestamp (ISO 8601) — the V2 wire's equivalent of the V1-era
@@ -804,7 +775,7 @@ export interface ISLRobustnessAnalyzeV2Response {
    */
   inference_warnings?: Array<{
     code: string;
-    /** Field path the warning is about (e.g. 'factor_evpi', 'path_decomposition'). */
+    /** Field path the warning is about (e.g. 'factor_evppi', 'path_decomposition'). */
     field?: string;
     severity?: 'info' | 'warning';
     /** Flat human copy (older captures); real shape carries it under `detail`. */

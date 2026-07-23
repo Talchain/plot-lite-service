@@ -583,7 +583,8 @@
       "rank_flip_rate": 0.3,
       "stability_method": "bootstrap_20",
       "driver_label": "moderate",
-      "evpi_status": "below_resolution",
+      "evpi_percentage_points": 0,
+      "evpi_method": "heuristic",
       "evidence_hint": false
     },
     {
@@ -617,7 +618,8 @@
       "stability_method": "bootstrap_20",
       "value_defaulted": true,
       "driver_label": "moderate",
-      "evpi_status": "below_resolution",
+      "evpi_percentage_points": 0,
+      "evpi_method": "heuristic",
       "evidence_hint": false
     }
   ],
@@ -1618,7 +1620,7 @@
     "decision_brief_assembled": true,
     "review_cards_count": 0,
     "evidence_priority_card_present": false,
-    "response_content_hash": "rch_v2:36d21c5efb11cff9"
+    "response_content_hash": "rch_v2:e9467483d37018f9"
   },
   "meta": {
     "seed_used": "2034401427",

@@ -204,7 +204,6 @@ describe('capability #100 — /v2/run route (allowlist, passthrough, 422)', () =
     process.env.CEE_ORCHESTRATOR_ENABLED = '0';
     process.env.DECISION_REVIEW_ENABLE = '0';
     process.env.ENABLE_REVIEW_PASS = '0';
-    delete process.env.ISL_FACTOR_EVPI_INTERNAL;
     app = await createServer();
     await app.ready();
   });

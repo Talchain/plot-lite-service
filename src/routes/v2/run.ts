@@ -102,7 +102,8 @@ import {
 import { deriveRobustnessDisplayVerdict } from './robustness-display-verdict.js';
 import type { RobustnessDataForCee, NormalizedEdgeInfo } from '../../integrations/isl/types/plot-types.js';
 import type { ISLConstraintResult, ISLEdgeEValue, ISLConditionalWinner } from '../../integrations/isl/types/isl-types.js';
-import { getIslEdgeEValues, getIslEdgeSensitivity, getIslComputedAt, mapIslFactorEvpi } from '../../integrations/isl/v2-envelope.js';
+import { getIslEdgeEValues, getIslEdgeSensitivity, getIslComputedAt } from '../../integrations/isl/v2-envelope.js';
+import { V2_RUN_ALLOWED_KEYS, islEnrichmentPassthrough } from './run-contract-keys.js';
 import { assessIslWireGeneration, logIslWireGenerationUnverified } from '../../integrations/isl/wire-generation.js';
 import { preflightDuplicateEdges } from '../../integrations/isl/preflight.js';
 import { orchestrateCeeReview } from '../../cee/orchestrator.js';
@@ -803,11 +804,13 @@ function mapIslFactorEntry(f: any, normContext?: NormalisationContext): FactorSe
   // `factor_sensitivity[].value_of_information` is a V1-only field the live
   // V2 envelope NEVER emits — this read is structurally undefined on the live
   // path, so factor VOI always comes from the graph heuristic
-  // (computeFactorSensitivityFromGraph). The V2 wire carries true per-factor
-  // EVPI at top-level `factor_evpi` instead; wiring it into user-facing VOI is
-  // decision P-5 (pending) — see mapIslFactorEvpi in
-  // src/integrations/isl/v2-envelope.ts. The read is kept (not deleted) only
-  // to tolerate legacy fixtures.
+  // (computeFactorSensitivityFromGraph). ISL's honest outcome-unit successor,
+  // top-level `factor_evppi` (F3 / ISL #103; the earlier win-probability
+  // `factor_evpi[]` was removed), rides the raw top-level passthrough only and
+  // is deliberately NOT wired into this user-facing VOI/EVPI surface yet —
+  // outcome-units vs win-probability points need the S5 typed-surface
+  // reconciliation (D-23.8). The read is kept (not deleted) only to tolerate
+  // legacy fixtures.
   const sanitisedVoi = sanitiseIslVoi(f.value_of_information);
 
   const entry: FactorSensitivityResultV3 = {
@@ -1144,17 +1147,9 @@ function normalizeOptions(
 // additive fields. Unknown nested fields are silently dropped during
 // normalisation/translation — they do not reach ISL or the response.
 // CIL Phase 1: This allowlist will be derived from @olumi/schemas V2RunRequestSchema.shape keys. Do not manually update — coordinate via schema package.
-const V2_RUN_ALLOWED_KEYS = new Set([
-  'graph', 'options', 'goal_node_id',
-  'seed', 'n_samples', 'detail_level', 'request_id', 'idempotency_key',
-  'goal_threshold', 'brief', 'goal_constraints', 'include_thresholds',
-  'include_e_values', 'include_voi', 'include_path_decomposition',
-  // Capability #100 (doctrine D-23.4): client-supplied pairwise factor
-  // correlations. BOTH gates must know this key — this allowlist (preValidation)
-  // AND runV3Schema.properties below (Ajv, additionalProperties:false). Omitting
-  // it from either drops the field before it reaches the handler.
-  'factor_correlations',
-]);
+// The set lives in ./run-contract-keys so the OpenAPI↔runtime drift gate can
+// read the SAME source of truth (F9 / D-23.15); it MUST equal
+// contracts/openapi.yaml runRequestV3.properties.
 
 const runV3Schema = {
   body: {
@@ -3276,7 +3271,8 @@ function buildResponse(
         path_decomposition: islResult.path_decomposition,
       }),
     // Correlated-factors capability outputs (capability #100 + VOI slices
-    // D-23.8): VERBATIM additive passthrough of ISL top-level envelope fields.
+    // D-23.8): VERBATIM additive passthrough of ISL top-level envelope fields
+    // (correlation_model / decision_evpi / factor_evppi / p_win_sensitivity).
     // Present-in ⇒ present-out; ABSENT ⇒ omitted (no default payload growth,
     // every existing golden byte-identical). "PLoT passthrough-forwards
     // meanwhile" (D-23.4) — the raw passthrough only; the richer outcome-unit
@@ -3284,20 +3280,11 @@ function buildResponse(
     // firm wire typing rides the @talchain/schemas batch. Without this block
     // buildResponse's field-by-field rebuild would silently DROP them (the
     // transformEdgeEValues-class hazard). Excluded from response_hash (these are
-    // computed enrichment; response_hash canonicalises the request). Guard is
-    // `!== undefined` so an explicit null/0/false from ISL still passes through.
-    ...(islResult?.correlation_model !== undefined && {
-      correlation_model: islResult.correlation_model,
-    }),
-    ...(islResult?.decision_evpi !== undefined && {
-      decision_evpi: islResult.decision_evpi,
-    }),
-    ...(islResult?.factor_evppi !== undefined && {
-      factor_evppi: islResult.factor_evppi,
-    }),
-    ...(islResult?.p_win_sensitivity !== undefined && {
-      p_win_sensitivity: islResult.p_win_sensitivity,
-    }),
+    // computed enrichment; response_hash canonicalises the request). The key set
+    // + emission order derive from ISL_TOPLEVEL_ENRICHMENT_KEYS so the OpenAPI
+    // drift gate stays in lockstep (F9). Guard is `!== undefined` so an explicit
+    // null/0/false from ISL still passes through.
+    ...islEnrichmentPassthrough(islResult),
     // Edge E-values from ISL — enriched with labels. Always emitted ([] when empty
     // or ISL omitted the field) so consumers can distinguish computed-empty from
     // absent; PLoT always requests include_e_values: true. Excluded from response_hash.
@@ -5842,32 +5829,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               requestId,
             );
 
-            // === INTERNAL (flag-gated, default OFF): V2 factor_evpi arrival proof ===
-            // The V2 wire carries per-factor counterfactual EVPI at top-level
-            // `factor_evpi` (verified live 2026-07-06). Decision P-5 (pending):
-            // it MUST NOT feed any user-facing VOI/EVPI surface yet. Behind the
-            // flag we log a sanitised summary ONLY — negative/below-resolution
-            // raw values are never logged as emittable numbers (see
-            // mapIslFactorEvpi hygiene). The public response is byte-identical
-            // whether this flag is on or off.
-            if (FLAGS.ISL_FACTOR_EVPI_INTERNAL) {
-              const factorEvpiMapping = mapIslFactorEvpi(islResult);
-              req.log.info({
-                event: 'isl_factor_evpi_internal',
-                request_id: requestId,
-                count: factorEvpiMapping.entries.length,
-                dropped_invalid: factorEvpiMapping.dropped_invalid,
-                below_resolution_count: factorEvpiMapping.entries.filter((e) => e.below_resolution).length,
-                entries: factorEvpiMapping.entries.map((e) => ({
-                  factor_id: e.factor_id,
-                  emit_pp: e.emit_pp ?? null,
-                  below_resolution: e.below_resolution,
-                  raw_evpi_percentage_points: e.raw_evpi_percentage_points,
-                  metric_type: e.metric_type,
-                  n_evpi_samples: e.n_evpi_samples,
-                })),
-              });
-            }
+            // REMOVED (F3, ISL #103 / D-23.15): the flag-gated `factor_evpi`
+            // arrival-proof log block. It called the deleted `mapIslFactorEvpi`
+            // against ISL's removed top-level `factor_evpi[]` field, so it could
+            // only ever log an empty summary against the current ISL generation.
           } else {
             islStatusCode = response.error?.status ?? 500;
             islFallbackExecuted = true;
@@ -6183,28 +6148,32 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           factorSensitivitySource = 'isl';
         }
 
-        // Enrich factor sensitivity with EVPI percentage points.
+        // Enrich factor sensitivity with heuristic EVPI percentage points.
         //
-        // P-5 (provisional_doctrine_v0, lane PLoT-H item C): when ISL supplied
-        // per-factor counterfactual EVPI (V2 wire `factor_evpi[]`) AND
-        // FLAGS.ISL_FACTOR_EVPI_INTERNAL is on (default ON for staging/test,
-        // OFF for prod), the sanitised ISL values are used IN PLACE of the
-        // heuristic for the "worth checking next" ranking surface. Hygiene via
-        // mapIslFactorEvpi: negatives are NEVER emitted; below-resolution
-        // estimates (including all MC-noise negatives, honouring ISL's
-        // `evpi_status` wire field where present) are labelled
-        // `evpi_status: 'below_resolution'` with evpi_percentage_points ABSENT
-        // — never a clamped 0. Live motivation (scenario 327bc417,
-        // 2026-07-07): the heuristic |sens|×(1−conf)×max(marginal) flattened
-        // to 0 for ALL factors because marginal_switch_probability was
-        // uniformly 0, so the ranking carried no information.
+        // F3 (ISL #103 / D-23.15): the former ISL COUNTERFACTUAL path — which
+        // consumed the removed top-level `factor_evpi[]` and, gated by
+        // FLAGS.ISL_FACTOR_EVPI_INTERNAL, replaced the heuristic on this "worth
+        // checking next" ranking surface — has been REMOVED with the field. ISL
+        // renamed it (win-probability successor `p_win_sensitivity`;
+        // outcome-unit `factor_evppi`), so the path could never fire against the
+        // current ISL generation; against live ISL this surface was ALWAYS the
+        // heuristic (the stale pin fixtures that still carry `factor_evpi` were
+        // the only place the dead branch ever executed).
         //
-        // Fallback (factor_evpi absent or flag off): the existing heuristic
-        // VOI × win-probability-spread × 100, clamped ≥ 0. Not true
-        // counterfactual EVPI. See `src/lib/evpi-emission.ts` for the
-        // non-negative contract rationale (Howard 1966; OpenAPI
-        // `evpi_percentage_points.minimum: 0`). The golden pricing-canary
-        // fixture has no factor_evpi → always takes this path (byte-identical).
+        // WITHHELD, not wired: the honest outcome-unit `factor_evppi` is NOT
+        // substituted here. It is in OUTCOME units, whereas this surface's
+        // `evpi_percentage_points` is WIN-PROBABILITY percentage points —
+        // converting between them needs an outcome-scale→win-probability
+        // reconciliation that is not trivially correct, so doing it now would be
+        // a wrong-unit/wrong-label defect. The reconciliation + method-tagging
+        // is the S5 typed-surface lane's job (D-23.8); until then `factor_evppi`
+        // rides the raw top-level passthrough only (see the additive passthrough
+        // block above) and is absent from this ranking surface.
+        //
+        // Heuristic (the only method emitted now): VOI × win-probability-spread
+        // × 100, clamped ≥ 0, and self-disclosed as `evpi_method: 'heuristic'`
+        // (NOT a real EVPI). See `src/lib/evpi-emission.ts` for the non-negative
+        // contract (Howard 1966; OpenAPI `evpi_percentage_points.minimum: 0`).
         if (factorSensitivity) {
           // Doctrine 039 (D-7) — producer-owned driver_label, 4-valued. Single
           // derive-pass over the FINAL merged array (the label can never disagree
@@ -6229,83 +6198,42 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           const biggestIdx = indexOfBiggestDriver(factorSensitivity);
           if (biggestIdx >= 0) factorSensitivity[biggestIdx].driver_label = 'biggest';
 
-          const factorEvpiMapping = FLAGS.ISL_FACTOR_EVPI_INTERNAL
-            ? mapIslFactorEvpi(islResult)
-            : { entries: [], dropped_invalid: 0 };
-          const islEvpiByFactor = new Map(
-            factorEvpiMapping.entries.map((e) => [e.factor_id, e]),
-          );
-
-          if (islEvpiByFactor.size > 0) {
+          const islOptions = processedIslResult?.options ?? processedIslResult?.results ?? [];
+          const winProbs = (islOptions as any[])
+            .map((o: any) => o.win_probability as number | undefined)
+            .filter((wp): wp is number => wp != null)
+            .sort((a, b) => b - a);
+          const winProbSpread = winProbs.length >= 2 ? winProbs[0] - winProbs[1] : 0;
+          if (winProbSpread > 0) {
             for (const f of factorSensitivity) {
               // P0a + D-U: never emit EVPI for an option-controlled lever —
-              // ISL-stamped (zero_reason === 'intervention_override') OR a
-              // structural union member (any option intervenes on it; ISL's
-              // stamp misses non-first-option pins with nonzero elasticity).
-              // Resolving knowledge of a value the user sets is not an
-              // information gain. Applies to the ISL counterfactual path
-              // exactly as to the heuristic path. The merge upstream already
-              // stamps union members, so this is belt-and-braces against any
-              // path that bypasses the merge.
+              // ISL-stamped OR structural union member. A lever's VOI is forced
+              // to 0 in mergeIslConfidenceIntoGraphFactors, and
+              // computeEvpiPercentagePoints(0, …) returns a confident 0 (not
+              // undefined) — which would still render an EVPI chip and rank the
+              // lever as an "investigation priority". Skip it entirely so
+              // evpi_percentage_points is ABSENT (preserving the missing-vs-zero
+              // contract), not 0. Belt-and-braces with the producer-side VOI
+              // zeroing; suppression only, no EVPI rename/redefine.
               if (isOptionControlledLever(f, structuralLeverIds)) continue;
-              const entry = islEvpiByFactor.get(f.factor_id);
-              if (!entry) continue; // no ISL estimate for this factor → honest absence
-              if (entry.emit_pp !== undefined) {
-                f.evpi_percentage_points = entry.emit_pp;
-                f.evpi_method = 'counterfactual';
-              } else if (entry.below_resolution) {
-                // "Too small to measure at this sampling depth" — labelled,
-                // never a fabricated 0 and never the raw negative.
-                f.evpi_status = 'below_resolution';
-              }
-            }
-            req.log.info({
-              event: 'factor_evpi_promoted',
-              request_id: requestId,
-              source: 'isl_counterfactual',
-              entries: factorEvpiMapping.entries.length,
-              dropped_invalid: factorEvpiMapping.dropped_invalid,
-              below_resolution_count: factorEvpiMapping.entries.filter((e) => e.below_resolution).length,
-            });
-          } else {
-            const islOptions = processedIslResult?.options ?? processedIslResult?.results ?? [];
-            const winProbs = (islOptions as any[])
-              .map((o: any) => o.win_probability as number | undefined)
-              .filter((wp): wp is number => wp != null)
-              .sort((a, b) => b - a);
-            const winProbSpread = winProbs.length >= 2 ? winProbs[0] - winProbs[1] : 0;
-            if (winProbSpread > 0) {
-              for (const f of factorSensitivity) {
-                // P0a + D-U: never emit EVPI for an option-controlled lever —
-                // ISL-stamped OR structural union member (see the counterfactual
-                // loop above). A lever's VOI is forced to 0 in
-                // mergeIslConfidenceIntoGraphFactors, and computeEvpiPercentagePoints(0, …)
-                // returns a confident 0 (not undefined) — which would still render an
-                // EVPI chip and rank the lever as an "investigation priority". Skip it
-                // entirely so evpi_percentage_points is ABSENT (preserving the
-                // missing-vs-zero contract), not 0. Belt-and-braces with the
-                // producer-side VOI zeroing; suppression only, no EVPI rename/redefine.
-                if (isOptionControlledLever(f, structuralLeverIds)) continue;
-                const evpiPp = computeEvpiPercentagePoints(f.value_of_information, winProbSpread);
-                if (evpiPp !== undefined) {
-                  f.evpi_percentage_points = evpiPp;
-                  f.evpi_method = 'heuristic';
-                }
+              const evpiPp = computeEvpiPercentagePoints(f.value_of_information, winProbSpread);
+              if (evpiPp !== undefined) {
+                f.evpi_percentage_points = evpiPp;
+                f.evpi_method = 'heuristic';
               }
             }
           }
 
           // Doctrine 014 — producer-owned evidence_hint ("gather evidence" gate).
           // Derived AFTER the EVPI enrichment so it reads each factor's FINAL
-          // fields. Gate on the REAL counterfactual EVPI where present, else the
-          // heuristic VOI (deriveEvidenceHint). Skip option-controlled levers —
-          // a lever is not an evidence-gap candidate (consistent with the EVPI
-          // enrichment above, which also skips levers). Absent basis ⇒ omitted.
+          // fields. The counterfactual EVPI is withheld (F3), so the gate reads
+          // the heuristic VOI only (deriveEvidenceHint). Skip option-controlled
+          // levers — a lever is not an evidence-gap candidate (consistent with
+          // the EVPI enrichment above, which also skips levers). Absent basis ⇒
+          // omitted.
           for (const f of factorSensitivity) {
             if (isOptionControlledLever(f, structuralLeverIds)) continue;
-            const realEvpiPp =
-              f.evpi_method === 'counterfactual' ? f.evpi_percentage_points : undefined;
-            const hint = deriveEvidenceHint({ realEvpiPp, voi: f.value_of_information });
+            const hint = deriveEvidenceHint({ realEvpiPp: undefined, voi: f.value_of_information });
             if (hint !== undefined) f.evidence_hint = hint;
           }
         }

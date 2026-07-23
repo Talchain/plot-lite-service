@@ -138,28 +138,12 @@ export const FLAGS = {
     return raw === '1' || raw === 'true';
   },
 
-  // ISL V2 science channel: per-factor counterfactual EVPI (factor_evpi wire field)
-  /**
-   * P-5 promotion gate (provisional_doctrine_v0, lane PLoT-H item C,
-   * 2026-07-07 — supersedes the previous "internal diagnostics only" posture).
-   *
-   * When ON and the ISL V2 wire carries `factor_evpi[]`, the sanitised
-   * counterfactual EVPI (via `mapIslFactorEvpi`: negatives NEVER emitted,
-   * below-resolution labelled `evpi_status: 'below_resolution'`, honouring
-   * ISL's `evpi_status` wire field where present) is used IN PLACE of the
-   * heuristic (VOI × win-probability spread) on the factor_sensitivity
-   * "worth checking next" surface (`evpi_percentage_points`,
-   * `evpi_method: 'counterfactual'`). When `factor_evpi` is absent (e.g. the
-   * golden pricing-canary) or the flag is OFF, the heuristic fallback runs
-   * unchanged — public response byte-identical to the pre-promotion build.
-   *
-   * Default: ON for test and staging; OFF for production. Explicit env
-   * ('1'/'true' or '0'/'false') overrides in both directions.
-   */
-  get ISL_FACTOR_EVPI_INTERNAL() {
-    const raw = process.env.ISL_FACTOR_EVPI_INTERNAL;
-    if (raw === '0' || raw === 'false') return false;
-    if (raw === '1' || raw === 'true') return true;
-    return process.env.NODE_ENV === 'test' || process.env.RENDER_SERVICE_NAME?.includes('staging') === true;
-  },
+  // REMOVED (F3, ISL #103 / D-23.15): `ISL_FACTOR_EVPI_INTERNAL`. It gated the
+  // counterfactual EVPI ranking path that consumed ISL's removed top-level
+  // `factor_evpi[]` wire field. ISL renamed the field (win-probability
+  // successor `p_win_sensitivity`; outcome-unit `factor_evppi`), so the gated
+  // path could never fire against the current ISL generation — it always fell
+  // back to the VOI×spread heuristic. The dead consumer and this now-inert
+  // flag were removed together; the honest outcome-unit surface is withheld
+  // pending the S5 typed-surface reconciliation (D-23.8).
 } as const;
