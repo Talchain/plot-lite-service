@@ -59,31 +59,42 @@ function isCommentLine(line: string): boolean {
   return t.startsWith('//') || t.startsWith('*') || t.startsWith('/*') || t.startsWith('*/');
 }
 
-// A read/consume of the OLD name: `.factor_evpi` (dot access) or
-// `factor_evpi:` (object-key read/bind) — but NEVER `factor_evpi` immediately
-// followed by another letter/digit/underscore (so `factor_evppi` never matches).
-const OLD_NAME_CONSUMER = /(?:\.\s*factor_evpi|\bfactor_evpi\s*:)(?![A-Za-z0-9_])/;
-const NEW_NAME_READ = /(?:\.\s*factor_evppi|\bfactor_evppi\s*:)(?![A-Za-z0-9_])/;
+// A read/consume of the OLD name: `.factor_evpi` (dot access), `factor_evpi:`
+// (object-key read/bind), or `['factor_evpi']` / `["factor_evpi"]` (bracket /
+// dynamic access) — but NEVER `factor_evpi` immediately followed by another
+// letter/digit/underscore (so `factor_evppi` never matches). Bracket coverage
+// closes the dynamic-access gap (e.g. `islResult['factor_evpi']`) that a
+// dot-only matcher would miss. NOTE: a bare-token scan is deliberately NOT used
+// — it would false-positive on this guard's own compile-time sibling
+// (isl-no-factor-evpi.type-pin.ts references `'factor_evpi'` to FORBID it) and
+// on legitimate historical trailing-comment provenance.
+const OLD_NAME_CONSUMER =
+  /(?:\.\s*factor_evpi|\bfactor_evpi\s*:|\[\s*['"]factor_evpi['"]\s*\])(?![A-Za-z0-9_])/;
+// The retained successor as a bare token — present in src as the field name
+// `factor_evppi` (engine-v3.ts) and the passthrough key (run-contract-keys.ts).
+const NEW_NAME_TOKEN = /\bfactor_evppi\b/;
 
 describe('F3 fail-loud guard — PLoT must not consume the removed ISL `factor_evpi` wire field', () => {
   const files = collectTsFiles(SRC_DIR);
 
-  it('positive control: the matcher discriminates old name from the new names (not vacuous)', () => {
-    // MUST see a genuine old-name read...
+  it('positive control: the matcher discriminates old-name reads (dot/key/bracket) from the new names (not vacuous)', () => {
+    // MUST see a genuine old-name read in every access form...
     expect(OLD_NAME_CONSUMER.test('const x = isl.factor_evpi;')).toBe(true);
     expect(OLD_NAME_CONSUMER.test('return { factor_evpi: src.factor_evpi };')).toBe(true);
+    expect(OLD_NAME_CONSUMER.test("const w = islResult['factor_evpi'];")).toBe(true);
     // ...and MUST NOT fire on the retained new names (the p_win/EVPPI successors).
     expect(OLD_NAME_CONSUMER.test('const y = isl.factor_evppi;')).toBe(false);
+    expect(OLD_NAME_CONSUMER.test("const y2 = isl['factor_evppi'];")).toBe(false);
     expect(OLD_NAME_CONSUMER.test('const z = isl.p_win_sensitivity;')).toBe(false);
   });
 
-  it('positive control: the scan reaches real code (the retained new name IS read in src/)', () => {
-    const anyNewNameRead = files.some((f) =>
+  it('positive control: the scan reaches real code (the retained successor `factor_evppi` IS present in src/)', () => {
+    const anyNewName = files.some((f) =>
       readFileSync(f, 'utf8')
         .split('\n')
-        .some((line) => !isCommentLine(line) && NEW_NAME_READ.test(line)),
+        .some((line) => !isCommentLine(line) && NEW_NAME_TOKEN.test(line)),
     );
-    expect(anyNewNameRead).toBe(true);
+    expect(anyNewName).toBe(true);
   });
 
   it('no src file reads the removed `factor_evpi` name as a wire field', () => {

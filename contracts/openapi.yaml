@@ -5899,6 +5899,43 @@ components:
             path_decomposition section (requires deployed ISL build 9a22a1a+).
             Omitted or false: the flag is not sent to ISL and the response
             section is absent — no default payload growth on either boundary.
+        goal_constraints:
+          type: array
+          description: |
+            Optional additive constraint objects forwarded to ISL. Light
+            structural validation only (array of objects); deep semantics are
+            ISL's single source of truth.
+          items:
+            type: object
+        include_thresholds:
+          type: boolean
+          description: Request threshold outputs (additive, request-gated opt-in).
+        include_e_values:
+          type: boolean
+          description: |
+            Request edge E-values (evidence strength per edge). PLoT sends this
+            to ISL; the response carries edge_e_values when computed.
+        include_voi:
+          type: boolean
+          description: Request value-of-information outputs (additive, request-gated).
+        factor_correlations:
+          type: array
+          description: |
+            Capability #100 (D-23.4): client-supplied pairwise factor
+            correlations forwarded VERBATIM to ISL. Light structural validation
+            only — items are `{ factor_a, factor_b, rho }`. Deep semantics
+            (unknown-factor / |rho|>1 / self-pair / duplicate) are ISL's single
+            source of truth and surface as a 422 through PLoT.
+          items:
+            type: object
+            required: [factor_a, factor_b, rho]
+            properties:
+              factor_a:
+                type: string
+              factor_b:
+                type: string
+              rho:
+                type: number
 
     nodeV3:
       type: object
@@ -6415,6 +6452,41 @@ components:
                       Human-readable modelled-pathway statement (ISL-owned
                       wording, provisional_doctrine_v0). Describes modelled
                       structure only; not a real-world causal claim.
+        correlation_model:
+          description: |
+            Correlated-factors capability output (capability #100 + VOI slices,
+            D-23.8): the Gaussian-copula correlation model disclosure (PSD /
+            tail-independence status). Additive VERBATIM passthrough of the ISL
+            top-level envelope field; present ONLY when ISL emits it. Shape is
+            ISL-owned; PLoT does not constrain it here (typed `unknown` in
+            engine-v3.ts, firm shape pending @talchain/schemas 0.23 / the S5
+            typed surface). Not in response_hash.
+        decision_evpi:
+          description: |
+            Correlated-factors capability output (D-23.8): decision-level EVPI on
+            the joint samples (E[max]−max E). Additive VERBATIM passthrough of the
+            ISL top-level envelope field; present ONLY when ISL emits it. Shape is
+            ISL-owned (typed `unknown` in engine-v3.ts, firm shape pending the S5
+            typed surface). Not in response_hash.
+        factor_evppi:
+          description: |
+            Correlated-factors capability output (D-23.8): per-factor Strong-Oakley
+            EVPPI in OUTCOME units (value of partial perfect information) — the
+            honestly-named successor to the removed win-probability `factor_evpi`.
+            Additive VERBATIM passthrough of the ISL top-level envelope field;
+            present ONLY when ISL emits it. It is NOT reshaped onto the
+            factor_sensitivity `evpi_percentage_points` (win-probability) surface:
+            reconciling outcome-units against win-probability points is the S5
+            typed-surface lane's job (F3 / D-23.8). Shape is ISL-owned (typed
+            `unknown` in engine-v3.ts). Not in response_hash.
+        p_win_sensitivity:
+          description: |
+            Correlated-factors capability output (D-23.8): per-factor
+            win-probability sensitivity — the honestly-named successor to the
+            removed `factor_evpi`. Additive VERBATIM passthrough of the ISL
+            top-level envelope field; present ONLY when ISL emits it. Shape is
+            ISL-owned (typed `unknown` in engine-v3.ts, firm shape pending the S5
+            typed surface). Not in response_hash.
         factor_sensitivity:
           type: array
           items:
@@ -6436,44 +6508,44 @@ components:
                 minimum: 0
                 description: >-
                   Estimated EVPI in percentage points of win probability.
-                  Source is disclosed by `evpi_method`:
-                  `counterfactual` = ISL per-factor counterfactual EVPI
-                  (V2 wire `factor_evpi[]`, sanitised at the boundary;
-                  active on staging/test where the promotion flag defaults
-                  on); `heuristic` = VOI × win-probability spread × 100
-                  (fallback when ISL factor_evpi is absent or the flag is
-                  off; present only when both VOI and win probabilities are
-                  available). EVPI is non-negative by definition
-                  (information cannot harm a rational decision-maker on
-                  average — Howard 1966); negative values returned by Monte
-                  Carlo estimators are sampling artefacts, not
-                  meaningful decision signals.
-                  Enforcement: (1) negative upstream values are treated as
-                  unavailable at the integration boundary, so
-                  `evpi_percentage_points` is OMITTED entirely for the
-                  affected factor (counterfactual path: labelled via
-                  `evpi_status: below_resolution`; heuristic path: field
-                  simply absent — preserving the missing-vs-zero
-                  distinction the rest of the response contract relies
-                  on); (2) any negative computed EVPI that nevertheless
-                  reaches the emitter is defensively clamped to `0`
-                  (belt-and-braces for future producers using a different
-                  VOI formula). When present, this field is always ≥ 0.
+                  Currently emitted ONLY via the `heuristic` method
+                  (`evpi_method: heuristic`): VOI × win-probability spread ×
+                  100, present only when both VOI and win probabilities are
+                  available. It is NOT a real counterfactual EVPI.
+                  F3 (ISL #103 / D-23.15): the former `counterfactual` source
+                  consumed ISL's removed top-level `factor_evpi[]` and has been
+                  withdrawn; ISL's honest outcome-unit successor `factor_evppi`
+                  is passed through at the top level but NOT reshaped onto this
+                  win-probability surface (that reconciliation is the S5 typed
+                  surface's job, D-23.8).
+                  EVPI is non-negative by definition (information cannot harm a
+                  rational decision-maker on average — Howard 1966); negative
+                  values returned by Monte Carlo estimators are sampling
+                  artefacts, not meaningful decision signals.
+                  Enforcement: negative upstream values are treated as
+                  unavailable so `evpi_percentage_points` is OMITTED for the
+                  affected factor, and any negative computed EVPI that reaches
+                  the emitter is defensively clamped to `0`. When present, this
+                  field is always ≥ 0.
               evpi_method:
                 type: string
                 enum: [heuristic, counterfactual]
-                description: Method used to compute evpi_percentage_points
+                description: >-
+                  Method used to compute evpi_percentage_points. The current
+                  build emits only `heuristic`; `counterfactual` is RESERVED for
+                  the S5 typed outcome-unit surface (F3 / D-23.8) and is not
+                  produced today.
               evpi_status:
                 type: string
                 enum: [below_resolution]
                 description: >-
-                  Present only when ISL's counterfactual EVPI estimate for
-                  this factor is too small to measure at the run's sampling
-                  depth (including Monte Carlo–noise negatives).
-                  `evpi_percentage_points` is deliberately absent in that
-                  case — the estimate is labelled, never emitted as a
-                  clamped 0 (which would falsely claim "measured as exactly
-                  worthless") and never emitted as a negative.
+                  RESERVED for the S5 typed counterfactual surface (F3 / D-23.8)
+                  — NOT emitted by the current build. It was previously set when
+                  ISL's removed `factor_evpi[].evpi_status` reported a per-factor
+                  estimate too small to measure at the run's sampling depth.
+                  `below_resolution` means "too small to measure", NOT "measured
+                  as zero" — when re-wired, `evpi_percentage_points` is
+                  deliberately absent in that case, never a clamped 0.
               direction:
                 type: string
         robustness:
