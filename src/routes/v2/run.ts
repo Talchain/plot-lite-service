@@ -1149,6 +1149,11 @@ const V2_RUN_ALLOWED_KEYS = new Set([
   'seed', 'n_samples', 'detail_level', 'request_id', 'idempotency_key',
   'goal_threshold', 'brief', 'goal_constraints', 'include_thresholds',
   'include_e_values', 'include_voi', 'include_path_decomposition',
+  // Capability #100 (doctrine D-23.4): client-supplied pairwise factor
+  // correlations. BOTH gates must know this key — this allowlist (preValidation)
+  // AND runV3Schema.properties below (Ajv, additionalProperties:false). Omitting
+  // it from either drops the field before it reaches the handler.
+  'factor_correlations',
 ]);
 
 const runV3Schema = {
@@ -1194,6 +1199,25 @@ const runV3Schema = {
       include_e_values: { type: 'boolean' },
       include_voi: { type: 'boolean' },
       include_path_decomposition: { type: 'boolean' },
+      // Capability #100 (doctrine D-23.4): client-supplied pairwise factor
+      // correlations. LIGHT STRUCTURAL validation only — shape is an array of
+      // { factor_a: string, factor_b: string, rho: number }. Items intentionally
+      // do NOT set additionalProperties:false (forward-compat, matching the
+      // nodes/options/edges convention above). DEEP SEMANTICS (unknown-factor /
+      // |rho|>1 / self-pair / duplicate) are ISL's single source of truth and
+      // surface as a 422 through PLoT — PLoT does not re-implement them.
+      factor_correlations: {
+        type: 'array',
+        items: {
+          type: 'object',
+          required: ['factor_a', 'factor_b', 'rho'],
+          properties: {
+            factor_a: { type: 'string' },
+            factor_b: { type: 'string' },
+            rho: { type: 'number' },
+          },
+        },
+      },
     },
   },
 };
@@ -3251,6 +3275,29 @@ function buildResponse(
       !Array.isArray(islResult.path_decomposition) && {
         path_decomposition: islResult.path_decomposition,
       }),
+    // Correlated-factors capability outputs (capability #100 + VOI slices
+    // D-23.8): VERBATIM additive passthrough of ISL top-level envelope fields.
+    // Present-in ⇒ present-out; ABSENT ⇒ omitted (no default payload growth,
+    // every existing golden byte-identical). "PLoT passthrough-forwards
+    // meanwhile" (D-23.4) — the raw passthrough only; the richer outcome-unit
+    // reconciliation + method-tagging is a separate gated lane (D-23.8 S5) and
+    // firm wire typing rides the @talchain/schemas batch. Without this block
+    // buildResponse's field-by-field rebuild would silently DROP them (the
+    // transformEdgeEValues-class hazard). Excluded from response_hash (these are
+    // computed enrichment; response_hash canonicalises the request). Guard is
+    // `!== undefined` so an explicit null/0/false from ISL still passes through.
+    ...(islResult?.correlation_model !== undefined && {
+      correlation_model: islResult.correlation_model,
+    }),
+    ...(islResult?.decision_evpi !== undefined && {
+      decision_evpi: islResult.decision_evpi,
+    }),
+    ...(islResult?.factor_evppi !== undefined && {
+      factor_evppi: islResult.factor_evppi,
+    }),
+    ...(islResult?.p_win_sensitivity !== undefined && {
+      p_win_sensitivity: islResult.p_win_sensitivity,
+    }),
     // Edge E-values from ISL — enriched with labels. Always emitted ([] when empty
     // or ISL omitted the field) so consumers can distinguish computed-empty from
     // absent; PLoT always requests include_e_values: true. Excluded from response_hash.
@@ -5541,7 +5588,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           constraintsForISL,       // Normalised constraint values (undefined if not using multi-constraint)
           plotSeedUsed,  // Always forward PLoT's seed (PLoT is seed authority)
           body.include_path_decomposition === true,  // Lane PLoT-W4: request-gated opt-in, forwarded only on explicit true
-          factorParameterUncertainties  // Reuse the factor PUs already built for the admission plan (same nodes → byte-identical)
+          factorParameterUncertainties,  // Reuse the factor PUs already built for the admission plan (same nodes → byte-identical)
+          body.factor_correlations  // Capability #100 (D-23.4): forward client-supplied factor correlations verbatim (request-gated omit inside the translator)
         );
 
         req.log.info(

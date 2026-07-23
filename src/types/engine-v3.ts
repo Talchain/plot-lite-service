@@ -509,6 +509,27 @@ export type ConstraintFeatureStatus = 'computed' | 'unavailable' | 'skipped' | '
 // -----------------------------------------------------------------------------
 
 /**
+ * A single client-supplied pairwise factor correlation (capability #100).
+ *
+ * Activates ISL's correlated-factors sampling for the named pair (Gaussian
+ * copula over factor marginals — doctrine D-23.4). Independence stays the
+ * DEFAULT; correlation is inert unless supplied (no invented rho).
+ *
+ * PLoT applies LIGHT STRUCTURAL validation only (shape: two factor ids + a
+ * numeric rho) and forwards verbatim. DEEP SEMANTIC validation is ISL's
+ * single source of truth — unknown-factor / |rho|>1 / self-pair / duplicate
+ * are rejected ISL-side with a 422 that surfaces through PLoT unchanged.
+ */
+export interface FactorCorrelation {
+  /** Node id of the first factor in the correlated pair. */
+  factor_a: string;
+  /** Node id of the second factor in the correlated pair. */
+  factor_b: string;
+  /** Pairwise correlation coefficient. Range/PSD validity is enforced ISL-side. */
+  rho: number;
+}
+
+/**
  * V2 Run Request - canonical format for option comparison.
  *
  * Key differences from V1:
@@ -609,6 +630,17 @@ export interface RunRequestV3 {
    * no default payload growth on either boundary. Default: false.
    */
   include_path_decomposition?: boolean;
+
+  /**
+   * Client-supplied pairwise factor correlations (capability #100, doctrine
+   * D-23.4). When present and non-empty, PLoT forwards them verbatim into the
+   * ISL robustness request, activating correlated-factors sampling. INERT WHEN
+   * ABSENT — independence stays the default and no correlation is invented.
+   * PLoT does LIGHT STRUCTURAL validation only; ISL owns deep semantics
+   * (unknown-factor / |rho|>1 / self-pair / duplicate → 422, surfaced through
+   * PLoT). Request-gated: the ISL payload does not grow for callers who omit it.
+   */
+  factor_correlations?: FactorCorrelation[];
 }
 
 // -----------------------------------------------------------------------------
@@ -1040,6 +1072,26 @@ export interface RunResponseV3 {
    * NOT in response_hash.
    */
   path_decomposition?: ISLPathDecompositionV2;
+
+  /**
+   * Correlated-factors capability outputs (capability #100 + VOI slices
+   * D-23.8), passed through VERBATIM from the ISL top-level envelope when
+   * present (additive, omit-when-absent). PLoT does the raw passthrough only —
+   * "PLoT passthrough-forwards meanwhile" (D-23.4); the richer outcome-unit
+   * reconciliation + method-tagging to the UI is a separate gated lane
+   * (D-23.8 S5) and firm wire typing rides the @talchain/schemas batch. Typed
+   * permissively (`unknown`) here so PLoT neither invents nor constrains a
+   * shape ISL owns. NOT in response_hash (response_hash canonicalises the
+   * request; these are computed enrichment).
+   */
+  /** Correlation model disclosure (Gaussian copula, PSD/tail-independence status). */
+  correlation_model?: unknown;
+  /** Decision-EVPI on the joint samples (E[max]−max E). */
+  decision_evpi?: unknown;
+  /** Per-factor Strong-Oakley EVPPI (outcome-unit value of perfect partial information). */
+  factor_evppi?: unknown;
+  /** Per-factor win-probability sensitivity (honestly-named successor to factor_evpi). */
+  p_win_sensitivity?: unknown;
 
   /** Factor sensitivity results (if available) */
   factor_sensitivity?: FactorSensitivityResultV3[];
