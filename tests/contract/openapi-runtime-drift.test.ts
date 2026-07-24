@@ -76,6 +76,40 @@ describe('OpenAPI ↔ runtime drift gate — /v2/run request/response wire contr
     ).toEqual([]);
   });
 
+  it('published runRequestV3 semantically REJECTS unknown top-level keys (D-23.19, Codex F9)', async () => {
+    // The name-only comparison above passed while the SEMANTICS drifted: the
+    // route 400s unknown top-level keys (strict allowlist + Ajv
+    // additionalProperties:false) but the published spec silently ACCEPTED
+    // them, so a spec-generated client could send keys the live route rejects.
+    const schema = spec?.components?.schemas?.runRequestV3;
+    expect(
+      schema.additionalProperties,
+      'runRequestV3 must declare additionalProperties:false to match the route',
+    ).toBe(false);
+
+    // EXECUTE the published top-level semantics (a faithful projection of the
+    // schema's own top-level keys + additionalProperties; $ref internals are
+    // irrelevant to the unknown-KEY semantic under test).
+    const AjvMod = await import('ajv');
+    const Ajv = (AjvMod as any).default ?? AjvMod;
+    const ajv = new Ajv({ strict: false });
+    const topLevelProjection = {
+      type: 'object',
+      properties: Object.fromEntries(Object.keys(schema.properties).map((k) => [k, {}])),
+      additionalProperties: schema.additionalProperties,
+    };
+    const validate = ajv.compile(topLevelProjection);
+    // positive control: a known-keys-only body passes the projection...
+    expect(validate({ goal_node_id: 'g' })).toBe(true);
+    // ...and the unknown key is REJECTED — matching the live route's 400
+    // (pinned by the runtime unknown-key tests), closing the semantic drift.
+    expect(validate({ goal_node_id: 'g', not_a_real_key: true })).toBe(false);
+    // counterfactual control: WITHOUT the declaration the same body passes —
+    // proving this test discriminates on exactly the fixed line.
+    const withoutDecl = ajv.compile({ ...topLevelProjection, additionalProperties: true });
+    expect(withoutDecl({ goal_node_id: 'g', not_a_real_key: true })).toBe(true);
+  });
+
   it('every ISL top-level enrichment passthrough key is documented as a runResponseV3 property', () => {
     const specKeys = new Set(propsOf('runResponseV3'));
     const undocumented = ISL_TOPLEVEL_ENRICHMENT_KEYS.filter((k) => !specKeys.has(k));

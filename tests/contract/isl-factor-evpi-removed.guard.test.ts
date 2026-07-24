@@ -68,8 +68,17 @@ function isCommentLine(line: string): boolean {
 // — it would false-positive on this guard's own compile-time sibling
 // (isl-no-factor-evpi.type-pin.ts references `'factor_evpi'` to FORBID it) and
 // on legitimate historical trailing-comment provenance.
+// D-23.19 (Codex re-confirm F3): two SHORTHAND-DESTRUCTURING branches added —
+// `const { factor_evpi } = isl` has no dot, no colon, no bracket, so the
+// original three branches missed it (Codex's positive-control attack).
+//   [{,]\s*factor_evpi\s*(?=[,}=])  — same-line shorthand ({ factor_evpi },
+//                                     { factor_evpi, x }, { factor_evpi = d })
+//   ^\s*factor_evpi\s*(?=[,}=])     — multiline destructure/object lines that
+//                                     START with the bare name
+// Both require [,}=] AFTER the name, so the type-pin's `factor_evpi?: never`
+// (the `?` intervenes) and `factor_evppi` (trailing guard) still never match.
 const OLD_NAME_CONSUMER =
-  /(?:\.\s*factor_evpi|\bfactor_evpi\s*:|\[\s*['"]factor_evpi['"]\s*\])(?![A-Za-z0-9_])/;
+  /(?:\.\s*factor_evpi|\bfactor_evpi\s*:|\[\s*['"]factor_evpi['"]\s*\]|[{,]\s*factor_evpi\s*(?=[,}=])|^\s*factor_evpi\s*(?=[,}=]))(?![A-Za-z0-9_])/;
 // The retained successor as a bare token — present in src as the field name
 // `factor_evppi` (engine-v3.ts) and the passthrough key (run-contract-keys.ts).
 const NEW_NAME_TOKEN = /\bfactor_evppi\b/;
@@ -82,10 +91,20 @@ describe('F3 fail-loud guard — PLoT must not consume the removed ISL `factor_e
     expect(OLD_NAME_CONSUMER.test('const x = isl.factor_evpi;')).toBe(true);
     expect(OLD_NAME_CONSUMER.test('return { factor_evpi: src.factor_evpi };')).toBe(true);
     expect(OLD_NAME_CONSUMER.test("const w = islResult['factor_evpi'];")).toBe(true);
-    // ...and MUST NOT fire on the retained new names (the p_win/EVPPI successors).
+    // D-23.19: shorthand destructuring — Codex's positive-control attack showed
+    // `const { factor_evpi } = isl` evaded all three original branches.
+    expect(OLD_NAME_CONSUMER.test('const { factor_evpi } = isl;')).toBe(true);
+    expect(OLD_NAME_CONSUMER.test('const { factor_evpi, other } = isl;')).toBe(true);
+    expect(OLD_NAME_CONSUMER.test('const { a, factor_evpi } = isl;')).toBe(true);
+    expect(OLD_NAME_CONSUMER.test('const { factor_evpi = [] } = isl;')).toBe(true);
+    expect(OLD_NAME_CONSUMER.test('  factor_evpi,')).toBe(true); // multiline destructure line
+    // ...and MUST NOT fire on the retained new names (the p_win/EVPPI successors)
+    // nor on the type-pin's forbidding declaration.
     expect(OLD_NAME_CONSUMER.test('const y = isl.factor_evppi;')).toBe(false);
     expect(OLD_NAME_CONSUMER.test("const y2 = isl['factor_evppi'];")).toBe(false);
     expect(OLD_NAME_CONSUMER.test('const z = isl.p_win_sensitivity;')).toBe(false);
+    expect(OLD_NAME_CONSUMER.test('const { factor_evppi } = isl;')).toBe(false);
+    expect(OLD_NAME_CONSUMER.test('  factor_evpi?: never;')).toBe(false); // type-pin form
   });
 
   it('positive control: the scan reaches real code (the retained successor `factor_evppi` IS present in src/)', () => {

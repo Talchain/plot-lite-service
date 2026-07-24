@@ -5825,6 +5825,11 @@ components:
     runRequestV3:
       type: object
       required: [graph, options, goal_node_id]
+      # Codex re-confirm F9 (D-23.19): the runtime rejects unknown top-level keys
+      # (run.ts strict allowlist + Ajv additionalProperties:false), so the public
+      # contract must SAY so — without this line a client generated from the spec
+      # accepts keys the live route 400s (semantic drift the name-only gate missed).
+      additionalProperties: false
       description: V2 run request with explicit intervention bundles
       properties:
         graph:
