@@ -1934,8 +1934,44 @@ export interface FactorSensitivityResultV3 {
   elasticity?: number;
   /** Direction of influence on goal */
   direction?: 'positive' | 'negative' | 'mixed' | 'unknown';
-  /** Importance ranking (1 = most important) - same as influence_rank for graph-based */
+  /**
+   * Importance ranking (1 = most important) — the producer's answer to "what
+   * matters most".
+   *
+   * ⚠ This is NOT ISL's `importance_rank` passed through. On the primary path it
+   * orders PLoT's graph path-analysis influence; ISL's own value is not
+   * published. The basis is disclosed per row on `importance_basis` — read that
+   * before interpreting this number.
+   *
+   * Option-controlled levers (ISL `zero_reason: 'intervention_override'` OR D-U
+   * structural union members) are ordered LAST on both paths: a lever is a
+   * decision lever, not a background uncertainty, so it never consumes a top
+   * importance slot (the same doctrine `evidence_gaps` and
+   * `decision_brief.top_drivers` apply). A lever still tops `influence_rank` —
+   * that field is the ungated structural measurement.
+   *
+   * The emitted array order follows this rank, so `factor_sensitivity[0]` and
+   * `importance_rank === 1` agree. See `src/lib/importance-authority.ts`.
+   */
   importance_rank?: number;
+  /**
+   * Producer disclosure: WHICH authority produced `importance_rank` (and the
+   * quantity `influence_score`/`sensitivity_score`/`elasticity` are computed
+   * from) on this response.
+   *
+   * - `'graph_structural'` — PLoT's own graph path analysis
+   *   (`computeFactorSensitivityFromGraph`), the live primary path. ISL's
+   *   `importance_score` / `importance_rank` / `sensitivity_score` /
+   *   `elasticity` / `direction` are NOT on the wire in this case; only its
+   *   bootstrap stability diagnostics are merged in.
+   * - `'isl_uncertainty'` — the graph path returned nothing, so ISL's own
+   *   Monte-Carlo uncertainty-importance ordering is what is published.
+   *
+   * Exists because the two quantities share ISL's field NAMES and are otherwise
+   * indistinguishable to a consumer. Declared in
+   * `src/contracts/isl-to-ui.contract.ts`.
+   */
+  importance_basis?: 'graph_structural' | 'isl_uncertainty';
   /** Human-readable interpretation from ISL */
   interpretation?: string;
   /**

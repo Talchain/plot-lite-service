@@ -186,21 +186,25 @@ describe('CIL Phase 0 — Task 1: fragile_edges shape consistency', () => {
       expect(Array.isArray(result.fragile_edges)).toBe(true);
       expect(result.fragile_edges).toHaveLength(2);
 
-      // First fragile edge — full fields
-      const fe0 = result.fragile_edges[0];
-      expect(fe0.edge_id).toBe('fac_price::goal_revenue');
-      expect(fe0.from_id).toBe('fac_price');
-      expect(fe0.to_id).toBe('goal_revenue');
-      expect(fe0.switch_probability).toBe(0.25);
-      expect(fe0.alternative_winner_id).toBe('opt-b');
-      expect(fe0.marginal_switch_probability).toBe(0.12);
+      // Field mapping asserted by IDENTITY, not position: the adapter now
+      // publishes fragile_edges most-fragile-first, so the 0.45 edge leads.
+      const fePrice = result.fragile_edges.find((e: any) => e.edge_id === 'fac_price::goal_revenue')!;
+      expect(fePrice).toBeDefined();
+      expect(fePrice.from_id).toBe('fac_price');
+      expect(fePrice.to_id).toBe('goal_revenue');
+      expect(fePrice.switch_probability).toBe(0.25);
+      expect(fePrice.alternative_winner_id).toBe('opt-b');
+      expect(fePrice.marginal_switch_probability).toBe(0.12);
 
-      // Second fragile edge — no alternative_winner
-      const fe1 = result.fragile_edges[1];
-      expect(fe1.edge_id).toBe('fac_demand->goal_revenue');
-      expect(fe1.from_id).toBe('fac_demand');
-      expect(fe1.to_id).toBe('goal_revenue');
-      expect(fe1.switch_probability).toBe(0.45);
+      // The other fragile edge — no alternative_winner
+      const feDemand = result.fragile_edges.find((e: any) => e.edge_id === 'fac_demand->goal_revenue')!;
+      expect(feDemand).toBeDefined();
+      expect(feDemand.from_id).toBe('fac_demand');
+      expect(feDemand.to_id).toBe('goal_revenue');
+      expect(feDemand.switch_probability).toBe(0.45);
+
+      // …and the ORDER itself is the fragility order (the input was ascending).
+      expect(result.fragile_edges.map((e: any) => e.switch_probability)).toEqual([0.45, 0.25]);
     });
 
     it('graph with no fragile edges → fragile_edges: [] (empty array)', () => {

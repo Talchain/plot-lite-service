@@ -23,6 +23,34 @@ export interface BoundaryTransform {
   why: string;
 }
 
+/**
+ * A SUBSTITUTION: the boundary keeps the producer's field NAME but replaces its
+ * VALUE with a locally-computed quantity, and does not publish the producer's.
+ *
+ * Added by lane PLoT importance-authority (25 Jul 2026) because this category
+ * was not representable before, and so went undeclared for six months: a
+ * substitution is neither a `drop` (the key is still on the wire), nor a
+ * `rename` (the name is unchanged), nor an `enrichment` (the producer DID send
+ * a value — it was discarded). That is precisely the shape a consumer cannot
+ * detect, which is why it needs its own name in the contract.
+ *
+ * Every substitution MUST name a `disclosed_by` field on the wire, so a consumer
+ * can tell at runtime which quantity it is holding.
+ */
+export interface BoundarySubstitution {
+  /** The wire field whose name is the producer's and whose value is not. */
+  field: string;
+  /** What the producer sent under this name. */
+  producer_quantity: string;
+  /** What the boundary publishes under this name instead. */
+  published_quantity: string;
+  /** When the substitution applies (e.g. only on a given source path). */
+  when: string;
+  /** The wire field a consumer reads to know which quantity it holds. */
+  disclosed_by: string;
+  why: string;
+}
+
 export interface BoundaryContract {
   name: string;
   drops: string[];
@@ -30,6 +58,8 @@ export interface BoundaryContract {
   renames: BoundaryRename[];
   transforms: BoundaryTransform[];
   enriched: string[];
+  /** Producer-name / local-value collisions. See `BoundarySubstitution`. */
+  substitutions?: BoundarySubstitution[];
 }
 
 /**
