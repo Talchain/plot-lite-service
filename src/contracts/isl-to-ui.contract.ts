@@ -26,6 +26,33 @@ export const ISL_TO_UI_CONTRACT: BoundaryContract = {
   drops: [
     'metadata.n_samples',            // Superseded by outcome.n_samples per-option
     'recommendation_confidence',     // Removed in V3 schema migration
+    // ── Lane PLoT importance-authority (25 Jul 2026) — PREVIOUSLY UNDECLARED ──
+    // These six were dropped by the transforms but appeared nowhere in this
+    // list, which read as complete. A contract that lists 3 of 9 drops is worse
+    // than none. Declared here as a statement of FACT about today's wire; see
+    // ROADMAP row "PLoT: restore or rename the dropped ISL factor/edge
+    // measurements" for the decision on whether to stop dropping them.
+    //
+    // `FactorSensitivityResultV3` has no `importance_score` member at all, so
+    // this is dropped on BOTH paths — graph-primary AND the ISL-only fallback.
+    // It has never been on the wire. (`src/facts/mapper.ts` SYNTHESISES one from
+    // the already-substituted PLoT row; that is not a passthrough.)
+    'factor_sensitivity[].importance_score',
+    // ISL's own MC uncertainty-importance ordering. On the graph-primary path
+    // the published `factor_sensitivity[].importance_rank` is PLoT's own
+    // lever-aware ordering over graph influence, NOT this value — see the
+    // `substitutions` block below and the per-row `importance_basis` disclosure.
+    'factor_sensitivity[].importance_rank (ISL value, on the graph-primary path)',
+    // Same: ISL's MC-derived values are replaced by graph-derived quantities
+    // under the identical field names on the graph-primary path.
+    'factor_sensitivity[].sensitivity_score (ISL value, on the graph-primary path)',
+    'factor_sensitivity[].elasticity (ISL value, on the graph-primary path)',
+    'factor_sensitivity[].direction (ISL value, on the graph-primary path)',
+    // `EdgeSensitivityResultV3` has no `sensitivity_score` or `direction`
+    // member. transformEdgeSensitivity keeps elasticity/importance_rank/
+    // sensitivity_type/interpretation and drops these two on every path.
+    'edge_sensitivity[].sensitivity_score',
+    'edge_sensitivity[].direction',
     // Producer honesty (lane PLoT-H item B, 2026-07-07): ISL derives this as
     // option_wins[winner]/n_samples — the leader's win_probability relabelled,
     // zero independent information (verified byte-identical live: 0.59025 /
@@ -81,6 +108,13 @@ export const ISL_TO_UI_CONTRACT: BoundaryContract = {
     { from: 'factor_sensitivity[].node_id', to: 'factor_sensitivity[].factor_id' },
     /** Factor label: ISL uses label, UI uses factor_label. */
     { from: 'factor_sensitivity[].label', to: 'factor_sensitivity[].factor_label' },
+    /**
+     * Edge endpoints (lane PLoT importance-authority, 25 Jul 2026 — previously
+     * UNDECLARED). Live V2 ISL entries carry from_id/to_id; the UI shape uses
+     * bare from/to. Only the composite `edge_id` derive was declared before.
+     */
+    { from: 'robustness.edge_sensitivity[].from_id', to: 'edge_sensitivity[].from' },
+    { from: 'robustness.edge_sensitivity[].to_id', to: 'edge_sensitivity[].to' },
     /** Per-option constraint probability: ISL nests as joint_probability. */
     { from: 'constraint_analysis.joint_probability', to: 'probability_of_joint_goal' },
     /** Top-level constraint value: ISL returns both threshold (primary) and value (computed); UI uses value. */
@@ -89,12 +123,75 @@ export const ISL_TO_UI_CONTRACT: BoundaryContract = {
     { from: 'constraint_results[].prob_satisfied', to: 'constraint_results[].probability' },
   ],
 
+  /**
+   * Producer-name / local-value collisions on `factor_sensitivity[]`.
+   *
+   * `/v2/run` makes GRAPH-derived factor sensitivity PRIMARY and ISL the
+   * FALLBACK (`src/routes/v2/run.ts`, commit `f6f7255`, 22 Jan 2026 — a
+   * deliberate, long-standing precedence, rationale: the graph path uses edge
+   * path analysis and has no dependency on `parameter_uncertainties`). The
+   * merge (`mergeIslConfidenceIntoGraphFactors`) carries over ISL's bootstrap
+   * STABILITY DIAGNOSTICS only (`attribution_stability`, `elasticity_std`,
+   * `rank_flip_rate`, `stability_method`, `value_*`).
+   *
+   * The collision: the graph values are published under ISL's field names, so
+   * on the live wire `sensitivity_score`/`elasticity`/`direction`/
+   * `importance_rank` all LOOK like ISL measurements and are not. Verified
+   * against the checked-in capture+golden pair
+   * (`tests/fixtures/isl-v2-live-20260707/`) and against a live
+   * plot-lite-service-staging call on build `1dd45b6`.
+   *
+   * `importance_rank` is additionally LEVER-AWARE (not a raw graph index):
+   * option-controlled levers are ordered last. See
+   * `src/lib/importance-authority.ts`.
+   */
+  substitutions: [
+    {
+      field: 'factor_sensitivity[].importance_rank',
+      producer_quantity: "ISL Monte-Carlo uncertainty importance (ordered by its own sensitivity_score/importance_score)",
+      published_quantity: "PLoT lever-aware ordering over graph path-analysis influence (option-controlled levers ordered last)",
+      when: "graph-primary path (importance_basis === 'graph_structural'), i.e. every live response where the graph path returns factors",
+      disclosed_by: 'factor_sensitivity[].importance_basis',
+      why: 'Graph-derived factor sensitivity is PRIMARY (f6f7255). ISL rank is not published; the graph ordering carries the ISL field name.',
+    },
+    {
+      field: 'factor_sensitivity[].sensitivity_score',
+      producer_quantity: 'ISL MC sensitivity score (0-1, normalised to max)',
+      published_quantity: 'graph raw total causal effect (FactorInfluence.influence) — 0 for option-controlled levers (LEVER_SUPPRESSION_FIELDS)',
+      when: "graph-primary path (importance_basis === 'graph_structural')",
+      disclosed_by: 'factor_sensitivity[].importance_basis',
+      why: 'Same precedence choice; different quantity, same name.',
+    },
+    {
+      field: 'factor_sensitivity[].elasticity',
+      producer_quantity: 'ISL MC elasticity (outcome units per factor unit, signed)',
+      published_quantity: 'graph normalised influence (equal to influence_score) — 0 for option-controlled levers',
+      when: "graph-primary path (importance_basis === 'graph_structural')",
+      disclosed_by: 'factor_sensitivity[].importance_basis',
+      why: 'Same precedence choice. NOTE the units differ from ISL elasticity — do not compare across the two bases.',
+    },
+    {
+      field: 'factor_sensitivity[].direction',
+      producer_quantity: 'sign of ISL MC elasticity',
+      published_quantity: 'sign of the graph path-product influence',
+      when: "graph-primary path (importance_basis === 'graph_structural')",
+      disclosed_by: 'factor_sensitivity[].importance_basis',
+      why: 'Same precedence choice. The two can disagree (live: fac_dev_headcount ISL negative, published positive).',
+    },
+  ],
+
   transforms: [
     {
       kind: 'derive',
       from: ['from_id', 'to_id'],
       to: 'edge_sensitivity[].edge_id',
       why: 'Composite key: "${from_id}::${to_id}" (double-colon canonical format; live V2 nested entries carry from_id/to_id — legacy fixture entries carry edge_from/edge_to and are accepted equivalently)',
+    },
+    {
+      kind: 'reshape',
+      from: 'robustness.fragile_edges[]',
+      to: 'robustness.fragile_edges[]',
+      why: 'REORDERED, most-fragile-first (switch_probability desc, missing sorts last, stable). ISL does not emit these in fragility order — live build 1dd45b6 returned [0.075, 0.281, 0.375, 0.487, 0.569, 0.61, 0.307], so [0] was the LEAST fragile. Multiple PLoT and CEE consumers read the head of this array without sorting it. See normalizeFragileEdges in src/integrations/isl/adapters/robustness-analysis.ts.',
     },
     {
       kind: 'reshape',
@@ -118,7 +215,15 @@ export const ISL_TO_UI_CONTRACT: BoundaryContract = {
     'fragile_edges[].severity',          // B1: classified from switch_probability (>0.7→critical, >0.5→error, ≤0.5→warning)
     'robust_edges[].from_label',
     'robust_edges[].to_label',
-    'factor_sensitivity[].source',       // Constant: 'isl'
+    // ⚠ CORRECTED 25 Jul 2026 (lane PLoT importance-authority). This line used
+    // to read "Constant: 'isl'". That has been FALSE since f6f7255 (22 Jan
+    // 2026) made the graph path primary: every live row publishes
+    // `source: 'graph'` (verified in the checked-in golden AND against
+    // plot-lite-service-staging build 1dd45b6). A contract line that describes
+    // the pre-change world is the hand-maintained-mirror defect this file
+    // exists to prevent.
+    'factor_sensitivity[].source',       // 'graph' on the primary path | 'isl' on the ISL-only fallback. A legacy/object provenance label — for the RANKING basis read importance_basis, not this.
+    'factor_sensitivity[].importance_basis', // Lane PLoT importance-authority: 'graph_structural' | 'isl_uncertainty'. The runtime disclosure for every entry in `substitutions` below.
     'factor_sensitivity[].confidence_source', // B (tier-B): 'plot_unified_from_isl_bootstrap' | 'plot_unified_from_graph' — honest provenance tag (audit A1-PRIMARY)
     'factor_sensitivity[].confidence_provenance', // B (tier-B): typed disclosure object {computation_source, formula_version, is_provisional, calibration_status, input_quality} — audit A1-PRIMARY
     'auto_noise_applied',                // B (tier-B): boolean echo of ISL's auto-noise flag — present on analysis_status ∈ {computed, partial}, null when ISL omits — audit B3

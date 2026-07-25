@@ -272,11 +272,38 @@ describe('Robustness Analysis Adapter', () => {
       const result = normalizeFragileEdges(edges);
 
       expect(result.edges).toHaveLength(2);
-      expect(result.edges[0].edge_id).toBe('a->b');
-      expect(result.edges[0].from_id).toBe('a');
-      expect(result.edges[0].to_id).toBe('b');
-      expect(result.edges[0].switch_probability).toBe(0.3);
+      // Field mapping asserted by IDENTITY, not position — normalizeFragileEdges
+      // sorts most-fragile-first (see the ordering test below), so `a->b`
+      // (0.3) is no longer index 0.
+      const ab = result.edges.find((e) => e.edge_id === 'a->b')!;
+      expect(ab).toBeDefined();
+      expect(ab.from_id).toBe('a');
+      expect(ab.to_id).toBe('b');
+      expect(ab.switch_probability).toBe(0.3);
       expect(result.errors).toHaveLength(0);
+    });
+
+    it('sorts most-fragile-first (ISL does not emit fragility order)', () => {
+      // Deliberately supplied ascending, i.e. the SHAPE of the live ISL wire,
+      // where fragile_edges[0] was the LEAST fragile.
+      const edges = [
+        { edge_id: 'low', from_id: 'a', to_id: 'b', switch_probability: 0.075 },
+        { edge_id: 'mid', from_id: 'c', to_id: 'd', switch_probability: 0.4 },
+        { edge_id: 'high', from_id: 'e', to_id: 'f', switch_probability: 0.61 },
+      ];
+      const result = normalizeFragileEdges(edges);
+      expect(result.edges.map((e) => e.edge_id)).toEqual(['high', 'mid', 'low']);
+    });
+
+    it('sorts entries with NO switch_probability last, never ahead of a measured edge', () => {
+      // Legacy STRING entries deliberately carry no switch_probability (omitted
+      // rather than fabricated as 0) — they must not outrank a measured edge.
+      const result = normalizeFragileEdges([
+        'legacy_a->legacy_b',
+        { edge_id: 'measured', from_id: 'c', to_id: 'd', switch_probability: 0.02 },
+      ]);
+      expect(result.edges.map((e) => e.edge_id)).toEqual(['measured', 'legacy_a->legacy_b']);
+      expect(result.edges[1].switch_probability).toBeUndefined();
     });
 
     it('handles string format edges (legacy)', () => {

@@ -147,6 +147,36 @@ export function normalizeFragileEdges(
       result.errors.push({ edge_type: 'fragile', error: errorMsg, raw_value: edge });
     }
   }
+  // ── Fragility ORDER (lane PLoT importance-authority, 25 Jul 2026) ──
+  //
+  // ISL emits `fragile_edges` in an order that is NOT fragility order. Live on
+  // plot-lite-service-staging build 1dd45b6 the array came back with
+  // switch_probability [0.075, 0.281, 0.375, 0.487, 0.569, 0.61, 0.307] —
+  // `[0]` was the LEAST fragile of seven and the maximum sat at index 5. PLoT
+  // preserved that order verbatim, so every downstream `[0]` reader named the
+  // least fragile edge as the most fragile. Confirmed consumers of the head of
+  // this array, none of which sort it themselves:
+  //   - PLoT  `src/assembly/decision-brief.ts` buildWhatWouldChange (presentation order)
+  //   - PLoT  `src/routes/v2/run.ts` sensitive_parameters recommendations (.slice(0,3))
+  //   - CEE   `src/cee/decision-review/decompose.ts` `fragileEdges[0]` → `stabilityHint.top_fragile_edge`
+  //   - CEE   `src/orchestrator/context/analysis-compact.ts` deriveTopFragileEdges (.slice(0,3), no sort)
+  //   - CEE   several `renderableFragileEdges(analysis)[0]` advice-gate sites that inherit that order
+  // Consumers that already take a max/sort (PLoT `pickTopFragile`, CEE
+  // `deriveTopFragileEdgesFromTopLevel`, `resolveCautionCandidate`) are
+  // unaffected — sorting an already-max-first array is a no-op for them.
+  //
+  // Descending by switch_probability. Entries with NO switch_probability (the
+  // legacy STRING format deliberately omits it rather than fabricating 0) sort
+  // LAST, and never ahead of a measured edge. Ties and missing-vs-missing keep
+  // their arrival order (stable sort, Node ≥ 11 guarantees stability), so this
+  // is deterministic.
+  result.edges.sort((a, b) => {
+    const pa = typeof a.switch_probability === 'number' && Number.isFinite(a.switch_probability)
+      ? a.switch_probability : -Infinity;
+    const pb = typeof b.switch_probability === 'number' && Number.isFinite(b.switch_probability)
+      ? b.switch_probability : -Infinity;
+    return pb - pa;
+  });
   return result;
 }
 

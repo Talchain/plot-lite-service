@@ -149,6 +149,11 @@ import { buildAutoNoiseProvenance, extractIslAutoNoiseApplied, logAutoNoiseFlagM
 import { sanitiseIslVoi, computeEvpiPercentagePoints, deriveEvidenceHint } from '../../lib/evpi-emission.js';
 import { deriveDriverLabel, indexOfBiggestDriver } from '../../lib/driver-label.js';
 import {
+  applyLeverAwareImportanceOrder,
+  IMPORTANCE_BASIS_GRAPH,
+  IMPORTANCE_BASIS_ISL,
+} from '../../lib/importance-authority.js';
+import {
   detectUnreliableConstraintTargets,
   partitionConstraintTargets,
   buildConstraintTargetUnreliableMessage,
@@ -6148,6 +6153,44 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           factorSensitivitySource = 'isl';
         }
 
+        // ── Importance authority (lane PLoT importance-authority, 25 Jul 2026) ──
+        //
+        // Up to here `importance_rank` is a bare positional index over the graph
+        // influence order (`computeFactorSensitivityFromGraph`: `importance_rank:
+        // index + 1`) — byte-identical to `influence_rank` on every row, so it
+        // carried ZERO additional information and, crucially, ranked
+        // option-pinned LEVERS at the top.
+        //
+        // That contradicted PLoT's own ratified lever doctrine, which the SAME
+        // response body already applies on three other surfaces
+        // (decision_brief.top_drivers, m1_coaching.evidence_gaps, the
+        // DOMINANT_FACTOR warning): an option-pinned lever is a decision lever,
+        // not a background uncertainty, so it must not consume the top
+        // importance slots. Live-verified on staging build 1dd45b6: the wire
+        // crowned `fac_tech_lead` (`sensitivity_score: 0`, `elasticity: 0`,
+        // `zero_reason: 'intervention_override'`) at `importance_rank: 1` while
+        // those three surfaces all named `fac_hiring_cost`, as did ISL.
+        //
+        // NOT a precedence flip: graph-derived sensitivity stays PRIMARY and
+        // `influence_score`/`influence_rank` keep their exact graph values under
+        // their own names (a lever still tops `influence_rank` — it genuinely
+        // does top the structural influence order). Only the *importance* claim
+        // becomes lever-aware. See src/lib/importance-authority.ts.
+        if (factorSensitivity) {
+          factorSensitivity = applyLeverAwareImportanceOrder(factorSensitivity, structuralLeverIds);
+          // Producer disclosure: which authority the rank came from. Constant
+          // per response, emitted per row so no consumer can hold the number
+          // without the basis. 'graph_structural' on the primary path;
+          // 'isl_uncertainty' when the graph path returned nothing and ISL's own
+          // Monte-Carlo importance order is what is published.
+          const importanceBasis = factorSensitivitySource === 'isl'
+            ? IMPORTANCE_BASIS_ISL
+            : IMPORTANCE_BASIS_GRAPH;
+          for (const f of factorSensitivity) {
+            f.importance_basis = importanceBasis;
+          }
+        }
+
         // Enrich factor sensitivity with heuristic EVPI percentage points.
         //
         // F3 (ISL #103 / D-23.15): the former ISL COUNTERFACTUAL path — which
@@ -6195,6 +6238,27 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           //     max resolve to the FIRST factor in the emitted order (deterministic);
           //     an absent-influence factor is skipped. Not lever-skipped: a lever
           //     legitimately has a driver_label (categorical over influence magnitude).
+          //
+          //     ⚠ KNOWN DIVERGENCE, DELIBERATELY LEFT (lane PLoT importance-authority,
+          //     25 Jul 2026 — ROADMAP row "Doctrine 039: what basis does
+          //     driver_label rank on?"). Because this crown is argmax over
+          //     `influence_score` and NOT lever-aware, it can — and on the live
+          //     wire does — land on an option-pinned lever the same response
+          //     publishes at `sensitivity_score: 0` / `elasticity: 0`, i.e. on a
+          //     DIFFERENT factor from `importance_rank: 1`, which IS lever-aware.
+          //     That divergence is NOT fixed here on purpose:
+          //       · 'biggest' is DEFINED by Doctrine 039 as the greatest
+          //         `influence_score`. Gating it would make the label contradict
+          //         the number published in the same row — trading one incoherence
+          //         for another — so it needs the doctrine's basis question
+          //         (already DOCTRINE-PENDING, Neil/UI, see src/lib/driver-label.ts)
+          //         answered first, not a unilateral producer change.
+          //       · Blast radius today is ZERO: censused 25 Jul at the tips
+          //         (UI 039f479a, CEE f00b8ef6) — `factor_sensitivity[].driver_label`
+          //         has NO read site in either consumer.
+          //     The divergence is PINNED (not merely commented) by
+          //     tests/importance-rank-lever-doctrine.fixture.test.ts so it cannot
+          //     drift silently while the ruling is pending.
           const biggestIdx = indexOfBiggestDriver(factorSensitivity);
           if (biggestIdx >= 0) factorSensitivity[biggestIdx].driver_label = 'biggest';
 

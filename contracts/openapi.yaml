@@ -6501,11 +6501,51 @@ components:
                 type: string
               sensitivity_score:
                 type: number
+                description: >-
+                  ⚠ NOT ISL's sensitivity_score on the primary path. When
+                  `importance_basis` is `graph_structural` (every live response
+                  today) this is PLoT's own graph raw total causal effect, and
+                  is forced to 0 for option-controlled levers. ISL's value is
+                  not published. See the `substitutions` block in
+                  src/contracts/isl-to-ui.contract.ts.
+              importance_rank:
+                type: integer
+                minimum: 1
+                description: >-
+                  Rank 1 = most important. ⚠ NOT ISL's importance_rank on the
+                  primary path — read `importance_basis` first. Option-
+                  controlled levers (ISL zero_reason `intervention_override` or
+                  D-U structural union members) are ordered LAST: a lever is a
+                  decision lever, not a background uncertainty, so it never
+                  consumes a top importance slot. The emitted array order
+                  follows this rank, so `factor_sensitivity[0]` and
+                  `importance_rank == 1` agree.
+              importance_basis:
+                type: string
+                enum: [graph_structural, isl_uncertainty]
+                description: >-
+                  Producer disclosure of WHICH authority produced
+                  `importance_rank` (and the quantity behind
+                  `sensitivity_score` / `elasticity` / `direction` /
+                  `influence_score`). `graph_structural` = PLoT's graph path
+                  analysis, the live primary path. `isl_uncertainty` = the graph
+                  path returned nothing and ISL's own Monte-Carlo importance
+                  ordering is published. Emitted on every entry; exists because
+                  the two quantities share ISL's field NAMES and are otherwise
+                  indistinguishable to a consumer.
               importance_score:
                 type: number
                 minimum: 0
                 maximum: 1
-                description: Normalized importance score bounded to [0,1] for UI display
+                description: >-
+                  ⚠ NOT EMITTED by any build. `FactorSensitivityResultV3` has no
+                  `importance_score` member and no transform maps ISL's, so this
+                  field has never reached the wire on either the graph-primary or
+                  the ISL-fallback path (verified in the checked-in golden and
+                  against plot-lite-service-staging build 1dd45b6). Declared here
+                  historically; retained as a documented ABSENCE rather than
+                  deleted, because consumers were written against it. Declared as
+                  a drop in src/contracts/isl-to-ui.contract.ts. Do not read it.
               value_of_information:
                 type: number
               evpi_percentage_points:

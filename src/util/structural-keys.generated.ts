@@ -210,6 +210,7 @@ export const STRUCTURAL_KEYS: ReadonlySet<string> = new Set([
   "id_mismatch",
   "idempotency_key",
   "identifiability",
+  "importance_basis",
   "importance_rank",
   "improvement_guidance",
   "include_e_values",
