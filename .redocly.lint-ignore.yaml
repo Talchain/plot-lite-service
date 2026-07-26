@@ -1,0 +1,60 @@
+# Redocly lint exceptions — PER-POINTER, never per-rule.
+#
+# This file exists for exactly one reason, and it is deliberately tiny.
+#
+# THE RULE IS NOT DISABLED. `operation-2xx-response` stays fully armed for every
+# other operation in the spec; only the three JSON pointers below are excepted,
+# by name. If a fourth operation ever loses its success response, Redocly will
+# still fail — which is the behaviour we want to keep.
+#
+# WHY THESE THREE
+#
+# /v1/analysis/optimise, /v1/sensitivity and /v1/score were WITHDRAWN on
+# 2026-07-26. They return HTTP 501 ANALYSIS_UNAVAILABLE for every input, always.
+# There is no request that can succeed, because there is no longer any compute
+# behind them:
+#
+#   - /v1/analysis/optimise  ruled vacuous — its fallback never received the
+#     graph; all six probe variants, including the positive control, returned
+#     one identical response hash.
+#   - /v1/sensitivity        ruled fabricating — the tornado was a closed-form
+#     function of the seed and each node's own value; deleting every edge in the
+#     graph left the response byte-identical.
+#   - /v1/score              ruled fabricating — utilities were a function of
+#     the seed and the node's ARRAY INDEX; two options with identical weights
+#     swapped positions and the published ranking flipped.
+#
+# So `operation-2xx-response` is asking these operations to document a success
+# they can never produce. Declaring a 2XX purely to satisfy the linter would put
+# a false statement into the published contract — precisely the defect class the
+# withdrawal exists to remove. An exception is the honest resolution; a
+# fabricated 200 is not.
+#
+# NOTE the asymmetry with operation-4xx-response, which is NOT excepted here and
+# does not need to be. These paths genuinely can return 401 and 403: the /v1/*
+# auth guard runs as a preHandler, before the handler, so both outcomes are real
+# and are declared in the spec. Verified by probe against the real app with
+# AUTH_ENABLED=1:
+#
+#     no Authorization header -> 401 UNAUTHORIZED (WWW-Authenticate: Bearer)
+#     wrong bearer token      -> 403 FORBIDDEN
+#     valid bearer token      -> 501 ANALYSIS_UNAVAILABLE
+#
+# 429 was deliberately NOT declared: it was not observed in that probe
+# (RATE_LIMIT_ENABLED=1, RATE_LIMIT_RPM=2, six consecutive requests all returned
+# 501), and an undocumented-but-real response is a smaller fault than a
+# documented-but-unverified one.
+#
+# WHEN TO DELETE THIS FILE
+# Remove the corresponding entry when its path is deleted from the spec at the
+# end of the D-PLoT telemetry window. If all three go, delete the whole file.
+#
+# Maintained by hand. Do NOT regenerate with `redocly lint --generate-ignore-file`:
+# that would silently absorb the 37 pre-existing `security-defined` errors too,
+# turning a visible, tracked contract gap into an invisible one.
+
+contracts/openapi.yaml:
+  operation-2xx-response:
+    - '#/paths/~1v1~1analysis~1optimise/post/responses'
+    - '#/paths/~1v1~1sensitivity/post/responses'
+    - '#/paths/~1v1~1score/post/responses'

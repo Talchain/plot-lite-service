@@ -1711,6 +1711,36 @@ paths:
       tags: [v1]
       deprecated: true
       responses:
+        '401':
+          description: |
+            Missing bearer token. The /v1/* auth guard runs as a preHandler,
+            BEFORE this route's handler, so this outcome is reachable on a
+            withdrawn path exactly as on a live one. Verified by probe against
+            the real app with AUTH_ENABLED=1. Carries `WWW-Authenticate: Bearer`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                unauthorized:
+                  value:
+                    schema: error.v1
+                    code: UNAUTHORIZED
+                    message: Missing bearer token
+        '403':
+          description: |
+            Invalid bearer token. Also produced by the preHandler auth guard,
+            before the handler is reached. Verified by probe.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                forbidden:
+                  value:
+                    schema: error.v1
+                    code: FORBIDDEN
+                    message: Invalid token
         '501':
           description: Capability withdrawn — no scoring is performed for any input
           content:
@@ -2098,6 +2128,36 @@ paths:
       tags: [v1, analysis]
       deprecated: true
       responses:
+        '401':
+          description: |
+            Missing bearer token. The /v1/* auth guard runs as a preHandler,
+            BEFORE this route's handler, so this outcome is reachable on a
+            withdrawn path exactly as on a live one. Verified by probe against
+            the real app with AUTH_ENABLED=1. Carries `WWW-Authenticate: Bearer`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                unauthorized:
+                  value:
+                    schema: error.v1
+                    code: UNAUTHORIZED
+                    message: Missing bearer token
+        '403':
+          description: |
+            Invalid bearer token. Also produced by the preHandler auth guard,
+            before the handler is reached. Verified by probe.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                forbidden:
+                  value:
+                    schema: error.v1
+                    code: FORBIDDEN
+                    message: Invalid token
         '501':
           description: Capability withdrawn — no analysis is performed for any input
           content:
@@ -2363,6 +2423,36 @@ paths:
       tags: [v1, optimisation, analysis]
       deprecated: true
       responses:
+        '401':
+          description: |
+            Missing bearer token. The /v1/* auth guard runs as a preHandler,
+            BEFORE this route's handler, so this outcome is reachable on a
+            withdrawn path exactly as on a live one. Verified by probe against
+            the real app with AUTH_ENABLED=1. Carries `WWW-Authenticate: Bearer`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                unauthorized:
+                  value:
+                    schema: error.v1
+                    code: UNAUTHORIZED
+                    message: Missing bearer token
+        '403':
+          description: |
+            Invalid bearer token. Also produced by the preHandler auth guard,
+            before the handler is reached. Verified by probe.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                forbidden:
+                  value:
+                    schema: error.v1
+                    code: FORBIDDEN
+                    message: Invalid token
         '501':
           description: Capability withdrawn — no analysis is performed for any input
           content:
