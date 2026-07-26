@@ -1490,6 +1490,44 @@ export async function createServer(opts: ServerOpts = {}) {
       req.log.warn({ evt: 'oversize', id: req.id, route: sanitizedRoute, bytes, reason: 'body_too_large' });
       return replyWithAppError(reply, { type: 'BAD_INPUT', statusCode: 413, message: 'Request entity too large' });
     }
+    // Typed capability refusal (arch step 0, D-PLoT fail-closed).
+    //
+    // A compute path declined to produce a number because a capability the
+    // caller explicitly asked for is off in this configuration — see
+    // src/inference/capability.ts. This is a DELIBERATE refusal, not an
+    // unexplained failure, so it must not fall through to the 500 branch
+    // below, where it would be logged as `unhandled_error` and returned as a
+    // generic "Something went wrong" that tells the caller nothing about how
+    // to recover.
+    //
+    // 501, not 500: the server understood the request and is declining to
+    // implement it under the current configuration. `retryable:false` — an
+    // identical retry against an identically-configured server produces an
+    // identical refusal; recovery means reconfiguring the server or dropping
+    // the unsupported input.
+    const { isCapabilityUnavailableError } = await import('./inference/capability.js');
+    if (isCapabilityUnavailableError(err)) {
+      req.log.warn({
+        evt: 'capability_unavailable',
+        id: req.id,
+        route,
+        capability: err.capability,
+        code: err.code,
+      });
+      return replyWithAppError(reply, {
+        type: 'INTERNAL',
+        statusCode: 501,
+        message: err.message,
+        fields: {
+          code: err.code,
+          reason: err.reason,
+          status: err.status,
+          capability: err.capability,
+          retryable: false,
+        },
+      });
+    }
+
     // Fallback INTERNAL.
     //
     // This branch used to reply "Something went wrong" while logging NOTHING.
