@@ -46,6 +46,11 @@
  * Rule for anyone editing this file: never index into a field of `graph`,
  * `sequential_metadata` or a stage without first proving its shape. Malformed
  * input must produce a typed issue, never a throw.
+ *
+ * Corollary, learned the hard way: prove that shape in ONE place. "Is this entry
+ * a stage definition?" was written out three times at three strictnesses and had
+ * already drifted apart within a single PR. Use `isStageDefinition` and consume
+ * `NormalisedStage`; do not re-derive either.
  */
 
 import type { Graph, StageDefinition, GraphNode, GraphEdge } from '../trust/types.js';
@@ -71,8 +76,49 @@ function asArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
 }
 
+/**
+ * A stage definition reduced to the fields this module actually uses, with the
+ * untrusted reads already done ONCE.
+ *
+ * Every consumer below takes these instead of raw `stages[]` entries, which is
+ * what makes "is this a stage definition?" a question asked in exactly one
+ * place. Passing raw entries around is what let three copies of that question
+ * drift apart.
+ */
+export interface NormalisedStage {
+  index: number;
+  label?: string;
+  decisions: string[];
+  resolvedUncertainties: string[];
+}
+
+/**
+ * THE stage-definition predicate. One definition, used at every site.
+ *
+ * Previously this question was asked three times at three strictnesses —
+ * `readStageDefinitions` checked object/not-array/numeric/finite,
+ * `buildNodeStageMap` dropped the not-array and finite checks, and `getMaxStage`
+ * dropped the object and not-array checks. They diverged inside a single PR, and
+ * the divergence was observable: an entry `readStageDefinitions` had already
+ * REJECTED as `INVALID_STAGE_DEFINITION` could still seed the forward-reference
+ * map (fabricating a FORWARD_REFERENCE) and still raise `getMaxStage` (which
+ * feeds the `maxStage > MAX_STAGES` 400 gate and `model_card.stages`).
+ *
+ * A non-finite `index` is rejected deliberately: `NaN`/`±Infinity` make every
+ * ordering comparison below meaningless rather than merely wrong.
+ */
+export function isStageDefinition(x: unknown): x is StageDefinition {
+  return (
+    x !== null &&
+    typeof x === 'object' &&
+    !Array.isArray(x) &&
+    typeof (x as { index?: unknown }).index === 'number' &&
+    Number.isFinite((x as { index: number }).index)
+  );
+}
+
 /** Human-readable stage reference for issue messages, safe on a missing label. */
-function stageRef(stage: StageDefinition): string {
+function stageRef(stage: { index: number; label?: unknown }): string {
   const label = typeof stage.label === 'string' ? stage.label : '';
   return label ? `${stage.index} ("${label}")` : `${stage.index}`;
 }
@@ -87,13 +133,15 @@ function stageRef(stage: StageDefinition): string {
  * is still computable — the omission is reported as a warning and the list is
  * treated as empty rather than silently ignored.
  *
- * Pass `issues` only where the report should be recorded; internal re-reads
- * omit it so the same omission is not reported twice.
+ * `issues` is required. It used to be optional so that `buildNodeStageMap` could
+ * re-parse the same stages a second time without double-reporting; that second
+ * parse is gone, so whether a malformation gets reported is no longer a function
+ * of which call site remembered to pass the sink.
  */
 function readStageIdList(
   stage: StageDefinition,
   field: 'decisions' | 'resolved_uncertainties',
-  issues?: SequentialValidationIssue[]
+  issues: SequentialValidationIssue[]
 ): string[] {
   const raw = (stage as unknown as Record<string, unknown>)[field];
 
@@ -102,13 +150,13 @@ function readStageIdList(
   }
 
   if (raw === undefined || raw === null) {
-    issues?.push({
+    issues.push({
       code: 'MISSING_STAGE_ID_LIST',
       message: `Stage ${stageRef(stage)} is missing "${field}". Treating it as empty — supply "${field}" as an array of node IDs for complete sequential validation.`,
       severity: 'warning',
     });
   } else {
-    issues?.push({
+    issues.push({
       code: 'INVALID_STAGE_ID_LIST',
       message: `Stage ${stageRef(stage)} has "${field}" of type ${typeof raw}, expected an array of node IDs. Treating it as empty.`,
       severity: 'warning',
@@ -119,24 +167,19 @@ function readStageIdList(
 }
 
 /**
- * Filter `stages` down to entries that are actually stage objects, reporting
- * each reject as a typed error issue.
+ * Normalise `stages` ONCE: filter to entries that are actually stage
+ * definitions (reporting each reject as a typed error) and resolve their id
+ * lists in the same pass. Everything downstream consumes the result, so no
+ * later site re-derives either the predicate or the id lists.
  */
 function readStageDefinitions(
   rawStages: unknown[],
   issues: SequentialValidationIssue[]
-): StageDefinition[] {
-  const stages: StageDefinition[] = [];
+): NormalisedStage[] {
+  const stages: NormalisedStage[] = [];
 
   rawStages.forEach((entry, i) => {
-    const isStageObject =
-      entry !== null &&
-      typeof entry === 'object' &&
-      !Array.isArray(entry) &&
-      typeof (entry as { index?: unknown }).index === 'number' &&
-      Number.isFinite((entry as { index: number }).index);
-
-    if (!isStageObject) {
+    if (!isStageDefinition(entry)) {
       issues.push({
         code: 'INVALID_STAGE_DEFINITION',
         message: `sequential_metadata.stages[${i}] is not a valid stage definition — expected an object with a numeric "index", received ${entry === null ? 'null' : Array.isArray(entry) ? 'array' : typeof entry}.`,
@@ -145,7 +188,12 @@ function readStageDefinitions(
       return;
     }
 
-    stages.push(entry as StageDefinition);
+    stages.push({
+      index: entry.index,
+      label: typeof entry.label === 'string' ? entry.label : undefined,
+      decisions: readStageIdList(entry, 'decisions', issues),
+      resolvedUncertainties: readStageIdList(entry, 'resolved_uncertainties', issues),
+    });
   });
 
   return stages;
@@ -234,8 +282,7 @@ export function validateSequentialGraph(graph: Graph): SequentialValidationResul
 
   // Validate each stage definition
   for (const stage of stages) {
-    const decisions = readStageIdList(stage, 'decisions', issues);
-    const resolvedUncertainties = readStageIdList(stage, 'resolved_uncertainties', issues);
+    const { decisions, resolvedUncertainties } = stage;
 
     // Check decisions exist in graph
     for (const decisionId of decisions) {
@@ -291,7 +338,7 @@ export function validateSequentialGraph(graph: Graph): SequentialValidationResul
   }
 
   // Validate no forward references (edges from later stages to earlier stages)
-  const nodeStages = buildNodeStageMap(graph);
+  const nodeStages = buildNodeStageMap(graphNodes, stages);
   for (const edge of graphEdges) {
     const fromStage = nodeStages.get(edge.from);
     const toStage = nodeStages.get(edge.to);
@@ -333,28 +380,29 @@ export function validateSequentialGraph(graph: Graph): SequentialValidationResul
 }
 
 /**
- * Build a map from node ID to stage number
- * Uses node.stage first, then falls back to stage definitions
+ * Build a map from node ID to stage number.
+ * Uses node.stage first, then falls back to the stage definitions.
+ *
+ * Takes already-normalised stages, so it neither re-parses the id lists nor
+ * carries its own copy of the stage predicate — a stage rejected upstream is
+ * simply absent here and cannot influence the forward-reference check.
  */
-function buildNodeStageMap(graph: Graph): Map<string, number> {
+function buildNodeStageMap(
+  graphNodes: GraphNode[],
+  stages: NormalisedStage[]
+): Map<string, number> {
   const nodeStages = new Map<string, number>();
 
   // First, use explicit node.stage assignments
-  for (const node of asArray<GraphNode>(graph?.nodes)) {
+  for (const node of graphNodes) {
     if (node?.stage !== undefined) {
       nodeStages.set(node.id, node.stage);
     }
   }
 
-  // Then, fill in from stage definitions. Re-reads the id lists without an
-  // `issues` sink: any malformation here was already reported by the caller.
-  for (const stage of asArray<StageDefinition>(graph?.sequential_metadata?.stages)) {
-    if (!stage || typeof stage !== 'object' || typeof stage.index !== 'number') continue;
-    const ids = [
-      ...readStageIdList(stage, 'decisions'),
-      ...readStageIdList(stage, 'resolved_uncertainties'),
-    ];
-    for (const id of ids) {
+  // Then, fill in from stage definitions
+  for (const stage of stages) {
+    for (const id of [...stage.decisions, ...stage.resolvedUncertainties]) {
       if (!nodeStages.has(id)) {
         nodeStages.set(id, stage.index);
       }
@@ -396,8 +444,8 @@ export function isSequentialGraph(graph: Graph): boolean {
 export function getMaxStage(graph: Graph): number {
   let maxStage = 0;
 
-  for (const stage of asArray<StageDefinition>(graph?.sequential_metadata?.stages)) {
-    if (typeof stage?.index === 'number' && Number.isFinite(stage.index)) {
+  for (const stage of asArray<unknown>(graph?.sequential_metadata?.stages)) {
+    if (isStageDefinition(stage)) {
       maxStage = Math.max(maxStage, stage.index);
     }
   }
