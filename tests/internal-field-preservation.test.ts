@@ -212,7 +212,18 @@ describe('toISLRobustnessRequest strips _internal at wire boundary', () => {
 
     expect(islRequest.goal_constraints).toHaveLength(1);
     expect(islRequest.goal_constraints![0]).not.toHaveProperty('_internal');
-    // Only ISL-known fields
+    // Corrected in contract step-2 slice 6. The previous comment here read
+    // "Only ISL-known fields", which was FALSE: ISL's `GoalConstraint`
+    // (isl/src/models/robustness_v2.py:622-681 @ 7d144c7f) declares exactly
+    // {node_id, operator, value, label} — `constraint_id` is NOT an ISL field
+    // and was being dropped by `extra: "ignore"`. This assertion is therefore
+    // a PLoT-side key-set pin, not a statement about ISL's contract.
+    //
+    // `constraint_id` is retained deliberately: Codex adjudicated OQ-5 as
+    // ADOPT-into-ISL (reader-first — ISL accepts and echoes it optional
+    // first), not delete, because `constraint_verdict`'s `identity_unresolved`
+    // state needs a stable constraint identity to cite. Do NOT remove it here
+    // as part of undeclared-key cleanup; the ISL lane declares it first.
     expect(Object.keys(islRequest.goal_constraints![0]).sort()).toEqual(
       ['constraint_id', 'label', 'node_id', 'operator', 'value'].sort()
     );

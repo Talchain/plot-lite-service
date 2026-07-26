@@ -125,8 +125,14 @@ export interface ISLParameterUncertainty {
   node_id: string;
   /** Distribution type for uncertainty */
   distribution: 'normal' | 'uniform';
-  /** Mean value (for normal distribution) */
-  mean?: number;
+  /**
+   * NO `mean` MEMBER. ISL's `ParameterUncertainty`
+   * (isl/src/models/robustness_v2.py:254-267 @ 7d144c7f) declares
+   * {node_id, distribution, std, range_min, range_max} and nothing else; the
+   * sampling centre comes from the node's `observed_state.value`
+   * (robustness_analyzer_v2.py:852-855, 891-892, 3490-3494). A `mean` sent here
+   * was dropped by `extra: "ignore"`. Removed in contract step-2 slice 6.
+   */
   /** Standard deviation (for normal distribution) */
   std?: number;
   /** Minimum value (for uniform distribution) */

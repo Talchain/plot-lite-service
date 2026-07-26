@@ -779,8 +779,9 @@ function roundTo4(value: number): number {
  * Constructs a closure that, per probe:
  * 1. Clones the request graph and sets the target factor's observed_state.value
  *    to the probe value — the field ISL's comparison reads as the sampling mean
- * 2. Keeps the target factor's parameter_uncertainties.mean aligned to the same
- *    value (contract honesty; the comparison shadows this field)
+ * 2. (removed in contract step-2 slice 6: the probe used to mirror the value
+ *    onto `parameter_uncertainties[].mean`, a key ISL does not declare and
+ *    dropped under `extra: "ignore"`. Step 1 was always the whole mechanism.)
  * 3. Forwards the resolved analysis seed (the same seed sent to the main ISL
  *    robustness call) on every probe request
  * 4. Calls ISL via the service's callAnalysisEndpoint
@@ -812,7 +813,7 @@ export function createISLInferenceFn(
     options: any[];
     goal_node_id: string;
     n_samples?: number;
-    parameter_uncertainties?: Array<{ node_id: string; distribution: string; mean: number; std: number }>;
+    parameter_uncertainties?: Array<{ node_id: string; distribution: string; std: number }>;
     // Resolved seed sent to the main ISL analysis call (explicit request seed,
     // or PLoT-derived seed when omitted). Forwarded verbatim on every probe so
     // common random numbers stay intentional and aligned with the base analysis.
@@ -833,18 +834,16 @@ export function createISLInferenceFn(
     if (signal?.aborted) {
       throw new DOMException('Flip probe aborted before ISL call (deadline elapsed)', 'AbortError');
     }
-    // Clone parameter_uncertainties with the target factor's mean overridden
+    // Clone parameter_uncertainties. Slice 6: the clone no longer mirrors the
+    // probe value onto a `mean` key — ISL declares none (see the note below).
+    // The probe still needs its own ENTRY for a factor absent from the base
+    // list, because ISL only perturbs factors named in this array.
     const basePU = originalRequest.parameter_uncertainties ?? [];
     const factorExists = basePU.some((pu) => pu.node_id === factorId);
 
     let paramUncertainties: typeof basePU;
     if (factorExists) {
-      paramUncertainties = basePU.map((pu) => {
-        if (pu.node_id === factorId) {
-          return { ...pu, mean: overrideMean };
-        }
-        return { ...pu };
-      });
+      paramUncertainties = basePU.map((pu) => ({ ...pu }));
     } else {
       // Factor not in original parameter_uncertainties — insert with default std
       paramUncertainties = [
@@ -852,7 +851,6 @@ export function createISLInferenceFn(
         {
           node_id: factorId,
           distribution: 'normal' as const,
-          mean: overrideMean,
           std: Math.max(0.1, Math.abs(overrideMean) * 0.15),
         },
       ];
@@ -861,11 +859,16 @@ export function createISLInferenceFn(
     // Clone the graph for THIS probe and set the target factor's
     // observed_state.value to the probe value. ISL's comparison samples each factor
     // from Normal(observed_state.value, parameter_uncertainties.std): the comparison
-    // MEAN is read from the graph node's observed_state.value, while the request's
-    // parameter_uncertainties.mean is shadowed (not consumed) by the comparison path.
-    // So observed_state.value is the field that actually moves the winner; the aligned
-    // parameter_uncertainties.mean override above is kept only for contract honesty /
-    // possible future consumers.
+    // MEAN is read from the graph node's observed_state.value — this line is the
+    // entire mechanism that moves the winner.
+    //
+    // Slice 6: PLoT used to ALSO write `parameter_uncertainties[].mean` here
+    // "for contract honesty / possible future consumers". It was neither: ISL's
+    // ParameterUncertainty declares no `mean` (robustness_v2.py:254-267) and its
+    // `extra: "ignore"` dropped the key at parse, so no consumer — present or
+    // future — could have read it without an ISL-side declaration first. Writing
+    // it made the request look aligned while the alignment lived entirely in the
+    // line below.
     //
     // overrideMean is already in the normalised [0,1] scale of observed_state.value,
     // so the normalised scale is preserved (we never write raw human values here).

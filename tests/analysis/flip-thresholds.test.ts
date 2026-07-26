@@ -676,7 +676,7 @@ describe('resolveFlipValues() — probes_used telemetry', () => {
 });
 
 describe('createISLInferenceFn()', () => {
-  it('overrides the target factor mean in parameter_uncertainties', async () => {
+  it('moves the target factor observed_state.value and leaves other factors alone', async () => {
     let capturedBody: any = null;
 
     const mockCallAnalysis = async (_ep: string, body: unknown, _rid: string) => {
@@ -692,13 +692,26 @@ describe('createISLInferenceFn()', () => {
     };
 
     const originalRequest = {
-      graph: { nodes: [], edges: [] },
+      // Slice 6: this fixture used to carry an EMPTY node list, so the only
+      // thing the assertions below could observe was the probe's mirror of the
+      // value onto `parameter_uncertainties[].mean` — a key ISL declares
+      // nowhere and drops at parse. The test therefore pinned the shadow and
+      // not the mechanism. Re-pointed at the real one: the probe moves
+      // `graph.nodes[].observed_state.value`, which is where ISL reads the
+      // sampling centre (robustness_analyzer_v2.py:852-855).
+      graph: {
+        nodes: [
+          { id: 'factor-x', kind: 'factor', label: 'X', observed_state: { value: 0.7, unit: '%' } },
+          { id: 'factor-y', kind: 'factor', label: 'Y', observed_state: { value: 0.5 } },
+        ],
+        edges: [],
+      },
       options: [{ id: 'opt-a' }, { id: 'opt-b' }],
       goal_node_id: 'goal',
       n_samples: 1000,
       parameter_uncertainties: [
-        { node_id: 'factor-x', distribution: 'normal', mean: 0.7, std: 0.15 },
-        { node_id: 'factor-y', distribution: 'normal', mean: 0.5, std: 0.2 },
+        { node_id: 'factor-x', distribution: 'normal', std: 0.15 },
+        { node_id: 'factor-y', distribution: 'normal', std: 0.2 },
       ],
     };
 
@@ -706,10 +719,21 @@ describe('createISLInferenceFn()', () => {
 
     await fn('factor-x', 0.3);
 
-    // Should override factor-x mean to 0.3, leave factor-y unchanged
+    // The probe moves the TARGET factor's observed value and leaves the other
+    // node untouched (and untouched by reference — never mutated in place).
+    const nodes = capturedBody.graph.nodes;
+    expect(nodes.find((n: any) => n.id === 'factor-x').observed_state.value).toBe(0.3);
+    expect(nodes.find((n: any) => n.id === 'factor-y').observed_state.value).toBe(0.5);
+    // Display metadata on the probed node survives the clone.
+    expect(nodes.find((n: any) => n.id === 'factor-x').observed_state.unit).toBe('%');
+    // The original request object is never mutated.
+    expect(originalRequest.graph.nodes[0].observed_state.value).toBe(0.7);
+
+    // std is carried through unchanged; no undeclared `mean` is re-added.
     const pu = capturedBody.parameter_uncertainties;
-    expect(pu.find((p: any) => p.node_id === 'factor-x').mean).toBe(0.3);
-    expect(pu.find((p: any) => p.node_id === 'factor-y').mean).toBe(0.5);
+    expect(pu.find((p: any) => p.node_id === 'factor-x').std).toBe(0.15);
+    expect(pu.find((p: any) => p.node_id === 'factor-y').std).toBe(0.2);
+    for (const entry of pu) expect(entry).not.toHaveProperty('mean');
   });
 
   it('uses analysis_types: ["comparison"] for efficiency', async () => {
@@ -760,7 +784,7 @@ describe('createISLInferenceFn()', () => {
       options: [],
       goal_node_id: 'goal',
       parameter_uncertainties: [
-        { node_id: 'other-factor', distribution: 'normal', mean: 0.5, std: 0.2 },
+        { node_id: 'other-factor', distribution: 'normal', std: 0.2 },
       ],
     };
 
@@ -774,13 +798,17 @@ describe('createISLInferenceFn()', () => {
 
     const inserted = pu.find((p: any) => p.node_id === 'missing-factor');
     expect(inserted).toBeDefined();
-    expect(inserted.mean).toBe(0.6);
     expect(inserted.distribution).toBe('normal');
+    // Slice 6: the inserted entry carries no `mean` (ISL declares none). Its
+    // width is still derived from the probe value — 0.6 * 0.15 = 0.09, floored
+    // to 0.1 — so the derivation stays observable.
+    expect(inserted).not.toHaveProperty('mean');
     expect(inserted.std).toBeGreaterThanOrEqual(0.1);
 
-    // Original unchanged
+    // Original entry passes through unchanged.
     const other = pu.find((p: any) => p.node_id === 'other-factor');
-    expect(other.mean).toBe(0.5);
+    expect(other).not.toHaveProperty('mean');
+    expect(other.std).toBeDefined();
   });
 
   it('inserts factor with std floor of 0.1 when mean is near zero', async () => {
@@ -808,7 +836,7 @@ describe('createISLInferenceFn()', () => {
 
   it('does not mutate original request parameter_uncertainties', async () => {
     const originalPU = [
-      { node_id: 'factor-x', distribution: 'normal', mean: 0.7, std: 0.15 },
+      { node_id: 'factor-x', distribution: 'normal', std: 0.15 },
     ];
 
     const mockCallAnalysis = async () => ({
@@ -826,8 +854,9 @@ describe('createISLInferenceFn()', () => {
 
     await fn('factor-x', 0.1);
 
-    // Original should be unchanged
-    expect(originalPU[0].mean).toBe(0.7);
+    // Original should be unchanged (never mutated in place by the probe).
+    expect(originalPU[0].std).toBe(0.15);
+    expect(originalPU[0].node_id).toBe('factor-x');
   });
 
   // ===========================================================================
@@ -851,8 +880,8 @@ describe('createISLInferenceFn()', () => {
       ],
       goal_node_id: 'goal',
       parameter_uncertainties: [
-        { node_id: 'factor-x', distribution: 'normal', mean: 0.7, std: 0.1 },
-        { node_id: 'factor-y', distribution: 'normal', mean: 0.3, std: 0.1 },
+        { node_id: 'factor-x', distribution: 'normal', std: 0.1 },
+        { node_id: 'factor-y', distribution: 'normal', std: 0.1 },
       ],
     };
   }
@@ -870,7 +899,10 @@ describe('createISLInferenceFn()', () => {
     const targetNode = (captured.graph.nodes as any[]).find((n) => n.id === 'factor-x');
     expect(targetNode.observed_state.value).toBe(0.25);              // graph value = probe value
     const puX = (captured.parameter_uncertainties as any[]).find((p) => p.node_id === 'factor-x');
-    expect(puX.mean).toBe(0.25);                                     // PU mean aligned
+    // Slice 6: the PU entry no longer mirrors the probe value onto an
+    // undeclared `mean`. The graph assertion above IS the mechanism — ISL reads
+    // the sampling centre from observed_state.value.
+    expect(puX).not.toHaveProperty('mean');
     // Display/denormalisation metadata + uncertainty width preserved
     expect(targetNode.observed_state.std).toBe(0.1);
     expect(targetNode.observed_state.raw_value).toBe(70);
@@ -941,7 +973,10 @@ describe('createISLInferenceFn()', () => {
     expect((captured.graph.nodes as any[]).find((n) => n.id === 'factor-x').observed_state.value).toBe(0.7);
     // PU still gets the factor inserted (existing fallback behaviour for non-graph factors).
     const puMissing = (captured.parameter_uncertainties as any[]).find((p) => p.node_id === 'factor-missing');
-    expect(puMissing.mean).toBe(0.42);
+    expect(puMissing).toBeDefined();
+    expect(puMissing).not.toHaveProperty('mean'); // slice 6: undeclared by ISL
+    // width still derived from the probe value: 0.42 * 0.15 = 0.063 → floor 0.1
+    expect(puMissing.std).toBe(0.1);
   });
 
   // ===========================================================================
@@ -1129,8 +1164,8 @@ describe('resolveFlipValues() with a contract-faithful comparison (observed_stat
       ],
       goal_node_id: 'goal',
       parameter_uncertainties: [
-        { node_id: 'delivery_gap', distribution: 'normal', mean: targetValue, std: 0.1 },
-        { node_id: 'cost', distribution: 'normal', mean: 0.5, std: 0.1 },
+        { node_id: 'delivery_gap', distribution: 'normal', std: 0.1 },
+        { node_id: 'cost', distribution: 'normal', std: 0.1 },
       ],
     };
   }
@@ -1156,7 +1191,11 @@ describe('resolveFlipValues() with a contract-faithful comparison (observed_stat
     const mock = contractFaithfulMock('delivery_gap', 0.5);
     const winner = (r: any) => [...r.data.results].sort((a, b) => b.win_probability - a.win_probability)[0].option_id;
 
-    // Same observed_state.value (0.7), different PU mean → winner UNCHANGED (old probe field).
+    // Same observed_state.value (0.7), different PU mean → winner UNCHANGED.
+    // Slice 6 note: `mean` is no longer produced at all, so these two lines now
+    // PLANT the key to demonstrate the mock ignores it. That is deliberate —
+    // this case is the control proving observed_state.value is the live field,
+    // and a control has to be able to show the inert one being ignored.
     const sameValueLowPU = graphReq(0.7); sameValueLowPU.parameter_uncertainties[0].mean = 0;
     const sameValueHighPU = graphReq(0.7); sameValueHighPU.parameter_uncertainties[0].mean = 1;
     expect(winner(await mock('x', sameValueLowPU))).toBe(winner(await mock('x', sameValueHighPU)));
@@ -1401,7 +1440,7 @@ describe('resolveFlipValues() — seed forwarding drives flip determinism', () =
       goal_node_id: 'goal',
       n_samples: 1000,
       parameter_uncertainties: [
-        { node_id: 'delivery_gap', distribution: 'normal', mean: 0.7, std: 0.1 },
+        { node_id: 'delivery_gap', distribution: 'normal', std: 0.1 },
       ],
       seed,
     };

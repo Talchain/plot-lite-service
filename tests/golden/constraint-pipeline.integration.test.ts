@@ -164,7 +164,13 @@ describe('Constraint Pipeline Integration', () => {
 
     expect(outcomeXPU).toBeDefined();
     expect(outcomeXPU.std).toBe(CONSTRAINT_PINNED_STD);
-    expect(outcomeXPU.mean).toBe(0.85);
+    // Slice 6: `mean` is not sent (undeclared by ISL). The observed value the
+    // injector keyed on still reaches ISL in its declared location.
+    expect(outcomeXPU).not.toHaveProperty('mean');
+    expect(
+      capturedISLRequestBody.graph.nodes.find((n: any) => n.id === 'outcome-x')
+        .observed_state.value,
+    ).toBe(0.85);
   });
 
   // -------------------------------------------------------------------------

@@ -277,8 +277,11 @@ describe('ISL Preflight Validation', () => {
       for (const u of result) {
         expect(u.distribution).toBe('normal');
         expect(u.std).toBeGreaterThan(0);
-        expect(Number.isFinite(u.mean)).toBe(true);
         expect(Number.isFinite(u.std)).toBe(true);
+        // Slice 6: `mean` is not an ISL-declared PU member and is no longer
+        // built. Pin the exact key set instead — a stronger assertion, and the
+        // one that stops an undeclared key being re-added here.
+        expect(Object.keys(u).sort()).toEqual(['distribution', 'node_id', 'std']);
       }
     });
 

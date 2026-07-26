@@ -167,9 +167,16 @@ describe('PLoT → ISL boundary contract (B4.5)', () => {
       (pu: any) => pu.node_id === 'factor-a'
     );
     expect(factorAPU).toBeDefined();
-    expect(factorAPU!.mean).toBe(0.6);
     // Distribution is always 'normal'
     expect(factorAPU!.distribution).toBe('normal');
+    // Slice 6: the derivation is now observable through `std` (the user-supplied
+    // 0.1 is honoured verbatim) plus the value's own declared location on the
+    // graph node. `mean` no longer crosses the boundary.
+    expect(factorAPU!).not.toHaveProperty('mean');
+    expect(factorAPU!.std).toBe(0.1);
+    expect(
+      islRequest.graph.nodes.find((n: any) => n.id === 'factor-a')!.observed_state!.value,
+    ).toBe(0.6);
   });
 
   // ----- Enriched -----
@@ -315,14 +322,25 @@ describe('ISL request contract — golden-path (T5a)', () => {
     const puA = req.parameter_uncertainties!.find(p => p.node_id === 'fac-a')!;
     const puB = req.parameter_uncertainties!.find(p => p.node_id === 'fac-b')!;
 
+    // Contract step-2 slice 6: `mean` no longer crosses the boundary (ISL
+    // declares none and dropped it). The observed value itself is NOT lost —
+    // it reaches ISL in the declared location, `graph.nodes[].observed_state
+    // .value`, which is where ISL's sampler actually reads the centre from
+    // (robustness_analyzer_v2.py:852-855). Re-pointed onto that, so this test
+    // still fails if the value stops reaching ISL.
+    const nodeA = req.graph.nodes.find((n: any) => n.id === 'fac-a')!;
+    const nodeB = req.graph.nodes.find((n: any) => n.id === 'fac-b')!;
+    expect(nodeA.observed_state!.value).toBe(0.7);
+    expect(nodeB.observed_state!.value).toBe(0.4);
+
     expect(puA).toBeDefined();
     expect(puA.distribution).toBe('normal');
-    expect(puA.mean).toBe(0.7);
+    expect(puA).not.toHaveProperty('mean');
     expect(puA.std).toBeGreaterThan(0);
 
     expect(puB).toBeDefined();
     expect(puB.distribution).toBe('normal');
-    expect(puB.mean).toBe(0.4);
+    expect(puB).not.toHaveProperty('mean');
     expect(puB.std).toBeGreaterThan(0);
 
     // Goal node must NOT get a parameter_uncertainty entry
@@ -368,13 +386,18 @@ describe('ISL request contract — golden-path (T5a)', () => {
     // The fix: user-supplied std must NOT be floored to 0.1.
     expect(pu!.std).toBe(0.001);
 
-    // Outbound shape unchanged: exactly one entry (only the factor with an
+    // Outbound shape: exactly one entry (only the factor with an
     // observed_state.value is emitted — the goal node never appears) and each
-    // entry has only the four contract fields. Asserts the change is purely
-    // additive to `std`, not the entry count or field set.
+    // entry has ONLY the fields ISL declares.
+    //
+    // Contract step-2 slice 6 narrowed this set from four to three: `mean` was
+    // never declared by ISL's `ParameterUncertainty`
+    // (isl/src/models/robustness_v2.py:254-267 @ 7d144c7f) and was dropped by
+    // its `extra: "ignore"`. This exact-key-set assertion is now the pin that
+    // stops an undeclared key being re-added here.
     expect(reqSmall.parameter_uncertainties!.length).toBe(1);
     for (const entry of reqSmall.parameter_uncertainties!) {
-      expect(Object.keys(entry).sort()).toEqual(['distribution', 'mean', 'node_id', 'std']);
+      expect(Object.keys(entry).sort()).toEqual(['distribution', 'node_id', 'std']);
     }
   });
 
