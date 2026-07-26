@@ -1,27 +1,26 @@
 /**
- * Regression pin: malformed `sequential_metadata.stages[]` must not 500.
+ * Regression pin: `validateSequentialGraph` must be TOTAL on malformed
+ * `sequential_metadata.stages[]`.
  *
  * DEFECT (reproduced against staging build 04f6dbac, and offline here):
  * `validateSequentialGraph` iterated `stage.decisions` and
  * `stage.resolved_uncertainties` with no undefined guard. `StageDefinition`
- * types both as required `string[]`, but the routes cast the request body
- * (`req.body as SequentialAnalysisRequest`) with NO runtime validation of
- * `sequential_metadata`, so any client omitting those arrays reached
- * `for...of undefined` and crashed the handler:
+ * types both as required `string[]`, but callers cast the request body with NO
+ * runtime validation of `sequential_metadata`, so any client omitting those
+ * arrays reached `for...of undefined` and crashed the handler with a TypeError
+ * surfacing as an opaque 500 "Something went wrong".
  *
- *   POST /v1/analysis/sequential  -> 500 INTERNAL "Something went wrong"
- *   POST /v1/analysis/policy-tree -> 500 INTERNAL "Something went wrong"
- *
- * The analysis itself never needed those arrays — both routes derive stages
- * from `node.stage`. So the correct behaviour is a successful 200 carrying a
- * typed, actionable validation issue naming the field that was ignored, not a
- * rejection and certainly not a crash.
+ * SCOPE NOTE (26 Jul 2026): this defect was originally found on
+ * /v1/analysis/sequential and /v1/analysis/policy-tree, and this file
+ * originally also pinned those routes' HTTP behaviour. Both routes have since
+ * been deleted as vacuous, and those route-level cases were deleted with them —
+ * they tested deleted behaviour. The validator itself is NOT deleted: it is
+ * still consumed by /v1/analysis/conditional-recommend and /v1/explain/policy,
+ * which pass the same untrusted, uncast metadata. The totality requirement
+ * therefore stands on its own, and these unit tests are what pin it.
  */
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import Fastify, { FastifyInstance } from 'fastify';
-import { registerSequentialAnalysisRoute } from '../src/routes/v1/analysis-sequential.js';
-import { registerPolicyTreeRoute } from '../src/routes/v1/analysis-policy-tree.js';
+import { describe, it, expect } from 'vitest';
 import { validateSequentialGraph, getMaxStage } from '../src/util/sequential-validation.js';
 
 /**
@@ -102,7 +101,7 @@ describe('validateSequentialGraph — malformed stage definitions must not throw
     expect(() => validateSequentialGraph(graph)).not.toThrow();
     const result = validateSequentialGraph(graph);
     expect(result.issues.map((i) => i.code)).toContain('INVALID_SEQUENTIAL_METADATA');
-    expect(result.valid).toBe(false); // genuinely malformed -> route returns typed 400
+    expect(result.valid).toBe(false); // genuinely malformed -> consumers return typed 400
   });
 
   it('does not throw when a stage entry is null or not an object', () => {
@@ -138,121 +137,5 @@ describe('validateSequentialGraph — malformed stage definitions must not throw
     expect(result.valid).toBe(true);
     expect(result.issues).toHaveLength(0);
     expect(result.stage_count).toBe(2);
-  });
-});
-
-describe('POST /v1/analysis/sequential — malformed stages return 200, not 500', () => {
-  let app: FastifyInstance;
-
-  beforeAll(async () => {
-    app = Fastify({ logger: false });
-    await registerSequentialAnalysisRoute(app);
-    await registerPolicyTreeRoute(app);
-    await app.ready();
-  });
-
-  afterAll(async () => {
-    if (app) await app.close();
-  });
-
-  beforeEach(() => {
-    process.env.ENABLE_SEQUENTIAL_ANALYSIS = '1';
-    delete process.env.ISL_SEQUENTIAL_ENABLE;
-    delete process.env.ISL_POLICY_TREE_ENABLE;
-    delete process.env.ISL_ENABLE;
-  });
-
-  it('sequential: returns 200 for stages missing decisions[] (was 500 INTERNAL)', async () => {
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/analysis/sequential',
-      payload: malformedStagePayload(),
-    });
-
-    expect(res.statusCode).toBe(200);
-    const body = JSON.parse(res.payload);
-    expect(body.schema).toBe('sequential_analysis.v1');
-
-    // The ignored field is reported back to the caller, typed and actionable.
-    const codes = body.validation.issues.map((i: any) => i.code);
-    expect(codes).toContain('MISSING_STAGE_ID_LIST');
-  });
-
-  it('policy-tree: returns 200 for stages missing decisions[] (was 500 INTERNAL)', async () => {
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/analysis/policy-tree',
-      payload: malformedStagePayload(),
-    });
-
-    expect(res.statusCode).toBe(200);
-    const body = JSON.parse(res.payload);
-    expect(body.schema).toBe('policy_tree.v1');
-    expect(body.tree.nodes.length).toBeGreaterThan(1);
-  });
-
-  it('sequential: genuinely malformed stages get a typed 400, never a 500', async () => {
-    const payload = malformedStagePayload() as any;
-    payload.graph.sequential_metadata.stages = 'not-an-array';
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/analysis/sequential',
-      payload,
-    });
-
-    expect(res.statusCode).toBe(400);
-    const body = JSON.parse(res.payload);
-    // Typed and actionable, not "Something went wrong".
-    expect(body.code).toBe('INVALID_SEQUENTIAL_METADATA');
-    expect(body.error.type).toBe('BAD_INPUT');
-    expect(body.message).toContain('stages must be an array');
-    expect(body.message).not.toContain('Something went wrong');
-  });
-
-  it('policy-tree: genuinely malformed stages get a typed 400, never a 500', async () => {
-    // sequential-validation.ts documents this route as "Full validation, blocks
-    // on error -> 400 BAD_INPUT"; the route previously discarded `validation`.
-    const payload = malformedStagePayload() as any;
-    payload.graph.sequential_metadata.stages = 'not-an-array';
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/analysis/policy-tree',
-      payload,
-    });
-
-    expect(res.statusCode).toBe(400);
-    const body = JSON.parse(res.payload);
-    expect(body.code).toBe('INVALID_SEQUENTIAL_METADATA');
-    expect(body.error.type).toBe('BAD_INPUT');
-  });
-
-  /**
-   * POSITIVE CONTROL for the local fallback at analysis-sequential.ts:356.
-   *
-   * A fallback that never executes is guarantee theatre. This proves it runs
-   * AND that what it produces is non-empty — an assertion that it merely
-   * "returned an object" would pass even if the fallback computed nothing.
-   */
-  it('local fallback executes and produces non-vacuous content when ISL is off', async () => {
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/analysis/sequential',
-      payload: wellFormedStagePayload(),
-    });
-
-    expect(res.statusCode).toBe(200);
-    const body = JSON.parse(res.payload);
-
-    expect(body.provenance).toBe('plot_fallback');
-    expect(body.analysis.stage_decisions.length).toBeGreaterThan(0);
-    expect(body.analysis.strategy_summary).toContain('Optimal strategy');
-    expect(body.analysis.strategy_summary).not.toBe('No sequential decisions found');
-    for (const d of body.analysis.stage_decisions) {
-      expect(typeof d.expected_value).toBe('number');
-      expect(Number.isFinite(d.expected_value)).toBe(true);
-      expect(d.optimal_option_id).toBeTruthy();
-    }
   });
 });

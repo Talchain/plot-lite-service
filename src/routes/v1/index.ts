@@ -131,8 +131,6 @@ export async function registerV1Routes(app: FastifyInstance) {
   await registerSuggestEdgeFunctionRoute(app);
   // Phase 4: Sequential graph support
   await registerConditionalRecommendRoute(app);
-  await registerSequentialAnalysisRoute(app);
-  await registerPolicyTreeRoute(app);
   await registerGenerateRecommendationRoute(app);
   await registerNarrateConditionsRoute(app);
   await registerExplainPolicyRoute(app);
@@ -288,8 +286,6 @@ import { registerThresholdsRoute } from './analysis-thresholds.js';
 import { registerSuggestEdgeFunctionRoute } from './suggest-edge-function.js';
 // Phase 4: Sequential graph support
 import { registerConditionalRecommendRoute } from './analysis-conditional-recommend.js';
-import { registerSequentialAnalysisRoute } from './analysis-sequential.js';
-import { registerPolicyTreeRoute } from './analysis-policy-tree.js';
 import { registerGenerateRecommendationRoute } from './recommend-generate.js';
 import { registerNarrateConditionsRoute } from './narrate-conditions.js';
 import { registerExplainPolicyRoute } from './explain-policy.js';

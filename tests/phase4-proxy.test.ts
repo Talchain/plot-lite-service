@@ -1,10 +1,12 @@
 /**
  * Phase 4 Proxy Endpoints Tests
  *
- * Tests for Phase 4 sequential graph support endpoints:
+ * Tests for Phase 4 sequential graph support endpoints.
+ *
+ * NOTE (26 Jul 2026): POST /v1/analysis/sequential and POST
+ * /v1/analysis/policy-tree were deleted as vacuous, and their describe blocks
+ * were deleted with them — they tested deleted behaviour. Remaining:
  * - POST /v1/analysis/conditional-recommend
- * - POST /v1/analysis/sequential
- * - POST /v1/analysis/policy-tree
  * - POST /v1/recommend/generate
  * - POST /v1/narrate/conditions
  * - POST /v1/explain/policy
@@ -13,8 +15,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import Fastify, { FastifyInstance } from 'fastify';
 import { registerConditionalRecommendRoute } from '../src/routes/v1/analysis-conditional-recommend.js';
-import { registerSequentialAnalysisRoute } from '../src/routes/v1/analysis-sequential.js';
-import { registerPolicyTreeRoute } from '../src/routes/v1/analysis-policy-tree.js';
 import { registerGenerateRecommendationRoute } from '../src/routes/v1/recommend-generate.js';
 import { registerNarrateConditionsRoute } from '../src/routes/v1/narrate-conditions.js';
 import { registerExplainPolicyRoute } from '../src/routes/v1/explain-policy.js';
@@ -98,146 +98,6 @@ describe('POST /v1/analysis/conditional-recommend', () => {
     expect(body.recommendation).toBeDefined();
     expect(body.provenance).toBe('plot_fallback');
     expect(body.model_card.conditions_count).toBe(1);
-  });
-});
-
-describe('POST /v1/analysis/sequential', () => {
-  let app: FastifyInstance;
-
-  beforeAll(async () => {
-    app = Fastify({ logger: false });
-    await registerSequentialAnalysisRoute(app);
-    await app.ready();
-  });
-
-  afterAll(async () => {
-    if (app) await app.close();
-  });
-
-  beforeEach(() => {
-    // Enable the feature flag for tests
-    process.env.ENABLE_SEQUENTIAL_ANALYSIS = '1';
-    delete process.env.ISL_SEQUENTIAL_ENABLE;
-    delete process.env.ISL_ENABLE;
-  });
-
-  it('returns 400 when graph is missing', async () => {
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/analysis/sequential',
-      payload: {},
-    });
-
-    expect(res.statusCode).toBe(400);
-  });
-
-  it('returns 400 for invalid discount factor', async () => {
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/analysis/sequential',
-      payload: {
-        graph: {
-          nodes: [{ id: 'A', label: 'Node A', kind: 'decision' }],
-          edges: [],
-        },
-        discount_factor: 1.5,
-      },
-    });
-
-    expect(res.statusCode).toBe(400);
-    const body = JSON.parse(res.payload);
-    expect(body.message).toContain('discount_factor');
-  });
-
-  it('returns sequential analysis with fallback', async () => {
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/analysis/sequential',
-      payload: {
-        graph: {
-          nodes: [
-            { id: 'D1', label: 'Decision 1', kind: 'decision', stage: 0, value: 0.7 },
-            { id: 'D2', label: 'Decision 2', kind: 'decision', stage: 1, value: 0.5 },
-            { id: 'O', label: 'Outcome', kind: 'outcome', stage: 1 },
-          ],
-          edges: [
-            { from: 'D1', to: 'D2', weight: 0.8 },
-            { from: 'D2', to: 'O', weight: 0.6 },
-          ],
-          sequential_metadata: {
-            is_sequential: true,
-            stages: [
-              { index: 0, label: 'Stage 1', decisions: ['D1'], resolved_uncertainties: [] },
-              { index: 1, label: 'Stage 2', decisions: ['D2'], resolved_uncertainties: [] },
-            ],
-          },
-        },
-        seed: 4242,
-        discount_factor: 0.95,
-      },
-    });
-
-    expect(res.statusCode).toBe(200);
-    const body = JSON.parse(res.payload);
-    expect(body.schema).toBe('sequential_analysis.v1');
-    expect(body.validation).toBeDefined();
-    expect(body.validation.valid).toBe(true);
-    expect(body.provenance).toBe('plot_fallback');
-    expect(body.model_card.discount_factor).toBe(0.95);
-  });
-});
-
-describe('POST /v1/analysis/policy-tree', () => {
-  let app: FastifyInstance;
-
-  beforeAll(async () => {
-    app = Fastify({ logger: false });
-    await registerPolicyTreeRoute(app);
-    await app.ready();
-  });
-
-  afterAll(async () => {
-    if (app) await app.close();
-  });
-
-  beforeEach(() => {
-    delete process.env.ISL_POLICY_TREE_ENABLE;
-    delete process.env.ISL_ENABLE;
-  });
-
-  it('returns 400 when graph is missing', async () => {
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/analysis/policy-tree',
-      payload: {},
-    });
-
-    expect(res.statusCode).toBe(400);
-  });
-
-  it('returns policy tree with fallback', async () => {
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/analysis/policy-tree',
-      payload: {
-        graph: {
-          nodes: [
-            { id: 'D1', label: 'Decision 1', kind: 'decision', stage: 0, value: 0.7 },
-            { id: 'O', label: 'Outcome', kind: 'outcome', stage: 1 },
-          ],
-          edges: [{ from: 'D1', to: 'O', weight: 0.8 }],
-        },
-        seed: 4242,
-      },
-    });
-
-    expect(res.statusCode).toBe(200);
-    const body = JSON.parse(res.payload);
-    expect(body.schema).toBe('policy_tree.v1');
-    expect(body.tree).toBeDefined();
-    expect(body.tree.root_id).toBeDefined();
-    expect(body.tree.nodes).toBeInstanceOf(Array);
-    expect(body.provenance).toBe('plot_fallback');
   });
 });
 

@@ -676,9 +676,13 @@ export interface StageDefinition {
 /**
  * Sequential metadata for multi-stage decision graphs (Phase 4)
  *
- * IMPORTANT: This metadata is consumed by sequential analysis endpoints
- * (/v1/analysis/sequential, /v1/analysis/policy-tree). Standard inference
- * endpoints (/v1/run, /v1/run_bundle) currently ignore sequential metadata
+ * IMPORTANT: PLoT performs NO sequential inference. The two endpoints that
+ * claimed to (/v1/analysis/sequential, /v1/analysis/policy-tree) were deleted
+ * on 26 Jul 2026 as vacuous. ISL owns the real sequential capability.
+ *
+ * What still reads this metadata in PLoT (/v1/analysis/conditional-recommend,
+ * /v1/explain/policy) uses it only for structural validation and grouping.
+ * Standard inference endpoints (/v1/run, /v1/run_bundle) ignore it entirely
  * and process all stages as a single atemporal graph.
  *
  * Contract:
