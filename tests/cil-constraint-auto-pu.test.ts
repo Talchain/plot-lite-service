@@ -9,7 +9,7 @@
  *    user-supplied observed_state.std is honoured (clamped to [1e-4, 2.0]) and
  *    may legitimately be below 0.1.
  * 2. Phase 4b+ safety net: for constrained nodes the translator misses,
- *    auto-generates { distribution: 'normal', mean: observed_value, std: 0.001 }.
+ *    auto-generates { distribution: 'normal', std: 0.001 }.
  *
  * Uses vi.mock to intercept the ISL service and capture the request body.
  */
@@ -209,7 +209,14 @@ describe('CIL: Constraint auto-PU integration (Phase 4b+)', () => {
 
     expect(factorBPU).toBeDefined();
     expect(factorBPU.distribution).toBe('normal');
-    expect(factorBPU.mean).toBe(0.5);  // from observed_state.value
+    // Slice 6: `mean` is no longer on the ISL request (ISL declares none). The
+    // observed value still reaches ISL — in the declared location it actually
+    // reads — so assert it there instead.
+    expect(factorBPU).not.toHaveProperty('mean');
+    expect(
+      capturedISLRequestBody.graph.nodes.find((n: any) => n.id === 'factor-b')
+        .observed_state.value,
+    ).toBe(0.5);
     // std comes from translator (max(0.1, 0.5*0.15) = 0.1), not Phase 4b+ (0.001),
     // because the translator already created the entry before Phase 4b+ runs.
     expect(factorBPU.std).toBeGreaterThanOrEqual(0.001);
@@ -237,7 +244,11 @@ describe('CIL: Constraint auto-PU integration (Phase 4b+)', () => {
     const puArray = capturedISLRequestBody.parameter_uncertainties ?? [];
     const factorAEntries = puArray.filter((p: any) => p.node_id === 'factor-a');
     expect(factorAEntries).toHaveLength(1);
-    expect(factorAEntries[0].mean).toBe(0.6);  // observed_state.value
+    expect(factorAEntries[0]).not.toHaveProperty('mean'); // slice 6: undeclared by ISL
+    expect(
+      capturedISLRequestBody.graph.nodes.find((n: any) => n.id === 'factor-a')
+        .observed_state.value,
+    ).toBe(0.6); // the value still reaches ISL, in its declared location
   });
 
   it('node without observed_state gets no PU entry but constraint passes through', async () => {
@@ -330,7 +341,13 @@ describe('CIL: Constraint auto-PU integration (Phase 4b+)', () => {
 
     expect(outcomeXPU).toBeDefined();
     expect(outcomeXPU.distribution).toBe('normal');
-    expect(outcomeXPU.mean).toBe(0.75);
+    // Slice 6: `mean` is not sent (undeclared by ISL). The observed value the
+    // injector keyed on still reaches ISL in its declared location.
+    expect(outcomeXPU).not.toHaveProperty('mean');
+    expect(
+      capturedISLRequestBody.graph.nodes.find((n: any) => n.id === 'outcome-x')
+        .observed_state.value,
+    ).toBe(0.75);
     expect(outcomeXPU.std).toBe(0.001); // CONSTRAINT_PINNED_STD
 
     // Response body should contain _meta.repairs_applied with injection entry

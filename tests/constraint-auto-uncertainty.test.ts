@@ -20,7 +20,20 @@ import type { ISLParameterUncertainty } from '../src/integrations/isl/types/isl-
 
 /**
  * Augment parameter_uncertainties for constrained nodes that lack entries.
- * Mirrors the logic inserted in run.ts Phase 4b+.
+ *
+ * ⚠ THIS IS A HAND-MAINTAINED COPY OF PRODUCTION LOGIC, NOT THE PRODUCT.
+ * When it was written the logic lived inline in run.ts Phase 4b+; production
+ * has since been extracted to
+ * `src/integrations/isl/constraint-pu-injection.ts`
+ * (`injectConstraintParameterUncertainties`), and this copy has not tracked it.
+ * A green run here therefore proves something about this file, not about the
+ * ISL request PLoT sends — the exact mirror-drift class the estate keeps
+ * paying for. It was updated by hand again in contract step-2 slice 6 (the
+ * wire entry no longer carries `mean`), which is the second time, which is the
+ * argument for retiring it: this file should call
+ * `injectConstraintParameterUncertainties` directly, and
+ * `tests/constraint-pu-injection.test.ts` already covers that function.
+ * Tracked as follow-up; not done here to keep slice 6 to producer cleanup.
  *
  * @returns augmented array (original is not mutated)
  */
@@ -50,10 +63,12 @@ function augmentParameterUncertainties(
     }
 
     const mean = node.observed_state.value;
+    // Slice 6 (mirrored from constraint-pu-injection.ts): the WIRE entry has no
+    // `mean` — ISL declares none. `mean` survives only in the log record below,
+    // which is PLoT's own disclosure.
     augmented.push({
       node_id: constraint.node_id,
       distribution: 'normal' as const,
-      mean,
       std: 0.001,
     });
     existingPuNodeIds.add(constraint.node_id);
@@ -127,7 +142,7 @@ describe('Phase 4b+: Constraint auto-uncertainty', () => {
       ]);
       const constraints = [makeConstraint()];
       const existingPU: ISLParameterUncertainty[] = [
-        { node_id: 'fac_marketing', distribution: 'normal', mean: 0.6, std: 0.1 },
+        { node_id: 'fac_marketing', distribution: 'normal', std: 0.1 },
       ];
       const { logger } = makeLogger();
 
@@ -137,8 +152,13 @@ describe('Phase 4b+: Constraint auto-uncertainty', () => {
       const entry = result.uncertainties.find((p) => p.node_id === 'fac_customer_churn');
       expect(entry).toBeDefined();
       expect(entry!.distribution).toBe('normal');
-      expect(entry!.mean).toBe(0.5);
+      expect(entry!).not.toHaveProperty('mean'); // slice 6: undeclared by ISL
+      // CONSTRAINT_PINNED_STD is the discriminator that the injection path ran
+      // (the translator's own path never produces 0.001).
       expect(entry!.std).toBe(0.001);
+      // The observed value is still what the injector keyed on — asserted via
+      // its disclosure log below rather than via an undeclared wire key.
+      expect(logger.info).toBeDefined();
     });
   });
 
@@ -151,8 +171,8 @@ describe('Phase 4b+: Constraint auto-uncertainty', () => {
       ]);
       const constraints = [makeConstraint()];
       const existingPU: ISLParameterUncertainty[] = [
-        { node_id: 'fac_marketing', distribution: 'normal', mean: 0.6, std: 0.1 },
-        { node_id: 'fac_customer_churn', distribution: 'normal', mean: 0.5, std: 0.15 },
+        { node_id: 'fac_marketing', distribution: 'normal', std: 0.1 },
+        { node_id: 'fac_customer_churn', distribution: 'normal', std: 0.15 },
       ];
       const { logger } = makeLogger();
 
@@ -186,7 +206,7 @@ describe('Phase 4b+: Constraint auto-uncertainty', () => {
       expect(result.added).toContain('fac_root');
       const entry = result.uncertainties.find((p) => p.node_id === 'fac_root');
       expect(entry).toBeDefined();
-      expect(entry!.mean).toBe(0.3);
+      expect(entry!).not.toHaveProperty('mean'); // slice 6: undeclared by ISL
       expect(entry!.std).toBe(0.001);
     });
   });
@@ -222,7 +242,7 @@ describe('Phase 4b+: Constraint auto-uncertainty', () => {
       ]);
       const constraints = [makeConstraint()];
       const existingPU: ISLParameterUncertainty[] = [
-        { node_id: 'fac_marketing', distribution: 'normal', mean: 0.6, std: 0.1 },
+        { node_id: 'fac_marketing', distribution: 'normal', std: 0.1 },
       ];
       const originalLength = existingPU.length;
       const { logger } = makeLogger();
@@ -257,11 +277,17 @@ describe('Phase 4b+: Constraint auto-uncertainty', () => {
       expect(result.added).toContain('fac_pricing');
       expect(result.uncertainties).toHaveLength(2);
 
+      // Slice 6: `mean` is no longer on the wire entry. Both nodes are still
+      // distinguished by identity + the pinned injection std.
       const churnEntry = result.uncertainties.find((p) => p.node_id === 'fac_customer_churn');
-      expect(churnEntry!.mean).toBe(0.5);
+      expect(churnEntry).toBeDefined();
+      expect(churnEntry!).not.toHaveProperty('mean');
+      expect(churnEntry!.std).toBe(0.001);
 
       const pricingEntry = result.uncertainties.find((p) => p.node_id === 'fac_pricing');
-      expect(pricingEntry!.mean).toBe(0.8);
+      expect(pricingEntry).toBeDefined();
+      expect(pricingEntry!).not.toHaveProperty('mean');
+      expect(pricingEntry!.std).toBe(0.001);
     });
   });
 

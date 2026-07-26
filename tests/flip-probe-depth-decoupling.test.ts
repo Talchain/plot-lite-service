@@ -29,7 +29,7 @@ const ORIGINAL = {
   options: [{ id: 'opt1' }, { id: 'opt2' }],
   goal_node_id: 'goal',
   n_samples: 4000, // base analysis depth
-  parameter_uncertainties: [{ node_id: 'factor-a', distribution: 'normal', mean: 1.0, std: 0.3 }],
+  parameter_uncertainties: [{ node_id: 'factor-a', distribution: 'normal', std: 0.3 }],
   seed: '42',
 };
 

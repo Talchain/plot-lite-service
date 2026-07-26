@@ -174,10 +174,14 @@ export function injectConstraintParameterUncertainties(
     }
 
     const mean = cls.mean;
+    // Slice 6: the WIRE entry carries no `mean` — ISL declares none and reads
+    // the sampling centre from this node's own `observed_state.value`, which
+    // is exactly where `cls.mean` came from (classifyConstraintPu). `mean` is
+    // still reported on the InjectedPU below: that is PLoT's own disclosure
+    // record (`repairs[]` on /v2/run), not an ISL-bound field.
     augmented.push({
       node_id: constraint.node_id,
       distribution: 'normal' as const,
-      mean,
       std: CONSTRAINT_PINNED_STD,
     });
     existingPuNodeIds.add(constraint.node_id);

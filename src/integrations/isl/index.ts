@@ -45,6 +45,9 @@ import {
   buildParameterUncertainties,
   logPreflightResult,
 } from './preflight.js';
+// Slice 6: shared with the /v2/run translator so PLoT holds ONE allowlist of
+// ISL's declared observed_state fields, not two that can drift apart.
+import { toISLObservedState } from './translator-v3.js';
 // P1.1: ISL metrics
 import {
   recordIslValidation,
@@ -361,14 +364,22 @@ export function createISLService(): ISLService {
               id: n.id,
               kind: n.kind,
               label: n.label,
-              observed_state: n.observed_state,
+              observed_state: toISLObservedState(n.observed_state),
             })),
+            // Slice 6: `weight` / `belief_exists` / `belief_strength` removed —
+            // none is declared by ISL's `EdgeV2` (robustness_v2.py:348-426 @
+            // 7d144c7f) and all three were dropped by `extra: "ignore"`.
+            //
+            // ⚠ This method has NO production caller (`analyseFactorSensitivity`
+            // is unreferenced outside this file; `/v1/run` calls
+            // `analyseRobustness` instead). Its edges also omit the REQUIRED
+            // `strength` distribution, which slice 6 does NOT fix: that is a
+            // declared-field gap any strict model reports by name, not a silent
+            // undeclared key. Reviving this method requires building `strength`
+            // the way `analyseRobustness` does below.
             edges: directedEdges.map((e) => ({
               from: e.from,
               to: e.to,
-              weight: e.weight,
-              belief_exists: e.belief_exists ?? e.belief,
-              belief_strength: e.belief_strength,
             })),
           },
           options: options.map((o) => ({
@@ -491,12 +502,16 @@ export function createISLService(): ISLService {
               id: n.id,
               kind: n.kind,
               label: n.label,
-              observed_state: n.observed_state,
+              observed_state: toISLObservedState(n.observed_state),
             })),
+            // Slice 6: `weight` removed. ISL's `EdgeV2` declares no such field
+            // (robustness_v2.py:348-426 @ 7d144c7f) and dropped it under
+            // `extra: "ignore"`. The quantity it carried is NOT lost — it is
+            // already published in the ISL-declared location, `strength.mean`,
+            // by the mapping immediately below.
             edges: robustnessDirectedEdges.map((e) => ({
               from: e.from,
               to: e.to,
-              weight: e.weight,
               // Map to ISL edge format
               exists_probability: e.belief_exists ?? e.belief ?? DEFAULT_EXISTS_PROBABILITY,
               strength: e.strength_std !== undefined

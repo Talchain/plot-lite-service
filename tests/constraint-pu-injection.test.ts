@@ -73,10 +73,13 @@ describe('injectConstraintParameterUncertainties', () => {
 
     const puArray = islReq.parameter_uncertainties ?? [];
     expect(puArray).toHaveLength(1);
+    // Slice 6: the WIRE entry carries exactly ISL's declared members. `mean`
+    // stays on the InjectedPU record above (PLoT's own /v2/run `repairs[]`
+    // disclosure), and is asserted there — the two are now different shapes on
+    // purpose, and this pair of assertions is what keeps them from re-merging.
     expect(puArray[0]).toEqual({
       node_id: 'n1',
       distribution: 'normal',
-      mean: 0.6,
       std: CONSTRAINT_PINNED_STD,
     });
   });
@@ -84,7 +87,7 @@ describe('injectConstraintParameterUncertainties', () => {
   // T2: Node with constraint + existing PU → no override, original PU preserved
   it('skips node that already has PU entry', () => {
     const existingPU = [
-      { node_id: 'n1', distribution: 'normal' as const, mean: 0.6, std: 0.15 },
+      { node_id: 'n1', distribution: 'normal' as const, std: 0.15 },
     ];
     const islReq = makeISLRequest(existingPU);
     const nodes = [makeNode('n1', 0.6)];
@@ -167,7 +170,7 @@ describe('injectConstraintParameterUncertainties', () => {
   // T6: Multiple constraints on different nodes → each handled independently
   it('handles mix of injectable, existing, missing, goal, and no-value nodes', () => {
     const existingPU = [
-      { node_id: 'existing', distribution: 'normal' as const, mean: 0.4, std: 0.12 },
+      { node_id: 'existing', distribution: 'normal' as const, std: 0.12 },
     ];
     const islReq = makeISLRequest(existingPU);
     const nodes = [
@@ -199,10 +202,11 @@ describe('injectConstraintParameterUncertainties', () => {
 
     const puArray = islReq.parameter_uncertainties ?? [];
     expect(puArray).toHaveLength(2); // existing + injectable
+    // Slice 6: the WIRE entry carries only ISL-declared members; `mean` stays
+    // on the InjectedPU disclosure record asserted above.
     expect(puArray.find(p => p.node_id === 'injectable')).toEqual({
       node_id: 'injectable',
       distribution: 'normal',
-      mean: 0.7,
       std: CONSTRAINT_PINNED_STD,
     });
     expect(puArray.find(p => p.node_id === 'existing')?.std).toBe(0.12); // preserved
@@ -272,7 +276,7 @@ describe('selectConstraintInjectedPuNodeIds (planner ↔ injector parity)', () =
 
   it('is BYTE-parity with the injector: |select| === injector.injected count', () => {
     const islReq = makeISLRequest(
-      [...existingPu].map((id) => ({ node_id: id, distribution: 'normal' as const, mean: 0.4, std: 0.1 })),
+      [...existingPu].map((id) => ({ node_id: id, distribution: 'normal' as const, std: 0.1 })),
     );
     const { injected } = injectConstraintParameterUncertainties(islReq, constraints, nodes, 'goal');
     const selected = selectConstraintInjectedPuNodeIds(constraints, nodes, 'goal', existingPu);

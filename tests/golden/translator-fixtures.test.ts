@@ -276,7 +276,8 @@ describe('Translator: buildParameterUncertaintiesV3', () => {
     const pu = pus.find((p) => p.node_id === 'small_factor');
     expect(pu).toBeDefined();
     expect(pu!.std).toBeGreaterThanOrEqual(0.1);
-    expect(pu!.mean).toBe(0.5);
+    // Slice 6: `mean` is not an ISL-declared PU member and is no longer sent.
+    expect(pu!).not.toHaveProperty('mean');
   });
 
   it('uses observed_state.std when provided (capped at 2.0)', () => {
@@ -317,7 +318,9 @@ describe('Translator: buildParameterUncertaintiesV3', () => {
     const pus = buildParameterUncertaintiesV3(nodes)!;
     const pu = pus.find((p) => p.node_id === 'zero_factor')!;
     expect(pu.std).toBe(0.5);
-    expect(pu.mean).toBe(0);
+    // Slice 6: value 0 still produces an entry; its width comes from the
+    // zero-value fallback. `mean` is not sent (undeclared by ISL).
+    expect(pu).not.toHaveProperty('mean');
   });
 
   it('skips nodes without observed_state.value', () => {
@@ -345,7 +348,7 @@ describe('Translator: buildParameterUncertaintiesV3', () => {
     const pus = buildParameterUncertaintiesV3(nodes)!;
     const pu = pus.find((p) => p.node_id === 'ext_factor')!;
     expect(pu).toBeDefined();
-    expect(pu.mean).toBe(0.5); // (0.2 + 0.8) / 2
+    expect(pu).not.toHaveProperty('mean'); // slice 6: only the width crosses
     expect(pu.std).toBeGreaterThanOrEqual(0.01);
     // Uniform [0.2, 0.8]: std = 0.6 / sqrt(12) ≈ 0.173
     expect(pu.std).toBeCloseTo(0.6 / Math.sqrt(12), 4);
@@ -365,10 +368,12 @@ describe('Translator: buildParameterUncertaintiesV3', () => {
 
     const pus = buildParameterUncertaintiesV3(nodes)!;
     const pu = pus.find((p) => p.node_id === 'dual_factor')!;
-    // Should use observed_state path: mean = 0.7, std ≥ 0.1 (not prior path)
-    expect(pu.mean).toBe(0.7);
-    // 15% of 0.7 = 0.105 > 0.1 floor
+    // Should use the observed_state path, not the prior path. Slice 6: `std` is
+    // the discriminator — observed_state gives 0.7 * 0.15 = 0.105, the prior
+    // path would give 1.0 / sqrt(12) ≈ 0.289.
+    expect(pu).not.toHaveProperty('mean');
     expect(pu.std).toBeCloseTo(0.105, 3);
+    expect(pu.std).not.toBeCloseTo(1.0 / Math.sqrt(12), 3);
   });
 
   it('binary factor detection: explicit range [0,1] → std = 0.3', () => {

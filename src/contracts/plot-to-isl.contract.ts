@@ -60,6 +60,19 @@ export interface BoundaryContract {
   enriched: string[];
   /** Producer-name / local-value collisions. See `BoundarySubstitution`. */
   substitutions?: BoundarySubstitution[];
+  /**
+   * Keys this boundary STILL sends that the consumer does not declare, kept
+   * deliberately and with a named reason.
+   *
+   * Added by the contract step-2 slice-6 lane (26 Jul 2026). Before it, a key
+   * the consumer did not declare had no representation here at all: it was
+   * neither a `drop` (it is on the wire) nor `enriched` (that means "added by
+   * PLoT", not "unknown to the reader"), so an undeclared key was
+   * indistinguishable from an oversight — which is exactly how
+   * `parameter_uncertainties[].mean` survived unnoticed for months. An entry
+   * here is a commitment to resolve, not a licence to keep.
+   */
+  knownUndeclared?: string[];
 }
 
 /**
@@ -78,6 +91,50 @@ export const PLOT_TO_ISL_CONTRACT: BoundaryContract = {
     'idempotency_key',
     'brief',
     'intervention.source',  // InterventionValueV3.source stripped in toISLInterventions()
+
+    // ---------------------------------------------------------------------
+    // Contract step-2 slice 6 — keys PLoT USED TO SEND that ISL never declared.
+    // Each was silently discarded by ISL's `extra: "ignore"`, so it looked like
+    // contract and behaved like nothing. Verified against the pinned ISL model
+    // (Talchain/Inference-Service-Layer @ 7d144c7f): replaying all five captured
+    // live request fixtures with and without these keys yields a BYTE-IDENTICAL
+    // `RobustnessRequestV2.model_dump()`.
+    // ---------------------------------------------------------------------
+
+    // ISL's ParameterUncertainty (robustness_v2.py:254-267) declares
+    // {node_id, distribution, std, range_min, range_max}. The sampling centre
+    // comes from the node's observed_state.value
+    // (robustness_analyzer_v2.py:852-855, 891-892, 3490-3494), never from here.
+    'parameter_uncertainties[].mean',
+
+    // ISL's EdgeV2 (robustness_v2.py:348-426) declares no `weight`. PLoT's
+    // coefficient already reaches ISL in the declared location, strength.mean.
+    // Was sent on the /v1/run leg (integrations/isl/index.ts, analyseRobustness).
+    'graph.edges[].weight',
+
+    // PLoT-internal: attached by graph-normaliser.ts:274-276 so
+    // constraint-compiler.ts can read `.operator` off the NORMALISED PLoT graph.
+    // ISL's ObservedState (robustness_v2.py:160-200) does not declare it. Was
+    // reaching the wire because toISLNode forwarded observed_state VERBATIM;
+    // now projected through toISLObservedState().
+    'nodes[].observed_state.metadata',
+  ],
+
+  /**
+   * KNOWN-UNDECLARED, DELIBERATELY STILL SENT — declare these here rather than
+   * let them look like an oversight. Both are dropped by ISL today.
+   *
+   * - `goal_constraints[].constraint_id` (translator-v3.ts): Codex adjudicated
+   *   OQ-5 as ADOPT-into-ISL reader-first, not delete — `constraint_verdict`'s
+   *   `identity_unresolved` state needs a stable constraint identity to cite.
+   *   Sequenced: ISL accepts + echoes it optional, then PLoT reads the echo.
+   * - `goal_constraints[].weight` (translator-v3.ts): caller-supplied and
+   *   omitted unless provided; latent on the golden path. Resolve with the same
+   *   adopt-or-drop decision as constraint_id rather than piecemeal.
+   */
+  knownUndeclared: [
+    'goal_constraints[].constraint_id',
+    'goal_constraints[].weight',
   ],
 
   /** WHY filtered: non-causal scaffolding nodes that ISL cannot process. */

@@ -119,7 +119,15 @@ describe('ISL Translator V3', () => {
       );
       expect(factorAUncertainty).toBeDefined();
       expect(factorAUncertainty!.distribution).toBe('normal');
-      expect(factorAUncertainty!.mean).toBe(50);
+      // Slice 6: `mean` is no longer sent (ISL declares none). The derivation
+      // from observed_state.value=50 stays observable through `std`
+      // (50 * VALUE_BASED_STD_FRACTION = 7.5) and through the value's own
+      // declared location on the graph node.
+      expect(factorAUncertainty!).not.toHaveProperty('mean');
+      expect(factorAUncertainty!.std).toBeCloseTo(7.5, 5);
+      expect(
+        result.graph.nodes.find((n: any) => n.id === 'factor-a')!.observed_state!.value,
+      ).toBe(50);
     });
 
     it('does not include category field in ISL request', () => {
@@ -284,7 +292,7 @@ describe('ISL Translator V3', () => {
   });
 
   describe('buildParameterUncertaintiesV3 - external factor priors', () => {
-    it('external factor with prior [0.0, 1.0] → mean=0.5, std≈0.289', () => {
+    it('external factor with prior [0.0, 1.0] → std≈0.289', () => {
       const nodes: EngineNodeV3[] = [
         {
           id: 'ext-factor',
@@ -300,11 +308,15 @@ describe('ISL Translator V3', () => {
       expect(result).toHaveLength(1);
       expect(result[0].node_id).toBe('ext-factor');
       expect(result[0].distribution).toBe('normal');
-      expect(result[0].mean).toBeCloseTo(0.5, 5);
+      // Slice 6: only the WIDTH crosses the boundary. ISL's
+      // ParameterUncertainty declares no `mean`, so the prior's midpoint had no
+      // channel and no consumer; see the KNOWN GAP note in
+      // buildParameterUncertaintiesV3 for what that costs a prior-only factor.
+      expect(result[0]).not.toHaveProperty('mean');
       expect(result[0].std).toBeCloseTo(1.0 / Math.sqrt(12), 3); // ≈0.289
     });
 
-    it('external factor with prior [0.6, 1.0] → mean=0.8, std≈0.115', () => {
+    it('external factor with prior [0.6, 1.0] → std≈0.115', () => {
       const nodes: EngineNodeV3[] = [
         {
           id: 'ext-factor',
@@ -318,11 +330,11 @@ describe('ISL Translator V3', () => {
       const result = buildParameterUncertaintiesV3(nodes)!;
 
       expect(result).toHaveLength(1);
-      expect(result[0].mean).toBeCloseTo(0.8, 5);
+      expect(result[0]).not.toHaveProperty('mean');
       expect(result[0].std).toBeCloseTo(0.4 / Math.sqrt(12), 3); // ≈0.115
     });
 
-    it('external factor with prior [0.3, 0.7] → mean=0.5, std≈0.115', () => {
+    it('external factor with prior [0.3, 0.7] → std≈0.115', () => {
       const nodes: EngineNodeV3[] = [
         {
           id: 'ext-factor',
@@ -336,7 +348,7 @@ describe('ISL Translator V3', () => {
       const result = buildParameterUncertaintiesV3(nodes)!;
 
       expect(result).toHaveLength(1);
-      expect(result[0].mean).toBeCloseTo(0.5, 5);
+      expect(result[0]).not.toHaveProperty('mean');
       expect(result[0].std).toBeCloseTo(0.4 / Math.sqrt(12), 3); // ≈0.115
     });
 
@@ -369,11 +381,11 @@ describe('ISL Translator V3', () => {
       const result = buildParameterUncertaintiesV3(nodes)!;
 
       expect(result).toHaveLength(1);
-      expect(result[0].mean).toBeCloseTo(0.5, 5);
+      expect(result[0]).not.toHaveProperty('mean');
       expect(result[0].std).toBe(0.01);
     });
 
-    it('range_min > range_max → swapped, correct mean/std', () => {
+    it('range_min > range_max → swapped, std reflects the swapped width', () => {
       const nodes: EngineNodeV3[] = [
         {
           id: 'ext-factor',
@@ -387,8 +399,10 @@ describe('ISL Translator V3', () => {
       const result = buildParameterUncertaintiesV3(nodes)!;
 
       expect(result).toHaveLength(1);
-      // After swap: range_min=0.3, range_max=0.9
-      expect(result[0].mean).toBeCloseTo(0.6, 5);
+      // After swap: range_min=0.3, range_max=0.9.
+      // `std` is the discriminator: WITHOUT the swap the width is negative and
+      // floors to 0.01, so this assertion still fails if the swap is removed.
+      expect(result[0]).not.toHaveProperty('mean');
       expect(result[0].std).toBeCloseTo(0.6 / Math.sqrt(12), 3);
     });
 
@@ -427,15 +441,19 @@ describe('ISL Translator V3', () => {
       const observable = result.find(u => u.node_id === 'observable-f');
       const external = result.find(u => u.node_id === 'external-f');
 
+      // Slice 6: each path is pinned by the `std` it derives, which differs
+      // per path (value-based vs prior-width), so the three branches stay
+      // distinguishable without the undeclared `mean`.
       expect(controllable).toBeDefined();
-      expect(controllable!.mean).toBe(0.7);
+      expect(controllable!.std).toBeCloseTo(0.7 * 0.15, 5);
 
       expect(observable).toBeDefined();
-      expect(observable!.mean).toBe(0.4);
+      expect(observable!.std).toBe(0.1); // 0.4 * 0.15 = 0.06, floored
 
       expect(external).toBeDefined();
-      expect(external!.mean).toBeCloseTo(0.5, 5);
       expect(external!.std).toBeCloseTo(0.6 / Math.sqrt(12), 3);
+
+      for (const entry of result) expect(entry).not.toHaveProperty('mean');
     });
 
     it('external factor with observed_state AND prior → observed_state takes precedence', () => {
@@ -453,8 +471,13 @@ describe('ISL Translator V3', () => {
       const result = buildParameterUncertaintiesV3(nodes)!;
 
       expect(result).toHaveLength(1);
-      // Should use observed_state value, not prior
-      expect(result[0].mean).toBe(0.9);
+      // Should use observed_state value, not prior. Slice 6: the discriminator
+      // is `std` — the observed_state path derives 0.9 * 0.15 = 0.135, whereas
+      // the prior path would derive 1.0 / sqrt(12) ≈ 0.289. This still fails if
+      // precedence flips.
+      expect(result[0]).not.toHaveProperty('mean');
+      expect(result[0].std).toBeCloseTo(0.135, 5);
+      expect(result[0].std).not.toBeCloseTo(1.0 / Math.sqrt(12), 3);
     });
 
     it('unsupported distribution → skipped with no entry', () => {
@@ -473,7 +496,22 @@ describe('ISL Translator V3', () => {
       expect(result).toBeUndefined();
     });
 
-    it('mean is clamped to [0, 1] for out-of-range priors', () => {
+    /**
+     * REPLACED in contract step-2 slice 6 (was: "mean is clamped to [0, 1] for
+     * out-of-range priors").
+     *
+     * The clamp existed solely to shape `parameter_uncertainties[].mean`, a key
+     * ISL never declared and dropped at parse under `extra: "ignore"`. Removing
+     * the key removes the clamp's only observable, so the old assertion
+     * (`result[0].mean === 0`) can no longer be made about anything real — it
+     * would have been guarantee-theatre to keep it pointing at a value nobody
+     * receives. What survives from that case is the WIDTH derivation for an
+     * out-of-range prior, pinned below.
+     *
+     * This is a deliberate behaviour retirement, not a test bypass: the clamp
+     * is gone from the producer too.
+     */
+    it('out-of-range prior still derives std from the full range width', () => {
       const nodes: EngineNodeV3[] = [
         {
           id: 'ext-factor',
@@ -487,8 +525,8 @@ describe('ISL Translator V3', () => {
       const result = buildParameterUncertaintiesV3(nodes)!;
 
       expect(result).toHaveLength(1);
-      // mean = (-0.5 + 0.3) / 2 = -0.1 → clamped to 0
-      expect(result[0].mean).toBe(0);
+      expect(result[0]).not.toHaveProperty('mean');
+      // width = 0.3 - (-0.5) = 0.8
       expect(result[0].std).toBeCloseTo(0.8 / Math.sqrt(12), 3);
     });
   });

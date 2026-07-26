@@ -69,7 +69,9 @@ describe('Constraint PU Regression Lock', () => {
     const pu = request.parameter_uncertainties!.find((p) => p.node_id === 'outcome-x');
     expect(pu).toBeDefined();
     expect(pu!.distribution).toBe('normal');
-    expect(pu!.mean).toBe(0.85);
+    // Slice 6: the WIRE entry carries no `mean` (ISL declares none). The value
+    // 0.85 is still asserted above on the InjectedPU disclosure record.
+    expect(pu!).not.toHaveProperty('mean');
     expect(pu!.std).toBe(CONSTRAINT_PINNED_STD);
   });
 

@@ -107,10 +107,11 @@ export function buildParameterUncertainties(graph: Graph): ISLParameterUncertain
         std = Math.max(DEFAULT_STD_FLOOR, std);
       }
 
+      // Slice 6: no `mean` — ISL declares none on ParameterUncertainty and
+      // reads the sampling centre from the node's own observed_state.value.
       uncertainties.push({
         node_id: node.id,
         distribution: 'normal',
-        mean: value,
         std,
       });
     }

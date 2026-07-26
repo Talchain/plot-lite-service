@@ -102,10 +102,18 @@ export interface ISLRobustnessRequestV3 {
   n_samples?: number;
   confidence_level?: number;
   analysis_types: Array<'comparison' | 'sensitivity' | 'robustness'>;
+  /**
+   * Members mirror ISL's `ParameterUncertainty`
+   * (isl/src/models/robustness_v2.py:254-267) EXACTLY: {node_id, distribution,
+   * std, range_min, range_max}. ISL has never declared a `mean` here — the
+   * sampling centre is read from the node's `observed_state.value`, not from
+   * this list — so a `mean` sent here was dropped by ISL's `extra: "ignore"`
+   * and could never move a result. Removed in contract step-2 slice 6; do not
+   * re-add a member ISL does not declare.
+   */
   parameter_uncertainties?: Array<{
     node_id: string;
     distribution: 'normal';
-    mean: number;
     std: number;
   }>;
   /**
@@ -152,6 +160,69 @@ export interface ISLRobustnessRequestV3 {
 // -----------------------------------------------------------------------------
 
 /**
+ * The COMPLETE member list of ISL's `ObservedState`
+ * (isl/src/models/robustness_v2.py:160-200 @ 7d144c7f):
+ * value, baseline, unit, source, std, raw_value, cap, extractionType,
+ * factor_type, uncertainty_drivers.
+ *
+ * PLoT produces eight of the ten; `source` and `extractionType` are CEE-origin
+ * fields PLoT's normaliser does not carry, so they are absent here by
+ * construction rather than by exclusion.
+ *
+ * ⚠ THIS LIST IS A HAND-MAINTAINED MIRROR of another repo's model, and it
+ * cannot fail loud from inside PLoT today. Its drift is asymmetric: if ISL ADDS
+ * a field, PLoT silently stops forwarding something ISL would now accept (an
+ * under-send, not a contract break); if ISL REMOVES one, PLoT resumes sending
+ * an undeclared key — the defect this slice closes. The mechanism that makes it
+ * fail loud is the request-side drift pairing (contract step-2 slice 2), which
+ * replays captured bodies through ISL's own pinned model. Until that lands,
+ * this comment IS the disclosure.
+ */
+const ISL_DECLARED_OBSERVED_STATE_FIELDS = [
+  'value',
+  'baseline',
+  'unit',
+  'source',
+  'std',
+  'raw_value',
+  'cap',
+  'extractionType',
+  'factor_type',
+  'uncertainty_drivers',
+] as const;
+
+/**
+ * Project a PLoT-internal `observed_state` onto the fields ISL declares.
+ *
+ * Slice 6: the previous code forwarded `node.observed_state` VERBATIM, so any
+ * key present at runtime transited to ISL regardless of the declared type.
+ * One always did: PLoT's own normaliser attaches `metadata` to constraint
+ * nodes (`graph-normaliser.ts:274-276`) so `constraint-compiler.ts` can read
+ * `.operator` — a PLoT-internal key ISL's `ObservedState` does not declare and
+ * silently dropped under `extra: "ignore"`. The compiler reads it off the
+ * normalised PLoT graph, never off the ISL request, so projecting here costs
+ * nothing internally.
+ *
+ * The projection is by PRESENCE, not by declared type: an absent field stays
+ * absent on the wire rather than becoming an explicit `undefined`, so the
+ * serialized bytes are unchanged for every field PLoT already sent.
+ *
+ * Shared with the `/v1/run` producer (`integrations/isl/index.ts`) so the two
+ * ISL request builders cannot drift apart into two different allowlists.
+ */
+export function toISLObservedState(observedState: unknown): ISLNodeV3['observed_state'] {
+  if (observedState === undefined || observedState === null || typeof observedState !== 'object') {
+    return undefined;
+  }
+  const os = observedState as Record<string, unknown>;
+  const projected: Record<string, unknown> = {};
+  for (const field of ISL_DECLARED_OBSERVED_STATE_FIELDS) {
+    if (os[field] !== undefined) projected[field] = os[field];
+  }
+  return projected as ISLNodeV3['observed_state'];
+}
+
+/**
  * Translate internal node to ISL format.
  *
  * NOTE: `category` field is intentionally excluded from ISL translation.
@@ -164,7 +235,7 @@ export function toISLNode(node: EngineNodeV3): ISLNodeV3 {
     id: node.id,
     kind: node.kind,
     label: node.label,
-    observed_state: node.observed_state,
+    observed_state: toISLObservedState(node.observed_state),
     intercept: node.intercept ?? 0.0,
     epsilon_std: node.epsilon_std ?? 0.0,
   };
@@ -280,10 +351,11 @@ export function buildParameterUncertaintiesV3(
         std = Math.max(DEFAULT_STD_FLOOR, std);
       }
 
+      // Slice 6: no `mean` — ISL samples Normal(observed_state.value, std) and
+      // reads the centre from the graph node, not from this entry.
       uncertainties.push({
         node_id: node.id,
         distribution: 'normal',
-        mean: value,
         std,
       });
     }
@@ -327,12 +399,19 @@ export function buildParameterUncertaintiesV3(
         [rangeMin, rangeMax] = [rangeMax, rangeMin];
       }
 
-      // Convert uniform prior to normal parameters
-      let mean = (rangeMin + rangeMax) / 2;
+      // Convert uniform prior to a normal WIDTH. Only the width crosses the
+      // boundary: ISL declares no `mean` on ParameterUncertainty and resolves
+      // the sampling centre from the node's own `observed_state.value`,
+      // defaulting to 0.0 when absent (robustness_analyzer_v2.py:852-855,
+      // 891-892, 3490-3494 @ 7d144c7f).
+      //
+      // ⚠ KNOWN GAP, pre-existing and NOT introduced here: an external-prior
+      // factor has no `observed_state`, so ISL centres its sampling on 0.0
+      // rather than on the prior midpoint. Sending a `mean` never fixed that —
+      // ISL dropped the key via `extra: "ignore"` — it only made the gap look
+      // closed. Closing it needs an ISL-declared field or an `observed_state`
+      // for prior-only factors; tracked separately, not in slice 6.
       let std = (rangeMax - rangeMin) / Math.sqrt(12);
-
-      // Clamp mean to [0, 1]
-      mean = Math.max(0, Math.min(1, mean));
 
       // Floor std at 0.01
       std = Math.max(0.01, std);
@@ -340,7 +419,6 @@ export function buildParameterUncertaintiesV3(
       uncertainties.push({
         node_id: node.id,
         distribution: 'normal',
-        mean,
         std,
       });
     }
