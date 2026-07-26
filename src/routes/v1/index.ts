@@ -18,6 +18,7 @@ import { getFixtureCacheSize, getFixtureCacheStats } from '../../lib/fixtures-ca
 import { registerStreamRoute } from './stream.js';
 import { registerStreamRouteEnhanced } from './stream-enhanced.js';
 import { getIdemStoreSize } from '../../middleware/idempotency.js';
+import { getRouteCallerSnapshot } from '../../observability/routeCallerTelemetry.js';
 import { authGuard } from '../../middleware/auth-guard.js';
 // healthResponseSchema used for OpenAPI documentation
 
@@ -182,6 +183,11 @@ export async function registerV1Routes(app: FastifyInstance) {
       last_compute_ms: getLastComputeMs(),
       engine_p95_ms: getEngineP95Ms(),
       engine_p95_ms_rolling: getEngineP95MsRolling(),
+      // D-PLoT evidence (arch step 1): per-route × caller-class request counts.
+      // Mirrored from /health because /v1/health is the URL Render health-checks
+      // and the one external readers already know. Fixed-size by construction —
+      // see src/observability/routeCallerTelemetry.ts.
+      route_callers: getRouteCallerSnapshot(),
     } as any;
     // Derive high-level health status from latency and rate-limit counters
     try {

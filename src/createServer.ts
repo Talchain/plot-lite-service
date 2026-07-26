@@ -21,6 +21,7 @@ import { getBuildId } from './util/build-id.js';
 import { computeOlumiHash } from './util/canonical.js';
 import { initDownstreamTracking, clearDownstreamTracking, formatDownstreamHeader, getDownstreamCallsForBoundaryLog } from './util/downstream-tracker.js';
 import { recordPayloadHashInvalid } from './metrics/registry.js';
+import { callerClass, isCountedRoute, recordRouteCall } from './observability/routeCallerTelemetry.js';
 import {
   noteLastRequestAt,
   recordDurationMs,
@@ -450,6 +451,28 @@ export async function createServer(opts: ServerOpts = {}) {
   if (process.env.RL_CB_ENABLE === '1') {
     app.addHook('onRequest', circuitBreakerMiddleware);
   }
+
+  // Route × caller-class counters (D-PLoT evidence, arch step 1).
+  //
+  // Placed at onRequest, which in Fastify runs AFTER routing but BEFORE the
+  // auth preHandler. Both halves of that matter:
+  //   - after routing, so `req.routeOptions.url` is the matched PATTERN
+  //     (`/v1/templates/:id/graph`) and never the raw URL, which carries path
+  //     params and query strings — i.e. caller data.
+  //   - before auth, so a request that gets 401'd is still counted. Someone
+  //     trying to call a route is evidence about that route, and a zero-use
+  //     claim that quietly excluded rejected attempts would be overstating
+  //     itself.
+  //
+  // Never throws: telemetry must not be able to fail a request.
+  app.addHook('onRequest', async (req) => {
+    try {
+      const route = (req as any).routeOptions?.url as string | undefined;
+      if (isCountedRoute(route)) {
+        recordRouteCall(route as string, callerClass(req as any));
+      }
+    } catch { /* telemetry is never allowed to break a request */ }
+  });
 
   // Minimal structured access log without bodies
   app.addHook('onRequest', async (req) => {
