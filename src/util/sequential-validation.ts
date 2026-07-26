@@ -32,6 +32,17 @@
  * - `INVALID_STAGE_DEFINITION` (error): A `stages[]` entry is not a stage object
  * - `MISSING_STAGE_ID_LIST` (warning): Stage omits `decisions`/`resolved_uncertainties`
  * - `INVALID_STAGE_ID_LIST` (warning): Stage id list present but not an array
+ * - `COERCED_DISCOUNT_FACTOR` (warning): Discount factor sent as a numeric string
+ *
+ * ## Blocking is a wire contract — check the pre-#265 behaviour before widening it
+ *
+ * All four routes block on ANY error-severity issue, so raising a code from
+ * warning to error, or adding an error for a shape that previously passed, turns
+ * a 200 into a 400 for every client sending that shape. #265 did this to
+ * `INVALID_DISCOUNT_FACTOR` (a JSON-string discount factor had returned 200 with
+ * the CORRECT result, coerced by JS) and, by adding the policy-tree gate at all,
+ * to every pre-existing error code on that route. Neither was covered by a test.
+ * Before changing a severity here, measure the previous behaviour at the route.
  *
  * ## This function must be TOTAL
  *
@@ -69,6 +80,22 @@ export interface SequentialValidationResult {
 /** Total array read — untrusted input may put anything here. */
 function asArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
+}
+
+/**
+ * A numeric string read as a number, else `undefined`.
+ *
+ * Deliberately narrow: only a string whose whole trimmed content is a finite
+ * numeric literal. `''`, `'  '`, `'abc'`, booleans, objects and arrays are NOT
+ * coercible — `Number('')` is 0 and `Number(true)` is 1, and accepting either
+ * would invent a value the client never sent.
+ */
+function coerceNumericString(value: unknown): number | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (trimmed === '') return undefined;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 /** Human-readable stage reference for issue messages, safe on a missing label. */
@@ -275,17 +302,32 @@ export function validateSequentialGraph(graph: Graph): SequentialValidationResul
     nodesByStage.set(stage.index, stageNodeIds);
   }
 
-  // Validate node stage assignments match stage definitions
-  for (const node of graphNodes) {
-    if (node.stage !== undefined) {
-      const stageDef = stages.find((s) => s.index === node.stage);
-      if (!stageDef) {
-        issues.push({
-          code: 'INVALID_NODE_STAGE',
-          message: `Node "${node.id}" has stage ${node.stage} but no stage definition exists for that index.`,
-          severity: 'error',
-          affected_ids: [node.id],
-        });
+  // Validate node stage assignments match stage definitions.
+  //
+  // Skipped when the stage list is known-incomplete. `readStageDefinitions` drops
+  // entries it rejects, so every node pointing at a dropped index would report
+  // INVALID_NODE_STAGE — restating a consequence of the one real fault with the
+  // wrong subject. A single bad entry with three nodes at that stage produced
+  // three misattributed errors on top of the INVALID_STAGE_DEFINITION that
+  // already named the actual cause. Derived from the two lengths, not tracked in
+  // a counter that could drift.
+  //
+  // This does not weaken the verdict: the rejected definition is itself
+  // error-severity, so the request is blocked either way. Once the definitions
+  // are fixed, a genuinely orphaned node surfaces on the next call.
+  const stageListIncomplete = stages.length !== rawStages.length;
+  if (!stageListIncomplete) {
+    for (const node of graphNodes) {
+      if (node.stage !== undefined) {
+        const stageDef = stages.find((s) => s.index === node.stage);
+        if (!stageDef) {
+          issues.push({
+            code: 'INVALID_NODE_STAGE',
+            message: `Node "${node.id}" has stage ${node.stage} but no stage definition exists for that index.`,
+            severity: 'error',
+            affected_ids: [node.id],
+          });
+        }
       }
     }
   }
@@ -306,20 +348,44 @@ export function validateSequentialGraph(graph: Graph): SequentialValidationResul
     }
   }
 
-  // Validate discount factor if present
-  const discountFactor = graph.sequential_metadata.default_discount_factor;
-  if (discountFactor !== undefined && discountFactor !== null) {
-    if (typeof discountFactor !== 'number' || !Number.isFinite(discountFactor)) {
+  // Validate discount factor if present.
+  //
+  // #265 added the `typeof !== 'number'` test at error severity, which turned a
+  // JSON-string discount factor into a 400 on both full-validation routes.
+  // Measured against 04f6dbac, `default_discount_factor: "0.95"` previously
+  // returned 200 with overall_expected_value 6066 — byte-equal to the numeric
+  // 0.95 control, because JS coerced the string in the comparisons and again in
+  // the arithmetic. The client got the right answer. A numeric string is a
+  // client-serialisation artefact, not a semantic error, so it is coerced back —
+  // but the coercion is now DISCLOSED instead of happening by accident.
+  //
+  // Non-coercible values (`'abc'`, `true`, `{}`, `''`) stay error-severity on
+  // purpose: pre-#265 they returned 200 carrying `overall_expected_value: null`
+  // or a boolean silently read as 1. #265's block is better than that silence.
+  const rawDiscountFactor = graph.sequential_metadata.default_discount_factor;
+  if (rawDiscountFactor !== undefined && rawDiscountFactor !== null) {
+    const isNumber = typeof rawDiscountFactor === 'number' && Number.isFinite(rawDiscountFactor);
+    const coerced = isNumber ? undefined : coerceNumericString(rawDiscountFactor);
+    const discountFactor = isNumber ? (rawDiscountFactor as number) : coerced;
+
+    if (discountFactor === undefined) {
       issues.push({
         code: 'INVALID_DISCOUNT_FACTOR',
-        message: `Discount factor must be a number between 0 and 1, received ${typeof discountFactor}.`,
+        message: `Discount factor must be a number between 0 and 1, received ${typeof rawDiscountFactor}.`,
         severity: 'error',
       });
     } else if (discountFactor < 0 || discountFactor > 1) {
+      // Coercion is not permission: "1.5" must fail exactly as 1.5 does.
       issues.push({
         code: 'INVALID_DISCOUNT_FACTOR',
         message: `Discount factor must be between 0 and 1, got ${discountFactor}.`,
         severity: 'error',
+      });
+    } else if (coerced !== undefined) {
+      issues.push({
+        code: 'COERCED_DISCOUNT_FACTOR',
+        message: `Discount factor was sent as a string ("${String(rawDiscountFactor)}"), not a number. Reading it as ${coerced} — send a JSON number to remove this warning.`,
+        severity: 'warning',
       });
     }
   }

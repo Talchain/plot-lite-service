@@ -187,11 +187,23 @@ export async function registerSequentialAnalysisRoute(app: FastifyInstance) {
         }
       }
 
-      // Get discount factor
-      const discountFactor =
+      // Get discount factor.
+      //
+      // Read as a number even when the client sent a numeric string. Without
+      // this the raw string reached `Math.pow` (which coerced it silently), the
+      // ISL request body, and `model_card.discount_factor` — whose declared type
+      // is `number` — so the response echoed `"0.95"` while the accompanying
+      // COERCED_DISCOUNT_FACTOR warning said it had been read as `0.95`. The
+      // response must not say two different things about one value.
+      // `validateSequentialGraph` has already blocked a non-coercible
+      // `sequential_metadata.default_discount_factor`; the range check below
+      // still guards the top-level `discount_factor`, which nothing validates.
+      const rawDiscountFactor =
         body.discount_factor ??
         body.graph.sequential_metadata?.default_discount_factor ??
         1.0;
+      const discountFactor =
+        typeof rawDiscountFactor === 'number' ? rawDiscountFactor : Number(rawDiscountFactor);
 
       if (discountFactor < 0 || discountFactor > 1) {
         return replyWithAppError(reply, {
