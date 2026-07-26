@@ -58,6 +58,16 @@ export const ISL_TO_UI_CONTRACT: BoundaryContract = {
     // zero independent information (verified byte-identical live: 0.59025 /
     // 0.8541875). The UI printed it as a fabricated "N% stability" statistic.
     // Absence is honest; the UI has an absence path.
+    //
+    // KNOWN COLLISION (ROADMAP 1.211, 2026-07-26). ISL PR #114 made
+    // `robustness.confidence` carry this SAME quantity, unmodified
+    // (robustness_analyzer_v2.py:2739 `return recommendation_stability`). So
+    // the number withheld here is still forwarded under `confidence`, a name
+    // implying calibration that ISL's own field description now denies. PLoT
+    // forwards `confidence_basis` beside it so a consumer can branch, but the
+    // duplication itself is a cross-repo contract question — whether the slot
+    // should survive, or whether ISL's honestly-named field should be
+    // delivered instead — and is not settled unilaterally by this lane.
     'robustness.recommendation_stability',
   ],
 

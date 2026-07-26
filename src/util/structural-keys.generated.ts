@@ -75,6 +75,7 @@ export const STRUCTURAL_KEYS: ReadonlySet<string> = new Set([
   "conditional_probabilities",
   "conditional_winners",
   "confidence",
+  "confidence_basis",
   "confidence_components",
   "confidence_interval",
   "confidence_provenance",
