@@ -115,6 +115,19 @@ const counters = new Map<string, Entry>();
 const vacuousCounters = new Map<string, Entry>();
 let plotRequestsTotal = 0;
 let overflow = 0;
+/**
+ * Refusals that actually reached a handler, per route.
+ *
+ * Distinct from the request counters above, which are incremented at
+ * onRequest — i.e. BEFORE auth. The difference between the two is exactly the
+ * traffic that was rejected before reaching the route, which is worth being
+ * able to see separately when reading the evidence.
+ *
+ * Bounded without a cap because the key set is the fixed, compile-time list of
+ * withdrawn routes.
+ */
+const refusalsByRoute = new Map<string, number>();
+let refusedTotal = 0;
 let since = new Date().toISOString();
 
 function truncate(s: string, max: number): string {
@@ -235,6 +248,11 @@ export interface RouteCallerSnapshot {
   caller_classes: number;
   /** Requests dropped after the distinct-key cap was hit. */
   overflow: number;
+  /**
+   * Refusals that reached a withdrawn route's handler. Lower than the hit
+   * counts below when requests were rejected by auth first.
+   */
+  refused_total: number;
   /** Whether the map is at its cap (i.e. the sample below may be partial). */
   at_capacity: boolean;
   vacuous_analysis: {
@@ -283,6 +301,7 @@ export function getRouteCallerSnapshot(): RouteCallerSnapshot {
     routes_seen: byRoute.size,
     caller_classes: callers.size,
     overflow,
+    refused_total: refusedTotal,
     at_capacity: counters.size >= MAX_ENTRIES || vacuousCounters.size >= MAX_VACUOUS_ENTRIES,
     vacuous_analysis: {
       total: vacuousTotal,
@@ -311,11 +330,22 @@ export function renderRouteCallerMetrics(): string {
   return lines.join('\n');
 }
 
+/**
+ * Record that a withdrawn route actually refused a request in its handler.
+ * Called from src/routes/v1/refuse-unavailable.ts.
+ */
+export function recordRefusal(route: string): void {
+  refusedTotal++;
+  refusalsByRoute.set(route, (refusalsByRoute.get(route) ?? 0) + 1);
+}
+
 /** Test-only reset. Not called by production code. */
 export function resetRouteCallerTelemetry(): void {
   counters.clear();
   vacuousCounters.clear();
+  refusalsByRoute.clear();
   plotRequestsTotal = 0;
+  refusedTotal = 0;
   overflow = 0;
   since = new Date().toISOString();
 }

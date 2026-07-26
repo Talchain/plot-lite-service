@@ -2549,292 +2549,41 @@ paths:
 
   /v1/analysis/optimise:
     post:
-      summary: Continuous Variable Optimisation
+      summary: Continuous Variable Optimisation (WITHDRAWN)
       description: |
-        Optimise continuous decision variables using grid search with optional gradient refinement.
-        Proxies to ISL /api/v1/analysis/optimise when ISL_ENABLE=1, otherwise uses local fallback.
+        **Withdrawn 2026-07-26. This endpoint returns 501 and computes nothing.**
 
-        Different from /v1/optimise which handles discrete action selection under budget constraints.
-        This endpoint optimises a single continuous decision variable within a search range.
+        It was ruled vacuous by the PLoT sibling-route authenticity matrix: the
+        local fallback never received the graph. The returned optimum was always
+        the grid point nearest the midpoint of `search_range`, `gradient_at_optimum`
+        was the literal 0, and `second_derivative` was a pure function of the range.
+        All six probe variants — including the positive control that moved every
+        other analysis route's numbers — returned one identical response hash.
+
+        The path stays mounted rather than returning 404 so that caller telemetry
+        can establish who, if anyone, was relying on it; a 404 is indistinguishable
+        from a typo and would destroy that evidence. Per-route caller counts are
+        published on `/health` and `/v1/health` under `route_callers`.
+
+        Callers needing continuous optimisation should use ISL directly.
       operationId: analysisOptimise
       tags: [v1, optimisation, analysis]
-      parameters:
-        - name: Idempotency-Key
-          in: header
-          required: false
-          description: Optional key to replay the exact prior response within a TTL (scoped per principal)
-          schema:
-            type: string
-            maxLength: 200
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [decision_variable, search_range, objective_node, graph]
-              properties:
-                decision_variable:
-                  type: string
-                  description: Node ID of the decision variable to optimise
-                search_range:
-                  type: array
-                  items:
-                    type: number
-                  minItems: 2
-                  maxItems: 2
-                  description: "[min, max] range to search for optimal value"
-                objective_node:
-                  type: string
-                  description: Node ID of the objective to optimise
-                objective_direction:
-                  type: string
-                  enum: [maximise, minimise]
-                  default: maximise
-                  description: Direction to optimise the objective
-                constraints:
-                  type: array
-                  maxItems: 20
-                  items:
-                    type: object
-                    required: [node_id, operator, value]
-                    properties:
-                      node_id:
-                        type: string
-                        description: Node ID to constrain
-                      operator:
-                        type: string
-                        enum: ["<=", ">=", "=="]
-                        description: Constraint operator
-                      value:
-                        type: number
-                        description: Constraint value
-                graph:
-                  $ref: '#/components/schemas/graph'
-                grid_points:
-                  type: integer
-                  minimum: 2
-                  maximum: 100
-                  default: 20
-                  description: Number of points for grid search
-                refine:
-                  type: boolean
-                  default: false
-                  description: Whether to apply gradient refinement after grid search
-                confidence_level:
-                  type: number
-                  minimum: 0.5
-                  maximum: 0.99
-                  description: Confidence level for interval estimation (e.g., 0.95 for 95%)
-            example:
-              decision_variable: "price"
-              search_range: [50, 150]
-              objective_node: "revenue"
-              objective_direction: "maximise"
-              constraints:
-                - node_id: "demand"
-                  operator: ">="
-                  value: 100
-              graph:
-                nodes:
-                  - id: "price"
-                    label: "Price"
-                    type: "decision"
-                  - id: "demand"
-                    label: "Demand"
-                    type: "outcome"
-                  - id: "revenue"
-                    label: "Revenue"
-                    type: "outcome"
-                edges:
-                  - from: "price"
-                    to: "demand"
-                    weight: -0.5
-                  - from: "price"
-                    to: "revenue"
-                    weight: 1.0
-                  - from: "demand"
-                    to: "revenue"
-                    weight: 0.8
-              grid_points: 20
-              refine: true
-              confidence_level: 0.95
+      deprecated: true
       responses:
-        '200':
-          description: Optimisation results
-          headers:
-            Idempotent-Replayed:
-              description: '1 if response is a replay from cache; 0 if computed fresh (when Idempotency-Key provided)'
-              schema: { type: string, enum: ['0','1'] }
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [schema, result, provenance]
-                properties:
-                  schema:
-                    type: string
-                    example: "continuous_optimise.v1"
-                  result:
-                    type: object
-                    required: [optimal_value, optimal_objective, confidence_interval, sensitivity, search_results, constraints_satisfied]
-                    properties:
-                      optimal_value:
-                        type: number
-                        description: Optimal value for the decision variable
-                      optimal_objective:
-                        type: number
-                        description: Objective value at optimal point
-                      confidence_interval:
-                        type: array
-                        items:
-                          type: number
-                        minItems: 2
-                        maxItems: 2
-                        description: "[low, high] confidence interval for optimal value"
-                      sensitivity:
-                        type: object
-                        description: Sensitivity analysis at optimal point
-                        properties:
-                          gradient_at_optimum:
-                            type: number
-                            description: Gradient of objective at optimal point
-                          second_derivative:
-                            type: number
-                            description: Second derivative (curvature) at optimal point
-                          robustness:
-                            type: string
-                            enum: [high, medium, low]
-                            description: Robustness classification based on curvature
-                      search_results:
-                        type: array
-                        items:
-                          type: object
-                          properties:
-                            value:
-                              type: number
-                              description: Decision variable value
-                            objective:
-                              type: number
-                              description: Objective value at this point
-                        description: Grid search results for visualisation
-                      constraints_satisfied:
-                        type: boolean
-                        description: Whether all constraints are satisfied at optimal
-                      active_constraints:
-                        type: array
-                        items:
-                          type: string
-                        description: List of constraint node IDs that are active at optimal
-                      warnings:
-                        type: array
-                        items:
-                          type: string
-                        description: Any warnings about the optimisation
-                  provenance:
-                    type: string
-                    enum: [isl, plot_fallback]
-                    description: Whether result came from ISL or local fallback
-                  model_card:
-                    type: object
-                    description: Model card with optimisation parameters
-                    properties:
-                      decision_variable:
-                        type: string
-                      objective_node:
-                        type: string
-                      objective_direction:
-                        type: string
-                      search_range:
-                        type: array
-                        items:
-                          type: number
-                      grid_points:
-                        type: integer
-                      refine:
-                        type: boolean
-                      nodes:
-                        type: integer
-                      edges:
-                        type: integer
-                  isl_error:
-                    type: object
-                    description: ISL error details if ISL call failed
-                    properties:
-                      code:
-                        type: string
-                      message:
-                        type: string
-                      retryable:
-                        type: boolean
-              example:
-                schema: "continuous_optimise.v1"
-                result:
-                  optimal_value: 87.5
-                  optimal_objective: 12500
-                  confidence_interval: [82.5, 92.5]
-                  sensitivity:
-                    gradient_at_optimum: 0.02
-                    second_derivative: -1.5
-                    robustness: "medium"
-                  search_results:
-                    - value: 50
-                      objective: 8000
-                    - value: 75
-                      objective: 11000
-                    - value: 87.5
-                      objective: 12500
-                    - value: 100
-                      objective: 12000
-                    - value: 150
-                      objective: 9000
-                  constraints_satisfied: true
-                  active_constraints: []
-                  warnings: []
-                provenance: "isl"
-                model_card:
-                  decision_variable: "price"
-                  objective_node: "revenue"
-                  objective_direction: "maximise"
-                  search_range: [50, 150]
-                  grid_points: 20
-                  refine: true
-                  nodes: 3
-                  edges: 3
-        '400':
-          description: Bad input
+        '501':
+          description: Capability withdrawn — no analysis is performed for any input
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/errorV1'
               examples:
-                missing_field:
-                  value:
-                    schema: "error.v1"
-                    code: "BAD_INPUT"
-                    message: "decision_variable required"
-                invalid_range:
-                  value:
-                    schema: "error.v1"
-                    code: "BAD_INPUT"
-                    message: "search_range must be [min, max] where min < max"
-                node_not_found:
-                  value:
-                    schema: "error.v1"
-                    code: "BAD_INPUT"
-                    message: "decision_variable 'price' not found in graph"
-        '409':
-          description: Idempotency key reused with a different request body
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/errorV1'
-              examples:
-                mismatch:
+                withdrawn:
                   value:
                     schema: error.v1
-                    code: IDEMPOTENCY_MISMATCH
-                    message: Idempotency-Key was reused with a different request body; use a new key.
+                    code: ANALYSIS_UNAVAILABLE
+                    message: "/v1/analysis/optimise has been withdrawn: route computed no option-discriminating output; see authenticity matrix 2026-07-26"
+                    reason: route computed no option-discriminating output; see authenticity matrix 2026-07-26
+                    retryable: false
 
   /v1/preferences/fit:
     post:
