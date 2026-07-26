@@ -107,7 +107,140 @@ async function callCeeExplainPolicy(
 }
 
 /**
+ * Validate the untrusted `policy_tree` down to the fields this handler reads.
+ *
+ * ## Why this exists
+ *
+ * The route casts `req.body as ExplainPolicyRequest` and previously validated
+ * only that `policy_tree`, `policy_tree.nodes` and `policy_tree.root_id` were
+ * *truthy*. Everything below that was read as if the TypeScript types were
+ * enforced at the wire, and they are not: a node without `children` reached
+ * `n.children.length` and the resulting TypeError surfaced to callers as an
+ * opaque 500 "Something went wrong". Reproduced live on staging build
+ * `220739b` with `{"policy_tree":{"root_id":"r","depth":2,"nodes":[{"id":"r"}]}}`.
+ *
+ * This is the same defect class PR #265 fixed for `sequential_metadata`.
+ * That fix made `validateSequentialGraph` total; `policy_tree` was left
+ * unhardened, and this route also re-reads `sequential_metadata.stages`
+ * directly (see `readStageLabels`), on a path the validator does not cover.
+ *
+ * ## The rule for anyone editing this file
+ *
+ * Every field of `policy_tree` or `graph` that the handler reads must either
+ * be validated here (typed 400) or be read totally (no throw, no fabricated
+ * output) at the point of use. Malformed input must produce an honest
+ * envelope, never a 500.
+ *
+ * Load-bearing fields are validated because the analysis is genuinely
+ * uncomputable without them:
+ * - `nodes[].stage`          — the grouping key, and a required response field
+ * - `nodes[].expected_value` — arithmetic input; also `.toFixed()` in the output
+ * - `nodes[].children`       — the sole terminal-node discriminator
+ * Cosmetic fields (`type`, `label`, `action`, `policy_summary`) are read
+ * totally instead, so a request that succeeds today keeps succeeding.
+ */
+function validatePolicyTreeShape(
+  policyTree: IslPolicyTreeResponse
+): { code: string; field: string; message: string } | null {
+  if (!Array.isArray(policyTree.nodes)) {
+    return {
+      code: 'INVALID_POLICY_TREE',
+      field: 'policy_tree.nodes',
+      message: `policy_tree.nodes must be an array of policy tree nodes, received ${policyTree.nodes === null ? 'null' : typeof policyTree.nodes}.`,
+    };
+  }
+
+  for (let i = 0; i < policyTree.nodes.length; i++) {
+    const node = policyTree.nodes[i] as unknown;
+
+    if (node === null || typeof node !== 'object' || Array.isArray(node)) {
+      return {
+        code: 'INVALID_POLICY_TREE_NODE',
+        field: `policy_tree.nodes[${i}]`,
+        message: `policy_tree.nodes[${i}] is not a policy tree node — expected an object, received ${node === null ? 'null' : Array.isArray(node) ? 'array' : typeof node}.`,
+      };
+    }
+
+    const n = node as Record<string, unknown>;
+
+    if (typeof n.id !== 'string' || n.id.length === 0) {
+      return {
+        code: 'INVALID_POLICY_TREE_NODE',
+        field: `policy_tree.nodes[${i}].id`,
+        message: `policy_tree.nodes[${i}] is missing a non-empty string "id".`,
+      };
+    }
+
+    if (typeof n.stage !== 'number' || !Number.isFinite(n.stage)) {
+      return {
+        code: 'INVALID_POLICY_TREE_NODE',
+        field: `policy_tree.nodes[${i}].stage`,
+        message: `policy_tree.nodes[${i}] ("${n.id}") has "stage" of type ${n.stage === null ? 'null' : typeof n.stage}, expected a finite number. Stage explanations are grouped by this value.`,
+      };
+    }
+
+    if (typeof n.expected_value !== 'number' || !Number.isFinite(n.expected_value)) {
+      return {
+        code: 'INVALID_POLICY_TREE_NODE',
+        field: `policy_tree.nodes[${i}].expected_value`,
+        message: `policy_tree.nodes[${i}] ("${n.id}") has "expected_value" of type ${n.expected_value === null ? 'null' : typeof n.expected_value}, expected a finite number. Risk and rationale figures are computed from it.`,
+      };
+    }
+
+    if (!Array.isArray(n.children)) {
+      return {
+        code: 'INVALID_POLICY_TREE_NODE',
+        field: `policy_tree.nodes[${i}].children`,
+        message: `policy_tree.nodes[${i}] ("${n.id}") has "children" of type ${n.children === null ? 'null' : typeof n.children}, expected an array of child node IDs. Terminal nodes are identified by an empty "children" array.`,
+      };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Read stage labels from `graph.sequential_metadata.stages` without trusting
+ * its shape.
+ *
+ * `validateSequentialGraph` is total and rejects a malformed `stages` with a
+ * typed 400 — but only when the graph declares `is_sequential: true` (or a
+ * node carries `stage`). A graph with `is_sequential: false` and a malformed
+ * `stages` skips that validator entirely and used to reach `for...of` on a
+ * non-iterable here. Labels are cosmetic, so a malformed entry is skipped
+ * rather than refused: this path must not invent a refusal the validator
+ * itself would not raise.
+ */
+function readStageLabels(graph: ExplainPolicyRequest['graph']): Map<number, string> {
+  const stageLabels = new Map<number, string>();
+  const rawStages: unknown = graph?.sequential_metadata?.stages;
+
+  if (!Array.isArray(rawStages)) return stageLabels;
+
+  for (const stage of rawStages) {
+    if (stage === null || typeof stage !== 'object') continue;
+    const { index, label } = stage as { index?: unknown; label?: unknown };
+    if (typeof index !== 'number' || !Number.isFinite(index)) continue;
+    if (typeof label !== 'string' || label.length === 0) continue;
+    stageLabels.set(index, label);
+  }
+
+  return stageLabels;
+}
+
+/** Describe a decision node without emitting "undefined" into user-facing prose. */
+function decisionText(node: PolicyTreeNode): string {
+  if (typeof node.action === 'string' && node.action.length > 0) return node.action;
+  if (typeof node.label === 'string' && node.label.length > 0) return node.label;
+  return node.id;
+}
+
+/**
  * Extract stage explanations from policy tree
+ *
+ * Precondition: `tree` has passed `validatePolicyTreeShape`, so `nodes` is an
+ * array of objects with finite `stage` and `expected_value`. `graph` is NOT
+ * validated — read it totally.
  */
 function extractStageExplanations(
   tree: IslPolicyTreeResponse,
@@ -124,13 +257,8 @@ function extractStageExplanations(
   const stages = [...nodesByStage.keys()].sort((a, b) => a - b);
   const stageExplanations: CeePolicyExplanation['stage_explanations'] = [];
 
-  // Get stage labels from graph metadata
-  const stageLabels = new Map<number, string>();
-  if (graph.sequential_metadata?.stages) {
-    for (const stage of graph.sequential_metadata.stages) {
-      stageLabels.set(stage.index, stage.label);
-    }
-  }
+  // Get stage labels from graph metadata (untrusted — see readStageLabels)
+  const stageLabels = readStageLabels(graph);
 
   for (const stageIndex of stages) {
     const stageNodes = nodesByStage.get(stageIndex) ?? [];
@@ -144,11 +272,12 @@ function extractStageExplanations(
     );
 
     if (bestDecision) {
+      const action = decisionText(bestDecision);
       stageExplanations.push({
         stage: stageIndex,
         stage_label: stageLabel,
-        explanation: `At ${stageLabel}, the optimal action is ${bestDecision.action ?? bestDecision.label}.`,
-        key_decision: bestDecision.action ?? bestDecision.label,
+        explanation: `At ${stageLabel}, the optimal action is ${action}.`,
+        key_decision: action,
         rationale: `Expected value: ${bestDecision.expected_value.toFixed(2)}`,
       });
     }
@@ -159,19 +288,25 @@ function extractStageExplanations(
 
 /**
  * Generate local fallback explanation when CEE is unavailable
+ *
+ * Precondition: `policyTree` has passed `validatePolicyTreeShape`.
  */
 function generateFallbackExplanation(
   policyTree: IslPolicyTreeResponse,
   graph: ExplainPolicyRequest['graph']
 ): CeePolicyExplanation {
-  const rootNode = policyTree.nodes.find((n) => n.id === policyTree.root_id);
   const stageExplanations = extractStageExplanations(policyTree, graph);
 
-  // Generate summary
+  // Generate summary. `policy_summary` is declared required but is not
+  // validated at the wire; interpolating it unchecked emitted the literal
+  // string "undefined", or dropped `explanation.summary` from the response
+  // entirely (JSON.stringify omits undefined) — a required response field
+  // silently absent. Read it totally instead.
+  const treeSummary = typeof policyTree.policy_summary === 'string' ? policyTree.policy_summary : '';
   const summary =
     stageExplanations.length > 0
-      ? `This policy consists of ${stageExplanations.length} sequential decisions. ${policyTree.policy_summary}`
-      : policyTree.policy_summary;
+      ? `This policy consists of ${stageExplanations.length} sequential decisions. ${treeSummary}`.trim()
+      : treeSummary;
 
   // Identify risks from low expected value paths
   const risks: string[] = [];
@@ -259,6 +394,27 @@ export async function registerExplainPolicyRoute(app: FastifyInstance) {
           }
           sequentialWarnings.push(issue.message);
         }
+      }
+
+      // Validate the policy tree down to the fields the handler reads. Without
+      // this, a node missing `children` reached `n.children.length` and 500'd.
+      //
+      // Deliberately the LAST validator: a body that is malformed in both its
+      // graph and its policy_tree keeps reporting the graph code it reported
+      // before this change (e.g. INVALID_STAGE_DEFINITION, pinned by #265's
+      // live evidence). This check therefore only ever converts a 500 into a
+      // 400 — it never renames a 400 that callers already receive.
+      //
+      // It runs before the CEE call so the route answers a malformed tree the
+      // same way whoever narrates it — CEE or the local fallback.
+      const treeIssue = validatePolicyTreeShape(body.policy_tree);
+      if (treeIssue) {
+        return replyWithAppError(reply, {
+          type: 'BAD_INPUT',
+          statusCode: 400,
+          message: `Policy tree validation failed: ${treeIssue.message}`,
+          fields: { field: treeIssue.field, code: treeIssue.code },
+        });
       }
 
       // Call CEE if enabled
