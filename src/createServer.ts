@@ -1494,10 +1494,11 @@ export async function createServer(opts: ServerOpts = {}) {
     //
     // This branch used to reply "Something went wrong" while logging NOTHING.
     // Fastify does not auto-log once a custom error handler is installed, so an
-    // unhandled throw left no trace anywhere: a lane debugging live 500s on
-    // /v1/analysis/sequential and /v1/analysis/policy-tree had no log line to
-    // find and could not identify the failing line. An unexplainable 5xx is a
-    // defect in its own right, independent of whatever caused it.
+    // unhandled throw left no trace anywhere: the lane that found this was
+    // debugging live 500s on two analysis routes (since deleted) and had no log
+    // line to find, so it could not identify the failing line. An unexplainable
+    // 5xx is a defect in its own right, independent of whatever caused it, and
+    // this handler is global — it covers every route.
     //
     // What is logged: the error's identity and stack only — never the request
     // body, headers or query. Every field still passes through THE logger

@@ -92,7 +92,7 @@ function readVitestSummary() {
   const selfcheckGate = runGate('node', ['tools/self-check-gate.mjs']);
   const streamRateGate = runGate('node', ['tools/stream-rate-limit-gate.mjs']);
   const trustProxyGate = runGate('node', ['tools/trust-proxy-gate.mjs']);
-  const sdkPyGate = runGate('node', ['tools/sdk-smoke:python.mjs']);
+  const sdkPyGate = runGate('node', ['tools/sdk-smoke-python.mjs']);
   const streamChaosGate = runGate('node', ['tools/stream-chaos-halfclose-gate.mjs']);
   const ttffSampleGate = runGate('node', ['tools/ttff-sample-gate.mjs']);
   const hash = await fetchSelfCheckHash();

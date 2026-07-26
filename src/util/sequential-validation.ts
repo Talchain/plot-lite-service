@@ -13,10 +13,12 @@
  *
  * | Endpoint                         | Validation Behavior           | Returns on Error |
  * |----------------------------------|-------------------------------|------------------|
- * | POST /v1/analysis/sequential     | Full validation, blocks on error | 400 BAD_INPUT |
- * | POST /v1/analysis/policy-tree    | Full validation, blocks on error | 400 BAD_INPUT |
  * | POST /v1/analysis/conditional-recommend | Optional validation, errors block | 400 BAD_INPUT |
  * | POST /v1/explain/policy          | Optional validation, errors block | 400 BAD_INPUT |
+ *
+ * POST /v1/analysis/sequential and POST /v1/analysis/policy-tree were also
+ * listed here until 26 Jul 2026, when both routes were deleted as vacuous.
+ * This module outlived them: the two endpoints above are real consumers.
  *
  * ## Validation Issue Codes
  *
@@ -40,8 +42,9 @@
  * JSON whatever the TypeScript types promise. This function previously iterated
  * `stage.decisions` directly; a caller that omitted the field (sending, say,
  * `decision_node_id` instead) hit `for...of undefined`, and the resulting
- * TypeError surfaced to users as an opaque 500 "Something went wrong" on both
- * POST /v1/analysis/sequential and POST /v1/analysis/policy-tree.
+ * TypeError surfaced to users as an opaque 500 "Something went wrong". That
+ * was found on two routes since deleted, but the same untrusted-input exposure
+ * applies to every current caller — the totality requirement is unchanged.
  *
  * Rule for anyone editing this file: never index into a field of `graph`,
  * `sequential_metadata` or a stage without first proving its shape. Malformed

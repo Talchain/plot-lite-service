@@ -784,8 +784,14 @@ export interface EdgeFunctionSuggestionResponse {
 }
 
 // ============================================================================
-// Phase 4: Sequential Analysis Types (ISL Proxy)
+// Phase 4: Conditional Recommendation Types (ISL Proxy)
 // ============================================================================
+//
+// The sequential-analysis and policy-tree request/response types that used to
+// live here were deleted with their routes (26 Jul 2026 ruling): both computed
+// no option-discriminating output. ISL owns the real sequential capability.
+// PolicyTreeNode / IslPolicyTreeResponse remain below as INPUT types only,
+// consumed by POST /v1/explain/policy.
 
 /**
  * Condition for conditional recommendation
@@ -867,110 +873,12 @@ export interface ConditionalRecommendResponse {
 }
 
 /**
- * Request to /v1/analysis/sequential
- */
-export interface SequentialAnalysisRequest {
-  /** Graph with sequential structure */
-  graph: {
-    nodes: Array<{ id: string; label?: string; kind?: NodeKind; value?: number; stage?: number; stage_label?: string }>;
-    edges: Array<{ from: string; to: string; weight?: number; belief?: number }>;
-    sequential_metadata?: SequentialMetadata;
-  };
-  /** Optional seed */
-  seed?: number;
-  /** Optional outcome node */
-  outcome_node?: string;
-  /** Discount factor for future stages (0-1, default: 1.0) */
-  discount_factor?: number;
-}
-
-/**
- * Stage-optimal decision in sequential analysis
- */
-export interface StageOptimalDecision {
-  /** Stage index */
-  stage: number;
-  /** Stage label */
-  stage_label: string;
-  /** Optimal decision node ID */
-  decision_id: string;
-  /** Optimal option node ID */
-  optimal_option_id: string;
-  /** Optimal option label */
-  optimal_option_label: string;
-  /** Expected value at this stage */
-  expected_value: number;
-  /** Confidence in this decision */
-  confidence: 'high' | 'medium' | 'low';
-  /** Conditions under which this is optimal */
-  conditions?: RecommendationCondition[];
-}
-
-/**
- * ISL sequential analysis response
- */
-export interface IslSequentialAnalysisResponse {
-  /** Optimal decisions per stage */
-  stage_decisions: StageOptimalDecision[];
-  /** Overall expected value (discounted) */
-  overall_expected_value: number;
-  /** Overall confidence */
-  overall_confidence: 'high' | 'medium' | 'low';
-  /** Value of waiting (option value) */
-  value_of_information?: number;
-  /** Summary of the sequential strategy */
-  strategy_summary: string;
-  /** Key uncertainties to resolve */
-  key_uncertainties: string[];
-}
-
-/**
- * Response from /v1/analysis/sequential
- */
-export interface SequentialAnalysisResponse {
-  schema: 'sequential_analysis.v1';
-  /** ISL sequential analysis result */
-  analysis: IslSequentialAnalysisResponse | null;
-  /** Validation result */
-  validation: {
-    valid: boolean;
-    stage_count: number;
-    issues: Array<{ code: string; message: string; severity: 'error' | 'warning' }>;
-  };
-  /** Source of the response */
-  provenance: 'isl' | 'plot_fallback';
-  /** Model metadata */
-  model_card: {
-    seed: number;
-    nodes: number;
-    edges: number;
-    stages: number;
-    discount_factor: number;
-  };
-  /** Error if ISL call failed */
-  isl_error?: ProxyError;
-}
-
-/**
- * Request to /v1/analysis/policy-tree
- */
-export interface PolicyTreeRequest {
-  /** Graph with sequential structure */
-  graph: {
-    nodes: Array<{ id: string; label?: string; kind?: NodeKind; value?: number; stage?: number }>;
-    edges: Array<{ from: string; to: string; weight?: number; belief?: number }>;
-    sequential_metadata?: SequentialMetadata;
-  };
-  /** Optional seed */
-  seed?: number;
-  /** Optional outcome node */
-  outcome_node?: string;
-  /** Maximum tree depth (default: 10) */
-  max_depth?: number;
-}
-
-/**
  * Policy tree node
+ *
+ * Input-only contract. PLoT no longer produces policy trees — the route that
+ * did (`POST /v1/analysis/policy-tree`) was deleted as vacuous. This type
+ * survives because `ExplainPolicyRequest.policy_tree` accepts a tree the
+ * caller obtained elsewhere (ISL) and asks PLoT to narrate.
  */
 export interface PolicyTreeNode {
   /** Unique node identifier */
@@ -993,6 +901,9 @@ export interface PolicyTreeNode {
 
 /**
  * ISL policy tree response
+ *
+ * Input-only contract — see PolicyTreeNode above. Named for its ISL origin:
+ * ISL produces these, PLoT only explains them.
  */
 export interface IslPolicyTreeResponse {
   /** Root node ID */
@@ -1005,27 +916,6 @@ export interface IslPolicyTreeResponse {
   terminal_count: number;
   /** Summary of optimal policy */
   policy_summary: string;
-}
-
-/**
- * Response from /v1/analysis/policy-tree
- */
-export interface PolicyTreeResponse {
-  schema: 'policy_tree.v1';
-  /** ISL policy tree result */
-  tree: IslPolicyTreeResponse | null;
-  /** Source of the response */
-  provenance: 'isl' | 'plot_fallback';
-  /** Model metadata */
-  model_card: {
-    seed: number;
-    nodes: number;
-    edges: number;
-    stages: number;
-    max_depth: number;
-  };
-  /** Error if ISL call failed */
-  isl_error?: ProxyError;
 }
 
 // ============================================================================
