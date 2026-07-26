@@ -28,6 +28,24 @@
  * - `MISSING_SEQUENTIAL_METADATA` (warning): Nodes have stages but no metadata
  * - `INVALID_DECISION_KIND` (warning): Decision node has wrong kind
  * - `FORWARD_REFERENCE` (warning): Edge from later stage to earlier stage
+ * - `INVALID_SEQUENTIAL_METADATA` (error): `stages` is not an array
+ * - `INVALID_STAGE_DEFINITION` (error): A `stages[]` entry is not a stage object
+ * - `MISSING_STAGE_ID_LIST` (warning): Stage omits `decisions`/`resolved_uncertainties`
+ * - `INVALID_STAGE_ID_LIST` (warning): Stage id list present but not an array
+ *
+ * ## This function must be TOTAL
+ *
+ * The analysis routes cast the request body (`req.body as ...`) with no runtime
+ * schema validation of `sequential_metadata`, so everything below is UNTRUSTED
+ * JSON whatever the TypeScript types promise. This function previously iterated
+ * `stage.decisions` directly; a caller that omitted the field (sending, say,
+ * `decision_node_id` instead) hit `for...of undefined`, and the resulting
+ * TypeError surfaced to users as an opaque 500 "Something went wrong" on both
+ * POST /v1/analysis/sequential and POST /v1/analysis/policy-tree.
+ *
+ * Rule for anyone editing this file: never index into a field of `graph`,
+ * `sequential_metadata` or a stage without first proving its shape. Malformed
+ * input must produce a typed issue, never a throw.
  */
 
 import type { Graph, StageDefinition, GraphNode, GraphEdge } from '../trust/types.js';
@@ -48,19 +66,106 @@ export interface SequentialValidationResult {
   nodes_by_stage: Map<number, string[]>;
 }
 
+/** Total array read — untrusted input may put anything here. */
+function asArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
+/** Human-readable stage reference for issue messages, safe on a missing label. */
+function stageRef(stage: StageDefinition): string {
+  const label = typeof stage.label === 'string' ? stage.label : '';
+  return label ? `${stage.index} ("${label}")` : `${stage.index}`;
+}
+
+/**
+ * Read a stage's list of node IDs without trusting the declared type.
+ *
+ * `StageDefinition` declares `decisions` and `resolved_uncertainties` as
+ * required `string[]`, but nothing validates the wire payload against that, so
+ * both may be absent or the wrong type. Neither case can be fatal: both routes
+ * derive their stages from `node.stage`, not from these lists, so the analysis
+ * is still computable — the omission is reported as a warning and the list is
+ * treated as empty rather than silently ignored.
+ *
+ * Pass `issues` only where the report should be recorded; internal re-reads
+ * omit it so the same omission is not reported twice.
+ */
+function readStageIdList(
+  stage: StageDefinition,
+  field: 'decisions' | 'resolved_uncertainties',
+  issues?: SequentialValidationIssue[]
+): string[] {
+  const raw = (stage as unknown as Record<string, unknown>)[field];
+
+  if (Array.isArray(raw)) {
+    return raw.filter((id): id is string => typeof id === 'string');
+  }
+
+  if (raw === undefined || raw === null) {
+    issues?.push({
+      code: 'MISSING_STAGE_ID_LIST',
+      message: `Stage ${stageRef(stage)} is missing "${field}". Treating it as empty — supply "${field}" as an array of node IDs for complete sequential validation.`,
+      severity: 'warning',
+    });
+  } else {
+    issues?.push({
+      code: 'INVALID_STAGE_ID_LIST',
+      message: `Stage ${stageRef(stage)} has "${field}" of type ${typeof raw}, expected an array of node IDs. Treating it as empty.`,
+      severity: 'warning',
+    });
+  }
+
+  return [];
+}
+
+/**
+ * Filter `stages` down to entries that are actually stage objects, reporting
+ * each reject as a typed error issue.
+ */
+function readStageDefinitions(
+  rawStages: unknown[],
+  issues: SequentialValidationIssue[]
+): StageDefinition[] {
+  const stages: StageDefinition[] = [];
+
+  rawStages.forEach((entry, i) => {
+    const isStageObject =
+      entry !== null &&
+      typeof entry === 'object' &&
+      !Array.isArray(entry) &&
+      typeof (entry as { index?: unknown }).index === 'number' &&
+      Number.isFinite((entry as { index: number }).index);
+
+    if (!isStageObject) {
+      issues.push({
+        code: 'INVALID_STAGE_DEFINITION',
+        message: `sequential_metadata.stages[${i}] is not a valid stage definition — expected an object with a numeric "index", received ${entry === null ? 'null' : Array.isArray(entry) ? 'array' : typeof entry}.`,
+        severity: 'error',
+      });
+      return;
+    }
+
+    stages.push(entry as StageDefinition);
+  });
+
+  return stages;
+}
+
 /**
  * Validate sequential graph metadata and node assignments
  */
 export function validateSequentialGraph(graph: Graph): SequentialValidationResult {
   const issues: SequentialValidationIssue[] = [];
-  const nodeMap = new Map<string, GraphNode>(graph.nodes.map((n) => [n.id, n]));
-  const edgeMap = buildEdgeMap(graph.edges);
+  const graphNodes = asArray<GraphNode>(graph?.nodes);
+  const graphEdges = asArray<GraphEdge>(graph?.edges);
+  const nodeMap = new Map<string, GraphNode>(graphNodes.map((n) => [n.id, n]));
+  const edgeMap = buildEdgeMap(graphEdges);
   const nodesByStage = new Map<number, string[]>();
 
   // If no sequential_metadata, check for node-level stage assignments
-  if (!graph.sequential_metadata) {
+  if (!graph?.sequential_metadata) {
     // Collect nodes with stage assignments
-    for (const node of graph.nodes) {
+    for (const node of graphNodes) {
       if (node.stage !== undefined) {
         const stageNodes = nodesByStage.get(node.stage) ?? [];
         stageNodes.push(node.id);
@@ -86,7 +191,7 @@ export function validateSequentialGraph(graph: Graph): SequentialValidationResul
     };
   }
 
-  const { stages, is_sequential } = graph.sequential_metadata;
+  const { stages: rawStages, is_sequential } = graph.sequential_metadata;
 
   if (!is_sequential) {
     return {
@@ -96,6 +201,23 @@ export function validateSequentialGraph(graph: Graph): SequentialValidationResul
       nodes_by_stage: new Map(),
     };
   }
+
+  // `stages` is untrusted: a non-array here used to reach `stages.map` and throw.
+  if (!Array.isArray(rawStages)) {
+    issues.push({
+      code: 'INVALID_SEQUENTIAL_METADATA',
+      message: `sequential_metadata.stages must be an array of stage definitions, received ${rawStages === null ? 'null' : typeof rawStages}.`,
+      severity: 'error',
+    });
+    return {
+      valid: false,
+      issues,
+      stage_count: 0,
+      nodes_by_stage: nodesByStage,
+    };
+  }
+
+  const stages = readStageDefinitions(rawStages, issues);
 
   // Validate stage indices are contiguous starting from 0
   const stageIndices = stages.map((s) => s.index).sort((a, b) => a - b);
@@ -112,13 +234,16 @@ export function validateSequentialGraph(graph: Graph): SequentialValidationResul
 
   // Validate each stage definition
   for (const stage of stages) {
+    const decisions = readStageIdList(stage, 'decisions', issues);
+    const resolvedUncertainties = readStageIdList(stage, 'resolved_uncertainties', issues);
+
     // Check decisions exist in graph
-    for (const decisionId of stage.decisions) {
+    for (const decisionId of decisions) {
       const node = nodeMap.get(decisionId);
       if (!node) {
         issues.push({
           code: 'MISSING_DECISION_NODE',
-          message: `Stage ${stage.index} ("${stage.label}") references decision node "${decisionId}" which does not exist in graph.`,
+          message: `Stage ${stageRef(stage)} references decision node "${decisionId}" which does not exist in graph.`,
           severity: 'error',
           affected_ids: [decisionId],
         });
@@ -133,12 +258,12 @@ export function validateSequentialGraph(graph: Graph): SequentialValidationResul
     }
 
     // Check resolved uncertainties exist in graph
-    for (const uncId of stage.resolved_uncertainties) {
+    for (const uncId of resolvedUncertainties) {
       const node = nodeMap.get(uncId);
       if (!node) {
         issues.push({
           code: 'MISSING_UNCERTAINTY_NODE',
-          message: `Stage ${stage.index} ("${stage.label}") references uncertainty node "${uncId}" which does not exist in graph.`,
+          message: `Stage ${stageRef(stage)} references uncertainty node "${uncId}" which does not exist in graph.`,
           severity: 'error',
           affected_ids: [uncId],
         });
@@ -146,12 +271,12 @@ export function validateSequentialGraph(graph: Graph): SequentialValidationResul
     }
 
     // Track nodes by stage
-    const stageNodeIds = [...stage.decisions, ...stage.resolved_uncertainties];
+    const stageNodeIds = [...decisions, ...resolvedUncertainties];
     nodesByStage.set(stage.index, stageNodeIds);
   }
 
   // Validate node stage assignments match stage definitions
-  for (const node of graph.nodes) {
+  for (const node of graphNodes) {
     if (node.stage !== undefined) {
       const stageDef = stages.find((s) => s.index === node.stage);
       if (!stageDef) {
@@ -167,7 +292,7 @@ export function validateSequentialGraph(graph: Graph): SequentialValidationResul
 
   // Validate no forward references (edges from later stages to earlier stages)
   const nodeStages = buildNodeStageMap(graph);
-  for (const edge of graph.edges) {
+  for (const edge of graphEdges) {
     const fromStage = nodeStages.get(edge.from);
     const toStage = nodeStages.get(edge.to);
 
@@ -183,8 +308,14 @@ export function validateSequentialGraph(graph: Graph): SequentialValidationResul
 
   // Validate discount factor if present
   const discountFactor = graph.sequential_metadata.default_discount_factor;
-  if (discountFactor !== undefined) {
-    if (discountFactor < 0 || discountFactor > 1) {
+  if (discountFactor !== undefined && discountFactor !== null) {
+    if (typeof discountFactor !== 'number' || !Number.isFinite(discountFactor)) {
+      issues.push({
+        code: 'INVALID_DISCOUNT_FACTOR',
+        message: `Discount factor must be a number between 0 and 1, received ${typeof discountFactor}.`,
+        severity: 'error',
+      });
+    } else if (discountFactor < 0 || discountFactor > 1) {
       issues.push({
         code: 'INVALID_DISCOUNT_FACTOR',
         message: `Discount factor must be between 0 and 1, got ${discountFactor}.`,
@@ -209,19 +340,23 @@ function buildNodeStageMap(graph: Graph): Map<string, number> {
   const nodeStages = new Map<string, number>();
 
   // First, use explicit node.stage assignments
-  for (const node of graph.nodes) {
-    if (node.stage !== undefined) {
+  for (const node of asArray<GraphNode>(graph?.nodes)) {
+    if (node?.stage !== undefined) {
       nodeStages.set(node.id, node.stage);
     }
   }
 
-  // Then, fill in from stage definitions
-  if (graph.sequential_metadata?.stages) {
-    for (const stage of graph.sequential_metadata.stages) {
-      for (const id of [...stage.decisions, ...stage.resolved_uncertainties]) {
-        if (!nodeStages.has(id)) {
-          nodeStages.set(id, stage.index);
-        }
+  // Then, fill in from stage definitions. Re-reads the id lists without an
+  // `issues` sink: any malformation here was already reported by the caller.
+  for (const stage of asArray<StageDefinition>(graph?.sequential_metadata?.stages)) {
+    if (!stage || typeof stage !== 'object' || typeof stage.index !== 'number') continue;
+    const ids = [
+      ...readStageIdList(stage, 'decisions'),
+      ...readStageIdList(stage, 'resolved_uncertainties'),
+    ];
+    for (const id of ids) {
+      if (!nodeStages.has(id)) {
+        nodeStages.set(id, stage.index);
       }
     }
   }
@@ -234,7 +369,8 @@ function buildNodeStageMap(graph: Graph): Map<string, number> {
  */
 function buildEdgeMap(edges: GraphEdge[]): Map<string, string[]> {
   const edgeMap = new Map<string, string[]>();
-  for (const edge of edges) {
+  for (const edge of asArray<GraphEdge>(edges)) {
+    if (!edge || typeof edge !== 'object') continue;
     const targets = edgeMap.get(edge.from) ?? [];
     targets.push(edge.to);
     edgeMap.set(edge.from, targets);
@@ -246,12 +382,12 @@ function buildEdgeMap(edges: GraphEdge[]): Map<string, string[]> {
  * Check if a graph is sequential (has multi-stage structure)
  */
 export function isSequentialGraph(graph: Graph): boolean {
-  if (graph.sequential_metadata?.is_sequential) {
+  if (graph?.sequential_metadata?.is_sequential) {
     return true;
   }
 
   // Check for node-level stage assignments
-  return graph.nodes.some((n) => n.stage !== undefined);
+  return asArray<GraphNode>(graph?.nodes).some((n) => n?.stage !== undefined);
 }
 
 /**
@@ -260,14 +396,14 @@ export function isSequentialGraph(graph: Graph): boolean {
 export function getMaxStage(graph: Graph): number {
   let maxStage = 0;
 
-  if (graph.sequential_metadata?.stages) {
-    for (const stage of graph.sequential_metadata.stages) {
+  for (const stage of asArray<StageDefinition>(graph?.sequential_metadata?.stages)) {
+    if (typeof stage?.index === 'number' && Number.isFinite(stage.index)) {
       maxStage = Math.max(maxStage, stage.index);
     }
   }
 
-  for (const node of graph.nodes) {
-    if (node.stage !== undefined) {
+  for (const node of asArray<GraphNode>(graph?.nodes)) {
+    if (typeof node?.stage === 'number' && Number.isFinite(node.stage)) {
       maxStage = Math.max(maxStage, node.stage);
     }
   }
