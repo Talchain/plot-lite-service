@@ -2541,8 +2541,23 @@ export interface RobustnessAssessmentV3 {
    * Note: ISL sends `'medium'`; the UI normalises this to `'moderate'`.
    */
   level?: 'high' | 'medium' | 'low' | 'very_low';
-  /** Robustness confidence from ISL (0-1) V2/Option C format */
+  /**
+   * ISL's `confidence` slot (0-1) — NOT a confidence level.
+   *
+   * Since ISL PR #114 this is the uncalibrated recommendation-stability
+   * fraction. Always read `confidence_basis` alongside it; a bare value is
+   * ambiguous between the pre- and post-#114 quantities.
+   */
   confidence?: number;
+  /**
+   * Declared basis for `confidence`.
+   *
+   * `'recommendation_stability_uncalibrated'` — the share of sampled scenarios
+   * the recommended option won, with no calibration and no coverage guarantee.
+   * `'unknown_legacy'` — the producer declared no basis, so the value must not
+   * be read as either quantity.
+   */
+  confidence_basis?: 'recommendation_stability_uncalibrated' | 'unknown_legacy';
   /** Normalization errors if any (for observability) */
   normalization_errors?: Array<{ edge_type: string; error: string; raw_value?: unknown }>;
   /**

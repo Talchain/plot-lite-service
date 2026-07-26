@@ -639,8 +639,26 @@ export interface ISLRobustnessAnalyzeV2Response {
   robustness?: {
     /** Robustness score (0-1) - V1 format */
     score?: number;
-    /** Robustness confidence (0-1) - V2/Option C format */
+    /**
+     * V2/Option C `confidence` slot (0-1).
+     *
+     * NOT a confidence level. Since ISL PR #114 (2026-07-26) this carries the
+     * UNCALIBRATED recommendation-stability fraction — the share of sampled
+     * scenarios the recommended option won — served under a legacy field name.
+     * It was min(0.99, stability * (1 - 1/sqrt(n_samples))); the shrinkage and
+     * the cap are withdrawn, so the value is strictly higher and can now reach
+     * exactly 1.0.
+     *
+     * Read `confidence_basis` before interpreting this. See
+     * src/integrations/isl/confidence-basis.ts.
+     */
     confidence?: number;
+    /**
+     * Machine-readable semantics marker for `confidence`, added by ISL PR #114
+     * so consumers branch rather than infer. Absent on pre-#114 payloads,
+     * which is why PLoT resolves it through an allow-list rather than casting.
+     */
+    confidence_basis?: string;
     /** Human-readable label - V1 format */
     label?: 'robust' | 'moderate' | 'fragile';
     /** Robustness level - V2/Option C format */

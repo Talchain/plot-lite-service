@@ -190,6 +190,7 @@ import type { ProposalCardV1 } from '../../review-pass/types.js';
 import { assembleFactObjects, type ISLResponseInput } from '../../facts/index.js';
 import type { FactObjectV1, FactLineage } from '../../facts/types.js';
 import { finiteNum, prob01, nonNeg, nonNegInt, hasAllRequiredOutcomeStats } from './numeric-egress-guards.js';
+import { resolveConfidenceBasis } from '../../integrations/isl/confidence-basis.js';
 import {
   assessEnrichmentContract,
   shouldAssessEnrichmentContract,
@@ -2762,8 +2763,33 @@ function buildResponse(
       ...(islResult.robustness.level !== undefined && {
         level: islResult.robustness.level,
       }),
+      // `confidence` + its BASIS, always together (ROADMAP 1.211).
+      //
+      // ISL PR #114 changed what this slot means without changing its name,
+      // type or range: it was min(0.99, stability * (1 - 1/sqrt(n_samples)))
+      // and is now the bare recommendation-stability fraction. So the value
+      // rises, becomes reachable at exactly 1.0, and — critically — a bare
+      // number on the wire is ambiguous between the two quantities. The basis
+      // marker is what removes that ambiguity, so it is emitted beside the
+      // value rather than as an optional extra, and resolved through an
+      // allow-list so an unrecognised future basis reads as 'unknown_legacy'
+      // instead of being passed off as understood.
+      //
+      // COLLISION WORTH KNOWING ABOUT — see the DROPPED entry for
+      // `robustness.recommendation_stability` in contracts/isl-to-ui.contract.ts.
+      // That field is deliberately withheld above because ISL derives it as
+      // option_wins[winner]/n_samples, i.e. the leader's win_probability
+      // relabelled. Post-#114 `confidence` IS that same number. PLoT therefore
+      // withholds the quantity under its honest name while forwarding it under
+      // a name that implies calibration — which ISL's own field description now
+      // denies ("NOT A CONFIDENCE LEVEL"). Disclosure, not suppression, is the
+      // doctrine here (D-5) and ISL kept the slot because three repos read it,
+      // so the basis marker is the fix available to this lane. Whether the slot
+      // should survive at all is a cross-repo contract decision, raised
+      // separately rather than settled unilaterally here.
       ...(prob01(islResult.robustness.confidence) !== undefined && {
         confidence: prob01(islResult.robustness.confidence),
+        confidence_basis: resolveConfidenceBasis(islResult.robustness),
       }),
       // Include normalization errors if any occurred (for observability)
       ...(normalizationErrors.length > 0 && { normalization_errors: normalizationErrors }),
