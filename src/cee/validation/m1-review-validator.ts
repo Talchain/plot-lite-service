@@ -690,7 +690,11 @@ export interface ScenarioContextCapResult {
  */
 export function capScenarioContexts(
   review: M1Review,
-  fragileEdges: Array<{ edge_id: string; switch_probability: number }> = []
+  // switch_probability is OPTIONAL: absent means ISL did not measure the edge.
+  // The ranking below already handles that honestly via `?? -1`, which sinks an
+  // unmeasured edge below every measured one instead of treating it as 0 (a
+  // maximal-robustness claim we have no basis for).
+  fragileEdges: Array<{ edge_id: string; switch_probability?: number }> = []
 ): ScenarioContextCapResult {
   if (!review.scenario_contexts) {
     return { review, truncated: false, removedKeys: [], warning: '' };
@@ -751,7 +755,7 @@ export function buildValidationContext(
     isl_results: {
       option_comparison: Array<{ option_id: string; option_label: string; win_probability: number }>;
       factor_sensitivity: Array<{ factor_id: string; elasticity: number; confidence: number }>;
-      fragile_edges: Array<{ edge_id: string; switch_probability: number; marginal_switch_probability?: number }>;
+      fragile_edges: Array<{ edge_id: string; switch_probability?: number; marginal_switch_probability?: number }>;
       robustness: { recommendation_stability: number };
     };
     deterministic_coaching: {
@@ -779,9 +783,16 @@ export function buildValidationContext(
     allowedNumbers.push(f.confidence);
   }
 
-  // Switch probabilities
+  // Switch probabilities. Both are guarded: an unmeasured edge has no
+  // switch_probability, and pushing `undefined` into the grounded-number
+  // allowlist would be meaningless at best. Previously switch_probability was
+  // always a number only because the extractor defaulted it to a fabricated 0
+  // — which also put a fabricated 0 into this allowlist, licensing the
+  // reviewer to state it as a grounded figure.
   for (const e of request.isl_results.fragile_edges) {
-    allowedNumbers.push(e.switch_probability);
+    if (e.switch_probability !== undefined) {
+      allowedNumbers.push(e.switch_probability);
+    }
     if (e.marginal_switch_probability !== undefined) {
       allowedNumbers.push(e.marginal_switch_probability);
     }

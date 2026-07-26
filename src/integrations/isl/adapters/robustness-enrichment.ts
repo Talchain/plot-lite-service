@@ -14,6 +14,7 @@ import type {
 } from '../types/plot-types.js';
 import type { ISLFactorSensitivityItem } from '../types/isl-types.js';
 import { sanitiseIslVoi } from '../../../lib/evpi-emission.js';
+import { sortByFragility } from './robustness-analysis.js';
 
 // =============================================================================
 // Edge ID Parsing Helpers
@@ -240,9 +241,23 @@ export function buildRobustnessDataForCee(
     return null;
   }
 
-  const fragileEdges = (islRobustness?.fragile_edges ?? []).map((edge) =>
-    enrichFragileEdge(edge, graph, options)
-  );
+  // FRAGILITY ORDER, not ISL's wire order.
+  //
+  // ISL does not emit `fragile_edges` sorted by fragility — live on staging
+  // build 1dd45b6 the array arrived as switch_probability
+  // [0.075, 0.281, 0.375, 0.487, 0.569, 0.61, 0.307], so `[0]` was the LEAST
+  // fragile of seven. The /v2/run RESPONSE path has sorted since then, inside
+  // normalizeFragileEdges, but this CEE-facing builder never called it: one
+  // request emitted fragility order to the UI and ISL's arbitrary order to
+  // CEE. CEE reads position [0] (`decompose.ts` fragileEdges[0] ->
+  // stabilityHint.top_fragile_edge), so the unsorted copy NAMED THE WRONG EDGE
+  // as the one most likely to flip the decision.
+  //
+  // Sorted before enrichment, on a copy — never mutate ISL's array in place,
+  // because the caller may still read it.
+  const fragileEdges = sortByFragility([...(islRobustness?.fragile_edges ?? [])] as Array<
+    ISLFragileEdge & { switch_probability?: number | null }
+  >).map((edge) => enrichFragileEdge(edge, graph, options));
 
   const robustEdges = (islRobustness?.robust_edges ?? []).map((edgeId) =>
     enrichRobustEdge(edgeId, graph)

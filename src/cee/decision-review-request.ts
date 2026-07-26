@@ -36,6 +36,7 @@ import {
   type OptionComparisonInput,
 } from '../coaching/flip-thresholds.js';
 import { DEFAULT_EXISTS_PROBABILITY } from '../constants/limits.js';
+import { sortByFragility } from '../integrations/isl/adapters/robustness-analysis.js';
 
 // =============================================================================
 // Types for Input Data
@@ -290,7 +291,13 @@ export function extractFactorSensitivity(
  * Extract fragile edges from ISL result.
  */
 function extractFragileEdges(islResult: ISLResultInput): FragileEdgeData[] {
-  const fragileEdges = islResult.robustness?.fragile_edges ?? [];
+  // FRAGILITY ORDER, not ISL's wire order. ISL emits `fragile_edges` unsorted
+  // (live: switch_probability [0.075, ..., 0.61, 0.307], so `[0]` was the LEAST
+  // fragile), and CEE reads position [0] — `decompose.ts` fragileEdges[0]
+  // becomes stabilityHint.top_fragile_edge. Sorting on a COPY: never mutate
+  // ISL's array in place, the caller may still read it. Same comparator as the
+  // /v2/run response path, imported rather than re-implemented.
+  const fragileEdges = sortByFragility([...(islResult.robustness?.fragile_edges ?? [])]);
 
   return fragileEdges.map((edge) => {
     // Parse from/to from edge_id if not provided
@@ -300,7 +307,13 @@ function extractFragileEdges(islResult: ISLResultInput): FragileEdgeData[] {
       edge_id: edge.edge_id,
       from: edge.from_id ?? from,
       to: edge.to_id ?? to,
-      switch_probability: edge.switch_probability ?? 0,
+      // NO `?? 0`. A missing switch_probability means ISL did not measure this
+      // edge; publishing 0 asserts "this edge will never flip the decision",
+      // which is the strongest possible robustness claim and is fabricated.
+      // The response path was fixed to omit rather than fabricate, and this
+      // path reintroduced it. Absence stays absence — downstream ranking
+      // already sinks an absent value (capScenarioContexts uses `?? -1`).
+      switch_probability: edge.switch_probability,
       marginal_switch_probability: edge.marginal_switch_probability,
     };
   });
