@@ -1578,7 +1578,8 @@
       "plot_build": "__VOLATILE__",
       "isl_build": "9a22a1a",
       "isl_request_digest": null,
-      "isl_response_digest": null
+      "isl_response_digest": null,
+      "enrichment_contract_schema_parsed": true
     },
     "feature_flags_snapshot": {
       "SCM_LITE_ENABLE": "0",
