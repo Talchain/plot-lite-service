@@ -54,19 +54,19 @@ import { createHash } from 'node:crypto';
 /** Hard cap on distinct route×caller keys held in memory for ordinary routes. */
 export const MAX_ENTRIES = 200;
 /**
- * SEPARATE, RESERVED cap for the vacuous analysis routes.
+ * SEPARATE, RESERVED cap for the withdrawn (501-refusing) routes.
  *
  * These counters are the evidence a removal decision rests on, so they get
  * their own budget that ordinary traffic cannot consume. Sharing one map was
  * the first implementation and it was wrong: saturating the general map (250
  * junk callers on unrelated routes — trivially reachable, and reachable
- * unauthenticated) evicted the vacuous routes from the evidence entirely, so a
+ * unauthenticated) evicted the withdrawn routes from the evidence entirely, so a
  * real call to a route we were about to delete would have gone unrecorded
  * while /health still reported a confident zero. A positive control in
  * tests/route-caller-telemetry.size.test.ts caught it.
  */
-export const MAX_VACUOUS_ENTRIES = 50;
-/** Max callers listed in the /health vacuous-route sample. */
+export const MAX_REFUSED_ENTRIES = 50;
+/** Max callers listed in the /health withdrawn-route sample. */
 export const MAX_SAMPLE = 5;
 /** Max entries in the /health top-routes list. */
 export const MAX_TOP = 5;
@@ -76,12 +76,18 @@ const MAX_ORIGIN_LEN = 40;
 const MAX_KEY_ID_LEN = 24;
 
 /**
- * The seven `/v1/analysis/*` routes ruled VACUOUS by the authenticity matrix
- * of 2026-07-26 and now answering a typed 501 refusal. Broken out in the
- * health snapshot because "did anyone call these?" is the question the
- * removal decision turns on.
+ * Every route now answering a typed 501 refusal. Broken out in the health
+ * snapshot because "did anyone call these?" is the question the removal
+ * decision turns on.
+ *
+ * Two distinct findings, one disposition:
+ *   - the seven `/v1/analysis/*` routes ruled VACUOUS by the authenticity
+ *     matrix of 2026-07-26 (no option-discriminating output);
+ *   - `/v1/sensitivity` and `/v1/score`, ruled FABRICATING by the numerics
+ *     science review of the same date (numbers derived from the seed and array
+ *     index, stamped `inference_mode: 'model_based'`).
  */
-export const VACUOUS_ANALYSIS_ROUTES = [
+export const REFUSED_ROUTES = [
   '/v1/analysis/dominance',
   '/v1/analysis/pareto',
   '/v1/analysis/multi-criteria',
@@ -89,9 +95,11 @@ export const VACUOUS_ANALYSIS_ROUTES = [
   '/v1/analysis/thresholds',
   '/v1/analysis/conditional-recommend',
   '/v1/analysis/optimise',
+  '/v1/sensitivity',
+  '/v1/score',
 ] as const;
 
-const VACUOUS_SET: ReadonlySet<string> = new Set(VACUOUS_ANALYSIS_ROUTES);
+const REFUSED_SET: ReadonlySet<string> = new Set(REFUSED_ROUTES);
 
 /**
  * Infrastructure probes. Render health-checks /v1/health continuously, so
@@ -111,8 +119,8 @@ interface Entry {
 
 /** Ordinary routes. */
 const counters = new Map<string, Entry>();
-/** Vacuous analysis routes — reserved budget, never evicted by general traffic. */
-const vacuousCounters = new Map<string, Entry>();
+/** Withdrawn routes — reserved budget, never evicted by general traffic. */
+const refusedCounters = new Map<string, Entry>();
 let plotRequestsTotal = 0;
 let overflow = 0;
 /**
@@ -208,12 +216,12 @@ export function isCountedRoute(route: string | undefined | null): boolean {
 export function recordRouteCall(route: string, caller: string): void {
   plotRequestsTotal++;
 
-  // Vacuous-analysis traffic is held in its own RESERVED map so that a flood
+  // Withdrawn-route traffic is held in its own RESERVED map so that a flood
   // of junk callers on unrelated routes cannot evict the very evidence the
-  // deletion decision rests on. See MAX_VACUOUS_ENTRIES.
-  const isVacuous = VACUOUS_SET.has(route);
-  const map = isVacuous ? vacuousCounters : counters;
-  const cap = isVacuous ? MAX_VACUOUS_ENTRIES : MAX_ENTRIES;
+  // deletion decision rests on. See MAX_REFUSED_ENTRIES.
+  const isRefusedRoute = REFUSED_SET.has(route);
+  const map = isRefusedRoute ? refusedCounters : counters;
+  const cap = isRefusedRoute ? MAX_REFUSED_ENTRIES : MAX_ENTRIES;
 
   // NUL cannot occur in a route pattern or in a sanitized caller class, so the
   // composite key is unambiguous.
@@ -255,10 +263,10 @@ export interface RouteCallerSnapshot {
   refused_total: number;
   /** Whether the map is at its cap (i.e. the sample below may be partial). */
   at_capacity: boolean;
-  vacuous_analysis: {
+  refused_routes: {
     total: number;
     by_route: Record<string, number>;
-    /** Up to MAX_SAMPLE caller classes seen on the vacuous routes. */
+    /** Up to MAX_SAMPLE caller classes seen on the withdrawn routes. */
     callers: string[];
   };
   /** Up to MAX_TOP busiest route patterns, as [route, count]. */
@@ -275,19 +283,19 @@ export interface RouteCallerSnapshot {
 export function getRouteCallerSnapshot(): RouteCallerSnapshot {
   const byRoute = new Map<string, number>();
   const callers = new Set<string>();
-  const vacuousByRoute: Record<string, number> = {};
-  const vacuousCallers = new Set<string>();
-  let vacuousTotal = 0;
+  const refusedByRoute: Record<string, number> = {};
+  const refusedCallers = new Set<string>();
+  let refusedRouteTotal = 0;
 
-  for (const r of VACUOUS_ANALYSIS_ROUTES) vacuousByRoute[r] = 0;
+  for (const r of REFUSED_ROUTES) refusedByRoute[r] = 0;
 
-  for (const e of [...counters.values(), ...vacuousCounters.values()]) {
+  for (const e of [...counters.values(), ...refusedCounters.values()]) {
     byRoute.set(e.route, (byRoute.get(e.route) ?? 0) + e.n);
     callers.add(e.caller);
-    if (VACUOUS_SET.has(e.route)) {
-      vacuousByRoute[e.route] = (vacuousByRoute[e.route] ?? 0) + e.n;
-      vacuousTotal += e.n;
-      if (vacuousCallers.size < MAX_SAMPLE) vacuousCallers.add(e.caller);
+    if (REFUSED_SET.has(e.route)) {
+      refusedByRoute[e.route] = (refusedByRoute[e.route] ?? 0) + e.n;
+      refusedRouteTotal += e.n;
+      if (refusedCallers.size < MAX_SAMPLE) refusedCallers.add(e.caller);
     }
   }
 
@@ -302,11 +310,11 @@ export function getRouteCallerSnapshot(): RouteCallerSnapshot {
     caller_classes: callers.size,
     overflow,
     refused_total: refusedTotal,
-    at_capacity: counters.size >= MAX_ENTRIES || vacuousCounters.size >= MAX_VACUOUS_ENTRIES,
-    vacuous_analysis: {
-      total: vacuousTotal,
-      by_route: vacuousByRoute,
-      callers: [...vacuousCallers],
+    at_capacity: counters.size >= MAX_ENTRIES || refusedCounters.size >= MAX_REFUSED_ENTRIES,
+    refused_routes: {
+      total: refusedRouteTotal,
+      by_route: refusedByRoute,
+      callers: [...refusedCallers],
     },
     top_routes: topRoutes,
   };
@@ -314,12 +322,12 @@ export function getRouteCallerSnapshot(): RouteCallerSnapshot {
 
 /** Prometheus exposition for the full map (only rendered when PROMETHEUS_ENABLE=1). */
 export function renderRouteCallerMetrics(): string {
-  if (counters.size === 0 && vacuousCounters.size === 0 && overflow === 0) return '';
+  if (counters.size === 0 && refusedCounters.size === 0 && overflow === 0) return '';
 
   const lines: string[] = [];
   lines.push('# HELP plot_route_caller_requests_total Requests per route pattern and caller class');
   lines.push('# TYPE plot_route_caller_requests_total counter');
-  for (const e of [...counters.values(), ...vacuousCounters.values()]) {
+  for (const e of [...counters.values(), ...refusedCounters.values()]) {
     const route = e.route.replace(/["\\\n]/g, '');
     const caller = e.caller.replace(/["\\\n]/g, '');
     lines.push(`plot_route_caller_requests_total{route="${route}",caller="${caller}"} ${e.n}`);
@@ -342,7 +350,7 @@ export function recordRefusal(route: string): void {
 /** Test-only reset. Not called by production code. */
 export function resetRouteCallerTelemetry(): void {
   counters.clear();
-  vacuousCounters.clear();
+  refusedCounters.clear();
   refusalsByRoute.clear();
   plotRequestsTotal = 0;
   refusedTotal = 0;

@@ -66,8 +66,8 @@ describe('telemetry hook is wired into the real app', () => {
 
     const s = getRouteCallerSnapshot();
     expect(s.plot_requests_total).toBeGreaterThan(0);
-    expect(s.vacuous_analysis.by_route['/v1/analysis/dominance']).toBe(1);
-    expect(s.vacuous_analysis.callers[0]).toContain('o:https://olumi.netlify.app');
+    expect(s.refused_routes.by_route['/v1/analysis/dominance']).toBe(1);
+    expect(s.refused_routes.callers[0]).toContain('o:https://olumi.netlify.app');
   });
 
   it('records the matched route PATTERN, never the raw URL with its query string', async () => {
@@ -99,9 +99,9 @@ describe('telemetry hook is wired into the real app', () => {
     const v1health = (await app.inject({ method: 'GET', url: '/v1/health' })).json();
 
     expect(health.route_callers).toBeDefined();
-    expect(health.route_callers.vacuous_analysis.by_route['/v1/analysis/thresholds']).toBe(1);
+    expect(health.route_callers.refused_routes.by_route['/v1/analysis/thresholds']).toBe(1);
     expect(v1health.route_callers).toBeDefined();
-    expect(v1health.route_callers.vacuous_analysis.by_route['/v1/analysis/thresholds']).toBe(1);
+    expect(v1health.route_callers.refused_routes.by_route['/v1/analysis/thresholds']).toBe(1);
   });
 });
 
@@ -113,7 +113,7 @@ describe('/health stays inside its 4 KiB contract at telemetry saturation', () =
     for (let i = 0; i < MAX_ENTRIES + 250; i++) {
       recordRouteCall(`${longRoute}${i % 7}`, `${longCaller}${i}`);
     }
-    // Vacuous-route callers too, so the sample list is full rather than empty.
+    // Withdrawn-route callers too, so the sample list is full rather than empty.
     for (let i = 0; i < 25; i++) {
       recordRouteCall('/v1/analysis/conditional-recommend', `${longCaller}-v${i}`);
     }
@@ -125,7 +125,7 @@ describe('/health stays inside its 4 KiB contract at telemetry saturation', () =
 
     expect(s.at_capacity).toBe(true);
     expect(s.overflow).toBeGreaterThan(0);
-    expect(s.vacuous_analysis.callers.length).toBeGreaterThan(0);
+    expect(s.refused_routes.callers.length).toBeGreaterThan(0);
   });
 
   it('/health remains under 4 KiB', async () => {

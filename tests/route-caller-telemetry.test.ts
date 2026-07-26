@@ -21,10 +21,10 @@ import {
   renderRouteCallerMetrics,
   resetRouteCallerTelemetry,
   MAX_ENTRIES,
-  MAX_VACUOUS_ENTRIES,
+  MAX_REFUSED_ENTRIES,
   MAX_SAMPLE,
   MAX_TOP,
-  VACUOUS_ANALYSIS_ROUTES,
+  REFUSED_ROUTES,
 } from '../src/observability/routeCallerTelemetry.js';
 
 const SECRET = 'super-secret-bearer-token-value-do-not-leak-9f3a';
@@ -128,29 +128,29 @@ describe('counters', () => {
     expect(s.top_routes[0]).toEqual(['/v1/run', 3]);
   });
 
-  it('reports every vacuous analysis route explicitly, at zero, before any traffic', () => {
+  it('reports every withdrawn route explicitly, at zero, before any traffic', () => {
     const s = getRouteCallerSnapshot();
 
     // All seven keys present with an explicit 0 — a missing key and a zero key
     // must not be confusable when reading the evidence externally.
-    expect(Object.keys(s.vacuous_analysis.by_route).sort()).toEqual(
-      [...VACUOUS_ANALYSIS_ROUTES].sort()
+    expect(Object.keys(s.refused_routes.by_route).sort()).toEqual(
+      [...REFUSED_ROUTES].sort()
     );
-    for (const r of VACUOUS_ANALYSIS_ROUTES) {
-      expect(s.vacuous_analysis.by_route[r]).toBe(0);
+    for (const r of REFUSED_ROUTES) {
+      expect(s.refused_routes.by_route[r]).toBe(0);
     }
-    expect(s.vacuous_analysis.total).toBe(0);
+    expect(s.refused_routes.total).toBe(0);
   });
 
-  it('POSITIVE CONTROL: a call to a vacuous route is visible in the evidence', () => {
+  it('POSITIVE CONTROL: a call to a withdrawn route is visible in the evidence', () => {
     recordRouteCall('/v1/analysis/dominance', 'kf:12345678|o:https://x.test|ua:curl/8');
 
     const s = getRouteCallerSnapshot();
-    expect(s.vacuous_analysis.total).toBe(1);
-    expect(s.vacuous_analysis.by_route['/v1/analysis/dominance']).toBe(1);
-    expect(s.vacuous_analysis.callers).toContain('kf:12345678|o:https://x.test|ua:curl/8');
+    expect(s.refused_routes.total).toBe(1);
+    expect(s.refused_routes.by_route['/v1/analysis/dominance']).toBe(1);
+    expect(s.refused_routes.callers).toContain('kf:12345678|o:https://x.test|ua:curl/8');
     // …and the other six stay at zero.
-    expect(s.vacuous_analysis.by_route['/v1/analysis/pareto']).toBe(0);
+    expect(s.refused_routes.by_route['/v1/analysis/pareto']).toBe(0);
   });
 });
 
@@ -169,7 +169,7 @@ describe('bounded by construction', () => {
     expect(s.plot_requests_total).toBe(MAX_ENTRIES + 500);
   });
 
-  it('a saturated general map CANNOT evict the vacuous-route evidence', () => {
+  it('a saturated general map CANNOT evict the withdrawn-route evidence', () => {
     // The regression this pins: with a single shared map, this flood evicted
     // the vacuous routes entirely, and /health then reported a confident zero
     // for a route that had in fact been called. The vacuous counters now have
@@ -182,13 +182,13 @@ describe('bounded by construction', () => {
     recordRouteCall('/v1/analysis/optimise', 'kf:realcall|o:https://caller.test|ua:curl/8');
 
     const s = getRouteCallerSnapshot();
-    expect(s.vacuous_analysis.by_route['/v1/analysis/optimise']).toBe(1);
-    expect(s.vacuous_analysis.total).toBe(1);
-    expect(s.vacuous_analysis.callers).toContain('kf:realcall|o:https://caller.test|ua:curl/8');
+    expect(s.refused_routes.by_route['/v1/analysis/optimise']).toBe(1);
+    expect(s.refused_routes.total).toBe(1);
+    expect(s.refused_routes.callers).toContain('kf:realcall|o:https://caller.test|ua:curl/8');
   });
 
-  it('the vacuous reserve is itself bounded', () => {
-    for (let i = 0; i < MAX_VACUOUS_ENTRIES + 100; i++) {
+  it('the withdrawn-route reserve is itself bounded', () => {
+    for (let i = 0; i < MAX_REFUSED_ENTRIES + 100; i++) {
       recordRouteCall('/v1/analysis/pareto', `kf:${String(i).padStart(8, '0')}|o:-|ua:-`);
     }
 
@@ -196,8 +196,8 @@ describe('bounded by construction', () => {
     expect(s.at_capacity).toBe(true);
     expect(s.overflow).toBe(100);
     // Total remains truthful even though distinct callers were capped.
-    expect(s.vacuous_analysis.total).toBe(MAX_VACUOUS_ENTRIES);
-    expect(s.plot_requests_total).toBe(MAX_VACUOUS_ENTRIES + 100);
+    expect(s.refused_routes.total).toBe(MAX_REFUSED_ENTRIES);
+    expect(s.plot_requests_total).toBe(MAX_REFUSED_ENTRIES + 100);
   });
 
   it('caps the vacuous-route caller sample and the top-routes list', () => {
@@ -207,7 +207,7 @@ describe('bounded by construction', () => {
     }
 
     const s = getRouteCallerSnapshot();
-    expect(s.vacuous_analysis.callers.length).toBeLessThanOrEqual(MAX_SAMPLE);
+    expect(s.refused_routes.callers.length).toBeLessThanOrEqual(MAX_SAMPLE);
     expect(s.top_routes.length).toBeLessThanOrEqual(MAX_TOP);
   });
 

@@ -1687,156 +1687,44 @@ paths:
 
   /v1/score:
     post:
-      summary: Score options with utilities
+      summary: Option scoring with utilities (WITHDRAWN)
       description: |
-        Rank options under uncertainty using utility functions.
-        Returns percentile-based utility scores and ranking.
-      operationId: scoreOptions
-      tags: [v1, inference]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [graph, utilities]
-              properties:
-                graph:
-                  type: object
-                  required: [nodes, edges]
-                  properties:
-                    nodes:
-                      type: array
-                      items:
-                        type: object
-                        required: [id]
-                        properties:
-                          id:
-                            type: string
-                          label:
-                            type: string
-                    edges:
-                      type: array
-                      items:
-                        type: object
-                        properties:
-                          from: { type: string }
-                          to: { type: string }
-                          label: { type: string }
-                          weight: { type: number }
-                seed:
-                  type: integer
-                  example: 4242
-                utilities:
-                  type: object
-                  required: [type, weights]
-                  properties:
-                    type:
-                      type: string
-                      enum: [linear]
-                    weights:
-                      type: object
-                      additionalProperties:
-                        type: number
-                      example: {"A": 1.0, "B": 0.5}
-                    risk:
-                      type: object
-                      properties:
-                        attitude:
-                          type: string
-                          enum: [averse, neutral, seeking]
-                          default: neutral
-            example:
-              graph:
-                nodes:
-                  - {id: "A", label: "Option A"}
-                  - {id: "B", label: "Option B"}
-                edges: []
-              seed: 4242
-              utilities:
-                type: "linear"
-                weights: {"A": 1.0, "B": 0.5}
-                risk: {attitude: "neutral"}
-      responses:
-        '200':
-          description: Scoring results
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  schema:
-                    type: string
-                    example: "score.v1"
-                  result:
-                    type: object
-                    properties:
-                      options:
-                        type: array
-                        items:
-                          type: object
-                          properties:
-                            node_id:
-                              type: string
-                            label:
-                              type: string
-                            utility:
-                              type: object
-                              properties:
-                                p10:
-                                  type: number
-                                p50:
-                                  type: number
-                                p90:
-                                  type: number
-                                expected:
-                                  type: number
-                      ranking:
-                        type: array
-                        items:
-                          type: string
-                  top_drivers:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        node_id: { type: string }
-                        contribution: { type: number }
-                        sign: { type: string, enum: ['+','-'] }
-                  meta:
-                    type: object
-              example:
-                schema: "score.v1"
-                result:
-                  options:
-                    - node_id: "A"
-                      label: "Option A"
-                      utility: {p10: 0.524, p50: 0.924, p90: 1.324, expected: 0.924}
-                  ranking: ["A", "B"]
-                top_drivers:
-                  - {node_id: "A", contribution: 100, sign: "+"}
-                meta: {seed: 4242, inference_mode: "model_based"}
-        '400':
-          description: Bad input
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: object
-                    properties:
-                      type:
-                        type: string
-                      message:
-                        type: string
-              examples:
-                invalid_weights:
-                  value:
-                    schema: "error.v1"
-                    code: "BAD_INPUT"
-                    message: "Invalid node_ids in weights: Z"
+        **Withdrawn 2026-07-26. This endpoint returns 501 and computes nothing.**
 
+        Ruled fabricating by the PLoT numerics science review and re-verified by
+        probe before withdrawal. Every published utility was a closed-form
+        function of the seed and the node's ARRAY INDEX
+        (`weight * (seed + idx * 137) / 10000`, plus the constants 0.1/0.5/0.9),
+        so the percentile band was a constant 0.8 wide for every input and the
+        ranking depended on array position as much as on weight. `graph.edges`
+        was never read, and the response stamped `inference_mode: 'model_based'`
+        on output no inference produced.
+
+        Probe: two options with IDENTICAL weights, swapped in the nodes array and
+        nothing else changed, flipped the ranking from ["optB","optA"] to
+        ["optA","optB"].
+
+        The path stays mounted rather than returning 404 so caller telemetry can
+        establish who was relying on it. Per-route caller counts are published on
+        `/health` and `/v1/health` under `route_callers`.
+      operationId: score
+      tags: [v1]
+      deprecated: true
+      responses:
+        '501':
+          description: Capability withdrawn — no scoring is performed for any input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                withdrawn:
+                  value:
+                    schema: error.v1
+                    code: ANALYSIS_UNAVAILABLE
+                    message: "/v1/score has been withdrawn: route published seed-derived numerics not computed from the request graph; see numerics science review 2026-07-26"
+                    reason: route published seed-derived numerics not computed from the request graph; see numerics science review 2026-07-26
+                    retryable: false
   /v1/intervene:
     post:
       summary: Causal interventions (do-operator)
@@ -2188,137 +2076,42 @@ paths:
 
   /v1/sensitivity:
     post:
-      summary: Sensitivity & Robustness Analysis
+      summary: Sensitivity & Robustness Analysis (WITHDRAWN)
       description: |
-        One-at-a-time (OAT) sensitivity analysis with tornado charts.
-        Perturbs each target node by ±delta and measures effect on outcome.
+        **Withdrawn 2026-07-26. This endpoint returns 501 and computes nothing.**
+
+        Ruled fabricating by the PLoT numerics science review and re-verified by
+        probe before withdrawal. The "tornado" was a closed-form function of the
+        seed and each node's own `value`; `graph.edges` was never read, so the
+        causal structure played no part. It also reported `evaluations: 1 + 2 *
+        targets.length`, asserting model evaluations that never occurred, and
+        stamped `inference_mode: 'model_based'` on output no inference produced.
+
+        Probe, positive control first: edge weights x1000 -> byte-identical
+        response; all edges deleted -> byte-identical response; a node value
+        change -> response moves.
+
+        The path stays mounted rather than returning 404 so caller telemetry can
+        establish who was relying on it. Per-route caller counts are published on
+        `/health` and `/v1/health` under `route_callers`.
       operationId: sensitivity
       tags: [v1, analysis]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [graph]
-              properties:
-                graph:
-                  $ref: '#/components/schemas/graph'
-                seed:
-                  type: integer
-                  example: 4242
-                method:
-                  type: string
-                  enum: [oat]
-                  default: oat
-                  description: Sensitivity method (one-at-a-time)
-                delta:
-                  type: number
-                  minimum: 0
-                  maximum: 1
-                  exclusiveMinimum: true
-                  default: 0.1
-                  description: Proportional perturbation for OAT
-                targets:
-                  type: array
-                  items:
-                    type: string
-                  description: Optional subset of node_ids to analyze (default all)
-            example:
-              graph:
-                nodes:
-                  - {id: "A", label: "Node A", value: 0.5}
-                  - {id: "B", label: "Node B", value: 0.3}
-                edges: []
-              seed: 4242
-              method: "oat"
-              delta: 0.1
-              targets: ["A", "B"]
+      deprecated: true
       responses:
-        '200':
-          description: Sensitivity analysis results
+        '501':
+          description: Capability withdrawn — no analysis is performed for any input
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  schema:
-                    type: string
-                    example: "sensitivity.v1"
-                  summary:
-                    type: object
-                    properties:
-                      baseline:
-                        type: object
-                        properties:
-                          p50:
-                            type: number
-                  drivers:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        node_id:
-                          type: string
-                        tornado:
-                          type: object
-                          properties:
-                            low:
-                              type: number
-                              description: Effect when node decreased by delta
-                            high:
-                              type: number
-                              description: Effect when node increased by delta
-                        rank:
-                          type: integer
-                          description: Rank by total swing (1 = highest)
-                  meta:
-                    type: object
-                    properties:
-                      seed:
-                        type: integer
-                      method:
-                        type: string
-                      evaluations:
-                        type: integer
-                        description: Number of model evaluations (1 + 2*N)
-              example:
-                schema: "sensitivity.v1"
-                summary:
-                  baseline: {p50: 0.624}
-                drivers:
-                  - {node_id: "A", tornado: {low: -0.06, high: 0.08}, rank: 1}
-                  - {node_id: "B", tornado: {low: -0.03, high: 0.04}, rank: 2}
-                meta:
-                  seed: 4242
-                  method: "oat"
-                  evaluations: 5
-        '400':
-          description: Bad input
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: object
-                    properties:
-                      type:
-                        type: string
-                      message:
-                        type: string
+                $ref: '#/components/schemas/errorV1'
               examples:
-                invalid_delta:
+                withdrawn:
                   value:
-                    schema: "error.v1"
-                    code: "BAD_INPUT"
-                    message: "delta must be in (0, 1]"
-                invalid_targets:
-                  value:
-                    schema: "error.v1"
-                    code: "BAD_INPUT"
-                    message: "Invalid target node_ids: Z"
-
+                    schema: error.v1
+                    code: ANALYSIS_UNAVAILABLE
+                    message: "/v1/sensitivity has been withdrawn: route published seed-derived numerics not computed from the request graph; see numerics science review 2026-07-26"
+                    reason: route published seed-derived numerics not computed from the request graph; see numerics science review 2026-07-26
+                    retryable: false
   /v1/run_batch:
     post:
       summary: Batch Runs

@@ -2,11 +2,20 @@
  * The withdrawn analysis routes must answer a typed 501 refusal — and must be
  * instrumented while they do it.
  *
+ * NINE routes, two findings, one disposition.
+ *
  * Seven `/v1/analysis/*` routes were ruled VACUOUS by the authenticity matrix
  * of 2026-07-26: each scored every option against the same shared graph with
  * only a loop-index-derived seed varying, so no option could ever be
  * distinguished from another. They now refuse instead of returning a
  * confident, option-blind answer.
+ *
+ * `/v1/sensitivity` and `/v1/score` were ruled FABRICATING by the numerics
+ * science review of the same date, and independently re-verified here before
+ * withdrawal. Those two are the worse case: a vacuous route returns nothing
+ * useful, whereas these returned plausible numbers stamped
+ * `inference_mode: 'model_based'` — a provenance claim for an inference that
+ * never ran, which a caller has no way to detect.
  *
  * Assertions here are on the FULL HTTP ENVELOPE — status, headers and the
  * complete error.v1 body — not on handler internals. That is the contract an
@@ -27,8 +36,8 @@ import {
   resetRouteCallerTelemetry,
 } from '../src/observability/routeCallerTelemetry.js';
 
-/** Every withdrawn route, with a request that was well-formed for it. */
-const WITHDRAWN: Array<{ route: string; payload: Record<string, unknown> }> = [
+/** The seven VACUOUS routes, each with a request that was well-formed for it. */
+const VACUOUS: Array<{ route: string; payload: Record<string, unknown> }> = [
   {
     route: '/v1/analysis/dominance',
     payload: {
@@ -141,8 +150,54 @@ const WITHDRAWN: Array<{ route: string; payload: Record<string, unknown> }> = [
   },
 ];
 
-const EXPECTED_REASON =
+/**
+ * The two FABRICATING routes (numerics science review 2026-07-26). Different
+ * finding, same disposition: /v1/sensitivity's tornado was a closed-form
+ * function of the seed and each node's own value with `graph.edges` never read,
+ * and /v1/score's utilities were a function of the seed and the node's ARRAY
+ * INDEX with a constant 0.8-wide band. Both stamped
+ * `inference_mode: 'model_based'` on output no inference produced.
+ */
+const FABRICATING: Array<{ route: string; payload: Record<string, unknown> }> = [
+  {
+    route: '/v1/sensitivity',
+    payload: {
+      seed: 4242,
+      graph: {
+        nodes: [
+          { id: 'driver', label: 'D', value: 0.4 },
+          { id: 'outcome', label: 'O', value: 0.6 },
+        ],
+        edges: [{ from: 'driver', to: 'outcome', weight: 0.5, belief: 0.9 }],
+      },
+    },
+  },
+  {
+    route: '/v1/score',
+    payload: {
+      seed: 4242,
+      graph: {
+        nodes: [
+          { id: 'optA', label: 'A', kind: 'option' },
+          { id: 'optB', label: 'B', kind: 'option' },
+        ],
+        edges: [],
+      },
+      utilities: { type: 'linear', weights: { optA: 0.5, optB: 0.5 } },
+    },
+  },
+];
+
+const VACUOUS_REASON =
   'route computed no option-discriminating output; see authenticity matrix 2026-07-26';
+const FABRICATING_REASON =
+  'route published seed-derived numerics not computed from the request graph; see numerics science review 2026-07-26';
+
+/** Both groups, for the cross-cutting checks. */
+const WITHDRAWN = [
+  ...VACUOUS.map((c) => ({ ...c, reason: VACUOUS_REASON })),
+  ...FABRICATING.map((c) => ({ ...c, reason: FABRICATING_REASON })),
+];
 
 let app: FastifyInstance;
 
@@ -170,7 +225,7 @@ beforeEach(() => {
   resetRouteCallerTelemetry();
 });
 
-describe.each(WITHDRAWN)('$route — withdrawn', ({ route, payload }) => {
+describe.each(WITHDRAWN)('$route — withdrawn', ({ route, payload, reason }) => {
   it('returns 501 with a JSON content type for a WELL-FORMED request', async () => {
     const res = await app.inject({ method: 'POST', url: route, payload });
 
@@ -184,7 +239,7 @@ describe.each(WITHDRAWN)('$route — withdrawn', ({ route, payload }) => {
 
     expect(body.schema).toBe('error.v1');
     expect(body.code).toBe('ANALYSIS_UNAVAILABLE');
-    expect(body.reason).toBe(EXPECTED_REASON);
+    expect(body.reason).toBe(reason);
     expect(body.retryable).toBe(false);
     expect(body.source).toBe('plot');
     expect(typeof body.request_id).toBe('string');
@@ -206,6 +261,10 @@ describe.each(WITHDRAWN)('$route — withdrawn', ({ route, payload }) => {
       'provenance',
       'plot_fallback',
       'p50',
+      'tornado',
+      'evaluations',
+      'inference_mode',
+      'utility',
     ]) {
       expect(raw).not.toContain(leak);
     }
@@ -227,9 +286,9 @@ describe.each(WITHDRAWN)('$route — withdrawn', ({ route, payload }) => {
     });
 
     const s = getRouteCallerSnapshot();
-    expect(s.vacuous_analysis.by_route[route]).toBe(1);
+    expect(s.refused_routes.by_route[route]).toBe(1);
     expect(s.refused_total).toBe(1);
-    expect(s.vacuous_analysis.callers.join(' ')).toContain('o:https://caller.test');
+    expect(s.refused_routes.callers.join(' ')).toContain('o:https://caller.test');
   });
 });
 
@@ -243,7 +302,7 @@ describe('cross-cutting', () => {
     expect(res.json().code).not.toBe('ANALYSIS_UNAVAILABLE');
   });
 
-  it('all seven withdrawn routes are still MOUNTED — a 404 would destroy the evidence', async () => {
+  it('all nine withdrawn routes are still MOUNTED — a 404 would destroy the evidence', async () => {
     for (const { route, payload } of WITHDRAWN) {
       const res = await app.inject({ method: 'POST', url: route, payload });
       expect(res.statusCode, `${route} must be 501, not 404`).toBe(501);
@@ -256,7 +315,7 @@ describe('cross-cutting', () => {
       await app.inject({ method: 'POST', url: route, payload });
     }
     // The pre-change thresholds route alone ran 2 sweeps x 2 options of Monte
-    // Carlo. Seven refusals must be trivially fast.
+    // Carlo. Nine refusals must be trivially fast.
     expect(Date.now() - t0).toBeLessThan(2000);
   });
 });
