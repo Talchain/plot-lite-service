@@ -1490,7 +1490,32 @@ export async function createServer(opts: ServerOpts = {}) {
       req.log.warn({ evt: 'oversize', id: req.id, route: sanitizedRoute, bytes, reason: 'body_too_large' });
       return replyWithAppError(reply, { type: 'BAD_INPUT', statusCode: 413, message: 'Request entity too large' });
     }
-    // Fallback INTERNAL
+    // Fallback INTERNAL.
+    //
+    // This branch used to reply "Something went wrong" while logging NOTHING.
+    // Fastify does not auto-log once a custom error handler is installed, so an
+    // unhandled throw left no trace anywhere: a lane debugging live 500s on
+    // /v1/analysis/sequential and /v1/analysis/policy-tree had no log line to
+    // find and could not identify the failing line. An unexplainable 5xx is a
+    // defect in its own right, independent of whatever caused it.
+    //
+    // What is logged: the error's identity and stack only — never the request
+    // body, headers or query. Every field still passes through THE logger
+    // boundary (src/logging/log-boundary.ts), which digests the decision tokens
+    // registered from this request's body at preValidation, so user content
+    // interpolated into an error message is scrubbed there rather than here.
+    // `id` matches the `request_id` returned to the caller in the 500 body.
+    req.log.error({
+      evt: 'unhandled_error',
+      id: req.id,
+      route,
+      err_name: (err as any)?.name,
+      err_code: code || undefined,
+      err_message: emsgRaw,
+      status_code: (err as any)?.statusCode,
+      stack: (err as any)?.stack,
+    });
+
     const { msg } = await import('./lib/error-messages.js');
     return replyWithAppError(reply, { type: 'INTERNAL', statusCode: 500, message: msg('INTERNAL_UNEXPECTED') });
   });

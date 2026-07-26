@@ -252,6 +252,26 @@ export async function registerPolicyTreeRoute(app: FastifyInstance) {
         });
       }
 
+      // Return early with validation errors if severe.
+      //
+      // `validation` was previously computed and then discarded here, so a
+      // structurally invalid graph produced a silently degraded tree with no
+      // signal to the caller — while sequential-validation.ts's own contract
+      // table documented this route as "Full validation, blocks on error →
+      // 400 BAD_INPUT". This makes the code match its documented contract.
+      // Warning-severity issues remain non-blocking.
+      if (!validation.valid) {
+        const errors = validation.issues.filter((i) => i.severity === 'error');
+        if (errors.length > 0) {
+          return replyWithAppError(reply, {
+            type: 'BAD_INPUT',
+            statusCode: 400,
+            message: `Sequential validation failed: ${errors[0].message}`,
+            fields: { code: errors[0].code },
+          });
+        }
+      }
+
       // Detect outcome node
       const seed = body.seed ?? 4242;
       let outcomeNode = body.outcome_node ?? '';
