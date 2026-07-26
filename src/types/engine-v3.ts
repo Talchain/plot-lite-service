@@ -2854,6 +2854,24 @@ export interface EvidenceCaptureV1 {
    * @see src/routes/v2/enrichment-egress-guard.ts
    */
   enrichment_contract_ok?: boolean;
+  /**
+   * Which arms of the egress guard actually ran for THIS response
+   * (ROADMAP 1.210).
+   *
+   * The guard has two arms, sampled independently because they fail
+   * differently. The stability-band sweep — per-response ISL DATA validation —
+   * runs on EVERY response. The full-envelope schema parse is sampled 1-in-N in
+   * production, because its faults are deterministic properties of the code.
+   *
+   * True  = both arms ran; `enrichment_contract_ok` covers the whole envelope.
+   * False = only the band sweep ran; `enrichment_contract_ok: true` then means
+   *         "no malformed stability band", NOT "the envelope parsed clean".
+   *
+   * Present whenever the guard ran at all, so a reader never has to guess which
+   * claim an `ok: true` is making.
+   * @see src/routes/v2/enrichment-egress-guard.ts
+   */
+  enrichment_contract_schema_parsed?: boolean;
 }
 
 /**

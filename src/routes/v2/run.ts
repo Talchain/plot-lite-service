@@ -3640,14 +3640,32 @@ function buildResponse(
   // The appended warning `{code, message, severity}` conforms to the
   // envelope's inference_warnings element schema by construction, so the
   // disclosure can never itself create a contract violation.
-  // A3 remediation item 8: sample the guard (1-in-N in production, every
-  // request otherwise). A skipped request leaves enrichment_contract_ok ABSENT
-  // (= unassessed — the same honest non-claim as the guard-error path below),
-  // never a fabricated `true`. A deterministic envelope break still surfaces
-  // within N, and CEE's shadow parse remains the independent backstop.
+  // A3 remediation item 8 / ROADMAP 1.210: sampling is PER-ARM, because the
+  // guard's two arms fail in different ways.
+  //
+  // The schema parse is sampled (1-in-N in production, every request
+  // otherwise) — its faults are deterministic properties of the code, so a
+  // break still surfaces within N and CEE's shadow parse remains the
+  // independent backstop.
+  //
+  // The stability-band sweep runs on EVERY response and is no longer gated by
+  // the sampler. It validates per-response ISL DATA, so a skipped response is
+  // not a detection deferred by a few requests — it is a malformed band shipped
+  // undetected. At N=16 roughly 15 in 16 got through. It costs ~0.0015-0.025 ms,
+  // measured; see the sampling note in enrichment-egress-guard.ts.
+  //
+  // The guard therefore now runs on every request, so enrichment_contract_ok is
+  // always present rather than ABSENT on skipped requests. When only the band
+  // arm ran, `true` means "no malformed band" and NOT "the full envelope was
+  // parsed" — the narrower claim is the honest one, and `enrichment_contract_
+  // schema_parsed` records which arms actually ran so a reader can tell.
   try {
-    if (shouldAssessEnrichmentContract()) {
-      const enrichmentAssessment = assessEnrichmentContract(response);
+    {
+      const runSchemaParse = shouldAssessEnrichmentContract();
+      const enrichmentAssessment = assessEnrichmentContract(response, { runSchemaParse });
+      if (response._meta?.evidence) {
+        response._meta.evidence.enrichment_contract_schema_parsed = runSchemaParse;
+      }
       if (response._meta?.evidence) {
         response._meta.evidence.enrichment_contract_ok = enrichmentAssessment.ok;
       }

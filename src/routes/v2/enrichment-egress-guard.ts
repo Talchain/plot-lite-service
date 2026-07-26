@@ -50,15 +50,53 @@ export const ENRICHMENT_CONTRACT_MAX_REPORTED_ISSUES = 10;
 // ----------------------------------------------------------------------------
 
 /**
- * Production default sample rate: assess 1 in N outgoing bodies.
+ * Production sample rate for the SCHEMA-PARSE arm only: parse 1 in N bodies.
  *
- * The full-body `AnalysisEnrichmentSchema.safeParse` on EVERY /v2/run duplicates
- * CEE's shadow parse of the same envelope. A real contract regression is
- * DETERMINISTIC — it breaks the same field on EVERY response — so a 1-in-N
- * sample still surfaces it within N requests, while cutting the per-request
- * schema-parse cost by ~(N-1)/N. Outside production the guard runs on EVERY
- * request (staging + tests want the immediate, complete signal). Ops override:
- * `ENRICHMENT_GUARD_SAMPLE_N` (integer ≥ 1; 1 = every request).
+ * SCOPE MATTERS HERE - read `assessEnrichmentContract` before changing this.
+ * The guard has two arms with different detection semantics, and only one of
+ * them may be sampled:
+ *
+ *   SCHEMA-PARSE arm (sampled, this constant). The full-body
+ *   `AnalysisEnrichmentSchema.safeParse` duplicates CEE's shadow parse. Its
+ *   faults ARE deterministic: a type or enum corruption on a typed key is a
+ *   property of the CODE, so it breaks every response and a 1-in-N sample
+ *   surfaces it within N requests while cutting ~(N-1)/N of the cost.
+ *
+ *   STABILITY-BAND arm (NEVER sampled, see assessStabilityBands). It validates
+ *   PER-RESPONSE ISL PAYLOAD DATA - ordered finite endpoints, non-negative
+ *   width, counts consistent with the per-seed list. A malformed band arrives
+ *   in the data for ONE request. It is not a property of the code and it does
+ *   not repeat, so sampling does not delay detection, it DESTROYS it: at
+ *   N=16 roughly 15 of every 16 malformed bands shipped to CEE stamped
+ *   `enrichment_contract_ok: true`.
+ *
+ * That distinction was missed originally because the arms landed in the wrong
+ * order. The sampling rationale was written in b9f825a (#230) and said, of the
+ * guard as it then was, "a real contract regression is DETERMINISTIC". True at
+ * the time. The data-dependent band arm was added later the same day in
+ * 9700d8b (#232) and inherited a sampling policy that had been justified
+ * against a check it is not. (`git merge-base --is-ancestor b9f825a 9700d8b`
+ * confirms the ordering.)
+ *
+ * The split is cheap because the arm that must NOT be sampled is the cheap one.
+ * Measured at this tip, 2000 iterations on a realistic body:
+ *
+ *   edge_e_values   band arm     schema arm   band share of total
+ *   10              0.0015 ms    0.2100 ms    0.7%
+ *   50              0.0065 ms    0.8652 ms    0.7%
+ *   200             0.0250 ms    3.1816 ms    0.8%
+ *
+ * So running the band sweep on every response costs microseconds, while the
+ * schema parse - the part actually worth sampling - keeps its saving. An
+ * earlier always-on figure of 0.047 ms mean (#225) does NOT reproduce here:
+ * the full guard measures 0.21-3.21 ms and scales with edge_e_values length.
+ * That figure was most likely taken on a minimal body, which is why the numbers
+ * above were re-measured rather than assumed.
+ *
+ * Outside production BOTH arms run on every request (staging + tests want the
+ * immediate, complete signal). Ops override: `ENRICHMENT_GUARD_SAMPLE_N`
+ * (integer >= 1; 1 = every request). Note the override governs the SCHEMA arm
+ * only - no value of it can switch the band sweep off.
  */
 export const DEFAULT_ENRICHMENT_GUARD_SAMPLE_N_PROD = 16;
 
@@ -204,13 +242,29 @@ export function assessStabilityBands(body: unknown): EnrichmentContractIssue[] {
  * site (fail-open) so a schema-library failure can never take down response
  * delivery.
  */
-export function assessEnrichmentContract(body: unknown): EnrichmentContractAssessment {
-  const result = AnalysisEnrichmentSchema.safeParse(body);
-  const schemaIssues: EnrichmentContractIssue[] = result.success
-    ? []
-    : result.error.issues.map((issue) => ({ path: issue.path.join('.'), code: issue.code }));
+export function assessEnrichmentContract(
+  body: unknown,
+  opts: { runSchemaParse?: boolean } = {},
+): EnrichmentContractAssessment {
+  // The schema parse is the SAMPLED arm; the caller passes the sampler's
+  // verdict. Defaults to true so every existing caller keeps running both arms.
+  const runSchemaParse = opts.runSchemaParse ?? true;
+
+  const schemaIssues: EnrichmentContractIssue[] = [];
+  if (runSchemaParse) {
+    const result = AnalysisEnrichmentSchema.safeParse(body);
+    if (!result.success) {
+      for (const issue of result.error.issues) {
+        schemaIssues.push({ path: issue.path.join('.'), code: issue.code });
+      }
+    }
+  }
   // F12: the passthrough envelope cannot see the nested stability band — add the
   // PLoT-local refinement so a malformed band is never stamped valid.
+  //
+  // UNCONDITIONAL, and it must stay that way: this arm validates per-response
+  // ISL data, so a skipped response is a fault that ships undetected rather
+  // than one caught a few requests later. See the sampling note above.
   const stabilityIssues = assessStabilityBands(body);
   const all = [...schemaIssues, ...stabilityIssues];
   if (all.length === 0) {
