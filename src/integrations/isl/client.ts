@@ -11,6 +11,7 @@
 import { ISLHttpError, ISLTimeoutError, ISLNetworkError, isRetryableError, type ISLError422 } from './errors.js';
 import type { ISLHealthResponse } from './types/isl-types.js';
 import { computeOlumiHash } from '../../util/canonical.js';
+import { recordIslSuccess, recordIslFailure, shouldAllowIslCall } from '../isl-circuit-breaker.js';
 import { recordDownstreamCall, sanitizePayloadForDebug, computePayloadDigest } from '../../util/downstream-tracker.js';
 import { ISL_TIMEOUT_MS, ISL_HEALTH_CHECK_TIMEOUT_MS, resolveIslMaxRetries, islRetryBackoffMs } from '../../config/timeouts.js';
 
@@ -103,6 +104,30 @@ export class ISLClient {
       endpoint,
       request_id: requestId,
     });
+
+    // ROADMAP 1.209 — the READ half, DARK-SHIPPED.
+    //
+    // Recording (below) is always on, so the breaker's state becomes real and
+    // observable on /health immediately. Acting on it is gated behind
+    // ISL_CB_ENFORCE=1 and defaults OFF, because skipping ISL calls is a
+    // genuine behaviour change and this breaker has never actually run: its
+    // thresholds were tuned against nothing. Flip the flag once /health shows
+    // what it would have done on real traffic.
+    //
+    // Until then this is honest in both directions — the breaker can trip, and
+    // /health reports what it observes rather than an unearned 'closed'.
+    if (process.env.ISL_CB_ENFORCE === '1') {
+      const gate = shouldAllowIslCall();
+      if (!gate.allowed) {
+        this.log('warn', {
+          event: 'isl_circuit_breaker_open',
+          endpoint,
+          reason: gate.reason,
+          request_id: requestId,
+        });
+        throw new ISLNetworkError(endpoint, new Error(gate.reason ?? 'ISL circuit breaker open'));
+      }
+    }
 
     let lastError: Error | null = null;
 
@@ -235,6 +260,11 @@ export class ISLClient {
           responseDigest: computePayloadDigest(responseText, responseData),
         });
 
+        // ROADMAP 1.209: the ISL circuit breaker had ZERO writers until now, so
+        // it could never trip while /health was free to imply it was protecting
+        // something. This is the success half.
+        recordIslSuccess();
+
         return { data: responseData, islEchoedRequestId };
       } catch (error) {
         // P1.1: Wrap errors in appropriate ISL error types
@@ -272,7 +302,20 @@ export class ISLClient {
           request_id: requestId,
         });
 
+        // ROADMAP 1.209: the failure half, recorded ONCE per request at the
+        // terminal attempt — not per retry, which would multiply one outage
+        // into `maxRetries` failures and trip a 3-strike breaker on a single
+        // request.
+        //
+        // ONLY availability-class failures count. `retryable` is 5xx/429 for
+        // HTTP (isl/errors.ts:80-82) plus timeouts and network errors. A 4xx is
+        // this caller's fault, not the service being down, and must never open
+        // the breaker for everyone else — which also means ISL's current 404
+        // storm on /api/v1/analysis/* cannot spuriously open it.
         if (!retryable || isLastAttempt) {
+          if (retryable) {
+            recordIslFailure();
+          }
           // Record failed downstream call on final attempt (only for non-HTTP errors, HTTP errors already recorded)
           if (!(wrappedError instanceof ISLHttpError)) {
             recordDownstreamCall({

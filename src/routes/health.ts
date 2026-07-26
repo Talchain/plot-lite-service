@@ -12,6 +12,7 @@ import {
   replaySnapshot,
 } from '../metrics.js';
 import { getCeeCircuitBreakerStats } from '../cee/circuit-breaker.js';
+import { getIslCircuitBreakerStats } from '../integrations/isl-circuit-breaker.js';
 import { getRouteCallerSnapshot } from '../observability/routeCallerTelemetry.js';
 import { WEIGHT_SCHEMAS, DEFAULT_WEIGHT_SCHEMA, type WeightSchemaVersion } from '../engine/weight-schema.js';
 import { getBeliefSpreadCapability, CURRENT_BELIEF_SPREAD_VERSION } from '../engine/belief-spread.js';
@@ -60,6 +61,14 @@ export async function registerHealthRoutes(app: FastifyInstance, opts: HealthRou
       },
       rate_limit: rateLimitState(),
       cee_circuit_breaker: getCeeCircuitBreakerStats(),
+      // ROADMAP 1.209: the ISL breaker's state was surfaced NOWHERE, while the
+      // CEE breaker beside it was published — so a reader would reasonably infer
+      // ISL simply had no breaker, rather than a dead one. Now visible, with
+      // `enforcing` stating plainly whether it is allowed to act.
+      isl_circuit_breaker: {
+        ...getIslCircuitBreakerStats(),
+        enforcing: process.env.ISL_CB_ENFORCE === '1',
+      },
       test_routes_enabled: process.env.NODE_ENV === 'production' ? false : (process.env.TEST_ROUTES === '1'),
       replay: replaySnapshot(),
       // D-PLoT evidence (arch step 1): per-route × caller-class request counts,
