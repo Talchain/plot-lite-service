@@ -11,6 +11,7 @@
 import type { Graph } from '../trust/types.js';
 import type { InferenceEngine, InferenceConfig, InferenceResult } from './types.js';
 import { runSCMLite } from '../scm-lite/adapter.js';
+import { CapabilityUnavailableError } from './capability.js';
 import { applyPriorsToGraph } from './apply-priors.js';
 import { applyEdgeFunction } from '../engine/edge-functions.js';
 import { MAX_NODES, MAX_EDGES } from '../constants/limits.js';
@@ -70,6 +71,30 @@ export class ModelBasedInference implements InferenceEngine {
       };
     }
     
+    // FAIL CLOSED: `interventions` are honoured ONLY by the SCM-Lite branch
+    // above. This fallback has no do-operator — `simulateOutcome` reads the
+    // graph's node values and edge weights and nothing else, so an
+    // intervention supplied here would be dropped on the floor and the caller
+    // would still receive a number with the shape, units and plausibility of
+    // an interventional estimate.
+    //
+    // That number is the dangerous case: it is not wrong-looking, it is
+    // indistinguishable at the caller's boundary from `P(Y | do(X))`. Measured
+    // on the pre-guard tree, `do(A := 99)` against a node whose value is 0.4
+    // returned 98.4 — byte-identical to the same request with no interventions
+    // at all. The do() was silently a no-op, and nothing in the response said so.
+    //
+    // So: refuse. A typed refusal the caller must handle is strictly safer than
+    // a plausible number it cannot audit. Requests carrying NO interventions
+    // are untouched and keep computing exactly as before — this guard is
+    // scoped to the case where honouring the request is impossible.
+    if (interventions && interventions.length > 0) {
+      throw new CapabilityUnavailableError(
+        'interventional_inference',
+        'interventions require SCM_LITE_ENABLE=1; the fallback simulator cannot apply the do-operator, so no interventional estimate was computed'
+      );
+    }
+
     // Fallback: simple simulation with priors support
     // In production, this should log a warning (handled by caller)
     const outcome = this.simulateOutcome(workingGraph, outcome_node, baseline_value);

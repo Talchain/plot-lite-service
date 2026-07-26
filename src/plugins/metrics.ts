@@ -15,6 +15,7 @@ import { renderValidationMetrics } from '../observability/validationMetrics.js';
 import { renderPrincipalSecretFallback } from '../observability/principalSecretMetrics.js';
 import { renderStreamMetrics } from '../observability/streamMetrics.js';
 import { renderIdempotencyMetrics } from '../observability/idempotencyMetrics.js';
+import { renderRouteCallerMetrics } from '../observability/routeCallerTelemetry.js';
 
 export async function registerPrometheusMetrics(app: FastifyInstance) {
   if (process.env.PROMETHEUS_ENABLE !== '1') {
@@ -76,6 +77,14 @@ export async function registerPrometheusMetrics(app: FastifyInstance) {
     const secretFallback = renderPrincipalSecretFallback();
     if (secretFallback) {
       metrics.push(secretFallback);
+    }
+
+    // D-PLoT evidence (arch step 1): full route × caller-class breakdown.
+    // /health carries only a fixed-size summary because it is contract-bound
+    // to 4 KiB; this is the unabridged view, for operators who have Prometheus.
+    const routeCallers = renderRouteCallerMetrics();
+    if (routeCallers) {
+      metrics.push(routeCallers);
     }
     
     // P1: Stream metrics (if STREAM_PARITY_ENABLE=1)

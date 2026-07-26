@@ -170,14 +170,35 @@ export function normalizeFragileEdges(
   // LAST, and never ahead of a measured edge. Ties and missing-vs-missing keep
   // their arrival order (stable sort, Node ≥ 11 guarantees stability), so this
   // is deterministic.
-  result.edges.sort((a, b) => {
+  sortByFragility(result.edges);
+  return result;
+}
+
+/**
+ * Sort fragile edges into FRAGILITY ORDER, in place, and return the array.
+ *
+ * THE ONE definition of that order. It was previously inlined inside
+ * `normalizeFragileEdges`, which is why the two CEE-facing builders
+ * (`buildRobustnessDataForCee`, `extractFragileEdges`) could forward ISL's raw
+ * order without anything noticing: the fix lived where they could not reach
+ * it. Exported so every outbound path shares one comparator rather than three
+ * copies that can drift apart.
+ *
+ * Descending by `switch_probability`. Entries with none — the legacy STRING
+ * format deliberately omits it rather than fabricating 0 — sort LAST and never
+ * ahead of a measured edge. Ties, and missing-vs-missing, keep arrival order
+ * (stable sort, guaranteed for Node >= 11), so the result is deterministic.
+ */
+export function sortByFragility<T extends { switch_probability?: number | null }>(
+  edges: T[]
+): T[] {
+  return edges.sort((a, b) => {
     const pa = typeof a.switch_probability === 'number' && Number.isFinite(a.switch_probability)
       ? a.switch_probability : -Infinity;
     const pb = typeof b.switch_probability === 'number' && Number.isFinite(b.switch_probability)
       ? b.switch_probability : -Infinity;
     return pb - pa;
   });
-  return result;
 }
 
 /**

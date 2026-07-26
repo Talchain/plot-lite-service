@@ -12,6 +12,7 @@ import {
   replaySnapshot,
 } from '../metrics.js';
 import { getCeeCircuitBreakerStats } from '../cee/circuit-breaker.js';
+import { getRouteCallerSnapshot } from '../observability/routeCallerTelemetry.js';
 import { WEIGHT_SCHEMAS, DEFAULT_WEIGHT_SCHEMA, type WeightSchemaVersion } from '../engine/weight-schema.js';
 import { getBeliefSpreadCapability, CURRENT_BELIEF_SPREAD_VERSION } from '../engine/belief-spread.js';
 
@@ -61,6 +62,12 @@ export async function registerHealthRoutes(app: FastifyInstance, opts: HealthRou
       cee_circuit_breaker: getCeeCircuitBreakerStats(),
       test_routes_enabled: process.env.NODE_ENV === 'production' ? false : (process.env.TEST_ROUTES === '1'),
       replay: replaySnapshot(),
+      // D-PLoT evidence (arch step 1): per-route × caller-class request counts,
+      // so a "zero calls in N days" claim can be READ from outside the process
+      // instead of asserted. Fixed-size by construction — see
+      // src/observability/routeCallerTelemetry.ts; the /health 4 KiB budget
+      // enforced below must never be what decides whether this is present.
+      route_callers: getRouteCallerSnapshot(),
       // Dev-only documentation of defaults for CI drift checks (add-only)
       ...(process.env.NODE_ENV === 'production' ? {} : {
         flags_doc: {
@@ -78,6 +85,10 @@ export async function registerHealthRoutes(app: FastifyInstance, opts: HealthRou
       p95_ms: p95Ms(),
       test_routes_enabled: process.env.NODE_ENV === 'production' ? false : Boolean(opts.enableTestRoutes || process.env.TEST_ROUTES === '1'),
       replay: replaySnapshot(),
+      // Kept in the degraded payload too: this is the D-PLoT removal evidence,
+      // and silently dropping it under budget pressure would turn "no calls
+      // recorded" into "no counter present" without anyone noticing.
+      route_callers: getRouteCallerSnapshot(),
     };
     return minimal;
   });

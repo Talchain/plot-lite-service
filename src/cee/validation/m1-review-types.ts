@@ -232,7 +232,15 @@ export interface FragileEdgeData {
   edge_id: string;
   from: string;
   to: string;
-  switch_probability: number;
+  /**
+   * OPTIONAL: absent when ISL did not measure this edge.
+   *
+   * Previously required, which forced `extractFragileEdges` to default a
+   * missing value to 0 — asserting "this edge will never flip the decision"
+   * where the truth was "unknown". Optional so that absence is representable
+   * and never has to be fabricated into a claim.
+   */
+  switch_probability?: number;
   marginal_switch_probability?: number;
 }
 
