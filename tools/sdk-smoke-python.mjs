@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * sdk-smoke:python.mjs
+ * sdk-smoke-python.mjs
  * - Starts server
  * - Runs tools/sdk-smoke.py to verify run+stream behavior
  * - One GATES line, <=15s
