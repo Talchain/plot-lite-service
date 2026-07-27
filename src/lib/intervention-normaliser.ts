@@ -365,11 +365,50 @@ export function normaliseValue(value: number, range: NormalisationRange): { norm
  *
  * Formula: original = normalised × (max - min) + min
  *
- * @param normalised Normalised value in [0, 1]
+ * ABSENCE IN ⇒ ABSENCE OUT (ROADMAP 1.277). The parameter is `unknown` and the
+ * return is `number | undefined` **on purpose**. This is the fabricate-on-absence
+ * class closed at the PRIMITIVE rather than at ~15 call sites' vigilance.
+ *
+ * The signature used to be `(normalised: number, …): number`, and that `number`
+ * was a compile-time fiction over `as`-cast wire data: PLoT parses every ISL
+ * response with `JSON.parse(text) as T` (src/integrations/isl/client.ts:245) —
+ * no runtime validation — and ISL measurably emits `null` for absent nested
+ * numerics (`exclude_none=True` does not reach inside nested objects; same wire
+ * fact recorded on ISLOptionResult below). So `null` reached the arithmetic:
+ *
+ *     denormaliseValue(null, { min: 10, max: 20 })
+ *       === null * 10 + 10
+ *       === 10                     // the RANGE FLOOR
+ *
+ * and `Number.isFinite(10)` is **true**. An outcome ISL never computed was
+ * therefore published as a precise, confident measurement sitting exactly at the
+ * bottom of the goal range — "this option achieves the worst possible result" —
+ * and it was INVISIBLE to every post-hoc finiteness check, because a post-hoc
+ * check cannot distinguish a fabricated finite number from a measured one.
+ * This exact mechanism shipped a live defect once already (#278 /
+ * denormaliseOptionResult, documented below); ROADMAP 1.277 closes it at the
+ * source so it cannot recur through a new caller.
+ *
+ * Note the asymmetry that hid it, and why a `number` parameter was worse than
+ * useless: `undefined` and a missing key both produce `NaN` here, which every
+ * egress guard already rejects — so absence tests written with those two shapes
+ * passed while the shape the wire actually carries (`null`) sailed through.
+ *
+ * `finiteNum` rejects null/undefined/NaN/±Infinity, so only a real measurement
+ * reaches the arithmetic and an absent one stays absent. A valid value passes
+ * through byte-identically (`finiteNum` neither clamps nor coerces).
+ *
+ * @param normalised Normalised value in [0, 1] — UNTRUSTED; may be any wire shape
  * @param range Original normalisation range
- * @returns Denormalised value in original units
+ * @returns Denormalised value in original units, or `undefined` if `normalised`
+ *          was not a finite number (absent / null / NaN / ±Infinity)
  */
-export function denormaliseValue(normalised: number, range: NormalisationRange): number {
+export function denormaliseValue(normalised: unknown, range: NormalisationRange): number | undefined {
+  // Absence in ⇒ absence out. Never arithmetic on a non-number: `null` coerces
+  // to 0 and manufactures the range floor as a plausible measurement.
+  const n = finiteNum(normalised);
+  if (n === undefined) return undefined;
+
   const { min, max } = range;
   const rangeWidth = max - min;
 
@@ -379,7 +418,7 @@ export function denormaliseValue(normalised: number, range: NormalisationRange):
     return max;
   }
 
-  return normalised * rangeWidth + min;
+  return n * rangeWidth + min;
 }
 
 // -----------------------------------------------------------------------------

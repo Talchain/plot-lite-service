@@ -211,7 +211,23 @@ describe('WP5 gate · numeric seam + boundary guard (unit)', () => {
   it('normaliseValue(NaN) propagates NaN — the seam non-finite must be caught at boundaries', () => {
     const { normalised } = normaliseValue(N, { min: 0, max: 1, source: 'default' });
     expect(Number.isNaN(normalised)).toBe(true); // documents the seam: arithmetic does not self-guard
-    expect(Number.isNaN(denormaliseValue(N, { min: 0, max: 1, source: 'default' }))).toBe(true);
+  });
+
+  it('denormaliseValue(NaN) SELF-GUARDS to undefined (ROADMAP 1.277) — no longer a bare seam', () => {
+    // This assertion used to read `Number.isNaN(denormaliseValue(N, …)) === true`,
+    // asserting that denormaliseValue was an unguarded seam like its sibling above.
+    // ROADMAP 1.277 deliberately ENDED that: the primitive now finite-checks its
+    // input, because the sibling `normaliseValue` shape was letting `null` — which
+    // coerces to 0, NOT to NaN — fabricate the range floor as a plausible
+    // measurement that no downstream finiteness check could detect.
+    //
+    // The half that still matters is unchanged and is asserted above:
+    // `normaliseValue` remains an unguarded seam, so boundary guards are still
+    // required there. Only denormaliseValue moved.
+    expect(denormaliseValue(N, { min: 0, max: 1, source: 'default' })).toBeUndefined();
+    expect(denormaliseValue(null, { min: 10, max: 20, source: 'default' })).toBeUndefined();
+    // Positive control: a real measurement is untouched.
+    expect(denormaliseValue(0.5, { min: 0, max: 1, source: 'default' })).toBe(0.5);
   });
 
   it('sanitiseIslVoi rejects every non-finite value (NaN/±Infinity → undefined)', () => {
