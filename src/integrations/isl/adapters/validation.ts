@@ -38,8 +38,15 @@ const CONFIDENCE_MAP: Record<ISLValidationResponse['robustness'], PLoTValidation
  * ```
  */
 export function adaptValidationResponse(isl: ISLValidationResponse): PLoTValidationResult {
-  // Map ISL status to PLoT status
-  const status = STATUS_MAP[isl.status] || 'uncertain';
+  // Map ISL status to PLoT status.
+  //
+  // The fallback arm is reached only when ISL sends a status outside its three
+  // DECLARED values — i.e. undeclared wire data we cannot interpret. It used to
+  // default to 'uncertain', which is a scientific verdict PLoT would then have
+  // attributed to ISL: the same fabrication class as the 404 fallback below,
+  // just triggered by an unrecognised value instead of a missing response.
+  // An uninterpretable status is a non-result, so it degrades to 'unavailable'.
+  const status = STATUS_MAP[isl.status] || 'unavailable';
 
   // Map robustness to confidence
   const confidence = CONFIDENCE_MAP[isl.robustness] || 'medium';
@@ -104,14 +111,33 @@ function generateValidationReasoning(isl: ISLValidationResponse): string {
 }
 
 /**
- * Create a fallback validation result when ISL is unavailable
+ * Create a fallback validation result when ISL produced no validation.
  *
- * @param reason - Why fallback is being used
- * @returns Fallback validation result
+ * TYPED REFUSAL, NOT A VERDICT (ROADMAP 1.240). This returns
+ * `status: 'unavailable'` — a value ISL can never produce — so no consumer can
+ * mistake "we did not get an answer" for "the answer is uncertain".
+ *
+ * It previously returned `status: 'uncertain'`, and routes/v1/run.ts rendered
+ * that as a user-facing critique reading "ISL validation reports partial
+ * identifiability", tagged `source: 'isl'`. ISL had returned 404 (its
+ * `causal_router` is not mounted) and computed nothing; the user was told a
+ * substantive scientific claim about their own graph on behalf of a service
+ * that was never reached. The one honest token — 'ISL validation unavailable' —
+ * was demoted into `suggested_action`, where it read as advice rather than as
+ * the retraction it actually was.
+ *
+ * `confidence: 'low'` is retained only because the field is required by the
+ * interface; with `status: 'unavailable'` it carries no claim about the graph.
+ * Do NOT reintroduce a verdict here for any failure mode — 404, timeout, 5xx
+ * and circuit-breaker trips are all non-results and all take this path.
+ *
+ * @param reason - Why fallback is being used (surfaced as explanation.reasoning,
+ *                 for operators; never rendered as a finding about the graph)
+ * @returns Typed-unavailable validation result
  */
 export function createFallbackValidation(reason: string): PLoTValidationResult {
   return {
-    status: 'uncertain',
+    status: 'unavailable',
     confidence: 'low',
     explanation: {
       summary: 'ISL validation unavailable',

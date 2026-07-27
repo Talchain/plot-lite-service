@@ -573,8 +573,24 @@ export interface ISLConstraintResult {
   threshold: number;
   value?: number;
   prob_satisfied: number;
-  failure_margin_median?: number;
-  near_miss_fraction?: number;
+  /**
+   * Median failure margin, NORMALISED, as ISL sends it.
+   *
+   * `| null` is MEASURED, not defensive — the deployed service sends the key
+   * with a null value for an absent margin (same wire as `constraint_id` above;
+   * `exclude_none=True` does not reach inside this object). Declaring it
+   * `number | undefined` was a compile-time fiction that cost us a real defect:
+   * both denormalisation sites guarded with `!== undefined`, so `null` passed,
+   * `null * rangeWidth` evaluated to 0, and a FABRICATED MEASURED ZERO breach
+   * margin shipped to egress — while the comment above that code claimed the
+   * zero-fabrication had already been killed.
+   *
+   * Keep the `| null`. It is what makes `fmm * rangeWidth` a type error, so the
+   * only way to compute with this value is to validate it first (nonNeg()).
+   */
+  failure_margin_median?: number | null;
+  /** Near-miss rate in [0,1]. Nullable on the wire for the same reason. */
+  near_miss_fraction?: number | null;
   binding?: boolean;
 }
 

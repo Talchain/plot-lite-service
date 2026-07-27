@@ -2013,14 +2013,21 @@ function buildConstraintFields(
   // failure_margin_median is a distance (delta), so scale by range width (same as std).
   // Use flatMap to preserve index for stable constraint_id resolution while filtering.
   const constraintDiagnostics: ConstraintDiagnostic[] = islConstraints.flatMap((c, idx) => {
-    if (c.failure_margin_median === undefined && c.near_miss_fraction === undefined && c.binding === undefined) {
+    // Absence test must be NULL-AWARE. ISL sends `failure_margin_median: null`
+    // / `near_miss_fraction: null` (measured — see ISLConstraintResult), and
+    // `null === undefined` is false, so an all-absent row used to survive this
+    // guard and emit with a fabricated `binding: false`.
+    if (c.failure_margin_median == null && c.near_miss_fraction == null && c.binding === undefined) {
       return [];
     }
     const constraintId = resolveConstraintId(c, idx);
-    // Absent ≠ zero: keep undefined undefined (kill the `?? 0` fabrication). A
-    // binding-only row (both margins absent) now emits with NO fabricated
-    // margins — the defect that manufactured false "hard-step" evidence.
-    let failureMarginMedian = c.failure_margin_median;
+    // Absent ≠ zero — and on this wire "absent" is spelled `null`, not
+    // `undefined`. VALIDATE BEFORE DENORMALISING: the guard used to run AFTER
+    // the multiply, so `null * rangeWidth` had already collapsed to 0 and
+    // nonNeg(0) then blessed it as a measured zero-margin breach. nonNeg()
+    // rejects null/undefined/NaN/±Infinity/negatives up front, so only a real
+    // measurement ever reaches the arithmetic.
+    let failureMarginMedian = nonNeg(c.failure_margin_median);
 
     if (failureMarginMedian !== undefined && constraintNormRanges) {
       const range = constraintNormRanges.get(constraintId);
@@ -2040,6 +2047,11 @@ function buildConstraintFields(
     // near_miss_fraction is a rate in [0,1]. Same bounds as the per-option
     // constraint_margins path. The fields are optional on
     // ConstraintDiagnostic, so a spread omits them when undefined.
+    //
+    // near_miss_fraction was never exposed to the null defect: prob01() runs
+    // BEFORE any arithmetic touches it, and prob01 rejects null. That ordering
+    // is now what the margin does too — this second nonNeg only re-checks the
+    // DENORMALISED product (a finite × finite can still overflow to Infinity).
     const nearMissFraction = prob01(c.near_miss_fraction);
     failureMarginMedian = nonNeg(failureMarginMedian);
     return [{
@@ -2448,7 +2460,13 @@ function buildResponse(
           // recorded ranges; clamp-precision (below) deliberately does NOT
           // (Codex F1: the ranges map is absent whenever the constraint value
           // was already in [0,1], but the intervention can still have clamped).
-          let fmm = c.failure_margin_median;
+          // VALIDATE BEFORE DENORMALISING — identical ordering fix to the
+          // top-level constraint_diagnostics path above. ISL sends `null` for
+          // an absent margin; the old `!== undefined` guard let it through and
+          // `null * rangeWidth` became a fabricated measured 0, which then also
+          // unlocked the margin_precision block below and shipped a precision
+          // claim ('exact') about a margin that was never computed.
+          let fmm = nonNeg(c.failure_margin_median);
           if (fmm !== undefined && constraintNormRanges) {
             const range = constraintNormRanges.get(cid);
             if (range) {
