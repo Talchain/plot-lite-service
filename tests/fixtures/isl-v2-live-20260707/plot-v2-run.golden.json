@@ -627,6 +627,30 @@
       "range_derivation_source": "default"
     }
   ],
+  "driver_order": {
+    "version": 1,
+    "basis": "graph_structural",
+    "ranked_factor_ids": [
+      "fac_hiring_cost",
+      "fac_team_maturity",
+      "fac_tech_lead",
+      "fac_dev_headcount"
+    ],
+    "species": "single",
+    "lever_policy": "du_union",
+    "lever_ids": [
+      "fac_tech_lead",
+      "fac_dev_headcount"
+    ],
+    "separability": {
+      "top_pair_separable": null,
+      "method": null
+    },
+    "rank_stability": {
+      "max_rank_flip_rate": 0.3,
+      "min_attribution_stability": "negligible"
+    }
+  },
   "factor_stability": [
     {
       "factor_id": "fac_hiring_cost",
@@ -1622,7 +1646,7 @@
     "decision_brief_assembled": true,
     "review_cards_count": 0,
     "evidence_priority_card_present": false,
-    "response_content_hash": "rch_v2:4708fefe17cfbc43"
+    "response_content_hash": "rch_v2:67bdba00c5e65476"
   },
   "meta": {
     "seed_used": "2034401427",

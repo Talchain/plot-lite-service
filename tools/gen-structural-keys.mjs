@@ -35,10 +35,24 @@ import { dirname, join, resolve } from 'node:path';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-/** Contract type declarations that describe payloads crossing the boundary. */
+/**
+ * Contract type declarations that describe payloads crossing the boundary.
+ *
+ * `src/lib/driver-order.ts` is here because it DECLARES the shape of a
+ * top-level `/v2/run` response field (`driver_order`) — engine-v3.ts only
+ * references the type. Without it the object's members would be derived as
+ * data-derived keys and digested, so the redacted payload shape would lose
+ * exactly the attestation a debugger needs to read. It also contributes four
+ * INPUT-only property names (`factors`, `structuralLeverIds`,
+ * `factorSensitivitySource`, `islSuppressedAttributions`) that never appear as
+ * payload keys; preserving vs digesting a key that cannot occur is a no-op, and
+ * the alternative — hand-filtering this list — is the mirror this generator
+ * exists to avoid.
+ */
 export const CONTRACT_FILES = [
   'src/types/engine-v3.ts',
   'src/integrations/isl/types/isl-types.ts',
+  'src/lib/driver-order.ts',
 ];
 
 /** Absolute path of the generated registry. */

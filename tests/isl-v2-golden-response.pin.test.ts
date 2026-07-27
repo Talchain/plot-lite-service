@@ -306,11 +306,58 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
     expect(byId.fac_team_maturity.elasticity).toBe(0.39045780474351904);
 
     // Unmoved: fact_objects is excluded from response_hash, so the derived
-    // response hashes are byte-identical to the pre-slice golden. Pinned by
+    // response hash is byte-identical to the pre-slice golden. Pinned by
     // value here so a future change that quietly pulls fact_objects INTO the
     // hash cannot pass as "just a regeneration".
+    //
+    // ⚠ The `response_content_hash` pin that used to sit here has MOVED to the
+    // S1 block below, with a new value. It is a hash of the public semantic
+    // surface, so slice S1's additive `driver_order` legitimately changes it —
+    // and leaving a stale value here would have read as "S1 changed something
+    // it should not have" rather than "S1 added a field, deliberately".
     expect(rawBody.response_hash).toBe('60e3ac213554be4f');
     expect(rawBody._meta.response_hash).toBe('60e3ac213554be4f');
-    expect(rawBody._meta.response_content_hash).toBe('rch_v2:4708fefe17cfbc43');
+  });
+
+  // FAMILY-4 SLICE S1 (2026-07-27): explicit pin of the ONLY response-content
+  // change vs the pre-S1 golden — the additive `driver_order` object. Same
+  // discipline as the F3 and slice-0 pins above: a regeneration that is named
+  // is a regeneration that can be reviewed.
+  it('S1 surface change: driver_order is emitted, self-consistent, and response_hash is UNMOVED', () => {
+    const order = rawBody.driver_order;
+    expect(order, 'driver_order must be emitted alongside factor_sensitivity').toBeDefined();
+    expect(order.version).toBe(1);
+    expect(order.basis).toBe('graph_structural');
+    expect(order.species).toBe('single');
+    expect(order.lever_policy).toBe('du_union');
+    // The order IS the array — pinned against the golden's own rows, so a
+    // future change that re-orders one without the other cannot regenerate
+    // quietly.
+    expect(order.ranked_factor_ids).toEqual(
+      (rawBody.factor_sensitivity as any[]).map((f) => f.factor_id),
+    );
+    expect(order.ranked_factor_ids).toEqual([
+      'fac_hiring_cost',
+      'fac_team_maturity',
+      'fac_tech_lead',
+      'fac_dev_headcount',
+    ]);
+    expect(order.lever_ids).toEqual(['fac_tech_lead', 'fac_dev_headcount']);
+    // ⛔ No fabricated separability: this build can PROVE a tie, never a
+    // separation, so the verdict here is UNRESOLVED and consumers fail closed.
+    expect(order.separability).toEqual({ top_pair_separable: null, method: null });
+    expect(order.rank_stability).toEqual({
+      max_rank_flip_rate: 0.3,
+      min_attribution_stability: 'negligible',
+    });
+
+    // ⭐ ADDITIVITY, pinned by value: `response_hash` canonicalises the
+    // REQUEST, so an added response field must NOT move it. If this ever
+    // flips, an "additive" slice has changed the UI freshness token.
+    expect(rawBody.response_hash).toBe('60e3ac213554be4f');
+    // `response_content_hash` hashes the public semantic surface and therefore
+    // SHOULD move for exactly this addition. Pinned to the post-S1 value so
+    // the next content change is also forced to be deliberate.
+    expect(rawBody._meta.response_content_hash).toBe('rch_v2:67bdba00c5e65476');
   });
 });

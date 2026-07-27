@@ -153,6 +153,7 @@ import {
   IMPORTANCE_BASIS_GRAPH,
   IMPORTANCE_BASIS_ISL,
 } from '../../lib/importance-authority.js';
+import { buildDriverOrder, readIslSuppressedAttributions } from '../../lib/driver-order.js';
 import {
   detectUnreliableConstraintTargets,
   partitionConstraintTargets,
@@ -1639,6 +1640,20 @@ interface SensitivityData {
   factorEnrichments?: FactorEnrichment[];
   edgeEValues?: EnrichedEdgeEValue[];
   conditionalWinners?: ConditionalWinner[];
+
+  // ── Family-4 S1: the INPUTS to the canonical driver order + attestation ──
+  // Carried (not the built object) so `driver_order` has exactly ONE
+  // construction site, AT the emission point in buildResponse. Two
+  // construction sites would be the hand-maintained mirror this programme
+  // keeps paying for; and building it here would re-introduce the conditional
+  // emission that made the existing per-row `importance_basis` absence
+  // ambiguous (old payload vs non-ISL branch vs dropped key).
+  /** D-U structural lever union derived from the request's options. */
+  structuralLeverIds?: ReadonlySet<string>;
+  /** `'isl'` on the ISL-only fallback; `'graph+isl_merge'` on the primary path. */
+  factorSensitivitySource?: string;
+  /** ISL's `correlation_model.suppressed_attributions`, when ISL declared any. */
+  islSuppressedAttributions?: string[];
 }
 
 /**
@@ -2760,6 +2775,33 @@ function buildResponse(
     ?? transformEdgeSensitivity(getIslEdgeSensitivity(islResult), fallbackNodeLabelMap);
   const factorSensitivity = sensitivityData?.factorSensitivity
     ?? transformFactorSensitivity(islResult?.factor_sensitivity);
+
+  // ── Family-4 S1: the ONE canonical driver order + its attestation ────────
+  //
+  // Built HERE, at the single emission point, from the SAME `factorSensitivity`
+  // binding the response publishes — so `ranked_factor_ids` cannot describe a
+  // different array from the one on the wire, and so the object is emitted on
+  // EVERY path that emits `factor_sensitivity`, not only inside the ISL branch.
+  // (The existing per-row `importance_basis` is emitted only inside that branch,
+  // which is precisely why its absence is ambiguous today — old payload,
+  // non-ISL branch, or dropped key are indistinguishable.)
+  //
+  // Every input falls back to a value derivable HERE, so the pre-computed
+  // `sensitivityData` path and the raw-ISL fallback path attest identically:
+  //   · lever identity ← `interventionTargetIdsFromOptions(options)`, the ONE
+  //     canonical D-U source, same call the pre-compute makes;
+  //   · basis ← the pre-computed source, else 'isl' (on the fallback path the
+  //     rows ARE ISL's, untouched by the graph merge);
+  //   · ISL's own suppression disclosure ← read defensively off `islResult`.
+  const driverOrder = buildDriverOrder({
+    factors: factorSensitivity,
+    structuralLeverIds:
+      sensitivityData?.structuralLeverIds ?? interventionTargetIdsFromOptions(options),
+    factorSensitivitySource: sensitivityData?.factorSensitivitySource ?? 'isl',
+    islSuppressedAttributions:
+      sensitivityData?.islSuppressedAttributions ?? readIslSuppressedAttributions(islResult),
+  });
+
   // Fallback transforms for edge_e_values and conditional_winners when sensitivityData not pre-computed.
   // Edge E-values are NESTED at robustness.edge_e_values on the V2 wire (the
   // former top-level read was structurally dead) — read via the accessor.
@@ -3455,6 +3497,13 @@ function buildResponse(
           return rds ? { ...f, range_derivation_source: rds } : f;
         })
       : factorSensitivity,
+    // ⭐ Family-4 S1 — THE canonical driver order + attestation, emitted as a
+    // top-level sibling of factor_sensitivity[] (amendment §4.3). ADDITIVE:
+    // nothing above or below changed shape or meaning. Present whenever
+    // factor_sensitivity is present — including empty, as basis 'none' rather
+    // than omission — so absence is unambiguous. Excluded from response_hash
+    // (hashRequest canonicalises the REQUEST). See src/lib/driver-order.ts.
+    ...(driverOrder !== undefined && { driver_order: driverOrder }),
     // ISL stability assessment per factor (3C bootstrap analysis)
     // NOTE: Deterministic ISL output. Excluded from response_hash since v6.
     factor_stability: factorStability ?? [],
@@ -6624,7 +6673,20 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // canonicaliseRequest; see canonicalise.ts BREAKING CHANGE v6).
         responseHash = hashRequest(body, filteredGraph, plotSeedUsed, toIdentifiabilityResponse(identifiabilityResult), factorStability, nSamples);
 
-        const sensitivityData: SensitivityData = { edgeSensitivity, factorSensitivity, edgeEValues, conditionalWinners };
+        const sensitivityData: SensitivityData = {
+          edgeSensitivity,
+          factorSensitivity,
+          edgeEValues,
+          conditionalWinners,
+          // Family-4 S1: the driver-order attestation's inputs, captured on the
+          // path that actually knows them. `structuralLeverIds` is the SAME
+          // binding applyLeverAwareImportanceOrder partitioned on above, so the
+          // attested `lever_policy`/`lever_ids` describe the order that was
+          // really made — not a re-derivation that could drift from it.
+          structuralLeverIds,
+          factorSensitivitySource,
+          islSuppressedAttributions: readIslSuppressedAttributions(islResult),
+        };
 
         // Use hasNonEmptyArray on the FINAL transformed arrays (single source of truth)
         const hasEdgeSensitivity = hasNonEmptyArray(edgeSensitivity);
