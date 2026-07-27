@@ -112,7 +112,7 @@ describe('post-analysis golden fixture', () => {
         node_id: ft.node_id,
         label: ft.node_id.replace(/_/g, ' '),
         sensitivity_score: 0.85,
-        importance_score: 0.85,
+        // `importance_score` removed — family-4 slice 0 (2026-07-27).
         importance_rank: ft.importance_rank,
         elasticity: 0.72,
         direction: 'positive',

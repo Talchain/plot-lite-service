@@ -33,6 +33,25 @@
  * follows. Nothing else moved. Against LIVE ISL (which emits no `factor_evpi`)
  * this is unchanged behaviour — the stale fixture merely stopped exercising the
  * dead branch. The exact diff is pinned by the assertion below.
+ *
+ * REGENERATED again for FAMILY-4 SLICE 0 (2026-07-27). `routes/v2/run.ts` fed
+ * `fs.elasticity ?? 0` into the FactObject field named `sensitivity_score`, and
+ * `facts/mapper.ts` synthesised a third name (`importance_score`) for the same
+ * number — so this golden itself carried TWO values under one name:
+ * `fac_hiring_cost` at -0.175 in `factor_sensitivity[]` and +0.4971042471042471
+ * in `fact_objects[].data`. The regeneration changes EXACTLY 10 lines, all
+ * inside `fact_objects[].data` of the four factor_sensitivity facts:
+ *   - `sensitivity_score` now carries the real quantity (fac_hiring_cost
+ *     0.4971042471042471 → -0.175; fac_team_maturity 0.39045780474351904 →
+ *     0.13745631067961164; the two levers were 0 either way)
+ *   - `importance_score` is GONE (4 lines) — never on `factor_sensitivity[]`,
+ *     never in `FactorSensitivityResultV3`, synthesised here alone
+ *   - the 4 derived `content_hash` values follow
+ * `factor_sensitivity[]`, `elasticity`, `_meta.response_hash` and
+ * `response_content_hash` are UNCHANGED (`fact_objects` is excluded from
+ * `response_hash`). The behavioural pin lives in
+ * tests/facts-sensitivity-score-identity.fixture.test.ts; the assertion below
+ * makes this regeneration non-silent.
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
@@ -257,5 +276,41 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
     expect(
       (rawBody.factor_sensitivity as any[]).some((f) => f.evpi_method === 'counterfactual'),
     ).toBe(false);
+  });
+
+  // FAMILY-4 SLICE 0 (2026-07-27): explicit pin of the ONLY response-content
+  // change vs the pre-slice golden, so this deliberate regeneration is not
+  // silent either. Same discipline as the F3 pin above.
+  it('slice-0 surface change: fact_objects carry the REAL sensitivity_score, no synthesised importance_score, and nothing else moved', () => {
+    const factData = (rawBody.fact_objects as any[])
+      .filter((o) => o?.data?.type === 'factor_sensitivity')
+      .map((o) => o.data);
+    expect(factData).toHaveLength(4);
+
+    for (const d of factData) {
+      // The synthesised third name is gone from the whole body.
+      expect(d, d.node_id).not.toHaveProperty('importance_score');
+      // sensitivity_score is the producer's own value, forwarded verbatim.
+      const row = (rawBody.factor_sensitivity as any[]).find((f) => f.factor_id === d.node_id);
+      expect(d.sensitivity_score, d.node_id).toBe(row.sensitivity_score);
+      // elasticity is a DIFFERENT quantity and is likewise forwarded verbatim.
+      expect(d.elasticity, d.node_id).toBe(row.elasticity);
+    }
+    expect(JSON.stringify(rawBody)).not.toContain('"importance_score"');
+
+    // The two factors whose numbers actually moved, pinned by value.
+    const byId = Object.fromEntries(factData.map((d) => [d.node_id, d]));
+    expect(byId.fac_hiring_cost.sensitivity_score).toBe(-0.175);
+    expect(byId.fac_hiring_cost.elasticity).toBe(0.4971042471042471);
+    expect(byId.fac_team_maturity.sensitivity_score).toBe(0.13745631067961164);
+    expect(byId.fac_team_maturity.elasticity).toBe(0.39045780474351904);
+
+    // Unmoved: fact_objects is excluded from response_hash, so the derived
+    // response hashes are byte-identical to the pre-slice golden. Pinned by
+    // value here so a future change that quietly pulls fact_objects INTO the
+    // hash cannot pass as "just a regeneration".
+    expect(rawBody.response_hash).toBe('60e3ac213554be4f');
+    expect(rawBody._meta.response_hash).toBe('60e3ac213554be4f');
+    expect(rawBody._meta.response_content_hash).toBe('rch_v2:4708fefe17cfbc43');
   });
 });

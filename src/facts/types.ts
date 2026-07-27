@@ -81,10 +81,28 @@ export interface FactorSensitivityFactData {
   type: 'factor_sensitivity';
   node_id: string;
   label: string;
-  sensitivity_score: number;      // 0-1
-  importance_score: number;       // 0-1
+  /**
+   * The producer's `sensitivity_score`, forwarded VERBATIM from the same
+   * response's `factor_sensitivity[]` entry — on the live graph-primary path
+   * that is the graph raw total causal effect, SIGNED and unbounded (see the
+   * `substitutions` block in src/contracts/isl-to-ui.contract.ts). It is NOT
+   * 0-1, and it is NOT the same quantity as `elasticity`.
+   *
+   * FAMILY-4 SLICE 0 (2026-07-27): optional, and OMITTED when the producer did
+   * not measure it. Absent means "unavailable", NOT zero — a coalesced 0 turns
+   * "we did not measure this" into "this is the least important driver", which
+   * is a fabricated ranking.
+   */
+  sensitivity_score?: number;
   importance_rank: number;
-  elasticity: number;
+  /**
+   * The producer's `elasticity`, forwarded verbatim. A DIFFERENT quantity from
+   * `sensitivity_score` (graph normalised influence, unsigned [0,1] on the
+   * graph-primary path) — the two may legitimately differ in magnitude and in
+   * sign. Never cross-fall-back one onto the other. Optional for the same
+   * absent-is-not-zero reason as above.
+   */
+  elasticity?: number;
   direction: 'positive' | 'negative';
   confidence: number;             // 0-1
   attribution_stability: 'high' | 'moderate' | 'low' | 'negligible';

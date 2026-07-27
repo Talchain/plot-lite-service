@@ -66,7 +66,9 @@ function makeSensitivityFact(overrides: Partial<{
       node_id: nodeId,
       label: overrides.label ?? nodeId,
       sensitivity_score: overrides.sensitivity_score ?? 0.85,
-      importance_score: overrides.sensitivity_score ?? 0.85,
+      // `importance_score` removed — family-4 slice 0 (2026-07-27). It was a
+      // synthesised alias of `sensitivity_score` and is no longer a member of
+      // FactorSensitivityFactData.
       importance_rank: overrides.importance_rank ?? 1,
       elasticity: 0.72,
       direction: 'positive',

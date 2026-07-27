@@ -3230,7 +3230,23 @@ function buildResponse(
       factor_sensitivity: factorSensitivity?.map((fs, idx) => ({
         node_id: fs.factor_id,
         label: fs.factor_label ?? undefined,
-        sensitivity_score: fs.elasticity ?? 0,
+        // ── FAMILY-4 SLICE 0 (2026-07-27) ────────────────────────────────────
+        // This line used to read `fs.elasticity ?? 0`, i.e. it fed the
+        // ELASTICITY quantity into a field NAMED `sensitivity_score`. Because
+        // `factor_sensitivity[]` publishes the real `sensitivity_score` (graph
+        // raw total causal effect, SIGNED — see the `substitutions` block in
+        // src/contracts/isl-to-ui.contract.ts) in the SAME response body, one
+        // /v2/run payload carried two different quantities under one name.
+        // Measured in the committed golden
+        // tests/fixtures/isl-v2-live-20260707/plot-v2-run.golden.json:
+        // `fac_hiring_cost` was -0.175 in `factor_sensitivity[]` and
+        // +0.4971042471042471 in `fact_objects[].data` — opposite signs,
+        // 2.84x apart, same field name, same response.
+        //
+        // Feed the actual quantity, and do NOT coalesce an absent one to 0:
+        // absent means "unavailable", NOT "least important"
+        // (@talchain/schemas src/boundary/enrichment.ts:239-241).
+        sensitivity_score: fs.sensitivity_score,
         importance_rank: idx + 1,
         elasticity: fs.elasticity,
         direction: fs.direction === 'unknown' ? undefined : fs.direction,
