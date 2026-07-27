@@ -69,8 +69,17 @@ function normalizeFragileEdge(edge: ISLFragileEdgeInfo): NormalizedEdgeInfo {
     ...(isFiniteNumber(edge.switch_probability)
       ? { switch_probability: edge.switch_probability }
       : {}),
-    // Passthrough marginal_switch_probability from ISL (optional field)
-    ...(edge.marginal_switch_probability !== undefined
+    // marginal_switch_probability: same rule as switch_probability above.
+    // `!== undefined` admits a null straight through to egress, where
+    // @talchain/schemas 0.22.0 types this `z.number().optional()` and a null
+    // FAILS validation. Not reachable on the pinned V2 path — ISL's V2 handler
+    // serialises with `model_dump(by_alias=True, exclude_none=True)`, which is
+    // recursive, so a null is OMITTED rather than sent, and PLoT pins that path
+    // on every call (client.ts:98 `?response_version=2`, :180
+    // `X-ISL-Response-Version: 2`). It arms the day that pin changes, which is
+    // exactly the asymmetry #278 documented: a guard that costs nothing now and
+    // closes a class later.
+    ...(isFiniteNumber(edge.marginal_switch_probability)
       ? { marginal_switch_probability: edge.marginal_switch_probability }
       : {}),
     // Preserve alternative_winner_id from ISL for label resolution downstream

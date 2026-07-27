@@ -20,16 +20,38 @@
  * the slice: it is the only identity that survives reordering and the only one
  * that can tell two constraints on the SAME node with the SAME operator apart.
  *
- * ⚠ MEASURED, NOT ASSUMED — and the spec this slice was handed was WRONG here.
- * The brief stated the field is "omitted, not null, when unsupplied
- * (exclude_none=True)". Against the deployed service it is PRESENT AND NULL:
+ * ⚠ SCOPE CORRECTED — the earlier note here was MEASURED ON THE WRONG PATH.
+ *
+ * This block previously said the original spec ("omitted, not null, when
+ * unsupplied (exclude_none=True)") was WRONG, on the strength of a capture
+ * showing
  *   {"constraint_id": null, "node_id": "con_cost_cap", ..., "binding": false}
- * `exclude_none=True` IS applied at the route (src/api/robustness.py:1389) but
- * demonstrably does not reach inside this object — `failure_margin_median` and
- * `near_miss_fraction` come back null on the same wire, and always have. So the
- * null is the long-standing behaviour of this path, not a 6b regression.
- * Consequence for readers: test BOTH shapes and never assert key-absence. The
- * `typeof === 'string'` gate below is what makes the tier robust to either.
+ * and concluded that `exclude_none=True` "demonstrably does not reach inside
+ * this object". **That conclusion does not hold, because that capture was taken
+ * without the response-version pin — it is the LEGACY v1 format.**
+ *
+ * PLoT pins V2 on EVERY call: `client.ts:98` appends `?response_version=2` and
+ * `:180` sends `X-ISL-Response-Version: 2`, and all five ISL service methods go
+ * through `ISLClient.request` (integrations/isl/index.ts:246,286,323,407,549).
+ * ISL's V2 handler serialises fully-typed models with
+ * `model_dump(by_alias=True, exclude_none=True)` and no plain-dict escape at any
+ * hop; pydantic-v2's `exclude_none` is RECURSIVE (verified empirically on
+ * 2.12.5: a nested `None` inside `List[Model]` is dropped). **So on the path
+ * PLoT actually uses, these fields are OMITTED, never null — the original spec
+ * was right for the pinned path, and the "correction" of it was wrong in
+ * scope.** The same error propagated to `failure_margin_median` and
+ * `near_miss_fraction`, and downstream to #277's live-reachability premise: the
+ * fabricated-zero-margin defect's reachability AT THIS ISL PIN is NOT
+ * established.
+ *
+ * A capture proves what it was pointed at. This one was pointed at v1.
+ *
+ * NOTHING BELOW CHANGES. Reading both shapes stays, as defence-in-depth: it
+ * costs nothing, it is what keeps the resolver correct against a pre-6b ISL and
+ * against any future un-pinned or re-versioned path, and the fixture test
+ * exercises both arms. The `typeof === 'string'` gate is what makes the tier
+ * robust to either. What changed is the CLAIM — so the next lane does not build
+ * a reachability argument on a measurement of a path PLoT never takes.
  *
  * ── Tier 2/3: the pre-6b reconstruction, DELIBERATELY KEPT ───────────────────
  * Positional, then a (node_id, operator) scan. Retained for the overlap window:

@@ -13,7 +13,7 @@
  * @see Schema v2.6 §B.8 - Range derivation priority chain
  */
 
-import type { EngineNodeV3, OptionV3, InterventionValueV3, OutcomeStatsV3, RepairRecord } from '../types/engine-v3.js';
+import type { EngineNodeV3, OptionV3, InterventionValueV3, RepairRecord } from '../types/engine-v3.js';
 import { finiteNum } from '../util/numeric.js';
 
 // -----------------------------------------------------------------------------
@@ -666,74 +666,6 @@ export function normaliseOptions(
   }));
 
   return { options: normalisedOptions, diagnostics, transforms, repairs };
-}
-
-// -----------------------------------------------------------------------------
-// Outcome Denormalisation
-// -----------------------------------------------------------------------------
-
-/**
- * Denormalise outcome statistics from ISL response.
- *
- * ISL returns outcomes in normalised [0,1] space. This function
- * transforms them back to the goal node's original units.
- *
- * @param outcome Normalised outcome stats from ISL
- * @param goalContext Goal node normalisation context
- * @returns Denormalised outcome stats
- */
-/** @internal Not used in runtime — denormaliseISLResult handles this via denormaliseOptionResult. */
-function denormaliseOutcome(
-  outcome: OutcomeStatsV3,
-  goalContext: FactorNormalisationContext
-): OutcomeStatsV3 {
-  const range = goalContext.range;
-
-  return {
-    mean: denormaliseValue(outcome.mean, range),
-    std: outcome.std !== undefined
-      ? outcome.std * (range.max - range.min) // Scale std by range width
-      : undefined,
-    p10: denormaliseValue(outcome.p10, range),
-    p50: denormaliseValue(outcome.p50, range),
-    p90: denormaliseValue(outcome.p90, range),
-    n_samples: outcome.n_samples,
-    n_valid_samples: outcome.n_valid_samples,
-    validity_ratio: outcome.validity_ratio,
-  };
-}
-
-/**
- * Denormalise a single expected outcome value.
- *
- * @param expectedOutcome Normalised expected outcome
- * @param goalContext Goal node normalisation context
- * @returns Denormalised expected outcome
- */
-/** @internal Not used in runtime — denormaliseISLResult handles this via denormaliseOptionResult. */
-function denormaliseExpectedOutcome(
-  expectedOutcome: number,
-  goalContext: FactorNormalisationContext
-): number {
-  return denormaliseValue(expectedOutcome, goalContext.range);
-}
-
-/**
- * Denormalise a confidence interval.
- *
- * @param interval Normalised confidence interval [p10, p90]
- * @param goalContext Goal node normalisation context
- * @returns Denormalised confidence interval
- */
-/** @internal Not used in runtime — denormaliseISLResult handles this via denormaliseOptionResult. */
-function denormaliseConfidenceInterval(
-  interval: [number, number],
-  goalContext: FactorNormalisationContext
-): [number, number] {
-  return [
-    denormaliseValue(interval[0], goalContext.range),
-    denormaliseValue(interval[1], goalContext.range),
-  ];
 }
 
 // -----------------------------------------------------------------------------

@@ -22,6 +22,35 @@
  *      then forwarded the whole object VERBATIM, so a PLoT-internal key
  *      transited to ISL.
  *
+ * ⚠ MIGRATED ONTO THE PUBLISHED HARNESS — AND THE MIGRATION WAS NOT COSMETIC
+ * --------------------------------------------------------------------------
+ * This file previously carried PRIVATE copies of the capture shim and the
+ * fixture graph. The private graph was the PRE-slice-2 fixture, and it is
+ * BLIND to one of the three `mean` producers this file names.
+ *
+ * Its constraint targeted `fac_cost` — a `kind: 'factor'` node with an
+ * `observed_state.value`. `buildParameterUncertaintiesV3` (translator-v3.ts)
+ * already emits a PU for exactly that shape, so `classifyConstraintPu`
+ * (constraint-pu-injection.ts:67) returned `existing` and the injector
+ * `continue`d at :154 — its wire-entry push at :182 was UNREACHABLE. The old
+ * comment labelling `fac_cost` "Producer 3: a constrained node with no PU of
+ * its own → constraint injection" was therefore false, and the old positive
+ * control ("all three `mean` producers fired") was satisfied by the TRANSLATOR
+ * alone: two observed_state PUs plus one prior PU, and nothing from the
+ * injector.
+ *
+ * `tests/helpers/isl-egress-producers.ts` fixed this by adding a
+ * `kind: 'constraint'` node (`con_cost_cap`) and pointing the constraint at
+ * it — a node the translator does not emit a PU for, so the injector actually
+ * runs. That graph was found to be necessary BY MUTATION, not by reading:
+ * re-introducing the slice-6 `mean` key into the injector left the old fixture
+ * completely green.
+ *
+ * The positive control below now asserts the injected entry is PRESENT and
+ * carries `CONSTRAINT_PINNED_STD` — something ONLY the injector branch can
+ * produce (TESTING-DISCIPLINE rule 1: name the branch the fixture must reach,
+ * and assert something only that branch can produce).
+ *
  * RULE 3 (TESTING-DISCIPLINE.md): these assertions are made on the SERIALIZED
  * bytes handed to `fetch` — `ISLClient.request()` builds `requestBodyText =
  * JSON.stringify(body)` (client.ts:140) and passes that exact string as the
@@ -43,51 +72,44 @@
  * caller-supplied and latent; it is recorded in the PR body, not changed.
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
-import { ISLClient } from '../src/integrations/isl/client.js';
+import { CONSTRAINT_PINNED_STD } from '../src/integrations/isl/constraint-pu-injection.js';
 import {
-  toISLRobustnessRequest,
-  type ISLRobustnessRequestV3,
-} from '../src/integrations/isl/translator-v3.js';
-import { injectConstraintParameterUncertainties } from '../src/integrations/isl/constraint-pu-injection.js';
-import { createISLInferenceFn } from '../src/analysis/flip-thresholds.js';
-import { createISLService } from '../src/integrations/isl/index.js';
-import type { EngineGraphV3, EngineNodeV3, OptionV3, GoalConstraint } from '../src/types/engine-v3.js';
+  PRODUCERS,
+  installEgressCapture,
+  uninstallEgressCapture,
+  type EgressCapture,
+  type ProducerSpec,
+} from './helpers/isl-egress-producers.js';
 
 // -----------------------------------------------------------------------------
-// Egress capture — the exact string given to fetch as the request body.
+// Producer lookup — FAILS LOUD on drift (trap 12: derive, don't mirror).
+// A renamed or removed producer must break this file, never silently skip it.
 // -----------------------------------------------------------------------------
 
-interface Capture {
-  url: string;
-  bodyText: string;
-  body: any;
+function producer(name: string): ProducerSpec {
+  const spec = PRODUCERS.find((p) => p.name === name);
+  if (spec === undefined) {
+    throw new Error(
+      `No producer named "${name}" in PRODUCERS. This gate names its producers ` +
+        `explicitly so a rename cannot silently drop coverage. Known: ` +
+        `${PRODUCERS.map((p) => p.name).join(', ')}`,
+    );
+  }
+  return spec;
 }
 
-let captured: Capture[] = [];
-
-function installFetchCapture(responseBody: unknown = {}): void {
-  captured = [];
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (url: any, init: any) => {
-      const bodyText = String(init?.body ?? '');
-      captured.push({ url: String(url), bodyText, body: JSON.parse(bodyText) });
-      return {
-        ok: true,
-        status: 200,
-        headers: { get: () => null },
-        text: async () => JSON.stringify(responseBody),
-        json: async () => responseBody,
-      } as any;
-    }),
-  );
+/** Drive one producer and return the single body it put on the wire. */
+async function runOne(name: string): Promise<EgressCapture> {
+  const captures = await producer(name).run();
+  expect(captures).toHaveLength(1);
+  return captures[0]!;
 }
 
 /** Every JSON path in the captured bytes matching `container[*].key`. */
 function undeclaredKeyPaths(
-  capture: Capture,
+  capture: EgressCapture,
   collect: (body: any) => Array<{ path: string; obj: any }>,
   key: string,
 ): string[] {
@@ -111,185 +133,51 @@ const collectObservedStates = (body: any) =>
     .filter(({ obj }) => obj !== null && obj !== undefined);
 
 // -----------------------------------------------------------------------------
-// Fixtures — a PLoT-internal graph that exercises every `mean` producer.
-// -----------------------------------------------------------------------------
-
-/**
- * `metadata` is what PLoT's own normaliser attaches to a constraint node's
- * observed_state (graph-normaliser.ts:274-276) so the constraint compiler can
- * read `.operator`. It is PLoT-internal and must not reach ISL. It is not on
- * `EngineNodeV3.observed_state`, hence the cast — which is precisely why the
- * verbatim forward was invisible to the typechecker.
- */
-function nodeWithInternalMetadata(): EngineNodeV3 {
-  return {
-    id: 'fac_headcount',
-    kind: 'factor',
-    label: 'Headcount',
-    observed_state: {
-      value: 0.4,
-      std: 0.08,
-      baseline: 0.3,
-      unit: 'people',
-      raw_value: 40,
-      cap: 100,
-      factor_type: 'quantitative',
-      uncertainty_drivers: ['hiring_pipeline'],
-      // PLoT-internal: read by constraint-compiler.ts, never by ISL.
-      metadata: { operator: '<=', source: 'cee_constraint_node' },
-    } as EngineNodeV3['observed_state'],
-  } as EngineNodeV3;
-}
-
-function buildGraph(): EngineGraphV3 {
-  const nodes: EngineNodeV3[] = [
-    nodeWithInternalMetadata(),
-    // Producer 2: external factor with a uniform prior → PU synthesised from range.
-    {
-      id: 'fac_market',
-      kind: 'factor',
-      label: 'Market growth',
-      category: 'external',
-      prior: { distribution: 'uniform', range_min: 0.2, range_max: 0.6 },
-    } as EngineNodeV3,
-    // Producer 3: a constrained node with no PU of its own → constraint injection.
-    {
-      id: 'fac_cost',
-      kind: 'factor',
-      label: 'Cost',
-      observed_state: { value: 0.55 },
-    } as EngineNodeV3,
-    // In the graph but with no observed_state, so the translator emits no PU
-    // for it — the realistic "insert" branch of the flip probe.
-    { id: 'fac_no_obs', kind: 'factor', label: 'Unmeasured' } as EngineNodeV3,
-    { id: 'goal_margin', kind: 'outcome', label: 'Margin' } as EngineNodeV3,
-  ];
-
-  return {
-    nodes,
-    edges: [
-      {
-        from: 'fac_headcount',
-        to: 'goal_margin',
-        exists_probability: 0.9,
-        strength: { mean: 0.5, std: 0.1 },
-      },
-      {
-        from: 'fac_market',
-        to: 'goal_margin',
-        exists_probability: 0.8,
-        strength: { mean: 0.3, std: 0.12 },
-      },
-      {
-        from: 'fac_cost',
-        to: 'goal_margin',
-        exists_probability: 0.85,
-        strength: { mean: -0.4, std: 0.09 },
-      },
-    ],
-  } as EngineGraphV3;
-}
-
-/**
- * The `/v1/run` leg reaches ISL through `analyseRobustness`, which consumes the
- * trust-layer `Graph` (edges carry `weight` / `belief_exists` / `strength_std`,
- * not a `strength` object). `weight` is PLoT's own coefficient: ISL's `EdgeV2`
- * declares no such field, and `analyseRobustness` was forwarding it alongside
- * the `strength` distribution it derives from it.
- */
-function buildV1Graph(): any {
-  return {
-    nodes: [
-      nodeWithInternalMetadata(),
-      { id: 'fac_cost', kind: 'factor', label: 'Cost', observed_state: { value: 0.55, std: 0.05 } },
-      { id: 'goal_margin', kind: 'outcome', label: 'Margin' },
-    ],
-    edges: [
-      {
-        from: 'fac_headcount',
-        to: 'goal_margin',
-        weight: 0.5,
-        belief_exists: 0.9,
-        strength_std: 0.1,
-      },
-      { from: 'fac_cost', to: 'goal_margin', weight: -0.4, belief_exists: 0.85, strength_std: 0.09 },
-    ],
-  };
-}
-
-const OPTIONS: OptionV3[] = [
-  { id: 'opt_a', label: 'Hire', interventions: { fac_headcount: { value: 0.8 } } },
-  { id: 'opt_b', label: 'Hold', interventions: { fac_headcount: { value: 0.2 } } },
-] as unknown as OptionV3[];
-
-const CONSTRAINTS: GoalConstraint[] = [
-  { constraint_id: 'c1', node_id: 'fac_cost', operator: '<=', value: 0.7, label: 'Cost cap' },
-] as unknown as GoalConstraint[];
-
-function buildV2Request(): ISLRobustnessRequestV3 {
-  const graph = buildGraph();
-  const request = toISLRobustnessRequest(
-    graph,
-    OPTIONS,
-    'goal_margin',
-    'req_slice6',
-    2000,
-    undefined,
-    CONSTRAINTS,
-    'seed-slice6',
-  );
-  // The /v2/run route runs this immediately after building the request
-  // (run.ts:5659-5663); it MUTATES request.parameter_uncertainties, so a
-  // translator-only assertion would miss the key it re-adds.
-  injectConstraintParameterUncertainties(request, CONSTRAINTS, graph.nodes, 'goal_margin');
-  return request;
-}
-
-function newClient(): ISLClient {
-  return new ISLClient({
-    baseUrl: 'https://isl.test',
-    apiKey: 'test-key',
-    timeoutMs: 5_000,
-    maxRetries: 1,
-  });
-}
-
-// -----------------------------------------------------------------------------
 
 describe('PLoT → ISL egress carries no undeclared request key (slice 6)', () => {
   const savedEnv = { ...process.env };
 
   beforeEach(() => {
-    installFetchCapture({ status: 'ok' });
+    installEgressCapture({ status: 'ok' });
   });
 
   afterEach(() => {
-    vi.unstubAllGlobals();
+    uninstallEgressCapture();
     process.env = { ...savedEnv };
   });
 
   describe('/api/v1/robustness/analyze/v2 — the /v2/run analysis body', () => {
-    async function captureV2Body(): Promise<Capture> {
-      await newClient().request({
-        endpoint: '/api/v1/robustness/analyze/v2',
-        body: buildV2Request(),
-        requestId: 'req_slice6',
-      });
-      expect(captured).toHaveLength(1);
-      return captured[0]!;
-    }
+    const captureV2Body = () => runOne('v2-run-base');
 
-    it('POSITIVE CONTROL: the instrument sees the bytes and their declared keys', async () => {
+    it('POSITIVE CONTROL: the instrument sees the bytes, and ALL THREE `mean` producers fired', async () => {
       const c = await captureV2Body();
+      const body = c.body as any;
 
       // The capture is real bytes, not an empty object (trap 13).
       expect(c.bodyText.length).toBeGreaterThan(200);
       expect(c.url).toContain('/api/v1/robustness/analyze/v2');
 
-      // All three `mean` producers fired, so the absence assertions below are
-      // being made over a body that HAS parameter_uncertainties to inspect.
-      const pu = c.body.parameter_uncertainties as any[];
-      expect(pu.map((p) => p.node_id).sort()).toEqual(['fac_cost', 'fac_headcount', 'fac_market']);
+      const pu = body.parameter_uncertainties as any[];
+
+      // Producer 1 (observed_state) and producer 2 (uniform prior), from the
+      // translator; plus producer 3 (constraint injection), from the injector.
+      expect(pu.map((p) => p.node_id).sort()).toEqual([
+        'con_cost_cap',
+        'fac_cost',
+        'fac_headcount',
+        'fac_market',
+      ]);
+
+      // ⚠ THE ASSERTION THE OLD PRIVATE FIXTURE COULD NOT MAKE.
+      // `con_cost_cap` is `kind: 'constraint'`, so the translator emits no PU
+      // for it — the ONLY way this entry can exist is
+      // `injectConstraintParameterUncertainties`, and CONSTRAINT_PINNED_STD is
+      // a value only that branch writes. Without this, the `mean` absence
+      // assertions below would be made over a body the injector never touched.
+      const injected = pu.find((p) => p.node_id === 'con_cost_cap');
+      expect(injected).toBeDefined();
+      expect(injected.std).toBe(CONSTRAINT_PINNED_STD);
+
       for (const p of pu) {
         expect(typeof p.node_id).toBe('string');
         expect(p.distribution).toBe('normal');
@@ -298,13 +186,13 @@ describe('PLoT → ISL egress carries no undeclared request key (slice 6)', () =
 
       // Edge `strength.mean` IS declared by ISL — proof that the assertions
       // below target the specific undeclared keys and not the string "mean".
-      for (const e of c.body.graph.edges as any[]) {
+      for (const e of body.graph.edges as any[]) {
         expect(typeof e.strength.mean).toBe('number');
         expect(typeof e.strength.std).toBe('number');
       }
 
       // The observed_state allowlist must keep every ISL-DECLARED field.
-      const os = (c.body.graph.nodes as any[]).find((n) => n.id === 'fac_headcount')!.observed_state;
+      const os = (body.graph.nodes as any[]).find((n) => n.id === 'fac_headcount')!.observed_state;
       expect(os).toMatchObject({
         value: 0.4,
         std: 0.08,
@@ -319,7 +207,7 @@ describe('PLoT → ISL egress carries no undeclared request key (slice 6)', () =
       // constraint_id is undeclared on ISL today but is being ADOPTED, not
       // dropped (Codex OQ-5). Pinned present so a later lane cannot delete it
       // by mistaking it for slice-6 cleanup.
-      expect((c.body.goal_constraints as any[])[0].constraint_id).toBe('c1');
+      expect((body.goal_constraints as any[])[0].constraint_id).toBe('c1');
     });
 
     it('no parameter_uncertainties[].mean — from the observed_state, prior, or constraint-injection producer', async () => {
@@ -341,77 +229,61 @@ describe('PLoT → ISL egress carries no undeclared request key (slice 6)', () =
   });
 
   describe('flip probe — the cloned body sent per probe point', () => {
-    async function captureProbeBody(): Promise<Capture[]> {
-      const original = buildV2Request();
-      const client = newClient();
-      const inferenceFn = createISLInferenceFn(
-        async (endpoint, body, requestId, signal) => {
-          const res = await client.request<any>({ endpoint, body, requestId, signal });
-          return { data: res.data };
-        },
-        original as any,
-        'req_slice6',
-      );
-      // A probe on a factor already in the PU list (clone path) and one on a
-      // factor that is not (insert path) — the two branches at
-      // flip-thresholds.ts:840-859.
-      await inferenceFn('fac_headcount', 0.75);
-      await inferenceFn('fac_no_obs', 0.25);
-      expect(captured).toHaveLength(2);
-      return captured;
-    }
+    // A probe on a factor already in the PU list (clone path) and one on a
+    // factor that is not (insert path) — the two branches at
+    // flip-thresholds.ts:840-859.
+    const captureProbeBodies = async (): Promise<EgressCapture[]> => [
+      await runOne('flip-probe-clone'),
+      await runOne('flip-probe-insert'),
+    ];
 
     it('POSITIVE CONTROL: both probe branches produced real bytes with PU entries', async () => {
-      const [clonePath, insertPath] = await captureProbeBody();
-      expect(clonePath!.body.parameter_uncertainties.length).toBe(3);
-      expect(insertPath!.body.parameter_uncertainties.length).toBe(4);
-      for (const c of [clonePath!, insertPath!]) {
-        for (const p of c.body.parameter_uncertainties as any[]) {
+      const [clonePath, insertPath] = await captureProbeBodies();
+      const cloneBody = clonePath!.body as any;
+      const insertBody = insertPath!.body as any;
+
+      // The base body already carries the injected constraint PU, so the clone
+      // path is 4 and the insert path adds a fifth.
+      expect(cloneBody.parameter_uncertainties.length).toBe(4);
+      expect(insertBody.parameter_uncertainties.length).toBe(5);
+      expect(insertBody.parameter_uncertainties.map((p: any) => p.node_id)).toContain('fac_no_obs');
+
+      // The injected constraint PU survives the clone — the probe operates
+      // downstream of the injector, which is why this file captures at fetch.
+      for (const b of [cloneBody, insertBody]) {
+        expect(b.parameter_uncertainties.map((p: any) => p.node_id)).toContain('con_cost_cap');
+        for (const p of b.parameter_uncertainties as any[]) {
           expect(typeof p.std).toBe('number');
         }
       }
+
       // The probe moves observed_state.value — the field ISL actually reads.
-      const moved = (clonePath!.body.graph.nodes as any[]).find((n) => n.id === 'fac_headcount');
+      const moved = (cloneBody.graph.nodes as any[]).find((n) => n.id === 'fac_headcount');
       expect(moved.observed_state.value).toBe(0.75);
     });
 
     it('no parameter_uncertainties[].mean on either probe branch', async () => {
-      for (const c of await captureProbeBody()) {
+      for (const c of await captureProbeBodies()) {
         expect(undeclaredKeyPaths(c, collectParameterUncertainties, 'mean')).toEqual([]);
       }
     });
 
     it('no observed_state.metadata survives the probe clone', async () => {
-      for (const c of await captureProbeBody()) {
+      for (const c of await captureProbeBodies()) {
         expect(undeclaredKeyPaths(c, collectObservedStates, 'metadata')).toEqual([]);
       }
     });
   });
 
   describe('/v1/run → analyseRobustness — the second live ISL producer', () => {
-    async function captureV1Body(): Promise<Capture> {
-      process.env.ISL_ENABLE = '1';
-      process.env.ISL_BASE_URL = 'https://isl.test';
-      process.env.ISL_API_KEY = 'test-key';
-
-      const service = createISLService();
-      await service.analyseRobustness(
-        buildV1Graph(),
-        'goal_margin',
-        [
-          { id: 'opt_a', label: 'Hire', interventions: { fac_headcount: 0.8 } },
-          { id: 'opt_b', label: 'Hold', interventions: { fac_headcount: 0.2 } },
-        ],
-        'req_slice6_v1',
-      );
-      expect(captured).toHaveLength(1);
-      return captured[0]!;
-    }
+    const captureV1Body = () => runOne('v1-run-analyse-robustness');
 
     it('POSITIVE CONTROL: the /v1 body was captured and carries its declared edge fields', async () => {
       const c = await captureV1Body();
-      expect(c.body.graph.edges.length).toBe(2);
-      for (const e of c.body.graph.edges as any[]) {
+      const body = c.body as any;
+
+      expect(body.graph.edges.length).toBe(2);
+      for (const e of body.graph.edges as any[]) {
         expect(typeof e.from).toBe('string');
         expect(typeof e.to).toBe('string');
         expect(typeof e.exists_probability).toBe('number');
@@ -420,8 +292,8 @@ describe('PLoT → ISL egress carries no undeclared request key (slice 6)', () =
         expect(typeof e.strength.mean).toBe('number');
         expect(typeof e.strength.std).toBe('number');
       }
-      expect((c.body.graph.edges as any[]).map((e) => e.strength.mean)).toEqual([0.5, -0.4]);
-      expect((c.body.parameter_uncertainties as any[]).length).toBeGreaterThan(0);
+      expect((body.graph.edges as any[]).map((e) => e.strength.mean)).toEqual([0.5, -0.4]);
+      expect((body.parameter_uncertainties as any[]).length).toBeGreaterThan(0);
     });
 
     it('no graph.edges[].weight', async () => {
@@ -438,6 +310,72 @@ describe('PLoT → ISL egress carries no undeclared request key (slice 6)', () =
       const c = await captureV1Body();
       expect(undeclaredKeyPaths(c, collectObservedStates, 'metadata')).toEqual([]);
       expect(c.bodyText).not.toContain('cee_constraint_node');
+    });
+  });
+
+  /**
+   * The three groups above name the producers that were leaking at slice 6. A
+   * producer added LATER would not be covered by any of them — the same
+   * "the gate never reached that path" defect this file was migrated to fix,
+   * one level up. This sweep closes that by deriving its subjects from
+   * PRODUCERS rather than naming them.
+   *
+   * NOT VACUOUS (rule 2): the `causal-*` producers send no graph and no
+   * parameter_uncertainties at all, so an unguarded sweep would pass over them
+   * by inspecting nothing. The control below asserts the sweep actually
+   * inspected containers of all three kinds, and reports which producers were
+   * inspectable — so an instrument that went blind reports zero, not green.
+   */
+  describe('EVERY producer in the manifest, derived — no undeclared key anywhere', () => {
+    interface Inspected {
+      name: string;
+      pu: number;
+      edges: number;
+      observedStates: number;
+    }
+
+    async function sweep(): Promise<Inspected[]> {
+      const rows: Inspected[] = [];
+      for (const spec of PRODUCERS) {
+        for (const c of await spec.run()) {
+          // The RESPONSE-VERSION PIN, asserted on the wire rather than read off
+          // client.ts. ISL's V2 handler serialises with
+          // `model_dump(by_alias=True, exclude_none=True)`, which is recursive,
+          // so on THIS path a null field is OMITTED, never sent. Any capture of
+          // a `null`-bearing ISL body is therefore the LEGACY v1 format — a
+          // hand-curl without the pin — and says nothing about what PLoT
+          // receives. Pinned here so that scope cannot be mislaid again.
+          expect(c.url).toContain('response_version=2');
+          expect(undeclaredKeyPaths(c, collectParameterUncertainties, 'mean')).toEqual([]);
+          expect(undeclaredKeyPaths(c, collectEdges, 'weight')).toEqual([]);
+          expect(undeclaredKeyPaths(c, collectObservedStates, 'metadata')).toEqual([]);
+          expect(c.bodyText).not.toContain('cee_constraint_node');
+          rows.push({
+            name: spec.name,
+            pu: collectParameterUncertainties(c.body).length,
+            edges: collectEdges(c.body).length,
+            observedStates: collectObservedStates(c.body).length,
+          });
+        }
+      }
+      return rows;
+    }
+
+    it('no undeclared key on any producer, and the sweep inspected real containers', async () => {
+      const rows = await sweep();
+
+      // Every producer was driven and put at least one body on the wire.
+      expect(rows.length).toBeGreaterThanOrEqual(PRODUCERS.length);
+      expect(new Set(rows.map((r) => r.name))).toEqual(new Set(PRODUCERS.map((p) => p.name)));
+
+      // The sweep inspected containers of all three kinds — otherwise every
+      // absence assertion above passed by looking at nothing.
+      expect(rows.reduce((n, r) => n + r.pu, 0)).toBeGreaterThan(0);
+      expect(rows.reduce((n, r) => n + r.edges, 0)).toBeGreaterThan(0);
+      expect(rows.reduce((n, r) => n + r.observedStates, 0)).toBeGreaterThan(0);
+
+      // And the constraint-injection branch was reached inside the sweep too.
+      expect(rows.filter((r) => r.pu >= 4).length).toBeGreaterThan(0);
     });
   });
 });
