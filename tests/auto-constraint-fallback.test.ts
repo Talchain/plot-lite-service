@@ -501,9 +501,14 @@ describe('T6: Auto-constraint fallback via /v2/run', () => {
     );
     expect(autoRepair).toBeUndefined();
 
-    // No constraint_sources in _meta (no auto-constraint)
-    const constraintSources = (data?._meta as any)?.constraint_sources;
-    expect(constraintSources).toBeUndefined();
+    // constraint_sources is PRESENT but EMPTY: the constraint machinery ran and
+    // had nothing to attest (no auto-synthesis). The original intent of this
+    // assertion — no false provenance is claimed for a user-supplied constraint —
+    // is preserved and strengthened: the entry is absent from a map that exists,
+    // which is a positive statement, not silence. See T11/T12 below.
+    const meta = (data?._meta ?? {}) as Record<string, unknown>;
+    expect(Object.keys(meta)).toContain('constraint_sources');
+    expect(meta.constraint_sources).toEqual({});
   });
 
   it('does NOT synthesise when goal_threshold is absent (qualitative brief)', async () => {
@@ -646,10 +651,16 @@ describe('T6: Auto-constraint fallback via /v2/run', () => {
     );
     expect(autoRepair).toBeUndefined();
 
-    // Critical: constraint_sources should NOT be present because the user-supplied
-    // constraint has no `_internal` namespace — only auto-generated constraints carry it.
-    const constraintSources = (data?._meta as any)?.constraint_sources;
-    expect(constraintSources).toBeUndefined();
+    // Critical: the map is PRESENT but carries NO ENTRY for this constraint_id,
+    // because the user-supplied constraint has no `_internal` namespace — only
+    // auto-generated constraints carry it. Per-entry absence inside a present map
+    // is the unambiguous "not auto-generated" signal; whole-map absence is not
+    // (T11/T12). Asserting the entry is absent AND the map is empty is strictly
+    // stronger than the previous `toBeUndefined()` on the whole map.
+    const meta = (data?._meta ?? {}) as Record<string, unknown>;
+    expect(Object.keys(meta)).toContain('constraint_sources');
+    expect((meta.constraint_sources as Record<string, string>).auto_goal_threshold).toBeUndefined();
+    expect(meta.constraint_sources).toEqual({});
   });
 
   // T10: User-supplied _internal is stripped at ingress — client cannot spoof provenance.
@@ -683,6 +694,83 @@ describe('T6: Auto-constraint fallback via /v2/run', () => {
     // the spoofed provenance — only server-synthesised constraints carry _internal.
     const constraintSources = (data?._meta as any)?.constraint_sources;
     expect(constraintSources?.spoofed_constraint).toBeUndefined();
+  });
+
+  // ===========================================================================
+  // T11/T12: the attestation's MAP-LEVEL absence semantics.
+  //
+  // Per-ENTRY absence has always been unambiguous ("this constraint is not
+  // auto-derived"). Whole-MAP absence was not: the emission used to be guarded
+  // by `Object.keys(sources).length > 0`, so a run whose constraint set produced
+  // no entries emitted no key at all — byte-identical to a run with no
+  // constraints, and to a future bug that drops the attestation entirely. A
+  // consumer then had to either fabricate an origin from silence or fail closed
+  // on legitimate runs. Only the producer can tell those states apart, so the
+  // producer now states it:
+  //
+  //   map PRESENT and EMPTY  = the constraint machinery ran, nothing to attest
+  //   map ABSENT             = there were no constraints at all
+  //
+  // T11 and T12 are a matched pair: T11 pins the empty map, T12 pins that the
+  // absent case did NOT collapse into it. Neither is sufficient alone — T11 with
+  // an unconditional emission would pass while destroying the distinction it
+  // exists to create.
+  // ===========================================================================
+
+  it('T11: an all-user-constraint run emits constraint_sources: {} — NOT an omitted key', async () => {
+    vi.resetModules();
+    server = await spawnServer({ env: ENV });
+
+    const { status, data } = await requestJSON(`${server.baseUrl}/v2/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        graph: VALID_GRAPH,
+        options: VALID_OPTIONS,
+        goal_node_id: 'goal',
+        goal_threshold: 0.7,
+        // Explicit user constraint: auto-synthesis cannot fire (it only fires
+        // when the compiled constraint set is EMPTY), so no constraint carries
+        // `_internal.source` and the sources map is legitimately empty.
+        goal_constraints: [
+          { constraint_id: 'mrr_target', node_id: 'mrr_factor', operator: '>=', value: 20000 },
+        ],
+      }),
+    });
+
+    expect(status).toBe(200);
+
+    const meta = (data?._meta ?? {}) as Record<string, unknown>;
+    // The KEY must exist. `?.constraint_sources` would read `undefined` for both
+    // "absent" and "present but undefined", so assert on the key itself.
+    expect(Object.keys(meta)).toContain('constraint_sources');
+    expect(meta.constraint_sources).toEqual({});
+    // And it must serialise as an empty object on the wire, not vanish.
+    expect(JSON.stringify(meta.constraint_sources)).toBe('{}');
+  });
+
+  it('T12: a run with NO constraints omits constraint_sources entirely (absent ≠ empty)', async () => {
+    vi.resetModules();
+    server = await spawnServer({ env: ENV });
+
+    const { status, data } = await requestJSON(`${server.baseUrl}/v2/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        graph: VALID_GRAPH,
+        options: VALID_OPTIONS,
+        goal_node_id: 'goal',
+        // No goal_constraints, no goal_threshold, no constraint nodes in the
+        // graph → auto-synthesis does not fire and activeGoalConstraints stays
+        // undefined. The constraint machinery never ran; there is nothing to
+        // attest about, so the producer says nothing.
+      }),
+    });
+
+    expect(status).toBe(200);
+
+    const meta = (data?._meta ?? {}) as Record<string, unknown>;
+    expect(Object.keys(meta)).not.toContain('constraint_sources');
   });
 });
 

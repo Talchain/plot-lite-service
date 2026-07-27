@@ -3595,6 +3595,19 @@ function buildResponse(
       // Uses the _internal namespace (set during Phase 1c+ synthesis) rather than
       // matching on constraint_id, so user-supplied constraints with the same ID
       // are never misclassified as auto-generated.
+      //
+      // The map is emitted WHENEVER constraints exist, INCLUDING when it is empty.
+      // The two absence states are different claims and only this producer can tell
+      // them apart:
+      //   present + EMPTY  → the constraint machinery ran and none of the constraints
+      //                      is auto-derived (they came from the request or the graph)
+      //   ABSENT           → there were no constraints at all
+      // Guarding the assignment on `Object.keys(sources).length > 0` collapsed those
+      // two into one byte-identical silence, leaving a consumer to either fabricate a
+      // provenance from that silence or fail closed on every legitimate user-constraint
+      // run. Per-ENTRY absence remains the "not auto-generated" signal, and is now a
+      // positive statement made inside a map that exists. Tests T11/T12,
+      // tests/auto-constraint-fallback.test.ts.
       if (goalConstraints?.length) {
         const sources: Record<string, string> = {};
         for (const c of goalConstraints) {
@@ -3603,9 +3616,7 @@ function buildResponse(
             sources[c.constraint_id] = internal.source;
           }
         }
-        if (Object.keys(sources).length > 0) {
-          (baseMeta as any).constraint_sources = sources;
-        }
+        (baseMeta as any).constraint_sources = sources;
       }
 
       // Surface filtered constraints (non-evaluable temporal constraints dropped before ISL)
