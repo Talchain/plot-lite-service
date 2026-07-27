@@ -1429,7 +1429,6 @@
         "node_id": "fac_dev_headcount",
         "label": "Developer Headcount Added",
         "sensitivity_score": 0,
-        "importance_score": 0,
         "importance_rank": 4,
         "elasticity": 0,
         "direction": "positive",
@@ -1443,7 +1442,7 @@
         "isl_request_id": "__VOLATILE__",
         "n_samples": 10000
       },
-      "content_hash": "38fd5d2b2f426534"
+      "content_hash": "ca00892ac3008435"
     },
     {
       "fact_id": "__VOLATILE__",
@@ -1457,8 +1456,7 @@
         "type": "factor_sensitivity",
         "node_id": "fac_hiring_cost",
         "label": "Hiring and Salary Cost",
-        "sensitivity_score": 0.4971042471042471,
-        "importance_score": 0.4971042471042471,
+        "sensitivity_score": -0.175,
         "importance_rank": 1,
         "elasticity": 0.4971042471042471,
         "direction": "negative",
@@ -1472,7 +1470,7 @@
         "isl_request_id": "__VOLATILE__",
         "n_samples": 10000
       },
-      "content_hash": "bfe2baa993203588"
+      "content_hash": "8bf27aa493fa8147"
     },
     {
       "fact_id": "__VOLATILE__",
@@ -1486,8 +1484,7 @@
         "type": "factor_sensitivity",
         "node_id": "fac_team_maturity",
         "label": "Team Technical Maturity",
-        "sensitivity_score": 0.39045780474351904,
-        "importance_score": 0.39045780474351904,
+        "sensitivity_score": 0.13745631067961164,
         "importance_rank": 2,
         "elasticity": 0.39045780474351904,
         "direction": "positive",
@@ -1501,7 +1498,7 @@
         "isl_request_id": "__VOLATILE__",
         "n_samples": 10000
       },
-      "content_hash": "1c5920bad28446f5"
+      "content_hash": "bb8f27b786aa4293"
     },
     {
       "fact_id": "__VOLATILE__",
@@ -1516,7 +1513,6 @@
         "node_id": "fac_tech_lead",
         "label": "Tech Lead in Place",
         "sensitivity_score": 0,
-        "importance_score": 0,
         "importance_rank": 3,
         "elasticity": 0,
         "direction": "positive",
@@ -1530,7 +1526,7 @@
         "isl_request_id": "__VOLATILE__",
         "n_samples": 10000
       },
-      "content_hash": "d7e7a5dca2cbc1df"
+      "content_hash": "1189262c579365ff"
     },
     {
       "fact_id": "__VOLATILE__",

@@ -40,12 +40,19 @@ export interface OptionResultInput {
   };
 }
 
-/** Minimal factor sensitivity shape. */
+/**
+ * Minimal factor sensitivity shape.
+ *
+ * FAMILY-4 SLICE 0 (2026-07-27): `importance_score` was removed. It was never
+ * an input any caller supplied — `FactorSensitivityResultV3` has no
+ * `importance_score` member and "it has never been on the wire"
+ * (src/contracts/isl-to-ui.contract.ts:36-40) — so the `?? f.sensitivity_score`
+ * fallback below it unconditionally SYNTHESISED an alias of another quantity.
+ */
 export interface FactorSensitivityInput {
   node_id: string;
   label?: string;
   sensitivity_score?: number;
-  importance_score?: number;
   importance_rank: number;
   elasticity?: number;
   direction?: 'positive' | 'negative' | 'mixed';
@@ -146,14 +153,26 @@ function mapFactorSensitivity(
   lineage: FactLineage,
 ): FactObjectV1[] {
   return factors.map((f, idx) => {
+    // ── FAMILY-4 SLICE 0 (2026-07-27) ──────────────────────────────────────
+    // `sensitivity_score` and `elasticity` are DIFFERENT quantities. They are
+    // now forwarded verbatim, each omitted when the producer did not measure
+    // it. Removed here, deliberately:
+    //   - `importance_score: f.importance_score ?? f.sensitivity_score ?? 0`
+    //     — `f.importance_score` is always undefined (no member exists on
+    //     `FactorSensitivityResultV3`), so this emitted a same-named ALIAS of
+    //     `sensitivity_score`. A third name for a number that already had two.
+    //   - `elasticity: f.elasticity ?? f.sensitivity_score ?? 0` — a
+    //     CROSS-QUANTITY fallback: absent elasticity silently became the
+    //     sensitivity score under the elasticity name.
+    //   - the `?? 0` coalescers — absent means "unavailable", NOT zero; a
+    //     fabricated 0 reads to every downstream ranker as "least important".
     const data: FactorSensitivityFactData = {
       type: 'factor_sensitivity',
       node_id: f.node_id,
       label: f.label ?? f.node_id,
-      sensitivity_score: f.sensitivity_score ?? 0,
-      importance_score: f.importance_score ?? f.sensitivity_score ?? 0,
+      ...(f.sensitivity_score !== undefined && { sensitivity_score: f.sensitivity_score }),
       importance_rank: f.importance_rank ?? idx + 1,
-      elasticity: f.elasticity ?? f.sensitivity_score ?? 0,
+      ...(f.elasticity !== undefined && { elasticity: f.elasticity }),
       direction: f.direction === 'mixed' ? 'positive' : (f.direction ?? 'positive'),
       confidence: f.confidence ?? 0.5,
       attribution_stability: f.attribution_stability ?? 'moderate',

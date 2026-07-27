@@ -35,8 +35,15 @@ export const ISL_TO_UI_CONTRACT: BoundaryContract = {
     //
     // `FactorSensitivityResultV3` has no `importance_score` member at all, so
     // this is dropped on BOTH paths — graph-primary AND the ISL-only fallback.
-    // It has never been on the wire. (`src/facts/mapper.ts` SYNTHESISES one from
-    // the already-substituted PLoT row; that is not a passthrough.)
+    // It has never been on the wire.
+    //
+    // ⭐ UPDATED — family-4 slice 0, 2026-07-27. This entry used to end
+    // "(`src/facts/mapper.ts` SYNTHESISES one from the already-substituted PLoT
+    // row; that is not a passthrough.)" — an accurate confession of a live
+    // defect: the drop was declared here while a same-named field WAS in fact
+    // emitted, one level down, inside `fact_objects[].data`. That synthesis has
+    // been REMOVED (`mapFactorSensitivity`), so the drop is now true of the
+    // whole /v2/run body rather than of `factor_sensitivity[]` alone.
     'factor_sensitivity[].importance_score',
     // ISL's own MC uncertainty-importance ordering. On the graph-primary path
     // the published `factor_sensitivity[].importance_rank` is PLoT's own

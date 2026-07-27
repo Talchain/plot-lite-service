@@ -149,7 +149,14 @@ function buildTopDriverCard(
     card_type: 'challenge',
     review_phase: 'post_analysis',
     what: `Factor "${data.label}" is a top driver (rank ${data.importance_rank})`,
-    why: `High-importance driver with sensitivity score ${data.sensitivity_score}`,
+    // FAMILY-4 SLICE 0 (2026-07-27): `sensitivity_score` is now optional and is
+    // OMITTED when the producer did not measure it, so this prose must have an
+    // absence branch — printing "sensitivity score undefined" (or a fabricated
+    // 0) is exactly the failure the slice exists to remove.
+    why:
+      data.sensitivity_score !== undefined
+        ? `High-importance driver with sensitivity score ${data.sensitivity_score}`
+        : 'High-importance driver; no sensitivity score was measured for this factor',
     supporting_refs: [ref],
     affected_node_ids: [data.node_id],
     priority: 2,
