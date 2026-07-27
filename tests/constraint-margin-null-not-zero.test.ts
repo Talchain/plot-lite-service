@@ -344,6 +344,98 @@ describe('INSTANCE B — a wire `null` margin must never become a measured zero'
   });
 
   // =========================================================================
+  // The ABSENCE TEST itself had to become null-aware, or it fabricates a
+  // DIFFERENT field. Pinned separately because reverting only this hunk left
+  // every other assertion in this file green (trap 11: a fix whose revert
+  // turns nothing red is unpinned).
+  // =========================================================================
+
+  describe('an all-absent constraint row is dropped, not emitted with a fabricated binding:false', () => {
+    /**
+     * ISL sends every margin as null AND omits `binding`. The old guard tested
+     * `=== undefined` on the two margins, so null failed it, the row survived,
+     * and `binding: c.binding ?? false` then asserted the constraint is NOT the
+     * binding limiter — a verdict nobody computed. `binding` is required on
+     * ConstraintDiagnostic, so the only honest option is to emit no row.
+     */
+    function allAbsentRow(probSatisfied: number) {
+      return {
+        constraints: [
+          {
+            constraint_id: CONSTRAINT_ID,
+            node_id: 'fac_cost',
+            operator: '<=',
+            value: 50000,
+            prob_satisfied: probSatisfied,
+            failure_margin_median: null,
+            near_miss_fraction: null,
+            // `binding` deliberately OMITTED — nothing to report at all.
+          },
+        ],
+        joint_probability: probSatisfied,
+      };
+    }
+
+    it('emits no constraint_diagnostics row at all', async () => {
+      mockConstraintAnalysisByOption = {
+        opt_under: allAbsentRow(1.0),
+        opt_just_over: allAbsentRow(0.0),
+      };
+
+      const body = await runAnalysis(app, { ...BASE_PAYLOAD, goal_constraints: GOAL_CONSTRAINTS });
+
+      expect(
+        diagnosticEntry(body),
+        'nothing was measured for this constraint, so no diagnostic may be asserted about it',
+      ).toBeUndefined();
+    });
+
+    it('never claims binding:false for a constraint ISL said nothing about', async () => {
+      mockConstraintAnalysisByOption = {
+        opt_under: allAbsentRow(1.0),
+        opt_just_over: allAbsentRow(0.0),
+      };
+
+      const body = await runAnalysis(app, { ...BASE_PAYLOAD, goal_constraints: GOAL_CONSTRAINTS });
+
+      const fabricated = (body.constraint_diagnostics ?? []).filter(
+        (d: any) => d.binding === false,
+      );
+      expect(fabricated, 'binding:false is a verdict, not a default').toEqual([]);
+    });
+
+    it('POSITIVE CONTROL — a row carrying only `binding` IS still emitted', async () => {
+      // Guards against over-correction: a binding-only row is a real ISL
+      // finding (the constraint IS the limiter) and must survive, with no
+      // fabricated margins attached.
+      const bindingOnly = {
+        constraints: [
+          {
+            constraint_id: CONSTRAINT_ID,
+            node_id: 'fac_cost',
+            operator: '<=',
+            value: 50000,
+            prob_satisfied: 0.0,
+            failure_margin_median: null,
+            near_miss_fraction: null,
+            binding: true,
+          },
+        ],
+        joint_probability: 0.0,
+      };
+      mockConstraintAnalysisByOption = { opt_under: bindingOnly, opt_just_over: bindingOnly };
+
+      const body = await runAnalysis(app, { ...BASE_PAYLOAD, goal_constraints: GOAL_CONSTRAINTS });
+      const diag = diagnosticEntry(body);
+
+      expect(diag, 'a genuine binding finding must reach egress').toBeDefined();
+      expect(diag.binding).toBe(true);
+      expect(diag.failure_margin_median).toBeUndefined();
+      expect(diag.near_miss_fraction).toBeUndefined();
+    });
+  });
+
+  // =========================================================================
   // The ASYMMETRY, pinned — near_miss_fraction is already safe, and WHY.
   // =========================================================================
 

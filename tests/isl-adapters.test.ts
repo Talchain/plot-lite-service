@@ -169,14 +169,58 @@ describe('Validation Adapter', () => {
   });
 
   describe('createFallbackValidation', () => {
-    it('creates uncertain status fallback', () => {
+    /**
+     * UPDATED (ROADMAP 1.240). This test previously asserted
+     * `status === 'uncertain'` — it PINNED THE DEFECT. 'uncertain' is the same
+     * value ISL's `partially_identifiable` maps to, so routes/v1/run.ts could
+     * not tell a real verdict from a non-result and rendered "ISL validation
+     * reports partial identifiability" with source:'isl' on a 404.
+     *
+     * Corrected at the source rather than absorbed into a baseline: the
+     * fallback must be a TYPED REFUSAL that no verdict branch can consume.
+     */
+    it('returns a typed unavailable status — never a verdict', () => {
       const result = createFallbackValidation('ISL timeout');
 
-      expect(result.status).toBe('uncertain');
+      expect(result.status).toBe('unavailable');
       expect(result.confidence).toBe('low');
       expect(result.explanation.summary).toContain('unavailable');
       expect(result.explanation.reasoning).toBe('ISL timeout');
       expect(result.source).toBe('engine_fallback');
+    });
+
+    it('is distinguishable from every status ISL can actually return', () => {
+      const fallback = createFallbackValidation('404 Not Found');
+      const islVerdicts = (['identifiable', 'partially_identifiable', 'not_identifiable'] as const).map(
+        (status) =>
+          adaptValidationResponse({
+            status,
+            robustness: 'high',
+            adjustment_sets: [],
+            minimal_adjustment_set: [],
+            suggestions: [],
+          }).status,
+      );
+
+      expect(islVerdicts).not.toContain(fallback.status);
+    });
+  });
+
+  describe('adaptValidationResponse — an UNDECLARED ISL status is not a verdict either', () => {
+    it('maps an unrecognised status to unavailable, not to uncertain', () => {
+      // Undeclared wire data: ISL sent something outside its three declared
+      // values. The old default was 'uncertain' — a scientific verdict
+      // manufactured from a value PLoT could not interpret, and then attributed
+      // to ISL. Same fabrication class as the 404 fallback.
+      const result = adaptValidationResponse({
+        status: 'some_future_status' as never,
+        robustness: 'high',
+        adjustment_sets: [],
+        minimal_adjustment_set: [],
+        suggestions: [],
+      });
+
+      expect(result.status).toBe('unavailable');
     });
   });
 });
