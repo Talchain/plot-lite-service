@@ -3,9 +3,46 @@
  *
  * Tests injectConstraintParameterUncertainties() in isolation without
  * any HTTP server or ISL mock — pure function tests.
+ *
+ * ---------------------------------------------------------------------------
+ * ROW 1.236(b), 2026-07-27: `tests/constraint-auto-uncertainty.test.ts` WAS
+ * RETIRED INTO THIS FILE. That file did not test the product. It carried its own
+ * local `augmentParameterUncertainties()` — a hand-maintained COPY of the Phase
+ * 4b+ logic, written when that logic was inline in run.ts. Production moved to
+ * `injectConstraintParameterUncertainties` here, the copy was hand-updated twice
+ * (most recently by contract step-2 slice 6, removing the `mean` key), and a
+ * green run there proved something about the copy, never about the ISL request
+ * PLoT sends. Slice 6 disclosed it loudly in the file; a disclosure is not a fix.
+ *
+ * The copy had also DIVERGED from production in three ways that its own green
+ * run could never have shown — which is the argument, not a footnote:
+ *   1. NO GOAL-NODE GUARD. Production skips a constraint on the goal node
+ *      (`{reason: 'goal_node'}`); the copy had no `goalNodeId` parameter at all
+ *      and would have injected a PU for it.
+ *   2. WRONG WARNING FOR A MISSING NODE. Production distinguishes
+ *      `plot.constraint_missing_node` from `plot.constraint_no_observed_value`;
+ *      the copy folded both into the latter.
+ *   3. OPPOSITE MUTATION SEMANTICS. The copy returned a new array and mutated
+ *      nothing; production REPLACES `islRequest.parameter_uncertainties`.
+ *
+ * Case-by-case disposition (nothing was dropped without a reason):
+ *   - "adds a PU entry for the constrained node"      → duplicate of T1
+ *   - "does not create a duplicate entry"             → duplicate of T2
+ *   - "multiple constraints on different nodes"       → duplicate of T6 / T7
+ *   - "root node constraint still adds PU"            → the real function never
+ *     reads edges, so root/non-root is not a production branch; re-pointed to
+ *     the true and stronger claim (topology is not an input), below.
+ *   - "no observed_state.value → warns"               → the skip is T3; the LOG
+ *     DISCLOSURE was unique and is re-pointed below.
+ *   - "original array not mutated"                    → re-pointed to what is
+ *     actually true of the real function, below.
+ *   - "duplicate constraints on the same node"        → unique for the injector;
+ *     re-pointed below (it existed only on the selector before).
+ * ---------------------------------------------------------------------------
  */
 
 import { describe, it, expect } from 'vitest';
+import type { FastifyBaseLogger } from 'fastify';
 import {
   injectConstraintParameterUncertainties,
   selectConstraintInjectedPuNodeIds,
@@ -49,6 +86,21 @@ function makeConstraint(nodeId: string, constraintId?: string): GoalConstraint {
     operator: '>=',
     value: 0.5,
   };
+}
+
+interface CapturedLogs {
+  info: Array<Record<string, unknown>>;
+  warn: Array<Record<string, unknown>>;
+}
+
+/** Minimal recorder for the two levels the injector uses. */
+function makeLogger(): { logger: FastifyBaseLogger; logs: CapturedLogs } {
+  const logs: CapturedLogs = { info: [], warn: [] };
+  const logger = {
+    info: (obj: Record<string, unknown>) => logs.info.push(obj),
+    warn: (obj: Record<string, unknown>) => logs.warn.push(obj),
+  } as unknown as FastifyBaseLogger;
+  return { logger, logs };
 }
 
 // ---------------------------------------------------------------------------
@@ -240,6 +292,184 @@ describe('injectConstraintParameterUncertainties', () => {
     );
     expect(result.injected).toEqual([]);
     expect(result.skipped).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Re-pointed from the retired tests/constraint-auto-uncertainty.test.ts.
+// Every case below calls the PRODUCTION function; there is no local copy left in
+// the tree. See the file header for the case-by-case disposition.
+// ---------------------------------------------------------------------------
+
+describe('injectConstraintParameterUncertainties — disclosure log + shape (re-pointed, row 1.236b)', () => {
+  it('pins the VALUE of CONSTRAINT_PINNED_STD, not just the wiring to it', () => {
+    // Every other assertion in this file compares against the exported constant,
+    // so changing the constant moves both sides and nothing goes red — the
+    // assertion tests its own input. Mutation-checked: 0.001 → 0.002 left all 17
+    // other cases green. The retired constraint-auto-uncertainty.test.ts pinned
+    // the literal 0.001, and merging it in must not lose that.
+    //
+    // The number is not cosmetic: it is what ISL receives as the sampling width
+    // for a constrained node, and it is deliberately far below every other std
+    // path (user-supplied clamp, DEFAULT_STD_FLOOR, the 0.01 external-prior
+    // floor) so a constrained node is effectively pinned to its observed value.
+    expect(CONSTRAINT_PINNED_STD).toBe(0.001);
+  });
+
+  it('discloses the observed value it keyed on in the LOG, which is the only place it now survives', () => {
+    // This is the case the retired file was really carrying. Slice 6 removed
+    // `mean` from the wire entry because ISL declares none; the value is still
+    // load-bearing evidence, so the injector reports it twice — on the
+    // InjectedPU record (which becomes a /v2/run `repairs[]` entry) and in this
+    // log line. Assert BOTH, so a later cleanup cannot quietly drop the last
+    // trace of what the pinned std was pinned TO.
+    const islReq = makeISLRequest();
+    const nodes = [makeNode('n1', 0.62)];
+    const { logger, logs } = makeLogger();
+
+    const result = injectConstraintParameterUncertainties(
+      islReq, [makeConstraint('n1', 'c-obs')], nodes, 'goal', logger,
+    );
+
+    expect(result.injected).toEqual([{ node_id: 'n1', mean: 0.62, std: CONSTRAINT_PINNED_STD }]);
+    expect(logs.info).toHaveLength(1);
+    expect(logs.info[0]).toMatchObject({
+      event: 'plot.constraint_auto_uncertainty',
+      node_id: 'n1',
+      constraint_id: 'c-obs',
+      observed_value: 0.62,
+      distribution: 'normal',
+      std: CONSTRAINT_PINNED_STD,
+    });
+    // …and it is NOT on the wire entry (ISL's ParameterUncertainty declares no
+    // `mean`; contract step-2 slice 6, pinned by isl-request-drift-pairing).
+    expect(islReq.parameter_uncertainties![0]).not.toHaveProperty('mean');
+  });
+
+  it('warns plot.constraint_no_observed_value when the node has no observed_state.value', () => {
+    const islReq = makeISLRequest();
+    const { logger, logs } = makeLogger();
+
+    const result = injectConstraintParameterUncertainties(
+      islReq, [makeConstraint('n1', 'c-noval')], [makeNode('n1')], 'goal', logger,
+    );
+
+    expect(result.skipped).toEqual([{ node_id: 'n1', reason: 'missing_observed_state' }]);
+    expect(logs.warn).toHaveLength(1);
+    expect(logs.warn[0]).toMatchObject({
+      event: 'plot.constraint_no_observed_value',
+      node_id: 'n1',
+      constraint_id: 'c-noval',
+    });
+    expect(logs.info).toHaveLength(0);
+  });
+
+  it('warns plot.constraint_missing_node — a DIFFERENT event from the value-less case', () => {
+    // The retired copy folded these two into one warning. They are different
+    // operator-facing conditions: a node absent from the graph is a caller bug;
+    // a node without an observed value is a data gap. Pinning both event names
+    // is what stops them re-merging.
+    const islReq = makeISLRequest();
+    const { logger, logs } = makeLogger();
+
+    const result = injectConstraintParameterUncertainties(
+      islReq, [makeConstraint('ghost', 'c-ghost')], [], 'goal', logger,
+    );
+
+    expect(result.skipped).toEqual([{ node_id: 'ghost', reason: 'missing_node' }]);
+    expect(logs.warn).toHaveLength(1);
+    expect(logs.warn[0]).toMatchObject({
+      event: 'plot.constraint_missing_node',
+      node_id: 'ghost',
+      constraint_id: 'c-ghost',
+    });
+  });
+
+  it('skips the goal node — a guard the retired copy did not implement at all', () => {
+    const islReq = makeISLRequest();
+    const { logger, logs } = makeLogger();
+
+    const result = injectConstraintParameterUncertainties(
+      islReq,
+      [makeConstraint('goal', 'c-goal')],
+      [{ id: 'goal', kind: 'goal', label: 'Goal', observed_state: { value: 0.8 } } as EngineNodeV3],
+      'goal',
+      logger,
+    );
+
+    expect(result.injected).toEqual([]);
+    expect(result.skipped).toEqual([{ node_id: 'goal', reason: 'goal_node' }]);
+    // A goal-node skip is expected, not exceptional — no operator warning.
+    expect(logs.warn).toHaveLength(0);
+    expect(islReq.parameter_uncertainties).toHaveLength(0);
+  });
+
+  it('injects exactly one entry for duplicate constraints on the same node', () => {
+    const islReq = makeISLRequest();
+    const { logger, logs } = makeLogger();
+
+    const result = injectConstraintParameterUncertainties(
+      islReq,
+      [makeConstraint('n1', 'c1'), makeConstraint('n1', 'c2')],
+      [makeNode('n1', 0.5)],
+      'goal',
+      logger,
+    );
+
+    expect(result.injected).toHaveLength(1);
+    expect(islReq.parameter_uncertainties!.filter((p) => p.node_id === 'n1')).toHaveLength(1);
+    // The second constraint takes the `existing` branch: no entry, no skip, no log.
+    expect(result.skipped).toEqual([]);
+    expect(logs.info).toHaveLength(1);
+  });
+
+  it('REPLACES islRequest.parameter_uncertainties and never mutates the caller’s array in place', () => {
+    // The retired copy asserted "the original is not mutated" of a function that
+    // returned a new array. The production function mutates the REQUEST. Both
+    // halves matter: callers that kept a reference to the array they passed in
+    // (the /v2/run factor-PU list is reused for the admission plan) must not see
+    // it grow underneath them.
+    const callerArray: NonNullable<ISLRobustnessRequestV3['parameter_uncertainties']> = [
+      { node_id: 'existing', distribution: 'normal', std: 0.1 },
+    ];
+    const islReq = makeISLRequest(callerArray);
+
+    injectConstraintParameterUncertainties(
+      islReq, [makeConstraint('n1')], [makeNode('n1', 0.4)], 'goal',
+    );
+
+    expect(callerArray).toHaveLength(1);
+    expect(callerArray[0]!.node_id).toBe('existing');
+    expect(islReq.parameter_uncertainties).toHaveLength(2);
+    expect(islReq.parameter_uncertainties).not.toBe(callerArray);
+  });
+
+  it('graph TOPOLOGY is not an input: a root node and a non-root node are treated identically', () => {
+    // Re-points the retired "root node constraint still adds PU" case. That test
+    // built a two-edge graph to make its node "non-root", but
+    // injectConstraintParameterUncertainties never reads edges — it takes
+    // `graphNodes`, not a graph. So root/non-root was never a branch of the
+    // product, and the old case could only ever have re-tested the copy. The
+    // claim that IS true, and is worth pinning, is the independence itself.
+    const rootReq = makeISLRequest();
+    injectConstraintParameterUncertainties(
+      rootReq, [makeConstraint('n1')], [makeNode('n1', 0.3)], 'goal',
+    );
+
+    const nonRootReq = makeISLRequest();
+    injectConstraintParameterUncertainties(
+      nonRootReq,
+      [makeConstraint('n1')],
+      // Same node, plus an upstream parent — i.e. "non-root" in every sense the
+      // retired test meant. The function takes no edges, so it cannot differ.
+      [makeNode('parent', 0.9), makeNode('n1', 0.3)],
+      'goal',
+    );
+
+    expect(nonRootReq.parameter_uncertainties).toEqual(rootReq.parameter_uncertainties);
+    expect(rootReq.parameter_uncertainties).toEqual([
+      { node_id: 'n1', distribution: 'normal', std: CONSTRAINT_PINNED_STD },
+    ]);
   });
 });
 
