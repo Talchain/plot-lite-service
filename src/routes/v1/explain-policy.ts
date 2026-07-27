@@ -11,6 +11,8 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { replyWithAppError } from '../../errors.js';
 import { isFlagOn } from '../../cee/codes.js';
 import { validateSequentialGraph, isSequentialGraph } from '../../util/sequential-validation.js';
+import { validatePolicyTreeShape } from '../../util/policy-tree-validation.js';
+import { isFiniteNumber } from '../../util/numeric.js';
 import type {
   ExplainPolicyRequest,
   ExplainPolicyResponse,
@@ -107,99 +109,6 @@ async function callCeeExplainPolicy(
 }
 
 /**
- * Validate the untrusted `policy_tree` down to the fields this handler reads.
- *
- * ## Why this exists
- *
- * The route casts `req.body as ExplainPolicyRequest` and previously validated
- * only that `policy_tree`, `policy_tree.nodes` and `policy_tree.root_id` were
- * *truthy*. Everything below that was read as if the TypeScript types were
- * enforced at the wire, and they are not: a node without `children` reached
- * `n.children.length` and the resulting TypeError surfaced to callers as an
- * opaque 500 "Something went wrong". Reproduced live on staging build
- * `220739b` with `{"policy_tree":{"root_id":"r","depth":2,"nodes":[{"id":"r"}]}}`.
- *
- * This is the same defect class PR #265 fixed for `sequential_metadata`.
- * That fix made `validateSequentialGraph` total; `policy_tree` was left
- * unhardened, and this route also re-reads `sequential_metadata.stages`
- * directly (see `readStageLabels`), on a path the validator does not cover.
- *
- * ## The rule for anyone editing this file
- *
- * Every field of `policy_tree` or `graph` that the handler reads must either
- * be validated here (typed 400) or be read totally (no throw, no fabricated
- * output) at the point of use. Malformed input must produce an honest
- * envelope, never a 500.
- *
- * Load-bearing fields are validated because the analysis is genuinely
- * uncomputable without them:
- * - `nodes[].stage`          — the grouping key, and a required response field
- * - `nodes[].expected_value` — arithmetic input; also `.toFixed()` in the output
- * - `nodes[].children`       — the sole terminal-node discriminator
- * Cosmetic fields (`type`, `label`, `action`, `policy_summary`) are read
- * totally instead, so a request that succeeds today keeps succeeding.
- */
-function validatePolicyTreeShape(
-  policyTree: IslPolicyTreeResponse
-): { code: string; field: string; message: string } | null {
-  if (!Array.isArray(policyTree.nodes)) {
-    return {
-      code: 'INVALID_POLICY_TREE',
-      field: 'policy_tree.nodes',
-      message: `policy_tree.nodes must be an array of policy tree nodes, received ${policyTree.nodes === null ? 'null' : typeof policyTree.nodes}.`,
-    };
-  }
-
-  for (let i = 0; i < policyTree.nodes.length; i++) {
-    const node = policyTree.nodes[i] as unknown;
-
-    if (node === null || typeof node !== 'object' || Array.isArray(node)) {
-      return {
-        code: 'INVALID_POLICY_TREE_NODE',
-        field: `policy_tree.nodes[${i}]`,
-        message: `policy_tree.nodes[${i}] is not a policy tree node — expected an object, received ${node === null ? 'null' : Array.isArray(node) ? 'array' : typeof node}.`,
-      };
-    }
-
-    const n = node as Record<string, unknown>;
-
-    if (typeof n.id !== 'string' || n.id.length === 0) {
-      return {
-        code: 'INVALID_POLICY_TREE_NODE',
-        field: `policy_tree.nodes[${i}].id`,
-        message: `policy_tree.nodes[${i}] is missing a non-empty string "id".`,
-      };
-    }
-
-    if (typeof n.stage !== 'number' || !Number.isFinite(n.stage)) {
-      return {
-        code: 'INVALID_POLICY_TREE_NODE',
-        field: `policy_tree.nodes[${i}].stage`,
-        message: `policy_tree.nodes[${i}] ("${n.id}") has "stage" of type ${n.stage === null ? 'null' : typeof n.stage}, expected a finite number. Stage explanations are grouped by this value.`,
-      };
-    }
-
-    if (typeof n.expected_value !== 'number' || !Number.isFinite(n.expected_value)) {
-      return {
-        code: 'INVALID_POLICY_TREE_NODE',
-        field: `policy_tree.nodes[${i}].expected_value`,
-        message: `policy_tree.nodes[${i}] ("${n.id}") has "expected_value" of type ${n.expected_value === null ? 'null' : typeof n.expected_value}, expected a finite number. Risk and rationale figures are computed from it.`,
-      };
-    }
-
-    if (!Array.isArray(n.children)) {
-      return {
-        code: 'INVALID_POLICY_TREE_NODE',
-        field: `policy_tree.nodes[${i}].children`,
-        message: `policy_tree.nodes[${i}] ("${n.id}") has "children" of type ${n.children === null ? 'null' : typeof n.children}, expected an array of child node IDs. Terminal nodes are identified by an empty "children" array.`,
-      };
-    }
-  }
-
-  return null;
-}
-
-/**
  * Read stage labels from `graph.sequential_metadata.stages` without trusting
  * its shape.
  *
@@ -220,7 +129,7 @@ function readStageLabels(graph: ExplainPolicyRequest['graph']): Map<number, stri
   for (const stage of rawStages) {
     if (stage === null || typeof stage !== 'object') continue;
     const { index, label } = stage as { index?: unknown; label?: unknown };
-    if (typeof index !== 'number' || !Number.isFinite(index)) continue;
+    if (!isFiniteNumber(index)) continue;
     if (typeof label !== 'string' || label.length === 0) continue;
     stageLabels.set(index, label);
   }
@@ -347,7 +256,13 @@ export async function registerExplainPolicyRoute(app: FastifyInstance) {
     '/v1/explain/policy',
     async (req: FastifyRequest, reply: FastifyReply) => {
       const start = Date.now();
-      const body = req.body as ExplainPolicyRequest;
+      // `?? {}` because a POST whose body is the valid JSON literal `null`
+      // gives `req.body === null`, and `body.policy_tree` then threw a
+      // TypeError that surfaced as the same opaque 500 this route's
+      // validators exist to eliminate. Every other primitive body is safe:
+      // reading a missing property off a string/number/boolean yields
+      // undefined, which the presence checks below refuse honestly.
+      const body = (req.body ?? {}) as ExplainPolicyRequest;
       const requestId = String(req.id);
 
       // Validate policy_tree

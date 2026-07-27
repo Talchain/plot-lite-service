@@ -554,14 +554,25 @@ export interface ISLConstraintResult {
    * Contract step-2 slice 6b: ISL echoes back, verbatim, the constraint_id PLoT
    * sent on the matching `goal_constraints[]` entry (ISL @0316098b onwards).
    *
-   * Optional AND nullable, both deliberate and both MEASURED against the
-   * deployed service rather than assumed:
-   *  - `undefined` — a pre-6b ISL that dropped the field at parse.
-   *  - `null` — the deployed ISL when the caller supplied no id. The route
-   *    serialises with `exclude_none=True`, but that does not reach inside this
-   *    object: `failure_margin_median` and `near_miss_fraction` come back null
-   *    on the same wire too. Do NOT narrow this to `string | undefined`, and do
-   *    not write a reader that tests for key-absence.
+   * Optional AND nullable, both deliberate — but ⚠ the SCOPE of the measurement
+   * behind the `null` arm was wrong and is corrected here:
+   *  - `undefined` — a pre-6b ISL that dropped the field at parse, AND the
+   *    PINNED V2 PATH PLoT ACTUALLY USES. `client.ts:98` appends
+   *    `?response_version=2` and `:180` sends `X-ISL-Response-Version: 2` on
+   *    every call; ISL's V2 handler serialises fully-typed models with
+   *    `model_dump(by_alias=True, exclude_none=True)`, and pydantic-v2's
+   *    `exclude_none` IS recursive across nested models. So on PLoT's path the
+   *    field is OMITTED when unsupplied.
+   *  - `null` — the LEGACY v1 format, i.e. a request without the version pin.
+   *    The capture that produced the earlier note here ("the deployed ISL sends
+   *    null"; "exclude_none does not reach inside this object") was a hand-curl
+   *    WITHOUT the pin, so it measured v1 and was generalised to a path PLoT
+   *    never takes. A capture proves what it was pointed at.
+   *
+   * KEEP BOTH ARMS ANYWAY. Do NOT narrow to `string | undefined`, and do not
+   * write a reader that tests for key-absence: the union costs nothing, it is
+   * correct for a pre-6b ISL and for any un-pinned or re-versioned path, and it
+   * is what forces the validate-before-compute discipline below.
    *
    * Read it via resolveConstraintIds (routes/v2/constraint-identity.ts), never
    * directly — the positional fallback beneath it is still load-bearing during
@@ -576,14 +587,22 @@ export interface ISLConstraintResult {
   /**
    * Median failure margin, NORMALISED, as ISL sends it.
    *
-   * `| null` is MEASURED, not defensive — the deployed service sends the key
-   * with a null value for an absent margin (same wire as `constraint_id` above;
-   * `exclude_none=True` does not reach inside this object). Declaring it
-   * `number | undefined` was a compile-time fiction that cost us a real defect:
-   * both denormalisation sites guarded with `!== undefined`, so `null` passed,
-   * `null * rangeWidth` evaluated to 0, and a FABRICATED MEASURED ZERO breach
-   * margin shipped to egress — while the comment above that code claimed the
-   * zero-fabrication had already been killed.
+   * `| null` is DEFENCE-IN-DEPTH, not a measurement of PLoT's path — ⚠ scope
+   * corrected, same error as `constraint_id` above. The null was captured on
+   * the LEGACY v1 format (a hand-curl without the version pin); on the pinned
+   * V2 path PLoT actually uses, `exclude_none=True` is recursive and this key
+   * is OMITTED, not null.
+   *
+   * The defect it documents was real as a TYPE defect, and the fix stands:
+   * declaring it `number | undefined` was a compile-time fiction, both
+   * denormalisation sites guarded with `!== undefined`, so a `null` would pass,
+   * `null * rangeWidth` would evaluate to 0, and a FABRICATED MEASURED ZERO
+   * breach margin would ship to egress — while the comment above that code
+   * claimed the zero-fabrication had already been killed. What is NOT
+   * established is that arm's live REACHABILITY at the current ISL pin: the
+   * retro-proof went red on the null arm only, so #277's Instance-B
+   * live-reachability premise inherits the same mis-scoping and should not be
+   * cited as evidence of a shipping defect at this pin.
    *
    * Keep the `| null`. It is what makes `fmm * rangeWidth` a type error, so the
    * only way to compute with this value is to validate it first (nonNeg()).

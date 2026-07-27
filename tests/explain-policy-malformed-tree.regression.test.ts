@@ -372,4 +372,42 @@ describe('POST /v1/explain/policy — positive controls', () => {
         .statusCode
     ).toBe(400);
   });
+
+  /**
+   * The last residual 500 in this route. `const body = req.body as
+   * ExplainPolicyRequest` then `body.policy_tree` threw a TypeError when the
+   * request body was the VALID JSON literal `null` — `req.body === null`, and
+   * the opaque 500 was exactly what every other check here exists to prevent.
+   *
+   * Injected as a raw body rather than via `post()` so the literal `null`
+   * survives serialisation; `post()` would have to stringify it back anyway.
+   * Every other primitive body is already safe — reading a missing property off
+   * a string / number / boolean yields undefined, which the presence checks
+   * refuse honestly — so those are asserted alongside as the discriminating
+   * control: they were NOT broken before, and must not change.
+   */
+  it('a literal null JSON body is a typed 400, not an opaque 500', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/explain/policy',
+      headers: { 'content-type': 'application/json' },
+      body: 'null',
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).not.toBe(500);
+    expect(JSON.parse(res.payload).message).toBeTruthy();
+  });
+
+  it('CONTROL: the other primitive bodies were already 400 and still are', async () => {
+    for (const raw of ['123', '"a string"', 'true', '[]']) {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/explain/policy',
+        headers: { 'content-type': 'application/json' },
+        body: raw,
+      });
+      expect(res.statusCode, `body ${raw}`).toBe(400);
+    }
+  });
 });

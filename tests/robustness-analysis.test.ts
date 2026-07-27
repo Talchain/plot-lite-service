@@ -144,6 +144,44 @@ describe('Edge Normalization in adaptRobustnessAnalysisResponse', () => {
     expect(result.fragile_edges[0].switch_probability).toBeUndefined();
   });
 
+  it('a NULL marginal_switch_probability is omitted, not forwarded to egress', () => {
+    // `normalizeFragileEdge` used to spread this field on `!== undefined`, so a
+    // null passed straight through to egress, where @talchain/schemas types it
+    // `z.number().optional()` and a null FAILS validation. Its immediate
+    // neighbour switch_probability already guarded with `isFiniteNumber`; this
+    // pins the asymmetry closed.
+    //
+    // Not reachable on the pinned V2 path (ISL's V2 handler serialises with a
+    // recursive `exclude_none=True`, and PLoT pins `?response_version=2` on
+    // every call — client.ts:98/:180), so this is defence-in-depth against the
+    // day that pin changes. A null is what the LEGACY v1 format sends.
+    const response = {
+      robustness: {
+        fragile_edges: [
+          {
+            edge_id: 'nodeA->nodeB',
+            switch_probability: 0.3,
+            marginal_switch_probability: null,
+          },
+        ],
+      },
+    } as unknown as ISLRobustnessAnalyzeV2Response;
+
+    const result = adaptRobustnessAnalysisResponse(
+      response,
+      100,
+      'available',
+      'available',
+      'test-request-msp-null'
+    );
+
+    expect(result.fragile_edges).toHaveLength(1);
+    // The finite neighbour still survives — this is an omission, not a wipe.
+    expect(result.fragile_edges[0].switch_probability).toBe(0.3);
+    expect(result.fragile_edges[0].marginal_switch_probability).toBeUndefined();
+    expect('marginal_switch_probability' in result.fragile_edges[0]).toBe(false);
+  });
+
   it('tracks normalization errors for malformed edges', () => {
     const response: ISLRobustnessAnalyzeV2Response = {
       robustness: {
