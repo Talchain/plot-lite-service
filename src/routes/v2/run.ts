@@ -190,6 +190,7 @@ import type { ProposalCardV1 } from '../../review-pass/types.js';
 import { assembleFactObjects, type ISLResponseInput } from '../../facts/index.js';
 import type { FactObjectV1, FactLineage } from '../../facts/types.js';
 import { finiteNum, prob01, nonNeg, nonNegInt, hasAllRequiredOutcomeStats } from './numeric-egress-guards.js';
+import { resolveConstraintIds } from './constraint-identity.js';
 import { resolveConfidenceBasis } from '../../integrations/isl/confidence-basis.js';
 import {
   assessEnrichmentContract,
@@ -1933,21 +1934,13 @@ function buildConstraintFields(
   const derivedFromOptionId: string | undefined =
     firstOptionWithConstraints.option_id ?? firstOptionWithConstraints.id;
 
-  // Build an index-position lookup from ISL response ordinal → input constraint_id.
-  // ISL preserves insertion order and does not echo constraint_id, so positional
-  // mapping is the only stable identity. Value-based matching breaks after normalisation
-  // (ISL echoes normalised values; input has raw user-unit values).
-  const islIndexToConstraintId: string[] = islConstraints.map((islC, idx) => {
-    const byIndex = goalConstraints[idx];
-    if (byIndex && byIndex.node_id === islC.node_id && byIndex.operator === islC.operator) {
-      return byIndex.constraint_id;
-    }
-    // Fallback: (node_id, operator) scan — handles ISL reordering edge case
-    const byNodeOp = goalConstraints.find(
-      gc => gc.node_id === islC.node_id && gc.operator === islC.operator
-    );
-    return byNodeOp?.constraint_id ?? `${islC.node_id}_${islC.operator}`;
-  });
+  // Resolve ISL response ordinal → constraint_id. Contract step-2 slice 6b:
+  // ISL now ECHOES constraint_id (deployed @0316098b), so the ratified identity
+  // is read straight off the result and the positional reconstruction below it
+  // is only a fallback for the overlap window. Value-based matching is never
+  // used: ISL echoes NORMALISED values while goalConstraints holds raw
+  // user-unit ones. Ladder + the measured wire shape: constraint-identity.ts.
+  const islIndexToConstraintId: string[] = resolveConstraintIds(islConstraints, goalConstraints);
   const resolveConstraintId = (_islC: ISLConstraintResult, idx: number): string =>
     islIndexToConstraintId[idx] ?? `${_islC.node_id}_${_islC.operator}`;
 
@@ -2417,10 +2410,12 @@ function buildResponse(
       // an impossible probability).
       const jointProb = prob01(constraintAnalysis.joint_probability);
 
-      // Map ISL's per-constraint prob_satisfied to constraint_probabilities map
-      // Uses index-position mapping (same as buildConstraintFields): ISL preserves insertion
-      // order but does NOT echo constraint_id. Value-based matching breaks after normalisation
-      // because ISL echoes normalised values while goalConstraints holds raw user-unit values.
+      // Map ISL's per-constraint prob_satisfied to constraint_probabilities map.
+      // Same resolver as buildConstraintFields (slice 6b): ISL's echoed
+      // constraint_id first, positional reconstruction only as the overlap
+      // fallback. Both sites MUST share one implementation — a response whose
+      // top-level block is keyed by ratified id while these per-option blocks
+      // are keyed by ordinal would be internally inconsistent.
       let constraintProbs: Record<string, number> | undefined;
       // Sub-item 1c: per-option graded breach margins. One entry per constraint
       // ISL evaluated for THIS option; margin fields are OMITTED (never
@@ -2431,16 +2426,7 @@ function buildResponse(
       if (Array.isArray(constraintAnalysis.constraints) && constraintAnalysis.constraints.length > 0) {
         constraintProbs = {};
         const islConstraintsHere = constraintAnalysis.constraints as ISLConstraintResult[];
-        const indexToId: string[] = islConstraintsHere.map((islC, idx) => {
-          const byIndex = goalConstraints?.[idx];
-          if (byIndex && byIndex.node_id === islC.node_id && byIndex.operator === islC.operator) {
-            return byIndex.constraint_id;
-          }
-          const byNodeOp = goalConstraints?.find(
-            gc => gc.node_id === islC.node_id && gc.operator === islC.operator
-          );
-          return byNodeOp?.constraint_id ?? `${islC.node_id}_${islC.operator}`;
-        });
+        const indexToId: string[] = resolveConstraintIds(islConstraintsHere, goalConstraints);
         for (let i = 0; i < islConstraintsHere.length; i++) {
           const c = islConstraintsHere[i];
           const constraintId = indexToId[i] ?? `${c.node_id}_${c.operator}`;

@@ -122,18 +122,25 @@ export const PLOT_TO_ISL_CONTRACT: BoundaryContract = {
 
   /**
    * KNOWN-UNDECLARED, DELIBERATELY STILL SENT — declare these here rather than
-   * let them look like an oversight. Both are dropped by ISL today.
+   * let them look like an oversight. Dropped by ISL today.
    *
-   * - `goal_constraints[].constraint_id` (translator-v3.ts): Codex adjudicated
-   *   OQ-5 as ADOPT-into-ISL reader-first, not delete — `constraint_verdict`'s
-   *   `identity_unresolved` state needs a stable constraint identity to cite.
-   *   Sequenced: ISL accepts + echoes it optional, then PLoT reads the echo.
    * - `goal_constraints[].weight` (translator-v3.ts): caller-supplied and
-   *   omitted unless provided; latent on the golden path. Resolve with the same
-   *   adopt-or-drop decision as constraint_id rather than piecemeal.
+   *   omitted unless provided; latent on the golden path. Still undeclared
+   *   upstream; resolve with its own adopt-or-drop decision.
+   *
+   * ── RETIRED — `goal_constraints[].constraint_id` (contract step-2 slice 6b) ──
+   * ISL DECLARES it as of @0316098b, so the exemption is no longer true and is
+   * removed rather than left to rot. Codex adjudicated OQ-5 as ADOPT-into-ISL
+   * reader-first, not delete, because `constraint_verdict`'s
+   * `identity_unresolved` state needs a stable constraint identity to cite.
+   * That sequence is now complete on both halves: ISL accepts + echoes it
+   * (slice 6b, ISL PR #115), and PLoT READS the echo (this change — see
+   * routes/v2/constraint-identity.ts). This list is checked by
+   * tests/isl-request-drift-pairing.contract.test.ts against ISL's own pinned
+   * request models, which fails loud if an entry goes stale in EITHER
+   * direction — so leaving it here would have turned red on the next pin bump.
    */
   knownUndeclared: [
-    'goal_constraints[].constraint_id',
     'goal_constraints[].weight',
   ],
 

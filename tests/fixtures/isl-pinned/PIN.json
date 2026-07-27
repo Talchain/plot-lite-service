@@ -22,9 +22,9 @@
   "isl": {
     "repo": "Talchain/Inference-Service-Layer",
     "ref": "staging",
-    "sha": "7d144c7fb24e42fc3b712a3d25eb637cb76116f6",
-    "committed_at": "2026-07-26T17:31:23+01:00",
-    "pinned_by": "contract step-2 slice 2 lane, 2026-07-27"
+    "sha": "0316098bc6d610c8719baa5796a58d517051d75b",
+    "committed_at": "2026-07-27T02:24:36+01:00",
+    "pinned_by": "contract step-2 slice 6b consumer lane, 2026-07-27 (ISL PR #115 constraint_id echo)"
   },
 
   "runtime": {
@@ -39,7 +39,7 @@
     "isl_openapi_json": {
       "vendored_as": "tests/fixtures/isl-pinned/isl-openapi.json",
       "upstream_path": "openapi.json",
-      "sha256": "2aa911b60b52cf39ddeb930ccc5d7fd7640d2755321cfd01097cb3603e9bd42e",
+      "sha256": "4f639782c147c04c91ff683ff833c6dde3e5eba97310b311d7ef1b7bf499f702",
       "what_it_is": "ISL's committed, MACHINE-GENERATED OpenAPI document (scripts/generate_openapi.py -> FastAPI app.openapi()). It is Pydantic's own description of the mounted request models, not a hand-written copy — which is why the pairing may consume it hermetically. ISL CI (.github/workflows/openapi-validation.yml) runs `generate_openapi.py --check` on every PR touching src/api, src/models, pyproject or the spec, so it cannot drift from the models without ISL going red.",
       "what_it_is_NOT": "It is not evidence about DEPLOYED ISL. It describes the app as built at this sha."
     }
@@ -48,9 +48,9 @@
   "source_sha256": {
     "_note": "The model + router files every claim in the pairing is derived from. The Python replay driver verifies each of these against the clone it is pointed at and REFUSES to run on a mismatch, so a transcript can never be produced from bytes other than these.",
     "src/api/main.py": "23a6754ece24e62fe50b6900b27a30c802963137b32784ac44c45a74071d98e1",
-    "src/models/robustness_v2.py": "b979d2fa605fa9805ea6d0f0cc691ceda0029d1a05277e99ac32c97984e51343",
+    "src/models/robustness_v2.py": "0f59153eacc644efc143fccdebf4e915b9263063e19af7964d98bcd6295e7574",
     "src/models/requests.py": "e652db133fd5985cc25cb42d4fd6b8d59554f4c291d87a622df30b323cc0c0ba",
-    "src/models/response_v2.py": "974155aacd0c14740c7ee88644b5541f76b71b1b5e89c284f7e14bee522a9f33",
+    "src/models/response_v2.py": "e15c0462f7485c2b5a8ef594082b7fd1e25141afa4b5ac10acef8329a0e6656b",
     "src/models/shared.py": "0e5014895ec203375646dea9db8f035f05a625e86eec340c713195ebf0e7b812",
     "src/models/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "src/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
