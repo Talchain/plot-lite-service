@@ -525,8 +525,12 @@ export function transformEdgeEValues(
 
     // current_mean and flip_mean are edge effects in outcome space — denormalise
     // using goal node range when normalisation was active.
-    let currentMean = e.current_mean;
-    let flipMean = e.flip_mean;
+    // ROADMAP 1.277: `number | undefined` because denormaliseValue is now
+    // absence-in ⇒ absence-out. An absent/non-finite mean is carried as
+    // `undefined` to the numeric-egress guard below, which DROPS the whole entry
+    // and attributes the drop — it is never emitted as a fabricated number.
+    let currentMean: number | undefined = e.current_mean;
+    let flipMean: number | undefined = e.flip_mean;
     let stability = e.stability;
     let eValueNormalised: boolean | undefined;
     if (normContext && goalRange) {
@@ -617,12 +621,16 @@ export function transformEdgeEValues(
   const kept: EnrichedEdgeEValue[] = [];
   for (let i = 0; i < mapped.length; i++) {
     const out = mapped[i];
-    const keep =
-      finiteNum(out.e_value) !== undefined &&
-      finiteNum(out.current_mean) !== undefined &&
-      finiteNum(out.flip_mean) !== undefined;
-    if (keep) {
-      kept.push(out);
+    // ROADMAP 1.277: bind the CHECKED values and re-emit them, so the field that
+    // rides the wire is by construction the one the guard validated. (Previously
+    // the guard was a boolean and `out` was pushed unnarrowed — correct, but it
+    // relied on a `number` declaration that was a fiction over `as`-cast wire data.)
+    const eValue = finiteNum(out.e_value);
+    const currentMeanChecked = finiteNum(out.current_mean);
+    const flipMeanChecked = finiteNum(out.flip_mean);
+    if (eValue !== undefined && currentMeanChecked !== undefined && flipMeanChecked !== undefined) {
+      // Spread-then-override preserves key ORDER and every additive field.
+      kept.push({ ...out, e_value: eValue, current_mean: currentMeanChecked, flip_mean: flipMeanChecked });
       continue;
     }
     if (dropSink) {
@@ -648,6 +656,16 @@ export function transformEdgeEValues(
  * rather than "not computed".
  * Enriches option IDs in buckets with human-readable labels.
  */
+/**
+ * ROADMAP 1.277: the in-flight shape, before the numeric-egress filter runs.
+ * `split_value` is REQUIRED (`number`) on the outbound `ConditionalWinner`, so an
+ * absent one cannot simply be omitted — the honest disposal is to DROP the whole
+ * entry, which the type-predicate filter at the end of the map does. This draft
+ * type is what makes that drop compiler-enforced rather than remembered: the
+ * unfiltered value is not assignable to `ConditionalWinner`.
+ */
+type ConditionalWinnerDraft = Omit<ConditionalWinner, 'split_value'> & { split_value: number | undefined };
+
 /** @internal Exported for numeric-egress-guard unit tests. */
 export function transformConditionalWinners(
   islConditionalWinners: ISLConditionalWinner[] | undefined,
@@ -663,7 +681,9 @@ export function transformConditionalWinners(
 
   return islConditionalWinners.map(cw => {
     // split_value is in the factor's units — denormalise using factor range
-    let splitValue = cw.split_value;
+    // ROADMAP 1.277: `number | undefined` — an absent/non-finite split_value is
+    // carried as `undefined` to the drop filter below, never emitted.
+    let splitValue: number | undefined = cw.split_value;
     let cwNormalised: boolean | undefined;
     if (normContext && typeof splitValue === 'number') {
       const factorRange = normContext.factors.get(cw.factor_id)?.range;
@@ -677,12 +697,45 @@ export function transformConditionalWinners(
 
     // mean_outcome is in goal node units — denormalise using goal range
     if (normContext && !goalRange) cwNormalised = true; // goal range missing → can't denorm outcomes
-    const denormMeanOutcome = (val: number | undefined): number | undefined => {
-      if (val === undefined || !goalRange) return val;
+    /**
+     * ROADMAP 1.277 — THIS WAS THE LIVE FABRICATION SITE.
+     *
+     * `val` was typed `number | undefined` and the guard tested `=== undefined`
+     * ONLY. But `ISLConditionalBucket.mean_outcome` is declared `number | undefined`
+     * over an `as`-cast wire payload (`JSON.parse(text) as T`,
+     * src/integrations/isl/client.ts:245 — no runtime validation), and ISL emits
+     * `null` for an absent nested numeric. `null === undefined` is **false**, so
+     * null reached the arithmetic and `null * width + min` produced the GOAL-RANGE
+     * FLOOR — published as a confident measured mean_outcome meaning "in this
+     * bucket the winner achieves the worst possible result".
+     *
+     * The `finiteNum(...)` spread guards below were structurally blind to it: the
+     * fabricated value IS finite, so no post-hoc finiteness check could ever
+     * distinguish it from a real measurement. Fixing it required moving the guard
+     * BEFORE the arithmetic, which is what the primitive now does.
+     *
+     * `unknown` in, `number | undefined` out ⇒ an absent mean_outcome now OMITS the
+     * field. That is contract-legal without any change: `mean_outcome?: number` is
+     * optional on both ISLConditionalBucket and the outbound ConditionalBucket.
+     */
+    const denormMeanOutcome = (val: unknown): number | undefined => {
+      // No goal range ⇒ cannot map; keep the value in normalised space (the entry
+      // is flagged `_normalised: true` above). Still finite-checked, so an absent
+      // value stays absent on this path too.
+      if (!goalRange) return finiteNum(val);
       return denormaliseValue(val, goalRange);
     };
 
-    const result: ConditionalWinner = {
+    // Compute each bucket's mapped outcome ONCE, so the value that is CHECKED is
+    // by construction the value that is EMITTED. (These lines each used to call
+    // denormMeanOutcome twice — once inside the guard, once in the payload.)
+    // `finiteNum` still wraps the result: it now guards the OUTPUT (an
+    // overflow-width range can map a valid input to ±Infinity), whereas the
+    // primitive guards the INPUT. Both are needed; neither replaces the other.
+    const lowMeanOutcome = finiteNum(denormMeanOutcome(cw.low_bucket.mean_outcome));
+    const highMeanOutcome = finiteNum(denormMeanOutcome(cw.high_bucket.mean_outcome));
+
+    const result: ConditionalWinnerDraft = {
       factor_id: cw.factor_id,
       factor_label: cw.factor_label ?? resolveNodeLabel(cw.factor_id),
       split_value: splitValue,
@@ -695,7 +748,7 @@ export function transformConditionalWinners(
           runner_up_label: resolveOptionLabel(cw.low_bucket.runner_up_id!),
         }),
         win_probability: cw.low_bucket.win_probability,
-        ...(finiteNum(denormMeanOutcome(cw.low_bucket.mean_outcome)) !== undefined && { mean_outcome: denormMeanOutcome(cw.low_bucket.mean_outcome) }),
+        ...(lowMeanOutcome !== undefined && { mean_outcome: lowMeanOutcome }),
       },
       high_bucket: {
         winner_id: cw.high_bucket.winner_id,
@@ -705,7 +758,7 @@ export function transformConditionalWinners(
           runner_up_label: resolveOptionLabel(cw.high_bucket.runner_up_id!),
         }),
         win_probability: cw.high_bucket.win_probability,
-        ...(finiteNum(denormMeanOutcome(cw.high_bucket.mean_outcome)) !== undefined && { mean_outcome: denormMeanOutcome(cw.high_bucket.mean_outcome) }),
+        ...(highMeanOutcome !== undefined && { mean_outcome: highMeanOutcome }),
       },
       winner_flips: cw.winner_flips,
     };
@@ -715,7 +768,7 @@ export function transformConditionalWinners(
     // bucket win_probability is a required [0,1] probability; drop the whole
     // conditional-winner entry when any is non-finite / out-of-range rather than emit
     // a fabricated null or an impossible probability.
-  }).filter((cw) =>
+  }).filter((cw): cw is ConditionalWinner =>
     finiteNum(cw.split_value) !== undefined &&
     prob01(cw.low_bucket.win_probability) !== undefined &&
     prob01(cw.high_bucket.win_probability) !== undefined

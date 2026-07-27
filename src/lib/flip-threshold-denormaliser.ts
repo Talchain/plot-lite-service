@@ -11,6 +11,7 @@
 import type { FlipThresholdInputData } from '../cee/validation/m1-review-types.js';
 import type { NormalisationContext, NormalisationRange } from './intervention-normaliser.js';
 import { denormaliseValue } from './intervention-normaliser.js';
+import { isFiniteNumber } from '../util/numeric.js';
 import type { MarginSensitivity } from '../analysis/margin-sensitivity.js';
 
 // =============================================================================
@@ -82,8 +83,15 @@ export function denormaliseFlipThresholds(
       return enrichWithLabels(flip, options);
     }
 
-    // Denormalise current_value and flip_value using the factor's range
+    // Denormalise current_value and flip_value using the factor's range.
+    // ROADMAP 1.277: denormaliseValue is absence-in ⇒ absence-out, so both of
+    // these are `number | undefined` and the finite checks below narrow them.
     const denormCurrent = denormaliseValue(flip.current_value, factorContext.range);
+    // `flip_value === null` means "no flip achievable" — a genuine, already-modelled
+    // absence, NOT a failed denormalisation. The primitive would now reject null on
+    // its own, but the explicit branch stays: it is what keeps that absence out of
+    // the `nonFiniteDenorm` disclosure below, which must fire only for a real
+    // mapping failure.
     const denormFlip = flip.flip_value !== null
       ? denormaliseValue(flip.flip_value, factorContext.range)
       : null;
@@ -94,8 +102,11 @@ export function denormaliseFlipThresholds(
     // JSON.stringify emits as a fabricated `null`. Finite-check every public
     // numeric after the map: emit the finite value, else null the flip_value AND
     // DISCLOSE via flip_reason so the null is attributable, never silent.
-    const currentFinite = Number.isFinite(denormCurrent);
-    const flipFinite = denormFlip !== null && Number.isFinite(denormFlip);
+    // `isFiniteNumber` is the type-guard flavour of the same predicate: it both
+    // rejects the non-finite value AND narrows `number | undefined` to `number`,
+    // so the emitted field is the checked value by construction.
+    const currentFinite = isFiniteNumber(denormCurrent);
+    const flipFinite = isFiniteNumber(denormFlip);
     const nonFiniteDenorm = !currentFinite || (denormFlip !== null && !flipFinite);
 
     return {
@@ -162,12 +173,14 @@ function denormaliseMarginSensitivity(
   margin: MarginSensitivity,
   range: NormalisationRange,
 ): MarginSensitivity {
-  const probeIsFinite =
-    margin.strongest_probe_value !== null && Number.isFinite(margin.strongest_probe_value);
-  const denormProbe = probeIsFinite
-    ? denormaliseValue(margin.strongest_probe_value as number, range)
-    : null;
-  const denormProbeFinite = denormProbe !== null && Number.isFinite(denormProbe);
+  // ROADMAP 1.277: the `as number` cast that used to sit on this call is GONE.
+  // It existed only to launder `number | null` past a `number` parameter — i.e. to
+  // silence the compiler about exactly the null this lane is closing. The primitive
+  // now takes `unknown` and rejects a non-number itself, so the hand-written
+  // `probeIsFinite` pre-check is redundant and has been removed with it: one guard,
+  // in the primitive, instead of a cast plus a caller-side mirror of the same test.
+  const denormProbe = denormaliseValue(margin.strongest_probe_value, range);
+  const denormProbeFinite = isFiniteNumber(denormProbe);
   return {
     ...margin,
     strongest_probe_value: denormProbeFinite ? denormProbe : null,
