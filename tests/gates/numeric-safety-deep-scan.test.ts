@@ -208,50 +208,50 @@ async function run(app: FastifyInstance) {
 // ---------------------------------------------------------------------------
 
 describe('WP5 gate · numeric seam + boundary guard (unit)', () => {
-  it('normaliseValue(NaN) SELF-GUARDS to undefined (ROADMAP 1.278) — the last bare numeric seam is closed', () => {
-    // This assertion used to read `Number.isNaN(normaliseValue(N, …).normalised) === true`,
-    // documenting normaliseValue as a DELIBERATELY UNGUARDED seam whose non-finite
-    // inputs "must be caught at boundaries". ROADMAP 1.278 ends that, for the same
-    // reason ROADMAP 1.277 ended it for the sibling denormaliseValue: the seam was
-    // only ever safe against the shapes that produce NaN. It was NOT safe against
-    // `null`, which coerces to 0 and yields the RANGE MINIMUM as a plausible,
-    // finite, un-flagged intervention — a value no downstream finiteness check can
-    // distinguish from a real one. That is why asserting the NaN half kept passing
-    // while the class stayed open: this gate was testing the one absence shape the
-    // arithmetic happened to poison loudly.
+  it('BOTH normalisation primitives SELF-GUARD to undefined — no bare numeric seam remains', () => {
+    // These two assertions used to be two it-blocks, and the second one carried a
+    // paragraph reading: "The half that still matters is unchanged and is asserted
+    // above: `normaliseValue` remains an unguarded seam, so boundary guards are
+    // still required there. Only denormaliseValue moved."
     //
-    // WHAT PROVES THE GUARD BITES (not just that it exists): the mutation run for
-    // this slice reverted the primitive hardening alone and the DEFECT-labelled
+    // That was true when ROADMAP 1.277 hardened denormaliseValue alone, and it went
+    // STALE the moment ROADMAP 1.278 hardened normaliseValue too — in the SAME
+    // describe block, sixteen lines above the sentence denying it. The cost of the
+    // stale half is specific and not cosmetic: a reader deciding whether a NEW
+    // caller of normaliseValue needs its own finiteness check read "remains an
+    // unguarded seam" and added a caller-side mirror of a guard the primitive
+    // already performs — one more hand-maintained duplicate of a live invariant.
+    // The two are therefore collapsed into ONE claim, so the pair can only ever be
+    // described together and cannot drift apart again.
+    //
+    // WHY THE PAIR SELF-GUARDS. Both were "unguarded seams whose non-finite inputs
+    // must be caught at boundaries", and both were only ever safe against the
+    // shapes that produce NaN. Neither was safe against `null`, which coerces to 0
+    // and yields the RANGE MINIMUM as a plausible, finite, UN-FLAGGED value that no
+    // downstream finiteness check can distinguish from a real one. That is why
+    // asserting the NaN half kept passing while the class stayed open: this gate
+    // was testing the one absence shape the arithmetic happened to poison loudly.
+    //
+    // WHAT PROVES THE GUARDS BITE (not just that they exist): the mutation run for
+    // ROADMAP 1.278 reverted the primitive hardening alone and the DEFECT-labelled
     // cases in tests/intervention-normaliser-absence.test.ts went RED — including
     // the SILENT one, `null` on a min-0 range, which returns
     // `{ normalised: 0, clamped: false }` when the guard is absent.
     //
     // Boundary guards are still required and still asserted — see the Phase 1a++
     // ingress guard pinned by tests/intervention-ingress-shape-guard.test.ts. The
-    // primitive is defence-in-depth, not a replacement for them.
+    // primitives are defence-in-depth, not a replacement for them.
     expect(normaliseValue(N, { min: 0, max: 1, source: 'default' })).toBeUndefined();
     expect(normaliseValue(null, { min: 10, max: 20, source: 'default' })).toBeUndefined();
     // The SILENT shape specifically: a min-0 range fabricated 0 with clamped:false.
     expect(normaliseValue(null, { min: 0, max: 200, source: 'default' })).toBeUndefined();
-    // Positive control: a real value is untouched, and 0 is a REAL value.
-    expect(normaliseValue(0.5, { min: 0, max: 1, source: 'default' })).toEqual({ normalised: 0.5, clamped: false });
-    expect(normaliseValue(0, { min: 0, max: 200, source: 'default' })).toEqual({ normalised: 0, clamped: false });
-  });
 
-  it('denormaliseValue(NaN) SELF-GUARDS to undefined (ROADMAP 1.277) — no longer a bare seam', () => {
-    // This assertion used to read `Number.isNaN(denormaliseValue(N, …)) === true`,
-    // asserting that denormaliseValue was an unguarded seam like its sibling above.
-    // ROADMAP 1.277 deliberately ENDED that: the primitive now finite-checks its
-    // input, because the sibling `normaliseValue` shape was letting `null` — which
-    // coerces to 0, NOT to NaN — fabricate the range floor as a plausible
-    // measurement that no downstream finiteness check could detect.
-    //
-    // The half that still matters is unchanged and is asserted above:
-    // `normaliseValue` remains an unguarded seam, so boundary guards are still
-    // required there. Only denormaliseValue moved.
     expect(denormaliseValue(N, { min: 0, max: 1, source: 'default' })).toBeUndefined();
     expect(denormaliseValue(null, { min: 10, max: 20, source: 'default' })).toBeUndefined();
-    // Positive control: a real measurement is untouched.
+
+    // Positive controls: a real value is untouched, and 0 is a REAL value.
+    expect(normaliseValue(0.5, { min: 0, max: 1, source: 'default' })).toEqual({ normalised: 0.5, clamped: false });
+    expect(normaliseValue(0, { min: 0, max: 200, source: 'default' })).toEqual({ normalised: 0, clamped: false });
     expect(denormaliseValue(0.5, { min: 0, max: 1, source: 'default' })).toBe(0.5);
   });
 

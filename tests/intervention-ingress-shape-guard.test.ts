@@ -280,3 +280,107 @@ describe('ROADMAP 1.278 · Phase 1a++ intervention ingress-shape guard', () => {
     expect(critiques(body).map(c => c.code)).not.toContain('INVALID_INTERVENTION_VALUE');
   });
 });
+
+// ===========================================================================
+// GUARD PLACEMENT — the guard must run ABOVE normalizeOptions(), not below it
+// ===========================================================================
+/**
+ * WHAT WAS WRONG, AND WHAT WAS NOT (both measured on 84f549ce, the tip before
+ * this slice — the split matters, because half the review finding was right and
+ * half was not):
+ *
+ *   REFUTED — there was NO live silent-drop → 200. The guard reads the RAW
+ *   `body.options`, so the earlier drop cannot blind it. Every DEFECT case in
+ *   the describe above was already GREEN on that tip.
+ *
+ *   CONFIRMED — the guard nonetheless sat ~160 lines BELOW the sole call site
+ *   of normalizeOptions(), so the drop RAN on every malformed request, and the
+ *   comment on it claimed it was "UNREACHABLE on the route". Proven by
+ *   replacing the drop with a throw in a throwaway worktree: `{f: null, g: 60}`
+ *   produced
+ *       normalizeInterventions (run.ts:1186) → normalizeOptions (run.ts:1206)
+ *       → <POST /v2/run handler> (run.ts:4485)
+ *   and the route answered HTTP 200 + PLOT_INTERNAL_ERROR — the exact masked
+ *   shape ROADMAP 1.278 exists to close.
+ *
+ * So the property "no consumer ever sees the silently-edited option set" was
+ * POSITIONAL, not structural: it held only because nobody had yet added a
+ * `normalizedOptions` reader into the gap. Hoisting the guard above the call
+ * site makes it structural, which is what allows normalizeInterventions() to
+ * throw instead of dropping.
+ *
+ * INSTRUMENT. Placement has no direct route-visible signature, so it is
+ * measured by PRECEDENCE against a blocker raised by code that used to run
+ * first. These cases went RED on 84f549ce (they returned the goal-node code)
+ * and are the mutation target: revert the hoist and they RED again — as do the
+ * DEFECT cases above, which turn into 200 + PLOT_INTERNAL_ERROR once the drop
+ * is a throw.
+ *
+ * NOTE — this is a deliberate, disclosed behaviour change: when a request is
+ * malformed in BOTH its interventions and its goal node, the reported blocker
+ * is now the intervention one. Both were always blockers; only which is
+ * reported first moves.
+ */
+describe('ROADMAP 1.278 · Phase 1a++ guard PLACEMENT (above normalizeOptions)', () => {
+  async function postWith(overrides: Record<string, unknown>, interventions: unknown) {
+    islCallCount = 0; lastIslOptions = null;
+    const res = await app.inject({
+      method: 'POST', url: '/v2/run', headers: { 'content-type': 'application/json' },
+      payload: {
+        graph: GRAPH,
+        options: [
+          { id: 'o1', label: 'Option One', interventions },
+          { id: 'o2', label: 'O2', interventions: { f: 80, g: 40 } },
+        ],
+        goal_node_id: 'goal', seed: '42',
+        ...overrides,
+      },
+    });
+    return { res, body: JSON.parse(res.body) as Record<string, unknown> };
+  }
+
+  it('DEFECT: the guard runs before goal validation — a malformed value outranks GOAL_NODE_NOT_IN_GRAPH', async () => {
+    // On 84f549ce this returned 422 GOAL_NODE_NOT_IN_GRAPH, because goal
+    // validation sits between normalizeOptions() and where the guard used to be.
+    const { res, body } = await postWith({ goal_node_id: 'nope' }, { f: null, g: 60 });
+    expect(res.statusCode).toBe(422);
+    expect(critiques(body).map(c => c.code)).toContain('INVALID_INTERVENTION_VALUE');
+    expect(critiques(body).map(c => c.code)).not.toContain('GOAL_NODE_NOT_IN_GRAPH');
+    expect(islCallCount).toBe(0);
+  });
+
+  it('DEFECT: the guard runs before goal-kind validation — it outranks GOAL_NODE_NOT_CAUSAL too', async () => {
+    // Second arm, so the pin is not resting on one goal-validation branch.
+    const graphWithOptionNode = {
+      nodes: [...GRAPH.nodes, { id: 'optnode', kind: 'option', label: 'An Option Node' }],
+      edges: GRAPH.edges,
+    };
+    const { res, body } = await postWith(
+      { graph: graphWithOptionNode, goal_node_id: 'optnode' },
+      { f: null, g: 60 },
+    );
+    expect(res.statusCode).toBe(422);
+    expect(critiques(body).map(c => c.code)).toContain('INVALID_INTERVENTION_VALUE');
+    expect(critiques(body).map(c => c.code)).not.toContain('GOAL_NODE_NOT_CAUSAL');
+  });
+
+  it('PIN: the user_message still resolves the option LABEL from the raw body', async () => {
+    // The hoist moved the humaniser's label sources from `normalizedGraph` /
+    // `normalizedOptions` (which do not exist yet above Phase 1) to `body.graph`
+    // / `body.options`. normalizeOptions() copies `id` and `label` verbatim, so
+    // the rendered message must be unchanged — this is what proves that.
+    const { body } = await postWith({}, { f: null, g: 60 });
+    const c = critiques(body).find(x => x.code === 'INVALID_INTERVENTION_VALUE')!;
+    expect(c).toBeDefined();
+    expect(String(c.user_message)).toBe('Option One has an invalid effect value. Each intervention must be a valid number.');
+  });
+
+  it('POSITIVE CONTROL: with VALID interventions the goal-node blocker is unchanged', async () => {
+    // The guard must not have swallowed the adjacent diagnosis — only reordered
+    // it for requests that are malformed in BOTH places.
+    const { res, body } = await postWith({ goal_node_id: 'nope' }, { f: 120, g: 60 });
+    expect(res.statusCode).toBe(422);
+    expect(critiques(body).map(c => c.code)).toContain('GOAL_NODE_NOT_IN_GRAPH');
+    expect(critiques(body).map(c => c.code)).not.toContain('INVALID_INTERVENTION_VALUE');
+  });
+});
