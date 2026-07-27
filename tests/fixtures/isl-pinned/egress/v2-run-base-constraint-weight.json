@@ -5,8 +5,8 @@
   "site": "routes/v2/run.ts → islService.callAnalysisEndpoint (caller supplied constraint weight)",
   "liveness": "live",
   "note": "Same producer with a caller-supplied goal_constraints[].weight, so the second knownUndeclared exemption is observable rather than latent.",
-  "wire_bytes_length": 1666,
-  "wire_bytes_sha256": "95ac3b855564bd3368e888d3212b0d35f57418e79174941e91aa427b85b29121",
+  "wire_bytes_length": 1856,
+  "wire_bytes_sha256": "e9d6ef23963dfe5f64e9f15e10ade3ebb1574360fb305763219a84d2757a9043",
   "body": {
     "request_id": "req_slice2_pairing",
     "graph": {
@@ -41,6 +41,16 @@
           "id": "fac_cost",
           "kind": "factor",
           "label": "Cost",
+          "observed_state": {
+            "value": 0.55
+          },
+          "intercept": 0,
+          "epsilon_std": 0
+        },
+        {
+          "id": "con_cost_cap",
+          "kind": "constraint",
+          "label": "Cost cap",
           "observed_state": {
             "value": 0.55
           },
@@ -130,6 +140,11 @@
         "node_id": "fac_market",
         "distribution": "normal",
         "std": 0.11547005383792515
+      },
+      {
+        "node_id": "con_cost_cap",
+        "distribution": "normal",
+        "std": 0.001
       }
     ],
     "include_e_values": true,
@@ -137,7 +152,7 @@
     "goal_constraints": [
       {
         "constraint_id": "c1",
-        "node_id": "fac_cost",
+        "node_id": "con_cost_cap",
         "operator": "<=",
         "value": 0.7,
         "label": "Cost cap",

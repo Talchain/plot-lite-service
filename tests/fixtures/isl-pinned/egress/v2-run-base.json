@@ -5,8 +5,8 @@
   "site": "routes/v2/run.ts → islService.callAnalysisEndpoint",
   "liveness": "live",
   "note": "The base /v2/run analysis body — the highest-traffic ISL request PLoT sends.",
-  "wire_bytes_length": 1653,
-  "wire_bytes_sha256": "cada35cb21214bd6de2290c896ebfb3fb97ca7957f9178dbbc64ba38a6d7673f",
+  "wire_bytes_length": 1843,
+  "wire_bytes_sha256": "575002b382cf3833bf92152387ee81e94a8a5443cdd21ed66e944b4d102fab13",
   "body": {
     "request_id": "req_slice2_pairing",
     "graph": {
@@ -41,6 +41,16 @@
           "id": "fac_cost",
           "kind": "factor",
           "label": "Cost",
+          "observed_state": {
+            "value": 0.55
+          },
+          "intercept": 0,
+          "epsilon_std": 0
+        },
+        {
+          "id": "con_cost_cap",
+          "kind": "constraint",
+          "label": "Cost cap",
           "observed_state": {
             "value": 0.55
           },
@@ -130,6 +140,11 @@
         "node_id": "fac_market",
         "distribution": "normal",
         "std": 0.11547005383792515
+      },
+      {
+        "node_id": "con_cost_cap",
+        "distribution": "normal",
+        "std": 0.001
       }
     ],
     "include_e_values": true,
@@ -137,7 +152,7 @@
     "goal_constraints": [
       {
         "constraint_id": "c1",
-        "node_id": "fac_cost",
+        "node_id": "con_cost_cap",
         "operator": "<=",
         "value": 0.7,
         "label": "Cost cap"

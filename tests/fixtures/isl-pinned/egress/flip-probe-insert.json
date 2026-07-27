@@ -5,8 +5,8 @@
   "site": "analysis/flip-thresholds.ts → createISLInferenceFn (probe on a graph factor with no PU)",
   "liveness": "live",
   "note": "The other branch of the probe: it INSERTS a PU entry the translator never produced.",
-  "wire_bytes_length": 1579,
-  "wire_bytes_sha256": "a8c12c4e5f319d652b39527d410b508ea6819c452991319e5195b91d24e4e9e9",
+  "wire_bytes_length": 1765,
+  "wire_bytes_sha256": "7480c0c6eb97bb179ca9aaa0d650a8161087fc02497820cc097099104018eefd",
   "body": {
     "request_id": "req_slice2_pairing__flip_fac_no_obs",
     "graph": {
@@ -41,6 +41,16 @@
           "id": "fac_cost",
           "kind": "factor",
           "label": "Cost",
+          "observed_state": {
+            "value": 0.55
+          },
+          "intercept": 0,
+          "epsilon_std": 0
+        },
+        {
+          "id": "con_cost_cap",
+          "kind": "constraint",
+          "label": "Cost cap",
           "observed_state": {
             "value": 0.55
           },
@@ -131,6 +141,11 @@
         "node_id": "fac_market",
         "distribution": "normal",
         "std": 0.11547005383792515
+      },
+      {
+        "node_id": "con_cost_cap",
+        "distribution": "normal",
+        "std": 0.001
       },
       {
         "node_id": "fac_no_obs",

@@ -181,12 +181,44 @@ export function buildGraph(): EngineGraphV3 {
       category: 'external',
       prior: { distribution: 'uniform', range_min: 0.2, range_max: 0.6 },
     } as EngineNodeV3,
-    // Constrained node with no PU of its own → constraint injection fires.
     {
       id: 'fac_cost',
       kind: 'factor',
       label: 'Cost',
       observed_state: { value: 0.55 },
+    } as EngineNodeV3,
+    /**
+     * The node the goal constraint targets, and the ONLY way to reach the
+     * constraint-PU injection branch.
+     *
+     * `buildParameterUncertaintiesV3` emits a PU only for `kind: 'factor'`
+     * (translator-v3.ts:330), so a constrained FACTOR that has an
+     * observed_state.value already has a translator PU and
+     * `classifyConstraintPu` returns `existing` — the injector does nothing.
+     * A `kind: 'constraint'` node is not filtered out (option-filter's
+     * NON_CAUSAL_NODE_KINDS is ['option','decision']) and is not a factor, so it
+     * arrives at the injector with no PU: exactly the branch
+     * `injectConstraintParameterUncertainties` exists for.
+     *
+     * ⚠ This was found by MUTATION, not by reading: re-introducing the slice-6
+     * `mean` key into the injector left the previous fixture graph completely
+     * green, because that graph never reached the injector at all. See the PR
+     * body — PR #274's spec has the same gap, and its positive control
+     * ("all three `mean` producers fired") was satisfied by the translator alone.
+     *
+     * `metadata` here is the production shape: graph-normaliser.ts:274-276
+     * attaches it to a CONSTRAINT node's observed_state for the constraint
+     * compiler, which is precisely the PLoT-internal key slice 6 stopped
+     * forwarding verbatim.
+     */
+    {
+      id: 'con_cost_cap',
+      kind: 'constraint',
+      label: 'Cost cap',
+      observed_state: {
+        value: 0.55,
+        metadata: { operator: '<=', source: 'cee_constraint_node' },
+      } as EngineNodeV3['observed_state'],
     } as EngineNodeV3,
     // In the graph but with no observed_state, so the translator emits no PU for
     // it — the realistic "insert" branch of the flip probe.
@@ -245,7 +277,7 @@ const OPTIONS: OptionV3[] = [
 
 /** Golden-path constraints: `constraint_id` present, `weight` absent. */
 const CONSTRAINTS: GoalConstraint[] = [
-  { constraint_id: 'c1', node_id: 'fac_cost', operator: '<=', value: 0.7, label: 'Cost cap' },
+  { constraint_id: 'c1', node_id: 'con_cost_cap', operator: '<=', value: 0.7, label: 'Cost cap' },
 ] as unknown as GoalConstraint[];
 
 /**
@@ -255,7 +287,7 @@ const CONSTRAINTS: GoalConstraint[] = [
  * OBSERVABLE, so the stale-exemption check below is not vacuous.
  */
 const CONSTRAINTS_WITH_WEIGHT: GoalConstraint[] = [
-  { constraint_id: 'c1', node_id: 'fac_cost', operator: '<=', value: 0.7, label: 'Cost cap', weight: 0.6 },
+  { constraint_id: 'c1', node_id: 'con_cost_cap', operator: '<=', value: 0.7, label: 'Cost cap', weight: 0.6 },
 ] as unknown as GoalConstraint[];
 
 function buildV2Request(constraints: GoalConstraint[]): ISLRobustnessRequestV3 {
