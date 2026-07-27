@@ -331,11 +331,52 @@ export function deriveRange(
  * - Zero-width range (min == max): return 0.5 (midpoint)
  * - Value outside range: clamp to [0, 1]
  *
- * @param value Raw value to normalise
+ * ABSENCE IN ⇒ ABSENCE OUT (ROADMAP 1.278). The parameter is `unknown` and the
+ * return is `… | undefined` **on purpose** — the ingress side of the same
+ * fabricate-on-absence class ROADMAP 1.277 closed on `denormaliseValue`, and
+ * deliberately given the SAME shape so a reader of this file does not have to
+ * remember which of the two adjacent primitives self-guards.
+ *
+ * The signature used to be `(value: number, …)`, and that `number` was a
+ * compile-time fiction: `interventions` arrives through an Ajv schema that types
+ * the CONTAINER only (`{ type: 'object' }`), so the values were never validated
+ * against it. `null` therefore reached the arithmetic and coerced to 0:
+ *
+ *     normaliseValue(null, { min: 10, max: 20 })  → { normalised: 0, clamped: true  }
+ *     normaliseValue(null, { min: 0,  max: 200 }) → { normalised: 0, clamped: false }
+ *
+ * i.e. an unspecified intervention silently became **"intervene at the range
+ * minimum"** — a different question, answered confidently — and on a min-0 range
+ * it was not even flagged as clamped. `clamped` is the only signal this struct
+ * carries about a suspect input, and the SILENT case is precisely the one where
+ * a caller could have noticed.
+ *
+ * Note the asymmetry that hid it: `undefined`, a missing key and a non-numeric
+ * string all produce `NaN` here, which downstream finiteness checks reject — so
+ * absence tests written with those shapes passed, while `null`, the shape the
+ * wire actually carries, produced a plausible finite number. `NaN` was in fact
+ * asserted as a DELIBERATELY UNGUARDED SEAM by
+ * tests/gates/numeric-safety-deep-scan.test.ts; that assertion is updated in
+ * this slice, because the seam is now closed.
+ *
+ * @param value Raw value to normalise — UNTRUSTED; may be any wire shape
  * @param range Normalisation range
- * @returns Normalised value in [0, 1]
+ * @returns `{ normalised, clamped }`, or `undefined` if `value` was not a finite
+ *          number (absent / null / NaN / ±Infinity / non-numeric)
  */
-export function normaliseValue(value: number, range: NormalisationRange): { normalised: number; clamped: boolean } {
+export function normaliseValue(
+  value: unknown,
+  range: NormalisationRange,
+): { normalised: number; clamped: boolean } | undefined {
+  // Absence in ⇒ absence out. Never arithmetic on a non-number: `null` coerces
+  // to 0 and manufactures the range minimum as a plausible intervention.
+  const v = finiteNum(value);
+  if (v === undefined) return undefined;
+
+  return normaliseFiniteValue(v, range);
+}
+
+function normaliseFiniteValue(value: number, range: NormalisationRange): { normalised: number; clamped: boolean } {
   const { min, max } = range;
   const rangeWidth = max - min;
 
@@ -650,7 +691,28 @@ export function normaliseOptions(
         ? factorContext.range
         : fallbackRanges.get(factorId) ?? { min: 0, max: 1, source: 'default' };
 
-      const { normalised, clamped } = normaliseValue(intervention.value, range);
+      // ROADMAP 1.278 — explicit absence handling. `InterventionValueV3.value`
+      // is a REQUIRED number, so there is no honest way to represent absence in
+      // the normalised output: omitting the entry would silently change WHAT WAS
+      // ANALYSED while still returning a confident answer (the worse failure),
+      // and substituting any number fabricates. The only non-fabricating
+      // disposal is to refuse.
+      //
+      // REACHABILITY: unreachable from the wire. POST /v2/run rejects a
+      // non-finite intervention value at the Phase 1a++ ingress guard
+      // (422 INVALID_INTERVENTION_VALUE) before this runs, and that guard shares
+      // its predicate with normalizeInterventions(). This throw is
+      // defence-in-depth for a FUTURE in-process caller, and it converts a
+      // silent fabrication into a loud, precisely-named failure.
+      const normalisation = normaliseValue(intervention.value, range);
+      if (normalisation === undefined) {
+        throw new Error(
+          `normaliseOptions: non-finite intervention value for option '${option.id}' factor '${factorId}' ` +
+          `(received ${JSON.stringify(intervention.value) ?? 'undefined'}). ` +
+          `Intervention values must be validated at the request boundary before normalisation.`,
+        );
+      }
+      const { normalised, clamped } = normalisation;
 
       normalisedInterventions[factorId] = {
         value: normalised,
@@ -1238,8 +1300,30 @@ export function normaliseGoalConstraints(
       producerDeclaredRange === undefined ||
       rangesEqual(interventionScale, producerDeclaredRange);
 
-    // Normalise value
-    let { normalised, clamped } = normaliseValue(value, range);
+    // Normalise value — explicit absence handling (ROADMAP 1.278).
+    //
+    // REACHABILITY of a non-finite `value` here: NONE, from any of the three
+    // producers of a GoalConstraint, each already finiteness-guarded:
+    //   1. client `body.goal_constraints`  → routes/v2/run.ts Phase 1b++
+    //      ingress-shape guard rejects a non-finite `value` with a 422
+    //      INVALID_CONSTRAINT_SHAPE naming the index and field.
+    //   2. graph-compiled constraint nodes → normalisation/constraint-compiler.ts
+    //      skips a node whose observed_state.value is not a finite number.
+    //   3. auto-synthesis from goal_threshold → routes/v2/run.ts guards
+    //      `Number.isFinite(autoThreshold)`, and goal_threshold itself is
+    //      parsed with an explicit null→undefined + isFinite branch.
+    // `NormalisedGoalConstraint.normalised_value` is a required number, so — as
+    // at the intervention call site above — refusing is the only disposal that
+    // neither fabricates nor silently drops a constraint from the analysis.
+    const constraintNormalisation = normaliseValue(value, range);
+    if (constraintNormalisation === undefined) {
+      throw new Error(
+        `normaliseGoalConstraints: non-finite value for constraint '${constraint_id}' on node '${node_id}' ` +
+        `(received ${JSON.stringify(value) ?? 'undefined'}). ` +
+        `Constraint values must be validated at the request boundary before normalisation.`,
+      );
+    }
+    let { normalised, clamped } = constraintNormalisation;
 
     // Prefer the node's CEE-stamped, already-normalised goal_threshold when it
     // corresponds to the same target under a producer-declared cap.

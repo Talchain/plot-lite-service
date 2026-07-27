@@ -208,9 +208,34 @@ async function run(app: FastifyInstance) {
 // ---------------------------------------------------------------------------
 
 describe('WP5 gate · numeric seam + boundary guard (unit)', () => {
-  it('normaliseValue(NaN) propagates NaN — the seam non-finite must be caught at boundaries', () => {
-    const { normalised } = normaliseValue(N, { min: 0, max: 1, source: 'default' });
-    expect(Number.isNaN(normalised)).toBe(true); // documents the seam: arithmetic does not self-guard
+  it('normaliseValue(NaN) SELF-GUARDS to undefined (ROADMAP 1.278) — the last bare numeric seam is closed', () => {
+    // This assertion used to read `Number.isNaN(normaliseValue(N, …).normalised) === true`,
+    // documenting normaliseValue as a DELIBERATELY UNGUARDED seam whose non-finite
+    // inputs "must be caught at boundaries". ROADMAP 1.278 ends that, for the same
+    // reason ROADMAP 1.277 ended it for the sibling denormaliseValue: the seam was
+    // only ever safe against the shapes that produce NaN. It was NOT safe against
+    // `null`, which coerces to 0 and yields the RANGE MINIMUM as a plausible,
+    // finite, un-flagged intervention — a value no downstream finiteness check can
+    // distinguish from a real one. That is why asserting the NaN half kept passing
+    // while the class stayed open: this gate was testing the one absence shape the
+    // arithmetic happened to poison loudly.
+    //
+    // WHAT PROVES THE GUARD BITES (not just that it exists): the mutation run for
+    // this slice reverted the primitive hardening alone and the DEFECT-labelled
+    // cases in tests/intervention-normaliser-absence.test.ts went RED — including
+    // the SILENT one, `null` on a min-0 range, which returns
+    // `{ normalised: 0, clamped: false }` when the guard is absent.
+    //
+    // Boundary guards are still required and still asserted — see the Phase 1a++
+    // ingress guard pinned by tests/intervention-ingress-shape-guard.test.ts. The
+    // primitive is defence-in-depth, not a replacement for them.
+    expect(normaliseValue(N, { min: 0, max: 1, source: 'default' })).toBeUndefined();
+    expect(normaliseValue(null, { min: 10, max: 20, source: 'default' })).toBeUndefined();
+    // The SILENT shape specifically: a min-0 range fabricated 0 with clamped:false.
+    expect(normaliseValue(null, { min: 0, max: 200, source: 'default' })).toBeUndefined();
+    // Positive control: a real value is untouched, and 0 is a REAL value.
+    expect(normaliseValue(0.5, { min: 0, max: 1, source: 'default' })).toEqual({ normalised: 0.5, clamped: false });
+    expect(normaliseValue(0, { min: 0, max: 200, source: 'default' })).toEqual({ normalised: 0, clamped: false });
   });
 
   it('denormaliseValue(NaN) SELF-GUARDS to undefined (ROADMAP 1.277) — no longer a bare seam', () => {
