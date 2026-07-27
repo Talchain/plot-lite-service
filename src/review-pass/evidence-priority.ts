@@ -221,15 +221,24 @@ export function buildEvidencePriorityCard(
     review_phase: 'post_analysis',
     what: `Gathering better evidence on ${topFactorLabels} could change the recommendation.`,
     why: `These factors have high sensitivity but low confidence — better data would most improve decision quality.`,
-    // NOTE (known asymmetry): These IDs are constructed placeholders
-    // (`sensitivity_{factor_id}`), not real fact_id values from assembleFactObjects().
-    // V2 /run does not assemble FactObjects — facts only exist in V1 /run_bundle.
-    // When the orchestrator's explain_results tool produces CommentaryBlocks with
-    // [fact_id] citations, those resolve against facts assembled by CEE from the
-    // V2 response, not against facts in the V2 response itself. This is an
-    // architectural boundary: PLoT V2 → CEE → FactObjects → citations.
-    // Do not spend time debugging "citation doesn't resolve" in A.8 integration
-    // testing — this is expected until V2 adopts fact assembly.
+    // NOTE (namespace asymmetry): these ref IDs are constructed placeholders
+    // (`sensitivity_{factor_id}`), not fact_id values from assembleFactObjects().
+    // /v2/run DOES assemble and emit `fact_objects` when ENABLE_FACTS_ASSEMBLY is
+    // on — default ON under NODE_ENV=test and on any Render service whose name
+    // contains 'staging', OFF in production unless set explicitly. Read the rule
+    // at src/config/flags.ts rather than trusting this line.
+    // The two ID spaces cannot collide: a real fact_id is a 16-char SHA-256 hex
+    // digest (generateFactId, src/facts/hash.ts) and `sensitivity_` is not hex,
+    // so these placeholders stay disjoint from the assembled namespace rather
+    // than shadowing it.
+    // Citation consequence: a [fact_id] citation in an explain_results
+    // CommentaryBlock resolves against neither these refs NOR our emitted
+    // fact_objects — CEE assembles no FactObjects of its own and skip-lists
+    // `fact_objects` in its analysis→LLM projection, so no fact_id from this
+    // response reaches the model that writes the commentary (verify in
+    // olumi-assistants-service: src/orchestrator-v5/context/enrichment-manifest.ts).
+    // Treat these refs as provenance breadcrumbs for `items`, not as resolvable
+    // citations.
     supporting_refs: topItems.map(i => ({
       kind: 'fact' as const,
       id: `sensitivity_${i.factor_id}`,
