@@ -43,7 +43,13 @@ export function resolveNodeLabel(
   graph: GraphForLabels,
 ): string {
   if (!nodeId) return 'unknown';
-  const node = graph.nodes.find((n) => n.id === nodeId);
+  // `n?.id`: the /v2/run Ajv body schema types graph.nodes as `{ type: 'array' }`
+  // — the container only, the ITEMS unvalidated (src/routes/v2/run.ts:1276) — so
+  // `nodes: [null]` is a well-formed request. An unguarded `n.id` threw a
+  // TypeError out of every 422 blocked path (buildBlockedResponse runs its
+  // critiques through addUserMessages), replacing the precise blocker with a
+  // masked PLOT_INTERNAL_ERROR. A malformed node is simply not a match.
+  const node = graph.nodes.find((n) => n?.id === nodeId);
   if (node?.label) return node.label;
   return humaniseId(nodeId);
 }
@@ -59,7 +65,10 @@ function resolveOptionLabel(
   if (option?.label) return option.label;
   // Fall back to graph lookup (option might be in nodes)
   if (graph) {
-    const node = graph.nodes.find((n) => n.id === optionId);
+    // `n?.id` — same unvalidated-item hazard as resolveNodeLabel above. This is
+    // the site the reviewer's corner reaches: an option with `label: ""` is
+    // FALSY, so the option lookup falls through to this graph lookup.
+    const node = graph.nodes.find((n) => n?.id === optionId);
     if (node?.label) return node.label;
   }
   return humaniseId(optionId);
@@ -104,7 +113,8 @@ export const TEMPLATE_MAP: Record<string, TemplateEntry> = {
 
   GOAL_NODE_NOT_CAUSAL: (c, g) => {
     const nodeId = c.affected_node_ids?.[0];
-    const node = nodeId ? g.nodes.find((n) => n.id === nodeId) : undefined;
+    // `n?.id` — third site of the same unvalidated-item hazard (see :46).
+    const node = nodeId ? g.nodes.find((n) => n?.id === nodeId) : undefined;
     const kind = node?.kind ?? 'non-causal';
     return `The selected goal is a ${kind} node, which can't be used as an analysis target. Choose a factor, outcome, risk, or goal node instead.`;
   },
