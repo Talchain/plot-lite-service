@@ -32,6 +32,7 @@ import type { M1Coaching } from '../coaching/types.js';
 import type { M1Review } from '../cee/validation/m1-review-types.js';
 import type { ReviewStatus, ReviewSkipReason } from '../cee/validation/m1-review-constants.js';
 import type { DenormalisedFlipThreshold } from '../lib/flip-threshold-denormaliser.js';
+import type { DriverOrderV1 } from '../lib/driver-order.js';
 import type { DecisionBriefV1 } from './decision-brief.js';
 import type { ISLFlipStabilityBandV2, ISLPathDecompositionV2 } from '../integrations/isl/types/isl-types.js';
 
@@ -1095,6 +1096,28 @@ export interface RunResponseV3 {
 
   /** Factor sensitivity results (if available) */
   factor_sensitivity?: FactorSensitivityResultV3[];
+
+  /**
+   * ⭐ THE canonical driver ordering + its attestation (family 4, slice S1).
+   *
+   * PLoT owns EXACTLY ONE ordering over the factor set and attests how it was
+   * made — basis, lever policy, row species, separability, rank stability. See
+   * `src/lib/driver-order.ts` for the ordering rule stated at the bytes.
+   *
+   * `ranked_factor_ids` is parallel to `factor_sensitivity[]`: the array IS the
+   * order. Emitted whenever `factor_sensitivity` is emitted, including when the
+   * array is empty (`basis: 'none'`) — present-empty and absent are different
+   * claims, and a consumer must fail closed on absence.
+   *
+   * ⚠ ADDITIVE. Emitted ALONGSIDE the existing crown/rank surfaces
+   * (`driver_label`, `dominant_factor`, `m1_coaching.key_drivers[].rank`,
+   * `decision_brief.top_drivers[0]`, the facts-path `importance_rank`), none of
+   * which changed in this slice and three of which still disagree with it.
+   *
+   * NOTE: Deterministic producer enrichment. `response_hash` canonicalises the
+   * REQUEST (`hashRequest`), so this field does not enter it.
+   */
+  driver_order?: DriverOrderV1;
 
   /**
    * ISL stability assessment per factor.

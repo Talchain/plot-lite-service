@@ -6225,6 +6225,143 @@ components:
                   deliberately absent in that case, never a clamped 0.
               direction:
                 type: string
+        driver_order:
+          type: object
+          description: >-
+            THE canonical driver ordering and its attestation (family 4, slice
+            S1). PLoT publishes exactly ONE ordering over the factor set plus
+            the disclosure that makes it interpretable. `ranked_factor_ids` is
+            PARALLEL to `factor_sensitivity[]` — the array IS the order — so a
+            consumer joining by index and a consumer joining by id cannot
+            disagree. A consumer MUST NOT re-sort it.
+
+
+            ALWAYS PRESENT when `factor_sensitivity` is present, including when
+            that array is empty (then `basis: none`). Present-empty and absent
+            are DIFFERENT claims: absence means unknown provenance (an older
+            producer, or a dropped key) and a consumer must fail closed on it.
+
+
+            ADDITIVE. `factor_sensitivity[].driver_label`, `dominant_factor`,
+            `m1_coaching.key_drivers[].rank`, `decision_brief.top_drivers[0]`
+            and the facts-path `importance_rank` are UNCHANGED by this slice
+            and remain independent argmaxes; on the pinned 2026-07-07 capture
+            two of them still name a different factor from
+            `ranked_factor_ids[0]`. Reconciling them is a later slice.
+
+
+            Not in `response_hash` (which canonicalises the REQUEST).
+          required:
+            - version
+            - basis
+            - ranked_factor_ids
+            - species
+            - lever_policy
+            - lever_ids
+            - separability
+            - rank_stability
+          properties:
+            version:
+              type: integer
+              enum: [1]
+              description: Schema discriminator for this object.
+            basis:
+              type: string
+              enum: [graph_structural, isl_uncertainty, none]
+              description: >-
+                WHICH authority produced the order. `graph_structural` — PLoT's
+                own graph path analysis (the live primary path).
+                `isl_uncertainty` — the graph path returned nothing and ISL's
+                Monte-Carlo uncertainty-importance order is published.
+                `none` — nothing was ranked, or ISL itself declared the
+                per-factor attributions WITHHELD
+                (`correlation_model.suppressed_attributions`) and ISL was the
+                only basis available. The order-level successor to the per-row
+                `factor_sensitivity[].importance_basis`, which is retained for
+                one release as a fail-loud mirror.
+            ranked_factor_ids:
+              type: array
+              items:
+                type: string
+              description: >-
+                The canonical order, as factor IDS — never labels, never
+                values. Parallel to `factor_sensitivity[]`. Empty when `basis`
+                is `none`.
+            species:
+              type: string
+              enum: [single, mixed_graph_isl]
+              description: >-
+                `mixed_graph_isl` means the array carries BOTH graph-derived
+                rows and ISL-only rows appended at the tail with no re-sort.
+                Their `influence_score`/`sensitivity_score`/`elasticity` are
+                INCOMMENSURABLE — the two paths publish different quantities
+                under the same field names. A consumer that sorts or bands
+                across the whole array in this state is comparing two units.
+            lever_policy:
+              type: string
+              enum: [du_union, stamp_only, none]
+              description: >-
+                The lever doctrine actually applied. `du_union` — ISL's
+                `zero_reason: intervention_override` stamp OR membership of the
+                options-derived intervention-target union; this is what
+                `/v2/run` applies. `stamp_only` — the stamp alone, which
+                UNDER-covers; RESERVED for other surfaces in this response that
+                still use it, and NOT emitted here. `none` — no order was made.
+            lever_ids:
+              type: array
+              items:
+                type: string
+              description: >-
+                The option-controlled levers among `ranked_factor_ids`, in rank
+                order. Levers are MARKED, not removed: whether a lever may be
+                CROWNED is a permission decision, not a producer one.
+            separability:
+              type: object
+              description: >-
+                The TIE VERDICT for this order's top position — a PRODUCER
+                verdict, never a consumer derivation. Orthogonal to the
+                designation: `ranked_factor_ids[0]` answers "does an argmax
+                exist?", this answers "is it separable from the runner-up?".
+                The presence of one is never permission for the other.
+              required: [top_pair_separable, method]
+              properties:
+                top_pair_separable:
+                  type: boolean
+                  nullable: true
+                  description: >-
+                    `false` — PROVEN not separable (the top two rows are
+                    EXACTLY equal on the quantity the order was made on; no
+                    threshold involved). `null` — UNRESOLVED; a consumer MUST
+                    fail closed, and strict inequality on the basis quantity is
+                    NOT evidence of statistical separability. `true` is NOT
+                    emitted by this build: no threshold for the DRIVER order is
+                    ratified, and inventing one would recreate the
+                    three-thresholds-in-three-repos defect the option-side
+                    `near_tie` already suffers.
+                method:
+                  type: string
+                  nullable: true
+                  description: >-
+                    Names the method behind a non-null verdict
+                    (`basis_value_exact_tie`); `null` when unresolved.
+            rank_stability:
+              type: object
+              description: >-
+                ISL's measured stability inputs, aggregated over the ordered
+                rows. MEASUREMENTS, not verdicts — no threshold is applied.
+                `null` means the producer did not measure it; never coalesce a
+                null to 0, which would read "unmeasured" as "perfectly stable".
+              required: [max_rank_flip_rate, min_attribution_stability]
+              properties:
+                max_rank_flip_rate:
+                  type: number
+                  nullable: true
+                  description: Worst (highest) `rank_flip_rate` across the ordered rows.
+                min_attribution_stability:
+                  type: string
+                  nullable: true
+                  enum: [negligible, low, moderate, high]
+                  description: Worst `attribution_stability` band across the ordered rows.
         robustness:
           type: object
           properties:

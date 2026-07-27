@@ -240,7 +240,27 @@ export const ISL_TO_UI_CONTRACT: BoundaryContract = {
     // the pre-change world is the hand-maintained-mirror defect this file
     // exists to prevent.
     'factor_sensitivity[].source',       // 'graph' on the primary path | 'isl' on the ISL-only fallback. A legacy/object provenance label — for the RANKING basis read importance_basis, not this.
-    'factor_sensitivity[].importance_basis', // Lane PLoT importance-authority: 'graph_structural' | 'isl_uncertainty'. The runtime disclosure for every entry in `substitutions` below.
+    'factor_sensitivity[].importance_basis', // Lane PLoT importance-authority: 'graph_structural' | 'isl_uncertainty'. The runtime disclosure for every entry in `substitutions` below. ⚠ SUPERSEDED by driver_order.basis — kept for ONE release as a fail-loud mirror (a per-row copy of an ORDER-level fact is N things to drift), then deleted. The agreement is pinned by tests/driver-order-attestation.fixture.test.ts.
+    // ⭐ Family-4 slice S1: THE canonical driver ordering + its attestation.
+    // PLoT's role in the ratified authority model is order + attest — exactly
+    // ONE ordering over the factor set, plus the disclosure that makes it
+    // interpretable (basis, lever policy, row species, separability, rank
+    // stability). `ranked_factor_ids` is PARALLEL to factor_sensitivity[]:
+    // the array IS the order. Emitted whenever factor_sensitivity is emitted,
+    // including empty (basis 'none') — so absence is unambiguous and a
+    // consumer can fail closed on a value it can read rather than on a key it
+    // has to guess about. ADDITIVE: driver_label, dominant_factor,
+    // m1_coaching.key_drivers[].rank, decision_brief.top_drivers[0] and the
+    // facts-path importance_rank are UNCHANGED by this slice and three of
+    // them still disagree with it. See src/lib/driver-order.ts.
+    'driver_order',
+    'driver_order.basis',                // 'graph_structural' | 'isl_uncertainty' | 'none' — the ORDER-level successor to the per-row importance_basis
+    'driver_order.ranked_factor_ids',    // the canonical order, IDS only (a second copy of a label is a second thing to drift)
+    'driver_order.species',              // 'single' | 'mixed_graph_isl' — the ISL-only tail appended with no re-sort carries an incommensurable quantity; before this field no consumer could detect it
+    'driver_order.lever_policy',         // 'du_union' on /v2/run — the ISL stamp OR the options-derived intervention union; 'stamp_only' is RESERVED for the surfaces that still use the under-covering predicate
+    'driver_order.lever_ids',            // levers are MARKED, not hidden — whether a lever may be CROWNED is a permission question, not a producer one
+    'driver_order.separability',         // the TIE VERDICT. `false` = PROVEN non-separation (exact tie on the basis quantity). `null` = UNRESOLVED — fail closed. `true` is NEVER emitted by this build: no driver-order threshold is ratified, and inventing one would recreate the three-thresholds-in-three-repos defect.
+    'driver_order.rank_stability',       // ISL's MEASUREMENTS aggregated (worst rank_flip_rate, worst attribution_stability band). No threshold applied. null = not measured, never 0.
     'factor_sensitivity[].confidence_source', // B (tier-B): 'plot_unified_from_isl_bootstrap' | 'plot_unified_from_graph' — honest provenance tag (audit A1-PRIMARY)
     'factor_sensitivity[].confidence_provenance', // B (tier-B): typed disclosure object {computation_source, formula_version, is_provisional, calibration_status, input_quality} — audit A1-PRIMARY
     'auto_noise_applied',                // B (tier-B): boolean echo of ISL's auto-noise flag — present on analysis_status ∈ {computed, partial}, null when ISL omits — audit B3
