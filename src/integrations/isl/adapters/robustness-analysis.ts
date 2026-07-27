@@ -17,7 +17,7 @@ import type {
   NormalizedEdgeInfo,
   EdgeNormalizationError,
 } from '../types/plot-types.js';
-import { isFiniteNumber } from '../../../util/numeric.js';
+import { isFiniteNumber, finiteNum } from '../../../util/numeric.js';
 
 // -----------------------------------------------------------------------------
 // Edge ID Parsing Helpers
@@ -81,6 +81,48 @@ function normalizeFragileEdge(edge: ISLFragileEdgeInfo): NormalizedEdgeInfo {
 /**
  * Normalize a robust edge from ISL format to consistent object shape.
  * ISL returns robust_edges as strings in "from->to" format.
+ *
+ * ⚠ KNOWN LIVE FABRICATION, BLOCKED ON A CROSS-REPO CONTRACT CHANGE
+ * (ROADMAP 1.240, sibling 3 — the string arm).
+ *
+ * `switch_probability: 1` below is MANUFACTURED. A bare `"from->to"` string
+ * carries no measurement at all, and the 1 is manufactured under the WRONG
+ * NAME: `switch_probability` is the probability that flipping the edge
+ * switches the recommended option — `normalizeFragileEdge` feeds exactly this
+ * field to `classifyEdgeSeverity` and to the doctrine-013 `visible` gate,
+ * where HIGHER means MORE fragile. "100% stability" would be
+ * switch_probability ≈ 0. So this is absent data rendered as the MAXIMUM of an
+ * INVERTED scale.
+ *
+ * IT IS NOT FIXED HERE, AND THE REASON IS THE FINDING. Omitting it (attempted
+ * and measured in this lane) makes every /v2/run response fail its own egress
+ * contract:
+ *
+ *   @talchain/schemas (vendored 0.22.0) boundary/enrichment.js:269
+ *     EnrichmentRobustnessEdgeSchema = z.object({ …
+ *       switch_probability: z.number(),      // REQUIRED
+ *
+ * That schema covers `robust_edges` as well as `fragile_edges`, CEE persists
+ * this body verbatim and shadow-validates it against the same schema, and the
+ * producer-side guard (routes/v2/enrichment-egress-guard.ts) stamps
+ * `_meta.evidence.enrichment_contract_ok: false` plus a user-visible
+ * ENRICHMENT_CONTRACT_MISMATCH warning on EVERY response. Measured: 4 issue
+ * paths, one per robust edge, on the golden fixture.
+ *
+ * NOTE THE SKEW THIS EXPOSES (hazard 1). PLoT's own published type already
+ * says the honest thing — `NormalizedEdgeInfoV3.switch_probability?: number`,
+ * documented "OPTIONAL: omitted when the source edge carries no
+ * switch_probability" (types/engine-v3.ts:2454) — and `normalizeFragileEdge`
+ * already omits it on that basis. The shared schema disagrees, so the
+ * divergence is LATENT for fragile edges today and would become universal for
+ * robust edges. Fixing it unilaterally in PLoT would trade a wrong number for
+ * a standing false alarm on a fail-open guard, which is the broken-alarm trap.
+ *
+ * REQUIRED TO CLOSE: relax the field in olumi-schemas to
+ * `switch_probability: z.number().optional()` (matching what PLoT already
+ * publishes), release, re-pin the vendored tarball here, THEN delete the
+ * fabrication below. The gate case is present and skipped in
+ * tests/gates/numeric-safety-deep-scan.test.ts §D3 with this same reason.
  */
 function normalizeRobustEdge(edgeId: string): NormalizedEdgeInfo {
   const parsed = parseEdgeId(edgeId);
@@ -88,7 +130,7 @@ function normalizeRobustEdge(edgeId: string): NormalizedEdgeInfo {
     edge_id: edgeId,
     from_id: parsed.from,
     to_id: parsed.to,
-    switch_probability: 1, // Robust edges have 100% stability
+    switch_probability: 1, // FABRICATED — see the blocker above. Do not read as a measurement.
   };
 }
 
@@ -222,7 +264,12 @@ export function normalizeRobustEdges(
         result.edges.push(normalizeRobustEdge(edge));
         continue;
       }
-      // Object format (fallback - treat like fragile but with switch_probability=1)
+      // Object format (fallback). switch_probability is FORWARDED when ISL
+      // measured it and OMITTED otherwise (ROADMAP 1.240, sibling 3) — it used
+      // to end `?? 1`, fabricating maximum switch probability from an absent
+      // field, on the inverted scale described in normalizeRobustEdge above.
+      // `isFiniteNumber` also rejects null/NaN/±Infinity, so this arm now
+      // matches normalizeFragileEdge's admission rule exactly.
       if (typeof edge === 'object' && edge !== null && 'edge_id' in edge) {
         const objEdge = edge as ISLFragileEdgeInfo;
         const parsed = parseEdgeId(objEdge.edge_id);
@@ -230,7 +277,9 @@ export function normalizeRobustEdges(
           edge_id: objEdge.edge_id,
           from_id: objEdge.from_id ?? parsed.from,
           to_id: objEdge.to_id ?? parsed.to,
-          switch_probability: objEdge.switch_probability ?? 1,
+          ...(isFiniteNumber(objEdge.switch_probability)
+            ? { switch_probability: objEdge.switch_probability }
+            : {}),
         });
         continue;
       }
@@ -403,9 +452,31 @@ export function adaptRobustnessAnalysisResponse(
   const robustResult = normalizeRobustEdges(rawRobustness.robust_edges as unknown[], requestId);
   const normalizationErrors = [...fragileResult.errors, ...robustResult.errors];
 
+  // ROADMAP 1.240, sibling 2 — the two fabrications that used to live here.
+  //
+  //   score: rawRobustness.score ?? rawRobustness.confidence ?? 0.5
+  //   label: rawRobustness.label ?? mapLevelToLabel(rawRobustness.level)
+  //
+  // `??` handles null correctly, so this was never the `!== undefined` bug —
+  // it is the broader class: a plausible substitute standing in for a
+  // measurement that does not exist. The `0.5` published "we assessed this
+  // decision as exactly half robust" and the label default published
+  // 'moderate' — `mapLevelToLabel`'s `default:` arm returns 'moderate' for
+  // undefined, so an ISL response carrying NEITHER `label` NOR `level` was
+  // rendered as a moderate-robustness VERDICT about the user's graph. That is
+  // the same species as the 'uncertain' identifiability verdict a 404 used to
+  // produce (Instance A) — a verdict manufactured from silence — and it is the
+  // worse of the two here, because a label is read as a conclusion where a
+  // score is read as a statistic.
+  //
+  // Both now degrade to absence. `finiteNum` also rejects NaN/±Infinity, and
+  // `mapLevelToLabel` is only consulted when `level` is actually present, so
+  // its 'moderate' default can no longer be reached from absent data.
   const robustness = {
-    score: rawRobustness.score ?? rawRobustness.confidence ?? 0.5,
-    label: rawRobustness.label ?? mapLevelToLabel(rawRobustness.level),
+    score: finiteNum(rawRobustness.score ?? rawRobustness.confidence),
+    label: rawRobustness.label ?? (rawRobustness.level !== undefined && rawRobustness.level !== null
+      ? mapLevelToLabel(rawRobustness.level)
+      : undefined),
     fragile_edges: fragileResult.edges,
     robust_edges: robustResult.edges,
   };
@@ -424,9 +495,13 @@ export function adaptRobustnessAnalysisResponse(
     factors_provenance: factors.length > 0 ? 'isl:/api/v1/robustness/analyze/v2' : 'unavailable',
     factor_sensitivity_status: factorStatus,
 
-    // Robustness
-    overall_robustness: robustness.label,
-    robustness_score: robustness.score,
+    // Robustness. Both fields are OMITTED when ISL measured neither — never
+    // substituted (see the block above). `overall_robustness` was already
+    // consumed absence-safely by the only caller: routes/v1/run.ts guards the
+    // CEE payload with `hasRobustness = isl_sensitivity?.overall_robustness
+    // !== undefined` and gates its ISL_FRAGILE critique on `=== 'fragile'`.
+    ...(robustness.label !== undefined && { overall_robustness: robustness.label }),
+    ...(robustness.score !== undefined && { robustness_score: robustness.score }),
     fragile_edges: robustness.fragile_edges,
     robust_edges: robustness.robust_edges,
 
@@ -468,9 +543,14 @@ export function createFallbackRobustnessAnalysis(
     factors_provenance: 'unavailable',
     factor_sensitivity_status: factorStatus,
 
-    // Robustness - default moderate
-    overall_robustness: 'moderate',
-    robustness_score: 0.5,
+    // Robustness — OMITTED, not "default moderate" (ROADMAP 1.240).
+    // This is the ISL-unavailable path: nothing was computed, so there is no
+    // robustness verdict and no robustness score to report. It used to return
+    // `overall_robustness: 'moderate', robustness_score: 0.5`, which is
+    // Instance A's defect in the robustness channel — a fabricated assessment
+    // of the user's graph, indistinguishable from a genuine ISL 'moderate'.
+    // `source: 'unavailable'` below is the machine-readable refusal; absence of
+    // the two fields is the honest human-readable one.
     fragile_edges: [],
     robust_edges: [],
 

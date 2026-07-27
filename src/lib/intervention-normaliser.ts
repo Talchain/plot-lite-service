@@ -14,6 +14,7 @@
  */
 
 import type { EngineNodeV3, OptionV3, InterventionValueV3, OutcomeStatsV3, RepairRecord } from '../types/engine-v3.js';
+import { finiteNum } from '../util/numeric.js';
 
 // -----------------------------------------------------------------------------
 // Types
@@ -812,20 +813,35 @@ export function needsNormalisation(options: OptionV3[]): boolean {
  * ISL option result with outcome data.
  * Matches the shape returned by ISL /api/v1/robustness/analyze/v2
  */
+/**
+ * ISL option result AS IT ARRIVES ON THE WIRE.
+ *
+ * Every numeric slot is `| null` because that is what the deployed service
+ * measurably sends for an absent value (same wire fact recorded for
+ * `failure_margin_median` / `near_miss_fraction` in
+ * src/integrations/isl/types/isl-types.ts — `exclude_none=True` on the route
+ * does not reach inside these nested objects). Declaring them bare `number`
+ * was a compile-time fiction over untrusted wire data, and it cost a live
+ * defect: see denormaliseOptionResult below.
+ *
+ * Keep the `| null`. It is what makes `opt.outcome.std * rangeWidth` a type
+ * error, so the only way to compute with these values is to validate them
+ * first — derived, not remembered.
+ */
 interface ISLOptionResult {
   option_id?: string;
   id?: string;
-  expected_outcome?: number;
-  confidence_interval?: [number, number];
+  expected_outcome?: number | null;
+  confidence_interval?: [number | null, number | null];
   outcome?: {
-    mean: number;
-    std?: number;
-    p10: number;
-    p50: number;
-    p90: number;
-    n_samples?: number;
-    n_valid_samples?: number;
-    validity_ratio?: number;
+    mean: number | null;
+    std?: number | null;
+    p10: number | null;
+    p50: number | null;
+    p90: number | null;
+    n_samples?: number | null;
+    n_valid_samples?: number | null;
+    validity_ratio?: number | null;
   };
   [key: string]: unknown;
 }
@@ -879,6 +895,35 @@ export function denormaliseISLResult(
 
 /**
  * Denormalise a single option result.
+ *
+ * VALIDATE BEFORE DENORMALISING (ROADMAP 1.240 — found by the absence-shape
+ * arm of tests/gates/numeric-safety-deep-scan.test.ts).
+ *
+ * This function used to compute unconditionally:
+ *
+ *     mean: denormaliseValue(opt.outcome.mean, range)   // null → null*w + min
+ *     std:  opt.outcome.std !== undefined ? opt.outcome.std * rangeWidth : undefined
+ *
+ * Both fabricate on the shape ISL actually sends. `denormaliseValue(null, …)`
+ * evaluates `null * rangeWidth + min` === `min`, so an outcome ISL did not
+ * compute was published as a PRECISE MEASURED OUTCOME sitting exactly at the
+ * bottom of the goal range — "this option achieves the worst possible result".
+ * And `std !== undefined` is the identical guard #277 removed from
+ * buildConstraintFields: `null !== undefined` is true, so `null * rangeWidth`
+ * collapsed to a measured standard deviation of 0, i.e. perfect certainty.
+ *
+ * The fabricated stats are all finite and in range, so every downstream
+ * finiteness and range check passed them, `hasAllRequiredOutcomeStats` returned
+ * true, and `option_comparison_status` reported a confident 'computed'. This is
+ * on the LIVE /v2/run → CEE path.
+ *
+ * Note the asymmetry that hid it: `undefined` and a MISSING KEY both produce
+ * `NaN` here, which the egress guards already reject, so the defect was
+ * invisible to every absence test written with those two shapes. Only `null`
+ * — the shape the wire actually carries — coerces to a plausible number.
+ *
+ * `finiteNum` rejects null/undefined/NaN/±Infinity, so only a real measurement
+ * reaches the arithmetic and an absent one stays absent.
  */
 function denormaliseOptionResult(
   opt: ISLOptionResult,
@@ -886,31 +931,42 @@ function denormaliseOptionResult(
 ): ISLOptionResult {
   const denormalised: ISLOptionResult = { ...opt };
 
+  /** Denormalise only a genuine measurement; absence stays absent. */
+  const dn = (v: unknown): number | undefined => {
+    const n = finiteNum(v);
+    return n === undefined ? undefined : denormaliseValue(n, range);
+  };
+
   // Denormalise expected_outcome
-  if (typeof opt.expected_outcome === 'number') {
-    denormalised.expected_outcome = denormaliseValue(opt.expected_outcome, range);
+  const expected = dn(opt.expected_outcome);
+  if (expected !== undefined) {
+    denormalised.expected_outcome = expected;
   }
 
-  // Denormalise confidence_interval
+  // Denormalise confidence_interval. Both bounds must be measured — half a
+  // denormalised interval is not an interval, and substituting one bound
+  // manufactures a width.
   if (Array.isArray(opt.confidence_interval) && opt.confidence_interval.length === 2) {
-    denormalised.confidence_interval = [
-      denormaliseValue(opt.confidence_interval[0], range),
-      denormaliseValue(opt.confidence_interval[1], range),
-    ];
+    const lo = dn(opt.confidence_interval[0]);
+    const hi = dn(opt.confidence_interval[1]);
+    denormalised.confidence_interval = lo !== undefined && hi !== undefined
+      ? [lo, hi]
+      : undefined;
   }
 
   // Denormalise full outcome stats
   if (opt.outcome && typeof opt.outcome === 'object') {
     const rangeWidth = range.max - range.min;
+    const std = finiteNum(opt.outcome.std);
 
     denormalised.outcome = {
       ...opt.outcome,
-      mean: denormaliseValue(opt.outcome.mean, range),
-      p10: denormaliseValue(opt.outcome.p10, range),
-      p50: denormaliseValue(opt.outcome.p50, range),
-      p90: denormaliseValue(opt.outcome.p90, range),
-      // Scale std by range width
-      std: opt.outcome.std !== undefined ? opt.outcome.std * rangeWidth : undefined,
+      mean: dn(opt.outcome.mean) ?? null,
+      p10: dn(opt.outcome.p10) ?? null,
+      p50: dn(opt.outcome.p50) ?? null,
+      p90: dn(opt.outcome.p90) ?? null,
+      // Scale std by range width — only when std was actually measured.
+      std: std !== undefined ? std * rangeWidth : undefined,
     };
   }
 

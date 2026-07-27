@@ -407,7 +407,15 @@ describe('Robustness Analysis Adapter', () => {
   });
 
   describe('normalizeRobustEdges', () => {
-    it('normalizes string format edges', () => {
+    // ⚠ The `switch_probability: 1` asserted here is a KNOWN FABRICATION that
+    // this lane could not remove: @talchain/schemas (vendored 0.22.0) declares
+    // the field REQUIRED on robust_edges, so omitting it makes every /v2/run
+    // response fail its own egress contract. Full reasoning and the exact
+    // one-line schema change needed are on normalizeRobustEdge in
+    // src/integrations/isl/adapters/robustness-analysis.ts, and the blocked
+    // assertion is present-and-skipped in
+    // tests/gates/numeric-safety-deep-scan.test.ts §D3.
+    it('normalizes string format edges (switch_probability is FABRICATED — see blocker)', () => {
       const edges = ['a->b', 'c::d'];
 
       const result = normalizeRobustEdges(edges);
@@ -416,7 +424,7 @@ describe('Robustness Analysis Adapter', () => {
       expect(result.edges[0].edge_id).toBe('a->b');
       expect(result.edges[0].from_id).toBe('a');
       expect(result.edges[0].to_id).toBe('b');
-      expect(result.edges[0].switch_probability).toBe(1); // Robust = 100% stability
+      expect(result.edges[0].switch_probability, 'fabricated, not measured').toBe(1);
     });
 
     it('handles object format edges (fallback)', () => {
@@ -427,12 +435,34 @@ describe('Robustness Analysis Adapter', () => {
       expect(result.edges[0].switch_probability).toBe(0.9);
     });
 
-    it('defaults switch_probability to 1 for object format', () => {
-      const edges = [{ edge_id: 'x->y' }];
+    // CORRECTED AT SOURCE (ROADMAP 1.240, sibling 3): was
+    // `defaults switch_probability to 1 for object format`, which pinned
+    // `objEdge.switch_probability ?? 1`. All three absence shapes are exercised
+    // because `??` and the old `!== undefined` guards disagree about `null`,
+    // and `null` is the shape a JSON wire actually delivers.
+    it('OMITS switch_probability for object format when absent — missing key, null, or undefined', () => {
+      const cases: Array<[string, unknown]> = [
+        ['missing key', { edge_id: 'x->y' }],
+        ['null', { edge_id: 'x->y', switch_probability: null }],
+        ['undefined', { edge_id: 'x->y', switch_probability: undefined }],
+        ['NaN', { edge_id: 'x->y', switch_probability: Number.NaN }],
+        ['Infinity', { edge_id: 'x->y', switch_probability: Number.POSITIVE_INFINITY }],
+      ];
+      for (const [label, edge] of cases) {
+        const result = normalizeRobustEdges([edge] as any);
+        expect(result.edges, label).toHaveLength(1);
+        expect(result.edges[0], `${label} must not fabricate switch_probability`)
+          .not.toHaveProperty('switch_probability');
+      }
+    });
 
-      const result = normalizeRobustEdges(edges);
-
-      expect(result.edges[0].switch_probability).toBe(1);
+    it('POSITIVE CONTROL: a measured object-format switch_probability still passes through verbatim', () => {
+      const result = normalizeRobustEdges([{ edge_id: 'x->y', switch_probability: 0.3 }] as any);
+      expect(result.edges[0].switch_probability).toBe(0.3);
+      // and a genuine 0 is a measurement, not an absence
+      const zero = normalizeRobustEdges([{ edge_id: 'x->y', switch_probability: 0 }] as any);
+      expect(zero.edges[0]).toHaveProperty('switch_probability');
+      expect(zero.edges[0].switch_probability).toBe(0);
     });
 
     it('tracks errors for unknown formats', () => {
@@ -559,13 +589,22 @@ describe('Robustness Analysis Adapter', () => {
   });
 
   describe('createFallbackRobustnessAnalysis', () => {
-    it('creates empty result with failed status', () => {
+    // CORRECTED AT SOURCE (ROADMAP 1.240). This asserted
+    // `overall_robustness === 'moderate'` and `robustness_score === 0.5` on the
+    // ISL-UNAVAILABLE path — Instance A's defect in the robustness channel. A
+    // fallback that names a robustness VERDICT is indistinguishable from a
+    // genuine ISL 'moderate', and 0.5 reads as a measured midpoint. Nothing was
+    // computed, so both are now absent; `source: 'unavailable'` carries the
+    // machine-readable refusal.
+    it('creates empty result with failed status and NO fabricated robustness verdict or score', () => {
       const result = createFallbackRobustnessAnalysis('ISL timeout');
 
       expect(result.edges).toHaveLength(0);
       expect(result.factors).toHaveLength(0);
-      expect(result.overall_robustness).toBe('moderate');
-      expect(result.robustness_score).toBe(0.5);
+      expect(result).not.toHaveProperty('overall_robustness');
+      expect(result).not.toHaveProperty('robustness_score');
+      expect(result.overall_robustness).toBeUndefined();
+      expect(result.robustness_score).toBeUndefined();
       expect(result.edge_sensitivity_status).toBe('failed');
       expect(result.factor_sensitivity_status).toBe('failed');
       expect(result.source).toBe('unavailable');

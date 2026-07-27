@@ -57,8 +57,15 @@ export interface PLoTValidationResult {
  * PLoT sensitivity result (transformed from ISL)
  */
 export interface PLoTSensitivityResult {
-  /** Overall model robustness */
-  overall_robustness: 'robust' | 'moderate' | 'fragile';
+  /**
+   * Overall model robustness — a VERDICT.
+   *
+   * OPTIONAL (ROADMAP 1.240, sibling 2): absent when nothing was assessed.
+   * The `/v1/run` builder populates it from
+   * `PLoTRobustnessAnalysisResult.overall_robustness`, which is itself now
+   * omitted rather than defaulted to 'moderate'.
+   */
+  overall_robustness?: 'robust' | 'moderate' | 'fragile';
   /** Parameters sorted by sensitivity */
   sensitive_parameters: Array<{
     parameter: string;
@@ -219,10 +226,25 @@ export interface PLoTRobustnessAnalysisResult {
   factor_sensitivity_status: 'available' | 'skipped_no_factor_values' | 'skipped_no_parameter_uncertainties' | 'failed';
 
   // ============ Robustness ============
-  /** Overall robustness assessment */
-  overall_robustness: 'robust' | 'moderate' | 'fragile';
-  /** Robustness score (0-1) */
-  robustness_score: number;
+  /**
+   * Overall robustness assessment — a VERDICT about the user's graph.
+   *
+   * OPTIONAL (ROADMAP 1.240, sibling 2). Emitted only when ISL supplied
+   * `robustness.label`, or a `robustness.level` this adapter can map. It was
+   * required, and `adaptRobustnessAnalysisResponse` met that requirement by
+   * falling through `mapLevelToLabel(undefined)` → 'moderate', so an ISL
+   * response carrying neither field published a moderate-robustness verdict
+   * PLoT had invented. Absent means "not assessed"; it must never be widened
+   * back to a required field, and consumers must not default it.
+   */
+  overall_robustness?: 'robust' | 'moderate' | 'fragile';
+  /**
+   * Robustness score (0-1).
+   *
+   * OPTIONAL for the same reason — it used to end `?? 0.5`, publishing a
+   * precise-looking midpoint for a quantity ISL never measured.
+   */
+  robustness_score?: number;
   /**
    * Edges identified as fragile - normalized to consistent object shape.
    * Contains edge_id, from_id, to_id, and optional switch_probability.
@@ -230,7 +252,11 @@ export interface PLoTRobustnessAnalysisResult {
   fragile_edges: NormalizedEdgeInfo[];
   /**
    * Edges identified as robust - normalized to consistent object shape.
-   * Contains edge_id, from_id, to_id (switch_probability defaults to 1.0).
+   * Contains edge_id, from_id, to_id, and `switch_probability` ONLY when ISL
+   * measured one. It formerly "defaulted to 1.0"; ISL sends robust_edges as
+   * bare `"from->to"` strings that carry no measurement, and 1.0 is the
+   * maximum of an INVERTED scale (switch_probability high = fragile), so the
+   * default was both fabricated and backwards. See normalizeRobustEdge.
    */
   robust_edges: NormalizedEdgeInfo[];
 
@@ -267,10 +293,15 @@ export interface PLoTFactorSensitivityResult {
   factors: FactorSensitivityEntry[];
   /** Value of information for each factor */
   value_of_information: VOIEntry[];
-  /** Overall robustness assessment from factor analysis */
-  robustness_label: 'robust' | 'moderate' | 'fragile';
-  /** Robustness score (0-1) */
-  robustness_score: number;
+  /**
+   * Overall robustness assessment from factor analysis — a VERDICT.
+   * OPTIONAL (ROADMAP 1.240, sibling 2); omitted when ISL assessed nothing.
+   * This object IS emitted on the `/v1/run` response (`isl_factor_sensitivity`),
+   * so a fabricated label here was user-visible.
+   */
+  robustness_label?: 'robust' | 'moderate' | 'fragile';
+  /** Robustness score (0-1). OPTIONAL for the same reason. */
+  robustness_score?: number;
   /** ISL latency in milliseconds */
   latency_ms: number;
   /** Source of the result */
@@ -326,8 +357,20 @@ export interface EnrichedFactorSensitivity {
   factor_id: string;
   /** Human-readable factor label */
   factor_label: string;
-  /** Sensitivity score */
-  sensitivity: number;
+  /**
+   * Sensitivity score, as ISL measured it.
+   *
+   * OPTIONAL — omitted when ISL supplied neither `sensitivity_score` nor the
+   * legacy `sensitivity`, or supplied a non-finite one. It was REQUIRED, and
+   * that requirement was the entire justification for `enrichFactorSensitivity`
+   * ending `?? 0`: a factor ISL said nothing about was published as a factor
+   * measured to have zero influence (ROADMAP 1.240, sibling 1). A required
+   * numeric field on data that can legitimately be absent is a standing
+   * instruction to fabricate, so the field moved rather than the honesty.
+   *
+   * Consumers must treat absence as "not measured", never as 0.
+   */
+  sensitivity?: number;
   /** Value of information */
   value_of_information?: number;
   /** Direction of impact */
