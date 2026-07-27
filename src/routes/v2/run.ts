@@ -1161,6 +1161,11 @@ function resolveSeed(providedSeed: string | number | undefined, graph: EngineGra
  *
  * Normalizes to:
  * - { "factor_price": { "value": 10, "source": "user_specified" } }
+ *
+ * TOTAL OR LOUD. Every entry must carry a finite value; one that does not
+ * THROWS rather than being dropped. The route guarantees that by rejecting the
+ * same entries at the Phase 1a++ ingress guard, which runs above this
+ * function's only call site — see the in-body comment for the derivation.
  */
 function normalizeInterventions(
   interventions: Record<string, number | { value: number; source?: string }>
@@ -1179,11 +1184,45 @@ function normalizeInterventions(
     // preflight can no longer see. `{"f": null, "g": 60}` lost `f` silently
     // and passed preflight as a one-intervention option.
     //
-    // The drop is now UNREACHABLE on the route: the ingress guard 422s any
-    // entry this reader rejects, so by the time a request is analysed every
-    // entry carries a finite value and this function is total.
+    // There is no longer a drop at all — a rejected entry throws.
+    //
+    // REACHABILITY of that throw, derived rather than asserted. This function
+    // has exactly one caller (normalizeOptions), which in turn has exactly one
+    // call site: the first statement of the Phase 1 block in the POST /v2/run
+    // handler. The Phase 1a++ ingress guard sits ABOVE that statement and 422s
+    // every entry THIS SAME READER rejects, reading the raw body. So a
+    // malformed entry cannot reach this loop from the wire.
+    //   · The one shape the guard skips rather than scans is an `interventions`
+    //     value that is not a plain object; the Ajv body schema types it
+    //     `{ type: 'object' }`, and an array or string body is rejected 400
+    //     BAD_INPUT before this handler runs (measured, not assumed).
+    //
+    // An EARLIER revision of this comment claimed the *drop* was "UNREACHABLE
+    // on the route" while the guard still ran ~160 lines further down, i.e.
+    // AFTER this function. That was false: the drop executed on every malformed
+    // request (measured — replacing it with a throw produced a stack through
+    // normalizeOptions from the handler). The guard was nonetheless correct,
+    // because it reads the RAW body and the drop cannot blind it; what was
+    // wrong was the reachability claim, and the fact that "no consumer sees the
+    // edited set" depended on nobody adding a `normalizedOptions` reader into
+    // the gap. The guard was hoisted above the call site so the claim above is
+    // structural. Read that placement comment before moving either one.
+    //
+    // WHY THROW rather than skip. `OptionV3.interventions[].value` is a required
+    // number, so absence cannot be represented here: skipping silently changes
+    // WHAT WAS ANALYSED while still returning a confident answer, and any
+    // substituted number fabricates. Refusing is the only non-fabricating
+    // disposal, and it converts an undetectable edit into a logged, named
+    // failure. Same disposal, same reason, as normaliseOptions() and
+    // normaliseGoalConstraints() in lib/intervention-normaliser.ts.
     const value = readInterventionValue(intervention);
-    if (value === undefined) continue;
+    if (value === undefined) {
+      throw new Error(
+        `normalizeInterventions: non-finite intervention value for node '${nodeId}' ` +
+        `(received ${JSON.stringify(intervention) ?? 'undefined'}). ` +
+        `Intervention values must be validated at the request boundary before normalisation.`,
+      );
+    }
 
     const source = (intervention && typeof intervention === 'object')
       ? (intervention as { source?: string }).source
@@ -4471,6 +4510,91 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         }
 
         // =================================================================
+        // Phase 1a++: Intervention Ingress-Shape Guard (ROADMAP 1.278)
+        // =================================================================
+        // Same defect class as the Phase 1b++ constraint guard below, on the
+        // sibling field: the runV3 body JSON-schema types `interventions` as
+        // `{ type: 'object' }` — the container only, the VALUES entirely
+        // unvalidated — so every shape decision was made by hand downstream.
+        //
+        // Two hand-written answers existed and they disagreed:
+        //   - normalizeInterventions() DROPPED any entry that was neither a
+        //     number nor an object with a `value` key;
+        //   - preflight's INVALID_INTERVENTION_VALUE then validated the
+        //     ALREADY-NORMALISED options — the view the drop had edited.
+        // So preflight structurally could not see the entries the drop removed.
+        // MEASURED on the pristine tip: `{"f": null, "g": 60}` lost `f`
+        // silently, passed preflight as a one-intervention option, and then
+        // threw inside canonicaliseOption() on the RAW body — surfacing as
+        // HTTP 200 + analysis_status:"failed" + PLOT_INTERNAL_ERROR. A
+        // malformed request must get a malformed-request answer, not a masked
+        // internal error and not an analysis of a set the caller never sent.
+        //
+        // This guard reads the RAW body (the only view that still contains the
+        // dropped entries), rejects on the SHARED readInterventionValue()
+        // predicate that normalizeInterventions() now also uses, and names the
+        // offending option id AND factor key.
+        //
+        // WHY IT SITS HERE, ABOVE PHASE 1 (corrected in a follow-up slice).
+        // The sole call site of normalizeOptions() — and therefore of the
+        // silent drop inside normalizeInterventions() — is the first statement
+        // of the Phase 1 block immediately below. This guard originally sat
+        // ~160 lines BELOW that call, and the comment on the drop claimed the
+        // drop was "UNREACHABLE on the route". That claim was FALSE: measured
+        // on the pristine tip by replacing the drop with a throw, `{f: null,
+        // g: 60}` produced a stack `normalizeInterventions -> normalizeOptions
+        // -> <this handler>` on every malformed request. The guard was still
+        // CORRECT below (it reads the raw body, so the earlier drop cannot
+        // blind it, and the 422 was measured green) — but the safety property
+        // "no consumer ever sees the silently-edited option set" was POSITIONAL:
+        // it held only because nobody had yet added a `normalizedOptions` reader
+        // into the gap. That is a hand-maintained invariant — the exact defect
+        // class this fix exists to close. Above the call site the property is
+        // structural instead, and that is what lets normalizeInterventions()
+        // refuse LOUDLY instead of dropping silently (see its comment).
+        //
+        // It still runs before preflight, before hashRequest() and before
+        // normaliseOptionsForISL(), so no consumer downstream can see a
+        // non-finite intervention value.
+        //
+        // Preflight's own INVALID_INTERVENTION_VALUE check is deliberately
+        // LEFT IN PLACE as defence-in-depth (the same disposal ROADMAP 1.277
+        // gave #278's caller-side guard) and keeps covering direct in-process
+        // callers of runPreflightValidation().
+        if (Array.isArray(body.options)) {
+          for (const option of body.options) {
+            const interventions = (option as { interventions?: unknown })?.interventions;
+            if (!interventions || typeof interventions !== 'object' || Array.isArray(interventions)) continue;
+            for (const [factorKey, raw] of Object.entries(interventions as Record<string, unknown>)) {
+              if (readInterventionValue(raw) !== undefined) continue;
+              const optionId = String((option as { id?: unknown })?.id ?? '');
+              return reply.status(422).send(buildBlockedResponse(
+                `Invalid intervention value: options[id=${optionId}].interventions['${factorKey}'] must be a finite number`,
+                [{
+                  id: randomUUID(),
+                  code: 'INVALID_INTERVENTION_VALUE',
+                  severity: 'blocker',
+                  // Message names the offending option id AND factor key (the
+                  // CritiqueV3 shape has no field_path; the path goes in the
+                  // text, matching INVALID_CONSTRAINT_SHAPE below). The ids are
+                  // ALSO carried structurally in affected_option_ids /
+                  // affected_node_ids so a consumer need not parse prose.
+                  message: `Option '${optionId}' has an invalid intervention value for node '${factorKey}'. Value must be a finite number, either as options[].interventions['${factorKey}'] or as options[].interventions['${factorKey}'].value.`,
+                  source: 'validation',
+                  affected_option_ids: [optionId],
+                  affected_node_ids: [factorKey],
+                  blocks_analysis: true,
+                }],
+                body.graph,
+                body.options,
+                requestId,
+                requestComputedAt,
+              ));
+            }
+          }
+        }
+
+        // =================================================================
         // Phase 1: Normalization
         // =================================================================
         const normStart = performance.now();
@@ -4607,71 +4731,6 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             requestId,
             requestComputedAt,
           ));
-        }
-
-        // =================================================================
-        // Phase 1a++: Intervention Ingress-Shape Guard (ROADMAP 1.278)
-        // =================================================================
-        // Same defect class as the Phase 1b++ constraint guard below, on the
-        // sibling field: the runV3 body JSON-schema types `interventions` as
-        // `{ type: 'object' }` — the container only, the VALUES entirely
-        // unvalidated — so every shape decision was made by hand downstream.
-        //
-        // Two hand-written answers existed and they disagreed:
-        //   - normalizeInterventions() DROPPED any entry that was neither a
-        //     number nor an object with a `value` key;
-        //   - preflight's INVALID_INTERVENTION_VALUE then validated the
-        //     ALREADY-NORMALISED options — the view the drop had edited.
-        // So preflight structurally could not see the entries the drop removed.
-        // MEASURED on the pristine tip: `{"f": null, "g": 60}` lost `f`
-        // silently, passed preflight as a one-intervention option, and then
-        // threw inside canonicaliseOption() on the RAW body — surfacing as
-        // HTTP 200 + analysis_status:"failed" + PLOT_INTERNAL_ERROR. A
-        // malformed request must get a malformed-request answer, not a masked
-        // internal error and not an analysis of a set the caller never sent.
-        //
-        // This guard reads the RAW body (the only view that still contains the
-        // dropped entries), rejects on the SHARED readInterventionValue()
-        // predicate that normalizeInterventions() now also uses, and names the
-        // offending option id AND factor key. It runs before preflight, before
-        // hashRequest(), and before normaliseOptionsForISL(), so no consumer
-        // downstream can see a non-finite intervention value.
-        //
-        // Preflight's own INVALID_INTERVENTION_VALUE check is deliberately
-        // LEFT IN PLACE as defence-in-depth (the same disposal ROADMAP 1.277
-        // gave #278's caller-side guard) and keeps covering direct in-process
-        // callers of runPreflightValidation().
-        if (Array.isArray(body.options)) {
-          for (const option of body.options) {
-            const interventions = (option as { interventions?: unknown })?.interventions;
-            if (!interventions || typeof interventions !== 'object' || Array.isArray(interventions)) continue;
-            for (const [factorKey, raw] of Object.entries(interventions as Record<string, unknown>)) {
-              if (readInterventionValue(raw) !== undefined) continue;
-              const optionId = String((option as { id?: unknown })?.id ?? '');
-              return reply.status(422).send(buildBlockedResponse(
-                `Invalid intervention value: options[id=${optionId}].interventions['${factorKey}'] must be a finite number`,
-                [{
-                  id: randomUUID(),
-                  code: 'INVALID_INTERVENTION_VALUE',
-                  severity: 'blocker',
-                  // Message names the offending option id AND factor key (the
-                  // CritiqueV3 shape has no field_path; the path goes in the
-                  // text, matching INVALID_CONSTRAINT_SHAPE below). The ids are
-                  // ALSO carried structurally in affected_option_ids /
-                  // affected_node_ids so a consumer need not parse prose.
-                  message: `Option '${optionId}' has an invalid intervention value for node '${factorKey}'. Value must be a finite number, either as options[].interventions['${factorKey}'] or as options[].interventions['${factorKey}'].value.`,
-                  source: 'validation',
-                  affected_option_ids: [optionId],
-                  affected_node_ids: [factorKey],
-                  blocks_analysis: true,
-                }],
-                normalizedGraph,
-                normalizedOptions,
-                requestId,
-                requestComputedAt,
-              ));
-            }
-          }
         }
 
         // =================================================================
