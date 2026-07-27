@@ -588,10 +588,14 @@ describe('PLoT → ISL request drift pairing (contract step-2 slice 2)', () => {
       body.a_key_nobody_declares = true;
 
       const hits = undeclaredPaths(body, 'RobustnessRequestV2', OPENAPI);
+      // `goal_constraints[0].constraint_id` used to appear in this list. It is
+      // gone because ISL now DECLARES the field (slice 6b, ISL PR #115 —
+      // re-pinned here to @0316098b), not because the instrument stopped
+      // seeing it: the four remaining planted paths still land, which is what
+      // keeps this fixture a discriminating control rather than a vacuous one.
       expect(hits.map((h) => h.path).sort()).toEqual(
         [
           'a_key_nobody_declares',
-          'goal_constraints[0].constraint_id',
           'graph.edges[1].weight',
           'graph.nodes[0].observed_state.metadata',
           'parameter_uncertainties[0].mean',
@@ -626,16 +630,33 @@ describe('PLoT → ISL request drift pairing (contract step-2 slice 2)', () => {
 
     it('REMOVING a real exemption turns the producer pairing RED, naming the path', () => {
       // The mutation the brief asks for, run in-suite so it is standing evidence
-      // rather than a one-off transcript: with `goal_constraints[].constraint_id`
-      // taken out of the list, the base producer's body is no longer clean.
+      // rather than a one-off transcript: with the exemption taken out of the
+      // list, the producer's body is no longer clean.
+      //
+      // ⚠ REPOINTED (slice 6b). This control used to remove
+      // `goal_constraints[].constraint_id` against the `v2-run-base` producer.
+      // ISL now DECLARES that field, so the removal stopped producing a hit and
+      // the control began passing by testing nothing — trap 12b exactly: a
+      // control pinned to "whatever is currently exempt" decays the moment the
+      // exemption list changes. It is now pointed at `goal_constraints[].weight`
+      // — still genuinely undeclared upstream — and at the producer that
+      // actually emits it (`weight` is caller-supplied and latent on the golden
+      // `v2-run-base` path, which is why that fixture exists).
+      const EXEMPTION = 'goal_constraints[].weight';
+      const PRODUCER = 'v2-run-base-constraint-weight';
+
+      // Guard the guard: if this exemption is ever adopted upstream too, fail
+      // loudly here rather than silently asserting an empty diff again.
+      expect(PLOT_TO_ISL_CONTRACT.knownUndeclared ?? []).toContain(EXEMPTION);
+
       const shortened = (PLOT_TO_ISL_CONTRACT.knownUndeclared ?? []).filter(
-        (p) => p !== 'goal_constraints[].constraint_id',
+        (p) => p !== EXEMPTION,
       );
-      const entry = TRANSCRIPT.egress['v2-run-base']!;
-      const unexplained = rejectedPaths(FIXTURES.get('v2-run-base')!.body, entry).filter(
+      const entry = TRANSCRIPT.egress[PRODUCER]!;
+      const unexplained = rejectedPaths(FIXTURES.get(PRODUCER)!.body, entry).filter(
         (p) => !shortened.includes(p),
       );
-      expect(unexplained).toEqual(['goal_constraints[].constraint_id']);
+      expect(unexplained).toEqual([EXEMPTION]);
     });
   });
 

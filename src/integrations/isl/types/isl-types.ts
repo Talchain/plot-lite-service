@@ -550,6 +550,24 @@ export interface ISLOutcomeStats {
  * PLoT reads value ?? threshold.
  */
 export interface ISLConstraintResult {
+  /**
+   * Contract step-2 slice 6b: ISL echoes back, verbatim, the constraint_id PLoT
+   * sent on the matching `goal_constraints[]` entry (ISL @0316098b onwards).
+   *
+   * Optional AND nullable, both deliberate and both MEASURED against the
+   * deployed service rather than assumed:
+   *  - `undefined` — a pre-6b ISL that dropped the field at parse.
+   *  - `null` — the deployed ISL when the caller supplied no id. The route
+   *    serialises with `exclude_none=True`, but that does not reach inside this
+   *    object: `failure_margin_median` and `near_miss_fraction` come back null
+   *    on the same wire too. Do NOT narrow this to `string | undefined`, and do
+   *    not write a reader that tests for key-absence.
+   *
+   * Read it via resolveConstraintIds (routes/v2/constraint-identity.ts), never
+   * directly — the positional fallback beneath it is still load-bearing during
+   * the overlap window.
+   */
+  constraint_id?: string | null;
   node_id: string;
   operator: string;
   threshold: number;
