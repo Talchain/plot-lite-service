@@ -193,6 +193,27 @@ const ENDPOINT_MANIFEST: ManifestRow[] = [
 
 const manifestByEndpoint = new Map(ENDPOINT_MANIFEST.map((r) => [r.endpoint, r]));
 
+/**
+ * Producers with no caller at this tip, pinned to their EXACT undeclared set
+ * rather than to zero. Reported, not fixed — slice 2 is test-only, and deleting
+ * or repairing dead ISL producers is a separate decision with its own owner.
+ */
+const DARK_PRODUCER_UNDECLARED: Record<string, { paths: string[]; why: string }> = {
+  'factor-sensitivity-dead': {
+    paths: [],
+    why:
+      'Sends nothing undeclared — its problem is the opposite: it OMITS the required edge `strength`, ' +
+      'so the pinned model rejects it outright. Pinned in the FINDINGS block.',
+  },
+  'causal-counterfactual-dead': {
+    paths: ['dag', 'target'],
+    why:
+      "PLoT sends {dag, intervention, target}; ISL's mounted CounterfactualRequest declares " +
+      '{model, intervention, outcome, context, preferences, user_context} and REQUIRES model + outcome. ' +
+      'A total mismatch, invisible until now because nothing calls it.',
+  },
+};
+
 function srcFiles(): string[] {
   const out: string[] = [];
   const walk = (dir: string): void => {
@@ -388,6 +409,46 @@ describe('PLoT → ISL request drift pairing (contract step-2 slice 2)', () => {
 
         const entry = TRANSCRIPT.egress[producer.name]!;
         const modelName = entry.model;
+
+        if (modelName && producer.liveness !== 'live') {
+          it('DARK PRODUCER: its undeclared set is pinned EXACTLY, so rot is visible while it is dark', async () => {
+            // A dead producer cannot be held to "zero undeclared" — two of them
+            // are already broken (see FINDINGS), and pretending otherwise would
+            // either land this suite red or force the defect to be hidden. What
+            // it CAN be held to is an exact, named set: any change — a key added,
+            // a key removed, or the producer being revived — moves this and says
+            // so. The number is a debt, and it is written down.
+            const { body } = await derive(producer);
+            const undeclared = [
+              ...new Set(undeclaredPaths(body, modelName, OPENAPI).map((h) => h.normalised)),
+            ].sort();
+            expect(undeclared).toEqual(DARK_PRODUCER_UNDECLARED[producer.name]!.paths);
+          });
+        }
+
+        if (modelName && producer.liveness === 'live') {
+          it('LIVE PAIRING: the body derived RIGHT NOW carries no unexplained undeclared key', async () => {
+            // Deliberately NOT read from the committed fixture. The two tests
+            // either side of this one are chain links — they say "the fixture is
+            // still what the producer emits" and "the transcript describes that
+            // fixture". This one asks the question directly of today's code, so
+            // a producer regression is named by PATH on the first run, not
+            // reported as "regenerate your fixtures" and diagnosed on the second.
+            const { body } = await derive(producer);
+            const undeclared = [
+              ...new Set(undeclaredPaths(body, modelName, OPENAPI).map((h) => h.normalised)),
+            ];
+            const unexplained = undeclared.filter(
+              (p) => !(PLOT_TO_ISL_CONTRACT.knownUndeclared ?? []).includes(p),
+            );
+            expect(
+              unexplained,
+              `${producer.name} (${producer.site}) puts ${unexplained.length} key(s) on the wire that ISL's ` +
+                `pinned ${modelName} does not declare, and PLOT_TO_ISL_CONTRACT.knownUndeclared does not exempt. ` +
+                'ISL drops them silently under extra:"ignore", so nothing else in the estate will tell you.',
+            ).toEqual([]);
+          });
+        }
 
         if (modelName && entry.parses === true) {
           it('METHOD 1 (executed model): the only rejected paths are the declared exemptions', () => {
