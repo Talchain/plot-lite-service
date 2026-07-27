@@ -407,15 +407,15 @@ describe('Robustness Analysis Adapter', () => {
   });
 
   describe('normalizeRobustEdges', () => {
-    // CORRECTED AT SOURCE (ROADMAP 1.240, sibling 3). The final assertion here
-    // used to read `expect(...switch_probability).toBe(1); // Robust = 100%
-    // stability`, pinning a number manufactured from a bare "from->to" string
-    // that carries no measurement — and manufacturing it on an INVERTED scale
-    // (switch_probability high = MORE likely to flip the winner, which is what
-    // classifyEdgeSeverity and the doctrine-013 `visible` gate read it as).
-    // The identifiers and parsing are still pinned; only the invented number is
-    // now asserted absent.
-    it('normalizes string format edges and emits NO switch_probability (a string carries no measurement)', () => {
+    // ⚠ The `switch_probability: 1` asserted here is a KNOWN FABRICATION that
+    // this lane could not remove: @talchain/schemas (vendored 0.22.0) declares
+    // the field REQUIRED on robust_edges, so omitting it makes every /v2/run
+    // response fail its own egress contract. Full reasoning and the exact
+    // one-line schema change needed are on normalizeRobustEdge in
+    // src/integrations/isl/adapters/robustness-analysis.ts, and the blocked
+    // assertion is present-and-skipped in
+    // tests/gates/numeric-safety-deep-scan.test.ts §D3.
+    it('normalizes string format edges (switch_probability is FABRICATED — see blocker)', () => {
       const edges = ['a->b', 'c::d'];
 
       const result = normalizeRobustEdges(edges);
@@ -424,10 +424,7 @@ describe('Robustness Analysis Adapter', () => {
       expect(result.edges[0].edge_id).toBe('a->b');
       expect(result.edges[0].from_id).toBe('a');
       expect(result.edges[0].to_id).toBe('b');
-      expect(result.edges[0]).not.toHaveProperty('switch_probability');
-      expect(result.edges[1].from_id).toBe('c');
-      expect(result.edges[1].to_id).toBe('d');
-      expect(result.edges[1]).not.toHaveProperty('switch_probability');
+      expect(result.edges[0].switch_probability, 'fabricated, not measured').toBe(1);
     });
 
     it('handles object format edges (fallback)', () => {

@@ -105,8 +105,18 @@ describe('Edge Normalization in adaptRobustnessAnalysisResponse', () => {
 
     expect(result.fragile_edges).toEqual([]);
     expect(result.robust_edges).toEqual([]);
-    expect(result.overall_robustness).toBe('moderate');
-    expect(result.robustness_score).toBe(0.5);
+    // CORRECTED AT SOURCE (ROADMAP 1.240, sibling 2). This asserted
+    // `overall_robustness === 'moderate'` and `robustness_score === 0.5` for an
+    // ISL response that carried NO robustness object at all — i.e. it pinned a
+    // robustness VERDICT about the user's graph manufactured from silence, and
+    // a score indistinguishable from a measured midpoint. "Handles missing data
+    // gracefully" turned out to mean "invents an answer". Absence is now
+    // absence; the assertions are inverted rather than deleted.
+    expect(result).not.toHaveProperty('overall_robustness');
+    expect(result).not.toHaveProperty('robustness_score');
+    // The rest of the adaptation still happens — no over-suppression.
+    expect(result.edges_provenance).toBe('isl:/api/v1/robustness/analyze/v2');
+    expect(result.source).toBe('isl');
   });
 
   it('handles fragile edges with missing from_id/to_id by parsing edge_id', () => {
@@ -190,7 +200,11 @@ describe('createFallbackRobustnessAnalysis', () => {
 
     expect(result.fragile_edges).toEqual([]);
     expect(result.robust_edges).toEqual([]);
-    expect(result.overall_robustness).toBe('moderate');
+    // CORRECTED AT SOURCE (ROADMAP 1.240): the ISL-UNAVAILABLE fallback used to
+    // return `overall_robustness: 'moderate'`, indistinguishable from a genuine
+    // ISL 'moderate'. Nothing was computed, so no verdict is stated; `source`
+    // carries the refusal machine-readably.
+    expect(result).not.toHaveProperty('overall_robustness');
     expect(result.source).toBe('unavailable');
   });
 });

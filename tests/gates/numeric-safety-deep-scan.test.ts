@@ -1053,10 +1053,40 @@ describe('absence gate §D3 · robust edges never fabricate switch_probability',
     });
   }
 
-  it('string-format robust edges carry NO switch_probability (a string has no measurement)', () => {
+  // ⚠ BLOCKED ON A CROSS-REPO CONTRACT CHANGE — NOT a doctrine question.
+  //
+  // The string arm still fabricates `switch_probability: 1`. This lane made it
+  // omit, ran the authoritative gate, and MEASURED the consequence: every
+  // /v2/run response then fails its own egress contract, because
+  // @talchain/schemas (vendored 0.22.0) declares
+  // `EnrichmentRobustnessEdgeSchema.switch_probability: z.number()` REQUIRED
+  // for robust_edges as well as fragile_edges. The producer-side guard stamps
+  // `enrichment_contract_ok: false` and a user-visible
+  // ENRICHMENT_CONTRACT_MISMATCH warning on every response (4 issue paths on
+  // the golden fixture), and CEE shadow-validates the same body against the
+  // same schema.
+  //
+  // Trading a wrong number for a standing false alarm on a fail-open guard is
+  // the broken-alarm trap, so the omission was reverted and the blocker
+  // reported instead of quietly fabricating OR quietly breaking the contract.
+  //
+  // TO UN-SKIP: relax the field in olumi-schemas to `z.number().optional()`
+  // (which is what PLoT's own NormalizedEdgeInfoV3 already publishes — the two
+  // contracts disagree TODAY, latently, for fragile_edges), release, re-pin the
+  // vendored tarball, delete the fabrication in normalizeRobustEdge, un-skip.
+  // This test failing after that change is the signal the work landed.
+  it.skip('string-format robust edges carry NO switch_probability (a string has no measurement) — BLOCKED: @talchain/schemas requires it', () => {
     const out = normalizeRobustEdges(['a->b', 'c::d']);
     expect(out.edges).toHaveLength(2);
     for (const e of out.edges) expect(e).not.toHaveProperty('switch_probability');
+  });
+
+  it('the string-arm fabrication is PINNED as a known defect, so it cannot be forgotten or mistaken for a measurement', () => {
+    // This is deliberately an assertion about a value we consider WRONG. It
+    // exists so the fabrication is visible in the suite rather than silent, and
+    // so removing it (once the schema is relaxed) is a deliberate act.
+    const out = normalizeRobustEdges(['a->b']);
+    expect(out.edges[0].switch_probability, 'still fabricated — see the blocker above').toBe(1);
   });
 
   it('POSITIVE CONTROL: a measured object-format switch_probability survives verbatim', () => {

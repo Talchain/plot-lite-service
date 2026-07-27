@@ -82,23 +82,47 @@ function normalizeFragileEdge(edge: ISLFragileEdgeInfo): NormalizedEdgeInfo {
  * Normalize a robust edge from ISL format to consistent object shape.
  * ISL returns robust_edges as strings in "from->to" format.
  *
- * NO switch_probability IS EMITTED (ROADMAP 1.240, sibling 3).
- * This used to hardcode `switch_probability: 1` with the comment "Robust edges
- * have 100% stability". A bare `"from->to"` string carries NO measurement at
- * all, so the 1 was manufactured from nothing — and it was manufactured under
- * the WRONG NAME: `switch_probability` is the probability that flipping the
- * edge switches the recommended option (`normalizeFragileEdge` feeds exactly
- * this field to `classifyEdgeSeverity` and to the doctrine-013 `visible` gate,
- * where HIGHER means MORE fragile). "100% stability" would be
- * switch_probability ≈ 0. The fabricated value was therefore not merely absent
- * data rendered as a number, it was absent data rendered as the maximum of the
- * inverted scale.
+ * ⚠ KNOWN LIVE FABRICATION, BLOCKED ON A CROSS-REPO CONTRACT CHANGE
+ * (ROADMAP 1.240, sibling 3 — the string arm).
  *
- * `NormalizedEdgeInfo.switch_probability` is already optional and
- * `NormalizedEdgeInfoV3` documents it as "omitted when the source edge carries
- * no switch_probability", so omission is what the published contract already
- * describes. `normalizeFragileEdge`'s legacy-string arm made the same choice
- * for the same reason.
+ * `switch_probability: 1` below is MANUFACTURED. A bare `"from->to"` string
+ * carries no measurement at all, and the 1 is manufactured under the WRONG
+ * NAME: `switch_probability` is the probability that flipping the edge
+ * switches the recommended option — `normalizeFragileEdge` feeds exactly this
+ * field to `classifyEdgeSeverity` and to the doctrine-013 `visible` gate,
+ * where HIGHER means MORE fragile. "100% stability" would be
+ * switch_probability ≈ 0. So this is absent data rendered as the MAXIMUM of an
+ * INVERTED scale.
+ *
+ * IT IS NOT FIXED HERE, AND THE REASON IS THE FINDING. Omitting it (attempted
+ * and measured in this lane) makes every /v2/run response fail its own egress
+ * contract:
+ *
+ *   @talchain/schemas (vendored 0.22.0) boundary/enrichment.js:269
+ *     EnrichmentRobustnessEdgeSchema = z.object({ …
+ *       switch_probability: z.number(),      // REQUIRED
+ *
+ * That schema covers `robust_edges` as well as `fragile_edges`, CEE persists
+ * this body verbatim and shadow-validates it against the same schema, and the
+ * producer-side guard (routes/v2/enrichment-egress-guard.ts) stamps
+ * `_meta.evidence.enrichment_contract_ok: false` plus a user-visible
+ * ENRICHMENT_CONTRACT_MISMATCH warning on EVERY response. Measured: 4 issue
+ * paths, one per robust edge, on the golden fixture.
+ *
+ * NOTE THE SKEW THIS EXPOSES (hazard 1). PLoT's own published type already
+ * says the honest thing — `NormalizedEdgeInfoV3.switch_probability?: number`,
+ * documented "OPTIONAL: omitted when the source edge carries no
+ * switch_probability" (types/engine-v3.ts:2454) — and `normalizeFragileEdge`
+ * already omits it on that basis. The shared schema disagrees, so the
+ * divergence is LATENT for fragile edges today and would become universal for
+ * robust edges. Fixing it unilaterally in PLoT would trade a wrong number for
+ * a standing false alarm on a fail-open guard, which is the broken-alarm trap.
+ *
+ * REQUIRED TO CLOSE: relax the field in olumi-schemas to
+ * `switch_probability: z.number().optional()` (matching what PLoT already
+ * publishes), release, re-pin the vendored tarball here, THEN delete the
+ * fabrication below. The gate case is present and skipped in
+ * tests/gates/numeric-safety-deep-scan.test.ts §D3 with this same reason.
  */
 function normalizeRobustEdge(edgeId: string): NormalizedEdgeInfo {
   const parsed = parseEdgeId(edgeId);
@@ -106,6 +130,7 @@ function normalizeRobustEdge(edgeId: string): NormalizedEdgeInfo {
     edge_id: edgeId,
     from_id: parsed.from,
     to_id: parsed.to,
+    switch_probability: 1, // FABRICATED — see the blocker above. Do not read as a measurement.
   };
 }
 
