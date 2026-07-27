@@ -14,6 +14,7 @@ import type {
 } from '../types/plot-types.js';
 import type { ISLFactorSensitivityItem } from '../types/isl-types.js';
 import { sanitiseIslVoi } from '../../../lib/evpi-emission.js';
+import { finiteNum } from '../../../util/numeric.js';
 import { sortByFragility } from './robustness-analysis.js';
 
 // =============================================================================
@@ -167,23 +168,36 @@ export function enrichRobustEdge(
  * Enrich factor sensitivity with labels from the graph.
  *
  * Handles both canonical (sensitivity_score) and legacy (sensitivity) fields
- * from ISL response. Defaults to 0 when neither is present because the
- * output type (EnrichedFactorSensitivity) requires a numeric sensitivity
- * value for CEE consumption. This differs from V2 run transform which
- * preserves undefined for UI-facing responses.
+ * from ISL response.
+ *
+ * ABSENT SENSITIVITY IS OMITTED, NEVER ZERO (ROADMAP 1.240, sibling 1).
+ * This used to end `?? 0`, justified by "the output type requires a numeric
+ * sensitivity value for CEE consumption". That is the fabricate-to-keep-the-
+ * shape move the standing ruling forbids: a factor ISL said nothing about was
+ * relabelled as a factor ISL had measured to have ZERO influence on the
+ * decision — the strongest possible negative claim, manufactured from silence.
+ * The file's own docstring conceded the divergence ("differs from V2 run
+ * transform which preserves undefined for UI-facing responses"): the honest
+ * shape already existed on one channel and the fabricated one on the other.
+ *
+ * The type requirement was the tail wagging the dog, so the TYPE moved:
+ * `EnrichedFactorSensitivity.sensitivity` is now optional and this builder
+ * omits it. `finiteNum` (not `!= null`) is the guard, so NaN/±Infinity are
+ * treated as unmeasured too — the same admission rule the sibling ISL surfaces
+ * already apply. A genuine measured `0` still passes through unchanged.
  */
 export function enrichFactorSensitivity(
   factor: ISLFactorSensitivityItem,
   graph: EngineGraphV3
 ): EnrichedFactorSensitivity {
-  // Schema v2.6 canonical field is 'sensitivity_score'; legacy used 'sensitivity'
-  // Support both for backward compatibility, defaulting to 0 if neither present
-  const sensitivityValue = factor.sensitivity_score ?? factor.sensitivity ?? 0;
+  // Schema v2.6 canonical field is 'sensitivity_score'; legacy used 'sensitivity'.
+  // `??` already handles null correctly; what was wrong was the final `?? 0`.
+  const sensitivityValue = finiteNum(factor.sensitivity_score ?? factor.sensitivity);
 
   return {
     factor_id: factor.node_id,
     factor_label: getNodeLabel(graph, factor.node_id),
-    sensitivity: sensitivityValue,
+    ...(sensitivityValue !== undefined && { sensitivity: sensitivityValue }),
     // Forward-safe internal hardening: apply the non-negative VOI contract
     // (Howard 1966) on this enrichment builder for consistency with the three
     // sibling surfaces that already sanitise ISL VOI — `mapIslFactorEntry`

@@ -191,8 +191,42 @@ const GOAL_CONSTRAINTS = [
 
 const BASE_PAYLOAD = { graph: GRAPH, options: OPTIONS, goal_node_id: 'goal', seed: '42' };
 
-/** ISL constraint row for one option. Margin fields OMITTED when not supplied. */
-function islConstraint(probSatisfied: number, margin?: number, nearMiss?: number) {
+/**
+ * ISL constraint row for one option.
+ *
+ * ABSENCE SHAPE (re-pointed, ROADMAP 1.240). This helper used to express
+ * absence ONLY by omitting the key, and the "missing margin is DISTINGUISHABLE
+ * from a zero margin" pin below was written against that shape. It passed
+ * throughout the period in which the LIVE shape — `failure_margin_median:
+ * null` — was fabricating a measured zero at egress (#277 Instance B). A
+ * control pinned to a shape the producer does not emit tests nothing.
+ *
+ * `absentAs` now selects which shape absence takes:
+ *   'null'    — WHAT ISL ACTUALLY SENDS. Verified at the wire by the #276 lane
+ *               and recorded in src/integrations/isl/types/isl-types.ts. This
+ *               is the DEFAULT, so the pin now defends the live shape.
+ *   'missing' — also wire-reachable (ISL's `exclude_none=True` elsewhere), kept
+ *               as a second arm rather than replaced.
+ *
+ * There is deliberately NO `undefined` arm: JSON cannot carry `undefined`, so
+ * no ISL response can produce one here. The in-process `undefined` shape is
+ * covered at the adapter seam in tests/gates/numeric-safety-deep-scan.test.ts.
+ */
+type AbsentAs = 'null' | 'missing';
+
+function islConstraint(
+  probSatisfied: number,
+  margin?: number,
+  nearMiss?: number,
+  absentAs: AbsentAs = 'null',
+) {
+  const marginField = margin !== undefined
+    ? { failure_margin_median: margin }
+    : (absentAs === 'null' ? { failure_margin_median: null } : {});
+  const nearMissField = nearMiss !== undefined
+    ? { near_miss_fraction: nearMiss }
+    : (absentAs === 'null' ? { near_miss_fraction: null } : {});
+
   return {
     constraints: [
       {
@@ -200,8 +234,8 @@ function islConstraint(probSatisfied: number, margin?: number, nearMiss?: number
         operator: '<=',
         value: 50000,
         prob_satisfied: probSatisfied,
-        ...(margin !== undefined && { failure_margin_median: margin }),
-        ...(nearMiss !== undefined && { near_miss_fraction: nearMiss }),
+        ...marginField,
+        ...nearMissField,
       },
     ],
     joint_probability: probSatisfied,
@@ -299,41 +333,48 @@ describe('B4/L2 constraint eligibility gate + graded breach margins', () => {
       expect(body.approximate).toBe(body.analysis_status === 'partial');
     });
 
-    it('a MISSING margin is DISTINGUISHABLE from a zero margin', async () => {
-      // opt_under: ISL sent NO margin fields (it satisfies the constraint).
-      // opt_just_over: ISL sent an explicit ZERO margin.
-      // These two must NOT render identically. This is the pin for the defect
-      // that fabricated positive evidence for a false conclusion.
-      mockConstraintAnalysisByOption = {
-        opt_under: islConstraint(1.0),
-        opt_just_over: islConstraint(0.0, 0, 0),
-        opt_far_over: islConstraint(0.0, 0.16667, 0.0),
-      };
-      mockWinProbabilityByOption = { opt_under: 0.5, opt_just_over: 0.3, opt_far_over: 0.2 };
+    // RE-POINTED ONTO THE LIVE SHAPE (ROADMAP 1.240). Both absence shapes ISL
+    // can actually put on the wire are now exercised. `null` is the one the
+    // deployed service sends and the one that fabricated for months while this
+    // very test passed; `missing` is the shape the test used to use, kept as a
+    // second arm rather than replaced so neither can regress.
+    for (const absentAs of ['null', 'missing'] as const) {
+      it(`a MISSING margin is DISTINGUISHABLE from a zero margin (absence sent as ${absentAs.toUpperCase()})`, async () => {
+        // opt_under: ISL sent NO margin (it satisfies the constraint).
+        // opt_just_over: ISL sent an explicit ZERO margin.
+        // These two must NOT render identically. This is the pin for the defect
+        // that fabricated positive evidence for a false conclusion.
+        mockConstraintAnalysisByOption = {
+          opt_under: islConstraint(1.0, undefined, undefined, absentAs),
+          opt_just_over: islConstraint(0.0, 0, 0, absentAs),
+          opt_far_over: islConstraint(0.0, 0.16667, 0.0, absentAs),
+        };
+        mockWinProbabilityByOption = { opt_under: 0.5, opt_just_over: 0.3, opt_far_over: 0.2 };
 
-      const body = await runAnalysis(baseUrl, { ...BASE_PAYLOAD, goal_constraints: GOAL_CONSTRAINTS });
+        const body = await runAnalysis(baseUrl, { ...BASE_PAYLOAD, goal_constraints: GOAL_CONSTRAINTS });
 
-      const underMargin = optionEntry(body, 'opt_under').constraint_margins?.find(
-        (m: any) => m.constraint_id === CONSTRAINT_ID,
-      );
-      const zeroMargin = optionEntry(body, 'opt_just_over').constraint_margins?.find(
-        (m: any) => m.constraint_id === CONSTRAINT_ID,
-      );
+        const underMargin = optionEntry(body, 'opt_under').constraint_margins?.find(
+          (m: any) => m.constraint_id === CONSTRAINT_ID,
+        );
+        const zeroMargin = optionEntry(body, 'opt_just_over').constraint_margins?.find(
+          (m: any) => m.constraint_id === CONSTRAINT_ID,
+        );
 
-      expect(zeroMargin, 'explicit-zero option must carry a margin entry').toBeDefined();
-      expect(underMargin, 'no-margin option must still carry its entry').toBeDefined();
+        expect(zeroMargin, 'explicit-zero option must carry a margin entry').toBeDefined();
+        expect(underMargin, 'no-margin option must still carry its entry').toBeDefined();
 
-      // A real measured zero is PRESENT and equal to 0 ...
-      expect(zeroMargin).toHaveProperty('failure_margin_median');
-      expect(zeroMargin.failure_margin_median).toBe(0);
-      expect(zeroMargin).toHaveProperty('near_miss_fraction');
-      expect(zeroMargin.near_miss_fraction).toBe(0);
+        // A real measured zero is PRESENT and equal to 0 ...
+        expect(zeroMargin).toHaveProperty('failure_margin_median');
+        expect(zeroMargin.failure_margin_median).toBe(0);
+        expect(zeroMargin).toHaveProperty('near_miss_fraction');
+        expect(zeroMargin.near_miss_fraction).toBe(0);
 
-      // ... while an ABSENT measurement is ABSENT, never a fabricated 0.
-      expect(underMargin).not.toHaveProperty('failure_margin_median');
-      expect(underMargin).not.toHaveProperty('near_miss_fraction');
-      expect(underMargin.failure_margin_median).toBeUndefined();
-    });
+        // ... while an ABSENT measurement is ABSENT, never a fabricated 0.
+        expect(underMargin).not.toHaveProperty('failure_margin_median');
+        expect(underMargin).not.toHaveProperty('near_miss_fraction');
+        expect(underMargin.failure_margin_median).toBeUndefined();
+      });
+    }
 
     it('marks a CLAMPED breach magnitude as a lower bound (Finding D)', async () => {
       // opt_far_over intervenes 82000 against a cap of 60000, so its

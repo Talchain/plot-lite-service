@@ -221,7 +221,14 @@ describe('enrichFactorSensitivity', () => {
     expect(result.sensitivity).toBe(0.75);
   });
 
-  it('defaults to 0 when neither sensitivity_score nor sensitivity is present', () => {
+  // CORRECTED AT SOURCE (ROADMAP 1.240, sibling 1). This test previously read
+  // `defaults to 0 when neither sensitivity_score nor sensitivity is present`
+  // and asserted `result.sensitivity === 0`. It PINNED the fabrication: a
+  // factor ISL said nothing about was published as a factor measured to have
+  // ZERO influence on the decision. Absent is not zero, so the assertion is
+  // inverted rather than deleted — deleting it would leave the behaviour
+  // unpinned in the other direction.
+  it('OMITS sensitivity when neither sensitivity_score nor sensitivity is present (absent ≠ 0)', () => {
     const factor = {
       node_id: 'fac_price',
       direction: 'positive' as const,
@@ -229,6 +236,41 @@ describe('enrichFactorSensitivity', () => {
 
     const result = enrichFactorSensitivity(factor, TEST_GRAPH);
 
+    expect(result).not.toHaveProperty('sensitivity');
+    expect(result.sensitivity).toBeUndefined();
+    // ... and the rest of the entry is still built (no over-suppression).
+    expect(result.factor_id).toBe('fac_price');
+    expect(result.direction).toBe('positive');
+  });
+
+  it('OMITS sensitivity when ISL sends it as null (the shape a wire absence takes)', () => {
+    // JSON has no `undefined`; an absent numeric field arrives as `null` or as
+    // a missing key. Both must behave identically here.
+    const asNull = enrichFactorSensitivity(
+      { node_id: 'fac_price', sensitivity_score: null as any, sensitivity: null as any },
+      TEST_GRAPH,
+    );
+    expect(asNull).not.toHaveProperty('sensitivity');
+  });
+
+  it('OMITS sensitivity when ISL sends a non-finite value (NaN / ±Infinity)', () => {
+    for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      const r = enrichFactorSensitivity(
+        { node_id: 'fac_price', sensitivity_score: bad },
+        TEST_GRAPH,
+      );
+      expect(r, `sensitivity_score=${bad} must not reach egress`).not.toHaveProperty('sensitivity');
+    }
+  });
+
+  it('POSITIVE CONTROL: a genuine measured ZERO is preserved, not suppressed', () => {
+    // Over-suppression is an equal failure. `0` is a real measurement meaning
+    // "this factor genuinely does not move the outcome" and must survive.
+    const result = enrichFactorSensitivity(
+      { node_id: 'fac_price', sensitivity_score: 0 },
+      TEST_GRAPH,
+    );
+    expect(result).toHaveProperty('sensitivity');
     expect(result.sensitivity).toBe(0);
   });
 

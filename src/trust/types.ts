@@ -132,8 +132,17 @@ export interface EdgeSensitivityEnrichment {
  * Updated to use /api/v1/robustness/analyze/v2 with analysis_types: ['comparison', 'sensitivity', 'robustness']
  */
 export interface SensitivityAnalysisEnrichment {
-  /** Overall model robustness assessment */
-  overall_robustness: 'robust' | 'moderate' | 'fragile';
+  /**
+   * Overall model robustness assessment — a VERDICT about the user's graph.
+   *
+   * OPTIONAL (ROADMAP 1.240, sibling 2). Emitted only when a robustness label
+   * was actually assessed; the upstream adapter used to default it to
+   * 'moderate' when ISL sent neither `label` nor `level`. `robustness_score`
+   * below was already optional, so the pair is now consistent. The documented
+   * consumer pattern (`?.overall_robustness === 'fragile'`, line ~210) is
+   * absence-safe; consumers must not substitute a default.
+   */
+  overall_robustness?: 'robust' | 'moderate' | 'fragile';
   /** Robustness score (0-1) */
   robustness_score?: number;
   /** Combined edges sorted by sensitivity (highest elasticity from existence or magnitude) */
