@@ -9,8 +9,26 @@
  * PLoT validation result (transformed from ISL)
  */
 export interface PLoTValidationResult {
-  /** Identifiability status */
-  status: 'identifiable' | 'uncertain' | 'cannot_identify';
+  /**
+   * Identifiability status.
+   *
+   * `identifiable` / `uncertain` / `cannot_identify` are SCIENTIFIC VERDICTS —
+   * each asserts something substantive about the user's graph, and each may be
+   * set ONLY from a validation ISL actually computed.
+   *
+   * `unavailable` is NOT a verdict. It is the typed refusal PLoT degrades to
+   * when no validation was obtained (ISL disabled, unmounted route → 404,
+   * timeout, 5xx, circuit-breaker trip). It exists precisely so a non-result
+   * cannot be mistaken for `uncertain`: the fallback previously returned
+   * `uncertain`, which routes/v1/run.ts rendered as "ISL validation reports
+   * partial identifiability" tagged `source: 'isl'` — a claim about the user's
+   * graph attributed to a service that returned 404 (ROADMAP 1.240).
+   *
+   * Consumers MUST NOT collapse `unavailable` into any verdict branch — not
+   * into `uncertain`, and not into "not identifiable" via a
+   * `status === 'identifiable'` boolean.
+   */
+  status: 'identifiable' | 'uncertain' | 'cannot_identify' | 'unavailable';
   /** Confidence in the validation */
   confidence: 'high' | 'medium' | 'low';
   /** Valid adjustment sets */

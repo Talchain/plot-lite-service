@@ -79,6 +79,24 @@ function transformValidationToEnrichment(
 ): CausalValidationEnrichment | undefined {
   if (!validation) return undefined;
 
+  // ROADMAP 1.240 sibling, same defect species, different channel.
+  //
+  // `identifiable` below is computed as `status === 'identifiable'`, so an
+  // UNAVAILABLE validation used to serialise as `identifiable: false` — a
+  // fabricated boolean verdict ("the causal effect is NOT identifiable")
+  // derived from the absence of an answer. It rode the PLoT→CEE enrichment
+  // payload, which is an untyped `z.record` passthrough, so no schema
+  // downstream would ever have rejected it.
+  //
+  // `CausalValidationEnrichment.identifiable` is REQUIRED and boolean, so the
+  // block cannot express "unknown"; honest absence is therefore to omit the
+  // block entirely. `causal_validation` is already optional on the enrichment,
+  // and the machine-readable signal that ISL degraded is carried separately by
+  // `isl_degraded` (source !== 'isl'), so nothing is lost by omitting it — the
+  // user-facing ISL_VALIDATION_UNAVAILABLE critique carries the explicit
+  // unknown.
+  if (validation.status === 'unavailable') return undefined;
+
   // Extract confounders from issues if present
   const confounders: string[] = [];
   const warnings: string[] = [];
@@ -1052,6 +1070,37 @@ export async function registerRunRoute(app: FastifyInstance) {
             source: 'isl' as const,
             message: 'ISL validation reports partial identifiability; results may rely on stronger assumptions.',
             suggested_action: isl_validation.explanation?.summary,
+          });
+        } else if (isl_validation.status === 'unavailable') {
+          // ROADMAP 1.240 — the typed refusal, NOT a verdict.
+          //
+          // No validation was obtained (ISL disabled, unmounted route → 404,
+          // timeout, 5xx, or breaker trip). Before this branch existed the
+          // fallback's 'uncertain' fell into the arm above and told the user
+          // "ISL validation reports partial identifiability" with
+          // source:'isl' — a scientific claim about their graph attributed to
+          // a service that computed nothing.
+          //
+          // Deliberate choices:
+          //  - source:'engine'. PLoT is reporting its OWN inability to reach
+          //    ISL. Nothing here may be attributed to ISL.
+          //  - OBSERVATION/INFO. An unchecked property is not a detected
+          //    problem; grading it WARNING would be a different fabrication
+          //    (implying something was found).
+          //  - Stated positively rather than omitted. Silence would leave the
+          //    user believing identifiability WAS checked and cleared, which
+          //    is the same lie by another route.
+          //  - The raw failure reason stays in explanation.reasoning (for
+          //    operators) and is deliberately NOT interpolated into the
+          //    user-facing message or suggested_action, which would leak ISL
+          //    internals to the caller.
+          (critique as any[]).push({
+            code: CRITIQUE_CODES.ISL_VALIDATION_UNAVAILABLE,
+            severity: 'OBSERVATION',
+            semantic_severity: 'INFO',
+            source: 'engine' as const,
+            message: 'Causal identifiability was not checked: the inference service returned no validation result. No identifiability claim is made either way.',
+            suggested_action: 'Re-run once the inference service is available if you need an identifiability check.',
           });
         }
 

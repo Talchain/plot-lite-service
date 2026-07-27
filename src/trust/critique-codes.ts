@@ -27,11 +27,19 @@ export const CRITIQUE_CODES = {
   MISSING_COMPETITOR_RESPONSE: 'MISSING_COMPETITOR_RESPONSE',
   PSYCHOLOGICAL_THRESHOLD: 'PSYCHOLOGICAL_THRESHOLD',
 
-  // ISL validation issues
+  // ISL validation issues.
+  // These four are FINDINGS — each reports something ISL actually computed and
+  // is emitted with source:'isl'. Never emit one from a fallback.
   ISL_CANNOT_IDENTIFY: 'ISL_CANNOT_IDENTIFY',
   ISL_UNCERTAIN: 'ISL_UNCERTAIN',
   ISL_ISSUE: 'ISL_ISSUE',
   ISL_FRAGILE: 'ISL_FRAGILE',
+
+  // ISL availability notice — NOT a finding (ROADMAP 1.240).
+  // Emitted with source:'engine' because it is PLoT reporting its own inability
+  // to obtain a validation, not ISL reporting anything. This is the explicit
+  // unknown that replaced a fabricated ISL_UNCERTAIN on a 404/timeout/5xx.
+  ISL_VALIDATION_UNAVAILABLE: 'ISL_VALIDATION_UNAVAILABLE',
 
   // CEE weight/belief issues
   CEE_UNIFORM_WEIGHTS: 'CEE_UNIFORM_WEIGHTS',
