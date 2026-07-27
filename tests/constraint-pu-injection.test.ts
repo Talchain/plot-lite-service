@@ -302,6 +302,20 @@ describe('injectConstraintParameterUncertainties', () => {
 // ---------------------------------------------------------------------------
 
 describe('injectConstraintParameterUncertainties — disclosure log + shape (re-pointed, row 1.236b)', () => {
+  it('pins the VALUE of CONSTRAINT_PINNED_STD, not just the wiring to it', () => {
+    // Every other assertion in this file compares against the exported constant,
+    // so changing the constant moves both sides and nothing goes red — the
+    // assertion tests its own input. Mutation-checked: 0.001 → 0.002 left all 17
+    // other cases green. The retired constraint-auto-uncertainty.test.ts pinned
+    // the literal 0.001, and merging it in must not lose that.
+    //
+    // The number is not cosmetic: it is what ISL receives as the sampling width
+    // for a constrained node, and it is deliberately far below every other std
+    // path (user-supplied clamp, DEFAULT_STD_FLOOR, the 0.01 external-prior
+    // floor) so a constrained node is effectively pinned to its observed value.
+    expect(CONSTRAINT_PINNED_STD).toBe(0.001);
+  });
+
   it('discloses the observed value it keyed on in the LOG, which is the only place it now survives', () => {
     // This is the case the retired file was really carrying. Slice 6 removed
     // `mean` from the wire entry because ISL declares none; the value is still
