@@ -1,8 +1,11 @@
 /**
  * D1: Key Drivers
  *
- * Top 5 factors by influence with impact display.
+ * Top 5 factors in PLoT's ONE canonical driver order, with impact display.
  * Uses centralized normalisedImpact to ensure consistency with evidence gaps.
+ *
+ * ⭐ FAMILY-4 S1b: `rank` is a PROJECTION of `driver_order.ranked_factor_ids`,
+ * not an independent argmax — see the block comment in `computeKeyDrivers`.
  */
 
 import type { CoachingInputs } from './types.js';
@@ -32,22 +35,33 @@ export function computeKeyDrivers(inputs: CoachingInputs): KeyDriver[] {
   // Use centralized normalised impact (same as evidence gaps)
   const normalisedImpactMap = computeNormalisedImpact(inputs.factorSensitivity);
 
-  // Sort by absolute influence score descending.
   // Provenance: prefer `influence_score` (canonical, graph-merged PLoT signal)
   // over `elasticity` (raw ISL value) — same precedence as
-  // `computeNormalisedImpact`, so the published `rank`, `influence_score`, and
-  // `normalised_impact` fields are internally consistent. For graph-source
-  // enriched entries the two are equal; for ISL-only-append entries
-  // influence_score is the correct canonical signal.
+  // `computeNormalisedImpact`, so the published `influence_score` and
+  // `normalised_impact` fields stay internally consistent.
   const impactMagnitude = (f: typeof inputs.factorSensitivity[number]): number =>
     Math.abs(f.influence_score ?? f.elasticity ?? 0);
 
-  const sorted = [...inputs.factorSensitivity].sort(
-    (a, b) => impactMagnitude(b) - impactMagnitude(a),
+  // ── ⭐ FAMILY-4 S1b: `rank` PROJECTS the canonical driver order ────────────
+  //
+  // This used to sort by `impactMagnitude` descending — a second argmax over a
+  // quantity that is NOT lever-aware. On the live wire it crowned the
+  // option-pinned lever the same response publishes at `elasticity: 0`, while
+  // `importance_rank: 1` named the top genuine uncertainty driver.
+  //
+  // `importance_rank` IS PLoT's one canonical rank (`applyLeverAwareImportanceOrder`),
+  // and by Rule S3 the emitted array is already in that order — so this sort is
+  // a no-op on every live payload and exists to make the projection EXPLICIT
+  // rather than positional. The sort is stable, so rows that share a rank (the
+  // legacy raw-ISL coaching path defaults absent ranks to 999) keep the
+  // producer's own array order rather than being re-shuffled by a second
+  // quantity.
+  const ranked = [...inputs.factorSensitivity].sort(
+    (a, b) => a.importance_rank - b.importance_rank,
   );
 
   // Take top 5
-  const top5 = sorted.slice(0, 5);
+  const top5 = ranked.slice(0, 5);
 
   return top5.map((factor, index) => {
     const influence = impactMagnitude(factor);

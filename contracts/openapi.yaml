@@ -6242,12 +6242,22 @@ components:
             producer, or a dropped key) and a consumer must fail closed on it.
 
 
-            ADDITIVE. `factor_sensitivity[].driver_label`, `dominant_factor`,
-            `m1_coaching.key_drivers[].rank`, `decision_brief.top_drivers[0]`
-            and the facts-path `importance_rank` are UNCHANGED by this slice
-            and remain independent argmaxes; on the pinned 2026-07-07 capture
-            two of them still name a different factor from
-            `ranked_factor_ids[0]`. Reconciling them is a later slice.
+            ⭐ EVERY #1-NAMING SURFACE IN THIS RESPONSE PROJECTS
+            `ranked_factor_ids[0]` (family-4 S1b): `factor_sensitivity[].driver_label
+            === 'biggest'`, `dominant_factor`, `m1_coaching.key_drivers[0]`,
+            `decision_brief.top_drivers[0]` and the facts-path
+            `importance_rank`. They are no longer independent argmaxes, so a
+            consumer reading any of them gets the same answer as reading this
+            field. Before S1b two of them named the option-pinned lever the
+            same response publishes at `sensitivity_score: 0`.
+
+
+            ⚠ Option-controlled levers are still DEMOTED to the back of this
+            order and MARKED in `lever_ids`, not removed — ranking a lever in
+            its true place is the honest end state but waits on CEE's
+            permission layer. The RAW structural influence order is still
+            published under its own name as
+            `factor_sensitivity[].influence_rank`.
 
 
             Not in `response_hash` (which canonicalises the REQUEST).
@@ -6329,21 +6339,47 @@ components:
                   type: boolean
                   nullable: true
                   description: >-
-                    `false` — PROVEN not separable (the top two rows are
-                    EXACTLY equal on the quantity the order was made on; no
-                    threshold involved). `null` — UNRESOLVED; a consumer MUST
-                    fail closed, and strict inequality on the basis quantity is
-                    NOT evidence of statistical separability. `true` is NOT
-                    emitted by this build: no threshold for the DRIVER order is
-                    ratified, and inventing one would recreate the
-                    three-thresholds-in-three-repos defect the option-side
-                    `near_tie` already suffers.
+                    🟡 PROVISIONAL (ratified 2026-07-28; the statistic is
+                    pending science sign-off — ALWAYS read `method`).
+                    `false` — not separable. `true` — separable. `null` —
+                    UNRESOLVED, and a consumer MUST fail closed on it: absence
+                    of a verdict is never permission.
+
+
+                    `null` is returned whenever the producer cannot honestly
+                    decide: fewer than two rows; either basis value absent or
+                    non-finite (never coalesced to 0); the top two rows on
+                    OPPOSITE sides of the lever partition, or of two different
+                    row species — in those states the emitted order is not a
+                    sort on the compared quantity, so any verdict about the
+                    pair would be a fabrication.
                 method:
                   type: string
                   nullable: true
                   description: >-
-                    Names the method behind a non-null verdict
-                    (`basis_value_exact_tie`); `null` when unresolved.
+                    Names the STATISTIC, THRESHOLD and RATIFICATION STATUS
+                    behind a non-null verdict; `null` when unresolved. One
+                    threshold, on the wire — a consumer that needs a different
+                    one is asking for a different verdict and must say so in a
+                    review, not in a local constant.
+
+
+                    `basis_value_exact_tie` — the top two rows are EXACTLY
+                    equal on the quantity the order was made on. A proven
+                    non-separation; no threshold involved.
+
+
+                    `relative_gap_0.10_provisional` — the relative gap
+                    `(first − second) / first` on the basis quantity, against a
+                    0.10 threshold. 🟡 PROVISIONAL: the number is reused from the
+                    repo's one ratified near-tie magnitude (the option-side
+                    `near_tie.threshold`), and the form is RELATIVE because the
+                    basis quantity is normalised by the largest row — which,
+                    after the lever demotion, need not be in the compared pair
+                    at all. A gap between two point estimates is not a
+                    statistical separability test; the ratified statistic will
+                    read ISL's bootstrap (`rank_stability` on this same object)
+                    and will arrive under a DIFFERENT method name.
             rank_stability:
               type: object
               description: >-

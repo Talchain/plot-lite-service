@@ -121,6 +121,16 @@ function computeConfigVersion(nSamples: number = STANDARD_N_SAMPLES_DEFAULT): st
 export type BriefAssemblyInput = Pick<RunResponseV3, 'analysis_status' | 'critiques'> & {
   option_comparison?: RunResponseV3['option_comparison'];
   factor_sensitivity?: RunResponseV3['factor_sensitivity'];
+  /**
+   * ⭐ Family-4 S1b (additive, optional): PLoT's ONE canonical driver order and
+   * its attestation. `top_drivers` PROJECTS `ranked_factor_ids` and takes lever
+   * identity from `lever_ids` (the D-U union) instead of re-deriving it from the
+   * response's own `zero_reason` stamp, which under-covers.
+   *
+   * OPTIONAL, and its absence is FAIL-CLOSED: without it `top_drivers` keeps its
+   * pre-S1b stamp-only behaviour. Absence of an attestation is not permission.
+   */
+  driver_order?: RunResponseV3['driver_order'];
   robustness?: RunResponseV3['robustness'];
   m1_coaching?: RunResponseV3['m1_coaching'];
   m1_review?: RunResponseV3['m1_review'];
@@ -355,20 +365,53 @@ function buildAnalysisSummary(
 }
 
 function buildTopDrivers(input: BriefAssemblyInput): BriefDriver[] {
-  // A1b: exclude intervention-controlled levers — top_drivers ranks by
-  // abs(elasticity) and would otherwise present option-pinned levers as tunable.
-  const factors = filterInterventionOverrides(input.factor_sensitivity ?? []);
+  // ── ⭐ FAMILY-4 S1b: top_drivers PROJECTS the canonical driver order ───────
+  //
+  // Two independent defects lived in the four lines this replaced:
+  //
+  //  1. **The lever predicate UNDER-covered.** `filterInterventionOverrides` is
+  //     stamp-only — it drops rows carrying ISL's `zero_reason:
+  //     'intervention_override'`, and nothing else. ISL stamps only elasticity≈0
+  //     first-option pins, so a lever pinned by a NON-first option arrives
+  //     unstamped with a nonzero measured elasticity and ranks here as a tunable
+  //     driver. That is the live `fac_salary_cost` case recorded at
+  //     `src/lib/intervention-override.ts:9-15`. `driver_order.lever_ids` is the
+  //     D-U union — the canonical lever identity, derived from the REQUEST's
+  //     option interventions and not from the response's own stamp.
+  //  2. **It was a second sort.** Ranking by `abs(elasticity)` made this an
+  //     independent argmax over a different quantity from the one the canonical
+  //     order was made on — and in the `mixed_graph_isl` state it sorts across
+  //     two incommensurable units under one field name.
+  //
+  // ⚠ FAIL-CLOSED ON ABSENCE. With no `driver_order` (an older caller, or a
+  // response that emitted no `factor_sensitivity`) this keeps EXACTLY its
+  // pre-S1b behaviour rather than treating "no levers named" as "no levers
+  // exist" — absence of the attestation is not permission to publish a lever.
+  const allFactors = input.factor_sensitivity ?? [];
+  const driverOrder = input.driver_order;
+  const leverIds = driverOrder ? new Set(driverOrder.lever_ids) : undefined;
+
+  const factors = leverIds
+    ? allFactors.filter((f) => !leverIds.has(f.factor_id))
+    : filterInterventionOverrides(allFactors);
   if (factors.length === 0) return [];
 
-  // Sort by absolute elasticity descending, ties broken by factor_id (node_id) bytewise ascending
-  const withElasticity = factors
-    .filter(f => f.elasticity !== undefined && f.elasticity !== null)
-    .sort((a, b) => {
-      const diff = Math.abs(b.elasticity!) - Math.abs(a.elasticity!);
-      if (diff !== 0) return diff;
-      return a.factor_id < b.factor_id ? -1 : a.factor_id > b.factor_id ? 1 : 0;
-    })
-    .slice(0, MAX_TOP_DRIVERS);
+  const withElasticity = leverIds
+    ? // The emitted array IS the canonical order (Rule S3), so preserving it is
+      // the projection. No second sort, no tie-break needed — the producer
+      // already decided, once.
+      factors.filter((f) => f.elasticity !== undefined && f.elasticity !== null)
+        .slice(0, MAX_TOP_DRIVERS)
+    : // Legacy path (no attestation): unchanged — abs(elasticity) descending,
+      // ties broken by factor_id bytewise ascending.
+      factors
+        .filter(f => f.elasticity !== undefined && f.elasticity !== null)
+        .sort((a, b) => {
+          const diff = Math.abs(b.elasticity!) - Math.abs(a.elasticity!);
+          if (diff !== 0) return diff;
+          return a.factor_id < b.factor_id ? -1 : a.factor_id > b.factor_id ? 1 : 0;
+        })
+        .slice(0, MAX_TOP_DRIVERS);
 
   // Direction prefers the upstream signed `direction` field — the canonical
   // source already used by factor_sensitivity[*].direction and

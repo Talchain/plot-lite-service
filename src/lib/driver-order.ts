@@ -15,16 +15,17 @@
  *
  * ## ⚠ WHAT THIS SLICE DOES AND DOES NOT DO
  *
- * S1 is **ADDITIVE ONLY**. `driver_order` is emitted ALONGSIDE the existing
- * surfaces; nothing that ranks or crowns today changes shape, value or
- * meaning. In particular the amendment's §8-S1 second half — making
- * `driver_label`, `dominant_factor`, `m1_coaching.key_drivers[].rank`,
- * `decision_brief.top_drivers[0]` and the facts-path `importance_rank`
- * PROJECTIONS of `ranked_factor_ids[0]` — is **NOT** done here. Those five
- * remain independent argmaxes and, on the committed golden, three of them
- * still disagree with this order (see the RESIDUAL block at the foot of this
- * file). Consumers arrive first (amendment §4.4: "the safe order is
- * consumer-first"), producers converge after.
+ * S1 was **ADDITIVE ONLY** — `driver_order` was emitted alongside five surfaces
+ * that each ran their own argmax, and three of them disagreed with it.
+ *
+ * **S1b (2026-07-28) closed that.** All five are now PROJECTIONS of
+ * `ranked_factor_ids[0]`: `driver_label` (`src/lib/driver-label.ts`),
+ * `dominant_factor` (`src/trust/factor-dominance.ts`),
+ * `m1_coaching.key_drivers[].rank` (`src/coaching/key-drivers.ts`),
+ * `decision_brief.top_drivers[0]` (`src/assembly/decision-brief.ts`) and the
+ * facts-path `importance_rank` (`mapFactorSensitivityToFactsInput`). See the
+ * PROJECTION REGISTER at the foot of this file, and the single end-to-end law
+ * in `tests/driver-order-projection.fixture.test.ts`.
  *
  * ## ⛔ THIS MODULE DOES NOT UN-DEMOTE LEVERS (amendment §4.4)
  *
@@ -82,6 +83,7 @@
  */
 
 import { isOptionControlledLever } from './intervention-override.js';
+import { NEAR_TIE_THRESHOLD } from '../trust/result-coherence.js';
 
 /**
  * WHICH authority produced the canonical order.
@@ -107,11 +109,24 @@ export type DriverOrderBasis = 'graph_structural' | 'isl_uncertainty' | 'none';
 export type DriverOrderSpecies = 'single' | 'mixed_graph_isl';
 
 /**
- * The lever doctrine actually applied when the order was made.
+ * The lever PREDICATE actually applied when the order was made.
+ *
+ * ⚠ It names the predicate, **not the treatment** — and the treatment differs by
+ * path (S1 review, LOW):
+ *
+ *   · **graph-primary path** — levers are DEMOTED. Every lever is present in
+ *     `ranked_factor_ids`, partitioned to the back, and named in `lever_ids`.
+ *   · **ISL-only fallback** — levers are REMOVED upstream. The append path in
+ *     `mergeIslConfidenceIntoGraphFactors` applies the same D-U union check and
+ *     never emits a lever row at all, so `lever_ids` is `[]`.
+ *
+ * ⇒ **`lever_ids: []` means "no lever is IN this order", NEVER "this decision
+ * has no levers".** A consumer that reads the empty array as the second claim is
+ * making an inference the producer did not.
  *
  * - `'du_union'` — the D-U structural union predicate
  *   (`isOptionControlledLever`: ISL stamp OR options-derived intervention
- *   target). This is what `/v2/run` applies.
+ *   target). This is what `/v2/run` applies, on BOTH paths.
  * - `'stamp_only'` — ISL's `zero_reason` stamp alone, which UNDER-covers
  *   (an unstamped union lever slips through). RESERVED: named here because
  *   other surfaces in this same response still use it
@@ -143,36 +158,110 @@ const ATTRIBUTION_STABILITY_ORDER: readonly AttributionStabilityBand[] = [
  * `top_pair_separable` answers *"is it separable from #2?"* (a VERDICT) — and
  * the presence of one is never permission for the other.
  *
- * ## ⚠ WHAT THIS BUILD CAN AND CANNOT DECIDE
+ * ## ⚠ WHAT THIS BUILD DECIDES — AND ON WHOSE AUTHORITY
  *
- * `top_pair_separable: true` is **NEVER emitted by this build**, deliberately.
- * Deciding *separable* from ISL's bootstrap measurements (`rank_flip_rate`,
- * `elasticity_std`, `attribution_stability`) requires a THRESHOLD, and no
- * threshold for the DRIVER order has been ratified. Amendment T3 requires the
- * producer to publish the one threshold it used; inventing one here would
- * manufacture exactly the three-thresholds-in-three-repos defect T3 exists to
- * kill (PLoT 0.10 / CEE 1.0 / UI 0.65 on the OPTIONS question). So this build
- * emits only what it can PROVE:
+ * ### 🟡 PROVISIONAL (Paul-ratified 2026-07-28; Neil's statistic still pending)
+ *
+ * S1 emitted only what it could PROVE: an exact tie, or `null`. `true` was
+ * unreachable, because deciding *separable* needs a THRESHOLD and none had been
+ * ratified for the driver order. Paul ratified a **provisional default** rather
+ * than leave the field permanently unresolved — so this build now decides, and
+ * says so on the wire:
  *
  * - `false` + `method: 'basis_value_exact_tie'` — the top two rows are EXACTLY
  *   equal on the quantity the order was made on. A proven non-separation; no
- *   threshold involved.
- * - `null` + `method: null` — **unresolved.** Not measured, not decided. Per
- *   T2 every consumer fails closed on this; strict inequality on the basis
- *   quantity is NOT evidence of statistical separability.
+ *   threshold involved, unchanged since S1.
+ * - `false` / `true` + `method: 'relative_gap_0.10_provisional'` — the
+ *   **provisional** verdict. See `PROVISIONAL_TOP_PAIR_SEPARABILITY_MIN_RELATIVE_GAP`.
+ * - `null` + `method: null` — **unresolved.** Not measured, not decidable. Per
+ *   T2 every consumer fails closed on this.
  *
- * ⇒ The `true` branch is an open decision (which statistic, which threshold,
- * against which pair) and it is a science sign-off, not a producer choice.
+ * ⛔ **THE PENDING RATIFICATION, and the one-line change that overrules it.**
+ * Neil owns the real statistic — the honest input is ISL's bootstrap
+ * (`rank_flip_rate`, `elasticity_std`, `attribution_stability`), not a gap on a
+ * point estimate. When that lands, an overrule is exactly ONE edit:
+ * **replace the body of `decideProvisionalSeparability` below** (and, if the
+ * threshold changes rather than the statistic, the single
+ * `PROVISIONAL_TOP_PAIR_SEPARABILITY_MIN_RELATIVE_GAP` binding). Nothing else in
+ * this file, and no consumer, needs to move — which is the whole reason the
+ * verdict is a producer statement carrying its own method name.
+ *
+ * ⚠ Until then, `method` MUST keep saying `provisional`. A consumer that treats
+ * a provisional verdict as a ratified one is making a claim this producer has
+ * not made.
  */
 export interface DriverOrderSeparability {
   /**
-   * `false` = proven NOT separable. `null` = UNRESOLVED (fail closed).
-   * `true` is not produced by this build — see the interface doc.
+   * `true`/`false` = the producer's verdict. `null` = UNRESOLVED — fail closed
+   * (T2: absence of a tie verdict is `unresolved`, NEVER `separable`).
    */
   top_pair_separable: boolean | null;
-  /** Names the method behind a non-null verdict; `null` when unresolved. */
+  /**
+   * Names the statistic, the threshold and the ratification status behind a
+   * non-null verdict; `null` when unresolved.
+   *
+   * T3 — one threshold, ON THE WIRE, not three in three repos. A consumer that
+   * needs a different one is asking for a different verdict and must say so in
+   * a review, not in a local constant.
+   */
   method: string | null;
 }
+
+/**
+ * 🟡 **PROVISIONAL** minimum RELATIVE gap between the top two rows of the
+ * canonical order for the top position to be called separable.
+ *
+ * ## The number: reused, not invented
+ *
+ * Bound to `NEAR_TIE_THRESHOLD` (`src/trust/result-coherence.ts`) — **0.10, the
+ * repo's ONE ratified near-tie magnitude**, already used for the OPTIONS
+ * near-tie verdict (`computeNearTie`) and for the decision brief's
+ * `'very_close'` band. Bound rather than hand-copied so the two cannot drift
+ * apart unnoticed (trap 12: derive, don't mirror); pinned to the literal `0.10`
+ * in `tests/driver-order-separability.unit.test.ts` so that if the options-side
+ * constant is ever changed for an unrelated product reason, that is a LOUD test
+ * failure rather than a silent move of this verdict.
+ *
+ * ## ⚠ The FORM is relative, and the repo's near-tie precedent is ABSOLUTE
+ *
+ * `computeNearTie` applies 0.10 as an ABSOLUTE gap between two
+ * `win_probability` values. That form is **wrong for this quantity**, and the
+ * reason is specific rather than stylistic:
+ *
+ * `influence_score` is `|influence| / maxAbsInfluence` — **normalised by the
+ * largest row**, which after the lever demotion need not be in the compared
+ * pair at all. On the committed golden the max row IS the demoted lever
+ * (`influence_score: 1`), so the two rows actually being compared sit at 0.497
+ * and 0.390. Had that lever's raw influence been twice as large, both would
+ * halve to 0.249 / 0.195 — **the same underlying data, an absolute gap
+ * collapsing from 0.107 to 0.053, and the verdict flipping** on a number
+ * outside the comparison. A RELATIVE gap `(a − b) / a` is invariant to that
+ * rescaling (0.2145 either way).
+ *
+ * `win_probability` has no such problem — it is normalised across the options
+ * being compared — which is why the same constant is right and the same form is
+ * not.
+ *
+ * ## ⛔ NOT RATIFIED — Neil owns the replacement
+ *
+ * A gap between two point estimates is not a statistical separability test. The
+ * honest statistic reads ISL's bootstrap (`rank_flip_rate`, `elasticity_std`,
+ * `attribution_stability`), all of which this response already carries in
+ * `driver_order.rank_stability`. Until that ruling lands this build states its
+ * provenance honestly in `method` and nothing more.
+ */
+export const PROVISIONAL_TOP_PAIR_SEPARABILITY_MIN_RELATIVE_GAP = NEAR_TIE_THRESHOLD;
+
+/** The method name for the PROVEN, threshold-free non-separation. Unchanged since S1. */
+export const SEPARABILITY_METHOD_EXACT_TIE = 'basis_value_exact_tie';
+
+/**
+ * The method name for the provisional verdict — statistic, threshold and
+ * ratification status, DERIVED from the constant so the string cannot drift
+ * away from the number it describes.
+ */
+export const SEPARABILITY_METHOD_RELATIVE_GAP =
+  `relative_gap_${PROVISIONAL_TOP_PAIR_SEPARABILITY_MIN_RELATIVE_GAP.toFixed(2)}_provisional` as const;
 
 /**
  * ISL's measured rank-stability inputs, aggregated over the ordered rows.
@@ -275,30 +364,82 @@ function finiteOrNull(v: unknown): number | null {
   return typeof v === 'number' && Number.isFinite(v) ? v : null;
 }
 
+/** The unresolved verdict — the ONLY honest answer when the pair is undecidable. */
+const UNRESOLVED: DriverOrderSeparability = { top_pair_separable: null, method: null };
+
 /**
  * Decide the tie verdict for the top PAIR of the canonical order.
  *
- * Only ever returns a PROVEN `false` or an honest `null` — see
- * `DriverOrderSeparability`. The basis quantity is `influence_score` on the
- * graph path (what `computeFactorSensitivityFromGraph` ordered on) and the
- * same field on the ISL fallback (ISL's importance surface is carried into it
- * by `mapIslFactorEntry`). When either of the top two rows lacks a finite
- * basis value the verdict is `null`: an absent number is not a tie and is not
- * a separation.
+ * The basis quantity is `influence_score` on the graph path (what
+ * `computeFactorSensitivityFromGraph` ordered on) and the same field on the ISL
+ * fallback (ISL's importance surface is carried into it by `mapIslFactorEntry`).
+ *
+ * ## ⭐ THE COMPARABILITY GUARD — a verdict about a pair that was never ordered
+ * ## together is a fabrication (S1 review, LOW)
+ *
+ * S1 compared rows 0 and 1 of the **FINAL** order — which is the order AFTER
+ * `applyLeverAwareImportanceOrder` has partitioned levers to the back. Those two
+ * rows are therefore not necessarily adjacent in any sort on `influence_score`:
+ *
+ *   · **Across the lever partition.** A lever keeps its true structural
+ *     `influence_score` (only sensitivity/elasticity/VOI are zeroed), and it is
+ *     frequently the LARGEST — on the committed golden the demoted lever is
+ *     exactly 1.0 while the canonical #1 is 0.497. With one non-lever and one
+ *     lever, rows 0 and 1 straddle the partition and `b > a`: the "gap" is
+ *     negative and means nothing. Worse, an EXACT equality across the partition
+ *     would have been published as `basis_value_exact_tie` — *"proven not
+ *     separable"* — when it is a coincidence between two rows the producer never
+ *     compared.
+ *   · **Across two species.** In `mixed_graph_isl` the graph rows carry
+ *     path-analysis influence and the appended ISL rows carry Monte-Carlo
+ *     uncertainty importance, under the same field name and in the same array.
+ *     Subtracting one from the other compares two units.
+ *
+ * Both fail **CLOSED** to `null` (T2 — absence of a verdict is `unresolved`,
+ * never `separable`), and `null` is used rather than `false` deliberately:
+ * `false` is a positive claim ("proven not separable") and the producer has not
+ * earned it here. The guard can only ever REMOVE a verdict, never add one.
+ *
+ * A residual accepted knowingly: the guard proves the pair is COMPARABLE, not
+ * that the underlying estimates are statistically distinguishable. That second
+ * question is Neil's, and it is why `method` says `provisional`.
  */
 function decideSeparability(
   ordered: readonly DriverOrderFactorRow[],
+  isLever: readonly boolean[],
 ): DriverOrderSeparability {
-  if (ordered.length < 2) return { top_pair_separable: null, method: null };
+  if (ordered.length < 2) return UNRESOLVED;
+
+  // ── comparability, before any arithmetic ────────────────────────────────
+  if (isLever[0] !== isLever[1]) return UNRESOLVED;
+  if (ordered[0].source !== ordered[1].source) return UNRESOLVED;
+
   const a = finiteOrNull(ordered[0].influence_score);
   const b = finiteOrNull(ordered[1].influence_score);
-  if (a === null || b === null) return { top_pair_separable: null, method: null };
+  // An absent number is not a tie and is not a separation. Never coalesced to 0
+  // — absent means "unavailable", not "least important".
+  if (a === null || b === null) return UNRESOLVED;
+
+  // An exact tie needs no threshold, so it keeps its own ratified method name
+  // and must NOT inherit the provisional one. Checked first, and unchanged.
   if (a === b) {
-    return { top_pair_separable: false, method: 'basis_value_exact_tie' };
+    return { top_pair_separable: false, method: SEPARABILITY_METHOD_EXACT_TIE };
   }
-  // Strict inequality is NOT evidence of statistical separability — no
-  // ratified threshold exists for the driver order (amendment T3). Unresolved.
-  return { top_pair_separable: null, method: null };
+
+  // The order does not descend on this quantity across the top pair, so this is
+  // not the quantity the order was made on. Unresolved, not "tied".
+  if (b > a) return UNRESOLVED;
+  // A non-positive leader admits no relative gap (and `a === 0` was already
+  // handled above: with b < a ≤ 0 the pair is not on the basis scale at all).
+  if (a <= 0) return UNRESOLVED;
+
+  const relativeGap = (a - b) / a;
+  if (!Number.isFinite(relativeGap)) return UNRESOLVED;
+
+  return {
+    top_pair_separable: relativeGap >= PROVISIONAL_TOP_PAIR_SEPARABILITY_MIN_RELATIVE_GAP,
+    method: SEPARABILITY_METHOD_RELATIVE_GAP,
+  };
 }
 
 function aggregateRankStability(
@@ -338,13 +479,19 @@ export function buildDriverOrder(input: BuildDriverOrderInput): DriverOrderV1 | 
 
   const rankedFactorIds: string[] = [];
   const leverIds: string[] = [];
+  const orderedRows: DriverOrderFactorRow[] = [];
+  /** Parallel to `orderedRows` — the comparability guard in `decideSeparability`. */
+  const orderedIsLever: boolean[] = [];
   let sawGraph = false;
   let sawIsl = false;
   for (const f of factors) {
     const id = idOf(f);
     if (id === undefined) continue;
     rankedFactorIds.push(id);
-    if (isOptionControlledLever(f, structuralLeverIds)) leverIds.push(id);
+    orderedRows.push(f);
+    const lever = isOptionControlledLever(f, structuralLeverIds);
+    orderedIsLever.push(lever);
+    if (lever) leverIds.push(id);
     if (f.source === 'graph') sawGraph = true;
     else if (f.source === 'isl') sawIsl = true;
   }
@@ -387,7 +534,10 @@ export function buildDriverOrder(input: BuildDriverOrderInput): DriverOrderV1 | 
     species: sawGraph && sawIsl ? 'mixed_graph_isl' : 'single',
     lever_policy: 'du_union',
     lever_ids: leverIds,
-    separability: decideSeparability(factors),
+    // ⚠ Rows WITHOUT a usable id are excluded from `ranked_factor_ids`, so the
+    // verdict is decided over the rows the attestation actually names — not
+    // over `factors`, which may contain a row no consumer can join to.
+    separability: decideSeparability(orderedRows, orderedIsLever),
     rank_stability: aggregateRankStability(factors),
   };
 }
@@ -411,23 +561,38 @@ export function readIslSuppressedAttributions(islResult: unknown): string[] | un
 }
 
 /**
- * ── RESIDUAL: the divergent ordering sources S1 deliberately does NOT touch ──
+ * ── ⭐ PROJECTION REGISTER: every surface in this response that names a #1 ──
  *
- * `driver_order` is emitted ALONGSIDE these; none of them changed in S1. Each
- * is an independent argmax today, and on the committed golden
- * (`tests/fixtures/isl-v2-live-20260707/plot-v2-run.golden.json`) three of the
- * five disagree with `ranked_factor_ids[0]`. Making them projections of
- * `ranked_factor_ids[0]` is the amendment's §8-S1 second half and is scheduled,
- * not forgotten. Pinned — so none can drift silently — by
- * `tests/driver-order-attestation.fixture.test.ts` and, for `driver_label`, by
- * `tests/importance-rank-lever-doctrine.fixture.test.ts`.
+ * S1b (2026-07-28) made all five PROJECTIONS of `ranked_factor_ids[0]`. Before
+ * it, each ran its own argmax over its own quantity and three disagreed with
+ * this order on the committed golden — including `driver_label`, which crowned
+ * the option-pinned lever the same response publishes at `sensitivity_score: 0`.
  *
- * | surface | ranks on | lever-aware? | agrees with ranked_factor_ids[0] on the golden? |
- * |---|---|---|---|
- * | `factor_sensitivity[].importance_rank` | this order | ✅ D-U union | ✅ yes (it IS this order) |
- * | `factor_sensitivity[].driver_label === 'biggest'` | argmax `influence_score` (`src/lib/driver-label.ts`) | ❌ no | ❌ no — crowns the option-pinned lever |
- * | `m1_coaching.key_drivers[].rank` | `Math.abs(influence_score ?? elasticity ?? 0)` (`src/coaching/key-drivers.ts`) | ❌ no | ❌ no |
- * | `dominant_factor` | `detectDominantFactor` over unfiltered rows (`src/trust/factor-dominance.ts`) | ❌ no | suppressed by its >2 ratio gate on this fixture |
- * | `decision_brief.top_drivers[0]` | `filterInterventionOverrides` = ISL stamp only (`src/assembly/decision-brief.ts`) | ⚠ stamp-only | ✅ yes on this fixture (the stamp happens to cover) |
- * | facts-path `importance_rank` | positional `idx + 1` (`src/routes/v2/run.ts`, `src/facts/mapper.ts`) | n/a — a POSITION, not a rank | mirrors the array, so agrees by accident |
+ * | surface | how it names #1 NOW | was (S1) |
+ * |---|---|---|
+ * | `factor_sensitivity[].importance_rank` | this order (it IS this order) | unchanged |
+ * | `factor_sensitivity[].driver_label === 'biggest'` | `ranked_factor_ids[0]` (`src/lib/driver-label.ts`) | argmax `influence_score`, lever-blind — **crowned the lever** |
+ * | `m1_coaching.key_drivers[].rank` | `importance_rank` ascending (`src/coaching/key-drivers.ts`) | `Math.abs(influence_score ?? elasticity ?? 0)` — **crowned the lever** |
+ * | `dominant_factor` | `factors[0]` only, gates unchanged (`src/trust/factor-dominance.ts`) | internal argmax over unfiltered rows — one number from crowning the lever (F-D3) |
+ * | `decision_brief.top_drivers[0]` | canonical order minus `lever_ids` (`src/assembly/decision-brief.ts`) | `filterInterventionOverrides` (ISL stamp only, UNDER-covers) + a second \|elasticity\| sort |
+ * | facts-path `importance_rank` | `fs.importance_rank` (`mapFactorSensitivityToFactsInput`) | positional `idx + 1` — agreed by accident |
+ *
+ * ⛔ **NOT changed, and deliberately (§4.4):** the lever DEMOTION itself.
+ * `applyLeverAwareImportanceOrder` still pushes option-controlled levers to the
+ * back. Ranking a lever in its true place and leaving the crown to CEE's
+ * permission is the honest end state, but it must not ship before that
+ * permission is live and the UI consumes it (S4 + S6) — today the demotion is
+ * the only thing keeping a producer-zeroed factor off rank 1.
+ *
+ * ⚠ **Two surfaces in this response still use the STAMP-ONLY lever predicate:**
+ * `buildWhatWouldChange` and the value-defaulted disclosure block in
+ * `src/assembly/decision-brief.ts`. They are out of S1b's scope (which is the
+ * #1-naming surfaces), the `lever_policy: 'stamp_only'` enum member exists so a
+ * later slice can attest them without inventing a value, and this note is here
+ * so the omission is recorded rather than discovered.
+ *
+ * Enforced by `tests/driver-order-projection.fixture.test.ts` (one law, all
+ * five, end to end), `tests/driver-surface-projection.unit.test.ts` (the three
+ * whose divergence the golden cannot see) and
+ * `tests/driver-quantity-register.derived.test.ts` (§3.2's derived register).
  */

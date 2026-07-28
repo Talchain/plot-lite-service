@@ -7,9 +7,19 @@
  * `getSemanticLabel`, which adds a rank-1 'biggest'/'strongest' band on top of the
  * three magnitude bands. The three magnitude cut-points are ratified FROM the UI's
  * existing cut-points (useResultsSectionData.ts): >=0.50 strong, >=0.20 moderate,
- * else minor. The rank-1 'biggest' band is SET-AWARE (needs every factor's
- * influence), so it is applied by the caller's derive-pass — see
- * `indexOfBiggestDriver` — NOT by the pure per-factor `deriveDriverLabel` helper.
+ * else minor. The rank-1 'biggest' band is SET-AWARE, so it is applied by the
+ * caller's derive-pass — see `indexOfCanonicalTopDriver` — NOT by the pure
+ * per-factor `deriveDriverLabel` helper.
+ *
+ * ## ⭐ FAMILY-4 S1b — the two bands now answer two DIFFERENT questions
+ *
+ * `'strong' | 'moderate' | 'minor'` are MAGNITUDE claims about the row's own
+ * `influence_score`, unchanged. `'biggest'` is a RANK claim, and it now projects
+ * `driver_order.ranked_factor_ids[0]` — PLoT's ONE canonical, lever-aware order —
+ * instead of running a second, lever-blind argmax over `influence_score`. Before
+ * this slice the two disagreed on the live wire, and `'biggest'` was the one that
+ * crowned a producer-zeroed lever. The raw structural argmax is still published,
+ * under its own honest name, as `influence_rank === 1`.
  *
  * NOTE — this now matches getSemanticLabel's 4-valued SHAPE, but two things remain
  * gated on UI confirmation (D-7 KEY UNCERTAINTY: the UI facts are unconfirmed):
@@ -22,9 +32,8 @@
  *      supersede getSemanticLabel until that confirmation lands.
  *
  * The magnitude label is a pure function of `influence_score`; a factor whose
- * influence is absent/non-finite gets NO label (the missing-vs-value honesty
- * contract: never fabricate 'minor' from a missing measurement) and is likewise
- * NOT eligible to be 'biggest'.
+ * influence is absent/non-finite gets NO magnitude label (the missing-vs-value
+ * honesty contract: never fabricate 'minor' from a missing measurement).
  */
 
 import { isFiniteNumber } from '../util/numeric.js';
@@ -76,40 +85,57 @@ export function deriveDriverLabel(
   return 'minor';
 }
 
-/** Minimal shape read by the set-aware rank-1 selector. */
-interface InfluenceCarrier {
-  influence_score?: number | null;
-}
-
 /**
- * Set-aware rank-1 selector for the `'biggest'` driver band (D-7). Returns the
- * index of the SINGLE factor with the greatest finite `influence_score`, or `-1`
- * when no factor has a finite influence.
+ * ⭐ Index of the factor that carries the `'biggest'` band — a PROJECTION of the
+ * canonical driver order (family 4, slice S1b).
  *
- * The selection is magnitude-BLIND — it ranks by raw `influence_score`, never by
- * the magnitude band — so the rank-1 factor is `'biggest'` UNCONDITIONAL of
- * magnitude (it is 'biggest' even if its band would be 'minor'). This matches the
- * UI `getSemanticLabel` rank-1 'biggest'/'strongest' band.
- *   // DOCTRINE-PENDING (Neil/UX): 'biggest' is rank-1 unconditional; add a
- *   // magnitude floor here if UX wants one.
+ * ## What this replaced, and why
  *
- * Ties on the max resolve to the FIRST such factor in the given (stable, emitted)
- * order — deterministic — via the strict-`>` update (a later equal score never
- * displaces the earlier one). A factor with absent/non-finite influence is NOT
- * eligible (it carries no driver_label at all), so it can never be 'biggest'.
+ * This was `indexOfBiggestDriver`: argmax over `influence_score`, NOT
+ * lever-aware. On the live wire it crowned the option-pinned lever the same
+ * response publishes at `sensitivity_score: 0`, `elasticity: 0`,
+ * `zero_reason: 'intervention_override'` — a factor the producer had explicitly
+ * zeroed, labelled the biggest driver in the decision — while
+ * `importance_rank: 1` (which IS lever-aware) named a different factor.
+ *
+ * The prior lane left that divergence deliberately, on three reasons that the
+ * amendment re-derived and overturned:
+ *
+ *   1. *"'biggest' is DEFINED as the greatest influence_score, so gating it makes
+ *      the label contradict its own row."* — The definition is what changed.
+ *      `'biggest'` is now a RANK claim over PLoT's one canonical order, not a
+ *      magnitude claim; the three magnitude bands still speak for the number in
+ *      the row, and they are untouched. The response also now publishes
+ *      `driver_order` and `influence_rank`, so the structural argmax remains
+ *      readable under its own honest name — nothing was hidden, one crown moved.
+ *   2. *"the basis question is an open doctrine row (Neil/UI)."* — Still open,
+ *      and still only about the three MAGNITUDE cut-points. The amendment's §4.3
+ *      settles the separate question of which ORDER a crown projects, and
+ *      settles it for all five crowns at once.
+ *   3. *"blast radius is zero — no consumer reads driver_label."* — A census
+ *      taken 25 Jul at tips that have since moved (CLAUDE.md trap 12: a census
+ *      is a hand-maintained mirror). Not inherited here — and the argument cuts
+ *      the other way regardless: a field with no readers is the cheapest
+ *      possible moment to correct it.
+ *
+ * ## The rule
+ *
+ * Rule S3 — *"one order, and the array IS it"*: `factor_sensitivity[]` is
+ * emitted in canonical order, so `ranked_factor_ids[0]` is index `0`. The crown
+ * therefore projects the order rather than re-deriving a second argmax over a
+ * quantity the order was not made on.
+ *
+ * Returns `-1` for an empty array — no order, no crown.
+ *
+ * ⚠ The crowned row keeps whatever magnitude band its own `influence_score`
+ * earned until this override replaces it, and a row with absent/non-finite
+ * influence carries no magnitude band at all. It is STILL crowned when it heads
+ * the canonical order: `'biggest'` now answers *"which factor does this producer
+ * rank first?"*, and that question has an answer even when the magnitude
+ * question does not.
  */
-export function indexOfBiggestDriver(
-  factors: ReadonlyArray<InfluenceCarrier>,
+export function indexOfCanonicalTopDriver(
+  factors: ReadonlyArray<unknown>,
 ): number {
-  let biggestIdx = -1;
-  let biggestScore = -Infinity;
-  for (let i = 0; i < factors.length; i++) {
-    const s = factors[i].influence_score;
-    if (!isFiniteNumber(s)) continue; // ineligible
-    if (s > biggestScore) {
-      biggestScore = s;
-      biggestIdx = i;
-    }
-  }
-  return biggestIdx;
+  return factors.length > 0 ? 0 : -1;
 }

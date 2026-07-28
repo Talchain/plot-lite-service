@@ -8,24 +8,30 @@
  *       influence_score >= 0.50 → 'strong'
  *       influence_score >= 0.20 → 'moderate'
  *       otherwise              → 'minor'
- *   - a set-aware rank-1 'biggest' band: the SINGLE factor with the greatest
- *     `influence_score` is 'biggest', UNCONDITIONAL of magnitude. Ties on the max
- *     resolve to the FIRST factor in the stable emitted order. A factor with
- *     absent/non-finite influence gets NO label and is NOT eligible to be
- *     'biggest'.
- * NOTE: matching the SHAPE does not yet let the UI drop `getSemanticLabel` — the
- * basis flip (elasticity vs influence) + UI adoption remain UI-confirmation-gated
- * (D-7). Absent/non-finite influence ⇒ NO label (honesty). Magnitude thresholds
- * are DOCTRINE-PENDING (Neil), one const each; 'biggest' is rank-1 unconditional
- * (DOCTRINE-PENDING Neil/UX — a magnitude floor can be added later).
+ *   - a set-aware rank-1 'biggest' band.
+ *
+ * ## ⭐ FAMILY-4 S1b — THE 'biggest' BAND CHANGED BASIS (2026-07-28)
+ *
+ * `'biggest'` USED to be argmax over `influence_score`, computed here. That
+ * selector was NOT lever-aware, and on the live wire it crowned the
+ * option-pinned lever the same response publishes at `sensitivity_score: 0` /
+ * `elasticity: 0` — while `importance_rank: 1` named a different factor.
+ *
+ * It is now a **PROJECTION of `driver_order.ranked_factor_ids[0]`** — PLoT's one
+ * canonical, lever-aware order — so the five #1-naming surfaces are one claim
+ * instead of five (amendment §4.3/§8-S1). The raw structural argmax is NOT lost:
+ * it is still published, under its own honest name, as `influence_rank === 1`.
+ *
+ * ⚠ The three MAGNITUDE bands are untouched, and so is their doctrine status:
+ * cut-points remain DOCTRINE-PENDING (Neil), one const each; the basis flip
+ * (elasticity vs influence) and UI adoption remain UI-confirmation-gated (D-7).
+ * What S1b settled is which ORDER a crown projects — not what a magnitude means.
  *
  * Describes:
  *  - unit: `deriveDriverLabel` — the pure 3-band magnitude helper (never 'biggest').
- *  - unit: `indexOfBiggestDriver` — the set-aware rank-1 selector (argmax / ties /
- *    single-factor / absent-not-eligible).
- *  - route: the 4-valued emit lands on the /v2/run wire, keyed off each factor's
- *    emitted influence_score, with exactly one 'biggest' on the rank-1 factor
- *    (driven with the live 07-07 capture).
+ *  - unit: `indexOfCanonicalTopDriver` — the rank-1 projection.
+ *  - route: the 4-valued emit lands on the /v2/run wire, with exactly one
+ *    'biggest' on the CANONICAL rank-1 factor (live 07-07 capture).
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
@@ -35,7 +41,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   deriveDriverLabel,
-  indexOfBiggestDriver,
+  indexOfCanonicalTopDriver,
   DRIVER_LABEL_STRONG_MIN,
   DRIVER_LABEL_MODERATE_MIN,
 } from '../src/lib/driver-label.js';
@@ -93,72 +99,62 @@ describe('deriveDriverLabel — ratified normalised-influence cut-points', () =>
 });
 
 // ---------------------------------------------------------------------------
-// Unit — set-aware rank-1 selector (the 'biggest' band)
+// Unit — the rank-1 PROJECTION (the 'biggest' band)
+//
+// ⭐ These replace the `indexOfBiggestDriver` block, which tested the argmax
+//    selector S1b removed (see the file header). Each assertion below is the
+//    same question asked of the new basis.
 // ---------------------------------------------------------------------------
 
-describe('indexOfBiggestDriver — set-aware rank-1 by influence_score', () => {
-  it('picks the index of the single greatest influence_score', () => {
+describe('indexOfCanonicalTopDriver — the rank-1 projection', () => {
+  it('⭐ names index 0 — the canonical order, NOT the influence argmax', () => {
+    // The old selector returned 1 here. The array is the canonical order
+    // (Rule S3), so the crown belongs to index 0 regardless of magnitude.
     const factors = [
-      { influence_score: 0.2 },
-      { influence_score: 0.9 }, // rank-1
+      { influence_score: 0.2 }, // canonical rank 1
+      { influence_score: 0.9 }, // bigger, but demoted — e.g. an option-pinned lever
       { influence_score: 0.5 },
     ];
-    expect(indexOfBiggestDriver(factors)).toBe(1);
+    expect(indexOfCanonicalTopDriver(factors)).toBe(0);
   });
 
-  it('argmax is magnitude-blind: a low-influence max is still rank-1 (biggest unconditional)', () => {
-    // Greatest influence here is 0.1 → magnitude band would be 'minor', yet it
-    // is still the rank-1 factor. The derive-pass stamps it 'biggest'
-    // unconditionally of magnitude.
-    const factors = [
-      { influence_score: 0.05 },
-      { influence_score: 0.1 }, // rank-1, but deriveDriverLabel(0.1) === 'minor'
-      { influence_score: 0.03 },
-    ];
-    const idx = indexOfBiggestDriver(factors);
-    expect(idx).toBe(1);
+  it('the crown is magnitude-BLIND: rank 1 is biggest even when its band is minor', () => {
+    // Unchanged property, new basis. `'biggest'` answers "which factor does
+    // this producer rank first?", which has an answer at any magnitude.
+    const factors = [{ influence_score: 0.1 }, { influence_score: 0.05 }];
+    const idx = indexOfCanonicalTopDriver(factors);
+    expect(idx).toBe(0);
     expect(deriveDriverLabel(factors[idx].influence_score)).toBe('minor');
   });
 
-  it('ties on the max → the FIRST factor in emitted order (deterministic)', () => {
-    const factors = [
-      { influence_score: 0.4 },
-      { influence_score: 0.8 }, // first occurrence of the max
-      { influence_score: 0.8 }, // tie — must NOT win
-      { influence_score: 0.1 },
-    ];
-    expect(indexOfBiggestDriver(factors)).toBe(1);
+  it('no ties to break — one order, one first element (deterministic by construction)', () => {
+    // The old argmax needed a documented tie rule because two rows could share
+    // the max. A projection of a total order cannot tie with itself.
+    const factors = [{ influence_score: 0.8 }, { influence_score: 0.8 }];
+    expect(indexOfCanonicalTopDriver(factors)).toBe(0);
   });
 
   it('single-factor → that factor (index 0) is rank-1', () => {
-    expect(indexOfBiggestDriver([{ influence_score: 0.42 }])).toBe(0);
+    expect(indexOfCanonicalTopDriver([{ influence_score: 0.42 }])).toBe(0);
   });
 
-  it('empty array → -1 (no eligible factor)', () => {
-    expect(indexOfBiggestDriver([])).toBe(-1);
+  it('empty array → -1 (no order, no crown)', () => {
+    expect(indexOfCanonicalTopDriver([])).toBe(-1);
   });
 
-  it('all influence absent/non-finite → -1 (none eligible to be biggest)', () => {
-    expect(
-      indexOfBiggestDriver([
-        { influence_score: undefined },
-        { influence_score: null },
-        { influence_score: NaN },
-        { influence_score: Infinity },
-        {},
-      ]),
-    ).toBe(-1);
-  });
-
-  it('a factor with absent influence is skipped even when it appears first', () => {
-    // The absent-influence factor at index 0 is NOT eligible; the real max is
-    // the finite 0.3 at index 2.
+  it('⚠ BEHAVIOUR CHANGE, deliberate: rank 1 is crowned even with absent influence', () => {
+    // The old selector returned -1 here, because it could not compute an
+    // argmax. `'biggest'` is now a RANK claim, and the producer HAS ranked
+    // these rows — so the crown lands, while the row still carries no
+    // MAGNITUDE band (deriveDriverLabel returns undefined and the caller omits
+    // the field before this override).
     const factors = [
-      { influence_score: undefined }, // ineligible
+      { influence_score: undefined },
       { influence_score: 0.1 },
-      { influence_score: 0.3 }, // rank-1 among the eligible
+      { influence_score: 0.3 },
     ];
-    expect(indexOfBiggestDriver(factors)).toBe(2);
+    expect(indexOfCanonicalTopDriver(factors)).toBe(0);
+    expect(deriveDriverLabel(factors[0].influence_score)).toBeUndefined();
   });
 });
 
@@ -272,29 +268,38 @@ describe('039 route: 4-valued driver_label lands on /v2/run factor_sensitivity',
     expect(biggest.length).toBe(1);
   });
 
-  it("the 'biggest' factor is the single greatest influence_score (rank-1)", () => {
-    // Argmax over the EMITTED influence_score, computed independently of the field.
+  /**
+   * ⭐ PIN FLIPPED. This read *"the 'biggest' factor is the single greatest
+   * influence_score (rank-1)"* — an accurate description of the argmax basis
+   * S1b replaced. The positive control below proves the two bases genuinely
+   * disagree on this capture, so the new assertion cannot pass for the old
+   * reason.
+   */
+  it("⭐ the 'biggest' factor is the CANONICAL rank 1, not the influence argmax", () => {
     const eligible = factors.filter(
       (f) => typeof f.influence_score === 'number' && Number.isFinite(f.influence_score),
     );
     expect(eligible.length).toBeGreaterThan(0);
     const maxScore = Math.max(...eligible.map((f) => f.influence_score));
     const argmax = factors.find((f) => f.influence_score === maxScore);
-    expect(argmax.driver_label).toBe('biggest');
-    // and no OTHER factor carries 'biggest'
+
+    // Positive control (trap 13): on this capture the two bases DISAGREE, so
+    // the assertion below can see the difference.
+    expect(argmax.factor_id, 'the two bases must differ or this test is vacuous').not.toBe(
+      factors[0].factor_id,
+    );
+
+    // Rule S3 — the emitted array IS the canonical order.
+    expect(factors[0].driver_label).toBe('biggest');
+    expect(argmax.driver_label).not.toBe('biggest');
     for (const f of factors) {
-      if (f !== argmax) expect(f.driver_label).not.toBe('biggest');
+      if (f !== factors[0]) expect(f.driver_label).not.toBe('biggest');
     }
   });
 
-  it('every NON-biggest driver_label matches the magnitude helper; the biggest is the argmax', () => {
-    const eligible = factors.filter(
-      (f) => typeof f.influence_score === 'number' && Number.isFinite(f.influence_score),
-    );
-    const maxScore = Math.max(...eligible.map((f) => f.influence_score));
-    const argmax = factors.find((f) => f.influence_score === maxScore);
+  it('every NON-biggest driver_label is still the pure magnitude band (the three bands are untouched)', () => {
     for (const f of factors) {
-      if (f === argmax) {
+      if (f === factors[0]) {
         expect(f.driver_label).toBe('biggest');
         continue;
       }
@@ -307,21 +312,24 @@ describe('039 route: 4-valued driver_label lands on /v2/run factor_sensitivity',
     }
   });
 
-  it('a mid-rank factor keeps its magnitude band (strong/moderate), not biggest', () => {
-    // In the 07-07 capture the mid factors are dev_headcount (~0.72 → strong)
-    // and hiring_cost (~0.50 → moderate). Whichever mid factors exist, none is
-    // 'biggest' and each equals its magnitude band.
+  it('⭐ the DEMOTED lever now carries its honest magnitude band instead of the crown', () => {
+    // This is the user-visible half of the fix: the factor the same response
+    // publishes at sensitivity_score 0 / elasticity 0 stops being labelled the
+    // biggest driver in the decision, and is labelled by its own number.
     const eligible = factors.filter(
       (f) => typeof f.influence_score === 'number' && Number.isFinite(f.influence_score),
     );
     const maxScore = Math.max(...eligible.map((f) => f.influence_score));
-    const mids = eligible.filter((f) => f.influence_score !== maxScore);
-    expect(mids.length).toBeGreaterThan(0);
-    for (const f of mids) {
+    const demoted = factors.filter((f) => f !== factors[0] && f.influence_score !== undefined);
+    expect(demoted.length).toBeGreaterThan(0);
+    for (const f of demoted) {
       expect(f.driver_label).not.toBe('biggest');
       expect(f.driver_label).toBe(deriveDriverLabel(f.influence_score));
       expect(['strong', 'moderate', 'minor']).toContain(f.driver_label);
     }
+    // …and specifically the old crown-holder, named by its own influence.
+    const oldCrown = factors.find((f) => f.influence_score === maxScore);
+    expect(oldCrown.driver_label).toBe(deriveDriverLabel(maxScore));
   });
 
   it('driver_label is one of the 4 ratified categories', () => {

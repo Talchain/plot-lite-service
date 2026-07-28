@@ -1,7 +1,12 @@
 /**
  * B1 — Factor dominance detection tests.
- * Thresholds ported from UI useResultsSectionData.ts:1601:
- *   influence_score > 0.5 AND ratio vs. second factor > 2:1
+ * Thresholds ported from UI useResultsSectionData.ts:1601, UNCHANGED by S1b:
+ *   influence_score > 0.5 AND ratio vs. the strongest rival > 2:1
+ *
+ * ⭐ Family-4 S1b changed the CANDIDATE, not the gates: `factors[0]` (rank 1 of
+ * the canonical driver order) is the only crownable row. See
+ * `tests/driver-surface-projection.unit.test.ts` for the F-D3 leg that proves
+ * the lever can no longer be crowned.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -59,12 +64,34 @@ describe('detectDominantFactor', () => {
     expect(result).toEqual({ factor_id: 'fac_price', factor_label: 'fac_price' });
   });
 
-  it('handles unsorted input correctly', () => {
+  /**
+   * ⭐ PIN FLIPPED — this asserted *"handles unsorted input correctly"*, i.e.
+   * that the function re-sorted its input and crowned the influence argmax
+   * wherever it sat. That internal sort WAS the defect: it made this a sixth
+   * independent argmax, lever-blind, one number away from crowning a
+   * producer-zeroed lever (family-4 design §4.3 F-D3).
+   *
+   * The candidate is now `factors[0]` — `driver_order.ranked_factor_ids[0]` by
+   * Rule S3 — so input order is LOAD-BEARING and the old behaviour is exactly
+   * what must not happen.
+   */
+  it('input order is LOAD-BEARING: only rank 1 of the canonical order is crownable', () => {
+    // `fac_price` has the larger influence but is NOT rank 1. Under the old
+    // internal sort it was crowned; it must not be now.
     const result = detectDominantFactor([
       { factor_id: 'fac_quality', factor_label: 'Quality', influence_score: 0.1 },
       { factor_id: 'fac_price', factor_label: 'Price', influence_score: 0.7 },
     ]);
-    expect(result).toEqual({ factor_id: 'fac_price', factor_label: 'Price' });
+    expect(result).toBeUndefined();
+
+    // …and the SAME two rows, with the canonical order supplied, still crown
+    // correctly — so this is a projection, not a suppression.
+    expect(
+      detectDominantFactor([
+        { factor_id: 'fac_price', factor_label: 'Price', influence_score: 0.7 },
+        { factor_id: 'fac_quality', factor_label: 'Quality', influence_score: 0.1 },
+      ]),
+    ).toEqual({ factor_id: 'fac_price', factor_label: 'Price' });
   });
 
   it('ignores zero-influence factors for ratio check', () => {

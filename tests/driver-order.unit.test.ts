@@ -220,15 +220,30 @@ describe('buildDriverOrder — the tie verdict', () => {
     expect(o.separability.method).toBe('basis_value_exact_tie');
   });
 
-  it('⛔ a strict inequality is UNRESOLVED, never "separable" — no ratified driver threshold exists (T3)', () => {
+  /**
+   * ⭐ PIN FLIPPED — this assertion previously read *"a strict inequality is
+   * UNRESOLVED, never separable"*, and it was correct at S1: no driver
+   * threshold had been ratified, so the producer could not decide.
+   *
+   * Paul ratified a PROVISIONAL default on 2026-07-28. The strict-inequality
+   * branch now DECIDES, under a method name that says so. The half of the old
+   * pin that still stands — the producer must never decide without naming its
+   * threshold — is asserted here instead, and the fail-closed branches keep
+   * their own pins above and in
+   * `tests/driver-order-separability.unit.test.ts`.
+   */
+  it('a strict inequality is now DECIDED — but never without naming the threshold that decided it (T3)', () => {
     const o = buildDriverOrder({
       factors: [row('a', { influence_score: 0.9 }), row('b', { influence_score: 0.01 })],
       structuralLeverIds: new Set(),
       factorSensitivitySource: GRAPH_PATH,
       islSuppressedAttributions: undefined,
     })!;
-    expect(o.separability.top_pair_separable).toBeNull();
-    expect(o.separability.method).toBeNull();
+    expect(o.separability.top_pair_separable).toBe(true);
+    expect(o.separability.method).toBe('relative_gap_0.10_provisional');
+    // ⛔ A verdict without a method would be a bare boolean a consumer could
+    // not audit — the exact defect T3 exists to kill.
+    expect(o.separability.method).not.toBeNull();
   });
 
   it('a single row has no top PAIR — unresolved, not separable', () => {

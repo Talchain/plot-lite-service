@@ -212,36 +212,43 @@ describe('/v2/run importance-authority coherence (fixture isl-v2-live-20260707)'
   });
 
   // ---------------------------------------------------------------------
-  // PINNED DIVERGENCE — deliberately NOT fixed by this lane.
+  // ⭐ DIVERGENCE CLOSED — family-4 S1b (2026-07-28).
   //
-  // `driver_label: 'biggest'` (Doctrine 039 / D-7) is argmax over
-  // `influence_score` and is NOT lever-aware, so it disagrees with
-  // `importance_rank: 1`. Left alone on purpose: gating it would make the label
-  // contradict the number in its own row, its BASIS is already an open doctrine
-  // row owned by Neil/UI (src/lib/driver-label.ts), and blast radius is zero —
-  // censused 25 Jul at UI 039f479a / CEE f00b8ef6, `driver_label` has NO read
-  // site in either consumer.
+  // This block pinned `driver_label: 'biggest'` AS DIVERGENT: argmax over
+  // `influence_score`, not lever-aware, landing on the lever while
+  // `importance_rank: 1` named a different factor. It was left that way
+  // deliberately, on three reasons — a definitional one, an open Neil/UI
+  // doctrine row, and a "blast radius zero" consumer census taken 25 Jul at UI
+  // `039f479a` / CEE `f00b8ef6`.
   //
-  // This test exists so the divergence CANNOT drift silently while the ruling is
-  // pending: if someone changes either rule, this goes RED and forces a decision.
+  // The amendment re-derived all three and overturned them (see
+  // `src/lib/driver-label.ts` for what replaced each; the census in particular
+  // is a hand-maintained mirror taken at tips that have since moved —
+  // CLAUDE.md trap 12 — and was NOT inherited). The pin did exactly its job:
+  // it made this a decision instead of a drift.
   // ---------------------------------------------------------------------
-  it("PINNED DIVERGENCE: 'biggest' still follows argmax(influence_score) and therefore still lands on the lever", () => {
+  it("CLOSED: 'biggest' now PROJECTS importance_rank 1 and therefore never lands on the lever", () => {
     const biggest = factors.filter((f) => f.driver_label === 'biggest');
     expect(biggest.length, "exactly one factor carries the 'biggest' crown").toBe(1);
-    const maxInfluence = Math.max(...factors.map((f) => f.influence_score));
-    expect(biggest[0].influence_score).toBe(maxInfluence);
-    // ⚠ The crown IS on a lever, and that lever publishes zero sensitivity.
-    expect(LEVER_IDS.has(biggest[0].factor_id)).toBe(true);
-    expect(biggest[0].sensitivity_score).toBe(0);
-    // ⚠ …and it is NOT the factor this same response ranks importance_rank 1.
     const rank1 = factors.find((f) => f.importance_rank === 1);
-    expect(biggest[0].factor_id).not.toBe(rank1.factor_id);
+    expect(biggest[0].factor_id).toBe(rank1.factor_id);
+    // ⚠ Not on a lever, and not on a factor publishing zero sensitivity.
+    expect(LEVER_IDS.has(biggest[0].factor_id)).toBe(false);
+    expect(biggest[0].sensitivity_score).not.toBe(0);
+
+    // The raw structural argmax is NOT lost — it is still published under its
+    // own honest name, and this fixture proves the two really do differ.
+    const maxInfluence = Math.max(...factors.map((f) => f.influence_score));
+    const argmax = factors.find((f) => f.influence_score === maxInfluence);
+    expect(argmax.factor_id).not.toBe(biggest[0].factor_id);
+    expect(argmax.influence_rank).toBe(1);
+    expect(LEVER_IDS.has(argmax.factor_id)).toBe(true);
   });
 
   it('every non-biggest driver_label is still the pure magnitude band over influence_score', () => {
-    const maxInfluence = Math.max(...factors.map((f) => f.influence_score));
+    const rank1 = factors.find((f) => f.importance_rank === 1);
     for (const f of factors) {
-      if (f.influence_score === maxInfluence) continue;
+      if (f.factor_id === rank1.factor_id) continue;
       expect(['strong', 'moderate', 'minor'], f.factor_id).toContain(f.driver_label);
     }
   });
