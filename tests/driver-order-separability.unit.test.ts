@@ -215,6 +215,18 @@ describe('fail-honest: the default decides only when both values are present and
     const s = separabilityOf([row('a', { influence_score: 0 }), row('b', { influence_score: -0.2 })]);
     expect(s.top_pair_separable).toBeNull();
   });
+
+  it('⭐ a NEGATIVE runner-up is off the basis scale — unresolved, never a confident "separable"', () => {
+    // `influence_score` is |influence| / maxAbsInfluence, so this is unreachable
+    // on a live payload — but without the guard the relative gap would be
+    // (0.5 − −0.2)/0.5 = 1.4 and the producer would publish a confident `true`
+    // about a pair that is not on this scale at all. A fabrication is a
+    // fabrication whether or not today's inputs can reach it.
+    expect((0.5 - -0.2) / 0.5).toBeGreaterThan(PROVISIONAL_TOP_PAIR_SEPARABILITY_MIN_RELATIVE_GAP);
+    const s = separabilityOf([row('a', { influence_score: 0.5 }), row('b', { influence_score: -0.2 })]);
+    expect(s.top_pair_separable).toBeNull();
+    expect(s.method).toBeNull();
+  });
 });
 
 // ===========================================================================

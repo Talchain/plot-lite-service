@@ -69,7 +69,8 @@ export type MagnitudeDriverLabel = Exclude<DriverLabel, 'biggest'>;
 /**
  * Derive the per-factor magnitude driver label from a factor's normalised
  * influence. This is the pure 3-band helper; it NEVER returns `'biggest'`
- * (that band is set-aware — see `indexOfBiggestDriver`).
+ * (that band is a RANK claim projected from the canonical driver order — see
+ * `indexOfCanonicalTopDriver`).
  *
  * Returns `undefined` (field omitted by the caller) when influence is absent or
  * non-finite — distinct from 'minor', which is a real low-influence measurement.

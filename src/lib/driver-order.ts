@@ -180,7 +180,7 @@ const ATTRIBUTION_STABILITY_ORDER: readonly AttributionStabilityBand[] = [
  * Neil owns the real statistic — the honest input is ISL's bootstrap
  * (`rank_flip_rate`, `elasticity_std`, `attribution_stability`), not a gap on a
  * point estimate. When that lands, an overrule is exactly ONE edit:
- * **replace the body of `decideProvisionalSeparability` below** (and, if the
+ * **replace the body of `decideSeparability` below** (and, if the
  * threshold changes rather than the statistic, the single
  * `PROVISIONAL_TOP_PAIR_SEPARABILITY_MIN_RELATIVE_GAP` binding). Nothing else in
  * this file, and no consumer, needs to move — which is the whole reason the
@@ -429,9 +429,14 @@ function decideSeparability(
   // The order does not descend on this quantity across the top pair, so this is
   // not the quantity the order was made on. Unresolved, not "tied".
   if (b > a) return UNRESOLVED;
-  // A non-positive leader admits no relative gap (and `a === 0` was already
-  // handled above: with b < a ≤ 0 the pair is not on the basis scale at all).
-  if (a <= 0) return UNRESOLVED;
+  // Neither row may sit off the basis scale. `influence_score` is
+  // `|influence| / maxAbsInfluence`, so it is non-negative by construction and
+  // neither branch is reachable on a live payload — but a NEGATIVE runner-up
+  // would otherwise produce a relative gap > 1 and a confident `true` about a
+  // pair that is not on this scale at all, which is a fabrication rather than a
+  // measurement. Both fail closed. (Checked AFTER the exact-tie branch, so that
+  // path stays byte-unchanged.)
+  if (a <= 0 || b < 0) return UNRESOLVED;
 
   const relativeGap = (a - b) / a;
   if (!Number.isFinite(relativeGap)) return UNRESOLVED;
@@ -584,12 +589,19 @@ export function readIslSuppressedAttributions(islResult: unknown): string[] | un
  * permission is live and the UI consumes it (S4 + S6) — today the demotion is
  * the only thing keeping a producer-zeroed factor off rank 1.
  *
- * ⚠ **Two surfaces in this response still use the STAMP-ONLY lever predicate:**
- * `buildWhatWouldChange` and the value-defaulted disclosure block in
- * `src/assembly/decision-brief.ts`. They are out of S1b's scope (which is the
- * #1-naming surfaces), the `lever_policy: 'stamp_only'` enum member exists so a
- * later slice can attest them without inventing a value, and this note is here
- * so the omission is recorded rather than discovered.
+ * ⚠ **Other surfaces in this response still use the STAMP-ONLY lever
+ * predicate**, which UNDER-covers (an unstamped D-U union lever slips through).
+ * They are out of S1b's scope — which is the #1-naming surfaces — and the
+ * `lever_policy: 'stamp_only'` enum member exists so a later slice can attest
+ * them without inventing a value.
+ *
+ * ⭐ **That set is DERIVED, not listed here.** An earlier revision of this note
+ * said "two surfaces" and named two; there are more, and the sentence was wrong
+ * the moment it was written — the hand-maintained mirror this codebase names as
+ * its dominant defect, reproduced inside the register that exists to prevent it.
+ * The census now lives in `tests/stamp-only-lever-predicate.census.test.ts`,
+ * which extracts every call site from the sources and FAILS LOUD when the set
+ * changes in either direction. Read it there; do not re-state it here.
  *
  * Enforced by `tests/driver-order-projection.fixture.test.ts` (one law, all
  * five, end to end), `tests/driver-surface-projection.unit.test.ts` (the three

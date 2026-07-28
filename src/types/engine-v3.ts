@@ -1998,17 +1998,32 @@ export interface FactorSensitivityResultV3 {
   /** Human-readable interpretation from ISL */
   interpretation?: string;
   /**
-   * Doctrine 039 (D-7) — producer-owned categorical driver-strength label over
-   * `influence_score` (normalised influence). 4-valued, to match the shape of
-   * the UI's `getSemanticLabel`: the set-aware rank-1 'biggest' band plus three
-   * magnitude bands (DOCTRINE-PENDING, Neil): >= DRIVER_LABEL_STRONG_MIN
-   * 'strong', >= DRIVER_LABEL_MODERATE_MIN 'moderate', else 'minor'. Exactly one
-   * factor per response is 'biggest' (the
-   * single greatest `influence_score`, unconditional of magnitude; ties → first
-   * in emitted order). ABSENT when `influence_score` is absent/non-finite (never
-   * fabricated from a missing value; not eligible to be 'biggest'). Basis flip
-   * (elasticity vs influence) + UI adoption remain UI-confirmation-gated. See
-   * `src/lib/driver-label.ts`.
+   * Doctrine 039 (D-7) — producer-owned categorical driver-strength label.
+   * 4-valued, matching the shape of the UI's `getSemanticLabel`.
+   *
+   * ⚠ THE TWO BANDS ANSWER DIFFERENT QUESTIONS, and read different fields:
+   *
+   * - `'strong' | 'moderate' | 'minor'` — MAGNITUDE, a pure function of this
+   *   row's own `influence_score` (normalised influence): >=
+   *   DRIVER_LABEL_STRONG_MIN 'strong', >= DRIVER_LABEL_MODERATE_MIN
+   *   'moderate', else 'minor'. Cut-points DOCTRINE-PENDING (Neil). ABSENT when
+   *   `influence_score` is absent/non-finite — never fabricated from a missing
+   *   measurement.
+   * - `'biggest'` — RANK. Exactly one factor per response carries it, and it is
+   *   **`driver_order.ranked_factor_ids[0]`** — PLoT's ONE canonical,
+   *   lever-aware order (family-4 S1b). Unconditional of magnitude, and applied
+   *   even when the row has no `influence_score`, because it answers "which
+   *   factor does this producer rank first?" — a question with an answer at any
+   *   magnitude.
+   *
+   * ⚠ It used to be the argmax over `influence_score`, which is NOT lever-aware
+   * and on the live wire crowned an option-pinned lever the same response
+   * publishes at `sensitivity_score: 0` / `elasticity: 0`. The raw structural
+   * argmax is still published, under its own honest name, as `influence_rank
+   * === 1`.
+   *
+   * Basis flip (elasticity vs influence) for the MAGNITUDE bands + UI adoption
+   * remain UI-confirmation-gated. See `src/lib/driver-label.ts`.
    */
   driver_label?: 'biggest' | 'strong' | 'moderate' | 'minor';
   /**
