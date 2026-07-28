@@ -16,9 +16,43 @@
  * This is the same defect class PR #265 fixed for `sequential_metadata`. That
  * fix made `validateSequentialGraph` total and gave it a home in
  * `src/util/sequential-validation.ts`; this is its sibling, and it lives beside
- * it for the same reason — `/v1/analysis/policy-tree` is registered and live, so
- * a second consumer of a policy tree is foreseeable, and it must not have to
- * re-validate by hand or re-derive the `{code, field, message}` envelope.
+ * it for the same reason: a policy tree arrives as untrusted wire input whose
+ * declared TypeScript type is not enforced at the wire, so the check belongs
+ * somewhere a consumer can call rather than re-validate by hand and re-derive
+ * the `{code, field, message}` envelope.
+ *
+ * ## Why this module exists — and it is NOT the route named below
+ *
+ * This module validates the policy-tree SHAPE for **`/v1/explain/policy`**.
+ * That is its entire reason to exist, and that route is the SOLE consumer:
+ * `src/routes/v1/explain-policy.ts` is the only importer of
+ * `validatePolicyTreeShape` in the repo (complete manifest, derived at
+ * `05529e42`: one `import`, one call site, two `Precondition:` references).
+ * `/v1/explain/policy` is registered and auth-gated and is NOT affected by the
+ * deletion recorded below — do not conflate the two routes.
+ *
+ * ## ⚠ CORRECTED 28 Jul 2026 — this header used to justify itself with a route
+ * ## that no longer exists
+ *
+ * The paragraph above previously read *"`/v1/analysis/policy-tree` is
+ * registered and live, so a second consumer of a policy tree is foreseeable"*.
+ * **That claim was false.** `/v1/analysis/policy-tree` was deleted as vacuous
+ * on 26 Jul 2026 — it produced no option-discriminating output, and ISL owns
+ * the real sequential capability. `src/routes/v1/types/proxy.types.ts`,
+ * `src/util/sequential-validation.ts`, `src/trust/types.ts` and the Phase-4
+ * tests all recorded that deletion; this file alone kept the pre-deletion
+ * sentence, so the module's stated justification outlived the thing it named.
+ *
+ * Live-probed 28 Jul 2026 against staging tip `05529e42`: `GET` and `POST`
+ * `/v1/analysis/policy-tree` → **404**, and `/v1/analysis/sequential` → **404**,
+ * against positive control `POST /v1/run` → 401 (the gate is real, so 404 is
+ * absence and not an auth artefact) and negative control
+ * `POST /v1/does-not-exist-xyz` → 404.
+ *
+ * **Do not "restore" `/v1/analysis/policy-tree` on the strength of finding its
+ * name here.** It was removed deliberately, nothing in this module depends on
+ * it, and this module is not orphaned by its removal: the foreseen "second
+ * consumer" is not what keeps this code alive — `/v1/explain/policy` is.
  *
  * ## Layering
  *
