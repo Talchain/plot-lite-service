@@ -517,7 +517,7 @@
       "rank_flip_rate": 0.3,
       "stability_method": "bootstrap_20",
       "importance_basis": "graph_structural",
-      "driver_label": "moderate",
+      "driver_label": "biggest",
       "evpi_percentage_points": 0,
       "evpi_method": "heuristic",
       "evidence_hint": false
@@ -589,7 +589,7 @@
       "rank_flip_rate": 0,
       "stability_method": "bootstrap_20",
       "importance_basis": "graph_structural",
-      "driver_label": "biggest",
+      "driver_label": "strong",
       "range_derivation_source": "default"
     },
     {
@@ -643,8 +643,8 @@
       "fac_dev_headcount"
     ],
     "separability": {
-      "top_pair_separable": null,
-      "method": null
+      "top_pair_separable": true,
+      "method": "relative_gap_0.10_provisional"
     },
     "rank_stability": {
       "max_rank_flip_rate": 0.3,
@@ -968,31 +968,13 @@
     },
     "key_drivers": [
       {
-        "factor_id": "fac_tech_lead",
-        "factor_label": "Tech Lead in Place",
-        "influence_score": 1,
-        "normalised_impact": 1,
-        "impact_display": "Very High",
-        "direction": "positive",
-        "rank": 1
-      },
-      {
-        "factor_id": "fac_dev_headcount",
-        "factor_label": "Developer Headcount Added",
-        "influence_score": 0.724,
-        "normalised_impact": 0.72,
-        "impact_display": "High",
-        "direction": "positive",
-        "rank": 2
-      },
-      {
         "factor_id": "fac_hiring_cost",
         "factor_label": "Hiring and Salary Cost",
         "influence_score": 0.497,
         "normalised_impact": 0.5,
         "impact_display": "Medium",
         "direction": "negative",
-        "rank": 3
+        "rank": 1
       },
       {
         "factor_id": "fac_team_maturity",
@@ -1000,6 +982,24 @@
         "influence_score": 0.39,
         "normalised_impact": 0.39,
         "impact_display": "Medium",
+        "direction": "positive",
+        "rank": 2
+      },
+      {
+        "factor_id": "fac_tech_lead",
+        "factor_label": "Tech Lead in Place",
+        "influence_score": 1,
+        "normalised_impact": 1,
+        "impact_display": "Very High",
+        "direction": "positive",
+        "rank": 3
+      },
+      {
+        "factor_id": "fac_dev_headcount",
+        "factor_label": "Developer Headcount Added",
+        "influence_score": 0.724,
+        "normalised_impact": 0.72,
+        "impact_display": "High",
         "direction": "positive",
         "rank": 4
       }
@@ -1646,7 +1646,7 @@
     "decision_brief_assembled": true,
     "review_cards_count": 0,
     "evidence_priority_card_present": false,
-    "response_content_hash": "rch_v2:67bdba00c5e65476"
+    "response_content_hash": "rch_v2:685c70b9bb0ec52d"
   },
   "meta": {
     "seed_used": "2034401427",

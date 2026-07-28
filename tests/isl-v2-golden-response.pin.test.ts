@@ -343,9 +343,22 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
       'fac_dev_headcount',
     ]);
     expect(order.lever_ids).toEqual(['fac_tech_lead', 'fac_dev_headcount']);
-    // ⛔ No fabricated separability: this build can PROVE a tie, never a
-    // separation, so the verdict here is UNRESOLVED and consumers fail closed.
-    expect(order.separability).toEqual({ top_pair_separable: null, method: null });
+    // ⭐ S1b PIN FLIP. At S1 this read `{ top_pair_separable: null, method:
+    // null }` — correct then, because `true` was unreachable by construction.
+    // Paul ratified a PROVISIONAL default on 2026-07-28, so the top pair of
+    // this fixture is now DECIDED. Re-derived from the golden's own rows below
+    // so the pin cannot drift from the data it describes.
+    const [a, b] = (rawBody.factor_sensitivity as any[]).map((f) => f.influence_score);
+    expect((a - b) / a).toBeGreaterThanOrEqual(0.1);
+    expect(order.separability).toEqual({
+      top_pair_separable: true,
+      method: 'relative_gap_0.10_provisional',
+    });
+    // ⛔ A verdict must never arrive without the method that produced it (T3),
+    // and the method must keep saying `provisional` until Neil's statistic
+    // lands — a consumer that reads it as ratified is making a claim this
+    // producer has not made.
+    expect(order.separability.method).toContain('provisional');
     expect(order.rank_stability).toEqual({
       max_rank_flip_rate: 0.3,
       min_attribution_stability: 'negligible',
@@ -356,8 +369,9 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
     // flips, an "additive" slice has changed the UI freshness token.
     expect(rawBody.response_hash).toBe('60e3ac213554be4f');
     // `response_content_hash` hashes the public semantic surface and therefore
-    // SHOULD move for exactly this addition. Pinned to the post-S1 value so
-    // the next content change is also forced to be deliberate.
-    expect(rawBody._meta.response_content_hash).toBe('rch_v2:67bdba00c5e65476');
+    // SHOULD move — S1b changes which factor three crowns name, which is a
+    // CONTENT change by design. Re-pinned (was `rch_v2:67bdba00c5e65476` at
+    // S1) so the next content change is also forced to be deliberate.
+    expect(rawBody._meta.response_content_hash).toBe('rch_v2:685c70b9bb0ec52d');
   });
 });

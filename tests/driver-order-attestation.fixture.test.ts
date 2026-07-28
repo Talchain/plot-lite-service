@@ -319,20 +319,38 @@ describe('/v2/run driver_order — canonical order + attestation (fixture isl-v2
   // THE TIE VERDICT — a producer verdict, and this build can only PROVE
   // non-separation. `true` is never emitted; `null` means UNRESOLVED.
   // ---------------------------------------------------------------------
-  it('positive control: the top pair is NOT an exact tie on the basis quantity, so null here is the UNRESOLVED branch', () => {
+  it('positive control: the top pair is COMPARABLE and NOT an exact tie, so the verdict below is the provisional branch', () => {
     const a = factors[0].influence_score;
     const b = factors[1].influence_score;
     expect(typeof a).toBe('number');
     expect(typeof b).toBe('number');
     expect(a, 'if these ever become equal the assertion below tests a different branch').not.toBe(b);
+    // The comparability guard must not be what decides this fixture: both rows
+    // are non-levers of the same species, so the arithmetic really does run.
+    expect(LEVER_IDS.has(factors[0].factor_id)).toBe(false);
+    expect(LEVER_IDS.has(factors[1].factor_id)).toBe(false);
+    expect(factors[0].source).toBe(factors[1].source);
   });
 
-  it('separability is UNRESOLVED (null), never a fabricated "separable" — no ratified driver threshold exists', () => {
-    expect(order.separability.top_pair_separable).toBeNull();
-    expect(order.separability.method).toBeNull();
-    // ⛔ The one value this producer must never emit without a ratified
-    // threshold. T3: one threshold, on the wire — not three in three repos.
-    expect(order.separability.top_pair_separable).not.toBe(true);
+  /**
+   * ⭐ PIN FLIPPED — this read *"separability is UNRESOLVED (null), never a
+   * fabricated 'separable'"*, correct at S1 where `true` was unreachable by
+   * construction. Paul ratified a PROVISIONAL default on 2026-07-28, so the
+   * golden's top pair is now DECIDED. What has NOT changed, and is asserted
+   * here, is that the verdict may never arrive without its provenance.
+   */
+  it('separability is now DECIDED on this fixture — and carries the statistic, threshold and provisional status', () => {
+    const a = factors[0].influence_score;
+    const b = factors[1].influence_score;
+    const relativeGap = (a - b) / a;
+    // Re-derived here from the payload, not read from the module under test.
+    expect(order.separability.top_pair_separable).toBe(relativeGap >= 0.1);
+    expect(order.separability.top_pair_separable).toBe(true);
+    expect(order.separability.method).toBe('relative_gap_0.10_provisional');
+    // ⛔ T3: one threshold, on the wire. A `true` with a null method would be an
+    // unauditable claim, and that remains forbidden.
+    expect(order.separability.method).not.toBeNull();
+    expect(order.separability.method).toContain('provisional');
   });
 
   // ---------------------------------------------------------------------
@@ -353,32 +371,53 @@ describe('/v2/run driver_order — canonical order + attestation (fixture isl-v2
     expect(top.influence_score).toBe(1);
   });
 
-  it('RESIDUAL (untouched by S1): driver_label \'biggest\' still DISAGREES with ranked_factor_ids[0]', () => {
+  /**
+   * ⭐ THE TWO RESIDUAL PINS BELOW ARE NOW AGREEMENT PINS — S1b CLOSED THEM.
+   *
+   * S1 wrote them as RESIDUALS on purpose: *"the RESIDUAL block pins the live
+   * divergences AS THEY ARE, so that (a) nobody believes S1 fixed them and
+   * (b) none of them can drift silently before the slice that reconciles
+   * them."* This is that slice, so each is flipped to the agreement it was
+   * holding a place for. The full five-surface law lives in
+   * `tests/driver-order-projection.fixture.test.ts`; these stay here so this
+   * spec's own residual table cannot go stale in-file.
+   */
+  it("CLOSED by S1b: driver_label 'biggest' AGREES with ranked_factor_ids[0]", () => {
     const biggest = factors.filter((f) => f.driver_label === 'biggest');
     expect(biggest).toHaveLength(1);
-    // It crowns the option-pinned lever the same response publishes at
-    // sensitivity_score 0 / elasticity 0. Reconciling it is a later slice.
-    expect(LEVER_IDS.has(biggest[0].factor_id)).toBe(true);
-    expect(biggest[0].factor_id).not.toBe(order.ranked_factor_ids[0]);
+    expect(biggest[0].factor_id).toBe(order.ranked_factor_ids[0]);
+    // It no longer crowns the option-pinned lever the same response publishes
+    // at sensitivity_score 0 / elasticity 0.
+    expect(LEVER_IDS.has(biggest[0].factor_id)).toBe(false);
   });
 
-  it('RESIDUAL (untouched by S1): m1_coaching.key_drivers[0] still DISAGREES with ranked_factor_ids[0]', () => {
+  it('CLOSED by S1b: m1_coaching.key_drivers[0] AGREES with ranked_factor_ids[0]', () => {
     const kd = body.m1_coaching?.key_drivers ?? [];
     expect(kd.length, 'key_drivers must be populated for this fixture').toBeGreaterThan(0);
     expect(kd[0].rank).toBe(1);
-    expect(kd[0].factor_id).not.toBe(order.ranked_factor_ids[0]);
+    expect(kd[0].factor_id).toBe(order.ranked_factor_ids[0]);
   });
 
-  it('RESIDUAL: decision_brief.top_drivers[0] AGREES here, but only via its own stamp-only predicate', () => {
+  it('CLOSED by S1b: decision_brief.top_drivers[0] agrees BY PROJECTION now, not by its stamp-only predicate', () => {
     const top = body.decision_brief?.top_drivers?.[0];
     expect(top, 'top_drivers must be populated for this fixture').toBeDefined();
     const rank1Row = factors.find((f) => f.factor_id === order.ranked_factor_ids[0]);
     expect(top.factor_label).toBe(rank1Row.factor_label);
+    // The VALUE is unchanged on this capture — the stamp happened to cover
+    // here. What changed is the derivation, and the separating input (an
+    // UNSTAMPED D-U lever, which the stamp misses) is in
+    // tests/driver-surface-projection.unit.test.ts.
   });
 
-  it('RESIDUAL: dominant_factor is suppressed on this fixture by its own >2 ratio gate, not by the canonical order', () => {
+  it('dominant_factor is suppressed on this fixture by its own >0.5 influence floor', () => {
     expect(body.dominant_factor).toBeUndefined();
-    const sorted = [...factors].map((f) => f.influence_score).sort((a, b) => b - a);
-    expect(sorted[0] / sorted[1], 'ratio must be <= 2, else this fixture stops covering the gate').toBeLessThanOrEqual(2);
+    // ⭐ THE SUPPRESSING GATE MOVED, and that is the S1b change: the candidate
+    // is now the canonical #1, which fails the influence FLOOR — where before
+    // the candidate was the raw argmax (the lever), suppressed only by the
+    // ratio gate at 1 / 0.7243 = 1.38. The F-D3 leg in
+    // tests/driver-surface-projection.unit.test.ts opens that ratio gate and
+    // proves the lever still cannot be crowned.
+    const rank1 = factors.find((f) => f.factor_id === order.ranked_factor_ids[0]);
+    expect(rank1.influence_score).toBeLessThanOrEqual(0.5);
   });
 });

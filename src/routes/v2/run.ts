@@ -147,7 +147,7 @@ import { computeFactorSensitivityFromGraph, buildFactorStability, mergeIslConfid
 import { interventionTargetIdsFromOptions, isOptionControlledLever, factorIdOf, hasFactorIdConflict } from '../../lib/intervention-override.js';
 import { buildAutoNoiseProvenance, extractIslAutoNoiseApplied, logAutoNoiseFlagMissingFromIsl } from '../../lib/auto-noise.js';
 import { sanitiseIslVoi, computeEvpiPercentagePoints, deriveEvidenceHint } from '../../lib/evpi-emission.js';
-import { deriveDriverLabel, indexOfBiggestDriver } from '../../lib/driver-label.js';
+import { deriveDriverLabel, indexOfCanonicalTopDriver } from '../../lib/driver-label.js';
 import {
   applyLeverAwareImportanceOrder,
   IMPORTANCE_BASIS_GRAPH,
@@ -189,7 +189,7 @@ import {
 import { assembleBrief } from '../../assembly/decision-brief.js';
 import { buildEvidencePriorityCard, type FactorInput } from '../../review-pass/evidence-priority.js';
 import type { ProposalCardV1 } from '../../review-pass/types.js';
-import { assembleFactObjects, type ISLResponseInput } from '../../facts/index.js';
+import { assembleFactObjects, type ISLResponseInput, type FactorSensitivityInput } from '../../facts/index.js';
 import type { FactObjectV1, FactLineage } from '../../facts/types.js';
 import { finiteNum, prob01, nonNeg, nonNegInt, hasAllRequiredOutcomeStats } from './numeric-egress-guards.js';
 import { resolveConstraintIds } from './constraint-identity.js';
@@ -1648,10 +1648,26 @@ interface SensitivityData {
   // keeps paying for; and building it here would re-introduce the conditional
   // emission that made the existing per-row `importance_basis` absence
   // ambiguous (old payload vs non-ISL branch vs dropped key).
-  /** D-U structural lever union derived from the request's options. */
-  structuralLeverIds?: ReadonlySet<string>;
-  /** `'isl'` on the ISL-only fallback; `'graph+isl_merge'` on the primary path. */
-  factorSensitivitySource?: string;
+  /**
+   * D-U structural lever union derived from the request's options.
+   *
+   * REQUIRED (S1b): every construction site already knows it, and a `?? new
+   * Set()` fallback would silently attest `lever_ids: []` — "this order contains
+   * no levers" — on a payload that has them.
+   */
+  structuralLeverIds: ReadonlySet<string>;
+  /**
+   * `'isl'` on the ISL-only fallback; `'graph+isl_merge'` on the primary path.
+   *
+   * ⚠ REQUIRED (S1b, S1 review LOW). This was optional, and the emission site
+   * coalesced it with `?? 'isl'`. That default is CORRECT for the raw-ISL
+   * fallback path — where there is no `sensitivityData` at all and the rows
+   * genuinely are ISL's — but it was LATENT: a future path that supplied a
+   * `sensitivityData` without this member would have had its order attested
+   * `basis: 'isl_uncertainty'` with no signal. Making it required moves that
+   * from a silent wrong answer to a compile error.
+   */
+  factorSensitivitySource: string;
   /** ISL's `correlation_model.suppressed_attributions`, when ISL declared any. */
   islSuppressedAttributions?: string[];
 }
@@ -1685,6 +1701,53 @@ function isCrownableCandidate(o: { win_probability?: number; status?: string }):
  * @param optionComparison Array of option comparison results
  * @returns Near-tie info object
  */
+/**
+ * ⭐ Map the emitted `factor_sensitivity[]` onto the facts-assembly input
+ * (family-4 S1b, surface 5 of 5).
+ *
+ * ## What changed: a POSITION became a RANK
+ *
+ * This mapping used to emit `importance_rank: idx + 1` — the row's INDEX in the
+ * array. Because the emitted array is the canonical order (Rule S3), that value
+ * is right on every live payload, and S1's residual table said so precisely:
+ * *"a POSITION, not a rank — mirrors the array, so agrees by accident."*
+ *
+ * An accident is not a projection. `fact_objects[].data.importance_rank` now
+ * READS PLoT's one canonical rank, so the facts path and
+ * `driver_order.ranked_factor_ids` cannot diverge if anything upstream ever
+ * emits the array in a different order from the rank it publishes.
+ *
+ * ⚠ The `?? idx + 1` fallback is retained deliberately and is NOT a second
+ * ranking: `importance_rank` is optional on `FactorSensitivityResultV3`, and the
+ * only order available when it is absent is the producer's own emitted order —
+ * the same array. It never introduces a quantity the canonical order was not
+ * made on.
+ *
+ * ⚠ Extracted from the inline `islInput` literal specifically so the claim is
+ * CHECKABLE: with position and rank always equal on live payloads, no
+ * end-to-end fixture can distinguish the two derivations. The separating input
+ * lives in `tests/driver-surface-projection.unit.test.ts`.
+ *
+ * Also unchanged from family-4 slice 0, and load-bearing: `sensitivity_score`
+ * forwards the REAL `sensitivity_score` (not `elasticity`, which was published
+ * under this name at −0.175 vs +0.497 on one response), with no `?? 0` — absent
+ * means "unavailable", NOT "least important".
+ */
+export function mapFactorSensitivityToFactsInput(
+  factorSensitivity: ReadonlyArray<FactorSensitivityResultV3> | undefined,
+): FactorSensitivityInput[] | undefined {
+  return factorSensitivity?.map((fs, idx) => ({
+    node_id: fs.factor_id,
+    label: fs.factor_label ?? undefined,
+    sensitivity_score: fs.sensitivity_score,
+    importance_rank: fs.importance_rank ?? idx + 1,
+    elasticity: fs.elasticity,
+    direction: fs.direction === 'unknown' ? undefined : fs.direction,
+    confidence: fs.confidence,
+    attribution_stability: fs.attribution_stability,
+  }));
+}
+
 export function computeNearTie(
   optionComparison: Array<{ option_id: string; win_probability?: number; status?: string }> | undefined
 ): NearTieInfoV3 | undefined {
@@ -2790,14 +2853,20 @@ function buildResponse(
   // `sensitivityData` path and the raw-ISL fallback path attest identically:
   //   · lever identity ← `interventionTargetIdsFromOptions(options)`, the ONE
   //     canonical D-U source, same call the pre-compute makes;
-  //   · basis ← the pre-computed source, else 'isl' (on the fallback path the
-  //     rows ARE ISL's, untouched by the graph merge);
+  //   · basis ← the pre-computed source; on the RAW-ISL FALLBACK path (no
+  //     `sensitivityData` at all) `factorSensitivity` is
+  //     `transformFactorSensitivity(islResult.factor_sensitivity)`, i.e. ISL's
+  //     own rows untouched by the graph merge, so `'isl'` is a DERIVED fact
+  //     about that branch and not a default (S1 review LOW: the member is now
+  //     required on `SensitivityData`, so this branch is the only place the
+  //     value can be absent);
   //   · ISL's own suppression disclosure ← read defensively off `islResult`.
   const driverOrder = buildDriverOrder({
     factors: factorSensitivity,
     structuralLeverIds:
       sensitivityData?.structuralLeverIds ?? interventionTargetIdsFromOptions(options),
-    factorSensitivitySource: sensitivityData?.factorSensitivitySource ?? 'isl',
+    factorSensitivitySource:
+      sensitivityData === undefined ? 'isl' : sensitivityData.factorSensitivitySource,
     islSuppressedAttributions:
       sensitivityData?.islSuppressedAttributions ?? readIslSuppressedAttributions(islResult),
   });
@@ -3250,6 +3319,10 @@ function buildResponse(
     critiques,
     option_comparison: optionComparison,
     factor_sensitivity: factorSensitivity,
+    // Family-4 S1b: the SAME object the response publishes, so
+    // decision_brief.top_drivers[0] and driver_order.ranked_factor_ids[0]
+    // cannot describe different orders.
+    driver_order: driverOrder,
     robustness,
     m1_coaching: m1Coaching,
     m1_review: m2DecisionReview?.m1_review ?? undefined,
@@ -3308,32 +3381,7 @@ function buildResponse(
         label: oc.label as string | undefined,
         outcome: oc.outcome as { p10?: number; p50?: number; p90?: number; mean?: number } | undefined,
       })),
-      factor_sensitivity: factorSensitivity?.map((fs, idx) => ({
-        node_id: fs.factor_id,
-        label: fs.factor_label ?? undefined,
-        // ── FAMILY-4 SLICE 0 (2026-07-27) ────────────────────────────────────
-        // This line used to read `fs.elasticity ?? 0`, i.e. it fed the
-        // ELASTICITY quantity into a field NAMED `sensitivity_score`. Because
-        // `factor_sensitivity[]` publishes the real `sensitivity_score` (graph
-        // raw total causal effect, SIGNED — see the `substitutions` block in
-        // src/contracts/isl-to-ui.contract.ts) in the SAME response body, one
-        // /v2/run payload carried two different quantities under one name.
-        // Measured in the committed golden
-        // tests/fixtures/isl-v2-live-20260707/plot-v2-run.golden.json:
-        // `fac_hiring_cost` was -0.175 in `factor_sensitivity[]` and
-        // +0.4971042471042471 in `fact_objects[].data` — opposite signs,
-        // 2.84x apart, same field name, same response.
-        //
-        // Feed the actual quantity, and do NOT coalesce an absent one to 0:
-        // absent means "unavailable", NOT "least important"
-        // (@talchain/schemas src/boundary/enrichment.ts:239-241).
-        sensitivity_score: fs.sensitivity_score,
-        importance_rank: idx + 1,
-        elasticity: fs.elasticity,
-        direction: fs.direction === 'unknown' ? undefined : fs.direction,
-        confidence: fs.confidence,
-        attribution_stability: fs.attribution_stability,
-      })),
+      factor_sensitivity: mapFactorSensitivityToFactsInput(factorSensitivity),
       critiques: critiques?.map((c) => ({
         id: c.id ?? c.code,
         code: c.code,
@@ -6544,36 +6592,30 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             const label = deriveDriverLabel(f.influence_score);
             if (label !== undefined) f.driver_label = label;
           }
-          // (2) Set-aware rank-1 override: the SINGLE factor with the greatest
-          //     influence_score is 'biggest', UNCONDITIONAL of magnitude (matches
-          //     the UI getSemanticLabel rank-1 'biggest'/'strongest' band). Rank-1
-          //     is computed here — not in the pure per-factor helper — because it
-          //     needs every factor's influence (like dominant_factor). Ties on the
-          //     max resolve to the FIRST factor in the emitted order (deterministic);
-          //     an absent-influence factor is skipped. Not lever-skipped: a lever
-          //     legitimately has a driver_label (categorical over influence magnitude).
+          // (2) ⭐ Set-aware rank-1 override — FAMILY-4 S1b: 'biggest' is a
+          //     PROJECTION of the canonical driver order, not a second argmax.
           //
-          //     ⚠ KNOWN DIVERGENCE, DELIBERATELY LEFT (lane PLoT importance-authority,
-          //     25 Jul 2026 — ROADMAP row "Doctrine 039: what basis does
-          //     driver_label rank on?"). Because this crown is argmax over
-          //     `influence_score` and NOT lever-aware, it can — and on the live
-          //     wire does — land on an option-pinned lever the same response
-          //     publishes at `sensitivity_score: 0` / `elasticity: 0`, i.e. on a
-          //     DIFFERENT factor from `importance_rank: 1`, which IS lever-aware.
-          //     That divergence is NOT fixed here on purpose:
-          //       · 'biggest' is DEFINED by Doctrine 039 as the greatest
-          //         `influence_score`. Gating it would make the label contradict
-          //         the number published in the same row — trading one incoherence
-          //         for another — so it needs the doctrine's basis question
-          //         (already DOCTRINE-PENDING, Neil/UI, see src/lib/driver-label.ts)
-          //         answered first, not a unilateral producer change.
-          //       · Blast radius today is ZERO: censused 25 Jul at the tips
-          //         (UI 039f479a, CEE f00b8ef6) — `factor_sensitivity[].driver_label`
-          //         has NO read site in either consumer.
-          //     The divergence is PINNED (not merely commented) by
-          //     tests/importance-rank-lever-doctrine.fixture.test.ts so it cannot
-          //     drift silently while the ruling is pending.
-          const biggestIdx = indexOfBiggestDriver(factorSensitivity);
+          //     `factorSensitivity` has already been through
+          //     `applyLeverAwareImportanceOrder` above, so by Rule S3 ("one
+          //     order, and the array IS it") index 0 IS
+          //     `driver_order.ranked_factor_ids[0]`. Crowning it here — rather
+          //     than re-running an argmax over `influence_score` — is what makes
+          //     the five #1-naming surfaces one claim instead of five.
+          //
+          //     ⚠ THIS SUPERSEDES A DELIBERATE PRIOR RULING (lane PLoT
+          //     importance-authority, 25 Jul 2026). That lane left the crown
+          //     lever-blind on a "blast radius zero" census taken at tips that
+          //     have since moved, and on a definitional argument the amendment
+          //     re-derived and overturned — see src/lib/driver-label.ts for the
+          //     three reasons and what replaced each. The raw structural argmax
+          //     is NOT lost: it is still published as `influence_rank === 1`.
+          //
+          //     ⛔ This does NOT un-demote levers (amendment §4.4). The order is
+          //     unchanged; only which row the crown reads off it.
+          //
+          //     Pinned by tests/driver-order-projection.fixture.test.ts (all five
+          //     surfaces, end to end) and tests/doctrine-039-driver-label.test.ts.
+          const biggestIdx = indexOfCanonicalTopDriver(factorSensitivity);
           if (biggestIdx >= 0) factorSensitivity[biggestIdx].driver_label = 'biggest';
 
           const islOptions = processedIslResult?.options ?? processedIslResult?.results ?? [];

@@ -115,26 +115,43 @@ export function applyLeverAwareImportanceOrder<T extends RankableFactor>(
 }
 
 /**
- * ── NOT DONE HERE, ON PURPOSE: the `driver_label: 'biggest'` crown ──
+ * ── ⭐ CLOSED, 2026-07-28: the `driver_label: 'biggest'` crown now AGREES ──
  *
- * `driver_label`'s rank-1 `'biggest'` band (`src/lib/driver-label.ts`,
- * Doctrine 039 / D-7) is argmax over `influence_score` and is NOT lever-aware,
- * so on the live wire it lands on the option-pinned lever while
- * `importance_rank: 1` (above) lands on the top genuine uncertainty driver.
- * Those two disagree by design as of this lane. Reasons for leaving it:
+ * This block previously recorded a deliberate DIVERGENCE: `driver_label`'s
+ * rank-1 `'biggest'` band was argmax over `influence_score`, was NOT
+ * lever-aware, and therefore landed on the option-pinned lever while
+ * `importance_rank: 1` (above) landed on the top genuine uncertainty driver.
+ * That is **no longer true at these bytes.** Family-4 slice S1b made `'biggest'`
+ * a PROJECTION of `driver_order.ranked_factor_ids[0]` — the same lever-aware
+ * order this module produces — so the two now name the same factor by
+ * construction.
  *
- *   1. `'biggest'` is DEFINED as the greatest `influence_score`. Gating it makes
- *      the label contradict the number in its own row (a lever at
- *      influence_score 1.0 labelled 'strong' beneath a 0.497 labelled
- *      'biggest') — trading one incoherence for another.
- *   2. The basis question ("should driver_label rank on influence or on
- *      elasticity/importance?") is ALREADY an open doctrine row owned by
- *      Neil/UI, recorded in driver-label.ts. A producer should not settle it
- *      unilaterally inside an unrelated fix.
- *   3. Blast radius today is zero: censused 25 Jul at the consumer tips
- *      (UI `039f479a`, CEE `f00b8ef6`) — `factor_sensitivity[].driver_label`
- *      has NO read site in either repo.
+ * Authority: `MEANING-LAYER-FAMILY4-AUTHORITY-AMENDMENT-2026-07-27.md` §4.3 and
+ * §8-S1, which require all five #1-naming surfaces to project one order. The
+ * amendment re-derived each of this lane's three reasons and overturned them:
  *
- * The divergence is PINNED by tests/importance-rank-lever-doctrine.fixture.test.ts
- * so it cannot drift silently while the ruling is pending.
+ *   1. *"'biggest' is DEFINED as the greatest `influence_score`, so gating it
+ *      makes the label contradict its own row."* — The DEFINITION is what
+ *      changed. `'biggest'` is now a RANK claim; the three MAGNITUDE bands are
+ *      untouched and still speak for the number in the row. The structural
+ *      argmax remains published under its own honest name, `influence_rank`, so
+ *      nothing was hidden — one crown moved.
+ *   2. *"the basis question is an open Neil/UI doctrine row."* — Still open, and
+ *      still scoped to the three MAGNITUDE cut-points. The amendment settled the
+ *      separate question of which ORDER a crown projects, for all five crowns at
+ *      once.
+ *   3. *"blast radius is zero — no consumer reads `driver_label`."* — That was a
+ *      census taken 25 Jul at UI `039f479a` / CEE `f00b8ef6`, both since moved:
+ *      a hand-maintained mirror (CLAUDE.md trap 12), NOT inherited. It also cut
+ *      the other way — a field with no readers is the cheapest possible moment
+ *      to correct it.
+ *
+ * ⛔ What this module still does, unchanged (amendment §4.4): it DEMOTES levers
+ * rather than ranking them truthfully and marking them. That is the honest end
+ * state, but it must not ship before CEE's permission layer is live and the UI
+ * consumes it (S4 + S6) — today the demotion is the only thing keeping a
+ * producer-zeroed factor off rank 1.
+ *
+ * The agreement is PINNED by tests/importance-rank-lever-doctrine.fixture.test.ts
+ * and tests/driver-order-projection.fixture.test.ts.
  */
