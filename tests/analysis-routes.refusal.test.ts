@@ -47,6 +47,7 @@ import { createServer } from '../src/createServer.js';
 import {
   getRouteCallerSnapshot,
   resetRouteCallerTelemetry,
+  REFUSED_ROUTES,
 } from '../src/observability/routeCallerTelemetry.js';
 import { WITHDRAWN_ROUTE_BODY_LIMIT_BYTES } from '../src/routes/v1/refuse-unavailable.js';
 
@@ -344,6 +345,32 @@ describe.each(WITHDRAWN)('$route — withdrawn', ({ route, payload, reason }) =>
 });
 
 describe('cross-cutting', () => {
+  it('PARITY: these fixtures cover exactly the declared withdrawn-route set (trap 12)', () => {
+    // The third of three hand-maintained copies of the withdrawn-route set (the
+    // others being the ten app.post registrations and REFUSED_ROUTES in the
+    // telemetry module). Without this, adding an eleventh withdrawn route and
+    // forgetting it HERE means nothing ever asserts that it refuses — and every
+    // test in this file still passes, so the omission reads as green.
+    //
+    // Compared against the already-exported REFUSED_ROUTES rather than a new
+    // list, so this introduces no fourth copy. The registrations-vs-REFUSED_ROUTES
+    // half of the parity is derived from source in
+    // tests/gates/withdrawn-route-parity.test.ts.
+    const covered = WITHDRAWN.map((w) => w.route).sort();
+    const declared = [...REFUSED_ROUTES].sort();
+
+    expect(
+      declared.filter((r) => !covered.includes(r)),
+      'declared withdrawn but NOT covered by any fixture here — nothing proves it refuses',
+    ).toEqual([]);
+    expect(
+      covered.filter((r) => !declared.includes(r)),
+      'a fixture here targets a route not declared withdrawn',
+    ).toEqual([]);
+    expect(covered).toEqual(declared);
+    expect(new Set(covered).size, 'duplicate fixture for the same route').toBe(covered.length);
+  });
+
   it('POSITIVE CONTROL: a surviving route on the same app still answers 200', async () => {
     // Without this, a server that 501'd everything would pass every assertion
     // above. /v1/limits is a live, unrelated route.
