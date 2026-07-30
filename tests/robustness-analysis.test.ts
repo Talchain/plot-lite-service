@@ -278,12 +278,21 @@ describe('createLocalHeuristicResult', () => {
     expect(result.fragile_edges[0].edge_id).toBe('fac_price::goal');
     expect(result.fragile_edges[0].from_id).toBe('fac_price');
     expect(result.fragile_edges[0].to_id).toBe('goal');
-    expect(result.fragile_edges[0].switch_probability).toBeCloseTo(0.2, 5); // 1 - 0.8
+    // switch_probability is OMITTED (ROADMAP 2.165a). This assertion previously
+    // read `.toBeCloseTo(0.2, 5) // 1 - 0.8` — it PINNED an inverted scale: the
+    // edge is here *because* |elasticity| > 0.5 makes it fragile, and higher
+    // switch_probability means MORE fragile, so 0.2 was the fragile edge being
+    // described as nearly stable. An elasticity heuristic is not a switch
+    // probability; absent means NOT COMPUTED. See numeric-safety-deep-scan §D4.
+    expect(result.fragile_edges[0]).not.toHaveProperty('switch_probability');
 
     // Low elasticity (0.1 <= 0.2) → robust
     expect(result.robust_edges).toHaveLength(1);
     expect(result.robust_edges[0].edge_id).toBe('fac_stable::goal');
-    expect(result.robust_edges[0].switch_probability).toBe(1);
+    // Was `.toBe(1)` — the maximum of the FRAGILITY scale, asserted on the arm
+    // selected for being robust. Same fabrication #290 removed from
+    // normalizeRobustEdge, in a second location.
+    expect(result.robust_edges[0]).not.toHaveProperty('switch_probability');
   });
 });
 

@@ -997,12 +997,18 @@ describe('absence gate §C · POSITIVE CONTROL — a genuine ISL verdict still r
 //       /v1/run only.
 //   D3  normalizeRobustEdges — `?? 1`, plus its string-format twin which
 //       hardcoded `switch_probability: 1` from a bare "from->to" string.
+//   D4  createLocalHeuristicResult — the ISL-unavailable local-heuristic
+//       fallback, which derived `switch_probability` from `elasticity` on an
+//       INVERTED scale on BOTH arms (ROADMAP 2.165a). Same root cause as D3:
+//       the code reasoned in "stability" while the field means FRAGILITY.
 // ---------------------------------------------------------------------------
 
 const { enrichFactorSensitivity } =
   await import('../../src/integrations/isl/adapters/robustness-enrichment.js');
-const { adaptRobustnessAnalysisResponse, normalizeRobustEdges, createFallbackRobustnessAnalysis } =
+const { adaptRobustnessAnalysisResponse, normalizeRobustEdges, createFallbackRobustnessAnalysis, createLocalHeuristicResult } =
   await import('../../src/integrations/isl/adapters/robustness-analysis.js');
+const { classifyEdgeSeverity, deriveFragileEdgeVisible } =
+  await import('../../src/trust/edge-severity.js');
 
 const D_GRAPH: any = { nodes: [{ id: 'fac_price', label: 'Price' }], edges: [] };
 
@@ -1142,5 +1148,145 @@ describe('absence gate §D3 · robust edges never fabricate switch_probability',
     const out = normalizeRobustEdges([{ edge_id: 'x->y', switch_probability: 0.3 }] as any);
     expect(out.edges[0].switch_probability).toBe(0.3);
     expect(out.edges[0].edge_id).toBe('x->y');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §D4 · the ISL-unavailable LOCAL-HEURISTIC fallback never fabricates
+//        switch_probability — and never did so on an INVERTED scale.
+//        ROADMAP 2.165a, 2026-07-30.
+//
+// THE DEFECT (both arms of `createLocalHeuristicResult`):
+//
+//   fragile_edges  selected by |elasticity| > 0.5,  got `1 - min(1,|elasticity|)`
+//                  → the MOST fragile edge (|e|→1) got switch_probability → 0,
+//                    i.e. the LEAST fragile reading on the scale.
+//   robust_edges   selected by |elasticity| <= 0.2, got `1`
+//                  → the MOST robust edges got the MAXIMUM of the fragility
+//                    scale — the single most alarming value available.
+//
+// Both comments said "stability" ("lower stability", "full stability"). That is
+// the whole root cause: `switch_probability` is FRAGILITY-oriented, so reasoning
+// about it as stability inverts every derivation. It is the same inverted
+// reading behind the fabricated `1` that §D3 removed from normalizeRobustEdge.
+//
+// WHY OMIT RATHER THAN RE-ORIENT: `switch_probability` is *the probability that
+// flipping this edge switches the recommended option* — an ISL decision-theoretic
+// quantity. `elasticity` from PLoT's local `computeSensitivityAll` is a
+// sensitivity heuristic: different quantity, different units, uncalibrated to any
+// probability. A correctly-ORIENTED derivation would still be a manufactured
+// probability, and it would feed `classifyEdgeSeverity` and the doctrine-013
+// `visible` gate — so it would publish a 'critical' badge and visible=true
+// asserting a switch probability nobody computed. On this path ISL is
+// UNAVAILABLE, so "not computed" is literally true, and the house rule (absent
+// ≠ 0 ≠ 1) says absent is how that is said. The heuristic's actual finding —
+// which edges look fragile — is still carried, losslessly, by ARRAY MEMBERSHIP.
+// ---------------------------------------------------------------------------
+
+describe('absence gate §D4 · the local-heuristic fallback never fabricates switch_probability', () => {
+  /** |elasticity| 0.8 → fragile arm (>0.5); 0.1 → robust arm (<=0.2). */
+  const HEURISTIC_EDGES: any = [
+    { edge_id: 'fac_price::goal', from: 'fac_price', to: 'goal', elasticity: 0.8, interpretation: 'High sensitivity' },
+    { edge_id: 'fac_stable::goal', from: 'fac_stable', to: 'goal', elasticity: 0.1, interpretation: 'Low sensitivity' },
+  ];
+
+  it('the FRAGILE arm carries NO switch_probability (an elasticity heuristic is not a switch probability)', () => {
+    const out = createLocalHeuristicResult(HEURISTIC_EDGES, 50);
+    expect(out.fragile_edges).toHaveLength(1);
+    expect(out.fragile_edges[0]).not.toHaveProperty('switch_probability');
+    expect(out.fragile_edges[0].switch_probability).toBeUndefined();
+  });
+
+  it('the ROBUST arm carries NO switch_probability — the fabricated `1` is asserted ABSENT', () => {
+    const out = createLocalHeuristicResult(HEURISTIC_EDGES, 50);
+    expect(out.robust_edges).toHaveLength(1);
+    expect(out.robust_edges[0]).not.toHaveProperty('switch_probability');
+    expect(Object.keys(out.robust_edges[0])).not.toContain('switch_probability');
+  });
+
+  it('RETRO-GUARD: no NUMBER reaches either arm, across the whole elasticity range', () => {
+    // ⚠ HOW THIS TEST WAS FIRST WRITTEN WRONG — kept because it is trap 13 in
+    // miniature, committed inside a control written to prevent trap 13. The
+    // first version asserted `expect(...switch_probability).not.toBe(0.2)` to
+    // pin the historical `1 - min(1,|elasticity|)` at |e|=0.8. That assertion is
+    // VACUOUS: in IEEE-754, `1 - 0.8` is 0.19999999999999996, NOT 0.2, so the
+    // exact-equality guard PASSED with the defect fully present. An
+    // absence/retro assertion over floats must never rest on `toBe`.
+    //
+    // The claim that actually matters is categorical, not numeric: NO number at
+    // all. Sweeping the range also covers the worst inversion, |elasticity| = 1
+    // — maximally fragile by the heuristic, which the old expression mapped to
+    // switch_probability 0, i.e. the SAFEST reading on the fragility scale.
+    for (const elasticity of [0.51, 0.6, 0.8, 0.95, 1, 1.5, -0.9]) {
+      const out = createLocalHeuristicResult(
+        [{ edge_id: 'a::b', from: 'a', to: 'b', elasticity, interpretation: '' }] as any, 0);
+      expect(out.fragile_edges, `|${elasticity}| must select the fragile arm`).toHaveLength(1);
+      expect(typeof out.fragile_edges[0].switch_probability, `fragile arm, elasticity=${elasticity}`).not.toBe('number');
+    }
+    for (const elasticity of [0, 0.05, 0.2, -0.2]) {
+      const out = createLocalHeuristicResult(
+        [{ edge_id: 'a::b', from: 'a', to: 'b', elasticity, interpretation: '' }] as any, 0);
+      expect(out.robust_edges, `|${elasticity}| must select the robust arm`).toHaveLength(1);
+      expect(typeof out.robust_edges[0].switch_probability, `robust arm, elasticity=${elasticity}`).not.toBe('number');
+    }
+  });
+
+  it('ORIENTATION AUTHORITY: severity and the doctrine-013 visible gate are both INCREASING in switch_probability', () => {
+    // This is the machine-checked form of the claim the fix rests on: HIGHER
+    // switch_probability = MORE fragile. It is why `1` on a robust edge was the
+    // most alarming possible value and why `1 - |elasticity|` on a fragile edge
+    // was the least. If a future lane re-orients these thresholds, this test —
+    // not prose — is what tells them §D4's reasoning has to be revisited.
+    expect(classifyEdgeSeverity(0.9)).toBe('critical');
+    expect(classifyEdgeSeverity(0.6)).toBe('error');
+    expect(classifyEdgeSeverity(0.1)).toBe('warning');
+    expect(deriveFragileEdgeVisible(0.9)).toBe(true);
+    expect(deriveFragileEdgeVisible(0.01)).toBe(false);
+    // ...and absent derives NEITHER, which is why omitting sp is safe here.
+    expect(classifyEdgeSeverity(undefined)).toBeUndefined();
+    expect(deriveFragileEdgeVisible(undefined)).toBeUndefined();
+  });
+
+  it('POSITIVE CONTROL: the heuristic still SELECTS — omission removed the number, not the finding', () => {
+    // Trap 13. Both §D4 absence assertions above would pass vacuously if the
+    // arrays were empty. Prove the fixture actually populates both arms, and
+    // that the surviving fields are intact, so the absence assertions are
+    // proving an absence *inside a present object*.
+    const out = createLocalHeuristicResult(HEURISTIC_EDGES, 50);
+    expect(out.fragile_edges.map((e: any) => e.edge_id)).toEqual(['fac_price::goal']);
+    expect(out.robust_edges.map((e: any) => e.edge_id)).toEqual(['fac_stable::goal']);
+    expect(out.fragile_edges[0].from_id).toBe('fac_price');
+    expect(out.fragile_edges[0].to_id).toBe('goal');
+    // The refusal is carried machine-readably, as on the D2 fallback.
+    expect(out.source).toBe('unavailable');
+    expect(out.edge_sensitivity_status).toBe('fallback_local_heuristic');
+    expect(out.edges_provenance).toBe('plot:computeSensitivityAll');
+  });
+
+  it('the ROBUSTNESS-oriented derivations on this same path are NOT inverted (shared-inversion check)', () => {
+    // Deliberate contrast, kept adjacent to the defect. `overall_robustness` and
+    // `robustness_score` are ROBUSTNESS-oriented, so their `1 - elasticity`
+    // inversion is CORRECT — the field name flips the scale. `switch_probability`
+    // is FRAGILITY-oriented, so the same idiom copied onto it is a bug. This test
+    // pins that the 2.165a fix did not "helpfully" flip the correct ones too.
+    const fragile = createLocalHeuristicResult(
+      [{ edge_id: 'a::b', from: 'a', to: 'b', elasticity: 0.9, interpretation: '' }] as any, 0);
+    expect(fragile.overall_robustness, 'high elasticity → fragile LABEL').toBe('fragile');
+    expect(fragile.robustness_score, 'high elasticity → LOW robustness score').toBeCloseTo(0.1, 5);
+
+    const robust = createLocalHeuristicResult(
+      [{ edge_id: 'a::b', from: 'a', to: 'b', elasticity: 0.2, interpretation: '' }] as any, 0);
+    expect(robust.overall_robustness).toBe('robust');
+    expect(robust.robustness_score, 'low elasticity → HIGH robustness score').toBeCloseTo(0.8, 5);
+  });
+
+  it('omitting it keeps the fallback response contract-legal under the vendored envelope', () => {
+    const out = createLocalHeuristicResult(HEURISTIC_EDGES, 50);
+    const assessment = assessEnrichmentContract({
+      robustness: { fragile_edges: out.fragile_edges, robust_edges: out.robust_edges },
+    });
+    expect(assessment.ok, 'omitted switch_probability must not violate the vendored envelope').toBe(
+      true,
+    );
   });
 });

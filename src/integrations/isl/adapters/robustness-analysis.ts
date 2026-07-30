@@ -575,6 +575,69 @@ export function createFallbackRobustnessAnalysis(
  *
  * Used when ISL call fails but we have local computeSensitivityAll results.
  *
+ * ✅ FABRICATION REMOVED — `switch_probability` on BOTH arms (ROADMAP 2.165a,
+ * 2026-07-30). This is the residue of the 2.160 fix: that lane corrected
+ * `normalizeRobustEdge` and the `NormalizedEdgeInfo` doc-comment (which now
+ * reads "HIGHER MEANS MORE FRAGILE") but did not reach this fallback path,
+ * where the identical inverted reading was still live.
+ *
+ * WHAT USED TO BE HERE — inverted on BOTH arms, in opposite directions:
+ *
+ *   fragile_edges  selected by |elasticity| > 0.5,  assigned
+ *                  `1 - Math.min(1, Math.abs(elasticity))`
+ *                  // comment: "Higher elasticity = lower stability"
+ *                  → the MORE fragile the edge, the LOWER its
+ *                    switch_probability. At |elasticity| = 1 — maximally
+ *                    fragile — it emitted 0, the SAFEST value on the scale.
+ *   robust_edges   selected by |elasticity| <= 0.2, assigned `1`
+ *                  // comment: "Robust edges have full stability"
+ *                  → the MOST robust edges got the MAXIMUM of the fragility
+ *                    scale, the most alarming value available. This is
+ *                    byte-for-byte the fabrication #290 removed from
+ *                    `normalizeRobustEdge` above, in a second location.
+ *
+ * ROOT CAUSE: both comments reason in "stability"; the field means FRAGILITY.
+ * `switch_probability` is the probability that flipping the edge SWITCHES the
+ * recommended option, so "full stability" is switch_probability ≈ 0, not 1. The
+ * authority for the direction is executable, not prose: `classifyEdgeSeverity`
+ * (>0.7 critical, >0.5 error) and the doctrine-013 `deriveFragileEdgeVisible`
+ * gate (`sp > 0.15`) are both monotonically INCREASING in this field, and
+ * `EnrichmentRobustnessEdgeSchema` in @talchain/schemas states it in the
+ * contract itself: "Higher means MORE fragile".
+ *
+ * WHY OMIT RATHER THAN RE-ORIENT — the decision, and its cost:
+ *   1. WRONG QUANTITY, not merely wrong sign. `switch_probability` is an ISL
+ *      decision-theoretic output. `elasticity` from PLoT's local
+ *      `computeSensitivityAll` is a sensitivity heuristic — different quantity,
+ *      different units, uncalibrated to any probability. `min(1, |elasticity|)`
+ *      would be correctly ORIENTED and still manufactured; re-orienting buys a
+ *      number that is no more measured than the one being deleted.
+ *   2. IT WOULD PUBLISH DERIVED VERDICTS. Any value here feeds
+ *      `classifyEdgeSeverity` and the doctrine-013 `visible` gate, so a
+ *      re-oriented heuristic would emit `severity: 'critical'` and
+ *      `visible: true` — badges that assert a computed switch probability that
+ *      was never computed. Absent derives NEITHER (both helpers return
+ *      `undefined`), which is the honest outcome.
+ *   3. ON THIS PATH THE ABSENCE IS LITERALLY TRUE. ISL is unavailable; nothing
+ *      computed a switch probability. The house rule — absent ≠ 0 ≠ 1, absent
+ *      means NOT COMPUTED — is exactly the right statement to make.
+ *   4. NOTHING REAL IS LOST. The heuristic's actual finding is *which edges
+ *      look fragile*, and that survives intact as array MEMBERSHIP (the > 0.5 /
+ *      <= 0.2 filters are unchanged), alongside the already-present
+ *      `edges_provenance: 'plot:computeSensitivityAll'`,
+ *      `edge_sensitivity_status: 'fallback_local_heuristic'` and
+ *      `source: 'unavailable'`, which already declare this result a local
+ *      heuristic. `overall_robustness` and `robustness_score` are also
+ *      unchanged — see the note on `deriveRobustnessScore` for why their
+ *      superficially-similar inversion is CORRECT.
+ *
+ * CONTRACT-LEGALITY: `switch_probability` is optional from @talchain/schemas
+ * 0.28.0 (this repo vendors 0.30.0), and only `edge_id`/`from_id`/`to_id` are
+ * required — so unlike the 2.160 case there was no egress-contract blocker to
+ * clear. Pinned by tests/gates/numeric-safety-deep-scan.test.ts §D4, including
+ * the inverse assertions (the old values asserted ABSENT) and a positive
+ * control proving both arms are still populated.
+ *
  * @param localEdges - Edge sensitivity from local heuristic
  * @param latencyMs - Local computation latency
  * @returns Result with local edge sensitivity
@@ -598,13 +661,16 @@ export function createLocalHeuristicResult(
     // Robustness - derive from local edges
     overall_robustness: deriveRobustnessFromEdges(localEdges),
     robustness_score: deriveRobustnessScore(localEdges),
+    // switch_probability is deliberately OMITTED on BOTH arms — see the
+    // ✅ FABRICATION REMOVED note on this function for the full reasoning.
+    // Array MEMBERSHIP still carries the heuristic's actual finding; only the
+    // manufactured probability is gone.
     fragile_edges: localEdges
       .filter((e) => Math.abs(e.elasticity) > 0.5)
       .map((e): NormalizedEdgeInfo => ({
         edge_id: e.edge_id,
         from_id: e.from,
         to_id: e.to,
-        switch_probability: 1 - Math.min(1, Math.abs(e.elasticity)), // Higher elasticity = lower stability
       })),
     robust_edges: localEdges
       .filter((e) => Math.abs(e.elasticity) <= 0.2)
@@ -612,7 +678,6 @@ export function createLocalHeuristicResult(
         edge_id: e.edge_id,
         from_id: e.from,
         to_id: e.to,
-        switch_probability: 1, // Robust edges have full stability
       })),
 
     // Metadata
@@ -622,7 +687,14 @@ export function createLocalHeuristicResult(
 }
 
 /**
- * Derive robustness label from edge sensitivity scores
+ * Derive robustness label from edge sensitivity scores.
+ *
+ * ORIENTATION CHECKED, NOT INVERTED (ROADMAP 2.165a). High elasticity → the
+ * 'fragile' label, which is correct: this field is ROBUSTNESS-oriented and names
+ * its own direction, so there is no scale to confuse. Deliberately recorded
+ * because the sibling `switch_probability` derivations on this same fallback
+ * path WERE inverted, and the next reader should not have to re-derive that
+ * these two are fine.
  */
 function deriveRobustnessFromEdges(
   edges: EdgeSensitivityEntry[]
@@ -637,13 +709,27 @@ function deriveRobustnessFromEdges(
 }
 
 /**
- * Derive robustness score from edge sensitivity
+ * Derive robustness score from edge sensitivity.
+ *
+ * ORIENTATION CHECKED, NOT INVERTED (ROADMAP 2.165a) — and this is the function
+ * that explains how 2.165a happened. The `1 - avgElasticity` below is CORRECT:
+ * `robustness_score` is ROBUSTNESS-oriented, so the field name flips the scale
+ * relative to elasticity and the inversion is required.
+ *
+ * The bug was that same idiom COPIED onto `switch_probability`, which is
+ * FRAGILITY-oriented — same direction as elasticity — so there the `1 -` turned
+ * a correct reading into an inverted one. Two adjacent fields, opposite
+ * orientations, one shared inversion habit. When adding a field here, ask which
+ * way its NAME points before reusing this expression.
+ *
+ * Both this and `deriveRobustnessFromEdges` are pinned against a re-flip by
+ * the "shared-inversion check" case in numeric-safety-deep-scan §D4.
  */
 function deriveRobustnessScore(edges: EdgeSensitivityEntry[]): number {
   if (edges.length === 0) return 0.5;
 
   const avgElasticity = edges.reduce((sum, e) => sum + Math.abs(e.elasticity), 0) / edges.length;
 
-  // Invert: high elasticity = low robustness
+  // Invert: high elasticity = low robustness (correct — see the note above)
   return Math.max(0, Math.min(1, 1 - avgElasticity));
 }

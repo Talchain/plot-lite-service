@@ -48,6 +48,7 @@ import {
   getRouteCallerSnapshot,
   resetRouteCallerTelemetry,
 } from '../src/observability/routeCallerTelemetry.js';
+import { WITHDRAWN_ROUTE_BODY_LIMIT_BYTES } from '../src/routes/v1/refuse-unavailable.js';
 
 /** The seven VACUOUS routes, each with a request that was well-formed for it. */
 const VACUOUS: Array<{ route: string; payload: Record<string, unknown> }> = [
@@ -367,5 +368,103 @@ describe('cross-cutting', () => {
     // The pre-change thresholds route alone ran 2 sweeps x 2 options of Monte
     // Carlo. Ten refusals must be trivially fast.
     expect(Date.now() - t0).toBeLessThan(2000);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Route-level bodyLimit (efficiency review, 2026-07-30).
+//
+// All ten registered with NO route options, so the server-wide 128KB bodyLimit
+// applied to routes that read no body at all. Fastify parses the whole payload
+// BEFORE any preHandler, so the rate limiter cannot shield this: its 429 is
+// decided after the cost has already been paid. The limit has to act at the
+// parser, which is what a route-level bodyLimit does.
+//
+// The route list is REUSED from WITHDRAWN above rather than re-listed here — a
+// second hand-written list of the same ten routes is a mirror that drifts, and
+// the drift would read as green (a route dropped from the copy is simply never
+// checked). Likewise the size is imported from the source const, not retyped.
+// ---------------------------------------------------------------------------
+describe('withdrawn routes — route-level bodyLimit', () => {
+  /** Imported, never retyped: a copied literal could silently disagree. */
+  const LIMIT = WITHDRAWN_ROUTE_BODY_LIMIT_BYTES;
+
+  /** Comfortably over the limit, far under the 128KB server-wide default —
+   *  so a 413 here can ONLY come from the route-level limit. That is what makes
+   *  this test prove the route option rather than the server default. */
+  const oversized = JSON.stringify({ pad: 'x'.repeat(LIMIT * 8) });
+
+  it.each(WITHDRAWN.map((w) => w.route))(
+    '%s answers 413 for an oversized body, and the refusal handler never runs',
+    async (route) => {
+      const res = await app.inject({
+        method: 'POST',
+        url: route,
+        headers: { 'content-type': 'application/json' },
+        payload: oversized,
+      });
+
+      expect(res.statusCode, `${route} must reject at the parser`).toBe(413);
+
+      // The handler is what emits the typed refusal and records it. Its absence
+      // is the whole point: the request was rejected at the parser, before
+      // reaching it, which is where the saving is.
+      expect(res.body).not.toContain('ANALYSIS_UNAVAILABLE');
+      expect(res.json().code, 'a 413 is a BAD_INPUT, not a capability refusal').toBe('BAD_INPUT');
+
+      // ⚠ WHICH COUNTER PROVES "THE HANDLER NEVER RAN" — the two are NOT
+      // interchangeable, and this test was first written against the wrong one.
+      //
+      //   refused_total          incremented ONLY by recordRefusal(), i.e. only
+      //                          when the refusal HANDLER executes. This is the
+      //                          one that proves the handler was skipped.
+      //   refused_routes.by_route derived in getRouteCallerSnapshot() from the
+      //                          general REQUEST counters, filtered to the
+      //                          withdrawn-route set. It counts REQUESTS that
+      //                          arrived, handler or no handler — so it is 1
+      //                          after a 413, entirely correctly: the request
+      //                          did arrive and telemetry did see it.
+      //
+      // Asserting by_route[route] was undefined here failed against correct
+      // code. Keeping the distinction written down because "the request was
+      // counted but the refusal was not" is precisely the state a route-level
+      // bodyLimit creates, and a future reader will reach for the wrong counter.
+      expect(getRouteCallerSnapshot().refused_total, 'no refusal was recorded').toBe(0);
+      expect(
+        getRouteCallerSnapshot().refused_routes.by_route[route],
+        'the request itself is still observed — only the refusal is skipped',
+      ).toBe(1);
+    },
+  );
+
+  it('POSITIVE CONTROL: a body UNDER the limit still gets the 501 refusal and is still counted', async () => {
+    // Trap 13. Without this, a route that 413'd (or 404'd) everything would pass
+    // every assertion above, and a limit set absurdly low — or to 0 — would look
+    // like a successful optimisation while silently withdrawing the refusal and
+    // the caller telemetry that are the reason these paths stay mounted.
+    for (const { route, payload } of WITHDRAWN) {
+      const body = JSON.stringify(payload);
+      expect(
+        Buffer.byteLength(body),
+        `${route} fixture must be under the ${LIMIT}B limit for this control to mean anything`,
+      ).toBeLessThan(LIMIT);
+
+      const res = await app.inject({
+        method: 'POST',
+        url: route,
+        headers: { 'content-type': 'application/json' },
+        payload: body,
+      });
+      expect(res.statusCode, `${route} must still refuse, not 413`).toBe(501);
+      expect(res.json().code).toBe('ANALYSIS_UNAVAILABLE');
+    }
+    expect(getRouteCallerSnapshot().refused_total).toBe(WITHDRAWN.length);
+  });
+
+  it('the limit is genuinely BELOW the server-wide default — otherwise it changes nothing', () => {
+    // A route-level limit equal to or above the server default is decoration:
+    // the parse cost this change exists to remove would still be paid in full.
+    expect(LIMIT).toBeLessThan(128 * 1024);
+    expect(LIMIT).toBeGreaterThan(0);
   });
 });
