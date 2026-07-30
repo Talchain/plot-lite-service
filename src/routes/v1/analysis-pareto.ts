@@ -36,10 +36,10 @@
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { refuseUnavailable, VACUOUS_ANALYSIS_REASON } from './refuse-unavailable.js';
+import { refuseUnavailable, VACUOUS_ANALYSIS_REASON, WITHDRAWN_ROUTE_OPTIONS } from './refuse-unavailable.js';
 
 export async function registerParetoAnalysisRoute(app: FastifyInstance) {
-  app.post('/v1/analysis/pareto', async (req: FastifyRequest, reply: FastifyReply) =>
+  app.post('/v1/analysis/pareto', WITHDRAWN_ROUTE_OPTIONS, async (req: FastifyRequest, reply: FastifyReply) =>
     refuseUnavailable(req, reply, '/v1/analysis/pareto', VACUOUS_ANALYSIS_REASON)
   );
 }

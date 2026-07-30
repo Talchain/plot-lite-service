@@ -27,7 +27,6 @@ jobs:
 
       - name: Test
         run: npm test
-        env:
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

@@ -38,10 +38,10 @@
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { refuseUnavailable, FABRICATED_NUMERICS_REASON } from './refuse-unavailable.js';
+import { refuseUnavailable, FABRICATED_NUMERICS_REASON, WITHDRAWN_ROUTE_OPTIONS } from './refuse-unavailable.js';
 
 export async function registerSensitivityRoute(app: FastifyInstance) {
-  app.post('/v1/sensitivity', async (req: FastifyRequest, reply: FastifyReply) =>
+  app.post('/v1/sensitivity', WITHDRAWN_ROUTE_OPTIONS, async (req: FastifyRequest, reply: FastifyReply) =>
     refuseUnavailable(req, reply, '/v1/sensitivity', FABRICATED_NUMERICS_REASON)
   );
 }

@@ -58,6 +58,50 @@ export const PLACEHOLDER_ESTIMATE_REASON =
   'route published placeholder arithmetic over request inputs, not a computed estimate — no model was evaluated and the graph was never read; see ROADMAP 2.105';
 
 /**
+ * Body-size ceiling for a withdrawn route, in bytes.
+ *
+ * WHY A WITHDRAWN ROUTE NEEDS ITS OWN LIMIT (efficiency review, 2026-07-30).
+ * All ten withdrawn routes registered with NO route options, so the
+ * server-wide `bodyLimit` (128KB) applied to every one of them. That is pure
+ * waste on a path that reads no body at all: Fastify parses the ENTIRE payload
+ * before any `preHandler` runs, so each spammed 128KB request cost roughly
+ * 505µs of parsing and ~131KB of garbage to produce a response whose content
+ * does not depend on a single byte of it.
+ *
+ * AND THE RATE LIMITER CANNOT SHIELD IT. The limiter is a `preHandler`, so its
+ * 429 is decided AFTER the parse has already happened — the cost is paid before
+ * the request can be rejected. A route-level limit is the only control that
+ * acts at the parser, which is where the cost is. This is the same posture the
+ * live routes already take (`/v1/diff`, `/v1/critique`: `bodyLimit: 64 * 1024`);
+ * withdrawn routes can be far tighter because they read nothing.
+ *
+ * WHY 1KB RATHER THAN 0. A withdrawn route should still answer its typed 501 to
+ * an ordinary, well-formed probe — that refusal, and the caller telemetry it
+ * records, is the entire reason the path is still mounted. 1KB admits a normal
+ * probe and turns a spammed oversized body into a cheap 413 at the parser.
+ *
+ * A CONSEQUENCE WORTH KNOWING: above this limit a withdrawn route answers 413,
+ * not the 501 refusal, and `recordRefusal` does NOT run for it — the request
+ * never reaches the handler. That is the correct trade (the caller learns the
+ * body was rejected, and an oversized body is not a capability probe), but it
+ * does mean the refusal counters undercount abusive traffic by construction.
+ * Pinned by the bodyLimit block in tests/analysis-routes.refusal.test.ts.
+ */
+export const WITHDRAWN_ROUTE_BODY_LIMIT_BYTES = 1024;
+
+/**
+ * Shared Fastify route options for every withdrawn route.
+ *
+ * ONE object, ten registrations — deliberately not ten copies of the same
+ * literal. A hand-repeated limit is a mirror that drifts the moment one route is
+ * edited; importing a single const means the value cannot disagree with itself,
+ * and the test can assert against the same const rather than a copy of it.
+ */
+export const WITHDRAWN_ROUTE_OPTIONS = {
+  bodyLimit: WITHDRAWN_ROUTE_BODY_LIMIT_BYTES,
+} as const;
+
+/**
  * Refuse, and record who asked.
  *
  * Instrumentation is the point of keeping the route mounted, so it happens

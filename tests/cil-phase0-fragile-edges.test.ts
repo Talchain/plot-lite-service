@@ -269,7 +269,12 @@ describe('CIL Phase 0 — Task 1: fragile_edges shape consistency', () => {
       expect(typeof fe.edge_id).toBe('string');
       expect(typeof fe.from_id).toBe('string');
       expect(typeof fe.to_id).toBe('string');
-      expect(typeof fe.switch_probability).toBe('number');
+      // switch_probability is NOT part of this shape assertion any more
+      // (ROADMAP 2.165a). This line read `expect(typeof fe.switch_probability)
+      // .toBe('number')`, which pinned the PRESENCE of a value that was
+      // fabricated from elasticity on an inverted scale. The object-vs-string
+      // claim this test exists to make is carried by the three id fields above.
+      expect(fe).not.toHaveProperty('switch_probability');
     });
 
     it('createLocalHeuristicResult with no fragile edges → []', () => {

@@ -36,10 +36,10 @@
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { refuseUnavailable, VACUOUS_ANALYSIS_REASON } from './refuse-unavailable.js';
+import { refuseUnavailable, VACUOUS_ANALYSIS_REASON, WITHDRAWN_ROUTE_OPTIONS } from './refuse-unavailable.js';
 
 export async function registerMultiCriteriaAnalysisRoute(app: FastifyInstance) {
-  app.post('/v1/analysis/multi-criteria', async (req: FastifyRequest, reply: FastifyReply) =>
+  app.post('/v1/analysis/multi-criteria', WITHDRAWN_ROUTE_OPTIONS, async (req: FastifyRequest, reply: FastifyReply) =>
     refuseUnavailable(req, reply, '/v1/analysis/multi-criteria', VACUOUS_ANALYSIS_REASON)
   );
 }

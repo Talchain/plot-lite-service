@@ -90,10 +90,10 @@
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { refuseUnavailable, PLACEHOLDER_ESTIMATE_REASON } from './refuse-unavailable.js';
+import { refuseUnavailable, PLACEHOLDER_ESTIMATE_REASON, WITHDRAWN_ROUTE_OPTIONS } from './refuse-unavailable.js';
 
 export async function registerCounterfactualRoute(app: FastifyInstance) {
-  app.post('/v1/counterfactual', async (req: FastifyRequest, reply: FastifyReply) =>
+  app.post('/v1/counterfactual', WITHDRAWN_ROUTE_OPTIONS, async (req: FastifyRequest, reply: FastifyReply) =>
     refuseUnavailable(req, reply, '/v1/counterfactual', PLACEHOLDER_ESTIMATE_REASON)
   );
 }
