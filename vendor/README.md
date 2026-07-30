@@ -9,65 +9,88 @@ and `DecisionGuideAI` (UI).
 
 ## Current contents
 
-### `talchain-schemas-0.22.0.tgz`
+### `talchain-schemas-0.30.0.tgz`
 
-**Purpose:** pre-publish consumption of `@talchain/schemas` v0.22.0
-(ROADMAP 1.62 re-vendor, 0.15.0 → 0.22.0). The 0.16–0.22 span is
-additive-only for PLoT (S2 intent vocabulary + `chip.id`, batched
-`direct_graph_edit`, the S1 graph-hash CONTRACT surface, typed feedback
-events, Group-A compute-seam response schemas, and the F6
-enrichment fields `constraint_margins` / `scale_provenance`). Keeps PLoT
-on the vendored-tgz pattern shared with CEE/DGAI (no `GITHUB_TOKEN`
-needed to install).
+**Purpose:** pre-publish consumption of `@talchain/schemas` v0.30.0
+(ROADMAP 2.160 contract alignment, 0.22.0 → 0.30.0). The bump exists to make
+the **four VOI enrichment keys VALIDATABLE at PLoT's egress**, not merely
+forwarded: `correlation_model`, `decision_evpi`, `factor_evppi` and
+`p_win_sensitivity` are emitted by ISL, forwarded verbatim by
+`islEnrichmentPassthrough` (`src/routes/v2/run-contract-keys.ts`) as top-level
+`/v2/run` keys, and parsed by the egress guard against
+`AnalysisEnrichmentSchema`. **At 0.22.0 that schema contained ZERO of the four**
+(measured: 0 occurrences of each across the whole tarball) and it is
+`.passthrough()`, so `decision_evpi: 'NOT-A-NUMBER'` parsed CLEAN and the guard
+still stamped `_meta.evidence.enrichment_contract_ok: true` — the disclosure
+field asserted a validation that never happened for these keys. 0.30.0 types
+them (`decision_evpi` as `z.number().nullable().optional()`, `factor_evppi` as
+an array of `EnrichmentFactorEvppiEntrySchema`, the two ISL-owned members as
+array/object rather than "anything"), so the guard that was already running now
+actually sees them. Pinned by `tests/contract/voi-enrichment-typed.test.ts`.
 
 **Provenance:** this is the **published registry artifact** for
-`@talchain/schemas@0.22.0` (GitHub Packages `npm.pkg.github.com`), tag
-`v0.22.0` = main `e04b900c` (the squash-merge of schemas PR #18
-`a1/0.22.0-batch`). Fetched via authenticated `npm pack
-@talchain/schemas@0.22.0` (read:packages). This is the SAME bytes CEE and
-DGAI vendor — the shared canonical copy.
+`@talchain/schemas@0.30.0` (GitHub Packages `npm.pkg.github.com`), tag
+`v0.30.0` = commit `f5815a3425643f7fa1bcf759807085b71a19357d`
+(*"0.30.0 — the VOI family joins the CEE→UI keep-list (V7-C slice 1a)"*, schemas
+PR #29). **These are the SAME BYTES CEE and DGAI vendor** — not a local
+`npm pack` (which is not byte-reproducible across environments). Obtained by
+reading the vendored blob already committed on CEE `staging` and DGAI `staging`,
+which are the same git blob.
 
-- **sha256** `adf17921456eb024fde429a79e7375d7af27aa14db76b4d720498dc99e5f622d`
-- **npm integrity** `sha512-y44YfUUs7RK3pP/lM0kfMMdNwVzQoWrYnUWdnjQTsYZG57yiYqk2+4Etn/FXWOPsGLvDdI9uKmCNUDzopN7biw==`
+- **sha256** `cd3746369b26da20e079c8d8ec323294edcc46a32df6830b657aed2cd465a0cc`
+- **npm integrity** `sha512-6qF6M0Gkt6/WQ4/2nxZWU0hau93g/fhH4+0c/3mZTA+I5U8LY9mxLjZsgf980cPbjYJeBEKwdbMUX9HQhCXmrg==`
   (= the lockfile pin; `npm ci` enforces it against these bytes)
 
-> **Byte reconciliation — RESOLVED 22 Jul.** An earlier local rebuild of
-> the same tag (`npm ci && npm run build && npm pack`, Node 20.19.5 / npm
-> 10.8.2) produced sha256 `c6bc712f…` — **content-identical** to the
-> published artifact (per-file diff over all 182 files = zero content
-> deltas; the delta was purely the tar/gzip metadata layer, since `npm
-> pack` is not byte-reproducible across the CI publish env vs a local
-> env). Per A1's ruling the CANONICAL bytes are the **published** artifact
-> (independently re-packed to `adf179` by A1 via GitHub Packages, by the
-> #634 adversarial from the registry, and by the DGAI lane — three matches,
-> and the registry sha512 matches CEE's lockfile). CEE landed these exact
-> bytes first (#634, healthz `7ef952c`), so the "matches CEE byte-for-byte"
-> invariant now HOLDS for 0.22.0. The prior local rebuild is documented
-> here only as the content-identity control; it is NOT vendored.
+**Byte identity with CEE/DGAI — derived, five independent agreements (2026-07-30):**
 
-**Checksum:** `vendor/talchain-schemas-0.22.0.tgz.sha256` holds the
-sha256 of the tarball bytes as built. Verify with:
+| # | check | result |
+|---|-------|--------|
+| 1 | CEE `vendor/talchain-schemas-0.30.0.tgz` @`staging` git blob sha | `416a591720a77f31342fae9c4be9036d8fad97d3` (265,222 bytes) |
+| 2 | DGAI `vendor/talchain-schemas-0.30.0.tgz` @`staging` git blob sha | `416a5917…` — **the identical blob** |
+| 3 | sha256 of the bytes vendored here | `cd374636…` = **both** repos' committed `.tgz.sha256` manifests |
+| 4 | `openssl dgst -sha512 -binary … \| base64` of these bytes | `6qF6M0Gkt6/…` = this repo's `package-lock.json` `integrity` |
+| 5 | CEE `pnpm-lock.yaml` @`staging` integrity for 0.30.0 | `6qF6M0Gkt6/…` — **identical string** |
+
+So the artifact PLoT resolves is provably the artifact CEE resolves on staging.
+The "matches CEE byte-for-byte" invariant HOLDS for 0.30.0.
+
+**Checksum:** `vendor/talchain-schemas-0.30.0.tgz.sha256` holds the sha256 of
+the tarball bytes. Verify with:
 
 ```bash
-shasum -a 256 -c <(printf '%s  vendor/talchain-schemas-0.22.0.tgz\n' \
-  "$(cat vendor/talchain-schemas-0.22.0.tgz.sha256)")
+shasum -a 256 -c <(printf '%s  vendor/talchain-schemas-0.30.0.tgz\n' \
+  "$(cat vendor/talchain-schemas-0.30.0.tgz.sha256)")
 ```
 
-**Consumed-surface analysis (0.15.0 → 0.22.0):** proven INERT for PLoT
-(re-derived at the bytes, 2026-07-22). Every symbol PLoT imports (src +
-tests) is byte-identical or additive-only-optional-on-`.passthrough()`;
-the `GoalConstraintSchema`→`LegacyGoalConstraintStubSchema` rename (#14)
-and all deletions land only on symbols/modules PLoT does not import; the
-run-request family gained no fields. New surface CEE/UI adopt is invisible
-to PLoT. Re-proven by the unchanged fixtures in
-`tests/schema-adoption-0.13.1.test.ts`,
-`tests/enrichment-emission-contract.test.ts`, and
-`tests/contract/isl-to-plot.contract.test.ts`.
+**Consumed-surface analysis (0.22.0 → 0.30.0): proven inert for PLoT
+EMPIRICALLY, not by inspection.** The 0.23–0.30 span is additive for every
+symbol PLoT imports. Rather than re-argue symbol-by-symbol (the 0.15→0.22 note
+did, and an argued claim is only as good as its author's completeness), this
+re-vendor was measured:
 
-**Rollback path:** revert the re-vendor commit. Git history restores the
-0.15.0 tarball + manifest, the prior `package.json` pin, and the prior
-`package-lock.json`. (The pre-0.13.1 registry-pin era — `0.2.1` +
-`GITHUB_TOKEN` via `.npmrc` — is several bumps back in history.)
+- `npx tsc --noEmit` (pre-push check 2/7) — **exit 0**, so no imported symbol
+  was deleted or narrowed incompatibly across `src/` **and** `tests/`.
+- `npm test` (pre-push check 3/7) — **6,376 tests, 583 files.** The ONLY
+  behaviour deltas were the two the re-vendor is supposed to cause: the
+  `file:`-policy check (until the new tarball was `git add`-ed) and the
+  installed-version assertion. Zero other tests changed verdict, including the
+  enrichment/adoption fixtures that exist to catch exactly this
+  (`tests/schema-adoption.test.ts`, `tests/schema-adoption-0.13.1.test.ts`,
+  `tests/enrichment-emission-contract.test.ts`,
+  `tests/enrichment-contract.fixtures.test.ts`,
+  `tests/contract/isl-to-plot.contract.test.ts`,
+  `tests/decision-record.passthrough-parity.test.ts`).
+
+**Note on the version assertion:** it is no longer a hard-coded literal.
+`tests/schema-adoption-0.13.1.test.ts` now DERIVES the expected version from the
+`file:` specifier in `package.json` and asserts three-way agreement
+(specifier == tarball on disk == installed manifest), so a future re-vendor
+cannot leave a stale literal behind, and a bumped filename with an unrefreshed
+lockfile FAILS LOUD instead of silently running the older contract.
+
+**Rollback path:** revert the re-vendor commit. Git history restores the 0.22.0
+tarball + manifest, the prior `package.json` pin, and the prior
+`package-lock.json`.
 
 **How to update:**
 

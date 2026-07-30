@@ -52,7 +52,8 @@
  * tests/decision-brief.analysis-summary.test.ts (the capture surface).
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
 import {
@@ -83,23 +84,54 @@ import type {
 } from '@talchain/schemas';
 
 // =============================================================================
-// 0. Installed-version proof: the vendored 0.14.0 tarball is what resolves
+// 0. Installed-version proof: the vendored tarball is what actually resolves
+//
+// DERIVED, NOT MIRRORED (trap 12). This block used to hard-code the version in
+// three places — the describe name, the it name, and the assertion — with a
+// comment that had already gone stale to a different version again. Every
+// re-vendor had to remember to update all four, and a missed one either RED-ed
+// the suite for no reason or (worse) asserted a version nobody was running.
+//
+// The version is now derived from the ONE place it is declared — the
+// `file:./vendor/talchain-schemas-<version>.tgz` specifier in package.json —
+// and the test asserts the three-way agreement that actually matters:
+//   package.json specifier  ==  vendored tarball on disk  ==  INSTALLED version
+// A re-vendor that bumps the filename but leaves the lockfile behind (the
+// schema-skew hazard: a consumer silently running an older contract) fails here.
 // =============================================================================
 
-describe('@talchain/schemas 0.22.0 installation', () => {
-  it('resolves to version 0.22.0', () => {
+describe('@talchain/schemas vendored-pin integrity', () => {
+  const repoRoot = fileURLToPath(new URL('..', import.meta.url));
+  const rootPkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as {
+    dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+  };
+  const specifier =
+    rootPkg.dependencies?.['@talchain/schemas'] ?? rootPkg.devDependencies?.['@talchain/schemas'];
+
+  it('package.json pins @talchain/schemas to an in-repo vendored tarball', () => {
+    expect(specifier).toBeDefined();
+    expect(specifier).toMatch(/^file:\.?\/?vendor\/talchain-schemas-.+\.tgz$/);
+  });
+
+  it('the installed version equals the version in the vendored tarball filename', () => {
+    // Derive the expected version from the specifier — the single declaration site.
+    const pinnedVersion = specifier?.match(/talchain-schemas-(.+)\.tgz$/)?.[1];
+    expect(pinnedVersion, 'could not derive version from the file: specifier').toBeTruthy();
+
+    // The tarball named by the specifier must exist on disk (it ships with the clone).
+    const tarballRel = specifier!.replace(/^file:\.?\/?/, '');
+    expect(existsSync(join(repoRoot, tarballRel)), `${tarballRel} must exist`).toBe(true);
+
     // The package's exports map has no "require" condition, so
     // createRequire().resolve() cannot be used; read the installed
     // manifest directly (checkout-stable relative to this test file).
-    const manifestPath = fileURLToPath(
-      new URL('../node_modules/@talchain/schemas/package.json', import.meta.url),
-    );
-    const pkg = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
-      name: string;
-      version: string;
-    };
+    const pkg = JSON.parse(
+      readFileSync(join(repoRoot, 'node_modules/@talchain/schemas/package.json'), 'utf8'),
+    ) as { name: string; version: string };
+
     expect(pkg.name).toBe('@talchain/schemas');
-    expect(pkg.version).toBe('0.22.0');
+    expect(pkg.version).toBe(pinnedVersion);
   });
 });
 
