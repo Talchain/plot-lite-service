@@ -196,9 +196,11 @@ function computeModelRobustness(
     });
   }
 
-  // Penalty for fragile edges
+  // Penalty for fragile edges. Presence branch (Codex P1-5): only a MEASURED
+  // switchProb can count an edge as fragile; unmeasured edges neither count
+  // nor read as "0 = safe".
   const highFragileCount = inputs.fragileEdges.filter(
-    (e) => e.switchProb > thresholds.action_fragile_edge_threshold
+    (e) => typeof e.switchProb === 'number' && e.switchProb > thresholds.action_fragile_edge_threshold
   ).length;
 
   if (highFragileCount > 0) {

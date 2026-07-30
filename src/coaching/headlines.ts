@@ -21,6 +21,18 @@ const HEADLINE_TEMPLATES = {
 } as const;
 
 /**
+ * Presence guard (Codex P1-5): only an edge with a MEASURED switchProb may
+ * qualify as a headline/context fragile edge. Absent means NOT COMPUTED (never
+ * a coalesced 0), so unmeasured edges never pass a threshold filter and never
+ * reach a rendered percentage.
+ */
+function hasMeasuredSwitchProb<T extends { switchProb?: number }>(
+  e: T
+): e is T & { switchProb: number } {
+  return typeof e.switchProb === 'number';
+}
+
+/**
  * Sort options by win probability descending, treating a non-finite probability
  * (NaN / ±Infinity from a degenerate ISL Monte Carlo run) as the LOWEST rank.
  * Using subtraction directly would return NaN for non-finite inputs, leaving the
@@ -88,6 +100,7 @@ export function generateHeadlines(inputs: CoachingInputs): StoryHeadlines {
   // high_uncertainty (no lever named, no fragile edge forced).
   const leverIds = inputs.interventionTargetIds ?? new Set<string>();
   const topFragile = fragileEdges
+    .filter(hasMeasuredSwitchProb)
     .filter((e) => e.switchProb >= thresholds.headline_fragile_edge_min && !isLeverSourcedEdge(e.fromId, leverIds))
     .sort((a, b) => b.switchProb - a.switchProb)[0];
 
@@ -212,9 +225,10 @@ function computeTopGapInfluence(factors: Array<{ confidence?: number; elasticity
   return Math.max(...withVoI, 0); // Return max VoI directly
 }
 
-export function getFragileEdgeContext(fragileEdges: Array<{ edgeId: string; displayLabel: string; switchProb: number; altWinnerLabel: string | null; altWinnerId: string | null }>): FragileEdgeContext | undefined {
+export function getFragileEdgeContext(fragileEdges: Array<{ edgeId: string; displayLabel: string; switchProb?: number; altWinnerLabel: string | null; altWinnerId: string | null }>): FragileEdgeContext | undefined {
   const thresholds = getThresholds();
   const top = fragileEdges
+    .filter(hasMeasuredSwitchProb)
     .filter((e) => e.switchProb >= thresholds.headline_fragile_edge_min)
     .sort((a, b) => b.switchProb - a.switchProb)[0];
 
@@ -266,6 +280,7 @@ export function detectHeadlineType(inputs: CoachingInputs): HeadlineType {
   // too, so the headline TYPE stays consistent with the (filtered) headline text.
   const leverIds = inputs.interventionTargetIds ?? new Set<string>();
   const topFragile = fragileEdges
+    .filter(hasMeasuredSwitchProb)
     .filter((e) => e.switchProb >= thresholds.headline_fragile_edge_min && !isLeverSourcedEdge(e.fromId, leverIds))
     .sort((a, b) => b.switchProb - a.switchProb)[0];
 

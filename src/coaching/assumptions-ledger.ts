@@ -179,9 +179,11 @@ function extractISLAssumptions(inputs: CoachingInputs): AssumptionRecord[] {
   const thresholds = getThresholds();
 
   // Fragile edges are high-impact assumptions
-  // Use centralized threshold for consistency with other coaching components
+  // Use centralized threshold for consistency with other coaching components.
+  // Presence branch (Codex P1-5): only a MEASURED switchProb may generate a
+  // "% chance of flipping decision" record — absence renders nothing.
   for (const edge of inputs.fragileEdges) {
-    if (edge.switchProb >= thresholds.headline_fragile_edge_min) {
+    if (typeof edge.switchProb === 'number' && edge.switchProb >= thresholds.headline_fragile_edge_min) {
       const dedupKey = `isl_engine:flagged:edge:${edge.edgeId}:switch_probability`;
 
       assumptions.push({
