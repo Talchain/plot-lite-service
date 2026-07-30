@@ -2,7 +2,7 @@
  * The withdrawn analysis routes must answer a typed 501 refusal — and must be
  * instrumented while they do it.
  *
- * NINE routes, two findings, one disposition.
+ * TEN routes, THREE findings, one disposition.
  *
  * Seven `/v1/analysis/*` routes were ruled VACUOUS by the authenticity matrix
  * of 2026-07-26: each scored every option against the same shared graph with
@@ -16,6 +16,19 @@
  * useful, whereas these returned plausible numbers stamped
  * `inference_mode: 'model_based'` — a provenance claim for an inference that
  * never ran, which a caller has no way to detect.
+ *
+ * `/v1/counterfactual` was withdrawn 2026-07-30 (ROADMAP 2.105) as a
+ * FABRICATION TRAP — the third finding, and the sharpest of the three. Its
+ * estimate was placeholder arithmetic over two request fields
+ * (`intervention.from_value * 100` / `intervention.to_value * 95`, both
+ * self-commented `// Placeholder`) with `graph` never read, and it shipped behind
+ * FOUR layers of real machinery: a model card asserting ceteris paribus and no
+ * spillover, a confidence badge built from hard-coded `identifiable: true` /
+ * `in_linear_range: true` literals (so pinned near its ceiling on every path), a
+ * determinism stamp that held only because the output was a constant function of
+ * the input, and `explain_delta` attributions computed over the placeholder
+ * values. Where /v1/score fabricated a number, this fabricated the number AND the
+ * evidence that the number was trustworthy.
  *
  * Assertions here are on the FULL HTTP ENVELOPE — status, headers and the
  * complete error.v1 body — not on handler internals. That is the contract an
@@ -188,15 +201,41 @@ const FABRICATING: Array<{ route: string; payload: Record<string, unknown> }> = 
   },
 ];
 
+/**
+ * The FABRICATION-TRAP route (ROADMAP 2.105). The payload below is the one that
+ * matters: perfectly well-formed, and exactly the shape that used to come back as
+ * a confident counterfactual estimate with a near-ceiling confidence badge.
+ */
+const PLACEHOLDER: Array<{ route: string; payload: Record<string, unknown> }> = [
+  {
+    route: '/v1/counterfactual',
+    payload: {
+      seed: 4242,
+      graph: {
+        nodes: [
+          { id: 'price', label: 'Price', value: 10 },
+          { id: 'revenue', label: 'Revenue', value: 100 },
+        ],
+        edges: [{ from: 'price', to: 'revenue', weight: 0.5, belief: 0.9 }],
+      },
+      intervention: { node_id: 'price', from_value: 10, to_value: 12 },
+      outcome_node: 'revenue',
+    },
+  },
+];
+
 const VACUOUS_REASON =
   'route computed no option-discriminating output; see authenticity matrix 2026-07-26';
 const FABRICATING_REASON =
   'route published seed-derived numerics not computed from the request graph; see numerics science review 2026-07-26';
+const PLACEHOLDER_REASON =
+  'route published placeholder arithmetic over request inputs, not a computed estimate — no model was evaluated and the graph was never read; see ROADMAP 2.105';
 
-/** Both groups, for the cross-cutting checks. */
+/** All three groups, for the cross-cutting checks. */
 const WITHDRAWN = [
   ...VACUOUS.map((c) => ({ ...c, reason: VACUOUS_REASON })),
   ...FABRICATING.map((c) => ({ ...c, reason: FABRICATING_REASON })),
+  ...PLACEHOLDER.map((c) => ({ ...c, reason: PLACEHOLDER_REASON })),
 ];
 
 let app: FastifyInstance;
@@ -265,6 +304,17 @@ describe.each(WITHDRAWN)('$route — withdrawn', ({ route, payload, reason }) =>
       'evaluations',
       'inference_mode',
       'utility',
+      // ROADMAP 2.105 — the four credibility layers /v1/counterfactual used to
+      // ship around its placeholder estimate. `model_card` and `confidence` are
+      // the load-bearing ones: they are what made the fabricated number read as
+      // a measured one.
+      'model_card',
+      'confidence',
+      'explain_delta',
+      'identifiability',
+      'adjustment_set',
+      'baseline',
+      'counterfactual.v1',
     ]) {
       expect(raw).not.toContain(leak);
     }
@@ -302,7 +352,7 @@ describe('cross-cutting', () => {
     expect(res.json().code).not.toBe('ANALYSIS_UNAVAILABLE');
   });
 
-  it('all nine withdrawn routes are still MOUNTED — a 404 would destroy the evidence', async () => {
+  it('all ten withdrawn routes are still MOUNTED — a 404 would destroy the evidence', async () => {
     for (const { route, payload } of WITHDRAWN) {
       const res = await app.inject({ method: 'POST', url: route, payload });
       expect(res.statusCode, `${route} must be 501, not 404`).toBe(501);
@@ -315,7 +365,7 @@ describe('cross-cutting', () => {
       await app.inject({ method: 'POST', url: route, payload });
     }
     // The pre-change thresholds route alone ran 2 sweeps x 2 options of Monte
-    // Carlo. Nine refusals must be trivially fast.
+    // Carlo. Ten refusals must be trivially fast.
     expect(Date.now() - t0).toBeLessThan(2000);
   });
 });

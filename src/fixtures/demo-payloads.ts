@@ -146,63 +146,6 @@ export function getDemoRunResponse(seed: number = 42): any {
 }
 
 /**
- * Demo /v1/counterfactual response
- */
-export function getDemoCounterfactualResponse(seed: number = 42): any {
-  const graph = getDemoPricingGraph();
-  
-  const model_card = buildModelCard({
-    seed,
-    assumptions: [
-      'Counterfactual intervention on price node',
-      'All else held constant (ceteris paribus)',
-      'No spillover effects',
-    ],
-    k_samples: 1000,
-    feature_flags: { DEMO_MODE: true },
-  });
-
-  const confidence = calculateConfidence({
-    graph,
-    identifiable: true,
-    in_linear_range: true,
-    k_samples: 1000,
-  });
-
-  const explain_delta = buildExplainDelta({
-    graph,
-    baseline_outcome: 11500,
-    counterfactual_outcome: 10200,
-    seed,
-    node_sensitivities: new Map([
-      ['price', -0.5],
-      ['demand', 0.4],
-      ['revenue', -0.55],
-    ]),
-    top_n: 3,
-  });
-
-  const doc = {
-    schema: 'counterfactual.v1',
-    intervention: {
-      node: 'price',
-      from_value: 129,
-      to_value: 99,
-    },
-    graph,
-    results: {
-      baseline: { revenue: 11500, ltv: 480 },
-      counterfactual: { revenue: 10200, ltv: 510 },
-      delta: { revenue: -1300, ltv: 30 },
-    },
-    model_card,
-    confidence,
-    explain_delta,
-  } as any;
-  return stampResponseHash(doc);
-}
-
-/**
  * Demo /v1/critique response
  */
 export function getDemoCritiqueResponse(seed: number = 42): any {

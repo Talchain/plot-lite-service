@@ -71,16 +71,23 @@ describe('Demo Mode - Deterministic Responses', () => {
       expect(data1.model_card.determinism_note).toBe(data2.model_card.determinism_note);
     });
 
-    it('returns deterministic sample for /v1/counterfactual', async () => {
+    // ROADMAP 2.105: /v1/counterfactual is WITHDRAWN, and demo mode does NOT
+    // bypass a withdrawal. A demo payload of a withdrawn capability is still a
+    // fabricated counterfactual — the demo twin hard-coded its own revenue/LTV
+    // figures behind the same model card and confidence badge as the live path,
+    // so serving it would keep the trap open behind `?demo=1`.
+    it('does NOT serve a demo sample for the WITHDRAWN /v1/counterfactual', async () => {
       const res = await fetch(`${BASE}/v1/counterfactual?demo=1`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ graph: { nodes: [], edges: [] }, intervention: {}, outcome_node: 'x' }),
       });
-      expect(res.status).toBe(200);
-      
+      expect(res.status).toBe(501);
+
       const data = await res.json();
-      expect(data.schema).toBe('counterfactual.v1');
+      expect(data.code).toBe('ANALYSIS_UNAVAILABLE');
+      expect(data.schema).toBe('error.v1');
+      expect(data.model_card).toBeUndefined();
     });
 
     it('returns deterministic sample for /v1/critique', async () => {

@@ -124,58 +124,60 @@ describe('v1 Routes - PLoT Engine v1', () => {
     });
   });
 
-  describe('POST /v1/counterfactual', () => {
-    it('requires intervention', async () => {
-      const graph = {
-        nodes: [{ id: 'n1', label: 'A' }],
-        edges: [],
-      };
-
-      const res = await fetch(`${BASE}/v1/counterfactual`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ graph }),
-      });
-      expect(res.status).toBe(400);
-    });
-
-    it('returns counterfactual with trust signals', async () => {
-      const graph = {
-        nodes: [
-          { id: 'treatment', label: 'Treatment' },
-          { id: 'outcome', label: 'Outcome' },
-        ],
-        edges: [
-          { from: 'treatment', to: 'outcome', weight: 0.7 },
-        ],
-      };
-
+  describe('POST /v1/counterfactual — WITHDRAWN (ROADMAP 2.105)', () => {
+    // This block used to assert a 400 for a missing intervention and a 200
+    // carrying `schema: 'counterfactual.v1'`, `model_card`, `confidence`,
+    // `explain_delta` and `results.{baseline,counterfactual,delta}`.
+    //
+    // Every one of those numbers was placeholder arithmetic
+    // (`from_value * 100` / `to_value * 95`, self-commented "Placeholder", with
+    // `graph` never read), and `model_card` + `confidence` were exactly what made
+    // it read as measured. So the old assertions PINNED THE FABRICATION — a
+    // green suite was evidence the trap still worked.
+    //
+    // The full refusal contract (envelope, unconditionality, telemetry, and the
+    // absence of every credibility field) is pinned in
+    // tests/analysis-routes.refusal.test.ts alongside the other nine withdrawn
+    // routes. What is kept here is the route-level statement an integrator sees.
+    it('refuses with 501 instead of returning a fabricated estimate', async () => {
       const res = await fetch(`${BASE}/v1/counterfactual`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          graph,
-          intervention: {
-            node_id: 'treatment',
-            from_value: 100,
-            to_value: 150,
+          graph: {
+            nodes: [
+              { id: 'treatment', label: 'Treatment' },
+              { id: 'outcome', label: 'Outcome' },
+            ],
+            edges: [{ from: 'treatment', to: 'outcome', weight: 0.7 }],
           },
+          intervention: { node_id: 'treatment', from_value: 100, to_value: 150 },
           outcome_node: 'outcome',
           seed: 456,
         }),
       });
-      expect(res.status).toBe(200);
-      
+      expect(res.status).toBe(501);
+
       const data = await res.json();
-      expect(data.schema).toBe('counterfactual.v1');
-      expect(data.model_card).toBeDefined();
-      expect(data.model_card.seed).toBe(456);
-      expect(data.confidence).toBeDefined();
-      expect(data.explain_delta).toBeDefined();
-      expect(data.results).toBeDefined();
-      expect(data.results.baseline).toBeDefined();
-      expect(data.results.counterfactual).toBeDefined();
-      expect(data.results.delta).toBeDefined();
+      expect(data.schema).toBe('error.v1');
+      expect(data.code).toBe('ANALYSIS_UNAVAILABLE');
+      expect(data.retryable).toBe(false);
+      // The fabricated surfaces must be gone, not merely unasserted.
+      expect(data.results).toBeUndefined();
+      expect(data.model_card).toBeUndefined();
+      expect(data.confidence).toBeUndefined();
+      expect(data.explain_delta).toBeUndefined();
+    });
+
+    it('refuses BEFORE validation — a missing intervention no longer yields 400', async () => {
+      // A 400 would imply a well-formed body would have been answered.
+      const res = await fetch(`${BASE}/v1/counterfactual`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ graph: { nodes: [{ id: 'n1', label: 'A' }], edges: [] } }),
+      });
+      expect(res.status).toBe(501);
+      expect((await res.json()).code).toBe('ANALYSIS_UNAVAILABLE');
     });
   });
 

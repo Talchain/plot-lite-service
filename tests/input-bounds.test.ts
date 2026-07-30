@@ -109,35 +109,16 @@ describe('Input Bounds Validation (Track B)', () => {
     });
   });
 
-  describe('/v1/counterfactual bounds', () => {
-    it('rejects intervention values outside [-1M, +1M]', async () => {
-      const validGraph = {
-        nodes: [
-          { id: 'a', label: 'A', type: 'decision' },
-          { id: 'b', label: 'B', type: 'outcome' },
-        ],
-        edges: [{ from: 'a', to: 'b' }],
-      };
-
-      const res = await fetch(`http://127.0.0.1:${port}/v1/counterfactual`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          graph: validGraph,
-          intervention: {
-            node_id: 'a',
-            from_value: 0,
-            to_value: 10000000, // 10M, exceeds 1M limit
-          },
-          outcome_node: 'b',
-        }),
-      });
-
-      // Should reject with 400 for out-of-range value
-      expect([400, 413]).toContain(res.status);
-    });
-
-    it('accepts valid intervention within bounds', async () => {
+  describe('/v1/counterfactual bounds — WITHDRAWN (ROADMAP 2.105)', () => {
+    // The two cases here asserted a 400/413 for an out-of-range intervention and
+    // a 200 for an in-range one. Both are now unreachable BY DESIGN: the route is
+    // withdrawn and refuses before validation runs, because no input is valid for
+    // a capability that does not exist and a 400 would imply a good body would
+    // have been answered. The Ajv schema was deleted with the route.
+    //
+    // Kept as a single case rather than deleted, so the bounds surface cannot be
+    // quietly resurrected without someone reading this.
+    it('refuses BOTH in-range and out-of-range interventions with the same 501', async () => {
       const validGraph = {
         nodes: [
           { id: 'price', label: 'Price', type: 'decision' },
@@ -145,25 +126,25 @@ describe('Input Bounds Validation (Track B)', () => {
         ],
         edges: [{ from: 'price', to: 'revenue' }],
       };
+      const post = (to_value: number) =>
+        fetch(`http://127.0.0.1:${port}/v1/counterfactual`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            graph: validGraph,
+            intervention: { node_id: 'price', from_value: 100, to_value },
+            outcome_node: 'revenue',
+            seed: 42,
+          }),
+        });
 
-      const res = await fetch(`http://127.0.0.1:${port}/v1/counterfactual`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          graph: validGraph,
-          intervention: {
-            node_id: 'price',
-            from_value: 100,
-            to_value: 120,
-          },
-          outcome_node: 'revenue',
-          seed: 42,
-        }),
-      });
+      const inRange = await post(120);
+      const outOfRange = await post(10000000); // 10M, formerly over the 1M bound
 
-      expect(res.status).toBe(200);
-      const data = await res.json();
-      expect(data.schema).toBe('counterfactual.v1');
+      expect(inRange.status).toBe(501);
+      expect(outOfRange.status).toBe(501);
+      expect((await inRange.json()).code).toBe('ANALYSIS_UNAVAILABLE');
+      expect((await outOfRange.json()).code).toBe('ANALYSIS_UNAVAILABLE');
     });
   });
 

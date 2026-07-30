@@ -43,6 +43,21 @@ export const FABRICATED_NUMERICS_REASON =
   'route published seed-derived numerics not computed from the request graph; see numerics science review 2026-07-26';
 
 /**
+ * Routes whose published estimate was PLACEHOLDER ARITHMETIC over the request
+ * inputs — no model was ever evaluated (`/v1/counterfactual`, ROADMAP 2.105).
+ *
+ * Distinct from FABRICATED_NUMERICS_REASON: those routes derived numbers from
+ * the seed and array position, so the output at least varied with something.
+ * Here the estimate was a fixed multiple of two request fields, with the graph
+ * never read — and it shipped under a model card asserting ceteris paribus and
+ * no spillover, plus a confidence badge built from hard-coded `identifiable`
+ * and `in_linear_range` literals. The numbers were placeholders; the
+ * credibility around them was not labelled as one.
+ */
+export const PLACEHOLDER_ESTIMATE_REASON =
+  'route published placeholder arithmetic over request inputs, not a computed estimate — no model was evaluated and the graph was never read; see ROADMAP 2.105';
+
+/**
  * Refuse, and record who asked.
  *
  * Instrumentation is the point of keeping the route mounted, so it happens

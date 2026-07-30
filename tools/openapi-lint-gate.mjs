@@ -66,7 +66,11 @@ try {
           },
           json: [
             { path: '/v1/run', method: 'post' },
-            { path: '/v1/counterfactual', method: 'post' },
+            // '/v1/counterfactual' removed 2026-07-30 (ROADMAP 2.105): the route is
+            // WITHDRAWN and answers a typed 501 unconditionally, before any
+            // rate-limit-relevant work, so a documented 429 would be a response it
+            // cannot produce. Same treatment as the other withdrawn routes
+            // ('/v1/score', '/v1/sensitivity'), which are likewise absent here.
             { path: '/v1/critique', method: 'post' },
             { path: '/v1/draft', method: 'post' },
           ],

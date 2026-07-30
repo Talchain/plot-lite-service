@@ -114,43 +114,19 @@ describe('Determinism - Same seed → Identical output', () => {
     });
   });
 
-  describe('/v1/counterfactual determinism', () => {
-    it('same seed produces identical results structure', async () => {
-      const seed = 7777;
-      const intervention = {
-        node_id: 'price',
-        from_value: 100,
-        to_value: 120,
-      };
-      
-      const res1 = await fetch(`${BASE}/v1/counterfactual`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          graph: testGraph, 
-          intervention,
-          outcome_node: 'revenue',
-          seed,
-        }),
-      });
-      const data1 = await res1.json();
-      
-      const res2 = await fetch(`${BASE}/v1/counterfactual`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          graph: testGraph, 
-          intervention,
-          outcome_node: 'revenue',
-          seed,
-        }),
-      });
-      const data2 = await res2.json();
-      
-      expect(data1.model_card.seed).toBe(data2.model_card.seed);
-      expect(data1.intervention).toEqual(data2.intervention);
-    });
-  });
+  // ROADMAP 2.105 — BLOCK REMOVED, and the reason is worth recording.
+  //
+  // This block asserted that /v1/counterfactual was deterministic across two
+  // identical requests. It passed, and it was meaningless: the route's output was
+  // `from_value * 100` / `to_value * 95` with the graph never read, so it was a
+  // CONSTANT FUNCTION OF THE INPUT. Determinism was guaranteed by the fabrication
+  // rather than by a seeded model — and the route's model card advertised exactly
+  // that guarantee ("Same seed guarantees identical output"), which is how a
+  // vacuous property came to read as evidence of a well-behaved simulation.
+  //
+  // A determinism test can only be meaningful where something non-deterministic
+  // could otherwise happen. The route is now WITHDRAWN (typed 501); its refusal
+  // contract is pinned in tests/analysis-routes.refusal.test.ts.
 
   describe('Determinism note in model_card', () => {
     it('includes seed in determinism_note', async () => {
