@@ -60,34 +60,87 @@ const ROUTES_DIR = path.resolve(
  * Derive the withdrawn-route registrations from source.
  *
  * RULE: a file that calls `refuseUnavailable(` IS a withdrawn route, and the
- * paths it withdraws are the string literals it registers with `app.post(`.
- * Both halves come from the code that actually runs, so a newly-added withdrawn
- * route is picked up with no list to update.
+ * paths it withdraws are the path literals it registers with `app.post(`. Both
+ * halves come from the code that actually runs, so a newly-added withdrawn route
+ * is picked up with no list to update.
  *
- * `readFileSync` + a regex rather than a TS parse is deliberate: the shape being
- * matched is a single-quoted literal in the first argument position, which is
- * enforced by the repo's own lint/format. A parser would add a dependency to
- * read one token. Note `refuse-unavailable.ts` itself mentions the paths in
- * prose only and registers nothing, so it is excluded by the `app.post` half
- * rather than by name.
+ * QUOTE-AGNOSTIC, and the reason is a correction to this file's own first
+ * version (adversarial review of #292, finding F1). That version matched only
+ * SINGLE-quoted literals and justified it as "enforced by the repo's own
+ * lint/format". **That justification was false in its load-bearing word.**
+ * Measured at the bytes: `eslint.config.js` has no quote rule at all, and while
+ * `.prettierrc.json` does exist and does set `"singleQuote": true`, neither
+ * `format` nor `format:check` runs in any CI workflow or in
+ * scripts/pre-push-validate.sh — so the preference is expressed and never
+ * enforced. A gate must not rest on a config that no gate runs; that is the
+ * guarantee-theatre shape this repo hunts in the product. Accepts `'`, `"` and
+ * backtick.
+ *
+ * A NON-LITERAL PATH IS A HARD FAIL, NOT A SKIP — the other half of F1. The
+ * original code `continue`d when it extracted nothing, which was the escape
+ * hatch for the helper module but ALSO silently swallowed a withdrawal
+ * registered with a variable or interpolated path: extract zero, skip the file,
+ * and every parity assertion below still passes green while the advertised drift
+ * class walks through. The two cases are now distinguished by whether the file
+ * registers anything at all: no `app.post(` means a helper module (skip);
+ * `app.post(` present but no literal extracted means a registration this
+ * scanner cannot read (RED, via `nonconforming`). `refuse-unavailable.ts`
+ * mentions the paths in prose and registers nothing, so it is still excluded by
+ * the `app.post` half rather than by name.
+ *
+ * `readFileSync` + regex rather than a TS parse keeps this dependency-free for
+ * what is two tokens per registration; the hard-fail above is what makes the
+ * regex's limits loud instead of silent.
  */
-function deriveRegisteredWithdrawnRoutes(): { routes: string[]; files: string[] } {
-  const routes: string[] = [];
+const POST_REGISTRATION =
+  /app\.post\(\s*(['"`])([^'"`]+)\1\s*,\s*([A-Za-z_$][\w$]*)?/g;
+
+interface Registration {
+  file: string;
+  route: string;
+  /** Whether the shared options const is the SECOND argument to app.post. */
+  hasSharedOptions: boolean;
+}
+
+function deriveRegisteredWithdrawnRoutes(): {
+  registrations: Registration[];
+  routes: string[];
+  files: string[];
+  /** Files that register a route this scanner could not read — never silent. */
+  nonconforming: string[];
+} {
+  const registrations: Registration[] = [];
   const files: string[] = [];
+  const nonconforming: string[] = [];
 
   for (const entry of readdirSync(ROUTES_DIR).sort()) {
     if (!entry.endsWith('.ts')) continue;
     const src = readFileSync(path.join(ROUTES_DIR, entry), 'utf8');
     if (!src.includes('refuseUnavailable(')) continue;
 
-    const registered = [...src.matchAll(/app\.post\(\s*'([^']+)'/g)].map((m) => m[1]!);
-    if (registered.length === 0) continue; // helper module, not a route
+    const found = [...src.matchAll(POST_REGISTRATION)].map((m) => ({
+      file: entry,
+      route: m[2]!,
+      hasSharedOptions: m[3] === 'WITHDRAWN_ROUTE_OPTIONS',
+    }));
+
+    if (found.length === 0) {
+      // No registration AT ALL -> helper module, legitimately skipped.
+      // A registration the scanner cannot parse -> loud failure, not a skip.
+      if (src.includes('app.post(')) nonconforming.push(entry);
+      continue;
+    }
 
     files.push(entry);
-    routes.push(...registered);
+    registrations.push(...found);
   }
 
-  return { routes, files };
+  return {
+    registrations,
+    routes: registrations.map((r) => r.route),
+    files,
+    nonconforming,
+  };
 }
 
 const derived = deriveRegisteredWithdrawnRoutes();
@@ -102,6 +155,14 @@ describe('withdrawn-route parity gate · the three lists cannot drift apart', ()
     // that cannot fail is the theatre this repo hunts in the product.
     expect(derived.files.length, 'no withdrawn-route source files were found').toBeGreaterThan(0);
     expect(derived.routes.length, 'no registrations were extracted').toBeGreaterThan(0);
+    // F1: a withdrawn route registered with a path this scanner cannot read
+    // (variable, interpolated template, computed) must RED here rather than be
+    // silently skipped — a skip would let the exact drift this gate advertises
+    // pass green.
+    expect(
+      derived.nonconforming,
+      'file registers a route with a non-literal path the scanner cannot read — it would be skipped, not checked',
+    ).toEqual([]);
     // One registration per file is the current shape; a file registering two
     // withdrawn paths is legitimate but should be noticed, not absorbed.
     expect(derived.routes.length).toBe(derived.files.length);
@@ -138,17 +199,30 @@ describe('withdrawn-route parity gate · the three lists cannot drift apart', ()
     expect(new Set(REFUSED_ROUTES).size).toBe(REFUSED_ROUTES.length);
   });
 
-  it('each derived route also declares the shared bodyLimit options object', () => {
+  it('each REGISTRATION passes the shared bodyLimit options object to app.post', () => {
     // The 2.165 bodyLimit fix used ONE shared const across ten registrations
     // precisely so it could not disagree with itself. This asserts a NEW
     // withdrawn route cannot be registered without it — the drift that would
     // otherwise silently reintroduce the 128KB server-wide default on a path
     // that reads no body.
-    for (const entry of derived.files) {
-      const src = readFileSync(path.join(ROUTES_DIR, entry), 'utf8');
-      expect(src, `${entry} registers a withdrawn route without WITHDRAWN_ROUTE_OPTIONS`).toContain(
-        'WITHDRAWN_ROUTE_OPTIONS',
-      );
+    //
+    // ⚠ WHAT THIS ASSERTION USED TO BE, AND WHY IT DID NOT TEST ITS OWN NAME
+    // (adversarial review of #292, finding F2). The first version ran
+    // `expect(fileBytes).toContain('WITHDRAWN_ROUTE_OPTIONS')` — a substring
+    // check over the WHOLE FILE, which the surviving IMPORT LINE satisfies on
+    // its own. Strip the options argument from `app.post` but keep the import
+    // and the gate passed 5/5; only the behavioural 413 test caught it. So the
+    // system caught the mutant, but this named assertion did not, and a claim
+    // that passes for the wrong reason is the thing this file exists to prevent.
+    //
+    // Now anchored to the call: `hasSharedOptions` is true only when the const
+    // is the token immediately following the path literal in `app.post(`, i.e.
+    // the second argument position, per registration rather than per file.
+    for (const reg of derived.registrations) {
+      expect(
+        reg.hasSharedOptions,
+        `${reg.file}: app.post('${reg.route}', …) does not pass WITHDRAWN_ROUTE_OPTIONS as its options argument`,
+      ).toBe(true);
     }
   });
 
@@ -160,10 +234,13 @@ describe('withdrawn-route parity gate · the three lists cannot drift apart', ()
     // test compares them.
     for (const entry of derived.files) {
       const src = readFileSync(path.join(ROUTES_DIR, entry), 'utf8');
-      const registered = [...src.matchAll(/app\.post\(\s*'([^']+)'/g)].map((m) => m[1]!);
+      // Quote-agnostic on both sides, for the F1 reason recorded on the deriver.
+      const registered = derived.registrations
+        .filter((r) => r.file === entry)
+        .map((r) => r.route);
       const reported = [
-        ...src.matchAll(/refuseUnavailable\(\s*req,\s*reply,\s*'([^']+)'/g),
-      ].map((m) => m[1]!);
+        ...src.matchAll(/refuseUnavailable\(\s*req,\s*reply,\s*(['"`])([^'"`]+)\1/g),
+      ].map((m) => m[2]!);
 
       expect(reported.length, `${entry}: no refuseUnavailable path literal found`).toBeGreaterThan(0);
       expect(
