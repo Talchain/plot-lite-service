@@ -82,6 +82,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { normaliseValue, denormaliseValue } from '../../src/lib/intervention-normaliser.js';
 import { sanitiseIslVoi } from '../../src/lib/evpi-emission.js';
+import { assessEnrichmentContract } from '../../src/routes/v2/enrichment-egress-guard.js';
 
 const N = Number.NaN, PI = Number.POSITIVE_INFINITY, NI = Number.NEGATIVE_INFINITY;
 
@@ -1094,40 +1095,47 @@ describe('absence gate §D3 · robust edges never fabricate switch_probability',
     });
   }
 
-  // ⚠ BLOCKED ON A CROSS-REPO CONTRACT CHANGE — NOT a doctrine question.
+  // ✅ UN-SKIPPED 2026-07-30 (ROADMAP 2.160). The cross-repo blocker is closed.
   //
-  // The string arm still fabricates `switch_probability: 1`. This lane made it
-  // omit, ran the authoritative gate, and MEASURED the consequence: every
-  // /v2/run response then fails its own egress contract, because
-  // @talchain/schemas (vendored 0.22.0) declares
-  // `EnrichmentRobustnessEdgeSchema.switch_probability: z.number()` REQUIRED
-  // for robust_edges as well as fragile_edges. The producer-side guard stamps
-  // `enrichment_contract_ok: false` and a user-visible
-  // ENRICHMENT_CONTRACT_MISMATCH warning on every response (4 issue paths on
-  // the golden fixture), and CEE shadow-validates the same body against the
-  // same schema.
+  // The predecessor lane left an exact close condition here: "relax the field in
+  // olumi-schemas to `z.number().optional()` … release, re-pin the vendored
+  // tarball, delete the fabrication in normalizeRobustEdge, un-skip. This test
+  // failing after that change is the signal the work landed."
   //
-  // Trading a wrong number for a standing false alarm on a fail-open guard is
-  // the broken-alarm trap, so the omission was reverted and the blocker
-  // reported instead of quietly fabricating OR quietly breaking the contract.
-  //
-  // TO UN-SKIP: relax the field in olumi-schemas to `z.number().optional()`
-  // (which is what PLoT's own NormalizedEdgeInfoV3 already publishes — the two
-  // contracts disagree TODAY, latently, for fragile_edges), release, re-pin the
-  // vendored tarball, delete the fabrication in normalizeRobustEdge, un-skip.
-  // This test failing after that change is the signal the work landed.
-  it.skip('string-format robust edges carry NO switch_probability (a string has no measurement) — BLOCKED: @talchain/schemas requires it', () => {
+  // All four steps are now done. olumi-schemas 0.28.0 relaxed
+  // `EnrichmentRobustnessEdgeSchema.switch_probability` to
+  // `z.number().optional()`, expressly citing plot-lite-service#278; this repo
+  // is re-pinned to the vendored 0.30.0 tarball; and the fabrication is deleted.
+  // So the omission below is now contract-legal and no longer trades a wrong
+  // number for a standing false alarm on the fail-open egress guard.
+  it('string-format robust edges carry NO switch_probability (a string has no measurement)', () => {
     const out = normalizeRobustEdges(['a->b', 'c::d']);
     expect(out.edges).toHaveLength(2);
     for (const e of out.edges) expect(e).not.toHaveProperty('switch_probability');
   });
 
-  it('the string-arm fabrication is PINNED as a known defect, so it cannot be forgotten or mistaken for a measurement', () => {
-    // This is deliberately an assertion about a value we consider WRONG. It
-    // exists so the fabrication is visible in the suite rather than silent, and
-    // so removing it (once the schema is relaxed) is a deliberate act.
+  it('the string arm no longer fabricates 1 — the OLD defect is asserted ABSENT, not merely unpinned', () => {
+    // The inverse of the assertion that used to live here (which pinned the
+    // fabricated `1` so it could not be forgotten). Keeping an explicit
+    // assertion — rather than just deleting the old one — is what stops the
+    // fabrication being reintroduced silently: `1` was the MAXIMUM of an
+    // inverted scale, i.e. absent data rendered as maximally fragile.
     const out = normalizeRobustEdges(['a->b']);
-    expect(out.edges[0].switch_probability, 'still fabricated — see the blocker above').toBe(1);
+    expect(out.edges[0].switch_probability).toBeUndefined();
+    expect(Object.keys(out.edges[0])).not.toContain('switch_probability');
+  });
+
+  it('omitting it keeps the response contract-legal — the reason the fix was blocked until 0.28.0', () => {
+    // The blocker was never doctrine, it was the schema: omission used to fail
+    // the egress contract on EVERY response. Prove that is no longer true, or
+    // this fix has merely moved the defect into the guard.
+    const out = normalizeRobustEdges(['a->b', 'c::d']);
+    const assessment = assessEnrichmentContract({
+      robustness: { robust_edges: out.edges },
+    });
+    expect(assessment.ok, 'omitted switch_probability must not violate the vendored envelope').toBe(
+      true,
+    );
   });
 
   it('POSITIVE CONTROL: a measured object-format switch_probability survives verbatim', () => {

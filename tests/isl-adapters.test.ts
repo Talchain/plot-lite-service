@@ -407,15 +407,17 @@ describe('Robustness Analysis Adapter', () => {
   });
 
   describe('normalizeRobustEdges', () => {
-    // ⚠ The `switch_probability: 1` asserted here is a KNOWN FABRICATION that
-    // this lane could not remove: @talchain/schemas (vendored 0.22.0) declares
-    // the field REQUIRED on robust_edges, so omitting it makes every /v2/run
-    // response fail its own egress contract. Full reasoning and the exact
-    // one-line schema change needed are on normalizeRobustEdge in
-    // src/integrations/isl/adapters/robustness-analysis.ts, and the blocked
-    // assertion is present-and-skipped in
-    // tests/gates/numeric-safety-deep-scan.test.ts §D3.
-    it('normalizes string format edges (switch_probability is FABRICATED — see blocker)', () => {
+    // ✅ The fabrication this block used to assert is GONE (ROADMAP 2.160,
+    // 2026-07-30). It previously pinned `switch_probability: 1` as a KNOWN
+    // FABRICATION that could not be removed, because @talchain/schemas up to
+    // 0.22.0 declared the field REQUIRED on robust_edges — omitting it made
+    // every /v2/run response fail its own egress contract. Schemas 0.28.0
+    // relaxed it to `z.number().optional()` (citing plot-lite-service#278) and
+    // this repo is now re-pinned to the vendored 0.30.0 tarball, so the honest
+    // omission is contract-legal. Reasoning lives on normalizeRobustEdge in
+    // src/integrations/isl/adapters/robustness-analysis.ts; the formerly-skipped
+    // gate case is now LIVE in tests/gates/numeric-safety-deep-scan.test.ts §D3.
+    it('normalizes string format edges and OMITS switch_probability (a string carries no measurement)', () => {
       const edges = ['a->b', 'c::d'];
 
       const result = normalizeRobustEdges(edges);
@@ -424,7 +426,10 @@ describe('Robustness Analysis Adapter', () => {
       expect(result.edges[0].edge_id).toBe('a->b');
       expect(result.edges[0].from_id).toBe('a');
       expect(result.edges[0].to_id).toBe('b');
-      expect(result.edges[0].switch_probability, 'fabricated, not measured').toBe(1);
+      // Absent, NOT 1. A `1` here was the maximum of an inverted scale — absent
+      // data rendered as maximally fragile.
+      expect(result.edges[0].switch_probability).toBeUndefined();
+      expect(result.edges[1].switch_probability).toBeUndefined();
     });
 
     it('handles object format edges (fallback)', () => {

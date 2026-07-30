@@ -25,11 +25,25 @@
  * and payload values are never logged. This matches CEE's shadow validator
  * (`v5.enrichment.schema_mismatch` — {path, code} only).
  *
- * The envelope (vendored @talchain/schemas 0.15.0, byte-identical to CEE's
- * 0.16.0 copy) is passthrough at every level with all root keys optional:
+ * The envelope (vendored @talchain/schemas — 0.30.0 at this tip, byte-identical
+ * to the tarball CEE and DGAI vendor; see vendor/README.md for the five-way
+ * derivation) is passthrough at every level with all root keys optional:
  * producer-ahead fields can never fail it; only type/enum corruption on the
  * typed keys can. So `ok: false` always means a REAL contract break, never
  * "PLoT moved ahead of the schema".
+ *
+ * ⚠ THE COROLLARY IS THE TRAP (ROADMAP 2.160). `.passthrough()` means a key the
+ * envelope does not TYPE is not validated at all — it is waved through, and this
+ * guard still stamps `enrichment_contract_ok: true`. That is not a hypothetical:
+ * up to 0.22.0 the envelope typed NONE of the four VOI keys
+ * (`correlation_model`, `decision_evpi`, `factor_evppi`, `p_win_sensitivity`)
+ * that `islEnrichmentPassthrough` forwards as top-level keys, so
+ * `decision_evpi: 'NOT-A-NUMBER'` parsed clean and this guard's own disclosure
+ * field asserted a validation that had never happened for them. 0.30.0 types all
+ * four. `tests/contract/voi-enrichment-typed.test.ts` now DERIVES the check —
+ * every key in `ISL_TOPLEVEL_ENRICHMENT_KEYS` must be a typed property of
+ * `AnalysisEnrichmentSchema.shape` — so adding a fifth forwarded key that the
+ * contract does not type fails LOUD instead of silently re-opening the hole.
  */
 
 import { AnalysisEnrichmentSchema } from '@talchain/schemas/boundary';

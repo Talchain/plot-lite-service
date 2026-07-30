@@ -185,10 +185,23 @@ export interface NormalizedEdgeInfo {
   /** Target node ID */
   to_id: string;
   /**
-   * Probability this edge causes recommendation to switch (0=fragile, 1=robust).
-   * OPTIONAL: omitted when the source (ISL fragile edge, or a legacy string edge)
-   * carries no switch_probability — absent ≠ 0 (a fabricated 0 fabricates both
-   * severity and the doctrine-013 `visible` flag downstream).
+   * Probability that flipping this edge switches the recommended option.
+   *
+   * ⚠ SCALE — HIGHER MEANS MORE FRAGILE. Corrected 2026-07-30: this comment
+   * previously read "(0=fragile, 1=robust)", which is the scale INVERTED, and
+   * that inverted reading is exactly how a fabricated `1` came to be described
+   * as "full stability" when it is in fact the maximum of the fragility scale.
+   * `classifyEdgeSeverity` (>0.7 critical, >0.5 error) and the doctrine-013
+   * `visible` gate are both monotonically INCREASING in this field, which is
+   * the authority for the direction. Matches `NormalizedEdgeInfoV3` in
+   * types/engine-v3.ts and `EnrichmentRobustnessEdgeSchema` in @talchain/schemas.
+   *
+   * OPTIONAL: omitted when the source (an ISL fragile edge, or a legacy
+   * "from->to" string edge) carries no switch_probability. Absent means NOT
+   * COMPUTED — never 0 and never 1. A fabricated 0 fabricates the safest
+   * possible verdict; a fabricated 1 the most alarming; either also fabricates
+   * severity and the doctrine-013 `visible` flag downstream. Branch on presence
+   * (`typeof x === 'number'`), never coalesce.
    */
   switch_probability?: number;
   /** Marginal probability of recommendation switch for this edge */
