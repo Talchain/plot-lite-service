@@ -1169,7 +1169,6 @@
         "edge_id": "fac_hiring_cost->risk_cost_burden",
         "from_id": "fac_hiring_cost",
         "to_id": "risk_cost_burden",
-        "switch_probability": 1,
         "from_label": "Hiring and Salary Cost",
         "to_label": "Salary and Overhead Cost Burden",
         "alternative_winner_id": null,
@@ -1179,7 +1178,6 @@
         "edge_id": "fac_team_maturity->risk_coordination",
         "from_id": "fac_team_maturity",
         "to_id": "risk_coordination",
-        "switch_probability": 1,
         "from_label": "Team Technical Maturity",
         "to_label": "Team Coordination Overhead",
         "alternative_winner_id": null,
@@ -1189,7 +1187,6 @@
         "edge_id": "risk_cost_burden->goal_productivity",
         "from_id": "risk_cost_burden",
         "to_id": "goal_productivity",
-        "switch_probability": 1,
         "from_label": "Salary and Overhead Cost Burden",
         "to_label": "Increase Team Productivity",
         "alternative_winner_id": null,
@@ -1199,7 +1196,6 @@
         "edge_id": "fac_team_maturity->out_throughput",
         "from_id": "fac_team_maturity",
         "to_id": "out_throughput",
-        "switch_probability": 1,
         "from_label": "Team Technical Maturity",
         "to_label": "Development Throughput",
         "alternative_winner_id": null,
@@ -1646,7 +1642,7 @@
     "decision_brief_assembled": true,
     "review_cards_count": 0,
     "evidence_priority_card_present": false,
-    "response_content_hash": "rch_v2:685c70b9bb0ec52d"
+    "response_content_hash": "rch_v2:58e58bd5f6821f80"
   },
   "meta": {
     "seed_used": "2034401427",

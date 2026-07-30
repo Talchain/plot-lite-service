@@ -80,14 +80,19 @@ describe('Edge Normalization in adaptRobustnessAnalysisResponse', () => {
     expect(robust1.edge_id).toBe('fac_quality->goal_revenue');
     expect(robust1.from_id).toBe('fac_quality');
     expect(robust1.to_id).toBe('goal_revenue');
-    expect(robust1.switch_probability).toBe(1); // Robust = full stability
+    // ROADMAP 2.160: switch_probability is OMITTED for string-format edges.
+    // This used to assert `1` with the comment "Robust = full stability" — which
+    // read the scale BACKWARDS. Higher switch_probability means MORE fragile, so
+    // `1` labelled these robust edges maximally fragile. A bare "from->to"
+    // string carries no measurement, and absent is the honest representation.
+    expect(robust1.switch_probability).toBeUndefined();
 
     // Double-colon format
     const robust2 = result.robust_edges[1];
     expect(robust2.edge_id).toBe('fac_market::goal_revenue');
     expect(robust2.from_id).toBe('fac_market');
     expect(robust2.to_id).toBe('goal_revenue');
-    expect(robust2.switch_probability).toBe(1);
+    expect(robust2.switch_probability).toBeUndefined();
   });
 
   it('handles missing robustness data gracefully', () => {

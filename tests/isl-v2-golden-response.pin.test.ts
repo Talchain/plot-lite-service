@@ -52,6 +52,27 @@
  * `response_hash`). The behavioural pin lives in
  * tests/facts-sensitivity-score-identity.fixture.test.ts; the assertion below
  * makes this regeneration non-silent.
+ *
+ * REGENERATED again for ROADMAP 2.160 (2026-07-30) — a FABRICATION REMOVAL.
+ * `normalizeRobustEdge` used to stamp `switch_probability: 1` onto every
+ * string-format robust edge. That value was never measured: a bare "from->to"
+ * string carries no probability, and `1` is the MAXIMUM of the fragility scale
+ * (higher = more fragile), so absent data was being rendered as maximally
+ * fragile. It could not be removed until now because @talchain/schemas declared
+ * the field REQUIRED up to 0.22.0; 0.28.0 relaxed it to `z.number().optional()`
+ * (citing plot-lite-service#278) and this repo is re-pinned to vendored 0.30.0.
+ *
+ * The regeneration changes EXACTLY 5 lines, and every one is accounted for:
+ *   - 4 × `"switch_probability": 1` REMOVED, one per robust edge in
+ *     `robustness.robust_edges[]` (the same 4 paths the earlier lane measured
+ *     when it attempted the omission and hit the schema wall)
+ *   - `_meta.response_content_hash` follows: rch_v2:685c70b9bb0ec52d →
+ *     rch_v2:58e58bd5f6821f80
+ * `_meta.response_hash` is UNCHANGED at 60e3ac213554be4f (it canonicalises the
+ * REQUEST), and nothing else in the body moved — verified by diffing the
+ * regenerated golden against the committed one (12 diff lines total, all above).
+ * The behavioural pins live in tests/gates/numeric-safety-deep-scan.test.ts §D3
+ * (previously skipped, now LIVE) and tests/isl-adapters.test.ts.
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
@@ -369,9 +390,13 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
     // flips, an "additive" slice has changed the UI freshness token.
     expect(rawBody.response_hash).toBe('60e3ac213554be4f');
     // `response_content_hash` hashes the public semantic surface and therefore
-    // SHOULD move — S1b changes which factor three crowns name, which is a
-    // CONTENT change by design. Re-pinned (was `rch_v2:67bdba00c5e65476` at
-    // S1) so the next content change is also forced to be deliberate.
-    expect(rawBody._meta.response_content_hash).toBe('rch_v2:685c70b9bb0ec52d');
+    // SHOULD move when that surface changes. Re-pinned each time so the next
+    // content change is also forced to be deliberate:
+    //   S1     rch_v2:67bdba00c5e65476
+    //   S1b    rch_v2:685c70b9bb0ec52d  (which factor three crowns name)
+    //   2.160  rch_v2:58e58bd5f6821f80  (4 fabricated switch_probability values
+    //                                    REMOVED from robust_edges — see the
+    //                                    regeneration note in the file header)
+    expect(rawBody._meta.response_content_hash).toBe('rch_v2:58e58bd5f6821f80');
   });
 });
