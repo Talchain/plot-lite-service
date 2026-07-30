@@ -78,9 +78,22 @@ export function normaliseCoachingInputs(
         zero_reason: f.zero_reason,
       }));
 
-  // Normalise fragile edges with human-readable labels
-  // Prefer switch_probability (UI field) with fallback to marginal_switch_probability
-  // Sort by switch probability descending (highest first) for reliable [0] access
+  // Normalise fragile edges with human-readable labels.
+  //
+  // switch_probability honesty (Codex P1-5, house pattern #292/#269): the
+  // schemas 0.30.0 contract says "Absence means NOT COMPUTED — never 0 and
+  // never 1 ... Consumers MUST branch on presence, never coalesce". This map
+  // previously did `switch_probability ?? marginal_switch_probability ?? 0` —
+  // aliasing a DIFFERENT ISL quantity (marginal = P(flip | only this edge
+  // varies), its own Monte Carlo) into the switch-probability slot
+  // (P(alternative wins | edge weak)) and fabricating the SAFEST possible
+  // verdict (0) for unmeasured edges. Now: switchProb is emitted ONLY when ISL
+  // measured switch_probability; absent propagates as absent, and every
+  // consumer branches on presence. If coaching ever wants the marginal signal,
+  // it needs its own field name and its own wording — never this slot.
+  //
+  // Sort: measured switchProb descending (highest first) for reliable [0]
+  // access; unmeasured edges sort LAST (no fabricated rank from a made-up 0).
   const fragileEdges: NormalisedFragileEdge[] = (
     islResult.robustness?.fragile_edges ?? []
   )
@@ -98,15 +111,24 @@ export function normaliseCoachingInputs(
         fromLabel,
         toLabel,
         displayLabel: `${fromLabel} → ${toLabel}`,
-        // Prefer switch_probability (aligned with UI) over marginal_switch_probability
-        switchProb: edge.switch_probability ?? edge.marginal_switch_probability ?? 0,
+        // ONLY a measured, finite switch_probability populates switchProb.
+        // No marginal alias, no `?? 0` — absence propagates as absence.
+        ...(typeof edge.switch_probability === 'number' && Number.isFinite(edge.switch_probability)
+          ? { switchProb: edge.switch_probability }
+          : {}),
         altWinnerId: edge.alternative_winner_id ?? null,
         altWinnerLabel: edge.alternative_winner_id
           ? options.find((o) => o.id === edge.alternative_winner_id)?.label ?? edge.alternative_winner_id
           : null,
       };
     })
-    .sort((a: NormalisedFragileEdge, b: NormalisedFragileEdge) => b.switchProb - a.switchProb);
+    .sort((a: NormalisedFragileEdge, b: NormalisedFragileEdge) => {
+      // Measured desc; unmeasured last (presence branch, not a coalesced 0 —
+      // -Infinity is an ordering sentinel only and never leaves this comparator).
+      const av = typeof a.switchProb === 'number' ? a.switchProb : Number.NEGATIVE_INFINITY;
+      const bv = typeof b.switchProb === 'number' ? b.switchProb : Number.NEGATIVE_INFINITY;
+      return bv - av;
+    });
 
   // Normalise options with ISL outcome data
   // Sort by win probability descending (highest first) for reliable [0] access

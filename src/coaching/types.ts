@@ -29,8 +29,14 @@ export interface NormalisedFragileEdge {
   fromLabel: string;           // Human-readable
   toLabel: string;             // Human-readable
   displayLabel: string;        // "{fromLabel} → {toLabel}"
-  /** Switch probability (prefers switch_probability, falls back to marginal_switch_probability) */
-  switchProb: number;
+  /**
+   * Measured ISL switch_probability ONLY (P(alternative wins | edge weak)).
+   * ABSENT means NOT COMPUTED — never 0, never an aliased
+   * marginal_switch_probability (a different quantity: P(flip | only this edge
+   * varies)). Per the schemas 0.30.0 contract, consumers MUST branch on
+   * presence and MUST omit anything derived from it when absent (Codex P1-5).
+   */
+  switchProb?: number;
   altWinnerId: string | null;
   altWinnerLabel: string | null;
 }
@@ -84,7 +90,7 @@ export interface FragileEdgeContext {
   edgeId: string;
   label: string;                // Human-readable "{fromLabel} → {toLabel}"
   altWinner: string;           // Winner label or ID
-  switchProb: number;          // 0-1
+  switchProb: number;          // 0-1 — MEASURED only: context is built solely from edges with a measured switchProb
   switchProbDisplay: string;   // "23%"
 }
 

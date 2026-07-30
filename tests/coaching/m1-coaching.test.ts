@@ -822,7 +822,7 @@ describe('Fragility Fallback Behavior', () => {
     expect(inputs.fragileEdges[0].switchProb).toBe(0.35);
   });
 
-  it('falls back to marginal_switch_probability when switch_probability is missing', () => {
+  it('does NOT alias marginal_switch_probability when switch_probability is missing (Codex P1-5: different quantity — absence stays absent)', () => {
     const graph = createMinimalGraph();
     const options = createMinimalOptions();
     const islResult = {
@@ -842,10 +842,10 @@ describe('Fragility Fallback Behavior', () => {
     };
 
     const inputs = normaliseCoachingInputs(graph, options, islResult);
-    expect(inputs.fragileEdges[0].switchProb).toBe(0.28);
+    expect(inputs.fragileEdges[0].switchProb).toBeUndefined();
   });
 
-  it('defaults to 0 when both probability fields are missing', () => {
+  it('leaves switchProb ABSENT when both probability fields are missing (Codex P1-5: never a fabricated 0)', () => {
     const graph = createMinimalGraph();
     const options = createMinimalOptions();
     const islResult = {
@@ -864,7 +864,7 @@ describe('Fragility Fallback Behavior', () => {
     };
 
     const inputs = normaliseCoachingInputs(graph, options, islResult);
-    expect(inputs.fragileEdges[0].switchProb).toBe(0);
+    expect(inputs.fragileEdges[0].switchProb).toBeUndefined();
   });
 
   it('sorts fragile edges by switchProb descending', () => {

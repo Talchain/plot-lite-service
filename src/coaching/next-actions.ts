@@ -70,19 +70,26 @@ export function generateNextActions(
     });
   }
 
-  // Priority 3: Fragile edges
+  // Priority 3: Fragile edges. Presence branch (Codex P1-5): the rendered
+  // "X% chance this flips the decision" claim requires a MEASURED
+  // switch_probability — an unmeasured edge must never surface a percentage
+  // (previously a coalesced marginal/0 could be rendered here under the
+  // switch-probability wording).
+  const topFragileEdge = context.topFragileEdge;
+  const topFragileSwitchProb = topFragileEdge?.switchProb;
   if (
-    context.topFragileEdge &&
-    context.topFragileEdge.switchProb > thresholds.action_fragile_edge_threshold &&
+    topFragileEdge &&
+    typeof topFragileSwitchProb === 'number' &&
+    topFragileSwitchProb > thresholds.action_fragile_edge_threshold &&
     actions.length < 3
   ) {
     actions.push({
       priority: 3,
-      action: `Validate the ${context.topFragileEdge.displayLabel} assumption`,
-      rationale: `${Math.round(context.topFragileEdge.switchProb * 100)}% chance this flips the decision to ${context.topFragileEdge.altWinnerLabel}`,
+      action: `Validate the ${topFragileEdge.displayLabel} assumption`,
+      rationale: `${Math.round(topFragileSwitchProb * 100)}% chance this flips the decision to ${topFragileEdge.altWinnerLabel}`,
       target_type: 'edge',
-      target_id: context.topFragileEdge.edgeId,
-      target_label: context.topFragileEdge.displayLabel,
+      target_id: topFragileEdge.edgeId,
+      target_label: topFragileEdge.displayLabel,
     });
   }
 

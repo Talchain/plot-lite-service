@@ -65,8 +65,14 @@ export function deriveReadinessTone(
     reasons.push('LOW_STABILITY');
   }
 
+  // Presence branch (Codex P1-5): only a MEASURED switchProb can establish a
+  // material fragile edge; unmeasured edges are silent here, never "0 = safe".
   const topFragile = pickTopFragile(fragileEdges);
-  if (topFragile !== undefined && topFragile.switchProb > thresholds.action_fragile_edge_threshold) {
+  if (
+    topFragile !== undefined &&
+    typeof topFragile.switchProb === 'number' &&
+    topFragile.switchProb > thresholds.action_fragile_edge_threshold
+  ) {
     reasons.push('MATERIAL_FRAGILE_EDGE');
   }
 
@@ -124,11 +130,14 @@ export function deriveReadinessTone(
 function pickTopFragile(
   fragileEdges: CoachingInputs['fragileEdges'],
 ): CoachingInputs['fragileEdges'][number] | undefined {
-  if (fragileEdges.length === 0) return undefined;
-  let top = fragileEdges[0];
-  for (let i = 1; i < fragileEdges.length; i++) {
-    const candidate = fragileEdges[i];
-    if (candidate !== undefined && top !== undefined && candidate.switchProb > top.switchProb) {
+  // Presence branch (Codex P1-5): only edges with a MEASURED switchProb
+  // compete for "top fragile" — an unmeasured edge has no rank, so it can
+  // never be picked (and previously, as a fabricated 0, could be picked only
+  // to silently fail the material-edge threshold above).
+  let top: CoachingInputs['fragileEdges'][number] | undefined;
+  for (const candidate of fragileEdges) {
+    if (typeof candidate.switchProb !== 'number') continue;
+    if (top === undefined || typeof top.switchProb !== 'number' || candidate.switchProb > top.switchProb) {
       top = candidate;
     }
   }
