@@ -73,7 +73,11 @@
 #
 # WHEN TO DELETE THIS FILE
 # Remove the corresponding entry when its path is deleted from the spec at the
-# end of the D-PLoT telemetry window. If all three go, delete the whole file.
+# end of the D-PLoT telemetry window. If all FOUR go, delete the whole file.
+# (Said "all three" until 2026-07-30; /v1/counterfactual made it four and this
+# line was missed in that change — caught on adversarial review. A count written
+# in prose beside a list is a hand-maintained mirror of the list: if you add a
+# fifth pointer below, this sentence is the second thing to update.)
 #
 # Maintained by hand. Do NOT regenerate with `redocly lint --generate-ignore-file`:
 # that would silently absorb the 37 pre-existing `security-defined` errors too,
