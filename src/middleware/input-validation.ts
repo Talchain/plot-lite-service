@@ -56,7 +56,6 @@ async function clearInflightKey(req: any) {
 
 // Lazy-initialized Ajv validators
 let validateRun: any;
-let validateCounterfactual: any;
 let validateCritique: any;
 let validateDraft: any;
 let validateDiff: any;
@@ -164,29 +163,6 @@ const runRequestSchema = {
   },
 };
 
-// /v1/counterfactual request schema
-const counterfactualRequestSchema = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['graph', 'intervention', 'outcome_node'],
-  properties: {
-    graph: graphSchema,
-    intervention: {
-      type: 'object',
-      additionalProperties: false,
-      required: ['node_id', 'from_value', 'to_value'],
-      properties: {
-        node_id: { type: 'string', maxLength: 100 },
-        from_value: { type: 'number', minimum: -1000000, maximum: 1000000 },
-        to_value: { type: 'number', minimum: -1000000, maximum: 1000000 },
-      },
-    },
-    outcome_node: { type: 'string', maxLength: 100 },
-    seed: { type: 'integer', minimum: 0, maximum: 2147483647 },
-    k_samples: { type: 'integer', minimum: 100, maximum: 10000 },
-  },
-};
-
 // /v1/critique request schema
 const critiqueRequestSchema = {
   type: 'object',
@@ -237,7 +213,6 @@ async function initValidators() {
   const ajv = new AjvCtor({ allErrors: true, strict: false, useDefaults: true, coerceTypes: true });
 
   validateRun = ajv.compile(runRequestSchema);
-  validateCounterfactual = ajv.compile(counterfactualRequestSchema);
   validateCritique = ajv.compile(critiqueRequestSchema);
   validateDraft = ajv.compile(draftRequestSchema);
   validateDiff = ajv.compile(diffRequestSchema);
@@ -433,7 +408,7 @@ function checkUIFields(body: any): string | null {
 /**
  * Validation middleware factory
  */
-export function createValidator(route: 'run' | 'counterfactual' | 'critique' | 'draft' | 'diff') {
+export function createValidator(route: 'run' | 'critique' | 'draft' | 'diff') {
   return async function validationHandler(req: FastifyRequest, _reply: FastifyReply) {
     // Initialize validators on first use
     await initValidators();
@@ -446,10 +421,6 @@ export function createValidator(route: 'run' | 'counterfactual' | 'critique' | '
       case 'run':
         validator = validateRun;
         allowedKeys = new Set(['graph','seed','k_samples','treatment_node','outcome_node','baseline_value','inputs','query','constraints','inference_mode','include_debug','priors','evidence','targets','detail_level','goal_node','goal_threshold']);
-        break;
-      case 'counterfactual':
-        validator = validateCounterfactual;
-        allowedKeys = new Set(['graph','intervention','outcome_node','seed','k_samples']);
         break;
       case 'critique':
         validator = validateCritique;

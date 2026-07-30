@@ -19,32 +19,24 @@ All quarantined tests have been reviewed and deemed **non-blocking** for product
 
 ## Quarantined Test Suites
 
-### 1. Counterfactual Zero Baseline
-**File:** [`tests/counterfactual.zero-baseline.quarantined.test.ts`](../tests/counterfactual.zero-baseline.quarantined.test.ts)
-**Status:** ⚠️ Quarantined (Non-blocking)
-**Owner:** TODO - numeric stability review
+### 1. Counterfactual Zero Baseline — ✅ RESOLVED BY WITHDRAWAL (2026-07-30)
 
-**Reason:**
-Edge case - very small baseline (1e-12) produces large percentage instead of null
+**Status:** Closed. Both files deleted: `tests/counterfactual.zero-baseline.quarantined.test.ts`
+and `tests/counterfactual.zero-baseline.test.ts`.
 
-**Impact:**
-Non-blocking - numeric precision edge case, doesn't affect typical use cases (baselines > 1e-6)
+**Why it is closed rather than fixed.** The quarantine was about an epsilon threshold for a
+near-zero baseline in the `percentage_change` calculation. That calculation has been deleted along
+with the rest of `/v1/counterfactual`, which was WITHDRAWN as a fabrication trap under ROADMAP
+2.105: its `baseline` and `counterfactual` values were `intervention.from_value * 100` and
+`intervention.to_value * 95` — placeholder arithmetic, self-commented as such, with the graph never
+read. There was no measured baseline to be near zero.
 
-**Re-enable Criteria:**
-- Add epsilon threshold for near-zero detection (e.g., `|value| < 1e-10 → treat as zero`)
-- Document acceptable precision limits in API docs
-- Add validation to reject baselines < 1e-10
+Note what the quarantine implied but no one checked: a "numeric precision edge case" framing treats
+the surrounding number as real. The precision of a placeholder is not a numeric-stability question.
 
-**Recommended Fix:**
-```typescript
-// In counterfactual handler:
-if (Math.abs(intervention.from_value) < 1e-10) {
-  return {
-    percentage_change: null,
-    warning: 'baseline value too close to zero for meaningful percentage calculation'
-  };
-}
-```
+The route now answers a typed 501; its contract is pinned in
+`tests/analysis-routes.refusal.test.ts`. **Nothing is owed here** — do not re-add an epsilon
+threshold to a withdrawn capability.
 
 ---
 
@@ -178,10 +170,11 @@ export function bayesBall(
 
 ## Individual Skipped Tests
 
-### 6. Counterfactual: from_value Very Close to 0
-**File:** [`tests/counterfactual.zero-baseline.test.ts:77`](../tests/counterfactual.zero-baseline.test.ts#L77)
-**Reason:** Same numeric precision issue as #1 above
-**Re-enable:** When epsilon threshold is added
+### 6. Counterfactual: from_value Very Close to 0 — ✅ RESOLVED BY WITHDRAWAL (2026-07-30)
+
+**File:** deleted (`tests/counterfactual.zero-baseline.test.ts`)
+**Disposition:** closed with entry #1 above — `/v1/counterfactual` was withdrawn (ROADMAP 2.105)
+and the `percentage_change` calculation this pinned no longer exists.
 
 ---
 

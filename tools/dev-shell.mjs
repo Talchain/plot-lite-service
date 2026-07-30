@@ -82,7 +82,7 @@ function printEndpoints() {
   console.log(`   • GET  ${baseUrl}/v1/health`);
   console.log(`   • GET  ${baseUrl}/v1/version`);
   console.log(`   • POST ${baseUrl}/v1/run`);
-  console.log(`   • POST ${baseUrl}/v1/counterfactual`);
+  console.log(`   • POST ${baseUrl}/v1/counterfactual   [WITHDRAWN — returns 501]`);
   console.log(`   • POST ${baseUrl}/v1/critique`);
   console.log(`   • POST ${baseUrl}/v1/draft`);
   console.log('');

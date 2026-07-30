@@ -1014,77 +1014,85 @@ paths:
 
   /v1/counterfactual:
     post:
-      summary: Counterfactual analysis
+      summary: Counterfactual analysis (WITHDRAWN)
+      description: |
+        **Withdrawn 2026-07-30. This endpoint returns 501 and computes nothing.**
+
+        Ruled a fabrication trap (ROADMAP 2.105) and verified at the bytes before
+        withdrawal. The published estimate was placeholder arithmetic over two
+        request fields — `intervention.from_value * 100` and
+        `intervention.to_value * 95`, both self-commented `// Placeholder` in the
+        handler — with `graph` never read and neither `seed` nor `k_samples`
+        entering the numbers. No causal model was ever evaluated.
+
+        What made it worse than a merely vacuous route is that everything around
+        the number was real machinery: a model card asserting "All else held
+        constant (ceteris paribus)" and "No spillover effects"; a confidence badge
+        computed from hard-coded `identifiable: true` / `in_linear_range: true`
+        literals, which pinned it near its ceiling on every path; a determinism
+        stamp that held only because the output was a constant function of the
+        input; and `explain_delta` driver attributions computed over the
+        placeholder values. A caller had no way to detect any of it.
+
+        The live counterfactual capability is CEE/UI to ISL directly
+        (`/api/v1/causal/counterfactual/conformal`); this route was never part of
+        that path, and nothing was consuming it.
+
+        The path stays mounted rather than returning 404 so caller telemetry can
+        establish who was relying on it — which matters here because the reference
+        sweep that cleared it was repo-scoped and could not rule out an external
+        caller by inspection. Per-route caller counts are published on `/health`
+        and `/v1/health` under `route_callers`.
       operationId: counterfactual
       tags: [v1, inference]
-      description: |
-        Perform counterfactual intervention with trust signals.
-        Demo mode: `?demo=1` short-circuits validation and returns a canonical deterministic sample.
-      parameters:
-        - name: demo
-          in: query
-          required: false
-          schema: { type: integer, enum: [0, 1] }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/counterfactualRequest'
+      deprecated: true
       responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/counterfactualResponse'
-        '400':
-          description: Bad input or not identifiable
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/errorV1'
-              examples:
-                bad_input:
-                  value:
-                    schema: error.v1
-                    code: BAD_INPUT
-                    message: 'Missing required field: graph'
-        '429':
-          description: Too many requests (per-minute limit)
-          headers:
-            Retry-After:
-              description: Seconds to wait before retrying
-              schema: { type: integer, minimum: 0 }
-            X-RateLimit-Reset:
-              description: Unix epoch seconds when the window resets
-              schema: { type: string }
-            X-RateLimit-Reason:
-              description: Reason for rate limit decision
-              schema: { type: string, enum: [per_ip] }
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/errorV1'
-              examples:
-                rate_limited:
-                  value:
-                    schema: error.v1
-                    code: RATE_LIMITED
-                    message: Too many requests
         '401':
-          description: Unauthorized
+          description: |
+            Missing bearer token. The /v1/* auth guard runs as a preHandler,
+            BEFORE this route's handler, so this outcome is reachable on a
+            withdrawn path exactly as on a live one. Carries
+            `WWW-Authenticate: Bearer`.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/errorV1'
+              examples:
+                unauthorized:
+                  value:
+                    schema: error.v1
+                    code: UNAUTHORIZED
+                    message: Missing bearer token
         '403':
-          description: Forbidden
+          description: |
+            Invalid bearer token. Also produced by the preHandler auth guard,
+            before the handler is reached.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/errorV1'
-  
+              examples:
+                forbidden:
+                  value:
+                    schema: error.v1
+                    code: FORBIDDEN
+                    message: Invalid token
+        '501':
+          description: Capability withdrawn — no counterfactual is computed for any input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                withdrawn:
+                  value:
+                    schema: error.v1
+                    code: ANALYSIS_UNAVAILABLE
+                    message: "/v1/counterfactual has been withdrawn: route published placeholder arithmetic over request inputs, not a computed estimate — no model was evaluated and the graph was never read; see ROADMAP 2.105"
+                    reason: route published placeholder arithmetic over request inputs, not a computed estimate — no model was evaluated and the graph was never read; see ROADMAP 2.105
+                    retryable: false
+
+
   /v1/critique:
     post:
       summary: Model critique with fix suggestions
@@ -5369,51 +5377,6 @@ components:
           enum: [isl, engine_fallback]
           description: 'Source of the result'
 
-    counterfactualRequest:
-      type: object
-      required: [graph, intervention, outcome_node]
-      properties:
-        graph: { $ref: '#/components/schemas/graph' }
-        intervention:
-          type: object
-          required: [node_id, from_value, to_value]
-          properties:
-            node_id: { type: string, maxLength: 100 }
-            from_value: { type: number, minimum: -1000000, maximum: 1000000 }
-            to_value: { type: number, minimum: -1000000, maximum: 1000000 }
-        outcome_node: { type: string, maxLength: 100 }
-        seed: { type: integer, default: 42, minimum: 0, maximum: 2147483647 }
-        k_samples: { type: integer, default: 1000, minimum: 100, maximum: 10000 }
-    
-    counterfactualResponse:
-      type: object
-      required: [schema, intervention, graph, results, model_card, confidence]
-      properties:
-        schema: { type: string, enum: [counterfactual.v1] }
-        intervention: { type: object }
-        graph: { $ref: '#/components/schemas/graph' }
-        results:
-          type: object
-          description: 'Results with baseline, counterfactual, delta, and percentage_change (null if baseline is zero)'
-          properties:
-            baseline: { type: object }
-            counterfactual: { type: object }
-            delta: { type: object }
-            percentage_change:
-              type: string
-              nullable: true
-              description: 'Percentage change string (nullable when baseline is zero)'
-        model_card: { $ref: '#/components/schemas/modelCard' }
-        confidence: { $ref: '#/components/schemas/confidenceBadge' }
-        explain_delta: { $ref: '#/components/schemas/explainDelta' }
-        identifiability: { type: string }
-        adjustment_set: 
-          type: array
-          items: { type: string }
-        trace_id:
-          type: string
-          description: 'Optional client-provided trace identifier echoed from X-Trace-Id when TRACE_ID_PASSTHROUGH=1'
-    
     critiqueRequest:
       type: object
       required: [graph]

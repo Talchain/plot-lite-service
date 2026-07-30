@@ -80,12 +80,20 @@ const MAX_KEY_ID_LEN = 24;
  * snapshot because "did anyone call these?" is the question the removal
  * decision turns on.
  *
- * Two distinct findings, one disposition:
+ * THREE distinct findings, one disposition:
  *   - the seven `/v1/analysis/*` routes ruled VACUOUS by the authenticity
  *     matrix of 2026-07-26 (no option-discriminating output);
  *   - `/v1/sensitivity` and `/v1/score`, ruled FABRICATING by the numerics
  *     science review of the same date (numbers derived from the seed and array
- *     index, stamped `inference_mode: 'model_based'`).
+ *     index, stamped `inference_mode: 'model_based'`);
+ *   - `/v1/counterfactual`, withdrawn 2026-07-30 (ROADMAP 2.105): its estimate
+ *     was placeholder arithmetic over two request fields
+ *     (`from_value * 100` / `to_value * 95`, self-commented "Placeholder") with
+ *     the graph never read, shipped behind a model card asserting ceteris
+ *     paribus and a confidence badge built from hard-coded `identifiable` /
+ *     `in_linear_range` literals. Telemetry matters most on THIS one: the
+ *     reference sweep that cleared it was repo-scoped, so an external caller
+ *     could not be ruled out by inspection.
  */
 export const REFUSED_ROUTES = [
   '/v1/analysis/dominance',
@@ -95,6 +103,7 @@ export const REFUSED_ROUTES = [
   '/v1/analysis/thresholds',
   '/v1/analysis/conditional-recommend',
   '/v1/analysis/optimise',
+  '/v1/counterfactual',
   '/v1/sensitivity',
   '/v1/score',
 ] as const;

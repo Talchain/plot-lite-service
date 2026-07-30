@@ -48,11 +48,15 @@ describe('v1 demo short-circuit', () => {
     expect(body?.model_card?.response_hash).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it('/v1/counterfactual?demo=1 returns contract-true demo', async () => {
+  // ROADMAP 2.105: the demo short-circuit was REMOVED from /v1/counterfactual
+  // along with the route's compute. The refusal is unconditional and precedes
+  // both validation and demo handling, so `?demo=1` cannot reopen the trap.
+  it('/v1/counterfactual?demo=1 refuses — demo does not bypass a WITHDRAWN route', async () => {
     const res = await app.inject({ method: 'POST', url: '/v1/counterfactual?demo=1' });
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode).toBe(501);
     const body: any = res.json();
-    expect(body.schema).toBe('counterfactual.v1');
-    expect(body?.model_card?.response_hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(body.schema).toBe('error.v1');
+    expect(body.code).toBe('ANALYSIS_UNAVAILABLE');
+    expect(body.model_card).toBeUndefined();
   });
 });

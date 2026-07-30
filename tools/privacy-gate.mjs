@@ -136,7 +136,15 @@ async function runtimeCheck() {
     return { violations: ['engine failed to start'], events: 0, skipped: false };
   }
 
-  // Exercise one happy path per route (demo allowed)
+  // Exercise one path per route (demo allowed).
+  //
+  // /v1/counterfactual is WITHDRAWN (typed 501, ROADMAP 2.105), so its entry is
+  // no longer a happy path — it is DELIBERATELY RETAINED anyway, because the
+  // refusal emits an `analysis_unavailable` log line carrying `caller_class`
+  // (one-way key digest | origin | user-agent). That is privacy-relevant log
+  // surface that did not exist before, so it is exactly what this sweep should
+  // cover. Dropping the probe would have removed the route from the sweep at the
+  // moment it started logging caller identity.
   const requests = [
     fetch(`${BASE}/v1/health`),
     fetch(`${BASE}/v1/version`),

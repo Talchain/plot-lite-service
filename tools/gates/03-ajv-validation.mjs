@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 /**
  * Phase 3: Ajv runtime validation
- * - Attach schemas to /v1/run, /v1/counterfactual, /v1/critique
+ * - Attach schemas to /v1/run, /v1/critique
+ *   (/v1/counterfactual was WITHDRAWN — typed 501, ROADMAP 2.105 — and refuses
+ *    before validation, so it has no request schema)
  * - Enforce bounds on all numeric fields
  * - Return BAD_INPUT envelope on violation
  * - 12 bounds tests must PASS
