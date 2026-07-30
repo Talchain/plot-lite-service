@@ -3,11 +3,17 @@
 # This file exists for exactly one reason, and it is deliberately tiny.
 #
 # THE RULE IS NOT DISABLED. `operation-2xx-response` stays fully armed for every
-# other operation in the spec; only the three JSON pointers below are excepted,
-# by name. If a fourth operation ever loses its success response, Redocly will
+# other operation in the spec; only the four JSON pointers below are excepted,
+# by name. If a fifth operation ever loses its success response, Redocly will
 # still fail — which is the behaviour we want to keep.
 #
-# WHY THESE THREE
+# THAT GUARANTEE WAS EXERCISED, 2026-07-30. The note above used to say "if a
+# FOURTH operation ever loses its success response, Redocly will still fail".
+# /v1/counterfactual became that fourth operation, and Redocly DID fail — the
+# warning surfaced on the PR, per-pointer and un-absorbed, exactly as designed.
+# The entry below was added deliberately in response, not pre-emptively.
+#
+# WHY THESE FOUR
 #
 # /v1/analysis/optimise, /v1/sensitivity and /v1/score were WITHDRAWN on
 # 2026-07-26. They return HTTP 501 ANALYSIS_UNAVAILABLE for every input, always.
@@ -23,6 +29,18 @@
 #   - /v1/score              ruled fabricating — utilities were a function of
 #     the seed and the node's ARRAY INDEX; two options with identical weights
 #     swapped positions and the published ranking flipped.
+#   - /v1/counterfactual     WITHDRAWN 2026-07-30 (ROADMAP 2.105), ruled a
+#     FABRICATION TRAP — the published estimate was placeholder arithmetic over
+#     two request fields (`intervention.from_value * 100` and
+#     `intervention.to_value * 95`, both self-commented "Placeholder"), with the
+#     graph never read and neither seed nor k_samples entering the numbers. It is
+#     the worst of the four because the number shipped inside FOUR layers of real
+#     machinery: a model card asserting ceteris paribus and no spillover, a
+#     confidence badge computed from hard-coded `identifiable: true` /
+#     `in_linear_range: true` literals (so pinned near its ceiling on every
+#     path), a determinism stamp that held only because the output was a constant
+#     function of the input, and explain_delta attributions computed over the
+#     placeholder values.
 #
 # So `operation-2xx-response` is asking these operations to document a success
 # they can never produce. Declaring a 2XX purely to satisfy the linter would put
@@ -45,6 +63,14 @@
 # 501), and an undocumented-but-real response is a smaller fault than a
 # documented-but-unverified one.
 #
+# That reasoning is why /v1/counterfactual was also REMOVED from the 429-header
+# requirement list in tools/openapi-lint-gate.mjs when it was withdrawn: that
+# gate demanded a documented 429 with Retry-After / X-RateLimit-Reset /
+# X-RateLimit-Reason, which for an unconditionally-refusing route would have been
+# a documented-but-unverified response. The other three withdrawn routes were
+# never in that list, so removing it restores consistency rather than creating an
+# exception.
+#
 # WHEN TO DELETE THIS FILE
 # Remove the corresponding entry when its path is deleted from the spec at the
 # end of the D-PLoT telemetry window. If all three go, delete the whole file.
@@ -58,3 +84,4 @@ contracts/openapi.yaml:
     - '#/paths/~1v1~1analysis~1optimise/post/responses'
     - '#/paths/~1v1~1sensitivity/post/responses'
     - '#/paths/~1v1~1score/post/responses'
+    - '#/paths/~1v1~1counterfactual/post/responses'
