@@ -57,21 +57,73 @@ export interface ISLCritique {
 }
 
 /**
+ * Parse an RFC 7231 `Retry-After` header into milliseconds.
+ *
+ * ROADMAP 2.202. ISL's compute governor answers `caller_concurrency_exceeded`
+ * with a 429 and a `Retry-After` hint (`RETRY_AFTER_SECONDS = 5`), and PLoT
+ * discarded it entirely — `ISLHttpError` captured status/body/endpoint/islError
+ * and no headers at all. The one piece of actionable guidance ISL emits never
+ * reached the retry decision, so a retry could only ever guess.
+ *
+ * Both wire forms are accepted:
+ *   • delta-seconds — `Retry-After: 5`      → 5_000
+ *   • HTTP-date     — `Retry-After: <date>` → max(0, date − now)
+ *
+ * Returns `undefined` for absent, blank, or unparseable values, so the caller
+ * falls back to its own exponential backoff rather than to a fabricated delay.
+ * A past HTTP-date clamps to 0 (retry immediately), never negative.
+ */
+export function parseRetryAfterMs(
+  raw: string | null | undefined,
+  nowMs: number = Date.now(),
+): number | undefined {
+  if (raw === null || raw === undefined) return undefined;
+  const value = raw.trim();
+  if (value === '') return undefined;
+
+  // delta-seconds: a bare non-negative integer.
+  if (/^\d+$/.test(value)) {
+    const seconds = Number(value);
+    return Number.isFinite(seconds) ? seconds * 1_000 : undefined;
+  }
+
+  // Any OTHER bare numeric form (`-5`, `+5`, `1.5`) is valid in neither wire
+  // form. It must be rejected explicitly: `Date.parse('-5')` succeeds — it reads
+  // the string as a YEAR — so falling through to the date branch would turn a
+  // malformed header into a multi-millennium delay.
+  if (/^[+-]?\d*\.?\d+$/.test(value)) return undefined;
+
+  // HTTP-date.
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) return undefined;
+  return Math.max(0, parsed - nowMs);
+}
+
+/**
  * HTTP error from ISL service
  */
 export class ISLHttpError extends Error {
   /** Structured 422 error (if available) */
   public islError?: ISLError422;
 
+  /**
+   * ROADMAP 2.202 — `Retry-After` from the response, in ms, when ISL sent one
+   * (see {@link parseRetryAfterMs}). `undefined` = no usable hint; the retry
+   * decision then falls back to PLoT's own exponential backoff.
+   */
+  public retryAfterMs?: number;
+
   constructor(
     public status: number,
     public body: string,
     public endpoint: string,
-    islError?: ISLError422
+    islError?: ISLError422,
+    retryAfterMs?: number
   ) {
     super(`ISL request to ${endpoint} failed with status ${status}`);
     this.name = 'ISLHttpError';
     this.islError = islError;
+    this.retryAfterMs = retryAfterMs;
   }
 
   /**
@@ -179,6 +231,34 @@ export class ISLNetworkError extends Error {
   ) {
     super(`ISL request to ${endpoint} failed due to network error: ${cause?.message ?? 'unknown'}`);
     this.name = 'ISLNetworkError';
+  }
+}
+
+/**
+ * A PLoT-side failure that happened AFTER ISL returned a 2xx — unparseable body,
+ * hashing/bookkeeping failure, etc.
+ *
+ * ROADMAP 2.202, review item C. The client's catch wraps any unrecognised error
+ * as an {@link ISLNetworkError}, which `isRetryableError` reports as RETRYABLE.
+ * That was harmless while the base call was clamped to a single attempt, but
+ * 2.202 makes retries reachable — so without this class a failure occurring
+ * after ISL had already COMPUTED the analysis would re-issue the whole
+ * analysis, multiplying load on the very governor whose contention this change
+ * exists to survive.
+ *
+ * ISL did its job; the fault is on our side of the wire and re-running the
+ * computation cannot fix it. Deliberately absent from `isRetryableError`, so it
+ * is NOT retryable.
+ */
+export class ISLResponseProcessingError extends Error {
+  constructor(
+    public endpoint: string,
+    public cause?: Error
+  ) {
+    super(
+      `ISL response from ${endpoint} could not be processed: ${cause?.message ?? 'unknown'}`,
+    );
+    this.name = 'ISLResponseProcessingError';
   }
 }
 

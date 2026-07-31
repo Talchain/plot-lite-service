@@ -6083,31 +6083,47 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             Math.max(BASE_CALL_MIN_TIMEOUT_MS, Math.floor(baseCallRemainingMs - baseCallSafetyMarginMs)),
           );
           const configuredMaxRetries = Math.max(1, getISLClientConfig().maxRetries);
-          // Largest attempt count whose HONEST worst case (attempts × per-attempt
-          // + the 1s+2s… backoff the client sleeps between them) still fits the
-          // remaining budget — never < 1, never > the configured cap. The prior
-          // `floor(remaining / timeout)` counted bare timeout slices and omitted
-          // the backoff; worstCaseMs is the single source now shared with the
-          // telemetry below, the startup budget warn, and their tests. At the 70s
-          // default this still resolves to 1 attempt (no behaviour change) — it
-          // only stops the accounting from lying.
-          let baseCallMaxRetries = 1;
-          while (
-            baseCallMaxRetries < configuredMaxRetries &&
-            worstCaseMs(baseCallMaxRetries + 1, baseCallTimeoutMs) <= baseCallRemainingMs
-          ) {
-            baseCallMaxRetries++;
-          }
-          if (baseCallTimeoutMs < ISL_TIMEOUT_MS || baseCallMaxRetries < configuredMaxRetries) {
+          // ROADMAP 2.202 — THE ATTEMPT COUNT IS NO LONGER FIXED UP FRONT.
+          //
+          // This used to pick the largest attempt count whose HONEST worst case
+          // (attempts × per-attempt + the 1s+2s… backoff) fitted the remaining
+          // budget. That arithmetic is correct and the comment here conceded its
+          // outcome: "at the 70s default this still resolves to 1 attempt". One
+          // attempt means ZERO retries — so when ISL's compute governor rejected
+          // a 3rd concurrent analysis with a 429 that returned in **133 ms**,
+          // PLoT emitted a typed-failure envelope with **~69.8 s of the budget
+          // unspent**, and CEE mapped it to the HTTP 500 the tester saw.
+          //
+          // The flaw was DURATION-BLINDNESS: pricing every failure at a full
+          // per-attempt timeout treats a 133 ms reject exactly like a 60 s one.
+          //
+          // Now: pass the configured cap as an UPPER BOUND and hand the client
+          // the budget that actually remains. After each failure the client
+          // projects the next attempt's real cost (delay + per-attempt timeout)
+          // and retries only if it still fits — see integrations/isl/retry-budget.ts.
+          //
+          // The invariant the old clamp protected is UNCHANGED and is now
+          // enforced at runtime rather than by static arithmetic: an attempt is
+          // only ever STARTED when its full per-attempt timeout still fits the
+          // budget, so the base call cannot outlive the caller. A slow failure
+          // that consumes the budget still gets no retry.
+          const baseCallBudget = {
+            remainingMs: Math.max(0, Math.floor(baseCallRemainingMs)),
+            safetyMarginMs: baseCallSafetyMarginMs,
+          };
+          if (baseCallTimeoutMs < ISL_TIMEOUT_MS) {
             req.log.info({
               event: 'base_isl_call_budget_clamped',
               request_id: requestId,
               isl_timeout_ms: ISL_TIMEOUT_MS,
               clamped_timeout_ms: baseCallTimeoutMs,
               configured_max_retries: configuredMaxRetries,
-              clamped_max_retries: baseCallMaxRetries,
               remaining_budget_ms: Math.round(baseCallRemainingMs),
-              worst_case_total_ms: worstCaseMs(baseCallMaxRetries, baseCallTimeoutMs),
+              // Worst case for ONE attempt — the only total guaranteed up front
+              // now that further attempts are gated on the live budget. Retained
+              // (rather than the old whole-ladder figure) so this row cannot
+              // imply an attempt ladder that the client may never run.
+              single_attempt_worst_case_ms: worstCaseMs(1, baseCallTimeoutMs),
             });
           }
           const response = await islService.callAnalysisEndpoint<any>(
@@ -6115,7 +6131,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             islRequest,
             requestId,
             baseCallTimeoutMs,
-            baseCallMaxRetries
+            configuredMaxRetries,
+            undefined,
+            baseCallBudget
           );
 
           if (response.data) {
