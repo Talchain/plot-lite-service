@@ -20,6 +20,7 @@
 import { ISLClient, getISLClientConfig } from './client.js';
 import { ISLTimeoutError, ISLNetworkError, ISLHttpError, isRetryableError } from './errors.js';
 import type { ISLCritique } from './errors.js';
+import type { ISLRetryBudget } from './retry-budget.js';
 import {
   adaptValidationResponse,
   createFallbackValidation,
@@ -205,7 +206,8 @@ export interface ISLService {
     requestId: string,
     timeoutMs?: number,
     maxRetries?: number,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    budget?: ISLRetryBudget
   ): Promise<ISLAnalysisResult<T>>;
 }
 
@@ -636,7 +638,8 @@ export function createISLService(): ISLService {
       requestId: string,
       timeoutMs?: number,
       maxRetries?: number,
-      signal?: AbortSignal
+      signal?: AbortSignal,
+      budget?: ISLRetryBudget
     ): Promise<ISLAnalysisResult<T>> {
       const startMs = Date.now();
 
@@ -662,9 +665,12 @@ export function createISLService(): ISLService {
       if (timeoutMs !== undefined) {
         currentConfig.timeoutMs = timeoutMs;
       }
-      // Per-call retry cap (A3 remediation item 4): the base /v2/run robustness
-      // call passes this so its retries × per-attempt timeout cannot outlive the
-      // request budget. Omitted → the config default (ISL_MAX_RETRIES, 3).
+      // Per-call retry cap. Since ROADMAP 2.202 this is an UPPER BOUND only —
+      // the base /v2/run robustness call also passes `budget`, and the real bound
+      // on that call is the remaining wall-clock budget, checked after each
+      // failure (see ./retry-budget.ts). Callers that pass no budget (flip probes
+      // F3, thresholds F9) are unchanged: this cap is still their sole bound.
+      // Omitted → the config default (ISL_MAX_RETRIES, 3).
       if (maxRetries !== undefined) {
         currentConfig.maxRetries = Math.max(1, Math.floor(maxRetries));
       }
@@ -676,6 +682,7 @@ export function createISLService(): ISLService {
           body,
           requestId,
           signal,
+          budget,
         });
 
         return {
@@ -814,4 +821,10 @@ export { validateBeforeISL, buildParameterUncertainties } from './preflight.js';
 // Note: ISLAnalysisResult is already exported via interface definition above
 
 export { ISLClient, type ISLClientConfig } from './client.js';
-export { ISLHttpError } from './errors.js';
+export { ISLHttpError, parseRetryAfterMs } from './errors.js';
+export {
+  decideIslRetry,
+  DEFAULT_RETRY_SAFETY_MARGIN_MS,
+  type ISLRetryBudget,
+  type ISLRetryDecision,
+} from './retry-budget.js';

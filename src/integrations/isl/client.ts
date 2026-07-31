@@ -8,12 +8,15 @@
  * - Error classification
  */
 
-import { ISLHttpError, ISLTimeoutError, ISLNetworkError, isRetryableError, type ISLError422 } from './errors.js';
+import { ISLHttpError, ISLTimeoutError, ISLNetworkError, isRetryableError, parseRetryAfterMs, type ISLError422 } from './errors.js';
+import { decideIslRetry, type ISLRetryBudget } from './retry-budget.js';
 import type { ISLHealthResponse } from './types/isl-types.js';
 import { computeOlumiHash } from '../../util/canonical.js';
 import { recordIslSuccess, recordIslFailure, shouldAllowIslCall } from '../isl-circuit-breaker.js';
 import { recordDownstreamCall, sanitizePayloadForDebug, computePayloadDigest } from '../../util/downstream-tracker.js';
-import { ISL_TIMEOUT_MS, ISL_HEALTH_CHECK_TIMEOUT_MS, resolveIslMaxRetries, islRetryBackoffMs } from '../../config/timeouts.js';
+// ROADMAP 2.202: the backoff series now lives behind decideIslRetry (which
+// still derives it from islRetryBackoffMs — the single source is unchanged).
+import { ISL_TIMEOUT_MS, ISL_HEALTH_CHECK_TIMEOUT_MS, resolveIslMaxRetries } from '../../config/timeouts.js';
 
 /**
  * ISL client configuration
@@ -50,6 +53,18 @@ export interface ISLRequestOptions {
    * `AbortError`), preserving the existing AbortError→ISLTimeoutError mapping.
    */
   signal?: AbortSignal;
+  /**
+   * ROADMAP 2.202 — the caller's remaining wall-clock budget for THIS request.
+   *
+   * When supplied, the retry decision is made from the budget that actually
+   * remains after each failure instead of from a worst-case attempt count fixed
+   * up front — which is what made the (already-correct) 429 retry unreachable
+   * on the /v2/run base call. When omitted, retry behaviour is exactly as
+   * before: bounded by `config.maxRetries` with exponential backoff.
+   *
+   * See `./retry-budget.ts` for the full rationale.
+   */
+  budget?: ISLRetryBudget;
 }
 
 /**
@@ -93,9 +108,14 @@ export class ISLClient {
    * @throws ISLHttpError on non-2xx responses
    */
   async request<T>(options: ISLRequestOptions): Promise<ISLRequestResult<T>> {
-    const { endpoint, body, requestId, signal: externalSignal } = options;
+    const { endpoint, body, requestId, signal: externalSignal, budget } = options;
     // Pin response version via query param (in addition to header)
     const url = `${this.config.baseUrl}${endpoint}?response_version=2`;
+
+    // ROADMAP 2.202 — start of the client's own clock. `budget.remainingMs` is
+    // measured against THIS instant, so the caller never has to share a clock
+    // with the client (run.ts measures with performance.now(); we use Date.now()).
+    const requestStartedAt = Date.now();
 
     // Log the exact URL called (excluding API key) for debugging
     this.log('info', {
@@ -201,6 +221,11 @@ export class ISLClient {
           const errorBody = await response.text();
           // Capture echoed request ID even on error responses for chain tracing
           const errorEchoedRequestId = response.headers.get('x-request-id') ?? null;
+          // ROADMAP 2.202: capture ISL's `Retry-After` hint. Previously the
+          // response headers were read for `x-request-id` ONLY, so the governor's
+          // RETRY_AFTER_SECONDS=5 on a 429 was discarded and any retry could only
+          // guess. `undefined` when absent/unparseable → our own backoff is used.
+          const retryAfterMs = parseRetryAfterMs(response.headers.get('retry-after'));
           // Record failed downstream call with payloads for debug
           recordDownstreamCall({
             service: 'isl',
@@ -221,19 +246,19 @@ export class ISLClient {
           if (response.status === 422) {
             try {
               const islError = JSON.parse(errorBody) as ISLError422;
-              const err = new ISLHttpError(response.status, errorBody, endpoint, islError);
+              const err = new ISLHttpError(response.status, errorBody, endpoint, islError, retryAfterMs);
               (err as any).islEchoedRequestId = errorEchoedRequestId;
               throw err;
             } catch (parseErr) {
               if (parseErr instanceof ISLHttpError) throw parseErr;
               // If parsing fails, throw generic error
-              const err = new ISLHttpError(response.status, errorBody, endpoint);
+              const err = new ISLHttpError(response.status, errorBody, endpoint, undefined, retryAfterMs);
               (err as any).islEchoedRequestId = errorEchoedRequestId;
               throw err;
             }
           }
 
-          const err = new ISLHttpError(response.status, errorBody, endpoint);
+          const err = new ISLHttpError(response.status, errorBody, endpoint, undefined, retryAfterMs);
           (err as any).islEchoedRequestId = errorEchoedRequestId;
           throw err;
         }
@@ -288,7 +313,24 @@ export class ISLClient {
         lastError = wrappedError;
 
         const retryable = isRetryableError(wrappedError);
-        const isLastAttempt = attempt === this.config.maxRetries;
+
+        // ROADMAP 2.202 — decide from the budget that ACTUALLY remains, not from
+        // a worst-case attempt count fixed before the first byte was sent. The
+        // old gate was `attempt === this.config.maxRetries`, and /v2/run's
+        // up-front clamp resolved that cap to 1, so a 133ms 429 became a typed
+        // failure with ~69.8s of budget unspent. With no `budget` supplied the
+        // decision degenerates to exactly that previous behaviour.
+        const retryAfterHintMs =
+          wrappedError instanceof ISLHttpError ? wrappedError.retryAfterMs : undefined;
+        const decision = decideIslRetry({
+          retryable,
+          attempt,
+          maxAttempts: this.config.maxRetries,
+          elapsedMs: Date.now() - requestStartedAt,
+          perAttemptTimeoutMs: this.config.timeoutMs,
+          retryAfterMs: retryAfterHintMs,
+          budget,
+        });
 
         this.log('warn', {
           event: 'isl_request_failed',
@@ -312,9 +354,29 @@ export class ISLClient {
         // this caller's fault, not the service being down, and must never open
         // the breaker for everyone else — which also means ISL's current 404
         // storm on /api/v1/analysis/* cannot spuriously open it.
-        if (!retryable || isLastAttempt) {
+        if (!decision.retry) {
           if (retryable) {
             recordIslFailure();
+          }
+          // ROADMAP 2.202 — make governor contention observable. The diagnosis of
+          // record had to reconstruct this from Render log forensics across three
+          // services; this row says, at the moment of the decision, exactly why a
+          // retryable failure was NOT retried. `budget_exhausted` is the rate to
+          // watch: it means the budget, not the classifier, ended the call.
+          if (retryable) {
+            this.log('warn', {
+              event: 'isl_retry_declined',
+              endpoint,
+              attempt,
+              max_retries: this.config.maxRetries,
+              reason: decision.reason,
+              status: wrappedError instanceof ISLHttpError ? wrappedError.status : undefined,
+              retry_after_ms: retryAfterHintMs,
+              remaining_budget_ms: decision.remainingMs,
+              projected_cost_ms: decision.projectedCostMs,
+              budget_supplied: budget !== undefined,
+              request_id: requestId,
+            });
           }
           // Record failed downstream call on final attempt (only for non-HTTP errors, HTTP errors already recorded)
           if (!(wrappedError instanceof ISLHttpError)) {
@@ -334,9 +396,31 @@ export class ISLClient {
           break;
         }
 
-        // Exponential backoff (single source: islRetryBackoffMs) — 1s, 2s, 4s… capped at 5s.
-        const backoffMs = islRetryBackoffMs(attempt);
-        await this.sleep(backoffMs);
+        // ROADMAP 2.202 — the retry is happening. Emit BEFORE the sleep so the
+        // row is visible even if the process dies during the wait, and so the
+        // rate of governor contention (and whether ISL's own hint was honoured)
+        // is observable without cross-service log forensics.
+        this.log('warn', {
+          event: 'isl_retry_scheduled',
+          endpoint,
+          attempt,
+          next_attempt: attempt + 1,
+          max_retries: this.config.maxRetries,
+          reason: decision.reason,
+          status: wrappedError instanceof ISLHttpError ? wrappedError.status : undefined,
+          delay_ms: decision.delayMs,
+          backoff_ms: decision.backoffMs,
+          retry_after_ms: retryAfterHintMs,
+          retry_after_honoured: decision.retryAfterHonoured,
+          remaining_budget_ms: decision.remainingMs,
+          projected_cost_ms: decision.projectedCostMs,
+          request_id: requestId,
+        });
+
+        // Delay chosen by decideIslRetry: max(ISL's Retry-After, our exponential
+        // backoff 1s/2s/4s… capped at 5s). Retry-After is a MINIMUM wait, so it
+        // can lengthen the delay but never shorten it below our own backoff.
+        await this.sleep(decision.delayMs);
       } finally {
         if (timeoutId !== undefined) clearTimeout(timeoutId);
         if (onExternalAbort && externalSignal) {
