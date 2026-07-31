@@ -100,6 +100,83 @@ export function parseRetryAfterMs(
 }
 
 /**
+ * Longest machine reason we will carry into a log row. ISL's own reasons are
+ * short snake_case tokens (`caller_concurrency_exceeded`,
+ * `service_busy_queue_full`, `analysis_hard_deadline_exceeded`); the bound stops
+ * an unexpected upstream from turning one telemetry field into a body dump.
+ */
+export const ISL_ERROR_REASON_MAX_LEN = 120;
+
+/**
+ * Pull ISL's machine-readable cause out of an error response body.
+ *
+ * ROADMAP 2.202 fix ①b — THIS FUNCTION EXISTS TO GIVE `ISLHttpError.body` ITS
+ * FIRST READER. The 31 Jul live probe established, with a passing positive
+ * control, that `public body: string` was captured on every ISL error and read by
+ * NOTHING (`rg -a -n "\.body\b" src/ --glob '!**\/tests\/**' | rg -a -i isl` →
+ * zero matches at `b79c4829`). That is trap 10's write-only-column shape sitting
+ * in the one field that names WHY the governor rejected the call — so the probe
+ * had to reconstruct `caller_concurrency_exceeded` from cross-service Render
+ * forensics, and recorded its own `caller_concurrency_exceeded` log search as
+ * **vacuous**: PLoT never logged the body, so the zero rows proved nothing.
+ *
+ * ⚠ SHAPE DERIVED FROM ISL AT THE BYTES, NOT GUESSED (trap 18 / trap 16 —
+ * a fixture invented at this end "proves" whatever it was written to prove).
+ * Read read-only at `Talchain/Inference-Service-Layer@7c681fda` (`staging`,
+ * 2026-07-31):
+ *
+ *   src/services/compute_governor.py:161  raise Overload(429, "caller_concurrency_exceeded")
+ *   src/api/robustness.py:249-273         _overload_error_response(...) -> ErrorResponse(
+ *                                            code=RATE_LIMIT_EXCEEDED, message=...,
+ *                                            reason=overload.reason, ...)
+ *   src/api/robustness.py:362-370         JSONResponse(status_code=429,
+ *                                            content=body.model_dump(exclude_none=True),
+ *                                            headers={"Retry-After": ...})
+ *   src/models/responses.py:90-103        class ErrorResponse: code, message, reason?
+ *
+ * So the live 429 body is a FLAT object whose `reason` is the governor's token.
+ * `detail` is accepted too: that is FastAPI's default `HTTPException` shape, and
+ * it is what PLoT's own 2.202 fakes serve, so the parser reads both the real wire
+ * and the harness rather than silently only one of them.
+ *
+ * Returns `undefined` for absent / non-JSON / non-string / blank causes — a
+ * missing reason must read as missing, never as a fabricated one.
+ */
+export function parseIslErrorReason(body: string | null | undefined): string | undefined {
+  if (typeof body !== 'string' || body.trim() === '') return undefined;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return undefined;
+  }
+  if (parsed === null || typeof parsed !== 'object') return undefined;
+
+  const obj = parsed as Record<string, unknown>;
+  const nestedError = obj.error;
+  const candidates: unknown[] = [
+    obj.reason, // ISL ErrorResponse.reason — the governor's own token
+    nestedError && typeof nestedError === 'object'
+      ? (nestedError as Record<string, unknown>).code
+      : undefined,
+    obj.code, // ISL ErrorResponse.code (coarser: RATE_LIMIT_EXCEEDED)
+    obj.detail, // FastAPI HTTPException default shape
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') continue;
+    // Strip control characters so one field cannot forge extra log lines.
+    const cleaned = candidate.replace(/[\u0000-\u001f\u007f]/g, ' ').trim();
+    if (cleaned === '') continue;
+    return cleaned.length > ISL_ERROR_REASON_MAX_LEN
+      ? `${cleaned.slice(0, ISL_ERROR_REASON_MAX_LEN)}…`
+      : cleaned;
+  }
+  return undefined;
+}
+
+/**
  * HTTP error from ISL service
  */
 export class ISLHttpError extends Error {
@@ -124,6 +201,23 @@ export class ISLHttpError extends Error {
     this.name = 'ISLHttpError';
     this.islError = islError;
     this.retryAfterMs = retryAfterMs;
+  }
+
+  /**
+   * ISL's machine-readable cause for this failure, parsed from {@link body}.
+   *
+   * ROADMAP 2.202 fix ①b. `body` was captured on every ISL error and read by
+   * nothing — see {@link parseIslErrorReason} for the probe's positive-controlled
+   * zero-reader proof. This is that reader, and the client carries its result
+   * into `isl_retry_scheduled` / `isl_retry_declined` so the NEXT diagnosis of
+   * governor contention is a log read rather than a three-service probe.
+   *
+   * Computed on demand (not in the constructor) so the parse cost is paid only
+   * where the value is used, and so every existing construction site is
+   * unchanged.
+   */
+  getReason(): string | undefined {
+    return parseIslErrorReason(this.body);
   }
 
   /**

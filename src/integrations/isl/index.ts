@@ -821,7 +821,7 @@ export { validateBeforeISL, buildParameterUncertainties } from './preflight.js';
 // Note: ISLAnalysisResult is already exported via interface definition above
 
 export { ISLClient, type ISLClientConfig } from './client.js';
-export { ISLHttpError, ISLResponseProcessingError, parseRetryAfterMs } from './errors.js';
+export { ISLHttpError, ISLResponseProcessingError, parseRetryAfterMs, parseIslErrorReason } from './errors.js';
 export {
   decideIslRetry,
   DEFAULT_RETRY_SAFETY_MARGIN_MS,

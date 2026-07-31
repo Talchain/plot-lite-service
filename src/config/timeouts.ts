@@ -165,6 +165,27 @@ export function resolveIslMaxRetries(): number {
 }
 
 /**
+ * Floor on any per-attempt ISL timeout derived from a shrinking budget.
+ *
+ * ROADMAP 2.202 fix ①b — DE-MIRRORED. This `1_000` was a function-local literal
+ * in `/v2/run`'s base-call clamp (`const BASE_CALL_MIN_TIMEOUT_MS = 1_000`), and
+ * fix ①b needs the SAME floor at a second seam (the retry decision's rescue
+ * clamp, `integrations/isl/retry-budget.ts`). Two hand-written copies of a bound
+ * that must agree is the dominant defect class this programme names (trap 12), so
+ * it gets one home here and both seams import it.
+ *
+ * Meaning at each seam, and they differ — read both before changing the number:
+ *   • `/v2/run` FIRST attempt: a `Math.max` FLOOR. The first attempt is allowed to
+ *     exceed a tiny remaining budget rather than be given an unusable timeout.
+ *   • retry-budget RESCUE attempt: a VIABILITY THRESHOLD, never a `Math.max`. A
+ *     rescue attempt is granted only when the affordable timeout reaches this
+ *     value, and it is granted with the AFFORDABLE timeout — flooring UP there
+ *     would start an attempt that outlives the caller's budget, which is the one
+ *     invariant 2.202 must not break.
+ */
+export const BASE_CALL_MIN_TIMEOUT_MS = 1_000;
+
+/**
  * Exponential-backoff constants for ISL retries. isl/client.ts sleeps
  * `min(BASE · 2^(attempt-1), CAP)` AFTER each failed non-final attempt. Kept
  * here as the single source shared with the worst-case accounting below.

@@ -39,22 +39,81 @@
  *     (see the `!budget` branch). Getting this wrong is what the first cut of
  *     2.202 did, and it is the one HIGH the adversarial review found.
  *
- * An attempt is only ever STARTED when its FULL per-attempt timeout still fits,
- * so the total can never overrun the caller's budget.
+ * An attempt is only ever STARTED when its per-attempt timeout still fits, so
+ * the total can never overrun the caller's budget.
  *
- * DELIBERATELY NOT DONE: the retry's per-attempt timeout is not re-clamped
- * downward to squeeze an extra attempt into a shrinking budget. That would
- * truncate a slow-but-successful call — the exact harm the base-call clamp's
- * own comment says it avoids.
+ * ⭐⭐ FIX ①b (2026-07-31) — THE RESCUE CLAMP. READ THIS BEFORE CHANGING ANYTHING
+ * ---------------------------------------------------------------------------
+ * Everything above shipped as PR #295 and was deployed as build `91bcac5`. A live
+ * probe under real governor contention then measured what it actually did:
+ * **0 of 9 contended requests rescued, and `isl_retry_scheduled` had never fired
+ * once in the build's entire life** (`isl_retry_declined` returned 35 rows on the
+ * identical query, so the zero was a real absence, not a broken search).
+ * Evidence: `PHASE0-EVIDENCE-2026-07-28/probe-2202-retry-under-contention.md`.
+ *
+ * WHY. Staging's Render dashboard sets `ISL_TIMEOUT_MS = 130_000` (repo default
+ * 60_000) and leaves `REQUEST_BUDGET_MS` unset (→ 70_000). /v2/run's base-call
+ * clamp then takes its SECOND arm and hands this decision a per-attempt timeout
+ * of `remaining − 1_000`, i.e. essentially the whole budget. Writing `T =
+ * ISL_TIMEOUT_MS`, `R = REQUEST_BUDGET_MS`, `A = Retry-After`, `m = margin`, the
+ * pre-①b gate `A + T + m <= R` fires only while `T <= R − A − m` = 64_000. Once
+ * `T >= R − m` the clamp's second arm wins and the requirement collapses to
+ * `A <= 0` — **no positive `Retry-After` can EVER fit, at any budget.** Staging
+ * is deep in that regime: the retry was not rate-limited or unlucky, it was
+ * arithmetically impossible on 100% of requests, with 6,409 green tests, 11/11
+ * green CI and a purpose-built headroom guard that derived its constant from
+ * `process.env` at TEST time and so measured the repo default, never the
+ * dashboard (trap 18: a constant correct in every test and wrong by 70 s live).
+ *
+ * THE FIX. A retry may now run with a per-attempt timeout clamped DOWN to what
+ * the budget can actually afford:
+ *
+ *     affordable = remaining − delay − margin
+ *     rescue     = min(perAttemptTimeout, affordable)
+ *     retry iff  rescue >= min(BASE_CALL_MIN_TIMEOUT_MS, perAttemptTimeout)
+ *
+ * ⚠ THIS IS THE THING #295 EXPLICITLY DECLINED, AND THE DECLINE WAS NOT WRONG —
+ * IT WAS SCOPED. #295 refused to clamp downward because it "would truncate a
+ * slow-but-successful call". That reasoning is correct for a FIRST attempt, whose
+ * alternative is a call that might still succeed if left alone. It does NOT
+ * transfer to a RESCUE attempt, whose alternative is not "a slower success" but a
+ * typed failure that has already been decided: the first attempt has failed, and
+ * without a retry the caller gets the 500. Truncating a rescue can only lose an
+ * outcome we were never going to get. So the clamp is applied to RETRIES ONLY —
+ * the first attempt's timeout is untouched, and #295's decline stands where its
+ * reasoning holds.
+ *
+ * WHY A FLOOR, AND WHY IT IS A THRESHOLD RATHER THAN A `Math.max`. Below some
+ * width a rescue attempt cannot complete anything and merely burns the remainder,
+ * so we decline instead — `budget_exhausted` still bites, just at a tighter,
+ * derived boundary. Flooring UP with `Math.max` would be the opposite of a
+ * bound: it would START an attempt whose timeout outlives the caller's budget,
+ * breaking the one invariant 2.202 must not break. And the floor is
+ * `min(BASE_CALL_MIN_TIMEOUT_MS, perAttemptTimeout)`, never the constant alone,
+ * so that a caller who chose a sub-second per-attempt timeout (flip probes,
+ * wall-clock tests) is not newly refused a retry it used to get.
+ *
+ * ⭐ THE RESULTING RULE IS A STRICT RELAXATION, and that is pinned as a property
+ * test: every decision the pre-①b rule GRANTED is still granted, with an
+ * IDENTICAL, unclamped timeout (if `perAttempt <= affordable` then `rescue =
+ * perAttempt`). ①b only ever converts a former `budget_exhausted` into a shorter
+ * rescue attempt. Nothing that used to retry now declines, and nothing that used
+ * to retry now runs shorter.
+ *
+ * DISCLOSED TRADE: a SLOW retryable failure now buys a short rescue attempt where
+ * before it bought none, so a doomed call can spend the rest of its budget before
+ * returning the typed failure. `safetyMarginMs` is still reserved and still
+ * unspent, so the caller can always assemble its response — the invariant that
+ * matters is preserved, the "slow failures return early" behaviour is not.
  *
  * BLAST RADIUS: when no budget is supplied the decision degenerates to EXACTLY
  * the previous behaviour — attempt cap + our own exponential backoff, and
- * `Retry-After` deliberately ignored. Only the /v2/run
- * base robustness call passes a budget; flip probes, thresholds and health are
- * untouched.
+ * `Retry-After` deliberately ignored. The rescue clamp lives entirely inside the
+ * budgeted branch, so it too reaches ONLY the /v2/run base robustness call; flip
+ * probes, thresholds and health are untouched.
  */
 
-import { islRetryBackoffMs } from '../../config/timeouts.js';
+import { islRetryBackoffMs, BASE_CALL_MIN_TIMEOUT_MS } from '../../config/timeouts.js';
 
 /**
  * The wall-clock budget a caller lends to one ISL request, for retry decisions.
@@ -105,8 +164,27 @@ export interface ISLRetryDecision {
   backoffMs: number;
   /** Budget left at the decision point — `undefined` when none was supplied. */
   remainingMs?: number;
-  /** `delayMs + perAttemptTimeoutMs` — what the next attempt could cost. */
+  /** `delayMs + attemptTimeoutMs` — what the next attempt could cost. */
   projectedCostMs: number;
+  /**
+   * ROADMAP 2.202 fix ①b — the per-attempt timeout the NEXT attempt must use.
+   *
+   * Equals the caller's `perAttemptTimeoutMs` on every path except a budgeted
+   * rescue that had to be clamped down to fit. The client MUST honour this for
+   * the retry it is about to start; ignoring it re-creates the pre-①b defect,
+   * because the whole point is that the attempt is narrower than the caller's
+   * configured timeout. On a decline it is the unclamped ask (no attempt runs).
+   */
+  attemptTimeoutMs: number;
+  /** True when {@link attemptTimeoutMs} was clamped below the caller's timeout. */
+  timeoutClamped: boolean;
+  /**
+   * `remaining − delay − margin` — the widest attempt the budget can afford at
+   * this instant. Negative when the budget is already spent. `undefined` on the
+   * no-budget path. Logged on a decline so "why did it not retry?" is answerable
+   * from one row instead of a probe.
+   */
+  affordableTimeoutMs?: number;
 }
 
 export interface ISLRetryDecisionInput {
@@ -153,14 +231,32 @@ export function decideIslRetry(input: ISLRetryDecisionInput): ISLRetryDecision {
   const retryAfterHonoured = retryAfterUsable && retryAfterMs > backoffMs;
   const projectedCostMs = delayMs + perAttemptTimeoutMs;
 
+  // Budget-derived figures, computed once so the decline path can report the
+  // SAME numbers the grant path decided on (fix ①b: a decline row that cannot
+  // say how wide an attempt the budget could afford is what forced the 31 Jul
+  // probe in the first place).
+  const safetyMarginMs = budget
+    ? budget.safetyMarginMs ?? DEFAULT_RETRY_SAFETY_MARGIN_MS
+    : undefined;
+  const remainingAtDecisionMs = budget ? budget.remainingMs - elapsedMs : undefined;
+  const affordableTimeoutMs =
+    remainingAtDecisionMs !== undefined && safetyMarginMs !== undefined
+      ? remainingAtDecisionMs - delayMs - safetyMarginMs
+      : undefined;
+
   const no = (reason: ISLRetryReason): ISLRetryDecision => ({
     retry: false,
     delayMs: 0,
     reason,
     retryAfterHonoured: false,
     backoffMs,
-    remainingMs: budget ? budget.remainingMs - elapsedMs : undefined,
+    remainingMs: remainingAtDecisionMs,
     projectedCostMs,
+    // No attempt runs, so report the unclamped ask — this keeps the decline
+    // row's `projected_cost_ms` reading exactly as it did before ①b.
+    attemptTimeoutMs: perAttemptTimeoutMs,
+    timeoutClamped: false,
+    affordableTimeoutMs,
   });
 
   if (!retryable) return no('not_retryable');
@@ -194,15 +290,29 @@ export function decideIslRetry(input: ISLRetryDecisionInput): ISLRetryDecision {
       backoffMs,
       remainingMs: undefined,
       projectedCostMs: backoffMs + perAttemptTimeoutMs,
+      // ⚠ NO RESCUE CLAMP HERE, deliberately. Clamping needs a budget to clamp
+      // against; with none there is nothing to derive a narrower timeout FROM,
+      // and inventing one would be the magic constant this module exists without.
+      attemptTimeoutMs: perAttemptTimeoutMs,
+      timeoutClamped: false,
+      affordableTimeoutMs: undefined,
     };
   }
 
-  const safetyMarginMs = budget.safetyMarginMs ?? DEFAULT_RETRY_SAFETY_MARGIN_MS;
-  const remainingMs = budget.remainingMs - elapsedMs;
+  const remainingMs = remainingAtDecisionMs!;
 
-  // Start an attempt only when its FULL per-attempt timeout still fits, so the
-  // total can never outlive the caller's budget.
-  if (projectedCostMs + safetyMarginMs > remainingMs) return no('budget_exhausted');
+  // ⭐ THE RESCUE CLAMP (fix ①b — see the module header for why #295's decline
+  // does not transfer to a retry). The widest attempt the budget can still pay
+  // for, after the delay we are about to sleep and the reserve we must not spend:
+  const affordableMs = affordableTimeoutMs!;
+  const rescueTimeoutMs = Math.min(perAttemptTimeoutMs, affordableMs);
+
+  // Viability threshold, NOT a `Math.max` floor — flooring up would start an
+  // attempt that outlives the caller. Bounded by the caller's own per-attempt
+  // timeout so a sub-second caller (flip probes, wall-clock tests) is never
+  // newly refused a retry the pre-①b rule would have granted.
+  const minViableTimeoutMs = Math.max(1, Math.min(BASE_CALL_MIN_TIMEOUT_MS, perAttemptTimeoutMs));
+  if (rescueTimeoutMs < minViableTimeoutMs) return no('budget_exhausted');
 
   return {
     retry: true,
@@ -211,6 +321,11 @@ export function decideIslRetry(input: ISLRetryDecisionInput): ISLRetryDecision {
     retryAfterHonoured,
     backoffMs,
     remainingMs,
-    projectedCostMs,
+    // The HONEST projection: what the attempt we are actually about to start
+    // will cost, not what an unclamped one would have.
+    projectedCostMs: delayMs + rescueTimeoutMs,
+    attemptTimeoutMs: rescueTimeoutMs,
+    timeoutClamped: rescueTimeoutMs < perAttemptTimeoutMs,
+    affordableTimeoutMs: affordableMs,
   };
 }
