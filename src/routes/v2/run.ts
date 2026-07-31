@@ -117,6 +117,7 @@ import {
   ISL_TIMEOUT_MS,
   worstCaseMs,
   OPTIONAL_PHASE_MAX_RETRIES,
+  BASE_CALL_MIN_TIMEOUT_MS,
 } from '../../config/timeouts.js';
 import { getISLClientConfig } from '../../integrations/isl/client.js';
 import { createISLInferenceFn, resolveFlipValues, resolveFlipProbeNSamples, resolveFlipOverallTimeoutMs, resolveFlipPerFactorTimeoutMs } from '../../analysis/flip-thresholds.js';
@@ -6077,7 +6078,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           // attempt; the clamp only bites the pathological retry storm.
           const baseCallRemainingMs = resolveRequestBudgetMs() - (performance.now() - startTime);
           const baseCallSafetyMarginMs = 1_000;
-          const BASE_CALL_MIN_TIMEOUT_MS = 1_000;
+          // ROADMAP 2.202 fix ①b: was a local literal here; now imported from
+          // config/timeouts.ts because the retry decision needs the SAME floor
+          // (see retry-budget.ts). Two hand-written copies of a bound that must
+          // agree is trap 12 — de-mirrored rather than duplicated.
           const baseCallTimeoutMs = Math.min(
             ISL_TIMEOUT_MS,
             Math.max(BASE_CALL_MIN_TIMEOUT_MS, Math.floor(baseCallRemainingMs - baseCallSafetyMarginMs)),

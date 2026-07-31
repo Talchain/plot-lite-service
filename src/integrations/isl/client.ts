@@ -160,6 +160,19 @@ export class ISLClient {
     const requestBodyText = JSON.stringify(body);
     const requestDigest = computePayloadDigest(requestBodyText, body);
 
+    // ROADMAP 2.202 fix ①b — the per-attempt timeout is now PER ATTEMPT, not a
+    // constant read off the config on every pass.
+    //
+    // The FIRST attempt always gets the caller's configured timeout: #295's
+    // refusal to narrow a call that might still succeed stands exactly where its
+    // reasoning holds. A RETRY may be narrowed by `decideIslRetry` to what the
+    // remaining budget can afford — see retry-budget.ts. Without this variable
+    // the decision could grant a rescue attempt and the client would then start
+    // it at the full configured width, overrunning the very budget the decision
+    // just checked; the clamp would be advisory, which is a guarantee that never
+    // executes — the defect class this programme names as dominant.
+    let attemptTimeoutMs = this.config.timeoutMs;
+
     for (let attempt = 1; attempt <= this.config.maxRetries; attempt++) {
       // Track start time outside try block for catch access
       const startTime = Date.now();
@@ -177,7 +190,7 @@ export class ISLClient {
       try {
         timeoutId = setTimeout(
           () => controller.abort(),
-          this.config.timeoutMs
+          attemptTimeoutMs
         );
         // Fold the caller's external cancellation signal into THIS attempt's
         // controller: if it is (or becomes) aborted, abort the in-flight fetch.
@@ -307,8 +320,10 @@ export class ISLClient {
         const rawError = error as Error;
 
         if (rawError.name === 'AbortError') {
-          // Timeout (AbortController abort)
-          wrappedError = new ISLTimeoutError(endpoint, this.config.timeoutMs);
+          // Timeout (AbortController abort). 2.202 fix ①b: report the timeout
+          // THIS attempt actually ran with — a clamped rescue attempt that times
+          // out must not claim the configured width it was never given.
+          wrappedError = new ISLTimeoutError(endpoint, attemptTimeoutMs);
         } else if (rawError.name === 'TypeError' || rawError.message?.includes('fetch')) {
           // Network error (DNS, connection refused, etc.)
           wrappedError = new ISLNetworkError(endpoint, rawError);
@@ -344,12 +359,18 @@ export class ISLClient {
         // decision degenerates to exactly that previous behaviour.
         const retryAfterHintMs =
           wrappedError instanceof ISLHttpError ? wrappedError.retryAfterMs : undefined;
+        // ROADMAP 2.202 fix ①b — ISL's own machine reason, parsed from the error
+        // body that until now had ZERO readers (trap 10's write-only column, in
+        // the one field naming WHY the governor rejected us). Carried into both
+        // retry rows below so the next contention diagnosis is a log read.
+        const islReason =
+          wrappedError instanceof ISLHttpError ? wrappedError.getReason() : undefined;
         const decision = decideIslRetry({
           retryable,
           attempt,
           maxAttempts: this.config.maxRetries,
           elapsedMs: Date.now() - requestStartedAt,
-          perAttemptTimeoutMs: this.config.timeoutMs,
+          perAttemptTimeoutMs: attemptTimeoutMs,
           retryAfterMs: retryAfterHintMs,
           budget,
         });
@@ -393,9 +414,16 @@ export class ISLClient {
               max_retries: this.config.maxRetries,
               reason: decision.reason,
               status: wrappedError instanceof ISLHttpError ? wrappedError.status : undefined,
+              // fix ①b: the governor's own token, e.g. caller_concurrency_exceeded.
+              isl_reason: islReason,
               retry_after_ms: retryAfterHintMs,
               remaining_budget_ms: decision.remainingMs,
               projected_cost_ms: decision.projectedCostMs,
+              // fix ①b: how wide an attempt the budget COULD have paid for. A
+              // decline with a healthy `affordable_timeout_ms` means the floor
+              // bit; a negative one means the budget is genuinely spent.
+              affordable_timeout_ms: decision.affordableTimeoutMs,
+              per_attempt_timeout_ms: attemptTimeoutMs,
               budget_supplied: budget !== undefined,
               request_id: requestId,
             });
@@ -430,14 +458,30 @@ export class ISLClient {
           max_retries: this.config.maxRetries,
           reason: decision.reason,
           status: wrappedError instanceof ISLHttpError ? wrappedError.status : undefined,
+          // fix ①b: the governor's own token, e.g. caller_concurrency_exceeded.
+          isl_reason: islReason,
           delay_ms: decision.delayMs,
           backoff_ms: decision.backoffMs,
           retry_after_ms: retryAfterHintMs,
           retry_after_honoured: decision.retryAfterHonoured,
           remaining_budget_ms: decision.remainingMs,
           projected_cost_ms: decision.projectedCostMs,
+          // fix ①b: the rescue clamp, made observable. `timeout_clamped: true`
+          // with `next_attempt_timeout_ms` < `per_attempt_timeout_ms` is the row
+          // that proves the retry is reachable under the deployed env posture —
+          // the direct live witness the probe found missing.
+          per_attempt_timeout_ms: attemptTimeoutMs,
+          next_attempt_timeout_ms: decision.attemptTimeoutMs,
+          timeout_clamped: decision.timeoutClamped,
+          affordable_timeout_ms: decision.affordableTimeoutMs,
           request_id: requestId,
         });
+
+        // ROADMAP 2.202 fix ①b — adopt the decision's per-attempt timeout for the
+        // NEXT pass. On every path except a clamped rescue this is the value we
+        // already had, so the first attempt and all no-budget callers are
+        // unchanged.
+        attemptTimeoutMs = decision.attemptTimeoutMs;
 
         // Delay chosen by decideIslRetry: max(ISL's Retry-After, our exponential
         // backoff 1s/2s/4s… capped at 5s). Retry-After is a MINIMUM wait, so it

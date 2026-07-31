@@ -62,7 +62,25 @@ describe('decideIslRetry — the fast-429 case that was structurally unreachable
     expect(d.projectedCostMs).toBe(ISL_RETRY_AFTER_MS + PROD_PER_ATTEMPT_MS);
   });
 
-  it('⭐ HEADROOM — the fix only works while a 5s wait + a full attempt still fits the budget', () => {
+  it('⭐ HEADROOM — a FULL-WIDTH retry only fits while a 5s wait + a full attempt does', () => {
+    // ⚠⚠ RE-POINTED 2026-07-31 BY FIX ①b. THIS GUARD'S CLAIM WENT FALSE, AND A
+    // FALSE ALARM IS WORSE THAN NO ALARM (trap 14: an honest label overwritten
+    // by a misleading one teaches every lane to stop looking).
+    //
+    // It used to say "2.202 is DISABLED at these constants" and it was RIGHT:
+    // pre-①b, once `ISL_TIMEOUT_MS >= REQUEST_BUDGET_MS − Retry-After − margin`
+    // the retry declined outright. That is precisely what staging did at
+    // `ISL_TIMEOUT_MS = 130_000` — and this guard, deriving from `process.env` at
+    // TEST time where the var is unset, measured the repo default 60_000 and
+    // reported ~8.9 s of comfortable headroom while the deployment sat 66 s the
+    // wrong side of the line (platform trap 18).
+    //
+    // Post-①b that relation no longer decides IF the retry happens — only
+    // whether it runs at FULL width or CLAMPED. So the message is corrected and
+    // an arm is added below proving the fix survives the violation. The
+    // regime-level pins live in tests/plot-2202b-rescue-clamp.decision.test.ts,
+    // which fixes the DEPLOYED constants as a dated measurement rather than
+    // re-deriving them from an environment that does not have them.
     // ⚠ CROSS-REPO COUPLING, and it is TIGHT. The fix depends on an arithmetic
     // relation between THREE independently-owned numbers:
     //   • ISL_RETRY_AFTER_MS   — owned by ISL (compute_governor RETRY_AFTER_SECONDS = 5)
@@ -82,22 +100,49 @@ describe('decideIslRetry — the fast-429 case that was structurally unreachable
       - (ISL_RETRY_AFTER_MS + PROD_PER_ATTEMPT_MS + DEFAULT_RETRY_SAFETY_MARGIN_MS);
     expect(
       headroomMs,
-      `2.202 is DISABLED at these constants: a ${ISL_RETRY_AFTER_MS}ms Retry-After plus a ` +
+      `At these constants a ${ISL_RETRY_AFTER_MS}ms Retry-After plus a FULL ` +
       `${PROD_PER_ATTEMPT_MS}ms attempt plus the ${DEFAULT_RETRY_SAFETY_MARGIN_MS}ms margin does not ` +
-      `fit ${PROD_BUDGET_MS}ms of budget. Re-derive ISL_TIMEOUT_MS / REQUEST_BUDGET_MS together.`,
+      `fit ${PROD_BUDGET_MS}ms of budget, so the retry runs CLAMPED rather than at full width. ` +
+      `Since 2.202 fix ①b that is degraded, not disabled — but re-derive ` +
+      `ISL_TIMEOUT_MS / REQUEST_BUDGET_MS together before accepting it.`,
     ).toBeGreaterThan(0);
 
     // …and prove the relation is what actually drives the decision, so this is
     // not an assertion about arithmetic that nothing consults.
-    expect(
-      decideIslRetry({
-        retryable: true, attempt: 1, maxAttempts: 3,
-        elapsedMs: OBSERVED_429_ELAPSED_MS,
-        perAttemptTimeoutMs: PROD_PER_ATTEMPT_MS,
-        retryAfterMs: ISL_RETRY_AFTER_MS,
-        budget: { remainingMs: PROD_BUDGET_MS },
-      }).retry,
-    ).toBe(true);
+    const d = decideIslRetry({
+      retryable: true, attempt: 1, maxAttempts: 3,
+      elapsedMs: OBSERVED_429_ELAPSED_MS,
+      perAttemptTimeoutMs: PROD_PER_ATTEMPT_MS,
+      retryAfterMs: ISL_RETRY_AFTER_MS,
+      budget: { remainingMs: PROD_BUDGET_MS },
+    });
+    expect(d.retry).toBe(true);
+    // With headroom, the attempt runs at FULL configured width — that is what
+    // the headroom buys, and the only thing this relation now controls.
+    expect(d.timeoutClamped).toBe(false);
+    expect(d.attemptTimeoutMs).toBe(PROD_PER_ATTEMPT_MS);
+  });
+
+  it('⭐ ①b — and when that headroom is GONE the retry is CLAMPED, not cancelled', () => {
+    // The arm that stops the guard above from ever again reading as "the fix is
+    // off". Violate the relation deliberately — a per-attempt timeout larger
+    // than the whole budget, i.e. the staging regime — and the decision must
+    // still retry, narrower. If this ever goes RED, ①b has been reverted and the
+    // 0-of-9 live outcome is back.
+    const overBudgetPerAttemptMs = PROD_BUDGET_MS + 60_000; // staging: 130s vs 70s
+    const d = decideIslRetry({
+      retryable: true, attempt: 1, maxAttempts: 3,
+      elapsedMs: OBSERVED_429_ELAPSED_MS,
+      perAttemptTimeoutMs: overBudgetPerAttemptMs,
+      retryAfterMs: ISL_RETRY_AFTER_MS,
+      budget: { remainingMs: PROD_BUDGET_MS },
+    });
+    expect(d.retry).toBe(true);
+    expect(d.reason).toBe('budget_available');
+    expect(d.timeoutClamped).toBe(true);
+    expect(d.attemptTimeoutMs).toBeLessThan(overBudgetPerAttemptMs);
+    expect(d.delayMs + d.attemptTimeoutMs + DEFAULT_RETRY_SAFETY_MARGIN_MS)
+      .toBeLessThanOrEqual(d.remainingMs!);
   });
 
   it('WITNESS for the old policy: the up-front worst-case count allowed only 1 attempt', () => {
@@ -110,23 +155,70 @@ describe('decideIslRetry — the fast-429 case that was structurally unreachable
 });
 
 describe('decideIslRetry — the budget bound (no infinite retry, no budget overrun)', () => {
-  it('refuses when the next attempt does not fit the remaining budget', () => {
+  it('refuses when not even a CLAMPED attempt fits the remaining budget', () => {
+    // ⚠⚠ RE-POINTED 2026-07-31 BY FIX ①b — DISCLOSED, NOT SILENTLY REWRITTEN.
+    //
+    // As written this arm used `elapsedMs: 60_000` against the 70s budget and
+    // asserted `budget_exhausted`, on the reasoning that "a SLOW failure that
+    // consumed the budget" must get no retry. Fix ①b deliberately changes that:
+    // with ~10s left, a rescue attempt clamped to ~8s DOES fit, and a rescue
+    // attempt's alternative is not a slower success but the typed failure the
+    // caller is already getting. So at 60_000 elapsed the decision now —
+    // correctly — RETRIES, and this arm would have gone RED against its own fix
+    // while appearing to defend it. That is exactly the mutant §4.5 of
+    // fix-plot-retry-budget-2202.md flagged, one lane later.
+    //
+    // The INVARIANT it protected is unchanged and still pinned, one arm below
+    // and across the ①b sweeps: no attempt is ever started whose timeout
+    // outlives the caller's budget. What moved is the boundary, from "the FULL
+    // per-attempt timeout must fit" to "a floored, affordable one must". So this
+    // arm is re-pointed to a budget that is GENUINELY spent — nothing fits, not
+    // even the floor — which is the claim the title was really making.
     const d = decideIslRetry({
       retryable: true,
       attempt: 1,
       maxAttempts: 3,
-      elapsedMs: 60_000, // a SLOW failure that consumed the budget
+      elapsedMs: 68_500, // 1.5s left: cannot pay a 1s backoff + 1s margin at all
       perAttemptTimeoutMs: PROD_PER_ATTEMPT_MS,
       budget: { remainingMs: PROD_BUDGET_MS },
     });
     expect(d.retry).toBe(false);
     expect(d.reason).toBe('budget_exhausted');
     expect(d.delayMs).toBe(0);
+    expect(d.affordableTimeoutMs!).toBeLessThan(0);
+  });
+
+  it('⭐ ①b — the same SLOW failure now buys a CLAMPED rescue (the behaviour change, pinned)', () => {
+    // The arm above used to live at this input. Pinning the new outcome here
+    // means the change is asserted in both directions rather than quietly
+    // dropped: 10s remain, so a ~8s rescue attempt is started, and it still
+    // finishes inside the budget with the margin reserved.
+    const d = decideIslRetry({
+      retryable: true,
+      attempt: 1,
+      maxAttempts: 3,
+      elapsedMs: 60_000,
+      perAttemptTimeoutMs: PROD_PER_ATTEMPT_MS,
+      budget: { remainingMs: PROD_BUDGET_MS },
+    });
+    expect(d.retry).toBe(true);
+    expect(d.reason).toBe('budget_available');
+    expect(d.timeoutClamped).toBe(true);
+    expect(d.attemptTimeoutMs).toBeLessThan(PROD_PER_ATTEMPT_MS);
+    expect(d.delayMs + d.attemptTimeoutMs + DEFAULT_RETRY_SAFETY_MARGIN_MS)
+      .toBeLessThanOrEqual(d.remainingMs!);
   });
 
   it('⭐ preserves the property the OLD up-front clamp existed to protect', () => {
-    // A slow failure must never buy a retry that outlives the caller. Sweep the
-    // whole elapsed range: once the projection stops fitting, it never restarts.
+    // A retry must never outlive the caller. Sweep the whole elapsed range: once
+    // the projection stops fitting, it never restarts.
+    //
+    // ⚠ NOTE AFTER FIX ①b (2026-07-31): what is swept is now the CLAMPED
+    // projection, so the refusal boundary sits later than it did — a slow
+    // failure buys a shorter rescue rather than nothing. Both assertions below
+    // are unchanged and both still hold, because the bound they express
+    // ("projected + margin never exceeds remaining") is about the attempt that
+    // will actually run, not about the caller's configured width.
     let firstRefusalAt: number | undefined;
     for (let elapsedMs = 0; elapsedMs <= PROD_BUDGET_MS; elapsedMs += 500) {
       const d = decideIslRetry({
@@ -150,8 +242,24 @@ describe('decideIslRetry — the budget bound (no infinite retry, no budget over
     expect(firstRefusalAt, 'the budget bound must bite somewhere in the sweep').toBeDefined();
   });
 
-  it('an attempt is only ever granted when its FULL per-attempt timeout still fits', () => {
-    // The invariant that makes overrunning the caller impossible by construction.
+  it('an attempt is only ever granted when the timeout IT WILL RUN WITH still fits', () => {
+    // ⚠⚠ RE-POINTED 2026-07-31 BY FIX ①b — DISCLOSED, NOT SILENTLY REWRITTEN.
+    //
+    // As written, this asserted `elapsedMs + delayMs + 5_000 <= 12_000` — i.e. it
+    // priced the granted attempt at the CALLER'S CONFIGURED timeout. That is the
+    // pre-①b mechanism, not the invariant: at elapsedMs 8_000 the decision now
+    // grants a rescue clamped to ~2s, and the old assertion would read
+    // `8000 + 1000 + 5000 <= 12000` → RED, blocking its own fix.
+    //
+    // The invariant is, and always was, that no attempt is STARTED whose timeout
+    // outlives the caller's budget. It is now checked against
+    // `d.attemptTimeoutMs` — the width the attempt will actually run with, which
+    // the client is required to honour (pinned on the real socket in
+    // tests/plot-2202b-rescue-clamp.client.test.ts). This is strictly stronger
+    // than the old form: it fails if the decision ever hands back a timeout the
+    // budget cannot pay for, including an unclamped one.
+    let granted = 0;
+    let clamped = 0;
     for (const elapsedMs of [0, 1_000, 5_000, 8_000, 8_999, 9_000]) {
       const d = decideIslRetry({
         retryable: true,
@@ -161,10 +269,18 @@ describe('decideIslRetry — the budget bound (no infinite retry, no budget over
         perAttemptTimeoutMs: 5_000,
         budget: { remainingMs: 12_000 },
       });
-      if (d.retry) {
-        expect(elapsedMs + d.delayMs + 5_000).toBeLessThanOrEqual(12_000);
-      }
+      if (!d.retry) continue;
+      granted++;
+      if (d.timeoutClamped) clamped++;
+      expect(d.attemptTimeoutMs).toBeLessThanOrEqual(5_000); // never widened
+      expect(elapsedMs + d.delayMs + d.attemptTimeoutMs).toBeLessThanOrEqual(12_000);
+      expect(d.delayMs + d.attemptTimeoutMs + DEFAULT_RETRY_SAFETY_MARGIN_MS)
+        .toBeLessThanOrEqual(d.remainingMs!);
     }
+    // Both halves must be exercised or the loop proves less than it looks
+    // (trap 13): an unclamped grant AND a clamped one.
+    expect(granted).toBeGreaterThan(0);
+    expect(clamped, 'the sweep must reach the clamped band').toBeGreaterThan(0);
   });
 
   it('still honours the configured attempt cap even with unlimited budget', () => {
