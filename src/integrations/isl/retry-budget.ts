@@ -31,9 +31,13 @@
  *   • slow fail → budget already consumed, projection does not fit → NO RETRY
  *     (this is precisely the property the old up-front clamp existed to
  *     protect, and it is preserved exactly)
- *   • an absurd `Retry-After: 3600` self-limits: the projection is 3.6 M ms,
- *     which cannot fit, so it terminates with the typed failure. No arbitrary
- *     cap is needed, and none is invented.
+ *   • an absurd `Retry-After: 3600` self-limits ON THE BUDGETED PATH: the
+ *     projection is 3.6 M ms, which cannot fit, so it terminates with the typed
+ *     failure. No arbitrary cap is needed there, and none is invented.
+ *     ⚠ That self-limiting is a property of the BUDGET, not of the parser — so
+ *     the no-budget path must not honour `Retry-After` at all, and does not
+ *     (see the `!budget` branch). Getting this wrong is what the first cut of
+ *     2.202 did, and it is the one HIGH the adversarial review found.
  *
  * An attempt is only ever STARTED when its FULL per-attempt timeout still fits,
  * so the total can never overrun the caller's budget.
@@ -44,7 +48,8 @@
  * own comment says it avoids.
  *
  * BLAST RADIUS: when no budget is supplied the decision degenerates to EXACTLY
- * the previous behaviour (attempt cap + exponential backoff). Only the /v2/run
+ * the previous behaviour — attempt cap + our own exponential backoff, and
+ * `Retry-After` deliberately ignored. Only the /v2/run
  * base robustness call passes a budget; flip probes, thresholds and health are
  * untouched.
  */
@@ -161,17 +166,34 @@ export function decideIslRetry(input: ISLRetryDecisionInput): ISLRetryDecision {
   if (!retryable) return no('not_retryable');
   if (attempt >= maxAttempts) return no('attempt_cap');
 
-  // No budget supplied → EXACTLY the previous behaviour. This is what keeps the
-  // change scoped to the base call.
+  // No budget supplied → EXACTLY the previous behaviour, and that means the
+  // BACKOFF, not `Retry-After`.
+  //
+  // ⚠ This branch is load-bearing and was WRONG in the first cut of 2.202
+  // (caught in adversarial review of PR #295). `delayMs` above is
+  // `max(retryAfterMs, backoffMs)`, and returning it here honoured
+  // `Retry-After` with NO BOUND on a path that has no budget to bound it —
+  // `Retry-After: 3600` meant the client slept for an hour, in a sleep that
+  // observes no AbortSignal. The exposure was live, not theoretical: /v1/run
+  // calls validateCausal + analyseRobustness with maxRetries = 3 and no budget
+  // against the very endpoint whose governor 429 carries `Retry-After: 5` — so
+  // the first cut would have added ~7 s per call under exactly the contention
+  // this change exists to fix.
+  //
+  // Only the budgeted path may honour `Retry-After`, because only there is the
+  // resulting delay checked against something. Here we sleep our own bounded
+  // backoff (≤ ISL_RETRY_BACKOFF_CAP_MS), which is what the pre-2.202 client
+  // did — making "no budget = previous behaviour" literally true rather than
+  // approximately true.
   if (!budget) {
     return {
       retry: true,
-      delayMs,
+      delayMs: backoffMs,
       reason: 'attempts_remaining',
-      retryAfterHonoured,
+      retryAfterHonoured: false,
       backoffMs,
       remainingMs: undefined,
-      projectedCostMs,
+      projectedCostMs: backoffMs + perAttemptTimeoutMs,
     };
   }
 

@@ -19,7 +19,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { createServer as createHttpServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { ISLClient } from '../src/integrations/isl/client.js';
-import { ISLHttpError } from '../src/integrations/isl/errors.js';
+import { ISLHttpError, ISLResponseProcessingError, isRetryableError } from '../src/integrations/isl/errors.js';
 import { islRetryBackoffMs } from '../src/config/timeouts.js';
 
 const ENDPOINT = '/api/v1/robustness/analyze/v2';
@@ -150,6 +150,49 @@ describe('2.202 — Retry-After is captured on ISLHttpError and honoured by the 
     expect(elapsed).toBeGreaterThanOrEqual(2_800);
   }, 30_000);
 
+  it('⭐ NO BUDGET — Retry-After is ignored; the client sleeps its own backoff (A1)', async () => {
+    // THE HIGH from the PR #295 adversarial review, pinned end-to-end on the
+    // real client. Every caller EXCEPT the /v2/run base call passes no budget:
+    // /v1/run's validateCausal + analyseRobustness run with maxRetries = 3 and
+    // no budget against the very endpoint whose governor 429 carries
+    // `Retry-After: 5`. The first cut honoured that hint with nothing bounding
+    // it, so this call slept 5s per retry (and a hostile/misconfigured
+    // `Retry-After: 3600` slept the hour, uninterruptibly).
+    rejectionsRemaining = 1;
+    retryAfterHeader = '3';
+    const t0 = Date.now();
+    const res = await client({ maxRetries: 3 }).request<{ ok: boolean }>({
+      endpoint: ENDPOINT,
+      body: {},
+      requestId: 'rid-nobudget',
+      // budget deliberately omitted — the pre-2.202 caller shape.
+    });
+    const elapsed = Date.now() - t0;
+
+    expect(res.data).toEqual({ ok: true });
+    expect(hits).toBe(2);
+    // ~1s (our backoff), NOT ~3s (the server's hint). This is the assertion
+    // that distinguishes "previous behaviour exactly" from "approximately".
+    expect(elapsed).toBeLessThan(2_000);
+    expect(elapsed).toBeGreaterThanOrEqual(900);
+  }, 30_000);
+
+  it('⭐ NO BUDGET — an absurd Retry-After cannot stall the call (A1)', async () => {
+    // Without a budget there is nothing to reject the hint, so ignoring it is
+    // the ONLY thing keeping this bounded. Pre-A1 this slept for an hour and
+    // the test timed out.
+    rejectionsRemaining = 1;
+    retryAfterHeader = '3600';
+    const t0 = Date.now();
+    const res = await client({ maxRetries: 3 }).request<{ ok: boolean }>({
+      endpoint: ENDPOINT, body: {}, requestId: 'rid-nobudget-absurd',
+    });
+    const elapsed = Date.now() - t0;
+    expect(res.data).toEqual({ ok: true });
+    expect(hits).toBe(2);
+    expect(elapsed).toBeLessThan(2_000);
+  }, 30_000);
+
   it('an absurd Retry-After does NOT get slept — it fails the budget check and terminates', async () => {
     rejectionsRemaining = 99;
     retryAfterHeader = '3600'; // one hour
@@ -167,6 +210,94 @@ describe('2.202 — Retry-After is captured on ISLHttpError and honoured by the 
     expect((caught as ISLHttpError).status).toBe(429);
     expect(hits).toBe(1);
     expect(elapsed).toBeLessThan(5_000); // did not sleep for an hour
+  }, 20_000);
+});
+
+describe('2.202 review item C — a failure AFTER ISL computed must not re-issue the analysis', () => {
+  let badServer: Server;
+  let badPort: number;
+  let badHits = 0;
+  /** >0 → serve a retryable 429 first (used by the positive control). */
+  let controlRejections = 0;
+
+  beforeAll(async () => {
+    badServer = createHttpServer((req, res) => {
+      req.resume();
+      req.on('end', () => {
+        badHits++;
+        if (controlRejections > 0) {
+          controlRejections--;
+          res.writeHead(429, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ detail: 'caller_concurrency_exceeded' }));
+          return;
+        }
+        if (controlMode) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true }));
+          return;
+        }
+        // 200 OK — ISL DID the work — but the body is not JSON.
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end('{"options": [ THIS IS NOT JSON');
+      });
+    });
+    await new Promise<void>((resolve) => badServer.listen(0, '127.0.0.1', () => resolve()));
+    badPort = (badServer.address() as AddressInfo).port;
+  });
+
+  /** When true the server returns well-formed JSON (control arm). */
+  let controlMode = false;
+
+  function badClient() {
+    return new ISLClient({
+      baseUrl: `http://127.0.0.1:${badPort}`,
+      apiKey: 'test-key',
+      timeoutMs: 2_000,
+      maxRetries: 3,
+    });
+  }
+
+  afterAll(async () => {
+    badServer.closeAllConnections?.();
+    await new Promise<void>((resolve) => badServer.close(() => resolve()));
+  });
+
+  beforeEach(() => { badHits = 0; controlRejections = 0; controlMode = false; });
+
+  it('⭐ an unparseable 2xx body is NOT retryable — one attempt, no recompute', async () => {
+    // Before 2.202 the catch wrapped any unrecognised error (incl. a JSON.parse
+    // SyntaxError) as an ISLNetworkError, which isRetryableError reports as
+    // RETRYABLE. That was inert while the base call was clamped to one attempt;
+    // 2.202 makes those retries reachable, so without the narrowing this would
+    // re-issue the WHOLE analysis — multiplying load on the very governor whose
+    // contention this change exists to survive.
+    let caught: unknown;
+    try {
+      await badClient().request({
+        endpoint: ENDPOINT, body: {}, requestId: 'rid-badjson',
+        budget: { remainingMs: 60_000 }, // ample — a retry WOULD fit if allowed
+      });
+    } catch (e) { caught = e; }
+
+    expect(caught).toBeInstanceOf(ISLResponseProcessingError);
+    expect(isRetryableError(caught)).toBe(false);
+    // The load-bearing assertion: ISL was asked to compute exactly ONCE.
+    expect(badHits).toBe(1);
+  }, 20_000);
+
+  it('CONTROL — the harness CAN see a retry against the SAME server and client config', async () => {
+    // Trap 13: without this, `badHits === 1` above could hold because nothing in
+    // this setup ever retries. Identical client, identical server, identical
+    // budget — only the failure CLASS differs (retryable 429 vs post-compute
+    // parse fault) — and the count goes to 2.
+    controlRejections = 1;
+    controlMode = true;
+    const res = await badClient().request<{ ok: boolean }>({
+      endpoint: ENDPOINT, body: {}, requestId: 'rid-c-control',
+      budget: { remainingMs: 60_000 },
+    });
+    expect(res.data).toEqual({ ok: true });
+    expect(badHits).toBe(2);
   }, 20_000);
 });
 

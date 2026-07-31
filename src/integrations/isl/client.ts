@@ -8,7 +8,7 @@
  * - Error classification
  */
 
-import { ISLHttpError, ISLTimeoutError, ISLNetworkError, isRetryableError, parseRetryAfterMs, type ISLError422 } from './errors.js';
+import { ISLHttpError, ISLTimeoutError, ISLNetworkError, ISLResponseProcessingError, isRetryableError, parseRetryAfterMs, type ISLError422 } from './errors.js';
 import { decideIslRetry, type ISLRetryBudget } from './retry-budget.js';
 import type { ISLHealthResponse } from './types/isl-types.js';
 import { computeOlumiHash } from '../../util/canonical.js';
@@ -170,6 +170,9 @@ export class ISLClient {
       const controller = new AbortController();
       let timeoutId: ReturnType<typeof setTimeout> | undefined;
       let onExternalAbort: (() => void) | undefined;
+      // ROADMAP 2.202 (review item C): true once ISL has returned a 2xx AND its
+      // body has been read — i.e. the compute already happened.
+      let responseCompleted = false;
 
       try {
         timeoutId = setTimeout(
@@ -267,6 +270,13 @@ export class ISLClient {
         // Lane PLoT-R3 (2.13): read the raw text first so responseDigest covers
         // the EXACT bytes received, then parse (same JSON, same errors as .json()).
         const responseText = await response.text();
+        // ROADMAP 2.202 (review item C): past this point ISL has COMPUTED the
+        // analysis and handed us the bytes. Anything that fails from here is a
+        // PLoT-side processing fault, and re-issuing the analysis cannot fix
+        // it — see the catch below. `response.text()` stays OUTSIDE the flag
+        // because a socket reset mid-body is a genuine transport failure and
+        // IS worth retrying.
+        responseCompleted = true;
         const responseData = JSON.parse(responseText) as T;
         const islEchoedRequestId = response.headers.get('x-request-id') ?? null;
         const responseHash = computeOlumiHash(responseData);
@@ -305,6 +315,18 @@ export class ISLClient {
         } else if (rawError instanceof ISLHttpError) {
           // Already typed
           wrappedError = rawError;
+        } else if (responseCompleted) {
+          // ROADMAP 2.202, review item C — NARROWED.
+          //
+          // ISL already returned 2xx and we already have its bytes, so the
+          // analysis HAS been computed; a failure here (JSON.parse, hashing,
+          // bookkeeping) is ours. The generic `else` below wraps it as an
+          // ISLNetworkError, which isRetryableError reports as RETRYABLE — and
+          // 2.202 is precisely what makes those retries reachable. Left alone,
+          // a post-compute parse failure would re-issue the WHOLE analysis and
+          // multiply load on the very governor whose contention this change
+          // exists to survive.
+          wrappedError = new ISLResponseProcessingError(endpoint, rawError);
         } else {
           // Unknown error - wrap as network error
           wrappedError = new ISLNetworkError(endpoint, rawError);

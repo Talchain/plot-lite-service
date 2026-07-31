@@ -20,11 +20,23 @@ import {
   DEFAULT_RETRY_SAFETY_MARGIN_MS,
 } from '../src/integrations/isl/retry-budget.js';
 import { parseRetryAfterMs, ISLHttpError } from '../src/integrations/isl/errors.js';
-import { islRetryBackoffMs, worstCaseMs } from '../src/config/timeouts.js';
+import {
+  islRetryBackoffMs,
+  worstCaseMs,
+  ISL_TIMEOUT_MS,
+  ISL_RETRY_BACKOFF_CAP_MS,
+  resolveRequestBudgetMs,
+} from '../src/config/timeouts.js';
 
-/** The live production shape from the diagnosis. */
-const PROD_BUDGET_MS = 70_000;
-const PROD_PER_ATTEMPT_MS = 60_000;
+/**
+ * The live production shape from the diagnosis — DERIVED from the real
+ * constants, not restated as literals (trap 12: a hand-copied mirror drifts
+ * silently, and drift always reads as green). These used to be `70_000` and
+ * `60_000` written out by hand, which meant a one-line bump of ISL_TIMEOUT_MS
+ * could disable the whole fix with the entire suite still green.
+ */
+const PROD_BUDGET_MS = resolveRequestBudgetMs(); // REQUEST_BUDGET_MS, 70s default
+const PROD_PER_ATTEMPT_MS = ISL_TIMEOUT_MS; // 60s default
 const OBSERVED_429_ELAPSED_MS = 133; // measured: PLoT's boundary.response downstream elapsed_ms
 const ISL_RETRY_AFTER_MS = 5_000; // ISL governor RETRY_AFTER_SECONDS = 5
 
@@ -48,6 +60,44 @@ describe('decideIslRetry — the fast-429 case that was structurally unreachable
     // ~69.9s remained. The projection (5s wait + 60s attempt) fits with room.
     expect(d.remainingMs).toBe(PROD_BUDGET_MS - OBSERVED_429_ELAPSED_MS);
     expect(d.projectedCostMs).toBe(ISL_RETRY_AFTER_MS + PROD_PER_ATTEMPT_MS);
+  });
+
+  it('⭐ HEADROOM — the fix only works while a 5s wait + a full attempt still fits the budget', () => {
+    // ⚠ CROSS-REPO COUPLING, and it is TIGHT. The fix depends on an arithmetic
+    // relation between THREE independently-owned numbers:
+    //   • ISL_RETRY_AFTER_MS   — owned by ISL (compute_governor RETRY_AFTER_SECONDS = 5)
+    //   • ISL_TIMEOUT_MS       — owned by PLoT config (60s)
+    //   • REQUEST_BUDGET_MS    — owned by PLoT config (70s), env-overridable
+    // Live headroom at the defaults is only ~8.9s. A one-line bump of
+    // ISL_TIMEOUT_MS to >=64s silently disables the retry — the decision would
+    // return `budget_exhausted` for the exact 133ms 429 this change exists to
+    // retry — and every other test here would stay GREEN, because they pin the
+    // decision function rather than this relation. That is the trap-12 shape:
+    // the failure reads as green.
+    //
+    // So pin the relation itself. If this goes RED, the fix is OFF in
+    // production and the numbers must be re-derived together, not one at a time.
+    const headroomMs =
+      PROD_BUDGET_MS - OBSERVED_429_ELAPSED_MS
+      - (ISL_RETRY_AFTER_MS + PROD_PER_ATTEMPT_MS + DEFAULT_RETRY_SAFETY_MARGIN_MS);
+    expect(
+      headroomMs,
+      `2.202 is DISABLED at these constants: a ${ISL_RETRY_AFTER_MS}ms Retry-After plus a ` +
+      `${PROD_PER_ATTEMPT_MS}ms attempt plus the ${DEFAULT_RETRY_SAFETY_MARGIN_MS}ms margin does not ` +
+      `fit ${PROD_BUDGET_MS}ms of budget. Re-derive ISL_TIMEOUT_MS / REQUEST_BUDGET_MS together.`,
+    ).toBeGreaterThan(0);
+
+    // …and prove the relation is what actually drives the decision, so this is
+    // not an assertion about arithmetic that nothing consults.
+    expect(
+      decideIslRetry({
+        retryable: true, attempt: 1, maxAttempts: 3,
+        elapsedMs: OBSERVED_429_ELAPSED_MS,
+        perAttemptTimeoutMs: PROD_PER_ATTEMPT_MS,
+        retryAfterMs: ISL_RETRY_AFTER_MS,
+        budget: { remainingMs: PROD_BUDGET_MS },
+      }).retry,
+    ).toBe(true);
   });
 
   it('WITNESS for the old policy: the up-front worst-case count allowed only 1 attempt', () => {
@@ -174,6 +224,53 @@ describe('decideIslRetry — blast radius: no budget supplied = previous behavio
     expect(d.reason).toBe('attempts_remaining');
     expect(d.delayMs).toBe(islRetryBackoffMs(1));
     expect(d.remainingMs).toBeUndefined();
+  });
+
+  it('⭐ IGNORES Retry-After entirely — an unbounded hint must not reach an unbounded path', () => {
+    // THE HIGH FROM THE PR #295 ADVERSARIAL REVIEW. The first cut computed
+    // delayMs = max(retryAfterMs, backoffMs) BEFORE the !budget branch and
+    // returned it there, so `Retry-After: 3600` on a path with no budget to
+    // bound it meant a ONE-HOUR uninterruptible sleep.
+    //
+    // Live exposure, not theoretical: /v1/run calls validateCausal +
+    // analyseRobustness with maxRetries = 3 and NO budget, against the very
+    // endpoint whose governor 429 carries `Retry-After: 5`. The first cut would
+    // have added ~7 s per call under exactly the contention 2.202 fixes.
+    const absurd = decideIslRetry({
+      retryable: true,
+      attempt: 1,
+      maxAttempts: 3,
+      elapsedMs: 0,
+      perAttemptTimeoutMs: 60_000,
+      retryAfterMs: 3_600_000, // one hour
+      budget: undefined,
+    });
+    expect(absurd.retry).toBe(true);
+    expect(absurd.delayMs).toBe(islRetryBackoffMs(1)); // 1s, NOT 3_600_000
+    expect(absurd.retryAfterHonoured).toBe(false);
+    expect(absurd.projectedCostMs).toBe(islRetryBackoffMs(1) + 60_000);
+
+    // The realistic case is the one that actually bit: ISL's own 5s hint.
+    const governor = decideIslRetry({
+      retryable: true, attempt: 1, maxAttempts: 3, elapsedMs: 0,
+      perAttemptTimeoutMs: 60_000, retryAfterMs: 5_000, budget: undefined,
+    });
+    expect(governor.delayMs).toBe(1_000); // our backoff, not the 5s hint
+    expect(governor.retryAfterHonoured).toBe(false);
+  });
+
+  it('the no-budget delay is bounded by our backoff CAP for every attempt', () => {
+    // The structural guarantee that replaces "trust the server's number": with
+    // no budget, the delay can never exceed ISL_RETRY_BACKOFF_CAP_MS, whatever
+    // ISL asks for.
+    for (const attempt of [1, 2, 3, 4, 5]) {
+      const d = decideIslRetry({
+        retryable: true, attempt, maxAttempts: 99, elapsedMs: 0,
+        perAttemptTimeoutMs: 1_000, retryAfterMs: 86_400_000, budget: undefined,
+      });
+      expect(d.delayMs).toBe(islRetryBackoffMs(attempt));
+      expect(d.delayMs).toBeLessThanOrEqual(ISL_RETRY_BACKOFF_CAP_MS);
+    }
   });
 
   it('and still stops at the cap — maxRetries = 1 means one attempt (F3/F9 optional phases)', () => {

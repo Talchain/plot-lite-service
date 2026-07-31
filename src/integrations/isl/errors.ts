@@ -235,6 +235,34 @@ export class ISLNetworkError extends Error {
 }
 
 /**
+ * A PLoT-side failure that happened AFTER ISL returned a 2xx — unparseable body,
+ * hashing/bookkeeping failure, etc.
+ *
+ * ROADMAP 2.202, review item C. The client's catch wraps any unrecognised error
+ * as an {@link ISLNetworkError}, which `isRetryableError` reports as RETRYABLE.
+ * That was harmless while the base call was clamped to a single attempt, but
+ * 2.202 makes retries reachable — so without this class a failure occurring
+ * after ISL had already COMPUTED the analysis would re-issue the whole
+ * analysis, multiplying load on the very governor whose contention this change
+ * exists to survive.
+ *
+ * ISL did its job; the fault is on our side of the wire and re-running the
+ * computation cannot fix it. Deliberately absent from `isRetryableError`, so it
+ * is NOT retryable.
+ */
+export class ISLResponseProcessingError extends Error {
+  constructor(
+    public endpoint: string,
+    public cause?: Error
+  ) {
+    super(
+      `ISL response from ${endpoint} could not be processed: ${cause?.message ?? 'unknown'}`,
+    );
+    this.name = 'ISLResponseProcessingError';
+  }
+}
+
+/**
  * ISL service unavailable (circuit breaker open, etc.)
  */
 export class ISLUnavailableError extends Error {

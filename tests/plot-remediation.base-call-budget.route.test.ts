@@ -163,8 +163,16 @@ describe('item 4 — base ISL robustness call clamped to the request budget', ()
     expect(c.budget!.remainingMs).toBeLessThanOrEqual(70_000);
     // A reserve is kept unspent so the route can still build its response.
     expect(c.budget!.safetyMarginMs).toBeGreaterThan(0);
-    // And one full attempt plus the margin fits inside it — the invariant that
-    // makes overrunning the caller impossible by construction.
+    // And at the DEFAULT budget one full attempt plus the margin fits inside it.
+    //
+    // ⚠ Stated narrowly on purpose (review item E). An earlier draft called this
+    // "impossible by construction", which overstates what the code gives: the
+    // per-attempt timeout is floored at BASE_CALL_MIN_TIMEOUT_MS (1s), so at a
+    // sufficiently small REQUEST_BUDGET_MS the floor wins and the first attempt
+    // CAN exceed the remaining budget. What IS guaranteed everywhere is weaker
+    // and still sufficient: no RETRY is ever started unless its full per-attempt
+    // timeout fits, so the retry ladder cannot outlive the caller — the first
+    // attempt is bounded by the clamp, not by this arithmetic.
     expect(c.timeoutMs! + c.budget!.safetyMarginMs!).toBeLessThanOrEqual(c.budget!.remainingMs);
   });
 
