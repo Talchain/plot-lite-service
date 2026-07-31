@@ -8,6 +8,7 @@ import type {
   CeeTrace,
   CeeReviewRequest,
   CeeReviewResponse,
+  CeeReviewReadiness,
   CeeReviewBlock,
   CeeErrorNormalized,
 } from './types.js';
@@ -115,6 +116,25 @@ export type BriefContext = {
   edges?: number;
 };
 
+/**
+ * Build the brief PLoT sends to CEE's /assist/v1/draft-graph.
+ *
+ * ⚠ READ BEFORE WIRING ANYTHING ELSE OUT OF THE CEE COMPOSE RESULT (ROADMAP row 23).
+ *
+ * This brief carries the user's node/edge COUNTS and nothing else — deliberately, see
+ * the "no user content exposed" comment below. CEE therefore DRAFTS A NEW GRAPH from a
+ * string like "Decision review context: Decision review for inference results
+ * (12 nodes, 18 edges)", and `runDecisionReviewVia{Sdk,V2Http}` then run /options and
+ * /bias-check against THAT drafted graph (`:172` and `:341` at 5ab93383), not against
+ * `request.graph_snapshot` — which `orchestrateCeeReview` reads for `.length` only
+ * (`:583-584`, `:622-623`).
+ *
+ * Consequence: `bias.bias_findings` and `bias.mitigation_patches` describe a graph the
+ * user never built, and any patch node ids come from it. Surfacing them to a user —
+ * e.g. via the UI's "apply to my model" action — would be a fabrication, not a fix.
+ * The graph seam must be corrected first, and doing so reverses the explicit
+ * "no user content exposed" decision, so it is an architecture call, not a patch.
+ */
 export function buildCeeBrief(shortLabel: string, context?: BriefContext): string {
   const prefix = 'Decision review context: ';
   const label = (shortLabel ?? '').trim();
@@ -429,6 +449,40 @@ export interface CeeOrchestrationResult {
  * Check if SDK supports review() method (v1.12.0+)
  * This will be updated when SDK v1.12.0 is published
  */
+const VALID_READINESS_LEVELS = ['ready', 'needs_attention', 'not_ready'] as const;
+
+/**
+ * Extract a readiness verdict from the CEE compose result, or `undefined` when CEE
+ * computed none.
+ *
+ * ROADMAP row 23. Both branches below previously discarded the CEE result and emitted
+ * `readiness: { level: 'ready', headline: 'Analysis complete', factors: [] }` on EVERY
+ * successful turn. That is a constant, not a verdict — omitting the field is the honest
+ * output, and a downstream surface that renders nothing is preferable to one that
+ * renders an unearned "ready".
+ *
+ * CEE's compose endpoints carry no readiness field today (olumi-assistants-service
+ * `src/schemas/ceeResponses.ts`, CEEDraftGraph/Options/BiasCheck response schemas), so
+ * in practice this returns `undefined`. It is written as a real extractor, not as a
+ * hardcoded `undefined`, so that a readiness CEE later starts sending is carried
+ * through without another code change — and so both directions stay testable.
+ */
+function extractCeeReadiness(review: unknown): CeeReviewReadiness | undefined {
+  const candidate = (review as { readiness?: unknown } | null | undefined)?.readiness;
+  if (!candidate || typeof candidate !== 'object') return undefined;
+
+  const { level, headline, factors } = candidate as Record<string, unknown>;
+  if (typeof level !== 'string') return undefined;
+  if (!VALID_READINESS_LEVELS.includes(level as typeof VALID_READINESS_LEVELS[number])) return undefined;
+  if (typeof headline !== 'string' || headline.length === 0) return undefined;
+
+  return {
+    level: level as CeeReviewReadiness['level'],
+    headline,
+    factors: Array.isArray(factors) ? factors.filter((f): f is string => typeof f === 'string') : [],
+  };
+}
+
 function sdkSupportsReview(client: ReturnType<typeof createCEEClient>): boolean {
   // TODO: Update when SDK v1.12.0 is published
   // return typeof (client as any).review === 'function';
@@ -594,15 +648,14 @@ export async function orchestrateCeeReview(
         throw new Error(result.error.code ?? 'CEE_V2_ERROR');
       }
 
-      // Convert compose result to M1 response shape
+      // Convert compose result to M1 response shape.
+      // ROADMAP row 23: readiness is carried from the CEE result when CEE computed one
+      // and OMITTED otherwise. It is never fabricated — see extractCeeReadiness().
+      const readiness = extractCeeReadiness(result.review);
       ceeReview = result.review ? {
         intent: request.intent,
         analysis_state: 'ran',
-        readiness: {
-          level: 'ready',
-          headline: 'Analysis complete (v2)',
-          factors: [],
-        },
+        ...(readiness ? { readiness } : {}),
         blocks: [],
         trace: {
           request_id: result.trace?.cee_returned_request_id ?? undefined,
@@ -634,15 +687,14 @@ export async function orchestrateCeeReview(
         throw new Error(result.error.code ?? 'CEE_SDK_ERROR');
       }
 
-      // Convert compose result to M1 response shape (blocks added below)
+      // Convert compose result to M1 response shape (blocks added below).
+      // ROADMAP row 23: readiness is carried from the CEE result when CEE computed one
+      // and OMITTED otherwise. It is never fabricated — see extractCeeReadiness().
+      const readiness = extractCeeReadiness(result.review);
       ceeReview = result.review ? {
         intent: request.intent,
         analysis_state: 'ran',
-        readiness: {
-          level: 'ready',
-          headline: 'Analysis complete',
-          factors: [],
-        },
+        ...(readiness ? { readiness } : {}),
         blocks: [], // Will be populated with ISL blocks below
         trace: {
           request_id: result.trace?.cee_returned_request_id ?? undefined,

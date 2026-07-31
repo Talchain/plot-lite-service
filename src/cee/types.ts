@@ -313,7 +313,19 @@ export interface CeeReviewReadiness {
 export interface CeeReviewResponse {
   intent: string;
   analysis_state: 'ran' | 'skipped' | 'failed';
-  readiness: CeeReviewReadiness;
+  /**
+   * Readiness verdict — OPTIONAL, and present only when CEE actually computed one.
+   *
+   * It used to be required, and `orchestrateCeeReview` satisfied that requirement by
+   * hardcoding `{ level: 'ready', headline: 'Analysis complete', factors: [] }` on
+   * every successful turn: a constant dressed as a computed verdict. CEE's compose
+   * endpoints (/assist/v1/draft-graph, /options, /bias-check) carry no readiness
+   * field, so on the current live path the honest value is ABSENCE, not 'ready'.
+   *
+   * Consumers must treat an absent readiness as "no verdict available" and render
+   * nothing, rather than defaulting to a positive one.
+   */
+  readiness?: CeeReviewReadiness;
   blocks: CeeReviewBlock[];
   trace: {
     request_id?: string;
