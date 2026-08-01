@@ -394,7 +394,12 @@ describe('T6: Auto-constraint fallback via /v2/run', () => {
         state_space: { range: { min: 0, max: 50000 } },
       },
       { id: 'churn_factor', kind: 'factor', label: 'Churn Rate', observed_state: { value: 0.05 } },
-      { id: 'goal', kind: 'goal', label: 'Business Goal' },
+      // ROADMAP 2.266: auto-synthesis is gated on `goal_threshold_frame ===
+      // 'delta'` — the frame ISL evaluates constraints in. This suite tests the
+      // FALLBACK mechanism, not framing, so the frame is stamped to keep it
+      // engaged. `tests/goal-threshold-frame-synthesis-gate.test.ts` owns the
+      // frame-absent / 'level' refusal cases.
+      { id: 'goal', kind: 'goal', label: 'Business Goal', goal_threshold_frame: 'delta' },
     ],
     edges: [
       { from: 'mrr_factor', to: 'goal', exists_probability: 1, strength: { mean: 0.6, std: 0.1 } },
@@ -585,6 +590,9 @@ describe('T6: Auto-constraint fallback via /v2/run', () => {
           // Node-level goal_threshold — not in EngineNodeV3 type but
           // accessible on the raw upstream node before normalisation strips it
           goal_threshold: 0.65,
+          // ROADMAP 2.266: frame stamped so the synthesis this test is about
+          // still engages (the gate is exercised in its own suite).
+          goal_threshold_frame: 'delta',
         },
       ],
       edges: [
@@ -854,7 +862,8 @@ describe('T7: Log assertions for auto-constraint events', () => {
 
   const GRAPH = {
     nodes: [
-      { id: 'goal', kind: 'goal', label: 'Revenue' },
+      // ROADMAP 2.266: frame stamped so auto-synthesis engages (see gate suite).
+      { id: 'goal', kind: 'goal', label: 'Revenue', goal_threshold_frame: 'delta' },
       { id: 'factor-a', kind: 'factor', label: 'Market Size', observed_state: { value: 0.5 } },
       { id: 'factor-b', kind: 'factor', label: 'Retention', observed_state: { value: 0.3 } },
     ],

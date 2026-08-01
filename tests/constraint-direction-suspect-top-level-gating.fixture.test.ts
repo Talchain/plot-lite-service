@@ -141,7 +141,11 @@ import { createServer } from '../src/createServer.js';
 
 const GRAPH = {
   nodes: [
-    { id: 'goal_growth', kind: 'goal', label: 'Net revenue change', observed_state: { value: 50 } },
+    // ROADMAP 2.266: auto-synthesis is gated on `goal_threshold_frame ===
+    // 'delta'`. This suite is about direction-suspicion gating, not framing, so
+    // the frame is stamped to keep the synthesis engaged — and 'delta' is the
+    // honest frame for a node labelled "Net revenue CHANGE".
+    { id: 'goal_growth', kind: 'goal', label: 'Net revenue change', observed_state: { value: 50 }, goal_threshold_frame: 'delta' },
     { id: 'fac_spend', kind: 'factor', label: 'Marketing spend', observed_state: { value: 40 } },
   ],
   edges: [

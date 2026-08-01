@@ -126,7 +126,15 @@ const GRAPH = {
   nodes: [
     // The goal node is the auto-constraint's implicit target (Phase 1c+
     // synthesises node_id: goal_node_id).
-    { id: 'goal_cost_reduction', kind: 'goal', label: 'Net cost change' },
+    //
+    // ROADMAP 2.266: the auto-synthesis is now gated on
+    // `goal_threshold_frame === 'delta'` — the only frame provably matching the
+    // change-from-baseline samples ISL evaluates constraints against. This
+    // suite is about the SIGN defence, not about framing, so the frame is
+    // stamped here to keep the synthesis engaged and the subject under test
+    // reachable. (A 'delta' frame is also the honest reading of this fixture:
+    // the goal node is literally labelled "Net cost change".)
+    { id: 'goal_cost_reduction', kind: 'goal', label: 'Net cost change', goal_threshold_frame: 'delta' },
     { id: 'fac_spend', kind: 'factor', label: 'Marketing spend', observed_state: { value: 0.5 } },
   ],
   edges: [

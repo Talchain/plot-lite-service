@@ -3077,6 +3077,11 @@ function buildResponse(
   const displayVerdictFields = deriveRobustnessDisplayVerdict(
     { is_robust: robustness.is_robust, level: robustness.level },
     robustnessStatus === 'computed',
+    // ROADMAP 2.278: the SAME run's flip evidence. `flipThresholds` is a
+    // parameter of this function, so this is the array that ships on the wire
+    // at `flip_thresholds` below — the verdict and the evidence it cites can
+    // never be taken from two different runs.
+    flipThresholds,
   );
   robustness.display_verdict = displayVerdictFields.display_verdict;
   robustness.display_verdict_reason = displayVerdictFields.display_verdict_reason;
@@ -3288,7 +3293,11 @@ function buildResponse(
   // unflippable/input-null cause and the overflow cause separately, never
   // claiming an overflow for the common benign input-null case. Severity: info
   // (ISL routinely emits null e_value for unflippable edges — expected
-  // non-representability, not an alarm; still on the wire + _meta warning_codes).
+  // non-representability, not an alarm; still on the wire in inference_warnings).
+  // NB: it is deliberately NOT in decision_brief.warning_codes — buildWarningCodes
+  // (assembly/decision-brief.ts:729-737) echoes severity 'warning' only. The
+  // earlier text here named `_meta.warning_codes`, a field that does not exist
+  // anywhere in this repo.
   if (meta.edgeEValuesDropped) {
     const disclosure = describeEdgeEValueDrop(
       meta.edgeEValuesDropped.inputNull,
@@ -5086,6 +5095,18 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // ISL request build can read it.
         let autoSynthesisFired = false;
         let autoThreshold: number | undefined;
+        /**
+         * ROADMAP 2.266 — set when a goal target WAS resolved but the
+         * auto-synthesis was refused because the target's frame does not match
+         * the frame ISL evaluates constraints in. Read once, at the 2.239
+         * threshold carry, to keep the target itself on the wire (see there).
+         * Values are the diagnostic cause, never a frame PLoT asserts.
+         */
+        let autoSynthesisFrameRefusal:
+          | 'unattested'
+          | 'level'
+          | 'attestation_mismatch'
+          | undefined;
         const clientConstraintCount = body.goal_constraints?.length ?? 0;
 
         // =================================================================
@@ -5181,7 +5202,145 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           // it on the node even if the request root field is absent).
           autoThreshold = goalThreshold ?? nodeGoalThreshold;
 
-          if (autoThreshold !== undefined && Number.isFinite(autoThreshold)) {
+          // =============================================================
+          // ROADMAP 2.266 — SYNTHESISE ONLY IN THE FRAME ISL EVALUATES IN
+          // =============================================================
+          // ISL evaluates a goal_constraint by comparing its `value` against
+          // the goal node's Monte-Carlo samples, and those samples are a
+          // CHANGE FROM BASELINE (an uplift), not an absolute level. So the
+          // synthesised constraint is only meaningful when the goal target is
+          // itself stated as a change — i.e. frame `'delta'`.
+          //
+          // WITNESSED CONSEQUENCE OF NOT CHECKING (evidence
+          // `witness-2258-goal-probability-live.md`, three live runs): a target
+          // of 0.8 meaning "£6,000,000 of a £7,500,000 cap" — a LEVEL — was
+          // synthesised verbatim and compared against uplift samples whose
+          // median was ~£2,200,000. ISL answered the question actually asked,
+          // "is the UPLIFT >= £6,000,000?", and returned 0.0054. The question
+          // the user asked, "is £4,000,000 + uplift >= £6,000,000?", answers
+          // ~0.55. The surface showed "< 1%" — a ~100x understatement biased
+          // toward "hopeless".
+          //
+          // ⚠ WHY THE GATE IS `=== 'delta'` AND NOT MERELY "a frame is
+          // present". The witnessed runs carried NO frame, so gating on mere
+          // presence would fix today's live surface — and would REINTRODUCE
+          // the exact ~100x error the moment the producer starts stamping,
+          // because the frame it will stamp for that decision is `'level'`.
+          // A gate that passes today and breaks on the next upstream landing
+          // is not a fix. Only `'delta'` is provably in the sample frame.
+          //
+          // ⚠ WHY `'level'` IS NOT CONVERTED HERE INSTEAD. The decisive reason
+          // is structural, not circumstantial: `ISLGoalConstraint` carries NO
+          // frame field at all (`integrations/isl/translator-v3.ts:124-132`).
+          // ISL therefore reads every constraint `value` in one fixed frame and
+          // cannot be told otherwise, so a converted value would have to be
+          // PLoT unilaterally reproducing ISL's own normalisation arithmetic
+          // and hoping the two stay in step — with no field on the wire for
+          // either side to declare what it did, and so no way for a test here
+          // to prove the two agree. Constraint-frame attestation is a schemas
+          // train, deliberately out of scope for this row.
+          //
+          // The missing baseline is a second, weaker obstacle and is stated
+          // narrowly on purpose: a graph CAN carry `observed_state.baseline` on
+          // the goal node (test fixtures do). What the WITNESS establishes is
+          // that the live producer did not write one on any of the three
+          // captured runs, which is also why ISL's own main-path converter
+          // never executed there. ROADMAP 2.281 is the row that changes that.
+          // Minting the arithmetic here anyway would replace a wrong number
+          // with a differently-wrong number — the defect class this row
+          // exists to close. So `'level'` is REFUSED, not guessed.
+          //
+          // The refusal is honest absence, not a silent zero: with no
+          // constraint sent, `buildResponse` omits the whole constraint block
+          // (`run.ts:2095-2098`), so `constraint_probabilities`,
+          // `probability_of_joint_goal`, `goal_fit` and `goal_fit_basis` are
+          // all ABSENT from the wire rather than shipping 0. The user's target
+          // still reaches ISL's main path (see the 2.239 carry below), which
+          // discloses its own refusal by name.
+          //
+          // SCOPE: this gate governs ONLY the auto-synthesised constraint.
+          // User-authored `goal_constraints` are untouched — they never reach
+          // this branch, which runs only when the compiled set is empty.
+          const frameIsSampleFrame = nodeGoalThresholdFrame === 'delta';
+
+          // =============================================================
+          // 2.266 AMENDMENT — THE ATTESTATION MUST BE ABOUT THE NUMBER WE
+          // ARE ACTUALLY SENDING (adversarial review of #304, probe-proven)
+          // =============================================================
+          // `autoThreshold` resolves REQUEST-ROOT first (`goalThreshold ??
+          // nodeGoalThreshold`), but the frame is read off the NODE. So a
+          // producer that sends root `goal_threshold: 0.9` while the node
+          // carries `{goal_threshold: 0.8, goal_threshold_frame: 'delta'}`
+          // would ship `value: 0.9` under an attestation made about 0.8 —
+          // the gate satisfied by a stamp describing a different number.
+          //
+          // Reachability, stated honestly: this needs a producer-inconsistent
+          // caller, and CEE stamps node-only today, so it is not the live
+          // shape. It is closed anyway because the whole point of this row is
+          // that an attestation is only worth what it is attached to.
+          //
+          // ⚠ WHY REFUSE RATHER THAN SYNTHESISE THE NODE'S OWN VALUE (the
+          // other option the review offered). Precedence routing leaves
+          // `effectiveGoalThreshold` at the ROOT value, and the 2.239 carry
+          // below only re-derives it from the constraint when synthesis
+          // fired. Synthesising 0.8 while the root ships 0.9 would put BOTH
+          // numbers on one wire and make ISL answer "P(goal >= 0.9)" and
+          // "P(constraint goal >= 0.8)" in the same response — precisely the
+          // divergence the "derive, never mirror" carry exists to prevent.
+          // Refusing keeps the invariant that the target and the constraint
+          // describe the same number, or there is no constraint.
+          //
+          // A node frame WITHOUT a node threshold is NOT a mismatch: the
+          // frame describes what this goal node's samples mean, so it
+          // legitimately covers a root-supplied target. Only two PRESENT and
+          // UNEQUAL numbers are refused.
+          const targetAttestationMismatch =
+            goalThreshold !== undefined &&
+            nodeGoalThreshold !== undefined &&
+            goalThreshold !== nodeGoalThreshold;
+
+          const synthesisRefusal: 'unattested' | 'level' | 'attestation_mismatch' | undefined =
+            !frameIsSampleFrame
+              ? nodeGoalThresholdFrame === undefined
+                ? 'unattested'
+                : 'level'
+              : targetAttestationMismatch
+                ? 'attestation_mismatch'
+                : undefined;
+
+          if (
+            autoThreshold !== undefined &&
+            Number.isFinite(autoThreshold) &&
+            synthesisRefusal !== undefined
+          ) {
+            autoSynthesisFrameRefusal = synthesisRefusal;
+            req.log.warn({
+              event: 'plot.auto_constraint_from_threshold',
+              goal_node_id: body.goal_node_id,
+              threshold: autoThreshold,
+              action: 'refused',
+              goal_threshold_frame: nodeGoalThresholdFrame ?? null,
+              refusal: synthesisRefusal,
+              ...(synthesisRefusal === 'attestation_mismatch'
+                ? { root_goal_threshold: goalThreshold, node_goal_threshold: nodeGoalThreshold }
+                : {}),
+              reason:
+                synthesisRefusal === 'unattested'
+                  ? 'goal_threshold carries no goal_threshold_frame, so the frame it is stated in is unknown. ' +
+                    'ISL evaluates goal_constraints against change-from-baseline samples; synthesising an ' +
+                    'unattested target would compare a possibly-absolute level against a change. ' +
+                    'No constraint synthesised — the joint-goal figure is omitted rather than guessed.'
+                  : synthesisRefusal === 'level'
+                    ? 'goal_threshold is attested as a LEVEL, but ISL evaluates goal_constraints against ' +
+                      'change-from-baseline samples and goal_constraints carry no frame field. PLoT cannot ' +
+                      'convert it (no goal-node baseline; ROADMAP 2.281 pending) and will not guess. ' +
+                      'No constraint synthesised — the joint-goal figure is omitted rather than mis-framed.'
+                    : 'the request root and the goal node state DIFFERENT goal targets, and the frame is ' +
+                      'stamped on the node. The attestation therefore describes a different number from the ' +
+                      'one auto-synthesis would send. No constraint synthesised — an attestation is only ' +
+                      'worth what it is attached to.',
+            });
+          } else if (autoThreshold !== undefined && Number.isFinite(autoThreshold)) {
             // Synthesise a single >= constraint from goal_threshold.
             // The _internal namespace carries PLoT metadata through the pipeline
             // (filter, validation, merge) and is stripped at wire boundaries
@@ -6133,6 +6292,22 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             (c) => c.constraint_id === 'auto_goal_threshold'
           );
           effectiveGoalThreshold = sentAutoConstraint?.value ?? autoThreshold;
+        }
+
+        // === 2.266 carry: refusing the CONSTRAINT must not withdraw the TARGET
+        // When the synthesis is refused on frame grounds the compiled set stays
+        // empty, so the precedence branch above never runs and never clears
+        // `effectiveGoalThreshold`. That is correct for a target supplied at the
+        // request root — but a target read off the GOAL NODE
+        // (`nodeGoalThreshold`) was never in `effectiveGoalThreshold` in the
+        // first place; only the now-refused synthesis put it back, via the
+        // carry above. Without this line, refusing the constraint would ALSO
+        // stop the target reaching ISL, and ISL would return `(None, None)` —
+        // "nothing to disclose" — converting a DISCLOSED gap into a SILENT one.
+        // That is exactly the trade the 2.258 block below refuses to make, so
+        // it must not be made here by omission either.
+        if (autoSynthesisFrameRefusal !== undefined) {
+          effectiveGoalThreshold = effectiveGoalThreshold ?? autoThreshold;
         }
 
         // === 2.239-G: refuse a DEGENERATE threshold rather than ask for a

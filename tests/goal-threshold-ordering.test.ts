@@ -114,11 +114,26 @@ const OPTIONS = [
   { id: 'opt2', label: 'Ship slow', interventions: { 'lever': 0.2 } },
 ];
 
-/** Graph whose goal node carries whatever CEE stamped on it. */
+/**
+ * Graph whose goal node carries whatever CEE stamped on it.
+ *
+ * ROADMAP 2.266: `goal_threshold_frame: 'delta'` is stamped BY DEFAULT (still
+ * overridable via `goalOverrides`). Auto-synthesis is now gated on that frame —
+ * it is the only one provably matching the change-from-baseline samples ISL
+ * evaluates constraints against — and every test in this file is about ORDERING
+ * and threshold CARRY, not about framing. Without the default they would all be
+ * testing the refusal path instead of their own subject. The frame-absent and
+ * 'level' refusals are pinned in
+ * tests/goal-threshold-frame-synthesis-gate.test.ts.
+ */
 function graphWithGoal(goalOverrides: Record<string, unknown> = {}) {
   return {
     nodes: [
-      { id: 'goal_arr', kind: 'goal', label: 'Reach 6M ARR Within 12 Months', ...goalOverrides },
+      {
+        id: 'goal_arr', kind: 'goal', label: 'Reach 6M ARR Within 12 Months',
+        goal_threshold_frame: 'delta',
+        ...goalOverrides,
+      },
       { id: 'lever', kind: 'factor', label: 'Sales headcount', observed_state: { value: 0.5 } },
       { id: 'other', kind: 'factor', label: 'Market', observed_state: { value: 0.3 } },
     ],
@@ -300,7 +315,8 @@ describe('ROADMAP 2.239 — goal target reaches the ISL request', () => {
     const { status, isl } = await run({
       graph: {
         nodes: [
-          { id: 'goal_arr', kind: 'goal', label: 'ARR', goal_threshold_cap: 50000 },
+          // ROADMAP 2.266: frame stamped so auto-synthesis engages (see builder note).
+          { id: 'goal_arr', kind: 'goal', label: 'ARR', goal_threshold_cap: 50000, goal_threshold_frame: 'delta' },
           {
             id: 'lever', kind: 'factor', label: 'MRR',
             observed_state: { value: 15000 },

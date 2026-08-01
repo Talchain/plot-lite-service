@@ -1090,7 +1090,11 @@ describe('Integration: Precedence Routing via /v2/run', () => {
         state_space: { range: { min: 0, max: 50000 } },
       },
       { id: 'churn_factor', kind: 'factor', label: 'Churn Rate', observed_state: { value: 0.05 } },
-      { id: 'goal', kind: 'goal', label: 'Business Goal' },
+      // ROADMAP 2.266: the auto-synthesis fallback is gated on
+      // `goal_threshold_frame === 'delta'` (the frame ISL evaluates constraints
+      // in). These tests are about PRECEDENCE ROUTING, not framing, so the
+      // frame is stamped to keep the fallback engaged.
+      { id: 'goal', kind: 'goal', label: 'Business Goal', goal_threshold_frame: 'delta' },
     ],
     edges: [
       { from: 'mrr_factor', to: 'goal', exists_probability: 1, strength: { mean: 0.6, std: 0.1 } },
