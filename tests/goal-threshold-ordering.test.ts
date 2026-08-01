@@ -398,6 +398,103 @@ describe('ROADMAP 2.239 — goal target reaches the ISL request', () => {
   });
 
   // =========================================================================
+  // 2.239-G — a degenerate threshold is REFUSED, not asked for.
+  //
+  // Carrying the threshold to ISL (hole B) created a new way to be wrong: a
+  // threshold on either bound of the normalised [0,1] goal scale produces a
+  // confident number that is about the SCALE, not about the decision. At base
+  // these shapes sent nothing; without this guard they would ship
+  // "100% chance of hitting your target" (floor) or a degenerate ~0% (ceiling).
+  //
+  // These are degenerate BY CONSTRUCTION, so the guard is justified without any
+  // reachability argument — but note the floor case IS structurally reachable:
+  // `goal_threshold` is the field CEE stamps on the goal node, and a target
+  // normalising to exactly 0 lands here.
+  // =========================================================================
+
+  describe('degenerate threshold refusal', () => {
+    const refused = () => warnCalls.find((c: any) => c?.event === 'goal_threshold_degenerate_refused');
+
+    it('FLOOR: a goal-node threshold of 0 is refused — no fabricated "100%"', async () => {
+      const { status, isl } = await run({
+        graph: graphWithGoal({ goal_threshold: 0, goal_threshold_raw: 0 }),
+        options: OPTIONS,
+        goal_node_id: 'goal_arr',
+        seed: '42',
+      });
+
+      expect(status).toBe(200);
+      // The whole point: P(goal >= 0) = 1.0 is never asked for.
+      expect(isl.goal_threshold).toBeUndefined();
+
+      const r = refused();
+      expect(r).toBeDefined();
+      expect(r.bound).toBe('floor');
+      expect(r.goal_threshold).toBe(0);
+
+      // And the failure is LOUD, not silent — the re-gated alarm still fires,
+      // because the user did state a target.
+      expect(warned()).toBeDefined();
+
+      // SCOPE PIN: the synthesised constraint is still sent, exactly as at base.
+      // This guard narrows to the field this change introduced; it does not
+      // quietly start altering the pre-existing constraint payload.
+      const sent = (isl.goal_constraints ?? []) as any[];
+      expect(sent.map((c) => c.constraint_id)).toEqual(['auto_goal_threshold']);
+    });
+
+    it('CEILING: a goal-node threshold of 1 is refused — no ceiling-pinned ~0%', async () => {
+      // This is the shape CEE's cap defect mints (cap === raw ⇒ threshold 1.0).
+      // Guarding it here means the worst case is an honest gap plus a loud log,
+      // rather than "0% chance" on a decision whose leader wins 95% of runs —
+      // so this PR no longer depends on the CEE fix to be safe.
+      const { status, isl } = await run({
+        graph: graphWithGoal({ goal_threshold: 1, goal_threshold_raw: 6000000, goal_threshold_cap: 6000000 }),
+        options: OPTIONS,
+        goal_node_id: 'goal_arr',
+        seed: '42',
+      });
+
+      expect(status).toBe(200);
+      expect(isl.goal_threshold).toBeUndefined();
+
+      const r = refused();
+      expect(r).toBeDefined();
+      expect(r.bound).toBe('ceiling');
+      expect(r.goal_threshold).toBe(1);
+      expect(warned()).toBeDefined();
+    });
+
+    it('CONTROL (lower): 0.01 is small but MEANINGFUL — still sent, not refused', async () => {
+      // Without this, the guard could pass by refusing everything. It must
+      // discriminate "on the bound" from "near the bound".
+      const { status, isl } = await run({
+        graph: graphWithGoal({ goal_threshold: 0.01 }),
+        options: OPTIONS,
+        goal_node_id: 'goal_arr',
+        seed: '42',
+      });
+
+      expect(status).toBe(200);
+      expect(isl.goal_threshold).toBe(0.01);
+      expect(refused()).toBeUndefined();
+    });
+
+    it('CONTROL (upper): 0.99 is demanding but MEANINGFUL — still sent, not refused', async () => {
+      const { status, isl } = await run({
+        graph: graphWithGoal({ goal_threshold: 0.99 }),
+        options: OPTIONS,
+        goal_node_id: 'goal_arr',
+        seed: '42',
+      });
+
+      expect(status).toBe(200);
+      expect(isl.goal_threshold).toBe(0.99);
+      expect(refused()).toBeUndefined();
+    });
+  });
+
+  // =========================================================================
   // THE ALARM — it was gated on the variable that is cleared in every failing
   // case, so it was silent by construction. These are its first real controls.
   // =========================================================================

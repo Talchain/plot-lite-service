@@ -6050,6 +6050,57 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           effectiveGoalThreshold = sentAutoConstraint?.value ?? autoThreshold;
         }
 
+        // === 2.239-G: refuse a DEGENERATE threshold rather than ask for a
+        // === fabricated certainty ==========================================
+        // ISL computes `probability_of_goal = P(goal_samples >= threshold)` on
+        // the NORMALISED [0,1] goal scale. A threshold sitting on either bound
+        // of that scale answers nothing about the decision:
+        //
+        //   <= 0  → P(goal >= 0) is satisfied by essentially every sample, so
+        //           every option returns ~1.0. That is a confident "100% chance
+        //           of hitting your target" which is really a statement about
+        //           the normalisation FLOOR. Measured on this branch before the
+        //           guard: an input of 0 or -0.2 shipped exactly this.
+        //   >= 1  → P(goal >= max-of-scale): the ceiling-pinned target. CEE's
+        //           own doctrine (`goal-threshold-cap.ts`) names `cap === target`
+        //           forbidden precisely because it "would force
+        //           goal_threshold = 1.0 and kill probability spread"; measured
+        //           live at 0.021 / 0.0 on a decision whose leader wins 95% of
+        //           scenarios.
+        //
+        // Both are degenerate BY CONSTRUCTION — meaningless whenever produced,
+        // not merely when some upstream bug produces them. So this guard does
+        // not depend on any reachability argument, and does not expire when the
+        // CEE cap defect is fixed.
+        //
+        // The honest output is a GAP, not a number: omit the field, and let the
+        // (re-gated) `goal_threshold_no_probability` alarm fire — `goalTargetStated`
+        // is still true, because the user did state a target. An honest "not
+        // available" plus a loud log beats a fabricated certainty; "0%"/"100%"
+        // read as findings, "not available" reads as the gap it is.
+        //
+        // Scope: this guards the field THIS change introduced. The synthesised
+        // `auto_goal_threshold` constraint is still sent, exactly as it was at
+        // base — its degenerate `prob_satisfied` is pre-existing behaviour with
+        // zero UI readers, and narrowing the guard keeps the diff off untested
+        // ground. Rowed, not silently ignored.
+        if (
+          effectiveGoalThreshold !== undefined &&
+          (effectiveGoalThreshold <= 0 || effectiveGoalThreshold >= 1)
+        ) {
+          req.log.warn({
+            event: 'goal_threshold_degenerate_refused',
+            goal_threshold: effectiveGoalThreshold,
+            bound: effectiveGoalThreshold <= 0 ? 'floor' : 'ceiling',
+            goal_target: goalThreshold ?? nodeGoalThreshold ?? nodeGoalThresholdRaw ?? null,
+            reason:
+              effectiveGoalThreshold <= 0
+                ? 'P(goal >= scale floor) is ~1.0 for every option — a fabricated certainty, not a finding'
+                : 'P(goal >= scale ceiling) is degenerate — the target is pinned to the top of its own normalisation range',
+          });
+          effectiveGoalThreshold = undefined;
+        }
+
         // Build ISL request (using normalised options and constraints)
         // CIL Phase 1: ALWAYS forward seed to ISL for deterministic Monte Carlo runs.
         // Derived seeds must be forwarded to ensure end-to-end determinism: if only computed
