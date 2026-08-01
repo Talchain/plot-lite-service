@@ -1,30 +1,38 @@
 /**
- * A3 lane 2 Fix A (ROADMAP 2.31 adjacency — whole-block flip honesty).
+ * A3 lane 2 Fix A (ROADMAP 2.31) — whole-block flip honesty, REWORKED FOR THE
+ * PROBE RETIREMENT (ROADMAP 2.228-F3).
  *
- * Before this lane, a whole-BLOCK flip-threshold failure degraded to an
- * ABSENT/empty `flip_thresholds` + `flip_thresholds_status: 'unavailable'`
- * with only a server-side `flip_thresholds_error` WARN — indistinguishable on
- * the wire from "nothing to probe" — while per-factor failures were honestly
- * disclosed per entry (`flip_reason: 'timeout' | 'error' | ...`).
+ * THE GUARANTEE THIS FILE STILL PINS, unchanged in substance: a whole-BLOCK
+ * flip-threshold failure must be visible ON THE WIRE, not only in a server-side
+ * WARN. Without it, a crashed block is indistinguishable from "nothing to
+ * compute" — an empty `flip_thresholds` + `flip_thresholds_status:
+ * 'unavailable'` either way.
  *
- * This file pins the new disclosure AND that the per-factor paths are
- * byte-level unchanged:
- *   1. whole-block throw → FLIP_THRESHOLDS_UNAVAILABLE inference warning,
- *      severity 'warning', message carries the error NAME only (a sentinel
- *      value embedded in the error MESSAGE must never reach the wire),
- *      response stays 200/computed (non-blocking).
- *   2. per-factor probe ERROR → entries with flip_reason 'error', NO
- *      whole-block warning.
- *   3. per-factor TIMEOUT (deterministic: FLIP_SEARCH_PER_FACTOR_TIMEOUT_MS=0
- *      expires the factor deadline before Step 0) → entries with flip_reason
- *      'timeout', NO whole-block warning.
- *   4. positive control: successful probes → NO new warning, flip_thresholds
- *      populated, probe traffic actually observed (the mock can see presence,
- *      so the absence assertions above are not vacuous).
+ * WHAT CHANGED. The block's contents changed, so the way this file arms a
+ * failure changed with them. Cases 2 and 3 below used to pin the PER-FACTOR
+ * probe paths (`flip_reason: 'error'` from a failing ISL probe, and
+ * `'timeout'` from FLIP_SEARCH_PER_FACTOR_TIMEOUT_MS=0). Those paths NO LONGER
+ * EXIST on /v2/run: the bisection probe is retired and flip values arrive
+ * closed-form on the ISL envelope, so there is no per-probe ISL call to fail
+ * and no per-factor deadline to expire.
  *
- * Harness modelled on tests/v2-run.flip-probe-seed.contract.test.ts (mock ISL
- * captures probe bodies) + the importOriginal-spread rule for module mocks
- * (only resolveFlipValues is wrapped, and it delegates to the REAL
+ * They are not deleted silently. Each is REPLACED by the guarantee that now
+ * occupies its ground:
+ *   2. ISL emits NO factor_flip_values block → honestly empty + 'unavailable',
+ *      and NO whole-block warning — because nothing FAILED, it was simply not
+ *      computed (ISL discloses FACTOR_FLIPS_UNAVAILABLE on its own
+ *      inference_warnings, which PLoT merges). Conflating "not computed" with
+ *      "crashed" is the exact confusion this file exists to prevent.
+ *   3. the retired probe budget is inert: no probe traffic is issued at all,
+ *      and FLIP_SEARCH_PER_FACTOR_TIMEOUT_MS=0 no longer produces 'timeout'
+ *      rows — it produces nothing, because nothing probes.
+ *
+ * Case 1 (whole-block throw) now arms the throw in the MAPPING ADAPTER, which
+ * is what the try/catch at run.ts wraps today.
+ *
+ * Harness: mock ISL captures every analyze/v2 body (so probe ABSENCE is proven
+ * by a mock that can SEE presence), + the importOriginal-spread rule for module
+ * mocks (only mapIslFactorFlipValues is wrapped, and it delegates to the REAL
  * implementation unless the whole-block toggle is armed).
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
@@ -33,27 +41,29 @@ import type { FastifyInstance } from 'fastify';
 // ---------------------------------------------------------------------------
 // Toggles read at call time by the mocks
 // ---------------------------------------------------------------------------
-let blockThrow = false;      // arm → resolveFlipValues throws (whole-block failure)
-let probeError = false;      // arm → ISL probe calls fail (per-factor 'error' path)
+let blockThrow = false;      // arm → the mapping adapter throws (whole-block failure)
+let islOmitsBlock = false;   // arm → ISL returns no factor_flip_values at all
 const capturedBodies: any[] = [];
 
 /** Sentinel that must NEVER egress: lives only in the thrown error MESSAGE. */
 const SECRET_VALUE = '0.987654321';
 
 // ---------------------------------------------------------------------------
-// Flip module mock — importOriginal spread; only resolveFlipValues wrapped
+// Flip mapping mock — importOriginal spread; only mapIslFactorFlipValues wrapped.
+// The spread is load-bearing (CLAUDE.md trap 12): a bare factory REPLACES the
+// module, so every export added later would silently vanish.
 // ---------------------------------------------------------------------------
-vi.mock('../src/analysis/flip-thresholds.ts', async (importOriginal) => {
+vi.mock('../src/integrations/isl/adapters/factor-flip-values.ts', async (importOriginal) => {
   const actual = await importOriginal<any>();
   return {
     ...actual,
-    resolveFlipValues: async (...args: any[]) => {
+    mapIslFactorFlipValues: (...args: any[]) => {
       if (blockThrow) {
         const err = new Error(`synthetic whole-block failure carrying secret ${SECRET_VALUE}`);
         err.name = 'MockFlipBlockError';
         throw err;
       }
-      return actual.resolveFlipValues(...args);
+      return actual.mapIslFactorFlipValues(...args);
     },
   };
 });
@@ -84,8 +94,30 @@ function robustnessData(options: any[]) {
     value_of_information: [],
     overall_robustness: 'robust', robustness_score: 0.82,
     fragile_edges: [], robust_edges: [],
+    // ROADMAP 2.228-F3: closed-form flips ride the analysis response. Omitted
+    // entirely when `islOmitsBlock` is armed — the budget-trip shape.
+    ...(islOmitsBlock ? {} : { factor_flip_values: FACTOR_FLIP_VALUES }),
   };
 }
+
+/** ISL FactorFlipValueV2 rows for the two graph factors (exclude_none shape). */
+const FACTOR_FLIP_VALUES = [
+  {
+    factor_id: 'factor-a',
+    current_value: 0.6,
+    flip_value: 0.78,
+    direction: 'increase',
+    flip_reason: 'found',
+    alternative_winner_id: 'opt2',
+    baseline_winner_id: 'opt1',
+  },
+  {
+    factor_id: 'factor-b',
+    current_value: 0.5,
+    flip_reason: 'structurally_invariant',
+    baseline_winner_id: 'opt1',
+  },
+];
 
 const mockISLService = {
   isEnabled(): boolean { return true; },
@@ -116,10 +148,6 @@ const mockISLService = {
   async computeCounterfactual(): Promise<never> { throw new Error('not called'); },
   async callAnalysisEndpoint<T>(_endpoint: string, body: any): Promise<{ data: T | null; error: string | null }> {
     capturedBodies.push(body);
-    const isProbe = typeof body?.request_id === 'string' && body.request_id.includes('__flip');
-    if (probeError && isProbe) {
-      return { data: null, error: 'probe unavailable (mock)' };
-    }
     return { data: robustnessData(body?.options ?? []) as T, error: null };
   },
 };
@@ -161,7 +189,7 @@ function blockWarning(body: any) {
   return (body.inference_warnings ?? []).find((w: any) => w.code === 'FLIP_THRESHOLDS_UNAVAILABLE');
 }
 
-describe('V2 Run · whole-block flip failure is wire-disclosed; per-factor paths unchanged', () => {
+describe('V2 Run · whole-block flip failure is wire-disclosed (post-probe-retirement)', () => {
   let app: FastifyInstance;
 
   beforeAll(async () => {
@@ -188,7 +216,7 @@ describe('V2 Run · whole-block flip failure is wire-disclosed; per-factor paths
   }
 
   it('whole-block failure → FLIP_THRESHOLDS_UNAVAILABLE warning with error NAME only; non-blocking; field honestly empty', async () => {
-    blockThrow = true; probeError = false; capturedBodies.length = 0;
+    blockThrow = true; islOmitsBlock = false; capturedBodies.length = 0;
     try {
       const body = await run();
       // non-blocking degradation preserved
@@ -208,51 +236,69 @@ describe('V2 Run · whole-block flip failure is wire-disclosed; per-factor paths
     }
   });
 
-  it('per-factor probe ERROR path unchanged: flip_reason entries on the wire, NO whole-block warning', async () => {
-    blockThrow = false; probeError = true; capturedBodies.length = 0;
+  it('REPLACES the per-factor ERROR case: an ABSENT ISL block is honestly empty and NOT a failure', async () => {
+    // The retired probe could fail per factor and disclose flip_reason 'error'.
+    // Nothing probes now, so the analogous degradation is ISL omitting the
+    // block (its budget trip). The distinction this asserts is the whole point
+    // of the file: "not computed" must NOT raise the whole-block FAILURE
+    // warning, because nothing crashed — ISL discloses FACTOR_FLIPS_UNAVAILABLE
+    // on its own inference_warnings, which PLoT merges.
+    blockThrow = false; islOmitsBlock = true; capturedBodies.length = 0;
     try {
       const body = await run();
-      expect(body.analysis_status).not.toBe('failed'); // non-blocking: mock fixture computes 'partial' (a sub-feature is unavailable in the mock shape); the flip block must never degrade it to 'failed'
-      // probes were attempted and failed per factor
-      expect(flipProbeBodies().length).toBeGreaterThan(0);
-      const entries = body.flip_thresholds ?? [];
-      expect(entries.length).toBeGreaterThan(0);
-      for (const e of entries) {
-        expect(e.flip_value ?? null).toBeNull();
-        expect(e.flip_reason).toBe('error');
-      }
-      // the whole-block warning must NOT fire for per-factor failures
+      expect(body.analysis_status).not.toBe('failed');
+      expect(body.flip_thresholds).toEqual([]);
+      expect(body.flip_thresholds_status).toBe('unavailable');
+      // ⚠ 'unavailable', never 'all_no_effect' — an omitted block must never be
+      // published as "no factor could change the leading option".
+      expect(body.flip_thresholds_status).not.toBe('all_no_effect');
       expect(blockWarning(body)).toBeUndefined();
     } finally {
-      probeError = false;
+      islOmitsBlock = false;
     }
   });
 
-  it('per-factor TIMEOUT path unchanged: flip_reason "timeout" entries, NO whole-block warning', async () => {
-    blockThrow = false; probeError = false; capturedBodies.length = 0;
+  it('REPLACES the per-factor TIMEOUT case: the retired probe budget is inert', async () => {
+    // FLIP_SEARCH_PER_FACTOR_TIMEOUT_MS=0 used to expire every factor deadline
+    // before Step 0 and produce a wire full of flip_reason 'timeout'. With the
+    // bisection probe retired the variable reaches no code path at all: the
+    // closed-form values ride the analysis response and are unaffected.
+    blockThrow = false; islOmitsBlock = false; capturedBodies.length = 0;
     process.env.FLIP_SEARCH_PER_FACTOR_TIMEOUT_MS = '0';
     try {
       const body = await run();
-      expect(body.analysis_status).not.toBe('failed'); // non-blocking: mock fixture computes 'partial' (a sub-feature is unavailable in the mock shape); the flip block must never degrade it to 'failed'
+      expect(body.analysis_status).not.toBe('failed');
       const entries = body.flip_thresholds ?? [];
       expect(entries.length).toBeGreaterThan(0);
-      for (const e of entries) {
-        expect(e.flip_value ?? null).toBeNull();
-        expect(e.flip_reason).toBe('timeout');
-      }
+      expect(entries.some((e: any) => e.flip_reason === 'timeout')).toBe(false);
+      // The real flip value survives a budget that no longer governs anything.
+      expect(entries.some((e: any) => e.flip_value !== null)).toBe(true);
       expect(blockWarning(body)).toBeUndefined();
     } finally {
       delete process.env.FLIP_SEARCH_PER_FACTOR_TIMEOUT_MS;
     }
   });
 
-  it('positive control: successful probes → NO new warning, flip_thresholds populated, probe traffic observed', async () => {
-    blockThrow = false; probeError = false; capturedBodies.length = 0;
+  it('THE RETIREMENT: no flip-probe traffic is issued, on a mock that can SEE probe traffic', async () => {
+    // An absence assertion is vacuous unless it can observe a presence (trap
+    // 13). `capturedBodies` records EVERY analyze/v2 body, and the positive
+    // control below proves it is non-empty — so "zero probe bodies" is a
+    // measurement, not a silent pass.
+    blockThrow = false; islOmitsBlock = false; capturedBodies.length = 0;
+    await run();
+    expect(capturedBodies.length).toBeGreaterThan(0);   // the mock sees traffic
+    expect(flipProbeBodies()).toHaveLength(0);          // ...and none of it is a probe
+    expect(capturedBodies).toHaveLength(1);             // exactly the one analysis call
+  });
+
+  it('positive control: a healthy run → NO warning, flip_thresholds populated, closed-form values', async () => {
+    blockThrow = false; islOmitsBlock = false; capturedBodies.length = 0;
     const body = await run();
-    expect(body.analysis_status).not.toBe('failed'); // non-blocking: mock fixture computes 'partial' (a sub-feature is unavailable in the mock shape); the flip block must never degrade it to 'failed'
-    expect(flipProbeBodies().length).toBeGreaterThan(0);
+    expect(body.analysis_status).not.toBe('failed');
     expect((body.flip_thresholds ?? []).length).toBeGreaterThan(0);
     expect(body.flip_thresholds_status).not.toBe('unavailable');
     expect(blockWarning(body)).toBeUndefined();
+    // One found + one attested no-flip.
+    expect(body.flip_thresholds_status).toBe('partial_no_effect');
   });
 });

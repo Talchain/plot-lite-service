@@ -138,6 +138,20 @@ export interface ISLRobustnessRequestV3 {
   /** Request Value of Information (EVPI) analysis from ISL. */
   include_voi?: boolean;
   /**
+   * Request per-root-factor flip thresholds from ISL (V2 envelope
+   * `factor_flip_values`, ISL PR #117 / ROADMAP 2.228-F3).
+   *
+   * ISL defaults this to `false` and emits nothing when it is absent, so the
+   * capability was live-but-unreachable until PLoT began asking. Sent
+   * UNCONDITIONALLY (`true`) beside `include_e_values` / `include_voi` — NOT a
+   * request-gated opt-in like `include_path_decomposition`, because flip
+   * thresholds are not an optional extra here: they are the ONLY source of
+   * `enrichment.flip_thresholds[].flip_value` now that PLoT's own bisection
+   * probe is retired on this path. Per the no-new-flag-gates rule this is a
+   * constant, not an env var or a request key.
+   */
+  include_factor_flips?: boolean;
+  /**
    * Request structural pathway decomposition from ISL (V2 envelope
    * `path_decomposition`, ISL build 9a22a1a+). REQUEST-GATED OPT-IN: only
    * forwarded when the inbound /v2/run request set it — never defaulted on,
@@ -529,6 +543,11 @@ export function toISLRobustnessRequest(
     parameter_uncertainties: prebuiltParameterUncertainties ?? buildParameterUncertaintiesV3(graph.nodes),
     include_e_values: true,
     include_voi: true,
+    // ROADMAP 2.228-F3: ask ISL for closed-form per-factor flip thresholds.
+    // Unconditional, like its two siblings above — ISL's default is False, so
+    // omitting this key is what kept `factor_flip_values` off every live
+    // response and `flip_thresholds[].flip_value` null on every run.
+    include_factor_flips: true,
   };
 
   // Only include goal_threshold if provided (omit entirely when absent)

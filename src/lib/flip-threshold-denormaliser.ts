@@ -54,7 +54,16 @@ export interface DenormalisedFlipThreshold {
   current_value: number;
   /** Value at which recommendation flips (user units). Null if no flip found. */
   flip_value: number | null;
-  direction: 'increase' | 'decrease';
+  /**
+   * Direction the factor must move to reach `flip_value`.
+   *
+   * ⚠ `'none'` since ROADMAP 2.228-F3: the explicit "no direction is claimed"
+   * token carried on every attested no-flip row, because the shared contract
+   * requires this key to be a string. See the full rationale on
+   * `FlipThresholdInputData.direction` — it is a deliberate compromise, not a
+   * placeholder. `direction === 'none'` ⟺ `flip_value === null`.
+   */
+  direction: 'increase' | 'decrease' | 'none';
   /** Unit string from observed_state (e.g., "GBP", "%", "months") */
   unit?: string;
   /** Which option would win after the flip (null if no flip) */

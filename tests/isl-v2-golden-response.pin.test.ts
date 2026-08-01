@@ -397,6 +397,21 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
     //   2.160  rch_v2:58e58bd5f6821f80  (4 fabricated switch_probability values
     //                                    REMOVED from robust_edges — see the
     //                                    regeneration note in the file header)
-    expect(rawBody._meta.response_content_hash).toBe('rch_v2:58e58bd5f6821f80');
+    //   2.228-F3 rch_v2:c5b3a998f5d0db5d (flip_thresholds[] emptied on THIS
+    //                                    fixture: its ISL envelope predates
+    //                                    PR #117 and carries no
+    //                                    `factor_flip_values`, and the
+    //                                    bisection probe that used to
+    //                                    manufacture rows here is retired.
+    //                                    The rows it produced were
+    //                                    `flip_value: null` under a
+    //                                    `no_effect_within_bounds` label the
+    //                                    probe never established, so this is
+    //                                    a false attestation LEAVING the
+    //                                    wire, not a capability lost. On an
+    //                                    ISL build that does emit the block,
+    //                                    rows return with real values — see
+    //                                    tests/v2-run.isl-factor-flips.contract.test.ts)
+    expect(rawBody._meta.response_content_hash).toBe('rch_v2:c5b3a998f5d0db5d');
   });
 });

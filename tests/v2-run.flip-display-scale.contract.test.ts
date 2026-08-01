@@ -50,6 +50,48 @@ const MOCK_FACTOR_SENSITIVITY = [
   { node_id: 'fac_demand', factor_id: 'fac_demand', sensitivity_score: 0.41, elasticity: 0.41, direction: 'positive', value_of_information: 0.1 },
 ];
 
+/**
+ * ROADMAP 2.228-F3: flip rows now arrive CLOSED-FORM on the ISL envelope
+ * (`factor_flip_values`) instead of being resolved by PLoT's retired bisection
+ * probe. Without this block the route produces NO flip rows and every display
+ * assertion below is vacuous — which is exactly what the file's own
+ * anti-vacuity guard catches.
+ *
+ * Shaped from ISL `FactorFlipValueV2` (`src/models/response_v2.py:690` @
+ * `35149dd1`) under `exclude_none`: the no-flip row OMITS flip_value and
+ * direction rather than nulling them.
+ *
+ * The values are chosen to keep this file's SUBJECT unchanged — display scale,
+ * not flip search: `fac_annual_staffing_cost` keeps current_value 0.86 so the
+ * raw_value-vs-round-trip assertion (275000, not 275200) still bites.
+ */
+const MOCK_FACTOR_FLIP_VALUES = [
+  {
+    factor_id: 'fac_annual_staffing_cost',
+    current_value: 0.86,
+    flip_value: 0.62,
+    direction: 'decrease',
+    flip_reason: 'found',
+    alternative_winner_id: 'opt_locum',
+    baseline_winner_id: 'opt_status_quo',
+  },
+  {
+    factor_id: 'fac_demand',
+    current_value: 0.4,
+    flip_value: 0.55,
+    direction: 'increase',
+    flip_reason: 'found',
+    alternative_winner_id: 'opt_locum',
+    baseline_winner_id: 'opt_status_quo',
+  },
+  {
+    factor_id: 'fac_lever',
+    current_value: 0.5,
+    flip_reason: 'structurally_invariant',
+    baseline_winner_id: 'opt_status_quo',
+  },
+];
+
 const mockISLService = {
   isEnabled(): boolean { return true; },
   async isAvailable(): Promise<boolean> { return true; },
@@ -90,6 +132,7 @@ const mockISLService = {
         options: mockOptions(options),
         edges: [],
         factor_sensitivity: MOCK_FACTOR_SENSITIVITY,
+        factor_flip_values: MOCK_FACTOR_FLIP_VALUES,
         conditional_winners: [],
         overall_robustness: 'robust', robustness_score: 0.8,
         fragile_edges: [], robust_edges: [],

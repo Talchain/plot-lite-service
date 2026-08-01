@@ -1023,43 +1023,12 @@
     "computed_at": "__VOLATILE__"
   },
   "confidence_tier": "fair",
-  "flip_thresholds": [
-    {
-      "factor_id": "fac_hiring_cost",
-      "factor_label": "Hiring and Salary Cost",
-      "current_value": 0,
-      "flip_value": null,
-      "direction": "increase",
-      "alternative_winner_id": null,
-      "alternative_winner_label": null,
-      "flip_reason": "no_effect_within_bounds",
-      "iterations_used": 0,
-      "probes_used": 3,
-      "margin_sensitivity": {
-        "movement": "none",
-        "threshold": 0.05,
-        "baseline_leading_option_id": "opt_tech_lead",
-        "baseline_runner_up_option_id": "opt_two_devs",
-        "baseline_margin": 0.18404166666666671,
-        "min_probe_margin": 0.18404166666666671,
-        "max_probe_margin": 0.18404166666666671,
-        "min_probe_delta": 0,
-        "max_probe_delta": 0,
-        "strongest_direction": "none",
-        "strongest_probe_value": null,
-        "value_scale": "normalised",
-        "strongest_delta": null,
-        "strongest_delta_abs": null,
-        "strongest_delta_percentage_points": null,
-        "display_value_available": false
-      }
-    }
-  ],
-  "flip_thresholds_status": "all_no_effect",
-  "flip_thresholds_margin_status": "all_none",
+  "flip_thresholds": [],
+  "flip_thresholds_status": "unavailable",
+  "flip_thresholds_margin_status": "unavailable",
   "flip_thresholds_margin_coverage": {
-    "total": 1,
-    "with_margin": 1,
+    "total": 0,
+    "with_margin": 0,
     "without_margin": 0
   },
   "identifiability": {
@@ -1642,7 +1611,7 @@
     "decision_brief_assembled": true,
     "review_cards_count": 0,
     "evidence_priority_card_present": false,
-    "response_content_hash": "rch_v2:58e58bd5f6821f80"
+    "response_content_hash": "rch_v2:c5b3a998f5d0db5d"
   },
   "meta": {
     "seed_used": "2034401427",

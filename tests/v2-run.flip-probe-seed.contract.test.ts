@@ -1,16 +1,24 @@
 /**
- * /v2/run route-level contract: flip-threshold probes carry the resolved seed.
+ * /v2/run route-level contract: the RESOLVED SEED reaches the ISL analysis call.
  *
- * The unit tests in tests/analysis/flip-thresholds.test.ts prove
- * createISLInferenceFn forwards originalRequest.seed. This file exercises the
- * FULL assembly path through a real POST to `/v2/run`, asserting that the
- * resolved seed PLoT forwards to the MAIN ISL analysis call is the SAME seed
- * attached to every flip-threshold probe request — including the case where the
- * request omits seed and PLoT derives one from the canonical request/graph.
+ * ⚠ REWORKED BY ROADMAP 2.228-F3 — READ THIS BEFORE COMPARING WITH GIT HISTORY.
+ * This file used to be titled "flip-threshold probes carry the resolved seed"
+ * and asserted the seed on every `__flip` PROBE body. PLoT's bisection flip
+ * probe is RETIRED on /v2/run (flip values now arrive closed-form on the ISL
+ * envelope as `factor_flip_values`), so there are no probe bodies left to
+ * assert about, and four passing tests would otherwise have been deleted
+ * outright.
  *
- * ISL is mocked in-process; the mock captures every analyze/v2 body so the test
- * can read the seed off the `__flip` probe requests and compare it against the
- * response's resolved seed_used.
+ * They are kept because the guarantee UNDER them survives the retirement — the
+ * seed still has to travel from the request through PLoT's resolution to the
+ * ISL call, and the falsy-zero trap it guards (`seed: 0` surviving
+ * `resolveSeed` → `String()` → the wire) is exactly as live as it was. Each
+ * case now asserts the same seed on the MAIN analysis body instead of the probe
+ * bodies, and a fifth case pins that the probe traffic is genuinely GONE rather
+ * than merely unobserved.
+ *
+ * ISL is mocked in-process; the mock captures every analyze/v2 body, so the
+ * probe-absence assertion is made by an instrument that can see presence.
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
@@ -100,9 +108,10 @@ vi.mock('../src/integrations/isl/index.ts', async () => {
 import { createServer } from '../src/createServer.js';
 
 // ---------------------------------------------------------------------------
-// Fixtures — two factors, each intervened by a DIFFERENT option, so neither is
-// overridden-by-all (PR #183) and both remain flip-threshold candidates → the
-// probe path runs and produces __flip analyze/v2 requests.
+// Fixtures — two factors, each intervened by a DIFFERENT option. (Under the
+// retired probe this shape was what kept both factors out of the
+// overridden-by-all exclusion so the probe path would run; it is retained so
+// the request is byte-comparable with the pre-retirement history.)
 // ---------------------------------------------------------------------------
 
 const GRAPH = {
@@ -122,12 +131,17 @@ const OPTIONS = [
   { id: 'opt2', label: 'Reduce Churn', interventions: { 'factor-b': 0.3 } },
 ];
 
-/** Probe requests carry request_id `<rid>__flip_<factorId>`. */
+/** Probe requests carried request_id `<rid>__flip_<factorId>`. Must now be empty. */
 function flipProbeBodies() {
   return capturedBodies.filter((b) => typeof b?.request_id === 'string' && b.request_id.includes('__flip'));
 }
 
-describe('V2 Run · flip-threshold probes carry the resolved seed', () => {
+/** The main robustness analysis bodies (everything that is not a retired probe). */
+function analysisBodies() {
+  return capturedBodies.filter((b) => !(typeof b?.request_id === 'string' && b.request_id.includes('__flip')));
+}
+
+describe('V2 Run · the resolved seed reaches the ISL analysis call', () => {
   let app: FastifyInstance;
 
   beforeAll(async () => {
@@ -157,12 +171,12 @@ describe('V2 Run · flip-threshold probes carry the resolved seed', () => {
     const seedUsed = body.meta.seed_used;
     expect(seedUsed).toBe('4242');
 
-    const probes = flipProbeBodies();
-    expect(probes.length).toBeGreaterThan(0); // flip path actually ran
-    for (const p of probes) {
+    const calls = analysisBodies();
+    expect(calls.length).toBeGreaterThan(0); // the ISL call actually happened
+    for (const c of calls) {
       // ISL request seed is forwarded verbatim; compare as strings to be
       // representation-agnostic (string vs number).
-      expect(String(p.seed)).toBe(String(seedUsed));
+      expect(String(c.seed)).toBe(String(seedUsed));
     }
   });
 
@@ -183,11 +197,11 @@ describe('V2 Run · flip-threshold probes carry the resolved seed', () => {
     expect(String(seedUsed).length).toBeGreaterThan(0);
     expect(body.meta.seed_source).toBe('server_generated');
 
-    const probes = flipProbeBodies();
-    expect(probes.length).toBeGreaterThan(0);
-    for (const p of probes) {
-      expect(p.seed).toBeDefined(); // NOT falling back to ISL's graph-hash default
-      expect(String(p.seed)).toBe(String(seedUsed)); // derived seed === probe seed === main-call seed
+    const calls = analysisBodies();
+    expect(calls.length).toBeGreaterThan(0);
+    for (const c of calls) {
+      expect(c.seed).toBeDefined(); // NOT falling back to ISL's graph-hash default
+      expect(String(c.seed)).toBe(String(seedUsed)); // derived seed === wire seed
     }
   });
 
@@ -197,25 +211,26 @@ describe('V2 Run · flip-threshold probes carry the resolved seed', () => {
       method: 'POST', url: '/v2/run', headers: { 'Content-Type': 'application/json' },
       payload: JSON.stringify({ graph: GRAPH, options: OPTIONS, goal_node_id: 'goal', seed: '111' }),
     });
-    const seedsRun1 = new Set(flipProbeBodies().map((p) => String(p.seed)));
+    const seedsRun1 = new Set(analysisBodies().map((c) => String(c.seed)));
 
     capturedBodies.length = 0;
     await app.inject({
       method: 'POST', url: '/v2/run', headers: { 'Content-Type': 'application/json' },
       payload: JSON.stringify({ graph: GRAPH, options: OPTIONS, goal_node_id: 'goal', seed: '999' }),
     });
-    const seedsRun2 = new Set(flipProbeBodies().map((p) => String(p.seed)));
+    const seedsRun2 = new Set(analysisBodies().map((c) => String(c.seed)));
 
-    expect(seedsRun1).toEqual(new Set(['111'])); // CRN: one seed across all probes in a run
+    expect(seedsRun1).toEqual(new Set(['111'])); // one seed across the whole run
     expect(seedsRun2).toEqual(new Set(['999']));
     expect(seedsRun1).not.toEqual(seedsRun2);
   });
 
   it('numeric seed 0 → route normalises to "0" and every probe carries it (falsy seed survives end-to-end)', async () => {
-    // The unit test proves createISLInferenceFn forwards 0; this proves the full
-    // route path: resolveSeed(0) → "0" (the public path String()-normalises the
-    // number), and that normalised seed reaches every flip probe. Guards the
-    // classic falsy-zero trap across the whole /v2/run → probe chain.
+    // Guards the classic falsy-zero trap across the whole /v2/run → ISL chain:
+    // resolveSeed(0) → "0" (the public path String()-normalises the number),
+    // and that normalised seed must reach the wire rather than being dropped as
+    // falsy. Unchanged in substance by the probe retirement — only the body it
+    // is read off has moved from the probe to the analysis call.
     capturedBodies.length = 0;
     const res = await app.inject({
       method: 'POST',
@@ -229,10 +244,29 @@ describe('V2 Run · flip-threshold probes carry the resolved seed', () => {
     expect(body.meta.seed_used).toBe('0'); // numeric 0 normalised to "0", not dropped
     expect(body.meta.seed_source).toBe('client_generated');
 
-    const probes = flipProbeBodies();
-    expect(probes.length).toBeGreaterThan(0);
-    for (const p of probes) {
-      expect(String(p.seed)).toBe('0'); // probe carries the normalised resolved seed
+    const calls = analysisBodies();
+    expect(calls.length).toBeGreaterThan(0);
+    for (const c of calls) {
+      expect(String(c.seed)).toBe('0'); // the wire carries the normalised resolved seed
     }
+  });
+
+  it('THE RETIREMENT: the run issues ZERO flip-probe requests', async () => {
+    // ROADMAP 2.228-F3. Under the retired bisection search this same request
+    // produced a __flip analyze/v2 body per probe value (Step-0 baseline/min/max
+    // plus bisection midpoints, per candidate factor). Closed-form flips add no
+    // ISL traffic at all.
+    //
+    // Positive control FIRST (trap 13): the mock demonstrably captures bodies,
+    // so "zero probes" is a measurement rather than a broken instrument.
+    capturedBodies.length = 0;
+    const res = await app.inject({
+      method: 'POST', url: '/v2/run', headers: { 'Content-Type': 'application/json' },
+      payload: JSON.stringify({ graph: GRAPH, options: OPTIONS, goal_node_id: 'goal', seed: '4242' }),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(capturedBodies.length).toBeGreaterThan(0);
+    expect(analysisBodies()).toHaveLength(1);
+    expect(flipProbeBodies()).toHaveLength(0);
   });
 });

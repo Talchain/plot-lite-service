@@ -36,12 +36,32 @@ export interface FlipThresholdsStatusResult {
   status_reason?: string;
 }
 
-const NO_EFFECT_REASON = 'no_effect_within_bounds';
+/**
+ * Reasons that ATTEST a factor cannot flip the winner — a positive result, not
+ * a failure to measure.
+ *
+ * - `'no_effect_within_bounds'` — the per-option transmission slopes genuinely
+ *   differ, but no crossing lies inside the factor's domain.
+ * - `'structurally_invariant'` (ROADMAP 2.228-F3, ISL PR #117) — the per-option
+ *   transmission slopes are IDENTICAL (spread <= 1e-9), so no value of this
+ *   factor can move the argmax. ISL calls this "a MATHEMATICAL ATTESTATION,
+ *   not a failed or timed-out probe", and it is precisely the class PLoT's
+ *   retired bisection probe used to mislabel as `no_effect_within_bounds`
+ *   without ever having established it.
+ *
+ * ⚠ Membership here is load-bearing: it is what lets `all_no_effect` say "no
+ * factor could change the leading option" truthfully. Never add a reason that
+ * merely means "we did not finish".
+ */
+const NO_EFFECT_REASONS = new Set<string>([
+  'no_effect_within_bounds',
+  'structurally_invariant',
+]);
 
 /**
  * Reasons that mean "we did not produce a flip_value but it is not because the
  * factor has no effect" — these signal the analysis itself was incomplete or
- * imprecise, and must NOT be conflated with 'no_effect_within_bounds'.
+ * imprecise, and must NOT be conflated with an attested no-effect.
  */
 const UNRESOLVED_REASONS = new Set<string>([
   'timeout',
@@ -51,6 +71,16 @@ const UNRESOLVED_REASONS = new Set<string>([
   'heuristic',
   'zero_elasticity_fallback',
   'single_option',
+  // ROADMAP 2.228-F3 (ISL PR #117): a GENUINE candidate that ranked below
+  // FACTOR_FLIP_MAX_CANDIDATES by slope spread and was NOT evaluated. ISL
+  // emits it rather than dropping the row so the omission is never silent —
+  // which makes it unresolved, emphatically not a no-effect attestation.
+  'candidate_cap_exceeded',
+  // PLoT-side producer-contradiction guards (see adapters/factor-flip-values.ts):
+  // ISL claimed 'found' but shipped no usable flip_value, or shipped no reason
+  // at all. Neither establishes anything about the factor.
+  'found_without_value',
+  'unattested',
 ]);
 
 type EntryKind = 'computed' | 'no_effect' | 'unresolved';
@@ -59,7 +89,7 @@ function classifyEntry(entry: DenormalisedFlipThreshold): EntryKind {
   if (entry.flip_value !== null && entry.flip_value !== undefined) {
     return 'computed';
   }
-  if (entry.flip_reason === NO_EFFECT_REASON) {
+  if (NO_EFFECT_REASONS.has(entry.flip_reason)) {
     return 'no_effect';
   }
   if (UNRESOLVED_REASONS.has(entry.flip_reason)) {
