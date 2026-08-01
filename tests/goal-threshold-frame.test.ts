@@ -310,7 +310,16 @@ describe('ROADMAP 2.258 — goal_threshold_frame reaches the ISL request', () =>
     // the filter, auto-synthesis fires here — and 2.258 requires the frame to
     // ride with the threshold it recovers.
     const { status, isl, body } = await run({
-      graph: graphWithGoal({ ...GOAL_TARGET_UNSTAMPED, goal_threshold_frame: 'level' }),
+      // ROADMAP 2.266: was 'level'. Auto-synthesis is now gated on
+      // `goal_threshold_frame === 'delta'` (the frame ISL evaluates constraints
+      // in), and a LEVEL target is refused rather than compared against
+      // change-from-baseline samples. The SUBJECT of this test is the
+      // temporal-filter residual path — that the recovery fires at all and that
+      // the frame rides with the threshold it recovers — so the fixture is
+      // stamped with the frame that keeps that subject reachable. The 'level'
+      // refusal on this same path is pinned in
+      // tests/goal-threshold-frame-synthesis-gate.test.ts (T4).
+      graph: graphWithGoal({ ...GOAL_TARGET_UNSTAMPED, goal_threshold_frame: 'delta' }),
       options: OPTIONS,
       goal_node_id: 'goal_arr',
       seed: '42',
@@ -321,7 +330,7 @@ describe('ROADMAP 2.258 — goal_threshold_frame reaches the ISL request', () =>
     expect(isl.goal_threshold).toBe(0.65);
     // THE part-5 pin. An unstamped threshold on this path would make ISL omit
     // probability_of_goal — the fix would look landed and compute nothing.
-    expect(isl.goal_threshold_frame).toBe('level');
+    expect(isl.goal_threshold_frame).toBe('delta');
 
     // The recovery really did run through auto-synthesis...
     const sent = (isl.goal_constraints ?? []) as any[];
@@ -365,7 +374,16 @@ describe('ROADMAP 2.258 — goal_threshold_frame reaches the ISL request', () =>
     // run, and the goal probability would vanish again — silently. Pin the
     // claim rather than trusting the comment.
     const { status, isl, body } = await run({
-      graph: graphWithGoal({ ...GOAL_TARGET_UNSTAMPED, goal_threshold_frame: 'level' }),
+      // ROADMAP 2.266: was 'level'. Auto-synthesis is now gated on
+      // `goal_threshold_frame === 'delta'` (the frame ISL evaluates constraints
+      // in), and a LEVEL target is refused rather than compared against
+      // change-from-baseline samples. The SUBJECT of this test is the
+      // temporal-filter residual path — that the recovery fires at all and that
+      // the frame rides with the threshold it recovers — so the fixture is
+      // stamped with the frame that keeps that subject reachable. The 'level'
+      // refusal on this same path is pinned in
+      // tests/goal-threshold-frame-synthesis-gate.test.ts (T4).
+      graph: graphWithGoal({ ...GOAL_TARGET_UNSTAMPED, goal_threshold_frame: 'delta' }),
       options: OPTIONS,
       goal_node_id: 'goal_arr',
       seed: '42',
