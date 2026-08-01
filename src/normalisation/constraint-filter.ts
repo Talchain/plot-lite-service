@@ -6,16 +6,7 @@
  * Temporal constraints (e.g., "achieve goal within 6 months") cannot be evaluated
  * because time is not a modelled dimension — the graph is a point-in-time snapshot.
  *
- * Pipeline order: constraint compilation → TEMPORAL FILTER → auto-fallback → validation → ISL
- *
- * ⚠ The filter runs BEFORE the auto-fallback (changed under ROADMAP 2.239). The
- * fallback asks "did any constraint survive to the ISL boundary?", so it must
- * see the POST-filter set: a deadline constraint that this filter is about to
- * delete used to suppress the fallback that would have replaced it, and the
- * request reached ISL with no constraints AND no goal threshold. The fallback
- * re-enters this function with its own synthesised constraint (it can never be
- * dropped — no deadline_metadata, no unit) so the out-of-domain safety gate
- * still applies to it.
+ * Pipeline order: constraint compilation → auto-fallback → TEMPORAL FILTER → validation → ISL
  *
  * Drop rules (any match → remove):
  *   1. deadline_metadata is present (reliable CEE temporal signal)

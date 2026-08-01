@@ -125,21 +125,8 @@ export interface ISLRobustnessRequestV3 {
   /**
    * Multiple success constraints for joint evaluation.
    * When provided, ISL evaluates joint satisfaction across all constraints.
+   * Takes precedence over goal_threshold if both are provided.
    * Uses ISL's canonical "value" field (same as PLoT's GoalConstraint.value).
-   *
-   * ⚠ This used to say "Takes precedence over goal_threshold if both are
-   * provided". FALSE, corrected under ROADMAP 2.239 by reading ISL at
-   * `35149dd1`: `probability_of_goal` (robustness_analyzer_v2.py:3073-3077)
-   * and `constraint_analysis` (:3079-3083) are computed in the same option
-   * loop from independent gates, neither suppressing the other, and
-   * `RobustnessRequestV2` declares no mutual-exclusion validator
-   * (models/robustness_v2.py:856, :895). ISL is built for the pair —
-   * `_align_goal_constraint_samples` (:3005-3035) exists so a goal-node
-   * constraint and `probability_of_goal` answer from IDENTICAL samples.
-   *
-   * The false comment mattered: it made "send both" look pointless, and
-   * sending both is exactly what makes the goal probability computable when
-   * the only constraint is the auto-synthesised goal target.
    */
   goal_constraints?: ISLGoalConstraint[];
 
