@@ -255,6 +255,9 @@ describe('V2 Run · ISL closed-form factor flips (2.228-F3)', () => {
     expect(staffing!.direction).toBe('decrease');
     expect(staffing!.alternative_winner_id).toBe('opt_locum');
     expect(staffing!.alternative_winner_label).toBe('Locum cover');
+    // REVIEW S2 control on the same response: a REAL flip never carries the
+    // attested-no-flip flag. The flag is not the negation of flip_value===null.
+    expect(staffing!.no_flip_in_range).toBeUndefined();
   });
 
   it('the run reports a computed flip-threshold status', () => {
@@ -270,6 +273,10 @@ describe('V2 Run · ISL closed-form factor flips (2.228-F3)', () => {
     expect(demand!.flip_value).not.toBe(0);
     // The explicit non-claiming token, never a guessed direction.
     expect(demand!.direction).toBe('none');
+    // REVIEW S2: the structural attested-no-flip signal reaches the WIRE, so
+    // CEE can stop exact-matching `flip_reason === 'no_effect_within_bounds'`
+    // (analysis-signals.ts:439), which silently drops every new ISL token.
+    expect(demand!.no_flip_in_range).toBe(true);
     expect(demand!.flip_display).toBeUndefined();
     // current_value still lifts: 0.4 x 100 = 40, and raw_value agrees.
     expect(demand!.current_value).toBe(40);

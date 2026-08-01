@@ -42,7 +42,7 @@
     }
   },
   "source_sha256": {
-    "_note": "The model + router files every claim in the pairing is derived from. The Python replay driver verifies each of these against the clone it is pointed at and REFUSES to run on a mismatch, so a transcript can never be produced from bytes other than these.",
+    "_note": "The model + router files every claim in the pairing is derived from. The Python replay driver verifies each of these against the clone it is pointed at and REFUSES to run on a mismatch, so a transcript can never be produced from bytes other than these. Review S4: src/api/robustness.py is pinned too — the mounted_request_models handler cite names a LINE in it, and a hand-maintained line number in another repo drifts silently (it already had: :578 was stale by one at this sha). Now the driver refuses on any change to it.",
     "src/api/main.py": "23a6754ece24e62fe50b6900b27a30c802963137b32784ac44c45a74071d98e1",
     "src/models/robustness_v2.py": "3fcf0a7a9ea87da8d4c19a4046b8116a2d54510c93d10e6a31f0ee17df1f1f11",
     "src/models/requests.py": "e652db133fd5985cc25cb42d4fd6b8d59554f4c291d87a622df30b323cc0c0ba",
@@ -55,14 +55,15 @@
     "src/config/stability_thresholds.py": "b388f9b284a26d1a6373431caf81cd662677261d9964d464109adfa80838afa0",
     "src/utils/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "src/utils/correlation.py": "e8845552739dd174fbead62d72dccb128ffac0c1e4b1ebcbfbbc95b1cd2927d4",
-    "src/utils/security_validators.py": "0cdcb577701bfff50057e4df863d34199613a3595df017d1256b8069f14e1211"
+    "src/utils/security_validators.py": "0cdcb577701bfff50057e4df863d34199613a3595df017d1256b8069f14e1211",
+    "src/api/robustness.py": "cdaa674cd7fd0c879b55baa9ff5b428f93bbad971038a046093353b3f9857d54"
   },
   "mounted_request_models": {
     "_note": "Route -> request model, for the paths PLoT sends to. Derived from src/api/main.py include_router() calls + the router-level path decorators, and corroborated independently by the vendored openapi.json path list.",
     "/api/v1/robustness/analyze/v2": {
       "model": "RobustnessRequestV2",
       "module": "src/models/robustness_v2.py",
-      "handler": "src/api/robustness.py:578 analyze_robustness_v2",
+      "handler": "src/api/robustness.py:579 analyze_robustness_v2",
       "extra_policy": "ignore (explicit on all 11 classes in the tree)"
     },
     "/api/v1/causal/counterfactual": {

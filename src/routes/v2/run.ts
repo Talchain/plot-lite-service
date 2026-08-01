@@ -7073,10 +7073,21 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               // zero rows below. Left undefined so flip_thresholds ships [] and
               // classifyFlipThresholdsStatus says 'unavailable' — never
               // 'all_no_effect', which would assert a result nobody computed.
+              // ⚠ REVIEW S5 — THE FIELD NAME IS A KEY, NOT PROSE, ON PURPOSE.
+              // This used to read `note: 'ISL omitted factor_flip_values; …'`
+              // and shipped as `ISL omitted sha8:513e0c37_flip_values` — the
+              // redactor digests graph-derived tokens found inside string
+              // VALUES, and `factor` is one whenever the request carries a node
+              // id containing it. An operator grepping the logs for
+              // `factor_flip_values` after a silent flip outage would have found
+              // nothing. Key names are preserved verbatim, so the name lives
+              // there instead; the two remaining values are fixed literals that
+              // no graph token can collide with.
               req.log.info({
                 event: 'flip_thresholds_isl_block_absent',
                 request_id: requestId,
-                note: 'ISL omitted factor_flip_values; see ISL inference_warnings for FACTOR_FLIPS_UNAVAILABLE',
+                factor_flip_values: 'absent',
+                isl_disclosure_expected: 'FACTOR_FLIPS_UNAVAILABLE',
               });
             } else {
               resolvedFlipData = factorFlipMapping.rows;

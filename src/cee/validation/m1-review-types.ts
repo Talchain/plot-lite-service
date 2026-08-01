@@ -359,6 +359,30 @@ export interface FlipThresholdInputData {
   /** Factor unit from observed_state (e.g., "GBP", "%") */
   unit?: string;
   /**
+   * Literal `true` when this row is a producer-ATTESTED no-flip — ISL proved or
+   * measured that the factor cannot move the winner (review S2, ROADMAP
+   * 2.228-F3).
+   *
+   * ⚠ WHY A BOOLEAN EXISTS AT ALL. CEE recognises an attested no-flip by
+   * exact-matching `flip_reason === 'no_effect_within_bounds'`
+   * (`src/orchestrator-v5/context/analysis-signals.ts:439`), so every token ISL
+   * adds to its OPEN reason vocabulary silently drops out of the coach context.
+   * A string-equality mirror across a repo boundary is the dominant defect class
+   * here; a boolean cannot drift the same way.
+   *
+   * ⚠ ABSENT, never `false`. Absence means "not an attested no-flip", which
+   * covers BOTH real flips and unresolved rows — it is deliberately NOT the
+   * negation of `flip_value === null`. An unresolved row (`timeout`,
+   * `candidate_cap_exceeded`, a producer contradiction) has a null flip value
+   * and no flag, because nothing was attested about it.
+   *
+   * ⚠ NOT the same field as CEE's context-pack `no_flip_within_bounds`
+   * (`context-pack-schema.ts:166`), despite the near-identical name. That one is
+   * CEE-internal, derived only from the single legacy reason string; this one is
+   * producer-side and covers every attested no-flip reason.
+   */
+  no_flip_in_range?: true;
+  /**
    * Additive lead-margin diagnostic computed from the Step-0 flip-search probes.
    * Optional — omitted on entries that did not complete the probe phase
    * (pre-probe timeout, non-finite baseline, probe exception, heuristic path).

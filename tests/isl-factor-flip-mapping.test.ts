@@ -32,6 +32,7 @@ import {
   FOUND_WITHOUT_VALUE_REASON,
   UNATTESTED_REASON,
   NO_DIRECTION,
+  VALUE_WITHOUT_DIRECTION_REASON,
 } from '../src/integrations/isl/adapters/factor-flip-values.js';
 import { toISLRobustnessRequest } from '../src/integrations/isl/translator-v3.js';
 import { denormaliseFlipThresholds } from '../src/lib/flip-threshold-denormaliser.js';
@@ -511,5 +512,234 @@ describe('2.228-F3 · flip_thresholds_status over ISL reasons', () => {
     expect(mapIslFactorFlipValues(undefined, { graph })).toBeUndefined();
     expect(classifyFlipThresholdsStatus(undefined)).toEqual({ status: 'unavailable' });
     expect(classifyFlipThresholdsStatus([])).toEqual({ status: 'unavailable' });
+  });
+});
+
+// =============================================================================
+// 5. REVIEW AMENDMENTS — S1 / S2 / S3
+// =============================================================================
+
+describe('2.228-F3 review S1 · partial_no_effect requires a CLEAN no-effect set', () => {
+  const graph = graphOf([cappedNode('fac_annual_staffing_cost')]);
+
+  function statusOf(rows: Array<Record<string, unknown>>) {
+    const mapped = mapIslFactorFlipValues(rows, { graph })!;
+    return classifyFlipThresholdsStatus(
+      denormaliseFlipThresholds(mapped.rows, undefined, OPTIONS, graph),
+    );
+  }
+  function noFlip(factor_id: string, flip_reason: string) {
+    return { factor_id, current_value: 0.5, flip_reason, baseline_winner_id: 'opt_status_quo' };
+  }
+
+  it('THE DEFECT: 1 found + 1 attested + 8 UNEVALUATED must not read "the rest cannot flip"', () => {
+    // The reviewer's executed counter-example. `partial_no_effect` renders as
+    // "some factors flip, the rest cannot" — a claim about all eight
+    // candidate_cap_exceeded rows that were never evaluated. It is reachable on
+    // any graph with more than FACTOR_FLIP_MAX_CANDIDATES (10) eligible root
+    // factors, and `status_reason` is payload-only so it cannot correct the copy.
+    const rows: Array<Record<string, unknown>> = [
+      islRow({ factor_id: 'fac_found' }),
+      noFlip('fac_attested', 'structurally_invariant'),
+      ...Array.from({ length: 8 }, (_, i) => noFlip(`fac_capped_${i}`, 'candidate_cap_exceeded')),
+    ];
+    const result = statusOf(rows);
+    expect(result.status).not.toBe('partial_no_effect');
+    // Lands on 'computed' — true and minimal: a flip WAS found, and nothing is
+    // claimed about the rows that never resolved.
+    expect(result.status).toBe('computed');
+    // ...with the absorption attributable in the payload rather than silent.
+    expect(result.status_reason).toBe('candidate_cap_exceeded');
+  });
+
+  it('a CLEAN mix still reports partial_no_effect, with no status_reason', () => {
+    // The guard must not over-fire: every non-computed row here IS attested.
+    const result = statusOf([
+      islRow({ factor_id: 'fac_found' }),
+      noFlip('fac_a', 'structurally_invariant'),
+      noFlip('fac_b', 'no_effect_within_bounds'),
+    ]);
+    expect(result).toEqual({ status: 'partial_no_effect' });
+  });
+
+  it('mirrors the guard all_no_effect has always had', () => {
+    // Same shape, no computed row: attested + unevaluated must not read
+    // "no factor could change the leading option" either.
+    const result = statusOf([
+      noFlip('fac_a', 'structurally_invariant'),
+      noFlip('fac_b', 'candidate_cap_exceeded'),
+    ]);
+    expect(result.status).toBe('unresolved');
+  });
+
+  it('S6: a failed unit mapping is unresolved, never an attested no-effect', () => {
+    expect(
+      classifyFlipThresholdsStatus([
+        {
+          factor_id: 'f1',
+          factor_label: 'F1',
+          current_value: 0.5,
+          flip_value: null,
+          direction: 'none',
+          alternative_winner_id: null,
+          alternative_winner_label: null,
+          flip_reason: 'non_finite_denormalisation',
+        },
+      ]).status,
+    ).toBe('unresolved');
+  });
+});
+
+describe('2.228-F3 review S3 · the direction biconditional holds in BOTH directions', () => {
+  const graph = graphOf([cappedNode('fac_annual_staffing_cost')]);
+
+  /** direction === 'none' ⟺ flip_value === null, asserted over a whole corpus. */
+  function assertBiconditional(rows: readonly { direction?: string; flip_value: number | null }[]) {
+    for (const r of rows) {
+      expect(r.direction === NO_DIRECTION).toBe(r.flip_value === null);
+    }
+  }
+
+  it('THE GAP: a real value with an ABSENT direction is no longer absorbed into "none"', () => {
+    // Previously this row shipped flip_value 0.62 alongside direction 'none' —
+    // the documented invariant broken in the data, silently and uncounted.
+    // `direction` is DEFINED as the way the factor must move from current_value
+    // to reach flip_value, so with both numbers present it is arithmetic, not
+    // an inference. Derived and COUNTED.
+    const result = mapIslFactorFlipValues(
+      [{ ...islRow(), direction: undefined }],
+      { graph },
+    )!;
+    expect(result.rows[0].flip_value).toBe(0.62);
+    expect(result.rows[0].direction).toBe('decrease'); // 0.62 < 0.86
+    expect(result.diagnostics.direction_derived).toBe(1);
+    assertBiconditional(result.rows);
+  });
+
+  it('a non-token direction is derived too, not silently blanked', () => {
+    const result = mapIslFactorFlipValues(
+      [
+        { ...islRow({ factor_id: 'f_up' }), current_value: 0.2, flip_value: 0.7, direction: 'sideways' },
+        { ...islRow({ factor_id: 'f_null' }), current_value: 0.2, flip_value: 0.7, direction: null },
+      ],
+      { graph },
+    )!;
+    expect(result.rows.map((r) => r.direction)).toEqual(['increase', 'increase']);
+    expect(result.diagnostics.direction_derived).toBe(2);
+    assertBiconditional(result.rows);
+  });
+
+  it('an UNDERIVABLE direction (flip === current) is downgraded, not published', () => {
+    // Nothing to derive from a zero delta, and a tipping point that requires no
+    // movement is not one a consumer can act on. Symmetric with the
+    // found-without-value downgrade: value nulled, reason attributable.
+    const result = mapIslFactorFlipValues(
+      [{ ...islRow(), current_value: 0.5, flip_value: 0.5, direction: undefined }],
+      { graph },
+    )!;
+    expect(result.rows[0].flip_value).toBeNull();
+    expect(result.rows[0].direction).toBe(NO_DIRECTION);
+    expect(result.rows[0].flip_reason).toBe(VALUE_WITHOUT_DIRECTION_REASON);
+    expect(result.diagnostics.value_without_direction).toBe(1);
+    assertBiconditional(result.rows);
+    // ...and the status classifier files it as unresolved, never no-effect.
+    expect(
+      classifyFlipThresholdsStatus(
+        denormaliseFlipThresholds(result.rows, undefined, OPTIONS, graph),
+      ).status,
+    ).toBe('unresolved');
+  });
+
+  it("ISL's own direction is NEVER rewritten — a disagreement is disclosed instead", () => {
+    // flip 0.62 < current 0.86 implies 'decrease', but ISL says 'increase'.
+    // The direction is the producer's claim to make; silently "correcting" it
+    // would hide a real model disagreement.
+    const result = mapIslFactorFlipValues(
+      [{ ...islRow(), direction: 'increase' }],
+      { graph },
+    )!;
+    expect(result.rows[0].direction).toBe('increase');
+    expect(result.diagnostics.direction_disagrees_with_delta).toBe(1);
+    expect(result.diagnostics.direction_derived).toBe(0);
+  });
+
+  it('the biconditional holds across the whole adversarial corpus', () => {
+    const result = mapIslFactorFlipValues(
+      [
+        islRow({ factor_id: 'a' }),
+        { factor_id: 'b', current_value: 0.5, flip_reason: 'structurally_invariant', baseline_winner_id: 'o' },
+        { factor_id: 'c', current_value: 0.5, flip_reason: 'found', baseline_winner_id: 'o' },
+        { factor_id: 'd', current_value: 0.5, flip_reason: 'candidate_cap_exceeded', baseline_winner_id: 'o' },
+        { ...islRow({ factor_id: 'e' }), direction: undefined },
+        { ...islRow({ factor_id: 'f' }), current_value: 0.4, flip_value: 0.4, direction: undefined },
+        { ...islRow({ factor_id: 'g' }), flip_value: 0, direction: 'decrease' },
+      ],
+      { graph },
+    )!;
+    expect(result.rows).toHaveLength(7);
+    assertBiconditional(result.rows);
+    // Positive control: the corpus really does contain both sides, so the
+    // assertion above is not passing over a uniform set.
+    expect(result.rows.some((r) => r.direction === NO_DIRECTION)).toBe(true);
+    expect(result.rows.some((r) => r.direction !== NO_DIRECTION)).toBe(true);
+  });
+});
+
+describe('2.228-F3 review S2 · no_flip_in_range, the structural attested-no-flip signal', () => {
+  const graph = graphOf([cappedNode('fac_annual_staffing_cost')]);
+  function row(factor_id: string, extra: Record<string, unknown>) {
+    return { factor_id, current_value: 0.5, baseline_winner_id: 'o', ...extra };
+  }
+
+  it('is true on EVERY attested no-flip reason — not just the one CEE string-matches', () => {
+    const result = mapIslFactorFlipValues(
+      [
+        row('a', { flip_reason: 'no_effect_within_bounds' }),
+        row('b', { flip_reason: 'structurally_invariant' }),
+      ],
+      { graph },
+    )!;
+    expect(result.rows.every((r) => r.no_flip_in_range === true)).toBe(true);
+  });
+
+  it('is ABSENT — never false — on real flips and on UNRESOLVED rows alike', () => {
+    // The sharp distinction: it is NOT the negation of `flip_value === null`.
+    // An unresolved row also has a null flip value, and attests nothing.
+    const result = mapIslFactorFlipValues(
+      [
+        islRow({ factor_id: 'found' }),
+        row('capped', { flip_reason: 'candidate_cap_exceeded' }),
+        row('contradiction', { flip_reason: 'found' }),
+        row('unknown', { flip_reason: 'some_future_isl_reason' }),
+      ],
+      { graph },
+    )!;
+    for (const r of result.rows) {
+      expect(r.no_flip_in_range).toBeUndefined();
+      expect('no_flip_in_range' in r).toBe(false);
+    }
+  });
+
+  it('SURVIVES denormalisation — including the display-scale path', () => {
+    // The flag would be silently dropped if the denormaliser rebuilt rows
+    // without carrying it, which is exactly what it does with every other key.
+    const mapped = mapIslFactorFlipValues(
+      [row('fac_annual_staffing_cost', { flip_reason: 'structurally_invariant' })],
+      { graph },
+    )!;
+    const out = denormaliseFlipThresholds(mapped.rows, undefined, OPTIONS, graph);
+    expect(out[0].no_flip_in_range).toBe(true);
+    expect(out[0].value_scale).toBe('display'); // the denormalising branch
+  });
+
+  it('survives the no-range branch too (capless factor)', () => {
+    const capless = graphOf([caplessNode('fac_lever')]);
+    const mapped = mapIslFactorFlipValues(
+      [row('fac_lever', { flip_reason: 'no_effect_within_bounds' })],
+      { graph: capless },
+    )!;
+    const out = denormaliseFlipThresholds(mapped.rows, undefined, OPTIONS, capless);
+    expect(out[0].no_flip_in_range).toBe(true);
+    expect(out[0].value_scale).not.toBe('display'); // the enrichWithLabels branch
   });
 });

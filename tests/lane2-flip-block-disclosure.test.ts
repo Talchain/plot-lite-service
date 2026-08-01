@@ -36,7 +36,9 @@
  * implementation unless the whole-block toggle is armed).
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import type { FastifyInstance } from 'fastify';
+import { redactPayloadShape } from '../src/util/pii-redact.js';
 
 // ---------------------------------------------------------------------------
 // Toggles read at call time by the mocks
@@ -256,6 +258,45 @@ describe('V2 Run · whole-block flip failure is wire-disclosed (post-probe-retir
     } finally {
       islOmitsBlock = false;
     }
+  });
+
+  it('REVIEW S5 — `factor_flip_values` survives redaction as a KEY, not as prose', () => {
+    // The note used to read `'ISL omitted factor_flip_values; …'` as a string
+    // VALUE, and redactPayloadShape digests graph-derived tokens found inside
+    // string values: operators saw `ISL omitted sha8:513e0c37_flip_values`, so
+    // grepping the logs for the ISL field name during a flip outage found
+    // nothing.
+    //
+    // This exercises the REDACTOR itself rather than grepping the source, so it
+    // proves the property that made the original wrong — and its two halves are
+    // each other's positive control: if redaction were a no-op the second
+    // expectation would fail, and if it digested everything the first would.
+    const redacted = redactPayloadShape({
+      event: 'flip_thresholds_isl_block_absent',
+      factor_flip_values: 'absent',
+      note: 'ISL omitted factor_flip_values',
+    }) as Record<string, unknown>;
+
+    // The KEY is a declared contract key and is preserved verbatim — greppable.
+    expect(Object.keys(redacted)).toContain('factor_flip_values');
+    // The same name inside a VALUE is exactly what got mangled. Asserting the
+    // mangling still happens is what keeps this test honest: the fix was to
+    // stop relying on values, not to change the redactor.
+    expect(redacted.note).not.toBe('ISL omitted factor_flip_values');
+
+    // CALL-SITE CHECK. The assertion above proves the MECHANISM; this one
+    // proves the route actually uses it. Declared for what it is: a source
+    // mirror-check, weaker than a behavioural assertion (trap 16), used here
+    // because intercepting pino's sonic-boom fd-1 stream from inside vitest is
+    // the exact setup that produced a 0-byte capture and a vacuous pass
+    // elsewhere in this repo (trap 13). A log line's shape is worth this much
+    // and no more.
+    const src = readFileSync(new URL('../src/routes/v2/run.ts', import.meta.url), 'utf8');
+    const from = src.indexOf("event: 'flip_thresholds_isl_block_absent'");
+    expect(from).toBeGreaterThan(-1);
+    const record = src.slice(from, src.indexOf('});', from));
+    expect(record).toContain('factor_flip_values:');
+    expect(record).not.toMatch(/note:\s*'ISL omitted factor_flip_values/);
   });
 
   it('REPLACES the per-factor TIMEOUT case: the retired probe budget is inert', async () => {

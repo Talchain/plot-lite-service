@@ -73,6 +73,28 @@ export interface FactorFlipMappingDiagnostics {
   found_without_value: number;
   /** Rows whose `baseline_winner_id` disagrees with the MC-recommended winner (ISL design R3). */
   baseline_winner_disagreement: number;
+  /**
+   * Review S3 — rows carrying a real `flip_value` whose `direction` was absent
+   * or not one of ISL's two tokens, where PLoT DERIVED the direction from
+   * `sign(flip_value - current_value)`. Arithmetic on two numbers ISL supplied,
+   * not an inference — but counted, because a producer that omits the field is
+   * telling you something.
+   */
+  direction_derived: number;
+  /**
+   * Review S3 — rows carrying a real `flip_value` for which NO direction is
+   * derivable (`flip_value === current_value`, or a non-finite
+   * `current_value`). These are downgraded: the value is nulled and the row is
+   * marked `value_without_direction`, so the biconditional below holds.
+   */
+  value_without_direction: number;
+  /**
+   * Review S3 — rows where ISL's own `direction` token DISAGREES with
+   * `sign(flip_value - current_value)`. ISL's claim is emitted UNCHANGED (it is
+   * the producer's to make); the disagreement is disclosed, never reconciled —
+   * same posture as `baseline_winner_disagreement`.
+   */
+  direction_disagrees_with_delta: number;
 }
 
 export interface MapFactorFlipValuesResult {
@@ -93,6 +115,18 @@ export const FOUND_WITHOUT_VALUE_REASON = 'found_without_value';
 
 /** Reason of last resort for a row whose `flip_reason` is missing or empty. */
 export const UNATTESTED_REASON = 'unattested';
+
+/**
+ * Reason emitted when a row carries a real `flip_value` but no direction can be
+ * stated for it and none can be derived (review S3).
+ *
+ * The mirror image of {@link FOUND_WITHOUT_VALUE_REASON}, and downgraded for the
+ * same reason: publishing `flip_value: X` with `direction: 'none'` would break
+ * the `direction === 'none'` ⟺ `flip_value === null` biconditional that three
+ * doc sites and CEE's consumers rely on, and a consumer cannot act on a
+ * tipping point it cannot be told which way to cross.
+ */
+export const VALUE_WITHOUT_DIRECTION_REASON = 'value_without_direction';
 
 /**
  * The `direction` token carried by a row with no flip.
@@ -145,6 +179,9 @@ export function mapIslFactorFlipValues(
     found: 0,
     found_without_value: 0,
     baseline_winner_disagreement: 0,
+    direction_derived: 0,
+    value_without_direction: 0,
+    direction_disagrees_with_delta: 0,
   };
 
   const rows: FlipThresholdInputData[] = [];
@@ -180,10 +217,15 @@ export function mapIslFactorFlipValues(
     // explicit non-claiming token instead. This is where the retired probe was
     // actively misleading: `computeFlipThresholdData` stamped a hypothesised
     // 'increase'/'decrease' from |elasticity| on rows it never resolved.
-    const direction: 'increase' | 'decrease' | 'none' =
-      flipValue !== null && (entry.direction === 'increase' || entry.direction === 'decrease')
-        ? entry.direction
-        : NO_DIRECTION;
+    //
+    // ⚠ REVIEW S3 — BOTH HALVES OF THE BICONDITIONAL ARE ENFORCED HERE.
+    // `direction === 'none'` ⟺ `flip_value === null` was previously enforced
+    // only forwards: a row with a real value but an absent or non-token
+    // direction fell into the `: NO_DIRECTION` arm SILENTLY and UNCOUNTED,
+    // publishing a value that claimed 'none' — the documented invariant broken
+    // in the data while three doc sites asserted it held.
+    const { direction, flipValue: resolvedFlipValue, reason: resolvedReason } =
+      resolveDirection(entry, flipValue, reason, diagnostics);
 
     // ISL design R3: the closed-form search runs in the EXPECTED-VALUE world,
     // which is not guaranteed to agree with the sampled MC recommendation.
@@ -201,13 +243,13 @@ export function mapIslFactorFlipValues(
       factor_id: entry.factor_id,
       factor_label: labelsById?.get(entry.factor_id) ?? node?.label ?? entry.factor_id,
       current_value: entry.current_value,
-      flip_value: flipValue,
-      flip_reason: reason,
+      flip_value: resolvedFlipValue,
+      flip_reason: resolvedReason,
       // `alternative_winner_id` is meaningful ONLY beside a real flip value.
       // ISL already nulls it otherwise; this re-asserts the invariant so a
       // future producer bug cannot name a winner for a flip that never happens.
       alternative_winner_id:
-        flipValue !== null && isNonEmptyString(entry.alternative_winner_id)
+        resolvedFlipValue !== null && isNonEmptyString(entry.alternative_winner_id)
           ? entry.alternative_winner_id
           : null,
       // Closed form: no bisection, no probes. Both are 0 by CONSTRUCTION here,
@@ -216,12 +258,31 @@ export function mapIslFactorFlipValues(
       iterations_used: 0,
       probes_used: 0,
       direction,
+      // ⚠ REVIEW S2 — THE STRUCTURAL SIGNAL THAT ENDS THE STRING MIRRORING.
+      // CEE currently recognises an attested no-flip by exact-matching
+      // `flip_reason === 'no_effect_within_bounds'`
+      // (olumi-assistants-service `src/orchestrator-v5/context/analysis-signals.ts:439`
+      // at staging `6766b540`), so every reason token ISL adds to its OPEN
+      // vocabulary silently drops out of the coach context — which is exactly
+      // what `structurally_invariant` does today. A boolean cannot drift the way
+      // a string-equality mirror does.
+      //
+      // Emitted ONLY as literal `true`, never `false`, matching the estate's
+      // key-absence style: absence means "not an attested no-flip", which
+      // includes both real flips and unresolved rows. It is deliberately NOT
+      // the negation of `flip_value === null`.
+      //
+      // Safe to add TODAY (verified, not assumed) — see the PR body:
+      // `EnrichmentFlipThresholdSchema` is `.passthrough()` and CEE's projection
+      // reads named fields rather than spreading, so an unknown key is carried,
+      // not rejected. Typing rides the queued @talchain/schemas 0.31.0.
+      ...(isAttestedNoFlip(resolvedFlipValue, resolvedReason) ? { no_flip_in_range: true } : {}),
       ...(node?.observed_state?.unit !== undefined ? { unit: node.observed_state.unit } : {}),
     };
 
     rows.push(row);
     diagnostics.mapped++;
-    if (reason === 'found') diagnostics.found++;
+    if (resolvedReason === 'found') diagnostics.found++;
   }
 
   return { rows, diagnostics };
@@ -248,6 +309,80 @@ function normaliseReason(
     return FOUND_WITHOUT_VALUE_REASON;
   }
   return reason;
+}
+
+/**
+ * ISL reason tokens that ATTEST a factor cannot flip the winner. Kept in step
+ * with `NO_EFFECT_REASONS` in `lib/flip-threshold-status.ts` — that module owns
+ * the aggregate verdict, this one owns the per-row boolean, and both must agree
+ * on what "attested" means.
+ */
+const ATTESTED_NO_FLIP_REASONS = new Set<string>([
+  'no_effect_within_bounds',
+  'structurally_invariant',
+]);
+
+/**
+ * True when this row is a producer-ATTESTED no-flip — a proven or measured
+ * "this factor cannot move the winner", not a row we merely failed to resolve.
+ * An unresolved row (timeout, `candidate_cap_exceeded`, a producer
+ * contradiction, an unknown token) is NOT attested and never carries the flag.
+ */
+function isAttestedNoFlip(flipValue: number | null, reason: string): boolean {
+  return flipValue === null && ATTESTED_NO_FLIP_REASONS.has(reason);
+}
+
+/**
+ * Resolve `direction` so that `direction === 'none'` ⟺ `flip_value === null`
+ * holds on EVERY emitted row (review S3).
+ *
+ * Three producer states are handled, all counted:
+ *
+ * 1. **Usable token beside a real value** — emitted verbatim. If it disagrees
+ *    with `sign(flip_value - current_value)` the disagreement is COUNTED but
+ *    ISL's claim is NOT rewritten: the direction is the producer's to state,
+ *    and silently "correcting" it would hide a real model disagreement.
+ * 2. **Missing/non-token direction beside a real value** — DERIVED from
+ *    `sign(flip_value - current_value)`. This is not an inference: `direction`
+ *    is DEFINED as the way the factor must move from `current_value` to reach
+ *    `flip_value`, so with both numbers in hand it is arithmetic. Counted so
+ *    the producer gap stays visible.
+ * 3. **Real value, no derivable direction** (`flip_value === current_value`, or
+ *    a non-finite `current_value`) — DOWNGRADED: value nulled, reason set to
+ *    {@link VALUE_WITHOUT_DIRECTION_REASON}, which the status classifier files
+ *    as unresolved. Symmetric with the found-without-value downgrade, and the
+ *    only case where a measurement is dropped — a flip that requires no
+ *    movement is not a tipping point a consumer can act on.
+ */
+function resolveDirection(
+  entry: ISLFactorFlipValueV2,
+  flipValue: number | null,
+  reason: string,
+  diagnostics: FactorFlipMappingDiagnostics,
+): { direction: 'increase' | 'decrease' | 'none'; flipValue: number | null; reason: string } {
+  if (flipValue === null) {
+    return { direction: NO_DIRECTION, flipValue: null, reason };
+  }
+
+  const current = entry.current_value;
+  const delta = isFiniteNum(current) ? flipValue - current : Number.NaN;
+  const derived: 'increase' | 'decrease' | null =
+    Number.isFinite(delta) && delta !== 0 ? (delta > 0 ? 'increase' : 'decrease') : null;
+
+  if (entry.direction === 'increase' || entry.direction === 'decrease') {
+    if (derived !== null && derived !== entry.direction) {
+      diagnostics.direction_disagrees_with_delta++;
+    }
+    return { direction: entry.direction, flipValue, reason };
+  }
+
+  if (derived !== null) {
+    diagnostics.direction_derived++;
+    return { direction: derived, flipValue, reason };
+  }
+
+  diagnostics.value_without_direction++;
+  return { direction: NO_DIRECTION, flipValue: null, reason: VALUE_WITHOUT_DIRECTION_REASON };
 }
 
 function indexNodes(graph: EngineGraphV3 | undefined): Map<string, EngineNodeV3> | undefined {

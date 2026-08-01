@@ -66,6 +66,14 @@ export interface DenormalisedFlipThreshold {
   direction: 'increase' | 'decrease' | 'none';
   /** Unit string from observed_state (e.g., "GBP", "%", "months") */
   unit?: string;
+  /**
+   * Literal `true` on a producer-ATTESTED no-flip row; ABSENT otherwise (never
+   * `false`). Carried verbatim from `FlipThresholdInputData` — denormalisation
+   * changes a row's UNITS, never its attestations. See that field's doc for why
+   * a boolean exists beside the open `flip_reason` vocabulary, and why it is not
+   * the negation of `flip_value === null`.
+   */
+  no_flip_in_range?: true;
   /** Which option would win after the flip (null if no flip) */
   alternative_winner_id: string | null;
   /** Human-readable label for the alternative winner */
@@ -244,6 +252,11 @@ export function denormaliseFlipThresholds(
       flip_reason: nonFiniteDenorm ? 'non_finite_denormalisation' : (flip.flip_reason ?? 'heuristic'),
       iterations_used: flip.iterations_used,
       probes_used: flip.probes_used,
+      // Review S2: carried verbatim. Denormalisation changes UNITS, never
+      // attestations — and note it survives even the nonFiniteDenorm branch
+      // above, because a failed unit mapping does not un-prove that the factor
+      // cannot flip.
+      ...(flip.no_flip_in_range === true ? { no_flip_in_range: true as const } : {}),
       ...(flip.margin_sensitivity
         ? { margin_sensitivity: denormaliseMarginSensitivity(flip.margin_sensitivity, range) }
         : {}),
@@ -279,6 +292,9 @@ function enrichWithLabels(
     flip_reason: flip.flip_reason ?? 'heuristic',
     iterations_used: flip.iterations_used,
     probes_used: flip.probes_used,
+    // Review S2: carried verbatim on the no-range path too (see the sibling
+    // site in the main map).
+    ...(flip.no_flip_in_range === true ? { no_flip_in_range: true as const } : {}),
     // No factor context for denormalisation. Pass margin_sensitivity through
     // untouched: `value_scale` stays `'normalised'` for honesty.
     ...(flip.margin_sensitivity ? { margin_sensitivity: flip.margin_sensitivity } : {}),
