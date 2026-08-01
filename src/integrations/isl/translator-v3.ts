@@ -24,6 +24,36 @@ import {
   resolveUserSuppliedStd,
 } from './parameter-uncertainty-bounds.js';
 import { sha8 } from '../../util/pii-redact.js';
+// ROADMAP 2.258. DERIVED from the shared contract, never hand-mirrored.
+//
+// `GoalThresholdFrame` is the Zod enum itself, so `parseGoalThresholdFrame`
+// below validates against the CONTRACT's member list rather than a local copy
+// of it, and `GoalThresholdFrameType` follows the contract automatically. If
+// 0.32.0 ever adds a third frame, this file widens with it instead of silently
+// rejecting the new token — the hand-maintained-mirror defect class (the
+// dominant one in this estate) cannot arise here by construction.
+import { GoalThresholdFrame, type GoalThresholdFrameType } from '@talchain/schemas';
+
+/**
+ * The frame a `goal_threshold` is stated in, as the shared contract defines it.
+ * Re-exported so callers in this repo import one name, not two.
+ */
+export type { GoalThresholdFrameType };
+
+/**
+ * Validate an untrusted producer-stamped frame against the CONTRACT's enum.
+ *
+ * Returns the frame when it is a member, `undefined` otherwise — and
+ * `undefined` is a legitimate, meaningful answer here (see
+ * `ISLRobustnessRequestV3.goal_threshold_frame`): a junk value must degrade to
+ * ABSENT, never to a guess. Forwarding an unrecognised token would make ISL
+ * reject the whole request at Pydantic validation, turning a producer typo into
+ * a failed analysis instead of a disclosed missing frame.
+ */
+export function parseGoalThresholdFrame(value: unknown): GoalThresholdFrameType | undefined {
+  const parsed = GoalThresholdFrame.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+}
 
 // -----------------------------------------------------------------------------
 // ISL Wire Format Types
@@ -118,9 +148,43 @@ export interface ISLRobustnessRequestV3 {
   }>;
   /**
    * User-defined success threshold for goal.
-   * When provided, ISL returns probability_of_goal per option.
+   * When provided, ISL returns probability_of_goal per option
+   * — but ONLY if `goal_threshold_frame` below is also present.
    */
   goal_threshold?: number;
+
+  /**
+   * ROADMAP 2.258. Declares which FRAME `goal_threshold` is expressed in.
+   * Mirrors ISL's `RobustnessRequestV2.goal_threshold_frame`
+   * (models/robustness_v2.py:882 @`29cb4e27`) and `@talchain/schemas` 0.31.0
+   * `NodeV3.goal_threshold_frame` (`dist/graph.js:194`).
+   *
+   *   'delta' — already in the goal SAMPLES' own frame (change from the model's
+   *             origin). Used as-is; byte-identical to the pre-2.258 comparison.
+   *   'level' — an absolute level of the goal quantity, sharing the domain of
+   *             the graph's `observed_state` values. ISL converts it into the
+   *             sample frame via `threshold - goal_baseline + goal_intercept`.
+   *
+   * ⚠ PLoT NEVER MINTS THIS VALUE. It is forwarded if and only if the producer
+   * (CEE) stamped it on the goal node. The whole point of 2.258 is that an
+   * unattested frame is a category error: CEE mints `goal_threshold` as a
+   * normalised LEVEL, while a non-root goal's samples are a CHANGE from origin,
+   * so comparing them yielded a STRUCTURAL ZERO the product rendered as
+   * "< 1% chance of hitting your goal". Guessing a frame here would reinstate
+   * exactly that defect with PLoT's name on it.
+   *
+   * ⚠ ABSENT IS A MEANINGFUL STATE, NOT A FAILURE TO POPULATE. ISL fail-closes:
+   * with no frame it OMITS `probability_of_goal` and returns a
+   * `GOAL_THRESHOLD_FRAME_UNSPECIFIED` inference warning at severity 'warning'
+   * (chosen deliberately because PLoT hides 'info'), naming what was missing.
+   * The request itself still succeeds — this is a disclosed gap, not a rejection.
+   * See `robustness_analyzer_v2.py:3108-3147`.
+   *
+   * STRUCTURAL COUPLING: this key is emitted ONLY inside the `goal_threshold`
+   * branch below, so a frame can never travel without the number it describes.
+   * That is enforced by position, not by a comment.
+   */
+  goal_threshold_frame?: GoalThresholdFrameType;
 
   /**
    * Multiple success constraints for joint evaluation.
@@ -537,7 +601,14 @@ export function toISLRobustnessRequest(
   // correlations, forwarded VERBATIM. Request-gated — the key is included only
   // when a non-empty array is supplied, so the ISL payload never grows by
   // default and ISL's `extra:"ignore"` never sees an empty array.
-  factorCorrelations?: FactorCorrelation[]
+  factorCorrelations?: FactorCorrelation[],
+  // ROADMAP 2.258: the producer-stamped frame for `goalThreshold`. Appended
+  // rather than placed beside `goalThreshold` because 66 call sites pass these
+  // positionally and reshuffling them is a mis-wire waiting to happen. The
+  // COUPLING that matters is not positional adjacency — it is that the key is
+  // emitted only inside the `goalThreshold !== undefined` branch below, so a
+  // frame can never reach the wire without its number.
+  goalThresholdFrame?: GoalThresholdFrameType
 ): ISLRobustnessRequestV3 {
   // Bidirected edges are trust-layer only (identifiability + warnings).
   // ISL operates on directed edges only. Phase 3A-inference will add inference semantics.
@@ -566,6 +637,21 @@ export function toISLRobustnessRequest(
   // Only include goal_threshold if provided (omit entirely when absent)
   if (goalThreshold !== undefined) {
     request.goal_threshold = goalThreshold;
+
+    // ROADMAP 2.258. The frame rides INSIDE this branch on purpose: a frame
+    // without a threshold describes nothing, and ISL would reject the pair as
+    // incoherent. Nesting makes that impossible structurally rather than by
+    // convention — delete the nesting and `goal-threshold-frame.test.ts`
+    // ("a frame never travels without its threshold") reds.
+    //
+    // Still request-gated within the branch: an unstamped threshold omits the
+    // key entirely, which is the state ISL fail-closes on with a NAMED reason
+    // (GOAL_THRESHOLD_FRAME_UNSPECIFIED). PLoT does NOT substitute a default —
+    // 'delta' would silently restore the pre-2.258 structural zero and 'level'
+    // would assert a domain PLoT has not verified.
+    if (goalThresholdFrame !== undefined) {
+      request.goal_threshold_frame = goalThresholdFrame;
+    }
   }
 
   // Only include goal_constraints if provided and non-empty (omit entirely when absent).

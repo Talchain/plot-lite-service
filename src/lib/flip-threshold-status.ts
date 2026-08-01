@@ -52,8 +52,27 @@ export interface FlipThresholdsStatusResult {
  * ⚠ Membership here is load-bearing: it is what lets `all_no_effect` say "no
  * factor could change the leading option" truthfully. Never add a reason that
  * merely means "we did not finish".
+ *
+ * ⚠ THIS SET IS THE SINGLE SOURCE OF TRUTH, EXPORTED — ROADMAP 2.258 rider.
+ * Until now `integrations/isl/adapters/factor-flip-values.ts` carried its own
+ * byte-identical copy under the name `ATTESTED_NO_FLIP_REASONS`, and the two
+ * were kept in step BY A COMMENT ASKING THE NEXT EDITOR TO REMEMBER. That is
+ * the hand-maintained-mirror defect class — the dominant one in this estate —
+ * and its drift here would have been silent AND asymmetric:
+ *
+ *   · a reason added HERE but not THERE  → the row is filed `all_no_effect`
+ *     (an attestation) while `no_flip_in_range` is never stamped, so CEE's
+ *     structural signal disagrees with PLoT's own published status;
+ *   · a reason added THERE but not HERE  → `no_flip_in_range: true` ships on a
+ *     row this classifier calls `unresolved` — PLoT asserting a proven no-flip
+ *     it does not itself believe.
+ *
+ * Neither raises a type error, and both read as green. The adapter now IMPORTS
+ * this set instead of restating it, so the two cannot diverge by construction.
+ * `tests/flip-no-effect-reasons-single-source.test.ts` names both sites and
+ * fails if the import is ever replaced by a fresh literal.
  */
-const NO_EFFECT_REASONS = new Set<string>([
+export const NO_EFFECT_REASONS: ReadonlySet<string> = new Set<string>([
   'no_effect_within_bounds',
   'structurally_invariant',
 ]);

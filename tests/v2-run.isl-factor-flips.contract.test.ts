@@ -271,8 +271,9 @@ describe('V2 Run · ISL closed-form factor flips (2.228-F3)', () => {
     expect(demand!.flip_reason).toBe('structurally_invariant');
     expect(demand!.flip_value).toBeNull();
     expect(demand!.flip_value).not.toBe(0);
-    // The explicit non-claiming token, never a guessed direction.
-    expect(demand!.direction).toBe('none');
+    // 2.258: the key is OMITTED entirely, never a guessed direction and no
+    // longer the retired 'none' placeholder. Absence is the claim.
+    expect('direction' in demand!).toBe(false);
     // REVIEW S2: the structural attested-no-flip signal reaches the WIRE, so
     // CEE can stop exact-matching `flip_reason === 'no_effect_within_bounds'`
     // (analysis-signals.ts:439), which silently drops every new ISL token.
@@ -307,19 +308,27 @@ describe('V2 Run · ISL closed-form factor flips (2.228-F3)', () => {
   });
 
   it('THE ENRICHMENT CONTRACT STAYS GREEN over an attested no-flip row', () => {
-    // ⚠ REGRESSION PIN FOR A BUG THIS LANE ALMOST SHIPPED. The first cut of the
-    // mapping OMITTED `direction` on no-flip rows — the honest rendering of
-    // ISL's "a direction for a flip that does not exist would be a fabricated
-    // claim". But `@talchain/schemas` 0.30.0 types
+    // ⚠ THIS TEST CHANGED MEANING AT ROADMAP 2.258 — AND IS NOW STRONGER.
+    //
+    // History, because it explains why the assertion is phrased this way. The
+    // first cut of the 2.228-F3 mapping OMITTED `direction` on no-flip rows —
+    // the honest rendering of ISL's "a direction for a flip that does not exist
+    // would be a fabricated claim". But `@talchain/schemas` 0.30.0 typed
     // `EnrichmentFlipThresholdSchema.direction` as a REQUIRED `z.string()`, so
     // every run carrying an attested no-flip raised
     // ENRICHMENT_CONTRACT_MISMATCH and stamped `enrichment_contract_ok: false`
     // — a false alarm on an honest row. Caught only because the egress guard
-    // logs the issue PATH (`flip_thresholds.1.direction`).
+    // logs the issue PATH (`flip_thresholds.1.direction`). The interim fix was
+    // the `'none'` placeholder, and the note here said: "if the schema field is
+    // ever made optional, THIS test is the one to revisit".
     //
-    // This assertion is what stops a future "simplification" back to an omitted
-    // key from silently re-opening it. If the schema field is ever made
-    // optional, THIS test is the one to revisit — not the 'none' token alone.
+    // 0.31.0 made it optional (`z.string().optional()`,
+    // `dist/boundary/enrichment.js:499`) and 2.258 dropped the placeholder. So
+    // this test now guards the OPPOSITE direction of travel: it proves the
+    // egress guard accepts the OMISSION, i.e. that retiring `'none'` did not
+    // re-arm the false alarm it was invented to dodge. The positive control
+    // below is what keeps that meaningful — it asserts the response really did
+    // carry a direction-less row for the guard to have an opinion about.
     const meta = body._meta as Record<string, unknown> | undefined;
     const evidence = meta?.evidence as Record<string, unknown> | undefined;
     expect(evidence?.enrichment_contract_ok).toBe(true);
@@ -331,6 +340,9 @@ describe('V2 Run · ISL closed-form factor flips (2.228-F3)', () => {
   it('POSITIVE CONTROL: the response really did carry a no-flip row for that guard to see', () => {
     // Without this, the assertion above could pass over a response that never
     // exercised the no-flip path at all (trap 13).
-    expect(rows.some((r) => r.flip_value === null && r.direction === 'none')).toBe(true);
+    // 2.258: the no-flip row is now identified by the ABSENCE of `direction`.
+    // Asserting `=== undefined` would also pass on a row that carries the key
+    // with an explicit undefined — which is NOT the shape the guard sees.
+    expect(rows.some((r) => r.flip_value === null && !('direction' in r))).toBe(true);
   });
 });

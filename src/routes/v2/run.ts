@@ -81,7 +81,7 @@ import { REPAIR_CODES } from '../../normalisation/repair-codes.js';
 import { MAX_CONSTRAINTS } from '../../constants/limits.js';
 import type { RawGoalConstraint, FilteredConstraintRecord, InternalMetadata } from '../../types/engine-v3.js';
 import type { IslThresholdResponse, ThresholdPoint } from '../v1/types/proxy.types.js';
-import { toISLRobustnessRequest, validateISLRequest, buildParameterUncertaintiesV3 } from '../../integrations/isl/translator-v3.js';
+import { toISLRobustnessRequest, validateISLRequest, buildParameterUncertaintiesV3, parseGoalThresholdFrame } from '../../integrations/isl/translator-v3.js';
 import { injectConstraintParameterUncertainties, selectConstraintInjectedPuNodeIds } from '../../integrations/isl/constraint-pu-injection.js';
 import {
   createPreflightLog,
@@ -5017,6 +5017,33 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         const nodeGoalThreshold = asFiniteNumber(rawGoalNode?.goal_threshold);
         const nodeGoalThresholdRaw = asFiniteNumber(rawGoalNode?.goal_threshold_raw);
         /**
+         * ROADMAP 2.258 — the producer's FRAME attestation for the goal target.
+         *
+         * Read from the SAME raw goal node as `goal_threshold` above, and for
+         * the same reason: CEE stamps it on the node, and the canonical
+         * EngineNodeV3 the normaliser rebuilds does not carry it, so reading it
+         * off `filteredGraph` would find nothing. `@talchain/schemas` 0.31.0
+         * types it as `NodeV3.goal_threshold_frame` (`dist/graph.js:194`), and
+         * `.data`-nesting is supported here because `normaliseNode` accepts
+         * both spellings for every other CEE-stamped field.
+         *
+         * ⚠ FORWARD-IF-PRESENT, AND PLoT NEVER MINTS ONE. CEE is expected to
+         * stamp this as a code constant, but that had NOT landed when this was
+         * written — so the common case today is legitimately ABSENT, and absent
+         * must stay absent all the way to ISL. Defaulting it would be PLoT
+         * asserting a frame it has no standing to assert: 'delta' silently
+         * restores the pre-2.258 structural zero (the "< 1% chance" untruth this
+         * row exists to kill) and 'level' claims a domain PLoT never checked.
+         *
+         * `parseGoalThresholdFrame` validates against the CONTRACT's own enum,
+         * so a junk value degrades to ABSENT rather than being forwarded — an
+         * unrecognised token would fail ISL's Pydantic validation and turn a
+         * producer typo into a failed analysis instead of a disclosed gap.
+         */
+        const nodeGoalThresholdFrame = parseGoalThresholdFrame(
+          rawGoalNode?.goal_threshold_frame ?? rawGoalNode?.data?.goal_threshold_frame
+        );
+        /**
          * "The user stated a success target somewhere in this request."
          *
          * This is the alarm's gate (Phase 3). The alarm used to be gated on
@@ -6115,6 +6142,52 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           effectiveGoalThreshold = undefined;
         }
 
+        // === 2.258: a threshold that ships WITHOUT a frame is a disclosed gap,
+        // === not a silent one =============================================
+        // THE DECISION (PR body carries the full reasoning). When a goal
+        // threshold survives to the wire but the goal node carried no frame,
+        // PLoT FORWARDS the threshold anyway rather than clearing it.
+        //
+        // The tempting alternative — "unstamped means no computable goal, so
+        // clear it" — is WRONG here, and the reason is a fact about ISL that
+        // must be read at the bytes rather than assumed. ISL does NOT reject an
+        // unstamped request. `_resolve_goal_threshold`
+        // (robustness_analyzer_v2.py:3108-3147 @`29cb4e27`) returns
+        // `(None, warning)`: `probability_of_goal` is OMITTED for every option
+        // and a GOAL_THRESHOLD_FRAME_UNSPECIFIED InferenceWarning rides back at
+        // severity 'warning' — a severity ISL chose deliberately because PLoT
+        // hides 'info'. The run still succeeds.
+        //
+        // So the two options are not "number vs no number". They are:
+        //   forward  → no number, PLUS a named machine-readable reason the user
+        //              can be shown ("no frame was stamped").
+        //   clear    → no number, and ISL sees no threshold at all, so it
+        //              returns `(None, None)` — "nothing to disclose". The gap
+        //              becomes SILENT.
+        // Clearing would buy nothing and destroy the disclosure. That is the
+        // guarantee-theatre trade this estate exists to refuse.
+        //
+        // It is also the CONSISTENT choice: nothing here special-cases the
+        // temporal-filter path. Every path that ships a threshold ships it under
+        // the same rule — frame if the producer stamped one, absent otherwise —
+        // so there is no path-dependent behaviour for a reviewer to hold in
+        // their head, and no second policy to drift.
+        //
+        // This log is PLoT's own witness that it happened, since the ISL warning
+        // is only visible in the response.
+        if (effectiveGoalThreshold !== undefined && nodeGoalThresholdFrame === undefined) {
+          req.log.warn({
+            event: 'goal_threshold_frame_unstamped',
+            goal_node_id: body.goal_node_id,
+            goal_threshold: effectiveGoalThreshold,
+            auto_synthesis_fired: autoSynthesisFired,
+            reason:
+              'Goal node carried no goal_threshold_frame, so goal_threshold ships unstamped. ' +
+              'ISL will OMIT probability_of_goal and return GOAL_THRESHOLD_FRAME_UNSPECIFIED. ' +
+              'PLoT does not guess a frame — the producer must stamp it.',
+          });
+        }
+
         // Build ISL request (using normalised options and constraints)
         // CIL Phase 1: ALWAYS forward seed to ISL for deterministic Monte Carlo runs.
         // Derived seeds must be forwarded to ensure end-to-end determinism: if only computed
@@ -6131,7 +6204,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           plotSeedUsed,  // Always forward PLoT's seed (PLoT is seed authority)
           body.include_path_decomposition === true,  // Lane PLoT-W4: request-gated opt-in, forwarded only on explicit true
           factorParameterUncertainties,  // Reuse the factor PUs already built for the admission plan (same nodes → byte-identical)
-          body.factor_correlations  // Capability #100 (D-23.4): forward client-supplied factor correlations verbatim (request-gated omit inside the translator)
+          body.factor_correlations,  // Capability #100 (D-23.4): forward client-supplied factor correlations verbatim (request-gated omit inside the translator)
+          nodeGoalThresholdFrame  // ROADMAP 2.258: producer-stamped frame, forwarded if present; never minted (see below)
         );
 
         req.log.info(
