@@ -191,10 +191,26 @@ export function denormaliseFlipThresholds(
     // A2: clean the float tail off anything this module MULTIPLIED. An accepted
     // `raw_value` is passed through untouched — it is the user's own exact
     // number and carries no tail to remove.
+    const cleanedCurrent = currentFinite ? cleanDenormalised(denormCurrent, range) : undefined;
+    const cleanedFlip = flipFinite ? cleanDenormalised(denormFlip, range) : undefined;
+
+    // R1: if cleaning cannot produce a faithful number for a value this row
+    // would present as user-scale, the row is NOT display-safe. Fall back to the
+    // honest normalised row — precisely what shipped before 2.228, and precisely
+    // what CEE's cage refuses. Refusing costs a card; a fabricated zero would
+    // OPEN the cage and reach the what_would_flip chip, which executes the value
+    // into the user's graph.
+    const cleaningUnfaithful =
+      (rawCurrent === undefined && currentFinite && cleanedCurrent === undefined) ||
+      (flipFinite && cleanedFlip === undefined);
+    if (displayScale && cleaningUnfaithful) {
+      return enrichWithLabels(flip, options, node);
+    }
+
     const currentValue =
       rawCurrent ??
-      (currentFinite ? cleanDenormalised(denormCurrent, range) : flip.current_value);
-    const flipValue = flipFinite ? cleanDenormalised(denormFlip, range) : null;
+      (currentFinite ? (cleanedCurrent ?? denormCurrent) : flip.current_value);
+    const flipValue = flipFinite ? (cleanedFlip ?? denormFlip) : null;
 
     // Display strings are authored only for a display-scale row, and only when
     // they can be written LOSSLESSLY: CEE's agreement rung compares
@@ -345,7 +361,8 @@ function cleaningDecimals(range: NormalisationRange): number {
 
 /**
  * Remove the float tail a denormalisation leaves behind, so the number PLoT
- * ships and the string describing it agree by construction.
+ * ships and the string describing it agree by construction — or return
+ * `undefined` when that cannot be done faithfully.
  *
  * `0.29 × 100` is `28.999999999999996` in IEEE double arithmetic. CEE's
  * agreement rung is an EXACT equality (`Number(token) === rawValue`), so an LLM
@@ -354,14 +371,48 @@ function cleaningDecimals(range: NormalisationRange): number {
  * display-scale value to the precision the model can actually resolve is more
  * honest than shipping that tail, not less**: the tail is an artefact of the
  * multiplication, and no digit it adds was ever measured.
+ *
+ * ⚠ **It must never FABRICATE, though, and the zero case is the sharp one.**
+ * `flip.current_value` is the node's own normalised number
+ * (`getFactorCurrentValue`), which is NOT on the flip search's `roundTo4` grid,
+ * so a legitimately tiny value can round to nothing: `1e-5 × 16000` is exactly
+ * `0.16`, and cleaning to whole units yielded `current_value: 0` presented as
+ * `"0 £"` at `value_scale: 'display'`. That is worse than dust and worse than
+ * doing nothing — it INVERTS the safety direction. Before 2.228 that row shipped
+ * `0.00001` unlabelled and CEE's cage CLOSED; a confident zero OPENS it, and
+ * `'display'` is also the token that un-suppresses the `what_would_flip` chip
+ * whose value is executed straight into the user's graph.
+ *
+ * So the refusal, fail-closed (the caller drops the row back to its honest
+ * normalised form): a **non-zero** measurement that would clean to exactly `0`.
+ *
+ * GUARANTEE (absolute, not relative): a returned value differs from the exact
+ * product by at most `0.5 × 10^-decimals`, and since `10^-decimals ≤ width ×
+ * 1e-4`, by at most **half the model's own grid step**. A *relative* bound does
+ * NOT hold and is not claimed — cleaning `1.6 → 2` is a 25% relative move and is
+ * entirely correct at a grid step of 1.6.
+ *
+ * ⚠ **That guarantee is enforced by the SWEEP TEST, deliberately not by a
+ * runtime check.** A general "refuse anything further than half a rounding unit"
+ * branch was written here and then REMOVED: `toFixed` is correctly rounded, so
+ * the error cannot exceed half a rounding unit by construction, and the branch
+ * was unreachable — proven by its mutant turning nothing red, and by a direct
+ * probe (0 firings in 3,199,928 cases spanning widths 1e-6 … 1e20, worst ratio
+ * exactly 1.000000). A guard that cannot fire reads as a guarantee and provides
+ * none, so the invariant is asserted where it can actually fail: over the full
+ * 4dp grid in `tests/lib/flip-threshold-display-scale.test.ts`.
  */
-function cleanDenormalised(value: number, range: NormalisationRange): number {
-  if (!Number.isFinite(value)) return value;
+function cleanDenormalised(value: number, range: NormalisationRange): number | undefined {
+  if (!Number.isFinite(value)) return undefined;
   const decimals = cleaningDecimals(range);
   // toFixed is exact for |v| < 1e21 and decimals ≤ 100; beyond that it returns
   // exponential text, and Number() of that is the unchanged value — which
   // formatUserScale then refuses to describe. Either way, never a wrong number.
-  return Number(value.toFixed(decimals));
+  const cleaned = Number(value.toFixed(decimals));
+  if (!Number.isFinite(cleaned)) return undefined;
+  // Never manufacture a zero out of a real measurement.
+  if (cleaned === 0 && value !== 0) return undefined;
+  return cleaned;
 }
 
 /**
@@ -446,14 +497,18 @@ function denormaliseMarginSensitivity(
   // `probeIsFinite` pre-check is redundant and has been removed with it: one guard,
   // in the primitive, instead of a cast plus a caller-side mirror of the same test.
   const denormProbe = denormaliseValue(margin.strongest_probe_value, range);
-  const denormProbeFinite = isFiniteNumber(denormProbe);
+  // A2/R1: same cleaning, and the same refusal. A probe value that cannot be
+  // cleaned faithfully is withheld rather than fabricated — which is exactly
+  // what `display_value_available: false` already means.
+  const cleanedProbe = isFiniteNumber(denormProbe)
+    ? cleanDenormalised(denormProbe, range)
+    : undefined;
+  const probeUsable = cleanedProbe !== undefined;
   return {
     ...margin,
-    // A2: same float-tail cleaning as the row's own values — this is the other
-    // number this module denormalises, and dust is no more correct here.
-    strongest_probe_value: denormProbeFinite ? cleanDenormalised(denormProbe, range) : null,
+    strongest_probe_value: probeUsable ? cleanedProbe : null,
     value_scale: 'display',
-    display_value_available: denormProbeFinite,
+    display_value_available: probeUsable,
   };
 }
 

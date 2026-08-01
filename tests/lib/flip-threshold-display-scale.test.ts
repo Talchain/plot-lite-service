@@ -385,29 +385,191 @@ describe('F2/A2 emitted values carry no float tail', () => {
     expect(ceeLicenceAgreesWithRawValue('275,000 GBP', big.current_value)).toBe(true);
   });
 
-  it('SWEEP: no emitted value carries dust, and every one stays faithful to value x cap', () => {
-    const caps = [100, 500, 1000, 3000, 12000, 16000, 320000];
+  // ===========================================================================
+  // R1 (review round 3) — cleaning must never FABRICATE a value
+  // ===========================================================================
+  //
+  // `flip.current_value` is the node's own normalised number
+  // (`getFactorCurrentValue`), which is NOT on the flip search's roundTo4 grid.
+  // So a legitimately tiny value can round to zero: value 1e-5 at cap 16000 is
+  // exactly 0.16, and cleaning to whole units produced `current_value: 0`,
+  // `current_display: "0 £"`, `value_scale: "display"`.
+  //
+  // That inverts the safety direction. BEFORE 2.228 such a row shipped 0.00001
+  // with no row-level scale and CEE's cage CLOSED; with a fabricated zero the
+  // cage OPENS — and `value_scale: 'display'` is also what un-suppresses the
+  // `what_would_flip` CHIP, whose params.value.value is executed straight into
+  // the user's graph. A fabricated zero must never get that far.
+
+  it('R1: a non-zero value that would clean to zero is REFUSED, not shipped as 0', () => {
+    // 1e-5 x 16000 = 0.16 exactly; the grid for this range is whole units.
+    const row = denormOne(
+      makeFlip({ current_value: 1e-5, unit: '£' }),
+      makeGraph([capNode(1e-5, 16000, '£')]),
+    );
+    expect(row.current_value).toBe(1e-5);
+    expect(row.value_scale).toBe('normalised');
+    expect(row.current_display).toBeUndefined();
+  });
+
+  it('R1: a flip_value that would clean to zero refuses the WHOLE row', () => {
+    const row = denormOne(
+      makeFlip({ current_value: 0.5, flip_value: 1e-5, unit: '£', flip_reason: 'found' }),
+      makeGraph([capNode(0.5, 16000, '£')]),
+    );
+    expect(row.value_scale).toBe('normalised');
+    expect(row.current_display).toBeUndefined();
+    expect(row.flip_display).toBeUndefined();
+  });
+
+  it('R1 CONTROL: a GENUINELY zero value is still display-scale', () => {
+    // Without this, "refuse every zero" would pass both pins above while
+    // removing a legitimate case.
+    const row = denormOne(
+      makeFlip({ current_value: 0, unit: '£' }),
+      makeGraph([capNode(0, 16000, '£')]),
+    );
+    expect(row.current_value).toBe(0);
+    expect(row.value_scale).toBe('display');
+    expect(row.current_display).toBe('0 £');
+  });
+
+  // ===========================================================================
+  // R2 (review round 3) — the cleaning guarantee is ABSOLUTE, not relative
+  // ===========================================================================
+  //
+  // The previous sweep asserted a 1e-6 RELATIVE bound over 693 cases (2dp
+  // only). That bound does NOT generalise: over the full 4dp grid, 16,000 of
+  // 109,989 cases exceed it, worst 25% (cap 16000, value 1e-4: exact 1.6 →
+  // shipped 2). Nothing is wrong with those values — they are within half a
+  // rounding unit — but the relative bound was the wrong KIND of guarantee to
+  // state. The invariant that actually holds is absolute: the cleaned value is
+  // never more than half a rounding unit from the exact product, hence never
+  // more than half the model's own 1e-4 grid step.
+
+  it('SWEEP over the FULL 4dp grid: cleaning is faithful within half a grid step', () => {
+    const caps = [1, 10, 100, 500, 1000, 3000, 12000, 16000, 320000, 1e6, 1e7];
     let checked = 0;
+    let displayed = 0;
+    let refused = 0;
+    let worstRatio = 0;
     for (const cap of caps) {
-      for (let i = 1; i <= 99; i++) {
-        const value = i / 100;
-        const row = denormOne(
-          makeFlip({ current_value: value, unit: '%' }),
-          makeGraph([capNode(value, cap)]),
-        );
-        const decimals = (String(row.current_value).split('.')[1] ?? '').length;
-        // Dust shows up as 12-17 decimals; a legitimately fractional user value
-        // needs at most the 4 the normalised grid can resolve.
-        expect(decimals, `cap=${cap} value=${value} -> ${row.current_value}`).toBeLessThanOrEqual(4);
-        // Cleaning must not move the number meaningfully.
-        expect(Math.abs(row.current_value - value * cap)).toBeLessThanOrEqual(
-          Math.abs(value * cap) * 1e-6 + 1e-9,
-        );
+      const node = capNode(0, cap, '£');
+      for (let i = 1; i <= 9999; i++) {
+        const value = i / 10000;
+        (node.observed_state as { value: number }).value = value;
+        const row = denormOne(makeFlip({ current_value: value, unit: '£' }), makeGraph([node]));
         checked++;
+        if (row.value_scale !== 'display') {
+          // R1 refusal: the value is passed through untouched and unclaimed.
+          refused++;
+          expect(row.current_value).toBe(value);
+          expect(row.current_display).toBeUndefined();
+          continue;
+        }
+        displayed++;
+        const exact = value * cap;
+        const halfGridStep = 0.5 * cap * 1e-4;
+        const err = Math.abs(row.current_value - exact);
+        worstRatio = Math.max(worstRatio, halfGridStep > 0 ? err / halfGridStep : 0);
+        expect(
+          err,
+          `cap=${cap} value=${value} exact=${exact} shipped=${row.current_value}`,
+        ).toBeLessThanOrEqual(halfGridStep + Math.abs(exact) * Number.EPSILON * 8);
+        // No float tail on anything emitted.
+        const decimals = (String(row.current_value).split('.')[1] ?? '').length;
+        expect(decimals).toBeLessThanOrEqual(4);
       }
     }
-    // Anti-vacuity: the loop really ran.
-    expect(checked).toBe(caps.length * 99);
+    expect(checked).toBe(caps.length * 9999);
+    // Anti-vacuity: the display path really ran, for every case.
+    expect(displayed).toBe(checked);
+    // ON the 4dp grid nothing is ever refused: the smallest exact product is a
+    // full grid step, which is never below half a rounding unit. R1's refusals
+    // live strictly BELOW this grid — see the next test.
+    expect(refused).toBe(0);
+    // The measured worst error, as a fraction of half a grid step (< 1).
+    expect(worstRatio).toBeLessThan(1);
+  });
+
+  it('R1: a sub-resolution strongest_probe_value is WITHHELD, not zeroed', () => {
+    // `strongest_probe_value` is a normalised probe value; the baseline probe is
+    // the node's own `current_value`, which is not on the roundTo4 grid. So it
+    // can be sub-resolution too, and must be withheld through the
+    // `display_value_available: false` flag that already exists for it — never
+    // published as a confident 0.
+    const margin = {
+      movement: 'weakened',
+      threshold: 0.05,
+      baseline_margin: 0.4,
+      min_probe_margin: 0.3,
+      max_probe_margin: 0.4,
+      min_probe_delta: -0.1,
+      max_probe_delta: 0,
+      strongest_direction: 'towards_min',
+      strongest_probe_value: 1e-5,
+      value_scale: 'normalised',
+      strongest_delta: -0.1,
+      strongest_delta_abs: 0.1,
+      strongest_delta_percentage_points: -10,
+      display_value_available: false,
+    } as never;
+    const row = denormOne(
+      makeFlip({ current_value: 0.5, unit: '£', margin_sensitivity: margin }),
+      makeGraph([capNode(0.5, 16000, '£')]),
+    );
+    expect(row.margin_sensitivity).toBeDefined();
+    expect(row.margin_sensitivity!.strongest_probe_value).toBeNull();
+    expect(row.margin_sensitivity!.display_value_available).toBe(false);
+  });
+
+  it('R1 CONTROL: a resolvable strongest_probe_value IS published', () => {
+    const margin = {
+      movement: 'weakened',
+      threshold: 0.05,
+      baseline_margin: 0.4,
+      min_probe_margin: 0.3,
+      max_probe_margin: 0.4,
+      min_probe_delta: -0.1,
+      max_probe_delta: 0,
+      strongest_direction: 'towards_min',
+      strongest_probe_value: 0.25,
+      value_scale: 'normalised',
+      strongest_delta: -0.1,
+      strongest_delta_abs: 0.1,
+      strongest_delta_percentage_points: -10,
+      display_value_available: false,
+    } as never;
+    const row = denormOne(
+      makeFlip({ current_value: 0.5, unit: '£', margin_sensitivity: margin }),
+      makeGraph([capNode(0.5, 16000, '£')]),
+    );
+    expect(row.margin_sensitivity!.strongest_probe_value).toBe(4000);
+    expect(row.margin_sensitivity!.display_value_available).toBe(true);
+  });
+
+  it('SWEEP below the grid: every sub-resolution value is REFUSED, never zeroed', () => {
+    // `current_value` comes from the node, not from the roundTo4 grid, so values
+    // finer than the model's resolution do arrive. Each must be refused rather
+    // than collapsed to a confident 0.
+    const caps = [1, 10, 100, 500, 1000, 3000, 12000, 16000, 320000, 1e6, 1e7];
+    let refused = 0;
+    for (const cap of caps) {
+      const step = cap * 1e-4;
+      const decimals = Math.min(12, Math.max(0, Math.ceil(-Math.log10(step))));
+      // Exact product sits at 0.4 of a rounding unit ⇒ rounds to zero.
+      const value = (0.4 * Math.pow(10, -decimals)) / cap;
+      expect(value).toBeGreaterThan(0);
+      const row = denormOne(
+        makeFlip({ current_value: value, unit: '£' }),
+        makeGraph([capNode(value, cap, '£')]),
+      );
+      expect(row.current_value, `cap=${cap} value=${value}`).toBe(value);
+      expect(row.value_scale).toBe('normalised');
+      expect(row.current_display).toBeUndefined();
+      refused++;
+    }
+    expect(refused).toBe(caps.length);
   });
 
   it('a null flip_value keeps flip_display absent while current is still lifted', () => {
