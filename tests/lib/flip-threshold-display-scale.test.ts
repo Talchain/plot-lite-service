@@ -448,39 +448,58 @@ describe('F2/A2 emitted values carry no float tail', () => {
   // more than half the model's own 1e-4 grid step.
 
   it('SWEEP over the FULL 4dp grid: cleaning is faithful within half a grid step', () => {
+    // Batched deliberately: one denormaliser call per cap rather than 9,999, and
+    // violations accumulated for a single assertion instead of ~110,000 expect()
+    // calls. The per-case version measured 15.4-26.8s locally against the
+    // global `testTimeout: 15000` (vitest.config.ts:35) and 9.95s in CI — about
+    // 5s of headroom, i.e. one slow runner away from redding CI on the test that
+    // carries this PR's headline guarantee.
     const caps = [1, 10, 100, 500, 1000, 3000, 12000, 16000, 320000, 1e6, 1e7];
+    const violations: string[] = [];
     let checked = 0;
     let displayed = 0;
     let refused = 0;
     let worstRatio = 0;
+
     for (const cap of caps) {
-      const node = capNode(0, cap, '£');
+      const graph = makeGraph([capNode(0.5, cap, '£')]);
+      const flips: FlipThresholdInputData[] = [];
       for (let i = 1; i <= 9999; i++) {
-        const value = i / 10000;
-        (node.observed_state as { value: number }).value = value;
-        const row = denormOne(makeFlip({ current_value: value, unit: '£' }), makeGraph([node]));
+        flips.push(makeFlip({ current_value: i / 10000, unit: '£' }));
+      }
+      const rows = denormaliseFlipThresholds(flips, undefined, OPTIONS, graph);
+      if (rows.length !== flips.length) {
+        violations.push(`cap=${cap}: got ${rows.length} rows for ${flips.length} inputs`);
+        continue;
+      }
+      const halfGridStep = 0.5 * cap * 1e-4;
+      for (let i = 0; i < rows.length; i++) {
+        const value = (i + 1) / 10000;
+        const row = rows[i];
         checked++;
         if (row.value_scale !== 'display') {
-          // R1 refusal: the value is passed through untouched and unclaimed.
           refused++;
-          expect(row.current_value).toBe(value);
-          expect(row.current_display).toBeUndefined();
+          if (row.current_value !== value || row.current_display !== undefined) {
+            violations.push(`cap=${cap} value=${value}: refused row not passed through cleanly`);
+          }
           continue;
         }
         displayed++;
         const exact = value * cap;
-        const halfGridStep = 0.5 * cap * 1e-4;
         const err = Math.abs(row.current_value - exact);
-        worstRatio = Math.max(worstRatio, halfGridStep > 0 ? err / halfGridStep : 0);
-        expect(
-          err,
-          `cap=${cap} value=${value} exact=${exact} shipped=${row.current_value}`,
-        ).toBeLessThanOrEqual(halfGridStep + Math.abs(exact) * Number.EPSILON * 8);
+        const ratio = halfGridStep > 0 ? err / halfGridStep : 0;
+        if (ratio > worstRatio) worstRatio = ratio;
+        if (err > halfGridStep + Math.abs(exact) * Number.EPSILON * 8) {
+          violations.push(`cap=${cap} value=${value} exact=${exact} shipped=${row.current_value}`);
+        }
         // No float tail on anything emitted.
-        const decimals = (String(row.current_value).split('.')[1] ?? '').length;
-        expect(decimals).toBeLessThanOrEqual(4);
+        if ((String(row.current_value).split('.')[1] ?? '').length > 4) {
+          violations.push(`cap=${cap} value=${value}: float tail ${row.current_value}`);
+        }
       }
     }
+
+    expect(violations.slice(0, 5)).toEqual([]);
     expect(checked).toBe(caps.length * 9999);
     // Anti-vacuity: the display path really ran, for every case.
     expect(displayed).toBe(checked);
@@ -490,7 +509,7 @@ describe('F2/A2 emitted values carry no float tail', () => {
     expect(refused).toBe(0);
     // The measured worst error, as a fraction of half a grid step (< 1).
     expect(worstRatio).toBeLessThan(1);
-  });
+  }, 60_000);
 
   it('R1: a sub-resolution strongest_probe_value is WITHHELD, not zeroed', () => {
     // `strongest_probe_value` is a normalised probe value; the baseline probe is

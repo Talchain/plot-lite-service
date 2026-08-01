@@ -387,20 +387,40 @@ function cleaningDecimals(range: NormalisationRange): number {
  * normalised form): a **non-zero** measurement that would clean to exactly `0`.
  *
  * GUARANTEE (absolute, not relative): a returned value differs from the exact
- * product by at most `0.5 × 10^-decimals`, and since `10^-decimals ≤ width ×
- * 1e-4`, by at most **half the model's own grid step**. A *relative* bound does
- * NOT hold and is not claimed — cleaning `1.6 → 2` is a 25% relative move and is
- * entirely correct at a grid step of 1.6.
+ * product by at most `0.5 × 10^-decimals`, plus up to half a ULP from the
+ * decimal→double re-parse below. **Where the {@link MAX_CLEAN_DECIMALS} clamp
+ * does not bind (range width ≥ 1e-8) `10^-decimals ≤ width × 1e-4`, so that is
+ * also at most half the model's own grid step; where the clamp DOES bind the
+ * grid-step corollary fails** (ratio 10 at width 1e-9, 100 at 1e-10 — legal
+ * widths per `isFiniteRange`, behaviourally out of reach but not proven absent).
+ * A *relative* bound does NOT hold and is not claimed — cleaning `1.6 → 2` is a
+ * 25% relative move and is entirely correct at a grid step of 1.6.
  *
- * ⚠ **That guarantee is enforced by the SWEEP TEST, deliberately not by a
- * runtime check.** A general "refuse anything further than half a rounding unit"
- * branch was written here and then REMOVED: `toFixed` is correctly rounded, so
- * the error cannot exceed half a rounding unit by construction, and the branch
- * was unreachable — proven by its mutant turning nothing red, and by a direct
- * probe (0 firings in 3,199,928 cases spanning widths 1e-6 … 1e20, worst ratio
- * exactly 1.000000). A guard that cannot fire reads as a guarantee and provides
- * none, so the invariant is asserted where it can actually fail: over the full
- * 4dp grid in `tests/lib/flip-threshold-display-scale.test.ts`.
+ * ⚠ **The guarantee is asserted by the SWEEP TEST, deliberately not by a runtime
+ * check — and the reason recorded here in an earlier revision was WRONG.**
+ * That revision said a general "refuse anything beyond half a rounding unit"
+ * branch had been removed because it was *unreachable*, citing 0 firings in
+ * 3,199,928 sampled cases. **That claim is false and is withdrawn.** `toFixed`
+ * is correctly rounded in DECIMAL, but `Number()` then re-parses that text to
+ * the nearest double, up to half a ULP away, so the round trip CAN exceed
+ * `0.5 × 10^-decimals`: `(0.75).toFixed(1)` is `"0.8"` and
+ * `Number("0.8") − 0.75 = 0.050000000000000044 > 0.05`. Measured on exact
+ * rounding ties: **2,048 of 43,999 exceed the bare bound.** The earlier probe
+ * sampled `(i/200000) × width`, which lands on an exact tie essentially never —
+ * it could not have observed the phenomenon it was cited as ruling out.
+ *
+ * **The real reason the branch is gone is stronger than "it cannot fire":**
+ *  1. every one of those firings is a case where the cleaning is CORRECT
+ *     (`0.75 → 0.8` is the right answer), so the branch would refuse GOOD rows —
+ *     when it fires, it is wrong;
+ *  2. the version actually written here carried an epsilon slack
+ *     (`|value| × EPSILON × 8`) that absorbs the re-parse error ~16× over, and
+ *     fires on **0** of those same 43,999 ties — so with the slack it was inert.
+ *
+ * A branch that is WRONG without a fudge factor and INERT with one — where the
+ * fudge was never derived from anything — is not a guard. Hence: no runtime
+ * check, and the invariant lives in
+ * `tests/lib/flip-threshold-display-scale.test.ts` where it can actually fail.
  */
 function cleanDenormalised(value: number, range: NormalisationRange): number | undefined {
   if (!Number.isFinite(value)) return undefined;
