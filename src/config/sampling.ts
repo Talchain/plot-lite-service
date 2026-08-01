@@ -48,7 +48,7 @@ export const STANDARD_N_SAMPLES_DEFAULT = 10_000;
  *     emergency rollback / override; malformed (`1,000`, `1000abc`) or
  *     out-of-bounds values are ignored (with a one-time warning) so they cannot
  *     bypass the /v2/run schema bound or forward a garbage depth to ISL;
- *  2. otherwise `STANDARD_N_SAMPLES_DEFAULT` (4,000).
+ *  2. otherwise `STANDARD_N_SAMPLES_DEFAULT` (10,000).
  *
  * Read at call time so the override takes effect without a rebuild and is
  * trivially testable. An explicit `n_samples` in the request always wins over
