@@ -326,12 +326,16 @@ export function initializeHistograms(): void {
 
   // Codex F8 handshake: fires when PLoT cannot plan against ISL's advertised
   // compute-admission model (unreachable /health, missing compute_admission
-  // block, or an unknown complexity_formula_version) and falls back to the
-  // conservative legacy scalar bound. A sustained non-zero rate = drift.
+  // block, an unknown complexity_formula_version, or advertised weight keys the
+  // known version's estimator does not price) and falls back to the
+  // conservative legacy scalar bound. A sustained non-zero rate = drift, and
+  // while it persists EVERY defaulted analysis runs at the reduced fallback
+  // depth (ROADMAP 2.260 — now disclosed in the response, not just here).
   islAdmissionVersionSkewCounter = new CounterMetric(
     'plot_engine_isl_admission_version_skew_total',
     'Total detections of ISL compute-admission handshake skew (fail-loud fallback engaged)',
-    ['reason'] // reason: unreachable|missing_block|unknown_version
+    // Label values are the AdmissionSkewReason union — see recordIslAdmissionVersionSkew below.
+    ['reason']
   );
 
   // Meta-reasoning quality metrics
