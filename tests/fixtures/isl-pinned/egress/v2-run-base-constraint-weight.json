@@ -5,8 +5,8 @@
   "site": "routes/v2/run.ts → islService.callAnalysisEndpoint (caller supplied constraint weight)",
   "liveness": "live",
   "note": "Same producer with a caller-supplied goal_constraints[].weight, so the second knownUndeclared exemption is observable rather than latent.",
-  "wire_bytes_length": 1856,
-  "wire_bytes_sha256": "e9d6ef23963dfe5f64e9f15e10ade3ebb1574360fb305763219a84d2757a9043",
+  "wire_bytes_length": 1884,
+  "wire_bytes_sha256": "ac0c70db142c338ac2b3ede43b9546dfca6e03aa4123f3f83d7588902bf6a8f4",
   "body": {
     "request_id": "req_slice2_pairing",
     "graph": {
@@ -149,6 +149,7 @@
     ],
     "include_e_values": true,
     "include_voi": true,
+    "include_factor_flips": true,
     "goal_constraints": [
       {
         "constraint_id": "c1",

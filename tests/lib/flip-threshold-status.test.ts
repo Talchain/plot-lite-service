@@ -68,12 +68,21 @@ describe('classifyFlipThresholdsStatus()', () => {
       expect(classifyFlipThresholdsStatus(entries)).toEqual({ status: 'computed' });
     });
 
-    it('returns computed when actionable data exists alongside unresolved entries (unresolved silently absorbed)', () => {
+    it('returns computed when actionable data exists alongside unresolved entries — absorption now ATTRIBUTABLE, not silent', () => {
+      // ⚠ AMENDED BY REVIEW S1 (2.228-F3). The old expectation was a bare
+      // `{ status: 'computed' }` and the old title said the unresolved entry was
+      // "silently absorbed" — which it was. It still lands on `computed` (a flip
+      // WAS found, and nothing is claimed about the row that did not resolve),
+      // but `status_reason` now names what was absorbed, so the payload
+      // discloses it. Strictly additive: the status token is unchanged.
       const entries = [
         makeEntry({ flip_value: 0.3, flip_reason: 'found' }),
         makeEntry({ factor_id: 'f2', flip_value: null, flip_reason: 'timeout' }),
       ];
-      expect(classifyFlipThresholdsStatus(entries)).toEqual({ status: 'computed' });
+      expect(classifyFlipThresholdsStatus(entries)).toEqual({
+        status: 'computed',
+        status_reason: 'timeout',
+      });
     });
 
     it('treats flip_value === 0 as a valid computed flip (must not be silently demoted via truthiness)', () => {
@@ -97,14 +106,22 @@ describe('classifyFlipThresholdsStatus()', () => {
       expect(classifyFlipThresholdsStatus(entries)).toEqual({ status: 'partial_no_effect' });
     });
 
-    it('still returns partial_no_effect when unresolved entries are mixed in alongside computed and no_effect — and surfaces first unresolved reason so UI can soften copy', () => {
+    it('DOES NOT return partial_no_effect when unresolved entries are mixed in — the claim would be false', () => {
+      // ⚠ REVERSED BY REVIEW S1 (2.228-F3). This test previously asserted
+      // `partial_no_effect` here, on the rationale that `status_reason` lets
+      // "the UI soften copy". That rationale does not hold: `status_reason` is
+      // declared payload-only and is never rendered, so the copy shipped was
+      // "some factors flip, THE REST CANNOT" — a claim about the timed-out row
+      // that nobody had established. `partial_no_effect` is now reserved for a
+      // CLEAN computed + attested-no-effect set, exactly as its sibling
+      // `all_no_effect` has always been.
       const entries = [
         makeEntry({ flip_value: 0.3, flip_reason: 'found' }),
         makeEntry({ factor_id: 'f2', flip_value: null, flip_reason: 'no_effect_within_bounds' }),
         makeEntry({ factor_id: 'f3', flip_value: null, flip_reason: 'timeout' }),
       ];
       expect(classifyFlipThresholdsStatus(entries)).toEqual({
-        status: 'partial_no_effect',
+        status: 'computed',
         status_reason: 'timeout',
       });
     });
@@ -117,7 +134,9 @@ describe('classifyFlipThresholdsStatus()', () => {
       expect(classifyFlipThresholdsStatus(entries)).toEqual({ status: 'partial_no_effect' });
     });
 
-    it('records the FIRST unresolved reason on partial_no_effect when several unresolved kinds are present', () => {
+    it('records the FIRST unresolved reason when several unresolved kinds are present (status now computed — review S1)', () => {
+      // Same reversal as above; the first-seen-reason behaviour is unchanged
+      // and is what this case exists to pin.
       const entries = [
         makeEntry({ flip_value: 0.3, flip_reason: 'found' }),
         makeEntry({ factor_id: 'f2', flip_value: null, flip_reason: 'no_effect_within_bounds' }),
@@ -125,7 +144,7 @@ describe('classifyFlipThresholdsStatus()', () => {
         makeEntry({ factor_id: 'f4', flip_value: null, flip_reason: 'timeout' }),
       ];
       expect(classifyFlipThresholdsStatus(entries)).toEqual({
-        status: 'partial_no_effect',
+        status: 'computed',
         status_reason: 'insufficient_precision',
       });
     });

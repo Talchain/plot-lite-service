@@ -295,9 +295,54 @@ export interface FlipThresholdInputData {
   current_value: number;
   /** Null when no flip achievable or heuristic approach */
   flip_value: number | null;
-  direction: 'increase' | 'decrease';
-  /** Reason for the flip_value result */
-  flip_reason?: 'found' | 'no_effect_within_bounds' | 'insufficient_precision' | 'error' | 'timeout' | 'non_monotonic_grid' | 'single_option' | 'heuristic' | 'zero_elasticity_fallback';
+  /**
+   * Direction the factor must move from `current_value` to reach `flip_value`.
+   *
+   * ⚠ `'none'` ADDED BY ROADMAP 2.228-F3, and it is a CONTRACT-SHAPED
+   * COMPROMISE — read this before "simplifying" it away.
+   *
+   * ISL emits a direction ONLY beside a real `flip_value`, on the explicit
+   * grounds that "a direction for a flip that does not exist would be a
+   * fabricated claim". The honest rendering is therefore an ABSENT key — but
+   * the shared contract does not permit one: `@talchain/schemas` 0.30.0 types
+   * `EnrichmentFlipThresholdSchema.direction` as a REQUIRED `z.string()`
+   * (`dist/boundary/enrichment.js:473`), so omitting it makes PLoT's own
+   * enrichment egress guard stamp `enrichment_contract_ok: false` and raise
+   * ENRICHMENT_CONTRACT_MISMATCH on every run carrying an attested no-flip —
+   * a false alarm on an honest row, which is the broken-alarm class that
+   * teaches reviewers to stop looking.
+   *
+   * `'none'` threads both: the contract's vocabulary is OPEN (`z.string()`),
+   * so a third token parses, and `'none'` claims nothing — it is the explicit
+   * statement that no direction exists, not a guess at one. It replaces the
+   * retired probe's genuinely misleading behaviour, which stamped a
+   * hypothesised `'increase'`/`'decrease'` (from |elasticity| via
+   * `inferFlipDirection`) on rows it had never resolved.
+   *
+   * INVARIANT: `direction === 'none'` ⟺ `flip_value === null` on every row this
+   * build produces from ISL. Rowed follow-up: make the schema field optional
+   * and drop the key instead.
+   */
+  direction: 'increase' | 'decrease' | 'none';
+  /**
+   * Reason for the flip_value result.
+   *
+   * ⚠ OPEN VOCABULARY since ROADMAP 2.228-F3 — ISL owns the authoritative list
+   * and states it is open, so this is `string` rather than a closed union that
+   * would silently reject a token ISL adds. The members below are the ones this
+   * build produces or specifically classifies; `flip-threshold-status.ts` is the
+   * single place that decides what an unknown token MEANS (it files one as
+   * `unresolved`, never as an attested no-effect).
+   *
+   * ISL closed-form (2.228-F3): 'found' | 'no_effect_within_bounds' |
+   * 'structurally_invariant' | 'candidate_cap_exceeded', plus PLoT's
+   * 'found_without_value' / 'unattested' guards for producer contradictions.
+   *
+   * Legacy PLoT probe: 'insufficient_precision' | 'error' | 'timeout' |
+   * 'non_monotonic_grid' | 'single_option' | 'heuristic' |
+   * 'zero_elasticity_fallback'.
+   */
+  flip_reason?: string;
   /** Number of binary-search (bisection) iterations used. Grid-fallback probes
    *  are counted in probes_used, not here. */
   iterations_used?: number;
@@ -313,6 +358,30 @@ export interface FlipThresholdInputData {
   alternative_winner_id?: string | null;
   /** Factor unit from observed_state (e.g., "GBP", "%") */
   unit?: string;
+  /**
+   * Literal `true` when this row is a producer-ATTESTED no-flip — ISL proved or
+   * measured that the factor cannot move the winner (review S2, ROADMAP
+   * 2.228-F3).
+   *
+   * ⚠ WHY A BOOLEAN EXISTS AT ALL. CEE recognises an attested no-flip by
+   * exact-matching `flip_reason === 'no_effect_within_bounds'`
+   * (`src/orchestrator-v5/context/analysis-signals.ts:439`), so every token ISL
+   * adds to its OPEN reason vocabulary silently drops out of the coach context.
+   * A string-equality mirror across a repo boundary is the dominant defect class
+   * here; a boolean cannot drift the same way.
+   *
+   * ⚠ ABSENT, never `false`. Absence means "not an attested no-flip", which
+   * covers BOTH real flips and unresolved rows — it is deliberately NOT the
+   * negation of `flip_value === null`. An unresolved row (`timeout`,
+   * `candidate_cap_exceeded`, a producer contradiction) has a null flip value
+   * and no flag, because nothing was attested about it.
+   *
+   * ⚠ NOT the same field as CEE's context-pack `no_flip_within_bounds`
+   * (`context-pack-schema.ts:166`), despite the near-identical name. That one is
+   * CEE-internal, derived only from the single legacy reason string; this one is
+   * producer-side and covers every attested no-flip reason.
+   */
+  no_flip_in_range?: true;
   /**
    * Additive lead-margin diagnostic computed from the Step-0 flip-search probes.
    * Optional — omitted on entries that did not complete the probe phase

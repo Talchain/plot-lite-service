@@ -11,6 +11,18 @@
  * config default 3). See the mutation transcript. The flip-triggering graph is
  * taken from tests/lane2-flip-block-disclosure.test.ts (two factors, each
  * intervened by a different option → both stay flip candidates → probes run).
+ *
+ * ⚠ AMENDED BY ROADMAP 2.228-F3. The F3 half above is HISTORY: PLoT's bisection
+ * flip probe is retired on /v2/run (flip values now arrive closed-form on the
+ * ISL envelope as `factor_flip_values`), so no `__flip` call is issued and
+ * there is no per-probe retry budget left to assert. The F9 half is untouched
+ * and still the point of this file.
+ *
+ * The F3 case is NOT deleted — it is INVERTED. It now asserts the probe traffic
+ * is genuinely absent, on the same instrument that used to observe it present.
+ * That keeps the retirement measurable from the same vantage point that
+ * measured the thing being retired, instead of leaving a silent hole where a
+ * passing test used to be.
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
@@ -130,12 +142,22 @@ describe('optional ISL phases pass maxRetries = 1 (F9 threshold, F3 flip probes)
     expect(typeof thresholdCall!.timeoutMs).toBe('number'); // still clamped to remaining budget
   });
 
-  it('F3 — every flip-probe call passes maxRetries = 1 (was undefined → default 3)', async () => {
+  it('F3 (INVERTED by 2.228-F3) — the retired flip probe issues NO ISL calls at all', async () => {
     await run();
+
+    // Positive control FIRST: this capture instrument demonstrably records
+    // calls, so "zero probes" is a measurement rather than a dead mock (trap
+    // 13). It is the SAME array that used to hold the probe rows.
+    expect(captured.length, 'the capture instrument sees ISL traffic').toBeGreaterThan(0);
+
     const flipProbes = captured.filter((c) => c.requestId.includes('__flip'));
-    expect(flipProbes.length, 'flip probes ran').toBeGreaterThan(0);
+    expect(flipProbes, 'the bisection probe is retired — no __flip calls remain').toHaveLength(0);
+
+    // And the retry budget the old assertion guarded is now vacuous BY
+    // CONSTRUCTION rather than by configuration: there is no optional per-probe
+    // phase left to over-retry.
     for (const probe of flipProbes) {
-      expect(probe.maxRetries).toBe(1);
+      expect(probe.maxRetries).toBe(1); // unreachable; kept so a resurrected probe re-arms the original guard
     }
   });
 });

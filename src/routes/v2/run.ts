@@ -120,8 +120,13 @@ import {
   BASE_CALL_MIN_TIMEOUT_MS,
 } from '../../config/timeouts.js';
 import { getISLClientConfig } from '../../integrations/isl/client.js';
-import { createISLInferenceFn, resolveFlipValues, resolveFlipProbeNSamples, resolveFlipOverallTimeoutMs, resolveFlipPerFactorTimeoutMs } from '../../analysis/flip-thresholds.js';
-import { computeFlipThresholdData, getFactorsOverriddenByAllOptions } from '../../coaching/flip-thresholds.js';
+// ROADMAP 2.228-F3: the bisection-probe imports that used to sit here
+// (createISLInferenceFn / resolveFlipValues / resolveFlipProbeNSamples /
+// resolveFlipOverallTimeoutMs / resolveFlipPerFactorTimeoutMs from
+// analysis/flip-thresholds.js, and computeFlipThresholdData /
+// getFactorsOverriddenByAllOptions from coaching/flip-thresholds.js) are gone
+// with the probe. Flip values now arrive closed-form on the ISL envelope.
+import { mapIslFactorFlipValues } from '../../integrations/isl/adapters/factor-flip-values.js';
 import { denormaliseFlipThresholds, type DenormalisedFlipThreshold } from '../../lib/flip-threshold-denormaliser.js';
 import { classifyFlipThresholdsStatus } from '../../lib/flip-threshold-status.js';
 import {
@@ -1416,7 +1421,16 @@ interface MetaParams {
    * nSamples itself is always the TRUE depth used.
    */
   originalNSamples?: number;
-  /** Track S: sample depth used for flip probes (decoupled from nSamples). Omitted when no flip search ran. */
+  /**
+   * Track S: sample depth used for flip probes (decoupled from nSamples).
+   *
+   * ⚠ NO LONGER PRODUCED ON THE /v2/run PATH since ROADMAP 2.228-F3. The
+   * bisection probe that consumed a sample depth is retired; ISL's closed-form
+   * factor flips run zero Monte Carlo, so there is no probe depth to disclose
+   * and `flip_probe_n_samples` is now permanently absent from response meta.
+   * The field is retained (rather than deleted mid-lane) so the emission site
+   * below stays a single, reviewable deletion in the rowed probe retirement.
+   */
   flipProbeNSamples?: number;
   /**
    * A3 lane 2 (whole-block flip honesty): the JS error NAME (never the
@@ -6994,145 +7008,128 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // =================================================================
         let resolvedFlipData: import('../../cee/validation/m1-review-types.js').FlipThresholdInputData[] | undefined;
         let flipThresholds: DenormalisedFlipThreshold[] | undefined;
-        // Track S: depth actually used for flip probes (decoupled from base nSamples).
-        // Set when a flip search runs; surfaced in response meta for transparency.
-        let flipProbeNSamples: number | undefined;
         // A3 lane 2: error NAME captured when the ENTIRE flip block throws —
         // drives the FLIP_THRESHOLDS_UNAVAILABLE inference warning (wire
         // disclosure of the previously server-log-only degradation).
         let flipThresholdsFailedErrorName: string | undefined;
 
-        if (islSuccess && factorSensitivity && optionComparisonData && optionComparisonData.length >= 2) {
+        // ROADMAP 2.228-F3 — THE BISECTION PROBE IS RETIRED ON THIS ROUTE.
+        //
+        // What used to be here: heuristic candidate selection (top 5 by
+        // |elasticity|, minus factors every option intervenes on) followed by an
+        // ISL-driven binary search, one full Monte Carlo per probe value, under
+        // FLIP_SEARCH_PER_FACTOR_TIMEOUT_MS / FLIP_SEARCH_OVERALL_TIMEOUT_MS
+        // budgets clamped to the remaining request budget.
+        //
+        // Why it is gone: the 2.228 diagnosis proved the candidate selection was
+        // mathematically incapable of finding a flip. After lever suppression it
+        // probes argmax-INVARIANT factors — for a factor no option intervenes on
+        // and that is not upstream of differential severing, every option's
+        // outcome moves by the IDENTICAL amount, so the argmax cannot change.
+        // 43 live rows, zero `found`. Worse than useless: each run spent up to
+        // five ISL round trips and a 60s budget to publish `flip_value: null`
+        // under a `no_effect_within_bounds` label it had never established.
+        //
+        // What replaces it: ISL's closed-form `factor_flip_values` (PR #117).
+        // Epsilon noise is disabled before post-MC structural analysis, so the
+        // SCM is exactly affine in a root factor's value; two deterministic
+        // evaluations per option measure the transmission slopes and the
+        // leader/rival crossing is algebraic. No Monte Carlo, no probe budget,
+        // no timeout class — and an attested `structurally_invariant` where the
+        // probe used to guess.
+        //
+        // ⚠ NO PROBE FALLBACK IS KEPT. If ISL omits the block (budget trip), the
+        // honest wire statement is `flip_thresholds_status: 'unavailable'` plus
+        // ISL's own FACTOR_FLIPS_UNAVAILABLE on `inference_warnings` (merged
+        // into the PLoT array by buildResponse). Re-running the probe there
+        // would republish the false no-effect attestation this lane removed.
+        //
+        // The old three-way guard (`factorSensitivity && optionComparisonData &&
+        // length >= 2`) guarded the PROBE's preconditions — heuristic selection
+        // needed elasticities and a two-option margin. The closed-form block
+        // needs neither; ISL computed it against its own baseline winner.
+        if (islSuccess) {
           try {
-            // Selection guard: exclude factors overridden by EVERY compared option.
-            // The flip probe varies a factor's prior mean (parameter_uncertainties),
-            // but a do()-intervention on every option severs that factor from its
-            // prior, so probing it can only ever return no_effect_within_bounds.
-            // Factors intervened by only some options, or by none, stay eligible.
-            const overriddenByAllOptions = getFactorsOverriddenByAllOptions(normalizedOptions);
-            if (overriddenByAllOptions.size > 0) {
+            const factorFlipMapping = mapIslFactorFlipValues(islResult?.factor_flip_values, {
+              graph: filteredGraph,
+              factorSensitivity: factorSensitivity as { factor_id: string; factor_label?: string }[] | undefined,
+              // ISL design R3: its closed-form search runs in the EXPECTED-VALUE
+              // world, which need not agree with the sampled MC recommendation.
+              // Passed so disagreement is COUNTED and logged rather than assumed
+              // away; no row's winner ids are rewritten.
+              recommendedWinnerId: (() => {
+                const top = Array.isArray(optionComparisonData)
+                  ? [...optionComparisonData].sort(
+                      (a: any, b: any) => (b.win_probability ?? 0) - (a.win_probability ?? 0),
+                    )[0]
+                  : undefined;
+                return (top as any)?.option_id ?? (top as any)?.id ?? undefined;
+              })(),
+            });
+
+            if (factorFlipMapping === undefined) {
+              // ISL emitted no block at all. Distinct from an EMPTY block (ISL
+              // ran the phase and found no eligible root factors), which maps to
+              // zero rows below. Left undefined so flip_thresholds ships [] and
+              // classifyFlipThresholdsStatus says 'unavailable' — never
+              // 'all_no_effect', which would assert a result nobody computed.
+              // ⚠ REVIEW S5 — THE FIELD NAME IS A KEY, NOT PROSE, ON PURPOSE.
+              // This used to read `note: 'ISL omitted factor_flip_values; …'`
+              // and shipped as `ISL omitted sha8:513e0c37_flip_values` — the
+              // redactor digests graph-derived tokens found inside string
+              // VALUES, and `factor` is one whenever the request carries a node
+              // id containing it. An operator grepping the logs for
+              // `factor_flip_values` after a silent flip outage would have found
+              // nothing. Key names are preserved verbatim, so the name lives
+              // there instead; the two remaining values are fixed literals that
+              // no graph token can collide with.
               req.log.info({
-                event: 'flip_thresholds_overridden_excluded',
+                event: 'flip_thresholds_isl_block_absent',
                 request_id: requestId,
-                excluded_count: overriddenByAllOptions.size,
-                // Wave1-L1 (PII, review 3): raw factor ids, not debug-gated.
-                excluded_factor_ids: [...overriddenByAllOptions].slice(0, 10).map((id) => sha8(String(id))),
+                factor_flip_values: 'absent',
+                isl_disclosure_expected: 'FACTOR_FLIPS_UNAVAILABLE',
               });
-            }
+            } else {
+              resolvedFlipData = factorFlipMapping.rows;
 
-            // Step 1: Compute heuristic candidates (top 5 by |elasticity|),
-            // skipping the overridden-by-all factors above.
-            const flipCandidates = computeFlipThresholdData(
-              factorSensitivity.map((f: any) => ({
-                factor_id: f.factor_id,
-                factor_label: f.factor_label,
-                elasticity: f.elasticity ?? f.sensitivity_score,
-                direction: f.direction,
-              })),
-              optionComparisonData.map((o: any) => ({
-                option_id: o.option_id ?? o.id,
-                option_label: o.option_label ?? o.label,
-                win_probability: o.win_probability ?? 0,
-                expected_outcome: o.expected_outcome,
-              })),
-              filteredGraph,
-              overriddenByAllOptions
-            );
+              req.log.info({
+                event: 'flip_thresholds_resolved',
+                request_id: requestId,
+                source: 'isl_closed_form',
+                count: resolvedFlipData.length,
+                elapsed_ms: Math.round(performance.now() - startTime),
+                // Counts only — never a factor id or a value.
+                ...factorFlipMapping.diagnostics,
+              });
 
-            if (flipCandidates.length > 0) {
-              // Step 2: Resolve exact flip values via ISL binary search
-              const topWinnerOption = [...optionComparisonData]
-                .sort((a: any, b: any) => (b.win_probability ?? 0) - (a.win_probability ?? 0))[0];
-              const winnerId = topWinnerOption?.option_id ?? topWinnerOption?.id ?? '';
-
-              if (winnerId) {
-                // Track S (revised 2026-07-17): flip probes now INHERIT the base
-                // analysis depth up to the 10k cap (resolveFlipProbeNSamples =
-                // min(cap, nSamples)), so flip values carry the precision of the
-                // probabilities displayed beside them. Raising the base therefore
-                // DOES deepen probes (toward the flip timeout) — which is why the
-                // flip time budgets were raised in step and a slow search now
-                // DISCLOSES a per-factor 'timeout' rather than silently shipping
-                // low-precision values. The FLIP_PROBE_N_SAMPLES env override still
-                // decouples probe depth from the base on demand.
-                flipProbeNSamples = resolveFlipProbeNSamples(nSamples);
-                // Paul-ruled lenient defaults 2026-07-17: each probe's ISL call is
-                // capped at the per-factor budget — a probe has no use for time its
-                // factor no longer has. (Without this cap a single in-flight probe
-                // could add a full ISL_TIMEOUT_MS tail past the flip deadline.)
-                const flipProbeIslTimeoutMs = resolveFlipPerFactorTimeoutMs();
-                const flipInferenceFn = createISLInferenceFn(
-                  // F3 (Codex): maxRetries=1 — each probe is optional, so a
-                  // transient failure discloses per-factor instead of adding ~3×
-                  // per-attempt tails past the flip deadline. The 4th arg is the
-                  // per-probe AbortSignal threaded from the flip search: forwarding
-                  // it lets an in-flight probe cancel the moment the factor/overall
-                  // deadline trips (the client folds it into its per-attempt timeout).
-                  (endpoint, body, rid, signal) =>
-                    islService.callAnalysisEndpoint(endpoint, body, rid, flipProbeIslTimeoutMs, OPTIONAL_PHASE_MAX_RETRIES, signal),
-                  islRequest,
-                  requestId,
-                  flipProbeNSamples
-                );
-
-                // Envelope guard (Paul-ruled lenient defaults 2026-07-17): the raised
-                // flip budget is clamped to the REMAINING request budget. Before the
-                // raises, base ISL (30s) + flip (10s) could never exceed the 60s
-                // request budget; after them (60s + 60s) it could — and an internal
-                // budget that outlives the caller's timeout delivers nothing. The
-                // clamp is DISCLOSED, never silent: a clamped/exhausted search trips
-                // per-entry flip_reason 'timeout' with elapsed_ms, and the clamp
-                // itself is logged below.
-                const flipStartMs = performance.now();
-                const flipConfiguredOverallMs = resolveFlipOverallTimeoutMs();
-                const flipRequestBudgetMs = resolveRequestBudgetMs();
-                const flipRemainingBudgetMs = flipRequestBudgetMs - (flipStartMs - startTime);
-                const flipSafetyMarginMs = 1_000;
-                const flipOverallTimeoutMs = Math.min(
-                  flipConfiguredOverallMs,
-                  Math.max(0, flipRemainingBudgetMs - flipSafetyMarginMs)
-                );
-                if (flipOverallTimeoutMs < flipConfiguredOverallMs) {
-                  req.log.info({
-                    event: 'flip_thresholds_budget_clamped',
-                    request_id: requestId,
-                    configured_overall_timeout_ms: flipConfiguredOverallMs,
-                    clamped_overall_timeout_ms: Math.round(flipOverallTimeoutMs),
-                    remaining_budget_ms: Math.round(flipRemainingBudgetMs),
-                    request_budget_ms: flipRequestBudgetMs,
-                  });
-                }
-
-                const flipResult = await resolveFlipValues(
-                  flipCandidates,
-                  flipInferenceFn,
-                  winnerId,
-                  { overallTimeoutMs: flipOverallTimeoutMs }
-                );
-                resolvedFlipData = flipResult.results;
-
-                req.log.info({
-                  event: 'flip_thresholds_resolved',
+              if (factorFlipMapping.diagnostics.baseline_winner_disagreement > 0) {
+                // ISL design R3, surfaced rather than reconciled: the flip is
+                // measured against the expected-value argmax, which disagrees
+                // with the MC recommendation on these rows.
+                req.log.warn({
+                  event: 'flip_thresholds_baseline_winner_disagreement',
                   request_id: requestId,
-                  count: resolvedFlipData.length,
-                  // Paul-ruled lenient defaults 2026-07-17: slowness visible — block
-                  // wall-time + probe depth alongside per-factor elapsed_ms in factors.
-                  elapsed_ms: Math.round(performance.now() - flipStartMs),
-                  flip_probe_n_samples: flipProbeNSamples,
-                  factors: flipResult.diagnostics,
+                  rows: factorFlipMapping.diagnostics.baseline_winner_disagreement,
                 });
-              } else {
-                resolvedFlipData = flipCandidates;
+              }
+              if (factorFlipMapping.diagnostics.rejected_malformed > 0) {
+                req.log.warn({
+                  event: 'flip_thresholds_isl_rows_rejected',
+                  request_id: requestId,
+                  rejected: factorFlipMapping.diagnostics.rejected_malformed,
+                });
               }
 
-              // Step 3: Denormalise to user units.
+              // Denormalise to user units — the SAME path #298 built, unchanged.
               // ROADMAP 2.228 F2: `normalisationContext` is undefined for the
               // whole V5 request (Phase 4a only fires on out-of-[0,1] option
               // intervention values), so `filteredGraph` is passed as the
-              // per-factor scale source — the same graph the candidates were
-              // drawn from at :7038, whose nodes carry observed_state.cap /
-              // raw_value. Without it every row ships a normalised [0,1] number
-              // wearing a currency unit.
+              // per-factor scale source — the same graph the ISL request was
+              // built from, whose nodes carry observed_state.cap / raw_value.
+              // Without it every row ships a normalised [0,1] number wearing a
+              // currency unit. `value_scale: 'display'` is still stamped ONLY
+              // where an explicit_cap range genuinely lifted the pair; the
+              // [0,1] identity fallback stays refused.
               flipThresholds = denormaliseFlipThresholds(
                 resolvedFlipData,
                 normalisationContext,
@@ -7542,7 +7539,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             seedSource: providedSeed !== undefined ? 'client_generated' : 'server_generated',
             nSamples,
             originalNSamples,
-            flipProbeNSamples,
+            // ROADMAP 2.228-F3: no probe runs on this route any more, so there
+            // is no probe depth to report. Deliberately not passed as
+            // `undefined` from a dead local — the local is gone with the probe.
             flipThresholdsFailedErrorName,
             edgeEValuesDropped,
             detailLevel,

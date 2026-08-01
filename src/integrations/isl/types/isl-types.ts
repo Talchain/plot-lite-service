@@ -409,6 +409,143 @@ export interface ISLFlipStabilityBandV2 {
 }
 
 /**
+ * Seed-sweep stability band for ONE FACTOR's flip value (ROADMAP 2.228-F3,
+ * ISL `FactorFlipStabilityBandV2` at `src/models/response_v2.py:628` @ `35149dd1`).
+ *
+ * ⚠ NOT interchangeable with {@link ISLFlipStabilityBandV2}. Same shape, one
+ * deliberate difference that ISL's own doc calls out: the list field is
+ * `seed_flip_values` (FACTOR values in the normalised [0,1] domain of
+ * `observed_state.value`), not `seed_flip_means` (EDGE strength means). Sharing
+ * one name across two different quantities is the conflation class that has
+ * cost this platform diagnoses before — hence two interfaces, not a union.
+ *
+ * ⚠ MEMBERSHIP: the base `flip_value` is NOT a member of this sweep — it is
+ * derived against the expected-value background, which is never one of the
+ * sampled backgrounds. `flip_value` MAY lie outside [band_min, band_max].
+ *
+ * ⚠ INTERPRETATION TRAP (identical to the edge band): when
+ * `n_seeds_flipped === 1`, `band_width` is 0.0 BY CONSTRUCTION, so a naive
+ * width rubric reads maximal stability from a single flipped background. Any
+ * confidence rubric MUST condition on `n_seeds_flipped`.
+ *
+ * ⚠ NOT EMITTED ON THE PLoT WIRE TODAY — deliberately, not by oversight. Typed
+ * here so the ISL boundary is complete and fail-loud, but `DenormalisedFlipThreshold`
+ * carries no `stability` key: emitting a band in the normalised [0,1] factor
+ * domain beside a `value_scale: 'display'` `flip_value` would break the units
+ * invariant that `ISLFlipStabilityBandV2` establishes for the edge band ("band
+ * values are ALWAYS in the same space as the sibling value"). Carrying it
+ * correctly means threading the same affine map plus a RECOMPUTED `band_width`
+ * — a separate, reviewable piece. Rowed, not dropped.
+ */
+export interface ISLFactorFlipStabilityBandV2 {
+  /** Number of child seeds swept. */
+  n_seeds: number;
+  /** Seeds whose sampled background admits a flip inside [0,1]. When 0, band_* are omitted. */
+  n_seeds_flipped: number;
+  /** Minimum flip VALUE across flipped seeds. Omitted when nothing flips. */
+  band_min?: number;
+  /** Median flip VALUE across flipped seeds. Omitted when nothing flips. */
+  band_median?: number;
+  /** Maximum flip VALUE across flipped seeds. Omitted when nothing flips. */
+  band_max?: number;
+  /** band_max - band_min. Omitted when nothing flips. 0.0 by construction at n_seeds_flipped === 1. */
+  band_width?: number;
+  /** Per-child-seed flip VALUE, in child-seed order; null where that seed admits no flip. */
+  seed_flip_values: Array<number | null>;
+}
+
+/**
+ * Value at which changing ONE root factor changes the winning option
+ * (ROADMAP 2.228-F3, ISL `FactorFlipValueV2` at `src/models/response_v2.py:690`
+ * @ `35149dd1`, serialised `model_dump(by_alias=True, exclude_none=True)`).
+ *
+ * WHY THIS REPLACES PLoT'S OWN PROBE. PLoT's bisection probe
+ * (`src/analysis/flip-thresholds.ts`) re-ran a full Monte Carlo per probe value
+ * and selected candidates by |elasticity| AFTER lever suppression. The ROADMAP
+ * 2.228 diagnosis proved with a live control that those candidates are
+ * mathematically incapable of flipping the winner: for a factor no option
+ * intervenes on and that is not upstream of differential severing, every
+ * option's outcome moves by the IDENTICAL amount, so the argmax is invariant.
+ * 43 live rows, zero `found` — every row shipped `flip_value: null` under a
+ * `no_effect_within_bounds` label the probe had never actually established.
+ *
+ * ISL instead disables epsilon noise before post-MC structural analysis, which
+ * makes the SCM exactly affine in a ROOT factor's value
+ * (`goal_o(F) = A_o + T_o*F`); two deterministic evaluations per option measure
+ * `(A_o, T_o)` exactly and the leader/rival crossing is closed form,
+ * `F* = (A_i - A_j)/(T_j - T_i)`. No Monte Carlo ⇒ no sampling error, so no
+ * noise floor is quoted; the honest uncertainty statement is `stability` alone.
+ *
+ * ⚠ NORMALISED DOMAIN. `current_value` and `flip_value` are in the normalised
+ * [0,1] domain of `observed_state.value`. Denormalisation to user units is
+ * PLoT's job — ISL never mixes a normalised number with a display unit. On the
+ * PLoT wire they go through `denormaliseFlipThresholds`, which stamps
+ * `value_scale: 'display'` ONLY when it genuinely denormalised against an
+ * `explicit_cap` range.
+ */
+export interface ISLFactorFlipValueV2 {
+  /** Root factor node id. */
+  factor_id: string;
+  /**
+   * The factor's current value in the NORMALISED [0,1] domain of
+   * `observed_state.value` (0.0 when the factor carries only a
+   * `parameter_uncertainties` entry).
+   */
+  current_value: number;
+  /**
+   * Normalised [0,1] value at which the winning option changes.
+   *
+   * ⚠ ABSENT-NOT-ZERO. Null whenever `flip_reason !== 'found'` — ISL never
+   * fabricates an in-range number for a factor whose crossing lies outside the
+   * domain, and PLoT must never clamp that null to 0. `exclude_none` means the
+   * key may be ABSENT rather than explicitly null; both mean "no flip".
+   */
+  flip_value?: number | null;
+  /**
+   * Direction the factor must move from `current_value` to reach `flip_value`.
+   *
+   * ⚠ Null/absent exactly when `flip_value` is — ISL's own doc: "a direction
+   * for a flip that does not exist would be a fabricated claim."
+   */
+  direction?: 'increase' | 'decrease' | null;
+  /**
+   * Attested reason. OPEN VOCABULARY per ISL — consumers must not exhaustively
+   * switch on it. Known members at `35149dd1`:
+   *
+   * - `'found'` — a confirmed argmax change inside [0,1].
+   * - `'no_effect_within_bounds'` — per-option transmission slopes genuinely
+   *   differ, but no crossing lies inside [0,1].
+   * - `'structurally_invariant'` — per-option transmission slopes are identical
+   *   (spread <= 1e-9), so NO value of this factor can move the argmax. This is
+   *   a MATHEMATICAL ATTESTATION, not a failed or timed-out probe — it is the
+   *   honest wire statement for exactly the class PLoT's probe used to
+   *   mislabel `no_effect_within_bounds`.
+   * - `'candidate_cap_exceeded'` — a genuine candidate that ranked below
+   *   `FACTOR_FLIP_MAX_CANDIDATES` by slope spread and was NOT evaluated;
+   *   emitted rather than dropped so the omission is never silent. This is an
+   *   UNRESOLVED row, not a no-effect row.
+   */
+  flip_reason: string;
+  /** Option that becomes the argmax just past `flip_value`. Null unless `flip_reason === 'found'`. */
+  alternative_winner_id?: string | null;
+  /**
+   * Argmax option at the expected-value baseline — the winner this flip is
+   * measured AGAINST. ISL emits it per-row so a consumer can fail closed when
+   * it disagrees with the MC-recommended option (ISL design R3): the E-value
+   * search runs in the expected-value world, which is not guaranteed to agree
+   * with the sampled recommendation.
+   */
+  baseline_winner_id: string;
+  /**
+   * Seed-sweep stability band. Present only for EVALUATED candidates — a
+   * `'structurally_invariant'` row has no band because its no-flip is proven
+   * rather than sampled. See {@link ISLFactorFlipStabilityBandV2} for why PLoT
+   * does not yet re-emit this.
+   */
+  stability?: ISLFactorFlipStabilityBandV2;
+}
+
+/**
  * ISL edge E-value from robustness analysis.
  * Measures evidence strength for each edge's causal effect direction.
  *
@@ -688,6 +825,22 @@ export interface ISLRobustnessAnalyzeV2Response {
 
   /** Factor-level sensitivity scores */
   factor_sensitivity?: ISLFactorSensitivityItem[];
+
+  /**
+   * Per-root-factor flip thresholds (ROADMAP 2.228-F3, ISL PR #117).
+   *
+   * REQUEST-GATED by `include_factor_flips` on the ISL request — PLoT sends
+   * that flag unconditionally from `toISLRobustnessRequest`, so on the /v2/run
+   * path presence is the normal case and ABSENCE means ISL's factor-flip phase
+   * tripped its budget (ISL then discloses `FACTOR_FLIPS_UNAVAILABLE` on
+   * `inference_warnings`, which run.ts already merges into the PLoT array — no
+   * separate PLoT-side disclosure is minted for it).
+   *
+   * TOP-LEVEL on the envelope (beside `factor_sensitivity`), NOT nested under
+   * `robustness` — verified against ISL `ISLResponseV2.factor_flip_values`
+   * (`src/models/response_v2.py:1781` at ISL `35149dd1`).
+   */
+  factor_flip_values?: ISLFactorFlipValueV2[];
 
   /** Overall robustness assessment (when 'robustness' in analysis_types)
    *
