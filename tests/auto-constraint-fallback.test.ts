@@ -990,10 +990,25 @@ describe('T7: Log assertions for auto-constraint events', () => {
     vi.restoreAllMocks();
   });
 
-  it('T10: no goal_threshold_no_probability warning when multi-constraint path clears effectiveGoalThreshold', async () => {
-    // When explicit goal_constraints are present AND goal_threshold is set,
-    // precedence routing clears effectiveGoalThreshold. The warning check
-    // should NOT fire because the threshold path was intentionally disabled.
+  it('T10: goal_threshold_no_probability WARNS when precedence routing clears a stated target (2.239)', async () => {
+    // ⚠ THIS TEST WAS INVERTED BY ROADMAP 2.239, DELIBERATELY. It used to assert
+    // the opposite — "no warning when multi-constraint path clears
+    // effectiveGoalThreshold" — on the reasoning that "the threshold path was
+    // intentionally disabled". That reasoning codified the defect: the alarm was
+    // gated on `effectiveGoalThreshold`, precedence routing clears
+    // `effectiveGoalThreshold` in exactly the cases where the target fails to
+    // reach ISL, and so the alarm was silent by construction in the one scenario
+    // it exists to catch. This test was the lock on that door — it would have
+    // failed anyone who tried to fix it.
+    //
+    // The user DID state a target (goal_threshold: 0.7). PLoT routed it away and
+    // ISL returned no probability_of_goal. That is a defect, and a warn-level log
+    // is the right place to say so. Routing away a stated target is precisely
+    // what the operator needs told.
+    //
+    // The structural half of the original assertion is KEPT: precedence routing
+    // still activates and still clears the threshold for a genuine user
+    // constraint. Only the silence is gone.
     const logCalls: any[] = [];
     const warnCalls: any[] = [];
     const originalChildLogger = app.log.child.bind(app.log);
@@ -1029,18 +1044,24 @@ describe('T7: Log assertions for auto-constraint events', () => {
 
     expect(res.statusCode).toBe(200);
 
-    // Verify multi-constraint path activated (threshold was cleared)
+    // Unchanged: a genuine user constraint still activates the multi-constraint
+    // path and still clears the threshold. The 2.239 carry-through applies ONLY
+    // to the auto-synthesised constraint, which is derived from the target.
     const multiLog = logCalls.find(
       (c: any) => c?.event === 'multi_constraint_path_activated'
     );
     expect(multiLog).toBeDefined();
+    expect(multiLog.goal_threshold_carried).toBe(false);
 
-    // Critical: goal_threshold_no_probability warning must NOT appear
-    // because effectiveGoalThreshold was cleared by precedence routing
+    // Inverted (2.239): the warning MUST appear. A target was stated, nothing
+    // was sent to ISL, and no probability came back.
     const thresholdWarning = warnCalls.find(
       (c: any) => c?.event === 'goal_threshold_no_probability'
     );
-    expect(thresholdWarning).toBeUndefined();
+    expect(thresholdWarning).toBeDefined();
+    expect(thresholdWarning.goal_threshold).toBeNull();  // nothing reached ISL
+    expect(thresholdWarning.goal_target).toBe(0.7);      // but the user asked for 0.7
+    expect(thresholdWarning.goal_target_source).toBe('request');
 
     vi.restoreAllMocks();
   });
