@@ -21,7 +21,10 @@
  */
 
 import { getISLClientConfig, isISLConfigured, ISLClient } from './client.js';
-import { KNOWN_COMPLEXITY_FORMULA_VERSIONS } from '../../config/sampling.js';
+import {
+  COMPLEXITY_FORMULA_WEIGHT_KEYS,
+  KNOWN_COMPLEXITY_FORMULA_VERSIONS,
+} from '../../config/sampling.js';
 import { recordIslAdmissionVersionSkew } from '../../metrics/registry.js';
 import { isFiniteNumber, allFiniteNumberFields } from '../../util/numeric.js';
 import type {
@@ -34,8 +37,20 @@ import type {
 /** Cache TTL for the /health capability read. */
 export const ADMISSION_CACHE_TTL_MS = 60_000;
 
-/** Reasons the handshake could not yield a usable, version-known capability. */
-export type AdmissionSkewReason = 'unreachable' | 'missing_block' | 'unknown_version';
+/**
+ * Reasons the handshake could not yield a usable, version-known capability.
+ *
+ * `unknown_weight_keys` (ROADMAP 2.260) is the DERIVED drift alarm: ISL
+ * advertised the SAME formula version but a `weights` object carrying a
+ * coefficient PLoT's estimator for that version does not price. That is exactly
+ * the signature of ISL growing a cost term in place — the case the version
+ * string alone cannot catch, and the one that silently under-prices.
+ */
+export type AdmissionSkewReason =
+  | 'unreachable'
+  | 'missing_block'
+  | 'unknown_version'
+  | 'unknown_weight_keys';
 
 /** Resolved capability state served to the planner. */
 export interface AdmissionResolution {
@@ -50,6 +65,12 @@ export interface AdmissionResolution {
   status: 'ok' | AdmissionSkewReason | 'disabled' | 'warming';
   /** Advertised formula version when a block was present (for logging). */
   advertisedVersion?: string;
+  /**
+   * Advertised `weights` keys PLoT's estimator for the advertised version does
+   * NOT consume — populated only on `unknown_weight_keys`. Named in the alarm so
+   * the drift is diagnosable from one log line, without a source dive.
+   */
+  unexpectedWeightKeys?: readonly string[];
 }
 
 const WARMING: AdmissionResolution = { admission: null, skew: false, status: 'warming' };
@@ -68,35 +89,25 @@ function isFresh(now: number): boolean {
   return _cache !== null && now - _cache.at < ADMISSION_CACHE_TTL_MS;
 }
 
-/** Coefficients an advertised `weights` object must carry as finite numbers. */
-const WEIGHT_KEYS = [
-  'base_per_sample_per_option_per_struct',
-  'evpi_sample_cap',
-  'sensitivity_coef',
-  'evalue_coef',
-  'bands_coef',
-  'path_coef',
-  'max_decomposition_paths',
-] as const;
-
 /** Cap fields an advertised `caps` object must carry as finite numbers. */
 const CAP_KEYS = ['max_options', 'max_nodes', 'max_edges', 'max_parameter_uncertainties'] as const;
-
-/** Validate the advertised `weights` object — every coefficient must be finite. */
-function validWeights(w: unknown): w is ISLComputeAdmissionWeights {
-  return allFiniteNumberFields(w, WEIGHT_KEYS);
-}
 
 function validCaps(c: unknown): c is ISLComputeAdmissionCaps {
   return allFiniteNumberFields(c, CAP_KEYS);
 }
 
 /**
- * Validate a `compute_admission` block: ceiling positive-finite, version a
- * non-empty string, weights + caps well-formed. A malformed block is treated as
- * a missing block (a partial/garbled advertisement must NOT be planned against).
+ * Validate the VERSION-INDEPENDENT shape of a `compute_admission` block:
+ * ceiling positive-finite, version a non-empty string, `weights` an object at
+ * all, caps well-formed. A malformed block is treated as a missing block (a
+ * partial/garbled advertisement must NOT be planned against).
+ *
+ * The `weights` CONTENT is deliberately NOT checked here — which coefficients
+ * are required depends on which formula version is advertised, so that check
+ * lives in {@link classify} after the version is resolved
+ * ({@link validWeightsForVersion}).
  */
-function validAdmission(block: unknown): block is ISLComputeAdmission {
+function validAdmissionShape(block: unknown): block is ISLComputeAdmission {
   if (!block || typeof block !== 'object') return false;
   const o = block as Record<string, unknown>;
   return (
@@ -104,9 +115,33 @@ function validAdmission(block: unknown): block is ISLComputeAdmission {
     o.max_cost_units > 0 &&
     typeof o.complexity_formula_version === 'string' &&
     o.complexity_formula_version.length > 0 &&
-    validWeights(o.weights) &&
+    !!o.weights &&
+    typeof o.weights === 'object' &&
     validCaps(o.caps)
   );
+}
+
+/** Every coefficient the named version's estimator prices is present + finite. */
+function validWeightsForVersion(
+  w: unknown,
+  expectedKeys: ReadonlySet<string>,
+): w is ISLComputeAdmissionWeights {
+  return allFiniteNumberFields(w, [...expectedKeys]);
+}
+
+/**
+ * Advertised weight keys the named version's estimator does NOT consume.
+ *
+ * DERIVED, NOT MIRRORED (programme trap 12): the expected set comes from
+ * `COMPLEXITY_FORMULA_WEIGHT_KEYS` — the same map that decides which versions
+ * are admissible at all — so a version can never be admitted without declaring
+ * the coefficients it prices, and a coefficient ISL adds in place can never be
+ * ignored. Returned sorted so the alarm text is stable/diffable.
+ */
+function unexpectedWeightKeysFor(w: object, expectedKeys: ReadonlySet<string>): string[] {
+  return Object.keys(w)
+    .filter((k) => !expectedKeys.has(k))
+    .sort();
 }
 
 /** Classify a fetched /health payload into a resolution. */
@@ -115,23 +150,40 @@ function classify(health: ISLHealthResponse | null): AdmissionResolution {
     return { admission: null, skew: true, status: 'unreachable' };
   }
   const block = health.compute_admission;
-  if (!validAdmission(block)) {
+  if (!validAdmissionShape(block)) {
     return { admission: null, skew: true, status: 'missing_block' };
   }
-  if (!KNOWN_COMPLEXITY_FORMULA_VERSIONS.has(block.complexity_formula_version)) {
+  const advertisedVersion = block.complexity_formula_version;
+
+  // The version gate, and the source of the key set the weights are judged
+  // against — one map, so the two can never disagree.
+  const expectedKeys = COMPLEXITY_FORMULA_WEIGHT_KEYS.get(advertisedVersion);
+  if (expectedKeys === undefined) {
+    return { admission: null, skew: true, status: 'unknown_version', advertisedVersion };
+  }
+
+  // A coefficient this version's estimator prices is missing or non-numeric →
+  // the advertisement is garbled, not merely drifted.
+  if (!validWeightsForVersion(block.weights, expectedKeys)) {
+    return { admission: null, skew: true, status: 'missing_block', advertisedVersion };
+  }
+
+  // ISL advertised a coefficient PLoT does not price under this version — its
+  // formula grew a term in place. Under-pricing here would convert a safe
+  // conservative fallback into a confident plan ISL then refuses with a raw 422,
+  // so the version stays UNADMITTED and the drift is named.
+  const unexpectedWeightKeys = unexpectedWeightKeysFor(block.weights, expectedKeys);
+  if (unexpectedWeightKeys.length > 0) {
     return {
       admission: null,
       skew: true,
-      status: 'unknown_version',
-      advertisedVersion: block.complexity_formula_version,
+      status: 'unknown_weight_keys',
+      advertisedVersion,
+      unexpectedWeightKeys,
     };
   }
-  return {
-    admission: block,
-    skew: false,
-    status: 'ok',
-    advertisedVersion: block.complexity_formula_version,
-  };
+
+  return { admission: block, skew: false, status: 'ok', advertisedVersion };
 }
 
 /** Emit the loud fail-loud signal (warning + metric) when a skew is detected. */
@@ -149,9 +201,12 @@ function signalSkew(resolution: AdmissionResolution): void {
       reason,
       advertised_version: resolution.advertisedVersion ?? null,
       known_versions: [...KNOWN_COMPLEXITY_FORMULA_VERSIONS],
+      // Named on `unknown_weight_keys` so the drift is diagnosable from this one
+      // line: these are the coefficients ISL prices and PLoT does not.
+      unexpected_weight_keys: resolution.unexpectedWeightKeys ?? null,
       action: 'fail_loud_conservative_fallback',
       msg:
-        'ISL /health compute-admission handshake unusable — planning against the conservative legacy scalar bound (base depth capped) until the live capability is readable and its formula version is known.',
+        'ISL /health compute-admission handshake unusable — planning against the conservative legacy scalar bound (base depth capped) until the live capability is readable and its formula version is known. Every DEFAULTED analysis is now running at the reduced fallback depth and says so in its response (SAMPLES_REDUCED_FOR_COMPLEXITY).',
     }),
   );
 }
@@ -219,5 +274,5 @@ export async function __refreshForTest(): Promise<AdmissionResolution> {
 /** Directly exercise the classifier (unit tests). */
 export const __classifyForTest = classify;
 
-/** Directly exercise the validator (unit tests). */
-export const __validAdmissionForTest = validAdmission;
+/** Directly exercise the version-independent shape validator (unit tests). */
+export const __validAdmissionForTest = validAdmissionShape;

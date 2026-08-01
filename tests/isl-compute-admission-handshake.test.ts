@@ -28,6 +28,9 @@ import {
   LEGACY_BASE_N_SAMPLES,
   ADAPTIVE_N_SAMPLES_FLOOR,
   ISL_COMPLEXITY_BUDGET_DEFAULT,
+  COMPLEXITY_FORMULA_WEIGHT_KEYS,
+  KNOWN_COMPLEXITY_FORMULA_VERSIONS,
+  V2_WEIGHTED_2026_07_WEIGHT_KEYS,
   type WeightedCostRequest,
   type DepthPlanInput,
 } from '../src/config/sampling.js';
@@ -207,12 +210,61 @@ describe('planSampleDepth (weighted) — reduction + refusal fit the live gate',
 // ===========================================================================
 
 describe('planSampleDepth — fail-loud conservative fallback (admission null)', () => {
-  it('DISABLES the depth-raise: a DEFAULTED 10000 plans at the legacy 4000 base', () => {
-    // Small graph: no reduction needed; the only effect is the raise being off.
+  it('DISABLES the depth-raise: a DEFAULTED 10000 plans at the legacy 4000 base — AS A VISIBLE REDUCTION', () => {
+    // Small graph: no BUDGET reduction is needed; the only effect is the raise
+    // being off. ⚠ ROADMAP 2.260 — this assertion previously read
+    // `expect(d.kind).toBe('unchanged')`, which is precisely how a 60% cut in
+    // Monte Carlo depth stayed invisible: the route only surfaces
+    // SAMPLES_REDUCED_FOR_COMPLEXITY on a `reduced` decision, so 'unchanged'
+    // laundered the cut into silence. The DEPTH is unchanged from before (4000);
+    // what changed is that the loss is now REPORTED.
     const d = planSampleDepth(planInput({ nodeCount: 3, edgeCount: 3, optionCount: 1 }), null);
     expect(d.mode).toBe('legacy_fallback');
+    expect(d.kind).toBe('reduced');
+    if (d.kind === 'reduced') {
+      expect(d.nSamples).toBe(LEGACY_BASE_N_SAMPLES); // 4000, not 10000
+      // The TRUE pre-cap depth — not the already-capped intermediate the scalar
+      // budget saw, which is what used to reach the response.
+      expect(d.originalNSamples).toBe(10_000);
+      // The cause is the SEAM, not the caller's graph.
+      expect(d.reason).toBe('admission_unavailable');
+    }
+  });
+
+  it('a DEFAULTED depth already at/below the legacy base is NOT reported as reduced (no phantom warning)', () => {
+    // Guards the other direction: the disclosure must fire on a real loss only.
+    const d = planSampleDepth(
+      planInput({ nodeCount: 3, edgeCount: 3, optionCount: 1, nSamples: LEGACY_BASE_N_SAMPLES }),
+      null,
+    );
     expect(d.kind).toBe('unchanged');
-    if (d.kind === 'unchanged') expect(d.nSamples).toBe(LEGACY_BASE_N_SAMPLES); // 4000, not 10000
+    if (d.kind === 'unchanged') expect(d.nSamples).toBe(LEGACY_BASE_N_SAMPLES);
+  });
+
+  it('attributes a BUDGET-only reduction to the budget, not to the seam', () => {
+    // Non-conservative fallback (ISL unconfigured / cold warm-up): the raise is
+    // NOT disabled, so any reduction is a genuine property of the graph.
+    const d = planSampleDepth(planInput({ nodeCount: 50, edgeCount: 100 }), null, {
+      conservative: false,
+    });
+    expect(d.kind).toBe('reduced');
+    if (d.kind === 'reduced') {
+      expect(d.originalNSamples).toBe(10_000);
+      expect(d.reason).toBe('admission_budget');
+    }
+  });
+
+  it('a conservative reduction STACKED on the raise-disable still reports the TRUE original depth', () => {
+    // 50n/100e defaulted → capped to 4000, then the 10M scalar bound reduces to
+    // 2000. The user asked for 10000: that is the number the disclosure must
+    // name, not the 4000 intermediate.
+    const d = planSampleDepth(planInput({ nodeCount: 50, edgeCount: 100 }), null);
+    expect(d.kind).toBe('reduced');
+    if (d.kind === 'reduced') {
+      expect(d.nSamples).toBe(2_000);
+      expect(d.originalNSamples).toBe(10_000);
+      expect(d.reason).toBe('admission_unavailable');
+    }
   });
 
   it('POSITIVE CONTROL: the SAME small graph WITH a valid admission keeps the full 10000', () => {
@@ -273,6 +325,81 @@ describe('compute-admission classify — version guard', () => {
     const r = __classifyForTest({ status: 'healthy' } as ISLHealthResponse);
     expect(r.status).toBe('missing_block');
     expect(r.skew).toBe(true);
+  });
+
+  // -------------------------------------------------------------------------
+  // ROADMAP 2.260 — the DERIVED drift alarm on advertised weight keys.
+  //
+  // The version string catches a formula ISL RENAMES. It cannot catch a formula
+  // ISL GROWS IN PLACE: same version, one more coefficient, and PLoT would price
+  // the request with a term missing — under-counting the true cost and turning a
+  // safe conservative fallback into a confident plan ISL refuses with a raw 422.
+  // These pin the derived guard: the expected key set comes from
+  // COMPLEXITY_FORMULA_WEIGHT_KEYS, never from a remembered list.
+  // -------------------------------------------------------------------------
+
+  it('UNKNOWN ADVERTISED WEIGHT KEY: same version + an unpriced coefficient is SKEW, not silently ignored', () => {
+    const block = v2Admission();
+    (block.weights as unknown as Record<string, unknown>).factor_flip_coef = 1;
+    const r = __classifyForTest({ compute_admission: block } as ISLHealthResponse);
+
+    expect(r.status).toBe('unknown_weight_keys');
+    expect(r.skew).toBe(true);
+    // The version stays UNADMITTED — planning against a formula we cannot price
+    // is the failure mode this guard exists to prevent.
+    expect(r.admission).toBeNull();
+    // The drift is NAMED, so one log line is enough to diagnose it.
+    expect(r.unexpectedWeightKeys).toEqual(['factor_flip_coef']);
+  });
+
+  it("THE REAL DRIFT, replayed: ISL's live v5 weight set under a KNOWN version names all 5 unpriced coefficients", () => {
+    // The 12 keys ISL staging actually advertises (live /health, 2026-08-01,
+    // matching ISL source tip 29cb4e27 build_compute_admission). Held here under
+    // the v2 version string to simulate exactly the dangerous case: ISL adding
+    // its four new cost terms WITHOUT renaming the formula. Today the version
+    // string happens to catch it; this asserts we are not relying on that luck.
+    const block = v2Admission({
+      weights: {
+        base_per_sample_per_option_per_struct: 1,
+        evpi_sample_cap: 2000,
+        evpc_coef: 1,
+        evppi_full_coef: 1,
+        evppi_null_permutations: 16,
+        factor_flip_coef: 1,
+        influence_walk_pool: 400000,
+        sensitivity_coef: 4,
+        evalue_coef: 20,
+        bands_coef: 200,
+        path_coef: 1,
+        max_decomposition_paths: 20000,
+      } as unknown as ISLComputeAdmissionWeights,
+    });
+    const r = __classifyForTest({ compute_admission: block } as ISLHealthResponse);
+
+    expect(r.status).toBe('unknown_weight_keys');
+    expect(r.admission).toBeNull();
+    expect(r.unexpectedWeightKeys).toEqual([
+      'evpc_coef',
+      'evppi_full_coef',
+      'evppi_null_permutations',
+      'factor_flip_coef',
+      'influence_walk_pool',
+    ]);
+  });
+
+  it('POSITIVE CONTROL: the EXACT advertised key set still resolves ok (the guard is not blanket-rejecting)', () => {
+    const r = __classifyForTest({ compute_admission: v2Admission() } as ISLHealthResponse);
+    expect(r.status).toBe('ok');
+    expect(r.admission).not.toBeNull();
+    expect(r.unexpectedWeightKeys).toBeUndefined();
+  });
+
+  it('a MISSING priced coefficient is missing_block (garbled), not unknown_weight_keys (drifted)', () => {
+    const block = v2Admission();
+    delete (block.weights as unknown as Record<string, unknown>).bands_coef;
+    const r = __classifyForTest({ compute_admission: block } as ISLHealthResponse);
+    expect(r.status).toBe('missing_block');
+    expect(r.admission).toBeNull();
   });
 
   it('classifies a MALFORMED block (non-finite weight) as missing_block skew', () => {
@@ -347,6 +474,29 @@ describe('compute-admission refresh — loud warning + metric on skew', () => {
     );
   });
 
+  it('WEIGHT-KEY SKEW fires the loud warning naming the unpriced coefficients AND its own metric label', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const block = v2Admission();
+    (block.weights as unknown as Record<string, unknown>).evppi_full_coef = 1;
+    mockHealth({ status: 'healthy', compute_admission: block });
+    const r = await __refreshForTest();
+
+    expect(r.status).toBe('unknown_weight_keys');
+    expect(r.skew).toBe(true);
+    expect(r.admission).toBeNull();
+
+    expect(warn).toHaveBeenCalled();
+    const warned = warn.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(warned).toContain('isl_admission_version_skew');
+    expect(warned).toContain('unknown_weight_keys');
+    // The alarm must be diagnosable without a source dive: it names the key.
+    expect(warned).toContain('evppi_full_coef');
+
+    expect(renderHistograms()).toContain(
+      'plot_engine_isl_admission_version_skew_total{reason="unknown_weight_keys"} 1',
+    );
+  });
+
   it('unreachable /health fires the metric with reason=unreachable', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     mockHealth(null, false);
@@ -365,6 +515,53 @@ describe('compute-admission refresh — loud warning + metric on skew', () => {
     expect(r.skew).toBe(false);
     expect(warn).not.toHaveBeenCalled();
     expect(renderHistograms()).not.toContain('isl_admission_version_skew_total{reason=');
+  });
+});
+
+// ===========================================================================
+// E2. The version guard is DERIVED, not a second hand-maintained list
+// ===========================================================================
+
+describe('COMPLEXITY_FORMULA_WEIGHT_KEYS — one source of truth for the version guard', () => {
+  it('KNOWN_COMPLEXITY_FORMULA_VERSIONS is derived from the map (a version cannot be added without its key set)', () => {
+    // If these ever diverge, someone has reintroduced a second list — the exact
+    // hand-maintained-mirror defect this map exists to make inexpressible.
+    expect([...KNOWN_COMPLEXITY_FORMULA_VERSIONS].sort()).toEqual(
+      [...COMPLEXITY_FORMULA_WEIGHT_KEYS.keys()].sort(),
+    );
+  });
+
+  it("the v2 key set matches what ISL's v2 formula advertises — no more, no less", () => {
+    expect([...(COMPLEXITY_FORMULA_WEIGHT_KEYS.get('v2-weighted-2026-07') ?? [])].sort()).toEqual(
+      Object.keys(LIVE_WEIGHTS).sort(),
+    );
+  });
+
+  it('MECHANICAL TWO-WAY PIN: every declared key is actually READ by estimateWeightedCostV2', () => {
+    // Without this, the declared key set could drift from the function body in
+    // either direction: demanding a coefficient nothing prices, or pricing one
+    // nothing validated as finite. A request shaped so EVERY term is live:
+    // E·E (40,000) exceeds max_decomposition_paths, and S exceeds evpi_sample_cap.
+    const req = baseReq({
+      nSamples: 10_000,
+      nodeCount: 50,
+      edgeCount: 200,
+      optionCount: 2,
+      uniqueParamUncertainties: 3,
+      includePathDecomposition: true,
+    });
+    const baseline = estimateWeightedCostV2(req, LIVE_WEIGHTS);
+
+    for (const key of V2_WEIGHTED_2026_07_WEIGHT_KEYS) {
+      const perturbed = {
+        ...LIVE_WEIGHTS,
+        [key]: (LIVE_WEIGHTS as unknown as Record<string, number>)[key] / 2,
+      } as unknown as ISLComputeAdmissionWeights;
+      expect(
+        estimateWeightedCostV2(req, perturbed),
+        `weight key "${key}" is declared but does not move the cost — the declared set and the estimator body have drifted`,
+      ).not.toBe(baseline);
+    }
   });
 });
 

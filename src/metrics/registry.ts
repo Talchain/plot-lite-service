@@ -468,7 +468,7 @@ export function observeIslLatency(operation: 'validation' | 'sensitivity' | 'fac
 
 // Codex F8 handshake: record a compute-admission version-skew detection.
 export function recordIslAdmissionVersionSkew(
-  reason: 'unreachable' | 'missing_block' | 'unknown_version',
+  reason: 'unreachable' | 'missing_block' | 'unknown_version' | 'unknown_weight_keys',
 ): void {
   islAdmissionVersionSkewCounter?.inc({ reason });
 }
