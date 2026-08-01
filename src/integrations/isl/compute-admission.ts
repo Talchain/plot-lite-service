@@ -26,7 +26,10 @@ import {
   KNOWN_COMPLEXITY_FORMULA_VERSIONS,
   type ComplexityFormulaSpec,
 } from '../../config/sampling.js';
-import { recordIslAdmissionVersionSkew } from '../../metrics/registry.js';
+import {
+  recordIslAdmissionVersionSkew,
+  recordIslForeignFormulaParameterGroups,
+} from '../../metrics/registry.js';
 import { isFiniteNumber, allFiniteNumberFields } from '../../util/numeric.js';
 import type {
   ISLComputeAdmission,
@@ -84,8 +87,17 @@ export interface AdmissionResolution {
    * running ahead of ISL PR #119 names exactly which numbers it is waiting for.
    */
   missingFormulaParameters?: readonly string[];
-  /** As above for parameters advertised but not priced — `unknown_formula_parameters`. */
+  /**
+   * Parameters advertised INSIDE a priced group but not read — populated only on
+   * `unknown_formula_parameters` (skew).
+   */
   unexpectedFormulaParameters?: readonly string[];
+  /**
+   * WHOLE advertised groups naming a term this version does not price. Rides on
+   * an `ok` resolution: ADMITTED, full depth planned, but named in a loud
+   * advisory warning + metric. See `foreignFormulaParameterGroupsFor`.
+   */
+  foreignFormulaParameterGroups?: readonly string[];
 }
 
 const WARMING: AdmissionResolution = { admission: null, skew: false, status: 'warming' };
@@ -215,14 +227,15 @@ function missingFormulaParametersFor(
 }
 
 /**
- * Advertised per-term parameters this version's estimator does NOT price, as
- * sorted dotted paths. A parameter appearing under a term PLoT prices means
- * PLoT's hard-coded SHAPE for that term is now incomplete — the same
- * wrong-number hazard as an unknown weight key. See the trade-off note on
- * `COMPLEXITY_FORMULA_SPECS`: this narrows what ISL PR #119 assumed PLoT could
- * detect, deliberately and in the safe direction.
+ * An advertised parameter sitting INSIDE a group this version's estimator
+ * prices, which the estimator does not read — sorted dotted `term.parameter`
+ * paths. **Skew.**
+ *
+ * A new number under a term PLoT already prices means PLoT's hard-coded SHAPE
+ * for that term is now incomplete: it is a number you need. That is the same
+ * wrong-number hazard as an unknown weight key, and it stays fail-loud.
  */
-function unexpectedFormulaParametersFor(
+function unexpectedInGroupFormulaParametersFor(
   block: ISLComputeAdmission,
   spec: ComplexityFormulaSpec,
 ): string[] {
@@ -230,16 +243,48 @@ function unexpectedFormulaParametersFor(
   const unexpected: string[] = [];
   for (const [term, group] of Object.entries(advertised)) {
     const expected = spec.formulaParameters.get(term);
-    if (expected === undefined) {
-      unexpected.push(term);
-      continue;
-    }
+    if (expected === undefined) continue; // a foreign GROUP — handled separately
     if (!group || typeof group !== 'object') continue;
     for (const name of Object.keys(group)) {
       if (!expected.has(name)) unexpected.push(`${term}.${name}`);
     }
   }
   return unexpected.sort();
+}
+
+/**
+ * A WHOLE advertised group naming a term this version's estimator does not
+ * price. **Admitted, with a loud named warning + metric — NOT skew.**
+ *
+ * ⚠ THIS ASYMMETRY IS THE POINT, AND IT WAS ARGUED FOR (adversarial review of
+ * PR #303, which overturned my first cut treating both cases as skew).
+ *
+ * The decisive evidence is this repo's own dependency: ISL PR #119 added
+ * `formula_parameters` as a NEW SIBLING under an UNCHANGED version string. That
+ * class of change is normal for ISL and will recur — a third group, an advisory
+ * group, a v6 pre-advertisement. Treating it as skew would mean a HEALTHY,
+ * fully-priceable advertisement drops every defaulted analysis back to 4,000
+ * AND disables all six structural cap pre-checks (skew nulls the admission, and
+ * checkAdmissionCaps returns `ok` on a null admission). That blast radius —
+ * depth AND caps — is far worse than the residual it would buy.
+ *
+ * The residual risk (a foreign group signalling a new cost TERM PLoT does not
+ * price) is already covered from two directions: every v5 term reads at least
+ * one `weights` coefficient, so a genuinely new term trips `unknown_weight_keys`
+ * and skews properly; and ISL's own TestAdvertisementSufficiency fails their CI
+ * the moment a term's numbers are not fully advertised.
+ *
+ * So: stay admitted, keep the depth, and be LOUD about the thing we cannot
+ * price — an alarm that does not also brick the service.
+ */
+function foreignFormulaParameterGroupsFor(
+  block: ISLComputeAdmission,
+  spec: ComplexityFormulaSpec,
+): string[] {
+  const advertised = (block.formula_parameters ?? {}) as Record<string, unknown>;
+  return Object.keys(advertised)
+    .filter((term) => !spec.formulaParameters.has(term))
+    .sort();
 }
 
 /** Classify a fetched /health payload into a resolution. */
@@ -312,7 +357,7 @@ function classify(health: ISLHealthResponse | null): AdmissionResolution {
       missingFormulaParameters,
     };
   }
-  const unexpectedFormulaParameters = unexpectedFormulaParametersFor(block, spec);
+  const unexpectedFormulaParameters = unexpectedInGroupFormulaParametersFor(block, spec);
   if (unexpectedFormulaParameters.length > 0) {
     return {
       admission: null,
@@ -320,6 +365,21 @@ function classify(health: ISLHealthResponse | null): AdmissionResolution {
       status: 'unknown_formula_parameters',
       advertisedVersion,
       unexpectedFormulaParameters,
+    };
+  }
+
+  // A whole foreign GROUP is an ADVISORY, not skew — see
+  // foreignFormulaParameterGroupsFor for why the two cases diverge. The block is
+  // admitted and the full depth is planned; the groups ride on the resolution so
+  // the refresh can name them in a loud warning.
+  const foreignFormulaParameterGroups = foreignFormulaParameterGroupsFor(block, spec);
+  if (foreignFormulaParameterGroups.length > 0) {
+    return {
+      admission: block,
+      skew: false,
+      status: 'ok',
+      advertisedVersion,
+      foreignFormulaParameterGroups,
     };
   }
 
@@ -355,6 +415,31 @@ function signalSkew(resolution: AdmissionResolution): void {
   );
 }
 
+/**
+ * Emit the ADVISORY signal when ISL advertises a formula_parameters group PLoT
+ * does not price. Loud, named, and metered — but the advertisement stayed
+ * ADMITTED, so the wording must not read like a degradation. An alarm that
+ * overstates its own severity gets tuned out, which is how the 2.260 silence
+ * survived as long as it did.
+ */
+function signalForeignFormulaParameterGroups(resolution: AdmissionResolution): void {
+  const groups = resolution.foreignFormulaParameterGroups;
+  if (!groups || groups.length === 0) return;
+  recordIslForeignFormulaParameterGroups();
+  console.warn(
+    JSON.stringify({
+      level: 'warn',
+      time: Date.now(),
+      event: 'isl_admission_foreign_formula_parameter_groups',
+      advertised_version: resolution.advertisedVersion ?? null,
+      foreign_formula_parameter_groups: groups,
+      action: 'admitted_full_depth_planned',
+      msg:
+        "ISL advertises formula_parameters group(s) PLoT's estimator for this version does not price. The advertisement is still ADMITTED and the full sample depth is still planned — this is NOT a degradation. It means ISL's cost model may have grown a term PLoT does not model; if it did, that term also carries a `weights` coefficient and would additionally trip unknown_weight_keys. Add the group to COMPLEXITY_FORMULA_SPECS when PLoT implements it.",
+    }),
+  );
+}
+
 /** Perform one /health read, classify it, cache it, and signal on skew. */
 async function refresh(): Promise<void> {
   let resolution: AdmissionResolution;
@@ -366,6 +451,7 @@ async function refresh(): Promise<void> {
     const health = await client.fetchHealth();
     resolution = classify(health);
     signalSkew(resolution);
+    signalForeignFormulaParameterGroups(resolution);
   }
   _cache = { at: Date.now(), value: resolution };
 }

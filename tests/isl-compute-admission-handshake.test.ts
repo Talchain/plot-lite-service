@@ -588,6 +588,36 @@ describe('compute-admission refresh — loud warning + metric on skew', () => {
     );
   });
 
+  it('FOREIGN GROUP fires its OWN loud warning + its OWN metric, and does NOT touch the skew counter', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const block = v5Admission();
+    (block.formula_parameters as unknown as Record<string, unknown>).evpc = { grid_stride: 2 };
+    mockHealth({ status: 'healthy', compute_admission: block });
+    const r = await __refreshForTest();
+
+    // ADMITTED — the advisory must not cost the depth.
+    expect(r.status).toBe('ok');
+    expect(r.skew).toBe(false);
+    expect(r.admission).not.toBeNull();
+
+    // ...but LOUD, and diagnosable without a source dive: it names the group.
+    expect(warn).toHaveBeenCalled();
+    const warned = warn.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(warned).toContain('isl_admission_foreign_formula_parameter_groups');
+    expect(warned).toContain('evpc');
+
+    const rendered = renderHistograms();
+    expect(rendered).toContain(
+      'plot_engine_isl_admission_foreign_formula_parameter_groups_total',
+    );
+    // ⚠ THE SEPARATION IS THE ASSERTION. Folding an ADMITTED state into a
+    // counter named "version_skew_total" would make that alarm mean two
+    // different things, and would break the post-deploy check that the skew
+    // counter stops incrementing. A counter that means two things is a counter
+    // nobody can act on.
+    expect(rendered).not.toContain('plot_engine_isl_admission_version_skew_total{reason=');
+  });
+
   it('unreachable /health fires the metric with reason=unreachable', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     mockHealth(null, false);
@@ -977,12 +1007,63 @@ describe('fail-closed: an incomplete advertisement leaves v5 UNADMITTED', () => 
     expect(r.unexpectedFormulaParameters).toEqual(['sensitivity.subsample_floor']);
   });
 
-  it('an advertised parameter group for a term PLoT does not price is skew', () => {
+  it('a WHOLE FOREIGN GROUP is ADMITTED with a loud advisory — NOT skew (the depth must survive it)', () => {
+    // ⚠ THIS ASSERTION WAS DELIBERATELY INVERTED, and the reasoning matters more
+    // than the assertion. The first cut of this PR treated a foreign group as
+    // skew, symmetrically with an in-group parameter. Adversarial review
+    // overturned it on evidence from this repo's own dependency: ISL PR #119
+    // added `formula_parameters` as a NEW SIBLING under an UNCHANGED version
+    // string. That class of change WILL recur — a third group, an advisory
+    // group, a v6 pre-advertisement.
+    //
+    // Under the old behaviour, that recurrence would take a HEALTHY, fully
+    // priceable advertisement and drop every defaulted analysis back to 4,000
+    // AND disable all six structural cap pre-checks (skew nulls the admission;
+    // checkAdmissionCaps returns `ok` on null). Depth AND caps — a strictly
+    // worse blast radius than the residual it bought, and the residual is
+    // already covered: a genuinely new cost TERM also carries a `weights`
+    // coefficient and trips unknown_weight_keys (below).
     const block = v5Admission();
     (block.formula_parameters as unknown as Record<string, unknown>).evpc = { grid_stride: 2 };
     const r = __classifyForTest({ compute_admission: block } as ISLHealthResponse);
-    expect(r.status).toBe('unknown_formula_parameters');
-    expect(r.unexpectedFormulaParameters).toEqual(['evpc']);
+
+    expect(r.status).toBe('ok');
+    expect(r.skew).toBe(false);
+    expect(r.admission).not.toBeNull();
+    // Admitted, but NAMED — silence here would be the 2.260 defect again.
+    expect(r.foreignFormulaParameterGroups).toEqual(['evpc']);
+  });
+
+  it('a foreign group still plans the FULL depth — the whole point of not skewing on it', () => {
+    const block = v5Admission();
+    (block.formula_parameters as unknown as Record<string, unknown>).evpc = { grid_stride: 2 };
+    const r = __classifyForTest({ compute_admission: block } as ISLHealthResponse);
+    const input = planInput({
+      nodeCount: 10,
+      edgeCount: 12,
+      optionCount: 3,
+      uniqueParamUncertainties: 4,
+    });
+    const d = planSampleDepth(input, r.admission, { conservative: r.skew });
+    expect(d.mode).toBe('weighted');
+    expect(d.kind).toBe('unchanged');
+    if (d.kind === 'unchanged') expect(d.nSamples).toBe(10_000);
+  });
+
+  it('THE RESIDUAL IS COVERED: a foreign group that signals a REAL new term still skews, via its weight key', () => {
+    // The safety argument for admitting foreign groups rests on this: every v5
+    // cost term reads at least one `weights` coefficient, so a group that
+    // accompanies a genuine new term cannot slip through silently — the weight
+    // key trips first. If this ever REDs, the asymmetry above loses its
+    // justification and must be revisited.
+    const block = v5Admission();
+    (block.formula_parameters as unknown as Record<string, unknown>).some_new_phase = { k: 2 };
+    (block.weights as unknown as Record<string, unknown>).some_new_phase_coef = 3;
+    const r = __classifyForTest({ compute_admission: block } as ISLHealthResponse);
+    expect(r.status).toBe('unknown_weight_keys');
+    expect(r.skew).toBe(true);
+    expect(r.admission).toBeNull();
+    expect(r.unexpectedWeightKeys).toEqual(['some_new_phase_coef']);
   });
 });
 
