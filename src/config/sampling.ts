@@ -244,15 +244,77 @@ import type {
 } from '../integrations/isl/types/isl-types.js';
 
 /**
- * Formula-shape versions PLoT knows how to plan against. The shape implemented
- * by {@link estimateWeightedCostV2} is `v2-weighted-2026-07`. An advertised
- * version NOT in this set is treated as skew → fail-loud conservative fallback.
- * This is a DERIVED guard, not a mirror: it lists only the SHAPES PLoT has code
- * for; the numeric coefficients still come from the live `weights`.
+ * The weight coefficients {@link estimateWeightedCostV2} consumes — i.e. the
+ * COMPLETE set of `weights` keys the `v2-weighted-2026-07` formula shape prices.
+ *
+ * ⚠ This list is load-bearing in BOTH directions and must stay exactly in step
+ * with the function body below:
+ *  - every key here must be READ by estimateWeightedCostV2 (else PLoT demands a
+ *    coefficient it does not use);
+ *  - every key estimateWeightedCostV2 reads must appear here — an UNDECLARED
+ *    read is never validated as finite, so it resolves to `undefined` and
+ *    yields a NaN cost while the block still classifies `ok`.
+ *
+ * `tests/isl-compute-admission-handshake.test.ts` pins the two directions with
+ * two DIFFERENT mechanisms, because one cannot see the other: DIRECTION 1
+ * perturbs each declared key and asserts the cost moves (declared ⇒ read);
+ * DIRECTION 2 prices a request through a recording Proxy and asserts no read
+ * fell outside this set (read ⇒ declared). A value-based assertion cannot
+ * detect an undeclared read, so the Proxy is not decoration.
  */
-export const KNOWN_COMPLEXITY_FORMULA_VERSIONS: ReadonlySet<string> = new Set([
-  'v2-weighted-2026-07',
+export const V2_WEIGHTED_2026_07_WEIGHT_KEYS = [
+  'base_per_sample_per_option_per_struct',
+  'evpi_sample_cap',
+  'sensitivity_coef',
+  'evalue_coef',
+  'bands_coef',
+  'path_coef',
+  'max_decomposition_paths',
+] as const;
+
+/**
+ * Formula-shape version → the EXACT set of advertised `weights` keys that
+ * version's estimator consumes. This map is the SINGLE source of truth for the
+ * handshake's version guard (ROADMAP 2.260).
+ *
+ * Two properties follow mechanically from the map's shape, and both exist to
+ * kill the hand-maintained-mirror defect class (programme trap 12):
+ *
+ *  1. {@link KNOWN_COMPLEXITY_FORMULA_VERSIONS} is DERIVED from these keys, so a
+ *     version can never be admitted without also declaring which coefficients
+ *     its estimator prices — "just add the version string" is not expressible.
+ *  2. The resolver (compute-admission.ts `classify`) compares ISL's ADVERTISED
+ *     weight keys against this set and treats any UNEXPECTED key as skew
+ *     (`unknown_weight_keys`). An unrecognised coefficient is precisely the
+ *     signal that ISL's cost formula grew a term PLoT does not price, and it is
+ *     DERIVED from the live payload rather than remembered — so the drift is
+ *     caught at the seam, at the moment it happens, with nobody maintaining a
+ *     list. Without it a same-version term addition under-prices SILENTLY and
+ *     converts a safe conservative fallback into a pass-then-422.
+ */
+export const COMPLEXITY_FORMULA_WEIGHT_KEYS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  ['v2-weighted-2026-07', new Set<string>(V2_WEIGHTED_2026_07_WEIGHT_KEYS)],
 ]);
+
+/**
+ * Formula-shape versions PLoT knows how to plan against — DERIVED from
+ * {@link COMPLEXITY_FORMULA_WEIGHT_KEYS}, never hand-listed. The shape
+ * implemented by {@link estimateWeightedCostV2} is `v2-weighted-2026-07`. An
+ * advertised version NOT in this set is treated as skew → fail-loud
+ * conservative fallback. This lists only the SHAPES PLoT has code for; the
+ * numeric coefficients still come from the live `weights`.
+ *
+ * ⚠ ISL staging currently advertises `v5-factor-flips-2026-08-01`, which is NOT
+ * here and deliberately so: its cost formula carries four terms PLoT does not
+ * price (full-population EVPPI, EVPC, structural influence, factor flips).
+ * Admitting it without an `estimateWeightedCostV5` would under-count the true
+ * cost by ~43% on a typical graph and turn a conservative fallback into a
+ * pass-then-422. See ROADMAP 2.260 and the PR that added this note for why the
+ * v5 estimator could not be completed from ISL's advertised contract.
+ */
+export const KNOWN_COMPLEXITY_FORMULA_VERSIONS: ReadonlySet<string> = new Set(
+  COMPLEXITY_FORMULA_WEIGHT_KEYS.keys(),
+);
 
 /**
  * PLoT-side hard upper bound on the planning ceiling, in ISL cost units.
@@ -358,6 +420,23 @@ export function estimateWeightedCostV2(
 /** Which planning mode produced a {@link DepthPlanDecision}. */
 export type DepthPlanMode = 'weighted' | 'legacy_fallback';
 
+/**
+ * WHY a planned depth ended up below the requested/defaulted depth. The two
+ * causes are genuinely different and must not be reported with one message:
+ *
+ *  - `admission_budget` — the graph's cost exceeds the admission ceiling, so the
+ *    depth was lowered to the largest value that fits. The reduction is a
+ *    property of THIS GRAPH.
+ *  - `admission_unavailable` — PLoT could not confirm ISL's live admission
+ *    capability (unreachable /health, a malformed block, an unknown formula
+ *    version or unrecognised weight keys), so it planned conservatively and
+ *    DISABLED the depth-raise. The reduction is a property of the SERVICE SEAM,
+ *    not of the graph, and the same graph would run at full depth once the
+ *    handshake is healthy. ROADMAP 2.260: this case previously produced
+ *    `kind: 'unchanged'` and was therefore invisible on the wire.
+ */
+export type DepthReductionReason = 'admission_budget' | 'admission_unavailable';
+
 /** Input to {@link planSampleDepth} — the full request shape plus caller intent. */
 export interface DepthPlanInput extends WeightedCostRequest {
   /** True when the caller supplied n_samples explicitly (never depth-capped). */
@@ -376,6 +455,11 @@ export type DepthPlanDecision =
   | {
       kind: 'reduced';
       nSamples: number;
+      /**
+       * The depth the caller asked for (explicit) or that the standard default
+       * resolved to — ALWAYS the true pre-reduction depth, never an
+       * intermediate already lowered by the conservative fallback.
+       */
       originalNSamples: number;
       /** cost at the ORIGINAL depth. */
       cost: number;
@@ -383,6 +467,8 @@ export type DepthPlanDecision =
       reducedCost: number;
       ceiling: number;
       mode: DepthPlanMode;
+      /** WHY the depth was lowered — drives the user-facing disclosure. */
+      reason: DepthReductionReason;
     }
   | {
       kind: 'refused';
@@ -482,6 +568,7 @@ function planWeighted(input: DepthPlanInput, admission: ISLComputeAdmission): De
     reducedCost: costAt(reduced),
     ceiling,
     mode: 'weighted',
+    reason: 'admission_budget',
   };
 }
 
@@ -497,12 +584,28 @@ function planWeighted(input: DepthPlanInput, admission: ISLComputeAdmission): De
  * — byte-for-byte the pre-handshake behaviour.
  */
 function planLegacyFallback(input: DepthPlanInput, conservative: boolean): DepthPlanDecision {
+  // The depth the caller actually asked for (explicit) or that the standard
+  // default resolved to. EVERY branch below reports reductions against THIS
+  // number — see the ROADMAP 2.260 note under `raiseDisabled`.
+  const requested = input.nSamples;
+
   // Disable the depth-raise for a DEFAULTED depth ONLY under a genuine skew;
   // explicit caller depths pass through to the budget check untouched (never
   // silently raised or lowered except by the reduction/refusal below).
-  const planned = conservative && !input.nSamplesExplicit
-    ? Math.min(input.nSamples, LEGACY_BASE_N_SAMPLES)
-    : input.nSamples;
+  //
+  // ⚠ ROADMAP 2.260 — THIS CAP USED TO BE INVISIBLE. It was applied BEFORE
+  // applyComplexityBudget, which then saw the already-lowered `planned`, found
+  // it fitted, and returned `kind: 'unchanged'`. The route only sets
+  // `meta.originalNSamples` on a `reduced` decision, so a defaulted 10,000 →
+  // 4,000 cut (−60% Monte Carlo depth) reached the user with NO
+  // SAMPLES_REDUCED_FOR_COMPLEXITY warning and every confidence marker green.
+  // Measured live on staging 1 Aug 2026 (PHASE0-EVIDENCE-2026-07-28/
+  // measure-2260-skew-fallback.md). The cap itself is CORRECT — planning at a
+  // depth ISL may refuse is worse — but it must be disclosed, so the depth loss
+  // is now reported against `requested` and surfaces as a first-class reduction.
+  const raiseDisabled =
+    conservative && !input.nSamplesExplicit && requested > LEGACY_BASE_N_SAMPLES;
+  const planned = raiseDisabled ? LEGACY_BASE_N_SAMPLES : requested;
 
   const budget = conservative
     ? Math.min(LEGACY_FALLBACK_SCALAR_BUDGET, resolveComplexityBudget())
@@ -512,7 +615,8 @@ function planLegacyFallback(input: DepthPlanInput, conservative: boolean): Depth
   if (scalar.kind === 'refused') {
     return {
       kind: 'refused',
-      originalNSamples: scalar.originalNSamples,
+      // The caller's depth, not the conservatively-capped intermediate.
+      originalNSamples: requested,
       costAtFloor: ADAPTIVE_N_SAMPLES_FLOOR * scalar.nodeEdgeProduct,
       ceiling: budget,
       nodeCount: input.nodeCount,
@@ -520,18 +624,35 @@ function planLegacyFallback(input: DepthPlanInput, conservative: boolean): Depth
       mode: 'legacy_fallback',
     };
   }
-  if (scalar.kind === 'reduced') {
+
+  // Single exit for BOTH ways a depth can end up below what was asked for: the
+  // raise-disable cap and/or the scalar budget. Collapsing them here is what
+  // stops the cap from hiding inside a `kind: 'unchanged'`.
+  const finalNSamples = scalar.nSamples;
+  const product = input.nodeCount * input.edgeCount;
+  if (finalNSamples < requested) {
     return {
       kind: 'reduced',
-      nSamples: scalar.nSamples,
-      originalNSamples: scalar.originalNSamples,
-      cost: scalar.complexity,
-      reducedCost: scalar.reducedComplexity,
+      nSamples: finalNSamples,
+      originalNSamples: requested,
+      cost: requested * product,
+      reducedCost: finalNSamples * product,
       ceiling: budget,
       mode: 'legacy_fallback',
+      // When the raise-disable contributed, the SEAM is the cause the user
+      // needs to hear — it is not a property of their graph, and the same graph
+      // runs at full depth once the handshake is healthy. (A budget reduction
+      // stacked on top does not change that attribution.)
+      reason: raiseDisabled ? 'admission_unavailable' : 'admission_budget',
     };
   }
-  return { kind: 'unchanged', nSamples: scalar.nSamples, cost: scalar.complexity, ceiling: budget, mode: 'legacy_fallback' };
+  return {
+    kind: 'unchanged',
+    nSamples: finalNSamples,
+    cost: scalar.complexity,
+    ceiling: budget,
+    mode: 'legacy_fallback',
+  };
 }
 
 // ---------------------------------------------------------------------------

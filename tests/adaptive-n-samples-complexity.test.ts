@@ -476,10 +476,88 @@ describe('adaptive n_samples via /v2/run (F8 handshake — weighted planning)', 
     });
 
     expect(res.statusCode).toBe(200);
-    // 3 nodes × 3 edges fits the 10M scalar bound at 4000 → unchanged at 4000.
+    // 3 nodes × 3 edges fits the 10M scalar bound at 4000 → 4000 is sent.
     expect(islCalls[0].n_samples).toBe(LEGACY_BASE_N_SAMPLES); // 4000, not 10000
     const body = JSON.parse(res.body);
     expect(body.meta?.n_samples).toBe(LEGACY_BASE_N_SAMPLES);
+  });
+
+  // ---------------------------------------------------------------------------
+  // ROADMAP 2.260 — the degradation must be LOUD, not just the cause.
+  //
+  // Measured on staging 1 Aug 2026 (PHASE0-EVIDENCE-2026-07-28/
+  // measure-2260-skew-fallback.md): with ISL advertising a formula version PLoT
+  // does not know, EVERY defaulted analysis silently ran at 4,000 samples
+  // instead of 10,000 — a 60% cut in Monte Carlo depth — while the response
+  // carried `validity_ratio: 1`, `status: computed` and no warning of any kind.
+  // The ONLY trace was a PLoT-side log line that named neither the request nor
+  // the resulting depth. These tests pin the wire, not the plan.
+  // ---------------------------------------------------------------------------
+
+  it('ROADMAP 2.260: the skew-capped depth is DISCLOSED on the wire, naming both depths', async () => {
+    __setIslComputeAdmissionForTest({ admission: null, skew: true, status: 'unknown_version' });
+    islCalls = [];
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v2/run',
+      headers: { 'Content-Type': 'application/json' },
+      // n_samples DELIBERATELY omitted — this is how CEE calls PLoT on every
+      // real analysis (verified in CEE staging: the run-analysis snapshot loader
+      // has no n_samples field to populate), so it is the production shape.
+      payload: { graph: denseGraph(2), options: OPTIONS, goal_node_id: 'goal', seed: '42' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.meta?.n_samples).toBe(LEGACY_BASE_N_SAMPLES);
+
+    const warnings = findSamplesReducedWarnings(body);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].severity).toBe('warning');
+    // Both depths named — a disclosure that does not say how much was lost is
+    // not a disclosure.
+    expect(warnings[0].message).toContain('10000');
+    expect(warnings[0].message).toContain(String(LEGACY_BASE_N_SAMPLES));
+    // ...and it attributes the cause to the SEAM, not to the caller's graph.
+    expect(warnings[0].message).toContain('could not be confirmed');
+    expect(warnings[0].message).not.toContain('fits the analysis');
+  });
+
+  it('ROADMAP 2.260: a BUDGET reduction still blames the budget (the two causes do not blur)', async () => {
+    // Healthy handshake, genuinely over-costly graph → the pre-existing wording
+    // must be untouched. Guards against "fix the silence" flattening both causes
+    // into one message and telling users to shrink a graph that is fine.
+    islCalls = [];
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v2/run',
+      headers: { 'Content-Type': 'application/json' },
+      payload: { graph: denseGraph(43), options: OPTIONS, goal_node_id: 'goal', seed: '42' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const warnings = findSamplesReducedWarnings(JSON.parse(res.body));
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].message).toContain("fits the analysis engine's compute-admission budget");
+    expect(warnings[0].message).not.toContain('could not be confirmed');
+  });
+
+  it('ROADMAP 2.260: under skew, an EXPLICIT in-budget depth is untouched and produces NO warning', async () => {
+    // The cap applies to DEFAULTED depths only. A disclosure that fires when
+    // nothing was lost trains people to ignore it — the same broken-alarm
+    // failure as the silence, in the other direction.
+    __setIslComputeAdmissionForTest({ admission: null, skew: true, status: 'unknown_version' });
+    islCalls = [];
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v2/run',
+      headers: { 'Content-Type': 'application/json' },
+      payload: { graph: denseGraph(2), options: OPTIONS, goal_node_id: 'goal', seed: '42', n_samples: 8000 },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(islCalls[0].n_samples).toBe(8000);
+    expect(findSamplesReducedWarnings(JSON.parse(res.body))).toHaveLength(0);
   });
 
   it('MULTI-CONSTRAINT: prices EVPI over factor PUs UNION constraint-injected PUs — plans conservatively (no pass-then-422)', async () => {

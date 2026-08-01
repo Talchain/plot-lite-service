@@ -139,7 +139,7 @@ import type { SeedSourceType } from '@talchain/schemas';
 import { factorReviewV2, type CEESchemaV2Config } from '../../cee/client.js';
 import { FLAGS } from '../../config/flags.js';
 import { getAllFeatureFlags } from '../../config/feature-flags.js';
-import { resolveStandardNSamples, ADAPTIVE_N_SAMPLES_FLOOR, planSampleDepth, checkAdmissionCaps, type DepthPlanInput, type AdmissionCapsDecision, type AdmissionCapDimension } from '../../config/sampling.js';
+import { resolveStandardNSamples, ADAPTIVE_N_SAMPLES_FLOOR, planSampleDepth, checkAdmissionCaps, type DepthPlanInput, type AdmissionCapsDecision, type AdmissionCapDimension, type DepthReductionReason } from '../../config/sampling.js';
 import { LIMITS_MAX_NODES, LIMITS_MAX_EDGES, LIMITS_MAX_OPTIONS } from '../../config/constants.js';
 import { getIslComputeAdmission } from '../../integrations/isl/compute-admission.js';
 import { generateM1Coaching } from '../../coaching/m1-coaching.js';
@@ -1419,8 +1419,20 @@ interface MetaParams {
    * reduced to fit ISL's complexity budget. Present ONLY on reduced runs —
    * its presence drives the SAMPLES_REDUCED_FOR_COMPLEXITY inference warning.
    * nSamples itself is always the TRUE depth used.
+   *
+   * ROADMAP 2.260: also present when the CONSERVATIVE fallback disabled the
+   * depth-raise because ISL's admission capability was unreadable. That cut
+   * (10,000 → 4,000 on every defaulted analysis) used to reach here as
+   * `undefined`, so the warning below never fired and a 60% loss of Monte Carlo
+   * depth was invisible on the wire.
    */
   originalNSamples?: number;
+  /**
+   * ROADMAP 2.260: WHY the depth was reduced. Set alongside originalNSamples on
+   * every reduced run; selects the disclosure wording so a seam failure is never
+   * reported to the user as a property of their graph.
+   */
+  nSamplesReducedReason?: DepthReductionReason;
   /**
    * Track S: sample depth used for flip probes (decoupled from nSamples).
    *
@@ -3230,11 +3242,23 @@ function buildResponse(
   // BOTH depths. meta.n_samples (and brief/fact lineage) already report the
   // TRUE reduced depth; this warning is what stops the reduction from being
   // a silent override, including when the caller set n_samples explicitly.
+  //
+  // ROADMAP 2.260: the same disclosure now also covers the CONSERVATIVE
+  // fallback's depth-raise cut, which previously reached the wire as silence.
+  // The CODE is deliberately reused rather than minted fresh: this family's
+  // transport to the response and into decision_brief.warning_codes is proven,
+  // and the user-facing fact ("you got fewer samples than the standard depth")
+  // is identical. Only the CAUSE differs, so only the MESSAGE branches — an
+  // admission-seam failure must never be reported as a property of the caller's
+  // graph, which would send them optimising a graph that is not the problem.
   if (meta.originalNSamples !== undefined && meta.originalNSamples !== meta.nSamples) {
+    const reducedForSeam = meta.nSamplesReducedReason === 'admission_unavailable';
     inferenceWarnings.push({
       code: INFERENCE_WARNING_CODES.SAMPLES_REDUCED_FOR_COMPLEXITY,
       // provisional_doctrine_v0 — wording surface (diagnostic disclosure)
-      message: `Monte Carlo sample depth was reduced from ${meta.originalNSamples} to ${meta.nSamples} samples so this graph fits the analysis engine's compute-admission budget. All reported results were computed at ${meta.nSamples} samples; displayed probabilities may be slightly less stable than at the standard depth.`,
+      message: reducedForSeam
+        ? `Monte Carlo sample depth was reduced from ${meta.originalNSamples} to ${meta.nSamples} samples because the analysis engine's compute-admission capability could not be confirmed, so this run was planned conservatively. All reported results were computed at ${meta.nSamples} samples; displayed probabilities may be slightly less stable than at the standard depth. This is a service condition, not a property of your decision model — the same analysis runs at full depth once the engines agree.`
+        : `Monte Carlo sample depth was reduced from ${meta.originalNSamples} to ${meta.nSamples} samples so this graph fits the analysis engine's compute-admission budget. All reported results were computed at ${meta.nSamples} samples; displayed probabilities may be slightly less stable than at the standard depth.`,
       severity: 'warning',
     });
   }
@@ -5592,6 +5616,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         const nSamples = complexityDecision.nSamples;
         const originalNSamples =
           complexityDecision.kind === 'reduced' ? complexityDecision.originalNSamples : undefined;
+        const nSamplesReducedReason =
+          complexityDecision.kind === 'reduced' ? complexityDecision.reason : undefined;
 
         if (complexityDecision.kind === 'reduced') {
           req.log.info({
@@ -5601,6 +5627,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             edge_count: causalDirectedEdgeCount,
             option_count: causalOptionCount,
             plan_mode: complexityDecision.mode,
+            // ROADMAP 2.260: distinguishes a graph-cost reduction from a
+            // conservative fallback cut. Both were previously indistinguishable
+            // in the logs; the latter did not log at all.
+            reduction_reason: complexityDecision.reason,
             original_n_samples: complexityDecision.originalNSamples,
             reduced_n_samples: complexityDecision.nSamples,
             original_cost: complexityDecision.cost,
@@ -5718,6 +5748,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               seedSource: providedSeed !== undefined ? 'client_generated' : 'server_generated',
               nSamples,
               originalNSamples,
+              nSamplesReducedReason,
               detailLevel,
               latencyMs: totalMs,
               normalizationMs,
@@ -7811,6 +7842,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             seedSource: providedSeed !== undefined ? 'client_generated' : 'server_generated',
             nSamples,
             originalNSamples,
+            nSamplesReducedReason,
             // ROADMAP 2.228-F3: no probe runs on this route any more, so there
             // is no probe depth to report. Deliberately not passed as
             // `undefined` from a dead local — the local is gone with the probe.
