@@ -35,6 +35,10 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 
+import { filterTemporalConstraints } from '../src/normalisation/constraint-filter.js';
+import type { EngineNodeV3, GoalConstraint } from '../src/types/engine-v3.js';
+type RawGoalConstraint = GoalConstraint & Record<string, unknown>;
+
 // ---------------------------------------------------------------------------
 // ISL mock — captures the outbound request body verbatim.
 // ---------------------------------------------------------------------------
@@ -360,7 +364,7 @@ describe('ROADMAP 2.258 — goal_threshold_frame reaches the ISL request', () =>
     // `constraints.length === 1`) would go false, the threshold-carry would not
     // run, and the goal probability would vanish again — silently. Pin the
     // claim rather than trusting the comment.
-    const { status, isl } = await run({
+    const { status, isl, body } = await run({
       graph: graphWithGoal({ ...GOAL_TARGET_UNSTAMPED, goal_threshold_frame: 'level' }),
       options: OPTIONS,
       goal_node_id: 'goal_arr',
@@ -373,9 +377,73 @@ describe('ROADMAP 2.258 — goal_threshold_frame reaches the ISL request', () =>
     const auto = sent.find((c) => c.constraint_id === 'auto_goal_threshold');
     expect(auto).toBeDefined();
     expect(sent).toHaveLength(1);          // exactly one ⇒ autoSynthesisOnly holds
-    expect(auto.deadline_metadata).toBeUndefined();
-    expect(auto.unit).toBeUndefined();
     expect(isl.goal_threshold).toBe(auto.value);  // carry ran
+
+    // The survival itself, read where a drop would actually SHOW: a constraint
+    // removed by the filter is recorded in `_meta.filtered_constraints` with a
+    // reason. The deadline is there; the synthesised constraint must not be.
+    //
+    // ⚠ THIS REPLACED TWO VACUOUS ASSERTIONS (adversarial review, 2026-08-01).
+    // They read `auto.deadline_metadata` and `auto.unit` off the WIRE — but
+    // `toISLRobustnessRequest` projects every constraint onto six keys
+    // (constraint_id, node_id, operator, value, label?, weight?), so those two
+    // keys are absent for EVERY constraint, always. Both assertions were true
+    // by construction and could never have seen a regression: trap 13's shape,
+    // inside a test written to pin a claim.
+    const filteredIds = ((body._meta?.filtered_constraints ?? []) as any[])
+      .map((r) => r.constraint_id);
+    expect(filteredIds).toContain('constraint_goal_arr_max');   // positive control
+    expect(filteredIds).not.toContain('auto_goal_threshold');   // the pin
+  });
+
+  it('T9b: the drop rules CANNOT match the synthesised constraint (source-side)', () => {
+    // T9 proves survival end-to-end. This proves WHY, at the function that owns
+    // the drop rules — which is where a newly-added rule would bite, and where
+    // the route-level test would only report the damage after the fact.
+    //
+    // The re-landed fallback asserts in a CODE COMMENT that its constraint "can
+    // never be DROPPED here: it carries no deadline_metadata and no unit, so
+    // neither drop rule can match". That claim is load-bearing: if it failed,
+    // `constraints.length === 1` goes false, `autoSynthesisOnly` goes false, the
+    // threshold carry never runs, and the goal probability vanishes SILENTLY.
+    // A comment is not a test.
+    const goalNode = {
+      id: 'goal_arr', kind: 'goal', label: 'Goal',
+      observed_state: { value: 0.4, baseline: 0.35 },
+    } as unknown as EngineNodeV3;
+
+    // Byte-for-byte the shape run.ts synthesises (run.ts, Phase 1c+).
+    const synthesised = {
+      constraint_id: 'auto_goal_threshold',
+      node_id: 'goal_arr',
+      operator: '>=',
+      value: 0.65,
+      label: 'Goal target',
+    } as unknown as RawGoalConstraint;
+
+    const result = filterTemporalConstraints([synthesised], [goalNode]);
+    expect(result.passed).toHaveLength(1);
+    expect(result.passed[0].constraint_id).toBe('auto_goal_threshold');
+    expect(result.filtered).toHaveLength(0);
+
+    // POSITIVE CONTROL — the filter really can drop things on this same node,
+    // so the assertion above is discriminating rather than a filter that never
+    // fires. DROP RULE 1 (deadline_metadata) and DROP RULE 2 (probability-domain
+    // node + value > 1 + temporal unit) are the two ways in, and the synthesised
+    // constraint is built to satisfy neither.
+    const withDeadline = {
+      ...synthesised, constraint_id: 'has_deadline',
+      deadline_metadata: { deadline_date: '2027-08-01' },
+    } as unknown as RawGoalConstraint;
+    const withTemporalUnit = {
+      ...synthesised, constraint_id: 'has_unit',
+      operator: '<=', value: 12, unit: 'months',
+    } as unknown as RawGoalConstraint;
+
+    const dropped = filterTemporalConstraints([withDeadline, withTemporalUnit], [goalNode]);
+    expect(dropped.passed).toHaveLength(0);
+    expect(dropped.filtered.map((r) => r.constraint_id).sort())
+      .toEqual(['has_deadline', 'has_unit']);
   });
 
   // =========================================================================
