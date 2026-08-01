@@ -31,13 +31,31 @@ import {
   mapIslFactorFlipValues,
   FOUND_WITHOUT_VALUE_REASON,
   UNATTESTED_REASON,
-  NO_DIRECTION,
   VALUE_WITHOUT_DIRECTION_REASON,
 } from '../src/integrations/isl/adapters/factor-flip-values.js';
+
 import { toISLRobustnessRequest } from '../src/integrations/isl/translator-v3.js';
 import { denormaliseFlipThresholds } from '../src/lib/flip-threshold-denormaliser.js';
 import { classifyFlipThresholdsStatus } from '../src/lib/flip-threshold-status.js';
 import type { EngineGraphV3, EngineNodeV3, OptionV3 } from '../src/types/engine-v3.js';
+
+/**
+ * ROADMAP 2.258 — `NO_DIRECTION` ('none') is GONE. The honest rendering of "no
+ * flip, so no direction" is an ABSENT key, legalised by @talchain/schemas
+ * 0.31.0 relaxing `EnrichmentFlipThresholdSchema.direction` to
+ * `z.string().optional()`.
+ *
+ * These helpers assert ABSENCE OF THE KEY, not `=== undefined`. The distinction
+ * is the whole point: `{ direction: undefined }` satisfies `=== undefined`
+ * while still serialising as a present key to `Object.keys`, structural key
+ * manifests, and `in` checks. Only key-absence is the honest wire shape.
+ */
+function expectNoDirection(row: object): void {
+  expect('direction' in row).toBe(false);
+}
+function hasDirection(row: object): boolean {
+  return 'direction' in row;
+}
 
 // =============================================================================
 // Fixtures
@@ -250,10 +268,9 @@ describe('2.228-F3 · mapIslFactorFlipValues', () => {
     // publishing one here would assert "this factor flips at its floor".
     expect(row.flip_value).not.toBe(0);
     // ⚠ ISL: "a direction for a flip that does not exist would be a fabricated
-    // claim." The row carries the explicit non-claiming token — NEVER a guess.
-    // (An absent key would be more honest still, but the shared contract types
-    // this field as a required string; see NO_DIRECTION's doc.)
-    expect(row.direction).toBe(NO_DIRECTION);
+    // claim." 2.258: the row now OMITS the key entirely rather than carrying
+    // the retired 'none' token — and it certainly never carries a guess.
+    expectNoDirection(row);
     expect(row.direction).not.toBe('increase');
     expect(row.direction).not.toBe('decrease');
     expect(row.alternative_winner_id).toBeNull();
@@ -272,7 +289,7 @@ describe('2.228-F3 · mapIslFactorFlipValues', () => {
       { graph: GRAPH },
     );
     expect(result!.rows[0].flip_value).toBeNull();
-    expect(result!.rows[0].direction).toBe(NO_DIRECTION);
+    expectNoDirection(result!.rows[0]);
   });
 
   it('ADVERSARIAL — a genuine 0.0 flip value SURVIVES (the sharp edge of absent-not-zero)', () => {
@@ -438,8 +455,9 @@ describe('2.228-F3 · ISL rows through denormaliseFlipThresholds (#298 path)', (
     // current_value still lifts — the factor has a scale even when it cannot flip.
     expect(rows[0].current_value).toBe(275000);
     expect(rows[0].value_scale).toBe('display');
-    // The denormaliser must not resurrect a direction it was never given.
-    expect(rows[0].direction).toBe(NO_DIRECTION);
+    // The denormaliser must not resurrect a direction it was never given —
+    // 2.258: nor materialise the key as an explicit `undefined`.
+    expectNoDirection(rows[0]);
   });
 });
 
@@ -580,7 +598,6 @@ describe('2.228-F3 review S1 · partial_no_effect requires a CLEAN no-effect set
           factor_label: 'F1',
           current_value: 0.5,
           flip_value: null,
-          direction: 'none',
           alternative_winner_id: null,
           alternative_winner_label: null,
           flip_reason: 'non_finite_denormalisation',
@@ -593,10 +610,13 @@ describe('2.228-F3 review S1 · partial_no_effect requires a CLEAN no-effect set
 describe('2.228-F3 review S3 · the direction biconditional holds in BOTH directions', () => {
   const graph = graphOf([cappedNode('fac_annual_staffing_cost')]);
 
-  /** direction === 'none' ⟺ flip_value === null, asserted over a whole corpus. */
+  /**
+   * 2.258: the biconditional is now ABSENCE-based —
+   * `direction` key absent ⟺ `flip_value === null`, over a whole corpus.
+   */
   function assertBiconditional(rows: readonly { direction?: string; flip_value: number | null }[]) {
     for (const r of rows) {
-      expect(r.direction === NO_DIRECTION).toBe(r.flip_value === null);
+      expect(hasDirection(r)).toBe(r.flip_value !== null);
     }
   }
 
@@ -638,7 +658,7 @@ describe('2.228-F3 review S3 · the direction biconditional holds in BOTH direct
       { graph },
     )!;
     expect(result.rows[0].flip_value).toBeNull();
-    expect(result.rows[0].direction).toBe(NO_DIRECTION);
+    expectNoDirection(result.rows[0]);
     expect(result.rows[0].flip_reason).toBe(VALUE_WITHOUT_DIRECTION_REASON);
     expect(result.diagnostics.value_without_direction).toBe(1);
     assertBiconditional(result.rows);
@@ -680,8 +700,8 @@ describe('2.228-F3 review S3 · the direction biconditional holds in BOTH direct
     assertBiconditional(result.rows);
     // Positive control: the corpus really does contain both sides, so the
     // assertion above is not passing over a uniform set.
-    expect(result.rows.some((r) => r.direction === NO_DIRECTION)).toBe(true);
-    expect(result.rows.some((r) => r.direction !== NO_DIRECTION)).toBe(true);
+    expect(result.rows.some((r) => !hasDirection(r))).toBe(true);
+    expect(result.rows.some((r) => hasDirection(r))).toBe(true);
   });
 });
 

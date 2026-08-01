@@ -57,13 +57,17 @@ export interface DenormalisedFlipThreshold {
   /**
    * Direction the factor must move to reach `flip_value`.
    *
-   * ⚠ `'none'` since ROADMAP 2.228-F3: the explicit "no direction is claimed"
-   * token carried on every attested no-flip row, because the shared contract
-   * requires this key to be a string. See the full rationale on
-   * `FlipThresholdInputData.direction` — it is a deliberate compromise, not a
-   * placeholder. `direction === 'none'` ⟺ `flip_value === null`.
+   * ⚠ OPTIONAL since ROADMAP 2.258: an attested no-flip row OMITS this key
+   * rather than carrying the retired `'none'` placeholder. See the full
+   * rationale on `FlipThresholdInputData.direction` and the tombstone in
+   * `integrations/isl/adapters/factor-flip-values.ts`.
+   * `direction === undefined` ⟺ `flip_value === null`.
+   *
+   * Denormalisation changes UNITS, never attestations — so this field is
+   * carried through both paths below by PRESENCE, exactly like
+   * `no_flip_in_range`.
    */
-  direction: 'increase' | 'decrease' | 'none';
+  direction?: 'increase' | 'decrease';
   /** Unit string from observed_state (e.g., "GBP", "%", "months") */
   unit?: string;
   /**
@@ -245,7 +249,10 @@ export function denormaliseFlipThresholds(
       // (normalised) value, which the disclosed flip_reason flags as unmapped.
       current_value: currentValue,
       flip_value: flipValue,
-      direction: flip.direction,
+      // 2.258: carried by PRESENCE so an omitted direction stays omitted.
+      // `direction: flip.direction` would materialise the key as an explicit
+      // `undefined` and read as present to `in`-checks and key manifests.
+      ...(flip.direction !== undefined ? { direction: flip.direction } : {}),
       unit: flip.unit,
       alternative_winner_id: flip.alternative_winner_id ?? null,
       alternative_winner_label: resolveLabel(flip.alternative_winner_id, options),
@@ -285,7 +292,8 @@ function enrichWithLabels(
     factor_label: flip.factor_label,
     current_value: flip.current_value,
     flip_value: flip.flip_value,
-    direction: flip.direction,
+    // 2.258: carried by PRESENCE on the no-range path too (sibling site above).
+    ...(flip.direction !== undefined ? { direction: flip.direction } : {}),
     unit: flip.unit,
     alternative_winner_id: flip.alternative_winner_id ?? null,
     alternative_winner_label: resolveLabel(flip.alternative_winner_id, options),

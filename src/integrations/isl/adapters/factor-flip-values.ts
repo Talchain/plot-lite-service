@@ -29,6 +29,9 @@
 import type { EngineGraphV3, EngineNodeV3 } from '../../../types/engine-v3.js';
 import type { FlipThresholdInputData } from '../../../cee/validation/m1-review-types.js';
 import type { ISLFactorFlipValueV2 } from '../types/isl-types.js';
+// 2.258 rider: the attested-no-flip vocabulary has ONE definition. See the
+// docblock on ATTESTED_NO_FLIP_REASONS below.
+import { NO_EFFECT_REASONS } from '../../../lib/flip-threshold-status.js';
 
 /**
  * Per-factor label source. Only the two fields this adapter reads are
@@ -129,17 +132,31 @@ export const UNATTESTED_REASON = 'unattested';
 export const VALUE_WITHOUT_DIRECTION_REASON = 'value_without_direction';
 
 /**
- * The `direction` token carried by a row with no flip.
+ * ⚠ `NO_DIRECTION` (`'none'`) WAS DELETED HERE BY ROADMAP 2.258. Do not
+ * reintroduce it — this comment is the tombstone, because the token looks like
+ * a harmless enum member and will be "helpfully" re-added otherwise.
  *
- * ⚠ NOT a direction. It is the explicit statement that none is claimed, forced
- * into existence by `@talchain/schemas` typing `flip_thresholds[].direction` as
- * a REQUIRED string. Omitting the key would be more honest and is the rowed
- * end-state; until the schema field is optional, emitting a guessed
- * `'increase'`/`'decrease'` here would be the fabrication ISL's contract
- * forbids, and omitting it would trip the enrichment egress guard on every
- * honest no-flip row. `'none'` is the only option that lies to nobody.
+ * It was never a direction. It was the explicit statement that none is
+ * claimed, forced into existence by `@talchain/schemas` 0.30.0 typing
+ * `flip_thresholds[].direction` as a REQUIRED `z.string()`: omitting the key
+ * made PLoT's own enrichment egress guard stamp `enrichment_contract_ok:
+ * false` and raise ENRICHMENT_CONTRACT_MISMATCH on every run carrying an
+ * honest no-flip — a false alarm on a correct row, which is the broken-alarm
+ * class that teaches reviewers to stop looking. `'none'` was the least-bad
+ * option available at the time and said so in its own docblock, naming the
+ * schema change as its exit condition.
+ *
+ * 0.31.0 delivered that exit condition (`direction: z.string().optional()`,
+ * `dist/boundary/enrichment.js:499`), so the honest rendering is now legal:
+ * an ABSENT key. Absence is what ISL itself does — it emits a direction ONLY
+ * beside a real `flip_value`, on the stated grounds that "a direction for a
+ * flip that does not exist would be a fabricated claim".
+ *
+ * THE INVARIANT MOVED WITH IT: `direction === undefined` ⟺ `flip_value ===
+ * null` on every row this build produces. Consumers must not read absence as
+ * "unknown direction" — pair it with `no_flip_in_range` / `flip_value: null`
+ * to know WHY there is none.
  */
-export const NO_DIRECTION = 'none';
 
 function isFiniteNum(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v);
@@ -257,7 +274,15 @@ export function mapIslFactorFlipValues(
       // be a fiction about how they were obtained.
       iterations_used: 0,
       probes_used: 0,
-      direction,
+      // 2.258: OMITTED when there is no flip, rather than carrying the retired
+      // `'none'` placeholder. Spread-if-present is what makes the key genuinely
+      // absent from the serialized bytes — assigning `direction: undefined`
+      // would still create the property on the object and (via the estate's
+      // key-presence conventions and `'direction' in row` checks) read as
+      // present. Enabled by @talchain/schemas 0.31.0 relaxing the field to
+      // `z.string().optional()`; before that, absence tripped the enrichment
+      // egress guard on every honest no-flip row.
+      ...(direction !== undefined ? { direction } : {}),
       // ⚠ REVIEW S2 — THE STRUCTURAL SIGNAL THAT ENDS THE STRING MIRRORING.
       // CEE currently recognises an attested no-flip by exact-matching
       // `flip_reason === 'no_effect_within_bounds'`
@@ -317,10 +342,20 @@ function normaliseReason(
  * the aggregate verdict, this one owns the per-row boolean, and both must agree
  * on what "attested" means.
  */
-const ATTESTED_NO_FLIP_REASONS = new Set<string>([
-  'no_effect_within_bounds',
-  'structurally_invariant',
-]);
+/**
+ * ⚠ DERIVED, NOT MIRRORED — ROADMAP 2.258 rider.
+ *
+ * This used to be a byte-identical local copy of `NO_EFFECT_REASONS`
+ * (`lib/flip-threshold-status.ts`), the two kept in step by a comment asking
+ * the next editor to remember. They now share ONE set, so a token added to the
+ * classifier's vocabulary reaches this adapter automatically and the pair
+ * cannot silently disagree about what "attested" means.
+ *
+ * The alias is kept because the two names say different true things about the
+ * same set: there it answers "does this row count as a no-effect for the
+ * published status?", here "may this row be stamped `no_flip_in_range`?".
+ */
+const ATTESTED_NO_FLIP_REASONS = NO_EFFECT_REASONS;
 
 /**
  * True when this row is a producer-ATTESTED no-flip — a proven or measured
@@ -359,9 +394,10 @@ function resolveDirection(
   flipValue: number | null,
   reason: string,
   diagnostics: FactorFlipMappingDiagnostics,
-): { direction: 'increase' | 'decrease' | 'none'; flipValue: number | null; reason: string } {
+): { direction?: 'increase' | 'decrease'; flipValue: number | null; reason: string } {
   if (flipValue === null) {
-    return { direction: NO_DIRECTION, flipValue: null, reason };
+    // 2.258: `undefined`, not `'none'`. The caller omits the key entirely.
+    return { direction: undefined, flipValue: null, reason };
   }
 
   const current = entry.current_value;
@@ -382,7 +418,7 @@ function resolveDirection(
   }
 
   diagnostics.value_without_direction++;
-  return { direction: NO_DIRECTION, flipValue: null, reason: VALUE_WITHOUT_DIRECTION_REASON };
+  return { direction: undefined, flipValue: null, reason: VALUE_WITHOUT_DIRECTION_REASON };
 }
 
 function indexNodes(graph: EngineGraphV3 | undefined): Map<string, EngineNodeV3> | undefined {

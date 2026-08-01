@@ -116,8 +116,8 @@ export interface FlipThreshold {
   current_value: number;
   /** Value at which recommendation would flip (null for heuristic approach) */
   flip_value: number | null;
-  /** Direction of change needed */
-  direction: string;
+  /** Direction of change needed. 2.258: absent when there is no flip. */
+  direction?: string;
   /** Plain English explanation */
   plain_english: string;
 }
@@ -298,32 +298,31 @@ export interface FlipThresholdInputData {
   /**
    * Direction the factor must move from `current_value` to reach `flip_value`.
    *
-   * ⚠ `'none'` ADDED BY ROADMAP 2.228-F3, and it is a CONTRACT-SHAPED
-   * COMPROMISE — read this before "simplifying" it away.
+   * ⚠ OPTIONAL SINCE ROADMAP 2.258 — and the ABSENCE IS THE CLAIM. This is the
+   * rowed follow-up the 2.228-F3 note promised, now that its precondition has
+   * shipped.
    *
    * ISL emits a direction ONLY beside a real `flip_value`, on the explicit
    * grounds that "a direction for a flip that does not exist would be a
-   * fabricated claim". The honest rendering is therefore an ABSENT key — but
-   * the shared contract does not permit one: `@talchain/schemas` 0.30.0 types
-   * `EnrichmentFlipThresholdSchema.direction` as a REQUIRED `z.string()`
-   * (`dist/boundary/enrichment.js:473`), so omitting it makes PLoT's own
+   * fabricated claim". The honest rendering is therefore an ABSENT key. Until
+   * 0.31.0 the shared contract did not permit one — `@talchain/schemas` 0.30.0
+   * typed `EnrichmentFlipThresholdSchema.direction` as a REQUIRED `z.string()`
+   * (`dist/boundary/enrichment.js:473`), so omitting it made PLoT's own
    * enrichment egress guard stamp `enrichment_contract_ok: false` and raise
-   * ENRICHMENT_CONTRACT_MISMATCH on every run carrying an attested no-flip —
-   * a false alarm on an honest row, which is the broken-alarm class that
-   * teaches reviewers to stop looking.
+   * ENRICHMENT_CONTRACT_MISMATCH on every run carrying an attested no-flip: a
+   * false alarm on an honest row. The interim `'none'` token existed solely to
+   * dodge that alarm while claiming nothing.
    *
-   * `'none'` threads both: the contract's vocabulary is OPEN (`z.string()`),
-   * so a third token parses, and `'none'` claims nothing — it is the explicit
-   * statement that no direction exists, not a guess at one. It replaces the
-   * retired probe's genuinely misleading behaviour, which stamped a
-   * hypothesised `'increase'`/`'decrease'` (from |elasticity| via
-   * `inferFlipDirection`) on rows it had never resolved.
+   * 0.31.0 relaxes the field to `z.string().optional()`
+   * (`dist/boundary/enrichment.js:499`), so the key is now simply omitted and
+   * `'none'` is DELETED. See the tombstone in
+   * `integrations/isl/adapters/factor-flip-values.ts` before reintroducing it.
    *
-   * INVARIANT: `direction === 'none'` ⟺ `flip_value === null` on every row this
-   * build produces from ISL. Rowed follow-up: make the schema field optional
-   * and drop the key instead.
+   * INVARIANT: `direction === undefined` ⟺ `flip_value === null` on every row
+   * this build produces from ISL. Absence is NOT "unknown direction" — pair it
+   * with `no_flip_in_range` / `flip_value: null` to know why there is none.
    */
-  direction: 'increase' | 'decrease' | 'none';
+  direction?: 'increase' | 'decrease';
   /**
    * Reason for the flip_value result.
    *
@@ -520,7 +519,9 @@ const FlipThresholdSchema = z.object({
   factor_label: z.string(),
   current_value: z.number(),
   flip_value: z.number().nullable(), // PLoT sends null for heuristic approach
-  direction: z.string(),
+  // 2.258: optional, mirroring @talchain/schemas 0.31.0
+  // `EnrichmentFlipThresholdSchema.direction`. A no-flip row omits it.
+  direction: z.string().optional(),
   plain_english: z.string(),
 });
 

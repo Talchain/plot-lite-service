@@ -81,7 +81,7 @@ import { REPAIR_CODES } from '../../normalisation/repair-codes.js';
 import { MAX_CONSTRAINTS } from '../../constants/limits.js';
 import type { RawGoalConstraint, FilteredConstraintRecord, InternalMetadata } from '../../types/engine-v3.js';
 import type { IslThresholdResponse, ThresholdPoint } from '../v1/types/proxy.types.js';
-import { toISLRobustnessRequest, validateISLRequest, buildParameterUncertaintiesV3 } from '../../integrations/isl/translator-v3.js';
+import { toISLRobustnessRequest, validateISLRequest, buildParameterUncertaintiesV3, parseGoalThresholdFrame } from '../../integrations/isl/translator-v3.js';
 import { injectConstraintParameterUncertainties, selectConstraintInjectedPuNodeIds } from '../../integrations/isl/constraint-pu-injection.js';
 import {
   createPreflightLog,
@@ -4998,93 +4998,71 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         }
 
         // =================================================================
-        // Phase 1c+: Auto-constraint fallback from goal_threshold
+        // ROADMAP 2.239: goal-target inputs, resolved ONCE, before the filter
         // =================================================================
-        // When no constraints were extracted (neither explicit goal_constraints
-        // nor graph constraint nodes), but a goal_threshold exists, synthesise
-        // a single constraint so ISL produces constraint_analysis output.
-        // This is a deterministic computation — no LLM call (F.6: PLoT = compute).
-        let autoSynthesisFired = false;
-        if (constraintCompilation.constraints.length === 0) {
-          // Resolve threshold: prefer request-level goal_threshold (already parsed),
-          // fall back to goal_threshold on the raw upstream goal node (CEE may set
-          // it on the node even if the request root field is absent).
-          const nodeGoalThreshold = (() => {
-            const rawGoalNode = (body.graph?.nodes as any[])?.find(
-              (n: any) => n.id === body.goal_node_id
-            );
-            const v = rawGoalNode?.goal_threshold;
-            return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
-          })();
-          const autoThreshold = goalThreshold ?? nodeGoalThreshold;
-
-          if (autoThreshold !== undefined && Number.isFinite(autoThreshold)) {
-            // Synthesise a single >= constraint from goal_threshold.
-            // The _internal namespace carries PLoT metadata through the pipeline
-            // (filter, validation, merge) and is stripped at wire boundaries
-            // (ISL translator). For UI consumers, the canonical provenance signal
-            // is _meta.constraint_sources.
-            const autoConstraint: GoalConstraint & { _internal: InternalMetadata } = {
-              constraint_id: 'auto_goal_threshold',
-              node_id: body.goal_node_id,
-              operator: '>=',
-              value: autoThreshold,
-              label: 'Goal target',
-              _internal: { source: 'auto_from_goal_threshold' },
-            };
-            constraintCompilation.constraints.push(autoConstraint as GoalConstraint);
-            autoSynthesisFired = true;
-            repairs.push({
-              field: 'goal_constraints',
-              action: 'derived',
-              from_value: `goal_threshold=${autoThreshold}`,
-              to_value: 'auto_goal_threshold',
-              reason: 'No goal_constraints provided; auto-generated single constraint from goal_threshold',
-            });
-            req.log.info({
-              event: 'plot.auto_constraint_from_threshold',
-              goal_node_id: body.goal_node_id,
-              threshold: autoThreshold,
-              threshold_source: goalThreshold !== undefined ? 'request' : 'goal_node',
-              action: 'synthesised',
-            });
-          } else {
-            req.log.info({
-              event: 'plot.auto_constraint_from_threshold',
-              goal_node_id: body.goal_node_id,
-              action: 'skipped',
-              reason: 'no_goal_threshold',
-            });
-          }
-        } else {
-          req.log.info({
-            event: 'plot.auto_constraint_from_threshold',
-            goal_node_id: body.goal_node_id,
-            action: 'skipped',
-            reason: 'constraints_present',
-            constraint_count: constraintCompilation.constraints.length,
-          });
-        }
-
-        const clientConstraintCount = body.goal_constraints?.length ?? 0;
-        const compiledSource = autoSynthesisFired
-          ? 'auto_synthesis'
-          : clientConstraintCount > 0
-            ? 'client'
-            : constraintCompilation.constraints.length > 0
-              ? 'graph_node'
-              : 'none';
-        req.log.info(
-          {
-            event: 'constraint-trace.compiled',
-            source: compiledSource,
-            compiled_count: constraintCompilation.constraints.length,
-            client_supplied_count: clientConstraintCount,
-            constraint_ids: constraintCompilation.constraints.map((c) => c.constraint_id),
-            auto_synthesis_fired: autoSynthesisFired,
-          },
-          'Constraint trace: compilation complete',
+        // A goal target can arrive three ways: the request root field, or the
+        // raw upstream goal node's normalised `goal_threshold` / raw
+        // `goal_threshold_raw` (CEE stamps both on the node; the canonical
+        // EngineNodeV3 drops them, which is why they are read off `body.graph`).
+        // Resolved here because two later consumers need them:
+        //   - the auto-synthesis fallback (Phase 1c+, now AFTER the filter)
+        //   - the goal_threshold_no_probability alarm (Phase 3)
+        // Unlike `effectiveGoalThreshold`, these are INPUT facts: nothing
+        // downstream clears them.
+        const rawGoalNode = (body.graph?.nodes as any[])?.find(
+          (n: any) => n.id === body.goal_node_id
         );
+        const asFiniteNumber = (v: unknown): number | undefined =>
+          typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+        const nodeGoalThreshold = asFiniteNumber(rawGoalNode?.goal_threshold);
+        const nodeGoalThresholdRaw = asFiniteNumber(rawGoalNode?.goal_threshold_raw);
+        /**
+         * ROADMAP 2.258 — the producer's FRAME attestation for the goal target.
+         *
+         * Read from the SAME raw goal node as `goal_threshold` above, and for
+         * the same reason: CEE stamps it on the node, and the canonical
+         * EngineNodeV3 the normaliser rebuilds does not carry it, so reading it
+         * off `filteredGraph` would find nothing. `@talchain/schemas` 0.31.0
+         * types it as `NodeV3.goal_threshold_frame` (`dist/graph.js:194`), and
+         * `.data`-nesting is supported here because `normaliseNode` accepts
+         * both spellings for every other CEE-stamped field.
+         *
+         * ⚠ FORWARD-IF-PRESENT, AND PLoT NEVER MINTS ONE. CEE is expected to
+         * stamp this as a code constant, but that had NOT landed when this was
+         * written — so the common case today is legitimately ABSENT, and absent
+         * must stay absent all the way to ISL. Defaulting it would be PLoT
+         * asserting a frame it has no standing to assert: 'delta' silently
+         * restores the pre-2.258 structural zero (the "< 1% chance" untruth this
+         * row exists to kill) and 'level' claims a domain PLoT never checked.
+         *
+         * `parseGoalThresholdFrame` validates against the CONTRACT's own enum,
+         * so a junk value degrades to ABSENT rather than being forwarded — an
+         * unrecognised token would fail ISL's Pydantic validation and turn a
+         * producer typo into a failed analysis instead of a disclosed gap.
+         */
+        const nodeGoalThresholdFrame = parseGoalThresholdFrame(
+          rawGoalNode?.goal_threshold_frame ?? rawGoalNode?.data?.goal_threshold_frame
+        );
+        /**
+         * "The user stated a success target somewhere in this request."
+         *
+         * This is the alarm's gate (Phase 3). The alarm used to be gated on
+         * `effectiveGoalThreshold`, which precedence routing clears — so in
+         * every case the alarm exists to catch, it was silent BY CONSTRUCTION.
+         * That is why the goal-probability gap survived to a live walk under
+         * green CI. Gate on the input, which nothing downstream can clear.
+         */
+        const goalTargetStated =
+          goalThreshold !== undefined ||
+          nodeGoalThreshold !== undefined ||
+          nodeGoalThresholdRaw !== undefined;
+
+        // Auto-synthesis state — populated by Phase 1c+ below (AFTER the
+        // temporal filter). Declared here so the precedence routing and the
+        // ISL request build can read it.
+        let autoSynthesisFired = false;
+        let autoThreshold: number | undefined;
+        const clientConstraintCount = body.goal_constraints?.length ?? 0;
 
         // =================================================================
         // P0-C1: capture producer-declared constraint scales BEFORE they
@@ -5150,6 +5128,118 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         }
 
         // =================================================================
+        // Phase 1c+: Auto-constraint fallback from goal_threshold
+        // =================================================================
+        // When no constraints SURVIVE to the ISL boundary (neither explicit
+        // goal_constraints nor graph constraint nodes), but a goal_threshold
+        // exists, synthesise a single constraint so ISL produces
+        // constraint_analysis output.
+        // This is a deterministic computation — no LLM call (F.6: PLoT = compute).
+        //
+        // ⚠ ROADMAP 2.239 — THIS BLOCK USED TO RUN *BEFORE* THE TEMPORAL FILTER,
+        // and that ordering was the defect. It asked "are there any constraints?"
+        // before the filter had removed the ones ISL cannot evaluate, so a
+        // deadline-bearing constraint that was about to be DELETED still
+        // suppressed the fallback that would have replaced it. Measured live
+        // (2026-08-01 walk, S1): a user who stated "£6M ARR within 12 months"
+        // reached ISL with ZERO constraints AND no threshold — strictly worse
+        // than a user who stated the target with no deadline. The two suites
+        // either side of the hole (tests/auto-constraint-fallback.test.ts,
+        // tests/golden/temporal-filter-e2e.test.ts) never crossed it, which is
+        // how it reached production under green CI.
+        //
+        // Reading the POST-filter set fires in a strict superset of the previous
+        // cases (post-filter-empty ⊇ pre-filter-empty): the only new case is
+        // "non-empty before the filter, empty after" — exactly the defect.
+        if (constraintCompilation.constraints.length === 0) {
+          // Resolve threshold: prefer request-level goal_threshold (already parsed),
+          // fall back to goal_threshold on the raw upstream goal node (CEE may set
+          // it on the node even if the request root field is absent).
+          autoThreshold = goalThreshold ?? nodeGoalThreshold;
+
+          if (autoThreshold !== undefined && Number.isFinite(autoThreshold)) {
+            // Synthesise a single >= constraint from goal_threshold.
+            // The _internal namespace carries PLoT metadata through the pipeline
+            // (filter, validation, merge) and is stripped at wire boundaries
+            // (ISL translator). For UI consumers, the canonical provenance signal
+            // is _meta.constraint_sources.
+            const autoConstraint: GoalConstraint & { _internal: InternalMetadata } = {
+              constraint_id: 'auto_goal_threshold',
+              node_id: body.goal_node_id,
+              operator: '>=',
+              value: autoThreshold,
+              label: 'Goal target',
+              _internal: { source: 'auto_from_goal_threshold' },
+            };
+            // Run the synthesised constraint through the SAME temporal filter the
+            // compiled set went through, so moving this block does not silently
+            // drop the filter's out-of-domain safety gate for it (a synthesised
+            // threshold outside [0,1] must still raise plot.constraint_out_of_domain
+            // and reach `warnings`, exactly as it did when the block ran first).
+            // It can never be DROPPED here: it carries no deadline_metadata and no
+            // unit, so neither drop rule can match.
+            const autoFilterResult = filterTemporalConstraints(
+              [autoConstraint as RawGoalConstraint],
+              filteredGraph.nodes,
+              req.log,
+              goalThresholdMetaByNodeId
+            );
+            constraintCompilation.constraints.push(...autoFilterResult.passed);
+            temporalFilterResult.warnings.push(...autoFilterResult.warnings);
+            autoSynthesisFired = true;
+            repairs.push({
+              field: 'goal_constraints',
+              action: 'derived',
+              from_value: `goal_threshold=${autoThreshold}`,
+              to_value: 'auto_goal_threshold',
+              reason: 'No goal_constraints provided; auto-generated single constraint from goal_threshold',
+            });
+            req.log.info({
+              event: 'plot.auto_constraint_from_threshold',
+              goal_node_id: body.goal_node_id,
+              threshold: autoThreshold,
+              threshold_source: goalThreshold !== undefined ? 'request' : 'goal_node',
+              action: 'synthesised',
+            });
+          } else {
+            autoThreshold = undefined;
+            req.log.info({
+              event: 'plot.auto_constraint_from_threshold',
+              goal_node_id: body.goal_node_id,
+              action: 'skipped',
+              reason: 'no_goal_threshold',
+            });
+          }
+        } else {
+          req.log.info({
+            event: 'plot.auto_constraint_from_threshold',
+            goal_node_id: body.goal_node_id,
+            action: 'skipped',
+            reason: 'constraints_present',
+            constraint_count: constraintCompilation.constraints.length,
+          });
+        }
+
+        const compiledSource = autoSynthesisFired
+          ? 'auto_synthesis'
+          : clientConstraintCount > 0
+            ? 'client'
+            : constraintCompilation.constraints.length > 0
+              ? 'graph_node'
+              : 'none';
+        req.log.info(
+          {
+            event: 'constraint-trace.compiled',
+            source: compiledSource,
+            compiled_count: constraintCompilation.constraints.length,
+            client_supplied_count: clientConstraintCount,
+            constraint_ids: constraintCompilation.constraints.map((c) => c.constraint_id),
+            auto_synthesis_fired: autoSynthesisFired,
+          },
+          'Constraint trace: compilation complete',
+        );
+
+        // =================================================================
         // Phase 1d: Constraint Validation
         // =================================================================
         // Validate compiled + explicit constraints against the filtered graph
@@ -5179,12 +5269,48 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         let activeGoalConstraints: GoalConstraint[] | undefined;
         let effectiveGoalThreshold: number | undefined = goalThreshold;
 
+        /**
+         * ROADMAP 2.239 (hole B). The auto-synthesised constraint is DERIVED FROM
+         * the goal target — it is not a competing user constraint, so it must not
+         * trigger the precedence branch that discards the target.
+         *
+         * Before this fix the fallback destroyed the very threshold it recovered:
+         * one synthesised constraint tripped `constraints.length > 0`, which set
+         * `effectiveGoalThreshold = undefined`, which made the translator omit
+         * `goal_threshold` (translator-v3.ts:534-536), which made ISL skip
+         * `probability_of_goal` (it is gated SOLELY on `request.goal_threshold is
+         * not None` — robustness_analyzer_v2.py:3073-3077 @35149dd1). Net effect,
+         * measured at the outbound request on pristine `2f6e997`: NO request
+         * routed through auto-synthesis has ever produced a goal probability,
+         * deadline or no deadline — including one carrying an explicit
+         * root-level `goal_threshold`.
+         *
+         * Sending both is legal and independently computed by ISL:
+         * `probability_of_goal` (:3073-3077) and `constraint_analysis`
+         * (:3079-3083) sit in the same option loop, neither suppressing the
+         * other, and `RobustnessRequestV2` declares no mutual-exclusion
+         * validator (models/robustness_v2.py:856, :895, :931-938, :994-1002).
+         * ISL is in fact built for the pair: `_align_goal_constraint_samples`
+         * (:3005-3035) exists so a constraint on the goal node and
+         * `probability_of_goal` are computed from IDENTICAL samples.
+         *
+         * `_internal.source` is the unspoofable witness — client-supplied
+         * `_internal` is deleted at ingress (see Phase 1c above), so a
+         * user-supplied constraint that happens to reuse the id
+         * `auto_goal_threshold` (pinned by T9) cannot reach this branch.
+         */
+        const autoSynthesisOnly =
+          autoSynthesisFired &&
+          constraintCompilation.constraints.length === 1 &&
+          (constraintCompilation.constraints[0] as { _internal?: InternalMetadata })
+            ?._internal?.source === 'auto_from_goal_threshold';
+
         if (constraintCompilation.constraints.length > 0) {
           // Multi-constraint path activated
           activeGoalConstraints = constraintCompilation.constraints;
 
           // Check for conflict with goal_threshold
-          if (goalThreshold !== undefined) {
+          if (goalThreshold !== undefined && !autoSynthesisOnly) {
             const goalNodeConstraint = activeGoalConstraints.find(
               c => c.node_id === body.goal_node_id
             );
@@ -5217,13 +5343,20 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             }
           }
 
-          // Clear goal_threshold when using multi-constraint path
+          // Clear goal_threshold when using multi-constraint path.
+          // 2.239: this stays UNCONDITIONAL on purpose. When the only constraint
+          // IS the goal target the threshold is re-established exactly once,
+          // just before the ISL request is built, from the POST-normalisation
+          // constraint value (see "2.239 threshold carry" below). Re-establishing
+          // it here too would create a second, always-overwritten authority — a
+          // hunk that could be reverted without a single test noticing.
           effectiveGoalThreshold = undefined;
 
           req.log.info({
             event: 'multi_constraint_path_activated',
             constraint_count: activeGoalConstraints.length,
             constraint_ids: activeGoalConstraints.map(c => c.constraint_id),
+            goal_threshold_carried: autoSynthesisOnly,
           });
         }
 
@@ -5942,6 +6075,119 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           }
         }
 
+        // === 2.239 threshold carry: derive, never mirror ===============
+        // When the only active constraint is the auto-synthesised goal target,
+        // `goal_threshold` and that constraint's value describe the SAME number
+        // and must be identical on the wire. Phase 4b can re-scale the
+        // constraint value (intervention-scale unification), so take the
+        // threshold FROM the constraint that is actually being sent rather than
+        // from the pre-normalisation copy — otherwise ISL would answer
+        // "P(goal >= T)" and "P(constraint goal >= X)" with two different
+        // numbers in one response.
+        if (autoSynthesisOnly) {
+          const sentAutoConstraint = constraintsForISL?.find(
+            (c) => c.constraint_id === 'auto_goal_threshold'
+          );
+          effectiveGoalThreshold = sentAutoConstraint?.value ?? autoThreshold;
+        }
+
+        // === 2.239-G: refuse a DEGENERATE threshold rather than ask for a
+        // === fabricated certainty ==========================================
+        // ISL computes `probability_of_goal = P(goal_samples >= threshold)` on
+        // the NORMALISED [0,1] goal scale. A threshold sitting on either bound
+        // of that scale answers nothing about the decision:
+        //
+        //   <= 0  → P(goal >= 0) is satisfied by essentially every sample, so
+        //           every option returns ~1.0. That is a confident "100% chance
+        //           of hitting your target" which is really a statement about
+        //           the normalisation FLOOR. Measured on this branch before the
+        //           guard: an input of 0 or -0.2 shipped exactly this.
+        //   >= 1  → P(goal >= max-of-scale): the ceiling-pinned target. CEE's
+        //           own doctrine (`goal-threshold-cap.ts`) names `cap === target`
+        //           forbidden precisely because it "would force
+        //           goal_threshold = 1.0 and kill probability spread"; measured
+        //           live at 0.021 / 0.0 on a decision whose leader wins 95% of
+        //           scenarios.
+        //
+        // Both are degenerate BY CONSTRUCTION — meaningless whenever produced,
+        // not merely when some upstream bug produces them. So this guard does
+        // not depend on any reachability argument, and does not expire when the
+        // CEE cap defect is fixed.
+        //
+        // The honest output is a GAP, not a number: omit the field, and let the
+        // (re-gated) `goal_threshold_no_probability` alarm fire — `goalTargetStated`
+        // is still true, because the user did state a target. An honest "not
+        // available" plus a loud log beats a fabricated certainty; "0%"/"100%"
+        // read as findings, "not available" reads as the gap it is.
+        //
+        // Scope: this guards the field THIS change introduced. The synthesised
+        // `auto_goal_threshold` constraint is still sent, exactly as it was at
+        // base — its degenerate `prob_satisfied` is pre-existing behaviour with
+        // zero UI readers, and narrowing the guard keeps the diff off untested
+        // ground. Rowed, not silently ignored.
+        if (
+          effectiveGoalThreshold !== undefined &&
+          (effectiveGoalThreshold <= 0 || effectiveGoalThreshold >= 1)
+        ) {
+          req.log.warn({
+            event: 'goal_threshold_degenerate_refused',
+            goal_threshold: effectiveGoalThreshold,
+            bound: effectiveGoalThreshold <= 0 ? 'floor' : 'ceiling',
+            goal_target: goalThreshold ?? nodeGoalThreshold ?? nodeGoalThresholdRaw ?? null,
+            reason:
+              effectiveGoalThreshold <= 0
+                ? 'P(goal >= scale floor) is ~1.0 for every option — a fabricated certainty, not a finding'
+                : 'P(goal >= scale ceiling) is degenerate — the target is pinned to the top of its own normalisation range',
+          });
+          effectiveGoalThreshold = undefined;
+        }
+
+        // === 2.258: a threshold that ships WITHOUT a frame is a disclosed gap,
+        // === not a silent one =============================================
+        // THE DECISION (PR body carries the full reasoning). When a goal
+        // threshold survives to the wire but the goal node carried no frame,
+        // PLoT FORWARDS the threshold anyway rather than clearing it.
+        //
+        // The tempting alternative — "unstamped means no computable goal, so
+        // clear it" — is WRONG here, and the reason is a fact about ISL that
+        // must be read at the bytes rather than assumed. ISL does NOT reject an
+        // unstamped request. `_resolve_goal_threshold`
+        // (robustness_analyzer_v2.py:3108-3147 @`29cb4e27`) returns
+        // `(None, warning)`: `probability_of_goal` is OMITTED for every option
+        // and a GOAL_THRESHOLD_FRAME_UNSPECIFIED InferenceWarning rides back at
+        // severity 'warning' — a severity ISL chose deliberately because PLoT
+        // hides 'info'. The run still succeeds.
+        //
+        // So the two options are not "number vs no number". They are:
+        //   forward  → no number, PLUS a named machine-readable reason the user
+        //              can be shown ("no frame was stamped").
+        //   clear    → no number, and ISL sees no threshold at all, so it
+        //              returns `(None, None)` — "nothing to disclose". The gap
+        //              becomes SILENT.
+        // Clearing would buy nothing and destroy the disclosure. That is the
+        // guarantee-theatre trade this estate exists to refuse.
+        //
+        // It is also the CONSISTENT choice: nothing here special-cases the
+        // temporal-filter path. Every path that ships a threshold ships it under
+        // the same rule — frame if the producer stamped one, absent otherwise —
+        // so there is no path-dependent behaviour for a reviewer to hold in
+        // their head, and no second policy to drift.
+        //
+        // This log is PLoT's own witness that it happened, since the ISL warning
+        // is only visible in the response.
+        if (effectiveGoalThreshold !== undefined && nodeGoalThresholdFrame === undefined) {
+          req.log.warn({
+            event: 'goal_threshold_frame_unstamped',
+            goal_node_id: body.goal_node_id,
+            goal_threshold: effectiveGoalThreshold,
+            auto_synthesis_fired: autoSynthesisFired,
+            reason:
+              'Goal node carried no goal_threshold_frame, so goal_threshold ships unstamped. ' +
+              'ISL will OMIT probability_of_goal and return GOAL_THRESHOLD_FRAME_UNSPECIFIED. ' +
+              'PLoT does not guess a frame — the producer must stamp it.',
+          });
+        }
+
         // Build ISL request (using normalised options and constraints)
         // CIL Phase 1: ALWAYS forward seed to ISL for deterministic Monte Carlo runs.
         // Derived seeds must be forwarded to ensure end-to-end determinism: if only computed
@@ -5958,7 +6204,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           plotSeedUsed,  // Always forward PLoT's seed (PLoT is seed authority)
           body.include_path_decomposition === true,  // Lane PLoT-W4: request-gated opt-in, forwarded only on explicit true
           factorParameterUncertainties,  // Reuse the factor PUs already built for the admission plan (same nodes → byte-identical)
-          body.factor_correlations  // Capability #100 (D-23.4): forward client-supplied factor correlations verbatim (request-gated omit inside the translator)
+          body.factor_correlations,  // Capability #100 (D-23.4): forward client-supplied factor correlations verbatim (request-gated omit inside the translator)
+          nodeGoalThresholdFrame  // ROADMAP 2.258: producer-stamped frame, forwarded if present; never minted (see below)
         );
 
         req.log.info(
@@ -6177,10 +6424,25 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               });
             }
 
-            // Warn if goal_threshold is active but ISL didn't return probability_of_goal.
-            // Gate on effectiveGoalThreshold (not original goalThreshold) because
-            // multi-constraint precedence routing intentionally clears the threshold.
-            if (effectiveGoalThreshold !== undefined) {
+            // Warn when the user STATED a success target but ISL returned no
+            // probability_of_goal for some option.
+            //
+            // ⚠ ROADMAP 2.239: this used to be gated on `effectiveGoalThreshold`,
+            // with a comment defending that choice ("multi-constraint precedence
+            // routing intentionally clears the threshold"). That gating made the
+            // alarm SILENT BY CONSTRUCTION in every case it exists to catch —
+            // precedence routing clears `effectiveGoalThreshold` precisely when
+            // the threshold fails to reach ISL, so the one scenario that should
+            // ring is the one scenario that could not. Guarantee theatre: it is
+            // why the 2026-08-01 walk's goal-probability gap reached a live user
+            // under green CI with the alarm already in the code.
+            //
+            // Gate on the INPUT instead — a target stated anywhere in the request
+            // (root field, node `goal_threshold`, or node `goal_threshold_raw`).
+            // Nothing downstream can clear that, so the alarm now fires whenever
+            // a target was stated and no probability came back, whatever the
+            // routing did in between.
+            if (goalTargetStated) {
               const optionData = islResult?.options ?? islResult?.results;
               const optionsWithoutProbGoal = optionData?.filter(
                 (opt: any) => opt.probability_of_goal === undefined || opt.probability_of_goal === null
@@ -6188,7 +6450,17 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               if (optionsWithoutProbGoal && optionsWithoutProbGoal.length > 0) {
                 req.log.warn({
                   event: 'goal_threshold_no_probability',
-                  goal_threshold: effectiveGoalThreshold,
+                  // The threshold actually sent to ISL — null when routing dropped
+                  // it, which is itself the most common cause of this alarm.
+                  goal_threshold: effectiveGoalThreshold ?? null,
+                  // The target the USER stated, which is what makes this a defect.
+                  goal_target: goalThreshold ?? nodeGoalThreshold ?? nodeGoalThresholdRaw ?? null,
+                  goal_target_source:
+                    goalThreshold !== undefined
+                      ? 'request'
+                      : nodeGoalThreshold !== undefined
+                        ? 'goal_node'
+                        : 'goal_node_raw',
                   options_missing_probability: optionsWithoutProbGoal.length,
                 });
               }
