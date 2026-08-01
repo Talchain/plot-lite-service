@@ -23,12 +23,21 @@
  *   6. anything else (verdict-bearing facts missing or
  *      unrecognised)                                        → 'not_assessed'
  *
+ * ⚠ THE REASON HAS A SECOND AXIS SINCE ROADMAP 2.278 — the mapping table above
+ * describes the VERDICT only. The verdict is still derived from robustness
+ * marginals alone and nothing below changes it. But the REASON is additionally
+ * a function of the same run's FLIP EVIDENCE, because the two used to
+ * contradict each other on the wire (see
+ * `ROBUSTNESS_DISPLAY_VERDICT_REASONS_ATTESTED_NO_FLIP` for the full account).
+ * Reason = f(verdict, flip-evidence status); verdict = f(producer facts).
+ *
  * Honesty invariants:
  *  - NEVER a determinate-looking verdict ('robust'/'moderate'/'fragile') when
  *    robustness was not actually computed.
  *  - `confidence` is NEVER an input — the function signature does not accept
  *    it, so confidence alone can never upgrade (or create) a verdict.
  *  - The reason phrases are producer-owned, claim-safe, and carry no numbers.
+ *  - Flip evidence may reword a reason but must NEVER move a verdict.
  */
 
 import type { DenormalisedFlipThreshold } from '../../lib/flip-threshold-denormaliser.js';
