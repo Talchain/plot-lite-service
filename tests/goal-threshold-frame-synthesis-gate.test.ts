@@ -319,6 +319,60 @@ describe('ROADMAP 2.266 — auto-synthesis is gated on the ISL sample frame', ()
   });
 
   // -------------------------------------------------------------------------
+  // T8 — THE ATTESTATION MUST DESCRIBE THE NUMBER BEING SENT.
+  // (Adversarial review of #304, probe-proven on the real route.)
+  // `autoThreshold` resolves request-root FIRST, but the frame is read off the
+  // NODE — so an inconsistent producer could satisfy the gate with a stamp made
+  // about a different number.
+  // -------------------------------------------------------------------------
+  it('T8: root target != node target (frame on the node) — synthesis is REFUSED', async () => {
+    const { isl } = await run(
+      basePayload(
+        { ...GOAL_TARGET_UNSTAMPED, goal_threshold_frame: 'delta' }, // node target 0.8
+        { goal_threshold: 0.9 },                                    // root target 0.9
+      ),
+    );
+
+    const sent = (isl.goal_constraints ?? []) as any[];
+    expect(sent.find((c) => c.constraint_id === 'auto_goal_threshold')).toBeUndefined();
+
+    // The target still reaches ISL — refusing the constraint never withdraws it.
+    expect(isl.goal_threshold).toBe(0.9);
+  });
+
+  it('T8b: CONTROL — root target EQUAL to node target still synthesises', async () => {
+    // The attestation and the value agree, so there is nothing to refuse. This
+    // is what stops T8 passing merely because a root threshold is present.
+    const { isl } = await run(
+      basePayload(
+        { ...GOAL_TARGET_UNSTAMPED, goal_threshold_frame: 'delta' },
+        { goal_threshold: 0.8 },
+      ),
+    );
+
+    const auto = ((isl.goal_constraints ?? []) as any[]).find(
+      (c) => c.constraint_id === 'auto_goal_threshold',
+    );
+    expect(auto).toBeDefined();
+    expect(auto.value).toBe(0.8);
+  });
+
+  it('T8c: CONTROL — a node frame with NO node target covers a root target', async () => {
+    // Not a mismatch: the frame describes what this goal node's samples MEAN,
+    // so it legitimately covers a target supplied at the request root. Only two
+    // PRESENT and UNEQUAL numbers are refused.
+    const { isl } = await run(
+      basePayload({ goal_threshold_frame: 'delta' }, { goal_threshold: 0.8 }),
+    );
+
+    const auto = ((isl.goal_constraints ?? []) as any[]).find(
+      (c) => c.constraint_id === 'auto_goal_threshold',
+    );
+    expect(auto).toBeDefined();
+    expect(auto.value).toBe(0.8);
+  });
+
+  // -------------------------------------------------------------------------
   // T7 — no target at all: unchanged behaviour, and no accidental synthesis
   // just because a frame happens to be stamped.
   // -------------------------------------------------------------------------

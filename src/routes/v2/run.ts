@@ -5102,7 +5102,11 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
          * threshold carry, to keep the target itself on the wire (see there).
          * Values are the diagnostic cause, never a frame PLoT asserts.
          */
-        let autoSynthesisFrameRefusal: 'unattested' | 'level' | undefined;
+        let autoSynthesisFrameRefusal:
+          | 'unattested'
+          | 'level'
+          | 'attestation_mismatch'
+          | undefined;
         const clientConstraintCount = body.goal_constraints?.length ?? 0;
 
         // =================================================================
@@ -5259,29 +5263,82 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           // this branch, which runs only when the compiled set is empty.
           const frameIsSampleFrame = nodeGoalThresholdFrame === 'delta';
 
+          // =============================================================
+          // 2.266 AMENDMENT — THE ATTESTATION MUST BE ABOUT THE NUMBER WE
+          // ARE ACTUALLY SENDING (adversarial review of #304, probe-proven)
+          // =============================================================
+          // `autoThreshold` resolves REQUEST-ROOT first (`goalThreshold ??
+          // nodeGoalThreshold`), but the frame is read off the NODE. So a
+          // producer that sends root `goal_threshold: 0.9` while the node
+          // carries `{goal_threshold: 0.8, goal_threshold_frame: 'delta'}`
+          // would ship `value: 0.9` under an attestation made about 0.8 —
+          // the gate satisfied by a stamp describing a different number.
+          //
+          // Reachability, stated honestly: this needs a producer-inconsistent
+          // caller, and CEE stamps node-only today, so it is not the live
+          // shape. It is closed anyway because the whole point of this row is
+          // that an attestation is only worth what it is attached to.
+          //
+          // ⚠ WHY REFUSE RATHER THAN SYNTHESISE THE NODE'S OWN VALUE (the
+          // other option the review offered). Precedence routing leaves
+          // `effectiveGoalThreshold` at the ROOT value, and the 2.239 carry
+          // below only re-derives it from the constraint when synthesis
+          // fired. Synthesising 0.8 while the root ships 0.9 would put BOTH
+          // numbers on one wire and make ISL answer "P(goal >= 0.9)" and
+          // "P(constraint goal >= 0.8)" in the same response — precisely the
+          // divergence the "derive, never mirror" carry exists to prevent.
+          // Refusing keeps the invariant that the target and the constraint
+          // describe the same number, or there is no constraint.
+          //
+          // A node frame WITHOUT a node threshold is NOT a mismatch: the
+          // frame describes what this goal node's samples mean, so it
+          // legitimately covers a root-supplied target. Only two PRESENT and
+          // UNEQUAL numbers are refused.
+          const targetAttestationMismatch =
+            goalThreshold !== undefined &&
+            nodeGoalThreshold !== undefined &&
+            goalThreshold !== nodeGoalThreshold;
+
+          const synthesisRefusal: 'unattested' | 'level' | 'attestation_mismatch' | undefined =
+            !frameIsSampleFrame
+              ? nodeGoalThresholdFrame === undefined
+                ? 'unattested'
+                : 'level'
+              : targetAttestationMismatch
+                ? 'attestation_mismatch'
+                : undefined;
+
           if (
             autoThreshold !== undefined &&
             Number.isFinite(autoThreshold) &&
-            !frameIsSampleFrame
+            synthesisRefusal !== undefined
           ) {
-            autoSynthesisFrameRefusal =
-              nodeGoalThresholdFrame === undefined ? 'unattested' : 'level';
+            autoSynthesisFrameRefusal = synthesisRefusal;
             req.log.warn({
               event: 'plot.auto_constraint_from_threshold',
               goal_node_id: body.goal_node_id,
               threshold: autoThreshold,
               action: 'refused',
               goal_threshold_frame: nodeGoalThresholdFrame ?? null,
+              refusal: synthesisRefusal,
+              ...(synthesisRefusal === 'attestation_mismatch'
+                ? { root_goal_threshold: goalThreshold, node_goal_threshold: nodeGoalThreshold }
+                : {}),
               reason:
-                autoSynthesisFrameRefusal === 'unattested'
+                synthesisRefusal === 'unattested'
                   ? 'goal_threshold carries no goal_threshold_frame, so the frame it is stated in is unknown. ' +
                     'ISL evaluates goal_constraints against change-from-baseline samples; synthesising an ' +
                     'unattested target would compare a possibly-absolute level against a change. ' +
                     'No constraint synthesised — the joint-goal figure is omitted rather than guessed.'
-                  : 'goal_threshold is attested as a LEVEL, but ISL evaluates goal_constraints against ' +
-                    'change-from-baseline samples and goal_constraints carry no frame field. PLoT cannot ' +
-                    'convert it (no goal-node baseline; ROADMAP 2.281 pending) and will not guess. ' +
-                    'No constraint synthesised — the joint-goal figure is omitted rather than mis-framed.',
+                  : synthesisRefusal === 'level'
+                    ? 'goal_threshold is attested as a LEVEL, but ISL evaluates goal_constraints against ' +
+                      'change-from-baseline samples and goal_constraints carry no frame field. PLoT cannot ' +
+                      'convert it (no goal-node baseline; ROADMAP 2.281 pending) and will not guess. ' +
+                      'No constraint synthesised — the joint-goal figure is omitted rather than mis-framed.'
+                    : 'the request root and the goal node state DIFFERENT goal targets, and the frame is ' +
+                      'stamped on the node. The attestation therefore describes a different number from the ' +
+                      'one auto-synthesis would send. No constraint synthesised — an attestation is only ' +
+                      'worth what it is attached to.',
             });
           } else if (autoThreshold !== undefined && Number.isFinite(autoThreshold)) {
             // Synthesise a single >= constraint from goal_threshold.
