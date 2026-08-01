@@ -7125,11 +7125,19 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                 resolvedFlipData = flipCandidates;
               }
 
-              // Step 3: Denormalise to user units
+              // Step 3: Denormalise to user units.
+              // ROADMAP 2.228 F2: `normalisationContext` is undefined for the
+              // whole V5 request (Phase 4a only fires on out-of-[0,1] option
+              // intervention values), so `filteredGraph` is passed as the
+              // per-factor scale source — the same graph the candidates were
+              // drawn from at :7038, whose nodes carry observed_state.cap /
+              // raw_value. Without it every row ships a normalised [0,1] number
+              // wearing a currency unit.
               flipThresholds = denormaliseFlipThresholds(
                 resolvedFlipData,
                 normalisationContext,
-                normalizedOptions
+                normalizedOptions,
+                filteredGraph
               );
             }
           } catch (err) {
