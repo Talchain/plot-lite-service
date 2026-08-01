@@ -38,6 +38,7 @@ import {
 import {
   __setIslComputeAdmissionForTest,
   __resetIslComputeAdmission,
+  __classifyForTest,
 } from '../src/integrations/isl/compute-admission.js';
 import type {
   ISLComputeAdmission,
@@ -552,11 +553,20 @@ describe('adaptive n_samples via /v2/run (F8 handshake — weighted planning)', 
   // ---------------------------------------------------------------------------
 
   it('ACCEPTANCE (2.260 step 3): with the LIVE v5 advertisement a DEFAULTED analysis plans the full 10,000', async () => {
-    __setIslComputeAdmissionForTest({
-      admission: v5Admission(),
-      skew: false,
-      status: 'ok',
-    });
+    // ⚠ The resolution is DERIVED by running the real classifier over the real
+    // advertised block — never hand-seeded as `{skew: false, status: 'ok'}`.
+    //
+    // This mattered. The first version of this test DID hand-seed that, and it
+    // PASSED against pristine staging `src` (caught in the mutation run): a
+    // hand-seeded `skew: false` sends planSampleDepth down the NON-conservative
+    // legacy fallback, which leaves a defaulted 10,000 untouched on a small
+    // graph. The test asserted 10,000 and got it — for entirely the wrong
+    // reason, proving nothing about v5 being admitted. Driving `classify`
+    // instead makes the assertion depend on the thing under test: on pristine
+    // src this resolves `unknown_version` -> skew -> 4,000 and REDs.
+    __setIslComputeAdmissionForTest(
+      __classifyForTest({ compute_admission: v5Admission() } as never),
+    );
     islCalls = [];
     const res = await app.inject({
       method: 'POST',
@@ -588,7 +598,11 @@ describe('adaptive n_samples via /v2/run (F8 handshake — weighted planning)', 
     // own LIMITS) is what proves the refusal came from the live advertisement.
     const tightened = v5Admission();
     tightened.caps = { ...tightened.caps, max_nodes: 2 };
-    __setIslComputeAdmissionForTest({ admission: tightened, skew: false, status: 'ok' });
+    // Same discipline as above: the resolution is DERIVED from the block by the
+    // real classifier, so this cannot pass on a build that never admits v5.
+    __setIslComputeAdmissionForTest(
+      __classifyForTest({ compute_admission: tightened } as never),
+    );
     islCalls = [];
     const res = await app.inject({
       method: 'POST',
