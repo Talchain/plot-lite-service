@@ -241,6 +241,7 @@ export function applyComplexityBudget(
 import type {
   ISLComputeAdmission,
   ISLComputeAdmissionWeights,
+  ISLComputeAdmissionFormulaParameters,
 } from '../integrations/isl/types/isl-types.js';
 
 /**
@@ -273,47 +274,185 @@ export const V2_WEIGHTED_2026_07_WEIGHT_KEYS = [
 ] as const;
 
 /**
- * Formula-shape version → the EXACT set of advertised `weights` keys that
- * version's estimator consumes. This map is the SINGLE source of truth for the
- * handshake's version guard (ROADMAP 2.260).
+ * The `weights` keys {@link estimateWeightedCostV5} consumes — the COMPLETE set
+ * the `v5-factor-flips-2026-08-01` shape prices. Derived from ISL
+ * `robustness_analyzer_v2.py` `compute_weighted_cost` at PR #119 head
+ * `aba52131`; the same both-directions contract as the v2 list above applies,
+ * and is pinned by the same two independent mechanisms.
  *
- * Two properties follow mechanically from the map's shape, and both exist to
- * kill the hand-maintained-mirror defect class (programme trap 12):
+ * The five keys beyond v2 are the four cost terms v2 never priced
+ * (`evppi_full`, `evpc`, `structural_influence`, `factor_flips`) — the 43%
+ * under-count measured in `measure-2260-skew-fallback.md` §6.2.
+ */
+export const V5_FACTOR_FLIPS_2026_08_01_WEIGHT_KEYS = [
+  'base_per_sample_per_option_per_struct',
+  'evpi_sample_cap',
+  'evpc_coef',
+  'evppi_full_coef',
+  'evppi_null_permutations',
+  'factor_flip_coef',
+  'influence_walk_pool',
+  'sensitivity_coef',
+  'evalue_coef',
+  'bands_coef',
+  'path_coef',
+  'max_decomposition_paths',
+] as const;
+
+/**
+ * The `caps` keys each formula shape's STRUCTURAL gate pre-checks
+ * ({@link checkAdmissionCaps}).
+ *
+ * ⚠ ROADMAP 2.260 — THIS WAS THE SECOND HAND-MAINTAINED MIRROR (trap 12), and
+ * it was flagged as bycatch by PR #302 rather than fixed. `CAP_KEYS` in
+ * compute-admission.ts was a FIXED four-element list while ISL's v5 block
+ * advertises SIX. The two extra caps (`max_control_candidates`,
+ * `max_control_values`) were therefore validated by nothing and enforced by
+ * nothing: a request breaching them was forwarded to ISL and came back as a raw
+ * Pydantic 422 instead of PLoT's structured `GRAPH_TOO_COMPLEX` blocker.
+ * Now version-derived and exact-set-coupled, exactly like the weight keys.
+ */
+export const V2_WEIGHTED_2026_07_CAP_KEYS = [
+  'max_options',
+  'max_nodes',
+  'max_edges',
+  'max_parameter_uncertainties',
+] as const;
+
+/** The six caps ISL's v5 block advertises (live /health, verified 2026-08-01). */
+export const V5_FACTOR_FLIPS_2026_08_01_CAP_KEYS = [
+  'max_options',
+  'max_nodes',
+  'max_edges',
+  'max_parameter_uncertainties',
+  'max_control_candidates',
+  'max_control_values',
+] as const;
+
+/**
+ * Per-TERM structural parameters a formula shape reads from the advertised
+ * `compute_admission.formula_parameters`, keyed by ISL's own term name.
+ *
+ * These are the numbers a term's loop bounds ITSELF by — as opposed to the
+ * per-phase coefficients in `weights`. PLoT hard-codes only the term's SHAPE;
+ * every number comes from the live advertisement.
+ */
+export const SENSITIVITY_FORMULA_PARAMETERS = ['subsample_cap', 'subsample_divisor'] as const;
+export const FACTOR_FLIPS_FORMULA_PARAMETERS = ['max_candidates', 'stability_seeds'] as const;
+
+/**
+ * The signature every version's cost estimator satisfies. `formulaParameters`
+ * is passed SEPARATELY from `weights` (rather than the estimator reaching into
+ * the admission block) so the handshake test can wrap EACH object in its own
+ * recording Proxy and prove no undeclared number is read from either.
+ */
+export type WeightedCostEstimator = (
+  req: WeightedCostRequest,
+  weights: ISLComputeAdmissionWeights,
+  formulaParameters: ISLComputeAdmissionFormulaParameters,
+) => number;
+
+/** Everything PLoT needs in order to plan against one advertised formula shape. */
+export interface ComplexityFormulaSpec {
+  /** The EXACT `weights` key set this shape's estimator prices. */
+  readonly weightKeys: ReadonlySet<string>;
+  /** The EXACT `caps` key set this shape's structural gate pre-checks. */
+  readonly capKeys: ReadonlySet<string>;
+  /** term name → the EXACT parameter names this shape reads for that term. */
+  readonly formulaParameters: ReadonlyMap<string, ReadonlySet<string>>;
+  /** The cost model itself. */
+  readonly estimate: WeightedCostEstimator;
+}
+
+/**
+ * Formula-shape version → EVERYTHING that version's planner needs. The SINGLE
+ * source of truth for the handshake's version guard (ROADMAP 2.260).
+ *
+ * Four properties follow mechanically from the map's shape, and all four exist
+ * to kill the hand-maintained-mirror defect class (programme trap 12):
  *
  *  1. {@link KNOWN_COMPLEXITY_FORMULA_VERSIONS} is DERIVED from these keys, so a
- *     version can never be admitted without also declaring which coefficients
- *     its estimator prices — "just add the version string" is not expressible.
+ *     version can never be admitted without also declaring what it prices —
+ *     "just add the version string" is not expressible.
  *  2. The resolver (compute-admission.ts `classify`) compares ISL's ADVERTISED
- *     weight keys against this set and treats any UNEXPECTED key as skew
+ *     weight keys against `weightKeys` and treats any UNEXPECTED key as skew
  *     (`unknown_weight_keys`). An unrecognised coefficient is precisely the
- *     signal that ISL's cost formula grew a term PLoT does not price, and it is
- *     DERIVED from the live payload rather than remembered — so the drift is
- *     caught at the seam, at the moment it happens, with nobody maintaining a
- *     list. Without it a same-version term addition under-prices SILENTLY and
- *     converts a safe conservative fallback into a pass-then-422.
+ *     signal that ISL's cost formula grew a term PLoT does not price, DERIVED
+ *     from the live payload rather than remembered. Without it a same-version
+ *     term addition under-prices SILENTLY and converts a safe conservative
+ *     fallback into a pass-then-422.
+ *  3. `capKeys` gets the identical exact-set treatment, retiring the fixed
+ *     four-element `CAP_KEYS` list.
+ *  4. `formulaParameters` is the FAIL-CLOSED half. A shape whose estimator needs
+ *     a per-term constant declares it here, and the resolver refuses to admit
+ *     the version until the live advertisement carries it
+ *     (`missing_formula_parameters`). PLoT therefore NEVER substitutes a
+ *     hard-coded value for a number ISL has not published — which is what makes
+ *     this change safe to deploy in EITHER order relative to ISL PR #119, and
+ *     what makes a future ISL parameter REMOVAL degrade loudly instead of
+ *     silently mis-pricing.
+ *
+ * ⚠ CONSEQUENCE WORTH KNOWING BEFORE YOU EDIT (disclosed for reviewers): because
+ * `formulaParameters` is exact-set-coupled like `weights`, ISL adding a NEW
+ * parameter under this version — even a harmless one — drops PLoT to its
+ * conservative fallback until PLoT declares it. ISL PR #119 chose
+ * `formula_parameters` as a SIBLING of `weights` specifically to avoid that
+ * lockstep, and its docstring states "PLoT cannot detect their addition". After
+ * this change PLoT CAN, and does. The divergence is deliberate: every parameter
+ * addition under a priced term means PLoT's hard-coded shape for that term is
+ * now incomplete, which is a wrong-number hazard, and this programme's standing
+ * rule is that a mirror must fail LOUD on drift rather than assume-good. The
+ * cost is a loud, safe, one-line-recoverable fallback on a purely cosmetic ISL
+ * addition. If that trade is ever judged wrong, relax the UNEXPECTED-parameter
+ * check only — never the REQUIRED-parameter check, which is the fail-closed pin.
  */
-export const COMPLEXITY_FORMULA_WEIGHT_KEYS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
-  ['v2-weighted-2026-07', new Set<string>(V2_WEIGHTED_2026_07_WEIGHT_KEYS)],
+export const COMPLEXITY_FORMULA_SPECS: ReadonlyMap<string, ComplexityFormulaSpec> = new Map<
+  string,
+  ComplexityFormulaSpec
+>([
+  [
+    'v2-weighted-2026-07',
+    {
+      weightKeys: new Set<string>(V2_WEIGHTED_2026_07_WEIGHT_KEYS),
+      capKeys: new Set<string>(V2_WEIGHTED_2026_07_CAP_KEYS),
+      formulaParameters: new Map<string, ReadonlySet<string>>([
+        ['sensitivity', new Set<string>(SENSITIVITY_FORMULA_PARAMETERS)],
+      ]),
+      estimate: estimateWeightedCostV2,
+    },
+  ],
+  [
+    'v5-factor-flips-2026-08-01',
+    {
+      weightKeys: new Set<string>(V5_FACTOR_FLIPS_2026_08_01_WEIGHT_KEYS),
+      capKeys: new Set<string>(V5_FACTOR_FLIPS_2026_08_01_CAP_KEYS),
+      formulaParameters: new Map<string, ReadonlySet<string>>([
+        ['factor_flips', new Set<string>(FACTOR_FLIPS_FORMULA_PARAMETERS)],
+        ['sensitivity', new Set<string>(SENSITIVITY_FORMULA_PARAMETERS)],
+      ]),
+      estimate: estimateWeightedCostV5,
+    },
+  ],
 ]);
 
 /**
+ * Version → its exact priced `weights` key set. A DERIVED VIEW of
+ * {@link COMPLEXITY_FORMULA_SPECS} (the shape PR #302 introduced), retained
+ * because the resolver and its pins read it directly.
+ */
+export const COMPLEXITY_FORMULA_WEIGHT_KEYS: ReadonlyMap<string, ReadonlySet<string>> = new Map(
+  [...COMPLEXITY_FORMULA_SPECS].map(([version, spec]) => [version, spec.weightKeys]),
+);
+
+/**
  * Formula-shape versions PLoT knows how to plan against — DERIVED from
- * {@link COMPLEXITY_FORMULA_WEIGHT_KEYS}, never hand-listed. The shape
- * implemented by {@link estimateWeightedCostV2} is `v2-weighted-2026-07`. An
- * advertised version NOT in this set is treated as skew → fail-loud
- * conservative fallback. This lists only the SHAPES PLoT has code for; the
- * numeric coefficients still come from the live `weights`.
- *
- * ⚠ ISL staging currently advertises `v5-factor-flips-2026-08-01`, which is NOT
- * here and deliberately so: its cost formula carries four terms PLoT does not
- * price (full-population EVPPI, EVPC, structural influence, factor flips).
- * Admitting it without an `estimateWeightedCostV5` would under-count the true
- * cost by ~43% on a typical graph and turn a conservative fallback into a
- * pass-then-422. See ROADMAP 2.260 and the PR that added this note for why the
- * v5 estimator could not be completed from ISL's advertised contract.
+ * {@link COMPLEXITY_FORMULA_SPECS}, never hand-listed. An advertised version NOT
+ * in this set is treated as skew → fail-loud conservative fallback. This lists
+ * only the SHAPES PLoT has code for; every numeric coefficient and per-term
+ * parameter still comes from the live advertisement at runtime.
  */
 export const KNOWN_COMPLEXITY_FORMULA_VERSIONS: ReadonlySet<string> = new Set(
-  COMPLEXITY_FORMULA_WEIGHT_KEYS.keys(),
+  COMPLEXITY_FORMULA_SPECS.keys(),
 );
 
 /**
@@ -371,6 +510,81 @@ export interface WeightedCostRequest {
   includeEValues: boolean;
   /** Path decomposition priced iff include_path_decomposition (request-gated). */
   includePathDecomposition: boolean;
+  /**
+   * v5+: factor flips priced iff include_factor_flips. PLoT sends this
+   * UNCONDITIONALLY on every base call (`translator-v3.ts:634`), so the term is
+   * always in ISL's real price — it is not optional and must not be skipped.
+   * Pinned against the translator by `tests/isl-cost-request-shape.test.ts`.
+   */
+  includeFactorFlips: boolean;
+  /**
+   * v5+: Σ over control candidates of `len(candidate.values)` — the EVPC do()
+   * grid size. ISL prices `evpc_coef·S·W·gridPoints` whenever the request
+   * carries control candidates (NOT gated on include_voi).
+   *
+   * ⚠ PLoT sends NO `control_candidates` today — the field does not exist in the
+   * outbound request type (`ISLRobustnessRequestV3`) or anywhere in `src/` — so
+   * this is structurally 0 on every real call. It is modelled anyway because the
+   * coefficient IS advertised and must be priced the moment a caller can supply
+   * a grid; shipping the term now means the wiring cannot be added without the
+   * cost following it. The zero is pinned, not assumed:
+   * `tests/isl-cost-request-shape.test.ts` REDs if the translator ever starts
+   * sending control candidates while this stays hard-zero.
+   */
+  controlGridPoints: number;
+}
+
+/**
+ * Read a per-term structural parameter from the ADVERTISED `formula_parameters`.
+ *
+ * There is deliberately NO default and NO fallback constant: a version that
+ * needs a parameter declares it in {@link COMPLEXITY_FORMULA_SPECS} and the
+ * resolver refuses to admit that version until the live advertisement carries
+ * it. If this ever throws, a caller has bypassed the resolver — which is a bug,
+ * not a condition to paper over with ISL's constant copied into PLoT.
+ */
+function coefficient(weights: ISLComputeAdmissionWeights, key: string): number {
+  const value = (weights as unknown as Record<string, unknown>)[key];
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(
+      `ISL compute_admission.weights.${key} is absent or non-finite — this version must not have been admitted`,
+    );
+  }
+  return value;
+}
+
+function formulaParameter(
+  params: ISLComputeAdmissionFormulaParameters,
+  term: 'factor_flips' | 'sensitivity',
+  name: string,
+): number {
+  const group = (params as unknown as Record<string, Record<string, number> | undefined>)[term];
+  const value = group?.[name];
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(
+      `ISL formula_parameters.${term}.${name} is absent or non-finite — this version must not have been admitted`,
+    );
+  }
+  return value;
+}
+
+/**
+ * The edge-sensitivity sub-sweep depth, `min(cap, ⌊S/divisor⌋)`.
+ *
+ * ⚠ ROADMAP 2.260 — both numbers WERE HARD-CODED here as `min(100, ⌊S/10⌋)`.
+ * ISL's completeness audit (PR #119) found the same two literals bare in three
+ * places inside its own cost model, so a retune of the sub-sweep would have
+ * silently mis-priced this term for every consumer. They are now advertised at
+ * `formula_parameters.sensitivity` and read at runtime. Shared by BOTH
+ * estimators so there is exactly one implementation of the sub-sweep shape.
+ */
+function sensitivitySubsampleDepth(
+  nSamples: number,
+  params: ISLComputeAdmissionFormulaParameters,
+): number {
+  const cap = formulaParameter(params, 'sensitivity', 'subsample_cap');
+  const divisor = formulaParameter(params, 'sensitivity', 'subsample_divisor');
+  return Math.min(cap, Math.floor(nSamples / divisor));
 }
 
 /**
@@ -382,15 +596,17 @@ export interface WeightedCostRequest {
  *
  *   cost = base·S·O·W                                        (base MC, always)
  *        + (U+1)·min(S, evpi_sample_cap)·O·W                 (EVPI, if include_voi & U>0)
- *        + sensitivity_coef·E·min(100, ⌊S/10⌋)·W             (edge sensitivity)
+ *        + sensitivity_coef·E·min(cap, ⌊S/divisor⌋)·W        (edge sensitivity)
  *        + evalue_coef·E·O                                   (e-values)
  *        + bands_coef·E·O                                    (bands, ride on e-values)
  *        + path_coef·min(max_decomposition_paths, E·E)       (path decomposition)
- *   where W = N + E (per-evaluate structural work).
+ *   where W = N + E (per-evaluate structural work), and the sensitivity
+ *   sub-sweep cap/divisor come from the advertised `formula_parameters`.
  */
 export function estimateWeightedCostV2(
   req: WeightedCostRequest,
   weights: ISLComputeAdmissionWeights,
+  formulaParameters: ISLComputeAdmissionFormulaParameters,
 ): number {
   const S = req.nSamples;
   const O = req.optionCount;
@@ -405,7 +621,7 @@ export function estimateWeightedCostV2(
     cost += (U + 1) * Math.min(S, weights.evpi_sample_cap) * O * W;
   }
   if (req.includeSensitivity) {
-    cost += weights.sensitivity_coef * E * Math.min(100, Math.floor(S / 10)) * W;
+    cost += weights.sensitivity_coef * E * sensitivitySubsampleDepth(S, formulaParameters) * W;
   }
   if (req.includeEValues) {
     cost += weights.evalue_coef * E * O;
@@ -413,6 +629,102 @@ export function estimateWeightedCostV2(
   }
   if (req.includePathDecomposition) {
     cost += weights.path_coef * Math.min(weights.max_decomposition_paths, E * E);
+  }
+  return cost;
+}
+
+/**
+ * Weighted compute-admission cost for the `v5-factor-flips-2026-08-01` shape.
+ *
+ * Derived TERM BY TERM from ISL `src/services/robustness_analyzer_v2.py`
+ * `compute_weighted_cost` at PR #119 head `aba52131` (line refs below are that
+ * file). As with v2, this hard-codes ONLY the structural shape — which
+ * advertised number multiplies what — and never a numeric value.
+ *
+ *   cost = base·S·O·W                                     :511  base MC, always
+ *        + (U+1)·min(S, evpi_sample_cap)·O·W              :527  EVPI, if voi & U>0
+ *        + evppi_full_coef·U·(1+K)·S                      :529  full-pop EVPPI, ditto
+ *        + evpc_coef·S·W·gridPoints                       :543  EVPC, if grid > 0
+ *        + sensitivity_coef·E·min(cap, ⌊S/divisor⌋)·W     :547  edge sensitivity
+ *        + influence_walk_pool                            :559  structural influence
+ *        + evalue_coef·E·O                                :566  e-values
+ *        + bands_coef·E·O                                 :567  bands
+ *        + factor_flip_coef·O·(1+2N+2C·(max(O−1,0)+B))·W  :578  factor flips
+ *        + path_coef·min(max_decomposition_paths, E·E)    :582  path decomposition
+ *
+ * where K = `evppi_null_permutations`, C = `formula_parameters.factor_flips
+ * .max_candidates`, B = `.stability_seeds`, and W = N + E.
+ *
+ * Four of these terms did not exist in v2 (`evppi_full`, `evpc`,
+ * `structural_influence`, `factor_flips`) — the measured 43% under-count that
+ * made admitting v5 unsafe until now
+ * (`PHASE0-EVIDENCE-2026-07-28/measure-2260-skew-fallback.md` §6.2).
+ *
+ * ⚠ Three gating subtleties, each mirrored deliberately from ISL's source
+ * rather than assumed — getting any of them wrong under-prices silently:
+ *  - `evppi_full` shares EVPI's gate (`include_voi` AND U>0) but has NO `O`
+ *    factor: ISL shares one multi-RHS SVD across options (:534-536).
+ *  - `structural_influence` is gated on sensitivity AND U>0, and NOT on
+ *    `include_voi` (:557-559) — a different gate from EVPI's.
+ *  - `evpc` is gated on the control grid ALONE, NOT on `include_voi` (:539-541);
+ *    control is a distinct capability from information.
+ */
+export function estimateWeightedCostV5(
+  req: WeightedCostRequest,
+  weights: ISLComputeAdmissionWeights,
+  formulaParameters: ISLComputeAdmissionFormulaParameters,
+): number {
+  const S = req.nSamples;
+  const O = req.optionCount;
+  const N = req.nodeCount;
+  const E = req.edgeCount;
+  const W = N + E;
+  const U = req.uniqueParamUncertainties;
+
+  // Every coefficient is read through `coefficient()` rather than by direct
+  // property access. Five of v5's twelve keys are OPTIONAL on
+  // ISLComputeAdmissionWeights (a v2 block does not carry them), so direct
+  // access would yield `undefined` -> NaN on a mis-admitted block — a plan built
+  // on NaN collapses to the sample floor SILENTLY, which is this lane's own
+  // defect class. The guard converts that into a loud throw the planner catches.
+  let cost = coefficient(weights, 'base_per_sample_per_option_per_struct') * S * O * W;
+
+  if (req.includeVoi && U > 0) {
+    cost += (U + 1) * Math.min(S, coefficient(weights, 'evpi_sample_cap')) * O * W;
+    // Full-population EVPPI (S2 regression) — runs on the FULL S, never the
+    // EVPI subsample, and is deliberately O-flat.
+    const K = coefficient(weights, 'evppi_null_permutations');
+    cost += coefficient(weights, 'evppi_full_coef') * U * (1 + K) * S;
+  }
+  if (req.controlGridPoints > 0) {
+    cost += coefficient(weights, 'evpc_coef') * S * W * req.controlGridPoints;
+  }
+  if (req.includeSensitivity) {
+    cost +=
+      coefficient(weights, 'sensitivity_coef') *
+      E *
+      sensitivitySubsampleDepth(S, formulaParameters) *
+      W;
+    // Structural influence — a FLAT charge at the request-wide walk-pool
+    // ceiling, not a per-unit coefficient.
+    if (U > 0) {
+      cost += coefficient(weights, 'influence_walk_pool');
+    }
+  }
+  if (req.includeEValues) {
+    cost += coefficient(weights, 'evalue_coef') * E * O;
+    cost += coefficient(weights, 'bands_coef') * E * O;
+  }
+  if (req.includeFactorFlips) {
+    const C = formulaParameter(formulaParameters, 'factor_flips', 'max_candidates');
+    const B = formulaParameter(formulaParameters, 'factor_flips', 'stability_seeds');
+    const evaluates = O * (1 + 2 * N + 2 * C * (Math.max(O - 1, 0) + B));
+    cost += coefficient(weights, 'factor_flip_coef') * evaluates * W;
+  }
+  if (req.includePathDecomposition) {
+    cost +=
+      coefficient(weights, 'path_coef') *
+      Math.min(coefficient(weights, 'max_decomposition_paths'), E * E);
   }
   return cost;
 }
@@ -515,22 +827,94 @@ export function planSampleDepth(
   admission: ISLComputeAdmission | null,
   opts: PlanSampleDepthOptions = {},
 ): DepthPlanDecision {
-  if (admission && KNOWN_COMPLEXITY_FORMULA_VERSIONS.has(admission.complexity_formula_version)) {
-    return planWeighted(input, admission);
+  const weighted = admission === null ? null : tryPlanWeighted(input, admission);
+  return weighted ?? planLegacyFallback(input, opts.conservative ?? true);
+}
+
+/**
+ * Attempt weighted planning; return `null` when this admission cannot be priced,
+ * so the caller falls back conservatively.
+ *
+ * ⚠ THIS IS THE FAIL-CLOSED GATE, and it is deliberately belt-AND-braces with
+ * the resolver. `compute-admission.ts` classify() already refuses to hand over a
+ * block whose version is unknown, whose coefficients are missing, or whose
+ * per-term `formula_parameters` are absent — but `planSampleDepth` is exported
+ * and takes an admission argument directly, so it re-derives the guarantee here
+ * rather than trusting its caller. Three ways out, all to the conservative
+ * fallback, none of them silent about the depth (PR #302 made the reduction
+ * loud on the wire):
+ *
+ *  1. no spec for the advertised version — PLoT has no estimator for that shape;
+ *  2. a required per-term parameter is missing from `formula_parameters` — this
+ *     is the DEPLOY-ORDER case. PLoT deployed ahead of ISL PR #119 reads a v5
+ *     block with NO `formula_parameters` and lands here, priced by nobody,
+ *     rather than substituting ISL's constants from memory;
+ *  3. the estimator threw or produced a non-finite cost — a NaN cost would
+ *     otherwise sail through every `<=` comparison in the binary search below
+ *     and collapse the plan to ADAPTIVE_N_SAMPLES_FLOOR, i.e. a silent
+ *     1,000-sample run. Refusing to plan is strictly safer than planning on NaN.
+ */
+function tryPlanWeighted(
+  input: DepthPlanInput,
+  admission: ISLComputeAdmission,
+): DepthPlanDecision | null {
+  const spec = COMPLEXITY_FORMULA_SPECS.get(admission.complexity_formula_version);
+  if (spec === undefined) return null;
+  if (!hasRequiredFormulaParameters(spec, admission)) return null;
+
+  const params = admission.formula_parameters ?? {};
+  const weights = admission.weights;
+  const costAt = (s: number): number => spec.estimate({ ...input, nSamples: s }, weights, params);
+
+  let requestedCost: number;
+  try {
+    requestedCost = costAt(input.nSamples);
+  } catch {
+    return null;
   }
-  return planLegacyFallback(input, opts.conservative ?? true);
+  if (!Number.isFinite(requestedCost)) return null;
+
+  return planWeighted(input, admission, costAt, requestedCost);
+}
+
+/**
+ * Is every per-term parameter this formula shape's estimator reads present and
+ * finite in the live advertisement? Mirrors the resolver's check so a direct
+ * caller of {@link planSampleDepth} gets the same fail-closed guarantee.
+ */
+export function hasRequiredFormulaParameters(
+  spec: ComplexityFormulaSpec,
+  admission: ISLComputeAdmission,
+): boolean {
+  if (spec.formulaParameters.size === 0) return true;
+  const advertised = admission.formula_parameters as
+    | Record<string, Record<string, unknown> | undefined>
+    | undefined;
+  if (!advertised || typeof advertised !== 'object') return false;
+  for (const [term, names] of spec.formulaParameters) {
+    const group = advertised[term];
+    if (!group || typeof group !== 'object') return false;
+    for (const name of names) {
+      if (!isFiniteNumberValue(group[name])) return false;
+    }
+  }
+  return true;
+}
+
+function isFiniteNumberValue(v: unknown): boolean {
+  return typeof v === 'number' && Number.isFinite(v);
 }
 
 /** Weighted planning against the live advertised ceiling + weights. */
-function planWeighted(input: DepthPlanInput, admission: ISLComputeAdmission): DepthPlanDecision {
+function planWeighted(
+  input: DepthPlanInput,
+  admission: ISLComputeAdmission,
+  costAt: (s: number) => number,
+  requestedCost: number,
+): DepthPlanDecision {
   const ceiling = resolveWeightedCostCeiling(admission.max_cost_units);
-  const weights = admission.weights;
   const requested = input.nSamples;
 
-  const costAt = (s: number): number =>
-    estimateWeightedCostV2({ ...input, nSamples: s }, weights);
-
-  const requestedCost = costAt(requested);
   if (requestedCost <= ceiling) {
     return { kind: 'unchanged', nSamples: requested, cost: requestedCost, ceiling, mode: 'weighted' };
   }

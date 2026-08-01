@@ -1,9 +1,11 @@
 /**
  * P1: Prometheus Histogram Registry
  * Production-safe metrics with bounded label cardinality
- * 
+ *
  * PR-1: Added Counter class for circuit breaker events (always-on)
  */
+
+import type { AdmissionSkewReason } from '../integrations/isl/compute-admission.js';
 
 interface HistogramBucket {
   le: number;
@@ -216,6 +218,13 @@ let islRobustnessAnalysisCounter: CounterMetric | null = null;
 let islLatencyHistogram: HistogramMetric | null = null;
 // Codex F8 handshake — ISL /health compute-admission version-skew signal
 let islAdmissionVersionSkewCounter: CounterMetric | null = null;
+// ROADMAP 2.260 — ISL advertised a formula_parameters GROUP PLoT does not price.
+// Deliberately NOT a label on the skew counter above: this state is ADMITTED, not
+// skewed, and folding an admitted state into a counter named "version_skew_total"
+// would make that alarm mean two different things — the broken-alarm failure this
+// programme keeps paying for. It also keeps the post-deploy check honest ("the
+// skew counter should stop incrementing") by not polluting it.
+let islForeignFormulaParameterGroupsCounter: CounterMetric | null = null;
 
 // Meta-reasoning quality metrics
 let metaQualityHistogram: HistogramMetric | null = null;
@@ -336,6 +345,19 @@ export function initializeHistograms(): void {
     'Total detections of ISL compute-admission handshake skew (fail-loud fallback engaged)',
     // Label values are the AdmissionSkewReason union — see recordIslAdmissionVersionSkew below.
     ['reason']
+  );
+
+  // ROADMAP 2.260. Incremented when ISL advertises a whole formula_parameters
+  // group PLoT's estimator does not price, under a version it CAN otherwise
+  // plan. This is an ADVISORY: the advertisement is still admitted and the full
+  // depth is still planned. Deliberately UNLABELLED — the offending group names
+  // are ISL-controlled strings and would be unbounded label cardinality; they
+  // are carried in the `isl_admission_foreign_formula_parameter_groups` warning,
+  // which is where anyone diagnosing this would look anyway.
+  islForeignFormulaParameterGroupsCounter = new CounterMetric(
+    'plot_engine_isl_admission_foreign_formula_parameter_groups_total',
+    'Total detections of an advertised formula_parameters group PLoT does not price (admitted, advisory)',
+    []
   );
 
   // Meta-reasoning quality metrics
@@ -471,10 +493,24 @@ export function observeIslLatency(operation: 'validation' | 'sensitivity' | 'fac
 }
 
 // Codex F8 handshake: record a compute-admission version-skew detection.
-export function recordIslAdmissionVersionSkew(
-  reason: 'unreachable' | 'missing_block' | 'unknown_version' | 'unknown_weight_keys',
-): void {
+/**
+ * ROADMAP 2.260 — the label type is IMPORTED from the resolver, not restated.
+ * It used to be a hand-copied union here, i.e. a third copy of the same list
+ * (trap 12): adding a skew reason left this signature silently narrower, and the
+ * new reason could not be recorded. `import type` is erased at compile time, so
+ * this creates no runtime import cycle with compute-admission.ts.
+ */
+export function recordIslAdmissionVersionSkew(reason: AdmissionSkewReason): void {
   islAdmissionVersionSkewCounter?.inc({ reason });
+}
+
+/**
+ * ROADMAP 2.260 — ISL advertised a whole `formula_parameters` group this
+ * version's estimator does not price. ADVISORY, not skew: the block is still
+ * admitted and the full depth is still planned.
+ */
+export function recordIslForeignFormulaParameterGroups(): void {
+  islForeignFormulaParameterGroupsCounter?.inc({});
 }
 
 // Meta-reasoning quality metrics recording functions
@@ -584,6 +620,11 @@ export function renderHistograms(): string {
     lines.push(islAdmissionVersionSkewCounter.render());
   }
 
+  // ROADMAP 2.260: foreign formula_parameters group advisory
+  if (islForeignFormulaParameterGroupsCounter) {
+    lines.push(islForeignFormulaParameterGroupsCounter.render());
+  }
+
   // Meta-reasoning quality metrics
   if (metaQualityHistogram) {
     lines.push(metaQualityHistogram.render());
@@ -627,6 +668,7 @@ export function resetHistograms(): void {
   islRobustnessAnalysisCounter?.reset();
   islLatencyHistogram?.reset();
   islAdmissionVersionSkewCounter?.reset();
+  islForeignFormulaParameterGroupsCounter?.reset();
   // Meta-reasoning quality metrics
   metaQualityHistogram?.reset();
   metaConfidenceCounter?.reset();

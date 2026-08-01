@@ -76,6 +76,19 @@ export interface ISLNodeV3 {
     cap?: number;
     factor_type?: string;
     uncertainty_drivers?: string[];
+    /**
+     * CEE-origin fields PLoT's normaliser does not currently produce, but which
+     * ISL's `ObservedState` declares and the projection allowlist forwards.
+     *
+     * ⚠ ROADMAP 2.274 — these were MISSING from this type while present on
+     * `ISL_DECLARED_OBSERVED_STATE_FIELDS`, and the `as` cast in
+     * toISLObservedState erased the discrepancy: had a PLoT observed_state ever
+     * carried them they would have gone on the wire untyped and unnoticed. The
+     * two are now pinned to each other at COMPILE time (see the list below), so
+     * this class of divergence cannot recur silently.
+     */
+    source?: string;
+    extractionType?: string;
   };
   intercept?: number;
   epsilon_std?: number;
@@ -260,16 +273,36 @@ export interface ISLRobustnessRequestV3 {
  * fields PLoT's normaliser does not carry, so they are absent here by
  * construction rather than by exclusion.
  *
- * ⚠ THIS LIST IS A HAND-MAINTAINED MIRROR of another repo's model, and it
- * cannot fail loud from inside PLoT today. Its drift is asymmetric: if ISL ADDS
- * a field, PLoT silently stops forwarding something ISL would now accept (an
- * under-send, not a contract break); if ISL REMOVES one, PLoT resumes sending
- * an undeclared key — the defect this slice closes. The mechanism that makes it
- * fail loud is the request-side drift pairing (contract step-2 slice 2), which
- * replays captured bodies through ISL's own pinned model. Until that lands,
- * this comment IS the disclosure.
+ * ⚠ ROADMAP 2.274 — THIS WAS A HAND-MAINTAINED MIRROR OF ANOTHER REPO'S MODEL
+ * WITH NO LOUD FAILURE (trap 12), and the comment that used to sit here said so
+ * and left it at that: "until [the drift pairing] lands, this comment IS the
+ * disclosure". A comment is not an alarm. Its drift is asymmetric and BOTH
+ * directions are silent: if ISL ADDS a field PLoT quietly stops forwarding
+ * something ISL would accept; if ISL REMOVES one PLoT resumes sending an
+ * undeclared key.
+ *
+ * It is now pinned MECHANICALLY on both edges, so neither can move unnoticed:
+ *
+ *  - **list ↔ ISL's model**, at TEST time: `tests/isl-observed-state-mirror
+ *    .test.ts` DERIVES the expected members from `ObservedState` in the pinned,
+ *    sha256-verified ISL OpenAPI document (`tests/fixtures/isl-pinned/`), which
+ *    is Pydantic's own machine-generated description of the mounted models — not
+ *    a second hand-copy. Re-pin ISL and this list must follow, or CI REDs.
+ *  - **list ↔ PLoT's own type**, at COMPILE time: the `satisfies` clause below
+ *    plus the exhaustiveness pin under it. Together they forbid a member on one
+ *    side and not the other, in either direction. This is enforced by
+ *    `npm run build`, which is a required PR check.
+ *
+ * ⚠ `baseline` IS LOAD-BEARING ON THIS LIST. It is what ISL needs to convert a
+ * `'level'` goal threshold (`threshold − goal_baseline + goal_intercept`), so a
+ * silent strip here does not degrade a number — it kills the goal-probability
+ * capability outright, with ISL refusing every `'level'` threshold as
+ * `missing_goal_baseline`. Guarded by a named assertion in the test above and by
+ * `tests/goal-threshold-frame.test.ts` T10.
  */
-const ISL_DECLARED_OBSERVED_STATE_FIELDS = [
+type DeclaredObservedStateKey = keyof NonNullable<ISLNodeV3['observed_state']>;
+
+export const ISL_DECLARED_OBSERVED_STATE_FIELDS = [
   'value',
   'baseline',
   'unit',
@@ -280,7 +313,26 @@ const ISL_DECLARED_OBSERVED_STATE_FIELDS = [
   'extractionType',
   'factor_type',
   'uncertainty_drivers',
-] as const;
+] as const satisfies readonly DeclaredObservedStateKey[];
+
+/**
+ * COMPILE-TIME EXHAUSTIVENESS PIN — the direction `satisfies` cannot see.
+ *
+ * `satisfies` proves every listed field EXISTS on the type. This proves the
+ * converse: that the type declares nothing the list omits. Without it, adding a
+ * member to `ISLNodeV3['observed_state']` and forgetting the list would compile
+ * happily and the field would be silently dropped on the wire for every request
+ * — the exact failure this pin exists to prevent, in the quieter direction.
+ * Resolves to `never` (and so fails to compile) the moment the two diverge.
+ */
+type _ObservedStateFieldsAreExhaustive = Exclude<
+  DeclaredObservedStateKey,
+  (typeof ISL_DECLARED_OBSERVED_STATE_FIELDS)[number]
+> extends never
+  ? true
+  : never;
+const _observedStateFieldsAreExhaustive: _ObservedStateFieldsAreExhaustive = true;
+void _observedStateFieldsAreExhaustive;
 
 /**
  * Project a PLoT-internal `observed_state` onto the fields ISL declares.

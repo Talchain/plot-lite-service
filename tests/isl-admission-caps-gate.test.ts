@@ -53,6 +53,7 @@ function v2Admission(overrides: Partial<ISLComputeAdmission> = {}): ISLComputeAd
     complexity_formula_version: 'v2-weighted-2026-07',
     weights: { ...LIVE_WEIGHTS },
     caps: { max_options: 10, max_nodes: 50, max_edges: 200, max_parameter_uncertainties: 50 },
+    formula_parameters: { sensitivity: { subsample_cap: 100, subsample_divisor: 10 } },
     ...overrides,
   };
 }
@@ -75,6 +76,10 @@ function baseReq(o: Partial<WeightedCostRequest> = {}): WeightedCostRequest {
     includeSensitivity: true,
     includeEValues: true,
     includePathDecomposition: false,
+    // v5 (ROADMAP 2.260 step 3): PLoT sends include_factor_flips unconditionally
+    // and no control_candidates — pinned in tests/isl-cost-request-shape.test.ts.
+    includeFactorFlips: true,
+    controlGridPoints: 0,
     ...o,
   };
 }

@@ -1082,7 +1082,17 @@ export interface ISLResponseMetadataV2 {
 // `complexity_formula_version` so PLoT fails loud on an unknown future shape
 // rather than silently mis-planning against a formula it does not understand.
 
-/** ISL-advertised per-phase cost coefficients (v2-weighted-2026-07 formula). */
+/**
+ * ISL-advertised per-phase cost coefficients.
+ *
+ * ⚠ THIS INTERFACE IS A CONVENIENCE VIEW, NOT THE CONTRACT. The authoritative
+ * per-version key set lives in `src/config/sampling.ts`
+ * (`COMPLEXITY_FORMULA_SPECS`), is validated at runtime against the LIVE
+ * advertisement, and is what the estimators are checked against. The fields
+ * below are the union across the formula shapes PLoT implements, so a v2-only
+ * block does not carry the v5-only ones — never read a coefficient here without
+ * going through a version's declared key set.
+ */
 export interface ISLComputeAdmissionWeights {
   /** base MC term: units per sample × option × (nodes+edges) evaluate(). */
   base_per_sample_per_option_per_struct: number;
@@ -1098,14 +1108,67 @@ export interface ISLComputeAdmissionWeights {
   path_coef: number;
   /** path-decomposition is bounded by this many decomposition paths. */
   max_decomposition_paths: number;
+  /** v5+: value-of-control (EVPC) grid coefficient. */
+  evpc_coef?: number;
+  /** v5+: full-population EVPPI (S2 regression) coefficient. */
+  evppi_full_coef?: number;
+  /** v5+: null-permutation count K in the full-population EVPPI term. */
+  evppi_null_permutations?: number;
+  /** v5+: factor-flip coefficient. */
+  factor_flip_coef?: number;
+  /** v5+: structural-influence walk pool (a FLAT charge, not a coefficient). */
+  influence_walk_pool?: number;
 }
 
-/** ISL-advertised structural caps (a SEPARATE gate from the cost ceiling). */
+/**
+ * ISL-advertised per-TERM structural parameters — the numbers a term's own loop
+ * bounds itself by, as opposed to the per-phase coefficients in `weights`.
+ * Advertised at `compute_admission.formula_parameters`, keyed BY TERM NAME (the
+ * same strings ISL's `WeightedCost.terms` uses).
+ *
+ * ⚠ A SIBLING OF `weights`, DELIBERATELY (ISL `build_compute_admission.__doc__`,
+ * PR #119). PLoT couples the `weights` KEY SET exactly to the formula version,
+ * so growing `weights` would force a lockstep release or drop PLoT to its
+ * conservative fallback. Parameters landing here are additive at the seam.
+ *
+ * PLoT treats these as REQUIRED for any version whose estimator reads them —
+ * see `COMPLEXITY_FORMULA_SPECS`. An absent or incomplete `formula_parameters`
+ * leaves that version UNADMITTED (fail-closed), never priced with a guessed
+ * constant.
+ */
+export interface ISLComputeAdmissionFormulaParameters {
+  /** `factor_flips` term: O·W·(1 + 2N + 2·C·(max(O−1,0) + B)). */
+  factor_flips?: {
+    /** C — the candidate cap the flip phase truncates to. */
+    max_candidates: number;
+    /** B — the number of stability-band background seeds. */
+    stability_seeds: number;
+  };
+  /** `sensitivity` term: coef·E·min(cap, ⌊S/divisor⌋)·W. */
+  sensitivity?: {
+    /** The sub-sweep sample cap (ISL `SENSITIVITY_SUBSAMPLE_CAP`). */
+    subsample_cap: number;
+    /** The sub-sweep sample divisor (ISL `SENSITIVITY_SUBSAMPLE_DIVISOR`). */
+    subsample_divisor: number;
+  };
+}
+
+/**
+ * ISL-advertised structural caps (a SEPARATE gate from the cost ceiling).
+ *
+ * Same convenience-view caveat as the weights: the authoritative per-version
+ * cap-key set is declared in `COMPLEXITY_FORMULA_SPECS` and validated against
+ * the live block.
+ */
 export interface ISLComputeAdmissionCaps {
   max_options: number;
   max_nodes: number;
   max_edges: number;
   max_parameter_uncertainties: number;
+  /** v5+: cap on the number of value-of-control candidates. */
+  max_control_candidates?: number;
+  /** v5+: cap on the number of values per control candidate. */
+  max_control_values?: number;
 }
 
 /**
@@ -1120,6 +1183,12 @@ export interface ISLComputeAdmission {
   complexity_formula_version: string;
   weights: ISLComputeAdmissionWeights;
   caps: ISLComputeAdmissionCaps;
+  /**
+   * Per-term structural parameters. OPTIONAL on the wire (ISL added it in
+   * PR #119 and older deployments do not carry it) — which is precisely why a
+   * version that needs it must fail closed rather than assume a default.
+   */
+  formula_parameters?: ISLComputeAdmissionFormulaParameters;
 }
 
 /** @deprecated Use ISLRobustnessAnalyzeV2Response instead */
