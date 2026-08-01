@@ -537,12 +537,12 @@ describe('COMPLEXITY_FORMULA_WEIGHT_KEYS — one source of truth for the version
     );
   });
 
-  it('MECHANICAL TWO-WAY PIN: every declared key is actually READ by estimateWeightedCostV2', () => {
-    // Without this, the declared key set could drift from the function body in
-    // either direction: demanding a coefficient nothing prices, or pricing one
-    // nothing validated as finite. A request shaped so EVERY term is live:
-    // E·E (40,000) exceeds max_decomposition_paths, and S exceeds evpi_sample_cap.
-    const req = baseReq({
+  // A request shaped so EVERY term of the v2 formula is live: E·E (40,000)
+  // exceeds max_decomposition_paths, and S exceeds evpi_sample_cap. Shared by
+  // the two directional pins below so neither can silently exercise less of the
+  // formula than the other.
+  function allTermsLiveReq(): WeightedCostRequest {
+    return baseReq({
       nSamples: 10_000,
       nodeCount: 50,
       edgeCount: 200,
@@ -550,6 +550,12 @@ describe('COMPLEXITY_FORMULA_WEIGHT_KEYS — one source of truth for the version
       uniqueParamUncertainties: 3,
       includePathDecomposition: true,
     });
+  }
+
+  it('DIRECTION 1 (declared ⇒ read): every declared key actually moves the cost', () => {
+    // Catches a coefficient PLoT demands as finite but never prices — the
+    // advertisement would be rejected for a key that changes nothing.
+    const req = allTermsLiveReq();
     const baseline = estimateWeightedCostV2(req, LIVE_WEIGHTS);
 
     for (const key of V2_WEIGHTED_2026_07_WEIGHT_KEYS) {
@@ -562,6 +568,34 @@ describe('COMPLEXITY_FORMULA_WEIGHT_KEYS — one source of truth for the version
         `weight key "${key}" is declared but does not move the cost — the declared set and the estimator body have drifted`,
       ).not.toBe(baseline);
     }
+  });
+
+  it('DIRECTION 2 (read ⇒ declared): the estimator reads NO coefficient outside the declared set', () => {
+    // The direction the perturbation loop above CANNOT see, and the more
+    // dangerous one: a term added to estimateWeightedCostV2 reading an
+    // UNDECLARED coefficient. validWeightsForVersion only checks declared keys,
+    // so the read yields `undefined` -> NaN cost -> a plan built on NaN, with
+    // the block still classified `ok`. Recording the actual property reads is
+    // the only way to pin it; a value-based assertion cannot.
+    const reads = new Set<string>();
+    const recording = new Proxy(LIVE_WEIGHTS as unknown as Record<string, unknown>, {
+      get(target, prop, receiver) {
+        if (typeof prop === 'string') reads.add(prop);
+        return Reflect.get(target, prop, receiver);
+      },
+    }) as unknown as ISLComputeAdmissionWeights;
+
+    const cost = estimateWeightedCostV2(allTermsLiveReq(), recording);
+    // Positive control: the recorder must have SEEN something, and the cost must
+    // be a real number — otherwise this assertion passes by observing nothing.
+    expect(reads.size).toBeGreaterThan(0);
+    expect(Number.isFinite(cost)).toBe(true);
+
+    const declared = new Set<string>(V2_WEIGHTED_2026_07_WEIGHT_KEYS);
+    expect(
+      [...reads].filter((k) => !declared.has(k)).sort(),
+      'estimateWeightedCostV2 reads a coefficient that is not declared — it would be unvalidated, and undefined at runtime',
+    ).toEqual([]);
   });
 });
 

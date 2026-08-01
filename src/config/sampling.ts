@@ -251,10 +251,16 @@ import type {
  * with the function body below:
  *  - every key here must be READ by estimateWeightedCostV2 (else PLoT demands a
  *    coefficient it does not use);
- *  - every key estimateWeightedCostV2 reads must appear here (else PLoT plans
- *    against a coefficient it never validated as finite).
- * `tests/isl-compute-admission-handshake.test.ts` pins both directions
- * mechanically by mutating each key and asserting the cost moves.
+ *  - every key estimateWeightedCostV2 reads must appear here — an UNDECLARED
+ *    read is never validated as finite, so it resolves to `undefined` and
+ *    yields a NaN cost while the block still classifies `ok`.
+ *
+ * `tests/isl-compute-admission-handshake.test.ts` pins the two directions with
+ * two DIFFERENT mechanisms, because one cannot see the other: DIRECTION 1
+ * perturbs each declared key and asserts the cost moves (declared ⇒ read);
+ * DIRECTION 2 prices a request through a recording Proxy and asserts no read
+ * fell outside this set (read ⇒ declared). A value-based assertion cannot
+ * detect an undeclared read, so the Proxy is not decoration.
  */
 export const V2_WEIGHTED_2026_07_WEIGHT_KEYS = [
   'base_per_sample_per_option_per_struct',
