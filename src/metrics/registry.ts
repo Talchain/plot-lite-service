@@ -1,9 +1,11 @@
 /**
  * P1: Prometheus Histogram Registry
  * Production-safe metrics with bounded label cardinality
- * 
+ *
  * PR-1: Added Counter class for circuit breaker events (always-on)
  */
+
+import type { AdmissionSkewReason } from '../integrations/isl/compute-admission.js';
 
 interface HistogramBucket {
   le: number;
@@ -471,9 +473,14 @@ export function observeIslLatency(operation: 'validation' | 'sensitivity' | 'fac
 }
 
 // Codex F8 handshake: record a compute-admission version-skew detection.
-export function recordIslAdmissionVersionSkew(
-  reason: 'unreachable' | 'missing_block' | 'unknown_version' | 'unknown_weight_keys',
-): void {
+/**
+ * ROADMAP 2.260 — the label type is IMPORTED from the resolver, not restated.
+ * It used to be a hand-copied union here, i.e. a third copy of the same list
+ * (trap 12): adding a skew reason left this signature silently narrower, and the
+ * new reason could not be recorded. `import type` is erased at compile time, so
+ * this creates no runtime import cycle with compute-admission.ts.
+ */
+export function recordIslAdmissionVersionSkew(reason: AdmissionSkewReason): void {
   islAdmissionVersionSkewCounter?.inc({ reason });
 }
 

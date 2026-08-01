@@ -5562,10 +5562,23 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           uniqueParamUncertainties,
           // The base /v2/run request always sends these phases (see
           // toISLRobustnessRequest); path decomposition is a request-gated opt-in.
+          //
+          // ⚠ These four literals MIRROR unconditional flags in the translator.
+          // They are not free-floating assumptions: tests/isl-cost-request-shape
+          // .test.ts asserts each one against the body toISLRobustnessRequest
+          // actually produces, so a translator change that stops sending a phase
+          // (or starts sending a new one) REDs here instead of silently
+          // over- or under-pricing the request.
           includeVoi: true,
           includeSensitivity: true,
           includeEValues: true,
+          includeFactorFlips: true,
           includePathDecomposition: body.include_path_decomposition === true,
+          // PLoT sends no control_candidates today, so ISL's EVPC term is zero.
+          // Pinned by the same spec — if the translator ever gains a control
+          // grid, that test REDs and points here rather than under-pricing by a
+          // full S·W·gridPoints term.
+          controlGridPoints: 0,
         };
         // conservative (fail-loud: cap the depth-raise + tighten the scalar
         // bound) ONLY on a genuine skew — ISL configured but its capability is

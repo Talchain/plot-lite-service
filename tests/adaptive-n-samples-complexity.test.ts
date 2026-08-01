@@ -32,6 +32,7 @@ import {
   ADAPTIVE_N_SAMPLES_FLOOR,
   LEGACY_BASE_N_SAMPLES,
   estimateWeightedCostV2,
+  checkAdmissionCaps,
   type WeightedCostRequest,
 } from '../src/config/sampling.js';
 import {
@@ -60,6 +61,54 @@ function v2Admission(maxCostUnits = 24_000_000): ISLComputeAdmission {
     complexity_formula_version: 'v2-weighted-2026-07',
     weights: { ...LIVE_WEIGHTS },
     caps: { max_options: 10, max_nodes: 50, max_edges: 200, max_parameter_uncertainties: 50 },
+    formula_parameters: { sensitivity: { subsample_cap: 100, subsample_divisor: 10 } },
+  };
+}
+
+/**
+ * The advertised per-term parameters (ISL PR #119). The v2 estimator now reads
+ * the sensitivity sub-sweep cap/divisor from here instead of hard-coding
+ * `min(100, floor(S/10))` — ROADMAP 2.260 step 3.
+ */
+const LIVE_FORMULA_PARAMETERS = { sensitivity: { subsample_cap: 100, subsample_divisor: 10 } };
+
+/**
+ * The COMPLETE live v5 advertisement, captured verbatim from an unauthenticated
+ * `GET https://isl-staging.onrender.com/health` on 2026-08-01 after ISL PR #119
+ * deployed (`build_full` 1c9c7003, 6 consecutive identical samples). This is the
+ * block PLoT reads in production; the acceptance test below drives the real
+ * route with it.
+ */
+function v5Admission(maxCostUnits = 24_000_000): ISLComputeAdmission {
+  return {
+    max_cost_units: maxCostUnits,
+    complexity_formula_version: 'v5-factor-flips-2026-08-01',
+    weights: {
+      base_per_sample_per_option_per_struct: 1,
+      evpi_sample_cap: 2000,
+      evpc_coef: 1,
+      evppi_full_coef: 1,
+      evppi_null_permutations: 16,
+      factor_flip_coef: 1,
+      influence_walk_pool: 400_000,
+      sensitivity_coef: 4,
+      evalue_coef: 20,
+      bands_coef: 200,
+      path_coef: 1,
+      max_decomposition_paths: 20_000,
+    } as unknown as ISLComputeAdmission['weights'],
+    caps: {
+      max_options: 10,
+      max_nodes: 50,
+      max_edges: 200,
+      max_parameter_uncertainties: 50,
+      max_control_candidates: 5,
+      max_control_values: 7,
+    },
+    formula_parameters: {
+      factor_flips: { max_candidates: 10, stability_seeds: 10 },
+      sensitivity: { subsample_cap: 100, subsample_divisor: 10 },
+    },
   };
 }
 
@@ -79,12 +128,19 @@ function costReqFromCall(call: any, nSamples: number): WeightedCostRequest {
     includeSensitivity: Array.isArray(call.analysis_types) && call.analysis_types.includes('sensitivity'),
     includeEValues: call.include_e_values === true,
     includePathDecomposition: call.include_path_decomposition === true,
+    // v5 additions: PLoT sends include_factor_flips unconditionally and no
+    // control_candidates — both DERIVED from the captured call, not assumed.
+    includeFactorFlips: call.include_factor_flips === true,
+    controlGridPoints: (call.control_candidates ?? []).reduce(
+      (n: number, c: any) => n + (c.values?.length ?? 0),
+      0,
+    ),
   };
 }
 
 /** Weighted cost of the SENT request at a given depth (ISL's actual `u`). */
 function costOfCall(call: any, nSamples: number): number {
-  return estimateWeightedCostV2(costReqFromCall(call, nSamples), LIVE_WEIGHTS);
+  return estimateWeightedCostV2(costReqFromCall(call, nSamples), LIVE_WEIGHTS, LIVE_FORMULA_PARAMETERS);
 }
 
 // ---------------------------------------------------------------------------
@@ -483,6 +539,84 @@ describe('adaptive n_samples via /v2/run (F8 handshake — weighted planning)', 
   });
 
   // ---------------------------------------------------------------------------
+  // ROADMAP 2.260 step 3 — THE ACCEPTANCE PAIR, at the route.
+  //
+  // The test above is ARM A: the deployed behaviour since ~1 Aug midday, with
+  // ISL advertising a formula version PLoT could not price. Every defaulted
+  // analysis ran at 4,000 samples — 40% of the intended Monte Carlo depth.
+  //
+  // The test below is ARM B: the SAME route, the SAME request, the SAME graph,
+  // differing ONLY in that PLoT can now price ISL's live v5 advertisement. This
+  // is the pair the measurement lane ran at the decision-function level; here it
+  // runs end-to-end through /v2/run against the captured outbound ISL call.
+  // ---------------------------------------------------------------------------
+
+  it('ACCEPTANCE (2.260 step 3): with the LIVE v5 advertisement a DEFAULTED analysis plans the full 10,000', async () => {
+    __setIslComputeAdmissionForTest({
+      admission: v5Admission(),
+      skew: false,
+      status: 'ok',
+    });
+    islCalls = [];
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v2/run',
+      headers: { 'Content-Type': 'application/json' },
+      // n_samples DELIBERATELY omitted — the production shape (CEE never sends it).
+      payload: { graph: denseGraph(2), options: OPTIONS, goal_node_id: 'goal', seed: '42' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    // The whole point of the lane: 10,000, not the 4,000 of arm A.
+    expect(islCalls[0].n_samples).toBe(10_000);
+    const body = JSON.parse(res.body);
+    expect(body.meta?.n_samples).toBe(10_000);
+    // ...and NO depth-reduction disclosure, because nothing was reduced. A
+    // warning that fires when nothing was lost is the same broken alarm as the
+    // silence it replaced, in the other direction.
+    expect(findSamplesReducedWarnings(body)).toHaveLength(0);
+  });
+
+  it('ACCEPTANCE: the v5 admission also re-arms the STRUCTURAL CAPS pre-check that skew disabled', async () => {
+    // Under skew `checkAdmissionCaps` returns ok unconditionally (admission is
+    // null), so NONE of ISL's caps were enforced — an over-cap graph reached ISL
+    // and came back as a raw 422. With v5 admitted the pre-check is live again,
+    // and it now covers all SIX advertised caps rather than the four the old
+    // fixed CAP_KEYS list knew.
+    // An ISL-tightened node cap of 2 against denseGraph(2)'s 3 causal nodes.
+    // Tightening the ADVERTISED value (rather than growing the graph past PLoT's
+    // own LIMITS) is what proves the refusal came from the live advertisement.
+    const tightened = v5Admission();
+    tightened.caps = { ...tightened.caps, max_nodes: 2 };
+    __setIslComputeAdmissionForTest({ admission: tightened, skew: false, status: 'ok' });
+    islCalls = [];
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v2/run',
+      headers: { 'Content-Type': 'application/json' },
+      payload: { graph: denseGraph(2), options: OPTIONS, goal_node_id: 'goal', seed: '42' },
+    });
+
+    expect(res.statusCode).toBe(422);
+    expect(JSON.stringify(JSON.parse(res.body))).toContain('GRAPH_TOO_COMPLEX');
+    // Refused BEFORE ISL — never a raw passthrough.
+    expect(islCalls).toHaveLength(0);
+  });
+
+  it('POSITIVE CONTROL: that same over-cap graph is FORWARDED under skew — the gate really was disabled', () => {
+    // Without this, the test above could pass because the graph is refused for
+    // some other reason entirely. Under skew, checkAdmissionCaps sees a null
+    // admission and returns ok, so nothing stops the request.
+    expect(
+      checkAdmissionCaps(
+        { nodeCount: 3, edgeCount: 3, optionCount: 2, uniqueParamUncertainties: 0 },
+        null,
+        { maxNodes: 50, maxEdges: 100, maxOptions: 10 },
+      ).kind,
+    ).toBe('ok');
+  });
+
+  // ---------------------------------------------------------------------------
   // ROADMAP 2.260 — the degradation must be LOUD, not just the cause.
   //
   // Measured on staging 1 Aug 2026 (PHASE0-EVIDENCE-2026-07-28/
@@ -597,6 +731,7 @@ describe('adaptive n_samples via /v2/run (F8 handshake — weighted planning)', 
     const factorOnlyFullDepth = estimateWeightedCostV2(
       { ...costReqFromCall(call, 10_000), uniqueParamUncertainties: 4 },
       LIVE_WEIGHTS,
+      LIVE_FORMULA_PARAMETERS,
     );
     expect(factorOnlyFullDepth).toBeLessThanOrEqual(CEILING);
     expect(costOfCall(call, 10_000)).toBeGreaterThan(CEILING);
