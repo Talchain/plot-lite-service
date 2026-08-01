@@ -188,8 +188,13 @@ export function denormaliseFlipThresholds(
       ? reconcileRawValue(node?.observed_state?.raw_value, flip.current_value, range)
       : undefined;
 
-    const currentValue = rawCurrent ?? (currentFinite ? denormCurrent : flip.current_value);
-    const flipValue = flipFinite ? denormFlip : null;
+    // A2: clean the float tail off anything this module MULTIPLIED. An accepted
+    // `raw_value` is passed through untouched — it is the user's own exact
+    // number and carries no tail to remove.
+    const currentValue =
+      rawCurrent ??
+      (currentFinite ? cleanDenormalised(denormCurrent, range) : flip.current_value);
+    const flipValue = flipFinite ? cleanDenormalised(denormFlip, range) : null;
 
     // Display strings are authored only for a display-scale row, and only when
     // they can be written LOSSLESSLY: CEE's agreement rung compares
@@ -301,17 +306,84 @@ function decimalPlaces(value: number): number {
 }
 
 /**
+ * Absolute ceiling on how far `raw_value` may sit from the model's own baseline,
+ * as a fraction of the range width, REGARDLESS of how few decimals the producer
+ * wrote.
+ *
+ * The implied-precision term alone (`0.5 × 10^-decimals × width`) widens as the
+ * producer writes fewer decimals — 2dp is 0.5% of range, 1dp is 5%, 0dp is 50% —
+ * so the guard would be loosest at exactly the values most likely to be written
+ * exactly (`0`, `1`, `x.5`). Reproduced before this ceiling existed: a node with
+ * `value: 0` and `raw_value: 100000` shipped `100000` as a display-scale number
+ * while `flip_value` was computed from a baseline of `0`.
+ *
+ * This is a SAFETY CEILING, not a measurement: exceeding it costs nothing but a
+ * fallback to `value × range`, which is by construction consistent with
+ * `flip_value`. The error direction is therefore always fail-closed.
+ */
+const MAX_RAW_VALUE_DIVERGENCE_FRACTION = 0.02;
+
+/**
+ * Decimal places to which a denormalised value is cleaned.
+ *
+ * The flip search resolves normalised values on a 1e-4 grid
+ * (`roundTo4`, `src/analysis/flip-thresholds.ts:768`), so the finest step that
+ * carries meaning in user units is `width × 1e-4`; anything below it is IEEE
+ * noise from the multiplication, not measurement. Rounding there is unit-
+ * appropriate by construction — a £320,000 range cleans to whole pounds, a
+ * [0,1] ratio keeps 4 decimals.
+ */
+const NORMALISED_GRID_STEP = 1e-4;
+const MAX_CLEAN_DECIMALS = 12;
+
+function cleaningDecimals(range: NormalisationRange): number {
+  const step = Math.abs(range.max - range.min) * NORMALISED_GRID_STEP;
+  if (!Number.isFinite(step) || step <= 0) return 0;
+  const places = Math.ceil(-Math.log10(step));
+  return Math.min(MAX_CLEAN_DECIMALS, Math.max(0, places));
+}
+
+/**
+ * Remove the float tail a denormalisation leaves behind, so the number PLoT
+ * ships and the string describing it agree by construction.
+ *
+ * `0.29 × 100` is `28.999999999999996` in IEEE double arithmetic. CEE's
+ * agreement rung is an EXACT equality (`Number(token) === rawValue`), so an LLM
+ * writing the obvious "29" would be DENIED — and once a consumer echoes the
+ * producer string, the user is shown sixteen digits of noise. **Rounding a
+ * display-scale value to the precision the model can actually resolve is more
+ * honest than shipping that tail, not less**: the tail is an artefact of the
+ * multiplication, and no digit it adds was ever measured.
+ */
+function cleanDenormalised(value: number, range: NormalisationRange): number {
+  if (!Number.isFinite(value)) return value;
+  const decimals = cleaningDecimals(range);
+  // toFixed is exact for |v| < 1e21 and decimals ≤ 100; beyond that it returns
+  // exponential text, and Number() of that is the unchanged value — which
+  // formatUserScale then refuses to describe. Either way, never a wrong number.
+  return Number(value.toFixed(decimals));
+}
+
+/**
  * Accept `raw_value` as the authoritative user-scale current value iff it agrees
  * with `normalised × range` to within the rounding error the normalised value's
  * OWN precision implies.
  *
- * The tolerance is derived from the data, never a magic constant: a `value`
- * written with `d` decimals carries an implied error of half a unit in its last
- * place, which is `0.5 × 10^-d` of the range width in user units. For the live
- * a7 factor (value 0.86, cap 320000) that is ±1600, and |275000 − 275200| = 200
- * sits well inside it. A raw_value further out than its own rounding error is a
- * stale or mismatched field, and is refused so the row falls back to the
- * round-trip — consistent with `flip_value`, which has no raw counterpart.
+ * The tolerance has TWO terms and takes the tighter of them:
+ *
+ *  1. **implied precision** — a `value` written with `d` decimals carries an
+ *     implied error of half a unit in its last place, i.e. `0.5 × 10^-d` of the
+ *     range width in user units. For the live a7 factor (value 0.86, cap 320000)
+ *     that is ±1600, and |275000 − 275200| = 200 sits well inside it.
+ *  2. **an absolute ceiling** ({@link MAX_RAW_VALUE_DIVERGENCE_FRACTION}) —
+ *     because term 1 alone runs off a cliff as decimals shrink (1dp = 5% of
+ *     range, 0dp = 50%), and the widest cases are precisely the values most
+ *     likely to be written exactly. Without it, `value: 0` + `raw_value: 100000`
+ *     shipped 100000 against a model baseline of 0.
+ *
+ * A raw_value outside the tighter bound is stale or mismatched and is refused,
+ * so the row falls back to `value × range` — which is by construction consistent
+ * with `flip_value`, the sibling that has no raw counterpart.
  */
 function reconcileRawValue(
   rawValue: unknown,
@@ -324,7 +396,10 @@ function reconcileRawValue(
   const roundTripped = denormaliseValue(normalisedValue, range);
   if (!isFiniteNumber(roundTripped)) return undefined;
 
-  const tolerance = 0.5 * Math.pow(10, -places) * Math.abs(range.max - range.min);
+  const width = Math.abs(range.max - range.min);
+  const impliedPrecision = 0.5 * Math.pow(10, -places) * width;
+  const ceiling = MAX_RAW_VALUE_DIVERGENCE_FRACTION * width;
+  const tolerance = Math.min(impliedPrecision, ceiling);
   // Float slack so a value exactly on the boundary is not rejected by noise.
   const slack = Math.abs(roundTripped) * Number.EPSILON * 8;
   return Math.abs(rawValue - roundTripped) <= tolerance + slack ? rawValue : undefined;
@@ -374,7 +449,9 @@ function denormaliseMarginSensitivity(
   const denormProbeFinite = isFiniteNumber(denormProbe);
   return {
     ...margin,
-    strongest_probe_value: denormProbeFinite ? denormProbe : null,
+    // A2: same float-tail cleaning as the row's own values — this is the other
+    // number this module denormalises, and dust is no more correct here.
+    strongest_probe_value: denormProbeFinite ? cleanDenormalised(denormProbe, range) : null,
     value_scale: 'display',
     display_value_available: denormProbeFinite,
   };

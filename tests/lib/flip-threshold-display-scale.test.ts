@@ -163,18 +163,19 @@ describe('F2 POSITIVE: a node carrying raw_value + cap yields a display-scale ro
       makeFlip({ flip_value: 241500 / 320000, flip_reason: 'found', alternative_winner_id: 'opt_locum' }),
       makeGraph([makeNode()]),
     );
-    expect(row.flip_value).toBeCloseTo(241500, 6);
-    expect(row.flip_display).toBeDefined();
-    expect(ceeLicenceAgreesWithRawValue(row.flip_display!, row.flip_value!)).toBe(true);
+    // Literal expectations, not `agrees(ourString, ourValue)` — that comparison
+    // is self-referential and can only fail via the exponential guard.
+    expect(row.flip_value).toBe(241500);
+    expect(row.flip_display).toBe('241500 £');
   });
 
   it('falls back to value x cap when the node carries a cap but no raw_value', () => {
     const node = makeNode();
     delete (node.observed_state as Record<string, unknown>).raw_value;
     const row = denormOne(makeFlip(), makeGraph([node]));
-    expect(row.current_value).toBeCloseTo(275200, 6);
+    expect(row.current_value).toBe(275200);
     expect(row.value_scale).toBe('display');
-    expect(ceeLicenceAgreesWithRawValue(row.current_display!, row.current_value)).toBe(true);
+    expect(row.current_display).toBe('275200 £');
   });
 });
 
@@ -202,8 +203,15 @@ describe('F2 POSITIVE: the row satisfies CEE #776 cage rungs P4 and P7', () => {
 
   it('P7 both display strings DESCRIBE the raw values the row ships', () => {
     const row = denormOne(flip, makeGraph([makeNode()]));
-    expect(ceeLicenceAgreesWithRawValue(row.current_display!, row.current_value)).toBe(true);
-    expect(ceeLicenceAgreesWithRawValue(row.flip_display!, row.flip_value!)).toBe(true);
+    // Independently-written expectations. `agrees(row.current_display,
+    // row.current_value)` would be self-referential: the string is built from
+    // String(value), and Number(String(x)) === x for every finite
+    // non-exponential double, so it could only ever fail via the exponential
+    // guard — it would pass even if both were the wrong number together.
+    expect(row.current_display).toBe('275000 £');
+    expect(row.flip_display).toBe('241500 £');
+    expect(ceeLicenceAgreesWithRawValue('275000 £', row.current_value)).toBe(true);
+    expect(ceeLicenceAgreesWithRawValue('241500 £', row.flip_value!)).toBe(true);
   });
 
   it('P7 CONTROL: the pre-fix pair (0.86 + "£") would FAIL agreement', () => {
@@ -256,6 +264,150 @@ describe('F2 fail-closed: rows we cannot lift stay honest', () => {
     const row = denormOne(makeFlip(), makeGraph([makeNode({ raw_value: 225000 })]));
     expect(row.current_value).toBeCloseTo(275200, 6);
     expect(row.value_scale).toBe('display');
+  });
+
+  // ===========================================================================
+  // A1 (review #298) — the precision-implied tolerance must not run off a cliff
+  // ===========================================================================
+  //
+  // The implied-precision term is `0.5 x 10^-decimals x width`, which widens as
+  // the producer writes FEWER decimals: 2dp = 0.5% of range, 1dp = 5%, 0dp = 50%.
+  // The widest cases are exactly the values most likely to be written exactly
+  // (0, 1, x.5), so without an absolute ceiling the guard is loosest where it
+  // most needs to bite — and a divergent raw_value ships as `display` while
+  // `flip_value` was computed from a different baseline. That is the "two
+  // numbers, one factor" hazard the function exists to prevent.
+
+  it('A1 0dp: value=0 does NOT license a raw_value of 100000 (model baseline is 0)', () => {
+    const row = denormOne(
+      makeFlip({ current_value: 0 }),
+      makeGraph([makeNode({ value: 0, raw_value: 100000 })]),
+    );
+    expect(row.current_value).toBe(0);
+  });
+
+  it('A1 0dp: value=1 does NOT license a raw_value of 200000 (model baseline is 320000)', () => {
+    const row = denormOne(
+      makeFlip({ current_value: 1 }),
+      makeGraph([makeNode({ value: 1, raw_value: 200000 })]),
+    );
+    expect(row.current_value).toBe(320000);
+  });
+
+  it('A1 1dp: value=0.9 does NOT license a raw_value 8000 off the 288000 baseline', () => {
+    const row = denormOne(
+      makeFlip({ current_value: 0.9 }),
+      makeGraph([makeNode({ value: 0.9, raw_value: 280000 })]),
+    );
+    expect(row.current_value).toBe(288000);
+  });
+
+  it('A1 x.5: value=0.5 does NOT license a raw_value of 50000 (baseline 160000)', () => {
+    const row = denormOne(
+      makeFlip({ current_value: 0.5 }),
+      makeGraph([makeNode({ value: 0.5, raw_value: 50000 })]),
+    );
+    expect(row.current_value).toBe(160000);
+  });
+
+  it('A1 CONTROL: the ceiling still admits the genuine live case (0.86 / 275000 / 320000)', () => {
+    // Without this, "reject everything" would pass every A1 pin above while
+    // silently removing the feature.
+    const row = denormOne(makeFlip(), makeGraph([makeNode()]));
+    expect(row.current_value).toBe(275000);
+    expect(row.value_scale).toBe('display');
+  });
+});
+
+// =============================================================================
+// A2 (review #298) — no float tail may reach current_value / flip_value
+// =============================================================================
+//
+// `flip_value` is roundTo4'd and then multiplied by the cap, so the product
+// carries IEEE dust: 0.29 x 100 = 28.999999999999996. CEE's agreement rung is an
+// EXACT equality, so an LLM writing the obvious "29" is DENIED — and once F1
+// reads the producer string, the user is shown the tail itself. Rounding a
+// display-scale value to the precision the model can actually resolve is MORE
+// honest than shipping sixteen digits of float noise, not less.
+
+describe('F2/A2 emitted values carry no float tail', () => {
+  function capNode(value: number, cap: number, unit = '%'): EngineNodeV3 {
+    return {
+      id: 'fac_annual_staffing_cost',
+      kind: 'factor',
+      label: 'Annual Staffing Cost',
+      observed_state: { value, unit, cap },
+    } as EngineNodeV3;
+  }
+
+  it('0.29 of a cap of 100 is 29, not 28.999999999999996', () => {
+    const row = denormOne(
+      makeFlip({ current_value: 0.29, unit: '%' }),
+      makeGraph([capNode(0.29, 100)]),
+    );
+    expect(row.current_value).toBe(29);
+    expect(row.current_display).toBe('29 %');
+  });
+
+  it('0.29 of a cap of 3000 is 870, not 869.9999999999999', () => {
+    const row = denormOne(
+      makeFlip({ current_value: 0.29, unit: '%' }),
+      makeGraph([capNode(0.29, 3000)]),
+    );
+    expect(row.current_value).toBe(870);
+    expect(row.current_display).toBe('870 %');
+  });
+
+  it('a flip_value is cleaned on the same grid as current_value', () => {
+    const row = denormOne(
+      makeFlip({ current_value: 0.29, flip_value: 0.83, unit: '%', flip_reason: 'found' }),
+      makeGraph([capNode(0.29, 100)]),
+    );
+    expect(row.flip_value).toBe(83);
+    expect(row.flip_display).toBe('83 %');
+  });
+
+  it('⭐ P7 against an INDEPENDENTLY-written string — the non-self-referential check', () => {
+    // Comparing our own string to our own value can only fail via the
+    // exponential guard, because Number(String(x)) === x for every finite
+    // non-exponential double. The real question is whether a string written by
+    // SOMEONE ELSE — CEE's decision_review LLM, told to emit the value "as-is"
+    // with its unit — agrees with the number we ship. That is what P7 actually
+    // evaluates, and it is what the float tail breaks.
+    const row = denormOne(
+      makeFlip({ current_value: 0.29, flip_value: 0.83, unit: '%', flip_reason: 'found' }),
+      makeGraph([capNode(0.29, 100)]),
+    );
+    expect(ceeLicenceAgreesWithRawValue('29 %', row.current_value)).toBe(true);
+    expect(ceeLicenceAgreesWithRawValue('83 %', row.flip_value!)).toBe(true);
+    // And the separator-bearing form an LLM might write for a large number.
+    const big = denormOne(makeFlip(), makeGraph([makeNode()]));
+    expect(ceeLicenceAgreesWithRawValue('275,000 GBP', big.current_value)).toBe(true);
+  });
+
+  it('SWEEP: no emitted value carries dust, and every one stays faithful to value x cap', () => {
+    const caps = [100, 500, 1000, 3000, 12000, 16000, 320000];
+    let checked = 0;
+    for (const cap of caps) {
+      for (let i = 1; i <= 99; i++) {
+        const value = i / 100;
+        const row = denormOne(
+          makeFlip({ current_value: value, unit: '%' }),
+          makeGraph([capNode(value, cap)]),
+        );
+        const decimals = (String(row.current_value).split('.')[1] ?? '').length;
+        // Dust shows up as 12-17 decimals; a legitimately fractional user value
+        // needs at most the 4 the normalised grid can resolve.
+        expect(decimals, `cap=${cap} value=${value} -> ${row.current_value}`).toBeLessThanOrEqual(4);
+        // Cleaning must not move the number meaningfully.
+        expect(Math.abs(row.current_value - value * cap)).toBeLessThanOrEqual(
+          Math.abs(value * cap) * 1e-6 + 1e-9,
+        );
+        checked++;
+      }
+    }
+    // Anti-vacuity: the loop really ran.
+    expect(checked).toBe(caps.length * 99);
   });
 
   it('a null flip_value keeps flip_display absent while current is still lifted', () => {
@@ -312,10 +464,13 @@ describe('F2 display strings are lossless — P7 is an EXACT equality test', () 
     expect(row.current_display).toBeUndefined();
   });
 
-  it('never rounds — a fractional user value round-trips through the agreement check', () => {
-    const node = makeNode({ cap: 3, raw_value: undefined, value: 1 / 3 });
-    const row = denormOne(makeFlip({ current_value: 1 / 3 }), makeGraph([node]));
-    expect(row.current_display).toBeDefined();
-    expect(ceeLicenceAgreesWithRawValue(row.current_display!, row.current_value)).toBe(true);
+  it('keeps genuine fractional precision on a small-range factor', () => {
+    // Range width 2 ⇒ the normalised grid resolves 2e-4 ⇒ 4 decimals are kept.
+    // Cleaning must remove float noise WITHOUT flattening a real fraction.
+    const node = makeNode({ cap: 2, raw_value: undefined, value: 0.1235 });
+    const row = denormOne(makeFlip({ current_value: 0.1235 }), makeGraph([node]));
+    expect(row.current_value).toBe(0.247);
+    expect(row.current_display).toBe('0.247 £');
+    expect(ceeLicenceAgreesWithRawValue('0.247 £', row.current_value)).toBe(true);
   });
 });
