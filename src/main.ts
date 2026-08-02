@@ -42,9 +42,11 @@ async function start() {
   // accepting traffic, so the first analysis request is planned against ISL's
   // real advertised cost model — never the cold-cache fallback (whose legacy
   // scalar can UNDER-price ISL's v5 gate and draw a raw 422). Bounded by the
-  // ISL health-check timeout (5 s); never throws — a dead ISL warms to a NAMED
-  // skew state, boot proceeds, and the route's conservative disclosure covers
-  // the gap until the background refresh heals it.
+  // ISL health-check timeout (5 s) covering the ENTIRE /health read — headers
+  // AND body (#305 amendment 2, client.ts withHealthTimeout) — so a slow or
+  // trickling ISL cannot extend boot. Never throws — a dead ISL warms to a
+  // NAMED skew state, boot proceeds, and the route's conservative disclosure
+  // covers the gap until the background refresh heals it.
   const admissionWarm = await warmIslComputeAdmission();
   console.log('[STARTUP] ISL compute-admission warm:', {
     status: admissionWarm.status,

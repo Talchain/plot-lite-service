@@ -18,14 +18,18 @@
  *    in KNOWN_COMPLEXITY_FORMULA_VERSIONS resolves 'ok'; anything else — an
  *    unreachable /health, a missing/malformed compute_admission block, or an
  *    unknown formula version — resolves to a SKEW state);
- *  - LAST-KNOWN-GOOD RETENTION (ROADMAP 2.289 fix b): a skewed refresh serves
- *    the most recent 'ok' admission (`retainedAdmissionVersion` set, skew still
- *    true and still alarmed) so weighted pricing AND the structural caps gate
- *    survive a transient /health outage instead of dropping to the blind legacy
- *    scalar — which can UNDER-price v5 (see LEGACY_FALLBACK_SCALAR_BUDGET in
- *    sampling.ts for the worked example). Only when NOTHING was ever retained
- *    does planning fall back to the conservative, wire-disclosed legacy mode
- *    ({@link shouldPlanConservatively});
+ *  - LAST-KNOWN-GOOD RETENTION (ROADMAP 2.289 fix b, scoped by the #305 review
+ *    ruling): an OUTAGE-class skew — the live read carries NO readable formula
+ *    version — serves the most recent 'ok' admission (`retainedAdmissionVersion`
+ *    set, skew still true and still alarmed) so weighted pricing AND the
+ *    structural caps gate survive a transient /health outage instead of
+ *    dropping to the blind legacy scalar — which can UNDER-price v5 (see
+ *    LEGACY_FALLBACK_SCALAR_BUDGET in sampling.ts for the worked example).
+ *    DRIFT-class skews (a READABLE advertised version PLoT cannot price) never
+ *    retain — live ISL is declaring a different cost model, so the retained
+ *    block would be obsolete pricing with stale caps; they take the
+ *    conservative, wire-disclosed fallback, as does any skew with nothing ever
+ *    retained ({@link shouldPlanConservatively});
  *  - the FAIL-LOUD signal on skew: a structured warning + a metric, emitted on
  *    each refresh that detects skew (≈ once per TTL — loud enough to alert on,
  *    quiet enough not to flood per request). Drift is VISIBLE, never silent
@@ -112,12 +116,13 @@ export interface AdmissionResolution {
    */
   foreignFormulaParameterGroups?: readonly string[];
   /**
-   * ROADMAP 2.289 fix (b) — set ONLY when a skewed live read is being served
-   * with the LAST KNOWN GOOD admission: `admission` is that retained block and
-   * this names its formula version (while `advertisedVersion`, when present,
-   * names what the UNUSABLE live read claimed). `status`/`skew` still describe
-   * the live read truthfully — retention changes what planning USES, never what
-   * the alarm SAYS.
+   * ROADMAP 2.289 fix (b) — set ONLY when an OUTAGE-class skewed read (no
+   * readable advertised version; #305 review ruling) is being served with the
+   * LAST KNOWN GOOD admission: `admission` is that retained block and this
+   * names its formula version. Mutually exclusive with `advertisedVersion` by
+   * construction — a readable advertised version is the DRIFT class, which
+   * never retains. `status`/`skew` still describe the live read truthfully —
+   * retention changes what planning USES, never what the alarm SAYS.
    */
   retainedAdmissionVersion?: string;
 }
@@ -158,10 +163,12 @@ let _inflight: Promise<void> | null = null;
 /**
  * The most recent 'ok' resolution (ROADMAP 2.289 fix b). Written ONLY by a
  * healthy refresh; served (with the skew reason and alarm intact) when a later
- * refresh is unusable. Deliberately unbounded within the process lifetime:
- * pricing against the most recently VERIFIED real gate is strictly more
- * accurate than the blind legacy scalar, refreshes keep retrying every TTL, and
- * every skewed refresh re-fires the alarm — the staleness is loud, never silent.
+ * refresh is an OUTAGE-class skew — no readable advertised version (#305
+ * review ruling; drift-class skews never retain). Deliberately unbounded
+ * within the process lifetime for that class: pricing against the most
+ * recently VERIFIED real gate is strictly more accurate than the blind legacy
+ * scalar, refreshes keep retrying every TTL, and every skewed refresh re-fires
+ * the alarm — the staleness is loud, never silent.
  */
 let _lastKnownGood: AdmissionResolution | null = null;
 
@@ -471,8 +478,8 @@ function signalSkew(resolution: AdmissionResolution): void {
       unexpected_formula_parameters: resolution.unexpectedFormulaParameters ?? null,
       action: retained ? 'retained_last_known_good_admission' : 'fail_loud_conservative_fallback',
       msg: retained
-        ? 'ISL /health compute-admission read unusable — planning continues against the LAST KNOWN GOOD advertisement (weighted pricing and structural caps stay live) while refreshes retry every TTL. If ISL genuinely changed its cost model, the retained pricing may drift from the live gate until the named reason is resolved.'
-        : 'ISL /health compute-admission handshake unusable and nothing retained — planning against the conservative legacy scalar bound (base depth capped) until the live capability is readable and its formula version is known. Every DEFAULTED analysis is now running at the reduced fallback depth and says so in its response (SAMPLES_REDUCED_FOR_COMPLEXITY).',
+        ? 'ISL /health compute-admission read unusable with NO readable formula version (outage class) — planning continues against the LAST KNOWN GOOD advertisement (weighted pricing and structural caps stay live) while refreshes retry every TTL and self-heal on recovery. A READABLE version PLoT cannot price (drift) never retains and never takes this branch.'
+        : 'ISL /health compute-admission handshake unusable and nothing retained (or the live read declares a formula PLoT cannot price — drift never retains) — planning against the conservative legacy scalar bound (base depth capped) until the live capability is readable and its formula version is known. Every DEFAULTED analysis is now running at the reduced fallback depth and says so in its response (SAMPLES_REDUCED_FOR_COMPLEXITY).',
     }),
   );
 }
@@ -514,11 +521,28 @@ async function refresh(): Promise<void> {
     resolution = classify(health);
     if (resolution.status === 'ok') {
       _lastKnownGood = resolution;
-    } else if (resolution.skew && _lastKnownGood?.admission) {
-      // ROADMAP 2.289 fix (b): the live read is unusable but a verified
-      // advertisement exists — serve it. `status`/`skew` keep describing the
-      // live read; `admission` carries the retained block so weighted pricing
-      // and the caps gate stay live. The alarm below names both.
+    } else if (
+      resolution.skew &&
+      resolution.advertisedVersion === undefined &&
+      _lastKnownGood?.admission
+    ) {
+      // ROADMAP 2.289 fix (b), SCOPED BY REVIEW RULING (#305 amendment 1):
+      // retention applies to the OUTAGE class ONLY — the live read carries NO
+      // readable formula version (unreachable /health, or a payload so garbled
+      // no version survives). There the last verified advertisement is almost
+      // certainly still ISL's real gate, the alarm re-fires every TTL, and the
+      // state self-heals on recovery.
+      //
+      // The DRIFT class — a READABLE advertised version PLoT cannot price
+      // (unknown_version / unknown_weight_keys / unknown_cap_keys /
+      // missing/unknown_formula_parameters) — must NOT retain: live ISL is
+      // positively declaring a different cost model, so the retained block is
+      // OBSOLETE pricing at full depth with stale caps and zero wire
+      // disclosure, healing only via a PLoT code change. Drift takes the
+      // conservative, wire-disclosed fallback instead. The discriminator is
+      // PAYLOAD-DERIVED (was a version readable?), never a hand-listed set of
+      // statuses (trap 12). Accepted edge, ruled: garbled weights under a
+      // readable version land conservative — the safe side.
       resolution = {
         ...resolution,
         admission: _lastKnownGood.admission,
@@ -573,9 +597,12 @@ export function getIslComputeAdmission(): AdmissionResolution {
  * Called by main.ts BEFORE `listen`, so in production no request is ever
  * planned against the cold-cache fallback: the first request already prices
  * with ISL's real advertised cost model. Bounded by the ISL health-check
- * timeout (ISL_HEALTH_CHECK_TIMEOUT_MS, 5 s) when ISL is configured; instant
- * (no network) when it is not. Never throws — a dead ISL warms to a NAMED skew
- * state and boot proceeds; the route's conservative disclosure covers the gap.
+ * timeout (ISL_HEALTH_CHECK_TIMEOUT_MS, 5 s) when ISL is configured — and that
+ * bound covers the ENTIRE /health read, headers AND body (#305 amendment 2:
+ * client.ts withHealthTimeout; a trickling body cannot extend boot). Instant
+ * (no network) when ISL is not configured. Never throws — a dead ISL warms to
+ * a NAMED skew state and boot proceeds; the route's conservative disclosure
+ * covers the gap.
  */
 export async function warmIslComputeAdmission(): Promise<AdmissionResolution> {
   if (!isFresh(Date.now())) {

@@ -57,6 +57,7 @@ import {
   shouldPlanConservatively,
   type AdmissionResolution,
 } from '../src/integrations/isl/compute-admission.js';
+import { ISLClient } from '../src/integrations/isl/client.js';
 import type {
   ISLComputeAdmission,
   ISLComputeAdmissionWeights,
@@ -268,7 +269,16 @@ describe('refresh retention — last-known-good survives a skewed read (fail-lou
     expect(warned).toContain('retained_last_known_good_admission');
   });
 
-  it('ok → unknown_version: retention also covers a formula-version change, naming BOTH versions', async () => {
+  it('ok → unknown_version: DRIFT does NOT retain — conservative + disclosed fallback (review ruling on #305)', async () => {
+    // ⚠ FLIPPED PIN, by explicit review ruling. The first cut of this test
+    // pinned retention ACROSS a formula-version change — pinning the exposure
+    // IN: live ISL positively declares a cost model PLoT cannot price, and a
+    // retained block would serve OBSOLETE pricing at full depth with stale caps
+    // and ZERO wire disclosure, healing only via a PLoT code change (ISL
+    // redeployed its formula on 1 Aug — drift recurs here). Retention is for
+    // the OUTAGE class only (unreadable /health: no advertised version to
+    // read); the DRIFT class (a READABLE advertised version PLoT cannot price)
+    // takes the conservative, wire-disclosed fallback.
     vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     mockHealth({ status: 'healthy', compute_admission: v5Admission() });
@@ -276,17 +286,70 @@ describe('refresh retention — last-known-good survives a skewed read (fail-lou
 
     mockHealth({
       status: 'healthy',
-      compute_admission: v5Admission() && {
-        ...v5Admission(),
-        complexity_formula_version: 'v9-future',
-      },
+      compute_admission: { ...v5Admission(), complexity_formula_version: 'v9-future' },
     });
     const r = await __refreshForTest();
 
     expect(r.status).toBe('unknown_version');
-    expect(r.advertisedVersion).toBe('v9-future'); // the live (unusable) claim
-    expect(r.retainedAdmissionVersion).toBe(V5_VERSION); // what planning uses
-    expect(r.admission?.complexity_formula_version).toBe(V5_VERSION);
+    expect(r.advertisedVersion).toBe('v9-future'); // the live declaration is READABLE → drift
+    expect(r.admission).toBeNull(); // NOT retained
+    expect(r.retainedAdmissionVersion).toBeUndefined();
+  });
+
+  it('ok → unknown_weight_keys: CONTENT drift does not retain either (same class, same reason)', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    mockHealth({ status: 'healthy', compute_admission: v5Admission() });
+    await __refreshForTest();
+
+    const grown = v5Admission();
+    (grown.weights as unknown as Record<string, unknown>).brand_new_coef = 1;
+    mockHealth({ status: 'healthy', compute_admission: grown });
+    const r = await __refreshForTest();
+
+    expect(r.status).toBe('unknown_weight_keys');
+    expect(r.advertisedVersion).toBe(V5_VERSION); // version readable → drift class
+    expect(r.admission).toBeNull();
+    expect(r.retainedAdmissionVersion).toBeUndefined();
+  });
+
+  it('ACCEPTED EDGE (ruled): garbled weights under a READABLE version land conservative, not retained', async () => {
+    // classify() reports this as missing_block WITH advertisedVersion set —
+    // the discriminator (advertisedVersion === undefined) therefore excludes
+    // it from retention. Conservative is the safe side: we cannot distinguish
+    // "transient corruption" from "ISL changed what this version means".
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    mockHealth({ status: 'healthy', compute_admission: v5Admission() });
+    await __refreshForTest();
+
+    const garbled = v5Admission();
+    delete (garbled.weights as unknown as Record<string, unknown>).bands_coef;
+    mockHealth({ status: 'healthy', compute_admission: garbled });
+    const r = await __refreshForTest();
+
+    expect(r.status).toBe('missing_block');
+    expect(r.advertisedVersion).toBe(V5_VERSION);
+    expect(r.admission).toBeNull();
+    expect(r.retainedAdmissionVersion).toBeUndefined();
+  });
+
+  it('ok → SHAPELESS payload (no readable version): outage-class, retained', async () => {
+    // A /health body whose compute_admission is not even block-shaped (an ISL
+    // mid-restart / proxy-error shape) carries NO advertised version — the
+    // payload-derived discriminator classes it with unreachable: outage.
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    mockHealth({ status: 'healthy', compute_admission: v5Admission() });
+    await __refreshForTest();
+
+    mockHealth({ status: 'degraded', compute_admission: 42 });
+    const r = await __refreshForTest();
+
+    expect(r.status).toBe('missing_block');
+    expect(r.advertisedVersion).toBeUndefined(); // nothing readable → outage class
+    expect(r.admission).not.toBeNull();
+    expect(r.retainedAdmissionVersion).toBe(V5_VERSION);
   });
 
   it('a LATER healthy read replaces the retained value (retention is a bridge, not a pin)', async () => {
@@ -385,6 +448,44 @@ describe('warmIslComputeAdmission — the cache is warm before the first request
     const warmed = await warmIslComputeAdmission();
     expect(warmed.status).toBe('unreachable');
     expect(warmed.admission).toBeNull();
+  });
+
+  it('fetchHealth bounds the BODY read, not only the headers (a trickling /health cannot wedge the warm)', async () => {
+    // Review amendment 2 on #305: the health timeout used to be cleared the
+    // moment HEADERS arrived, leaving `response.json()` with no live timer —
+    // a pathologically trickling body extended boot toward undici's ~300 s
+    // idle default. The timeout must bound the ENTIRE read.
+    const client = new ISLClient({
+      baseUrl: 'https://isl.test',
+      apiKey: 'k',
+      timeoutMs: 1_000,
+      maxRetries: 0,
+      healthCheckTimeoutMs: 50,
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: unknown, init: { signal?: AbortSignal } | undefined) => ({
+        ok: true,
+        // A body that settles ONLY when the caller's timeout signal aborts —
+        // the trickling-response shape. If the implementation has dropped the
+        // timer by now, this promise never settles.
+        json: () =>
+          new Promise((_resolve, reject) => {
+            const signal = init?.signal;
+            const abort = () => reject(new DOMException('aborted', 'AbortError'));
+            if (signal?.aborted) return abort();
+            signal?.addEventListener('abort', abort);
+          }),
+      })),
+    );
+
+    const outcome = await Promise.race([
+      client.fetchHealth().then((r) => ({ settled: r })),
+      new Promise((resolve) => setTimeout(() => resolve('BODY_READ_UNBOUNDED'), 500)),
+    ]);
+    // Post-fix: the 50 ms timer aborts the body read; fetchHealth swallows the
+    // AbortError and resolves null well before the 500 ms tripwire.
+    expect(outcome).toEqual({ settled: null });
   });
 });
 

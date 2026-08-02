@@ -5754,10 +5754,12 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // the request was forwarded and ISL refused it with a hard 422 — a
         // silent legacy-arithmetic mode where an honest, disclosed downsize
         // belongs. In production the window is additionally closed at the
-        // source: main.ts warms the admission cache before listen, and a
-        // skewed refresh retains the last-known-good advertisement (both in
-        // compute-admission.ts), so this fallback is the LAST line, not the
-        // plan of record.
+        // source: main.ts warms the admission cache before listen, and an
+        // OUTAGE-class skew (unreadable /health, no advertised version)
+        // retains the last-known-good advertisement (both in
+        // compute-admission.ts — drift-class skews never retain, by the #305
+        // review ruling), so this fallback is the LAST line, not the plan of
+        // record.
         const complexityDecision = planSampleDepth(depthPlanInput, admissionResolution.admission, {
           conservative: shouldPlanConservatively(admissionResolution),
         });

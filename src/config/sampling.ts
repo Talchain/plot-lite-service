@@ -109,12 +109,14 @@ export const ISL_COMPLEXITY_BUDGET_DEFAULT = 30_000_000;
  *
  * The fallback is therefore a DAMAGE LIMITER, not a guarantee, and the real
  * protections sit upstream (all ROADMAP 2.289): the admission cache is warmed
- * before the server accepts traffic (main.ts → warmIslComputeAdmission), a
- * skewed refresh retains the last-known-good advertisement so weighted pricing
- * survives /health outages, and any residual admission-unknown plan is
- * conservative AND disclosed on the wire (`admission_unavailable`). Never widen
- * this value on the fallback path — planning tighter when we cannot confirm
- * ISL's real gate is the one lever this path still has.
+ * before the server accepts traffic (main.ts → warmIslComputeAdmission), an
+ * OUTAGE-class skew (unreadable /health — no advertised version) retains the
+ * last-known-good advertisement so weighted pricing survives /health outages
+ * (drift-class skews never retain, by the #305 review ruling), and any
+ * residual admission-unknown plan is conservative AND disclosed on the wire
+ * (`admission_unavailable`). Never widen this value on the fallback path —
+ * planning tighter when we cannot confirm ISL's real gate is the one lever
+ * this path still has.
  */
 export const LEGACY_FALLBACK_SCALAR_BUDGET = 10_000_000;
 
