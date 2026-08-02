@@ -111,8 +111,11 @@ describe('ROADMAP 2.278 — flip evidence informs the verdict REASON', () => {
 
   it('W1b: the reworded reason says what WAS measured', () => {
     const out = deriveRobustnessDisplayVerdict(FRAGILE_FACTS, true, [noFlipRow('f')]);
-    // It must describe the flip measurement that actually ran...
-    expect(out.display_verdict_reason).toMatch(/no single factor/i);
+    // It must describe the flip measurement that actually ran — SCOPED to the
+    // probed set (ROADMAP 2.292 replaced the universal "no single factor"
+    // phrasing this pin used to assert: ISL probes only eligible root factors
+    // with observed values/uncertainty, so the universal claim overclaimed).
+    expect(out.display_verdict_reason).toMatch(/factors we could test/i);
     expect(out.display_verdict_reason).toMatch(/which option leads/i);
     // ...and still disclose that the run scored badly on the OTHER checks,
     // so the corrected copy cannot read as an all-clear.
@@ -201,6 +204,70 @@ describe('ROADMAP 2.278 — flip evidence informs the verdict REASON', () => {
       expect(reason, verdict).toBeTruthy();
       expect(reason!.length, verdict).toBeGreaterThan(0);
       expect(reason!, verdict).not.toMatch(/\d/);
+    }
+  });
+});
+
+// ===========================================================================
+// ROADMAP 2.292 — the no-flip reason must claim only the TESTED scope.
+//
+// ISL emits flip-threshold rows ONLY for ELIGIBLE ROOT factors carrying
+// observed values/uncertainty (robustness_analyzer_v2.py factor-eligibility
+// selection, ISL tip f35975dc). "No single factor on its own changed which
+// option leads" is therefore an OVERCLAIM: a non-root or unobserved factor was
+// never probed and may still flip the leading option. The sentence must scope
+// itself to what was actually tested — an attestation over the probed set,
+// never a universal over the whole graph.
+//
+// ⚠ 2.278's constraint carries forward unchanged: only the REASON COPY moves.
+// The verdict-stability pins above (W1/W3) and the wire-survival pins below
+// (R1–R4) must stay green against the reworded strings.
+// ===========================================================================
+
+describe('ROADMAP 2.292 — the no-flip reason claims only what was tested', () => {
+  it('S1: the fragile reason scopes its claim to the TESTED factors, not to every factor', () => {
+    const out = deriveRobustnessDisplayVerdict(FRAGILE_FACTS, true, [noFlipRow('f')]);
+    // The corrected copy names the tested scope...
+    expect(out.display_verdict_reason).toMatch(/factors we could test/i);
+    // ...and no longer asserts the universal "no single factor" over factors
+    // ISL never probed (non-root / unobserved factors are not in the rows).
+    expect(out.display_verdict_reason).not.toMatch(/no single factor/i);
+  });
+
+  it('S2: the moderate reason is scoped the same way', () => {
+    const out = deriveRobustnessDisplayVerdict(MODERATE_FACTS, true, [noFlipRow('f')]);
+    expect(out.display_verdict_reason).toMatch(/factors we could test/i);
+    expect(out.display_verdict_reason).not.toMatch(/no single factor/i);
+  });
+
+  it('S3: the scoped copy still says what was measured and does not read as an all-clear', () => {
+    const out = deriveRobustnessDisplayVerdict(FRAGILE_FACTS, true, [noFlipRow('f')]);
+    // What was measured: the probed factors did not change the leading option.
+    expect(out.display_verdict_reason).toMatch(/which option leads/i);
+    // Not an all-clear: the fragile variant still discloses the low score on
+    // the other robustness checks.
+    expect(out.display_verdict_reason).toMatch(/robustness checks/i);
+    // And it still never claims a flip.
+    expect(out.display_verdict_reason).not.toMatch(/flip/i);
+  });
+
+  it('S4: no universal-scope wording anywhere in the attested-no-flip reason set', () => {
+    for (const [verdict, reason] of Object.entries(
+      ROBUSTNESS_DISPLAY_VERDICT_REASONS_ATTESTED_NO_FLIP,
+    )) {
+      expect(reason!, verdict).not.toMatch(/no single factor/i);
+      expect(reason!, verdict).not.toMatch(/\bany factor\b/i);
+      expect(reason!, verdict).not.toMatch(/\ball factors\b/i);
+    }
+  });
+
+  it('S5: VERDICT STABILITY under the reworded copy — the verdict never moves (2.278 invariant re-pinned)', () => {
+    // Same producer facts, with and without the attestation: the verdict is
+    // identical in every case; only the reason string may differ.
+    for (const facts of [FRAGILE_FACTS, MODERATE_FACTS, ROBUST_FACTS]) {
+      const withAttestation = deriveRobustnessDisplayVerdict(facts, true, [noFlipRow('f')]);
+      const without = deriveRobustnessDisplayVerdict(facts, true, undefined);
+      expect(withAttestation.display_verdict).toBe(without.display_verdict);
     }
   });
 });

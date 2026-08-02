@@ -90,13 +90,33 @@ export const ISL_COMPLEXITY_BUDGET_DEFAULT = 30_000_000;
 
 /**
  * Conservative scalar budget for the fail-loud FALLBACK path (unknown/unreachable
- * ISL capability). This is ISL's historical pre-F8 scalar default (10M) — the
- * value that is safe against BOTH a pre-F8 ISL (which enforced exactly this
- * scalar gate) AND a live weighted-F8 ISL (the scalar `n×N×E` over-prices
- * relative to the weighted `n×O×(N+E)+…` shape, so it never under-reduces below
- * what the weighted gate would accept). Never widen this on the fallback path —
- * the whole point of failing loud is to plan conservatively when we cannot
- * confirm ISL's real gate.
+ * ISL capability). This is ISL's historical pre-F8 scalar default (10M) — safe
+ * against a pre-F8 ISL, which enforced exactly this scalar gate.
+ *
+ * ⚠ ROADMAP 2.289 — THE CLAIM THAT USED TO SIT HERE WAS FALSE. This comment
+ * asserted the scalar `n×N×E` "over-prices relative to the weighted shape, so
+ * it never under-reduces below what the weighted gate would accept". For v5
+ * that is arithmetically wrong: the scalar carries no option factor and none of
+ * v5's EVPI/EVPPI/flip terms, so an option- or uncertainty-heavy graph prices
+ * FAR below its true cost. Worked example (pinned in
+ * tests/isl-admission-unknown-honest-fallback.test.ts): N=20, E=40, O=10, U=19
+ * at S=10,000 → scalar 8.0M (inside BOTH the 10M fallback and 30M historical
+ * budgets) while the exact v5 cost is 34,930,600 against ISL's live 24M
+ * ceiling — the request passes every scalar gate and ISL refuses it with a raw
+ * 422. Even the capped fallback depth (4,000) still prices at 29.4M on that
+ * graph: NO scalar arithmetic can promise admission against a weighted gate it
+ * cannot see.
+ *
+ * The fallback is therefore a DAMAGE LIMITER, not a guarantee, and the real
+ * protections sit upstream (all ROADMAP 2.289): the admission cache is warmed
+ * before the server accepts traffic (main.ts → warmIslComputeAdmission), an
+ * OUTAGE-class skew (unreadable /health — no advertised version) retains the
+ * last-known-good advertisement so weighted pricing survives /health outages
+ * (drift-class skews never retain, by the #305 review ruling), and any
+ * residual admission-unknown plan is conservative AND disclosed on the wire
+ * (`admission_unavailable`). Never widen this value on the fallback path —
+ * planning tighter when we cannot confirm ISL's real gate is the one lever
+ * this path still has.
  */
 export const LEGACY_FALLBACK_SCALAR_BUDGET = 10_000_000;
 
@@ -796,13 +816,20 @@ export type DepthPlanDecision =
 /** Options controlling the fallback posture when there is no usable admission. */
 export interface PlanSampleDepthOptions {
   /**
-   * True for a GENUINE skew (ISL configured but its capability is unreadable or
-   * its formula version unknown) — the fail-loud posture: DISABLE the
-   * depth-raise (cap a defaulted depth to {@link LEGACY_BASE_N_SAMPLES}) and use
-   * the conservative {@link LEGACY_FALLBACK_SCALAR_BUDGET}. False (default:
-   * true when omitted) for a benign no-gate state (ISL not configured, or the
-   * cold warm-up before the first /health read) — keep the standard depth and
-   * the historical scalar budget, exactly as before the handshake existed.
+   * True whenever ISL is configured but no version-validated admission is in
+   * hand — a genuine skew with nothing retained, or the cold `warming` window —
+   * the fail-loud posture: DISABLE the depth-raise (cap a defaulted depth to
+   * {@link LEGACY_BASE_N_SAMPLES}) and use the conservative
+   * {@link LEGACY_FALLBACK_SCALAR_BUDGET}. False (default: true when omitted)
+   * ONLY for the truly benign no-gate state (ISL not configured — nothing
+   * downstream to refuse the request): standard depth, historical scalar
+   * budget, exactly as before the handshake existed.
+   *
+   * ⚠ ROADMAP 2.289 — the cold warm-up used to be listed here as benign. That
+   * was the hole: a cold cache planned full depth against the 30M scalar,
+   * which UNDER-prices v5 (see LEGACY_FALLBACK_SCALAR_BUDGET), and ISL
+   * refused the forwarded request with a raw 422. The route now derives this
+   * flag via compute-admission.ts `shouldPlanConservatively`.
    */
   conservative?: boolean;
 }
@@ -960,12 +987,15 @@ function planWeighted(
  * Legacy scalar fallback (no usable weighted admission). Maps
  * {@link applyComplexityBudget} into the generic decision shape.
  *
- * `conservative` (genuine skew): scalar gate at
+ * `conservative` (admission unknown while ISL is configured — skew with nothing
+ * retained, or the cold warming window): scalar gate at
  * `min(LEGACY_FALLBACK_SCALAR_BUDGET, env clamp)` AND a DEFAULTED depth capped to
  * {@link LEGACY_BASE_N_SAMPLES} (depth-raise disabled) — the fail-loud posture.
- * Otherwise (ISL absent / cold warm-up, no gate to skew against): the historical
- * scalar budget (`resolveComplexityBudget()`, 30M default) at the standard depth
- * — byte-for-byte the pre-handshake behaviour.
+ * Otherwise (ISL absent, no gate to plan against): the historical scalar budget
+ * (`resolveComplexityBudget()`, 30M default) at the standard depth — byte-for-byte
+ * the pre-handshake behaviour. Either way this path is a DAMAGE LIMITER: scalar
+ * arithmetic cannot promise admission against a weighted gate it cannot see
+ * (ROADMAP 2.289 — see LEGACY_FALLBACK_SCALAR_BUDGET).
  */
 function planLegacyFallback(input: DepthPlanInput, conservative: boolean): DepthPlanDecision {
   // The depth the caller actually asked for (explicit) or that the standard
@@ -1104,10 +1134,13 @@ export type AdmissionCapsDecision =
  *
  * Applies ONLY when caps are advertised-and-valid (`admission` non-null; the
  * resolver has already version-checked the block and validated `caps`). When
- * `admission` is null (genuine skew, ISL unconfigured, or the cold warm-up
- * before the first /health read) this returns `{ kind: 'ok' }` — NO spurious
- * caps refusal; the conservative cost-gate fallback governs exactly as before,
- * mirroring planSampleDepth's skew posture so the two halves stay consistent.
+ * `admission` is null (skew with nothing retained, ISL unconfigured, or the
+ * cold warm-up before the first /health read) this returns `{ kind: 'ok' }` —
+ * NO spurious caps refusal; the conservative cost-gate fallback governs exactly
+ * as before, mirroring planSampleDepth's posture so the two halves stay
+ * consistent. ROADMAP 2.289 note: last-known-good RETENTION (compute-admission
+ * .ts) keeps `admission` non-null through a transient /health outage, so this
+ * gate now stays live in exactly the window that used to disable it.
  *
  * First breach wins; parameter_uncertainties is checked FIRST because it is the
  * dimension PLoT has no other means to catch.

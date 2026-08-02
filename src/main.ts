@@ -2,6 +2,7 @@ import { createServer } from './createServer.js';
 import { validateEnv } from './config-validator.js';
 import { loadFromFile } from './config/runtimeConfig.js';
 import { logResolvedTimeouts, validateTimeoutChain } from './config/timeouts.js';
+import { warmIslComputeAdmission } from './integrations/isl/compute-admission.js';
 
 const PORT = Number(process.env.PORT || 4311);
 const HOST = '0.0.0.0';
@@ -36,6 +37,21 @@ async function start() {
   // Inflight tracking is now handled by the inflight plugin (registered in createServer)
   // Plugin provides: decoration, onRequest/onResponse hooks, probe exclusion, double-dec guard
   const app = await createServer({ enableTestRoutes: process.env.TEST_ROUTES === '1' });
+
+  // ROADMAP 2.289 fix (a): warm the ISL compute-admission cache BEFORE
+  // accepting traffic, so the first analysis request is planned against ISL's
+  // real advertised cost model — never the cold-cache fallback (whose legacy
+  // scalar can UNDER-price ISL's v5 gate and draw a raw 422). Bounded by the
+  // ISL health-check timeout (5 s) covering the ENTIRE /health read — headers
+  // AND body (#305 amendment 2, client.ts withHealthTimeout) — so a slow or
+  // trickling ISL cannot extend boot. Never throws — a dead ISL warms to a
+  // NAMED skew state, boot proceeds, and the route's conservative disclosure
+  // covers the gap until the background refresh heals it.
+  const admissionWarm = await warmIslComputeAdmission();
+  console.log('[STARTUP] ISL compute-admission warm:', {
+    status: admissionWarm.status,
+    advertised_version: admissionWarm.advertisedVersion ?? null,
+  });
 
   await app.listen({ port: PORT, host: HOST });
 

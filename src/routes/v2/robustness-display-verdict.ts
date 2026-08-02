@@ -92,6 +92,16 @@ export const ROBUSTNESS_DISPLAY_VERDICT_REASONS: Record<
  * MEASURED, and they stop claiming flippability that this run's own evidence
  * refutes.
  *
+ * ⚠ ROADMAP 2.292 — SCOPED TO WHAT WAS TESTED. The first wording claimed "no
+ * single factor on its own changed which option leads" — a UNIVERSAL over every
+ * factor in the graph. ISL emits flip-threshold rows only for ELIGIBLE ROOT
+ * factors carrying observed values/uncertainty (robustness_analyzer_v2.py
+ * factor-eligibility selection, ISL tip f35975dc), so a non-root or unobserved
+ * factor was never probed and may still flip the leading option. The
+ * attestation is real but its scope is the PROBED SET; the copy now says
+ * "the factors we could test" so the claim matches the measurement. Same
+ * claim-safety rules as every reason here: one short phrase, no numbers.
+ *
  * `robust` and `not_assessed` are intentionally absent — neither original
  * carries flip language, so neither has anything to correct, and restating
  * them here would create a second copy to drift.
@@ -100,9 +110,9 @@ export const ROBUSTNESS_DISPLAY_VERDICT_REASONS_ATTESTED_NO_FLIP: Partial<
   Record<RobustnessDisplayVerdict, string>
 > = {
   fragile:
-    'no single factor on its own changed which option leads, but this result scored low on our other robustness checks',
+    'none of the factors we could test changed which option leads on its own, but this result scored low on our other robustness checks',
   moderate:
-    'no single factor on its own changed which option leads, and this result mostly held up under the other changes we tested',
+    'none of the factors we could test changed which option leads on its own, and this result mostly held up under the other changes we tested',
 };
 
 /**

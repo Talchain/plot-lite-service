@@ -499,24 +499,37 @@ export class ISLClient {
   }
 
   /**
-   * GET `/health` with the shared auth header + short AbortController timeout.
-   * The common boilerplate behind {@link healthCheck} and {@link fetchHealth};
-   * each caller reads only the tail it needs (`response.ok` vs the parsed body).
-   * The timeout is always cleared (finally), even when `fetch` rejects.
+   * Run one bounded /health interaction: the timeout signal covers EVERYTHING
+   * the callback does — connection, headers, AND any body read.
+   *
+   * ⚠ #305 review amendment 2 — the predecessor (`getHealthResponse`) cleared
+   * the abort timer the moment `fetch` resolved, i.e. when HEADERS arrived;
+   * `fetchHealth` then awaited `response.json()` with NO live timer, so a
+   * pathologically trickling /health body could extend the read toward
+   * undici's ~300 s idle default — and, since the boot warm awaits one
+   * refresh, extend server boot with it. The timer now lives until the
+   * callback settles, so the advertised health bound is the bound on the
+   * WHOLE read. Pinned by the trickling-body test in
+   * tests/isl-admission-unknown-honest-fallback.test.ts.
    */
-  private async getHealthResponse(): Promise<Response> {
+  private async withHealthTimeout<T>(read: (signal: AbortSignal) => Promise<T>): Promise<T> {
     const controller = new AbortController();
     const healthCheckTimeout = this.config.healthCheckTimeoutMs ?? ISL_HEALTH_CHECK_TIMEOUT_MS;
     const timeoutId = setTimeout(() => controller.abort(), healthCheckTimeout);
     try {
-      return await fetch(`${this.config.baseUrl}/health`, {
-        method: 'GET',
-        headers: { 'X-API-Key': this.config.apiKey },
-        signal: controller.signal,
-      });
+      return await read(controller.signal);
     } finally {
       clearTimeout(timeoutId);
     }
+  }
+
+  /** The bare authenticated /health GET; the caller owns the timeout signal. */
+  private healthFetch(signal: AbortSignal): Promise<Response> {
+    return fetch(`${this.config.baseUrl}/health`, {
+      method: 'GET',
+      headers: { 'X-API-Key': this.config.apiKey },
+      signal,
+    });
   }
 
   /**
@@ -526,7 +539,7 @@ export class ISLClient {
    */
   async healthCheck(): Promise<boolean> {
     try {
-      const response = await this.getHealthResponse();
+      const response = await this.withHealthTimeout((signal) => this.healthFetch(signal));
       return response.ok;
     } catch {
       return false;
@@ -537,16 +550,20 @@ export class ISLClient {
    * Fetch and parse the ISL `/health` payload (Codex F8 handshake).
    *
    * Returns the parsed body (so the caller can read `compute_admission`), or
-   * `null` on ANY failure — unreachable, timeout, non-2xx, or unparseable JSON.
-   * A `null` return is the caller's "unreachable" signal; a non-null body that
-   * simply LACKS `compute_admission` is the caller's "missing block" signal.
-   * Uses the same auth + short health timeout as {@link healthCheck}.
+   * `null` on ANY failure — unreachable, timeout (headers OR body — the health
+   * timeout bounds the entire read, see {@link withHealthTimeout}), non-2xx,
+   * or unparseable JSON. A `null` return is the caller's "unreachable" signal;
+   * a non-null body that simply LACKS `compute_admission` is the caller's
+   * "missing block" signal. Uses the same auth + short health timeout as
+   * {@link healthCheck}.
    */
   async fetchHealth(): Promise<ISLHealthResponse | null> {
     try {
-      const response = await this.getHealthResponse();
-      if (!response.ok) return null;
-      const body = (await response.json()) as ISLHealthResponse;
+      const body = await this.withHealthTimeout(async (signal) => {
+        const response = await this.healthFetch(signal);
+        if (!response.ok) return null;
+        return (await response.json()) as ISLHealthResponse;
+      });
       return body && typeof body === 'object' ? body : null;
     } catch {
       return null;
