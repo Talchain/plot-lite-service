@@ -9,15 +9,28 @@
  * This module owns:
  *  - the CACHE (TTL 60 s; stale-while-revalidate background refresh, so a live
  *    analysis request NEVER blocks on a per-request /health fetch);
+ *  - the BOOT WARM (ROADMAP 2.289 fix a): {@link warmIslComputeAdmission} runs
+ *    ONE awaited refresh so main.ts can populate the cache BEFORE `listen` —
+ *    production requests are planned against ISL's real advertised cost model,
+ *    not the cold-cache fallback. Bounded by the ISL health-check timeout; it
+ *    never throws and never blocks a live request;
  *  - the VERSION GUARD (a validated block whose complexity_formula_version is
  *    in KNOWN_COMPLEXITY_FORMULA_VERSIONS resolves 'ok'; anything else — an
  *    unreachable /health, a missing/malformed compute_admission block, or an
- *    unknown formula version — resolves to a SKEW state that the planner turns
- *    into the conservative legacy fallback);
+ *    unknown formula version — resolves to a SKEW state);
+ *  - LAST-KNOWN-GOOD RETENTION (ROADMAP 2.289 fix b): a skewed refresh serves
+ *    the most recent 'ok' admission (`retainedAdmissionVersion` set, skew still
+ *    true and still alarmed) so weighted pricing AND the structural caps gate
+ *    survive a transient /health outage instead of dropping to the blind legacy
+ *    scalar — which can UNDER-price v5 (see LEGACY_FALLBACK_SCALAR_BUDGET in
+ *    sampling.ts for the worked example). Only when NOTHING was ever retained
+ *    does planning fall back to the conservative, wire-disclosed legacy mode
+ *    ({@link shouldPlanConservatively});
  *  - the FAIL-LOUD signal on skew: a structured warning + a metric, emitted on
  *    each refresh that detects skew (≈ once per TTL — loud enough to alert on,
  *    quiet enough not to flood per request). Drift is VISIBLE, never silent
- *    (programme memory-trap #12).
+ *    (programme memory-trap #12) — retention changes what is SERVED, never
+ *    whether the alarm fires.
  */
 
 import { getISLClientConfig, isISLConfigured, ISLClient } from './client.js';
@@ -98,6 +111,38 @@ export interface AdmissionResolution {
    * advisory warning + metric. See `foreignFormulaParameterGroupsFor`.
    */
   foreignFormulaParameterGroups?: readonly string[];
+  /**
+   * ROADMAP 2.289 fix (b) — set ONLY when a skewed live read is being served
+   * with the LAST KNOWN GOOD admission: `admission` is that retained block and
+   * this names its formula version (while `advertisedVersion`, when present,
+   * names what the UNUSABLE live read claimed). `status`/`skew` still describe
+   * the live read truthfully — retention changes what planning USES, never what
+   * the alarm SAYS.
+   */
+  retainedAdmissionVersion?: string;
+}
+
+/**
+ * Should the depth planner take the CONSERVATIVE, wire-disclosed fallback
+ * posture for this resolution? (ROADMAP 2.289 fix c.)
+ *
+ * True whenever ISL is configured but no version-validated admission is in hand
+ * — a genuine skew with nothing retained, or the cold 'warming' window — plus
+ * the fail-safe case of a skew WITH a retained admission (irrelevant on the
+ * weighted path, but if weighted planning ever declines the retained block the
+ * legacy fallback must still be the conservative one).
+ *
+ * ⚠ THIS PREDICATE EXISTS BECAUSE `skew` ALONE WAS THE 2.289 DEFECT. The route
+ * used `conservative: resolution.skew`, so the cold cache (`warming`,
+ * skew=false) took the BENIGN legacy path: full defaulted depth against the
+ * historical 30M scalar budget, which UNDER-prices ISL's v5 gate (worked
+ * example: scalar 8.0M vs exact v5 34.9M against the live 24M ceiling) —
+ * forwarded, then refused by ISL as a raw 422. Only `disabled` (no ISL to
+ * refuse anything) keeps the benign posture.
+ */
+export function shouldPlanConservatively(resolution: AdmissionResolution): boolean {
+  if (resolution.status === 'disabled') return false;
+  return resolution.admission === null || resolution.skew;
 }
 
 const WARMING: AdmissionResolution = { admission: null, skew: false, status: 'warming' };
@@ -110,6 +155,15 @@ interface CacheEntry {
 
 let _cache: CacheEntry | null = null;
 let _inflight: Promise<void> | null = null;
+/**
+ * The most recent 'ok' resolution (ROADMAP 2.289 fix b). Written ONLY by a
+ * healthy refresh; served (with the skew reason and alarm intact) when a later
+ * refresh is unusable. Deliberately unbounded within the process lifetime:
+ * pricing against the most recently VERIFIED real gate is strictly more
+ * accurate than the blind legacy scalar, refreshes keep retrying every TTL, and
+ * every skewed refresh re-fires the alarm — the staleness is loud, never silent.
+ */
+let _lastKnownGood: AdmissionResolution | null = null;
 
 /** Is a value present and within TTL? */
 function isFresh(now: number): boolean {
@@ -391,6 +445,12 @@ function signalSkew(resolution: AdmissionResolution): void {
   if (!resolution.skew) return;
   const reason = resolution.status as AdmissionSkewReason;
   recordIslAdmissionVersionSkew(reason);
+  // ROADMAP 2.289 fix (b): when a last-known-good admission is being served,
+  // the alarm still fires (the live read IS unusable) but must describe the
+  // action truthfully — planning is weighted against the retained block, not
+  // the conservative scalar fallback. An alarm that misdescribes its own
+  // mitigation teaches responders the wrong recovery (trap 7b).
+  const retained = resolution.admission !== null;
   // Structured, matches the ISL client's console logging style. Loud on purpose:
   // this is the VISIBLE drift alarm that makes derive-not-mirror safe.
   console.warn(
@@ -400,6 +460,7 @@ function signalSkew(resolution: AdmissionResolution): void {
       event: 'isl_admission_version_skew',
       reason,
       advertised_version: resolution.advertisedVersion ?? null,
+      retained_admission_version: resolution.retainedAdmissionVersion ?? null,
       known_versions: [...KNOWN_COMPLEXITY_FORMULA_VERSIONS],
       // Named on the corresponding reason so the drift is diagnosable from this
       // one line, without a source dive: exactly what ISL advertises and PLoT
@@ -408,9 +469,10 @@ function signalSkew(resolution: AdmissionResolution): void {
       unexpected_cap_keys: resolution.unexpectedCapKeys ?? null,
       missing_formula_parameters: resolution.missingFormulaParameters ?? null,
       unexpected_formula_parameters: resolution.unexpectedFormulaParameters ?? null,
-      action: 'fail_loud_conservative_fallback',
-      msg:
-        'ISL /health compute-admission handshake unusable — planning against the conservative legacy scalar bound (base depth capped) until the live capability is readable and its formula version is known. Every DEFAULTED analysis is now running at the reduced fallback depth and says so in its response (SAMPLES_REDUCED_FOR_COMPLEXITY).',
+      action: retained ? 'retained_last_known_good_admission' : 'fail_loud_conservative_fallback',
+      msg: retained
+        ? 'ISL /health compute-admission read unusable — planning continues against the LAST KNOWN GOOD advertisement (weighted pricing and structural caps stay live) while refreshes retry every TTL. If ISL genuinely changed its cost model, the retained pricing may drift from the live gate until the named reason is resolved.'
+        : 'ISL /health compute-admission handshake unusable and nothing retained — planning against the conservative legacy scalar bound (base depth capped) until the live capability is readable and its formula version is known. Every DEFAULTED analysis is now running at the reduced fallback depth and says so in its response (SAMPLES_REDUCED_FOR_COMPLEXITY).',
     }),
   );
 }
@@ -450,22 +512,28 @@ async function refresh(): Promise<void> {
     const client = new ISLClient(getISLClientConfig());
     const health = await client.fetchHealth();
     resolution = classify(health);
+    if (resolution.status === 'ok') {
+      _lastKnownGood = resolution;
+    } else if (resolution.skew && _lastKnownGood?.admission) {
+      // ROADMAP 2.289 fix (b): the live read is unusable but a verified
+      // advertisement exists — serve it. `status`/`skew` keep describing the
+      // live read; `admission` carries the retained block so weighted pricing
+      // and the caps gate stay live. The alarm below names both.
+      resolution = {
+        ...resolution,
+        admission: _lastKnownGood.admission,
+        retainedAdmissionVersion: _lastKnownGood.advertisedVersion,
+      };
+    }
     signalSkew(resolution);
     signalForeignFormulaParameterGroups(resolution);
   }
   _cache = { at: Date.now(), value: resolution };
 }
 
-/**
- * Resolve the ISL compute-admission capability for planning — SYNCHRONOUS and
- * NON-BLOCKING. Serves the cached value immediately; when the cache is cold or
- * stale it kicks off a background refresh (deduped) and, on a cold cache,
- * returns the conservative `warming` fallback for that single first request.
- * After warm-up every request is served from cache with zero network work.
- */
-export function getIslComputeAdmission(): AdmissionResolution {
-  const now = Date.now();
-  if (!isFresh(now) && _inflight === null) {
+/** Start (or join) one deduped refresh; never rejects, never wedges the cache. */
+function startRefresh(): Promise<void> {
+  if (_inflight === null) {
     _inflight = refresh()
       .catch(() => {
         // A thrown refresh (should not happen — fetchHealth swallows) must not
@@ -476,7 +544,44 @@ export function getIslComputeAdmission(): AdmissionResolution {
         _inflight = null;
       });
   }
-  return _cache ? _cache.value : WARMING;
+  return _inflight;
+}
+
+/**
+ * Resolve the ISL compute-admission capability for planning — SYNCHRONOUS and
+ * NON-BLOCKING. Serves the cached value immediately; when the cache is cold or
+ * stale it kicks off a background refresh (deduped). On a cold cache it returns
+ * `warming` when ISL is configured (first read in flight — the planner treats
+ * this conservatively, see {@link shouldPlanConservatively}) and `disabled`
+ * when it is not (there is no ISL to refuse anything, so nothing to be
+ * conservative about). After warm-up every request is served from cache with
+ * zero network work — in production the cache is already warm before the first
+ * request ({@link warmIslComputeAdmission} in main.ts).
+ */
+export function getIslComputeAdmission(): AdmissionResolution {
+  const now = Date.now();
+  if (!isFresh(now)) {
+    void startRefresh();
+  }
+  if (_cache) return _cache.value;
+  return isISLConfigured() ? WARMING : DISABLED;
+}
+
+/**
+ * Warm the admission cache with ONE awaited refresh (ROADMAP 2.289 fix a).
+ *
+ * Called by main.ts BEFORE `listen`, so in production no request is ever
+ * planned against the cold-cache fallback: the first request already prices
+ * with ISL's real advertised cost model. Bounded by the ISL health-check
+ * timeout (ISL_HEALTH_CHECK_TIMEOUT_MS, 5 s) when ISL is configured; instant
+ * (no network) when it is not. Never throws — a dead ISL warms to a NAMED skew
+ * state and boot proceeds; the route's conservative disclosure covers the gap.
+ */
+export async function warmIslComputeAdmission(): Promise<AdmissionResolution> {
+  if (!isFresh(Date.now())) {
+    await startRefresh();
+  }
+  return getIslComputeAdmission();
 }
 
 // ---------------------------------------------------------------------------
@@ -489,10 +594,11 @@ export function __setIslComputeAdmissionForTest(resolution: AdmissionResolution)
   _inflight = null;
 }
 
-/** Clear the cache + any in-flight refresh. */
+/** Clear the cache + any in-flight refresh + the retained last-known-good. */
 export function __resetIslComputeAdmission(): void {
   _cache = null;
   _inflight = null;
+  _lastKnownGood = null;
 }
 
 /** Run one real refresh (network via mocked fetch) and return the resolution. */

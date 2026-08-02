@@ -141,7 +141,7 @@ import { FLAGS } from '../../config/flags.js';
 import { getAllFeatureFlags } from '../../config/feature-flags.js';
 import { resolveStandardNSamples, ADAPTIVE_N_SAMPLES_FLOOR, planSampleDepth, checkAdmissionCaps, type DepthPlanInput, type AdmissionCapsDecision, type AdmissionCapDimension, type DepthReductionReason } from '../../config/sampling.js';
 import { LIMITS_MAX_NODES, LIMITS_MAX_EDGES, LIMITS_MAX_OPTIONS } from '../../config/constants.js';
-import { getIslComputeAdmission } from '../../integrations/isl/compute-admission.js';
+import { getIslComputeAdmission, shouldPlanConservatively } from '../../integrations/isl/compute-admission.js';
 import { generateM1Coaching } from '../../coaching/m1-coaching.js';
 import { filterInterventionOverrides } from '../../coaching/sensitivity-filter.js';
 import type { M1Review } from '../../cee/validation/m1-review-types.js';
@@ -5740,12 +5740,26 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           controlGridPoints: 0,
         };
         // conservative (fail-loud: cap the depth-raise + tighten the scalar
-        // bound) ONLY on a genuine skew — ISL configured but its capability is
-        // unreadable / an unknown formula version. A benign no-gate state (ISL
-        // not configured, or the cold warm-up before the first /health read) is
-        // NOT skew and keeps the standard depth + historical scalar budget.
+        // bound) whenever ISL is configured but no version-validated admission
+        // is in hand — a genuine skew with nothing retained, or the cold
+        // 'warming' window. Only a truly benign no-gate state (ISL not
+        // configured — nothing downstream to refuse the request) keeps the
+        // standard depth + historical scalar budget.
+        //
+        // ⚠ ROADMAP 2.289 — this posture used to be `admissionResolution.skew`
+        // ALONE, so the cold cache (warming, skew=false) planned the FULL
+        // defaulted depth against the benign 30M scalar budget. That scalar can
+        // UNDER-price ISL's v5 weighted gate (worked example N=20/E=40/O=10/
+        // U=19: scalar 8.0M vs exact v5 34.9M against the live 24M ceiling), so
+        // the request was forwarded and ISL refused it with a hard 422 — a
+        // silent legacy-arithmetic mode where an honest, disclosed downsize
+        // belongs. In production the window is additionally closed at the
+        // source: main.ts warms the admission cache before listen, and a
+        // skewed refresh retains the last-known-good advertisement (both in
+        // compute-admission.ts), so this fallback is the LAST line, not the
+        // plan of record.
         const complexityDecision = planSampleDepth(depthPlanInput, admissionResolution.admission, {
-          conservative: admissionResolution.skew,
+          conservative: shouldPlanConservatively(admissionResolution),
         });
 
         if (complexityDecision.kind === 'refused') {

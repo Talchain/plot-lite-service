@@ -38,6 +38,7 @@ import {
 import {
   __setIslComputeAdmissionForTest,
   __resetIslComputeAdmission,
+  __refreshForTest,
   __classifyForTest,
 } from '../src/integrations/isl/compute-admission.js';
 import type {
@@ -773,5 +774,157 @@ describe('adaptive n_samples via /v2/run (F8 handshake — weighted planning)', 
     // No constraints → no injection → u is exactly the 4 factor PUs.
     expect(new Set((call.parameter_uncertainties ?? []).map((p: any) => p.node_id)).size).toBe(4);
     expect(call.n_samples).toBe(10_000); // tiny graph, well under 24M → not reduced
+  });
+
+  // ---------------------------------------------------------------------------
+  // ROADMAP 2.289 — the COLD-CACHE hole, at the route.
+  //
+  // Codex-confirmed defect: on a cold admission cache getIslComputeAdmission()
+  // returns `{admission: null, skew: false, status: 'warming'}` while refreshing
+  // in the background, and the route derived its fallback posture from `skew`
+  // ALONE — so the very first request(s) after boot were planned on the BENIGN
+  // legacy path: full defaulted depth against the historical 30M scalar budget.
+  // That scalar can UNDER-price ISL's v5 gate (worked example N=20/E=40/O=10/
+  // U=19: scalar 8.0M vs exact v5 34.9M against the live 24M ceiling — see
+  // tests/isl-admission-unknown-honest-fallback.test.ts), so the request was
+  // forwarded and ISL refused it with a hard 422 where an honest structured
+  // outcome belongs.
+  // ---------------------------------------------------------------------------
+
+  it('ROADMAP 2.289: a COLD cache (ISL configured, first read in flight) plans CONSERVATIVELY and DISCLOSES — never the silent full-depth legacy mode', async () => {
+    const prevBase = process.env.ISL_BASE_URL;
+    const prevKey = process.env.ISL_API_KEY;
+    try {
+      // A genuinely cold cache with ISL configured: the route sees 'warming'
+      // organically (no seeded state a production process could never hold).
+      // The kicked-off background refresh must not touch a real network — a
+      // never-resolving fetch holds the cache cold for the whole request.
+      process.env.ISL_BASE_URL = 'https://isl.test';
+      process.env.ISL_API_KEY = 'k';
+      vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})));
+      __resetIslComputeAdmission();
+
+      islCalls = [];
+      // The worked-example shape: denseGraph(19) → 20 causal nodes / 37 edges,
+      // 19 factor PUs, 10 options. Scalar cost 10k×20×37 = 7.4M fits EVERY
+      // scalar budget (10M conservative, 30M historical), while the exact v5
+      // cost at 10k is ~33.3M > the live 24M ceiling — the pass-then-422 shape.
+      const tenOptions = Array.from({ length: 10 }, (_, i) => ({
+        id: `opt-${i}`,
+        label: `Option ${i}`,
+        interventions: { [`factor-${i}`]: { value: 0.6 + i * 0.01, source: 'user_specified' } },
+      }));
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v2/run',
+        headers: { 'Content-Type': 'application/json' },
+        // n_samples DELIBERATELY omitted — the production shape (CEE never sends it).
+        payload: { graph: denseGraph(19), options: tenOptions, goal_node_id: 'goal', seed: '42' },
+      });
+
+      expect(res.statusCode).toBe(200);
+      // The honest structured outcome: the depth-raise is DISABLED (defaulted
+      // 10,000 → 4,000), exactly as under a named skew...
+      expect(islCalls[0].n_samples).toBe(LEGACY_BASE_N_SAMPLES);
+      const body = JSON.parse(res.body);
+      expect(body.meta?.n_samples).toBe(LEGACY_BASE_N_SAMPLES);
+
+      // ...and the cut is DISCLOSED on the wire, attributed to the SEAM (the
+      // admission capability), never to the caller's graph.
+      const warnings = findSamplesReducedWarnings(body);
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0].message).toContain('10000');
+      expect(warnings[0].message).toContain(String(LEGACY_BASE_N_SAMPLES));
+      expect(warnings[0].message).toContain('could not be confirmed');
+    } finally {
+      vi.unstubAllGlobals();
+      __resetIslComputeAdmission();
+      if (prevBase === undefined) delete process.env.ISL_BASE_URL; else process.env.ISL_BASE_URL = prevBase;
+      if (prevKey === undefined) delete process.env.ISL_API_KEY; else process.env.ISL_API_KEY = prevKey;
+    }
+  });
+
+  it('ROADMAP 2.289: after a healthy read, a FAILING refresh retains the admission — full depth, caps still enforced', async () => {
+    const prevBase = process.env.ISL_BASE_URL;
+    const prevKey = process.env.ISL_API_KEY;
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      process.env.ISL_BASE_URL = 'https://isl.test';
+      process.env.ISL_API_KEY = 'k';
+      __resetIslComputeAdmission();
+
+      // Boot-shaped sequence: one healthy read, then ISL's /health goes dark.
+      vi.stubGlobal('fetch', vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ status: 'healthy', compute_admission: v5Admission() }),
+      })));
+      await __refreshForTest();
+      vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('ECONNREFUSED'); }));
+      const retained = await __refreshForTest();
+      expect(retained.status).toBe('unreachable'); // the outage is not hidden...
+      expect(retained.admission).not.toBeNull(); // ...but planning keeps the real gate
+
+      islCalls = [];
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v2/run',
+        headers: { 'Content-Type': 'application/json' },
+        payload: { graph: denseGraph(2), options: OPTIONS, goal_node_id: 'goal', seed: '42' },
+      });
+
+      // Weighted planning survived the outage: full defaulted depth, no
+      // conservative cut, no reduction warning.
+      expect(res.statusCode).toBe(200);
+      expect(islCalls[0].n_samples).toBe(10_000);
+      expect(findSamplesReducedWarnings(JSON.parse(res.body))).toHaveLength(0);
+    } finally {
+      warnSpy.mockRestore();
+      vi.unstubAllGlobals();
+      __resetIslComputeAdmission();
+      if (prevBase === undefined) delete process.env.ISL_BASE_URL; else process.env.ISL_BASE_URL = prevBase;
+      if (prevKey === undefined) delete process.env.ISL_API_KEY; else process.env.ISL_API_KEY = prevKey;
+    }
+  });
+
+  it('ROADMAP 2.289: the retained admission keeps the STRUCTURAL CAPS gate live through the outage', async () => {
+    const prevBase = process.env.ISL_BASE_URL;
+    const prevKey = process.env.ISL_API_KEY;
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      process.env.ISL_BASE_URL = 'https://isl.test';
+      process.env.ISL_API_KEY = 'k';
+      __resetIslComputeAdmission();
+
+      // The healthy read advertises a node cap TIGHTER than the graph, then dies.
+      const tightened = v5Admission();
+      tightened.caps = { ...tightened.caps, max_nodes: 2 };
+      vi.stubGlobal('fetch', vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ status: 'healthy', compute_admission: tightened }),
+      })));
+      await __refreshForTest();
+      vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('ECONNREFUSED'); }));
+      await __refreshForTest();
+
+      islCalls = [];
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v2/run',
+        headers: { 'Content-Type': 'application/json' },
+        payload: { graph: denseGraph(2), options: OPTIONS, goal_node_id: 'goal', seed: '42' },
+      });
+
+      // Under a NULL admission this gate is disabled (positive control above) —
+      // retention is what keeps the refusal structured and PLoT-originated.
+      expect(res.statusCode).toBe(422);
+      expect(JSON.stringify(JSON.parse(res.body))).toContain('GRAPH_TOO_COMPLEX');
+      expect(islCalls).toHaveLength(0);
+    } finally {
+      warnSpy.mockRestore();
+      vi.unstubAllGlobals();
+      __resetIslComputeAdmission();
+      if (prevBase === undefined) delete process.env.ISL_BASE_URL; else process.env.ISL_BASE_URL = prevBase;
+      if (prevKey === undefined) delete process.env.ISL_API_KEY; else process.env.ISL_API_KEY = prevKey;
+    }
   });
 });
