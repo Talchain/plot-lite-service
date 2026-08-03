@@ -25,6 +25,12 @@ import {
   MAX_OPTIONS as LIMITS_MAX_OPTIONS,
 } from '../constants/limits.js';
 
+// S5 (lane L45): the VOI family's row type comes from the SHARED contract, not
+// from a PLoT-local restatement. `@talchain/schemas` 0.31.0 owns this shape and
+// the egress guard validates against the same schema at runtime, so importing
+// the type is agreement with the contract rather than an invented one.
+import type { EnrichmentFactorEvppiEntry } from '@talchain/schemas/boundary';
+
 // Import CEE types for factor enrichments
 import type { FactorEnrichment } from '../cee/types.js';
 import type { RangeSource } from '../lib/intervention-normaliser.js';
@@ -1080,18 +1086,67 @@ export interface RunResponseV3 {
    * present (additive, omit-when-absent). PLoT does the raw passthrough only —
    * "PLoT passthrough-forwards meanwhile" (D-23.4); the richer outcome-unit
    * reconciliation + method-tagging to the UI is a separate gated lane
-   * (D-23.8 S5) and firm wire typing rides the @talchain/schemas batch. Typed
-   * permissively (`unknown`) here so PLoT neither invents nor constrains a
-   * shape ISL owns. NOT in response_hash (response_hash canonicalises the
-   * request; these are computed enrichment).
+   * (D-23.8 S5) and firm wire typing rides the @talchain/schemas batch.
+   * NOT in response_hash (response_hash canonicalises the request; these are
+   * computed enrichment).
+   *
+   * ⭐ S5 (lane L45) — EACH FIELD IS TYPED EXACTLY AS THE SHARED CONTRACT TYPES
+   * IT, AND NO TIGHTER. `@talchain/schemas` 0.31.0 adopted this family
+   * (`AnalysisEnrichmentSchema`), so the shape is no longer PLoT's to guess:
+   * mirroring the contract here is the opposite of inventing one. Two of the
+   * four stay `unknown` because the CONTRACT types them open — `p_win_sensitivity`
+   * as `z.array(z.record(z.string(), z.unknown()))` and `correlation_model` as
+   * `z.object({}).passthrough()` — and claiming more than the contract does is
+   * how a type becomes a promise nothing checks.
+   *
+   * ⚠ THE TYPES ARE BACKED BY A RUNTIME CHECK, WHICH IS WHY THEY ARE SAFE TO
+   * NARROW. These values are forwarded VERBATIM (`islEnrichmentPassthrough`) —
+   * a declared type alone would assert a shape nothing validates. The egress
+   * guard parses the outgoing body against the SAME schema, and
+   * `tests/gates/voi-family-wire-conformance.test.ts` pins that its verdict is
+   * `true` on the real `/v2/run` route, WITH a positive control proving the
+   * verdict can still say no. Before that pin existed, the repo's own
+   * passthrough fixture carried `decision_evpi` as an OBJECT: the contract
+   * rejected it, the guard said so inside the same response, and every test was
+   * green. Narrow the types only as far as something executes.
    */
-  /** Correlation model disclosure (Gaussian copula, PSD/tail-independence status). */
+  /**
+   * Correlation model disclosure (Gaussian copula, PSD/tail-independence status).
+   * OPEN by contract. Also THE DISCRIMINATOR for an absent `p_win_sensitivity`:
+   * `suppressed_attributions` naming it means suppressed-under-correlation, not
+   * never-computed.
+   */
   correlation_model?: unknown;
-  /** Decision-EVPI on the joint samples (E[max]−max E). */
-  decision_evpi?: unknown;
-  /** Per-factor Strong-Oakley EVPPI (outcome-unit value of perfect partial information). */
-  factor_evppi?: unknown;
-  /** Per-factor win-probability sensitivity (honestly-named successor to factor_evpi). */
+  /**
+   * Decision-EVPI on the joint samples (E[max]−max E), OUTCOME units.
+   *
+   * ⚠ ABSENT ≠ 0. Key-absent means NOT COMPUTED; a `0` is a real measurement
+   * ("nothing about this decision is worth learning"). The wire carries no
+   * discriminator beyond key presence, so `?? 0` at any consumer converts one
+   * into the other. `number | null` mirrors the contract exactly — `null` is
+   * admitted because the contract admits it, not because PLoT emits it.
+   */
+  decision_evpi?: number | null;
+  /**
+   * Per-factor Strong-Oakley EVPPI (outcome-unit value of perfect partial
+   * information), rows sorted by `evppi` DESCENDING by the producer — that
+   * ORDER is the contract, and a consumer renders it verbatim.
+   *
+   * ⚠ A factor ABSENT from a present array was NOT ASSESSED (a lever an option
+   * intervenes on, or a row whose estimator failed — disclosed as
+   * `FACTOR_EVPPI_PARTIAL`). Absent is never zero and must not be imputed.
+   */
+  factor_evppi?: EnrichmentFactorEvppiEntry[] | null;
+  /**
+   * Per-factor win-probability sensitivity (honestly-named successor to
+   * factor_evpi). OPEN by contract — ISL declares `List[dict]`.
+   *
+   * ABSENT UNDER ACTIVE CORRELATION BY DESIGN: ISL suppresses it and names it in
+   * `correlation_model.suppressed_attributions`, so absence here is a
+   * suppression VERDICT. It is also the only VOI quantity in CHANCE units
+   * (`current_metric` → `perfect_metric`); a consumer may not render those
+   * members until the contract types the row.
+   */
   p_win_sensitivity?: unknown;
 
   /** Factor sensitivity results (if available) */

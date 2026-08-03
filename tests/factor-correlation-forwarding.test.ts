@@ -31,6 +31,7 @@ import {
   toISLRobustnessRequest,
 } from '../src/integrations/isl/translator-v3.js';
 import type { EngineGraphV3, OptionV3, FactorCorrelation } from '../src/types/engine-v3.js';
+import { VOI_TRANSPORT_ALL_FOUR } from './fixtures/voi-family-wire.js';
 
 // ---------------------------------------------------------------------------
 // (1) FORWARDING — translator unit (no server, byte-precise)
@@ -105,18 +106,22 @@ const requestA = JSON.parse(
 );
 
 // ISL-shaped correlated-factors outputs used by the passthrough proof.
-const CORRELATION_MODEL = {
-  model: 'gaussian_copula',
-  psd: { status: 'valid', method: 'none' },
-  tail_independence_disclosed: true,
-};
-const DECISION_EVPI = { value: 0.042, method: 'joint_samples', units: 'outcome' };
-const FACTOR_EVPPI = [
-  { factor_id: 'fac_dev_headcount', evppi: 0.031, method: 'strong_oakley' },
-];
-const P_WIN_SENSITIVITY = [
-  { factor_id: 'fac_dev_headcount', p_win_sensitivity: 0.12 },
-];
+//
+// ⭐ L45: these were four HAND-INVENTED constants, and `decision_evpi` was an
+// OBJECT where the shared contract types a number — so this "verbatim
+// passthrough" proof ran against a body that PLoT's OWN egress guard, sitting
+// in the same response, marked `enrichment_contract_ok: false` with an
+// ENRICHMENT_CONTRACT_MISMATCH warning. The test passed 8/8 green throughout.
+// They now come from ONE canonical module derived from the live guest-walk
+// capture + the ISL producer at `80aa83f`; the full derivation, the measured
+// pristine failure, and why the all-four combination is a TRANSPORT fixture
+// rather than a semantic claim are in that module's header.
+const {
+  correlation_model: CORRELATION_MODEL,
+  decision_evpi: DECISION_EVPI,
+  factor_evppi: FACTOR_EVPPI,
+  p_win_sensitivity: P_WIN_SENSITIVITY,
+} = VOI_TRANSPORT_ALL_FOUR;
 
 // Mutable mock state (mock-prefixed so Vitest permits it inside the factory).
 const mockState: { augment: boolean; error: unknown | null } = { augment: false, error: null };
@@ -269,6 +274,20 @@ describe('capability #100 — /v2/run route (allowlist, passthrough, 422)', () =
     expect(body.decision_evpi).toEqual(DECISION_EVPI);
     expect(body.factor_evppi).toEqual(FACTOR_EVPPI);
     expect(body.p_win_sensitivity).toEqual(P_WIN_SENSITIVITY);
+
+    // ⭐ L45 — THE PASSTHROUGH PROOF MUST BE OF A BODY THE CONTRACT ACCEPTS.
+    // `enrichment_contract_ok` is PLoT's own egress verdict on this very body
+    // (assessEnrichmentContract → AnalysisEnrichmentSchema). Without this the
+    // test proved transport of a shape the shared envelope REJECTS, while the
+    // guard sitting in the same response declared it broken — two guards, one
+    // body, never introduced (trap 19: a pin that passes on the wrong object).
+    expect(
+      body?._meta?.evidence?.enrichment_contract_ok,
+      'the forwarded VOI body must parse against the shared enrichment envelope',
+    ).toBe(true);
+    expect(
+      (body.inference_warnings ?? []).map((w: { code: string }) => w.code),
+    ).not.toContain('ENRICHMENT_CONTRACT_MISMATCH');
   });
 
   it('OMITS the correlated-factors keys when ISL does not emit them', async () => {
