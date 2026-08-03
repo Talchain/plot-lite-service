@@ -48,6 +48,7 @@ import {
   recordIslForeignFormulaParameterGroups,
 } from '../../metrics/registry.js';
 import { isFiniteNumber, allFiniteNumberFields } from '../../util/numeric.js';
+import { ISL_HEALTH_CHECK_TIMEOUT_MS } from '../../config/timeouts.js';
 import type {
   ISLComputeAdmission,
   ISLComputeAdmissionWeights,
@@ -348,22 +349,67 @@ function foreignFormulaParameterGroupsFor(
     .sort();
 }
 
+/**
+ * The advertised formula version, if the payload carries a readable one.
+ *
+ * ⚠ ROADMAP 2.356 — THIS IS READ BEFORE ANY SIBLING FIELD IS VALIDATED, AND THE
+ * ORDER IS THE WHOLE POINT.
+ *
+ * #305 ruled that an OUTAGE-class skew (no readable version) may retain the
+ * last-known-good advertisement, while a DRIFT-class skew (a readable version
+ * PLoT cannot price) never may — live ISL is positively declaring a different
+ * cost model, so the retained block is obsolete pricing with stale caps. The
+ * discriminator is `advertisedVersion === undefined`.
+ *
+ * `validAdmissionShape` used to run first, and its early return carried no
+ * version. So `{complexity_formula_version: 'v9-future', weights: null}` — a
+ * partially-rolled-out ISL, telling PLoT in plain text that it has moved — was
+ * reported as `missing_block` with NO advertised version, took the OUTAGE
+ * branch, and got priced with the RETAINED v5 weights at full depth. A drift
+ * laundered into an outage by field ORDER. The alarm even logged
+ * `advertised_version: null`, so the one field that would have diagnosed it was
+ * blank.
+ *
+ * Extracting the version first makes the discriminator see what the payload
+ * actually said. It deliberately does NOT validate anything else: a version is
+ * readable or it is not, independent of whether its siblings are usable.
+ */
+function readAdvertisedVersion(block: unknown): string | undefined {
+  if (!block || typeof block !== 'object') return undefined;
+  const v = (block as Record<string, unknown>).complexity_formula_version;
+  return typeof v === 'string' && v.length > 0 ? v : undefined;
+}
+
 /** Classify a fetched /health payload into a resolution. */
 function classify(health: ISLHealthResponse | null): AdmissionResolution {
   if (health === null) {
     return { admission: null, skew: true, status: 'unreachable' };
   }
   const block = health.compute_admission;
-  if (!validAdmissionShape(block)) {
-    return { admission: null, skew: true, status: 'missing_block' };
-  }
-  const advertisedVersion = block.complexity_formula_version;
+
+  // Version FIRST (see readAdvertisedVersion) — so a readable version survives a
+  // garbled block and the drift/outage discriminator judges the payload, not the
+  // order this function happens to check fields in.
+  const advertisedVersion = readAdvertisedVersion(block);
 
   // The version gate, and the source of EVERY key set this block is judged
-  // against — one map, so no two of them can disagree.
-  const spec = COMPLEXITY_FORMULA_SPECS.get(advertisedVersion);
-  if (spec === undefined) {
+  // against — one map, so no two of them can disagree. Checked BEFORE the shape
+  // gate: a version PLoT cannot price is drift regardless of what the rest of
+  // the block looks like, and calling it `missing_block` would both mislabel the
+  // alarm and (before 2.356) hand it to the retention branch.
+  const spec =
+    advertisedVersion === undefined ? undefined : COMPLEXITY_FORMULA_SPECS.get(advertisedVersion);
+  if (advertisedVersion !== undefined && spec === undefined) {
     return { admission: null, skew: true, status: 'unknown_version', advertisedVersion };
+  }
+
+  if (!validAdmissionShape(block) || spec === undefined) {
+    // A genuinely versionless or structurally garbled block. `advertisedVersion`
+    // is threaded through when one WAS readable (a known version with unusable
+    // siblings) — that is the "garbled weights under a readable version land
+    // conservative" edge the #305 ruling accepted, and it only lands on the safe
+    // side because the version travels with it.
+    return { admission: null, skew: true, status: 'missing_block', ...(advertisedVersion !== undefined && { advertisedVersion }) };
   }
 
   // A coefficient this version's estimator prices is missing or non-numeric →
@@ -476,10 +522,19 @@ function signalSkew(resolution: AdmissionResolution): void {
       unexpected_cap_keys: resolution.unexpectedCapKeys ?? null,
       missing_formula_parameters: resolution.missingFormulaParameters ?? null,
       unexpected_formula_parameters: resolution.unexpectedFormulaParameters ?? null,
-      action: retained ? 'retained_last_known_good_admission' : 'fail_loud_conservative_fallback',
+      // ⚠ ROADMAP 2.356 — THE `false` BRANCH BELOW USED TO PROMISE A FALLBACK
+      // THAT NO LONGER HAPPENS. It told responders "planning against the
+      // conservative legacy scalar bound (base depth capped)... every DEFAULTED
+      // analysis is now running at the reduced fallback depth". Since 2.356 that
+      // state REFUSES the request with a 503 instead, because the scalar bound
+      // could not promise admission against a gate it cannot read. An alarm that
+      // misdescribes its own mitigation teaches responders the wrong recovery
+      // (trap 7b) — here it would have had someone hunting for silently-shallow
+      // results while the real symptom was refused requests.
+      action: retained ? 'retained_last_known_good_admission' : 'fail_loud_refuse_requests',
       msg: retained
         ? 'ISL /health compute-admission read unusable with NO readable formula version (outage class) — planning continues against the LAST KNOWN GOOD advertisement (weighted pricing and structural caps stay live) while refreshes retry every TTL and self-heal on recovery. A READABLE version PLoT cannot price (drift) never retains and never takes this branch.'
-        : 'ISL /health compute-admission handshake unusable and nothing retained (or the live read declares a formula PLoT cannot price — drift never retains) — planning against the conservative legacy scalar bound (base depth capped) until the live capability is readable and its formula version is known. Every DEFAULTED analysis is now running at the reduced fallback depth and says so in its response (SAMPLES_REDUCED_FOR_COMPLEXITY).',
+        : 'ISL /health compute-admission handshake unusable and nothing retained (or the live read declares a formula PLoT cannot price — drift never retains). Analyses are being REFUSED with a 503 (ANALYSIS_ENGINE_ADMISSION_UNAVAILABLE) after one bounded retry, NOT planned against a scalar fallback: scalar arithmetic cannot promise admission against a weighted gate it cannot read, so planning blind produced requests ISL refused with a raw 422. If the advertised version is a formula PLoT does not know, the fix is a PLoT release that prices it; otherwise restore ISL /health.',
     }),
   );
 }
@@ -609,6 +664,142 @@ export async function warmIslComputeAdmission(): Promise<AdmissionResolution> {
     await startRefresh();
   }
   return getIslComputeAdmission();
+}
+
+/**
+ * What the depth planner should do about admission for THIS request.
+ *
+ * `refuse` carries an HTTP status and a code rather than a message so the route
+ * owns the wording; what this module owns is the DECISION and its truthfulness.
+ */
+/**
+ * Await one refresh, but NEVER longer than the health-check budget.
+ *
+ * ⚠ THE RACE IS NOT BELT-AND-BRACES — IT IS THE ONLY THING THAT MAKES "BOUNDED"
+ * TRUE HERE, AND A TEST PROVED IT.
+ *
+ * `fetchHealth` bounds itself with an abort signal, so awaiting `startRefresh()`
+ * directly looked bounded. It is bounded only if the underlying fetch HONOURS
+ * that signal. `adaptive-n-samples-complexity.test.ts` stubs global fetch with a
+ * promise that never settles — a fair model of a socket that accepts and then
+ * goes silent — and the first cut of this function hung on it until the test
+ * timed out at 15 s. In front of a live route that is a request that never
+ * answers, which is strictly worse than the blind planning this whole change
+ * exists to remove.
+ *
+ * So the bound is enforced HERE, where the blocking happens, rather than
+ * inherited from a collaborator's promise. On timeout the refresh keeps running
+ * in the background (it will populate the cache for the next request if it ever
+ * lands); this call simply stops waiting and decides on what is in hand — which
+ * is a refusal, the safe answer.
+ */
+async function refreshWithHardBound(): Promise<void> {
+  let timer: NodeJS.Timeout | undefined;
+  const bound = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, ISL_HEALTH_CHECK_TIMEOUT_MS);
+    // Do not hold the process open on this timer.
+    timer.unref?.();
+  });
+  try {
+    await Promise.race([startRefresh(), bound]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+export type AdmissionPlanningOutcome =
+  | {
+      kind: 'plan';
+      resolution: AdmissionResolution;
+      /** Pass-through to planSampleDepth — the retained-skew fail-safe posture. */
+      conservative: boolean;
+    }
+  | {
+      kind: 'refuse';
+      code: 'ANALYSIS_ENGINE_ADMISSION_UNAVAILABLE';
+      httpStatus: 503;
+      resolution: AdmissionResolution;
+    };
+
+/**
+ * Resolve admission for one request: plan against a real advertisement, or
+ * REFUSE — never plan blind.
+ *
+ * ⚠ ROADMAP 2.356 — THIS REPLACES THE BLIND SCALAR FALLBACK, AND THE REASON IS
+ * ARITHMETIC, NOT TASTE.
+ *
+ * `sampling.ts` already states it: "NO scalar arithmetic can promise admission
+ * against a weighted gate it cannot see." Both witnesses are pinned in tests.
+ * From 2.289: N=20/E=40/O=10/U=19 at the CAPPED 4,000-sample fallback depth
+ * prices at 29.4M against ISL's 24M ceiling — the fallback's own output is a
+ * request ISL refuses. From this lane, the same graph read from the other end:
+ * its scalar cost at that depth is 3.2M, comfortably inside BOTH scalar budgets,
+ * so every scalar gate waves it through. The conservative fallback is not a
+ * weaker guarantee than weighted planning; on this shape it is no guarantee at
+ * all, and what the user gets is a raw 422 from ISL with PLoT's fingerprints on
+ * the decision to send it.
+ *
+ * So when ISL is configured and PLoT holds NO usable advertisement, this takes
+ * ONE bounded synchronous refresh — a cold cache must not produce a refusal that
+ * a single /health read would have avoided, and the refresh is bounded by
+ * ISL_HEALTH_CHECK_TIMEOUT_MS over headers AND body (#305 amendment 2) — and
+ * then refuses with a typed 503.
+ *
+ * WHY 503 AND NOT 422. The caller's graph is fine; PLoT's view of the analysis
+ * engine is not. A 422 would blame the user for an infrastructure state and
+ * teach them to edit a graph that was never the problem — the same
+ * misattribution class as reporting a seam-caused depth cut as
+ * `admission_budget`. 503 is retryable, and the next request self-heals as soon
+ * as a refresh succeeds.
+ *
+ * TWO STATES DELIBERATELY KEEP PLANNING:
+ *  - `disabled` (ISL not configured): there is no gate downstream to violate.
+ *  - a RETAINED last-known-good admission (outage-class skew): PLoT holds a real,
+ *    previously-verified advertisement. That is exactly what retention is for,
+ *    and refusing here would throw away the mitigation 2.289 built. It still
+ *    plans `conservative`, so the fail-safe posture is unchanged.
+ */
+export async function resolveAdmissionForPlanning(): Promise<AdmissionPlanningOutcome> {
+  const decide = (resolution: AdmissionResolution): AdmissionPlanningOutcome | null => {
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    if (resolution.status === 'disabled') {
+      return { kind: 'plan', resolution, conservative: false };
+    }
+    // A usable block — live or retained — is what "we can price this" means.
+    if (resolution.admission !== null) {
+      return { kind: 'plan', resolution, conservative: shouldPlanConservatively(resolution) };
+    }
+    return null;
+  };
+
+  // ONE bounded synchronous refresh, and ONLY when the cache is cold or stale.
+  //
+  // ⚠ THE FRESHNESS GATE IS LOAD-BEARING, IN TWO DIRECTIONS. Refreshing an
+  // unusable-but-FRESH resolution is pointless — a second /health read inside
+  // the TTL returns what the first one did, so it would buy nothing and add a
+  // blocking network round-trip to a request that is going to be refused
+  // anyway. And it would silently overwrite a deliberately-established cache
+  // state, which is how the first cut of this function made three route tests
+  // pass for the wrong reason: they seeded a skew, the resolver threw it away
+  // and re-read, and the assertion measured the re-read instead of the state
+  // under test.
+  //
+  // So: cold/stale → read once and decide on the result; fresh → decide on what
+  // we already know.
+  if (!isFresh(Date.now())) {
+    await refreshWithHardBound();
+  }
+
+  const resolution = getIslComputeAdmission();
+  const second = decide(resolution);
+  if (second !== null) return second;
+
+  return {
+    kind: 'refuse',
+    code: 'ANALYSIS_ENGINE_ADMISSION_UNAVAILABLE',
+    httpStatus: 503,
+    resolution,
+  };
 }
 
 // ---------------------------------------------------------------------------

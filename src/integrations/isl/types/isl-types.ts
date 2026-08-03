@@ -1151,6 +1151,17 @@ export interface ISLComputeAdmissionFormulaParameters {
     /** The sub-sweep sample divisor (ISL `SENSITIVITY_SUBSAMPLE_DIVISOR`). */
     subsample_divisor: number;
   };
+  /**
+   * v6+ `alternative_winners` term: coef·O·(1 + min(E, max_edges)·k)·W.
+   * ROADMAP 2.356 — before v6 this phase's marginal-switch sweep was uncapped
+   * and unpriced, so neither number existed to advertise.
+   */
+  alternative_winners?: {
+    /** The fragile-edge cap the marginal sweep truncates to (ISL `MARGINAL_MAX_EDGES`). */
+    max_edges: number;
+    /** Isolated re-draws per priced edge (ISL `MARGINAL_K_SAMPLES`). */
+    marginal_k_samples: number;
+  };
 }
 
 /**

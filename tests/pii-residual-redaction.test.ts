@@ -74,13 +74,23 @@ describe('/v2/run response: downstream_calls bodies are digested (F8)', () => {
       if (!url.includes(ISL_HOST)) {
         throw new Error(`NO-NETWORK TRIPWIRE: unmocked fetch to ${url}`);
       }
+      // /health must answer with a REAL compute_admission block: since ROADMAP
+      // 2.356 PLoT refuses (503) when it cannot read ISL's compute gate, so a
+      // mock that returns the analyse fixture for every ISL URL would make
+      // these tests measure that refusal instead of the redaction under test.
+      const { ISL_HEALTH_BODY } = await import('./fixtures/isl-health-advertisement.js');
       const { makeComputedIslResponse } = await import('./helpers/run-fixtures.js');
-      const bodyText = JSON.stringify(makeComputedIslResponse());
+      const bodyText = url.includes('/health')
+        ? JSON.stringify(ISL_HEALTH_BODY)
+        : JSON.stringify(makeComputedIslResponse());
       return {
         ok: true,
         status: 200,
         headers: new Headers({ 'content-type': 'application/json', 'x-request-id': 'isl-echo' }),
         text: async () => bodyText,
+        // fetchHealth reads .json(); the analyse path reads .text(). Both must
+        // exist or /health silently resolves to null and the route refuses.
+        json: async () => JSON.parse(bodyText),
       } as unknown as Response;
     }) as unknown as typeof fetch;
 

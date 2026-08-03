@@ -521,9 +521,25 @@ describe('adaptive n_samples via /v2/run (F8 handshake — weighted planning)', 
     expect(findSamplesReducedWarnings(body)).toHaveLength(0);
   });
 
-  it('FAIL-LOUD FALLBACK: with a skewed capability the DEFAULTED depth-raise is disabled (plans at 4000, not 10000)', async () => {
-    // A version-skewed capability → the route must fall back to the conservative
-    // legacy scalar bound with the depth-raise disabled.
+  it('FAIL-LOUD: with a skewed capability and nothing retained, the route REFUSES (503) rather than planning blind', async () => {
+    // ⚠ ROADMAP 2.356 REPLACED THIS TEST'S CONTRACT, DELIBERATELY. It used to
+    // assert the conservative legacy fallback: depth-raise disabled, 4,000
+    // samples forwarded against the 10M scalar bound, HTTP 200.
+    //
+    // That posture was honest about the DEPTH and dishonest about the
+    // GUARANTEE. Scalar arithmetic cannot promise admission against a weighted
+    // gate it cannot read, and the numbers are not marginal: on
+    // N=20/E=40/O=10/U=19 the capped 4,000-sample plan prices at 3.2M scalar
+    // (inside every scalar budget) and 29,392,600 under ISL's real v5 formula,
+    // against a 24M ceiling — a 9.2x gap, pinned in
+    // tests/isl-admission-version-first-classification.test.ts. What the old
+    // contract produced on such a graph was a request ISL refuses with a raw
+    // 422, with PLoT's fingerprints on the decision to send it.
+    //
+    // The new contract: one bounded refresh, then a typed 503. The graph is
+    // small enough here that the OLD path would have "worked" — which is
+    // exactly why the assertion has to be about the POSTURE, not about whether
+    // this particular graph happened to fit.
     __setIslComputeAdmissionForTest({ admission: null, skew: true, status: 'unknown_version' });
     islCalls = [];
     const res = await app.inject({
@@ -533,11 +549,19 @@ describe('adaptive n_samples via /v2/run (F8 handshake — weighted planning)', 
       payload: { graph: denseGraph(2), options: OPTIONS, goal_node_id: 'goal', seed: '42' },
     });
 
-    expect(res.statusCode).toBe(200);
-    // 3 nodes × 3 edges fits the 10M scalar bound at 4000 → 4000 is sent.
-    expect(islCalls[0].n_samples).toBe(LEGACY_BASE_N_SAMPLES); // 4000, not 10000
+    expect(res.statusCode).toBe(503);
+    // Nothing was forwarded — the point is that PLoT does not send a request it
+    // has no basis to believe ISL will admit.
+    expect(islCalls).toHaveLength(0);
     const body = JSON.parse(res.body);
-    expect(body.meta?.n_samples).toBe(LEGACY_BASE_N_SAMPLES);
+    const blocker = (body.critiques ?? body.warnings ?? []).find(
+      (c: { code?: string }) => c.code === 'ANALYSIS_ENGINE_ADMISSION_UNAVAILABLE',
+    );
+    expect(blocker).toBeDefined();
+    // Truthful attribution: an engine-availability problem must never read as a
+    // property of the caller's graph, or the user edits a model that was never
+    // the problem.
+    expect(blocker.message).toContain('Nothing is wrong with your decision model');
   });
 
   // ---------------------------------------------------------------------------
@@ -643,8 +667,30 @@ describe('adaptive n_samples via /v2/run (F8 handshake — weighted planning)', 
   // the resulting depth. These tests pin the wire, not the plan.
   // ---------------------------------------------------------------------------
 
-  it('ROADMAP 2.260: the skew-capped depth is DISCLOSED on the wire, naming both depths', async () => {
-    __setIslComputeAdmissionForTest({ admission: null, skew: true, status: 'unknown_version' });
+  it('ROADMAP 2.260/2.356: the admission_unavailable REDUCTION is retired — that state now refuses instead', async () => {
+    // ⚠ 2.356 RE-AIMED THIS TEST RATHER THAN DELETING IT. The disclosure
+    // contract it pins — a depth cut caused by the SEAM must name both depths
+    // and attribute the cause to the seam, not to the caller's graph — is
+    // exactly as load-bearing as it was; what changed is WHICH state can still
+    // produce a depth cut. A skew with NOTHING retained now refuses outright
+    // (above), so the surviving reduce-and-disclose path is the RETAINED
+    // outage: PLoT holds a real, previously-verified advertisement, plans
+    // conservatively against it, and says so.
+    //
+    // Deleting this test with the old state would have quietly retired the
+    // 2.260 wire contract along with it.
+    // TWO states, one assertion each, because 2.356 SPLIT the old one.
+    //
+    // (1) skew with a RETAINED admission: PLoT holds a real, previously
+    //     verified advertisement, so it plans WEIGHTED against it at full depth.
+    //     No reduction, so nothing to disclose — retention is exactly what makes
+    //     an outage benign.
+    __setIslComputeAdmissionForTest({
+      admission: v2Admission(),
+      skew: true,
+      status: 'unreachable',
+      retainedAdmissionVersion: 'v2-weighted-2026-07',
+    });
     islCalls = [];
     const res = await app.inject({
       method: 'POST',
@@ -658,18 +704,25 @@ describe('adaptive n_samples via /v2/run (F8 handshake — weighted planning)', 
 
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
-    expect(body.meta?.n_samples).toBe(LEGACY_BASE_N_SAMPLES);
+    expect(body.meta?.n_samples).toBe(10_000);
+    expect(findSamplesReducedWarnings(body)).toHaveLength(0);
 
-    const warnings = findSamplesReducedWarnings(body);
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0].severity).toBe('warning');
-    // Both depths named — a disclosure that does not say how much was lost is
-    // not a disclosure.
-    expect(warnings[0].message).toContain('10000');
-    expect(warnings[0].message).toContain(String(LEGACY_BASE_N_SAMPLES));
-    // ...and it attributes the cause to the SEAM, not to the caller's graph.
-    expect(warnings[0].message).toContain('could not be confirmed');
-    expect(warnings[0].message).not.toContain('fits the analysis');
+    // (2) skew with NOTHING retained: the state that used to produce the
+    //     `admission_unavailable` reduction now REFUSES. The 2.260 wire
+    //     contract it satisfied ("name both depths, blame the seam not the
+    //     graph") is not weakened — it is superseded by a stronger answer,
+    //     because a refusal cannot be mistaken for a result at all. The
+    //     truthful-attribution half survives, and is asserted on the blocker.
+    __setIslComputeAdmissionForTest({ admission: null, skew: true, status: 'unknown_version' });
+    islCalls = [];
+    const refused = await app.inject({
+      method: 'POST',
+      url: '/v2/run',
+      headers: { 'Content-Type': 'application/json' },
+      payload: { graph: denseGraph(2), options: OPTIONS, goal_node_id: 'goal', seed: '42' },
+    });
+    expect(refused.statusCode).toBe(503);
+    expect(islCalls).toHaveLength(0);
   });
 
   it('ROADMAP 2.260: a BUDGET reduction still blames the budget (the two causes do not blur)', async () => {
@@ -691,10 +744,19 @@ describe('adaptive n_samples via /v2/run (F8 handshake — weighted planning)', 
     expect(warnings[0].message).not.toContain('could not be confirmed');
   });
 
-  it('ROADMAP 2.260: under skew, an EXPLICIT in-budget depth is untouched and produces NO warning', async () => {
-    // The cap applies to DEFAULTED depths only. A disclosure that fires when
-    // nothing was lost trains people to ignore it — the same broken-alarm
-    // failure as the silence, in the other direction.
+  it('ROADMAP 2.260/2.356: under skew, an EXPLICIT depth does not rescue a request PLoT cannot price', async () => {
+    // ⚠ RE-AIMED BY 2.356. The old contract was "an explicit in-budget depth is
+    // untouched and produces no warning" — correct while skew meant a
+    // conservative PLAN, because the raise-disable only ever applied to a
+    // DEFAULTED depth. Now skew-with-nothing-retained refuses outright, and an
+    // explicit depth cannot change that: the missing thing is PLoT's knowledge
+    // of ISL's gate, not the caller's opinion about depth. A request PLoT has
+    // no basis to believe ISL will admit is not made admissible by asking for
+    // it more precisely.
+    //
+    // The "explicit depth is never silently overridden" contract this test used
+    // to carry is still pinned, on the states that still plan — see the
+    // explicit-depth cases above under a healthy advertisement.
     __setIslComputeAdmissionForTest({ admission: null, skew: true, status: 'unknown_version' });
     islCalls = [];
     const res = await app.inject({
@@ -704,9 +766,24 @@ describe('adaptive n_samples via /v2/run (F8 handshake — weighted planning)', 
       payload: { graph: denseGraph(2), options: OPTIONS, goal_node_id: 'goal', seed: '42', n_samples: 8000 },
     });
 
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode).toBe(503);
+    expect(islCalls).toHaveLength(0);
+
+    // POSITIVE CONTROL, in the same test, so the assertion above cannot pass
+    // for the trivial reason that this graph/depth is rejected by something
+    // else entirely: with a HEALTHY advertisement the identical explicit depth
+    // sails through untouched and warns about nothing.
+    __setIslComputeAdmissionForTest({ admission: v2Admission(), skew: false, status: 'ok' });
+    islCalls = [];
+    const healthy = await app.inject({
+      method: 'POST',
+      url: '/v2/run',
+      headers: { 'Content-Type': 'application/json' },
+      payload: { graph: denseGraph(2), options: OPTIONS, goal_node_id: 'goal', seed: '42', n_samples: 8000 },
+    });
+    expect(healthy.statusCode).toBe(200);
     expect(islCalls[0].n_samples).toBe(8000);
-    expect(findSamplesReducedWarnings(JSON.parse(res.body))).toHaveLength(0);
+    expect(findSamplesReducedWarnings(JSON.parse(healthy.body))).toHaveLength(0);
   });
 
   it('MULTI-CONSTRAINT: prices EVPI over factor PUs UNION constraint-injected PUs — plans conservatively (no pass-then-422)', async () => {
@@ -791,7 +868,7 @@ describe('adaptive n_samples via /v2/run (F8 handshake — weighted planning)', 
   // outcome belongs.
   // ---------------------------------------------------------------------------
 
-  it('ROADMAP 2.289: a COLD cache (ISL configured, first read in flight) plans CONSERVATIVELY and DISCLOSES — never the silent full-depth legacy mode', async () => {
+  it('ROADMAP 2.289/2.356: a COLD cache with an unreachable ISL REFUSES (bounded), never plans blind', async () => {
     const prevBase = process.env.ISL_BASE_URL;
     const prevKey = process.env.ISL_API_KEY;
     try {
@@ -822,20 +899,19 @@ describe('adaptive n_samples via /v2/run (F8 handshake — weighted planning)', 
         payload: { graph: denseGraph(19), options: tenOptions, goal_node_id: 'goal', seed: '42' },
       });
 
-      expect(res.statusCode).toBe(200);
-      // The honest structured outcome: the depth-raise is DISABLED (defaulted
-      // 10,000 → 4,000), exactly as under a named skew...
-      expect(islCalls[0].n_samples).toBe(LEGACY_BASE_N_SAMPLES);
+      // 2.356: the honest structured outcome is now a REFUSAL. On this exact
+      // shape the old conservative plan (4,000 samples) still priced at ~29.4M
+      // against ISL's 24M ceiling, so "plan conservatively and disclose"
+      // disclosed a depth while promising an admission it could not deliver.
+      expect(res.statusCode).toBe(503);
+      // NOTHING was forwarded — the pass-then-422 shape is closed at the source.
+      expect(islCalls).toHaveLength(0);
       const body = JSON.parse(res.body);
-      expect(body.meta?.n_samples).toBe(LEGACY_BASE_N_SAMPLES);
-
-      // ...and the cut is DISCLOSED on the wire, attributed to the SEAM (the
-      // admission capability), never to the caller's graph.
-      const warnings = findSamplesReducedWarnings(body);
-      expect(warnings).toHaveLength(1);
-      expect(warnings[0].message).toContain('10000');
-      expect(warnings[0].message).toContain(String(LEGACY_BASE_N_SAMPLES));
-      expect(warnings[0].message).toContain('could not be confirmed');
+      const blocker = (body.critiques ?? body.warnings ?? []).find(
+        (c: { code?: string }) => c.code === 'ANALYSIS_ENGINE_ADMISSION_UNAVAILABLE',
+      );
+      expect(blocker).toBeDefined();
+      expect(blocker.message).toContain('Nothing is wrong with your decision model');
     } finally {
       vi.unstubAllGlobals();
       __resetIslComputeAdmission();

@@ -141,7 +141,7 @@ import { FLAGS } from '../../config/flags.js';
 import { getAllFeatureFlags } from '../../config/feature-flags.js';
 import { resolveStandardNSamples, ADAPTIVE_N_SAMPLES_FLOOR, planSampleDepth, checkAdmissionCaps, type DepthPlanInput, type AdmissionCapsDecision, type AdmissionCapDimension, type DepthReductionReason } from '../../config/sampling.js';
 import { LIMITS_MAX_NODES, LIMITS_MAX_EDGES, LIMITS_MAX_OPTIONS } from '../../config/constants.js';
-import { getIslComputeAdmission, shouldPlanConservatively } from '../../integrations/isl/compute-admission.js';
+import { getIslComputeAdmission, resolveAdmissionForPlanning, shouldPlanConservatively } from '../../integrations/isl/compute-admission.js';
 import { generateM1Coaching } from '../../coaching/m1-coaching.js';
 import { filterInterventionOverrides } from '../../coaching/sensitivity-filter.js';
 import type { M1Review } from '../../cee/validation/m1-review-types.js';
@@ -5654,7 +5654,44 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         );
         const uniqueParamUncertainties = factorPuNodeIds.size + constraintInjectedPuNodeIds.size;
 
-        const admissionResolution = getIslComputeAdmission();
+        // ROADMAP 2.356 — one bounded synchronous refresh, then plan or REFUSE.
+        // Never plan blind: the conservative scalar fallback this replaces is
+        // arithmetically incapable of promising admission against a weighted gate
+        // it cannot read (both witnesses pinned in
+        // tests/isl-admission-version-first-classification.test.ts), so its
+        // output was a request ISL refuses with a raw 422.
+        const admissionOutcome = await resolveAdmissionForPlanning();
+        if (admissionOutcome.kind === 'refuse') {
+          req.log.error({
+            event: 'isl_admission_unavailable_refused',
+            request_id: requestId,
+            admission_status: admissionOutcome.resolution.status,
+            advertised_version: admissionOutcome.resolution.advertisedVersion ?? null,
+            node_count: causalNodeCount,
+            edge_count: causalDirectedEdgeCount,
+            option_count: causalOptionCount,
+          });
+          return reply.status(admissionOutcome.httpStatus).send(buildBlockedResponse(
+            'Analysis engine unavailable',
+            [{
+              id: randomUUID(),
+              code: admissionOutcome.code,
+              severity: 'blocker' as const,
+              // Truthful attribution: this is NOT a property of the caller's
+              // graph, and must never read like one. Editing the graph cannot
+              // help, so the message must not invite it.
+              message:
+                'The analysis engine did not report the compute budget it is currently enforcing, so this analysis cannot be planned against it. Nothing is wrong with your decision model — this is a temporary engine-availability problem. Please try again shortly.',
+              source: 'validation' as const,
+              blocks_analysis: true,
+            }],
+            filteredGraph,
+            normalizedOptions,
+            requestId,
+            requestComputedAt,
+          ));
+        }
+        const admissionResolution = admissionOutcome.resolution;
 
         // -----------------------------------------------------------------
         // CAPS half of the /health handshake (checkAdmissionCaps).
@@ -5719,6 +5756,16 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           edgeCount: causalDirectedEdgeCount,
           optionCount: causalOptionCount,
           uniqueParamUncertainties,
+          // ROADMAP 2.356 — v6 prices the per-draw status-quo reference ISL runs
+          // for a LEVEL-framed goal threshold. Derived from what is KNOWN AT PLAN
+          // TIME: a target was stated somewhere in the request, and the goal node
+          // attests the `level` frame. `effectiveGoalThreshold` is not final until
+          // well below this point (precedence routing, auto-synthesis and the
+          // domain-bound guard can each still clear it), so this can over-charge a
+          // request whose threshold is later dropped — the conservative direction,
+          // and the same rule uniqueParamUncertainties follows. Under-charging
+          // here is what produces a pass-then-422.
+          levelFramedGoalThreshold: goalTargetStated && nodeGoalThresholdFrame === 'level',
           // The base /v2/run request always sends these phases (see
           // toISLRobustnessRequest); path decomposition is a request-gated opt-in.
           //
@@ -5761,7 +5808,11 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // review ruling), so this fallback is the LAST line, not the plan of
         // record.
         const complexityDecision = planSampleDepth(depthPlanInput, admissionResolution.admission, {
-          conservative: shouldPlanConservatively(admissionResolution),
+          // ROADMAP 2.356: the posture now comes from the resolver, which has
+          // already refused the no-advertisement case outright. What reaches here
+          // is either a live block or a retained last-known-good one, and
+          // `conservative` distinguishes the two.
+          conservative: admissionOutcome.conservative,
         });
 
         if (complexityDecision.kind === 'refused') {
