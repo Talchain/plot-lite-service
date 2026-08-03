@@ -25,12 +25,18 @@
  * and payload values are never logged. This matches CEE's shadow validator
  * (`v5.enrichment.schema_mismatch` — {path, code} only).
  *
- * The envelope (vendored @talchain/schemas — 0.30.0 at this tip, byte-identical
- * to the tarball CEE and DGAI vendor; see vendor/README.md for the five-way
- * derivation) is passthrough at every level with all root keys optional:
+ * The envelope (vendored @talchain/schemas, byte-identical to the tarball CEE and
+ * DGAI vendor; see vendor/README.md for the five-way derivation) is passthrough
+ * at every level with all root keys optional:
  * producer-ahead fields can never fail it; only type/enum corruption on the
  * typed keys can. So `ok: false` always means a REAL contract break, never
  * "PLoT moved ahead of the schema".
+ *
+ * ⚠ THE PINNED VERSION IS DELIBERATELY NOT RESTATED IN THIS COMMENT. It used to
+ * be ("0.30.0 at this tip"), and it was still saying so while the repo was on
+ * 0.31.0 — a hand-maintained mirror of a number that went stale exactly as trap
+ * 12 predicts. `package.json` is the pin. The two version facts BELOW are
+ * historical (what 0.22.0 lacked, what 0.30.0 added) and stay true as it moves.
  *
  * ⚠ THE COROLLARY IS THE TRAP (ROADMAP 2.160). `.passthrough()` means a key the
  * envelope does not TYPE is not validated at all — it is waved through, and this
