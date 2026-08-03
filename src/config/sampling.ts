@@ -359,6 +359,38 @@ export const V5_FACTOR_FLIPS_2026_08_01_CAP_KEYS = [
  */
 export const SENSITIVITY_FORMULA_PARAMETERS = ['subsample_cap', 'subsample_divisor'] as const;
 export const FACTOR_FLIPS_FORMULA_PARAMETERS = ['max_candidates', 'stability_seeds'] as const;
+/** v6 (ROADMAP 2.356): the marginal-switch sweep's own loop bounds. */
+export const ALTERNATIVE_WINNERS_FORMULA_PARAMETERS = [
+  'max_edges',
+  'marginal_k_samples',
+] as const;
+
+/**
+ * v6 — ISL PR (ROADMAP 2.356) adds TWO weight keys to the v5 set.
+ *
+ * `status_quo_coef` prices the per-draw status-quo reference ISL has run since
+ * ROADMAP 2.286 for a LEVEL-framed goal threshold, and `alt_winner_coef` prices
+ * the marginal-switch sweep inside `_compute_alternative_winners`. Both phases
+ * were doing real SCM evaluations that no v5 term charged for, so a request
+ * could clear ISL's ceiling and then do up to ~1.7x the admitted work (measured
+ * by ISL's evaluator-call-count oracle on its boundary shapes).
+ *
+ * ⚠ DEPLOY ORDER IS NOT SYMMETRIC — PLoT FIRST. This build keeps the v5 spec
+ * alongside v6, so a v6-aware PLoT prices a v5 ISL exactly as it does today. The
+ * reverse does not hold: a v6 ISL in front of a v5-only PLoT advertises two
+ * weight keys PLoT does not price, trips `unknown_weight_keys`, and drops EVERY
+ * request to the conservative fallback. Ship this, confirm it on staging, then
+ * ship ISL.
+ */
+export const V6_STATUS_QUO_ALT_WINNERS_2026_08_03_WEIGHT_KEYS = [
+  ...V5_FACTOR_FLIPS_2026_08_01_WEIGHT_KEYS,
+  'status_quo_coef',
+  'alt_winner_coef',
+] as const;
+
+/** v6 advertises the same six structural caps as v5. */
+export const V6_STATUS_QUO_ALT_WINNERS_2026_08_03_CAP_KEYS =
+  V5_FACTOR_FLIPS_2026_08_01_CAP_KEYS;
 
 /**
  * The signature every version's cost estimator satisfies. `formulaParameters`
@@ -451,6 +483,22 @@ export const COMPLEXITY_FORMULA_SPECS: ReadonlyMap<string, ComplexityFormulaSpec
         ['sensitivity', new Set<string>(SENSITIVITY_FORMULA_PARAMETERS)],
       ]),
       estimate: estimateWeightedCostV5,
+    },
+  ],
+  [
+    // ROADMAP 2.356. v5 is kept ALONGSIDE v6 on purpose — that is what makes
+    // "deploy PLoT first" safe. Removing it would force a lockstep cutover and
+    // reintroduce the deploy-order coupling this whole handshake exists to end.
+    'v6-status-quo-alt-winners-2026-08-03',
+    {
+      weightKeys: new Set<string>(V6_STATUS_QUO_ALT_WINNERS_2026_08_03_WEIGHT_KEYS),
+      capKeys: new Set<string>(V6_STATUS_QUO_ALT_WINNERS_2026_08_03_CAP_KEYS),
+      formulaParameters: new Map<string, ReadonlySet<string>>([
+        ['alternative_winners', new Set<string>(ALTERNATIVE_WINNERS_FORMULA_PARAMETERS)],
+        ['factor_flips', new Set<string>(FACTOR_FLIPS_FORMULA_PARAMETERS)],
+        ['sensitivity', new Set<string>(SENSITIVITY_FORMULA_PARAMETERS)],
+      ]),
+      estimate: estimateWeightedCostV6,
     },
   ],
 ]);
@@ -552,6 +600,24 @@ export interface WeightedCostRequest {
    * sending control candidates while this stays hard-zero.
    */
   controlGridPoints: number;
+  /**
+   * v6+: the outbound request may carry a LEVEL-framed `goal_threshold`, for
+   * which ISL runs one extra whole-graph SCM evaluation per Monte Carlo draw
+   * (the status-quo reference, ROADMAP 2.286) — S·W units with no option factor.
+   *
+   * ⚠ THIS IS AN UPPER BOUND, NOT AN EXACT MIRROR, AND DELIBERATELY SO. Depth
+   * planning happens BEFORE `effectiveGoalThreshold` is finalised in the route
+   * (precedence routing, auto-synthesis and the domain-bound guard can all still
+   * clear it), and ISL's own gate additionally requires a convertible goal —
+   * attested baseline, parents, no pinning intervention. Reproducing either set
+   * of preconditions here would be a second copy of someone else's decision
+   * procedure, and a drift between the copies would UNDER-price (trap 12). So
+   * PLoT charges on what it knows at plan time — a target was stated and the
+   * node attests `level` — which over-charges only requests ISL then declines to
+   * run the phase for. Conservative, never permissive: the same rule the
+   * uniqueParamUncertainties count follows.
+   */
+  levelFramedGoalThreshold: boolean;
 }
 
 /**
@@ -575,7 +641,7 @@ function coefficient(weights: ISLComputeAdmissionWeights, key: string): number {
 
 function formulaParameter(
   params: ISLComputeAdmissionFormulaParameters,
-  term: 'factor_flips' | 'sensitivity',
+  term: 'factor_flips' | 'sensitivity' | 'alternative_winners',
   name: string,
 ): number {
   const group = (params as unknown as Record<string, Record<string, number> | undefined>)[term];
@@ -746,6 +812,58 @@ export function estimateWeightedCostV5(
       coefficient(weights, 'path_coef') *
       Math.min(coefficient(weights, 'max_decomposition_paths'), E * E);
   }
+  return cost;
+}
+
+/**
+ * Weighted compute-admission cost for the `v6-status-quo-alt-winners-2026-08-03`
+ * shape (ROADMAP 2.356).
+ *
+ * v6 = v5 plus the two terms whose evaluator work v5 performed and never
+ * charged for. Derived term by term from ISL `compute_weighted_cost`:
+ *
+ *   + status_quo_coef·S·W                                    if a LEVEL-framed
+ *                                                            goal_threshold
+ *   + alt_winner_coef·O·(1 + min(E, max_edges)·k_samples)·W  rides on SENSITIVITY
+ *
+ * Two gating subtleties, both mirrored from ISL's source rather than assumed:
+ *
+ *  - `status_quo` has NO option factor. The reference draw is shared across
+ *    every option by construction (common random numbers), so it is S
+ *    evaluations, not S·O. Multiplying by O here would over-charge by O−1 and
+ *    shrink admissible depth for no reason.
+ *  - `alternative_winners` is gated on SENSITIVITY, not on a flag of its own.
+ *    ISL derives its fragile-edge set from the sensitivity results, so with no
+ *    sensitivity phase the sweep performs zero evaluations. It is priced at the
+ *    CAP (`min(E, max_edges)` edges), not at the actual fragile count — which is
+ *    data-dependent and unknowable before the run. That is the direction that
+ *    makes it a bound.
+ *
+ * Everything else is v5 unchanged, and is delegated rather than re-typed:
+ * duplicating ten terms so two could be appended is how the two copies drift.
+ */
+export function estimateWeightedCostV6(
+  req: WeightedCostRequest,
+  weights: ISLComputeAdmissionWeights,
+  formulaParameters: ISLComputeAdmissionFormulaParameters,
+): number {
+  let cost = estimateWeightedCostV5(req, weights, formulaParameters);
+
+  if (req.levelFramedGoalThreshold) {
+    cost += coefficient(weights, 'status_quo_coef') * req.nSamples * (req.nodeCount + req.edgeCount);
+  }
+
+  if (req.includeSensitivity) {
+    const maxEdges = formulaParameter(formulaParameters, 'alternative_winners', 'max_edges');
+    const kSamples = formulaParameter(
+      formulaParameters,
+      'alternative_winners',
+      'marginal_k_samples',
+    );
+    const evaluates = req.optionCount * (1 + Math.min(req.edgeCount, maxEdges) * kSamples);
+    cost += coefficient(weights, 'alt_winner_coef') * evaluates * (req.nodeCount + req.edgeCount);
+  }
+
   return cost;
 }
 
