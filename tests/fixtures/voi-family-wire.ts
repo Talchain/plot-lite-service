@@ -45,16 +45,35 @@
  * inside the one chain S5 exists to make honest.
  *
  * ─────────────────────────────────────────────────────────────────────────────
- * PROVENANCE OF EVERY VALUE BELOW
+ * PROVENANCE OF EVERY VALUE BELOW — INCLUDING WHAT IS CONSTRUCTED
  * ─────────────────────────────────────────────────────────────────────────────
- * Row shapes and values are taken from the live guest-walk capture
+ * ⚠ READ THIS BEFORE THE SENTENCE AFTER IT. Every row SHAPE, and most values,
+ * come from the live capture. THREE THINGS ARE CONSTRUCTED, and saying so first
+ * is the point of this file:
+ *
+ *   1. THE TWO `status: 'resolved'` ROWS AND THEIR `evppi` HEADLINE VALUES
+ *      (`fac_market_demand` 0.0184, `fac_current_arr` 0.0002, and the
+ *      `conditional_max_expected_utility` figures that follow from them) ARE
+ *      CONSTRUCTED. The real capture carries `below_resolution` on EVERY row
+ *      with `evppi: 0`, so the resolved band cannot be taken from it at all —
+ *      and a fixture that exercised only one band would let N4 pass without
+ *      ever meeting a `resolved` row (which is why N4b asserts BOTH bands are
+ *      present). Constructed to be internally consistent with the capture's own
+ *      audit legs: same `baseline_max_expected_utility`, same `method`,
+ *      `n_samples`, `regression_degree`, and each `evppi` above its row's real
+ *      `noise_floor` — the condition ISL uses to stamp `resolved`.
+ *   2. `VOI_CORRELATION_MODEL_ACTIVE` — the capture ran INDEPENDENT
+ *      (`correlation_model: null`), so the whole block is built from the ISL
+ *      producer at `80aa83f`, field by field, referenced per value below.
+ *   3. `VOI_TRANSPORT_ALL_FOUR`'s combination — see the ⚠ below.
+ *
+ * Everything else — the `below_resolution` row, both `p_win_sensitivity` rows,
+ * `VOI_DECISION_EVPI`, and every row shape — is verbatim from the live
+ * guest-walk capture
  * `DecisionGuideAI/src/canvas/compare-tab/__tests__/__fixtures__/
  * v5GuestWalkAnalysisBlocks.json` (`created_at 2026-08-03T07:55:35.688Z`,
- * `runA.enrichment`) — a real CEE turn payload, i.e. these bytes have actually
- * crossed ISL → PLoT → CEE → UI. Constants that the capture cannot show (the
- * ACTIVE correlation disclosure, which that run did not exercise —
- * `correlation_model: null` there) are taken from the ISL producer at
- * `80aa83f`, named per value below.
+ * `runA.enrichment`) — a real CEE turn payload, i.e. those bytes have actually
+ * crossed ISL → PLoT → CEE → UI.
  *
  * ⚠ ONE FIXTURE IS A TRANSPORT FIXTURE AND SAYS SO: `VOI_TRANSPORT_ALL_FOUR`
  * presents all four keys together to prove `buildResponse` drops none of them.
@@ -88,8 +107,17 @@ export const VOI_DECISION_EVPI = 0.0789680300194515;
  * (`evppi` descending — the contract's `EnrichmentFactorEvppiEntrySchema`
  * docstring: "PRODUCER RANK ORDER IS THE CONTRACT").
  *
- * Row 1 is `status: 'resolved'` and row 3 `below_resolution` so a consumer's
- * two bands are BOTH exercised; the audit legs are the capture's real ones.
+ * ⚠ ROWS 1 AND 2 ARE CONSTRUCTED, ROW 3 IS THE CAPTURE'S. The live run produced
+ * `below_resolution` on every row, so the `resolved` band had to be built or the
+ * consumer's two bands could never both be exercised (N4b pins that they are).
+ * The construction is disciplined, not invented freely: same
+ * `baseline_max_expected_utility` / `method` / `n_samples` / `regression_degree`
+ * as the capture, `conditional_max_expected_utility = baseline + evppi` exactly,
+ * each row's real `noise_floor` kept, and each `evppi` set ABOVE its own
+ * `noise_floor` — which is the condition ISL uses to stamp `resolved`
+ * (`robustness_analyzer_v2.py:6464`: `below_resolution = evppi <= est.noise_floor`,
+ * stamped at `:6500`). Row 3 keeps `evppi: 0` with `noise_floor: 0`, which
+ * satisfies `<=` and is why the capture's own row reads `below_resolution`.
  * `factor_id`s are distinct so any order assertion binds by IDENTITY rather
  * than by a value another row could satisfy.
  */
@@ -201,8 +229,17 @@ export const VOI_CORRELATION_MODEL_ACTIVE = {
   correlated_factors: ['fac_market_demand', 'fac_content_spend'],
   n_pairs: 1,
   tail_dependence: 'none',
+  // ISL `_CORRELATION_TAIL_NOTE` VERBATIM (`robustness_analyzer_v2.py:147-152`).
+  // This was a PARAPHRASE on first submission — nothing asserts on the string, so
+  // the paraphrase could not have failed anything, which is exactly why it needed
+  // fixing rather than disclosing: an unasserted value in a fixture whose whole
+  // claim is "these are the producer's bytes" is where the next invented shape
+  // starts.
   tail_dependence_note:
-    'A Gaussian copula has zero tail dependence: joint extremes are modelled as less likely than a tail-dependent model would imply.',
+    'The Gaussian copula has zero tail dependence: it does not model factors ' +
+    'moving to their extremes together, so joint tail (worst-case) co-movements ' +
+    'may be understated. Downside metrics (CVaR, p05, expected_regret) can be ' +
+    'optimistic when correlated factors are strongly dependent.',
   psd_projection: null,
   suppressed_attributions: [ISL_SUPPRESSED_ATTR_P_WIN_SENSITIVITY],
   suppression_reason: ISL_CORRELATION_SUPPRESSION_REASON,
