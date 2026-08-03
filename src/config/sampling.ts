@@ -1105,6 +1105,18 @@ function planWeighted(
  * Legacy scalar fallback (no usable weighted admission). Maps
  * {@link applyComplexityBudget} into the generic decision shape.
  *
+ * ⚠ ROADMAP 2.356 — THE `conservative` BRANCH IS NOW NEARLY UNREACHABLE FROM THE
+ * ROUTE, and this note exists so nobody reads the paragraph below as a
+ * description of live behaviour. `/v2/run` goes through
+ * `resolveAdmissionForPlanning`, which REFUSES (503) when ISL is configured and
+ * no usable admission is in hand — so the two states this paragraph was written
+ * for (skew with nothing retained, cold warming window) no longer reach the
+ * planner at all. What survives is a narrow residual: a RETAINED admission whose
+ * formula version PLoT no longer has a spec for, where weighted planning
+ * declines and this fallback catches it with `conservative: true`. The branch is
+ * kept for exactly that, and because `planSampleDepth` is a pure function other
+ * callers and tests exercise directly.
+ *
  * `conservative` (admission unknown while ISL is configured — skew with nothing
  * retained, or the cold warming window): scalar gate at
  * `min(LEGACY_FALLBACK_SCALAR_BUDGET, env clamp)` AND a DEFAULTED depth capped to
