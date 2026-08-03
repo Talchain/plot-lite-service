@@ -28,6 +28,7 @@ import { createServer as createHttpServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { FastifyInstance } from 'fastify';
 import { createServer } from '../src/createServer.js';
+import { ISL_HEALTH_BODY } from './fixtures/isl-health-advertisement.js';
 
 const BASE_ROBUSTNESS_PATH = '/api/v1/robustness/analyze/v2';
 
@@ -92,6 +93,15 @@ describe('2.202 — a fast ISL 429 is retried from the budget that actually rema
           }
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify(ISL_OK));
+          return;
+        }
+        // /health must carry a REAL compute_admission block: since ROADMAP
+        // 2.356 PLoT refuses (503) when it cannot read ISL's compute gate, so a
+        // stub that answers `{}` here would make every test in this file
+        // measure that refusal instead of the retry behaviour under test.
+        if (path === '/health') {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(ISL_HEALTH_BODY));
           return;
         }
         // Any other ISL endpoint the route may touch: benign 200.

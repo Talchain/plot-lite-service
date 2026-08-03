@@ -48,6 +48,7 @@ import {
   recordIslForeignFormulaParameterGroups,
 } from '../../metrics/registry.js';
 import { isFiniteNumber, allFiniteNumberFields } from '../../util/numeric.js';
+import { ISL_HEALTH_CHECK_TIMEOUT_MS } from '../../config/timeouts.js';
 import type {
   ISLComputeAdmission,
   ISLComputeAdmissionWeights,
@@ -671,6 +672,41 @@ export async function warmIslComputeAdmission(): Promise<AdmissionResolution> {
  * `refuse` carries an HTTP status and a code rather than a message so the route
  * owns the wording; what this module owns is the DECISION and its truthfulness.
  */
+/**
+ * Await one refresh, but NEVER longer than the health-check budget.
+ *
+ * ⚠ THE RACE IS NOT BELT-AND-BRACES — IT IS THE ONLY THING THAT MAKES "BOUNDED"
+ * TRUE HERE, AND A TEST PROVED IT.
+ *
+ * `fetchHealth` bounds itself with an abort signal, so awaiting `startRefresh()`
+ * directly looked bounded. It is bounded only if the underlying fetch HONOURS
+ * that signal. `adaptive-n-samples-complexity.test.ts` stubs global fetch with a
+ * promise that never settles — a fair model of a socket that accepts and then
+ * goes silent — and the first cut of this function hung on it until the test
+ * timed out at 15 s. In front of a live route that is a request that never
+ * answers, which is strictly worse than the blind planning this whole change
+ * exists to remove.
+ *
+ * So the bound is enforced HERE, where the blocking happens, rather than
+ * inherited from a collaborator's promise. On timeout the refresh keeps running
+ * in the background (it will populate the cache for the next request if it ever
+ * lands); this call simply stops waiting and decides on what is in hand — which
+ * is a refusal, the safe answer.
+ */
+async function refreshWithHardBound(): Promise<void> {
+  let timer: NodeJS.Timeout | undefined;
+  const bound = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, ISL_HEALTH_CHECK_TIMEOUT_MS);
+    // Do not hold the process open on this timer.
+    timer.unref?.();
+  });
+  try {
+    await Promise.race([startRefresh(), bound]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
 export type AdmissionPlanningOutcome =
   | {
       kind: 'plan';
@@ -725,6 +761,7 @@ export type AdmissionPlanningOutcome =
  */
 export async function resolveAdmissionForPlanning(): Promise<AdmissionPlanningOutcome> {
   const decide = (resolution: AdmissionResolution): AdmissionPlanningOutcome | null => {
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (resolution.status === 'disabled') {
       return { kind: 'plan', resolution, conservative: false };
     }
@@ -735,12 +772,23 @@ export async function resolveAdmissionForPlanning(): Promise<AdmissionPlanningOu
     return null;
   };
 
-  const first = decide(getIslComputeAdmission());
-  if (first !== null) return first;
-
-  // Nothing usable in hand. One bounded refresh, then decide for real. Joins an
-  // already-in-flight refresh rather than issuing a second /health read.
-  await startRefresh();
+  // ONE bounded synchronous refresh, and ONLY when the cache is cold or stale.
+  //
+  // ⚠ THE FRESHNESS GATE IS LOAD-BEARING, IN TWO DIRECTIONS. Refreshing an
+  // unusable-but-FRESH resolution is pointless — a second /health read inside
+  // the TTL returns what the first one did, so it would buy nothing and add a
+  // blocking network round-trip to a request that is going to be refused
+  // anyway. And it would silently overwrite a deliberately-established cache
+  // state, which is how the first cut of this function made three route tests
+  // pass for the wrong reason: they seeded a skew, the resolver threw it away
+  // and re-read, and the assertion measured the re-read instead of the state
+  // under test.
+  //
+  // So: cold/stale → read once and decide on the result; fresh → decide on what
+  // we already know.
+  if (!isFresh(Date.now())) {
+    await refreshWithHardBound();
+  }
 
   const resolution = getIslComputeAdmission();
   const second = decide(resolution);

@@ -52,6 +52,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   estimateWeightedCostV5,
+  estimateWeightedCostV6,
+  COMPLEXITY_FORMULA_SPECS,
+  KNOWN_COMPLEXITY_FORMULA_VERSIONS,
   LEGACY_FALLBACK_SCALAR_BUDGET,
   ISL_COMPLEXITY_BUDGET_DEFAULT,
   LEGACY_BASE_N_SAMPLES,
@@ -340,5 +343,117 @@ describe('2.356 — the conservative scalar fallback is arithmetically blind', (
       expect(outcome.resolution.retainedAdmissionVersion).toBe(V5_VERSION);
       expect(outcome.resolution.admission).not.toBeNull();
     }
+  });
+});
+
+// ===========================================================================
+// C. The v6 estimator's own arithmetic.
+//
+// ⚠ THIS SECTION EXISTS BECAUSE A MUTANT SURVIVED. Deleting the `status_quo`
+// term from `estimateWeightedCostV6` left the entire suite GREEN: sections A
+// and B exercise the resolver, and the pre-existing handshake suite pins v2 and
+// v5, so nothing anywhere asserted what v6 actually computes. The two new terms
+// were derived from ISL's source and declared in COMPLEXITY_FORMULA_SPECS —
+// which proves the declaration AGREES with itself, and never that the
+// arithmetic is right (trap 12d). A corpus of worked numbers is what notices.
+//
+// Each term is pinned on BOTH sides of its gate: a term covered only in its
+// present state leaves the branch that omits it untested, which is how two
+// min() branches survived a 2,494-test gate in ISL #119.
+// ===========================================================================
+
+const LIVE_V6_WEIGHTS = {
+  ...LIVE_V5_WEIGHTS,
+  status_quo_coef: 1,
+  alt_winner_coef: 1,
+} as unknown as ISLComputeAdmissionWeights;
+
+const LIVE_V6_FORMULA_PARAMETERS: ISLComputeAdmissionFormulaParameters = {
+  ...LIVE_V5_FORMULA_PARAMETERS,
+  alternative_winners: { max_edges: 10, marginal_k_samples: 100 },
+};
+
+function v6Request(over: Partial<WeightedCostRequest> = {}): WeightedCostRequest {
+  return { ...scalarBlindGraph(10_000), ...over };
+}
+
+const v6 = (req: WeightedCostRequest) =>
+  estimateWeightedCostV6(req, LIVE_V6_WEIGHTS, LIVE_V6_FORMULA_PARAMETERS);
+const v5 = (req: WeightedCostRequest) =>
+  estimateWeightedCostV5(req, LIVE_V5_WEIGHTS, LIVE_V5_FORMULA_PARAMETERS);
+
+describe('2.356 — estimateWeightedCostV6 arithmetic', () => {
+  it('adds status_quo = S·W for a level-framed goal, with NO option factor', () => {
+    const withLevel = v6Request({ levelFramedGoalThreshold: true, includeSensitivity: false });
+    const without = v6Request({ levelFramedGoalThreshold: false, includeSensitivity: false });
+
+    // S=10,000, W = 20 + 40 = 60 → 600,000. Emphatically NOT ×O: the reference
+    // draw is shared across every option by construction (common random
+    // numbers), so multiplying by O would over-charge by a factor of 10 here.
+    expect(v6(withLevel) - v6(without)).toBe(600_000);
+    expect(v6(withLevel) - v6(without)).not.toBe(600_000 * 10);
+  });
+
+  it('adds alternative_winners = O·(1 + min(E, max_edges)·k)·W, gated on SENSITIVITY', () => {
+    const withSens = v6Request({ includeSensitivity: true, levelFramedGoalThreshold: false });
+    const noSens = v6Request({ includeSensitivity: false, levelFramedGoalThreshold: false });
+
+    // O=10, min(E=40, max_edges=10)=10, k=100, W=60
+    //   → 10 · (1 + 10·100) · 60 = 600,600
+    const sensitivityTermV5 = v5(withSens) - v5(noSens);
+    expect(v6(withSens) - v6(noSens) - sensitivityTermV5).toBe(600_600);
+  });
+
+  it('prices the alternative_winners edge count at the CAP, not at E', () => {
+    // E=40 and E=200 must charge the SAME alternative-winner term: the cap binds
+    // in both. If the estimator used E directly, these would differ 5-fold.
+    const small = v6Request({ edgeCount: 40, includeSensitivity: true });
+    const large = v6Request({ edgeCount: 200, includeSensitivity: true });
+    const altTerm = (r: WeightedCostRequest) =>
+      r.optionCount * (1 + Math.min(r.edgeCount, 10) * 100) * (r.nodeCount + r.edgeCount);
+    expect(altTerm(small) / (small.nodeCount + small.edgeCount)).toBe(
+      altTerm(large) / (large.nodeCount + large.edgeCount),
+    );
+    // ...and the E-BELOW-CAP branch really binds on E (the other side of min()).
+    const tiny = v6Request({ edgeCount: 4, nodeCount: 6, includeSensitivity: true });
+    const tinyNoSens = { ...tiny, includeSensitivity: false };
+    const tinySensV5 = v5(tiny) - v5(tinyNoSens);
+    // O=10, min(4,10)=4, k=100, W=10 → 10·401·10 = 40,100
+    expect(v6(tiny) - v6(tinyNoSens) - tinySensV5).toBe(40_100);
+  });
+
+  it('is exactly v5 when neither v6 gate fires — v6 never re-prices v5 terms', () => {
+    const req = v6Request({ levelFramedGoalThreshold: false, includeSensitivity: false });
+    expect(v6(req)).toBe(v5(req));
+  });
+
+  it('the v6 spec is registered and prices via estimateWeightedCostV6', () => {
+    const spec = COMPLEXITY_FORMULA_SPECS.get('v6-status-quo-alt-winners-2026-08-03');
+    expect(spec).toBeDefined();
+    expect(KNOWN_COMPLEXITY_FORMULA_VERSIONS.has('v6-status-quo-alt-winners-2026-08-03')).toBe(true);
+    // v5 stays registered — that is what makes "deploy PLoT first" safe.
+    expect(KNOWN_COMPLEXITY_FORMULA_VERSIONS.has(V5_VERSION)).toBe(true);
+    const req = v6Request({ levelFramedGoalThreshold: true });
+    expect(spec!.estimate(req, LIVE_V6_WEIGHTS, LIVE_V6_FORMULA_PARAMETERS)).toBe(v6(req));
+  });
+
+  it('throws rather than guessing when a v6 number is absent from the advertisement', () => {
+    // The fail-closed pin: a missing coefficient must never silently become NaN
+    // and collapse the plan to the sample floor.
+    const missingCoef = { ...LIVE_V5_WEIGHTS } as unknown as ISLComputeAdmissionWeights;
+    expect(() =>
+      estimateWeightedCostV6(
+        v6Request({ levelFramedGoalThreshold: true }),
+        missingCoef,
+        LIVE_V6_FORMULA_PARAMETERS,
+      ),
+    ).toThrow(/status_quo_coef/);
+    expect(() =>
+      estimateWeightedCostV6(
+        v6Request({ includeSensitivity: true }),
+        LIVE_V6_WEIGHTS,
+        LIVE_V5_FORMULA_PARAMETERS,
+      ),
+    ).toThrow(/alternative_winners/);
   });
 });
