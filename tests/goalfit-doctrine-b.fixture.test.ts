@@ -16,6 +16,34 @@
  * shares the outcome code path; prob_satisfied compares the same samples the
  * delivered probability_of_goal already uses).
  *
+ * ⚠⚠ L63 AMENDMENT — THE SENTENCE DIRECTLY ABOVE EXPIRED, AND THIS SUITE WAS
+ * STILL ASSERTING IT. "prob_satisfied compares the same samples the delivered
+ * probability_of_goal already uses" was true when this doctrine was ratified
+ * (2026-07-07) and was invalidated by ROADMAP 2.258/2.286: probability_of_goal
+ * no longer compares a threshold against raw samples at all — it rides a
+ * per-draw GoalThresholdPlan (`level_i = B + (option_i − sq_i)`) or REFUSES
+ * outright. The constraint path still compares raw. So the two are no longer
+ * the same comparison, and "deliver the second because the first was
+ * delivered" no longer follows from anything.
+ *
+ * Measured consequence, deployed staging 2026-08-04 (PLoT 2864b0c / ISL
+ * 80aa83f, `PHASE0-EVIDENCE-2026-07-28/diagnosis-goalfit-untruth.md`): on the
+ * witnessed runs `probability_of_goal` was ABSENT (the 2.258 guard honestly
+ * refusing) while `probability_of_joint_goal` = 0 was DELIVERED under this very
+ * exception and marked decision-grade — two channels answering in opposite
+ * directions inside one response, with the UI substituting the delivered zero
+ * into the goal-fit surface the refusal had left empty.
+ *
+ * DOCTRINE B IS THEREFORE RESTRICTED, NOT REPEALED. It still delivers wherever
+ * its rationale still holds — i.e. wherever the target node's samples carry an
+ * absolute anchor (root-with-observed-value, pinned by every option, or a
+ * producer-attested 'delta' frame). It no longer delivers for a target whose
+ * samples are `intercept + SUM(parent*strength)` with base 0.0, because no
+ * absolute threshold is comparable against those. The delivery fixtures below
+ * therefore carry the producer's `goal_threshold_frame: 'delta'` attestation,
+ * and the L63 block at the end of this file pins the un-attested shape — the
+ * exact live one — as SUPPRESSED.
+ *
  * Contract under test (RED on origin/staging ff423310 — suppressed today):
  *   1. probability_of_joint_goal / constraint_probabilities are DELIVERED,
  *      differentiated per option;
@@ -135,6 +163,13 @@ const GRAPH_GOAL_TARGET = {
       id: 'goal_productivity', kind: 'goal', label: 'Improve productivity',
       goal_threshold: 0.2,
       goal_threshold_cap: 100,
+      // L63: the producer attests that targets on this node are stated in the
+      // samples' own frame. Doctrine B's delivery scope is now conditional on
+      // an anchor, and this is the limb that supplies one here. Removing this
+      // line moves every DELIVERS/annotates/downgrades case below into the
+      // suppressed population — which is what GRAPH_GOAL_TARGET_UNATTESTED
+      // (the live shape) exists to pin.
+      goal_threshold_frame: 'delta',
     },
     { id: 'out_focus', kind: 'outcome', label: 'Focus time' },
     { id: 'fac_training', kind: 'factor', label: 'Training investment', observed_state: { value: 0.6 } },
@@ -386,6 +421,75 @@ describe('goal-fit doctrine B (P0-C2 — scored from the modelled outcome distri
     }
     expect(warningsByCode(body, 'CONSTRAINT_TARGET_UNRELIABLE')).toHaveLength(0);
     expect(warningsByCode(body, 'CONSTRAINT_GOALFIT_MODELLED_BASIS')).toHaveLength(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // L63 — THE LIVE SHAPE, UN-ATTESTED: doctrine B no longer delivers it.
+  //
+  // This is GRAPH_GOAL_TARGET with the 'delta' attestation removed, i.e. the
+  // exact shape measured on deployed staging: a goal target normalised against
+  // a producer cap, on a non-root goal node whose samples are
+  // `intercept + SUM(parent*strength)` with base 0.0. Every input doctrine B
+  // keys on is unchanged — same node, same constraint, same ISL marker, same
+  // forward-propagated inputs — so the ONLY thing that can move the verdict
+  // between this test and the DELIVERS test above is the sample-frame anchor.
+  // -------------------------------------------------------------------------
+  it('L63: the un-attested live shape is SUPPRESSED, not delivered under doctrine B', async () => {
+    defaultBaseNodeId = 'goal_productivity';
+    try {
+      const body = await run(
+        {
+          ...GRAPH_GOAL_TARGET,
+          nodes: GRAPH_GOAL_TARGET.nodes.map((n) => {
+            if (n.id !== 'goal_productivity') return n;
+            const { goal_threshold_frame: _dropped, ...unattested } = n as any;
+            return unattested;
+          }),
+        },
+        [AT_LEAST_20_PCT],
+      );
+
+      for (const opt of body.option_comparison) {
+        expect(opt, opt.option_id).not.toHaveProperty('probability_of_joint_goal');
+        expect(opt, opt.option_id).not.toHaveProperty('constraint_probabilities');
+        expect(opt, opt.option_id).not.toHaveProperty('goal_fit_basis');
+      }
+
+      // The honesty signal is the WARNING, not the info-severity modelled-basis
+      // note — PLoT hides severity 'info', and this is a degradation to
+      // disclose, not a basis footnote under a headline number.
+      const warnings = warningsByCode(body, 'CONSTRAINT_TARGET_UNRELIABLE');
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0].severity).toBe('warning');
+      expect(warnings[0].message).toContain('Improve productivity');
+      expect(warningsByCode(body, 'CONSTRAINT_GOALFIT_MODELLED_BASIS')).toHaveLength(0);
+    } finally {
+      defaultBaseNodeId = null;
+    }
+  });
+
+  it("L63: the same shape suppresses even with NO ISL base marker — PLoT derives it, not mirrors it", async () => {
+    // defaultBaseNodeId stays null, so the ISL CONSTRAINT_NODE_DEFAULT_BASE
+    // channel emits nothing and the pre-existing detector sees a clean run.
+    // The refusal must still fire, because it is derived from the graph PLoT
+    // is sending rather than read off an upstream warning list.
+    defaultBaseNodeId = null;
+    const body = await run(
+      {
+        ...GRAPH_GOAL_TARGET,
+        nodes: GRAPH_GOAL_TARGET.nodes.map((n) => {
+          if (n.id !== 'goal_productivity') return n;
+          const { goal_threshold_frame: _dropped, ...unattested } = n as any;
+          return unattested;
+        }),
+      },
+      [AT_LEAST_20_PCT],
+    );
+
+    for (const opt of body.option_comparison) {
+      expect(opt, opt.option_id).not.toHaveProperty('probability_of_joint_goal');
+    }
+    expect(warningsByCode(body, 'CONSTRAINT_TARGET_UNRELIABLE')).toHaveLength(1);
   });
 
   it('regression: a run without goal constraints carries no constraint fields, annotation, or note', async () => {

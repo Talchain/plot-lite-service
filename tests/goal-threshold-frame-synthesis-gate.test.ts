@@ -303,6 +303,23 @@ describe('ROADMAP 2.266 — auto-synthesis is gated on the ISL sample frame', ()
   // T6 — SCOPE PIN. A USER-authored goal constraint is never touched by this
   // gate, frame or no frame: it does not come from the goal target and PLoT has
   // no standing to second-guess the frame the user stated it in.
+  //
+  // ⚠ L63 AMENDMENT — STILL TRUE ON THE WIRE, NO LONGER TRUE OF THE ANSWER, and
+  // the second half of that sentence was the load-bearing mistake. PLoT indeed
+  // has no standing to second-guess the frame the USER stated a target in — but
+  // that was never the question. The question is what ISL's SAMPLES for the
+  // target node mean, and for a non-root, un-pinned node they are
+  // `intercept + SUM(parent*strength)` anchored to nothing, so no absolute
+  // threshold is comparable against them in ANY frame the user might have meant.
+  // Reasoning about the user's frame instead of the samples' frame is how the
+  // constraints channel stayed open for three more rows after 2.258 closed the
+  // goal-threshold one.
+  //
+  // What L63 changed, precisely: the user's constraint STILL travels to ISL
+  // (this test's assertion is unchanged and still correct — L63 makes no wire
+  // change), but the probability that comes back is WITHHELD, with a
+  // warning-severity CONSTRAINT_TARGET_UNRELIABLE, unless the target's samples
+  // carry an absolute anchor. See tests/constraint-sample-frame-gate.test.ts.
   // -------------------------------------------------------------------------
   it('T6: a USER-authored goal_constraint survives with the frame ABSENT', async () => {
     const { isl } = await run(

@@ -162,6 +162,9 @@ import {
 import { buildDriverOrder, readIslSuppressedAttributions } from '../../lib/driver-order.js';
 import {
   detectUnreliableConstraintTargets,
+  detectUnanchoredSampleFrameTargets,
+  mergeUnreliableConstraintTargets,
+  collectDirectedEdgeTargets,
   partitionConstraintTargets,
   buildConstraintTargetUnreliableMessage,
   buildConstraintGoalFitModelledMessage,
@@ -2488,7 +2491,13 @@ function buildResponse(
   // constraint_margins margin_precision site below — independent of the
   // per-option intervention clamp (a threshold can clamp while every
   // intervention sits inside the range: the response-1 defect).
-  constraintScaleProvenanceByConstraintId?: Map<string, ConstraintScaleProvenance>
+  constraintScaleProvenanceByConstraintId?: Map<string, ConstraintScaleProvenance>,
+  // L63: the producer's per-node `goal_threshold_frame` stamps, read off the RAW
+  // upstream nodes (the canonical EngineNodeV3 drops them, so `graph` above
+  // cannot carry them). Appended rather than inserted for the same reason 2.258
+  // gave: the call sites pass these positionally. Feeds the ONE limb of the
+  // sample-frame gate that a producer can open — an attested 'delta' target.
+  goalThresholdFrameByNodeId?: ReadonlyMap<string, string>
 ): RunResponseV3 {
   // Producer honesty (lane PLoT-H item A): detect goal constraints whose
   // targets are NOT decision-grade — threshold normalisation fell back to the
@@ -2507,10 +2516,27 @@ function buildResponse(
   // Any other reason combination (default-range normalisation, root-node
   // targets, mixed multi-constraint runs) keeps suppressing exactly as
   // before. See src/lib/constraint-reliability.ts for the classification.
-  const unreliableConstraintTargets = detectUnreliableConstraintTargets(
-    goalConstraints,
-    constraintNormRanges,
-    islResult,
+  //
+  // L63 (the constraint SAMPLE-FRAME hole): a SECOND, DERIVED detection runs
+  // beside the ISL-warning-driven one above. The detector above reads ISL's
+  // emitted CONSTRAINT_NODE_DEFAULT_BASE list — it mirrors an upstream list and
+  // inherits its gaps. This one is computed from the graph and options PLoT is
+  // sending on THIS request, and asks the question that actually decides
+  // whether the comparison is well-posed: do the target node's samples carry an
+  // absolute anchor at all? A non-root, un-pinned target's samples are
+  // `intercept + SUM(parent * strength)` with base 0.0 — anchored to nothing —
+  // so no absolute threshold can be compared against them, and the near-zero
+  // that comes back is arithmetic, not a finding. Derivation + the measured
+  // 2.286 counter-example: src/lib/constraint-reliability.ts.
+  const unreliableConstraintTargets = mergeUnreliableConstraintTargets(
+    detectUnreliableConstraintTargets(goalConstraints, constraintNormRanges, islResult),
+    detectUnanchoredSampleFrameTargets(
+      goalConstraints,
+      graph?.nodes,
+      collectDirectedEdgeTargets(graph?.edges),
+      options,
+      goalThresholdFrameByNodeId,
+    ),
   );
   const constraintTargetPartition = partitionConstraintTargets(
     unreliableConstraintTargets,
@@ -5122,6 +5148,20 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // the default [0,1] range and is clamped to 1.0 (the live 2026-07-07
         // silent-nullification defect).
         const goalThresholdMetaByNodeId = collectGoalThresholdNodeMeta(body.graph?.nodes);
+        // L63: the same capture, for the FRAME stamp. Collected for EVERY raw
+        // node rather than just the goal node — a constraint can target any
+        // node, and the stamp means the same thing wherever a producer puts it.
+        // `parseGoalThresholdFrame` validates against the contract's own enum,
+        // so a junk token degrades to ABSENT (⇒ refused) rather than opening the
+        // gate. PLoT never mints one: an unstamped node stays unstamped.
+        const goalThresholdFrameByNodeId = new Map<string, string>();
+        for (const rawNode of (body.graph?.nodes as any[]) ?? []) {
+          if (!rawNode || typeof rawNode.id !== 'string' || rawNode.id.length === 0) continue;
+          const frame = parseGoalThresholdFrame(
+            rawNode.goal_threshold_frame ?? rawNode.data?.goal_threshold_frame
+          );
+          if (frame !== undefined) goalThresholdFrameByNodeId.set(rawNode.id, frame);
+        }
         const constraintUnitsByConstraintId = new Map<string, string>();
         for (const c of constraintCompilation.constraints as RawGoalConstraint[]) {
           if (typeof c.unit === 'string' && c.unit.length > 0) {
@@ -6020,7 +6060,11 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             undefined, // thresholdAnalysis
             toIdentifiabilityResponse(identifiabilityResult),  // B1.5a: always-present mapped response
             undefined,  // factorStability
-            req.log  // logger for fact_objects assembly logging
+            req.log,  // logger for fact_objects assembly logging
+            undefined,  // optionClampDirectionByFactor (no ISL call on this path)
+            undefined,  // optionDiagnosedFactors (no ISL call on this path)
+            undefined,  // constraintScaleProvenanceByConstraintId (no ISL call on this path)
+            goalThresholdFrameByNodeId  // L63: constraint sample-frame gate input
           ));
         }
 
@@ -8144,7 +8188,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           req.log,  // logger for fact_objects assembly logging
           optionClampDirectionByFactor,  // 1d + Codex F1: per-option clamp DIRECTION map for margin_precision
           optionDiagnosedFactors,  // Codex F1: factors with a recorded diagnostic (exact vs unknown)
-          constraintScaleProvenanceByConstraintId  // A3 trust marker: scale_provenance + constraints_decision_grade (also carries F2a threshold_clamped)
+          constraintScaleProvenanceByConstraintId,  // A3 trust marker: scale_provenance + constraints_decision_grade (also carries F2a threshold_clamped)
+          goalThresholdFrameByNodeId  // L63: constraint sample-frame gate input (producer 'delta' attestation)
         ));
       } catch (err) {
         req.log.error({

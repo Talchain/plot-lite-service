@@ -125,6 +125,11 @@ const GRAPH_GOAL_WITH_THRESHOLD_CAP = {
   nodes: [
     {
       id: 'goal_productivity', kind: 'goal', label: 'Improve productivity',
+      // L63: this suite pins THRESHOLD NORMALISATION / gating mechanics, not
+      // sample-frame truth. The producer attests the target is in the samples'
+      // own frame so those mechanics stay observable; the frame refusal itself
+      // is pinned in tests/constraint-sample-frame-gate.test.ts.
+      goal_threshold_frame: 'delta',
       // CEE stamps these on the goal node for exactly this normalisation:
       goal_threshold: 0.2,
       goal_threshold_cap: 100,
@@ -141,7 +146,7 @@ const GRAPH_GOAL_WITH_THRESHOLD_CAP = {
 /** Same graph but WITHOUT the CEE stamps — only the constraint's '%' unit travels. */
 const GRAPH_GOAL_NO_STAMPS = {
   nodes: [
-    { id: 'goal_productivity', kind: 'goal', label: 'Improve productivity' },
+    { id: 'goal_productivity', kind: 'goal', goal_threshold_frame: 'delta', label: 'Improve productivity' },
     { id: 'out_focus', kind: 'outcome', label: 'Focus time' },
     { id: 'fac_training', kind: 'factor', label: 'Training investment', observed_state: { value: 0.6 } },
   ],
@@ -157,6 +162,7 @@ const GRAPH_EXPLICIT_RANGE_TARGET = {
     { id: 'goal_productivity', kind: 'goal', label: 'Improve productivity' },
     {
       id: 'out_focus', kind: 'outcome', label: 'Focus time',
+      goal_threshold_frame: 'delta', // L63: pins normalisation, not frame truth
       state_space: { range: { min: 0, max: 200 } },
     },
     { id: 'fac_training', kind: 'factor', label: 'Training investment', observed_state: { value: 0.6 } },
