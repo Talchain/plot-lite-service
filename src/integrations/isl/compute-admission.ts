@@ -761,7 +761,6 @@ export type AdmissionPlanningOutcome =
  */
 export async function resolveAdmissionForPlanning(): Promise<AdmissionPlanningOutcome> {
   const decide = (resolution: AdmissionResolution): AdmissionPlanningOutcome | null => {
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (resolution.status === 'disabled') {
       return { kind: 'plan', resolution, conservative: false };
     }

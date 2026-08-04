@@ -380,13 +380,11 @@ export async function registerKeyInsightRoute(app: FastifyInstance) {
       // Detect primary outcome
       const seed = body.seed ?? 4242;
       let outcomeNode: string = body.outcome_node ?? '';
-      let outcomeInferred = false;
 
       if (!outcomeNode) {
         const detection = detectPrimaryOutcome(graph);
         if (detection.detected && detection.node_id) {
           outcomeNode = detection.node_id;
-          outcomeInferred = true;
           warnings.push({
             code: 'PRIMARY_OUTCOME_INFERRED',
             message: `Primary outcome inferred as '${detection.node_id}' (${detection.strategy})`,
@@ -395,7 +393,6 @@ export async function registerKeyInsightRoute(app: FastifyInstance) {
           });
         } else {
           outcomeNode = graph.nodes[graph.nodes.length - 1]?.id ?? '';
-          outcomeInferred = true;
           warnings.push({
             code: 'PRIMARY_OUTCOME_INFERRED',
             message: `No outcome node detected; using last node '${outcomeNode}'`,
@@ -436,7 +433,6 @@ export async function registerKeyInsightRoute(app: FastifyInstance) {
       // For a single graph, we have one result - would need multiple options for ranking
       // In this case, we extract option nodes and their contributions
       const optionNodes = graph.nodes.filter((n: any) => n.kind === 'option' || n.kind === 'action');
-      const baselineValue = 100;
 
       const rankedActions: RankedAction[] = [];
 

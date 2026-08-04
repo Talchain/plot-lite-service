@@ -17,20 +17,6 @@ import type {
 } from './types.js';
 
 /**
- * Stratum definition for stratified sampling
- */
-interface Stratum {
-  /** Parameter name */
-  param: string;
-  /** Lower bound of stratum */
-  lower: number;
-  /** Upper bound of stratum */
-  upper: number;
-  /** Target number of samples from this stratum */
-  target_samples: number;
-}
-
-/**
  * Importance weight for a sample
  */
 interface ImportanceWeight {
@@ -82,7 +68,7 @@ export function generateStratifiedSamples(
     if (paramIndex >= nParams) {
       // Generate samples for this stratum
       for (let i = 0; i < samplesPerStratum && result.length < totalSamples; i++) {
-        const sample = accumulator.map((stratumIdx, pIdx) => {
+        const sample = accumulator.map((stratumIdx) => {
           // Sample uniformly within the stratum
           const stratumSize = 1.0 / nStrata;
           const lower = stratumIdx * stratumSize;

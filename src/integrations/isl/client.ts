@@ -224,6 +224,7 @@ export class ISLClient {
         const duration = Date.now() - startTime;
 
         // Always log downstream elapsed time (not suppressed)
+        // eslint-disable-next-line no-console -- structured log on the sanctioned console channel (Wave1-L1 boundary arm 2, src/logging/log-boundary.ts); no redaction-covered standalone logger exists
         console.log(JSON.stringify({
           event: 'isl_downstream_elapsed',
           endpoint,

@@ -4,7 +4,7 @@
  * Surfaces structural issues that may affect decision quality.
  */
 
-import type { CoachingInputs, Critique, CritiqueType } from './types.js';
+import type { CoachingInputs, Critique } from './types.js';
 import { getThresholds } from './thresholds.js';
 import { isInterventionOverride, filterInterventionOverrides } from './sensitivity-filter.js';
 

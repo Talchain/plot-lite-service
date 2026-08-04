@@ -10,7 +10,6 @@
 
 import type { M1Review } from './m1-review-types.js';
 import { M1_REVIEW_GROUNDING_MAP } from './m1-review-constants.js';
-import { extractNumbers } from './m1-review-validator.js';
 
 // =============================================================================
 // Types

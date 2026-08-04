@@ -346,7 +346,7 @@ export function validateCorrelationMatrix(
  */
 export function repairCorrelationMatrix(
   matrix: number[][],
-  minEigenvalue = 0
+  _minEigenvalue = 0
 ): number[][] | null {
   const n = matrix.length;
 

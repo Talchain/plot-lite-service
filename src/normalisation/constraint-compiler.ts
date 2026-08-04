@@ -22,10 +22,6 @@ import type { EngineGraphV3, EngineNodeV3, EngineEdgeV3, GoalConstraint, RawGoal
  */
 const INFERENCE_PARTICIPATING_KINDS = ['goal', 'factor', 'outcome', 'risk', 'action'] as const;
 
-/**
- * Node kinds excluded from inference.
- */
-const INFERENCE_EXCLUDED_KINDS = ['decision', 'option', 'constraint'] as const;
 
 /**
  * Valid constraint operators.

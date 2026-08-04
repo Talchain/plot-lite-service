@@ -9,8 +9,6 @@ import type { SensitivityEdge } from '../lib/sensitivity-simple.js';
 import type {
   DriversPayload,
   DriverItem,
-  DriversStatus,
-  RemediationAction,
   DiscriminationSignal,
 } from '../types/drivers.js';
 

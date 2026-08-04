@@ -224,7 +224,6 @@ describe('Golden Integration: ISL -> PLoT Transformation', () => {
        * implementation, so it doesn't contain these fields. We test the transformation logic
        * directly by simulating the spread pattern used in src/routes/v2/run.ts:733-741.
        */
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const islRobustness = islResponse.robustness as any;
 
       it('ISL provides is_robust, level, confidence fields', () => {
@@ -537,9 +536,7 @@ describe('Golden Integration: ISL -> PLoT Transformation', () => {
 
     // Full CEE assertions - only reached if CEE graph data AND ISL request present
     describe('CEE-ISL Coherence', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const islRequest = ceeScenario.islRequest as any;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const islResponse = ceeScenario.islResponse as any;
       const ceeGraphData = ceeScenario.ceeGraph as CEEGraph;
 

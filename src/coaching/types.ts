@@ -4,7 +4,7 @@
  * Type definitions for Phase 2 deterministic coaching layer.
  */
 
-import type { EngineGraphV3, OptionV3 } from '../types/engine-v3.js';
+import type { EngineGraphV3 } from '../types/engine-v3.js';
 import type { ReadinessTone, ReadinessToneReason } from './readiness-tone.js';
 
 // =============================================================================

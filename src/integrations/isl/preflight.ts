@@ -265,6 +265,7 @@ export function logPreflightResult(
     factor_sensitivity_status: preflight.factor_sensitivity_status,
     skip_reasons: preflight.skipReasons,
   };
+  // eslint-disable-next-line no-console -- structured log on the sanctioned console channel (Wave1-L1 boundary arm 2, src/logging/log-boundary.ts); no redaction-covered standalone logger exists
   console.log(JSON.stringify(entry));
 }
 

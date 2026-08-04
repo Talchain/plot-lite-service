@@ -72,7 +72,6 @@ import type {
   PLoTCounterfactualResult,
   PLoTFactorSensitivityResult,
   PLoTRobustnessAnalysisResult,
-  ISLPreflightResult,
 } from './types/plot-types.js';
 import type { Graph } from '../../trust/types.js';
 import { DEFAULT_EXISTS_PROBABILITY } from '../../constants/limits.js';
@@ -395,6 +394,7 @@ export function createISLService(): ISLService {
         };
 
         if (ISL_DEBUG) {
+          // eslint-disable-next-line no-console -- structured log on the sanctioned console channel (Wave1-L1 boundary arm 2, src/logging/log-boundary.ts); no redaction-covered standalone logger exists
           console.log(JSON.stringify({
             level: 'debug', time: Date.now(),
             event: 'isl_parameter_uncertainties_passthrough',
@@ -491,6 +491,7 @@ export function createISLService(): ISLService {
           preflight_factor_status: preflight.factor_sensitivity_status,
           analysis_types: ['comparison', 'sensitivity', 'robustness'],
         };
+        // eslint-disable-next-line no-console -- structured log on the sanctioned console channel (Wave1-L1 boundary arm 2, src/logging/log-boundary.ts); no redaction-covered standalone logger exists
         console.log(JSON.stringify(islRequestLog));
 
         // Build ISL request payload with all three analysis types
@@ -536,6 +537,7 @@ export function createISLService(): ISLService {
         };
 
         if (ISL_DEBUG) {
+          // eslint-disable-next-line no-console -- structured log on the sanctioned console channel (Wave1-L1 boundary arm 2, src/logging/log-boundary.ts); no redaction-covered standalone logger exists
           console.log(JSON.stringify({
             level: 'debug', time: Date.now(),
             event: 'isl_parameter_uncertainties_passthrough',
@@ -592,6 +594,7 @@ export function createISLService(): ISLService {
           option_comparison_count: response.results?.length ?? 0,
           has_voi: response.factor_sensitivity?.some((f) => typeof f.value_of_information === 'number' && f.value_of_information > 0) ?? false,
         };
+        // eslint-disable-next-line no-console -- structured log on the sanctioned console channel (Wave1-L1 boundary arm 2, src/logging/log-boundary.ts); no redaction-covered standalone logger exists
         console.log(JSON.stringify(islResponseLog));
 
         return adaptRobustnessAnalysisResponse(response, durationMs, actualEdgeStatus, actualFactorStatus);
@@ -620,6 +623,7 @@ export function createISLService(): ISLService {
           preflight_edge_status: preflight.edge_sensitivity_status,
           preflight_factor_status: preflight.factor_sensitivity_status,
         };
+        // eslint-disable-next-line no-console -- structured log on the sanctioned console channel (Wave1-L1 boundary arm 2, src/logging/log-boundary.ts); no redaction-covered standalone logger exists
         console.log(JSON.stringify(islErrorLog));
 
         logError('isl_robustness_analysis_failed', error, requestId);

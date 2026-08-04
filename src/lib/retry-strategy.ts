@@ -315,6 +315,7 @@ export async function withRetry<T>(
 
     try {
       // Log attempt
+      // eslint-disable-next-line no-console -- structured log on the sanctioned console channel (Wave1-L1 boundary arm 2, src/logging/log-boundary.ts); no redaction-covered standalone logger exists
       console.log(
         JSON.stringify({
           event: 'retry_attempt',
@@ -337,6 +338,7 @@ export async function withRetry<T>(
       const isLastAttempt = attempt >= config.maxAttempts - 1;
 
       // Log failure
+      // eslint-disable-next-line no-console -- structured log on the sanctioned console channel (Wave1-L1 boundary arm 2, src/logging/log-boundary.ts); no redaction-covered standalone logger exists
       console.log(
         JSON.stringify({
           event: 'retry_failure',

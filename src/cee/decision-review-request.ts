@@ -9,7 +9,7 @@
 
 import { createHash } from 'node:crypto';
 import type { EngineGraphV3, OptionV3 } from '../types/engine-v3.js';
-import type { M1Coaching, EvidenceGap, Critique } from '../coaching/types.js';
+import type { M1Coaching } from '../coaching/types.js';
 import {
   interventionTargetIdsFromOptions,
   isOptionControlledLever,
@@ -25,8 +25,6 @@ import type {
   FragileEdgeData,
   RobustnessData,
   DeterministicCoachingData,
-  WinnerData,
-  FlipThresholdInputData,
 } from './validation/m1-review-types.js';
 import {
   computeFlipThresholdData,

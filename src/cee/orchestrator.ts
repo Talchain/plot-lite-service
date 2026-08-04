@@ -323,6 +323,7 @@ export async function runDecisionReviewViaV2Http(
   const requestId = callerRequestId ?? `cee-v2-${Date.now()}`;
 
   // Log v2 path entry for debugging
+  // eslint-disable-next-line no-console -- structured log on the sanctioned console channel (Wave1-L1 boundary arm 2, src/logging/log-boundary.ts); no redaction-covered standalone logger exists
   console.log('[CEE_V2_START]', JSON.stringify({
     base_url: env.baseUrl,
     timeout_ms: v2Config.timeoutMs,
@@ -339,10 +340,12 @@ export async function runDecisionReviewViaV2Http(
     // Verify v2 format - log first edge for debugging
     const firstEdge = draft?.graph?.edges?.[0];
     if (firstEdge) {
+      // eslint-disable-next-line no-console -- structured log on the sanctioned console channel (Wave1-L1 boundary arm 2, src/logging/log-boundary.ts); no redaction-covered standalone logger exists
       console.log(`[CEE_V2_VERIFY] draft-graph edge: effect_direction=${firstEdge.effect_direction} strength_std=${firstEdge.strength_std}`);
     }
 
     // Diagnostic logging for options request payload
+    // eslint-disable-next-line no-console -- structured log on the sanctioned console channel (Wave1-L1 boundary arm 2, src/logging/log-boundary.ts); no redaction-covered standalone logger exists
     console.log('[CEE_V2_OPTIONS_REQUEST]', JSON.stringify({
       draft_keys: draft ? Object.keys(draft) : 'DRAFT_UNDEFINED',
       graph_present: draft?.graph !== undefined,
@@ -483,7 +486,7 @@ function extractCeeReadiness(review: unknown): CeeReviewReadiness | undefined {
   };
 }
 
-function sdkSupportsReview(client: ReturnType<typeof createCEEClient>): boolean {
+function sdkSupportsReview(_client: ReturnType<typeof createCEEClient>): boolean {
   // TODO: Update when SDK v1.12.0 is published
   // return typeof (client as any).review === 'function';
   return false; // Currently SDK v1.11.1 does not have review()
@@ -552,7 +555,6 @@ export async function orchestrateCeeReview(
 
   // Sanitize request ID per M1 spec
   const sanitisedId = sanitizeRequestId(plotRequestId);
-  const wasSanitised = sanitisedId !== plotRequestId;
 
   // Diagnostic logging for CEE enrichment timeout investigation (Pino)
   const v2Enabled = isCeeSchemaV2Enabled();
@@ -631,6 +633,7 @@ export async function orchestrateCeeReview(
     } else if (isCeeSchemaV2Enabled()) {
       // V2 Path: Use direct HTTP with ?schema=v2 for v2 format responses
       // This path returns effect_direction, strength_std, observed_state fields
+      // eslint-disable-next-line no-console -- structured log on the sanctioned console channel (Wave1-L1 boundary arm 2, src/logging/log-boundary.ts); no redaction-covered standalone logger exists
       console.log('[CEE_ORCHESTRATOR] Using schema v2 HTTP path');
       const brief = 'Decision review for inference results';
       const briefContext = {

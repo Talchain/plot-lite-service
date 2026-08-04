@@ -27,7 +27,6 @@ import type {
 import {
   validateOptionPaths,
   allOptionsHavePaths,
-  getBlockedInterventionTargets,
   buildAdjacencyList,
   checkPathToGoal,
 } from './path-to-goal.js';
@@ -472,7 +471,6 @@ function validatePathsToGoal(
 
   // Generate critiques for options without paths
   const critiques: CritiqueV3[] = [];
-  const blockedTargets = getBlockedInterventionTargets(pathResults);
 
   for (const result of pathResults.values()) {
     if (!result.hasPath) {

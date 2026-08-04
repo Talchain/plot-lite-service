@@ -20,7 +20,7 @@
  * - noisy_and_not models preventative causes where active parents reduce probability
  */
 
-import type { GraphEdge, EdgeFunctionType, EdgeFunctionParams, FunctionalForm } from '../trust/types.js';
+import type { GraphEdge, EdgeFunctionParams, FunctionalForm } from '../trust/types.js';
 import { FLAGS } from '../config/flags.js';
 import { getFunctionalForm } from './edge-migration.js';
 

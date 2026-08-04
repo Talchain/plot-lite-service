@@ -21,11 +21,7 @@ import { replyWithAppError } from '../../errors.js';
 import { CEE_PROXY_TIMEOUT_MS } from '../../config/timeouts.js';
 import { CEE_PROXY_BODY_LIMIT } from '../../config/constants.js';
 // CIL Phase 1: Shared error schemas from @talchain/schemas
-import {
-  CeeTypedErrorSchema,
-  PlotCeeUpstreamEnvelopeSchema,
-  PlotProxyTimeoutErrorSchema,
-} from '@talchain/schemas';
+import { CeeTypedErrorSchema } from '@talchain/schemas';
 import type { PlotCeeUpstreamEnvelope, PlotProxyTimeoutError } from '@talchain/schemas';
 
 export async function registerCeeDraftGraphRoute(app: FastifyInstance) {

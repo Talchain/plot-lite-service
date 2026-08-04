@@ -240,6 +240,7 @@ export const FASTIFY_REQUEST_TIMEOUT_MS = Number(
 
 /** Log all resolved timeout values. Call once at startup. */
 export function logResolvedTimeouts(): void {
+  // eslint-disable-next-line no-console -- startup diagnostic; boot logs are deliberately plain stdout, outside request scope (log-boundary.ts)
   console.log('[STARTUP] Resolved timeouts (ms):', {
     FASTIFY_REQUEST_TIMEOUT_MS,
     CEE_TIMEOUT_MS,
@@ -287,6 +288,7 @@ export function validateTimeoutChain(): boolean {
     return false;
   }
 
+  // eslint-disable-next-line no-console -- startup diagnostic; boot logs are deliberately plain stdout, outside request scope (log-boundary.ts)
   console.log('[STARTUP] ✓ Timeout chain valid:', {
     FASTIFY_REQUEST_TIMEOUT_MS,
     CEE_PROXY_TIMEOUT_MS,

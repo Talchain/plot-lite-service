@@ -18,7 +18,7 @@ import { createHash } from 'node:crypto';
 import { FLAGS } from '../config/flags.js';
 import type { EngineGraphV3, OptionV3 } from '../types/engine-v3.js';
 import type { M1Coaching } from '../coaching/types.js';
-import type { M1Review, DecisionReviewResult, FlipThresholdInputData } from './validation/m1-review-types.js';
+import type { DecisionReviewResult, FlipThresholdInputData } from './validation/m1-review-types.js';
 import { safeParseM1Review } from './validation/m1-review-types.js';
 import { validateM1Review, buildValidationContext, capScenarioContexts } from './validation/m1-review-validator.js';
 import { buildDecisionReviewRequest, type ISLResultInput } from './decision-review-request.js';

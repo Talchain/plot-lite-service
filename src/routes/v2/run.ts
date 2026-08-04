@@ -79,7 +79,7 @@ import { compileConstraintNodes } from '../../normalisation/constraint-compiler.
 import { filterTemporalConstraints } from '../../normalisation/constraint-filter.js';
 import { REPAIR_CODES } from '../../normalisation/repair-codes.js';
 import { MAX_CONSTRAINTS } from '../../constants/limits.js';
-import type { RawGoalConstraint, FilteredConstraintRecord, InternalMetadata } from '../../types/engine-v3.js';
+import type { RawGoalConstraint, InternalMetadata } from '../../types/engine-v3.js';
 import type { IslThresholdResponse, ThresholdPoint } from '../v1/types/proxy.types.js';
 import { toISLRobustnessRequest, validateISLRequest, buildParameterUncertaintiesV3, parseGoalThresholdFrame } from '../../integrations/isl/translator-v3.js';
 import { injectConstraintParameterUncertainties, selectConstraintInjectedPuNodeIds } from '../../integrations/isl/constraint-pu-injection.js';
@@ -100,7 +100,7 @@ import {
   normalizeRobustEdges,
 } from '../../integrations/isl/adapters/robustness-analysis.js';
 import { deriveRobustnessDisplayVerdict } from './robustness-display-verdict.js';
-import type { RobustnessDataForCee, NormalizedEdgeInfo } from '../../integrations/isl/types/plot-types.js';
+import type { RobustnessDataForCee } from '../../integrations/isl/types/plot-types.js';
 import type { ISLConstraintResult, ISLEdgeEValue, ISLConditionalWinner } from '../../integrations/isl/types/isl-types.js';
 import { getIslEdgeEValues, getIslEdgeSensitivity, getIslComputedAt } from '../../integrations/isl/v2-envelope.js';
 import { V2_RUN_ALLOWED_KEYS, islEnrichmentPassthrough } from './run-contract-keys.js';
@@ -141,7 +141,7 @@ import { FLAGS } from '../../config/flags.js';
 import { getAllFeatureFlags } from '../../config/feature-flags.js';
 import { resolveStandardNSamples, ADAPTIVE_N_SAMPLES_FLOOR, planSampleDepth, checkAdmissionCaps, type DepthPlanInput, type AdmissionCapsDecision, type AdmissionCapDimension, type DepthReductionReason } from '../../config/sampling.js';
 import { LIMITS_MAX_NODES, LIMITS_MAX_EDGES, LIMITS_MAX_OPTIONS } from '../../config/constants.js';
-import { getIslComputeAdmission, resolveAdmissionForPlanning, shouldPlanConservatively } from '../../integrations/isl/compute-admission.js';
+import { resolveAdmissionForPlanning } from '../../integrations/isl/compute-admission.js';
 import { generateM1Coaching } from '../../coaching/m1-coaching.js';
 import { filterInterventionOverrides } from '../../coaching/sensitivity-filter.js';
 import type { M1Review } from '../../cee/validation/m1-review-types.js';
