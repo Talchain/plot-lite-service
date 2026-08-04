@@ -10,7 +10,7 @@
  * @see repair-codes.ts for the canonical repair code enum (SSOT)
  */
 
-import { normaliseGraph, NormalisationError, type NormalisationWarning, type NormalisationResult } from './graph-normaliser.js';
+import { normaliseGraph, type NormalisationWarning, type NormalisationResult } from './graph-normaliser.js';
 import type { RepairEntry, RepairCode, RepairAction } from './repair-codes.js';
 import { REPAIR_CODES } from './repair-codes.js';
 import type { UpstreamGraph, EngineGraphV3, EngineEdgeV3 } from '../types/engine-v3.js';

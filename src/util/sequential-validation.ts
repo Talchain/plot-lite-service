@@ -162,7 +162,6 @@ export function validateSequentialGraph(graph: Graph): SequentialValidationResul
   const graphNodes = asArray<GraphNode>(graph?.nodes);
   const graphEdges = asArray<GraphEdge>(graph?.edges);
   const nodeMap = new Map<string, GraphNode>(graphNodes.map((n) => [n.id, n]));
-  const edgeMap = buildEdgeMap(graphEdges);
   const nodesByStage = new Map<number, string[]>();
 
   // If no sequential_metadata, check for node-level stage assignments
@@ -367,19 +366,6 @@ function buildNodeStageMap(graph: Graph): Map<string, number> {
   return nodeStages;
 }
 
-/**
- * Build adjacency map for edges
- */
-function buildEdgeMap(edges: GraphEdge[]): Map<string, string[]> {
-  const edgeMap = new Map<string, string[]>();
-  for (const edge of asArray<GraphEdge>(edges)) {
-    if (!edge || typeof edge !== 'object') continue;
-    const targets = edgeMap.get(edge.from) ?? [];
-    targets.push(edge.to);
-    edgeMap.set(edge.from, targets);
-  }
-  return edgeMap;
-}
 
 /**
  * Check if a graph is sequential (has multi-stage structure)

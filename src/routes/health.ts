@@ -15,7 +15,7 @@ import { getCeeCircuitBreakerStats } from '../cee/circuit-breaker.js';
 import { getIslCircuitBreakerStats } from '../integrations/isl-circuit-breaker.js';
 import { getRouteCallerSnapshot } from '../observability/routeCallerTelemetry.js';
 import { WEIGHT_SCHEMAS, DEFAULT_WEIGHT_SCHEMA, type WeightSchemaVersion } from '../engine/weight-schema.js';
-import { getBeliefSpreadCapability, CURRENT_BELIEF_SPREAD_VERSION } from '../engine/belief-spread.js';
+import { getBeliefSpreadCapability } from '../engine/belief-spread.js';
 
 export interface HealthRoutesOptions {
   enableTestRoutes?: boolean;

@@ -112,8 +112,8 @@ async function callCeeSuggestEdgeFunction(
  * Generate fallback edge function suggestion when CEE is unavailable
  */
 function generateFallbackSuggestion(
-  sourceNode: EdgeNodeContext,
-  targetNode: EdgeNodeContext
+  _sourceNode: EdgeNodeContext,
+  _targetNode: EdgeNodeContext
 ): CeeEdgeFunctionSuggestionResponse {
   return {
     suggested_function: 'linear',

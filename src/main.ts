@@ -19,6 +19,7 @@ async function start() {
   validateTimeoutChain();
 
   // CEE config diagnostic - helps debug V2 path activation and timeout issues
+  // eslint-disable-next-line no-console -- startup diagnostic; boot logs are deliberately plain stdout, outside request scope (log-boundary.ts)
   console.log('[STARTUP] CEE config:', {
     CEE_TIMEOUT_MS: process.env.CEE_TIMEOUT_MS,
     CEE_TIMEOUT_MS_parsed: Number(process.env.CEE_TIMEOUT_MS),
@@ -48,6 +49,7 @@ async function start() {
   // NAMED skew state, boot proceeds, and the route's conservative disclosure
   // covers the gap until the background refresh heals it.
   const admissionWarm = await warmIslComputeAdmission();
+  // eslint-disable-next-line no-console -- startup diagnostic; boot logs are deliberately plain stdout, outside request scope (log-boundary.ts)
   console.log('[STARTUP] ISL compute-admission warm:', {
     status: admissionWarm.status,
     advertised_version: admissionWarm.advertisedVersion ?? null,

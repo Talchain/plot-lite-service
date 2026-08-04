@@ -635,7 +635,7 @@ async function searchFlipForFactorInner(
       result: { ...candidate, flip_value: flipValue, flip_reason: 'found', iterations_used: iterations, probes_used: probes, alternative_winner_id: farWinner, margin_sensitivity: marginSensitivity },
       diagnostics: diag,
     };
-  } catch (err) {
+  } catch {
     // Cancellation (F3): an error after the deadline is a cancelled probe →
     // disclose 'timeout'; else a genuine ISL fault → 'error'. (Mirror of the
     // Step-0 rejection branch above.)

@@ -7,7 +7,7 @@
  * @see PLoT brief: critique message humanisation
  */
 
-import type { CritiqueV3, EngineGraphV3, OptionV3 } from './types/engine-v3.js';
+import type { CritiqueV3 } from './types/engine-v3.js';
 
 // ---------------------------------------------------------------------------
 // Minimal graph shape for label resolution

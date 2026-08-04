@@ -66,10 +66,10 @@ export function adaptFactorSensitivityResponse(
 /**
  * Create a fallback factor sensitivity result when ISL is unavailable
  *
- * @param reason - Why fallback is being used
+ * @param _reason - Why fallback is being used
  * @returns Fallback factor sensitivity result
  */
-export function createFallbackFactorSensitivity(reason: string): PLoTFactorSensitivityResult {
+export function createFallbackFactorSensitivity(_reason: string): PLoTFactorSensitivityResult {
   return {
     factors: [],
     value_of_information: [],

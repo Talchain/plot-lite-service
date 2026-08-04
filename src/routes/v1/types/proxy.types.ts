@@ -709,7 +709,7 @@ export interface ProxyRequestContext {
 // Edge Function Suggestion Types
 // ============================================================================
 
-import type { EdgeFunctionType, EdgeFunctionParams, StageDefinition, SequentialMetadata } from '../../../trust/types.js';
+import type { EdgeFunctionType, EdgeFunctionParams, SequentialMetadata } from '../../../trust/types.js';
 
 /**
  * Node context for edge function suggestion

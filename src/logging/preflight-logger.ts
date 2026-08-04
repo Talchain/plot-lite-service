@@ -268,6 +268,7 @@ export function addISLResponseToLog(
  * Uses structured JSON logging.
  */
 export function logPreflight(entry: PreflightLogEntry): void {
+  // eslint-disable-next-line no-console -- structured log on the sanctioned console channel (Wave1-L1 boundary arm 2, src/logging/log-boundary.ts); no redaction-covered standalone logger exists
   console.log(JSON.stringify(entry));
 }
 
@@ -277,5 +278,6 @@ export function logPreflight(entry: PreflightLogEntry): void {
  * Uses structured JSON logging.
  */
 export function logISLCall(entry: ISLCallLogEntry): void {
+  // eslint-disable-next-line no-console -- structured log on the sanctioned console channel (Wave1-L1 boundary arm 2, src/logging/log-boundary.ts); no redaction-covered standalone logger exists
   console.log(JSON.stringify(entry));
 }

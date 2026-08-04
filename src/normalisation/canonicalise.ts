@@ -107,7 +107,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import type { RunRequestV3, OptionV3, EngineGraphV3, GoalConstraint, IdentifiabilityAssessment, FactorStabilityEntry } from '../types/engine-v3.js';
+import type { RunRequestV3, OptionV3, EngineGraphV3, IdentifiabilityAssessment, FactorStabilityEntry } from '../types/engine-v3.js';
 import { STANDARD_N_SAMPLES_DEFAULT } from '../config/sampling.js';
 
 // -----------------------------------------------------------------------------
@@ -156,12 +156,6 @@ function canonicaliseNumber(value: number | undefined | null): number {
   return normaliseFloat(value);
 }
 
-/**
- * Normalise an optional float (undefined-safe).
- */
-function normaliseOptionalFloat(n: number | undefined): number | undefined {
-  return n !== undefined ? normaliseFloat(n) : undefined;
-}
 
 // -----------------------------------------------------------------------------
 // Canonical Node

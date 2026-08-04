@@ -11,15 +11,12 @@ import { createHash } from 'node:crypto';
 import type {
   SimulationTraces,
   Trace,
-  TraceMeta,
-  TraceAggregates,
   Distribution,
   TraceConfig,
   Perturbation,
   BatchSimulationRequest,
   BatchSimulationResponse,
   SamplingMetrics,
-  SAMPLING_CONFIG_VERSION,
 } from './types.js';
 import { SAMPLING_CONFIG_VERSION as CONFIG_VERSION } from './types.js';
 import { hashGraph, generateSeedSequence } from './graph-hash.js';
@@ -28,7 +25,7 @@ import { XorShift128Plus } from '../scm-lite/rng.js';
 import { applyEdgeFunction } from '../engine/edge-functions.js';
 import { FLAGS } from '../config/flags.js';
 import { getBeliefExists, getEdgeStd, sampleNormal } from '../engine/edge-migration.js';
-import type { Intervention, InferenceMode } from '../scm-lite/types.js';
+import type { InferenceMode } from '../scm-lite/types.js';
 
 import type { FunctionalForm, EdgeFunctionType } from '../trust/types.js';
 
@@ -271,7 +268,6 @@ export function generateTraces(
   graph: GraphInput,
   config: TraceConfig
 ): SimulationTraces {
-  const startTime = performance.now();
   const timing: TimingTracker = { sampling_ms: 0, propagation_ms: 0, aggregation_ms: 0 };
 
   // Configuration

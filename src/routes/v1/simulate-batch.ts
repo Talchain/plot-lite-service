@@ -20,7 +20,6 @@ import {
   getSamplingMetrics,
 } from '../../sampling/engine.js';
 import { getTraceCache } from '../../sampling/trace-cache.js';
-import { hashGraph } from '../../sampling/graph-hash.js';
 import type {
   BatchSimulationRequest,
   BatchSimulationResponse,

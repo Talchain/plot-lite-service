@@ -179,6 +179,7 @@ export async function callCEEWithSchemaV2<T>(
     // Log payload for debugging (only for options endpoint)
     if (path.includes('/options')) {
       const payloadObj = payload as Record<string, unknown>;
+      // eslint-disable-next-line no-console -- structured log on the sanctioned console channel (Wave1-L1 boundary arm 2, src/logging/log-boundary.ts); no redaction-covered standalone logger exists
       console.log('[CEE_V2_OPTIONS_PAYLOAD]', JSON.stringify({
         path,
         payload_keys: Object.keys(payloadObj),
@@ -263,6 +264,7 @@ export async function callCEEWithSchemaV2<T>(
     const hasEffectDirection = edgeCount > 0 && edges.every((e: any) => e.effect_direction !== undefined);
     const hasStrengthStd = edgeCount > 0 && edges.every((e: any) => typeof e.strength_std === 'number' && e.strength_std > 0);
 
+    // eslint-disable-next-line no-console -- structured log on the sanctioned console channel (Wave1-L1 boundary arm 2, src/logging/log-boundary.ts); no redaction-covered standalone logger exists
     console.log('[CEE_V2_RESPONSE]', JSON.stringify({
       path,
       cee_api_version: ceeApiVersion,
@@ -481,6 +483,7 @@ export async function factorReviewV2(
       echoedRequestId,
     });
 
+    // eslint-disable-next-line no-console -- structured log on the sanctioned console channel (Wave1-L1 boundary arm 2, src/logging/log-boundary.ts); no redaction-covered standalone logger exists
     console.log(JSON.stringify({
       event: 'cee_factor_review_success',
       request_id: requestId,
@@ -650,6 +653,7 @@ export async function callDecisionReview(
       echoedRequestId,
     });
 
+    // eslint-disable-next-line no-console -- structured log on the sanctioned console channel (Wave1-L1 boundary arm 2, src/logging/log-boundary.ts); no redaction-covered standalone logger exists
     console.log(JSON.stringify({
       event: 'cee_decision_review_success',
       request_id: requestId,

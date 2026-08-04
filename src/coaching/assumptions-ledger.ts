@@ -231,7 +231,7 @@ function extractISLAssumptions(inputs: CoachingInputs): AssumptionRecord[] {
  */
 function mapCEECritiqueToAssumption(
   critique: { type: string; message: string; severity?: string },
-  inputs: CoachingInputs
+  _inputs: CoachingInputs
 ): AssumptionRecord | null {
   // Only map critiques that represent assumptions (not all do)
   if (
@@ -269,7 +269,7 @@ function classifyRepairImpact(
     from_value: number | string | null;
     to_value: number | string;
   },
-  inputs: CoachingInputs
+  _inputs: CoachingInputs
 ): { level: 'high' | 'medium' | 'low'; code: AssumptionRecord['impact_reason_code'] } {
   // High impact: affects outcome directly
   if (
@@ -294,7 +294,7 @@ function classifyRepairImpact(
  */
 function classifyFactorImpact(
   factor: { node_id: string; label: string; elasticity?: number; influence_score?: number; importance_rank?: number },
-  inputs: CoachingInputs
+  _inputs: CoachingInputs
 ): { level: 'high' | 'medium' | 'low'; code: AssumptionRecord['impact_reason_code'] } {
   const influence = Math.abs(factor.elasticity ?? factor.influence_score ?? 0);
 

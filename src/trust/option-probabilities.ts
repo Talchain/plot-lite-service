@@ -8,7 +8,7 @@
  * based on actual conditional probability from Monte Carlo simulation.
  */
 
-import { computeThresholdProbability, type ThresholdProbabilityResult } from '../scm-lite/kernel.js';
+import { computeThresholdProbability } from '../scm-lite/kernel.js';
 import type { DAG } from '../scm-lite/types.js';
 import { MAX_NODES, MAX_EDGES } from '../constants/limits.js';
 
@@ -189,7 +189,7 @@ export function computeOptionProbabilities(
         goal_probability: Math.round(thresholdResult.probability * 1000) / 1000,
         confidence: Math.round(thresholdResult.confidence * 1000) / 1000,
       };
-    } catch (err) {
+    } catch {
       // Log error but continue with other options
       // Option may be isolated or have graph issues
       result[option.id] = {

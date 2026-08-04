@@ -20,8 +20,6 @@ import type {
   RunResponseEnrichment,
   CausalValidationEnrichment,
   SensitivityAnalysisEnrichment,
-  FactorSensitivityEnrichment,
-  VOIEnrichment,
 } from '../../trust/types.js';
 import { DETAIL_LEVEL_CONFIG } from '../../trust/types.js';
 import { getInferenceEngine } from '../../inference/index.js';
@@ -44,7 +42,7 @@ import {
   recordMetaReasoningMetrics,
 } from '../../metrics/registry.js';
 import { normalizeCeeCode, isFlagOn } from '../../cee/codes.js';
-import { shouldAllowCeeCall, recordCeeSuccess, recordCeeFailure } from '../../cee/circuit-breaker.js';
+import { shouldAllowCeeCall } from '../../cee/circuit-breaker.js';
 // runResponseSchema used in OpenAPI documentation
 import { normalizeGraphWithWarnings } from '../../util/normalize.js';
 import { FLAGS } from '../../config/flags.js';
@@ -131,7 +129,7 @@ function transformSensitivityToEnrichment(
   if (!sensitivity) return undefined;
 
   // Build edge list from sensitive parameters - map to new EdgeSensitivityEnrichment format
-  const edges: SensitivityAnalysisEnrichment['edges'] = sensitivity.sensitive_parameters.map((param, idx) => {
+  const edges: SensitivityAnalysisEnrichment['edges'] = sensitivity.sensitive_parameters.map((param) => {
     // Try to find the corresponding edge in the graph
     const edge = graph.edges.find((e: any) =>
       param.parameter === `${e.from}->${e.to}` ||
@@ -404,6 +402,7 @@ export async function registerRunRoute(app: FastifyInstance) {
         graph_summary: graphSummary,
         detail_level: body.detail_level ?? 'standard',
       };
+      // eslint-disable-next-line no-console -- structured log on the sanctioned console channel (Wave1-L1 boundary arm 2, src/logging/log-boundary.ts); no redaction-covered standalone logger exists
       console.log(JSON.stringify(entryLog));
     } catch { /* ignore logging errors */ }
     
@@ -1152,6 +1151,7 @@ export async function registerRunRoute(app: FastifyInstance) {
         isl_sensitivity_robustness: isl_sensitivity?.overall_robustness,
         identifiable: identifiability.identifiable,
       };
+      // eslint-disable-next-line no-console -- structured log on the sanctioned console channel (Wave1-L1 boundary arm 2, src/logging/log-boundary.ts); no redaction-covered standalone logger exists
       console.log(JSON.stringify(critiqueLog));
     } catch { /* ignore logging errors */ }
 

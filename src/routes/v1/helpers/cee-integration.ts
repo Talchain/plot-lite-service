@@ -6,7 +6,7 @@
  */
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
-import { normalizeCeeCode, isFlagOn } from '../../../cee/codes.js';
+import { normalizeCeeCode } from '../../../cee/codes.js';
 import { shouldAllowCeeCall, recordCeeSuccess, recordCeeFailure } from '../../../cee/circuit-breaker.js';
 import { callDecisionReviewFromEngine } from '../../../cee/client.js';
 import type { CeeTrace } from '../../../cee/types.js';

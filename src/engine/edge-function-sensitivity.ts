@@ -8,7 +8,7 @@
  * and reports when ranking would change.
  */
 
-import type { Graph, GraphEdge, EdgeFunctionType } from '../trust/types.js';
+import type { Graph, EdgeFunctionType } from '../trust/types.js';
 import type { CoherenceWarning, CoherenceWarningCode } from '../trust/result-coherence.js';
 import { applyEdgeFunction } from './edge-functions.js';
 
@@ -83,7 +83,7 @@ export function getTopSensitiveEdges(
   edges: Array<{ from: string; to: string; weight?: number; belief?: number; function_type?: EdgeFunctionType }>,
   topN: number
 ): EdgeSensitivityData[] {
-  const scored = edges.map((edge, idx) => {
+  const scored = edges.map((edge) => {
     const weight = edge.weight ?? 1;
     const belief = edge.belief ?? 0.7;
     const score = Math.abs(weight) * belief;

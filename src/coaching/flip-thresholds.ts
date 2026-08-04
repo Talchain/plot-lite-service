@@ -17,7 +17,7 @@
  * @see Brief: M2 Decision Review Integration, Task 2
  */
 
-import type { EngineGraphV3, EngineNodeV3 } from '../types/engine-v3.js';
+import type { EngineGraphV3 } from '../types/engine-v3.js';
 import type { FlipThresholdInputData } from '../cee/validation/m1-review-types.js';
 
 // =============================================================================
