@@ -429,6 +429,16 @@ export const TEMPLATE_MAP: Record<string, TemplateEntry> = {
 
   POC_CONSTRAINT_LIMIT:
     'Model exceeds the 20-constraint limit. Remove less important constraints.',
+
+  // ROADMAP 2.410 — ISL success-body coverage disclosure (critique.py:357).
+  // ISL computes fine-grained switch detail for the most elastic fragile
+  // edges only, bounded by its compute budget; retained values are computed
+  // independently and are unaffected. Product copy: name the coverage limit
+  // honestly, no internal jargon (field names / sample counts stay in
+  // `message` for the debug surface).
+  MARGINAL_SWITCH_TRUNCATED:
+    'Tipping-point detail was computed for the most sensitive fragile connections only; ' +
+    'the least sensitive were skipped to keep the analysis fast. All values shown are unaffected.',
 };
 
 // ---------------------------------------------------------------------------
