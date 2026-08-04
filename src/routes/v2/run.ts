@@ -4013,17 +4013,32 @@ function buildResponse(
 // -----------------------------------------------------------------------------
 
 /**
- * Map ISL critiques to V2 critique format.
+ * Map ISL critiques to V2 critique format. ONE mapper for BOTH paths
+ * (ROADMAP 2.410): the 422 branch (structured validation critiques) and the
+ * 200 branch (success-body coverage disclosures such as
+ * MARGINAL_SWITCH_TRUNCATED — ISL "publishes what it computed and names what
+ * it did not", critique.py:357, and PLoT dropped that disclosure on every
+ * successful response until this fix).
+ *
+ * Field fix (2.394(a)): ISL's CritiqueV2 serialises `affected_node_ids` /
+ * `affected_option_ids` and has never emitted `affected_nodes` — reading
+ * only the legacy name silently dropped node identity for every v2-format
+ * critique. Prefer the producer's field, tolerate the legacy one.
+ * ISL's deterministic critique id is carried when present (cross-service
+ * identity); a local UUID is minted only when the producer sent none.
  */
 function mapISLCritiquesToV2(islCritiques: Array<{
+  id?: string;
   code: string;
   severity: string;
   message: string;
   suggestion?: string;
+  affected_node_ids?: string[];
+  affected_option_ids?: string[];
   affected_nodes?: string[];
 }>): CritiqueV3[] {
   return islCritiques.map((c) => ({
-    id: randomUUID(),
+    id: typeof c.id === 'string' && c.id.length > 0 ? c.id : randomUUID(),
     code: c.code,
     severity: c.severity === 'blocker' ? 'blocker' :
               c.severity === 'error' ? 'error' :
@@ -4031,7 +4046,8 @@ function mapISLCritiquesToV2(islCritiques: Array<{
     message: c.message,
     suggestion: c.suggestion,
     source: 'isl' as const,
-    affected_node_ids: c.affected_nodes,
+    affected_node_ids: c.affected_node_ids ?? c.affected_nodes,
+    ...(c.affected_option_ids ? { affected_option_ids: c.affected_option_ids } : {}),
     blocks_analysis: c.severity === 'blocker',
   }));
 }
@@ -7021,6 +7037,25 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             computedAt: computedAt ?? requestComputedAt,
             critiques,
           }));
+        }
+
+        // =================================================================
+        // ISL success-body critiques merge (ROADMAP 2.410, folds 2.394(a))
+        // =================================================================
+        // ISL's v2 SUCCESS response carries `critiques` too ("always a list,
+        // never None" — its response builder), including coverage disclosures
+        // like MARGINAL_SWITCH_TRUNCATED whose entire purpose is to name what
+        // was NOT computed on an otherwise-good run. Until this merge, those
+        // rows were read on the 422 path only, so every success warning died
+        // here — the same one-hop-before-the-consumer death the CEE→UI
+        // keep-list had. Same mapper as the 422 path (one function, both
+        // paths); appended AFTER PLoT-authored rows so `critiques[0]`
+        // consumers (CEE plot-client renders critiques[0].message) keep
+        // seeing request-shape issues first. No blockers can arrive here —
+        // a blocking condition surfaces as 422 or analysis_status 'failed',
+        // both already returned above.
+        if (Array.isArray(islResult?.critiques) && islResult.critiques.length > 0) {
+          critiques.push(...mapISLCritiquesToV2(islResult.critiques));
         }
 
         // =================================================================

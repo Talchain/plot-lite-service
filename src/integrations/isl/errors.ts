@@ -46,13 +46,28 @@ export interface ISLError422 {
 }
 
 /**
- * ISL critique from 422 response.
+ * ISL critique from a 422 response — or, since ROADMAP 2.410, from the v2
+ * SUCCESS body (`islResult.critiques`, "always a list, never None" in ISL's
+ * response builder).
+ *
+ * ⚠ FIELD NAMES (2.410 / 2.394(a)): ISL's CritiqueV2 serialises
+ * `affected_node_ids` / `affected_option_ids` (models/critique.py `build()`)
+ * — it has NEVER emitted `affected_nodes`. That legacy name is kept for
+ * tolerance of older/alternate producers, but a reader that consults ONLY
+ * `affected_nodes` silently drops node identity for every v2-format critique
+ * (which is what run.ts did until the 2.410 fix).
  */
 export interface ISLCritique {
+  id?: string;
   code: string;
   severity: string;
   message: string;
   suggestion?: string;
+  /** ISL v2 wire field (CritiqueV2). Prefer this. */
+  affected_node_ids?: string[];
+  /** ISL v2 wire field (CritiqueV2). */
+  affected_option_ids?: string[];
+  /** Legacy/alternate-producer field name — tolerated, never emitted by ISL v2. */
   affected_nodes?: string[];
 }
 
