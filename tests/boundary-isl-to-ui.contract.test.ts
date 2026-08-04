@@ -167,7 +167,7 @@ import { createServer } from '../src/createServer.js';
 
 const GRAPH = {
   nodes: [
-    { id: 'goal', kind: 'goal', label: 'Revenue' },
+    { id: 'goal', kind: 'goal', goal_threshold_frame: 'delta', label: 'Revenue' },
     { id: 'factor-a', kind: 'factor', label: 'Marketing Spend', observed_state: { value: 0.6 } },
   ],
   edges: [

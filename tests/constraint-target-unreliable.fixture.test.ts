@@ -148,7 +148,7 @@ const GRAPH_VALUED_TARGET = {
     { id: 'goal_growth', kind: 'goal', label: 'Grow revenue' },
     // observed value 50 → deriveRange() infers [0, 100] (inferred_value tier),
     // NOT the default fallback.
-    { id: 'out_campaign_effectiveness', kind: 'outcome', label: 'Campaign effectiveness', observed_state: { value: 50 } },
+    { id: 'out_campaign_effectiveness', kind: 'outcome', goal_threshold_frame: 'delta', label: 'Campaign effectiveness', observed_state: { value: 50 } },
     { id: 'fac_budget', kind: 'factor', label: 'Marketing budget', observed_state: { value: 0.6 } },
   ],
   edges: [
@@ -255,7 +255,16 @@ describe('CONSTRAINT_TARGET_UNRELIABLE (item A — Paul\'s 20/% valueless-node c
       // … says the numbers were withheld …
       expect(warnings[0].message).toContain('withheld');
       // … and tells the user what to do about it.
-      expect(warnings[0].message).toContain('Set a value or range');
+      //
+      // ⚠ L63 changed WHICH action this names, on purpose. This fixture's
+      // target is BOTH un-scalable (no derivable range) AND unanchored (a
+      // non-root node, so ISL reads no absolute base for it), and the
+      // unanchored reason now takes priority in the copy: scaling the
+      // threshold correctly would not make it comparable, so "set a range"
+      // would send the user to fix the lesser of the two problems. The
+      // message still names a concrete action — set a current value, or
+      // state the target as a change — which subsumes the old advice.
+      expect(warnings[0].message).toContain('Set a current value');
       // The raw suppressed numbers are never quoted in the warning.
       expect(warnings[0].message).not.toContain('0%');
     } finally {

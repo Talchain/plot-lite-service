@@ -118,7 +118,7 @@ const GRAPH = {
     // honesty (CONSTRAINT_TARGET_UNRELIABLE) would rightly SUPPRESS the
     // per-option probability fields this suite pins the mapping of — see
     // tests/constraint-target-unreliable.fixture.test.ts for that contract.
-    { id: 'goal', kind: 'goal', label: 'Revenue', observed_state: { value: 15000 } },
+    { id: 'goal', kind: 'goal', goal_threshold_frame: 'delta', label: 'Revenue', observed_state: { value: 15000 } },
     { id: 'factor-a', kind: 'factor', label: 'Market Size' },
     { id: 'factor-b', kind: 'factor', label: 'Retention', observed_state: { value: 4000 } },
   ],

@@ -213,7 +213,7 @@ import { createServer } from '../src/createServer.js';
 const GRAPH = {
   nodes: [
     {
-      id: NODE_ALPHA, kind: 'goal', label: 'Net revenue change',
+      id: NODE_ALPHA, kind: 'goal', goal_threshold_frame: 'delta', label: 'Net revenue change',
       observed_state: { value: 50 }, state_space: { range: { min: 0, max: 100 } },
     },
     {

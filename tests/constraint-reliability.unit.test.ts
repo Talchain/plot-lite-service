@@ -9,11 +9,16 @@
 import { describe, it, expect } from 'vitest';
 import {
   detectUnreliableConstraintTargets,
+  detectUnanchoredSampleFrameTargets,
+  mergeUnreliableConstraintTargets,
+  collectDirectedEdgeTargets,
+  resolveConstraintSampleFrameAnchor,
   partitionConstraintTargets,
   buildConstraintTargetUnreliableMessage,
   buildConstraintGoalFitModelledMessage,
   GOAL_FIT_SCORED_FROM_MODELLED_OUTCOME,
   type UnreliableConstraintTarget,
+  type ConstraintUnreliabilityReason,
 } from '../src/lib/constraint-reliability.js';
 import type { NormalisationRange } from '../src/lib/intervention-normaliser.js';
 
@@ -226,5 +231,213 @@ describe('buildConstraintTargetUnreliableMessage (provisional_doctrine_v0 wordin
     expect(msg).not.toMatch(/\bEVPI\b/i);
     expect(msg).not.toMatch(/expected value/i);
     expect(msg).not.toMatch(/0(\.0+)?%/);
+  });
+});
+
+// ===========================================================================
+// L63 — the constraint SAMPLE-FRAME gate
+// ===========================================================================
+
+describe('resolveConstraintSampleFrameAnchor (L63)', () => {
+  const nodes = [
+    { id: 'goal_g' },
+    { id: 'out_x' },
+    { id: 'fac_a', observed_state: { value: 0.49 } },
+    { id: 'fac_bare' },
+    { id: 'risk_r', observed_state: { value: 0.02 } },
+  ];
+  const edges = [
+    { from: 'fac_a', to: 'out_x' },
+    { from: 'out_x', to: 'goal_g' },
+    { from: 'fac_a', to: 'risk_r' },
+  ];
+  const directed = collectDirectedEdgeTargets(edges);
+  const twoOptions = [
+    { interventions: { fac_a: { value: 0.4 } } },
+    { interventions: { fac_a: { value: 0.6 } } },
+  ];
+
+  // `twoOptions` PINS fac_a, and the pinning limb is checked first — so asking
+  // about fac_a with those options would report 'pinned_by_every_option' and
+  // prove nothing about the root limb. Use options that leave fac_a free.
+  const optionsNotPinningFacA = [
+    { interventions: { out_x: { value: 0.4 } } },
+    { interventions: { out_x: { value: 0.6 } } },
+  ];
+
+  it('a ROOT node carrying an observed value is anchored — the evaluator seeds it as the base', () => {
+    expect(
+      resolveConstraintSampleFrameAnchor('fac_a', nodes, directed, optionsNotPinningFacA, undefined),
+    ).toBe('root_observed_level');
+  });
+
+  it('a ROOT node with NO observed value is NOT anchored (base falls to 0.0)', () => {
+    expect(resolveConstraintSampleFrameAnchor('fac_bare', nodes, directed, twoOptions, undefined))
+      .toBeNull();
+  });
+
+  it('a NON-ROOT node is NOT anchored EVEN WITH an observed value — observed_state is read for roots only', () => {
+    expect(resolveConstraintSampleFrameAnchor('risk_r', nodes, directed, twoOptions, undefined))
+      .toBeNull();
+    expect(resolveConstraintSampleFrameAnchor('goal_g', nodes, directed, twoOptions, undefined))
+      .toBeNull();
+  });
+
+  it("a producer-attested 'delta' frame anchors a non-root node; 'level' does not", () => {
+    expect(
+      resolveConstraintSampleFrameAnchor('goal_g', nodes, directed, twoOptions, new Map([['goal_g', 'delta']])),
+    ).toBe('attested_delta');
+    expect(
+      resolveConstraintSampleFrameAnchor('goal_g', nodes, directed, twoOptions, new Map([['goal_g', 'level']])),
+    ).toBeNull();
+  });
+
+  it('pinning must hold for EVERY option, and an EMPTY option list must not mint an anchor', () => {
+    const pinned = [
+      { interventions: { out_x: { value: 0.8 } } },
+      { interventions: { out_x: { value: 0.9 } } },
+    ];
+    expect(resolveConstraintSampleFrameAnchor('out_x', nodes, directed, pinned, undefined))
+      .toBe('pinned_by_every_option');
+
+    const halfPinned = [pinned[0], { interventions: { fac_a: { value: 0.5 } } }];
+    expect(resolveConstraintSampleFrameAnchor('out_x', nodes, directed, halfPinned, undefined))
+      .toBeNull();
+
+    // `[].every()` is vacuously true — it must not read as "every option pins it".
+    expect(resolveConstraintSampleFrameAnchor('out_x', nodes, directed, [], undefined)).toBeNull();
+    expect(resolveConstraintSampleFrameAnchor('out_x', nodes, directed, undefined, undefined)).toBeNull();
+  });
+
+  it('FAILS CLOSED on absent inputs — an anchor must be proved, never assumed', () => {
+    expect(resolveConstraintSampleFrameAnchor('goal_g', undefined, new Set(), undefined, undefined)).toBeNull();
+    expect(resolveConstraintSampleFrameAnchor('nonexistent_node', nodes, directed, twoOptions, undefined)).toBeNull();
+  });
+
+  it('a non-finite observed value is not an anchor', () => {
+    const bad = [{ id: 'fac_nan', observed_state: { value: Number.NaN } }];
+    expect(resolveConstraintSampleFrameAnchor('fac_nan', bad, new Set(), undefined, undefined)).toBeNull();
+  });
+});
+
+describe('collectDirectedEdgeTargets (L63) — bidirected edges create no parent', () => {
+  it('ignores bidirected edges, matching the ISL translator’s forward-model filter', () => {
+    const targets = collectDirectedEdgeTargets([
+      { from: 'a', to: 'b' },
+      { from: 'c', to: 'd', edge_type: 'bidirected' },
+    ]);
+    expect([...targets].sort()).toEqual(['b']);
+  });
+
+  it('is total on absent input', () => {
+    expect(collectDirectedEdgeTargets(undefined).size).toBe(0);
+  });
+});
+
+describe('detectUnanchoredSampleFrameTargets (L63)', () => {
+  const nodes = [{ id: 'goal_g' }, { id: 'fac_a', observed_state: { value: 0.49 } }];
+  const directed = collectDirectedEdgeTargets([{ from: 'fac_a', to: 'goal_g' }]);
+  const options = [{ interventions: { fac_a: { value: 0.4 } } }];
+
+  it('flags only the unanchored constraint, by constraint identity', () => {
+    const out = detectUnanchoredSampleFrameTargets(
+      [
+        { constraint_id: 'c_goal', node_id: 'goal_g', operator: '>=', value: 0.8 } as any,
+        { constraint_id: 'c_root', node_id: 'fac_a', operator: '>=', value: 0.5 } as any,
+      ],
+      nodes,
+      directed,
+      options,
+      undefined,
+    );
+    expect(out.map((t) => t.constraint_id)).toEqual(['c_goal']);
+    expect(out[0].reasons).toEqual(['sample_frame_unanchored']);
+  });
+
+  it('returns nothing when there are no constraints', () => {
+    expect(detectUnanchoredSampleFrameTargets(undefined, nodes, directed, options, undefined)).toEqual([]);
+    expect(detectUnanchoredSampleFrameTargets([], nodes, directed, options, undefined)).toEqual([]);
+  });
+});
+
+describe('mergeUnreliableConstraintTargets (L63)', () => {
+  it('unions reasons for the same constraint without duplicating', () => {
+    const merged = mergeUnreliableConstraintTargets(
+      [{ constraint_id: 'c1', node_id: 'n1', reasons: ['target_base_defaulted'] }],
+      [{ constraint_id: 'c1', node_id: 'n1', reasons: ['sample_frame_unanchored'] }],
+      [{ constraint_id: 'c1', node_id: 'n1', reasons: ['sample_frame_unanchored'] }],
+    );
+    expect(merged).toHaveLength(1);
+    expect(merged[0].reasons).toEqual(['target_base_defaulted', 'sample_frame_unanchored']);
+  });
+
+  it('does not mutate its inputs', () => {
+    const a: UnreliableConstraintTarget[] = [
+      { constraint_id: 'c1', node_id: 'n1', reasons: ['target_base_defaulted'] },
+    ];
+    mergeUnreliableConstraintTargets(a, [
+      { constraint_id: 'c1', node_id: 'n1', reasons: ['sample_frame_unanchored'] },
+    ]);
+    expect(a[0].reasons).toEqual(['target_base_defaulted']);
+  });
+});
+
+describe('doctrine B may never deliver an unanchored target (L63 restriction)', () => {
+  // A hand-written corpus over the WHOLE reason vocabulary rather than a
+  // derivation from it: a derived check would agree with whatever the code
+  // does, and could never notice that a future edit had widened the delivery
+  // condition. Enumerated here so adding a reason to the union type without
+  // considering delivery is a compile error away from being noticed, and
+  // widening doctrine B is one assertion away from RED.
+  const ALL_REASONS: ConstraintUnreliabilityReason[] = [
+    'threshold_normalisation_defaulted',
+    'target_base_defaulted',
+    'sample_frame_unanchored',
+  ];
+  const graph = { edges: [{ from: 'fac_a', to: 'goal_g' }] };
+
+  const subsetsContainingUnanchored = ALL_REASONS.flatMap((_, i) =>
+    ALL_REASONS.flatMap((__, j) =>
+      i <= j
+        ? [[...new Set(ALL_REASONS.slice(i, j + 1))].filter((r) => r !== undefined)]
+        : [],
+    ),
+  ).filter((subset) => subset.includes('sample_frame_unanchored'));
+
+  it('every reason set containing sample_frame_unanchored is SUPPRESSED, on a forward-propagated node', () => {
+    expect(subsetsContainingUnanchored.length).toBeGreaterThan(0);
+    for (const reasons of subsetsContainingUnanchored) {
+      const out = partitionConstraintTargets(
+        [{ constraint_id: 'c1', node_id: 'goal_g', reasons: [...reasons] }],
+        graph,
+      );
+      expect(out.modelledBasis, `reasons=${reasons.join('+')}`).toEqual([]);
+      expect(out.suppressed.map((t) => t.node_id), `reasons=${reasons.join('+')}`).toEqual(['goal_g']);
+    }
+  });
+
+  it('CONTROL — doctrine B still delivers when the target is NOT unanchored', () => {
+    const out = partitionConstraintTargets(
+      [{ constraint_id: 'c1', node_id: 'goal_g', reasons: ['target_base_defaulted'] }],
+      graph,
+    );
+    expect(out.modelledBasis.map((t) => t.node_id)).toEqual(['goal_g']);
+  });
+});
+
+describe('buildConstraintTargetUnreliableMessage — L63 wording', () => {
+  it('names the node, says the figure was withheld, and never quotes a probability', () => {
+    const msg = buildConstraintTargetUnreliableMessage('Gross margin', ['sample_frame_unanchored']);
+    expect(msg).toContain('Gross margin');
+    expect(msg).toContain('withheld');
+    expect(msg).not.toMatch(/\d+(\.\d+)?\s*%/);
+  });
+
+  it('takes priority over the older reasons when both are present', () => {
+    const both = buildConstraintTargetUnreliableMessage('Gross margin', [
+      'target_base_defaulted',
+      'sample_frame_unanchored',
+    ]);
+    expect(both).toBe(buildConstraintTargetUnreliableMessage('Gross margin', ['sample_frame_unanchored']));
   });
 });

@@ -198,7 +198,7 @@ describe('enrichment emission contract (route-level mixed-case fixture)', () => 
       body: JSON.stringify({
         graph: {
           nodes: [
-            { id: 'goal', kind: 'goal', label: 'Revenue' },
+            { id: 'goal', kind: 'goal', goal_threshold_frame: 'delta', label: 'Revenue' },
             { id: 'factor-a', kind: 'factor', label: 'Marketing Spend', observed_state: { value: 0.6 } },
             { id: 'factor-b', kind: 'factor', label: 'Brand Awareness', observed_state: { value: 0.5 } },
           ],
@@ -304,7 +304,7 @@ describe('enrichment emission contract (route-level mixed-case fixture)', () => 
       body: JSON.stringify({
         graph: {
           nodes: [
-            { id: 'goal', kind: 'goal', label: 'Revenue' },
+            { id: 'goal', kind: 'goal', goal_threshold_frame: 'delta', label: 'Revenue' },
             { id: 'factor-a', kind: 'factor', label: 'Marketing Spend', observed_state: { value: 0.6 } },
             { id: 'factor-b', kind: 'factor', label: 'Brand Awareness', observed_state: { value: 0.5 } },
           ],

@@ -69,7 +69,7 @@ describe('WP1 gate · constraint scale symmetry (PLoT-owned)', () => {
   it('normalises a user-scale constraint via shared deriveRange and preserves original_value', () => {
     // Goal node with an explicit range [0, 40000] (deriveRange source: 'explicit').
     const nodes = [
-      { id: 'goal', kind: 'goal', state_space: { range: { min: 0, max: 40000 } } },
+      { id: 'goal', kind: 'goal', goal_threshold_frame: 'delta', state_space: { range: { min: 0, max: 40000 } } },
     ] as unknown as EngineNodeV3[];
 
     const constraints: GoalConstraint[] = [
@@ -108,7 +108,7 @@ describe('WP1 gate · constraint scale symmetry (PLoT-owned)', () => {
   it('SHARED ARGUMENT: constraint and interventions on a spread node resolve the IDENTICAL range', () => {
     // cost: observed value 30000, NO cap, NO state_space.range → heuristic node.
     const nodes = [
-      { id: 'goal', kind: 'goal', label: 'Goal', observed_state: { value: 0.4 } },
+      { id: 'goal', kind: 'goal', goal_threshold_frame: 'delta', label: 'Goal', observed_state: { value: 0.4 } },
       { id: 'cost', kind: 'factor', label: 'Cost', observed_state: { value: 30000 } },
     ] as unknown as EngineNodeV3[];
     const options = [
@@ -248,7 +248,7 @@ const BASE_PAYLOAD = {
       // suite tests the buildConstraintFields correspondence/validity
       // mechanics, so its target must be RELIABLE. Reliability suppression
       // itself is pinned in tests/constraint-results-top-level-gating.fixture.test.ts.
-      { id: 'goal', kind: 'goal', label: 'Revenue', observed_state: { value: 40000 } },
+      { id: 'goal', kind: 'goal', goal_threshold_frame: 'delta', label: 'Revenue', observed_state: { value: 40000 } },
       { id: 'factor-a', kind: 'factor', label: 'Market Size' },
     ],
     edges: [{ from: 'factor-a', to: 'goal', strength: { mean: 0.5, std: 0.1 } }],

@@ -133,7 +133,7 @@ import { createServer } from '../src/createServer.js';
 
 const GRAPH = {
   nodes: [
-    { id: 'goal', kind: 'goal', label: 'Revenue' },
+    { id: 'goal', kind: 'goal', goal_threshold_frame: 'delta', label: 'Revenue' },
     { id: 'factor-a', kind: 'factor', label: 'Marketing Spend', observed_state: { value: 0.6 } },
     { id: 'factor-b', kind: 'factor', label: 'Customer Churn', observed_state: { value: 0.5 } },
   ],
@@ -257,7 +257,7 @@ describe('CIL: Constraint auto-PU integration (Phase 4b+)', () => {
     // Use a graph where the constrained node (factor-b) has NO observed_state
     const graphNoObserved = {
       nodes: [
-        { id: 'goal', kind: 'goal', label: 'Revenue' },
+        { id: 'goal', kind: 'goal', goal_threshold_frame: 'delta', label: 'Revenue' },
         { id: 'factor-a', kind: 'factor', label: 'Marketing Spend', observed_state: { value: 0.6 } },
         { id: 'factor-b', kind: 'factor', label: 'Customer Churn' }, // no observed_state
       ],
@@ -303,7 +303,7 @@ describe('CIL: Constraint auto-PU integration (Phase 4b+)', () => {
     // Graph has factor-a → outcome-x → goal, options intervene on factor-a only.
     const graphWithOutcome = {
       nodes: [
-        { id: 'goal', kind: 'goal', label: 'Revenue' },
+        { id: 'goal', kind: 'goal', goal_threshold_frame: 'delta', label: 'Revenue' },
         { id: 'factor-a', kind: 'factor', label: 'Marketing Spend', observed_state: { value: 0.6 } },
         { id: 'outcome-x', kind: 'outcome', label: 'Customer Satisfaction', observed_state: { value: 0.75 } },
       ],
@@ -370,9 +370,9 @@ describe('CIL: Constraint auto-PU integration (Phase 4b+)', () => {
     // Graph with a constrained factor node: threshold at 0.5, observed_state.value 0.5
     const constrainedGraph = {
       nodes: [
-        { id: 'goal', kind: 'goal', label: 'Revenue' },
+        { id: 'goal', kind: 'goal', goal_threshold_frame: 'delta', label: 'Revenue' },
         { id: 'factor-a', kind: 'factor', label: 'Marketing', observed_state: { value: 0.5 } },
-        { id: 'constrained-node', kind: 'outcome', label: 'Satisfaction', observed_state: { value: 0.5 } },
+        { id: 'constrained-node', kind: 'outcome', goal_threshold_frame: 'delta', label: 'Satisfaction', observed_state: { value: 0.5 } },
       ],
       edges: [
         { from: 'factor-a', to: 'constrained-node', strength: { mean: 0.5, std: 0.1 } },

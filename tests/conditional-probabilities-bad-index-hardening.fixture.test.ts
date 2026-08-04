@@ -101,9 +101,9 @@ import { createServer } from '../src/createServer.js';
 
 const GRAPH = {
   nodes: [
-    { id: 'goal_growth', kind: 'goal', label: 'Grow revenue' },
-    { id: 'out_effectiveness', kind: 'outcome', label: 'Campaign effectiveness', observed_state: { value: 50 } },
-    { id: 'out_retention', kind: 'outcome', label: 'Customer retention', observed_state: { value: 50 } },
+    { id: 'goal_growth', kind: 'goal', goal_threshold_frame: 'delta', label: 'Grow revenue' },
+    { id: 'out_effectiveness', kind: 'outcome', goal_threshold_frame: 'delta', label: 'Campaign effectiveness', observed_state: { value: 50 } },
+    { id: 'out_retention', kind: 'outcome', goal_threshold_frame: 'delta', label: 'Customer retention', observed_state: { value: 50 } },
     { id: 'fac_budget', kind: 'factor', label: 'Marketing budget', observed_state: { value: 0.6 } },
   ],
   edges: [

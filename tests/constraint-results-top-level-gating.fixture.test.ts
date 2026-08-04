@@ -127,7 +127,11 @@ import { createServer } from '../src/createServer.js';
 const GRAPH_VALUELESS_TARGET = {
   nodes: [
     { id: 'goal_growth', kind: 'goal', label: 'Grow revenue' },
-    { id: 'out_campaign_effectiveness', kind: 'outcome', label: 'Campaign effectiveness' },
+    // L63: the frame attestation keeps this fixture inside doctrine B's
+    // (now anchor-conditional) delivery scope, so this suite goes on pinning
+    // TOP-LEVEL BLOCK GATING rather than silently becoming a second copy of
+    // the sample-frame refusal test.
+    { id: 'out_campaign_effectiveness', kind: 'outcome', goal_threshold_frame: 'delta', label: 'Campaign effectiveness' },
     { id: 'fac_budget', kind: 'factor', label: 'Marketing budget', observed_state: { value: 0.6 } },
   ],
   edges: [
@@ -141,7 +145,7 @@ const GRAPH_VALUED_TARGET = {
   nodes: [
     { id: 'goal_growth', kind: 'goal', label: 'Grow revenue' },
     // observed value 50 → deriveRange() infers [0, 100] (inferred_value tier).
-    { id: 'out_campaign_effectiveness', kind: 'outcome', label: 'Campaign effectiveness', observed_state: { value: 50 } },
+    { id: 'out_campaign_effectiveness', kind: 'outcome', goal_threshold_frame: 'delta', label: 'Campaign effectiveness', observed_state: { value: 50 } },
     { id: 'fac_budget', kind: 'factor', label: 'Marketing budget', observed_state: { value: 0.6 } },
   ],
   edges: [
