@@ -799,6 +799,40 @@ export interface ISLOptionComparisonResult {
   status_reason?: string;
   /** Per-option constraint analysis (present when goal_constraints sent) */
   constraint_analysis?: ISLConstraintAnalysis;
+  /**
+   * Per-option downside / tail-risk block (ISL `DownsideV2`, B2 — #91/#92,
+   * hardened by #124/#125). ABSENT (key omitted, never `null`) when ISL could
+   * not compute all three components honestly.
+   *
+   * ⚠ COMPILE-TIME TYPES ARE A FICTION OVER UNTRUSTED WIRE DATA. Declared here
+   * as required numbers because that is what the producer declares — the
+   * runtime validation that a wire value really is a finite number lives in
+   * `buildDownside` (routes/v2/numeric-egress-guards.ts), which is the ONLY
+   * path by which this reaches the public response.
+   */
+  downside?: ISLDownside;
+}
+
+/**
+ * ISL per-option downside / tail-risk statistics (`DownsideV2`).
+ *
+ * The three fields ride TWO DIFFERENT sample populations by design:
+ * `cvar_10`/`p05` are marginal tail metrics on the POST-noise samples (the same
+ * population as `outcome.p10/p50/p90/mean`), while `expected_regret` is a JOINT
+ * cross-option metric on the PRE-noise Common-Random-Numbers samples (the same
+ * population as `win_probability`). All are in `outcome.mean`'s units.
+ */
+export interface ISLDownside {
+  /**
+   * Mean of the worst 10% of outcome samples (expected shortfall).
+   * ⚠ The 0.10 tail mass is `DOCTRINE-PENDING(Neil)` at the producer — a
+   * working default, not a ratified convention.
+   */
+  cvar_10: number;
+  /** 5th-percentile outcome, same convention as p10/p50/p90. */
+  p05: number;
+  /** Joint expected regret vs the per-draw best option. `>= 0` by construction. */
+  expected_regret: number;
 }
 
 /**

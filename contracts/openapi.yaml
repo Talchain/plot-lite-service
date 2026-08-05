@@ -5915,6 +5915,53 @@ components:
                 description: |
                   Probability this option outperforms alternatives across
                   simulated scenarios.
+              downside:
+                type: object
+                required: [cvar_10, p05, expected_regret]
+                description: |
+                  Downside / tail-risk view of this option's outcome
+                  distribution (ROADMAP 2.449). Faithful passthrough of ISL's
+                  `options[].downside`; every value is in the SAME units as
+                  `outcome.mean` (no normalisation).
+
+                  ALL-OR-NOTHING. ISL declares all three components as required
+                  and omits the whole block rather than ship a partial one; PLoT
+                  mirrors that and additionally omits it when any component
+                  fails the egress finiteness/range guard. The key is ABSENT in
+                  that case — never `null`, never a substituted zero. A
+                  fabricated zero in a tail-risk statistic reads as "there is no
+                  downside".
+                properties:
+                  cvar_10:
+                    type: number
+                    description: |
+                      Expected shortfall: the mean of the worst 10% (lowest)
+                      outcome samples, on the same post-noise sample population
+                      as outcome.p10/p50/p90/mean. Guaranteed <= outcome.p10 at
+                      the producer.
+
+                      NOTE: the 0.10 tail mass is DOCTRINE-PENDING at the
+                      producer (a risk-modelling default reserved for
+                      ratification) — it is not a settled convention, and any
+                      surface rendering this number must not imply that it is.
+                  p05:
+                    type: number
+                    description: |
+                      5th-percentile outcome — extends the p10/p50/p90 family
+                      downward with the same percentile convention and the same
+                      post-noise sample population.
+                  expected_regret:
+                    type: number
+                    minimum: 0
+                    description: |
+                      Joint expected regret: the mean over Monte Carlo draws of
+                      (best option's outcome - this option's outcome) at the
+                      SAME underlying draw (Common Random Numbers). Computed on
+                      the PRE-noise population — the same one behind
+                      win_probability, and different from the population behind
+                      cvar_10/p05. `>= 0` by construction, and a genuine `0` for
+                      an option that wins every draw (a measured zero, not an
+                      absence).
               constraint_margins:
                 type: array
                 description: |
