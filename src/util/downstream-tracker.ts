@@ -82,14 +82,24 @@ const downstreamStore = new Map<string, { calls: DownstreamCall[]; createdAt: nu
 
 /**
  * ROADMAP 2.510 — records that arrived for a request id with NO initialised
- * entry. Keyed by the id the RECORD ATTEMPTED to use, which is exactly the key
- * a reader on the resolved request id will look under, so a loss is visible at
- * the boundary instead of rendering as "no downstream calls".
+ * entry. Keyed by the id the RECORD ATTEMPTED to use.
  *
  * This map exists so that "zero downstream calls happened" and "calls happened
- * and the tracker lost them" can never render identically again. Before 2.510
+ * and the tracker lost them" need not render identically. Before 2.510
  * `recordDownstreamCall` dropped unkeyed records on the floor and every reader
  * saw an empty list — the instrument reported silence when it had gone deaf.
+ *
+ * ⚠ SCOPE OF THE BOUNDARY SIGNAL — the attempted key is NOT always the reader's
+ * key. It coincides for the `/v2/run` id-resolution seam this row fixes, which
+ * is why `x-olumi-downstream-lost` surfaces there. It does NOT coincide where a
+ * downstream caller derives its own id: `/v1/run` -> `orchestrateCeeReview` ->
+ * `sanitizeRequestId` substitutes `randomUUID()` for any client id failing
+ * `^[A-Za-z0-9._-]+$` or exceeding 64 chars, so the orphan lands under a UUID
+ * the reader never looks up and the response still reads
+ * `downstream: null, downstream_lost: 0`. In THAT case the loud
+ * `downstream_tracker.unkeyed_record` log line is the only signal — which is
+ * precisely why the alarm is not merely a counter. Rowed separately; not a
+ * regression (pre-2.510 that record was dropped with no signal at all).
  */
 const orphanedStore = new Map<string, { calls: DownstreamCall[]; createdAt: number }>();
 
@@ -125,6 +135,18 @@ function ensureCleanup() {
 export function initDownstreamTracking(requestId: string): void {
   ensureCleanup();
   downstreamStore.set(requestId, { calls: [], createdAt: Date.now() });
+  // 2.510 review fix — OPENING a scope must also reset its loss ledger, not just
+  // closing one. A record can land AFTER `clearDownstreamTracking` (a late or
+  // detached downstream completion), which creates an orphan under an id that no
+  // longer has a scope. Without this line the NEXT request reusing that id — the
+  // CEE retry shape — inherited the previous request's loss and emitted
+  // `x-olumi-downstream-lost` on a COMPLETE response. Measured before the fix:
+  // afterClear=0 -> afterLateRecord=1 -> afterReinit=1.
+  //
+  // This matters as much as the silent drop it accompanies: an alarm that fires
+  // on a healthy request is how an alarm gets muted, and a muted alarm fails
+  // exactly as silently as the one this row exists to fix.
+  orphanedStore.delete(requestId);
 }
 
 /**
@@ -200,6 +222,14 @@ export function adoptResolvedRequestId(req: { id: unknown }, resolvedId: string)
   const entry = downstreamStore.get(previousId) ?? { calls: [], createdAt: Date.now() };
   downstreamStore.delete(previousId);
   downstreamStore.set(resolvedId, entry);
+  // 2.510 review fix, second limb. Adoption OPENS a scope under `resolvedId`,
+  // so it owes the same ledger reset as `initDownstreamTracking`. Without this,
+  // the body.request_id path kept the loophole the init fix closed for headers:
+  // `initDownstreamTracking` runs under Fastify's generated id, never under the
+  // resolved one, so a stale orphan under `resolvedId` survived and the request
+  // cried loss on a complete response. Every site that opens a scope resets the
+  // ledger for the id it opens — no exceptions, or the alarm goes false again.
+  orphanedStore.delete(resolvedId);
 
   req.id = resolvedId;
 }
@@ -232,8 +262,13 @@ export function getDownstreamCalls(requestId: string): DownstreamCall[] {
  */
 export function clearDownstreamTracking(requestId: string): void {
   downstreamStore.delete(requestId);
-  // 2.510: the orphan ledger is per-request too — clear it with its request so
-  // a later request reusing the id cannot inherit a stale loss count.
+  // 2.510: the orphan ledger is per-request too — clear it with its request.
+  // NOTE: this close-side delete is NOT on its own sufficient to stop a reused
+  // id inheriting a stale loss — a record can arrive after this runs. The
+  // guarantee comes from the matching delete in `initDownstreamTracking`, which
+  // resets the ledger when the next scope OPENS. Both sides are required; see
+  // the ordering test `an orphan recorded AFTER clear does not leak into the
+  // next request that reuses the id`.
   orphanedStore.delete(requestId);
 }
 

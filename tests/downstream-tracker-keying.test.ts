@@ -16,6 +16,14 @@
  * `body.request_id` with no header (the CEE→PLoT shape) and a whitespace-padded
  * header (Fastify keys on the RAW header, the route on the trimmed one).
  *
+ * THE GENERATOR, read at the installed bytes (fastify 5.10.0,
+ * `lib/req-id-gen-factory.js:46-49`): with `requestIdHeader` set, Fastify returns
+ * `req.headers[requestIdHeader] || genReqId(req)` — it SHORT-CIRCUITS to the RAW
+ * header and never calls the custom generator. So this repo's own trimming
+ * `genReqId` (`createServer.ts:217-219`) is DEAD CODE whenever the header is
+ * present, which is exactly why case D (padded header) diverges: Fastify keys on
+ * `"  id  "` while the route resolves `"id"`.
+ *
  * WHY THE FAIL-LOUD HALF MATTERS MORE THAN THE KEYING FIX. The keying fix cures
  * today's disagreement. The fail-loud half ensures the next one is visible the
  * day it lands: "no downstream calls happened" and "calls happened and I lost
@@ -70,6 +78,16 @@ const REQUEST_BODY = {
 /** Every X-Request-Id PLoT actually put on the wire to ISL, in order. */
 let islWireRequestIds: string[] = [];
 
+/**
+ * When set, the ISL transport stub simulates a LATE/DETACHED downstream
+ * completion for this id: it closes the scope and then records, so the record
+ * arrives with no scope open under the key the boundary reader will use. This
+ * is the one orphan state that is still reachable mid-request after 2.510 (see
+ * the residual noted on `clearDownstreamTracking`), and it is what lets the
+ * route-level control observe the wire loss signal without faking it.
+ */
+let forceLateOrphanForId: string | null = null;
+
 function seedAdmission(): void {
   __setIslComputeAdmissionForTest({
     status: 'ok',
@@ -101,6 +119,14 @@ describe('2.510 · /v2/run downstream tracking survives request-id resolution', 
     globalThis.fetch = (async (url: unknown, init?: { body?: string; headers?: Record<string, string> }) => {
       if (String(url).includes('isl-2510.test.local')) {
         islWireRequestIds.push(String(init?.headers?.['X-Request-Id'] ?? ''));
+        if (forceLateOrphanForId) {
+          const orphanId = forceLateOrphanForId;
+          clearDownstreamTracking(orphanId);
+          recordDownstreamCall({
+            service: 'isl', endpoint: '/api/v1/late-detached-completion', status: 200,
+            elapsedMs: 4, payloadHash: 'eeeeeeeeeeee', requestId: orphanId,
+          });
+        }
         let parsed: { options?: Array<{ id?: string; option_id?: string }> } = {};
         try { parsed = JSON.parse(init?.body ?? '{}'); } catch { /* ignore */ }
         const envelope = {
@@ -239,29 +265,50 @@ describe('2.510 · /v2/run downstream tracking survives request-id resolution', 
   // If this test cannot go green, the four above are not evidence of anything.
 
   it('POSITIVE CONTROL · the harness can SEE a loss: an unattributable record surfaces on the response', async () => {
-    const headerId = 'req-2510-forced-loss';
+    // ⚠ THIS CONTROL WAS REBUILT IN REVIEW. Its first version pre-seeded an
+    // orphan before the request — a state the ledger-reset fix now (correctly)
+    // clears, so it was asserting a bug rather than a signal. It now forces the
+    // one orphan state still reachable mid-request: a LATE/DETACHED downstream
+    // completion landing after its scope closed, under the reader's own key.
+    const headerId = 'req-2510-late-detached';
+    forceLateOrphanForId = headerId;
+    try {
+      const out = await run({ 'x-request-id': headerId }, {});
 
-    // A record arriving for an id with no initialised scope — exactly the
-    // pre-fix condition, forced deliberately.
-    recordDownstreamCall({
-      service: 'isl',
-      endpoint: '/api/v1/forced-orphan',
-      status: 200,
-      elapsedMs: 5,
-      payloadHash: 'aaaaaaaaaaaa',
-      requestId: headerId,
-    });
-    expect(getOrphanedDownstreamCallCount(headerId)).toBe(1);
+      expect(out.status).toBe(200);
+      expect(islWireRequestIds).toContain(headerId); // anti-vacuity: ISL was called
+      // THE POINT: the response distinguishes "lost" from "none". Pre-2.510 this
+      // header did not exist and a loss was indistinguishable from silence — the
+      // reader saw an empty downstream list either way.
+      //
+      // Asserted as presence + a floor rather than an exact count: closing the
+      // scope mid-flight orphans BOTH the synthetic late completion AND the real
+      // analysis call recorded after it (it reads 2 today), and pinning that
+      // total would bind this control to the client's retry behaviour rather
+      // than to the signal under test. The discrimination that makes this
+      // non-vacuous is the paired CONTROL below, which requires the very same
+      // header to be ABSENT on a healthy request.
+      expect(out.lostHeader).toBeDefined();
+      expect(Number(out.lostHeader)).toBeGreaterThanOrEqual(1);
+      // The real call was lost too — so the response must NOT claim completeness.
+      expect(out.islCalls.some((c) => c.endpoint === ANALYSIS_ENDPOINT)).toBe(false);
+    } finally {
+      forceLateOrphanForId = null;
+    }
+  }, 60_000);
 
+  it('CONTROL · the loss signal is absent on a healthy request (the alarm is not stuck on at the wire)', async () => {
+    // Pairs with the test above: without this, an implementation that emitted
+    // x-olumi-downstream-lost unconditionally would pass the positive control —
+    // and a header that always cries loss is exactly how a reader learns to
+    // ignore it. This is the wire-level twin of the unit CONTROL below.
+    const headerId = 'req-2510-healthy-no-loss';
     const out = await run({ 'x-request-id': headerId }, {});
 
     expect(out.status).toBe(200);
-    // THE POINT: the response distinguishes "lost" from "none". Pre-2.510 this
-    // header did not exist and the loss was indistinguishable from silence.
-    expect(out.lostHeader).toBe('1');
-    // And the real call on the same request was still captured, so a loss does
-    // not blind the tracker to everything else.
+    expect(islWireRequestIds).toContain(headerId); // anti-vacuity
     expect(out.islCalls.some((c) => c.endpoint === ANALYSIS_ENDPOINT)).toBe(true);
+    expect(out.lostHeader).toBeUndefined();
   }, 60_000);
 });
 
@@ -318,13 +365,45 @@ describe('2.510 · recordDownstreamCall fails loud instead of dropping silently'
     clearDownstreamTracking(id);
   });
 
-  it('clearing a request clears its loss ledger, so a later request cannot inherit it', () => {
+  it('clearing a request clears its loss ledger', () => {
     const id = 'unit-2510-ledger-reset';
     recordDownstreamCall(call(id));
     expect(getOrphanedDownstreamCallCount(id)).toBe(1);
 
     clearDownstreamTracking(id);
     expect(getOrphanedDownstreamCallCount(id)).toBe(0);
+  });
+
+  it('an orphan recorded AFTER clear does not leak into the next request that reuses the id', () => {
+    // ⚠ THE ORDERING THE TEST ABOVE CANNOT SEE (trap 13b, caught in review).
+    // `clear-then-read` agrees with itself: it never exercises
+    // orphan-AFTER-clear-then-INIT. At the first cut of this fix the close-side
+    // delete was the only reset, so a record landing after the scope closed
+    // survived into the NEXT request reusing that id — measured
+    // afterClear=0 -> afterLateRecord=1 -> afterReinit=1 — and that request
+    // emitted `x-olumi-downstream-lost` on a COMPLETE response.
+    //
+    // An alarm that fires on a healthy request is how an alarm gets muted, and a
+    // muted alarm fails exactly as silently as the drop this row fixes.
+    const id = 'unit-2510-reused-id-cee-retry-shape';
+    initDownstreamTracking(id);
+    clearDownstreamTracking(id);
+    expect(getOrphanedDownstreamCallCount(id)).toBe(0);
+
+    // A late/detached downstream completion lands with no scope open.
+    recordDownstreamCall(call(id));
+    expect(getOrphanedDownstreamCallCount(id)).toBe(1);
+
+    // The NEXT request reuses the id. Opening the scope must reset the ledger.
+    initDownstreamTracking(id);
+    expect(getOrphanedDownstreamCallCount(id)).toBe(0);
+
+    // ...and a healthy call in that new scope is recorded and reports no loss.
+    recordDownstreamCall(call(id));
+    expect(getDownstreamCalls(id)).toHaveLength(1);
+    expect(getOrphanedDownstreamCallCount(id)).toBe(0);
+
+    clearDownstreamTracking(id);
   });
 });
 
@@ -349,6 +428,30 @@ describe('2.510 · adoptResolvedRequestId keeps the store and req.id in one oper
     expect(landed[0].requestId).toBe(resolved);
     expect(getOrphanedDownstreamCallCount(resolved)).toBe(0);
 
+    clearDownstreamTracking(resolved);
+  });
+
+  it('adoption resets the loss ledger for the id it OPENS', () => {
+    // The second limb of the review blocker. `initDownstreamTracking` runs under
+    // Fastify's generated id, never under `body.request_id`, so clearing the
+    // ledger only there left the body-id path still able to inherit a stale
+    // loss and cry wolf on a complete response. Every site that opens a scope
+    // must reset the ledger for the id it opens.
+    const original = 'unit-2510-adopt-original';
+    const resolved = 'unit-2510-adopt-resolved-reused';
+
+    // A stale orphan from an earlier request that used this same resolved id.
+    recordDownstreamCall({
+      service: 'isl', endpoint: '/api/v1/robustness/analyze/v2', status: 200,
+      elapsedMs: 2, payloadHash: 'ffffffffffff', requestId: resolved,
+    });
+    expect(getOrphanedDownstreamCallCount(resolved)).toBe(1);
+
+    const req = { id: original as unknown };
+    initDownstreamTracking(original);
+    adoptResolvedRequestId(req, resolved);
+
+    expect(getOrphanedDownstreamCallCount(resolved)).toBe(0);
     clearDownstreamTracking(resolved);
   });
 
