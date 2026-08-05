@@ -80,6 +80,19 @@ export interface DownstreamCall {
  */
 const downstreamStore = new Map<string, { calls: DownstreamCall[]; createdAt: number }>();
 
+/**
+ * ROADMAP 2.510 — records that arrived for a request id with NO initialised
+ * entry. Keyed by the id the RECORD ATTEMPTED to use, which is exactly the key
+ * a reader on the resolved request id will look under, so a loss is visible at
+ * the boundary instead of rendering as "no downstream calls".
+ *
+ * This map exists so that "zero downstream calls happened" and "calls happened
+ * and the tracker lost them" can never render identically again. Before 2.510
+ * `recordDownstreamCall` dropped unkeyed records on the floor and every reader
+ * saw an empty list — the instrument reported silence when it had gone deaf.
+ */
+const orphanedStore = new Map<string, { calls: DownstreamCall[]; createdAt: number }>();
+
 // Periodic cleanup of stale entries (run every 60 seconds)
 let cleanupInterval: ReturnType<typeof setInterval> | null = null;
 const STALE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
@@ -91,6 +104,11 @@ function ensureCleanup() {
     for (const [key, entry] of downstreamStore) {
       if (now - entry.createdAt > STALE_THRESHOLD_MS) {
         downstreamStore.delete(key);
+      }
+    }
+    for (const [key, entry] of orphanedStore) {
+      if (now - entry.createdAt > STALE_THRESHOLD_MS) {
+        orphanedStore.delete(key);
       }
     }
   }, 60_000);
@@ -118,9 +136,82 @@ export function recordDownstreamCall(call: DownstreamCall): void {
   const entry = downstreamStore.get(call.requestId);
   if (entry) {
     entry.calls.push(call);
+    return;
   }
-  // If no entry exists (request not initialized), silently ignore
-  // This handles cases where tracking wasn't initialized for this request
+
+  // ROADMAP 2.510 — FAIL LOUD. This branch used to `return` silently, which is
+  // why a dead tracker was indistinguishable from a quiet one for four days.
+  // An unrecordable call is now (a) retained under the key it attempted, so the
+  // boundary reader can report the loss, and (b) alarmed on the sanctioned
+  // structured console channel. It is deliberately NOT thrown: these call sites
+  // sit inside the live ISL/CEE request path, and turning an observability
+  // fault into a request failure would be a worse defect than the one fixed.
+  ensureCleanup();
+  let orphan = orphanedStore.get(call.requestId);
+  if (!orphan) {
+    orphan = { calls: [], createdAt: Date.now() };
+    orphanedStore.set(call.requestId, orphan);
+  }
+  orphan.calls.push(call);
+
+  console.error(
+    JSON.stringify({
+      level: 'error',
+      time: Date.now(),
+      event: 'downstream_tracker.unkeyed_record',
+      request_id: call.requestId,
+      service: call.service,
+      endpoint: call.endpoint,
+      status: call.status,
+      orphaned_calls_for_request_id: orphan.calls.length,
+      msg:
+        'A downstream call could not be attributed to an initialised request scope. ' +
+        'The call HAPPENED; the tracker could not key it. This is a tracker-keying ' +
+        'fault (the recording id does not match the id tracking was initialised under), ' +
+        'NOT an absence of downstream traffic.',
+    }),
+  );
+}
+
+/**
+ * ROADMAP 2.510 — move an in-flight request's tracking to the id the route
+ * actually resolved, and mutate `req.id` to match, as ONE operation.
+ *
+ * THE CAUSE THIS FIXES. Tracking is initialised in the `onRequest` hook, which
+ * runs BEFORE body parsing and therefore cannot see `body.request_id`. The
+ * route resolves the real id later (`trimmed X-Request-Id` → `body.request_id`
+ * → `req.id`) and used to mutate `req.id` on its own. The store kept the
+ * ORIGINAL key while every `recordDownstreamCall` used the RESOLVED one, so two
+ * sites independently decided what "the request id" was — a hand-maintained
+ * mirror (programme trap 12) that silently dropped every record whenever they
+ * disagreed.
+ *
+ * Exposing the id change ONLY through this function makes the disagreement
+ * structurally impossible: a caller cannot move the id without moving the
+ * store, because both happen here.
+ */
+export function adoptResolvedRequestId(req: { id: unknown }, resolvedId: string): void {
+  const previousId = String(req.id);
+  if (previousId === resolvedId) return;
+
+  // Carry the entry across. If tracking was never initialised (init is wrapped
+  // in a try/catch at the hook), create one rather than leaving a hole that
+  // would make every later record an orphan.
+  const entry = downstreamStore.get(previousId) ?? { calls: [], createdAt: Date.now() };
+  downstreamStore.delete(previousId);
+  downstreamStore.set(resolvedId, entry);
+
+  req.id = resolvedId;
+}
+
+/**
+ * ROADMAP 2.510 — how many downstream calls were recorded for this request id
+ * but could NOT be attributed to an initialised scope. `0` means "nothing was
+ * lost"; any positive number means the downstream list for this request is
+ * INCOMPLETE and must not be read as an absence of traffic.
+ */
+export function getOrphanedDownstreamCallCount(requestId: string): number {
+  return orphanedStore.get(requestId)?.calls.length ?? 0;
 }
 
 /**
@@ -141,6 +232,9 @@ export function getDownstreamCalls(requestId: string): DownstreamCall[] {
  */
 export function clearDownstreamTracking(requestId: string): void {
   downstreamStore.delete(requestId);
+  // 2.510: the orphan ledger is per-request too — clear it with its request so
+  // a later request reusing the id cannot inherit a stale loss count.
+  orphanedStore.delete(requestId);
 }
 
 /**
