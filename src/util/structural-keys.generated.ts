@@ -168,6 +168,7 @@ export const STRUCTURAL_KEYS: ReadonlySet<string> = new Set([
   "exists_probability",
   "expected_outcome",
   "explanation",
+  "extractionType",
   "fact_objects",
   "factorSensitivitySource",
   "factor_a",

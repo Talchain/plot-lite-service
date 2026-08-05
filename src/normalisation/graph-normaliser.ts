@@ -261,6 +261,25 @@ export function normaliseNode(
     // Explicit allowlist: core fields + V3 expansion metadata
     // This preserves V3 fields (raw_value, cap, factor_type, uncertainty_drivers)
     // without passing through arbitrary upstream garbage.
+    //
+    // ⚠ ROADMAP 2.520 S1 — THIS LIST IS THE INGRESS STRIP POINT, and it was
+    // silently discarding every human confirmation. `source` and
+    // `extractionType` were absent here while PLoT's OWN egress projector
+    // (`ISL_DECLARED_OBSERVED_STATE_FIELDS`, translator-v3.ts) already declared
+    // them and ISL already consumed AND echoed them back as `value_source` /
+    // `value_extraction_type`. So a user confirming an estimate produced a
+    // number the compute engine could not distinguish from an AI guess — not
+    // because anything downstream refused it, but because two keys were missing
+    // from this literal, one hop upstream of a list that had them.
+    //
+    // This list is a hand-maintained mirror (programme trap 12) and stays one:
+    // it is deliberately NOT a blind passthrough, because `metadata` below is
+    // PLoT-internal and must not reach ISL. What makes it safe now is that its
+    // AGREEMENT with the egress list is derived rather than remembered —
+    // `tests/observed-state-provenance-ingress.test.ts` T5 iterates
+    // `ISL_DECLARED_OBSERVED_STATE_FIELDS` (itself pinned to ISL's own
+    // machine-generated OpenAPI) and REDs if any declared field fails to survive
+    // this copy. Add a field to ISL and this literal must follow, or CI fails.
     const os = node.observed_state;
     observedState = {
       value: node.observed_state.value, // use narrowed path (TS knows !== undefined)
@@ -271,6 +290,12 @@ export function normaliseNode(
       cap: os.cap,
       factor_type: os.factor_type,
       uncertainty_drivers: os.uncertainty_drivers,
+      // Value provenance (2.520 S1) — an upstream CLAIM about this number's
+      // origin, copied VERBATIM and validated in no way. Transport, not
+      // attestation: carrying `source: 'user_set'` here does not establish that
+      // a human set the value. See the field's own doc on `UpstreamNode`.
+      source: os.source,
+      extractionType: os.extractionType,
       // For constraint nodes, preserve metadata (contains operator) so the
       // constraint compiler can extract it via observed_state.metadata.operator.
       ...((os as any).metadata !== undefined && { metadata: (os as any).metadata }),

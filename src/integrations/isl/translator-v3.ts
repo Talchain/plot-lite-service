@@ -335,6 +335,41 @@ const _observedStateFieldsAreExhaustive: _ObservedStateFieldsAreExhaustive = tru
 void _observedStateFieldsAreExhaustive;
 
 /**
+ * ⭐ ROADMAP 2.520 S1 — COMPILE-TIME UNION PIN: PLoT's CANONICAL graph must be
+ * able to CARRY everything this projector promises to FORWARD.
+ *
+ * The two pins above make the egress list agree with the egress TYPE, and the
+ * mirror test makes it agree with ISL. All three can be perfectly consistent
+ * while the field never arrives — because `toISLObservedState` can only forward
+ * what the normalised graph actually holds, and that is `EngineNodeV3`, one hop
+ * upstream and previously unpinned to any of this.
+ *
+ * That gap is not hypothetical: it is the 2.520 defect. `source` and
+ * `extractionType` sat on this list, and on ISL's model, and were echoed back by
+ * ISL — while `EngineNodeV3['observed_state']` could not represent them, so
+ * PLoT's ingress dropped every one and the projector forwarded a field that was
+ * never there. Every guard on this path was green throughout.
+ *
+ * This is the union assertion the estate's trap-12 doctrine prescribes for
+ * exactly this shape: the canonical type must be a SUPERSET of every sibling
+ * lookup. It resolves to `never` — and so fails `npm run build`, a required
+ * check — the moment a field is added to the ISL list without the canonical
+ * graph being able to hold it.
+ *
+ * ⚠ Deliberately ONE-directional. The canonical type may legitimately carry
+ * more than ISL declares (e.g. the PLoT-internal `metadata` the projection
+ * strips on purpose), so the converse must NOT be asserted here.
+ */
+type _CanonicalGraphCanCarryEveryDeclaredField = Exclude<
+  (typeof ISL_DECLARED_OBSERVED_STATE_FIELDS)[number],
+  keyof NonNullable<EngineNodeV3['observed_state']>
+> extends never
+  ? true
+  : never;
+const _canonicalGraphCanCarryEveryDeclaredField: _CanonicalGraphCanCarryEveryDeclaredField = true;
+void _canonicalGraphCanCarryEveryDeclaredField;
+
+/**
  * Project a PLoT-internal `observed_state` onto the fields ISL declares.
  *
  * Slice 6: the previous code forwarded `node.observed_state` VERBATIM, so any
