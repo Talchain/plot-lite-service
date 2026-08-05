@@ -19,7 +19,7 @@ import { FASTIFY_REQUEST_TIMEOUT_MS } from './config/timeouts.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { getBuildId } from './util/build-id.js';
 import { computeOlumiHash } from './util/canonical.js';
-import { initDownstreamTracking, clearDownstreamTracking, formatDownstreamHeader, getDownstreamCallsForBoundaryLog } from './util/downstream-tracker.js';
+import { initDownstreamTracking, clearDownstreamTracking, formatDownstreamHeader, getDownstreamCallsForBoundaryLog, getOrphanedDownstreamCallCount } from './util/downstream-tracker.js';
 import { recordPayloadHashInvalid } from './metrics/registry.js';
 import { callerClass, isCountedRoute, recordRouteCall } from './observability/routeCallerTelemetry.js';
 import {
@@ -395,6 +395,7 @@ export async function createServer(opts: ServerOpts = {}) {
         'x-olumi-service',
         'x-olumi-response-hash',
         'x-olumi-downstream-calls',
+        'x-olumi-downstream-lost',
         'X-Request-Id',
       ],
       credentials: false,
@@ -575,6 +576,15 @@ export async function createServer(opts: ServerOpts = {}) {
       if (downstreamHeader) {
         reply.header('x-olumi-downstream-calls', downstreamHeader);
       }
+      // ROADMAP 2.510: an absent x-olumi-downstream-calls header used to mean
+      // EITHER "no downstream calls" OR "the tracker lost them" — the two were
+      // indistinguishable to every reader. This header is emitted only when
+      // records were genuinely unattributable, so its presence means the
+      // downstream list on this response is INCOMPLETE.
+      const lost = getOrphanedDownstreamCallCount(String(req.id));
+      if (lost > 0) {
+        reply.header('x-olumi-downstream-lost', String(lost));
+      }
     } catch { /* ignore */ }
 
     // HSTS only in production over TLS (proxied ok via X-Forwarded-Proto)
@@ -649,6 +659,12 @@ export async function createServer(opts: ServerOpts = {}) {
         duration_ms: durationMs,
         x_olumi_response_hash: (req as any).__olumi_response_hash || null,
         downstream: downstreamCalls.length > 0 ? downstreamCalls : null,
+        // ROADMAP 2.510: ALWAYS emitted, so `downstream: null` is never
+        // ambiguous. 0 = no downstream calls happened. >0 = calls happened and
+        // the tracker could not attribute them, i.e. `downstream` is INCOMPLETE.
+        // Reading a null `downstream` as "no traffic" without checking this
+        // field is what let a dead instrument pass for a quiet one.
+        downstream_lost: getOrphanedDownstreamCallCount(requestId),
       }, 'boundary.response');
       // Clean up downstream tracking for this request
       clearDownstreamTracking(requestId);

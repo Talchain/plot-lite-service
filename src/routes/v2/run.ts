@@ -147,7 +147,7 @@ import { filterInterventionOverrides } from '../../coaching/sensitivity-filter.j
 import type { M1Review } from '../../cee/validation/m1-review-types.js';
 import type { ReviewStatus } from '../../cee/validation/m1-review-constants.js';
 import { ReviewSkipReasons, type ReviewSkipReason } from '../../cee/validation/m1-review-constants.js';
-import { getDownstreamCallsForLog, getDownstreamCalls } from '../../util/downstream-tracker.js';
+import { getDownstreamCallsForLog, getDownstreamCalls, adoptResolvedRequestId } from '../../util/downstream-tracker.js';
 import { computeResponseContentHash } from '../../util/response-content-hash.js';
 import { computeFactorSensitivityFromGraph, buildFactorStability, mergeIslConfidenceIntoGraphFactors } from '../../lib/factor-influence.js';
 import { interventionTargetIdsFromOptions, isOptionControlledLever, factorIdOf, hasFactorIdConflict } from '../../lib/intervention-override.js';
@@ -4503,9 +4503,13 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
       const hasExplicitRequestId = !!(incomingHeaderId || body.request_id);
       // Ensure the global onSend hook echoes the resolved requestId (not genReqId's
       // fallback UUID) when body.request_id was used as the source.
-      if (requestId !== String(req.id)) {
-        (req as any).id = requestId;
-      }
+      //
+      // ROADMAP 2.510: this MUST go through adoptResolvedRequestId, which moves
+      // the downstream-call tracking store to the resolved id in the same
+      // operation. Mutating `req.id` directly here (as this site used to) left
+      // the store keyed on Fastify's original id while every recordDownstreamCall
+      // used the resolved one, and every downstream record was silently dropped.
+      adoptResolvedRequestId(req as { id: unknown }, requestId);
       // Note: plotSeedUsed is resolved AFTER graph normalization for determinism
       // When seed is omitted, we derive it from the normalized graph hash
       const providedSeed = body.seed;  // May be undefined - will resolve after normalization
