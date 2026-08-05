@@ -167,12 +167,17 @@ export function buildDecisionReviewRequest(
       robustness,
     },
     deterministic_coaching: deterministicCoaching,
+    // 2.480(a): outcome_mean is emitted ONLY when extractOptionComparison
+    // measured one. The key is omitted rather than sent as an explicit
+    // undefined, so the in-memory object and the wire agree.
     winner: winner
       ? {
           id: winner.option_id,
           label: winner.option_label ?? winner.option_id,
           win_probability: winner.win_probability,
-          outcome_mean: winner.expected_outcome,
+          ...(winner.expected_outcome !== undefined
+            ? { outcome_mean: winner.expected_outcome }
+            : {}),
         }
       : { id: '', label: '', win_probability: 0 },
     runner_up: runnerUp
@@ -180,7 +185,9 @@ export function buildDecisionReviewRequest(
           id: runnerUp.option_id,
           label: runnerUp.option_label ?? runnerUp.option_id,
           win_probability: runnerUp.win_probability,
-          outcome_mean: runnerUp.expected_outcome,
+          ...(runnerUp.expected_outcome !== undefined
+            ? { outcome_mean: runnerUp.expected_outcome }
+            : {}),
         }
       : null,
     flip_threshold_data: flipThresholdData,
@@ -241,11 +248,32 @@ function extractOptionComparison(
     const optionId = opt.option_id ?? opt.id ?? '';
     const requestOption = options.find((o) => o.id === optionId);
 
+    // ROADMAP 2.480(a) — never coalesce an absent expected outcome to 0.
+    //
+    // ISL #125 made `outcome.mean` Optional: it is OMITTED when the option's
+    // Monte Carlo produced no finite draws, because there is no honest mean for
+    // a distribution with no draws. This previously ended `?? 0`, which handed
+    // CEE a fabricated zero as a GROUNDED ISL figure — it egresses here as
+    // `isl_results.option_comparison[].expected_outcome` and, via
+    // getWinnerAndRunnerUp, as `winner`/`runner_up.outcome_mean`, i.e. straight
+    // into the reviewing model's context as a measured number.
+    //
+    // The option itself stays VISIBLE (silent loss would be the other dishonest
+    // answer); only the unmeasurable number is absent. This now matches the
+    // already-honest sibling builder `buildIslResultsForCorrection`
+    // (decision-review-orchestrator.ts), whose consumer number-corrector.ts
+    // branches on `expected_outcome !== undefined`, and the same treatment
+    // `switch_probability` received on FragileEdgeData. A MEASURED 0 is a real
+    // measurement and is preserved.
+    const measuredOutcome = opt.expected_outcome ?? opt.outcome?.mean;
+
     return {
       option_id: optionId,
       option_label: requestOption?.label ?? opt.option_label ?? opt.label ?? optionId,
       win_probability: opt.win_probability ?? 0,
-      expected_outcome: opt.expected_outcome ?? opt.outcome?.mean ?? 0,
+      ...(typeof measuredOutcome === 'number' && Number.isFinite(measuredOutcome)
+        ? { expected_outcome: measuredOutcome }
+        : {}),
     };
   });
 }

@@ -212,7 +212,18 @@ export interface OptionComparisonData {
   option_id: string;
   option_label: string;
   win_probability: number;
-  expected_outcome: number;
+  /**
+   * OPTIONAL: absent when ISL did not measure a finite outcome for this option.
+   *
+   * ISL #125 made `outcome.mean` Optional — omitted (never null, never 0.0) when
+   * the option's Monte Carlo produced no finite draws. Previously required,
+   * which forced `extractOptionComparison` to default a missing value to 0 —
+   * telling CEE "this option's expected outcome is zero" where the truth was
+   * "not computed", and putting that fabricated 0 into the model's grounded-number
+   * context. Optional so that absence is representable; consumers MUST branch on
+   * presence, never coalesce. (Same treatment as FragileEdgeData.switch_probability.)
+   */
+  expected_outcome?: number;
 }
 
 /**

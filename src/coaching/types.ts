@@ -45,7 +45,18 @@ export interface NormalisedOption {
   id: string;
   label: string;
   winProbability: number;
-  outcomeMean: number;
+  /**
+   * OPTIONAL: absent when ISL did not measure a finite mean for this option.
+   *
+   * ISL #125 made `outcome.mean` Optional — omitted (never null, never 0.0) when
+   * the option's Monte Carlo produced no finite draws. Previously required here,
+   * which forced `normaliseCoachingInputs` to coalesce a missing value to 0 —
+   * asserting "this option's expected outcome was measured at zero" where the
+   * truth was "not computed". Optional so that absence is representable, per the
+   * never-coalesce rule this module states for switch_probability. Consumers
+   * MUST branch on presence and MUST omit anything derived from it.
+   */
+  outcomeMean?: number;
   outcomeP10: number | undefined;
   outcomeP90: number | undefined;
 }
