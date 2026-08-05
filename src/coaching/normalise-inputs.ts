@@ -139,7 +139,21 @@ export function normaliseCoachingInputs(
         id: islOpt.id,
         label: matchingOption?.label ?? islOpt.label ?? islOpt.id,
         winProbability: islOpt.win_probability ?? 0,
-        outcomeMean: islOpt.outcome?.mean ?? 0,
+        // ROADMAP 2.480(a) — outcomeMean obeys the same never-coalesce rule this
+        // file states above for switch_probability, and for the same reason.
+        // ISL #125 made `outcome.mean` Optional: it is OMITTED when the option's
+        // Monte Carlo produced no finite draws (n_valid_samples === 0,
+        // percentiles_source === 'unavailable'), because there is no honest mean
+        // for a distribution with no draws. This previously read `?? 0`, which
+        // turned that honest absence into the assertion "measured, and it is
+        // zero" — and did not even guard non-finiteness, since `??` passes NaN
+        // straight through. ONLY a measured, finite mean populates outcomeMean;
+        // absence propagates as absence, exactly like outcomeP10/outcomeP90
+        // below and like switchProb above. A MEASURED 0 is a real measurement
+        // and is preserved.
+        ...(typeof islOpt.outcome?.mean === 'number' && Number.isFinite(islOpt.outcome.mean)
+          ? { outcomeMean: islOpt.outcome.mean }
+          : {}),
         outcomeP10: islOpt.outcome?.p10,
         outcomeP90: islOpt.outcome?.p90,
       };
