@@ -58,6 +58,7 @@ import { describe, it, expect } from 'vitest';
 import { normaliseGraph, normaliseNode } from '../src/normalisation/graph-normaliser.js';
 import {
   toISLNode,
+  toISLRobustnessRequest,
   ISL_DECLARED_OBSERVED_STATE_FIELDS,
 } from '../src/integrations/isl/translator-v3.js';
 
@@ -244,5 +245,39 @@ describe('2.520 S1 — human-confirmation provenance survives PLoT ingress', () 
         sample[field],
       );
     }
+  });
+
+  it('T6 the provenance reaches the SERIALISED ISL request body, not just an in-memory object', () => {
+    // The closest this repo can get to the wire without standing up ISL. T3
+    // stops at `toISLNode`; the live `/v2/run` path continues through
+    // `toISLRobustnessRequest` (`graph.nodes.map(toISLNode)`) and then through
+    // `JSON.stringify` at the fetch boundary. Both of those could still lose the
+    // field — the builder by re-projecting, the serializer by dropping an
+    // `undefined`. Asserting on the parsed BYTES closes that gap.
+    const normalised = normaliseGraph(upstreamGraphWithProvenance());
+    const request = toISLRobustnessRequest(
+      normalised.graph,
+      [
+        { id: 'opt_a', label: 'Option A', interventions: {} },
+        { id: 'opt_b', label: 'Option B', interventions: {} },
+      ] as any,
+      'goal_margin',
+      'req_2520_s1_provenance',
+    );
+
+    // Round-trip through the serializer the fetch boundary uses.
+    const wire = JSON.parse(JSON.stringify(request));
+    const onWire = wire.graph.nodes.find((n: any) => n.id === CONFIRMED_ID);
+
+    expect(onWire, `${CONFIRMED_ID} missing from the serialised ISL request`).toBeDefined();
+    expect(onWire.observed_state).toHaveProperty('source', CONFIRMED_SOURCE);
+    expect(onWire.observed_state).toHaveProperty('extractionType', CONFIRMED_EXTRACTION);
+
+    // Same positive control as T1, at the wire: a node that carried no
+    // provenance must not acquire any, and must not gain an explicit `null`.
+    // `JSON.stringify` drops undefined keys, so absence here is real absence.
+    const goal = wire.graph.nodes.find((n: any) => n.id === 'goal_margin');
+    expect(goal?.observed_state ?? {}).not.toHaveProperty('source');
+    expect(goal?.observed_state ?? {}).not.toHaveProperty('extractionType');
   });
 });
