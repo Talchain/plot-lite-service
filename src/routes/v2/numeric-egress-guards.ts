@@ -49,3 +49,52 @@ export function hasAllRequiredOutcomeStats(o: unknown): boolean {
     && finiteNum(r.p50) !== undefined
     && finiteNum(r.p90) !== undefined;
 }
+
+/**
+ * ISL's per-option DOWNSIDE / tail-risk block, validated for egress (2.449).
+ *
+ * PRODUCER SEMANTICS, read from ISL's `DownsideV2` (src/models/response_v2.py)
+ * rather than inferred here (trap 13c — an expectation written from the
+ * consumer's reading of what a field ought to mean is a wrong oracle no
+ * mutation kit can detect):
+ *   · `cvar_10`         mean of the WORST 10% of the option's post-noise outcome
+ *                       samples. Same units as `outcome.mean`, no normalisation.
+ *                       The 0.10 tail mass is DOCTRINE-PENDING(Neil) — a working
+ *                       default, NOT ratified science.
+ *   · `p05`             5th percentile, same population and `np.percentile`
+ *                       convention as `outcome.p10/p50/p90`.
+ *   · `expected_regret` `mean_i(best_i − o_i)` on the PRE-noise CRN population
+ *                       (a JOINT, cross-option metric — the same population as
+ *                       `win_probability`). `>= 0` by construction.
+ *
+ * ALL-OR-NOTHING, and that is the producer's rule, not a local invention: all
+ * three are REQUIRED floats on `DownsideV2`, and ISL omits the whole block —
+ * "Omitted, never null" — rather than ship a partial one when any component
+ * cannot be computed honestly. This guard mirrors that at PLoT's serialisation
+ * boundary. It NEVER substitutes a zero: a fabricated 0 in a tail-risk
+ * statistic does not read as "unknown", it reads as "there is no downside",
+ * which is the most damaging direction this defect class can take (the same
+ * shape as the `?? 0` regret default that collapsed the whole-decision EVPI
+ * bound, and the `?? 0` breach margins that produced a false architectural
+ * conclusion in #237).
+ *
+ * A MEASURED ZERO IS NOT AN ABSENCE. The option that wins every sample has
+ * `expected_regret === 0` by construction, so the guard tests finiteness and
+ * range, never truthiness.
+ *
+ * Returns a fresh object in ISL's declaration order (cvar_10 → p05 →
+ * expected_regret) when every component is honest, else `undefined` so the
+ * caller OMITS the key.
+ */
+export function buildDownside(v: unknown): { cvar_10: number; p05: number; expected_regret: number } | undefined {
+  if (!v || typeof v !== 'object') return undefined;
+  const d = v as Record<string, unknown>;
+  const cvar10 = finiteNum(d.cvar_10);
+  const p05 = finiteNum(d.p05);
+  // `nonNeg`, not `finiteNum`: ISL declares `expected_regret: Field(..., ge=0)`.
+  // A negative value means the producer's own invariant broke; PLoT must not
+  // launder a broken invariant into a plausible-looking number.
+  const expectedRegret = nonNeg(d.expected_regret);
+  if (cvar10 === undefined || p05 === undefined || expectedRegret === undefined) return undefined;
+  return { cvar_10: cvar10, p05, expected_regret: expectedRegret };
+}

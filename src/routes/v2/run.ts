@@ -200,7 +200,7 @@ import { buildEvidencePriorityCard, type FactorInput } from '../../review-pass/e
 import type { ProposalCardV1 } from '../../review-pass/types.js';
 import { assembleFactObjects, type ISLResponseInput, type FactorSensitivityInput } from '../../facts/index.js';
 import type { FactObjectV1, FactLineage } from '../../facts/types.js';
-import { finiteNum, prob01, nonNeg, nonNegInt, hasAllRequiredOutcomeStats } from './numeric-egress-guards.js';
+import { finiteNum, prob01, nonNeg, nonNegInt, hasAllRequiredOutcomeStats, buildDownside } from './numeric-egress-guards.js';
 import { resolveConstraintIds } from './constraint-identity.js';
 import { resolveConfidenceBasis } from '../../integrations/isl/confidence-basis.js';
 import {
@@ -2643,6 +2643,24 @@ function buildResponse(
     const winProb = prob01(r.win_probability);
     if (winProb !== undefined) {
       result.win_probability = winProb;
+    }
+
+    // 2.449 — DOWNSIDE / TAIL-RISK passthrough. ISL has emitted
+    // `options[].downside{cvar_10, p05, expected_regret}` since #91/#92, and
+    // this builder — an explicit field selection — was where it died, one hop
+    // after the engine that computed it and three hops before any user could
+    // ask "and if this goes badly, how badly?". Additive and faithful:
+    // present-in ⇒ present-out verbatim, absent ⇒ key omitted (every existing
+    // golden byte-identical), and a component ISL could not compute honestly
+    // omits the WHOLE block rather than fabricating a zero — see buildDownside.
+    //
+    // Gated on `outcome` because ISL enforces `downside ⟹
+    // outcome.percentiles_source == 'samples'`: PLoT drops the whole outcome
+    // object when a required stat is non-finite, and a tail statistic that
+    // outlived the distribution it is the tail OF would be unreadable.
+    const downside = outcome !== undefined ? buildDownside(r.downside) : undefined;
+    if (downside !== undefined) {
+      result.downside = downside;
     }
 
     // CIL C1: Pass through per-option constraint analysis from ISL

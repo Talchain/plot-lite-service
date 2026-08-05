@@ -1682,6 +1682,42 @@ export interface OutcomeStatsV3 {
 }
 
 /**
+ * Per-option DOWNSIDE / tail-risk statistics from ISL (2.449).
+ *
+ * Emitted whole or not at all — ISL declares all three as REQUIRED floats on
+ * `DownsideV2` and omits the block ("Omitted, never null") when any component
+ * cannot be computed honestly. PLoT mirrors that at egress: see
+ * `buildDownside` in routes/v2/numeric-egress-guards.ts. Every value is in the
+ * SAME units as `OutcomeStatsV3.mean` — no normalisation.
+ */
+export interface DownsideStatsV3 {
+  /**
+   * Expected shortfall: the MEAN of the worst 10% (lowest) outcome samples.
+   * Guaranteed <= `outcome.p10` at the producer. Computed on the POST-noise
+   * sample population — the same one as outcome.p10/p50/p90/mean and p05.
+   *
+   * ⚠ The 0.10 tail mass is `DOCTRINE-PENDING(Neil)` in ISL's source: a
+   * risk-modelling default, NOT a ratified convention. Any surface that renders
+   * this number must not imply settled science.
+   */
+  cvar_10: number;
+  /**
+   * 5th-percentile outcome — extends the p10/p50/p90 family downward with the
+   * same percentile convention and the same POST-noise population.
+   */
+  p05: number;
+  /**
+   * Joint expected regret: mean over MC draws of (best option's outcome − this
+   * option's outcome) at the SAME underlying draw (Common Random Numbers).
+   * Computed on the PRE-noise CRN population — the same one as
+   * `win_probability`, and DIFFERENT from the population behind cvar_10/p05.
+   * `>= 0` by construction; a genuine `0` for an option that wins every draw
+   * (a measured zero, never an absence).
+   */
+  expected_regret: number;
+}
+
+/**
  * Per-option comparison result.
  */
 export interface OptionComparisonResultV3 {
@@ -1717,6 +1753,14 @@ export interface OptionComparisonResultV3 {
    * Probability this option outperforms alternatives across simulated scenarios [0, 1].
    */
   win_probability?: number;
+
+  /**
+   * Downside / tail-risk view of THIS option's outcome distribution (2.449).
+   * Additive, faithful passthrough of ISL's `options[].downside`. ABSENT (key
+   * omitted, never null, never zeroed) when ISL omitted it or when any
+   * component failed the egress finiteness/range guard.
+   */
+  downside?: DownsideStatsV3;
 
   /**
    * Probability of jointly satisfying all goal_constraints [0, 1].
