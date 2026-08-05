@@ -290,7 +290,10 @@ export function normaliseNode(
       cap: os.cap,
       factor_type: os.factor_type,
       uncertainty_drivers: os.uncertainty_drivers,
-      // Value provenance — who asserted this number and how (2.520 S1).
+      // Value provenance (2.520 S1) — an upstream CLAIM about this number's
+      // origin, copied VERBATIM and validated in no way. Transport, not
+      // attestation: carrying `source: 'user_set'` here does not establish that
+      // a human set the value. See the field's own doc on `RawNodeV3`.
       source: os.source,
       extractionType: os.extractionType,
       // For constraint nodes, preserve metadata (contains operator) so the

@@ -26,6 +26,17 @@
  * other and to ISL mechanically (ROADMAP 2.274), and the three upstream of them
  * were free-floating.
  *
+ * ⚠ WHAT THIS SUITE DOES **NOT** ESTABLISH. It proves the FIELD ARRIVES. It does
+ * not prove — and nothing on this path can — that a `user_*` value was set by a
+ * human. `source` is an unvalidated free-text string at every hop: PLoT copies
+ * it verbatim (no enum, no membership check, and PLoT does not Zod-parse the
+ * incoming graph at all), and ISL declares it `Optional[str]` and treats it as
+ * echo-only. A forged stamp is therefore indistinguishable from a genuine one
+ * here, by construction. Upstream forgeability is ROADMAP 2.525. Read every
+ * assertion below as "the claim transited intact", never as "a human said so" —
+ * this slice is transport, and the treatment slices that let provenance WEIGH in
+ * the maths must not treat the field as trusted until 2.525 is closed.
+ *
  * WHAT THIS SUITE GUARDS, and why each test exists:
  *  - T1 is the POSITIVE CONTROL (trap 13). Every other test here asserts a
  *    PRESENCE; T1 is the only one that proves the harness can see an ABSENCE.

@@ -92,15 +92,30 @@ export interface UpstreamNode {
     /**
      * ROADMAP 2.520 S1 — value PROVENANCE, carried from CEE to the engine.
      *
-     * `source` says WHO asserted this number (e.g. `'user_set'` when a human
-     * confirmed it, vs a brief-extraction or model-inferred origin) and
-     * `extractionType` HOW it was obtained. ISL declares both on its
-     * `ObservedState` and echoes them back on `FactorSensitivityV2` as
+     * `source` carries an upstream CLAIM about where this number came from
+     * (e.g. `'user_set'`, a brief extraction, a model inference) and
+     * `extractionType` a claim about how it was obtained. ISL declares both on
+     * its `ObservedState` and echoes them back on `FactorSensitivityV2` as
      * `value_source` / `value_extraction_type`.
+     *
+     * ⚠ THESE ARE UNVALIDATED FREE-TEXT STRINGS, NOT AN ATTESTATION — say so
+     * here, because the tempting one-line gloss ("`source` says a human set
+     * this value") is false and would be read as a guarantee by whoever wires
+     * the next slice. PLoT copies the value VERBATIM: no enum, no schema
+     * membership check, no server-side re-derivation, and — since PLoT does not
+     * Zod-parse the incoming graph at all — no place where one could happen
+     * today. `string` (not a union) is deliberate and matches ISL's own
+     * `Optional[str]`.
+     *
+     * So a `user_*` value reaching the engine means THE FIELD ARRIVED. It does
+     * not mean a human set the number, and nothing on this path can tell a
+     * genuine stamp from a forged one. Forgeability upstream is ROADMAP 2.525;
+     * any slice that makes provenance WEIGH in the maths depends on it, and
+     * must not treat this field as trusted until it is closed.
      *
      * Declared here because PLoT's normaliser must be ABLE to carry what CEE
      * sends: until 2.520 these were absent from this type, so the ingress copy
-     * could not name them and dropped every human confirmation on the floor.
+     * could not name them and dropped every such claim on the floor.
      */
     source?: string;
     extractionType?: string;
