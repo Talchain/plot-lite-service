@@ -293,7 +293,7 @@ export function normaliseNode(
       // Value provenance (2.520 S1) — an upstream CLAIM about this number's
       // origin, copied VERBATIM and validated in no way. Transport, not
       // attestation: carrying `source: 'user_set'` here does not establish that
-      // a human set the value. See the field's own doc on `RawNodeV3`.
+      // a human set the value. See the field's own doc on `UpstreamNode`.
       source: os.source,
       extractionType: os.extractionType,
       // For constraint nodes, preserve metadata (contains operator) so the

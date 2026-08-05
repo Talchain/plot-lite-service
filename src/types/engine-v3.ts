@@ -231,7 +231,7 @@ export interface EngineNodeV3 {
     /** V3 expansion: sources of uncertainty */
     uncertainty_drivers?: string[];
     /**
-     * ROADMAP 2.520 S1 — value provenance (see `RawNodeV3.observed_state`).
+     * ROADMAP 2.520 S1 — value provenance (see `UpstreamNode.observed_state`).
      *
      * ⚠ THIS TYPE IS LOAD-BEARING FOR THE WHOLE PATH, in a way the egress side
      * cannot see. `ISL_DECLARED_OBSERVED_STATE_FIELDS` promises to forward ten
