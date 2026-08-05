@@ -28,12 +28,21 @@
  * whose consumer `number-corrector.ts:158` branches on `!== undefined`).
  *
  * FIXTURE PROVENANCE — pinned to a historical artefact, not to "current" (trap 12b).
- * The degenerate shape below is transcribed from ISL's OWN contract test at that
- * pinned SHA, `tests/integration/test_numerics_honesty_batch.py`
- * (`TestAllNonFiniteOptionShipsOn200`): `status: 'failed'`, `n_valid_samples: 0`,
+ * Field shapes are transcribed from ISL at the pinned SHA: the absent-stat shape
+ * from `tests/integration/test_numerics_honesty_batch.py`
+ * (`TestAllNonFiniteOptionShipsOn200` — `n_valid_samples: 0`,
  * `validity_ratio: 0.0`, `percentiles_source: 'unavailable'`, `mean`/`std`/
- * `downside` ABSENT — never null, never a fabricated 0.0 — plus a
- * MONTE_CARLO_FAILED blocker critique naming the option, and a healthy sibling.
+ * `downside` ABSENT, never null and never a fabricated 0.0), and the critique
+ * severities from `src/models/critique.py`. See the reachability note on
+ * `makeIslResult` for why this fixture is NON-blocking rather than a copy of
+ * that test's blocker case.
+ *
+ * ⚠ WHAT THESE TESTS DO NOT SHOW. They pin two builders in isolation. They are
+ * not evidence that the degeneracy is DISCLOSED to whoever reads the output —
+ * for site 2 it demonstrably is not: the decision-review payload has no
+ * `critiques` key at all, and an `option_comparison` entry reduces to
+ * `{option_id, option_label, win_probability}`. Absence is honest; absence with
+ * no stated reason is not the same thing as disclosure. Rowed separately.
  *
  * EVERY assertion binds to its option by IDENTITY (`id === 'opt_degraded'`),
  * never by a value predicate another option could satisfy (trap 19), and the
@@ -74,10 +83,27 @@ const makeOptions = (): OptionV3[] => [
 const N_SAMPLES = 500;
 
 /**
- * A real ISL 200 body in which one option's Monte-Carlo population was entirely
- * non-finite. Note what IS present: the degeneracy is fully disclosed by
- * `status`, `n_valid_samples`, `validity_ratio`, `percentiles_source` and the
- * MONTE_CARLO_FAILED critique. Only the unmeasurable numbers are absent.
+ * An ISL 200 body carrying an option whose `outcome.mean` is ABSENT.
+ *
+ * ⚠ REACHABILITY — corrected by adversarial review, and narrower than this file
+ * first claimed. The obvious producer of an absent mean (every draw non-finite)
+ * emits MONTE_CARLO_FAILED, whose severity is `blocker`
+ * (ISL `src/models/critique.py:263`, verified at the pinned SHA). A blocker
+ * drives `analysis_status: 'failed'`, and PLoT SHORT-CIRCUITS a failed status at
+ * `src/routes/v2/run.ts:7026` — `return reply.send(buildV2RunError(...))`, whose
+ * own comment reads "No blockers can arrive here" — which is BEFORE both sites
+ * under test. **So the all-non-finite scenario does NOT reach these two
+ * builders**, and a fixture pairing `analysis_status: 'partial'` with a blocker
+ * critique is a body ISL cannot emit.
+ *
+ * This fixture is therefore internally consistent and non-blocking: `partial`
+ * status with LOW_EFFECTIVE_SAMPLES (severity `warning`, ISL `critique.py:317`),
+ * carrying an option whose mean is absent. The reviewer identifies ISL's
+ * `dist.samples`-empty branch as a producer of an absent mean with NO blocker,
+ * which WOULD reach both sites; **I did not measure that branch and make no
+ * claim about it.** What these tests pin is the builders' behaviour GIVEN an
+ * absent mean, whatever produced it — which is the property that must hold
+ * regardless of which upstream branch delivers it.
  */
 const makeIslResult = (overrides: { degradedOutcome?: Record<string, unknown> } = {}) => ({
   analysis_status: 'partial',
@@ -85,7 +111,7 @@ const makeIslResult = (overrides: { degradedOutcome?: Record<string, unknown> } 
     {
       id: DEGRADED,
       label: 'Degraded Option',
-      status: 'failed',
+      status: 'partial',
       // win_probability is absent for an option with no valid draws.
       outcome: overrides.degradedOutcome ?? {
         // mean, std, p10, p50, p90 are ABSENT — omitted, never null.
@@ -114,13 +140,17 @@ const makeIslResult = (overrides: { degradedOutcome?: Record<string, unknown> } 
       },
     },
   ],
+  // Non-blocking disclosure, so this body does NOT trip run.ts:7026. Shape and
+  // severity from ISL `src/models/critique.py:317` at the pinned SHA.
+  // ⚠ Neither function under test reads `critiques` — this is documentary, and
+  // it is NOT a disclosure channel for site 2 (see the wire test below).
   critiques: [
     {
-      id: 'critique_mc_failed_1',
-      code: 'MONTE_CARLO_FAILED',
-      severity: 'blocker',
-      message: 'Monte Carlo simulation produced no valid samples for this option',
-      source: 'engine',
+      id: 'critique_low_effective_samples_1',
+      code: 'LOW_EFFECTIVE_SAMPLES',
+      severity: 'warning',
+      message: 'Only 0 of 500 samples were numerically valid',
+      source: 'analysis',
       affected_option_ids: [DEGRADED],
     },
   ],
@@ -280,6 +310,57 @@ describe('2.480(a) site 2 — decision-review request never coalesces an absent 
       (o: { option_id: string }) => o.option_id === HEALTHY
     );
     expect(healthy.expected_outcome).toBe(HEALTHY_MEAN);
+  });
+
+  /**
+   * M4 CLOSER — added after adversarial review, which executed the mutant and
+   * found it SURVIVED: dropping site 2's FINITENESS guard (leaving a
+   * presence-only `!== undefined` check) kept the suite 12/12 GREEN while the
+   * CEE wire gained `"expected_outcome": null` and `"outcome_mean": null`.
+   *
+   * Site 1's non-finite twin already bit; site 2's had no pin, and the PR body
+   * claimed the non-finiteness fix at BOTH sites. `null` on the wire is the same
+   * lie in a different costume — CEE cannot tell "not computed" from "computed
+   * as null", and JSON.stringify converts NaN to null silently, so ONLY a
+   * wire-level key-absence assertion can see this.
+   */
+  it('does NOT emit a null expected_outcome when the mean is non-finite', () => {
+    const nanIsl = makeIslResult({
+      degradedOutcome: {
+        mean: Number.NaN,
+        n_samples: N_SAMPLES,
+        n_valid_samples: 0,
+        validity_ratio: 0.0,
+        percentiles_source: 'unavailable',
+      },
+    });
+
+    const request = buildRequest(nanIsl);
+
+    // In memory: never NaN, never null.
+    const degraded = request.isl_results.option_comparison.find((o) => o.option_id === DEGRADED);
+    expect(degraded, 'the degenerate option must still be present').toBeDefined();
+    expect(degraded!.expected_outcome).toBeUndefined();
+
+    // On the wire: the KEY must be absent. `expected_outcome: NaN` serialises to
+    // `null`, which a presence-only guard would happily emit.
+    const wire = JSON.parse(JSON.stringify(request));
+    const wireDegraded = wire.isl_results.option_comparison.find(
+      (o: { option_id: string }) => o.option_id === DEGRADED
+    );
+    expect(Object.prototype.hasOwnProperty.call(wireDegraded, 'expected_outcome')).toBe(false);
+
+    // Same for the winner/runner_up projection of the same value.
+    expect(request.runner_up?.id).toBe(DEGRADED);
+    expect(request.runner_up!.outcome_mean).toBeUndefined();
+    expect(Object.prototype.hasOwnProperty.call(wire.runner_up, 'outcome_mean')).toBe(false);
+
+    // POSITIVE CONTROL — the healthy sibling still carries its real number, so
+    // this test cannot pass by the whole payload being empty.
+    const wireHealthy = wire.isl_results.option_comparison.find(
+      (o: { option_id: string }) => o.option_id === HEALTHY
+    );
+    expect(wireHealthy.expected_outcome).toBe(HEALTHY_MEAN);
   });
 
   it('preserves a MEASURED 0 expected_outcome', () => {
