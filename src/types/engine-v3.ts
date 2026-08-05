@@ -89,6 +89,21 @@ export interface UpstreamNode {
     factor_type?: string;
     /** V3 expansion: sources of uncertainty */
     uncertainty_drivers?: string[];
+    /**
+     * ROADMAP 2.520 S1 — value PROVENANCE, carried from CEE to the engine.
+     *
+     * `source` says WHO asserted this number (e.g. `'user_set'` when a human
+     * confirmed it, vs a brief-extraction or model-inferred origin) and
+     * `extractionType` HOW it was obtained. ISL declares both on its
+     * `ObservedState` and echoes them back on `FactorSensitivityV2` as
+     * `value_source` / `value_extraction_type`.
+     *
+     * Declared here because PLoT's normaliser must be ABLE to carry what CEE
+     * sends: until 2.520 these were absent from this type, so the ingress copy
+     * could not name them and dropped every human confirmation on the floor.
+     */
+    source?: string;
+    extractionType?: string;
   };
   /** State space bounds for the factor (used for uncertainty calculation) */
   state_space?: {
@@ -200,6 +215,19 @@ export interface EngineNodeV3 {
     factor_type?: string;
     /** V3 expansion: sources of uncertainty */
     uncertainty_drivers?: string[];
+    /**
+     * ROADMAP 2.520 S1 — value provenance (see `RawNodeV3.observed_state`).
+     *
+     * ⚠ THIS TYPE IS LOAD-BEARING FOR THE WHOLE PATH, in a way the egress side
+     * cannot see. `ISL_DECLARED_OBSERVED_STATE_FIELDS` promises to forward ten
+     * fields to ISL, but it can only ever forward what the CANONICAL graph is
+     * able to carry — so a field declared there and missing HERE is forwarded in
+     * name only, silently, for every request. That is exactly how `source` and
+     * `extractionType` were lost. A compile-time union pin in `translator-v3.ts`
+     * now forbids that divergence in both directions.
+     */
+    source?: string;
+    extractionType?: string;
   };
   /** State space bounds for the factor (used for uncertainty calculation) */
   state_space?: {
