@@ -9,7 +9,96 @@ and `DecisionGuideAI` (UI).
 
 ## Current contents
 
-### `talchain-schemas-0.37.0.tgz`
+### `talchain-schemas-0.38.0.tgz`
+
+**Purpose:** consumption of `@talchain/schemas` v0.38.0 (0.37.0 → 0.38.0, one
+minor). Unlike the six-minor jump below, this bump was taken to close a
+**specific, named, still-open follow-on**: the `EnrichmentOutcomeStatsSchema`
+honest-absence gap that the 0.37.0 section flagged as "⚠ OPEN, AND DELIBERATELY
+NOT PAPERED OVER (ROADMAP 2.581)". 0.38.0 is that fix arriving.
+
+**What changed, derived from `git diff v0.37.0..v0.38.0 -- src/`** (four files,
++93/−7), not from release notes:
+
+| change | does PLoT consume it? |
+|---|---|
+| `EnrichmentOutcomeStatsSchema`: `mean`/`p10`/`p50`/`p90` REQUIRED → `.optional()` | **yes, and this is the point of the bump** — see below |
+| `EnrichmentOutcomeStatsSchema`: new `percentiles_source: z.enum(['samples','unavailable']).optional()` | yes — PLoT already emits this field |
+| `DraftGoalConstraintSchema.value_frame` (reuses the 0.31.0 `GoalThresholdFrame` enum) | **no** — `grep -ra 'DraftGoalConstraint\|value_frame' src/` → zero hits |
+| `ExerciseBlockSchema` technique enum: two members appended | **no** — PLoT does not consume `ExerciseBlock` |
+| `SCHEMA_SHA` / `SCHEMA_PACKAGE_VERSION` regenerated (`d302e253…`→`15048bea…`, `0.37.0`→`0.38.0`) | **no** — PLoT mirrors neither constant (`grep -ra 'SCHEMA_SHA\|SCHEMA_PACKAGE_VERSION' src/ tests/ tools/ scripts/ contracts/ .github/` → zero hits) |
+| `src/fixtures/index.ts` (+8) | no |
+
+Every change is **additive or RELAXING**. The four stats going required →
+optional WIDENS the accepted set, so it cannot reject an input the 0.37.0 schema
+accepted; the two new fields are optional; the enum gained members and lost
+none.
+
+**⚠ THE RELAXATION DISARMS A TRUE ALARM — THAT IS THE INTENT, AND IT IS NOT A
+LOSS OF SAFETY.** The 0.37.0 note above records that a degenerate Monte-Carlo
+option made PLoT's enrichment egress guard stamp `enrichment_contract_ok: false`
+and raise `ENRICHMENT_CONTRACT_MISMATCH` — an alarm that was **honest**, because
+the schema demanded four stats ISL had not measured and PLoT (2.581 partial
+carry) correctly refused to fabricate. 0.38.0 moves the schema, which is what
+that note said had to happen. The honesty is preserved by
+`percentiles_source`: absence of a stat now means NOT MEASURABLE, a present
+value (including `0`) means measured, and the contract explicitly forbids ever
+`.default()`-ing the discriminator — absence means the producer did not state
+provenance and MUST NOT be read as `'samples'`. **Nothing in PLoT hard-requires
+the four stats**: `grep -ra 'EnrichmentOutcomeStats' src/` returns **zero** —
+PLoT models this block in its own `src/types/engine-v3.ts` (`:1696-1720`), where
+`p10`/`p50`/`p90` are already documented as "Absent when `percentiles_source` is
+`'unavailable'`" and `percentiles_source?: 'samples' | 'unavailable'` is already
+declared. The repo-local type and the shared contract now agree.
+
+**Provenance:** packed from source — `npm ci && npm run build && npm pack` on a
+fresh blobless clone of `olumi-schemas` `main` @
+`371e18c87bcc4e3bbfd074a9178da802244aff5b`, tag `v0.38.0` (asserted `HEAD` ==
+that SHA before packing).
+
+- **sha256** `761c7ec615da3390ec036c8dab4e5a7857501b1d46ff5f3f777353e2d05e55b9`
+- **npm integrity** `sha512-JyEb8o/BK38rdonlklScQCGtbf7l0j17B+mvVpHTK977sT5hWgcKnkud/x+6TOS7ruGVSMCJMzwHIbH+RkJ2hQ==`
+  (= the lockfile pin; `npm ci` enforces it against these bytes)
+- **size** 353,278 bytes
+
+**✅ CROSS-REPO BYTE-IDENTITY IS ESTABLISHED FOR 0.38.0 — the 0.37.0 gap is
+closed at this version.** The DGAI (UI) leg packed this version independently and
+measured **the same sha256 `761c7ec6…` and the same 353,278 bytes**; this leg
+reproduced them from a fresh clone and asserted the match before the bytes
+entered the repo. That is the invariant the whole section below exists to
+protect, satisfied for the first time on the first try: **two repos, same
+recipe, same hash.** Whoever vendors 0.38.0 into CEE should pack from
+`main @ 371e18c8`, confirm `761c7ec6…`, and add a row here.
+
+**Checksum:** `vendor/talchain-schemas-0.38.0.tgz.sha256` holds the sha256 of
+the tarball bytes. Verify with:
+
+```bash
+shasum -a 256 -c <(printf '%s  vendor/talchain-schemas-0.38.0.tgz\n' \
+  "$(cat vendor/talchain-schemas-0.38.0.tgz.sha256)")
+```
+
+**Consumed-surface analysis (0.37.0 → 0.38.0): measured, not inspected.**
+`npx tsc -p tsconfig.json --noEmit` — **exit 0** on the re-vendor commit alone.
+Read the `src/`-only caveat below before treating that as coverage: `tsconfig.json`
+includes `src/**` only, so the typecheck NEVER looks at `tests/`, and
+`tsconfig.strict.json` extends it and inherits the same blind spot. The **full
+`npm test` run is the load-bearing gate for a re-vendor**, and it was run at this
+pin; results in the lane report.
+
+**Rollback path:** revert the re-vendor commit. Git history restores the 0.37.0
+tarball + manifest, the prior `package.json` pin and the prior
+`package-lock.json`. The 0.37→0.38 bump is additive-or-relaxing for every symbol
+PLoT imports and carries **no code coupling**, so it reverts in isolation — with
+one consequence to expect, not a surprise: reverting **re-arms the true
+`ENRICHMENT_CONTRACT_MISMATCH`** on degenerate-run options, because the required
+four stats come back. That is the 2.581 state, restored intact.
+
+---
+
+### `talchain-schemas-0.37.0.tgz` *(HISTORICAL — superseded by 0.38.0 above; the
+tarball is no longer in this directory, per the one-version rule at the foot of
+this file. Kept because its provenance-rule inversion is still binding doctrine.)*
 
 **Purpose:** consumption of `@talchain/schemas` v0.37.0 (0.31.0 → 0.37.0, a
 SIX-MINOR jump taken in one step). Unlike the 0.30→0.31 bump below, this one was
@@ -33,6 +122,12 @@ diff rather than the release notes:
 one new schema plus the `critiques` union widening. `EnrichmentOutcomeStatsSchema`
 is **byte-for-byte unchanged across the whole span** — which matters, see the
 open follow-on below.
+
+**✅ CLOSED BY 0.38.0 — kept verbatim because it is the worked example of an
+honest alarm being resolved at the schema rather than at the alarm. The
+paragraph below described the state at the 0.37.0 pin; the fix it asks for
+("make those four `.optional()` and declare `percentiles_source`") is exactly
+what 0.38.0 shipped. Originally filed as:**
 
 **⚠ OPEN, AND DELIBERATELY NOT PAPERED OVER (ROADMAP 2.581).**
 `EnrichmentOutcomeStatsSchema` (`dist/boundary/enrichment.js:118-127`) still
@@ -156,9 +251,10 @@ canonical hash with the schemas lane FIRST, then reproduce it.
 
 ```bash
 # 0. Tag + merge the new version in olumi-schemas first (that repo's own release flow).
-V=0.37.0
-SHA=685d92ec49b3caf14e1086a2a0c94a5cc50f95ea      # the tagged commit
-EXPECTED=835ab4b8381e1280f239de0d408c2da6790ab9f93a0a14ce6e5a389acd4dd369
+#    Values below are the LAST COMPLETED bump (0.38.0) — replace all three.
+V=0.38.0
+SHA=371e18c87bcc4e3bbfd074a9178da802244aff5b      # the tagged commit
+EXPECTED=761c7ec615da3390ec036c8dab4e5a7857501b1d46ff5f3f777353e2d05e55b9
 
 # 1. Pack from a clean clone of the tagged commit (NOT from the registry)
 git clone --filter=blob:none https://github.com/Talchain/olumi-schemas.git /tmp/schemas-$V
