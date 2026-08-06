@@ -519,7 +519,7 @@ const DISPLAY_NUMBER_TOKEN = /-?\d+(?:\.\d+)?/g;
  * are both undecidable: see {@link validateFlipThresholds} for why undecidable
  * must mean "no error".
  */
-function soleNumberNamed(display: unknown): number | null {
+function soleNumberToken(display: unknown): string | null {
   // Typed `unknown`, not `string`, deliberately. `validateM1Review` is exported
   // and is called directly on unparsed objects (several suites do exactly that),
   // so a missing or non-string display must return "undecidable" rather than
@@ -528,8 +528,26 @@ function soleNumberNamed(display: unknown): number | null {
   if (typeof display !== 'string') return null;
   const tokens = display.match(DISPLAY_NUMBER_TOKEN);
   if (!tokens || tokens.length !== 1) return null;
-  const value = Number(tokens[0]);
-  return Number.isFinite(value) ? value : null;
+  return Number.isFinite(Number(tokens[0])) ? tokens[0] : null;
+}
+
+function soleNumberNamed(display: unknown): number | null {
+  const token = soleNumberToken(display);
+  return token === null ? null : Number(token);
+}
+
+/**
+ * Decimal places written in a numeric TOKEN (not in the double it parses to).
+ * `"41"` → 0, `"40.74"` → 2. Clamped to `toFixed`'s 100-digit ceiling so a
+ * pathologically long token cannot throw inside validation.
+ *
+ * The token is the right source, not the parsed value: the question this
+ * answers is "to what precision did the producer choose to write this?", and
+ * `String(Number("40.70"))` has already thrown that away.
+ */
+function writtenDecimals(token: string): number {
+  const dot = token.indexOf('.');
+  return dot === -1 ? 0 : Math.min(100, token.length - dot - 1);
 }
 
 /**
@@ -554,31 +572,44 @@ function displayNamesValue(
   expected: number,
   unit: string | undefined
 ): boolean {
-  const named = soleNumberNamed(display);
-  if (named === null) return false;
+  const token = soleNumberToken(display);
+  if (token === null) return false;
+  const named = Number(token);
 
-  // Case 1 — verbatim.
+  // Case 1 — verbatim. EXACT, and deliberately so: the prompt says a
+  // unit-bearing value is quoted verbatim, `formatUserScale` only ever writes
+  // digits that round-trip losslessly, and CEE's own agreement rung compares
+  // with `===`. "12000 GBP" against 12243 is a different number, not a
+  // rendering choice.
   if (named === expected) return true;
 
   // Case 2 — percentage form, permitted only for a unitless probability-like
-  // value. Compared with a relative epsilon rather than `===` because the ×100
-  // is not exact in IEEE-754 for many ordinary inputs: 0.29 * 100 is
-  // 28.999999999999996, 0.07 * 100 is 7.000000000000001, 0.145 * 100 is
-  // 14.499999999999998. A guard using exact equality would raise a BLOCKING
-  // MODIFIED_VALUES — discarding the whole review — over arithmetic error it
-  // introduced itself, on a row where CEE did nothing wrong.
+  // value, and permitted AT THE PRECISION THE PRODUCER WROTE.
   //
-  // ⚠ The three values above are MEASURED, and replaced an earlier comment here
-  // that claimed "0.35 * 100 is 35.000000000000004". That is false: 0.35 * 100
-  // is exactly 35. The mutant that removes this tolerance SURVIVED against a
-  // 0.35 fixture, which is what exposed the wrong example — the test had been
-  // proving nothing about tolerance. Pick a value with real float error if you
-  // ever rewrite that fixture; the test now pins that precondition itself.
+  // ⚠ ROADMAP 2.676 — THIS COMPARISON USED TO BE A FLOAT-ERROR TOLERANCE
+  // (`max(|asPercent|, 1) × 1e-9`) AND IT WAS DISCARDING HEALTHY REVIEWS.
+  // Measured on deployed CEE: handed `flip_value: 0.407407` unitless, gpt-4.1
+  // returned `"41%"` — the licensed form, rounded to whole percent as a human
+  // would write it. `|41 − 40.7407| = 0.2593` is four orders of magnitude
+  // outside a 1e-9 slack, so BLOCKING `MODIFIED_VALUES` fired and the entire
+  // review was thrown away, four live samples of four. The old tolerance was
+  // sized for the arithmetic error this function introduces itself, and was
+  // then asked to adjudicate a rendering decision it was never scaled for.
+  //
+  // The rule now: round `expected × 100` to the number of decimals the producer
+  // actually WROTE, and compare. This is strictly stronger than the epsilon it
+  // replaces — it subsumes the float-error case (`0.29 × 100` is
+  // 28.999999999999996, which `toFixed(0)` renders "29") — while admitting the
+  // rounding the prompt never forbade. It gives away NO discriminating power:
+  // "42%" still fails against 0.407407, because 40.7407 rounds to 41, not 42.
+  //
+  // Error direction is preserved: this tier fires only when it can PROVE two
+  // numbers differ (see the note on {@link validateFlipThresholds}), and a
+  // value written to fewer significant figures is not proof of anything.
   const unitless = typeof unit !== 'string' || unit.trim().length === 0;
   if (unitless && expected >= 0 && expected <= 1) {
     const asPercent = expected * 100;
-    const tolerance = Math.max(Math.abs(asPercent), 1) * 1e-9;
-    if (Math.abs(named - asPercent) <= tolerance) return true;
+    if (named === Number(asPercent.toFixed(writtenDecimals(token)))) return true;
   }
 
   return false;

@@ -440,4 +440,138 @@ describe('2.670 · Tier 7 still catches a fabricated flip value, at the display 
     );
     expect(result.failure_codes).toContain(M1ReviewFailureCodes.MODIFIED_VALUES);
   });
+
+  /**
+   * ROADMAP 2.676 — A ROUNDED PERCENTAGE IS NOT A MODIFIED VALUE.
+   *
+   * ⚠ MEASURED ON DEPLOYED CEE, NOT REASONED ABOUT. Handed
+   * `flip_value: 0.407407` with no unit, `gpt-4.1` on `cee-staging` returned
+   * `flip_display: "41%"` — the percentage form the prompt licenses, rounded to
+   * whole percent as any human would write it. The tolerance beside case 2 is
+   * `max(|asPercent|, 1) × 1e-9`: an IEEE-754 float-error allowance, four
+   * orders of magnitude too tight to admit a rounded figure. `|41 − 40.7407| =
+   * 0.2593` blew through it, `MODIFIED_VALUES` fired, and — because it is
+   * BLOCKING — the ENTIRE review was discarded. Four of four live samples.
+   *
+   * ⚠ THIS IS THE TIER'S OWN STATED FAILURE MODE, NOT A NEW POLICY. Its
+   * doc-comment says the guard "only ever fired when it could PROVE two numbers
+   * differed" and that a false positive here "discards the entire review — the
+   * exact failure mode 2.670 exists to close". A rounded percentage proves
+   * nothing of the kind: it is the SAME value written to fewer significant
+   * figures. The precision is read from the string the producer actually wrote,
+   * so the guard keeps every ounce of its discriminating power — a genuinely
+   * different number still cannot round to the one PLoT sent.
+   *
+   * Rounding is licensed ONLY inside case 2. Case 1 (a value carrying a unit)
+   * stays EXACT: the prompt says quote it verbatim, `formatUserScale` only ever
+   * writes losslessly-representable digits, and CEE's own agreement rung
+   * compares with `===`. Two forms, two rules, derived from the producer.
+   */
+  it('accepts a ROUNDED percentage (0.407407 → "41%") — the live gpt-4.1 form', () => {
+    const raw = 0.407407;
+    // Pin the precondition (trap 13b): this fixture must actually exercise
+    // ROUNDING, not merely float slack. Derived from `raw`, so a later fixture
+    // swap cannot silently hollow the test out.
+    expect(
+      Math.abs(Math.round(raw * 100) - raw * 100),
+      'fixture must round by a real margin, else this proves nothing about rounding'
+    ).toBeGreaterThan(1e-6);
+
+    const result = validateM1Review(
+      reviewWithFlip({
+        factor_id: 'f1',
+        factor_label: 'Adoption',
+        current_display: '29%',
+        flip_display: '41%',
+        narrative: 'If Adoption increases from 29% to 41%, the leading option changes.',
+      }),
+      contextWith([
+        { factor_id: 'f1', factor_label: 'Adoption', current_value: 0.29, flip_value: raw },
+      ] as ValidationContext['flipThresholdData'])
+    );
+    expect(result.failure_codes).not.toContain(M1ReviewFailureCodes.MODIFIED_VALUES);
+  });
+
+  it('accepts a percentage rounded to DECIMALS, at the precision written (→ "40.74%")', () => {
+    // The rule is "round `expected × 100` to the precision the producer wrote",
+    // not "round to whole percent" — a fixed 0dp rule would reject this.
+    const result = validateM1Review(
+      reviewWithFlip({
+        factor_id: 'f1',
+        factor_label: 'Adoption',
+        current_display: '29%',
+        flip_display: '40.74%',
+        narrative: 'Two decimal places.',
+      }),
+      contextWith([
+        { factor_id: 'f1', factor_label: 'Adoption', current_value: 0.29, flip_value: 0.407407 },
+      ] as ValidationContext['flipThresholdData'])
+    );
+    expect(result.failure_codes).not.toContain(M1ReviewFailureCodes.MODIFIED_VALUES);
+  });
+
+  /**
+   * THE DISCRIMINATING HALF (trap 19). Rounding tolerance must not become a
+   * blanket amnesty: a number that does NOT round to what PLoT sent is still a
+   * modified value, and the tier must still discard the review. Without this,
+   * widening case 2 to "accept anything percentage-shaped" would score
+   * identically on the two tests above.
+   */
+  it('STILL REJECTS a percentage that does not round to the sent value ("55%" vs 0.407407)', () => {
+    const result = validateM1Review(
+      reviewWithFlip({
+        factor_id: 'f1',
+        factor_label: 'Adoption',
+        current_display: '29%',
+        flip_display: '55%',
+        narrative: 'Fabricated.',
+      }),
+      contextWith([
+        { factor_id: 'f1', factor_label: 'Adoption', current_value: 0.29, flip_value: 0.407407 },
+      ] as ValidationContext['flipThresholdData'])
+    );
+    expect(result.failure_codes).toContain(M1ReviewFailureCodes.MODIFIED_VALUES);
+  });
+
+  /**
+   * The neighbouring-value probe: "42%" is only ONE percentage point from the
+   * accepted "41%", and must still fire. This is what pins the tolerance to the
+   * producer's written precision rather than to some absolute slack.
+   */
+  it('STILL REJECTS the ADJACENT percentage ("42%" vs 0.407407 → rounds to 41)', () => {
+    const result = validateM1Review(
+      reviewWithFlip({
+        factor_id: 'f1',
+        factor_label: 'Adoption',
+        current_display: '29%',
+        flip_display: '42%',
+        narrative: 'Off by one percentage point.',
+      }),
+      contextWith([
+        { factor_id: 'f1', factor_label: 'Adoption', current_value: 0.29, flip_value: 0.407407 },
+      ] as ValidationContext['flipThresholdData'])
+    );
+    expect(result.failure_codes).toContain(M1ReviewFailureCodes.MODIFIED_VALUES);
+  });
+
+  /**
+   * Case 1 must NOT inherit the rounding licence. A unit-bearing value is quoted
+   * verbatim by the prompt's own rule, so "12000 GBP" against 12243 is a real
+   * disagreement however close it looks.
+   */
+  it('does NOT extend rounding to the unit-bearing form ("12000 GBP" vs 12243)', () => {
+    const result = validateM1Review(
+      reviewWithFlip({
+        factor_id: 'f1',
+        factor_label: 'Budget',
+        current_display: '16000 GBP',
+        flip_display: '12000 GBP',
+        narrative: 'Rounded currency is still a different number.',
+      }),
+      contextWith([
+        { factor_id: 'f1', factor_label: 'Budget', current_value: 16000, flip_value: 12243, unit: 'GBP' },
+      ] as ValidationContext['flipThresholdData'])
+    );
+    expect(result.failure_codes).toContain(M1ReviewFailureCodes.MODIFIED_VALUES);
+  });
 });
