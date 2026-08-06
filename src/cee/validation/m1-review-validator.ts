@@ -561,9 +561,19 @@ function displayNamesValue(
   if (named === expected) return true;
 
   // Case 2 — percentage form, permitted only for a unitless probability-like
-  // value. Compared with a relative epsilon: 0.35 * 100 is 35.000000000000004 in
-  // IEEE-754, and a guard that fails on float noise would discard whole reviews
-  // for arithmetic it performed itself.
+  // value. Compared with a relative epsilon rather than `===` because the ×100
+  // is not exact in IEEE-754 for many ordinary inputs: 0.29 * 100 is
+  // 28.999999999999996, 0.07 * 100 is 7.000000000000001, 0.145 * 100 is
+  // 14.499999999999998. A guard using exact equality would raise a BLOCKING
+  // MODIFIED_VALUES — discarding the whole review — over arithmetic error it
+  // introduced itself, on a row where CEE did nothing wrong.
+  //
+  // ⚠ The three values above are MEASURED, and replaced an earlier comment here
+  // that claimed "0.35 * 100 is 35.000000000000004". That is false: 0.35 * 100
+  // is exactly 35. The mutant that removes this tolerance SURVIVED against a
+  // 0.35 fixture, which is what exposed the wrong example — the test had been
+  // proving nothing about tolerance. Pick a value with real float error if you
+  // ever rewrite that fixture; the test now pins that precondition itself.
   const unitless = typeof unit !== 'string' || unit.trim().length === 0;
   if (unitless && expected >= 0 && expected <= 1) {
     const asPercent = expected * 100;

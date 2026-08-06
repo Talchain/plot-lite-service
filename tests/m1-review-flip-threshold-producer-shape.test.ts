@@ -375,20 +375,39 @@ describe('2.670 · Tier 7 still catches a fabricated flip value, at the display 
   });
 
   /**
-   * The float case that would make a naive equality guard discard real reviews:
-   * 0.35 * 100 is 35.000000000000004 in IEEE-754.
+   * The float case that would make a naive equality guard discard real reviews.
+   *
+   * ⚠ THIS TEST WAS VACUOUS WHEN FIRST WRITTEN, AND THE MUTANT KIT CAUGHT IT.
+   * It used 0.35 on the stated grounds that "0.35 * 100 is 35.000000000000004".
+   * That is FALSE — 0.35 * 100 is exactly 35 — so the mutant that removes the
+   * tolerance SURVIVED: the test asserted float-safety while exercising a value
+   * that needs none. A guard whose discrimination depends on a fixture that does
+   * not reproduce the condition it names (trap 13b, third face).
+   *
+   * The fixture now uses 0.29, whose ×100 is genuinely 28.999999999999996, and
+   * the precondition is PINNED IN-TEST below so the discriminating power cannot
+   * be silently lost to a later fixture tidy-up.
    */
-  it('accepts 0.35 → "35%" despite the float representation of 0.35 * 100', () => {
+  it('accepts a percentage whose ×100 is NOT exact in IEEE-754 (0.29 → "29%")', () => {
+    const raw = 0.29;
+    // Pin the precondition: this fixture must actually exercise the tolerance.
+    // Without this, a value like 0.35 (exact) would make the test pass for a
+    // reason that has nothing to do with the tolerance it claims to prove.
+    expect(
+      raw * 100,
+      'fixture must have real float error, else this test proves nothing'
+    ).not.toBe(29);
+
     const result = validateM1Review(
       reviewWithFlip({
         factor_id: 'f1',
         factor_label: 'Adoption',
-        current_display: '35%',
+        current_display: '29%',
         flip_display: '20%',
         narrative: 'Float-safe.',
       }),
       contextWith([
-        { factor_id: 'f1', factor_label: 'Adoption', current_value: 0.35, flip_value: 0.2 },
+        { factor_id: 'f1', factor_label: 'Adoption', current_value: raw, flip_value: 0.2 },
       ] as ValidationContext['flipThresholdData'])
     );
     expect(result.failure_codes).not.toContain(M1ReviewFailureCodes.MODIFIED_VALUES);
