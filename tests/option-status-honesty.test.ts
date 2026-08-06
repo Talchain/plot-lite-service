@@ -325,6 +325,33 @@ describe('ROADMAP 2.744 · per-option status is read with ISL\'s own vocabulary'
     expect(body.analysis_status).not.toBe('failed');
   });
 
+  it('a COMPUTED option with an omitted outcome still degrades the run (the exemption is not an amnesty)', async () => {
+    // Found by a SURVIVING MUTANT, not by design: replacing the exemption
+    // predicate with `return true` left every other test in this file green.
+    // That mutant is NOT equivalent — it breaks the exact property the
+    // exemption clause exists to protect, stated in run.ts's own comment:
+    // "'computed' cannot be reported when a computed option's outcome was
+    // omitted". Nothing pinned it, so the fix could have been widened into a
+    // blanket amnesty with no red anywhere.
+    //
+    // opt2 claims 'computed' but carries no usable outcome stats. It is NOT
+    // exempt (ISL declared it fully computed), so it must drag the run down
+    // rather than be waved through.
+    //
+    // ⚠ Scope: PLoT-side property. ISL emitting 'computed' with non-finite
+    // outcome stats was not traced to a producer path; this guards PLoT's own
+    // numeric-egress behaviour, and is defensive by intent.
+    mockAnalysisStatus = 'computed';
+    mockOptions = [
+      makeOptionResultV2({ id: 'opt1', status: 'computed', outcome: finiteOutcome(0.8) }),
+      makeOptionResultV2({ id: 'opt2', status: 'computed', outcome: {} }),
+    ];
+    const { status, body } = await run(BASE_PAYLOAD);
+    expect(status).toBe(200);
+    expect(body.option_comparison_status).not.toBe('computed');
+    expect(body.analysis_status).toBe('failed');
+  });
+
   it('a run with NO usable option outcomes is still "failed" (usability remains the floor)', async () => {
     // The exemption must not become a blanket amnesty: if EVERY option failed,
     // there is no primary deliverable and the run really has failed. This is
