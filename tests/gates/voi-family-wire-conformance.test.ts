@@ -209,19 +209,36 @@ describe('S5 gate · the VOI family reaches the wire in a READABLE shape', () =>
     ).not.toContain('ENRICHMENT_CONTRACT_MISMATCH');
   });
 
-  it('N1c POSITIVE CONTROL — a wrong-typed decision_evpi IS caught (N1/N1b are not vacuous)', async () => {
+  it('N1c POSITIVE CONTROL — a wrong-typed decision_evpi IS caught AND withheld (N1/N1b are not vacuous)', async () => {
     // The EXACT shape this gate's lane found in the repo's own passthrough
     // fixture: an object where the contract types a number.
     const body = await run({
       ...VOI_TRANSPORT_ALL_FOUR,
       decision_evpi: { value: 0.042, method: 'joint_samples', units: 'outcome' },
     });
-    const parsed = AnalysisEnrichmentSchema.safeParse(body);
-    expect(parsed.success, 'a wrong-typed decision_evpi must NOT parse clean').toBe(false);
+    // DETECTED — this is what makes N1/N1b non-vacuous.
     expect(body?._meta?.evidence?.enrichment_contract_ok).toBe(false);
     expect(
       (body.inference_warnings ?? []).map((w: { code: string }) => w.code),
     ).toContain('ENRICHMENT_CONTRACT_MISMATCH');
+
+    // …and, since ROADMAP 2.726, REFUSED rather than shipped. This assertion
+    // used to read `parsed.success === false` — i.e. it pinned that the corrupt
+    // value survived onto the wire. It no longer does: `decision_evpi` is
+    // presence-shaped corruption on a key CEE forwards to the UI unvalidated,
+    // so the guard withholds it. Naming the key is the stronger control.
+    expect(body?._meta?.evidence?.enrichment_contract_withheld).toContain('decision_evpi');
+    expect(Object.prototype.hasOwnProperty.call(body, 'decision_evpi')).toBe(false);
+
+    // The violation was REMOVED, not merely flagged: the delivered body now
+    // satisfies the envelope CEE and the UI parse it against.
+    const parsed = AnalysisEnrichmentSchema.safeParse(body);
+    expect(
+      parsed.success
+        ? []
+        : parsed.error.issues.map((i) => ({ path: i.path.join('.'), code: i.code })),
+      'the DELIVERED body must be clean once the corrupt key is withheld',
+    ).toEqual([]);
   });
 
   // ── N2 · MEASURED ZERO ≠ NOT COMPUTED ─────────────────────────────────────
