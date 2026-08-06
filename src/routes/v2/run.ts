@@ -1396,7 +1396,8 @@ function determineTopLevelStatus(
   optionStatus: PerFeatureStatus,
   robustnessStatus: PerFeatureStatus,
   driversStatus: PerFeatureStatus,
-  hasUsableOptionComparison: boolean
+  hasUsableOptionComparison: boolean,
+  islAnalysisStatus?: string
 ): TopLevelAnalysisStatus {
   // No usable option outcomes → the primary deliverable is missing → failed,
   // regardless of how many secondary features computed.
@@ -1408,6 +1409,30 @@ function determineTopLevelStatus(
 
   // Everything computed → computed
   if (statuses.every(s => s === 'computed')) {
+    // ROADMAP 2.744 — CEILING: PLoT must never report a run in better health
+    // than ISL declared it.
+    //
+    // ISL's own _determine_analysis_status() (src/utils/response_builder.py)
+    // returns 'partial' when SOME BUT NOT ALL options computed, with
+    // status_reason "Some options could not be computed". Before 2.744 that
+    // verdict was unreachable here: one failed option zeroed
+    // hasUsableOptionComparison and this function returned 'failed' at the
+    // guard above. Fixing the exemption list alone would have swung it to the
+    // OPPOSITE error — 'computed', silently discarding ISL's declared
+    // degradation, because mapToPerFeatureStatus treats data presence as
+    // authoritative and reports 'computed' whenever data is present.
+    //
+    // So the honest verdict for "one option failed, others computed" is
+    // 'partial', and it is not this layer's invention — it is the producer's,
+    // read off the wire. `approximate: true` follows via isApproximateAnalysis,
+    // which is what tells the user the comparison is missing an option.
+    //
+    // ISL 'failed' never reaches here (short-circuited to buildV2RunError
+    // upstream), and an absent status means the legacy V1 envelope, which
+    // carries no such verdict — so both leave this untouched.
+    if (islAnalysisStatus === 'partial') {
+      return 'partial';
+    }
     return 'computed';
   }
 
@@ -1727,6 +1752,47 @@ function isCrownableCandidate(o: { win_probability?: number; status?: string }):
     o.win_probability !== null &&
     Number.isFinite(o.win_probability)
   );
+}
+
+/**
+ * ROADMAP 2.744 — THE single predicate for "ISL says this option genuinely failed".
+ *
+ * PRODUCER SEMANTICS (derived from ISL's determine_option_status(n_valid,
+ * n_total), src/utils/response_builder.py — NOT from what the enum member
+ * sounds like):
+ *
+ *   'failed'   ⇔ n_valid === 0. ZERO finite Monte Carlo samples. There is no
+ *                distribution, so nothing downstream of it can be trusted.
+ *   'partial'  ⇔ 0 < n_valid/n_total < MIN_VALID_RATIO (0.8). Samples EXIST;
+ *                ISL emits a full `outcome` block and raises a
+ *                LOW_EFFECTIVE_SAMPLES critique. It is a DISCLOSURE, not a
+ *                failure, and must NOT be treated as one — doing so discards
+ *                results ISL honestly computed.
+ *   'computed' ⇔ ratio >= 0.8.
+ *
+ * `undefined` means the legacy V1 shape (ISL's V1 `OptionResult` has no
+ * `status` field at all), which is treated as computed, matching
+ * isCrownableCandidate above.
+ *
+ * Callers must share THIS predicate so the two constraint guards can never
+ * drift apart again — the same reasoning that gave isCrownableCandidate its
+ * existence.
+ */
+function isFailedIslOption(o: { status?: string } | null | undefined): boolean {
+  return o?.status === 'failed';
+}
+
+/**
+ * ROADMAP 2.744 — options ISL explicitly declined to compute in full.
+ *
+ * These are EXEMPT from the per-option usability requirement that gates
+ * `option_comparison_status`: ISL already told us they are not fully computed,
+ * so their missing/short outcome stats are disclosed rather than anomalous, and
+ * must not condemn the options that DID compute. Everything not in this set —
+ * including the legacy V1 `undefined` — must be usable.
+ */
+function isNotFullyComputedIslOption(o: { status?: string } | null | undefined): boolean {
+  return o?.status === 'partial' || o?.status === 'failed';
 }
 
 /**
@@ -2126,21 +2192,43 @@ function buildConstraintFields(
 
   if (!firstOptionWithConstraints?.constraint_analysis) {
     // Constraints sent but ISL returned no usable constraint_analysis (absent, or
-    // present with zero evaluated constraints). Honesty (Codex round-4): the COMMON
-    // ISL error shape is status:'error' WITH absent/empty constraint_analysis, so an
-    // explicit upstream error reaches HERE — no constraint-bearing option was found
-    // by the length>0 lookup above, which would otherwise hide the failure as
-    // 'unavailable'. Distinguish it and surface the existing 'error' status instead.
+    // present with zero evaluated constraints). Honesty (Codex round-4): an
+    // explicit upstream option failure reaches HERE — no constraint-bearing
+    // option was found by the length>0 lookup above, which would otherwise hide
+    // the failure as 'unavailable'. Distinguish it and surface 'error' instead.
+    //
+    // ⚠ ROADMAP 2.744 — THIS COMMENT USED TO ASSERT A WIRE THAT DOES NOT EXIST.
+    // It read "the COMMON ISL error shape is status:'error'". ISL's per-option
+    // status is Literal["computed","partial","failed"]; 'error' is an
+    // ENVELOPE-level value (and one of PLoT's own egress PerFeatureStatus
+    // values). So this guard tested for something the producer cannot emit and
+    // was PERMANENTLY FALSE — every genuine upstream failure was reported as
+    // the softer 'unavailable', which reads as "nothing to say" rather than
+    // "the upstream broke". A dead guard that read as protection.
+    //
+    // WHY `failed` AND NOT `partial` (derived from the producer, not chosen):
+    // ISL's determine_option_status(n_valid, n_total) in
+    // src/utils/response_builder.py returns 'failed' ONLY when n_valid === 0 —
+    // no finite Monte Carlo samples at all, so no constraint probability could
+    // have been computed. 'partial' means 0 < ratio < 0.8: samples DO exist,
+    // ISL computes constraint probabilities from them and raises
+    // LOW_EFFECTIVE_SAMPLES as a disclosure. Treating 'partial' as an error
+    // here would blame the option for an absence it did not cause.
     const hasOptionError = Array.isArray(islOptionData)
-      && islOptionData.some((r: any) => r?.status === 'error');
+      && islOptionData.some((r: any) => isFailedIslOption(r));
     return { constraints_status: hasOptionError ? 'error' : 'unavailable' };
   }
 
   // Honesty (Codex round-2): also surface 'error' for the rarer shape where the
-  // constraint-bearing option itself reports status:'error' (it has a constraint
-  // payload but the run errored). The common no-payload error shape is handled in
-  // the 'unavailable' branch above. ('error' is an existing ConstraintFeatureStatus.)
-  if (firstOptionWithConstraints.status === 'error') {
+  // constraint-bearing option itself FAILED (it has a constraint payload but its
+  // own analysis produced zero valid samples, so those probabilities rest on
+  // nothing). The common no-payload shape is handled in the branch above.
+  // ('error' is an existing ConstraintFeatureStatus.)
+  //
+  // Same producer-derived distinction as above: a 'partial' option's constraint
+  // payload is REAL — computed from the samples that were valid — so it is
+  // served normally rather than discarded. (2.744: was `=== 'error'`, dead.)
+  if (isFailedIslOption(firstOptionWithConstraints)) {
     return { constraints_status: 'error' };
   }
 
@@ -7512,12 +7600,22 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // usable option AND that every option not explicitly skipped/errored is
         // usable — so 'computed' cannot be reported when a computed option's outcome
         // was omitted. (Transitively gates top-level 'computed' via determineTopLevelStatus.)
+        //
+        // ⚠ ROADMAP 2.744 — THE EXEMPTION LIST NAMED VALUES ISL CANNOT EMIT.
+        // It read `r?.status === 'skipped' || r?.status === 'error'`. Both are
+        // ENVELOPE-level values; ISL's per-option Literal is
+        // ["computed","partial","failed"]. So NOTHING was ever exempt, and a
+        // single failed option — which by construction has no usable outcome
+        // stats (n_valid === 0) — collapsed hasUsableOptionComparison for the
+        // WHOLE run. determineTopLevelStatus then returned 'failed', throwing
+        // away a perfectly good comparison of every option that DID compute.
+        // That is the exact opposite of the intent stated three lines above.
         const isOptionUsable = (r: any): boolean => hasAllRequiredOutcomeStats(r?.outcome);
         const usableOptionData = optionComparisonData ?? [];
         const hasUsableOptionComparison = hasOptionComparison &&
           usableOptionData.some(isOptionUsable) &&
           usableOptionData.every((r: any) =>
-            r?.status === 'skipped' || r?.status === 'error' || isOptionUsable(r)
+            isNotFullyComputedIslOption(r) || isOptionUsable(r)
           );
 
         const optionStatus = mapToPerFeatureStatus(islAnalysisStatus, hasUsableOptionComparison);
@@ -7557,7 +7655,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           optionStatus,
           robustnessStatus,
           driversStatus,  // Uses hasDriversSensitivity which checks both edge AND factor
-          hasUsableOptionComparison
+          hasUsableOptionComparison,
+          // 2.744: ISL's own verdict on the run, so PLoT cannot report it
+          // healthier than the producer declared it.
+          islAnalysisStatus
         );
 
         // =================================================================

@@ -789,15 +789,56 @@ export interface ISLConstraintAnalysis {
 }
 
 /**
+ * The per-option `status` vocabulary ISL actually emits.
+ *
+ * DERIVED, NOT COPIED. These are the three members of ISL's
+ * `OptionResultV2.status` — `Literal["computed", "partial", "failed"]`
+ * (`src/models/response_v2.py`). The pairing is ENFORCED, not asserted in
+ * prose: `tests/isl-option-status-contract.test.ts` reads the enum out of the
+ * vendored, Pydantic-generated `tests/fixtures/isl-pinned/isl-openapi.json`
+ * (`components.schemas.OptionResultV2.properties.status.enum`) and fails the
+ * day EITHER side drifts. Exported as a runtime tuple precisely so that test
+ * can compare values rather than a type that erases at compile time.
+ *
+ * ⚠ WHAT THESE VALUES MEAN — read before branching on them. Derived from the
+ * producer, `determine_option_status(n_valid, n_total)` in ISL's
+ * `src/utils/response_builder.py`:
+ *   - `failed`   — n_valid === 0. NO finite Monte Carlo samples. The option has
+ *                  no usable distribution at all. This is the genuine failure.
+ *   - `partial`  — 0 < valid/total < MIN_VALID_RATIO (0.8). A DISCLOSURE, not a
+ *                  failure: ISL still emits a full `outcome` block and raises a
+ *                  LOW_EFFECTIVE_SAMPLES critique. Do NOT treat as an error.
+ *   - `computed` — valid/total >= 0.8.
+ *
+ * ⚠ `'skipped'` and `'error'` ARE NOT MEMBERS OF THIS SET. They belong to
+ * PLoT's OWN EGRESS vocabulary, `PerFeatureStatus` in `src/types/engine-v3.ts`
+ * ('computed' | 'unavailable' | 'skipped' | 'error'), and to ISL's
+ * ENVELOPE-level `robustness_status` — both a level ABOVE a single option.
+ * They were mirrored onto this per-option field by mistake (ROADMAP 2.744),
+ * which made `hasOptionError` in routes/v2/run.ts permanently false and caused
+ * one failed option to degrade a whole run. Do not reintroduce them here.
+ */
+export const ISL_OPTION_STATUS_VALUES = ['computed', 'partial', 'failed'] as const;
+
+/** Per-option computation status as emitted by ISL. See ISL_OPTION_STATUS_VALUES. */
+export type ISLOptionStatus = (typeof ISL_OPTION_STATUS_VALUES)[number];
+
+/**
  * Option comparison result from ISL /api/v1/robustness/analyze/v2 response
  * Returned when analysis_types includes 'comparison'
  *
  * Supports both V1 (flat) and V2 (nested outcome) formats.
  */
 export interface ISLOptionComparisonResult {
-  /** Option identifier (V2 format uses option_id, V1 uses id) */
+  /**
+   * Option identifier — V1 (`OptionResult.option_id`, robustness_v2.py).
+   *
+   * ⚠ This comment said "V2 format uses option_id, V1 uses id" until ROADMAP
+   * 2.744. That was INVERTED at the bytes, and it is what taught fixtures to
+   * put `option_id` on an otherwise-V2 option shape. V2 uses `id` (below).
+   */
   option_id?: string;
-  /** Legacy option identifier (V1 format) */
+  /** Option identifier — V2 (`OptionResultV2.id`, response_v2.py; REQUIRED there). */
   id?: string;
   /** Option label for display */
   label?: string;
@@ -811,8 +852,17 @@ export interface ISLOptionComparisonResult {
   probability_of_goal?: number;
   /** Win probability vs other options */
   win_probability?: number;
-  /** Computation status for this option */
-  status?: 'computed' | 'skipped' | 'error';
+  /**
+   * Per-option computation status.
+   *
+   * OPTIONAL here for exactly one reason: ISL's **V1** `OptionResult`
+   * (`robustness_v2.py`) has NO `status` field at all, and this interface spans
+   * both wire versions. On the **V2** wire it is REQUIRED
+   * (`OptionResultV2.required` includes `status`), so `undefined` means
+   * "legacy V1 shape", never "V2 declined to say". Consumers treat absent as
+   * computed for that reason.
+   */
+  status?: ISLOptionStatus;
   /** Reason if status is not 'computed' */
   status_reason?: string;
   /** Per-option constraint analysis (present when goal_constraints sent) */

@@ -33,6 +33,8 @@ import {
   normaliseOptionsForISL,
 } from '../../src/lib/intervention-normaliser.js';
 import { filterTemporalConstraints } from '../../src/normalisation/constraint-filter.js';
+// ROADMAP 2.744: producer-derived option fixtures. See tests/helpers/isl-option-fixture.ts.
+import { makeOptionResultV2, finiteOutcome } from '../helpers/isl-option-fixture.js';
 import type {
   GoalConstraint,
   EngineNodeV3,
@@ -170,8 +172,11 @@ describe('WP1 gate · honest constraint drops (temporal)', () => {
 // reach buildConstraintFields. Uses app.inject (no socket).
 
 let mockConstraintAnalysis: any = undefined;
-// When set, the mocked ISL option result carries this `status` (e.g. 'error') so we
-// can pin that an explicit upstream constraint error surfaces as constraints_status:'error'.
+// When set, the mocked ISL option result carries this `status` so we can pin that an
+// explicit upstream option failure surfaces as constraints_status:'error'.
+// 2.744: must be one of ISL's real per-option values — 'computed' | 'partial' |
+// 'failed'. It used to be set to 'error', an ENVELOPE-level value ISL never emits
+// per option, which is precisely how the dead guard in run.ts stayed green.
 let mockOptionStatus: string | undefined = undefined;
 // When set, the mocked ISL returns these option results VERBATIM (full per-option
 // control of status/constraint_analysis) instead of the uniform default mapping —
@@ -410,8 +415,29 @@ describe('WP1 gate · honest constraints_status (no fabricated "computed")', () 
     expect(body.constraints_status).toBe('unavailable');
   });
 
-  it('REGRESSION: an explicit upstream ISL error (option.status="error") ⇒ "error", not "unavailable"', async () => {
-    mockOptionStatus = 'error';
+  // ---------------------------------------------------------------------------
+  // ROADMAP 2.744 — these four cases were written against a wire that does not
+  // exist. They set `option.status = 'error'`, which ISL's per-option Literal
+  // (["computed","partial","failed"]) cannot emit, and the mixed-response
+  // fixture also carried `rank` (not a property of OptionResultV2) and
+  // `option_id` (the V1 name; V2's identity field is `id`) — three
+  // impossibilities in one object literal.
+  //
+  // They were regenerated FROM THE PRODUCER, not re-spelled by hand:
+  // `makeOptionResultV2` derives the legal property set, the required set and
+  // the status enum from the vendored, Pydantic-generated
+  // tests/fixtures/isl-pinned/isl-openapi.json and THROWS on any undeclared
+  // key, missing required key, or out-of-enum status. Re-introducing any of
+  // the three original errors now fails loudly at fixture-construction time
+  // instead of passing green against a mirror carrying the same mistake.
+  //
+  // The substantive value is `'failed'`: ISL's determine_option_status returns
+  // it exactly when n_valid === 0, which is the genuine "this option errored"
+  // condition these cases were always trying to describe.
+  // ---------------------------------------------------------------------------
+
+  it('REGRESSION: an explicit upstream ISL option failure (option.status="failed") ⇒ "error", not "unavailable"', async () => {
+    mockOptionStatus = 'failed';
     mockConstraintAnalysis = {
       constraints: [{ node_id: 'goal', operator: '>=', value: 20000, prob_satisfied: 0.85 }],
     };
@@ -421,11 +447,11 @@ describe('WP1 gate · honest constraints_status (no fabricated "computed")', () 
     mockOptionStatus = undefined;
   });
 
-  it('REGRESSION (Codex round-4): error status with ABSENT constraint_analysis ⇒ "error", not "unavailable"', async () => {
-    // The COMMON ISL error shape: option.status="error" with NO constraint_analysis
+  it('REGRESSION (Codex round-4): failed status with ABSENT constraint_analysis ⇒ "error", not "unavailable"', async () => {
+    // The COMMON ISL failure shape: option.status="failed" with NO constraint_analysis
     // payload at all. The non-empty-constraints lookup finds nothing, so this must be
     // detected in the 'unavailable' branch and surfaced as 'error' — not hidden.
-    mockOptionStatus = 'error';
+    mockOptionStatus = 'failed';
     mockConstraintAnalysis = undefined; // absent payload
     const { status, body } = await run({ ...BASE_PAYLOAD, goal_constraints: GOAL_CONSTRAINTS });
     expect(status).toBe(200);
@@ -434,10 +460,10 @@ describe('WP1 gate · honest constraints_status (no fabricated "computed")', () 
     mockOptionStatus = undefined;
   });
 
-  it('REGRESSION (Codex round-4): error status with EMPTY constraint_analysis.constraints ⇒ "error"', async () => {
-    // Present-but-empty constraints + error status: also the no-usable-payload path,
-    // and an explicit error must win over a bare 'unavailable'.
-    mockOptionStatus = 'error';
+  it('REGRESSION (Codex round-4): failed status with EMPTY constraint_analysis.constraints ⇒ "error"', async () => {
+    // Present-but-empty constraints + failed status: also the no-usable-payload path,
+    // and an explicit failure must win over a bare 'unavailable'.
+    mockOptionStatus = 'failed';
     mockConstraintAnalysis = { constraints: [] };
     const { status, body } = await run({ ...BASE_PAYLOAD, goal_constraints: GOAL_CONSTRAINTS });
     expect(status).toBe(200);
@@ -445,18 +471,19 @@ describe('WP1 gate · honest constraints_status (no fabricated "computed")', () 
     mockOptionStatus = undefined;
   });
 
-  it('POLICY (Codex round-5): MIXED response — one errored option (no constraints) + one valid result ⇒ "computed"', async () => {
-    // Deliberate round-4 policy: an option-level error does NOT override another
+  it('POLICY (Codex round-5): MIXED response — one failed option (no constraints) + one valid result ⇒ "computed"', async () => {
+    // Deliberate round-4 policy: an option-level failure does NOT override another
     // option's valid constraint computation. Constraint analysis is per-option, so a
-    // valid result means constraints WERE computed; the errored option's failure is
+    // valid result means constraints WERE computed; the failed option's failure is
     // carried in its own option status, not in constraints_status. Lock it down.
-    const finiteOutcome = { mean: 0.7, std: 0.1, p10: 0.5, p50: 0.7, p90: 0.9, n_samples: 1000, n_valid_samples: 1000, validity_ratio: 1.0 };
     mockOptionResults = [
-      { option_id: 'opt1', outcome: finiteOutcome, rank: 1, status: 'error' }, // errored, NO constraint_analysis
-      {
-        option_id: 'opt2', outcome: finiteOutcome, rank: 2, status: 'computed',
+      // Failed, NO constraint_analysis. `rank` and `option_id` are gone because
+      // the builder rejects them — ISL declares neither on OptionResultV2.
+      makeOptionResultV2({ id: 'opt1', outcome: finiteOutcome(0.7), status: 'failed' }),
+      makeOptionResultV2({
+        id: 'opt2', outcome: finiteOutcome(0.7), status: 'computed',
         constraint_analysis: { constraints: [{ node_id: 'goal', operator: '>=', value: 20000, prob_satisfied: 0.85 }] },
-      },
+      }),
     ];
     const { status, body } = await run({ ...BASE_PAYLOAD, goal_constraints: GOAL_CONSTRAINTS });
     expect(status).toBe(200);
