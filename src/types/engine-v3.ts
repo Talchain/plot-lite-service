@@ -824,6 +824,23 @@ export interface CritiqueV3 {
   blocks_analysis: boolean;
   /** Suggested remediation action */
   suggestion?: string;
+  /**
+   * ROADMAP 2.645 — PLoT-INTERNAL ROUTING ONLY. NEVER ON THE WIRE.
+   *
+   * The producing normaliser's own class for a `NORMALIZATION_WARNING`
+   * critique (`NormalisationWarning.code`: `NORMALIZATION_WARNING` for an
+   * option node, `UNKNOWN_NODE_KIND`, `PRIOR_ON_NON_EXTERNAL`, …). The wire
+   * `code` is flattened to `NORMALIZATION_WARNING` for every class — the UI
+   * skips that code wholesale (`useUnifiedActions.ts:237`) and three golden
+   * fixtures pin it — so the class has to ride alongside it or the humaniser
+   * cannot tell an option node from an unrecognised kind, and prints copy that
+   * is false for two classes out of three.
+   *
+   * `addUserMessages` DELETES this field, so a humanised critique — which is
+   * what every response path emits — is byte-identical to before. Do not read
+   * it downstream; it does not arrive.
+   */
+  normalisation_code?: string;
 }
 
 // -----------------------------------------------------------------------------

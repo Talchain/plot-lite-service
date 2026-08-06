@@ -65,6 +65,7 @@ import { sha8 } from '../../util/pii-redact.js';
 import { getBuildId } from '../../util/build-id.js';
 import { addUserMessages } from '../../critique-humaniser.js';
 import type { GraphForLabels } from '../../critique-humaniser.js';
+import { normalisationWarningToCritique } from '../../lib/normalisation-critiques.js';
 // Seed derivation: when seed omitted, derive deterministically from graph hash
 import { NormalisationError, cleanLabelAnnotation, type NormalisationWarning } from '../../normalisation/graph-normaliser.js';
 import { normaliseGraphWithRepairs } from '../../normalisation/normalise-and-repair.js';
@@ -7006,16 +7007,13 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           });
         }
 
-        // Add normalization warnings as info critiques
+        // Add normalization warnings as info critiques.
+        // ROADMAP 2.645: built by the shared constructor so the producer's own
+        // class rides along on `normalisation_code` and the humaniser can pick
+        // copy that is TRUE for it. The wire `code` is unchanged, and
+        // `addUserMessages` strips the internal field before send.
         for (const warning of normWarnings) {
-          critiques.push({
-            id: randomUUID(),
-            code: 'NORMALIZATION_WARNING',
-            severity: 'info',
-            message: warning.message,
-            source: 'validation',
-            blocks_analysis: false,
-          });
+          critiques.push(normalisationWarningToCritique(warning, randomUUID()));
         }
 
         // Fragility gap 3: ISL 422 with structured critiques. callAnalysisEndpoint

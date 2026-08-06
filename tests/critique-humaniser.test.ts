@@ -425,6 +425,23 @@ describe('humaniseCritique — template map', () => {
   });
 
   it('NORMALIZATION_WARNING resolves from affected_node_ids', () => {
+    // ROADMAP 2.645: the option sentence is now earned by the producer's own
+    // class, not assumed for every normalisation warning. Label resolution
+    // through `affected_node_ids` is unchanged — that is what this test pins.
+    const msg = humaniseCritique(
+      makeCritique({
+        code: 'NORMALIZATION_WARNING',
+        normalisation_code: 'NORMALIZATION_WARNING',
+        affected_node_ids: ['opt_acquire_competitor'],
+        message: 'Node opt_acquire_competitor is an option and was excluded.',
+      }),
+      mockGraph,
+    );
+    expect(msg).toContain('Acquire Competitor');
+    expect(msg).toContain('option');
+  });
+
+  it('NORMALIZATION_WARNING with no producer class does NOT assert the option class (2.645)', () => {
     const msg = humaniseCritique(
       makeCritique({
         code: 'NORMALIZATION_WARNING',
@@ -434,7 +451,7 @@ describe('humaniseCritique — template map', () => {
       mockGraph,
     );
     expect(msg).toContain('Acquire Competitor');
-    expect(msg).toContain('option');
+    expect(msg).not.toContain('is an option');
   });
 
   it('NORMALIZATION_WARNING falls back to message regex extraction', () => {

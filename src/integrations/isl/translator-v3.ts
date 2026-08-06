@@ -269,9 +269,15 @@ export interface ISLRobustnessRequestV3 {
  * value, baseline, unit, source, std, raw_value, cap, extractionType,
  * factor_type, uncertainty_drivers.
  *
- * PLoT produces eight of the ten; `source` and `extractionType` are CEE-origin
- * fields PLoT's normaliser does not carry, so they are absent here by
- * construction rather than by exclusion.
+ * PLoT produces all ten. ⚠ THIS PARAGRAPH USED TO SAY THE OPPOSITE — "PLoT
+ * produces eight of the ten; `source` and `extractionType` are CEE-origin fields
+ * PLoT's normaliser does not carry, so they are absent here by construction
+ * rather than by exclusion" — and it was FALSE from #313 (`9b47976`, 5 Aug 2026,
+ * ROADMAP 2.520 S1) onwards, which taught `normaliseNode` to copy both. It was
+ * arguably never right: both members sat in the list five lines below it the
+ * whole time, so the comment contradicted the code it introduced. Left in place
+ * as trap 14's exhibit — an accurate note is not self-maintaining, and the most
+ * convincing stale sentence is one attached to correct machinery.
  *
  * ⚠ ROADMAP 2.274 — THIS WAS A HAND-MAINTAINED MIRROR OF ANOTHER REPO'S MODEL
  * WITH NO LOUD FAILURE (trap 12), and the comment that used to sit here said so

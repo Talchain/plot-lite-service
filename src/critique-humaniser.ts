@@ -95,6 +95,96 @@ type TemplateResolver = (
 
 type TemplateEntry = string | TemplateResolver;
 
+// ---------------------------------------------------------------------------
+// ROADMAP 2.645 — per-class copy for normalisation warnings
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the subject of a normalisation warning, or `undefined` when the
+ * producer gave us nothing nameable.
+ *
+ * Unchanged from the pre-2.645 resolution order (`affected_node_ids` first,
+ * then an id scraped out of the developer message) so the option class reads
+ * exactly as it did before; only the SENTENCE around it is now class-specific.
+ */
+function resolveNormalisationSubject(
+  critique: CritiqueV3,
+  graph: GraphForLabels,
+): string | undefined {
+  const nodeId = critique.affected_node_ids?.[0];
+  if (nodeId) return resolveNodeLabel(nodeId, graph);
+  const extracted = extractIdFromMessage(critique.message);
+  return extracted ? humaniseId(extracted) : undefined;
+}
+
+/**
+ * User-facing copy per PRODUCER class, keyed by `NormalisationWarning.code`.
+ *
+ * ⚠ THE KEYS ARE THE PRODUCER'S OWN CODES, not critique codes. The domain was
+ * derived at the bytes and confirmed by execution (`c03e36fe`): all nine
+ * `warnings.push` sites in `normalisation/graph-normaliser.ts`, minus the ones
+ * carrying `repair` — those are partitioned into `_meta.repairs_applied` by
+ * `normaliseGraphWithRepairs` and NEVER become critiques. Exactly three classes
+ * survive that partition, and each sentence below states what its own producer
+ * does, not what the field seemed to mean (trap 13c).
+ *
+ * `tests/critique-humaniser.normalisation-classes.test.ts` holds two guards
+ * that are deliberately not redundant (trap 12d): a corpus driving the REAL
+ * normaliser (does each class read TRUE?) and a drift scan of the producer's
+ * source (has a FOURTH class appeared with no copy?).
+ */
+export const NORMALISATION_WARNING_COPY: Record<
+  string,
+  (subject: string | undefined) => string
+> = {
+  /**
+   * `graph-normaliser.ts` — the node arrived with `kind='option'`. Option nodes
+   * are filtered out before factor analysis by design. The original copy: true
+   * for this class, and only this one.
+   */
+  NORMALIZATION_WARNING: (subject) =>
+    subject
+      ? `${subject} is an option and was excluded from factor analysis. This is expected.`
+      : 'An option was excluded from factor analysis. This is expected.',
+
+  /**
+   * `graph-normaliser.ts normaliseNode` — the node's kind is neither a valid
+   * causal kind nor a known non-causal one. Note what the producer does NEXT:
+   * `const kind = normalizedKind as EngineNodeKindV3` — the kind is forwarded
+   * to the engine EXACTLY as supplied. Nothing is replaced, defaulted or
+   * dropped, so the copy must not imply a repair happened.
+   */
+  UNKNOWN_NODE_KIND: (subject) =>
+    subject
+      ? `${subject} has a type this model does not recognise. It was passed to the engine unchanged — check its type if the results look wrong.`
+      : 'A node has a type this model does not recognise. It was passed to the engine unchanged — check its type if the results look wrong.',
+
+  /**
+   * `graph-normaliser.ts normaliseNode` — a prior distribution was supplied on
+   * a node whose category is not `external`. The producer's own declared
+   * semantics, verbatim from its message: "Prior will be ignored." The prior is
+   * not altered here, so the copy states the consequence, not a repair.
+   */
+  PRIOR_ON_NON_EXTERNAL: (subject) =>
+    subject
+      ? `${subject} was given a starting-value distribution, but those are only used on factors marked external, so it will be ignored.`
+      : 'A factor was given a starting-value distribution, but those are only used on factors marked external, so it will be ignored.',
+};
+
+/**
+ * Copy for a normalisation warning whose producer class is unknown — a critique
+ * replayed from a saved debug bundle, or a class added upstream without copy.
+ *
+ * It deliberately claims NOTHING about what happened beyond the fact that a
+ * note exists, because when the class is unknown, anything more specific is a
+ * guess. This is the case the pre-2.645 code answered by asserting the option
+ * class, which is how a false sentence reached users.
+ */
+const NORMALISATION_WARNING_GENERIC = (subject: string | undefined): string =>
+  subject
+    ? `A note was recorded about ${subject} while preparing your model for analysis. See the advanced details.`
+    : 'A note was recorded while preparing your model for analysis. See the advanced details.';
+
 /**
  * Complete template map keyed by critique code.
  * Includes all codes currently emitted by the codebase plus forward-compatibility
@@ -335,17 +425,12 @@ export const TEMPLATE_MAP: Record<string, TemplateEntry> = {
   },
 
   NORMALIZATION_WARNING: (c, g) => {
-    // Resolve from affected_node_ids first, then fall back to regex extraction from message
-    const nodeId = c.affected_node_ids?.[0];
-    if (nodeId) {
-      const label = resolveNodeLabel(nodeId, g);
-      return `${label} is an option and was excluded from factor analysis. This is expected.`;
-    }
-    const extracted = extractIdFromMessage(c.message);
-    if (extracted) {
-      return `${humaniseId(extracted)} is an option and was excluded from factor analysis. This is expected.`;
-    }
-    return 'A node was adjusted during model normalisation. This is expected.';
+    // ROADMAP 2.645. Every informational normalisation warning is emitted under
+    // this one wire code, so the copy MUST be selected by the producer's own
+    // class (`normalisation_code`), not by the wire code. See
+    // NORMALISATION_WARNING_COPY below for the derivation of the class domain.
+    const copy = NORMALISATION_WARNING_COPY[c.normalisation_code ?? ''];
+    return (copy ?? NORMALISATION_WARNING_GENERIC)(resolveNormalisationSubject(c, g));
   },
 
   ISL_NOT_ENABLED:
@@ -502,10 +587,17 @@ export function addUserMessages(
   graph: GraphForLabels = EMPTY_GRAPH,
   options?: ReadonlyArray<{ id: string; label: string }>,
 ): HumanisedCritique[] {
-  return critiques.map((c) => ({
-    ...c,
-    user_message: humaniseCritique(c, graph, options),
-  }));
+  return critiques.map((c) => {
+    // ROADMAP 2.645: `normalisation_code` is a PLoT-internal routing token that
+    // exists only to reach the line above. Dropping it here is what keeps the
+    // response bytes identical to before 2.645 — every /v2/run response path
+    // runs its critiques through this function immediately before send.
+    const { normalisation_code: _internalOnly, ...wire } = c;
+    return {
+      ...wire,
+      user_message: humaniseCritique(c, graph, options),
+    };
+  });
 }
 
 /**
