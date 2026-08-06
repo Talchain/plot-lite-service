@@ -71,6 +71,38 @@ export interface BiasFinding {
   linked_critique_code?: string;
   /** Required when source='semantic' - exact substring from brief */
   brief_evidence?: string;
+  /**
+   * DSK science citation — the claim id this finding is grounded in.
+   *
+   * ⚠ THIS FIELD WAS BEING DELETED IN TRANSIT UNTIL ROADMAP 2.404's MECHANISM
+   * WAS FOUND. `BiasFindingSchema` below was a bare `z.object()`, which STRIPS
+   * unknown keys silently, and PLoT parses CEE's review with it on the live
+   * path (`decision-review-orchestrator.ts:220`). So the citation was produced
+   * by CEE, HARD-ENFORCED there (`shape-check.ts:459` rejects the whole review
+   * with 422 when the id is not in the loaded DSK bundle), and then discarded
+   * one hop later before any user could see it — "we paid for the science and
+   * never turned it on". Declared here so it survives, and so a consumer can
+   * see it in the type.
+   *
+   * Present only when CEE's prompt carried a SCIENCE_CLAIMS section; the
+   * producer's contract is "omit both fields everywhere" when it did not.
+   */
+  dsk_claim_id?: string;
+  /**
+   * Evidence strength copied verbatim from the DSK claim, and the licence for
+   * the finding's phrasing band ("strong" claims may say "typically"/"research
+   * shows"; "medium" must say "can"/"often"/"may").
+   *
+   * ⚠ TYPED AS `string`, DELIBERATELY, NOT AS AN ENUM. CEE's decision-review
+   * seam only WARNS on a value outside ["strong","medium"]
+   * (`shape-check.ts:467-471`) while the DSK bundle's own vocabulary is wider
+   * — `"strong" | "medium" | "weak" | "mixed"` (`src/dsk/types.ts:35`,
+   * `EVIDENCE_STRENGTHS`). A closed enum here would be a hand-maintained mirror
+   * of another repo's vocabulary that HARD-REJECTS THE ENTIRE REVIEW the first
+   * time that vocabulary grows — trading a dropped field for a dropped review.
+   * Same reasoning as `FlipThresholdInputData.flip_reason` above.
+   */
+  evidence_strength?: string;
 }
 
 /**
@@ -502,6 +534,30 @@ const ScenarioContextSchema = z.object({
   consequence: z.string(),
 });
 
+/**
+ * ⚠ THE KEYS DECLARED HERE ARE THE ONLY KEYS THAT SURVIVE HOP 6.
+ *
+ * A bare `z.object()` STRIPS unknown keys — no error, no warning — and this
+ * schema sits on the live CEE → PLoT → CEE/UI path
+ * (`decision-review-orchestrator.ts:220`). Anything CEE adds to a bias finding
+ * and does not add here ceases to exist before a user can see it. That is not
+ * hypothetical: `dsk_claim_id` and `evidence_strength` were deleted this way
+ * until they were added below.
+ *
+ * ⚠ DO NOT "FIX" THE NEXT MISSING FIELD WITH `.passthrough()`. A passthrough
+ * carries the value untyped and invisible to every consumer, and rejects
+ * nothing — it substitutes hazard 2 for hazard 1 rather than closing either.
+ * Add the field explicitly. `tests/m1-review-transport-continuity.test.ts`
+ * guards both halves: the value must arrive AND the schema must declare it.
+ *
+ * ⚠ AND THE STRIP IS NOT FULLY CLOSED. Derived key-by-key against CEE's
+ * producer at CEE `staging` f1482c0b (`Prompts/canonical/decision_review.txt`
+ * + the shape declared in CEE's own `phase3-blocks.ts` header),
+ * `suggested_action` is ALSO declared by the producer on every bias finding and
+ * is still stripped here. It is left out of this change on purpose — it has no
+ * consumer in this repo yet, and adding a field with no reader would be an
+ * untested claim — but it is a real gap, not an oversight.
+ */
 const BiasFindingSchema = z.object({
   type: z.string(),
   source: z.enum(['structural', 'semantic']),
@@ -509,6 +565,10 @@ const BiasFindingSchema = z.object({
   affected_elements: z.array(z.string()),
   linked_critique_code: z.string().optional(),
   brief_evidence: z.string().optional(),
+  // ROADMAP 2.404 mechanism — see the BiasFinding interface for why these are
+  // typed as they are, and why `evidence_strength` is not a closed enum.
+  dsk_claim_id: z.string().optional(),
+  evidence_strength: z.string().optional(),
 });
 
 const DecisionQualityPromptSchema = z.object({
