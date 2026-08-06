@@ -7597,9 +7597,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // stats (mean/p10/p50/p90) are finite, via the SAME predicate the outcome
         // serialiser uses (Codex round-3 #2). The legacy `expected_outcome` is NOT
         // emitted in V2, so it must not count toward usability. Require at least one
-        // usable option AND that every option not explicitly skipped/errored is
-        // usable — so 'computed' cannot be reported when a computed option's outcome
-        // was omitted. (Transitively gates top-level 'computed' via determineTopLevelStatus.)
+        // usable option AND that every option ISL did NOT flag as incompletely
+        // computed is usable — so 'computed' cannot be reported when a computed
+        // option's outcome was omitted. (Transitively gates top-level 'computed'
+        // via determineTopLevelStatus.)
         //
         // ⚠ ROADMAP 2.744 — THE EXEMPTION LIST NAMED VALUES ISL CANNOT EMIT.
         // It read `r?.status === 'skipped' || r?.status === 'error'`. Both are
