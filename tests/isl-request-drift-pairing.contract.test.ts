@@ -546,12 +546,35 @@ describe('PLoT → ISL request drift pairing (contract step-2 slice 2)', () => {
     });
 
     it('and the CURRENT producers do not — which is the delta slice 6 bought', () => {
+      /**
+       * ⚠ FAIL LOUD, NOT AS A TypeError (ROADMAP 2.763).
+       *
+       * 2.762 hardened the per-producer block above so a producer added without
+       * its artefacts reports a NAMED bijection red. This test was missed by
+       * that pass and kept the non-null assertions, so the same situation
+       * surfaced here as `TypeError: Cannot read properties of undefined
+       * (reading 'parses')` — measured, not theorised: it is what 2.763 hit on
+       * adding the factor-correlations producer, alongside the two named reds.
+       * A TypeError names neither the producer nor the missing artefact, which
+       * is the difference between a gate that reports a gap and one that looks
+       * broken.
+       */
+      let checked = 0;
       for (const producer of PRODUCERS) {
-        const entry = TRANSCRIPT.egress[producer.name]!;
-        if (entry.parses !== true) continue;
-        const fixture = FIXTURES.get(producer.name)!;
-        expect(rejectedPaths(fixture.body, entry)).not.toContain('parameter_uncertainties[].mean');
+        const entry = TRANSCRIPT.egress[producer.name];
+        const fixture = FIXTURES.get(producer.name);
+        expect(
+          { replayEntry: entry !== undefined, committedFixture: fixture !== undefined },
+          `${producer.name} has no committed fixture and/or no replay entry, so this control cannot ` +
+            `speak for it.\n${REGENERATE}`,
+        ).toEqual({ replayEntry: true, committedFixture: true });
+        if (entry!.parses !== true) continue;
+        expect(rejectedPaths(fixture!.body, entry!)).not.toContain('parameter_uncertainties[].mean');
+        checked += 1;
       }
+      // Positive control (trap 13): an absence assertion that ran over zero
+      // producers would pass by testing nothing.
+      expect(checked, 'this control checked no producer at all').toBeGreaterThan(0);
     });
   });
 

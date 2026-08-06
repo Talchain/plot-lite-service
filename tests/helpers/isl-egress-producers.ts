@@ -37,6 +37,7 @@ import type {
   EngineNodeV3,
   OptionV3,
   GoalConstraint,
+  FactorCorrelation,
 } from '../../src/types/engine-v3.js';
 
 // -----------------------------------------------------------------------------
@@ -373,6 +374,88 @@ function buildV2GoalStampedRequest(frame: GoalThresholdFrameType): ISLRobustness
   return request;
 }
 
+/**
+ * ROADMAP 2.763 — the FACTOR-CORRELATED shape.
+ *
+ * WHY THIS EXISTS. `factor_correlations` was the LAST live PLoT-side
+ * request-gated branch no fixture exercised. `FactorCorrelation`
+ * (`factor_a` / `factor_b` / `rho`) is a whole CLASS in ISL's
+ * `RobustnessRequestV2` closure that the pairing had never walked, because no
+ * producer emitted the key — so the branch at translator-v3.ts:803-805 was
+ * structurally unobservable. A field PLoT added there, or a field ISL stopped
+ * declaring there, would have been dropped silently by ISL's `extra:"ignore"`
+ * with this gate staying GREEN. That is not a hypothetical: it is exactly how
+ * `goal_threshold_frame` survived undeclared from 1–6 Aug 2026 (see the 2.762
+ * block above). Same defect class, last remaining instance.
+ *
+ * ⚠ THE SHAPE IS DERIVED, NOT INVENTED (trap 16's inverse — a fixture you wrote
+ * yourself is not evidence about the wire). Two independent bounds were read at
+ * the bytes and the value below satisfies BOTH:
+ *
+ *   UPSTREAM — what the live producer can emit. `routes/v2/run.ts:1333-1344`
+ *     admits an array of `{ factor_a: string, factor_b: string, rho: number }`
+ *     (all three required) and applies LIGHT STRUCTURAL validation only;
+ *     `run.ts:6729` then forwards `body.factor_correlations` VERBATIM as the
+ *     11th positional argument (Capability #100 / doctrine D-23.4). PLoT
+ *     deliberately re-implements none of the semantics.
+ *
+ *   DOWNSTREAM — what the pinned model accepts. `validate_factor_correlations`
+ *     (ISL src/models/robustness_v2.py:1120, a `model_validator(mode="after")`,
+ *     so it runs during the REPLAY, not only in the live handler) fails closed on:
+ *     a self-pair at any rho; a factor id that is not a graph node; a factor with
+ *     no `parameter_uncertainty`; a distribution outside {normal, uniform}; a
+ *     duplicate unordered pair; and a matrix indefinite beyond the near-PSD
+ *     repair band. `|rho| <= 1` and the id pattern `^[a-z0-9_:-]+$` are enforced
+ *     by the `FactorCorrelation` field itself.
+ *
+ * So the pair members must be drawn from the factors that carry a PU in THIS
+ * fixture graph — `fac_headcount`, `fac_cost`, `fac_market` (all `normal`;
+ * `con_cost_cap` is the injected constraint PU). `fac_no_obs` and `goal_margin`
+ * ARE graph nodes but carry no PU, so naming either would 422 and the replay
+ * would record `parses: false` rather than walking the class.
+ *
+ * Two pairs over three distinct factors, opposite signs: the array is emitted
+ * with more than one member (so the `factor_correlations[]` path collapse is
+ * non-degenerate rather than proven on a single item) and both signs of `rho`
+ * ride the wire. With the unstated (headcount, cost) pair zero-filled, the
+ * assembled matrix in ISL's canonical PU order [fac_headcount, fac_cost,
+ * fac_market] has leading minors 1, 1, 0.7775 — positive definite, so it clears
+ * the admissibility gate without relying on the Higham repair band.
+ */
+const FACTOR_CORRELATIONS: FactorCorrelation[] = [
+  { factor_a: 'fac_headcount', factor_b: 'fac_market', rho: 0.4 },
+  { factor_a: 'fac_market', factor_b: 'fac_cost', rho: -0.25 },
+];
+
+/**
+ * The base /v2/run body PLUS client-supplied correlations. Deliberately
+ * identical to `buildV2Request(CONSTRAINTS)` in every other respect, so the
+ * committed fixture differs from `v2-run-base` by exactly one top-level key and
+ * a reviewer can see what this producer adds without diffing semantics.
+ */
+function buildV2FactorCorrelatedRequest(): ISLRobustnessRequestV3 {
+  const graph = buildGraph();
+  const request = toISLRobustnessRequest(
+    graph,
+    OPTIONS,
+    'goal_margin',
+    'req_slice2_pairing_fc',
+    2000,
+    undefined, // goalThreshold — orthogonal to correlations; kept off so this
+    //            fixture isolates the new branch rather than two at once.
+    CONSTRAINTS,
+    'seed-slice2',
+    undefined, // includePathDecomposition
+    undefined, // prebuiltParameterUncertainties
+    FACTOR_CORRELATIONS,
+  );
+  // Same post-translator mutation the live /v2/run path applies (Phase 4b+).
+  // It appends the `con_cost_cap` PU, which is why the correlated factors are
+  // checked against the POST-injection uncertainty list ISL actually receives.
+  injectConstraintParameterUncertainties(request, CONSTRAINTS, graph.nodes, 'goal_margin');
+  return request;
+}
+
 function buildV2Request(constraints: GoalConstraint[]): ISLRobustnessRequestV3 {
   const graph = buildGraph();
   const request = toISLRobustnessRequest(
@@ -490,6 +573,26 @@ export const PRODUCERS: ProducerSpec[] = [
         endpoint: '/api/v1/robustness/analyze/v2',
         body: buildV2GoalStampedRequest('delta'),
         requestId: 'req_slice2_pairing_goal',
+      });
+      return takeCaptured();
+    },
+  },
+  {
+    name: 'v2-run-factor-correlations',
+    endpoint: '/api/v1/robustness/analyze/v2',
+    site: 'routes/v2/run.ts → islService.callAnalysisEndpoint (client-supplied factor correlations, Capability #100 / D-23.4)',
+    liveness: 'live',
+    note:
+      'ROADMAP 2.763. Carries a non-empty factor_correlations array — the request-gated branch at ' +
+      'translator-v3.ts:803-805, fed VERBATIM from body.factor_correlations (run.ts:6729). Before this producer NO ' +
+      'fixture in the pairing emitted the key, so ISL\'s whole FactorCorrelation class (factor_a/factor_b/rho) was ' +
+      'never walked and a drift inside it could not be reported. The pair members and rho values are derived from ' +
+      'the route schema (run.ts:1333) and ISL\'s validate_factor_correlations (robustness_v2.py:1120), not invented.',
+    run: async () => {
+      await newClient().request({
+        endpoint: '/api/v1/robustness/analyze/v2',
+        body: buildV2FactorCorrelatedRequest(),
+        requestId: 'req_slice2_pairing_fc',
       });
       return takeCaptured();
     },
