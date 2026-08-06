@@ -710,10 +710,9 @@ describe('Decision Review Orchestrator', () => {
           {
             factor_id: 'factor-market',
             factor_label: 'Market Demand',
-            current_value: 0.9, // Modified from 0.7 → MODIFIED_VALUES
-            flip_value: null,
-            direction: 'decrease',
-            plain_english: 'Market demand flip threshold.',
+            current_display: '90%', // Modified from 0.7 (displays as "70%") → MODIFIED_VALUES
+            flip_display: '50%',
+            narrative: 'Market demand flip threshold.',
           },
         ],
       };
@@ -747,10 +746,9 @@ describe('Decision Review Orchestrator', () => {
           {
             factor_id: 'factor-market',
             factor_label: 'Market Demand',
-            current_value: 0.9, // Modified from 0.7 → MODIFIED_VALUES
-            flip_value: null,
-            direction: 'decrease',
-            plain_english: 'Market demand flip threshold.',
+            current_display: '90%', // Modified from 0.7 (displays as "70%") → MODIFIED_VALUES
+            flip_display: '50%',
+            narrative: 'Market demand flip threshold.',
           },
         ],
       };

@@ -506,7 +506,95 @@ function validatePreMortemGrounding(
 // =============================================================================
 
 /**
- * Validate flip_thresholds match PLoT-computed values.
+ * Numeric tokeniser. Deliberately the SAME expression CEE's own agreement rung
+ * uses to check a display string against the value it names (quoted in
+ * `flip-threshold-denormaliser.ts:517`), so the two sides of the boundary judge
+ * a display form by the same rule rather than by two hand-written mirrors.
+ */
+const DISPLAY_NUMBER_TOKEN = /-?\d+(?:\.\d+)?/g;
+
+/**
+ * The single number a display string names, or `null` when that is not
+ * decidable. Zero tokens ("significantly lower") and several tokens ("Q3 2026")
+ * are both undecidable: see {@link validateFlipThresholds} for why undecidable
+ * must mean "no error".
+ */
+function soleNumberNamed(display: unknown): number | null {
+  // Typed `unknown`, not `string`, deliberately. `validateM1Review` is exported
+  // and is called directly on unparsed objects (several suites do exactly that),
+  // so a missing or non-string display must return "undecidable" rather than
+  // throw — a TypeError raised inside validation would escape as a 500 on a path
+  // whose entire job is to degrade gracefully.
+  if (typeof display !== 'string') return null;
+  const tokens = display.match(DISPLAY_NUMBER_TOKEN);
+  if (!tokens || tokens.length !== 1) return null;
+  const value = Number(tokens[0]);
+  return Number.isFinite(value) ? value : null;
+}
+
+/**
+ * Does `display` name `expected`, under one of the producer's two permitted
+ * display forms?
+ *
+ * Derived from CEE `staging` 658cdff3,
+ * `Prompts/canonical/decision_review.txt:411-423` — there are exactly two forms
+ * and the prompt states there is no third:
+ *   1. The value carries a unit → quoted verbatim with the unit appended
+ *      ("16000 GBP"). The number named is the value itself.
+ *   2. The value carries no unit and lies between 0 and 1 → probability-like, so
+ *      the percentage form ("35%" for 0.35). The number named is value × 100,
+ *      and the prompt calls this "the one permitted transformation".
+ *
+ * Identity is accepted unconditionally, including for unitless values outside
+ * [0,1] — the prompt describes no display form for those, so refusing them here
+ * would invent a rule the producer was never given.
+ */
+function displayNamesValue(
+  display: unknown,
+  expected: number,
+  unit: string | undefined
+): boolean {
+  const named = soleNumberNamed(display);
+  if (named === null) return false;
+
+  // Case 1 — verbatim.
+  if (named === expected) return true;
+
+  // Case 2 — percentage form, permitted only for a unitless probability-like
+  // value. Compared with a relative epsilon: 0.35 * 100 is 35.000000000000004 in
+  // IEEE-754, and a guard that fails on float noise would discard whole reviews
+  // for arithmetic it performed itself.
+  const unitless = typeof unit !== 'string' || unit.trim().length === 0;
+  if (unitless && expected >= 0 && expected <= 1) {
+    const asPercent = expected * 100;
+    const tolerance = Math.max(Math.abs(asPercent), 1) * 1e-9;
+    if (Math.abs(named - asPercent) <= tolerance) return true;
+  }
+
+  return false;
+}
+
+/**
+ * Validate that the flip thresholds CEE returned still name the numbers PLoT
+ * sent — the anti-fabrication guard for this block.
+ *
+ * ⚠ ROADMAP 2.670 — RE-EXPRESSED, NOT RELAXED. This tier used to compare
+ * `threshold.current_value !== expected.current_value` numerically. The producer
+ * does not return numbers: it returns the DISPLAY FORM of PLoT's numbers as
+ * strings (see {@link FlipThreshold}). Deleting the tier along with the numeric
+ * fields would have quietly retired a BLOCKING data-integrity guard while the
+ * schema change was being reviewed for something else — so the check now proves
+ * the same property against the shape the producer actually sends: the number
+ * NAMED in the display string must be the number PLoT supplied.
+ *
+ * ⚠ WHY AN UNDECIDABLE DISPLAY RAISES NO ERROR. `MODIFIED_VALUES` is one of the
+ * few BLOCKING codes (`WARNING_GRADE_CODES` excludes it), so a false positive
+ * here discards the entire review — the exact failure mode 2.670 exists to
+ * close. The old guard only ever fired when it could PROVE two numbers differed;
+ * this one keeps that character deliberately. A display naming no number, or
+ * several, is a formatting problem this tier cannot adjudicate, and it is not
+ * evidence that a value was modified. Error direction is therefore fail-open on
+ * ambiguity and fail-closed on a provable contradiction.
  */
 function validateFlipThresholds(
   review: M1Review,
@@ -526,22 +614,29 @@ function validateFlipThresholds(
       continue;
     }
 
-    // Verify current_value matches exactly
-    if (threshold.current_value !== expected.current_value) {
-      errors.push({
-        field: `flip_thresholds.${threshold.factor_id}.current_value`,
-        code: M1ReviewFailureCodes.MODIFIED_VALUES,
-        message: `current_value modified: expected ${expected.current_value}, got ${threshold.current_value}`,
-      });
+    // Verify current_display still names the value PLoT sent.
+    if (!displayNamesValue(threshold.current_display, expected.current_value, expected.unit)) {
+      if (soleNumberNamed(threshold.current_display) !== null) {
+        errors.push({
+          field: `flip_thresholds.${threshold.factor_id}.current_display`,
+          code: M1ReviewFailureCodes.MODIFIED_VALUES,
+          message: `current_display names a different value: expected ${expected.current_value}${expected.unit ? ` ${expected.unit}` : ''}, got "${threshold.current_display}"`,
+        });
+      }
     }
 
-    // Only verify flip_value if PLoT computed it (not null)
-    if (expected.flip_value !== null && threshold.flip_value !== expected.flip_value) {
-      errors.push({
-        field: `flip_thresholds.${threshold.factor_id}.flip_value`,
-        code: M1ReviewFailureCodes.MODIFIED_VALUES,
-        message: `flip_value modified: expected ${expected.flip_value}, got ${threshold.flip_value}`,
-      });
+    // Only verify flip_display if PLoT computed a flip value (not null).
+    if (
+      expected.flip_value !== null &&
+      !displayNamesValue(threshold.flip_display, expected.flip_value, expected.unit)
+    ) {
+      if (soleNumberNamed(threshold.flip_display) !== null) {
+        errors.push({
+          field: `flip_thresholds.${threshold.factor_id}.flip_display`,
+          code: M1ReviewFailureCodes.MODIFIED_VALUES,
+          message: `flip_display names a different value: expected ${expected.flip_value}${expected.unit ? ` ${expected.unit}` : ''}, got "${threshold.flip_display}"`,
+        });
+      }
     }
   }
 }

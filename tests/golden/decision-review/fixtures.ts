@@ -89,7 +89,7 @@ export const BASE_FLIP_THRESHOLD_DATA = [
  * NOTE: All numbers in GROUNDED fields must match allowed numbers from input.
  * Grounded fields: narrative_summary, robustness_explanation.*, readiness_rationale,
  *                  bias_findings.description, scenario_contexts.*.trigger_description/consequence
- * Prescriptive fields (NOT scanned): evidence_enhancements, pre_mortem.*, flip_thresholds.plain_english,
+ * Prescriptive fields (NOT scanned): evidence_enhancements, pre_mortem.*, flip_thresholds.narrative,
  *                                    decision_quality_prompts.*
  *
  * Allowed numbers from buildTestRequest():
@@ -165,15 +165,31 @@ export const VALID_READY_REVIEW: M1Review = {
     grounded_in: ['edge-3', 'factor-market'],
     review_trigger: 'Review if trends decline',
   },
+  // ⚠ ROADMAP 2.670 — REGENERATED FROM THE PRODUCER, NOT SELF-AUTHORED.
+  // These rows were previously written to PLoT's OWN schema (numeric
+  // current_value/flip_value + plain_english). That is a shape CEE has never
+  // returned, so this fixture encoded PLoT's model of CEE rather than CEE's
+  // output and was structurally incapable of catching the mismatch that
+  // discarded every real review. Do not "restore" the numeric form.
+  //
+  // Provenance: CEE `staging` 658cdff3 —
+  // `Prompts/canonical/decision_review.txt:407-425` (output contract) and
+  // `src/orchestrator-v5/compose/phase3-blocks.ts` header (CEE's own
+  // declaration of the v11 output schema). Both give exactly:
+  //   { factor_id, factor_label, current_display, flip_display, narrative }
+  //
+  // Display form derivation for THIS row: BASE_FLIP_THRESHOLD_DATA carries
+  // `current_value: 0.7` with NO unit, and 0.7 lies in [0,1], so the producer's
+  // case 2 applies — percentage form, "70%", never "0.7".
   flip_thresholds: [
     {
       factor_id: 'factor-market',
       factor_label: 'Market Demand',
-      current_value: 0.7,  // Must match BASE_FLIP_THRESHOLD_DATA
-      flip_value: 0.5,     // Prescriptive value, NOT validated against input
-      direction: 'decrease',
+      current_display: '70%',   // = BASE_FLIP_THRESHOLD_DATA current_value 0.7, unitless → percentage form
+      flip_display: '50%',      // BASE flip_value is null, so Tier 7 does not constrain this
       // Prescriptive - NOT scanned
-      plain_english: 'Market demand would need to drop significantly to flip the recommendation.',
+      narrative:
+        'If Market Demand moves from 70% to 50%, the leading option changes.',
     },
   ],
 };
@@ -372,14 +388,17 @@ export const INVALID_PREMORTEM_GROUNDING_ID: M1Review = {
  */
 export const INVALID_MODIFIED_FLIP_VALUES: M1Review = {
   ...VALID_READY_REVIEW,
+  // 2.670: the modification is now expressed in the producer's display form.
+  // BASE_FLIP_THRESHOLD_DATA says current_value 0.7 (unitless → "70%"); this row
+  // names 90, which is neither 0.7 nor 0.7 × 100, so Tier 7 must still raise
+  // MODIFIED_VALUES. The fixture keeps its original purpose exactly.
   flip_thresholds: [
     {
       factor_id: 'factor-market',
       factor_label: 'Market Demand',
-      current_value: 0.9, // Modified from 0.7
-      flip_value: 0.35,
-      direction: 'decrease',
-      plain_english: 'Flip threshold description',
+      current_display: '90%', // Modified from 0.7 (which displays as "70%")
+      flip_display: '35%',
+      narrative: 'Flip threshold description',
     },
   ],
 };

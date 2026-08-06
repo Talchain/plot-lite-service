@@ -125,7 +125,7 @@ describe('Validation Downgrade: READINESS_CONTRADICTION', () => {
     review.readiness_rationale = 'We are confident. Stability at 78%.';
     // Trigger MODIFIED_VALUES: tamper with flip threshold current_value
     review.flip_thresholds = [
-      { factor_id: 'factor_a', current_value: 999, flip_value: 0.5, label: 'Factor A' },
+      { factor_id: 'factor_a', factor_label: 'Factor A', current_display: '999%', flip_display: '50%', narrative: 'Tampered current value — 2.670: expressed in the producer display form.' },
     ];
 
     const context = createContext({ readiness: 'needs_evidence' });
@@ -265,7 +265,7 @@ describe('Blocking codes remain hard failures', () => {
   it('MODIFIED_VALUES → valid=false, NOT downgrade-eligible', () => {
     const review = createValidReview();
     review.flip_thresholds = [
-      { factor_id: 'factor_a', current_value: 999, flip_value: 0.5, label: 'Test' },
+      { factor_id: 'factor_a', factor_label: 'Test', current_display: '999%', flip_display: '50%', narrative: 'Tampered current value — 2.670: expressed in the producer display form.' },
     ];
 
     const context = createContext();
@@ -283,7 +283,7 @@ describe('Blocking codes remain hard failures', () => {
     const review = createValidReview();
     review.narrative_summary = 'Option A wins with 99% probability.'; // Ungrounded
     review.flip_thresholds = [
-      { factor_id: 'factor_a', current_value: 999, flip_value: 0.5, label: 'Test' },
+      { factor_id: 'factor_a', factor_label: 'Test', current_display: '999%', flip_display: '50%', narrative: 'Tampered current value — 2.670: expressed in the producer display form.' },
     ];
 
     const context = createContext();

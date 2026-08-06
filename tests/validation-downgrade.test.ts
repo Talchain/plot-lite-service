@@ -425,7 +425,7 @@ describe('Validation Downgrade: READINESS_MISALIGNMENT', () => {
       review.readiness_rationale = 'We should consider this decision carefully.';
       // Trigger MODIFIED_VALUES: tamper with flip threshold current_value
       review.flip_thresholds = [
-        { factor_id: 'factor_a', current_value: 999, flip_value: 0.5, label: 'Factor A' },
+        { factor_id: 'factor_a', factor_label: 'Factor A', current_display: '999%', flip_display: '50%', narrative: 'Tampered current value — 2.670: expressed in the producer display form.' },
       ];
 
       const context = createContextWithReadiness('needs_framing', [0.74, 0.78, 0.26]);

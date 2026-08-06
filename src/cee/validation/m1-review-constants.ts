@@ -146,7 +146,9 @@ export const M1_REVIEW_GROUNDING_MAP: Record<string, GroundingType> = {
   'pre_mortem.warning_signs': 'prescriptive',
   'pre_mortem.mitigation': 'prescriptive',
   'pre_mortem.review_trigger': 'prescriptive',
-  'flip_thresholds.plain_english': 'prescriptive',
+  // 2.670: renamed with the field. The producer calls this `narrative`; the old
+  // key named a field CEE has never emitted, so this entry classified nothing.
+  'flip_thresholds.narrative': 'prescriptive',
   'decision_quality_prompts.question': 'prescriptive',
   'decision_quality_prompts.applies_because': 'prescriptive',
   'framing_check.concern': 'prescriptive',

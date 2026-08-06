@@ -140,18 +140,46 @@ export interface PreMortem {
  * Shows how much a factor would need to change to flip the recommendation.
  */
 export interface FlipThreshold {
-  /** Factor ID */
+  /** Factor ID — copied exactly from the `flip_threshold_data` entry. */
   factor_id: string;
-  /** Factor label for display */
+  /** Factor label for display — copied exactly. */
   factor_label: string;
-  /** Current value of the factor */
-  current_value: number;
-  /** Value at which recommendation would flip (null for heuristic approach) */
-  flip_value: number | null;
-  /** Direction of change needed. 2.258: absent when there is no flip. */
-  direction?: string;
-  /** Plain English explanation */
-  plain_english: string;
+  /**
+   * The DISPLAY form of the factor's current value, as a string.
+   *
+   * ⚠ THIS IS THE RETURN SHAPE, NOT THE REQUEST SHAPE — ROADMAP 2.670. Do not
+   * "restore" the numeric `current_value`/`flip_value` that used to sit here.
+   * PLoT SENDS numbers ({@link FlipThresholdInputData}); CEE SENDS BACK display
+   * strings, and modelling the two directions with one shape is precisely the
+   * defect 2.670 records: a producer-conformant row failed `safeParseM1Review`
+   * with three `invalid_type` "Required" issues, and the orchestrator discards
+   * the ENTIRE review on a shape failure — so one mis-modelled sub-object killed
+   * every other section of the review with it, on every run carrying a flip.
+   *
+   * The producer's contract (CEE `staging` 658cdff3,
+   * `Prompts/canonical/decision_review.txt:411-423`) permits exactly two forms
+   * and no third:
+   *   1. The value carries a unit → quoted verbatim with the unit appended:
+   *      "16000 GBP", "800 customers". No rounding, no separators, no "k"/"m".
+   *   2. The value carries no unit and lies between 0 and 1 → probability-like,
+   *      so the percentage form: "35%", never "0.35".
+   * A bare decimal in either field is a raw probability and is not a legal
+   * display form. `validateFlipThresholds` (validator Tier 7) enforces that the
+   * NUMBER named here is the number PLoT sent, under whichever form applies.
+   */
+  current_display: string;
+  /** The DISPLAY form of the value at which the recommendation flips. Same two
+   *  permitted forms as {@link current_display}. */
+  flip_display: string;
+  /**
+   * 1-2 sentence plain-language explanation (max 220 chars), restating the two
+   * values in the same display form.
+   *
+   * ⚠ Named `narrative` by the producer. It was called `plain_english` here
+   * until 2.670; the rename is not cosmetic — the old name is a field CEE has
+   * never emitted, so it was `Required` and absent on every real review.
+   */
+  narrative: string;
 }
 
 /**
@@ -585,15 +613,26 @@ const PreMortemSchema = z.object({
   review_trigger: z.string().optional(),
 });
 
+/**
+ * ROADMAP 2.670 — declared in the PRODUCER's shape (display strings), not in
+ * PLoT's own request shape (numbers). See the {@link FlipThreshold} interface
+ * for the full derivation and for why the numeric members are gone.
+ *
+ * Derived from CEE `staging` 658cdff3, two agreeing sources:
+ *   - `Prompts/canonical/decision_review.txt:407-425` (the output contract)
+ *   - `src/orchestrator-v5/compose/phase3-blocks.ts` header (CEE's own
+ *     declaration of the v11 LLM output schema)
+ *
+ * `direction` is deliberately NOT declared: it appears only on the INPUT
+ * (`flip_threshold_data`), never on the row CEE returns. Declaring an optional
+ * field no producer emits and no consumer reads would be an untested claim.
+ */
 const FlipThresholdSchema = z.object({
   factor_id: z.string(),
   factor_label: z.string(),
-  current_value: z.number(),
-  flip_value: z.number().nullable(), // PLoT sends null for heuristic approach
-  // 2.258: optional, mirroring @talchain/schemas 0.31.0
-  // `EnrichmentFlipThresholdSchema.direction`. A no-flip row omits it.
-  direction: z.string().optional(),
-  plain_english: z.string(),
+  current_display: z.string(),
+  flip_display: z.string(),
+  narrative: z.string(),
 });
 
 const FramingCheckSchema = z.object({

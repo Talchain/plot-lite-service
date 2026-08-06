@@ -42,7 +42,11 @@ const CACHE_TTL_MS = 60 * 60 * 1000;
 const MAX_CACHE_SIZE = 1000;
 
 /** Cache version - bump when M1Review schema changes to auto-invalidate stale entries */
-const REVIEW_CACHE_VERSION = '1';
+// 2.670: bumped 1 -> 2 with the `flip_thresholds` shape change. A cached entry
+// written under the old shape carries numeric `current_value`/`flip_value` and
+// no `current_display`, so serving one after the change would hand a consumer a
+// row the current schema does not describe.
+const REVIEW_CACHE_VERSION = '2';
 
 // =============================================================================
 // Cache Storage
