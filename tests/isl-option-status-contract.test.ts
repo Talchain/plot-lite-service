@@ -29,17 +29,27 @@
  * VALUE, not a type, precisely so this comparison can happen at all — a TS
  * union erases at compile time and cannot be asserted against anything.
  *
- * ⚠ ON THE PIN'S STALENESS (disclosed, measured, and bounded — do not skip):
- * PIN.json pins ISL at 35149dd1; ISL staging is 686fcb7f, 11 commits ahead, and
- * `src/models/response_v2.py` HAS changed between them. That does NOT invalidate
- * this pairing, and the reason is specific rather than hopeful: the
- * `OptionResultV2.status` enum and `required` list were read at BOTH shas and
- * are byte-identical (`['computed','partial','failed']`; required includes
- * `id`, `outcome`, `status`). The pin was deliberately NOT bumped by 2.744 —
- * re-pinning re-derives the whole PLoT->ISL REQUEST drift pairing (a different
- * seam, with its own transcript and Python driver) and would have smuggled an
- * unrelated, unreviewed contract change into a defect fix. If you bump the pin,
- * re-read this test: it becomes MORE faithful, not less.
+ * ON THE PIN — the staleness this block used to disclose is CLOSED (ROADMAP
+ * 2.749, 2026-08-06). 2.744 wrote here that PIN.json pinned 35149dd1 while ISL
+ * staging was 686fcb7f, 11 commits ahead, and asked the re-pinning lane to
+ * re-read this test. That happened: PIN.json now pins **686fcb7f**, so producer
+ * and pin are the same bytes and there is no gap left to bound.
+ *
+ * The bump does not disturb this pairing, and the reason is measured rather
+ * than hopeful — the same check 2.744 ran, re-run ACROSS the bump: the
+ * `OptionResultV2.status` enum and `required` list are byte-identical at BOTH
+ * shas (`['computed','partial','failed']`; required is exactly
+ * `['id','outcome','status']`). What DID move in `response_v2.py` is a
+ * different class: `OutcomeDistributionV2.mean`/`.std` went required ->
+ * optional (ISL #125 / 2.477(a) — omitted, never null, when an option has no
+ * finite sample population). That is the sibling of the `status` field this
+ * file pairs, not the field itself, and PLoT's consumers already handle it
+ * (`isl-absent-outcome-mean-honesty.test.ts`, `ISLOutcomeStats.mean?`).
+ *
+ * The standing lesson from 2.744 is unchanged and worth keeping: a re-pin
+ * re-derives the whole PLoT->ISL REQUEST drift pairing (a different seam, with
+ * its own transcript and Python driver), so it is done deliberately and ALONE —
+ * never folded into a defect fix.
  */
 
 import { describe, it, expect } from 'vitest';

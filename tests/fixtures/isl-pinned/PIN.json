@@ -21,9 +21,9 @@
   "isl": {
     "repo": "Talchain/Inference-Service-Layer",
     "ref": "staging",
-    "sha": "35149dd148e0192ee1c44ec05336818371e30f81",
-    "committed_at": "2026-08-01T03:32:28+01:00",
-    "pinned_by": "ROADMAP 2.228-F3 consumer lane, 2026-08-01 (ISL PR #117 include_factor_flips / FactorFlipValueV2). The previous pin (0316098b, 27 Jul) PREDATED the request field this lane sends, so the drift gate correctly reported include_factor_flips as undeclared. Re-pinned rather than exempted: an exemption would have declared the field droppable, which is the opposite of what this lane needs."
+    "sha": "686fcb7fed0b2a4c3a4d82474935c33e0a063477",
+    "committed_at": "2026-08-06T19:03:54+01:00",
+    "pinned_by": "ROADMAP 2.749 deliberate re-pin, 2026-08-06 (11 commits: ISL #118-#126 + 2.720 + 2.704). The previous pin (35149dd1, 1 Aug) PREDATED goal_threshold_frame, which PLoT ALREADY SENDS (translator-v3.ts:767, ROADMAP 2.258) — so the pairing was derived against bytes in which a field PLoT emits was UNDECLARED and would have been silently dropped by extra='ignore'. The gate never went RED on it only because no egress producer builds a goal-stamped body; that coverage gap is the finding, not the pin. Also adopted here: user_stated_ranges (2.720, PLoT does not send it), and on the response side OutcomeDistributionV2.mean/std required -> optional (ISL #125 / 2.477(a)) which PLoT's consumers and types already handle. Re-pinned alone, no behaviour change: ROADMAP 2.744's lane deliberately did NOT bump so its defect fix would not smuggle an unrelated contract change."
   },
   "runtime": {
     "python": "^3.11 (pyproject.toml:10)",
@@ -36,17 +36,18 @@
     "isl_openapi_json": {
       "vendored_as": "tests/fixtures/isl-pinned/isl-openapi.json",
       "upstream_path": "openapi.json",
-      "sha256": "96bd9627aa76c76e4e280657a7972ae8ea221833f520788cd22938ab571d86ac",
+      "sha256": "a9e828fcb29e9dd5f7adb2856d11a94b0b0eb1ff646d9026a0648305319b06dc",
       "what_it_is": "ISL's committed, MACHINE-GENERATED OpenAPI document (scripts/generate_openapi.py -> FastAPI app.openapi()). It is Pydantic's own description of the mounted request models, not a hand-written copy — which is why the pairing may consume it hermetically. ISL CI (.github/workflows/openapi-validation.yml) runs `generate_openapi.py --check` on every PR touching src/api, src/models, pyproject or the spec, so it cannot drift from the models without ISL going red.",
       "what_it_is_NOT": "It is not evidence about DEPLOYED ISL. It describes the app as built at this sha."
     }
   },
   "source_sha256": {
-    "_note": "The model + router files every claim in the pairing is derived from. The Python replay driver verifies each of these against the clone it is pointed at and REFUSES to run on a mismatch, so a transcript can never be produced from bytes other than these. Review S4: src/api/robustness.py is pinned too — the mounted_request_models handler cite names a LINE in it, and a hand-maintained line number in another repo drifts silently (it already had: :578 was stale by one at this sha). Now the driver refuses on any change to it.",
-    "src/api/main.py": "23a6754ece24e62fe50b6900b27a30c802963137b32784ac44c45a74071d98e1",
-    "src/models/robustness_v2.py": "3fcf0a7a9ea87da8d4c19a4046b8116a2d54510c93d10e6a31f0ee17df1f1f11",
+    "_note": "The model + router files every claim in the pairing is derived from. The Python replay driver verifies each of these against the clone it is pointed at and REFUSES to run on a mismatch, so a transcript can never be produced from bytes other than these. Review S4: src/api/robustness.py is pinned too — the mounted_request_models handler cite names a LINE in it, and a hand-maintained line number in another repo drifts silently. It drifted again at this re-pin (2.749): analyze_robustness_v2 578 -> 579 -> 582, analyze_counterfactual 255 -> 263. RE-DERIVE every line cite in this file at each re-pin; never carry one forward. src/models/range_fit.py was ADDED to this list at the 2.749 re-pin: robustness_v2.py and response_v2.py now import UserStatedRange / RangeFitDisclosure from it (ROADMAP 2.720), so it is load-bearing for BOTH the request and the response closure — without an entry here it could change without the pin noticing, which is the exact hole this list exists to close.",
+    "src/api/main.py": "bc600d5cca3a888ebe580ad36e225449e15de0f3d0e6f56263cb52e23f2ba800",
+    "src/models/robustness_v2.py": "316a64e5d4094d098902183aa6dd9683c989f1aa5a22ef381bc40007b8cabf73",
+    "src/models/range_fit.py": "a3bf7e6052a9facee579ee4c967b80a1c430244f539a0c48c1f00ea528ce76bd",
     "src/models/requests.py": "e652db133fd5985cc25cb42d4fd6b8d59554f4c291d87a622df30b323cc0c0ba",
-    "src/models/response_v2.py": "0b4cde25e29f034f9f3876bd7456f2ddde652cefe29e1d131ec02470b00ca822",
+    "src/models/response_v2.py": "77e8fdad6f04535b583bf5a057fc1bf3f2807b68b1000a82e514f5da989b4930",
     "src/models/shared.py": "0e5014895ec203375646dea9db8f035f05a625e86eec340c713195ebf0e7b812",
     "src/models/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "src/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -56,27 +57,27 @@
     "src/utils/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "src/utils/correlation.py": "e8845552739dd174fbead62d72dccb128ffac0c1e4b1ebcbfbbc95b1cd2927d4",
     "src/utils/security_validators.py": "0cdcb577701bfff50057e4df863d34199613a3595df017d1256b8069f14e1211",
-    "src/api/robustness.py": "cdaa674cd7fd0c879b55baa9ff5b428f93bbad971038a046093353b3f9857d54"
+    "src/api/robustness.py": "0c81e698bea1ad25b4a68665a053123fe118f0d4519d0188a473615a09b260e8"
   },
   "mounted_request_models": {
     "_note": "Route -> request model, for the paths PLoT sends to. Derived from src/api/main.py include_router() calls + the router-level path decorators, and corroborated independently by the vendored openapi.json path list.",
     "/api/v1/robustness/analyze/v2": {
       "model": "RobustnessRequestV2",
       "module": "src/models/robustness_v2.py",
-      "handler": "src/api/robustness.py:579 analyze_robustness_v2",
+      "handler": "src/api/robustness.py:582 analyze_robustness_v2",
       "extra_policy": "ignore (explicit on all 11 classes in the tree)"
     },
     "/api/v1/causal/counterfactual": {
       "model": "CounterfactualRequest",
       "module": "src/models/requests.py",
-      "handler": "src/api/causal.py:255 analyze_counterfactual",
+      "handler": "src/api/causal.py:263 analyze_counterfactual",
       "extra_policy": "pydantic default (unset) — same runtime behaviour as ignore, but NOT a declared contract"
     }
   },
   "unmounted_at_this_pin": {
-    "_note": "Paths PLoT still sends to that src/api/main.py does NOT include_router at this sha (the include lines are present but commented out, 'Disabled for pilot', lines 769-790). Absent from the vendored openapi.json path list, independently.",
-    "/api/v1/causal/validate": "@router in src/api/causal.py:157; `router` is never included (only `counterfactual_router` is)",
-    "/api/v1/causal/sensitivity/detailed": "@router in src/api/causal.py:1295; same unincluded router",
-    "/api/v1/analysis/thresholds": "src/api/threshold.py:22; threshold_router include commented at src/api/main.py:787"
+    "_note": "Paths PLoT still sends to that src/api/main.py does NOT include_router at this sha (the include lines are present but commented out, 'Disabled for pilot', lines 777-794). Absent from the vendored openapi.json path list, independently — re-verified at the 2.749 re-pin: the OLD and NEW openapi path sets are IDENTICAL (10 paths), so this re-pin mounts nothing new and unmounts nothing.",
+    "/api/v1/causal/validate": "@router.post at src/api/causal.py:164; `router` is never included (only `causal_counterfactual_router` is, src/api/main.py:771)",
+    "/api/v1/causal/sensitivity/detailed": "@router.post at src/api/causal.py:1211; same unincluded router. WITHDRAWN under ROADMAP 2.704 at this sha — the handler answers 501 and computes nothing.",
+    "/api/v1/analysis/thresholds": "src/api/threshold.py:22; threshold_router include commented at src/api/main.py:792"
   }
 }
