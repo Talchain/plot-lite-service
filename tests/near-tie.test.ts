@@ -26,8 +26,8 @@ describe('Near-Tie Detection', () => {
 
     it('returns undefined when all options have invalid status', () => {
       const options = [
-        { option_id: 'a', win_probability: 0.6, status: 'error' },
-        { option_id: 'b', win_probability: 0.4, status: 'skipped' },
+        { option_id: 'a', win_probability: 0.6, status: 'failed' },
+        { option_id: 'b', win_probability: 0.4, status: 'partial' },
       ];
       expect(computeNearTie(options)).toBeUndefined();
     });
@@ -102,7 +102,7 @@ describe('Near-Tie Detection', () => {
     it('handles single valid option', () => {
       const options = [
         { option_id: 'opt_a', win_probability: 0.80, status: 'computed' },
-        { option_id: 'opt_b', win_probability: undefined, status: 'error' },
+        { option_id: 'opt_b', win_probability: undefined, status: 'failed' },
       ];
       const result = computeNearTie(options);
 
@@ -148,7 +148,7 @@ describe('Near-Tie Detection', () => {
     it('excludes options with non-computed status', () => {
       const options = [
         { option_id: 'opt_a', win_probability: 0.50, status: 'computed' },
-        { option_id: 'opt_b', win_probability: 0.49, status: 'error' },
+        { option_id: 'opt_b', win_probability: 0.49, status: 'failed' },
         { option_id: 'opt_c', win_probability: 0.01, status: 'computed' },
       ];
       const result = computeNearTie(options);
