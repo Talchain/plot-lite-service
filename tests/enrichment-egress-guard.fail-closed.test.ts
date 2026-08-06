@@ -60,6 +60,7 @@ import {
   withheldUnitsFor,
   applyEnrichmentWithholding,
   buildEnrichmentContractWarning,
+  ENRICHMENT_CONTRACT_MAX_REPORTED_ISSUES,
 } from '../src/routes/v2/enrichment-egress-guard.js';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -190,6 +191,36 @@ describe('withheldUnitsFor — what a presence-shaped issue costs', () => {
     const a = assessEnrichmentContract(realFixture());
     expect(a.ok).toBe(true);
     expect(withheldUnitsFor(a)).toEqual([]);
+  });
+
+  it('⭐ withholding is derived from ALL issues, never the capped `issues` slice', () => {
+    // The wire message caps reported issues at 10. If withholding were derived
+    // from that slice, a body with more violations would ship the ones past the
+    // cap — the guard would silently stop biting exactly when a response is at
+    // its worst. Twelve corrupt top-level keys, none of them protected.
+    const corruptKeys = [
+      'status_reason', 'option_comparison_status', 'robustness_status', 'drivers_status',
+      'constraints_status', 'factor_sensitivity', 'robustness', 'flip_thresholds',
+      'edge_e_values', 'critiques', 'confidence_tier', 'decision_evpi',
+    ];
+    expect(corruptKeys.length).toBeGreaterThan(ENRICHMENT_CONTRACT_MAX_REPORTED_ISSUES);
+    const body: Record<string, unknown> = {};
+    for (const k of corruptKeys) body[k] = 12345; // wrong for strings, enums, arrays, objects
+    // …except the one key 12345 is VALID for: decision_evpi is z.number().
+    // (Caught by this test's own first run — derive the corrupt value from each
+    // key's declared type, never assume one value corrupts everything.)
+    body.decision_evpi = CORRUPT_NUMBER_AS_STRING;
+
+    const a = assessEnrichmentContract(body);
+    expect(a.ok).toBe(false);
+    // The REPORTED slice is capped …
+    expect(a.issues).toHaveLength(ENRICHMENT_CONTRACT_MAX_REPORTED_ISSUES);
+    expect(a.issue_count).toBe(corruptKeys.length);
+    // … while withholding covers every one of them, bound by key identity.
+    expect([...withheldUnitsFor(a)].sort()).toEqual([...corruptKeys].sort());
+
+    applyEnrichmentWithholding(body, a);
+    for (const k of corruptKeys) expect(k in body, `${k} must be withheld`).toBe(false);
   });
 });
 
