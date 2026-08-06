@@ -1,14 +1,76 @@
 name: Staging Smoke Test
 
+# Post-deploy smoke against STAGING (PLoT + CEE). Requires repo secrets:
+#   PLOT_AUTH_TOKEN   (REQUIRED — scripts/staging-smoke.ts exits 1 without it)
+#   PLOT_STAGING_URL  (optional — script falls back to the staging default URL)
+#   CEE_STAGING_URL   (optional — script falls back to the staging default URL)
+#
+# HONEST-SKIP SHAPE (ROADMAP 2.667): when the required secret is not provisioned,
+# the smoke job is SKIPPED (grey/neutral) via a job-level `if:` — never red
+# (a standing red trains everyone to dismiss the alarm; this one failed 12/12
+# pushes 3-6 Aug 2026 with zero actual coverage) and never a silent green
+# (the preflight job emits a loud ::warning:: annotation + step summary so a
+# skipped run cannot be read as smoke coverage). GitHub mechanics: a step
+# cannot conclude "neutral"; a job-level `if:` concluding "skipped" is the
+# honest available shape. Secrets are not readable in job-level `if:`, hence
+# the two-job preflight/outputs pattern.
+
 on:
   push:
     branches: [staging]
   workflow_dispatch: {}
 
 jobs:
-  smoke:
+  preflight:
+    name: Check smoke secrets
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 2
+    outputs:
+      provisioned: ${{ steps.check.outputs.provisioned }}
+    steps:
+      - name: Check smoke secrets are provisioned
+        id: check
+        env:
+          SMOKE_API_KEY: ${{ secrets.PLOT_AUTH_TOKEN }}
+          SMOKE_PLOT_URL: ${{ secrets.PLOT_STAGING_URL }}
+          SMOKE_CEE_URL: ${{ secrets.CEE_STAGING_URL }}
+        run: |
+          # Presence booleans only — never echo a secret value.
+          plot_url_set=$([ -n "${SMOKE_PLOT_URL}" ] && echo yes || echo no)
+          cee_url_set=$([ -n "${SMOKE_CEE_URL}" ] && echo yes || echo no)
+          auth_set=$([ -n "${SMOKE_API_KEY}" ] && echo yes || echo no)
+          echo "PLOT_AUTH_TOKEN present: ${auth_set} (required)"
+          echo "PLOT_STAGING_URL present: ${plot_url_set} (optional, in-script default)"
+          echo "CEE_STAGING_URL present: ${cee_url_set} (optional, in-script default)"
+          if [ "${auth_set}" = "yes" ]; then
+            echo "provisioned=true" >> "$GITHUB_OUTPUT"
+            echo "Smoke secrets provisioned; smoke job will run."
+          else
+            echo "provisioned=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Staging smoke SKIPPED — secrets not provisioned::NO smoke test ran against this deploy. Provision repo secret PLOT_AUTH_TOKEN (required; PLOT_STAGING_URL / CEE_STAGING_URL optional) to restore post-deploy smoke coverage. A green tick on this workflow is NOT smoke coverage."
+            {
+              echo "## ⚠ SKIPPED: smoke secrets not provisioned"
+              echo ""
+              echo "**No smoke test ran against this staging deploy.**"
+              echo ""
+              echo "| Secret | Present | Role |"
+              echo "|---|---|---|"
+              echo "| \`PLOT_AUTH_TOKEN\` | ${auth_set} | **required** — bearer token for \`/v1/cee/draft-graph\` |"
+              echo "| \`PLOT_STAGING_URL\` | ${plot_url_set} | optional — script defaults to the staging URL |"
+              echo "| \`CEE_STAGING_URL\` | ${cee_url_set} | optional — script defaults to the staging URL |"
+              echo ""
+              echo "Provisioning \`PLOT_AUTH_TOKEN\` restores: PLoT \`/health\`, CEE \`/healthz\`,"
+              echo "and an authenticated \`/v1/cee/draft-graph?schema=v3\` draft with shape"
+              echo "assertions (nodes / edges / analysis_ready / options) after every staging push."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  smoke:
+    name: Staging smoke
+    needs: preflight
+    if: needs.preflight.outputs.provisioned == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
     env:
       SMOKE_PLOT_URL: ${{ secrets.PLOT_STAGING_URL }}
       SMOKE_CEE_URL: ${{ secrets.CEE_STAGING_URL }}
