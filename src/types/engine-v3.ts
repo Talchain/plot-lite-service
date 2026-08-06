@@ -3091,6 +3091,22 @@ export interface EvidenceCaptureV1 {
    * @see src/routes/v2/enrichment-egress-guard.ts
    */
   enrichment_contract_schema_parsed?: boolean;
+  /**
+   * ROADMAP 2.726 — enrichment units REFUSED by the egress guard on this
+   * response, e.g. `['decision_evpi', 'edge_e_values[3]']`.
+   *
+   * Present (possibly empty) whenever the guard assessed the body. A key named
+   * here is absent from the wire BY REFUSAL — it was present and carried a
+   * value the typed envelope rejects. This distinction is load-bearing: the
+   * envelope's own contract attaches meaning to an absent key (`decision_evpi`
+   * absent means NOT COMPUTED and never 0; `p_win_sensitivity` absent is a
+   * SUPPRESSION VERDICT), so without this list a withheld field would read as
+   * a different, false claim.
+   *
+   * Only PRESENCE-shaped violations can populate it — a merely missing key is
+   * never withheld. See src/routes/v2/enrichment-egress-guard.ts.
+   */
+  enrichment_contract_withheld?: string[];
 }
 
 /**

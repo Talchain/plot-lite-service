@@ -36,7 +36,7 @@ const realFixture = () =>
 describe('assessEnrichmentContract', () => {
   it('empty object conforms (all 19 root keys optional by design)', () => {
     const a = assessEnrichmentContract({});
-    expect(a).toEqual({ ok: true, issues: [], issue_count: 0 });
+    expect(a).toEqual({ ok: true, issues: [], issue_count: 0, withheld_units: [] });
   });
 
   it('real checked-in /v2/run fixture conforms', () => {

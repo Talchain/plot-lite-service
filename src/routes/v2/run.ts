@@ -212,6 +212,7 @@ import { resolveConfidenceBasis } from '../../integrations/isl/confidence-basis.
 import {
   assessEnrichmentContract,
   shouldAssessEnrichmentContract,
+  applyEnrichmentWithholding,
   buildEnrichmentContractWarning,
   logEnrichmentContractMismatch,
 } from './enrichment-egress-guard.js';
@@ -4049,11 +4050,22 @@ function buildResponse(
         response._meta.evidence.enrichment_contract_ok = enrichmentAssessment.ok;
       }
       if (!enrichmentAssessment.ok) {
+        // ROADMAP 2.726 — PRESENCE-shaped violations are REFUSED, not shipped.
+        // Applied BEFORE the disclosure warning and before the content hash, so
+        // the hash covers the body as actually delivered and the warning can
+        // name what was removed. Absence-shaped violations withhold nothing, so
+        // this is a no-op on the two historical false-alarm shapes.
+        const withheld = applyEnrichmentWithholding(response, enrichmentAssessment);
+        if (response._meta?.evidence) {
+          response._meta.evidence.enrichment_contract_withheld = withheld;
+        }
         response.inference_warnings = [
           ...(response.inference_warnings ?? []),
-          buildEnrichmentContractWarning(enrichmentAssessment),
+          buildEnrichmentContractWarning(enrichmentAssessment, withheld),
         ];
         if (logger) logEnrichmentContractMismatch(logger, enrichmentAssessment, requestId);
+      } else if (response._meta?.evidence) {
+        response._meta.evidence.enrichment_contract_withheld = [];
       }
     }
   } catch (err) {

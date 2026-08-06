@@ -15,11 +15,16 @@
  *     robustness.edge_e_values[].flip_direction) → ok false + exactly one
  *     ENRICHMENT_CONTRACT_MISMATCH warning naming the issue path, NEVER the
  *     corrupted value;
- *   - FAIL-OPEN: the corrupted response still delivers HTTP 200,
- *     analysis_status 'computed', and the corrupted field byte-identical on
- *     the wire — the guard discloses, never blocks or mutates;
- *   - hash ordering: the disclosure warning is INSIDE the hashed content
- *     (`_meta.response_content_hash` recomputes over the delivered body).
+ *   - ⚠ POSTURE, ROADMAP 2.726 — the guard no longer discloses-and-ships
+ *     uniformly. PRESENCE-shaped corruption (a key present carrying a rejected
+ *     value) is FAIL-CLOSED: the offending row/key is WITHHELD and named in
+ *     `_meta.evidence.enrichment_contract_withheld`. ABSENCE-shaped violations
+ *     (a required key honestly omitted — the shape of BOTH historical firings)
+ *     stay FAIL-OPEN and ship untouched. The analysis core is never refused
+ *     either way: HTTP 200, analysis_status 'computed';
+ *   - hash ordering: the disclosure warning is INSIDE the hashed content and
+ *     the withholding is applied BEFORE the hash, so
+ *     `_meta.response_content_hash` recomputes over the delivered body.
  *
  * RED before the guard is wired into buildResponse:
  * `_meta.evidence.enrichment_contract_ok` does not exist on any response
@@ -193,18 +198,74 @@ describe('enrichment contract egress guard on /v2/run (A3 lane 1)', () => {
     expect(markers[0].message).not.toContain(String(CORRUPTED_FLIP_DIRECTION));
   }, 60_000);
 
-  it('FAIL-OPEN: the corrupted response still delivers — 200, computed, corrupted field on the wire untouched', async () => {
+  it('⭐ FAIL-CLOSED on PRESENCE-shaped corruption: the corrupt ROW is withheld, healthy rows survive, the run still delivers', async () => {
+    // ROADMAP 2.726. This test previously pinned the opposite contract — the
+    // corrupted leaf reached the consumer verbatim, on the reasoning that
+    // "repair would hide the producer defect". The defect is still not hidden
+    // (ok:false + the named warning + the log event all survive), but the
+    // corrupt VALUE no longer ships: CEE has zero readers for
+    // `enrichment_contract_ok` and forwards this family to the UI verbatim, so
+    // disclosure alone left a corrupt number free to be rendered as a claim.
+    const clean = await run(null);
+    const cleanIds = clean.edge_e_values.map((e: any) => e.edge_id);
+    expect(cleanIds.length).toBeGreaterThan(1);
+
     const body = await run((c) => {
       c.robustness.edge_e_values[0].flip_direction = CORRUPTED_FLIP_DIRECTION;
     });
+
+    // The analysis core is NEVER refused — only the offending enrichment unit.
     expect(body.analysis_status).toBe('computed');
-    // Delivery unmutated: the corrupted leaf reaches the consumer verbatim
-    // (disclosure, never repair — repair would hide the producer defect).
+
+    // The corrupt row is gone, bound by IDENTITY (the edge_id that carried it),
+    // and every healthy sibling survived.
+    expect(body._meta.evidence.enrichment_contract_withheld).toEqual(['edge_e_values[0]']);
+    const remainingIds = body.edge_e_values.map((e: any) => e.edge_id);
+    expect(remainingIds).not.toContain(cleanIds[0]);
+    expect(remainingIds).toEqual(cleanIds.slice(1));
+
+    // The corrupted VALUE is absent from the delivered body entirely.
     expect(
       body.edge_e_values.some((e: any) => e.flip_direction === CORRUPTED_FLIP_DIRECTION),
-    ).toBe(true);
-    // Science delivered unchanged alongside the disclosure.
-    expect(body.edge_e_values.length).toBeGreaterThan(0);
+    ).toBe(false);
+    expect(JSON.stringify(body)).not.toContain(String(CORRUPTED_FLIP_DIRECTION));
+
+    // …and the withholding is DISCLOSED, so the absence can never be misread
+    // as the envelope's semantic "not computed".
+    const marker = (body.inference_warnings ?? []).find(
+      (w: any) => w.code === 'ENRICHMENT_CONTRACT_MISMATCH',
+    );
+    expect(marker.message).toContain('edge_e_values[0]');
+    expect(marker.message).toMatch(/withheld/i);
+  }, 60_000);
+
+  it('⭐ ABSENCE-shaped violation still FAILS OPEN — the shape both historical incidents had is never refused', async () => {
+    // The 0.30.0 (`flip_thresholds[].direction`) and 0.37.0 (outcome-stats
+    // percentiles) firings were both a REQUIRED key honestly omitted, and both
+    // were fixed by relaxing the schema. A blanket fail-closed guard would have
+    // refused that traffic for a release cycle each time. Deleting a required
+    // leaf reproduces exactly that shape.
+    const clean = await run(null);
+    const cleanCount = clean.edge_e_values.length;
+
+    const body = await run((c) => {
+      delete c.robustness.edge_e_values[0].flip_direction;
+    });
+
+    expect(body.analysis_status).toBe('computed');
+    expect(body._meta.evidence.enrichment_contract_ok).toBe(false); // DISCLOSED …
+    expect(body._meta.evidence.enrichment_contract_withheld).toEqual([]); // … never REFUSED.
+    expect(body.edge_e_values.length).toBe(cleanCount);
+    const marker = (body.inference_warnings ?? []).find(
+      (w: any) => w.code === 'ENRICHMENT_CONTRACT_MISMATCH',
+    );
+    expect(marker.message).toMatch(/Delivery is unaffected/i);
+  }, 60_000);
+
+  it('a conformant response stamps an EMPTY withheld list — absence of the field never has to be guessed at', async () => {
+    const body = await run(null);
+    expect(body._meta.evidence.enrichment_contract_ok).toBe(true);
+    expect(body._meta.evidence.enrichment_contract_withheld).toEqual([]);
   }, 60_000);
 
   it('hash ordering: the disclosure warning is INSIDE the hashed content (response_content_hash recomputes)', async () => {

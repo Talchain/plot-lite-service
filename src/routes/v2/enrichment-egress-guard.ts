@@ -11,14 +11,35 @@
  * code that caused it. This module validates the outgoing body against the
  * SAME vendored schema at the egress boundary.
  *
- * FAIL-OPEN by design: validation never blocks or mutates delivery — the
- * envelope is enrichment, and absence/degradation of enrichment is
- * degraded-but-usable (fail-closed stays reserved for the analysis core).
- * A mismatch is surfaced three ways, mirroring the wire-generation
+ * ⚠ POSTURE CHANGED, ROADMAP 2.726 — IT IS NO LONGER UNIFORMLY FAIL-OPEN.
+ * The posture now depends on the SHAPE of the violation, and the split was
+ * derived from this guard's own incident record rather than chosen:
+ *
+ *   ABSENCE-shaped (a required key MISSING) → FAIL-OPEN, disclose only.
+ *     Every real firing this guard has ever had was this shape and was the
+ *     SCHEMA's fault: `flip_thresholds[].direction` on an honest no-flip row
+ *     (relaxed in schemas 0.31.0) and the four `EnrichmentOutcomeStats`
+ *     percentiles on a degenerate Monte-Carlo run (relaxed in 0.38.0). A
+ *     blanket fail-closed guard would have refused that honest traffic for a
+ *     schema release cycle, twice.
+ *
+ *   PRESENCE-shaped (a key PRESENT carrying a value the contract rejects) →
+ *     FAIL-CLOSED at field/row granularity: the unit is WITHHELD from the
+ *     wire. This is the class the guard exists for, and the one nothing
+ *     downstream catches — CEE has ZERO readers for `enrichment_contract_ok`
+ *     and copies the VOI/edge family to the UI verbatim, so disclosure alone
+ *     protected nothing at all.
+ *
+ * A mismatch is surfaced four ways now, mirroring the wire-generation
  * assertion (lane 29, src/integrations/isl/wire-generation.ts):
  *   - `_meta.evidence.enrichment_contract_ok: false`
+ *   - `_meta.evidence.enrichment_contract_withheld: string[]` (may be empty)
  *   - one ENRICHMENT_CONTRACT_MISMATCH inference warning (issue paths only)
  *   - one `enrichment_contract_mismatch` structured log event
+ *
+ * The ANALYSIS CORE is still never refused: withholding is bounded to
+ * enrichment units, and the keys whose absence would hard-fail CEE are on
+ * ENRICHMENT_NEVER_WITHHOLD_KEYS and stay disclose-only.
  *
  * PII discipline: zod issues are reduced to {path, code} — issue MESSAGES
  * are never carried (zod embeds received values in enum/literal messages)
@@ -157,7 +178,66 @@ export interface EnrichmentContractIssue {
   path: string;
   /** Zod issue code, e.g. 'invalid_type' | 'invalid_enum_value' */
   code: string;
+  /**
+   * ROADMAP 2.726 — the ABSENCE/PRESENCE discriminator that decides whether
+   * this violation may cost the producer a field.
+   *
+   * `true`  = the key is MISSING. The producer had nothing honest to say and
+   *           omitted it; the schema disagrees about whether it may.
+   * `false` = the key is PRESENT carrying a value the contract rejects.
+   *
+   * WHY THE SPLIT IS THE ONE THAT MATTERS: every real-world firing this guard
+   * has ever had was absence-shaped and was the SCHEMA's fault, not the
+   * producer's — `flip_thresholds[].direction` on an honest no-flip row (fixed
+   * by relaxing to `.optional()` in schemas 0.31.0) and the four
+   * `EnrichmentOutcomeStats` percentiles on a degenerate Monte-Carlo run (fixed
+   * the same way in 0.38.0). Refusing that traffic would have been a live
+   * outage caused by the guard. Presence-shaped corruption — a number arriving
+   * as a string, an enum arriving as garbage — is the class the guard exists
+   * for, and has never once been observed on either environment.
+   *
+   * ⚠ PII: this is derived from zod's `received` discriminator, which for
+   * `invalid_enum_value` IS THE CORRUPTED VALUE ITSELF. Only the boolean is
+   * ever stored — `received` must never reach an issue, a log, or the wire.
+   */
+  absent: boolean;
 }
+
+/**
+ * Top-level enrichment keys that are DETECTED and DISCLOSED but never
+ * WITHHELD, because withholding them is worse for the user than shipping them
+ * with a disclosure attached.
+ *
+ * DERIVED FROM THE CONSUMER, NOT ASSUMED (CEE `olumi-assistants-service`
+ * staging @ `4c835ced`):
+ *
+ * - `option_comparison`, `results` — CEE's ingress refine (`plot-client.ts`
+ *   :88-92) requires one of the two to be present and non-empty. Withholding
+ *   turns a disclosed bad field into `PLOT_RESPONSE_MALFORMED` → `plot_error`
+ *   → a user-visible HTTP 500 with NO fact persisted: the entire analysis is
+ *   destroyed to hide one corrupt member. CEE moreover already fail-closes on
+ *   the genuinely dangerous case here — its own NaN/Infinity integrity guard
+ *   (`run-analysis.ts`:759-786) rejects the response outright.
+ * - `analysis_status` — drives CEE's status ladder (`readAnalysisStatus`,
+ *   `run-analysis.ts`:1167); absence degrades the turn to `unknown`.
+ * - `inference_warnings` — the guard's OWN disclosure channel. Withholding it
+ *   deletes the sentence that explains what happened, which is the one thing
+ *   that must always survive.
+ *
+ * Everything NOT on this list is withholdable, and the highest-value members
+ * are the VOI/edge family (`edge_e_values`, `decision_evpi`, `factor_evppi`,
+ * `p_win_sensitivity`, `correlation_model`): CEE copies them to the UI verbatim
+ * via the keep-list loop (`compose.ts`:882-919) and has ZERO behavioural
+ * readers for any of them, so nothing between PLoT and the user's screen
+ * validates them. Withholding costs CEE nothing and is the only thing standing
+ * between a corrupt number and a rendered claim.
+ */
+export const ENRICHMENT_NEVER_WITHHOLD_KEYS: ReadonlySet<string> = new Set([
+  'option_comparison',
+  'results',
+  'analysis_status',
+  'inference_warnings',
+]);
 
 /** Result of assessing one outgoing /v2/run body against the envelope. */
 export interface EnrichmentContractAssessment {
@@ -167,6 +247,42 @@ export interface EnrichmentContractAssessment {
   issues: EnrichmentContractIssue[];
   /** TOTAL issue count (may exceed issues.length) */
   issue_count: number;
+  /**
+   * The withholding units implied by the PRESENCE-shaped issues, e.g.
+   * `['decision_evpi', 'edge_e_values[3]']`. Derived from ALL issues, not from
+   * the capped `issues` slice — otherwise a body with more than
+   * ENRICHMENT_CONTRACT_MAX_REPORTED_ISSUES violations would silently ship the
+   * ones past the cap.
+   */
+  withheld_units: string[];
+}
+
+/**
+ * The unit a single issue path costs, or `null` when the issue must not cost
+ * anything.
+ *
+ * Granularity mirrors the house precedent (`EDGE_E_VALUE_NON_FINITE_DROPPED`
+ * drops the offending ROW and keeps the family): a top-level ARRAY family loses
+ * only the row named by the path's index segment. Anything else loses the
+ * TOP-LEVEL KEY, because a nested object block whose interior is corrupt cannot
+ * be vouched for piecewise.
+ */
+function withholdUnitForPath(path: string): string | null {
+  const parts = path.split('.');
+  const root = parts[0];
+  if (!root) return null;
+  if (ENRICHMENT_NEVER_WITHHOLD_KEYS.has(root)) return null;
+  if (parts.length >= 2 && /^\d+$/.test(parts[1] as string)) return `${root}[${parts[1]}]`;
+  return root;
+}
+
+/**
+ * The withholding units this assessment implies — deduplicated, first-seen
+ * order. ABSENCE-shaped issues contribute NOTHING by construction, which is
+ * what keeps both historical incidents shipping exactly as they do today.
+ */
+export function withheldUnitsFor(assessment: EnrichmentContractAssessment): string[] {
+  return assessment.withheld_units;
 }
 
 /**
@@ -202,7 +318,7 @@ export function assessStabilityBands(body: unknown): EnrichmentContractIssue[] {
     if (stability === undefined) return; // absent band — nothing to validate.
     const base = `edge_e_values.${i}.stability`;
     if (typeof stability !== 'object' || stability === null || Array.isArray(stability)) {
-      issues.push({ path: base, code: 'invalid_type' });
+      issues.push({ path: base, code: 'invalid_type', absent: false }); // band PRESENT but not an object
       return;
     }
     const s = stability as Record<string, unknown>;
@@ -210,24 +326,24 @@ export function assessStabilityBands(body: unknown): EnrichmentContractIssue[] {
     // Counts.
     const nSeeds = s.n_seeds;
     const nFlipped = s.n_seeds_flipped;
-    if (!isNonNegInt(nSeeds)) issues.push({ path: `${base}.n_seeds`, code: 'invalid_type' });
-    if (!isNonNegInt(nFlipped)) issues.push({ path: `${base}.n_seeds_flipped`, code: 'invalid_type' });
+    if (!isNonNegInt(nSeeds)) issues.push({ path: `${base}.n_seeds`, code: 'invalid_type', absent: nSeeds === undefined });
+    if (!isNonNegInt(nFlipped)) issues.push({ path: `${base}.n_seeds_flipped`, code: 'invalid_type', absent: nFlipped === undefined });
     if (isNonNegInt(nSeeds) && isNonNegInt(nFlipped) && nFlipped > nSeeds) {
-      issues.push({ path: `${base}.n_seeds_flipped`, code: 'too_big' });
+      issues.push({ path: `${base}.n_seeds_flipped`, code: 'too_big', absent: false });
     }
 
     // Per-seed list: length matches n_seeds; each cell finite-or-null.
     const means = s.seed_flip_means;
     if (means !== undefined) {
       if (!Array.isArray(means)) {
-        issues.push({ path: `${base}.seed_flip_means`, code: 'invalid_type' });
+        issues.push({ path: `${base}.seed_flip_means`, code: 'invalid_type', absent: false });
       } else {
         if (isNonNegInt(nSeeds) && means.length !== nSeeds) {
-          issues.push({ path: `${base}.seed_flip_means`, code: 'custom' }); // count/list mismatch
+          issues.push({ path: `${base}.seed_flip_means`, code: 'custom', absent: false }); // count/list mismatch
         }
         means.forEach((m, j) => {
           if (m !== null && !(typeof m === 'number' && Number.isFinite(m))) {
-            issues.push({ path: `${base}.seed_flip_means.${j}`, code: 'invalid_type' });
+            issues.push({ path: `${base}.seed_flip_means.${j}`, code: 'invalid_type', absent: m === undefined });
           }
         });
       }
@@ -237,19 +353,19 @@ export function assessStabilityBands(body: unknown): EnrichmentContractIssue[] {
     for (const k of ['band_min', 'band_median', 'band_max', 'band_width'] as const) {
       const v = s[k];
       if (v !== undefined && finiteNum(v) === undefined) {
-        issues.push({ path: `${base}.${k}`, code: 'invalid_type' });
+        issues.push({ path: `${base}.${k}`, code: 'invalid_type', absent: false });
       }
     }
     // Ordered endpoints (only when both sides are finite).
     const bMin = finiteNum(s.band_min);
     const bMed = finiteNum(s.band_median);
     const bMax = finiteNum(s.band_max);
-    if (bMin !== undefined && bMed !== undefined && bMin > bMed) issues.push({ path: `${base}.band_median`, code: 'too_small' });
-    if (bMed !== undefined && bMax !== undefined && bMed > bMax) issues.push({ path: `${base}.band_max`, code: 'too_small' });
-    if (bMin !== undefined && bMax !== undefined && bMin > bMax) issues.push({ path: `${base}.band_max`, code: 'too_small' }); // reversed band
+    if (bMin !== undefined && bMed !== undefined && bMin > bMed) issues.push({ path: `${base}.band_median`, code: 'too_small', absent: false });
+    if (bMed !== undefined && bMax !== undefined && bMed > bMax) issues.push({ path: `${base}.band_max`, code: 'too_small', absent: false });
+    if (bMin !== undefined && bMax !== undefined && bMin > bMax) issues.push({ path: `${base}.band_max`, code: 'too_small', absent: false }); // reversed band
     // Non-negative width.
     const bW = finiteNum(s.band_width);
-    if (bW !== undefined && bW < 0) issues.push({ path: `${base}.band_width`, code: 'too_small' });
+    if (bW !== undefined && bW < 0) issues.push({ path: `${base}.band_width`, code: 'too_small', absent: false });
   });
 
   return issues;
@@ -275,7 +391,15 @@ export function assessEnrichmentContract(
     const result = AnalysisEnrichmentSchema.safeParse(body);
     if (!result.success) {
       for (const issue of result.error.issues) {
-        schemaIssues.push({ path: issue.path.join('.'), code: issue.code });
+        // ⚠ `received` is READ for the absence discriminator and NEVER STORED:
+        // on an invalid_enum_value it carries the corrupted value verbatim.
+        // Only the derived boolean leaves this loop.
+        const received = (issue as { received?: unknown }).received;
+        schemaIssues.push({
+          path: issue.path.join('.'),
+          code: issue.code,
+          absent: issue.code === 'invalid_type' && received === 'undefined',
+        });
       }
     }
   }
@@ -288,13 +412,79 @@ export function assessEnrichmentContract(
   const stabilityIssues = assessStabilityBands(body);
   const all = [...schemaIssues, ...stabilityIssues];
   if (all.length === 0) {
-    return { ok: true, issues: [], issue_count: 0 };
+    return { ok: true, issues: [], issue_count: 0, withheld_units: [] };
+  }
+  // Derived over ALL issues, deliberately not over the capped slice below.
+  const withheld_units: string[] = [];
+  for (const issue of all) {
+    if (issue.absent) continue; // absence never costs a field — see `absent`.
+    const unit = withholdUnitForPath(issue.path);
+    if (unit !== null && !withheld_units.includes(unit)) withheld_units.push(unit);
   }
   return {
     ok: false,
     issues: all.slice(0, ENRICHMENT_CONTRACT_MAX_REPORTED_ISSUES),
     issue_count: all.length,
+    withheld_units,
   };
+}
+
+/**
+ * Remove every withholding unit this assessment implies from the outgoing body,
+ * IN PLACE, and return the units actually removed.
+ *
+ * Called at the egress boundary BEFORE the content hash is computed, so the
+ * delivered body and its hash agree. A clean body — and a body whose only
+ * violations are absence-shaped — is left byte-identical.
+ *
+ * The removal is never silent: the caller stamps
+ * `_meta.evidence.enrichment_contract_withheld` and the disclosure warning
+ * names the same units, so a consumer can always tell a WITHHELD field from an
+ * honestly-absent one. That distinction is load-bearing in this envelope, whose
+ * own contract attaches meaning to absence (`decision_evpi` absent means NOT
+ * COMPUTED, never 0; `p_win_sensitivity` absent is a SUPPRESSION VERDICT) — a
+ * bare strip would convert "corrupt" into a different, false claim.
+ */
+export function applyEnrichmentWithholding(
+  body: unknown,
+  assessment: EnrichmentContractAssessment,
+): string[] {
+  const units = assessment.withheld_units;
+  if (units.length === 0) return [];
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return [];
+  const target = body as Record<string, unknown>;
+
+  // Row removals are collected per key and applied in ONE filter pass: deleting
+  // rows one at a time renumbers the array under the remaining indices.
+  const rowsByKey = new Map<string, Set<number>>();
+  const keysToDelete: string[] = [];
+  for (const unit of units) {
+    const rowMatch = /^(.+)\[(\d+)\]$/.exec(unit);
+    if (rowMatch) {
+      const key = rowMatch[1] as string;
+      const idx = Number(rowMatch[2]);
+      const set = rowsByKey.get(key) ?? new Set<number>();
+      set.add(idx);
+      rowsByKey.set(key, set);
+    } else {
+      keysToDelete.push(unit);
+    }
+  }
+
+  const removed: string[] = [];
+  for (const [key, indices] of rowsByKey) {
+    const arr = target[key];
+    if (!Array.isArray(arr)) continue;
+    target[key] = arr.filter((_, i) => !indices.has(i));
+    for (const i of indices) removed.push(`${key}[${i}]`);
+  }
+  for (const key of keysToDelete) {
+    if (!(key in target)) continue;
+    delete target[key];
+    removed.push(key);
+  }
+  // Preserve the assessment's first-seen ordering for the disclosure.
+  return units.filter((u) => removed.includes(u));
 }
 
 /**
@@ -305,20 +495,31 @@ export function assessEnrichmentContract(
  */
 export function buildEnrichmentContractWarning(
   assessment: EnrichmentContractAssessment,
+  withheld: string[] = [],
 ): InferenceWarning {
   const paths = assessment.issues.map((i) => `${i.path} (${i.code})`).join(', ');
   const suffix =
     assessment.issue_count > assessment.issues.length
       ? ` and ${assessment.issue_count - assessment.issues.length} more`
       : '';
+  // The outcome sentence must state what ACTUALLY happened to this body. The
+  // old copy always promised delivery was unaffected; once a unit can be
+  // withheld that sentence is sometimes false, and a false disclosure is worse
+  // than no disclosure.
+  const outcome =
+    withheld.length > 0
+      ? `The following were WITHHELD from this response and are absent by REFUSAL, not by ` +
+        `honest absence: ${withheld.join(', ')}. The rest of the analysis is delivered ` +
+        `unchanged; do not read the withheld keys as "not computed".`
+      : 'Delivery is unaffected (fail-open); downstream consumers of the named fields ' +
+        'should treat them as untrusted for this response.';
   return {
     code: INFERENCE_WARNING_CODES.ENRICHMENT_CONTRACT_MISMATCH,
     // provisional_doctrine_v0 — wording surface (diagnostic disclosure)
     message:
       'This response failed producer-side validation against the typed enrichment ' +
       `envelope (@talchain/schemas AnalysisEnrichmentSchema) at: ${paths}${suffix}. ` +
-      'Delivery is unaffected (fail-open); downstream consumers of the named fields ' +
-      'should treat them as untrusted for this response.',
+      outcome,
     severity: 'warning',
   };
 }

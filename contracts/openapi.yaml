@@ -3686,9 +3686,22 @@ paths:
           `false` = type/enum corruption on a typed envelope key, paired with exactly one
           `ENRICHMENT_CONTRACT_MISMATCH` entry in `inference_warnings` naming the zod issue
           paths (never values). Absent = the guard itself errored (unassessed, not ok).
-          FAIL-OPEN: validation never blocks or mutates delivery. All HTTP-200 shapes from
-          buildResponse carry it (computed/partial/failed), same coverage as
-          `response_content_hash`.
+          All HTTP-200 shapes from buildResponse carry it (computed/partial/failed), same
+          coverage as `response_content_hash`.
+        - `_meta.evidence.enrichment_contract_withheld` (additive, ROADMAP 2.726): the
+          enrichment units REFUSED on this response, e.g. `["decision_evpi",
+          "edge_e_values[3]"]`. Present (possibly empty) whenever the guard assessed the body.
+          ⚠ THE POSTURE IS SHAPE-DEPENDENT, not uniformly fail-open. A violation whose key is
+          MISSING (the producer honestly had nothing to say) stays FAIL-OPEN and ships
+          untouched — both of this guard's real-world firings were that shape and were the
+          schema's fault, fixed by relaxing it. A violation whose key is PRESENT carrying a
+          rejected value is FAIL-CLOSED: that row (top-level arrays) or key (everything else)
+          is withheld from the wire, because nothing downstream validates it. A key named here
+          is absent BY REFUSAL and MUST NOT be read as the envelope's semantic "not computed" /
+          "suppressed". The ANALYSIS CORE is never refused: withholding is bounded to
+          enrichment units and never applies to `option_comparison`, `results`,
+          `analysis_status` or `inference_warnings`. Withholding is applied BEFORE
+          `response_content_hash`, so the hash always covers the body as delivered.
         - `FLIP_THRESHOLDS_UNAVAILABLE` in `inference_warnings` (additive, A3 lane 2): the
           flip-threshold computation was attempted but the ENTIRE block failed, so
           `flip_thresholds` is empty (`flip_thresholds_status: 'unavailable'`) because

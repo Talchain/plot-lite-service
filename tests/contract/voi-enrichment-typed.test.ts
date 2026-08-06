@@ -119,7 +119,7 @@ describe('assessEnrichmentContract detects VOI shape violations', () => {
       p_win_sensitivity: [{ factor_id: 'f_price', delta_pp: 1.2 }],
       correlation_model: { suppressed_attributions: ['p_win_sensitivity'] },
     });
-    expect(a).toEqual({ ok: true, issues: [], issue_count: 0 });
+    expect(a).toEqual({ ok: true, issues: [], issue_count: 0, withheld_units: [] });
   });
 
   it('POSITIVE CONTROL: decision_evpi === 0 stays VALID — a measured zero is a real result', () => {
@@ -127,11 +127,11 @@ describe('assessEnrichmentContract detects VOI shape violations', () => {
     // "nothing about this decision is worth learning". A guard "hardened" with a
     // truthiness check would reject the real fact; pin against that.
     const a = assessEnrichmentContract({ decision_evpi: 0 });
-    expect(a).toEqual({ ok: true, issues: [], issue_count: 0 });
+    expect(a).toEqual({ ok: true, issues: [], issue_count: 0, withheld_units: [] });
   });
 
   it('absent VOI keys stay valid — the family is optional, absence is not a violation', () => {
-    expect(assessEnrichmentContract({})).toEqual({ ok: true, issues: [], issue_count: 0 });
+    expect(assessEnrichmentContract({})).toEqual({ ok: true, issues: [], issue_count: 0, withheld_units: [] });
   });
 
   it('explicit null on the nullable VOI keys stays valid', () => {
@@ -141,6 +141,6 @@ describe('assessEnrichmentContract detects VOI shape violations', () => {
       p_win_sensitivity: null,
       correlation_model: null,
     });
-    expect(a).toEqual({ ok: true, issues: [], issue_count: 0 });
+    expect(a).toEqual({ ok: true, issues: [], issue_count: 0, withheld_units: [] });
   });
 });
