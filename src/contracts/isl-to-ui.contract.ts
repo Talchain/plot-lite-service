@@ -305,6 +305,16 @@ export const ISL_TO_UI_CONTRACT: BoundaryContract = {
     // include_path_decomposition).
     'sensitivity_reference_option_id',   // Disclosure: option the sensitivity/fragile-edge analysis was computed against.
     'path_decomposition',                // Request-gated structural pathway decomposition (opt-in; not a causal claim).
+    // ROADMAP 2.581 — verbatim additive passthrough, NOT an enrichment.
+    // `option_comparison[].outcome.percentiles_source` is ISL's own
+    // `Literal["samples","unavailable"]` provenance marker for p10/p50/p90.
+    // ⚠ Until 2.581 this was an UNDECLARED DROP: the builder's explicit field
+    // selection discarded it and no line in `drops` said so — the same "a
+    // contract that lists 3 of 9 drops is worse than none" defect this file was
+    // corrected for on 25 Jul. It is now carried, and the key is ABSENT (never
+    // defaulted to 'samples') when ISL sends nothing or a value outside those
+    // two literals.
+    'option_comparison[].outcome.percentiles_source',
     // A3 lane 3 (ISL PR #71): seed-sweep flip-stability band — additive
     // passthrough on edge_e_values entries, NOT an enrichment.
     // DEFAULT-ON since ISL PR #76 — present when ISL computed a band for the

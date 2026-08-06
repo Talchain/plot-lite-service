@@ -379,11 +379,20 @@ describe('2.449 — ISL downside/tail-risk block reaches PLoT egress', () => {
   // 4 — the block never outlives the outcome it is a tail of
   // =========================================================================
 
-  it('omits downside when the option has no emitted outcome (ISL: downside ⟹ percentiles from samples)', async () => {
+  it('omits downside when a required percentile is unmeasurable (ISL: downside ⟹ percentiles from samples)', async () => {
     // ISL enforces `downside present ⟹ outcome.percentiles_source == "samples"`.
-    // PLoT drops the whole `outcome` object when a required stat is non-finite,
-    // so a downside surviving that drop would be a tail statistic with no
-    // distribution to be the tail OF.
+    // A downside surviving here would be a tail statistic with no distribution
+    // to be the tail OF.
+    //
+    // ⚠ 2.581 CHANGED THE PRECONDITION, NOT THE PROPERTY. This test used to
+    // assert `hedge.outcome` was UNDEFINED, because PLoT deleted the whole
+    // outcome object when any required stat was non-finite — and the downside
+    // gate was written as `outcome !== undefined`, which was correct only by
+    // that coincidence. PLoT now carries the honest partial block, so the gate
+    // was re-bound to the PERCENTILE POPULATION (`hasAllRequiredOutcomeStats`)
+    // to keep this behaviour byte-identical. The load-bearing assertion — no
+    // downside — is unchanged; only the precondition below is restated to
+    // describe what the wire now looks like.
     mockOutcomeOverrideByOption = { [OPT_HEDGE_ID]: { mean: Number.NaN } };
     mockDownsideByOption = { [OPT_HEDGE_ID]: { ...HEDGE_DOWNSIDE }, [OPT_BOLD_ID]: { ...BOLD_DOWNSIDE } };
 
@@ -391,7 +400,9 @@ describe('2.449 — ISL downside/tail-risk block reaches PLoT egress', () => {
     const hedge = optionByIdentity(body, OPT_HEDGE_ID, OPT_HEDGE_LABEL);
     const bold = optionByIdentity(body, OPT_BOLD_ID, OPT_BOLD_LABEL);
 
-    expect(hedge.outcome, 'precondition: the degenerate option has no outcome object').toBeUndefined();
+    // PRECONDITION: the required stat really is unmeasurable on this option —
+    // absent, never a fabricated 0 — so the absence below is the gate's doing.
+    expect(hedge.outcome, 'precondition: the degenerate option has no usable mean').not.toHaveProperty('mean');
     expect(bold.downside, 'precondition: the healthy sibling still carries its block').toEqual(BOLD_DOWNSIDE);
     expect(hedge).not.toHaveProperty('downside');
   });

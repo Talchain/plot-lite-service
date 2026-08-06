@@ -303,15 +303,43 @@ describe('WP5 gate · non-finite ISL outcomes do not leak into the public respon
     expect(findNullNumericFields(res.json())).toEqual([]);
   });
 
-  it('REGRESSION: a non-finite outcome omits the WHOLE outcome object (never partial nulls)', async () => {
-    // The fixture makes every required stat (mean/p10/p50/p90) non-finite, so the
-    // entire outcome is omitted (honest absence) rather than emitting null stats.
+  it('REGRESSION: a non-finite outcome OMITS the unmeasurable stats (never partial nulls, never zeros)', async () => {
+    // ⚠ 2.581 CHANGED THE RULE THIS TEST PINS, and the change is deliberate.
+    // It used to require the WHOLE outcome object to disappear. That also threw
+    // away `n_samples` / `n_valid_samples` / `validity_ratio`, which are REQUIRED
+    // fields on ISL's `OutcomeDistributionV2` and are honest measurements even on
+    // a degenerate run — they are the evidence OF the degeneracy. PLoT now
+    // carries the honest subset.
+    //
+    // THE PROPERTY THIS TEST EXISTS FOR IS UNCHANGED and is asserted harder
+    // below: a stat that could not be measured is ABSENT — never a fabricated
+    // `null`, never a plausible `0`. (The sibling test
+    // "no numeric-egress field is a fabricated null" is the whole-body sweep and
+    // still passes; this one binds the rule to the outcome object specifically.)
     const res = await run(app);
     const oc = (res.json().option_comparison ?? []) as any[];
     expect(oc.length).toBeGreaterThan(0);
     for (const o of oc) {
-      expect(o.outcome ?? undefined).toBeUndefined();
-      expect(o.outcome).not.toBeNull();
+      // The fixture makes every quantile non-finite, so none may appear.
+      for (const key of ['mean', 'std', 'p10', 'p50', 'p90']) {
+        expect(o.outcome, `${o.option_id}.outcome.${key} must be ABSENT`).not.toHaveProperty(key);
+      }
+      // Absent, not null, and — the fabrication direction that does the harm —
+      // not coerced to a plausible zero.
+      expect(o.outcome?.mean ?? undefined).toBeUndefined();
+      expect(o.outcome?.mean).not.toBeNull();
+      expect(o.outcome?.mean).not.toBe(0);
+      expect(o.outcome?.p10 ?? undefined).toBeUndefined();
+      expect(o.outcome?.p10).not.toBe(0);
+      // Whatever DOES survive must be a real finite number — a partial block may
+      // never smuggle a null through under a key the old rule used to delete.
+      for (const [k, v] of Object.entries(o.outcome ?? {})) {
+        if (k === 'percentiles_source') {
+          expect(['samples', 'unavailable'], `${k} must be an ISL-declared literal`).toContain(v);
+          continue;
+        }
+        expect(Number.isFinite(v), `outcome.${k} survived as a non-finite value`).toBe(true);
+      }
     }
   });
 
@@ -476,21 +504,43 @@ describe('numeric-egress gate · a single invalid required outcome quantile omit
     delete process.env.CEE_ORCHESTRATOR_ENABLED;
   });
 
-  it('REGRESSION: finite mean + NaN p10 ⇒ outcome omitted on every option', async () => {
+  it('REGRESSION: finite mean + NaN p10 ⇒ ONLY p10 is omitted; the measured stats survive', async () => {
+    // ⚠ 2.581 CHANGED THE RULE. This used to require the whole outcome to vanish
+    // because ONE required quantile was invalid — which discarded `mean`, `p50`,
+    // `p90` and the sample census that WERE measured. Each stat is an
+    // independent measurement, so each is judged independently: p10 was not
+    // measurable and is ABSENT; the rest are honest and survive.
+    //
+    // The invariant that keeps this from being a downgrade is the sibling test
+    // below: `option_comparison_status` is still NOT 'computed', so a consumer
+    // is told the comparison is degraded even though it now receives more of the
+    // honest detail rather than less.
     const res = await run(app);
     expect(res.statusCode).toBe(200);
     const oc = (res.json().option_comparison ?? []) as any[];
     expect(oc.length).toBeGreaterThan(0);
     for (const o of oc) {
-      expect(o.outcome ?? undefined).toBeUndefined();   // whole outcome omitted (a required quantile is invalid)
-      expect(o.outcome).not.toBeNull();
+      // The invalid quantile is ABSENT — not null, and not a fabricated 0.
+      expect(o.outcome, `${o.option_id}: the NaN p10 must be absent`).not.toHaveProperty('p10');
+      expect(o.outcome?.p10 ?? undefined).toBeUndefined();
+      expect(o.outcome?.p10).not.toBe(0);
+      // The measured siblings survive, verbatim — this is the arm that proves
+      // the change carries data rather than merely relabelling a deletion.
+      expect(o.outcome?.mean).toBe(0.7);
+      expect(o.outcome?.p50).toBe(0.7);
+      expect(o.outcome?.p90).toBe(0.9);
+      expect(o.outcome?.n_valid_samples).toBe(1000);
     }
     expect(findNullNumericFields(res.json())).toEqual([]);
   });
 
-  it('REGRESSION: status is NOT "computed" when the public outcome was omitted (shared predicate)', async () => {
-    const res = await run(app);
+  it('REGRESSION: status is NOT "computed" when a REQUIRED outcome quantile is invalid (shared predicate)', async () => {
+    // The status predicate (`hasAllRequiredOutcomeStats`) is deliberately
+    // UNCHANGED by 2.581: it still demands finite mean/p10/p50/p90. So the
+    // partial-carry change cannot launder a degraded run into a confident one —
+    // more detail reaches the consumer, and the verdict on it stays honest.
     // expected_outcome is finite but is NOT emitted in V2, so it must not rescue status.
+    const res = await run(app);
     expect(res.json().option_comparison_status).not.toBe('computed');
   });
 });

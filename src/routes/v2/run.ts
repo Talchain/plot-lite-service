@@ -58,6 +58,7 @@ import type {
   FactorStabilityEntry,
   StabilityThresholds,
   InferenceWarning,
+  OutcomeStatsV3,
 } from '../../types/engine-v3.js';
 import { INFERENCE_WARNING_CODES } from '../../types/engine-v3.js';
 import { sha8 } from '../../util/pii-redact.js';
@@ -2582,32 +2583,71 @@ function buildResponse(
     const hasOutcomeObject = outcomeData && typeof outcomeData === 'object';
 
     // Build full outcome stats from ISL V2 format. Numeric-safety guard (WP5):
-    // omit the ENTIRE outcome when a REQUIRED stat (mean/p10/p50/p90 per
-    // OutcomeStatsV3) is non-finite — a NaN/±Infinity would otherwise serialise to
-    // a fabricated `null` on a declared-number field. Optional stats (std,
-    // n_samples, n_valid_samples, validity_ratio) are dropped INDIVIDUALLY when
-    // non-finite. `Number.isFinite` is false for non-numbers too, so this also
-    // drops missing/garbage values exactly as before. Keys are inserted in the
-    // original order so a fully-finite outcome serialises byte-identically (no
-    // response_hash drift); only the degenerate non-finite case changes.
-    let outcome: Record<string, number> | undefined;
-    if (hasOutcomeObject && hasAllRequiredOutcomeStats(outcomeData)) {
-      // Required mean/p10/p50/p90 are outcome magnitudes (unbounded) → finite-only.
+    // EVERY stat is validated INDIVIDUALLY and an invalid one is OMITTED — a
+    // NaN/±Infinity/null would otherwise serialise to a fabricated `null` on a
+    // declared-number field. `Number.isFinite` is false for non-numbers too, so
+    // this also drops missing/garbage values. Keys are inserted in the original
+    // order so a fully-finite outcome serialises byte-identically apart from the
+    // appended provenance key; `response_hash` canonicalises the REQUEST and is
+    // unaffected either way.
+    //
+    // ⚠ 2.581: this used to be ALL-OR-NOTHING — a single non-finite required stat
+    // deleted the WHOLE outcome object. That threw away the very fields that
+    // EXPLAIN the degeneracy. On ISL's degenerate run (`OutcomeDistributionV2`
+    // with `percentiles_source: 'unavailable'`) `mean`/`std` are absent and
+    // p10/p50/p90 are null, but `n_samples`, `n_valid_samples` and
+    // `validity_ratio` are REQUIRED fields at the producer and are present and
+    // honest — `n_valid_samples: 0`, `validity_ratio: 0.0` is a MEASUREMENT that
+    // says "we sampled and got nothing usable". Deleting it left the option
+    // indistinguishable from one that was never analysed at all. The block is now
+    // carried PARTIALLY: what is honest survives, what was not measured stays
+    // ABSENT — never `0`, never `null`. (A fabricated 0 `mean` does not read as
+    // "unknown", it reads as "this option is worth nothing".)
+    // Typed as OutcomeStatsV3 rather than a loose Record so the appended string
+    // provenance key cannot silently widen the numeric stats at their read sites
+    // (the first draft used `Record<string, number | string>` and the typecheck
+    // correctly rejected `outcome?.p90` being handed to a number-only guard).
+    let outcome: OutcomeStatsV3 | undefined;
+    if (hasOutcomeObject) {
+      // mean/p10/p50/p90 are outcome magnitudes (unbounded) → finite-only.
       // Optional stats carry their true domains: std non-negative, sample counts
-      // non-negative integers, validity_ratio a [0,1] rate. Key insertion order is
-      // preserved so a valid outcome serialises byte-identically (no golden drift).
-      outcome = { mean: outcomeData.mean };
+      // non-negative integers, validity_ratio a [0,1] rate.
+      const built: OutcomeStatsV3 = {};
+      const meanVal = finiteNum(outcomeData.mean);
+      if (meanVal !== undefined) built.mean = meanVal;
       const stdVal = nonNeg(outcomeData.std);
-      if (stdVal !== undefined) outcome.std = stdVal;
-      outcome.p10 = outcomeData.p10;
-      outcome.p50 = outcomeData.p50;
-      outcome.p90 = outcomeData.p90;
+      if (stdVal !== undefined) built.std = stdVal;
+      const p10Val = finiteNum(outcomeData.p10);
+      if (p10Val !== undefined) built.p10 = p10Val;
+      const p50Val = finiteNum(outcomeData.p50);
+      if (p50Val !== undefined) built.p50 = p50Val;
+      const p90Val = finiteNum(outcomeData.p90);
+      if (p90Val !== undefined) built.p90 = p90Val;
       const nSamplesVal = nonNegInt(outcomeData.n_samples);
-      if (nSamplesVal !== undefined) outcome.n_samples = nSamplesVal;
+      if (nSamplesVal !== undefined) built.n_samples = nSamplesVal;
       const nValidVal = nonNegInt(outcomeData.n_valid_samples);
-      if (nValidVal !== undefined) outcome.n_valid_samples = nValidVal;
+      if (nValidVal !== undefined) built.n_valid_samples = nValidVal;
       const validityVal = prob01(outcomeData.validity_ratio);
-      if (validityVal !== undefined) outcome.validity_ratio = validityVal;
+      if (validityVal !== undefined) built.validity_ratio = validityVal;
+      // 2.581 — PERCENTILES PROVENANCE, appended last (ISL's own declaration
+      // order on OutcomeDistributionV2). This is the discriminator that
+      // separates "ISL had no usable sample population" from "ISL had samples
+      // but a tail statistic was not finite": without it both present downstream
+      // as a missing `downside` and nothing else.
+      //
+      // NEVER DEFAULTED. ISL declares `Literal["samples","unavailable"]` with a
+      // Python-side `default="samples"`, so a V2 wire always carries it — but
+      // PLoT must not re-apply that default. Substituting 'samples' for a build
+      // that sent nothing would manufacture a provenance claim PLoT never
+      // received, which is the `?? 0` fabrication class wearing a string. An
+      // absent or out-of-domain value leaves the key ABSENT.
+      const percentilesSource = outcomeData.percentiles_source;
+      if (percentilesSource === 'samples' || percentilesSource === 'unavailable') {
+        built.percentiles_source = percentilesSource;
+      }
+      // An outcome with nothing honest in it is not an outcome: emit no key
+      // rather than an empty object a consumer could mistake for a result.
+      if (Object.keys(built).length > 0) outcome = built;
     }
 
     const resolvedOptionLabel = option?.label ?? r.label ?? optionId;
@@ -2654,11 +2694,20 @@ function buildResponse(
     // golden byte-identical), and a component ISL could not compute honestly
     // omits the WHOLE block rather than fabricating a zero — see buildDownside.
     //
-    // Gated on `outcome` because ISL enforces `downside ⟹
-    // outcome.percentiles_source == 'samples'`: PLoT drops the whole outcome
-    // object when a required stat is non-finite, and a tail statistic that
-    // outlived the distribution it is the tail OF would be unreadable.
-    const downside = outcome !== undefined ? buildDownside(r.downside) : undefined;
+    // Gated on the PERCENTILE POPULATION because ISL enforces `downside ⟹
+    // outcome.percentiles_source == 'samples'`: a tail statistic that outlived
+    // the distribution it is the tail OF would be unreadable.
+    //
+    // ⚠ 2.581: this gate read `outcome !== undefined`, which was equivalent ONLY
+    // because a degraded outcome was deleted entirely. Now that a partial
+    // outcome IS emitted, that form would have silently let a downside ride
+    // alongside a block with no percentiles at all — the partial-carry change
+    // loosening a guard it never mentioned. Binding to
+    // `hasAllRequiredOutcomeStats` restores the producer's own invariant and
+    // keeps downside behaviour byte-identical to before this change.
+    const downside = hasAllRequiredOutcomeStats(outcomeData)
+      ? buildDownside(r.downside)
+      : undefined;
     if (downside !== undefined) {
       result.downside = downside;
     }

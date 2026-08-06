@@ -1661,24 +1661,46 @@ export interface RunResponseV3 {
 
 /**
  * Outcome statistics from ISL Monte Carlo simulation.
+ *
+ * ⚠ 2.581 — EVERY MEMBER IS OPTIONAL, and that is a statement about the wire,
+ * not laxity. `mean`/`p10`/`p50`/`p90` were declared REQUIRED here while the
+ * builder could already omit the whole block, so the type never described the
+ * shape a consumer actually receives. ISL's `OutcomeDistributionV2` declares
+ * `mean`/`std` as `Optional` (omitted, never null, when there is no honest mean)
+ * and `p10`/`p50`/`p90` as `Optional` (null when unavailable); PLoT now carries
+ * the honest subset rather than deleting the block, so a consumer MUST branch on
+ * presence. An absent stat means NOT MEASURED — it is never zero.
  */
 export interface OutcomeStatsV3 {
-  /** Mean outcome value */
-  mean: number;
-  /** Standard deviation */
+  /** Mean outcome value. Absent when ISL had no usable sample population. */
+  mean?: number;
+  /** Standard deviation. Travels with `mean` at the producer. */
   std?: number;
-  /** 10th percentile (pessimistic) */
-  p10: number;
-  /** 50th percentile (median/expected) */
-  p50: number;
-  /** 90th percentile (optimistic) */
-  p90: number;
+  /** 10th percentile (pessimistic). Absent when `percentiles_source` is 'unavailable'. */
+  p10?: number;
+  /** 50th percentile (median/expected). Absent when `percentiles_source` is 'unavailable'. */
+  p50?: number;
+  /** 90th percentile (optimistic). Absent when `percentiles_source` is 'unavailable'. */
+  p90?: number;
   /** Number of Monte Carlo samples */
   n_samples?: number;
   /** Number of valid (non-NaN) samples */
   n_valid_samples?: number;
   /** Ratio of valid to total samples */
   validity_ratio?: number;
+  /**
+   * PROVENANCE of p10/p50/p90 (2.581). Verbatim passthrough of ISL's
+   * `OutcomeDistributionV2.percentiles_source`:
+   *   · 'samples'     — computed from actual Monte-Carlo samples.
+   *   · 'unavailable' — no valid samples exist; p10/p50/p90 are absent here.
+   *
+   * The KEY IS ABSENT when ISL sent no value, or a value outside those two
+   * literals. PLoT deliberately does NOT re-apply ISL's Python-side
+   * `default="samples"` — inventing a provenance claim is the same defect class
+   * as a fabricated `0`. Absence here means "PLoT was not told", which is a
+   * different fact from either literal.
+   */
+  percentiles_source?: 'samples' | 'unavailable';
 }
 
 /**

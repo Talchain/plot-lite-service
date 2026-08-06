@@ -412,6 +412,18 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
     //                                    ISL build that does emit the block,
     //                                    rows return with real values — see
     //                                    tests/v2-run.isl-factor-flips.contract.test.ts)
-    expect(rawBody._meta.response_content_hash).toBe('rch_v2:c5b3a998f5d0db5d');
+    //   2.581  rch_v2:290b87b5111e9d8a (outcome.percentiles_source now reaches
+    //                                    egress. The golden diff for this change
+    //                                    is EXACTLY one appended key per option,
+    //                                    value "samples", taken verbatim from the
+    //                                    ISL capture this fixture replays — a
+    //                                    field ISL has always sent and PLoT's
+    //                                    option_comparison builder silently
+    //                                    dropped. `response_hash` is UNMOVED (it
+    //                                    canonicalises the REQUEST); only this
+    //                                    content hash moves, which is the
+    //                                    correct direction for an additive
+    //                                    surface change.)
+    expect(rawBody._meta.response_content_hash).toBe('rch_v2:290b87b5111e9d8a');
   });
 });

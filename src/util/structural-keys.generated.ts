@@ -357,6 +357,7 @@ export const STRUCTURAL_KEYS: ReadonlySet<string> = new Set([
   "paths",
   "payload_hash",
   "payloads",
+  "percentiles_source",
   "plot",
   "plot_build",
   "plot_request_id",

@@ -675,6 +675,24 @@ export interface ISLOutcomeStats {
   n_valid_samples?: number;
   /** Ratio of valid to total samples */
   validity_ratio?: number;
+  /**
+   * CIL 0.2 provenance marker for p10/p50/p90, read at the bytes from ISL's
+   * `OutcomeDistributionV2` (src/models/response_v2.py @ staging c25836f7):
+   *
+   *   percentiles_source: Literal["samples", "unavailable"] = Field(default="samples", ...)
+   *
+   * NOT `Optional` at the producer, so `exclude_none=True` never drops it and a
+   * V2 wire always carries it. Declared optional HERE because a compile-time ISL
+   * type is a fiction over untrusted wire data (an older build, or the V1 flat
+   * path, sends nothing) — and because PLoT must be able to tell "not sent"
+   * apart from either literal rather than defaulting.
+   *
+   * 'unavailable' co-occurs with absent `mean`/`std` and null p10/p50/p90 BY
+   * PRODUCER INVARIANT (`_summary_stats_absent_only_without_samples` raises
+   * otherwise), and `downside` may only ride when this is 'samples'
+   * (`OptionResultV2._downside_requires_samples`).
+   */
+  percentiles_source?: 'samples' | 'unavailable';
 }
 
 // -----------------------------------------------------------------------------

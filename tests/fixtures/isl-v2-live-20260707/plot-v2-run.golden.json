@@ -35,7 +35,8 @@
         "p90": 0.24657456603769748,
         "n_samples": 4000,
         "n_valid_samples": 4000,
-        "validity_ratio": 1
+        "validity_ratio": 1,
+        "percentiles_source": "samples"
       },
       "status": "computed",
       "win_probability": 0.0007083333333333334
@@ -53,7 +54,8 @@
         "p90": 0.10336789783872895,
         "n_samples": 4000,
         "n_valid_samples": 4000,
-        "validity_ratio": 1
+        "validity_ratio": 1,
+        "percentiles_source": "samples"
       },
       "status": "computed",
       "win_probability": 0.002833333333333333
@@ -71,7 +73,8 @@
         "p90": 0.47137358299516724,
         "n_samples": 4000,
         "n_valid_samples": 4000,
-        "validity_ratio": 1
+        "validity_ratio": 1,
+        "percentiles_source": "samples"
       },
       "status": "computed",
       "win_probability": 0.59025
@@ -89,7 +92,8 @@
         "p90": 0.42035080806243247,
         "n_samples": 4000,
         "n_valid_samples": 4000,
-        "validity_ratio": 1
+        "validity_ratio": 1,
+        "percentiles_source": "samples"
       },
       "status": "computed",
       "win_probability": 0.40620833333333334
@@ -1611,7 +1615,7 @@
     "decision_brief_assembled": true,
     "review_cards_count": 0,
     "evidence_priority_card_present": false,
-    "response_content_hash": "rch_v2:c5b3a998f5d0db5d"
+    "response_content_hash": "rch_v2:290b87b5111e9d8a"
   },
   "meta": {
     "seed_used": "2034401427",
