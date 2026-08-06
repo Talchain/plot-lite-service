@@ -9,69 +9,98 @@ and `DecisionGuideAI` (UI).
 
 ## Current contents
 
-### `talchain-schemas-0.31.0.tgz`
+### `talchain-schemas-0.37.0.tgz`
 
-**Purpose:** consumption of `@talchain/schemas` v0.31.0 (ROADMAP 2.258 goal
-probability, 0.30.0 → 0.31.0). The bump carries **three** additions PLoT needs,
-all verified in the tarball rather than argued from the release notes:
+**Purpose:** consumption of `@talchain/schemas` v0.37.0 (0.31.0 → 0.37.0, a
+SIX-MINOR jump taken in one step). Unlike the 0.30→0.31 bump below, this one was
+not taken to unblock a specific PLoT field — it was taken to close a six-version
+skew, which is the estate's dominant boundary hazard: a consumer on an older pin
+**silently drops** fields it does not know.
 
-| # | addition | location in this tarball | what it unblocks here |
-|---|----------|--------------------------|-----------------------|
-| 1 | `goal_threshold_frame: z.enum(['level','delta']).optional()` on `NodeV3` | `dist/graph.js:194` | PLoT can FORWARD a producer-stamped frame to ISL beside `goal_threshold` (`translator-v3.ts`). PLoT never mints one. |
-| 2 | `EnrichmentFlipThresholdSchema.direction` relaxed `z.string()` → `z.string().optional()` | `dist/boundary/enrichment.js:499` (was `:473` at 0.30.0) | attested no-flip rows can **omit** `direction` instead of emitting the `'none'` placeholder |
-| 3 | `no_flip_in_range: z.boolean().optional()` | `dist/boundary/enrichment.js:529` | the structural no-flip signal PLoT already emits (2.228-F3) becomes TYPED rather than a `.passthrough()` rider |
+The span is **additive for every symbol PLoT imports**, derived from the source
+diff rather than the release notes:
 
-Addition 2 retires a documented compromise. At 0.30.0 `direction` was a REQUIRED
-`z.string()`, so omitting it made PLoT's own enrichment egress guard stamp
-`enrichment_contract_ok: false` and raise `ENRICHMENT_CONTRACT_MISMATCH` on every
-run carrying an attested no-flip — a false alarm on an honest row. `'none'` was
-threaded through the open vocabulary to dodge that alarm, with the follow-up
-rowed in `m1-review-types.ts`. 0.31.0 is that follow-up's precondition.
+| version | what it added | does PLoT import it? |
+|---------|---------------|----------------------|
+| 0.32.0 | `ui_directive` panel/section verbs | no |
+| 0.33.0 | `TransportedCritiqueSchema`; `EnrichmentCritiqueSchema` unchanged, `critiques` widened to a **union** of the two | yes — via `AnalysisEnrichmentSchema`; a widened union cannot reject an input the old schema accepted |
+| 0.34.0 | `edge_adjudication` + `prior_range_edit` P4 transport events | no |
+| 0.35.0 | classed field-parity table + tool op-batch | no |
+| 0.36.0 | editable-field table revision 2 (edge `validation` row) | no |
+| 0.37.0 | `ExerciseBlock.dsk_provenance` atomic triple | no |
 
-**Provenance:** this is the **published registry artifact** for
-`@talchain/schemas@0.31.0` (GitHub Packages `npm.pkg.github.com`), tag `v0.31.0`
-= commit `1454f6324f0f2d5c031b198e37d961ca807ab3d5`. Downloaded from the registry
-tarball URL, **not** a local `npm pack` (which is not byte-reproducible across
-environments).
+`git diff v0.31.0..v0.37.0 -- src/boundary/enrichment.ts` is **purely additive**:
+one new schema plus the `critiques` union widening. `EnrichmentOutcomeStatsSchema`
+is **byte-for-byte unchanged across the whole span** — which matters, see the
+open follow-on below.
 
-- **sha256** `a9efa0fdb390faed86e53867024141cd86813b5d33379c2d21cb213b612de1ad`
-- **npm integrity** `sha512-hdsteWcP15viFlgYi7HDQaUt17Zu72AU95BW2Ao1OH0smhCmGywyIfiJYwCloHjaJtGpBVBrtRc2gScuGsqaIw==`
+**⚠ OPEN, AND DELIBERATELY NOT PAPERED OVER (ROADMAP 2.581).**
+`EnrichmentOutcomeStatsSchema` (`dist/boundary/enrichment.js:118-127`) still
+declares `mean`/`p10`/`p50`/`p90` as REQUIRED `z.number()`. It therefore does not
+model the honest-absence shape ISL has emitted since its own 2.477 — a degenerate
+Monte-Carlo run whose `outcome` carries the sample census but no percentiles.
+PLoT now carries that partial block (2.581), so on a degenerate option the
+enrichment egress guard stamps `enrichment_contract_ok: false` and raises
+`ENRICHMENT_CONTRACT_MISMATCH`. **That alarm is TRUE and is intentionally left
+armed:** the alternative is fabricating a `mean`, which is the defect class the
+guard exists to catch. Note this is the exact inverse of the 0.30→0.31 story
+below, where a required field was relaxed to retire a false alarm — here the
+alarm is honest and the schema is what must move. Schemas follow-on: make those
+four `.optional()` and declare
+`percentiles_source: z.enum(['samples','unavailable']).optional()`.
+
+**Provenance:** packed from source — `npm pack` on a clone of `olumi-schemas`
+`main` @ `685d92ec49b3caf14e1086a2a0c94a5cc50f95ea`, tag `v0.37.0`.
+
+- **sha256** `835ab4b8381e1280f239de0d408c2da6790ab9f93a0a14ce6e5a389acd4dd369`
+- **npm integrity** `sha512-XlG7r5IudsCs/+69x4HFWTqs0KnUpZDbeBzXfM0OSJOJbpJMN9La+Mi7tkapkqfXoJox/MOlt6I18Sy/XSNDBw==`
   (= the lockfile pin; `npm ci` enforces it against these bytes)
-- **size** 290,759 bytes
+- **size** 347,174 bytes
 
-**Registry-identity — derived, three independent agreements (2026-08-01):**
+**⚠ THE PROVENANCE RULE INVERTED AT 0.37.0 — READ THIS BEFORE THE NEXT BUMP.**
+The 0.31.0 section below, and the "How to update" recipe further down, both say
+to take the **published registry artifact** and explicitly warn against
+`npm pack`. For 0.37.0 that is **WRONG**, and the reason is measured, not
+theoretical: the GitHub Packages artifact for 0.37.0 carries a **different
+envelope** — same source tree, different gzip framing — and hashes to
+`45264dc6…`, not `835ab4b8…`. The two must never be mixed in the same estate,
+because every consumer's `package-lock.json` integrity is computed over the bytes
+it vendored. **The canonical 0.37.0 bytes are the packed-from-source ones above.**
 
-| # | check | result |
-|---|-------|--------|
-| 1 | registry `dist.shasum` for 0.31.0 vs `shasum -a 1` of these bytes | `bfd68db40b2e38af22e91a4b151b094ac8b31449` — **identical** |
-| 2 | registry `dist.integrity` vs `openssl dgst -sha512 -binary … \| base64` | `sha512-hdsteWcP15vi…` — **identical** |
-| 3 | that same string vs this repo's `package-lock.json` `integrity` | **identical** (so `npm ci` re-verifies the registry bytes on every install) |
+Both rules exist for the same goal — every consumer converging on identical
+bytes — and neither is safe on its own; what makes a bump correct is that ALL
+consumers use the SAME recipe and assert the SAME sha256 before trusting it.
+The canonical sha256 is the invariant; the recipe is just how you reach it.
+**Assert `835ab4b8…` on whatever you produce, and if it does not match, stop —
+do not vendor bytes you cannot name.**
 
-**⚠ BYTE-IDENTITY WITH CEE/DGAI IS NOT YET ESTABLISHED FOR 0.31.0 — and that is a
-STATE, not an oversight.** For 0.30.0 this README could show a five-way agreement
-because CEE and DGAI had already vendored the same git blob. Measured 2026-08-01,
-**both CEE `staging` and DGAI `staging` still vendor 0.30.0**
-(`talchain-schemas-0.30.0.tgz`, blob `416a591720a77f31342fae9c4be9036d8fad97d3`,
-265,222 bytes, in both). PLoT is therefore the **FIRST** consumer on 0.31.0, and
-the cross-repo invariant is *pending*, not *broken*. What replaces it until they
-land is checks 1–3 above: the bytes here are provably the REGISTRY's bytes, so
-any repo that later vendors the same published artifact converges on them by
-construction. **Whoever vendors 0.31.0 into CEE or DGAI should download the same
-registry tarball and confirm sha256 `a9efa0fd…` before adding a row here.**
+**⚠ CROSS-REPO BYTE-IDENTITY IS NOT ESTABLISHED FOR 0.37.0 — a STATE, not an
+oversight.** Measured this session: **CEE `staging` vendors 0.35.0**
+(`package.json:91`, `file:./vendor/talchain-schemas-0.35.0.tgz`). PLoT is again
+the FIRST consumer on this version, so the cross-repo invariant is *pending*.
+Whoever vendors 0.37.0 into CEE or DGAI should pack from
+`main @ 685d92ec`, confirm sha256 `835ab4b8…`, and add a row here.
 
-**Checksum:** `vendor/talchain-schemas-0.31.0.tgz.sha256` holds the sha256 of
+**Checksum:** `vendor/talchain-schemas-0.37.0.tgz.sha256` holds the sha256 of
 the tarball bytes. Verify with:
 
 ```bash
-shasum -a 256 -c <(printf '%s  vendor/talchain-schemas-0.31.0.tgz\n' \
-  "$(cat vendor/talchain-schemas-0.31.0.tgz.sha256)")
+shasum -a 256 -c <(printf '%s  vendor/talchain-schemas-0.37.0.tgz\n' \
+  "$(cat vendor/talchain-schemas-0.37.0.tgz.sha256)")
 ```
 
-**Consumed-surface analysis (0.30.0 → 0.31.0): measured, not inspected.** The
-0.30→0.31 span is additive-or-relaxing for every symbol PLoT imports — addition 2
-WIDENS an accepted set (a previously-required field became optional), which
-cannot reject an input the old schema accepted. Rather than rest on that
-argument, the re-vendor was measured on this branch:
+**Consumed-surface analysis (0.31.0 → 0.37.0): measured, not inspected.**
+`npx tsc -p tsconfig.json --noEmit` — **exit 0** on the re-vendor commit alone,
+and the full vitest suite was run at this pin; results in the PR/lane report.
+Read the `src/`-only caveat below before treating that as full coverage: it is
+the reason the vitest run, not the typecheck, is the load-bearing gate for a
+re-vendor.
+
+**Historical — consumed-surface analysis (0.30.0 → 0.31.0): measured, not
+inspected.** The 0.30→0.31 span is additive-or-relaxing for every symbol PLoT
+imports — addition 2 WIDENS an accepted set (a previously-required field became
+optional), which cannot reject an input the old schema accepted. Rather than rest
+on that argument, the re-vendor was measured on its branch:
 
 - `npx tsc -p tsconfig.json --noEmit` — **exit 0** on the re-vendor commit alone,
   so no imported symbol was deleted or narrowed incompatibly **across `src/`**.
@@ -100,45 +129,60 @@ argument, the re-vendor was measured on this branch:
 leave a stale literal behind, and a bumped filename with an unrefreshed lockfile
 FAILS LOUD instead of silently running the older contract.
 
-**Rollback path:** revert the re-vendor commit. Git history restores the 0.30.0
+**Rollback path:** revert the re-vendor commit. Git history restores the 0.31.0
 tarball + manifest, the prior `package.json` pin, and the prior
-`package-lock.json`. **Note the coupling:** the `direction`-omission change
-(ROADMAP 2.258 part 2) DEPENDS on addition 2, so reverting this re-vendor alone
-would re-arm `ENRICHMENT_CONTRACT_MISMATCH` on attested no-flip rows. Revert the
-whole PR, not this commit in isolation.
+`package-lock.json`. The 0.31→0.37 bump is additive for every symbol PLoT
+imports, so unlike the 0.30→0.31 bump it carries **no code coupling** and can be
+reverted in isolation. (Historical, for the commit below it: the 0.30→0.31
+re-vendor WAS coupled — the `direction`-omission change, ROADMAP 2.258 part 2,
+depended on its addition 2, so reverting that one alone would re-arm
+`ENRICHMENT_CONTRACT_MISMATCH` on attested no-flip rows.)
 
 **How to update:**
 
-⚠ **Take the PUBLISHED REGISTRY ARTIFACT, not a local `npm pack`.** This recipe
-used to say `npm pack`, which contradicts the provenance rule two sections up:
-`npm pack` is **not byte-reproducible across environments**, so every repo that
-packed its own copy would vendor different bytes and the cross-repo byte-identity
-invariant could never be checked. Download what the registry actually serves —
-then all consumers converge by construction.
+⚠ **PACK FROM SOURCE, and ASSERT THE SHA256. This instruction reversed at
+0.37.0 — do not follow the older text without reading why.** This recipe
+previously said to take the published GitHub Packages artifact and warned
+against `npm pack`. Measured at 0.37.0, the registry artifact and the
+packed-from-source artifact are **different bytes** — same source tree,
+different gzip envelope (`45264dc6…` vs the canonical `835ab4b8…`). Mixing the
+two across repos is the failure this whole section exists to prevent, since each
+consumer's `package-lock.json` integrity is computed over the bytes it vendored.
+
+**The durable rule is not "registry" or "pack" — it is: every consumer uses the
+SAME recipe and asserts the SAME sha256 before trusting the bytes.** The hash is
+the invariant; the recipe is only how you reach it. Whoever bumps next: agree the
+canonical hash with the schemas lane FIRST, then reproduce it.
 
 ```bash
-# 0. Publish the new version from olumi-schemas first (that repo's own release flow).
-export GITHUB_TOKEN="$(gh auth token)"     # needs read:packages
-V=0.31.0
+# 0. Tag + merge the new version in olumi-schemas first (that repo's own release flow).
+V=0.37.0
+SHA=685d92ec49b3caf14e1086a2a0c94a5cc50f95ea      # the tagged commit
+EXPECTED=835ab4b8381e1280f239de0d408c2da6790ab9f93a0a14ce6e5a389acd4dd369
 
-# 1. Resolve the registry's own tarball URL + expected hashes for that version
-curl -sS -H "Authorization: Bearer $GITHUB_TOKEN" \
-  https://npm.pkg.github.com/@talchain/schemas \
-  | python3 -c "import json,sys,os; d=json.load(sys.stdin)['versions'][os.environ['V']]['dist']; print(d['tarball']); print(d['shasum']); print(d['integrity'])"
+# 1. Pack from a clean clone of the tagged commit (NOT from the registry)
+git clone --filter=blob:none https://github.com/Talchain/olumi-schemas.git /tmp/schemas-$V
+cd /tmp/schemas-$V && git checkout "$SHA" && [ "$(git rev-parse HEAD)" = "$SHA" ] || exit 1
+npm ci && npm run build && npm pack
 
-# 2. Download it into vendor/ and refresh the sha256 manifest
-curl -sSL -H "Authorization: Bearer $GITHUB_TOKEN" "<tarball-url-from-step-1>" \
-  -o vendor/talchain-schemas-$V.tgz
-shasum -a 256 vendor/talchain-schemas-$V.tgz | awk '{print $1}' \
-  > vendor/talchain-schemas-$V.tgz.sha256
+# 2. ASSERT the bytes before they enter the repo — a mismatch is a STOP, not a warning
+ACTUAL=$(shasum -a 256 "talchain-schemas-$V.tgz" | cut -d' ' -f1)
+[ "$ACTUAL" = "$EXPECTED" ] || { echo "STOP: got $ACTUAL, expected $EXPECTED"; exit 1; }
 
-# 3. VERIFY the bytes are the registry's before trusting them (all three must match step 1)
-shasum -a 1 vendor/talchain-schemas-$V.tgz                                  # == dist.shasum
-openssl dgst -sha512 -binary vendor/talchain-schemas-$V.tgz | base64        # == dist.integrity (minus 'sha512-')
+# 3. Install into vendor/ and write the manifest
+cp "talchain-schemas-$V.tgz" "$OLDPWD/vendor/"
+cd "$OLDPWD"
+printf '%s\n' "$EXPECTED" > vendor/talchain-schemas-$V.tgz.sha256
 
-# 4. Update the package.json `file:` reference, then `npm install`
-#    (confirm package-lock.json's integrity now equals dist.integrity)
-# 5. git rm the old tarball + .sha256; git add the new pair; update this README
+# 4. Update the package.json `file:` reference, then `npm install` to refresh
+#    package-lock.json's `integrity` over THESE bytes.
+# 5. git rm the old tarball + .sha256; git add the new pair (the file-deps policy
+#    check FAILS until they are git-tracked — that is the gate working, not a bug);
+#    update this README.
+# 6. Run the FULL suite, not just the typecheck: tsconfig.json excludes tests/,
+#    so a re-vendor that breaks a test's types passes `npm run typecheck` silently.
+bash scripts/validate-file-deps.sh .
+npm run typecheck && npm test
 ```
 
 Only the currently-pinned version lives in `vendor/` — old tarballs are
