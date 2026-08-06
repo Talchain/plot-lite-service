@@ -17,7 +17,6 @@ import {
   sanitizeRequestId,
   draftGraphV2,
   optionsV2,
-  biasCheckV2,
   type CEESchemaV2Config,
 } from './client.js';
 import { shouldAllowCeeCall, recordCeeSuccess, recordCeeFailure, getCeeCircuitBreakerStats } from './circuit-breaker.js';
@@ -119,21 +118,33 @@ export type BriefContext = {
 /**
  * Build the brief PLoT sends to CEE's /assist/v1/draft-graph.
  *
- * ⚠ READ BEFORE WIRING ANYTHING ELSE OUT OF THE CEE COMPOSE RESULT (ROADMAP row 23).
+ * ⚠ READ BEFORE WIRING ANYTHING ELSE OUT OF THE CEE COMPOSE RESULT.
  *
  * This brief carries the user's node/edge COUNTS and nothing else — deliberately, see
  * the "no user content exposed" comment below. CEE therefore DRAFTS A NEW GRAPH from a
  * string like "Decision review context: Decision review for inference results
- * (12 nodes, 18 edges)", and `runDecisionReviewVia{Sdk,V2Http}` then run /options and
- * /bias-check against THAT drafted graph (`:172` and `:341` at 5ab93383), not against
- * `request.graph_snapshot` — which `orchestrateCeeReview` reads for `.length` only
- * (`:583-584`, `:622-623`).
+ * (12 nodes, 18 edges)". `request.graph_snapshot` — the user's real graph, which
+ * `/v1/run` and `/v2/run` both deliver to `orchestrateCeeReview` in full — is read
+ * for `.length` only. **The graph this function's output produces is NOT the user's
+ * model, and nothing derived from it may be described to a user as if it were.**
  *
- * Consequence: `bias.bias_findings` and `bias.mitigation_patches` describe a graph the
- * user never built, and any patch node ids come from it. Surfacing them to a user —
- * e.g. via the UI's "apply to my model" action — would be a fabrication, not a fix.
- * The graph seam must be corrected first, and doing so reverses the explicit
- * "no user content exposed" decision, so it is an architecture call, not a patch.
+ * ── RETIRED, S-1 (ROADMAP 2.461 / 2.143 ②, Paul Ruling 2 of 5 Aug 2026) ──────────
+ * The bias limb that used to hang off this drafted graph is GONE. `/assist/v1/bias-check`
+ * was called with `draft.graph` in both runners, so every `bias_findings[].node_ids`
+ * and every `mitigation_patches[]` it returned described a graph the user never built.
+ * That is a fabrication, not a fix, and a fabrication that merely happens to be
+ * discarded downstream is one wire change away from an incident — so the producer was
+ * removed rather than gated.
+ *
+ * **DO NOT re-add a bias (or any other graph-describing) call against `draft.graph`.**
+ * The grounded bias producer is CEE `/assist/v1/decision-review`, reached from
+ * `src/cee/decision-review-orchestrator.ts` with `input.graph` — the SAME graph object,
+ * in the SAME request, that PLoT sends to ISL — and CEE's `contract-gate.ts` enforces
+ * cite-or-reject id grounding against it, dropping the whole review on one unknown id.
+ * That is the seam any new bias work extends. It shares no code with this file.
+ *
+ * `tests/cee-bias-producer-a-retired.test.ts` pins the retirement by execution across
+ * all three entries into the runners below.
  */
 export function buildCeeBrief(shortLabel: string, context?: BriefContext): string {
   const prefix = 'Decision review context: ';
@@ -188,10 +199,11 @@ export async function runDecisionReviewViaSdk(
       evidence = await client.evidenceHelper({ evidence: evidenceItems });
     }
 
-    // 4) Bias/structure checks – strict payload: { graph, archetype }
-    const bias = await client.biasCheck({ graph: draft.graph, archetype });
+    // 4) Bias/structure checks — RETIRED (S-1). They ran against `draft.graph`, a graph
+    //    CEE drafted from the counts-only brief above, so their findings and patches
+    //    described a model the user never built. See the buildCeeBrief header.
 
-    const review = buildCeeDecisionReviewPayload({ draft, options, evidence, bias });
+    const review = buildCeeDecisionReviewPayload({ draft, options, evidence });
 
     // M1 CEE Orchestrator spec v1.1: Calculate latency and extract IDs
     const latencyMs = Date.now() - startTime;
@@ -360,12 +372,11 @@ export async function runDecisionReviewViaV2Http(
     const optionsResult = await optionsV2(v2Config, draft.graph, archetype, requestId);
     const options = optionsResult.data;
 
-    // 3) Bias check with v2 format
-    const biasResult = await biasCheckV2(v2Config, draft.graph, archetype, requestId);
-    const bias = biasResult.data;
+    // 3) Bias check — RETIRED (S-1), same reason as the SDK runner: it ran against
+    //    `draft.graph`, not the user's graph. See the buildCeeBrief header.
 
     // Build review payload (SDK helper still works with v2 data)
-    const review = buildCeeDecisionReviewPayload({ draft, options, evidence: undefined, bias });
+    const review = buildCeeDecisionReviewPayload({ draft, options, evidence: undefined });
 
     const latencyMs = Date.now() - startTime;
     const ceeReturnedRequestId = draft?.trace?.request_id ?? draft?.trace?.requestId ?? null;
@@ -537,7 +548,8 @@ function normalizeError(error: unknown): CeeErrorNormalized {
  *
  * This is the new entry point for CEE integration. It:
  * 1. Uses CeeClient.review() when SDK v1.12.0+ is available
- * 2. Falls back to compose pattern (draftGraph + options + bias + evidence) until then
+ * 2. Falls back to compose pattern (draftGraph + options + evidence) until then
+ *    — the bias limb was retired in S-1; see the buildCeeBrief header.
  * 3. Wraps calls with circuit breaker
  * 4. Handles three-ID tracing per spec v1.1
  *
@@ -654,12 +666,20 @@ export async function orchestrateCeeReview(
       // Convert compose result to M1 response shape.
       // ROADMAP row 23: readiness is carried from the CEE result when CEE computed one
       // and OMITTED otherwise. It is never fabricated — see extractCeeReadiness().
+      //
+      // ROADMAP 2.143 ② / 2.461 — DISCHARGED, NOT "FIXED". This `blocks: []` was on
+      // record as "the discard that drops CEE's bias result". There is no longer a
+      // bias result to drop: the limb that produced it is gone (see buildCeeBrief).
+      // The literal itself is NOT dead code and must stay — `CeeReviewResponse.blocks`
+      // is a REQUIRED field (src/cee/types.ts) and this is the array the ISL
+      // robustness block is appended to below. Deleting it would change the wire
+      // (absent vs `[]`) for no honesty gain.
       const readiness = extractCeeReadiness(result.review);
       ceeReview = result.review ? {
         intent: request.intent,
         analysis_state: 'ran',
         ...(readiness ? { readiness } : {}),
-        blocks: [],
+        blocks: [], // initialiser for the ISL robustness merge below; see note above
         trace: {
           request_id: result.trace?.cee_returned_request_id ?? undefined,
           latency_ms: result.trace?.latency_ms ?? undefined,
@@ -693,6 +713,9 @@ export async function orchestrateCeeReview(
       // Convert compose result to M1 response shape (blocks added below).
       // ROADMAP row 23: readiness is carried from the CEE result when CEE computed one
       // and OMITTED otherwise. It is never fabricated — see extractCeeReadiness().
+      // ROADMAP 2.143 ② / 2.461 — see the identical note on the v2 branch above: the
+      // bias discard is dissolved because the bias producer is gone, and this literal
+      // stays because `blocks` is required and the ISL merge below appends to it.
       const readiness = extractCeeReadiness(result.review);
       ceeReview = result.review ? {
         intent: request.intent,

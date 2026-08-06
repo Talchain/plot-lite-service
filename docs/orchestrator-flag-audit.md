@@ -110,7 +110,7 @@ These endpoints forward UI requests to CEE, bypassing Netlify's 50s edge functio
 |-------|------|---------|---------|
 | `POST /v1/cee/draft-graph` | `src/routes/v1/cee-draft-graph.ts` | 135s | Proxy for graph authoring |
 | `POST /v1/cee/graph-readiness` | `src/routes/v1/cee-proxy.ts` | 10s | Proxy for graph readiness check |
-| `POST /v1/cee/bias-check` | `src/routes/v1/cee-proxy.ts` | 60s | Proxy for bias analysis |
+| ~~`POST /v1/cee/bias-check`~~ | — | — | **RETIRED (ROADMAP 2.632, S-1).** Ungrounded bias route, zero non-test callers; bypassed the decision-review contract gate. Now 404. |
 | `POST /v1/cee/sensitivity-coach` | `src/routes/v1/cee-proxy.ts` | 60s | Proxy for sensitivity coaching |
 | `POST /v1/cee/prompts/warm` | `src/routes/v1/cee-proxy.ts` | 10s | Proxy for prompt cache warming |
 

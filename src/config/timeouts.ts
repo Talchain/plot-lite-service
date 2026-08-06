@@ -47,9 +47,10 @@ export const CEE_PROXY_TIMEOUT_MS =
 export const CEE_PROXY_GRAPH_READINESS_TIMEOUT_MS =
   Number(process.env.CEE_PROXY_GRAPH_READINESS_TIMEOUT_MS) || 10_000;
 
-/** CEE proxy: bias-check */
-export const CEE_PROXY_BIAS_CHECK_TIMEOUT_MS =
-  Number(process.env.CEE_PROXY_BIAS_CHECK_TIMEOUT_MS) || 60_000;
+// CEE_PROXY_BIAS_CHECK_TIMEOUT_MS — REMOVED, S-1 (ROADMAP 2.632). Its only reader was
+// the retired `/v1/cee/bias-check` proxy route. The env var, if still set on a deploy,
+// is now simply unread; it is deliberately not validated any more (config-validator.ts)
+// so nothing implies the route still exists.
 
 /** CEE proxy: sensitivity-coach */
 export const CEE_PROXY_SENSITIVITY_COACH_TIMEOUT_MS =
@@ -248,7 +249,6 @@ export function logResolvedTimeouts(): void {
     CEE_DRAFT_GRAPH_TIMEOUT_MS,
     CEE_PROXY_TIMEOUT_MS,
     CEE_PROXY_GRAPH_READINESS_TIMEOUT_MS,
-    CEE_PROXY_BIAS_CHECK_TIMEOUT_MS,
     CEE_PROXY_SENSITIVITY_COACH_TIMEOUT_MS,
     CEE_PROXY_PROMPTS_WARM_TIMEOUT_MS,
     ISL_TIMEOUT_MS,

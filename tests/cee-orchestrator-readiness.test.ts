@@ -7,9 +7,10 @@
  * on EVERY successful turn — a constant dressed as a computed verdict
  * (src/cee/orchestrator.ts:598-612 and :638-652 at 5ab93383).
  *
- * CEE's compose endpoints (/assist/v1/draft-graph, /options, /bias-check) return no
- * readiness field at all (olumi-assistants-service@42e0b8ec
- * src/schemas/ceeResponses.ts:288-387), so the honest output is ABSENCE.
+ * CEE's compose endpoints (/assist/v1/draft-graph, /options) return no readiness field
+ * at all (olumi-assistants-service@42e0b8ec src/schemas/ceeResponses.ts:288-387), so
+ * the honest output is ABSENCE. (/bias-check was a third compose endpoint until S-1
+ * retired the limb — ROADMAP 2.461.)
  *
  * The suite covers both branches (SDK compose = default live branch; v2 HTTP when
  * CEE_SCHEMA_V2 ∈ {1,true}) in both directions: verdict present in the CEE payload →
@@ -30,10 +31,15 @@ import type { CeeReviewRequest } from '../src/cee/types.js';
 
 /** What the mocked SDK helper returns as the "CEE compose result" review payload. */
 let sdkReviewPayload: unknown = { story: {}, journey: {}, uiFlags: {} };
-/** What the mocked CEE bias-check envelope returns. */
-let biasEnvelope: Record<string, unknown> = { bias_findings: [] };
-/** When true, the mocked CEE bias-check rejects — exercises the degraded path. */
-let biasEnvelopeThrows = false;
+/**
+ * When true, the mocked CEE /options call rejects — exercises the degraded path.
+ *
+ * This used to be driven from the mocked /bias-check call. S-1 retired the bias limb
+ * (ROADMAP 2.461), so the degraded path is now exercised through /options, a compose
+ * step that survives. Retargeted rather than deleted: dropping it would have silently
+ * removed the only coverage of the degraded branch.
+ */
+let composeThrows = false;
 
 vi.mock('@olumi/assistants-sdk', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
@@ -46,12 +52,14 @@ vi.mock('@olumi/assistants-sdk', async (importOriginal) => {
         trace: { request_id: 'cee-req-sdk' },
         model: 'test-model',
       }),
-      options: async () => ({ options: [] }),
-      evidenceHelper: async () => ({ items: [] }),
-      biasCheck: async () => {
-        if (biasEnvelopeThrows) throw new Error('CEE_UPSTREAM_FAILURE');
-        return biasEnvelope;
+      options: async () => {
+        if (composeThrows) throw new Error('CEE_UPSTREAM_FAILURE');
+        return { options: [] };
       },
+      evidenceHelper: async () => ({ items: [] }),
+      // No `biasCheck`: S-1 retired it. Left ABSENT on purpose — if the call is ever
+      // re-added to the runner it will throw "biasCheck is not a function" here rather
+      // than passing against a helpful stub.
     }),
     buildCeeDecisionReviewPayload: () => sdkReviewPayload,
   };
@@ -70,11 +78,13 @@ vi.mock('../src/cee/client.js', async (importOriginal) => {
       },
       latency_ms: 1,
     }),
-    optionsV2: async () => ({ data: { options: [] }, latency_ms: 1 }),
-    biasCheckV2: async () => {
-      if (biasEnvelopeThrows) throw new Error('CEE_UPSTREAM_FAILURE');
-      return { data: biasEnvelope, latency_ms: 1 };
+    optionsV2: async () => {
+      if (composeThrows) throw new Error('CEE_UPSTREAM_FAILURE');
+      return { data: { options: [] }, latency_ms: 1 };
     },
+    // No `biasCheckV2` override: S-1 deleted the export from src/cee/client.ts, and the
+    // `importOriginal` spread above therefore no longer carries one. A re-added import
+    // would resolve to `undefined` and fail loudly.
   };
 });
 
@@ -101,8 +111,7 @@ describe('orchestrateCeeReview — readiness is carried, never fabricated', () =
     resetCeeCircuitBreaker();
     delete process.env.CEE_SCHEMA_V2;
     sdkReviewPayload = { story: {}, journey: {}, uiFlags: {} };
-    biasEnvelope = { bias_findings: [] };
-    biasEnvelopeThrows = false;
+    composeThrows = false;
   });
 
   afterEach(() => {
@@ -216,7 +225,7 @@ describe('orchestrateCeeReview — readiness is carried, never fabricated', () =
   });
 
   it('degrades with a normalised error and null review when the CEE call fails', async () => {
-    biasEnvelopeThrows = true;
+    composeThrows = true;
 
     const result = await orchestrateCeeReview(ENV, makeRequest(), 'req-8');
 
@@ -245,31 +254,44 @@ describe('orchestrateCeeReview — readiness is carried, never fabricated', () =
   });
 
   // ---------------------------------------------------------------------------
-  // (a)/(b) Bias payload — PINNED AS *NOT* SURFACED, deliberately.
+  // (a)/(b) The M1 conversion does not leak the compose payload.
   //
-  // This is NOT an endorsement of the gap. `orchestrateCeeReview` asks CEE to draft
-  // a graph from a COUNT-ONLY brief ("Decision review context: ... (N nodes, E edges)",
-  // src/cee/orchestrator.ts:118-133) and then runs the bias check against THAT drafted
-  // graph (:172, :341) — the user's own graph (`request.graph_snapshot`) is read for
-  // `.length` only (:583-584, :622-623). So `bias_findings` / `mitigation_patches`
-  // describe a graph the user never built, and surfacing them would be a fabrication,
-  // not a fix. The graph seam must be corrected first — see
-  // PHASE0-EVIDENCE-2026-07-28/fix-row23-plot-carry-review.md §2.
+  // THE ORIGINAL VERSION OF THIS TEST ("does NOT surface CEE bias findings") drove a
+  // bias envelope through the retired /bias-check limb and said: "Delete this test
+  // when, and only when, that seam is fixed." S-1 did not fix the seam — it RETIRED
+  // the producer (ROADMAP 2.461), so there is no bias envelope left to drive.
+  // Deleting outright would have thrown away the surviving, still-valuable guarantee:
+  // `orchestrateCeeReview` rebuilds the M1 response from scratch and carries ONLY
+  // readiness + trace + blocks out of the compose payload. That is what is pinned
+  // here now, driven from `sdkReviewPayload` (what the SDK composer returns), so the
+  // test binds to the conversion rather than to the deleted call.
   //
-  // Delete this test when, and only when, that seam is fixed.
+  // The retirement itself is pinned by execution in
+  // tests/cee-bias-producer-a-retired.test.ts across all three runner entries.
   // ---------------------------------------------------------------------------
 
-  it('does NOT surface CEE bias findings (they describe a CEE-drafted graph, not the user\'s)', async () => {
-    biasEnvelope = {
-      bias_findings: [{ code: 'ANCHORING', severity: 'warning', message: 'anchored on X' }],
-      mitigation_patches: [{ bias_code: 'ANCHORING', patch: { adds: { nodes: [{ id: 'invented-1' }] } } }],
+  it('the M1 conversion carries no field of the compose payload beyond readiness', async () => {
+    sdkReviewPayload = {
+      story: { headline: 'compose-only-story' },
+      journey: {},
+      uiFlags: {},
+      bias: {
+        bias_findings: [{ code: 'ANCHORING', severity: 'warning', message: 'anchored on X' }],
+        mitigation_patches: [{ bias_code: 'ANCHORING', patch: { adds: { nodes: [{ id: 'invented-1' }] } } }],
+      },
     };
 
     const result = await orchestrateCeeReview(ENV, makeRequest(), 'req-11');
 
+    // Positive control: the conversion really ran and produced a review.
     expect(result.ceeReview).not.toBeNull();
+    expect(result.ceeReview?.analysis_state).toBe('ran');
+
+    // The assertions: nothing from the compose payload rides through.
     expect(result.ceeReview).not.toHaveProperty('bias');
+    expect(result.ceeReview).not.toHaveProperty('story');
     expect(JSON.stringify(result.ceeReview)).not.toContain('invented-1');
     expect(JSON.stringify(result.ceeReview)).not.toContain('ANCHORING');
+    expect(JSON.stringify(result.ceeReview)).not.toContain('compose-only-story');
   });
 });

@@ -131,7 +131,6 @@ export function validateEnv(): void {
   // CEE proxy endpoint timeouts
   for (const envVar of [
     'CEE_PROXY_GRAPH_READINESS_TIMEOUT_MS',
-    'CEE_PROXY_BIAS_CHECK_TIMEOUT_MS',
     'CEE_PROXY_SENSITIVITY_COACH_TIMEOUT_MS',
   ]) {
     if (process.env[envVar]) {

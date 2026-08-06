@@ -24,7 +24,6 @@ vi.mock('../src/config/timeouts.ts', async (importOriginal) => {
     ...original,
     CEE_PROXY_TIMEOUT_MS: 200,
     CEE_PROXY_GRAPH_READINESS_TIMEOUT_MS: 200,
-    CEE_PROXY_BIAS_CHECK_TIMEOUT_MS: 200,
     CEE_PROXY_SENSITIVITY_COACH_TIMEOUT_MS: 200,
     CEE_PROXY_PROMPTS_WARM_TIMEOUT_MS: 200,
   };
@@ -130,7 +129,6 @@ describe('CEE Proxy — Behavioural Smoke Tests', () => {
   describe('route availability', () => {
     const routes = [
       '/v1/cee/graph-readiness',
-      '/v1/cee/bias-check',
       '/v1/cee/sensitivity-coach',
       '/v1/cee/prompts/warm',
     ];
@@ -150,6 +148,50 @@ describe('CEE Proxy — Behavioural Smoke Tests', () => {
         expect(body).toBeDefined();
       });
     }
+  });
+
+  // =========================================================================
+  // 1b. RETIRED route — ROADMAP 2.632 (S-1, the bias real-graph seam design §5.3)
+  //
+  // `/v1/cee/bias-check` was a live, registered, graph-carrying pass-through to
+  // CEE `/assist/v1/bias-check` with ZERO non-test callers anywhere in the estate
+  // (re-derived at UI `d18ac8b9`: `grep -a "\.biasCheck("` over `src/` excluding
+  // tests → no matches; org-wide code search for the route path → PLoT + docs only).
+  // It bypassed the decision-review contract gate entirely, so it was also the one
+  // route on which an ungrounded bias finding could reach a caller. Retired rather
+  // than left dormant: "a live, registered, graph-carrying, ungrounded route with
+  // no caller is a loaded gun in the drawer."
+  //
+  // POSITIVE CONTROL for this absence assertion: the `route availability` block
+  // above proves, on the SAME app instance with the SAME injector and the SAME
+  // fetch mock, that a route which IS registered does not 404. Without it, this
+  // test would pass on any app that failed to register anything at all.
+  // =========================================================================
+  describe('retired routes', () => {
+    it('POST /v1/cee/bias-check is NOT registered (404) — the ungrounded proxy is retired', async () => {
+      globalThis.fetch = mockFetchSuccess({ status: 'ok' });
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/cee/bias-check',
+        payload: { graph: { nodes: [], edges: [] } },
+      });
+
+      expect(res.statusCode).toBe(404);
+    });
+
+    it('the retired route never reaches CEE — fetch is not called at all', async () => {
+      const spy = mockFetchSuccess({ status: 'ok' });
+      globalThis.fetch = spy;
+
+      await app.inject({
+        method: 'POST',
+        url: '/v1/cee/bias-check',
+        payload: { graph: { nodes: [], edges: [] } },
+      });
+
+      expect(spy).toHaveBeenCalledTimes(0);
+    });
   });
 
   // =========================================================================

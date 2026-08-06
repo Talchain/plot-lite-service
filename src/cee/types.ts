@@ -318,9 +318,13 @@ export interface CeeReviewResponse {
    *
    * It used to be required, and `orchestrateCeeReview` satisfied that requirement by
    * hardcoding `{ level: 'ready', headline: 'Analysis complete', factors: [] }` on
-   * every successful turn: a constant dressed as a computed verdict. CEE's compose
-   * endpoints (/assist/v1/draft-graph, /options, /bias-check) carry no readiness
-   * field, so on the current live path the honest value is ABSENCE, not 'ready'.
+   * every successful turn: a constant dressed as a computed verdict. The compose
+   * endpoints PLoT calls (/assist/v1/draft-graph, /options) carry no readiness field,
+   * so on the current live path the honest value is ABSENCE, not 'ready'.
+   * (/bias-check was a third compose call until S-1 retired the limb — ROADMAP 2.461;
+   * it carried no readiness either, and `buildCeeDecisionReviewPayload` in
+   * @olumi/assistants-sdk emits no `readiness` key at all, verified at the bytes, so
+   * dropping the bias limb cannot change what `extractCeeReadiness` returns.)
    *
    * Consumers must treat an absent readiness as "no verdict available" and render
    * nothing, rather than defaulting to a positive one.

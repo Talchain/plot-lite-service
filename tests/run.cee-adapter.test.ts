@@ -107,25 +107,10 @@ describe('callDecisionReviewFromEngine (adapter)', () => {
         } as any;
       }
 
-      // 5) Bias check – must send { graph, archetype }
-      if (path.endsWith('/assist/v1/bias-check')) {
-        const body = init?.body ? JSON.parse(init.body) : {};
-        expect(Object.keys(body).sort()).toEqual(['archetype', 'graph']);
-        expect(body.graph).toEqual(graph);
-        expect(body.archetype).toEqual(archetype);
-
-        const payload = {
-          bias_findings: [],
-          trace: { request_id: 'cee-req-1' },
-        };
-
-        return {
-          ok: true,
-          status: 200,
-          json: async () => payload,
-          text: async () => JSON.stringify(payload),
-        } as any;
-      }
+      // 5) Bias check — RETIRED (S-1, ROADMAP 2.461). The branch is deliberately
+      //    ABSENT rather than kept as a harmless stub: `runDecisionReviewViaSdk` ran
+      //    it against the CEE-DRAFTED graph, so if the call is ever re-added this
+      //    mock falls through to the `Unexpected URL` throw below and REDs loudly.
 
       throw new Error(`Unexpected URL in CEE adapter test: ${url}`);
     });
@@ -223,24 +208,8 @@ describe('callDecisionReviewFromEngine (adapter)', () => {
         } as any;
       }
 
-      if (path.endsWith('/assist/v1/bias-check')) {
-        const body = init?.body ? JSON.parse(init.body) : {};
-        expect(Object.keys(body).sort()).toEqual(['archetype', 'graph']);
-        expect(body.graph).toEqual(graph);
-        expect(body.archetype).toEqual(archetype);
-
-        const payload = {
-          bias_findings: [],
-          trace: { request_id: 'cee-req-2' },
-        };
-
-        return {
-          ok: true,
-          status: 200,
-          json: async () => payload,
-          text: async () => JSON.stringify(payload),
-        } as any;
-      }
+      // Bias check — RETIRED (S-1). Absent on purpose; see the note in the healthy
+      // path test above. A re-added call falls through to the throw below.
 
       throw new Error(`Unexpected URL in enhanced CEE adapter test: ${url}`);
     });

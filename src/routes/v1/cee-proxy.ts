@@ -16,16 +16,23 @@
  *
  * Endpoints:
  * - POST /v1/cee/graph-readiness -> /assist/v1/graph-readiness (10s timeout)
- * - POST /v1/cee/bias-check -> /assist/v1/bias-check (60s timeout)
  * - POST /v1/cee/sensitivity-coach -> /assist/v1/sensitivity-coach (60s timeout)
  * - POST /v1/cee/prompts/warm -> /assist/v1/prompts/warm (10s timeout)
+ *
+ * RETIRED: POST /v1/cee/bias-check (ROADMAP 2.632, S-1). It proxied the caller's real
+ * graph straight to CEE /assist/v1/bias-check, which has no id-grounding gate and no
+ * DSK cite-or-reject — so it was the ungrounded bias route, and it had ZERO non-test
+ * callers in the estate. Retiring it also closes the "cheap path" that would have
+ * satisfied the real-graph ruling's letter while breaking its reasoning: a
+ * UI-originated bias check runs on the UI's canvas graph, not the persisted graph the
+ * analysis engine consumes. The UI's now-orphaned `CEEClient.biasCheck` is retired
+ * separately (2.632's UI half).
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { randomUUID } from 'crypto';
 import {
   CEE_PROXY_GRAPH_READINESS_TIMEOUT_MS,
-  CEE_PROXY_BIAS_CHECK_TIMEOUT_MS,
   CEE_PROXY_SENSITIVITY_COACH_TIMEOUT_MS,
   CEE_PROXY_PROMPTS_WARM_TIMEOUT_MS,
 } from '../../config/timeouts.js';
@@ -34,7 +41,6 @@ import { CEE_PROXY_BODY_LIMIT } from '../../config/constants.js';
 // Timeout configurations per endpoint — sourced from central config
 const TIMEOUTS = {
   'graph-readiness': CEE_PROXY_GRAPH_READINESS_TIMEOUT_MS,
-  'bias-check': CEE_PROXY_BIAS_CHECK_TIMEOUT_MS,
   'sensitivity-coach': CEE_PROXY_SENSITIVITY_COACH_TIMEOUT_MS,
   'prompts/warm': CEE_PROXY_PROMPTS_WARM_TIMEOUT_MS,
 };
@@ -296,13 +302,8 @@ export async function registerCeeProxyRoutes(app: FastifyInstance) {
     timeout_ms: TIMEOUTS['graph-readiness'],
   });
 
-  // POST /v1/cee/bias-check
-  app.post('/v1/cee/bias-check', { bodyLimit: CEE_PROXY_BODY_LIMIT }, createCeeProxyHandler('bias-check'));
-  app.log.info({
-    evt: 'route_registered',
-    route: 'POST /v1/cee/bias-check',
-    timeout_ms: TIMEOUTS['bias-check'],
-  });
+  // POST /v1/cee/bias-check — RETIRED (ROADMAP 2.632). Deliberately not registered;
+  // see the file header. `tests/cee-proxy-smoke.test.ts` pins the 404.
 
   // POST /v1/cee/sensitivity-coach
   app.post('/v1/cee/sensitivity-coach', { bodyLimit: CEE_PROXY_BODY_LIMIT }, createCeeProxyHandler('sensitivity-coach'));

@@ -348,22 +348,12 @@ export async function optionsV2(
   );
 }
 
-/**
- * Bias check with schema v2 format
- */
-export async function biasCheckV2(
-  config: CEESchemaV2Config,
-  graph: unknown,
-  archetype: string | null,
-  requestId: string
-): Promise<CEESchemaV2Response<any>> {
-  return callCEEWithSchemaV2(
-    config,
-    '/assist/v1/bias-check',
-    { graph, archetype },
-    requestId
-  );
-}
+// `biasCheckV2` — REMOVED, S-1 (ROADMAP 2.461). Its only caller was
+// `runDecisionReviewViaV2Http`, which passed it `draft.graph`: a graph CEE drafted
+// from a counts-only brief, not the user's model. The function is deleted rather than
+// left export-only so the fabrication cannot be re-wired by an import. The grounded
+// bias producer is CEE /assist/v1/decision-review, reached from
+// src/cee/decision-review-orchestrator.ts with the run's real `input.graph`.
 
 // -----------------------------------------------------------------------------
 // Factor Enrichments - CEE /assist/v1/review
